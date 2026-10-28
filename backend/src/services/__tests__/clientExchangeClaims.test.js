@@ -1,24 +1,26 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ poolExecute: vi.fn(), execute: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(), sync: vi.fn(), ensure: vi.fn(), track: vi.fn(), accepted: vi.fn(), profile: vi.fn() }));
+const mocks = vi.hoisted(() => ({ poolExecute: vi.fn(), execute: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(), sync: vi.fn(), ensure: vi.fn(), track: vi.fn(), accepted: vi.fn(), profile: vi.fn(), facets: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.poolExecute, getConnection: async () => ({ execute: mocks.execute, beginTransaction: mocks.begin, commit: mocks.commit, rollback: mocks.rollback, release: mocks.release }) } }));
 vi.mock('../clientProviderAssignmentSync.service.js', () => ({ afterLegacyProviderFieldsChanged: mocks.sync, ensureClientProviderAssignmentRow: mocks.ensure }));
 vi.mock('../officeClientAcceptance.service.js', () => ({ recordProviderAssignmentChange: mocks.track }));
 vi.mock('../../models/Agency.model.js', () => ({ default: { findById: async () => ({ id: 2, slug: 'itsco' }) } }));
 vi.mock('../../models/ProviderPublicProfile.model.js', () => ({ default: { getForProvider: mocks.profile } }));
-vi.mock('../providerClinicalFacets.service.js', () => ({ listClinicalFacetsForUsers: async () => new Map() }));
+vi.mock('../providerClinicalFacets.service.js', () => ({ listClinicalFacetsForUsers: mocks.facets }));
 vi.mock('../providerAcceptedInsurance.service.js', () => ({ listProviderAcceptedInsurancesForDisplay: mocks.accepted }));
 vi.mock('../clientExchangeSummary.service.js', () => ({ loadClientExchangeSummary: async () => ({ demographics: {}, preferences: {}, diagnoses: [], presentingProblems: [] }) }));
+import { assertExchangeRequestEligible } from '../clientExchangeEligibility.service.js';
 import { createExchangeClaim, resolveExchangeClaim, withdrawExchangeListing } from '../clientExchangeClaims.service.js';
-let listing, client, claims, eligible;
+let listing, client, claims, eligible, waivers;
 beforeEach(() => {
   vi.clearAllMocks();
   listing = { id: 1, agency_id: 2, client_id: 3, posted_by_user_id: 8, current_provider_user_id: 7, status: 'open' };
   client = { id: 3, agency_id: 2, organization_id: 2, provider_id: 7, client_type: 'clinical', status: 'CURRENT' };
-  claims = []; eligible = true;
+  claims = []; eligible = true; waivers = []; mocks.facets.mockResolvedValue(new Map());
   mocks.profile.mockResolvedValue({ agencyAvailability: { seesClients: true, acceptingNewClients: true, inPerson: true } });
   mocks.accepted.mockResolvedValue({ accepted: [{ name: 'Tricare' }], excluded: [] });
   mocks.poolExecute.mockImplementation(async () => [[{ listing_id: 1 }]]);
   mocks.execute.mockImplementation(async (sql, args) => {
+    if (sql.includes('FROM client_exchange_match_waivers')) return [waivers];
     if (sql.startsWith('SELECT * FROM client_exchange_listings')) return [[{ ...listing }]];
     if (sql.startsWith('SELECT c.*')) return [[{ ...client }]];
     if (sql.startsWith('SELECT u.*')) return [eligible ? [{ id: args[0], role: 'provider' }] : []];
@@ -89,10 +91,12 @@ it('blocks an insurance mismatch before inserting a request, including while clo
   expect(mocks.commit).not.toHaveBeenCalled();
   expect(mocks.rollback).toHaveBeenCalledOnce();
 });
-it('allows a closed provider with accepted insurance to request', async () => {
+it('allows a closed provider with accepted insurance to request after acknowledging the warnings', async () => {
   client.insurance_type_label = 'Tricare';
   mocks.profile.mockResolvedValue({ agencyAvailability: { seesClients: true, acceptingNewClients: false, inPerson: true } });
-  await createExchangeClaim({ listingId: 1, requestingProviderUserId: 10 });
+  await expect(createExchangeClaim({ listingId: 1, requestingProviderUserId: 10 })).rejects.toMatchObject({ code: 'EXCHANGE_ACKNOWLEDGEMENT_REQUIRED' });
+  const fit = await assertExchangeRequestEligible({ listing, userId: 10, database: { execute: mocks.execute } });
+  await createExchangeClaim({ listingId: 1, requestingProviderUserId: 10, acknowledgedWarnings: fit.adjustments.map(w => w.fingerprint) });
   expect(claims).toHaveLength(1);
 });
 it('rechecks insurance at approval and leaves a previously allowed request unassigned', async () => {
@@ -109,4 +113,27 @@ it('still allows the team to deny a now-ineligible request', async () => {
   await createExchangeClaim({ listingId: 1, requestingProviderUserId: 10 });
   mocks.accepted.mockRejectedValue(new Error('Should not check coverage for denial'));
   await expect(resolveExchangeClaim({ requestId: 1, action: 'deny', actingUserId: 8, actingRole: 'support' })).resolves.toBeDefined();
+});
+
+it('records age-warning acknowledgement, blocks assignment pending staff review, then honors the scoped waiver', async () => {
+  listing.demographics_json = { ageBand: '8' };
+  mocks.facets.mockResolvedValue(new Map([[10, { ageGroups: ['Adults (18+)'] }]]));
+  await expect(createExchangeClaim({ listingId: 1, requestingProviderUserId: 10 })).rejects.toMatchObject({ code: 'EXCHANGE_ACKNOWLEDGEMENT_REQUIRED' });
+  const fit = await assertExchangeRequestEligible({ listing, userId: 10, database: { execute: mocks.execute } });
+  await createExchangeClaim({ listingId: 1, requestingProviderUserId: 10, acknowledgedWarnings: fit.adjustments.map(w => w.fingerprint) });
+  expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining('acknowledged_warnings_json'), [1, 10, null, expect.stringContaining('Client age: 8')]);
+  await expect(resolveExchangeClaim({ requestId: 1, action: 'approve', actingUserId: 8, actingRole: 'support' })).rejects.toThrow('waive');
+  expect(mocks.ensure).not.toHaveBeenCalled();
+  const age = fit.checks.find(c => c.field === 'age');
+  waivers = [{ id: 1, provider_user_id: 10, field: 'age', fingerprint: age.fingerprint, reason: 'Age coverage confirmed', waived_by_user_id: 8 }];
+  await resolveExchangeClaim({ requestId: 1, action: 'approve', actingUserId: 8, actingRole: 'support' });
+  expect(mocks.ensure).toHaveBeenCalled();
+});
+it('does not accept an old warning acknowledgement after the client age changes', async () => {
+  listing.demographics_json = { ageBand: '8' };
+  mocks.facets.mockResolvedValue(new Map([[10, { ageGroups: ['Adults (18+)'] }]]));
+  const fit = await assertExchangeRequestEligible({ listing, userId: 10, database: { execute: mocks.execute } });
+  listing.demographics_json = { ageBand: '7' };
+  await expect(createExchangeClaim({ listingId: 1, requestingProviderUserId: 10, acknowledgedWarnings: fit.adjustments.map(w => w.fingerprint) })).rejects.toMatchObject({ code: 'EXCHANGE_ACKNOWLEDGEMENT_REQUIRED' });
+  expect(claims).toHaveLength(0);
 });

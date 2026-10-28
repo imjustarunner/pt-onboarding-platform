@@ -40,6 +40,11 @@ jobs:
         run: |
           npm ci --prefix backend
           npm ci --prefix frontend --ignore-scripts
+      - name: Client Exchange staff review and eligibility
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.client-exchange.config.js
+          (cd frontend && node node_modules/vitest/vitest.mjs run --config vitest.client-exchange.config.js)
+          node --test backend/src/utils/__tests__/clientExchangeMatching.test.js backend/src/utils/__tests__/supportExchangeSummary.test.js
       - name: Tutoring office and multi-service family contexts
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.tutoring-services.config.js

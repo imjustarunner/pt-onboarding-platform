@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { exchangeCheckCanBeWaived, exchangeCheckLabel } from '../../../frontend/src/navigation/clientExchangePolicy.js';
 import { eligibleExchangeProvider } from './clientExchangeProvider.js';
 import { canonicalAge, normalizeClinicalFacets } from './providerFacetNormalization.js';
 import { providerAvailabilityPreferences } from './providerAvailabilityReminders.js';
@@ -45,26 +47,41 @@ export function exchangeNeedsOpenings(listing) {
     || (String(preferences.modality || '').toLowerCase() !== 'virtual' && ['Denver', 'Colorado Springs'].includes(preferences.serviceLocation)));
 }
 
+function stableSnapshot(value) {
+  if (Array.isArray(value)) return value.map(stableSnapshot).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(key => [key, stableSnapshot(value[key])]));
+  return value;
+}
+
 /** The decision and its explanation share one implementation, so audits cannot drift. */
-export function evaluateExchangeMatch({ user, profile, facets = {}, listing, client, now, agency, slots }) {
+export function evaluateExchangeMatch({ user, profile, facets = {}, listing, client, now, agency, slots, waivers = [] }) {
   const checks = [];
   const check = (field, ok, pass, fail, known = true) => checks.push({ field, status: !known ? 'unknown' : ok ? 'pass' : 'fail', reason: !known ? pass : ok ? pass : fail });
   check('account', eligibleExchangeProvider(user, agency), 'Provider account is active.', 'An active provider account in this agency is required; inactive and demo accounts cannot request.');
   if (listing.currentProviderUserId) check('assigned', Number(user?.id) !== Number(listing.currentProviderUserId), 'Provider is not already assigned.', 'This provider is already assigned to the client.');
   if (listing.targetProviderUserId) check('direct_referral', Number(user?.id) === Number(listing.targetProviderUserId), 'Direct referral recipient matches.', 'Referral is addressed to a different provider.');
   const availability = providerAvailabilityPreferences(user, profile);
-  check('accepting', availability.seesClients && (availability.intakeStatusByFormat || availability.acceptingNewClients),
+  check('accepting', availability.seesClients && (availability.intakeStatusByFormat ? ['IN_PERSON', 'VIRTUAL'].some(format => agencyFormatAllowed(availability, format)) : availability.acceptingNewClients),
     'Provider sees clients and has intake availability.', 'Provider is closed or waitlisted. A request is allowed, but intake availability must be opened before care begins.');
   const modality = String(listing.preferences?.modality || listing.preferences?.preferredModality || '').toLowerCase();
-  const formatOpen = (format, enabled) => enabled && (availability.intakeStatusByFormat
-    ? agencyFormatAllowed(availability, format) : !['waitlist','unavailable','closed'].includes(profile?.details?.[format==='IN_PERSON'?'officeAvailability':'virtualAvailability']));
+  const formatOpen = (format, enabled) => availability.seesClients && enabled && (availability.intakeStatusByFormat
+    ? agencyFormatAllowed(availability, format) : availability.acceptingNewClients && !['waitlist','unavailable','closed'].includes(profile?.details?.[format==='IN_PERSON'?'officeAvailability':'virtualAvailability']));
   const inPerson = formatOpen('IN_PERSON', availability.inPerson), virtual = formatOpen('VIRTUAL', availability.virtual);
+  const wantsFormat = modality === 'virtual' ? 'virtual visits' : modality === 'in_person' ? 'in-person visits' : 'in-person or virtual visits';
+  const formatState = (name, enabled, open, key) => !availability.seesClients ? `${name}: not seeing clients`
+    : !enabled ? `${name}: not offered` : open ? `${name}: open to new clients`
+    : (availability.intakeStatusByFormat?.[key] ?? profile?.details?.[key === 'VIRTUAL' ? 'virtualAvailability' : 'officeAvailability'] ?? (availability.waitlistEnabled ? 'waitlist' : 'unavailable')) === 'waitlist'
+      ? `${name}: waitlisted` : `${name}: closed to new clients`;
+  const formatDescription = `Client requests ${wantsFormat}. Provider lists ${formatState('in person', availability.inPerson, inPerson, 'IN_PERSON')}; ${formatState('virtual', availability.virtual, virtual, 'VIRTUAL')}.`;
   check('format', modality === 'in_person' ? inPerson : modality === 'virtual' ? virtual : inPerson || virtual,
-    'A compatible visit format is open for new clients.', 'No compatible visit format is open for new clients. A request is allowed if suitable availability will be opened before care begins.');
+    formatDescription, `${formatDescription} You may request, but the visit format and availability must be agreed with the client and support team before assignment.`);
   const preferredGender = normalizedProviderGender(listing.preferences?.providerGender);
   const providerGender = normalizedProviderGender(profile?.details?.gender);
+  const noGenderPreference = !preferredGender || /^(any|either|all|none|no preference|no_preference|no-preference|not specified|unspecified|not provided)$/.test(preferredGender);
   const genderKnown = ['male','female','nonbinary'].includes(preferredGender) && ['male','female','nonbinary'].includes(providerGender);
-  check('provider_gender', preferredGender === providerGender, genderKnown ? 'Preferred provider gender matches.' : 'Provider gender preference is absent or cannot be verified.', 'Preferred provider gender does not match.', genderKnown);
+  check('provider_gender', noGenderPreference || preferredGender === providerGender,
+    noGenderPreference ? 'No therapist gender preference specified; any provider gender passes.' : genderKnown ? 'Preferred provider gender matches.' : `Client prefers a ${preferredGender} therapist; provider gender is not recorded or cannot be verified.`,
+    `Client prefers a ${preferredGender} therapist; provider lists ${providerGender}.`, noGenderPreference || genderKnown);
   const focus = profile?.details?.clinicalFocus;
   const known = (group, fallback) => focus?.reviewed
     ? FOCUS_GROUPS.find(g=>g.key===group).options.filter(v=>!(focus.excluded?.[group]||[]).includes(v))
@@ -76,7 +93,7 @@ export function evaluateExchangeMatch({ user, profile, facets = {}, listing, cli
   check('age', ageKnown && ages.some(value => {
     const supported = ageRange(value);
     return supported && supported[0] <= requestedAge[0] && supported[1] >= requestedAge[1];
-  }), ageKnown ? 'Provider serves the requested client age range.' : 'Client age or provider age coverage is unknown.', 'Provider does not cover the requested client age range.', ageKnown);
+  }), ageKnown ? 'Provider serves the requested client age range.' : 'Client age or provider age coverage is unknown.', `Client age: ${requestedAge && requestedAge[0] === requestedAge[1] ? requestedAge[0] : listing.demographics?.ageBand}. Provider age ranges: ${ages.join(', ') || 'none selected'}. You may request this client with support review of the age difference.`, ageKnown);
   const concerns = [...new Set([
     ...normalizeClinicalFacets({specialties:listing.presentingProblems||[]}).specialties,
     ...clinicalMatchingSpecialties(listing)
@@ -131,15 +148,33 @@ export function evaluateExchangeMatch({ user, profile, facets = {}, listing, cli
   if (modality !== 'virtual' && (!listing.preferences?.serviceLocation || ['Other location','Not yet decided'].includes(listing.preferences.serviceLocation))) {
     checks.push({field:'location',status:'unknown',reason:'Confirm the in-person service location with the referring team.'});
   }
-  const hardFields = new Set(['account','assigned','direct_referral','age','clinical_exclusions','diagnoses','concerns','service','insurance','insurance_credential','insurance_exclusions']);
+  // A waiver is valid only for the same recorded matching inputs. Changes require a fresh review.
+  const snapshot = JSON.stringify(stableSnapshot({ requestedAge, serviceType: listing.serviceType || '', concerns, diagnosticConcerns,
+    preferences: { modality, providerGender: preferredGender, matchingPreferences: requested, schedule: { days: schedule.days || [], periods: schedule.periods || [], windows: schedule.windows || [], timezone: schedule.timezone || '' }, serviceLocation: listing.preferences?.serviceLocation || '' },
+    availability, gender: providerGender, focus: focus || {}, facets }));
+  for (const item of checks) {
+    item.label = exchangeCheckLabel(item.field);
+    item.fingerprint = createHash('sha256').update(`${snapshot}:${item.field}:${item.status}:${item.reason}`).digest('hex');
+    item.canWaive = exchangeCheckCanBeWaived(item.field) && item.status !== 'pass';
+    const waiver = waivers.find(w => w.field === item.field && w.fingerprint === item.fingerprint);
+    if (item.canWaive && waiver) {
+      item.originalStatus = item.status;
+      item.originalReason = item.reason;
+      item.status = 'pass';
+      item.waiver = waiver;
+      item.canWaive = false;
+    }
+  }
+  const hardFields = new Set(['account','assigned','direct_referral','clinical_exclusions','diagnoses','concerns','service','insurance','insurance_credential','insurance_exclusions']);
   const code = field => ({account:'provider_account',assigned:'current_provider',accepting:'intake_closed',format:'format_availability',clinical_exclusions:'excluded_specialty',diagnoses:'diagnosis',concerns:'specialty'}[field] || field);
-  const reason = check => ({ code: code(check.field), message: check.reason });
-  const hard = check => hardFields.has(check.field) || check.field.endsWith('_exclusions');
+  const reason = check => ({ code: code(check.field), message: check.reason, fingerprint: check.fingerprint });
+  const hard = check => hardFields.has(check.field) || (check.field.endsWith('_exclusions') && check.field !== 'ageGroups_exclusions');
   const blockers = checks.filter(c => c.status === 'fail' && hard(c)).map(reason);
   const adjustments = checks.filter(c => c.status === 'fail' && !hard(c)).map(reason);
   const review = checks.filter(c => c.status === 'unknown').map(reason);
-  const canRequest = blockers.length === 0, canNotify = canRequest && adjustments.length === 0;
-  return { matched: canNotify, checks, status: canNotify ? 'match' : 'not_match', canRequest, canNotify, blockers, adjustments, review };
+  const canRequest = blockers.length === 0, matched = canRequest && adjustments.length === 0;
+  const canNotify = matched && checks.filter(c => ['accepting', 'format'].includes(c.field)).every(c => (c.originalStatus || c.status) === 'pass');
+  return { matched, checks, canAssign: matched, assignmentBlockers: [...blockers, ...adjustments], status: matched ? 'match' : 'not_match', canRequest, canNotify, blockers, adjustments, review };
 }
 
 export function evaluateExchangeListing(input) { return evaluateExchangeMatch(input); }

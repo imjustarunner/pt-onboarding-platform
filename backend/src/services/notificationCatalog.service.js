@@ -33,7 +33,7 @@ const TYPES_BY_CATEGORY = {
   clients_documents: [
     'guardian_plan_review',
     'paperwork_received', 'new_packet_uploaded', 'new_prospective_inquiry', 'client_became_current',
-    'client_checklist_updated', 'client_terminated', 'client_assigned', 'client_exchange_match', 'client_exchange_claim', 'client_exchange_assigned',
+    'client_checklist_updated', 'client_terminated', 'client_assigned', 'client_exchange_match', 'client_exchange_claim', 'client_exchange_assigned', 'client_exchange_shared',
     'client_ready_to_schedule', 'provider_waitlist_reminder',
     'client_school_roi_link_generated', 'client_school_roi_link_copied',
     'client_school_roi_link_sent', 'client_school_roi_completed',
@@ -98,6 +98,7 @@ const TYPES_BY_CATEGORY = {
 
 const LABEL_OVERRIDES = {
   client_exchange_match: 'New matching clients in Client Exchange',
+  client_exchange_shared: 'Clients shared by your support team',
   client_exchange_claim: 'Client Exchange request',
   kiosk_checkin: 'Client arrival at office',
   client_appointment_reply: 'Client appointment replies and cancellations',
@@ -184,7 +185,7 @@ const LABEL_OVERRIDES = {
 
 const WORKFORCE_RELEVANT = new Set([
   'kiosk_checkin', 'client_appointment_reply', // Personal arrivals also apply to staff with provider duties.
-  'client_exchange_match', 'client_exchange_claim', 'client_exchange_assigned',
+  'client_exchange_match', 'client_exchange_claim', 'client_exchange_assigned', 'client_exchange_shared',
   'temp_password_expired', 'invitation_expired', 'password_changed',
   'passwordless_token_expired', 'credential_expiring', 'credential_expired_blocking',
   'emergency_broadcast', 'presence_return_overdue_nudge', 'task_overdue',
@@ -286,7 +287,7 @@ const GUARDIAN_RELEVANT = new Set([
 // Optional relevant types remain available in settings, but start off.
 const WORKFORCE_ESSENTIAL = new Set([
   'kiosk_checkin', 'client_appointment_reply',
-  'client_exchange_match', 'client_exchange_claim', 'client_exchange_assigned',
+  'client_exchange_match', 'client_exchange_claim', 'client_exchange_assigned', 'client_exchange_shared',
   'temp_password_expired', 'invitation_expired', 'password_changed',
   'passwordless_token_expired', 'credential_expiring', 'credential_expired_blocking',
   'emergency_broadcast', 'task_overdue', 'chat_message', 'task_comment_mention',

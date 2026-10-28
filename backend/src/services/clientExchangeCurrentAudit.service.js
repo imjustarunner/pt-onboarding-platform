@@ -1,3 +1,5 @@
+import { loadExchangeWaivers } from './clientExchangeWaivers.service.js';
+import { listExchangeShares } from './clientExchangeSharing.service.js';
 import Agency from '../models/Agency.model.js';
 import Client from '../models/Client.model.js';
 import { getListingForMatching } from './clientExchange.service.js';
@@ -13,12 +15,18 @@ export async function currentExchangeAudit(audit, agencyId) {
   const agency = await Agency.findById(agencyId);
   const { users, facets } = await loadExchangeCandidates(agencyId);
   const providers = [];
-  for (const user of users) {
-    if (!eligibleExchangeProvider(user, agency)) continue;
-    const previous = audit.providers.find(row => Number(row.userId) === Number(user.id));
-    const decision = await evaluateExchangeCandidate({ user, agency, listing, client, facets: facets.get(Number(user.id)) });
-    providers.push({ ...previous, userId: user.id, name: [user.first_name, user.last_name].filter(Boolean).join(' '),
-      email: user.work_email || user.email, ...decision, views: previous?.views || 0 });
+  const eligible = users.filter(user => eligibleExchangeProvider(user, agency));
+  for (let offset = 0; offset < eligible.length; offset += 4) {
+    const batch = await Promise.all(eligible.slice(offset, offset + 4).map(async user => {
+      const previous = audit.providers.find(row => Number(row.userId) === Number(user.id));
+      let decision;
+      try { decision = await evaluateExchangeCandidate({ user, agency, listing, client, facets: facets.get(Number(user.id)) }); }
+      catch { decision = { matched: false, canRequest: false, canAssign: false, checks: [{ field: 'evaluation', status: 'unknown', reason: 'Provider matching could not be checked. Refresh to retry.' }], blockers: [{ code: 'evaluation', message: 'Provider matching could not be checked. Refresh to retry.' }] }; }
+      return { ...previous, userId: user.id, name: [user.first_name, user.last_name].filter(Boolean).join(' '),
+        email: user.work_email || user.email, ...decision, views: previous?.views || 0 };
+    }));
+    providers.push(...batch);
   }
-  return { ...audit, providers, matchesEvaluatedAt: new Date().toISOString() };
+  const [waivers, shares] = await Promise.all([loadExchangeWaivers({ listingId: listing.id, includeRevoked: true }), listExchangeShares(listing.id)]);
+  return { ...audit, providers, waivers, shares, canReview: ['open', 'requested'].includes(listing.status), matchesEvaluatedAt: new Date().toISOString() };
 }

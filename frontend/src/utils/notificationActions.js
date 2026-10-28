@@ -33,7 +33,7 @@ export function notificationDestination(notification, { organizationSlug = null,
   }
 
   if (entityType === 'office_kiosk_support' && entityId) return `/office-support/${entityId}`;
-  if (['client_exchange_match', 'client_exchange_claim', 'client_exchange_assigned'].includes(n.type)) {
+  if (['client_exchange_match', 'client_exchange_claim', 'client_exchange_assigned', 'client_exchange_shared'].includes(n.type)) {
     let audience = n.audience_json || {};
     if (typeof audience === 'string') { try { audience = JSON.parse(audience); } catch { audience = {}; } }
     const exchangeBase = audience.agencySlug ? `/${encodeURIComponent(audience.agencySlug)}` : base;

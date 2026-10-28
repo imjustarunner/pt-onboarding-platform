@@ -1,3 +1,4 @@
+import { loadExchangeWaivers } from './clientExchangeWaivers.service.js';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import Profile from '../models/ProviderPublicProfile.model.js';
@@ -36,7 +37,7 @@ export function exchangeListingForEvaluation(row, client = {}) {
     preferences: { ...preferences, insurance: exchangeInsuranceLabel(client.insurance_type_label, intake.insurance, preferences.insurance) } };
 }
 
-export async function assertExchangeRequestEligible({ listing, userId, database = pool, client }) {
+export async function assertExchangeRequestEligible({ listing, userId, database = pool, client, forAssignment = false }) {
   if (!client) {
     const [rows] = await database.execute(`SELECT c.*, i.label AS insurance_type_label FROM clients c
       LEFT JOIN insurance_types i ON i.id = c.insurance_type_id WHERE c.id = ? AND c.agency_id = ?`, [listing.client_id, listing.agency_id]);
@@ -52,8 +53,10 @@ export async function assertExchangeRequestEligible({ listing, userId, database 
   const saved = await loadClientExchangeSummary({ client });
   const summary = mergeExchangeSummary(saved, { demographics: current.demographics, preferences: current.preferences,
     presentingProblems: current.preferences.additionalPresentingProblems ?? (saved.presentingProblems.length ? [] : current.presentingProblems) });
-  const fit = evaluateExchangeListing({ ...provider, listing: { ...current, ...summary }, client });
+  const waivers = await loadExchangeWaivers({ listingId: listing.id, userId, database });
+  const fit = await evaluateCurrentExchangeFit({ context: { ...provider, waivers }, listing: { ...current, ...summary }, client });
   if (!fit.canRequest) throw Object.assign(new Error(fit.blockers.map(reason => reason.message).join(' ')), { status: 409, fit });
+  if (forAssignment && !fit.canAssign) throw Object.assign(new Error('Resolve or waive the remaining fit differences in the matching audit before assignment. ' + fit.adjustments.map(r => r.message).join(' ')), { status: 409, fit });
   return fit;
 }
 
@@ -76,10 +79,13 @@ export async function loadExchangeOpenings({ userId, agencyId, now = new Date() 
 }
 
 export async function evaluateCurrentExchangeFit({ context, listing, client }) {
-  const initial = evaluateExchangeListing({ ...context, listing, client });
-  if (!initial.canNotify || !exchangeNeedsOpenings(listing)) return initial;
-  const slots = await loadExchangeOpenings({ userId: context.user.id, agencyId: listing.agencyId || listing.agency_id });
-  return evaluateExchangeListing({ ...context, listing, client, slots });
+  const waivers = context.waivers || await loadExchangeWaivers({ listingId: listing.id, userId: context.user?.id });
+  const initial = evaluateExchangeListing({ ...context, waivers, listing, client });
+  if (!context.user || !exchangeNeedsOpenings(listing)) return initial;
+  let slots;
+  try { slots = await loadExchangeOpenings({ userId: context.user.id, agencyId: listing.agencyId || listing.agency_id }); }
+  catch { return initial; }
+  return evaluateExchangeListing({ ...context, waivers, listing, client, slots });
 }
 
 export async function exchangeProviderAudit({ listing, agencyId }) {

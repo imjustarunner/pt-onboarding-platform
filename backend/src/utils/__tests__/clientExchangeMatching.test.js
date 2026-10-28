@@ -7,6 +7,62 @@ const base = {
   facets: { ageGroups: ['Children (6-10)'], specialties: ['Anxiety'] },
   listing: { demographics: { ageBand: '8-10' }, presentingProblems: ['anxiety'], preferences: { modality: 'in_person' } }
 };
+test('no therapist gender preference passes for every provider gender, including unrecorded', () => {
+  for (const gender of ['male', 'female', 'nonbinary', null]) for (const preference of [null, '', 'No preference', 'any']) {
+    const fit = evaluateExchangeListing({ ...base, profile: { ...base.profile, details: { gender } }, listing: { ...base.listing, preferences: { providerGender: preference } } });
+    assert.equal(fit.checks.find(c => c.field === 'provider_gender').status, 'pass');
+    assert.equal(fit.review.some(c => c.code === 'provider_gender'), false);
+    assert.equal(fit.matched, true);
+  }
+});
+test('an explicit gender preference still reports a mismatch or an unrecorded provider gender', () => {
+  const listing = { ...base.listing, preferences: { providerGender: 'female' } };
+  assert.equal(evaluateExchangeListing({ ...base, listing }).checks.find(c => c.field === 'provider_gender').status, 'unknown');
+  const fit = evaluateExchangeListing({ ...base, listing, profile: { ...base.profile, details: { gender: 'male' } } });
+  assert.equal(fit.matched, false); assert.equal(fit.canRequest, true);
+});
+test('age and virtual-only differences allow requests but require review before assignment', () => {
+  const fit = evaluateExchangeListing({ ...base, user: { ...base.user, in_office_available: 0 },
+    profile: { ...base.profile, details: { virtualEnabled: true, inPersonEnabled: false } }, facets: { ...base.facets, ageGroups: ['Adults (18+)'] } });
+  assert.equal(fit.canRequest, true); assert.equal(fit.canAssign, false); assert.equal(fit.canNotify, false);
+  assert.deepEqual(fit.adjustments.map(r => r.code), ['format_availability', 'age']);
+  assert.match(fit.adjustments[0].message, /Client requests in-person visits/);
+  assert.match(fit.adjustments[0].message, /in person: not offered; virtual: open/);
+  assert.match(fit.adjustments[1].message, /8-10.*Adults/);
+});
+test('format explanations distinguish open, waitlisted, closed and not offered', () => {
+  const args = { ...base, listing: { ...base.listing, preferences: { modality: 'virtual' } } };
+  for (const [status, expected] of [['waitlist', 'waitlisted'], ['unavailable', 'closed to new clients']]) {
+    const fit = evaluateExchangeListing({ ...args, profile: { ...base.profile, agencyAvailability: { seesClients: true, inPerson: true, virtual: true, intakeStatusByFormat: { IN_PERSON: 'accepting', VIRTUAL: status } } } });
+    assert.match(fit.adjustments.find(c => c.code === 'format_availability').message, new RegExp(`Client requests virtual visits.*virtual: ${expected}`));
+  }
+});
+test('staff waivers apply per criterion, expire when inputs change, and cannot bypass insurance', () => {
+  const args = { ...base, facets: { ...base.facets, ageGroups: ['Adults (18+)'] }, listing: { ...base.listing, preferences: { insurance: 'Aetna' } } };
+  const age = evaluateExchangeListing(args).checks.find(c => c.field === 'age');
+  const waiver = { id: 5, field: 'age', fingerprint: age.fingerprint, reason: 'Provider confirmed age coverage with support' };
+  const fit = evaluateExchangeListing({ ...args, waivers: [waiver] });
+  assert.equal(fit.canAssign, true); assert.equal(fit.checks.find(c => c.field === 'age').waiver.id, 5);
+  const changed = evaluateExchangeListing({ ...args, waivers: [waiver], listing: { ...args.listing, demographics: { ageBand: '5' } } });
+  assert.equal(changed.canAssign, false);
+  const otherInsurance = { ...args, listing: { ...args.listing, preferences: { insurance: 'Tricare' } } };
+  const insurance = evaluateExchangeListing(otherInsurance).checks.find(c => c.field === 'insurance');
+  assert.equal(insurance.canWaive, false);
+  assert.equal(evaluateExchangeListing({ ...otherInsurance, waivers: [{ field: 'insurance', fingerprint: insurance.fingerprint }] }).canRequest, false);
+});
+test('age warnings and waivers use the same fingerprint with chart DOB or hydrated exchange age', () => {
+  const listing = { ...base.listing, demographics: { ageBand: '8' } };
+  const args = { ...base, listing, facets: { ...base.facets, ageGroups: ['Adults (18+)'] } };
+  const chart = evaluateExchangeListing({ ...args, client: { date_of_birth: '2018-01-01' }, now: new Date('2026-10-28') });
+  assert.equal(chart.checks.find(c => c.field === 'age').fingerprint, evaluateExchangeListing(args).checks.find(c => c.field === 'age').fingerprint);
+});
+test('waiving fit differences for a closed provider does not resume automatic notifications', () => {
+  const args = { ...base, user: { ...base.user, provider_accepting_new_clients: 0 } };
+  const initial = evaluateExchangeListing(args);
+  const waivers = initial.checks.filter(c => c.canWaive && c.status === 'fail').map(c => ({ field: c.field, fingerprint: c.fingerprint, reason: 'Support reviewed this referral' }));
+  const fit = evaluateExchangeListing({ ...args, waivers });
+  assert.equal(fit.matched, true); assert.equal(fit.canRequest, true); assert.equal(fit.canAssign, true); assert.equal(fit.canNotify, false);
+});
 test('matches age, normalized specialties and in-person availability', () => {
   assert.equal(matchesExchangeListing(base), true);
   assert.equal(matchesExchangeListing({ ...base, facets: { ...base.facets, ageGroups: ['Adults (18+)'] } }), false);

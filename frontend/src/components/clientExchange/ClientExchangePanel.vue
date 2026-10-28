@@ -114,7 +114,7 @@
             :key="listing.id"
             :listing="listing"
             :current-user-id="currentUserId"
-            :is-backoffice="isBackoffice"
+            :is-backoffice="listing.canViewAudit ?? isBackoffice"
             :selected="selectedListingId === listing.id"
             :client-label="listingClientLabel(listing)"
             :compact="!!selectedListing"
@@ -139,7 +139,7 @@
             :key="listing.id"
             :listing="listing"
             :current-user-id="currentUserId"
-            :is-backoffice="isBackoffice"
+            :is-backoffice="listing.canViewAudit ?? isBackoffice"
             :selected="selectedListingId === listing.id"
             :client-label="listingClientLabel(listing)"
             :compact="!!selectedListing"
@@ -177,7 +177,7 @@
             :key="listing.id"
             :listing="listing"
             :current-user-id="currentUserId"
-            :is-backoffice="isBackoffice"
+            :is-backoffice="listing.canViewAudit ?? isBackoffice"
             :selected="selectedListingId === listing.id"
             :client-label="listingClientLabel(listing)"
             :compact="!!selectedListing"
@@ -208,8 +208,8 @@
         <section class="cep-detail-section">
           <ExchangeMatchStatus :fit="selectedListing.viewerFit" />
           <ClientExchangeSummary :listing="selectedListing" />
-          <ClientExchangeAuditPanel v-if="isBackoffice" :listing-id="selectedListing.id" />
-          <ExchangeMatchingAudit v-if="!isBackoffice && selectedListing.canManageClaims" :listing-id="selectedListing.id" />
+          <ClientExchangeAuditPanel v-if="selectedListing.canViewAudit ?? isBackoffice" :listing-id="selectedListing.id" @changed="onExpand(selectedListing.id)" />
+          <ExchangeMatchingAudit v-if="!(selectedListing.canViewAudit ?? isBackoffice) && selectedListing.canManageClaims" :listing-id="selectedListing.id" />
           <router-link v-if="selectedListing.clientId && (isBackoffice || isCurrentProviderFor(selectedListing))" class="cep-btn cep-btn--ghost cep-btn--sm" :to="clientRecordPath(selectedListing)">Open client record</router-link>
         </section>
 
@@ -243,8 +243,10 @@
               </div>
               <p v-if="r.message" class="cep-request-item-msg">{{ r.message }}</p>
               <ExchangeMatchStatus :fit="r.fit" />
+              <p v-if="r.fit?.canRequest && r.fit?.canAssign === false" class="cep-muted">Resolve or waive the remaining fit differences in the matching audit before assignment. You can still deny this request.</p>
+              <p v-if="r.acknowledgedWarnings?.length" class="cep-muted">The provider acknowledged these differences when requesting: {{ r.acknowledgedWarnings.map(w => w.message).join(' ') }}</p>
               <div v-if="r.status === 'pending' && selectedListing.canManageClaims" class="cep-request-item-actions">
-                <button type="button" class="cep-btn cep-btn--primary cep-btn--sm" :disabled="actionPending || r.fit?.canRequest === false" @click="onApprove({ requestId: r.id, listingId: selectedListing.id })">
+                <button type="button" class="cep-btn cep-btn--primary cep-btn--sm" :disabled="actionPending || r.fit?.canAssign === false || r.fit?.canRequest === false" @click="onApprove({ requestId: r.id, listingId: selectedListing.id })">
                   {{ selectedListing.currentProviderUserId ? 'Transfer to provider' : 'Assign to provider' }}
                 </button>
                 <button type="button" class="cep-btn cep-btn--ghost cep-btn--sm" :disabled="actionPending" @click="onDeny({ requestId: r.id, listingId: selectedListing.id })">
@@ -274,8 +276,13 @@
               class="cep-request-textarea"
               placeholder="Optional note for the current provider…"
             ></textarea>
+            <div v-if="selectedListing.viewerFit?.adjustments?.length" class="cep-banner cep-banner--warn">
+              <strong>This client does not currently match your profile:</strong>
+              <ul><li v-for="warning in selectedListing.viewerFit.adjustments" :key="warning.code">{{ warning.message }}</li></ul>
+              <label><input type="checkbox" :checked="warningsAcknowledged(selectedListing)" @change="acknowledgeWarnings(selectedListing, $event.target.checked)" /> I understand these differences. The support team must review them before this client can be assigned.</label>
+            </div>
             <div class="cep-detail-action-row">
-              <button type="button" class="cep-btn cep-btn--primary" :disabled="actionPending" @click="submitRequest(selectedListing)">
+              <button type="button" class="cep-btn cep-btn--primary" :disabled="actionPending || !warningsAcknowledged(selectedListing)" @click="submitRequest(selectedListing)">
                 {{ actionPending ? 'Saving…' : 'Request this client' }}
               </button>
             </div>
@@ -304,6 +311,7 @@
 </template>
 
 <script setup>
+import { exchangeStaffRole } from '../../navigation/clientExchangePolicy.js';
 import ClientExchangeAuditPanel from './ClientExchangeAuditPanel.vue';
 import { computed, watch, ref, reactive } from 'vue';
 import { useRoute } from 'vue-router';
@@ -329,8 +337,7 @@ const authStore = useAuthStore();
 
 const currentUserId = computed(() => Number(authStore.user?.id || 0) || null);
 const isBackoffice = computed(() => {
-  const role = String(authStore.user?.role || '').toLowerCase();
-  return ['admin', 'super_admin', 'support', 'staff'].includes(role);
+  return exchangeStaffRole(authStore.user?.role);
 });
 
 const activeTab = ref('open');
@@ -473,16 +480,29 @@ async function onExpand(listingId) {
   }
 }
 
+const warningAcknowledgements = reactive({});
+function warningsAcknowledged(listing) {
+  return (listing.viewerFit?.adjustments || []).every(w => (warningAcknowledgements[listing.id] || []).includes(w.fingerprint));
+}
+function acknowledgeWarnings(listing, acknowledged) {
+  warningAcknowledgements[listing.id] = acknowledged ? (listing.viewerFit?.adjustments || []).map(w => w.fingerprint) : [];
+}
+
 async function submitRequest(listing) {
-  if (actionPending.value) return;
+  if (actionPending.value || !warningsAcknowledged(listing)) return;
   actionPending.value = true;
   const msg = requestMessages[listing.id] || '';
   try {
-    await api.post(`/client-exchange/listings/${listing.id}/requests`, { message: msg });
+    await api.post(`/client-exchange/listings/${listing.id}/requests`, { message: msg, ...(listing.viewerFit?.adjustments?.length ? { acknowledgedWarnings: warningAcknowledgements[listing.id] || [] } : {}) });
     requestMessages[listing.id] = '';
+    warningAcknowledgements[listing.id] = [];
     await load();
     await onExpand(listing.id);
   } catch (e) {
+    if (e?.response?.data?.fit) {
+      listings.value = listings.value.map(row => row.id === listing.id ? { ...row, viewerFit: e.response.data.fit } : row);
+      warningAcknowledgements[listing.id] = [];
+    }
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to request listing';
   } finally { actionPending.value = false; }
 }

@@ -95,3 +95,19 @@ it.each([
   expect(wrapper.findAll('button').some(button => button.text() === 'Request this client')).toBe(fit.canRequest);
   wrapper.unmount();
 });
+
+it.each(['staff','support','admin','super_admin','provider'])('shows the server-authorized audit to %s even when the local role is stale',async role=>{
+  const listing={id:4,agencyId:2,status:'open',canViewAudit:true,canManageClaims:true};mocks.user={id:7,role};
+  mocks.store=reactive({currentAgency:{id:2},userAgencies:[],agencies:[],fetchUserAgencies:vi.fn().mockResolvedValue([])});mocks.route.query={listingId:'4'};
+  mocks.get.mockImplementation(async url=>({data:url.endsWith('/audit')?{providers:[],canReview:true}:url.endsWith('/4')?{listing,requests:[]}:{listings:[listing],requests:[]}}));
+  const wrapper=makeWrapper();await flushPromises();expect(wrapper.text()).toContain('Matching and delivery audit');wrapper.unmount();
+});
+it('requires acknowledgement of the specific age/format warnings before submitting a request',async()=>{
+  const listing={id:4,agencyId:2,status:'open',viewerFit:{status:'not_match',canRequest:true,canAssign:false,adjustments:[{code:'age',message:'Client age 8 is outside your listed ages.',fingerprint:'age-v1'},{code:'format_availability',message:'Client wants in person; you offer virtual only.',fingerprint:'format-v1'}]}};
+  mocks.user={id:7,role:'provider'};mocks.store=reactive({currentAgency:{id:2},userAgencies:[],agencies:[],fetchUserAgencies:vi.fn().mockResolvedValue([])});mocks.route.query={listingId:'4'};
+  mocks.get.mockImplementation(async url=>({data:url.endsWith('/4')?{listing,requests:[]}:{listings:[listing],requests:[]}}));mocks.post.mockReset().mockResolvedValue({data:{}});
+  const wrapper=makeWrapper();await flushPromises();const request=wrapper.findAll('button').find(b=>b.text()==='Request this client');
+  expect(request.attributes('disabled')).toBeDefined();expect(wrapper.text()).toContain('Client wants in person; you offer virtual only.');
+  await wrapper.find('input[type="checkbox"]').setValue(true);expect(request.attributes('disabled')).toBeUndefined();await request.trigger('click');await flushPromises();
+  expect(mocks.post).toHaveBeenCalledWith('/client-exchange/listings/4/requests',{message:'',acknowledgedWarnings:['age-v1','format-v1']});wrapper.unmount();
+});

@@ -32,17 +32,20 @@ async function eligibleProvider(connection, userId, agencyId) {
   if (!rows.length) throw fail('An active provider in this agency is required to request or receive the client', 403);
 }
 
-export async function createExchangeClaim({ listingId, requestingProviderUserId, message }) {
+export async function createExchangeClaim({ listingId, requestingProviderUserId, message, acknowledgedWarnings = [] }) {
   return withListing(listingId, async (connection, listing) => {
     if (listing.target_provider_user_id && Number(listing.target_provider_user_id) !== Number(requestingProviderUserId)) throw fail('This referral is addressed to a different provider', 403);
     await eligibleProvider(connection, requestingProviderUserId, listing.agency_id);
-    await assertExchangeRequestEligible({ listing, userId: requestingProviderUserId, database: connection });
+    const fit = await assertExchangeRequestEligible({ listing, userId: requestingProviderUserId, database: connection });
+    if (fit.adjustments.some(w => !Array.isArray(acknowledgedWarnings) || !acknowledgedWarnings.includes(w.fingerprint))) {
+      throw Object.assign(fail('Review and acknowledge the current fit differences before requesting this client.'), { code: 'EXCHANGE_ACKNOWLEDGEMENT_REQUIRED', fit });
+    }
     if (Number(requestingProviderUserId) === Number(listing.current_provider_user_id)) throw fail('You are already the current provider for this client');
     const [existing] = await connection.execute(`SELECT id FROM client_exchange_requests
       WHERE listing_id = ? AND requesting_provider_user_id = ? AND status = 'pending'`, [listingId, requestingProviderUserId]);
     if (existing.length) throw fail('You already have a pending request for this listing');
-    const [result] = await connection.execute(`INSERT INTO client_exchange_requests (listing_id, requesting_provider_user_id, status, message)
-      VALUES (?, ?, 'pending', ?)`, [listingId, requestingProviderUserId, message || null]);
+    const [result] = await connection.execute(`INSERT INTO client_exchange_requests (listing_id, requesting_provider_user_id, status, message, acknowledged_warnings_json)
+      VALUES (?, ?, 'pending', ?, ?)`, [listingId, requestingProviderUserId, message || null, JSON.stringify(fit.adjustments)]);
     await connection.execute("UPDATE client_exchange_listings SET status = 'requested' WHERE id = ?", [listingId]);
     return { requestId: result.insertId, listing };
   });
@@ -78,7 +81,7 @@ export async function resolveExchangeClaim({ requestId, action, actingUserId, ac
       return { listing, request };
     }
     await eligibleProvider(connection, request.requesting_provider_user_id, listing.agency_id);
-    await assertExchangeRequestEligible({ listing, userId: request.requesting_provider_user_id, database: connection, client });
+    await assertExchangeRequestEligible({ listing, userId: request.requesting_provider_user_id, database: connection, client, forAssignment: true });
     if (listing.target_provider_user_id && Number(listing.target_provider_user_id) !== Number(request.requesting_provider_user_id)) throw fail('Request does not match the referral recipient', 403);
     const providerId = request.requesting_provider_user_id;
     const additional = listing.referral_kind === 'additional_service';

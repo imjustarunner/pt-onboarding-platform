@@ -1,6 +1,8 @@
+import { loadExchangeWaivers } from './clientExchangeWaivers.service.js';
+import { exchangeStaffRole } from '../../../frontend/src/navigation/clientExchangePolicy.js';
 import Agency from '../models/Agency.model.js';
 import { eligibleExchangeProvider, exchangeProviderSql } from '../utils/clientExchangeProvider.js';
-import { loadExchangeProvider, loadExchangeOpenings, exchangeProviderAudit, exchangeListingForEvaluation } from './clientExchangeEligibility.service.js';
+import { loadExchangeProvider, loadExchangeOpenings, evaluateCurrentExchangeFit, exchangeProviderAudit, exchangeListingForEvaluation } from './clientExchangeEligibility.service.js';
 import { evaluateExchangeListing, exchangeNeedsOpenings } from '../utils/clientExchangeMatching.js';
 import { normalizeExchangeLocation } from '../../../frontend/src/navigation/clientExchangeLocation.js';
 import { validateMatchingPreferences } from '../../../frontend/src/navigation/providerFocus.js';
@@ -101,6 +103,7 @@ function mapRequestRow(row) {
     requestingProviderName: [row.requesting_first_name, row.requesting_last_name].filter(Boolean).join(' ') || null,
     status: row.status,
     message: row.message || null,
+    acknowledgedWarnings: parseJsonColumn(row.acknowledged_warnings_json) || [],
     resolvedByUserId: row.resolved_by_user_id != null ? Number(row.resolved_by_user_id) : null,
     resolvedAt: row.resolved_at || null,
     denialReason: row.denial_reason || null,
@@ -125,6 +128,7 @@ function redactListing(listing, { viewerRole, viewerUserId }) {
   const mapped = mapListingRow(listing);
   if (!mapped) return null;
   if (String(viewerRole || '').toLowerCase() === 'support') Object.assign(mapped, supportExchangeSummary(mapped));
+  mapped.canViewAudit = exchangeStaffRole(viewerRole);
   mapped.canManageClaims = ['admin', 'super_admin', 'support', 'staff'].includes(String(viewerRole || '').toLowerCase())
     || Number(viewerUserId) === Number(listing.current_provider_user_id)
     || (!listing.current_provider_user_id && Number(viewerUserId) === Number(listing.posted_by_user_id));
@@ -257,7 +261,8 @@ async function attachViewerFit(listings, { viewerUserId, viewerRole, agencyId, s
   }
   for (const listing of listings) {
     const source = sourceRows.find(row => Number(row.id) === listing.id);
-    listing.viewerFit = evaluateExchangeListing({ ...context, listing: source ? mapListingRow(source) : listing, slots });
+    const waivers = await loadExchangeWaivers({ listingId: listing.id, userId: viewerUserId });
+    listing.viewerFit = evaluateExchangeListing({ ...context, waivers, listing: source ? mapListingRow(source) : listing, slots });
   }
 }
 
@@ -355,8 +360,8 @@ export async function withdrawListing({ listingId, actingUserId, viewerRole }) {
   return getListingById(listingId, { viewerUserId: actingUserId, viewerRole });
 }
 
-export async function createRequest({ listingId, requestingProviderUserId, message = null }) {
-  const { requestId, listing } = await createExchangeClaim({ listingId, requestingProviderUserId, message });
+export async function createRequest({ listingId, requestingProviderUserId, message = null, acknowledgedWarnings = [] }) {
+  const { requestId, listing } = await createExchangeClaim({ listingId, requestingProviderUserId, message, acknowledgedWarnings });
   await notifyExchangeClaim({ listing, requestingProviderUserId }).catch(error => {
     console.error('[clientExchange] Request notification failed', { listingId, error: error?.message });
   });
@@ -391,7 +396,8 @@ export async function listRequestsForListing(listingId, { viewerUserId, viewerRo
   await hydrateListingSummary(listing);
   const mapped = await Promise.all((visibleRows || []).map(async row => {
     const context = await loadExchangeProvider({ userId: row.requesting_provider_user_id, agencyId: listing.agency_id });
-    return { ...mapRequestRow(row), fit: evaluateExchangeListing({ ...context, listing: exchangeListingForEvaluation(mapListingRow(listing)) }) };
+    const waivers = await loadExchangeWaivers({ listingId: listing.id, userId: row.requesting_provider_user_id });
+    return { ...mapRequestRow(row), fit: await evaluateCurrentExchangeFit({ context: { ...context, waivers }, listing: exchangeListingForEvaluation(mapListingRow(listing)) }) };
   }));
   if (privileged) return mapped;
   // Non-privileged viewers only ever see their own request rows.

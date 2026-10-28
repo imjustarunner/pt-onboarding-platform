@@ -1,3 +1,4 @@
+import { exchangeStaffRole } from '../../../frontend/src/navigation/clientExchangePolicy.js';
 import { validateMatchingPreferences } from '../../../frontend/src/navigation/providerFocus.js';
 import { createExchangeReferral } from '../services/clientExchangeReferral.service.js';
 import { normalizeExchangeSchedule } from '../utils/clientExchangeSchedule.js';
@@ -14,11 +15,7 @@ function safeInt(v) {
   return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
 }
 
-const BACKOFFICE_ROLES = new Set(['admin', 'super_admin', 'support', 'staff']);
-
-function isBackoffice(role) {
-  return BACKOFFICE_ROLES.has(String(role || '').toLowerCase());
-}
+const isBackoffice = exchangeStaffRole;
 
 /** Mirrors the agencyId-in-params/body/query access check used across other admin panels. */
 async function assertAgencyAccess(req, agencyId) {
@@ -241,11 +238,12 @@ export async function createRequest(req, res, next) {
     const request = await ClientExchange.createRequest({
       listingId,
       requestingProviderUserId: req.user.id,
-      message: req.body?.message || null
+      message: req.body?.message || null,
+      acknowledgedWarnings: req.body?.acknowledgedWarnings || []
     });
     res.status(201).json({ request });
   } catch (e) {
-    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message, code: e.code }, ...(e.fit ? { fit: e.fit } : {}) });
     const msg = e?.message || 'Failed to request listing';
     if (/not found|no longer accepting|already have a pending|already the current provider/i.test(msg)) {
       return res.status(400).json({ error: { message: msg } });
@@ -303,7 +301,7 @@ async function resolveRequestAction(req, res, next, action) {
     });
     res.json({ request });
   } catch (e) {
-    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message, code: e.code }, ...(e.fit ? { fit: e.fit } : {}) });
     const msg = e?.message || 'Failed to resolve request';
     if (/not found|already been resolved|action must be/i.test(msg)) {
       return res.status(400).json({ error: { message: msg } });
@@ -480,7 +478,7 @@ export async function listReferralProviders(req, res, next) {
 /** Support-only delivery explanations; ordinary browsing providers cannot inspect colleagues' preferences. */
 export async function getListingAudit(req,res,next) {
   try {
-    if(!['admin','super_admin','support','staff'].includes(String(req.user?.role)))return res.status(403).json({error:{message:'Agency support or admin access required'}});
+    if(!isBackoffice(req.user?.role))return res.status(403).json({error:{message:'Agency support or admin access required'}});
     const id=safeInt(req.params.id);
     if(!id)return res.status(400).json({error:{message:'Invalid listing id'}});
     const [[row]]=await pool.execute('SELECT agency_id FROM client_exchange_listings WHERE id=?',[id]);
@@ -490,4 +488,39 @@ export async function getListingAudit(req,res,next) {
     const {currentExchangeAudit}=await import('../services/clientExchangeCurrentAudit.service.js');
     res.json(await currentExchangeAudit(await getExchangeAudit(id), row.agency_id));
   }catch(error){next(error);}
+}
+
+// Every staff action rechecks the listing's tenant before evaluating providers or sending mail.
+async function staffListingContext(req, res) {
+  if (!isBackoffice(req.user?.role)) { res.status(403).json({ error: { message: 'Agency staff access is required' } }); return null; }
+  const listingId = safeInt(req.params.id), providerUserId = safeInt(req.body?.providerUserId);
+  if (!listingId || !providerUserId) { res.status(400).json({ error: { message: 'A listing and provider are required' } }); return null; }
+  const [[row]] = await pool.execute('SELECT agency_id FROM client_exchange_listings WHERE id=?', [listingId]);
+  if (!row) { res.status(404).json({ error: { message: 'Listing not found' } }); return null; }
+  if (!await assertAgencyAccess(req, row.agency_id)) { res.status(403).json({ error: { message: 'Forbidden' } }); return null; }
+  return { listingId, providerUserId, agencyId: row.agency_id, actor: req.user };
+}
+export async function saveMatchingWaiver(req, res, next) {
+  try {
+    const context = await staffListingContext(req, res); if (!context) return;
+    const { changeExchangeWaiver } = await import('../services/clientExchangeWaivers.service.js');
+    res.json(await changeExchangeWaiver({ ...context, field: req.body.field, fingerprint: req.body.fingerprint,
+      reason: req.body.reason, revokeId: safeInt(req.body.revokeId) }));
+  } catch (error) { if (error.status) return res.status(error.status).json({ error: { message: error.message } }); next(error); }
+}
+export async function previewShare(req, res, next) {
+  try {
+    const context = await staffListingContext(req, res); if (!context) return;
+    const { previewExchangeShare } = await import('../services/clientExchangeSharing.service.js');
+    res.json(await previewExchangeShare(context));
+  } catch (error) { if (error.status) return res.status(error.status).json({ error: { message: error.message } }); next(error); }
+}
+export async function shareListing(req, res, next) {
+  try {
+    const context = await staffListingContext(req, res); if (!context) return;
+    const { sendExchangeShare } = await import('../services/clientExchangeSharing.service.js');
+    const result = await sendExchangeShare({ ...context, requestKey: req.body.requestKey, expectedShareCount: req.body.expectedShareCount });
+    if (result.busy) return res.status(409).json({ error: { message: 'This listing is being updated. Try again shortly.' } });
+    res.json(result);
+  } catch (error) { if (error.status) return res.status(error.status).json({ error: { message: error.message } }); next(error); }
 }

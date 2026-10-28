@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ client: vi.fn(), access: vi.fn(), create: vi.fn(), recordAccess: vi.fn(), summary: vi.fn(), execute: vi.fn(), referral: vi.fn(), audit: vi.fn(), view: vi.fn(), listing:vi.fn(), requests:vi.fn() }));
+const mocks = vi.hoisted(() => ({ client: vi.fn(), access: vi.fn(), create: vi.fn(), recordAccess: vi.fn(), summary: vi.fn(), execute: vi.fn(), referral: vi.fn(), audit: vi.fn(), view: vi.fn(), listing:vi.fn(), requests:vi.fn(), waiver:vi.fn(), sharePreview:vi.fn(), share:vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.execute } }));
 vi.mock('../../models/User.model.js', () => ({ default: {} }));
 vi.mock('../../models/Client.model.js', () => ({ default: { findById: mocks.client } }));
@@ -9,7 +9,9 @@ vi.mock('../../services/clientExchange.service.js', () => ({ createListing: mock
 vi.mock('../../services/clientExchangeReferral.service.js', () => ({ createExchangeReferral: mocks.referral }));
 vi.mock('../../services/clientExchangeCurrentAudit.service.js', () => ({ currentExchangeAudit: async audit => audit }));
 vi.mock('../../services/clientExchangeAudit.service.js',()=>({getExchangeAudit:mocks.audit,recordExchangeView:mocks.view}));
-import { getMatchingAudit, getListingAudit, getListing, createReferral, createListing, previewClientSummary, saveClientSchedule, saveClientMatchingPreferences } from '../clientExchange.controller.js';
+vi.mock('../../services/clientExchangeWaivers.service.js', () => ({ changeExchangeWaiver: mocks.waiver }));
+vi.mock('../../services/clientExchangeSharing.service.js', () => ({ previewExchangeShare: mocks.sharePreview, sendExchangeShare: mocks.share }));
+import { saveMatchingWaiver, previewShare, shareListing, getMatchingAudit, getListingAudit, getListing, createReferral, createListing, previewClientSummary, saveClientSchedule, saveClientMatchingPreferences } from '../clientExchange.controller.js';
 const response = () => { const res = { status: vi.fn(), json: vi.fn() }; res.status.mockReturnValue(res); return res; };
 const request = () => ({ user: { id: 7, role: 'provider', agencies: [{ id: 2 }] }, body: { agencyId: 2, clientId: 4, currentProviderUserId: 999 } });
 beforeEach(() => { vi.clearAllMocks(); mocks.execute.mockResolvedValue([[{authorized:1}]]); mocks.view.mockResolvedValue(undefined); mocks.client.mockResolvedValue({ id: 4, agency_id: 2, provider_id: 7, status: 'CURRENT' }); mocks.access.mockResolvedValue(true); mocks.create.mockResolvedValue({ id: 12 }); });
@@ -113,4 +115,23 @@ it('limits the matching audit to the referring team within the listing agency', 
   const allowed = response(); await getMatchingAudit(req, allowed, vi.fn()); expect(allowed.json).toHaveBeenCalledWith({ audit: { providers: [] } });
   mocks.audit.mockClear(); mocks.listing.mockResolvedValue({ id: 11, agencyId: 99 }); mocks.execute.mockResolvedValue([[]]);
   const crossAgency = response(); await getMatchingAudit(req, crossAgency, vi.fn()); expect(crossAgency.status).toHaveBeenCalledWith(403); expect(mocks.audit).not.toHaveBeenCalled();
+});
+
+it.each(['staff','support','admin','super_admin'])('allows the full audit for current %s within the agency',async role=>{
+  const req={user:{id:7,role},params:{id:9}};
+  mocks.execute.mockResolvedValueOnce([[{agency_id:2}]]);mocks.audit.mockResolvedValue({listingId:9,providers:[]});
+  const res=response();await getListingAudit(req,res,vi.fn());expect(res.json).toHaveBeenCalledWith({listingId:9,providers:[]});
+});
+it.each([saveMatchingWaiver,previewShare,shareListing])('protects staff actions from ordinary providers and cross-agency staff',async handler=>{
+  const req={user:{id:7,role:'provider'},params:{id:9},body:{providerUserId:10}};
+  let res=response();await handler(req,res,vi.fn());expect(res.status).toHaveBeenCalledWith(403);
+  req.user.role='support';mocks.execute.mockResolvedValueOnce([[{agency_id:99}]]).mockResolvedValueOnce([[]]);
+  res=response();await handler(req,res,vi.fn());expect(res.status).toHaveBeenCalledWith(403);
+  expect(mocks.waiver).not.toHaveBeenCalled();expect(mocks.sharePreview).not.toHaveBeenCalled();expect(mocks.share).not.toHaveBeenCalled();
+});
+it('takes the sharing actor and tenant from the authenticated request, not submitted values',async()=>{
+  const req={user:{id:7,role:'staff'},params:{id:9},body:{providerUserId:10,actor:{id:99,role:'super_admin'},agencyId:99,requestKey:'request-key-12345',expectedShareCount:0}};
+  mocks.execute.mockResolvedValueOnce([[{agency_id:2}]]);mocks.share.mockResolvedValue({share:{status:'sent'}});
+  const res=response();await shareListing(req,res,vi.fn());
+  expect(mocks.share).toHaveBeenCalledWith({listingId:9,providerUserId:10,agencyId:2,actor:req.user,requestKey:'request-key-12345',expectedShareCount:0});
 });

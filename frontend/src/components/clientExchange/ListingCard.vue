@@ -41,7 +41,7 @@
       </div>
 
       <div class="lc-actions" @click.stop>
-        <button type="button" class="btn btn-primary btn-sm" @click="$emit('select', listing)">View client</button>
+        <button type="button" class="btn btn-primary btn-sm" @click="$emit('select', listing)">{{ (listing.canViewAudit ?? isBackoffice) ? 'View client and matching audit' : 'View client' }}</button>
         <button
           v-if="canWithdraw"
           type="button"
@@ -74,7 +74,7 @@
               <td><span class="status-badge" :class="`status-${r.status}`">{{ r.status }}</span></td>
               <td v-if="listing.canManageClaims">
                 <div v-if="r.status === 'pending'" class="lc-request-resolve">
-                  <button type="button" class="btn btn-primary btn-sm" :disabled="r.fit?.canRequest === false" @click="$emit('approve', { requestId: r.id, listingId: listing.id })">
+                  <button type="button" class="btn btn-primary btn-sm" :disabled="r.fit?.canAssign === false || r.fit?.canRequest === false" @click="$emit('approve', { requestId: r.id, listingId: listing.id })">
                     {{ listing.currentProviderUserId ? 'Transfer to provider' : 'Assign to provider' }}
                   </button>
                   <button type="button" class="btn btn-secondary btn-sm" @click="$emit('deny', { requestId: r.id, listingId: listing.id })">

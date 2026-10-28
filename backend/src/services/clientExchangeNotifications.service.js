@@ -36,7 +36,7 @@ export async function notifyExchangeMatches({ listing, client, send = true, repo
         catch(error) { decision={matched:false,checks:[{field:'evaluation',status:'error',reason:'Provider data could not be evaluated; retry required.'}]};summary.failed++; }
         await saveExchangeDecision(listing.id,user.id,decision);
         await saveExchangeDelivery(listing.id,user.id,previous);
-        if(!decision.matched) {
+        if(!decision.matched || decision.canNotify === false) {
           await saveExchangeDelivery(listing.id,user.id,{
             email:previous.email||{status:'not_sent',reason:'Provider did not match this evaluation.'},
             sms:previous.sms||{status:'not_sent',reason:'Provider did not match this evaluation.'}

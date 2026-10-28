@@ -4,6 +4,8 @@ vi.mock('../../models/Agency.model.js',()=>({default:{findById:m.agency}}));
 vi.mock('../../models/Client.model.js',()=>({default:{findById:m.client}}));
 vi.mock('../clientExchange.service.js',()=>({getListingForMatching:m.listing}));
 vi.mock('../clientExchangeCandidates.service.js',()=>({loadExchangeCandidates:m.candidates,evaluateExchangeCandidate:m.evaluate}));
+vi.mock('../clientExchangeWaivers.service.js', () => ({ loadExchangeWaivers: async () => [] }));
+vi.mock('../clientExchangeSharing.service.js', () => ({ listExchangeShares: async () => [] }));
 import {currentExchangeAudit} from '../clientExchangeCurrentAudit.service.js';
 const provider={id:1433,role:'provider',email:'qa.provider.auricwell@example.com',is_demo:1,first_name:'QA',last_name:'Provider'};
 const original={listingId:12,run:{evaluated_at:'2026-10-26'},providers:[{userId:1433,matched:false,checks:[{field:'format',status:'fail'}],emailDelivery:{status:'not_sent'},smsDelivery:{status:'not_sent'},views:2}]};
