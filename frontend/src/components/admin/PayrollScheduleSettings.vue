@@ -718,7 +718,7 @@
     <!-- ── Service Codes ─────────────────────────────────────────────────── -->
     <div v-else-if="payrollTab === 'service_codes'" class="card">
       <h3 style="margin:0 0 4px 0;">Payroll Service Codes</h3>
-      <p class="hint" style="margin:0 0 14px 0;">How each service code converts units → hours, counts for tier credits, and other pay calculation settings.</p>
+      <p class="hint" style="margin:0 0 14px 0;">Set the pay category and whether each code appears in the calculator and compensation page. Credit value converts a service to credits, or a non-credit unit to hours; the Tier checkbox controls workload credit. Refer to the workplace handbook for service-use policy.</p>
       <div v-if="scError" class="warn">{{ scError }}</div>
       <div v-if="scLoading" class="muted">Loading…</div>
       <template v-else>
@@ -741,6 +741,8 @@
               <tr>
                 <th>Code</th>
                 <th>Category</th>
+                <th>Pay category</th>
+                <th>Show to staff?</th>
                 <th>Pay method</th>
                 <th class="right">Pay %</th>
                 <th>Pay unit</th>
@@ -763,6 +765,16 @@
                     <option value="reimbursement">reimbursement</option><option value="other_pay">other_pay</option>
                   </select>
                 </td>
+                <td>
+                  <select v-model="r.pay_system_bucket" @change="scOnChange(r)">
+                    <option value="credit">Credit / FFS</option>
+                    <option value="hcode">Hourly / H-code</option>
+                    <option value="indirect">Indirect</option>
+                    <option value="support_activity">Support activity</option>
+                    <option value="skip">Excluded from new pay system</option>
+                  </select>
+                </td>
+                <td><input v-model="r.show_in_rate_sheet" type="checkbox" @change="scOnChange(r)" aria-label="Show code to staff" /></td>
                 <td>
                   <select v-model="r.pay_method" @change="scOnChange(r)">
                     <option value="fixed_rate">fixed_rate</option>
@@ -948,6 +960,8 @@
             <thead>
               <tr>
                 <th>Service code</th>
+                <th>Pay category</th>
+                <th>Show to staff?</th>
                 <th>Pay method</th>
                 <th>Code-level % <span class="hint">(optional)</span></th>
                 <th></th>
@@ -998,6 +1012,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import CompensationLevelsSettings from './CompensationLevelsSettings.vue';
@@ -1017,7 +1032,9 @@ const agencyId = computed(() => {
   return agencyStore.currentAgency?.id || null;
 });
 
-const payrollTab = ref('schedule');
+const route = useRoute();
+const payrollTab = ref(route.query.payrollTab === 'service_codes' ? 'service_codes' : 'schedule');
+watch(() => route.query.payrollTab, value => { if (value === 'service_codes') payrollTab.value = value; });
 
 const loading = ref(false);
 const saving = ref(false);
@@ -1935,6 +1952,8 @@ const scSavingByCode = ref({});
 const scSerialize = (r) => JSON.stringify({
   service_code: String(r?.service_code || '').trim(),
   category: String(r?.category || 'direct').toLowerCase(),
+  pay_system_bucket: r.pay_system_bucket,
+  show_in_rate_sheet: r.show_in_rate_sheet ? 1 : 0,
   pay_method: String(r?.pay_method || 'fixed_rate').toLowerCase(),
   pay_percent: r?.pay_percent === '' || r?.pay_percent == null ? null : Number(r.pay_percent),
   pay_rate_unit: String(r?.pay_rate_unit || 'per_unit').toLowerCase(),
@@ -1963,6 +1982,8 @@ const loadServiceCodes = async () => {
     const normalized = (resp.data || []).map(r => ({
       ...r,
       category: r.category || 'direct',
+      pay_system_bucket: r.pay_system_bucket || r.payType || 'skip',
+      show_in_rate_sheet: Number(r.show_in_rate_sheet ?? 1) !== 0,
       pay_method: r.pay_method || 'fixed_rate',
       pay_percent: r.pay_percent === null || r.pay_percent === undefined || r.pay_percent === '' ? '' : Number(r.pay_percent),
       pay_rate_unit: r.pay_rate_unit || 'per_unit',
@@ -1991,7 +2012,8 @@ const scSaveOne = async (r) => {
       agencyId: agencyId.value, serviceCode: code, category: r.category, otherSlot: r.other_slot,
       payMethod: r.pay_method || 'fixed_rate',
       payPercent: r.pay_method === 'percent_of_charge' ? (r.pay_percent === '' ? null : r.pay_percent) : null,
-      payRateUnit: r.pay_rate_unit || 'per_unit', durationMinutes: null,
+      payRateUnit: r.pay_rate_unit || 'per_unit',
+      paySystemBucket: r.pay_system_bucket, showInRateSheet: r.show_in_rate_sheet ? 1 : 0,
       countsForTier: r.counts_for_tier ? 1 : 0, payDivisor: r.pay_divisor, creditValue: r.credit_value
     });
     scBaseline.value = { ...scBaseline.value, [code]: scSerialize(r) };

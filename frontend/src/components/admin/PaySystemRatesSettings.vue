@@ -4,10 +4,9 @@
       <div>
         <h4 class="ps-title">Pay System Rates</h4>
         <p class="ps-sub">
-          Category × level rates for the new pay system. Clinical Session Rate applies to approved 9-series services × assigned credits
-          (0.75 / 1.0 / 1.5 for extended 90834 as 2 units). Approved H-codes currently use the Direct Care Rate;
-          Cat 2/3 also add auto-indirect minutes (default 10 min/hr at the indirect rate) on top of Direct Care Rate pay.
-          <strong>MWR / Probationary</strong> rates apply during the 90-day window or when below minimum workload (waivable).
+          Category × level rates for credit / FFS, hourly / H-code, indirect and support activities.
+          Set each code’s pay category and visibility in Service Codes. Refer to the workplace handbook
+          and each employee’s approved addendum for applicable compensation policy.
         </p>
       </div>
       <div class="ps-header-actions">

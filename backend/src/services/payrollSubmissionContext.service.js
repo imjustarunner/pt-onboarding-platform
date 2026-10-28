@@ -4,7 +4,7 @@ import PayrollCompensationLevel from '../models/PayrollCompensationLevel.model.j
 import PayrollPaySystemRate from '../models/PayrollPaySystemRate.model.js';
 import { effectiveCompensationAgreement } from './employmentAgreementPolicy.service.js';
 import { defaultHcodeIndirectMinutes } from '../utils/serviceCreditPolicy.js';
-import {RESTRICTED_CODES,codeRestriction} from '../content/handbookCodePresentation.js';
+import {classifyPayType,isPayrollCodeVisible} from './payrollCodeClassification.js';
 import {day} from './recurringPayroll.service.js';
 const parse=v=>{try{return typeof v==='string'?JSON.parse(v):v||{};}catch{return {};}};
 export async function submissionContext({agencyId,userId,asOf=day(new Date())}) {
@@ -23,12 +23,13 @@ export async function submissionContext({agencyId,userId,asOf=day(new Date())}) 
   indirectMinutesPerHour:schedule?Number(schedule.autoIndirectMinutes??defaultHcodeIndirectMinutes(schedule.category)):0,
   effective:!!agencyEnabled&&Number(assignment?.pay_system_enabled)===1&&!!agreement&&!!schedule&&!!starts&&asOf>=starts};
 }
-export function compensationCodes(rules,agencyId) {
- return rules.filter(r=>/^(9|H)\d/.test(r.service_code)&&r.category==='direct'&&Number(r.credit_value)>0).map(r=>{
-  const code=r.service_code,h=code.startsWith('H'),restricted=Number(agencyId)===2&&RESTRICTED_CODES.includes(code);
-  const perMinute=h&&Math.abs(Number(r.credit_value)-1/60)<1e-7;
-  return {code,group:h?'direct_care':'clinical_session',creditValue:Number(r.credit_value),basis:perMinute?'minutes':h?'units':'credits',
-   quantityLabel:perMinute?'Documented service minutes ÷ 60':h?`${Number(r.credit_value).toFixed(2)} direct hours per verified unit`:`${Number(r.credit_value).toFixed(2)} credits per service`,restricted,status:restricted?codeRestriction(code):'Subject to approved scope, setting and payer requirements'};
+export function compensationCodes(rules) {
+ return rules.filter(r=>isPayrollCodeVisible(r) && ['credit','hcode','indirect','support_activity'].includes(classifyPayType(r.service_code,r))).map(r=>{
+  const code=r.service_code,payType=classifyPayType(code,r),h=payType==='hcode';
+  const value=Number(r.credit_value),perMinute=h&&Number(r.pay_divisor)===60;
+  const group={credit:'clinical_session',hcode:'direct_care',indirect:'indirect',support_activity:'support_activity'}[payType];
+  return {code,group,payType,creditValue:value,basis:perMinute?'minutes':h?'units':payType==='credit'?'credits':'hours',
+   quantityLabel:perMinute?'Documented service minutes ÷ 60':h?`${value.toFixed(2)} direct hours per verified unit`:payType==='credit'?`${value.toFixed(2)} credits per service`:`${value.toFixed(2)} hours per unit`,restricted:false};
  });
 }
 export function excessIndirect({units,actualMinutes,hoursPerUnit,minutesPerHour}) {

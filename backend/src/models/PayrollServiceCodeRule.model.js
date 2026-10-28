@@ -47,7 +47,8 @@ class PayrollServiceCodeRule {
     creditValue = 0,
     showInRateSheet = 1,
     payMethod = 'fixed_rate',
-    payPercent = null
+    payPercent = null,
+    paySystemBucket = null
   }) {
     const hasPayRateUnit = await this._hasPayRateUnitColumn();
     const hasPayMethod = await this._hasPayMethodColumns();
@@ -59,9 +60,10 @@ class PayrollServiceCodeRule {
     const pct = Number.isFinite(pctRaw) ? Math.max(0, Math.min(100, pctRaw)) : null;
     await pool.execute(
       `INSERT INTO payroll_service_code_rules
-       (agency_id, service_code, category, other_slot, unit_to_hour_multiplier, duration_minutes, counts_for_tier, tier_credit_multiplier, pay_divisor, ${hasPayRateUnit ? 'pay_rate_unit,' : ''} credit_value, show_in_rate_sheet${hasPayMethod ? ', pay_method, pay_percent' : ''})
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${hasPayRateUnit ? '?,' : ''} ?, ?${hasPayMethod ? ', ?, ?' : ''})
+       (pay_system_bucket, agency_id, service_code, category, other_slot, unit_to_hour_multiplier, duration_minutes, counts_for_tier, tier_credit_multiplier, pay_divisor, ${hasPayRateUnit ? 'pay_rate_unit,' : ''} credit_value, show_in_rate_sheet${hasPayMethod ? ', pay_method, pay_percent' : ''})
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${hasPayRateUnit ? '?,' : ''} ?, ?${hasPayMethod ? ', ?, ?' : ''})
        ON DUPLICATE KEY UPDATE
+         pay_system_bucket = COALESCE(VALUES(pay_system_bucket), pay_system_bucket),
          category = VALUES(category),
          other_slot = VALUES(other_slot),
          unit_to_hour_multiplier = VALUES(unit_to_hour_multiplier),
@@ -75,6 +77,7 @@ class PayrollServiceCodeRule {
          ${hasPayMethod ? 'pay_method = VALUES(pay_method), pay_percent = VALUES(pay_percent),' : ''}
          updated_at = CURRENT_TIMESTAMP`,
       [
+        paySystemBucket,
         agencyId,
         serviceCode,
         category,

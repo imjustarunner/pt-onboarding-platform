@@ -96,6 +96,7 @@ import {
 } from '../services/payrollPercentagePayPolicy.service.js';
 import { syncHolidayBonusClaimsForPeriod } from '../services/payrollHolidayBonus.service.js';
 import TrainingFocusPayrollService from '../services/trainingFocusPayroll.service.js';
+import { PAY_SYSTEM_BUCKETS } from '../services/payrollCodeClassification.js';
 import { loadUserPaySystemContext, applyPaySystemToBreakdown, classifyPayType } from '../services/paySystem.service.js';
 import {approvedPeriodSalaryOverride} from '../services/payrollSalaryOverridePolicy.js';
 import {separateHistoricalCarryovers} from '../services/payrollHistoricalCarryover.service.js';
@@ -1220,7 +1221,8 @@ async function resolveKioskEventClaimPay({ claim, payload = {}, storedBucket, ag
   if(Number(agencyId)===2 && claim?.user_id && claim?.claim_date) {
     const payContext=await loadUserPaySystemContext({agencyId,userId:Number(claim.user_id),periodEnd:claim.claim_date});
     if(payContext?.enabled) {
-      const key=slot==='direct'?'hcodeRate':'indirectRate';
+      const schoolOutreach = String(treatment.eventType || payload.eventType || '').startsWith('school_') && !split;
+      const key=schoolOutreach?'supportActivityRate':slot==='direct'?'hcodeRate':'indirectRate';
       rate=Number(payContext.status?.useReducedRates
         ? payContext.rateProfile?.[key+'Probation'] ?? payContext.rateProfile?.[key]
         : payContext.rateProfile?.[key]);
@@ -6442,6 +6444,7 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
         otherSlot: (baseBucket === 'other') ? otherSlot : null,
         payDivisor: safeDivisor,
         creditValue: safeCreditValue,
+        paySystemBucket: rule?.pay_system_bucket ?? null,
         durationMinutes: Number.isFinite(durationMinutes) ? durationMinutes : null,
         rateAmount,
         rateUnit: perCode ? perCodePayUnit : (rateSource === 'rate_card' ? 'per_hour' : 'per_unit'),
@@ -22424,7 +22427,7 @@ export const listServiceCodeRules = async (req, res, next) => {
 
 export const upsertServiceCodeRule = async (req, res, next) => {
   try {
-    const { agencyId, serviceCode, category, otherSlot, unitToHourMultiplier, countsForTier, durationMinutes, tierCreditMultiplier, payDivisor, payRateUnit, creditValue, showInRateSheet, payMethod, payPercent } = req.body || {};
+    const { agencyId, serviceCode, category, otherSlot, unitToHourMultiplier, countsForTier, durationMinutes, tierCreditMultiplier, payDivisor, payRateUnit, creditValue, showInRateSheet, payMethod, payPercent, paySystemBucket } = req.body || {};
     if (!agencyId || !serviceCode) return res.status(400).json({ error: { message: 'agencyId and serviceCode are required' } });
     const agencyIdNum = parseInt(agencyId);
     const resolvedAgencyId = await requirePayrollAccess(req, res, agencyIdNum);
@@ -22443,6 +22446,8 @@ export const upsertServiceCodeRule = async (req, res, next) => {
     );
     const existing = existingRows?.[0] || null;
 
+    const configuredBucket = paySystemBucket === undefined ? (existing?.pay_system_bucket ?? null) : paySystemBucket;
+    if (configuredBucket !== null && !PAY_SYSTEM_BUCKETS.includes(configuredBucket)) return res.status(400).json({error:{message:'Choose a valid payroll pay category.'}});
     const catInput = (category === undefined || category === null || String(category).trim() === '')
       ? (existing?.category || 'direct')
       : category;
@@ -22533,6 +22538,7 @@ export const upsertServiceCodeRule = async (req, res, next) => {
       payRateUnit: payUnit,
       creditValue: cv,
       showInRateSheet: vis,
+      paySystemBucket: configuredBucket,
       payMethod: payMethodNorm,
       payPercent: payPercentNum
     });

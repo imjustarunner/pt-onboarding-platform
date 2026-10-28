@@ -17,10 +17,10 @@
         <p>Indirect: {{ fmtMoney(data.submission.schedule.indirectRate) }}/hour · Support activities: {{ fmtMoney(data.submission.schedule.supportRate) }}/hour.</p>
         <p>{{ data.submission.indirectMinutesPerHour }} minutes of indirect pay are included per Direct Care hour. Submit only work above that allowance. Credits measure compensation, not actual hours.</p>
       </section>
-      <section v-for="group in codeGroups" :key="group.id" class="rate-transition"><h3>{{ group.label }} · approved code mappings</h3><div class="code-grid"><article v-for="code in group.codes" :key="code.code"><strong>{{ code.code }}</strong><p>{{ code.quantityLabel }}</p></article></div><p>Use only services approved for your scope, setting and payer. Any group service requires express written approval under the handbook moratorium.</p></section>
-      <details v-if="restrictedCodes.length"><summary>Restricted or unapproved codes</summary><p v-for="code in restrictedCodes" :key="code.code"><strong>{{ code.code }}</strong> — {{ code.status }}</p></details>
+      <section v-for="group in codeGroups" :key="group.id" class="rate-transition"><h3>{{ group.label }} · approved code mappings</h3><div class="code-grid"><article v-for="code in group.codes" :key="code.code"><strong>{{ code.code }}</strong><p>{{ code.quantityLabel }}</p></article></div></section>
+      <p>These code mappings reflect Payroll’s saved settings. Refer to the <a :href="handbookUrl">workplace handbook</a> for service eligibility and policy.</p>
       <SupplementalTime :agency-id="agencyId" :context="data?.submission" :codes="data?.codeGuide" />
-      <details :open="!data?.submission?.effective">
+      <details v-if="!data?.submission?.effective" open>
       <summary>{{ data?.submission?.effective ? `Historical rates · through ${priorEndDate}` : 'Prior / per-code rate sheet' }}</summary>
       <p v-if="data?.submission?.effective">These rates apply only to earlier services. Current services use the active compensation schedule above.</p>
 
@@ -110,11 +110,11 @@ const agencyId = computed(() => {
   return a?.id || null;
 });
 
+const handbookUrl = computed(() => `/${agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || 'itsco'}/workplace-handbook`);
 const loading = ref(false);
 const error = ref('');
 const data = ref(null);
-const codeGroups=computed(()=>[{id:'clinical_session',label:'Clinical Session Rate'},{id:'direct_care',label:'Direct Care Rate'}].map(g=>({...g,codes:(data.value?.codeGuide||[]).filter(c=>c.group===g.id&&!c.restricted)})).filter(g=>g.codes.length));
-const restrictedCodes=computed(()=>(data.value?.codeGuide||[]).filter(c=>c.restricted));
+const codeGroups=computed(()=>[{id:'clinical_session',label:'Clinical Session Rate'},{id:'direct_care',label:'Hourly / H-code Rate'},{id:'indirect',label:'Indirect Rate'},{id:'support_activity',label:'Support Activity Rate'}].map(g=>({...g,codes:(data.value?.codeGuide||[]).filter(c=>c.group===g.id&&!c.restricted)})).filter(g=>g.codes.length));
 const priorEndDate=computed(()=>{const start=data.value?.submission?.startsOn;if(!start)return '';const d=new Date(start+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-1);return d.toISOString().slice(0,10);});
 
 const otherRateTitles = ref({ title1: 'Other 1', title2: 'Other 2', title3: 'Other 3' });

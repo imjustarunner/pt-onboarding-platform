@@ -45,6 +45,7 @@
               · Direct Care Rate ${{ fmt(activeHcodeRate) || '—' }}
               <span v-if="activeProfile?.tutoringRate != null"> · Tutoring ${{ fmt(activeProfile.tutoringRate) }}/hour (4 units), plus indirect pay</span>
               · Indirect ${{ fmt(activeProfile.indirectRate) }}
+              · Support activity ${{ fmt(activeProfile.supportActivityRate) }}
             </span>
           </div>
           <button
@@ -225,7 +226,7 @@
               <strong>${{ fmt(estimate.summary.grandTotal) }}</strong>
             </div>
             <p class="pay-calc__hint">
-              Approved H-codes currently use the Direct Care Rate, plus auto-indirect on top (e.g. 4 units of H0004 = 1 hr @ $32 + 10 min indirect @ $24 = $36). Levels without a Direct Care Rate pay direct for that time; staff enter other indirect separately.
+              Codes, categories and activity types reflect Payroll’s saved settings. Refer to the workplace handbook for service eligibility and compensation policy.
             </p>
           </div>
         </div>

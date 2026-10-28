@@ -18,9 +18,9 @@ it('pays support activities at their own rate',async()=>{expect(await computeDef
 
 it('reprices school outreach at the active schedule instead of the old event rate card',async()=>{
  const {default:pool}=await import('../../config/database.js');pool.execute.mockResolvedValue([[]]);
- const c={agency_id:2,user_id:7,claim_date:'2026-10-17',claim_type:'skill_builder_event',credits_hours:2.6,payload:{companyEventId:1,bucketRole:'indirect',source:'school_events_kiosk'}};
- loadUserPaySystemContext.mockResolvedValue({enabled:true,status:{useReducedRates:false},rateProfile:{indirectRate:20}});
- expect(await computeDefaultAppliedAmountForTimeClaim({claim:c,approveCreditsHours:2.6,rateCard:{indirect_rate:18}})).toBe(52);
+ const c={agency_id:2,user_id:7,claim_date:'2026-10-17',claim_type:'skill_builder_event',credits_hours:2.6,payload:{companyEventId:1,eventType:'school_outreach',bucketRole:'indirect',source:'school_events_kiosk'}};
+ loadUserPaySystemContext.mockResolvedValue({enabled:true,status:{useReducedRates:false},rateProfile:{indirectRate:20,supportActivityRate:18}});
+ expect(await computeDefaultAppliedAmountForTimeClaim({claim:c,approveCreditsHours:2.6,rateCard:{indirect_rate:18}})).toBe(46.8);
  loadUserPaySystemContext.mockResolvedValue({enabled:false});
  expect(await computeDefaultAppliedAmountForTimeClaim({claim:c,approveCreditsHours:2.6,rateCard:{indirect_rate:18}})).toBe(46.8);
 });

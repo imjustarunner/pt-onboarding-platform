@@ -1,3 +1,5 @@
+import { classifyPayType } from './payrollCodeClassification.js';
+export { classifyPayType } from './payrollCodeClassification.js';
 import {roleCompensationRate} from './roleCompensationRate.js';
 import {loadAdditionHistory,profileWithDatedAddition,HANDBOOK_ADDITION_MODE} from './conditionalAdditionPolicy.service.js';
 import {effectiveCompensationAgreement, agreementRateProfile, COMPENSATION_POLICY_VERSION} from './employmentAgreementPolicy.service.js';
@@ -70,39 +72,6 @@ export function eraLabelForStatus(status) {
   if (status?.inProbation) return 'Probation services';
   if (status?.isMinimumWorkload) return 'Minimum workload services';
   return 'current services';
-}
-
-/**
- * Classify a service code into a pay-system rate bucket.
- * @returns {'credit'|'hcode'|'indirect'|'support_activity'|'skip'}
- */
-export function classifyPayType(serviceCode, ruleOrDefaults = null) {
-  const code = String(serviceCode || '').trim().toUpperCase();
-  if (!code) return 'skip';
-
-  const defaults = payrollDefaultsForCode(code) || {};
-  // Rule rows use snake_case category; defaults use camelCase category.
-  const cat = String(ruleOrDefaults?.category ?? defaults.category ?? 'direct').trim().toLowerCase();
-
-  if (cat === 'mileage' || cat === 'bonus' || cat === 'reimbursement' || cat === 'other_pay') return 'skip';
-  if (code === 'SALARY' || code === 'BONUS' || code === 'HOLIDAY BONUS' || code === 'MILEAGE' || code === 'REIMBURSEMENT' || code === 'MEDCANCEL' || code === 'MISSED APPT' || code === 'COMMISSION') {
-    return 'skip';
-  }
-  if (cat === 'meeting' || code === 'MEETING' || code === 'INDIVIDUAL MEETING' || code === 'MENTOR/CPA MEETING') {
-    return 'support_activity';
-  }
-  if (cat === 'indirect' || cat === 'admin' || code === 'INDIRECT TIME' || code === 'INDIRECT HOURS' || code === 'ADMIN TIME') {
-    return 'indirect';
-  }
-  // H-prefixed direct codes → hcode rate
-  if (/^H\d/i.test(code)) {
-    return 'hcode';
-  }
-  // Remaining direct / tutoring / other clinical → credit rate
-  if (cat === 'direct' || cat === 'tutoring' || cat === 'other' || !cat) {
-    return 'credit';
-  }
-  return 'skip';
 }
 
 /**
@@ -262,7 +231,7 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
   let hcodeFallbackToCredit = false;
 
   const roleRate=roleCompensationRate(rateProfile?.roleCompensation,code,{categoryGroup:code==='ADMIN TIME'?'supervision_note':undefined});
-  if(roleRate>0){
+  if(roleRate>0 && !(code==='OUTREACH' && payType==='support_activity') && payType!=='skip'){
     payType='indirect';rate=roleRate;rateLabel='assigned_role_hourly_rate';qty.hourEquivalent=qty.payHours;amount=qty.payHours*roleRate;
   } else if (payType === 'credit') {
     rate = Number(reduced
@@ -956,6 +925,7 @@ export function applyPaySystemToBreakdown({
     const serviceCode = canonicalServiceCode(code, row);
     const rule = {
       category: row.category,
+      pay_system_bucket: row.paySystemBucket ?? row.pay_system_bucket,
       pay_divisor: row.payDivisor,
       credit_value: row.creditValue,
       duration_minutes: row.durationMinutes

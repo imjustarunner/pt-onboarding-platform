@@ -161,7 +161,7 @@
               <strong>Payroll Settings</strong>
               <button type="button" class="pr-settings-panel-close" @click="showPayrollSettings = false" aria-label="Close settings">✕</button>
             </div>
-            <PayrollScheduleSettings />
+            <PayrollScheduleSettings :scoped-agency-id="Number(agencyId)" />
           </div>
 
           <div class="pr-secondary-actions">
@@ -6581,7 +6581,8 @@ const brandingStore = useBrandingStore();
 
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 
-const showPayrollSettings = ref(false);
+const showPayrollSettings = ref(route.query.payrollTab === 'service_codes');
+watch(() => route.query.payrollTab, value => { if (value === 'service_codes') showPayrollSettings.value = true; });
 
 const openPayrollReports = async () => {
   const pid = Number(selectedPeriodId.value || 0);

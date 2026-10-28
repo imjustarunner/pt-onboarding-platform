@@ -1,5 +1,6 @@
 import {recordAdditionChange} from '../services/conditionalAdditionPolicy.service.js';
 import pool from '../config/database.js';
+import { isPayrollCodeVisible } from '../services/payrollCodeClassification.js';
 import PayrollPaySystemRate from '../models/PayrollPaySystemRate.model.js';
 import PayrollCompensationLevel, {
   COMPENSATION_CATEGORIES,
@@ -37,6 +38,7 @@ function mapServiceCodeForCalculator(r) {
     serviceCode: String(r.service_code || r.serviceCode || '').trim().toUpperCase(),
     category: r.category,
     payType: r.payType,
+    paySystemBucket: r.pay_system_bucket ?? r.paySystemBucket,
     payDivisor: r.pay_divisor ?? r.payDivisor,
     creditValue: r.credit_value ?? r.creditValue,
     durationMinutes: r.duration_minutes ?? r.durationMinutes,
@@ -64,7 +66,7 @@ async function loadCalculatorCatalog(agencyId) {
   ]);
   const enriched = (rules || []).map((r) => enrichRuleWithPayType(r));
   const serviceCodes = enriched
-    .filter((r) => r.payType && r.payType !== 'skip')
+    .filter((r) => isPayrollCodeVisible(r) && r.payType && r.payType !== 'skip')
     .map(mapServiceCodeForCalculator);
   return {
     serviceCodes,
@@ -73,13 +75,14 @@ async function loadCalculatorCatalog(agencyId) {
   };
 }
 
-function normalizeEstimateLines(rawLines, eventTypes = []) {
+function normalizeEstimateLines(rawLines, eventTypes = [], rulesByCode = new Map()) {
   const byId = new Map((eventTypes || []).map((t) => [Number(t.id), t]));
   return (Array.isArray(rawLines) ? rawLines : []).map((l) => {
     const kind = String(l?.kind || '').toLowerCase();
     if (kind === 'event' || l?.eventTypeId || l?.serviceTypeId) {
       const id = Number(l.eventTypeId || l.serviceTypeId || 0);
       const ev = byId.get(id) || null;
+      if (!ev) throw Object.assign(new Error('Select an available activity from Payroll settings.'), { status: 400 });
       return {
         kind: 'event',
         eventTypeId: id || null,
@@ -87,9 +90,11 @@ function normalizeEstimateLines(rawLines, eventTypes = []) {
         quantity: Number(l.hours ?? l.quantity ?? l.units ?? 0) || 0,
         label: l.label || ev?.label,
         displayCode: l.displayCode || ev?.displayCode,
-        payBucket: l.payBucket || ev?.payBucket || 'indirect'
+        payBucket: ev.payBucket || 'indirect'
       };
     }
+    const code = String(l.serviceCode || l.code || '').trim().toUpperCase();
+    if (code && !rulesByCode.has(code)) throw Object.assign(new Error('This service code is not available in Payroll settings.'), { status: 400 });
     return {
       kind: 'service',
       serviceCode: String(l.serviceCode || l.code || '').trim().toUpperCase(),
@@ -554,7 +559,7 @@ export const estimatePaySystem = async (req, res, next) => {
     const result = estimatePay({
       rateProfile,
       status,
-      lines: normalizeEstimateLines(lines, catalog.eventTypes),
+      lines: normalizeEstimateLines(lines, catalog.eventTypes, rulesByCode),
       rulesByCode
     });
 
@@ -650,7 +655,7 @@ export const estimatePaySystemScenario = async (req, res, next) => {
     const result = estimatePay({
       rateProfile,
       status,
-      lines: normalizeEstimateLines(req.body?.lines, catalog.eventTypes),
+      lines: normalizeEstimateLines(req.body?.lines, catalog.eventTypes, rulesByCode),
       rulesByCode
     });
 
@@ -681,4 +686,4 @@ export const estimatePaySystemScenario = async (req, res, next) => {
 };
 
 /** Helper used by listServiceCodeRules enrichment (optional export). */
-export { enrichRuleWithPayType, classifyPayType };
+export { enrichRuleWithPayType, classifyPayType, loadCalculatorCatalog, normalizeEstimateLines };
