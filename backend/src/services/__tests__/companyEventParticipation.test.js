@@ -24,7 +24,7 @@ const validate = (changes = {}) => validateEventTravelPayload({ agencyId: 2, use
 test('travel interval requires real instants, positive duration and actual past work', () => {
   assert.equal(eventTravelInterval(payload, new Date('2026-10-25')).minutes, 30);
   assert.throws(() => eventTravelInterval({ ...payload, travelStartedAt: '2026-10-24T09:00' }), /timezone/);
-  assert.throws(() => eventTravelInterval({ ...payload, travelEndedAt: payload.travelStartedAt }), /actual travel/);
+  assert.throws(() => eventTravelInterval({ ...payload, travelEndedAt: payload.travelStartedAt }), /Arrival must be after departure/);
   assert.throws(() => eventTravelInterval(payload, new Date('2026-10-24T15:00Z')), /future/);
 });
 test('travel retains event association and canonical support activity type', async () => {

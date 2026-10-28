@@ -13,6 +13,7 @@ import { invalidateAvailabilityReminders } from '../utils/invalidateAvailability
 import { maybeEncryptNotePayload, maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
 import { cancellationRecipients, reviewedMessage } from './cancellationRecipients.service.js';
 import { cancellationSchoolNotices } from './cancellationSchoolNotice.service.js';
+import { cancellationSchoolRoster } from './cancellationSchoolRoster.service.js';
 import { validateCancellationChoices } from './cancellationFollowUp.service.js';
 
 import { ensureDayCancellationTask, completeDayCancellationTask } from './dayCancellationFollowupTask.service.js';
@@ -59,6 +60,7 @@ export function createDayCancellationService(overrides = {}) {
     previewAppointment: previewAppointmentChange, completeAppointment: completeAppointmentChange,
     editPublication: editAvailabilityPublication, cancelMeetings: cancelMeetingOccurrences,
     contacts: (...args) => cancellationRecipients.review(...args),
+    roster: args => cancellationSchoolRoster.list(args), rosterReview: cancellationSchoolRoster.review, notifyRoster: cancellationSchoolRoster.send,
     schools: args => cancellationSchoolNotices.list(args), schoolReview: cancellationSchoolNotices.review, notifySchool: cancellationSchoolNotices.send,
     validateOffer: async (...args) => (await import('./cancellationFollowUp.service.js')).cancellationFollowUp.validateOffer(...args),
     cancellationMessage: async (...args) => (await import('./appointmentCancellationNotification.service.js')).buildCancellationNotification(...args),
@@ -117,6 +119,20 @@ export function createDayCancellationService(overrides = {}) {
         const emailPreview = await deps.cancellationMessage({ ...a, sourceTimezone: timeZone }, item.facts, { nextAppointment: preview.nextAppointment, offer: previewOffer });
         item.followUpPreview = emailPreview.followUpText;
         items.push(item);
+      }
+      if (plan.scopeMode === 'days') {
+        // A real appointment (including started/completed/canceled sessions) takes precedence over the soft roster.
+        const scheduledClients = new Set();
+        for (const appointment of appointments) for (const p of await deps.participants(appointment.id)) if (p.clientId) scheduledClients.add(Number(p.clientId));
+        for (const row of await deps.roster({ agencyId, providerId: plan.providerId, date })) {
+          if (scheduledClients.has(Number(row.client_id))) continue;
+          const key = `school_roster:${agencyId}:${plan.providerId}:${date}:${row.client_id}:${row.school_id}`;
+          const reviewed = await deps.rosterReview(row, { agencyId, providerId: plan.providerId, date,
+            reason: plan.facts.clientFacingReason, choices: plan.contactChoices?.[row.client_id], message: plan.messages?.[key],
+            required: plan.messagesReviewed && plan.facts.notificationMode !== 'none',
+            followUpAction: plan.facts.followUpAction, followUpMessage: plan.facts.followUpMessage });
+          items.push({ ...reviewed, timeZone, startAt: stamp(start), endAt: stamp(end) });
+        }
       }
       if (plan.scopeMode === 'days' || items.some(i => i.kind === 'appointment' && i.date === date && i.agencyId === agencyId)) {
         for (const school of await deps.schools({ providerId: plan.providerId, agencyId, date, reason: plan.facts.clientFacingReason, wholeDay: plan.scopeMode === 'days' })) {
@@ -262,6 +278,8 @@ export function createDayCancellationService(overrides = {}) {
             }
             const completed = await (plan.notificationsOnly ? deps.notifyAppointment : deps.completeAppointment)(item.id, item.facts || { ...plan.facts, followUpAfterAt: plan.scopes.find(s => s.agencyId === item.agencyId)?.end }, plan.notificationsOnly ? actor.id : { actorUserId: actor.id, actorRole: actor.role });
             delivery = plan.notificationsOnly ? completed : completed.notificationDelivery || completed.result?.notificationDelivery;
+          } else if (item.kind === 'school_roster') {
+            delivery = plan.facts.notificationMode === 'none' ? { suppressed: 1, sent: 0 } : await deps.notifyRoster(plan.deferredToken || token, item, actor.id);
           } else if (item.kind === 'school') {
             if (plan.scopeMode === 'sessions' && plan.items.some(i => i.kind === 'appointment' && i.agencyId === item.agencyId && i.date === item.date && results[i.key]?.status !== 'completed')) throw fail('Finish the selected session cancellations before sending this school notice.', 409);
             delivery = plan.facts.notificationMode === 'none' ? { suppressed: 1, sent: 0 } : await deps.notifySchool(plan.deferredToken || token, item, actor.id);
@@ -318,6 +336,16 @@ export function createDayCancellationService(overrides = {}) {
       items.push({ ...saved, clients, message, source: { ...saved.source, updatedAt: stamp(a.updatedAt), participants: await deps.participants(a.id), contacts: clients.map(c => c.contacts) },
         facts: { ...saved.facts, ...plan.facts, notificationMode: 'send', reviewedCancellation: true, reviewedMessage: message,
           notificationRecipients: clients.map(c => ({ clientId: c.clientId, mode: c.mode, channels: c.channels, recipients: c.recipients })) } });
+    }
+    // Deferred outreach stays limited to the roster reviewed at cancellation, never newly assigned families.
+    for (const saved of plan.items.filter(i => i.kind === 'school_roster')) {
+      const rows = await deps.roster({ agencyId: saved.agencyId, providerId: plan.providerId, date: saved.date });
+      const row = rows.find(r => Number(r.client_id) === saved.clientId && Number(r.school_id) === saved.schoolId);
+      if (!row) throw fail('A school-day assignment changed. Review that family separately.', 409);
+      items.push({ ...await deps.rosterReview(row, { agencyId: saved.agencyId, providerId: plan.providerId, date: saved.date,
+        reason: plan.facts.clientFacingReason, choices: plan.contactChoices?.[saved.clientId], message: plan.messages?.[saved.key],
+        required: plan.messagesReviewed, followUpAction: plan.facts.followUpAction, followUpMessage: plan.facts.followUpMessage }),
+        timeZone: saved.timeZone, startAt: saved.startAt, endAt: saved.endAt });
     }
     for (const scope of plan.scopes) for (const school of await deps.schools({ providerId: plan.providerId, agencyId: scope.agencyId, date: scope.date || plan.date, reason: plan.facts.clientFacingReason, wholeDay: plan.scopeMode === 'days' })) {
       if (plan.scopeMode === 'sessions' && !items.some(i => i.agencyId === scope.agencyId && i.date === (scope.date || plan.date))) continue;

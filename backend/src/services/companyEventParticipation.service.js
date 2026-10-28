@@ -131,7 +131,10 @@ export function eventTravelInterval(payload, now = new Date()) {
   if (!explicitInstant(payload?.travelStartedAt) || !explicitInstant(payload?.travelEndedAt)) fail(400, 'Travel start and end must include a timezone');
   const start = new Date(payload.travelStartedAt), end = new Date(payload.travelEndedAt);
   const minutes = Math.round((end - start) / 60000);
-  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start || minutes < 1 || end - start > 24 * 3600000) fail(400, 'Enter actual travel start and end times, up to 24 hours');
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) fail(400, 'Enter a valid departure date/time and arrival date/time.');
+  if (end <= start) fail(400, 'Arrival must be after departure. Check both dates and AM/PM.');
+  if (end - start > 24 * 3600000) fail(400, 'This trip is longer than 24 hours. Enter only this part of the journey and check both dates and AM/PM.');
+  if (minutes < 1) fail(400, 'Enter at least one minute between departure and arrival.');
   if (end > now) fail(400, 'Travel time cannot end in the future');
   return { start, end, minutes };
 }

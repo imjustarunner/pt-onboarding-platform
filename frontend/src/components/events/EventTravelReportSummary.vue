@@ -4,6 +4,7 @@
     <p>{{ report.eventDate }} · {{ report.eventAddress }}</p>
     <p><strong>{{ report.totalMinutes }} minutes</strong> at Support Activity rate · <strong>{{ Number(report.totalMiles || 0).toFixed(2) }} miles</strong> for reimbursement{{ report.reviewed ? '' : ' proposed' }}</p>
     <p v-if="report.form.existingMileageClaimId">Travel time only. Mileage is already covered by approved claim #{{ report.form.existingMileageClaimId }}.</p>
+    <p class="muted">This report covers travel and materials handling only. Time worked at the event is recorded and paid separately using the event’s payroll rate.</p>
     <dl>
       <dt>Materials before the event</dt><dd>{{ pickupLabel }}</dd>
       <dt>Materials after the event</dt><dd>{{ returnLabel }}</dd>

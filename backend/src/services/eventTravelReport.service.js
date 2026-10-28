@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { overlapsRecordedAttendance } from '../utils/eventTravelOverlap.js';
 import PayrollTimeClaim from '../models/PayrollTimeClaim.model.js';
 import { loadEmployeeEvent, employeeAssignedToEvent, isEmployeeEventDay, eventTravelInterval } from './companyEventParticipation.service.js';
 import { getDrivingDistanceMeters, metersToMiles } from './googleDistance.service.js';
@@ -149,7 +150,10 @@ export async function buildEventTravelReport({ eventId, userId, input, db = pool
   for (const journey of eventTravelJourneys(form)) {
     for (const leg of journey.legs) {
       const entered = input.intervals?.[leg.key];
-      const { start, end, minutes } = eventTravelInterval({ travelStartedAt: entered?.startedAt, travelEndedAt: entered?.endedAt }, now);
+      let interval;
+      try { interval = eventTravelInterval({ travelStartedAt: entered?.startedAt, travelEndedAt: entered?.endedAt }, now); }
+      catch (error) { error.message = `${journey.label}, ${leg.from.kind} → ${leg.to.kind}: ${error.message}`; throw error; }
+      const { start, end, minutes } = interval;
       const tripDate = utcDateToZonedYmd(end, event.timezone);
       const deltaDays = (Date.parse(`${tripDate}T12:00:00Z`) - Date.parse(`${form.eventDate}T12:00:00Z`)) / 86400000;
       if ((journey.key === 'outbound' || journey.key === 'pickup') && deltaDays > 0) fail(400, 'Travel to the event and materials pickup must be on or before the event date');
@@ -185,7 +189,10 @@ export async function buildEventTravelReport({ eventId, userId, input, db = pool
     const enabled = key === 'pickup' ? form.materialsPickup === 'before_event' || atHome : ['after_event', 'separate'].includes(form.materialsReturn) || atHome;
     const value = input.handling?.[key];
     if (!enabled || !value?.startedAt && !value?.endedAt) continue;
-    const { start, end, minutes } = eventTravelInterval({ travelStartedAt: value.startedAt, travelEndedAt: value.endedAt }, now);
+    let interval;
+    try { interval = eventTravelInterval({ travelStartedAt: value.startedAt, travelEndedAt: value.endedAt }, now); }
+    catch (error) { error.message = `Materials ${key}: ${error.message}`; throw error; }
+    const { start, end, minutes } = interval;
     const day = utcDateToZonedYmd(end, event.timezone);
     if (Math.abs(Date.parse(day) - Date.parse(form.eventDate)) > 30 * 86400000) flags.push(`Confirm that materials handling on ${day} relates to this event.`);
     if (key === 'pickup' && day > form.eventDate || key === 'return' && day < form.eventDate) fail(400, 'Materials pickup must precede the event and materials return must follow it');
@@ -216,29 +223,51 @@ export async function buildEventTravelReport({ eventId, userId, input, db = pool
       AND event_travel_report_id IS NULL AND status IN ('submitted', 'approved', 'paid', 'deferred')`, [event.agency_id, userId, day]);
     if (existingMileage.length) flags.push(`Other mileage claims already exist on ${day} (#${existingMileage.map(r => r.id).join(', #')}). Verify these trips are not duplicated.`);
   }
-  return { version: 1, eventId: Number(event.id), agencyId: Number(event.agency_id), userId: Number(userId), eventTitle: event.title,
+  const report = { version: 1, eventId: Number(event.id), agencyId: Number(event.agency_id), userId: Number(userId), eventTitle: event.title,
     eventDate: form.eventDate, eventAddress, timezone: event.timezone || 'America/Denver', office: office || null, form, segments,
     flags: [...new Set(flags)], legacyTravelPolicy, windows, reviewed: false,
     totalMinutes: segments.reduce((n, s) => n + (s.timeEligible ? s.minutes : 0), 0),
     totalMiles: round(segments.reduce((n, s) => n + (s.mileageEligible ? Number(s.miles || 0) : 0), 0)) };
+  const currentReport = options.reports.find(r => r.eventId === report.eventId && r.eventDate === report.eventDate);
+  await assertEventTravelNoOverlap({ report, reportId: currentReport?.id || 0, db, now });
+  return report;
 }
 
 export async function assertEventTravelNoOverlap({ report, reportId = 0, db, now = new Date() }) {
-  const [claims] = await db.execute(`SELECT id, payload_json FROM payroll_time_claims
+  const [claims] = await db.execute(`SELECT id, claim_type, payload_json FROM payroll_time_claims
     WHERE agency_id = ? AND user_id = ? AND status IN ('submitted','approved','paid','deferred')
       AND (? = 0 OR COALESCE(event_travel_report_id, 0) <> ?)`, [report.agencyId, report.userId, reportId, reportId]);
   const recorded = claims.flatMap(c => {
     const p = parse(c.payload_json);
-    return p.eventTravelReport?.segments || [{ startedAt: p.travelStartedAt || p.clockInAt || p.startedAt, endedAt: p.travelEndedAt || p.clockOutAt || p.endedAt }];
+    return (p.eventTravelReport?.segments || [{ startedAt: p.travelStartedAt || p.clockInAt || p.startedAt, endedAt: p.travelEndedAt || p.clockOutAt || p.endedAt }]).map(interval => ({ ...interval, attendance: c.claim_type === 'skill_builder_event' && !!p.clockInAt && !!p.clockOutAt }));
   });
   for (const segment of report.segments) {
-    if (recorded.some(o => new Date(o.startedAt) < new Date(segment.endedAt) && new Date(o.endedAt) > new Date(segment.startedAt))) fail(409, 'This trip overlaps another submitted or paid time claim. Correct the existing claim first.');
-    const [punches] = await db.execute(`SELECT p.id FROM skill_builders_event_kiosk_punches p JOIN company_events e ON e.id = p.company_event_id
+    if (recorded.some(o => o.attendance ? overlapsRecordedAttendance(segment, o) : new Date(o.startedAt) < new Date(segment.endedAt) && new Date(o.endedAt) > new Date(segment.startedAt))) fail(409, 'This trip overlaps another submitted or paid time claim. Correct the existing claim first.');
+    const [punches] = await db.execute(`SELECT p.id,e.title,e.timezone,e.ends_at AS event_ends_at,p.punched_at AS started_at,
+      (SELECT MIN(o.punched_at) FROM skill_builders_event_kiosk_punches o WHERE o.company_event_id=p.company_event_id
+        AND o.user_id=p.user_id AND o.punch_type='clock_out' AND o.punched_at>=p.punched_at) AS ended_at
+      FROM skill_builders_event_kiosk_punches p JOIN company_events e ON e.id = p.company_event_id
       WHERE p.user_id = ? AND e.agency_id = ? AND p.punch_type = 'clock_in' AND p.punched_at < ?
       AND COALESCE((SELECT MIN(o.punched_at) FROM skill_builders_event_kiosk_punches o WHERE o.company_event_id = p.company_event_id
-        AND o.user_id = p.user_id AND o.punch_type = 'clock_out' AND o.punched_at >= p.punched_at), ?) > ? LIMIT 1`,
+        AND o.user_id = p.user_id AND o.punch_type = 'clock_out' AND o.punched_at >= p.punched_at), ?) > ?`,
     [report.userId, report.agencyId, new Date(segment.endedAt), now, new Date(segment.startedAt)]);
-    if (punches.length) fail(409, 'This trip overlaps event attendance. Correct your event checkout before submitting travel.');
+    const conflict = punches.find(p => {
+      // A forgotten punch at an ended event is not proof of weeks of continuous work.
+      // Preserve the punch and flag it for payroll instead of blocking unrelated later trips.
+      const start = new Date(segment.startedAt), punchStart = new Date(p.started_at), eventEnd = new Date(p.event_ends_at);
+      if (!p.ended_at && p.event_ends_at && Number.isFinite(+eventEnd) && eventEnd < start && start - punchStart > 86400000) {
+        const day = utcDateToZonedYmd(p.started_at, p.timezone || report.timezone || 'America/Denver');
+        const flag = `Earlier event check-in needs a checkout review: ${p.title || 'Event'} (${day}), attendance record #${p.id}. It has not been extended into this trip.`;
+        report.flags = [...new Set([...(report.flags || []), flag])];
+        return false;
+      }
+      return overlapsRecordedAttendance(segment, {startedAt:p.started_at,endedAt:p.ended_at || now});
+    });
+    if (conflict) {
+      const format = value => new Intl.DateTimeFormat('en-US',{timeZone:conflict.timezone || report.timezone || 'America/Denver',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}).format(new Date(value));
+      const range = conflict.started_at && conflict.ended_at ? ` (${format(conflict.started_at)}–${format(conflict.ended_at)})` : '';
+      fail(409, `${segment.label || 'This trip'} overlaps event attendance${conflict.title ? ` for ${conflict.title}` : ''}${range}. Check the travel dates and AM/PM. If the attendance times are wrong, ask payroll to correct them before submitting travel.`);
+    }
   }
 }
 

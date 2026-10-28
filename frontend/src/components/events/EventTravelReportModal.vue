@@ -32,7 +32,7 @@
             </fieldset>
             <fieldset v-else-if="step === 2" :disabled="busy || locked">
               <legend>Your actual trips</legend>
-              <p class="hint">Saved home, office, and event addresses are filled in for you. Google calculates driving distances. Use actual travel times, excluding personal stops and time already clocked at the event. Times below use your device timezone ({{ deviceTimezone }}).</p>
+              <p class="hint">Saved home, office, and event addresses are filled in for you. Google calculates driving distances. Use actual travel times, excluding personal stops and time already clocked at the event. Check the date and AM/PM for each departure and arrival. Each part of the trip must end after it starts and last no more than 24 hours. Times below use your device timezone ({{ deviceTimezone }}).</p>
               <label>How did you travel?<select aria-label="How did you travel?" v-model="form.vehicle"><option value="personal">I drove my own vehicle</option><option value="company">I drove a company vehicle</option><option value="passenger">I was a passenger / carpooled</option><option value="other">Other transportation</option></select></label>
               <div class="etr-grid"><EventTravelLocation v-model="form.departure" label="Where did you leave from?" :schools="options.schools" :home-address="options.homeAddress" :office-address="selectedOffice?.address" /><EventTravelLocation v-model="form.returnTo" label="Where did you go after the event / materials dropoff?" :schools="options.schools" :home-address="options.homeAddress" :office-address="selectedOffice?.address" /></div>
               <label v-if="usesOffice">Assigned office for pickup / return<select aria-label="Assigned office for pickup / return" v-model="form.officeLocationId" required><option :value="null" disabled>Choose your assigned office</option><option v-for="office in options.offices" :key="office.id" :value="office.id">{{ office.name }}</option></select><span class="hint">{{ selectedOffice?.address || 'Ask your coordinator to update your office assignment if it is missing.' }}</span></label>
@@ -68,7 +68,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import api from '../../services/api';
 import EventTravelLocation from './EventTravelLocation.vue';
 import EventTravelReportSummary from './EventTravelReportSummary.vue';
-import { EVENT_TRAVEL_STEPS, eventTravelDefaultForm, eventTravelJourneys } from '../../navigation/eventTravel.js';
+import { EVENT_TRAVEL_STEPS, eventTravelDefaultForm, eventTravelJourneys, eventTravelInputError } from '../../navigation/eventTravel.js';
 const props = defineProps({ agencyId: { type: Number, required: true }, initialEventId: { type: Number, default: null }, initialEventDate: { type: String, default: '' }, initialMileageClaimId: { type: Number, default: null } });
 const emit = defineEmits(['close', 'submitted']);
 const dialog = ref(null), formElement = ref(null), loading = ref(true), busy = ref(false), error = ref(''), saved = ref(null);
@@ -99,6 +99,7 @@ function payload() {
 }
 async function next() {
   error.value = '';
+  if (step.value === 2) { error.value = eventTravelInputError(form.value); if (error.value) { dialog.value.scrollTop = 0; return; } }
   if (!formElement.value.reportValidity()) return;
   if (step.value === 0 && !selectedEvent.value?.address) { error.value = 'Your coordinator needs to save the venue address first.'; return; }
   if (step.value < 2) { step.value++; return; }

@@ -98,3 +98,11 @@ describe('Event travel reimbursement wizard', () => {
     options.events = []; await open(); expect(wrapper.text()).toContain('No assigned events'); expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined();
   });
 });
+
+it('identifies the exact reversed trip before an API call and retains the entries',async()=>{
+ await open();await chooseEvent();await alreadyHadMaterials();await times();
+ const fields=wrapper.findAll('.etr-leg input[type="datetime-local"]');
+ await fields[1].setValue('2026-10-29T08:20');await submitStep();
+ expect(wrapper.text()).toContain('To the event (home → event): arrival must be after departure');
+ expect(api.post).not.toHaveBeenCalled();expect(fields[1].element.value).toBe('2026-10-29T08:20');
+});

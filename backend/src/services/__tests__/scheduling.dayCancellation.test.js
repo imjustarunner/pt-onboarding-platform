@@ -39,6 +39,7 @@ beforeEach(() => {
     completeAppointment: vi.fn(async id => { appointments.find(a => a.id === id).status = 'canceled_by_provider'; return { notificationDelivery: { sent: 1, failed: 0 } }; }),
     editPublication: vi.fn(async options => { weekly.find(r => r.id === options.id).excluded_dates_json = JSON.stringify([options.occurrenceDate]); }),
     contacts: vi.fn(async id => ({ clientId: id, clientName: 'Client One', mode:'guardian', channels:['email'], contacts:[], recipients:[] })),
+    roster: vi.fn(async () => []), rosterReview: vi.fn(), notifyRoster: vi.fn(async () => ({ sent: 1 })),
     schools: vi.fn(async () => []), schoolReview: (item, edits) => ({ ...item, ...edits }), notifySchool: vi.fn(async () => ({sent:1})),
     cancellationMessage: vi.fn(() => ({ subject:'Canceled', text:'Canceled', when:'Wednesday' })), validateOffer: vi.fn(),
     ensureTask: vi.fn(async () => 72), completeTask: vi.fn(), notifyAppointment: vi.fn(async () => ({ pending: 1 })), invalidate: vi.fn() };
@@ -207,4 +208,31 @@ it('defers family and school notifications and creates one durable follow-up tas
   result=await apply(followup); while(result.status === 'processing') result=await apply(followup);
   expect(dependencies.completeAppointment).toHaveBeenCalledTimes(1); expect(dependencies.notifyAppointment).toHaveBeenCalledTimes(1);
   expect(dependencies.notifySchool).toHaveBeenCalledTimes(1); expect(blocks).toHaveLength(1); expect(dependencies.completeTask).toHaveBeenCalledWith(plan.token);
+});
+
+describe('assigned-day clients without appointments',()=>{
+  function roster(){
+    dependencies.roster.mockResolvedValue([{client_id:12,school_id:4}]);
+    dependencies.rosterReview.mockImplementation(async(row,args)=>({key:`school_roster:${args.agencyId}:9:${args.date}:12:4`,kind:'school_roster',clientId:12,schoolId:4,agencyId:args.agencyId,date:args.date,source:{assignment:row},clients:[]}));
+  }
+  it('includes the family with no appointment and sends only after confirmation',async()=>{
+    appointments=[];roster();const plan=await preview();expect(plan.items.map(i=>i.kind)).toEqual(['school_roster']);
+    expect(dependencies.notifyRoster).not.toHaveBeenCalled();await apply(plan);expect(dependencies.notifyRoster).toHaveBeenCalledTimes(1);
+    expect(dependencies.completeAppointment).not.toHaveBeenCalled();
+  });
+  it('does not duplicate a booked client or include roster notices for selected sessions',async()=>{
+    roster();recipients=[{clientId:12}];expect((await preview()).items.map(i=>i.kind)).toEqual(['appointment']);
+    dependencies.roster.mockClear();await service.preview({...input,scopeMode:'sessions',appointmentIds:[1]},actor,authorize,appointmentAccess);
+    expect(dependencies.roster).not.toHaveBeenCalled();
+  });
+  it('revalidates the assignment fingerprint before blocking the day',async()=>{
+    appointments=[];roster();const plan=await preview();dependencies.roster.mockResolvedValue([]);
+    await expect(apply(plan)).rejects.toThrow('schedule changed');expect(blocks).toHaveLength(0);
+  });
+  it('keeps deferred roster notices for later explicit approval',async()=>{
+    appointments=[];roster();const plan=await service.preview({...input,notificationMode:'none',suppressionReason:'Review contacts'},actor,authorize,appointmentAccess);
+    await apply(plan);expect(dependencies.notifyRoster).not.toHaveBeenCalled();expect(dependencies.ensureTask).toHaveBeenCalled();
+    const deferred=await service.preview({...input,deferredToken:plan.token},actor,authorize,appointmentAccess);
+    expect(deferred.items[0].kind).toBe('school_roster');
+  });
 });

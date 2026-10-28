@@ -46,3 +46,27 @@ export function recommendEventTravelLeg({ from, to, journey, form, legacyTravelP
           : 'Ordinary home-to-work travel; review any reported exceptions.',
     needsReview: !!review };
 }
+
+/** Validate visible legs before sending, with enough context to fix one field. */
+export function eventTravelInputError(form, now = new Date()) {
+  const check = (row, label, optional = false) => {
+    if (optional && !row?.startedAt && !row?.endedAt) return '';
+    if (!row?.startedAt || !row?.endedAt) return `${label}: enter both departure and arrival dates and times.`;
+    const start = new Date(row.startedAt), end = new Date(row.endedAt);
+    if (!Number.isFinite(+start) || !Number.isFinite(+end)) return `${label}: enter valid dates and times.`;
+    if (end <= start) return `${label}: arrival must be after departure. Check the dates and AM/PM.`;
+    if (+end - +start > 86400000) return `${label}: this part of the trip is longer than 24 hours. Check the dates and AM/PM.`;
+    if (+end - +start < 60000) return `${label}: enter at least one minute of travel.`;
+    if (end > now) return `${label}: arrival cannot be in the future.`;
+    return '';
+  };
+  for (const journey of eventTravelJourneys(form)) for (const leg of journey.legs) {
+    const issue = check(form.intervals?.[leg.key], `${journey.label} (${leg.from.kind} → ${leg.to.kind})`);
+    if (issue) return issue;
+  }
+  for (const key of ['pickup','return']) {
+    const enabled = key === 'pickup' ? ['already_had','before_event'].includes(form.materialsPickup) : ['kept','after_event','separate'].includes(form.materialsReturn);
+    if (enabled) { const issue = check(form.handling?.[key], `Materials ${key}`, true); if (issue) return issue; }
+  }
+  return '';
+}

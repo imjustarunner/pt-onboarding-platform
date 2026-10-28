@@ -27,7 +27,7 @@ const sql = async (query, args = []) => {
   if (query.includes('FROM company_event_travel_policy')) return [[{ effective_at: policyDate }]];
   if (query.includes('event_travel_report_id IS NULL AND status')) return [[]];
   if (query.includes('FROM skill_builders_event_kiosk_punches')) return [overlaps ? [{ id: 44 }] : []];
-  if (query.includes('SELECT id, payload_json FROM payroll_time_claims')) return [savedClaims];
+  if (query.includes('payload_json FROM payroll_time_claims')) return [savedClaims];
   if (query.includes('SELECT * FROM company_event_travel_reports')) return [existingReport ? [existingReport] : []];
   if (query.includes('SELECT id FROM users')) return [[{ id: 7 }]];
   if (query.includes('SELECT status FROM payroll_')) return [[{ status: 'submitted' }]];
@@ -190,4 +190,32 @@ describe('one event travel report', () => {
     const db = { execute: vi.fn(sql), beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() }; pool.getConnection.mockResolvedValue(db);
     await expect(reviewEventTravelReport({ id: 66, reviewerId: 9, input: { revision: 1, note: 'Reviewed', segments: report.segments.map(s => ({ ...s, mileageEligible: true, miles: 4 })) } })).rejects.toThrow('Only personal');
   });
+});
+
+
+it('checks overlaps at preview and reports the specific route for invalid dates',async()=>{
+ overlaps=true;await expect(build(formWithRoute())).rejects.toThrow('event attendance');overlaps=false;
+ const f=formWithRoute();f.intervals['outbound-0'].endedAt='2026-10-29T13:00:00Z';
+ await expect(build(f)).rejects.toThrow('To the event, home → event: Arrival must be after departure');
+});
+it('allows the checkout minute but rejects a full minute of overlapping attendance',async()=>{
+ const report={agencyId:2,userId:7,timezone:'America/Denver',segments:[{startedAt:'2026-10-25T03:40:00Z',endedAt:'2026-10-25T04:00:00Z'}]};
+ savedClaims=[{claim_type:'skill_builder_event',payload_json:{clockInAt:'2026-10-24T21:41:44Z',clockOutAt:'2026-10-25T03:40:33.371Z'}}];
+ pool.execute.mockImplementation((q,a)=>q.includes('FROM skill_builders_event_kiosk_punches')?[[{id:1,title:'Zoo',timezone:'America/Denver',started_at:new Date('2026-10-24T21:41:44Z'),ended_at:new Date('2026-10-25T03:40:33Z')}]]:sql(q,a));
+ await expect(assertEventTravelNoOverlap({report,db:pool})).resolves.toBeUndefined();
+ report.segments[0].startedAt='2026-10-25T03:39:00Z';await expect(assertEventTravelNoOverlap({report,db:pool})).rejects.toThrow('overlaps another');
+});
+
+
+it('flags an old unclosed check-in without treating it as continuous attendance into later trips',async()=>{
+ const report={agencyId:2,userId:7,eventId:230,timezone:'America/Denver',segments:[{startedAt:'2026-10-25T03:40:00Z',endedAt:'2026-10-25T04:00:00Z'}]};
+ pool.execute.mockImplementation((q,a)=>q.includes('FROM skill_builders_event_kiosk_punches')?[[{id:44,title:'August event',timezone:'America/Denver',started_at:new Date('2026-08-26T01:31:00Z'),ended_at:null,event_ends_at:new Date('2026-08-26T03:00:00Z')}]]:sql(q,a));
+ await expect(assertEventTravelNoOverlap({report,db:pool})).resolves.toBeUndefined();
+ expect(report.flags.join(' ')).toContain('attendance record #44');
+ expect(pool.execute.mock.calls.some(([q])=>/^UPDATE|^INSERT/.test(q))).toBe(false);
+});
+it('still blocks an open check-in on the travel day',async()=>{
+ const report={agencyId:2,userId:7,timezone:'America/Denver',segments:[{startedAt:'2026-10-25T03:40:00Z',endedAt:'2026-10-25T04:00:00Z'}]};
+ pool.execute.mockImplementation((q,a)=>q.includes('FROM skill_builders_event_kiosk_punches')?[[{id:44,title:'Today event',timezone:'America/Denver',started_at:new Date('2026-10-25T00:00:00Z'),ended_at:null,event_ends_at:new Date('2026-10-25T03:00:00Z')}]]:sql(q,a));
+ await expect(assertEventTravelNoOverlap({report,db:pool})).rejects.toThrow('event attendance');
 });

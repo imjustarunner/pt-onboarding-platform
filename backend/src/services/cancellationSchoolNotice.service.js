@@ -18,7 +18,7 @@ export function createCancellationSchoolNoticeService(overrides = {}) {
     return rows.map(s => ({ key: `school:${agencyId}:${s.id}:${date}`, kind: 'school', id: Number(s.id), agencyId, date,
       title: `${s.name} — school cancellation notice`, recipients: [...new Set([s.primary_contact_email, s.itsco_email].filter(Boolean).map(e => String(e).trim().toLowerCase()))],
       message: { subject: `${s.provider_name || 'Provider'} — schedule change for ${date}`,
-        text: `${s.provider_name || 'Your assigned provider'} ${wholeDay ? 'has canceled their sessions' : 'has canceled selected sessions'} on ${date}.\n\nCategory: ${reason}\n\nFamilies will receive separate cancellation and rescheduling instructions. Please contact our support team if you need help coordinating the school schedule.` } }));
+        text: `${s.provider_name || 'Your assigned provider'} ${wholeDay ? 'has canceled their sessions' : 'has canceled selected sessions'} on ${date}.\n\nCategory: ${reason}\n\nFamily notifications are handled separately according to available contact details and notification preferences. Please contact our support team if you need help coordinating the school schedule.` } }));
   }
   function review(item, edits, required = false) {
     const recipients = edits?.recipients ?? item.recipients;

@@ -6,6 +6,7 @@ import {
 } from '../utils/supportEmailDraft.shared.js';
 import { summarizeLibrarySources } from '../utils/schoolSupportReplyLibrary.shared.js';
 import { lookupSupportEnrollment } from './supportEnrollmentLookup.service.js';
+import { lookupSupportProviderAbsence, providerAbsenceReply } from './supportProviderAbsence.service.js';
 
 function currentDraftContext(input) {
   return buildSupportEmailDraftContext({
@@ -20,8 +21,9 @@ export async function prepareSupportEmailDraftInput(input, dependencies = {}) {
   const context = currentDraftContext(input);
   if (classifySupportEmailDraft(context).suppressed) return input;
   const lookup = dependencies.lookupEnrollment || lookupSupportEnrollment;
-  const enrollmentLookup = await lookup(context, dependencies);
-  return enrollmentLookup ? { ...input, enrollmentLookup } : input;
+  const enrollmentLookup = input.enrollmentLookup || await lookup(context, dependencies);
+  const providerAbsence = await (dependencies.lookupProviderAbsence || lookupSupportProviderAbsence)(context, dependencies);
+  return { ...input, enrollmentLookup, providerAbsence, supportLookupsPrepared: true };
 }
 
 /** Pure preflight. Current suppression evidence always takes priority over cache reuse. */
@@ -49,7 +51,7 @@ export function assessSupportEmailDraftReuse(input, snapshot = null) {
 
 /** No persistence and no email send: callers snapshot this result before offering it for review. */
 export async function generateSupportEmailDraft(input, dependencies = {}) {
-  if (!input.enrollmentLookup) input = await prepareSupportEmailDraftInput(input, dependencies);
+  if (!input.supportLookupsPrepared) input = await prepareSupportEmailDraftInput(input, dependencies);
   const context = currentDraftContext(input);
   const classification = classifySupportEmailDraft(context);
   const baseMetadata = {
@@ -61,6 +63,7 @@ export async function generateSupportEmailDraft(input, dependencies = {}) {
     claimantName: context.claimant.name,
     latestInboundMessageId: context.latestInbound.id || null,
     ...(context.enrollmentLookup ? { enrollmentLookup: context.enrollmentLookup } : {}),
+    ...(context.providerAbsence ? { providerAbsence: context.providerAbsence } : {}),
     generatedForTicketId: context.ticketId,
     standards: SUPPORT_EMAIL_REPLY_STANDARDS.map(({ id, source, evidence }) => ({ id, source, evidence, provenance: 'review_derived_standard', approval: 'not_reviewed_by_rachel' })),
     draftSources: [
@@ -78,6 +81,14 @@ export async function generateSupportEmailDraft(input, dependencies = {}) {
   if (classification.suppressed) {
     return { text: '', status: 'suppressed', suppressed: true, suppressionReason: classification.reason, metadata: { ...baseMetadata, knowledgeSources: [] } };
   }
+
+  const absenceReply = providerAbsenceReply(context.providerAbsence);
+  if (absenceReply) return { text: absenceReply, status: 'needs_review', suppressed: false, provider: 'records', modelName: 'provider-absence-v1',
+    metadata: { ...baseMetadata, knowledgeSources: [], usedEvidenceIds: [context.latestInbound.evidenceId],
+      reviewWarnings: ['Provider must review recipients and confirm; this draft has not canceled a day or notified families.'],
+      proposedFollowUps: ['Review delivery results and separately follow up on missing contacts or held notifications.'],
+      draftSources: [...baseMetadata.draftSources, { type: 'provider_assignment', id: context.providerAbsence.providerId,
+        label: 'Verified provider and current school-day assignments', detail: context.providerAbsence.date }] } };
 
   // Directory-grounded options for explicit external referral requests. Never
   // manufacture providers, availability, credentials or insurance acceptance.

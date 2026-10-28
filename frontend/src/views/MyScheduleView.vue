@@ -1,6 +1,10 @@
 <template>
   <div class="my-schedule-page" data-testid="my-schedule-page">
     <div class="my-schedule-page__inner">
+      <p v-if="cancelDayLink?.error" role="alert">{{ cancelDayLink.error }}</p>
+      <DayCancellationDialog v-if="cancelDayLink && !cancelDayLink.error && !cancelDayLinkClosed"
+        :date="cancelDayLink.date" :provider-id="cancelDayLink.providerId" :agency-id="cancelDayLink.agencyId"
+        @close="closeCancelDayLink" @saved="scheduleRevision++" />
       <DashboardLearningTips :user="authStore.user" :enabled="!!authStore.user?.id" />
       <div v-if="!authStore.user?.id" class="muted">Sign in to view your schedule.</div>
       <ScheduleHubPanel
@@ -55,7 +59,7 @@
         <OfficeAssignmentUsageReviews />
         <ProviderCopayAttendance />
         <TeamAvailabilityCalendar v-if="teamUserId" :user-id="teamUserId" :agency-id="Number(agencyStore.currentAgency?.id) || null" :name="teamUserName" :week-start-ymd="weekStartYmd || null" @update:weekStartYmd="onWeekStartUpdate" />
-        <ScheduleAvailabilityGrid v-else
+        <ScheduleAvailabilityGrid v-else :key="scheduleRevision"
           :user-id="Number(authStore.user.id)"
           :mode="'self'"
           :compact-page-chrome="true"
@@ -76,7 +80,9 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
+import DayCancellationDialog from '../components/schedule/DayCancellationDialog.vue';
+import { dayCancellationLinkContext } from '../utils/dayCancellationLink.js';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
@@ -95,6 +101,15 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const cancelDayLinkClosed = ref(false), scheduleRevision = ref(0);
+const cancelDayLink = computed(() => authStore.user?.id ? dayCancellationLinkContext(route.query, authStore.user.id) : null);
+watch(() => route.query.cancelDay, () => { cancelDayLinkClosed.value = false; });
+function closeCancelDayLink() {
+  cancelDayLinkClosed.value = true;
+  const query = { ...route.query }; delete query.cancelDay; delete query.providerId; delete query.agencyId;
+  router.replace({ query });
+}
+
 
 const orgSlug = computed(() => (
   typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : ''
