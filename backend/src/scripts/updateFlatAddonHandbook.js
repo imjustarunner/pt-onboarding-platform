@@ -36,9 +36,8 @@ try {
   const matches = entries.filter(e => e.handbook_section_slug === FLAT_ADDON_HANDBOOK_SLUG || e.subject === update.subject);
   if (matches.length > 1) throw Error('Multiple flat add-on entries require reconciliation.');
   const entry = matches[0];
-  if (entry && (entry.subject !== update.subject || entry.rationale !== update.rationale || entry.changed_content !== update.changedContent || entry.handbook_section_slug !== FLAT_ADDON_HANDBOOK_SLUG)) {
-    throw Error('A different November flat add-on entry exists; preserve it for reconciliation.');
-  }
+  const updateEntry = !!entry && (entry.subject !== update.subject || entry.rationale !== update.rationale || entry.changed_content !== update.changedContent || entry.handbook_section_slug !== FLAT_ADDON_HANDBOOK_SLUG);
+  if (updateEntry && !process.argv.includes('--revise-existing-entry')) throw Error('An existing November entry differs; review and use --revise-existing-entry for an explicitly authorized draft correction.');
   const amended = applyFlatAddonHandbookAmendment({ sections: sections.map(s => ({
     slug: s.slug, parentSlug: s.parent_slug, title: s.title, status: s.content_status, bodyHtml: s.body_html
   })) }, 'itsco').sections;
@@ -55,8 +54,8 @@ try {
   const stateHash = hash(snapshot);
   const report = { mode: apply ? 'applied' : 'dry-run', agencyId: agency.id, versionId: version.id,
     stateHash, sectionChanges: changes.map(({ before, section }) => ({ id: before?.id || null, slug: section.slug, kind: before ? 'updated' : 'added', bodyHash: hash(section.bodyHtml) })),
-    digestId: digest.id, digestStatus: digest.status, addNovemberEntry: !entry, publishedVersionId: document.published_version_id, messagesSent: 0 };
-  if (apply && (changes.length || !entry)) {
+    digestId: digest.id, digestStatus: digest.status, addNovemberEntry: !entry, updateNovemberEntry: updateEntry, publishedVersionId: document.published_version_id, messagesSent: 0 };
+  if (apply && (changes.length || !entry || updateEntry)) {
     if (process.env.EXPECTED_STATE_HASH !== stateHash) throw Error('State changed or expected hash missing; review a fresh dry run.');
     if (!process.env.UPDATE_BACKUP_PATH) throw Error('A new private backup path is required.');
     fs.writeFileSync(process.env.UPDATE_BACKUP_PATH, JSON.stringify(snapshot, null, 2), { mode: 0o600, flag: 'wx' });
@@ -71,6 +70,8 @@ try {
       VALUES(?,?,?,?,?,?,?,'added',?)`, [digest.id, agency.id, Math.max(0, ...entries.map(e => Number(e.sort_order) || 0)) + 1,
       update.subject, update.rationale, update.changedContent, FLAT_ADDON_HANDBOOK_SLUG,
       sections.filter(s => changes.some(c => c.before?.id === s.id)).map(s => `<h3>${s.title}</h3>${s.body_html}`).join('\n')]);
+    if (updateEntry) await db.execute('UPDATE workplace_handbook_digest_entries SET subject=?,rationale=?,changed_content=?,handbook_section_slug=? WHERE id=? AND digest_id=?',
+      [update.subject,update.rationale,update.changedContent,FLAT_ADDON_HANDBOOK_SLUG,entry.id,digest.id]);
     const actorUserId = Number(process.env.UPDATE_ACTOR_USER_ID);
     if (!Number.isSafeInteger(actorUserId) || actorUserId <= 0) throw Error('An accountable actor is required.');
     const [audit] = await db.execute('INSERT INTO user_activity_log(action_type,user_id,agency_id,metadata) VALUES(?,?,?,?)',

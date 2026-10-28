@@ -40,30 +40,30 @@ import {estimatePay} from '../paySystem.service.js';
 import {shouldSuggest99051,resolveNoteAidBillingCodes} from '../../utils/noteAidBillingAddons.js';
 import {applyFlatAddonHandbookAmendment,FLAT_ADDON_POLICY_HTML} from '../../content/flatAddonHandbookAmendment.js';
 const flatRules = [
- {service_code:'90785',pay_system_bucket:'flat',flat_rate_amount:4,category:'direct',credit_value:1,pay_divisor:1},
+ {service_code:'90785',pay_system_bucket:'flat',flat_rate_amount:2,category:'direct',credit_value:1,pay_divisor:1},
  {service_code:'99051',pay_system_bucket:'flat',flat_rate_amount:2,category:'direct',credit_value:1,pay_divisor:1}
 ];
 const bonusProfile={...profile,tierBonus:{3:2},spanishBonus:{3:5},locationBonus:{3:5}};
 const bonusStatus={tierLevel:3,spanishBonusEligible:true,locationBonusEligible:true};
-it('flat add-ons pay exactly $4/$2 without credits, hours, auto-indirect or conditional bonuses',()=>{
+it('flat add-ons pay exactly $2/$2 without credits, hours, auto-indirect or conditional bonuses',()=>{
  const result=estimatePay({rateProfile:bonusProfile,status:bonusStatus,lines:[{serviceCode:'90785',quantity:2},{serviceCode:'99051',quantity:3}],rulesByCode:new Map(flatRules.map(r=>[r.service_code,r]))});
- expect(result.summary).toMatchObject({grandTotal:14,flatPay:14,credits:0,totalHourEquivalent:0,directPay:0,indirectPay:0,totalBonusAmount:0});
- expect(result.lines.map(l=>l.lineTotal)).toEqual([8,6]);
+ expect(result.summary).toMatchObject({grandTotal:10,flatPay:10,credits:0,totalHourEquivalent:0,directPay:0,indirectPay:0,totalBonusAmount:0});
+ expect(result.lines.map(l=>l.lineTotal)).toEqual([4,6]);
  expect(result.lines.every(l=>l.bucketLabel==='Flat add-on'&&l.payHours===0&&l.creditValue===0)).toBe(true);
- expect(compensationCodes(flatRules).map(c=>c.quantityLabel)).toEqual(['$4.00 per eligible occurrence · no credits or hours','$2.00 per eligible occurrence · no credits or hours']);
+ expect(compensationCodes(flatRules).map(c=>c.quantityLabel)).toEqual(['$2.00 per eligible occurrence · no credits or hours','$2.00 per eligible occurrence · no credits or hours']);
 });
 it('actual payroll uses the same flat amounts, including reduced rates, without leave or bonus hours',()=>{
  const breakdown=Object.fromEntries(flatRules.map(r=>[r.service_code,{units:3,finalizedUnits:3,category:'direct',paySystemBucket:'flat',flatRateAmount:r.flat_rate_amount,creditValue:1,payDivisor:1}]));
  const result=applyPaySystemToBreakdown({breakdown,rateProfile:{...bonusProfile,creditRateProbation:38},status:{...bonusStatus,useReducedRates:true}});
- expect(result.paySystemTotal).toBe(18);expect(result.bonuses.totalBonusAmount).toBe(0);
+ expect(result.paySystemTotal).toBe(12);expect(result.bonuses.totalBonusAmount).toBe(0);
  expect(Object.values(result.leaveBasis).every(n=>n===0)).toBe(true);
- expect(breakdown['90785']).toMatchObject({amount:12,rateAmount:4,rateUnit:'per_unit',hours:0,creditsHours:0,payHours:0});
+ expect(breakdown['90785']).toMatchObject({amount:6,rateAmount:2,rateUnit:'per_unit',hours:0,creditsHours:0,payHours:0});
 });
 it('adding add-ons does not increase the clinical service bonus or hour basis',()=>{
  const calc=lines=>estimatePay({rateProfile:bonusProfile,status:bonusStatus,lines,rulesByCode:new Map([...rules,...flatRules].map(r=>[r.service_code,r]))});
  const base=calc([{serviceCode:'90791',quantity:1}]);
  const withAddons=calc([{serviceCode:'90791',quantity:1},{serviceCode:'90785',quantity:1},{serviceCode:'99051',quantity:1}]);
- expect(withAddons.summary.grandTotal-base.summary.grandTotal).toBe(6);
+ expect(withAddons.summary.grandTotal-base.summary.grandTotal).toBe(4);
  expect(withAddons.summary.credits).toBe(base.summary.credits);
  expect(withAddons.summary.totalBonusAmount).toBe(base.summary.totalBonusAmount);
 });
