@@ -749,6 +749,17 @@ function buildPacketStyleBlock(brand = null) {
       .packet-staff-table { font-size: 11px; }
       .packet-staff-table th, .packet-staff-table td { padding: 4px 6px; }
       .packet-staff-table th { background: #f3f4f6; font-weight: 700; }
+      /* Leave the wording/type sizes intact; reclaim whitespace on the ROI
+         roster page so the longer Spanish copy still leaves room to sign. */
+      .packet-roi-staff { line-height: 1.4; }
+      .packet-roi-staff h3 { margin: 12px 0 8px; }
+      .packet-roi-staff p, .packet-roi-staff li { margin-bottom: 6px; }
+      .packet-roi-staff ul { margin-top: 8px; margin-bottom: 10px; }
+      .packet-roi-staff table { margin: 6px 0 10px; }
+      .packet-roi-staff .signature-box { margin-top: 12px; }
+      /* With a larger roster, move the closing disclosures/contact/signature
+         together instead of leaving a signature alone on the next page. */
+      .packet-roi-closing { break-inside: avoid; page-break-inside: avoid; }
       .deny-col, .deny-cell { width: 0.85in; text-align: center; white-space: nowrap; }
       .deny-label { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
       .deny-box { font-size: 13px; line-height: 1; }
@@ -913,6 +924,21 @@ function buildPacketStyleBlock(brand = null) {
   `;
 }
 
+function prepareRoiStaffLayout(templateHtml) {
+  // Apply at render time so already-saved agency templates receive the fix too.
+  // Only touch a complete, explicitly paginated roster/signature section.
+  return String(templateHtml).replace(
+    /(<div class="page-break"><\/div>)([\s\S]*?)(?=<div class="page-break"><\/div>)/g,
+    (match, pageBreak, section) => {
+      if (!section.includes('{{SCHOOL_STAFF_TABLE}}') || !section.includes('class="signature-box"')) return match;
+      const roster = /<p>\s*\{\{SCHOOL_STAFF_TABLE\}\}\s*<\/p>/.exec(section);
+      if (!roster) return match;
+      const closingStart = roster.index + roster[0].length;
+      return `${pageBreak}<div class="packet-roi-staff">${section.slice(0, closingStart)}<div class="packet-roi-closing">${section.slice(closingStart)}</div></div>`;
+    }
+  );
+}
+
 function buildPacketBodyContentHtml(packetContext = {}) {
   const schoolName = packetContext?.organization?.name || '';
   const schoolAddress = packetContext?.organization?.address || '';
@@ -926,7 +952,7 @@ function buildPacketBodyContentHtml(packetContext = {}) {
     : watermarkDataUrl();
 
   const bodyHtml = substituteTokens(
-    packetContext?.templateHtml || DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML,
+    prepareRoiStaffLayout(packetContext?.templateHtml || DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML),
     {
       SCHOOL_NAME: escapeHtml(schoolName),
       SCHOOL_ADDRESS: escapeHtml(schoolAddress),
@@ -1123,6 +1149,7 @@ export function schoolPrintablePacketContentHash(packetContext = {}) {
   // not the other way around, so including it would create a circular dependency.
   const payload = JSON.stringify({
     v: SCHOOL_PRINTABLE_PACKET_VERSION,
+    layoutRevision: 2, // Invalidate stored PDFs after the ROI pagination fix.
     locale: packetContext.locale || 'en',
     templateVersion: Number(packetContext.version || 1),
     templateHtml: packetContext.templateHtml || '',
