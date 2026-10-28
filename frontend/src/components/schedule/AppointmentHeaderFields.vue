@@ -37,13 +37,14 @@
       <div class="ahf-when-row ahf-when-row--section">
         <label class="ahf-date-picker" :class="{ disabled }">
           <span class="ahf-label">Date</span>
-          <span class="ahf-date-display">{{ formattedDateLabel }}</span>
           <input
             class="ahf-input ahf-input--date"
             type="date"
             :value="dateYmd"
             :disabled="disabled"
+            :title="formattedDateLabel"
             aria-label="Appointment date"
+            @click="openDatePicker"
             @change="emit('update:dateYmd', String($event.target.value || ''))"
           />
         </label>
@@ -751,6 +752,16 @@ watch(
   }
 );
 
+function openDatePicker(event) {
+  const input = event.currentTarget;
+  if (props.disabled) return;
+  try {
+    input.showPicker?.();
+  } catch {
+    // Some browsers restrict showPicker; keep the native field editable.
+  }
+}
+
 const formattedDateLabel = computed(() => {
   const ymd = String(props.dateYmd || '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return 'Pick a date';
@@ -910,34 +921,16 @@ function nudgeEnd(deltaMin) {
   gap: 6px 8px;
 }
 .ahf-date-picker {
-  position: relative;
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   min-width: 168px;
   cursor: pointer;
 }
 .ahf-date-picker.disabled { cursor: not-allowed; opacity: 0.65; }
-.ahf-date-display {
-  display: inline-flex;
-  align-items: center;
-  min-height: 36px;
-  padding: 0 10px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: #fff;
-  font-size: 0.86rem;
-  font-weight: 700;
-  color: #0f172a;
-  white-space: nowrap;
-  pointer-events: none;
-}
-.ahf-date-picker .ahf-input--date {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
-  width: 100%;
-  height: 100%;
+.ahf-input--date:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
 }
 .ahf-when-block {
   display: flex;
