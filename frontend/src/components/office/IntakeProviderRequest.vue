@@ -14,7 +14,7 @@
       <p v-if="error" role="alert">{{ error }}</p>
       <p v-if="notice" role="status">{{ notice }}</p>
     </div>
-    <button type="button" @click="$emit('remove')">{{ spanish ? 'Quitar preferencia' : 'Remove preference' }}</button>
+    <button v-if="!readonly" type="button" @click="$emit('remove')">{{ spanish ? 'Quitar preferencia' : 'Remove preference' }}</button>
   </section>
 </template>
 
@@ -22,7 +22,7 @@
 import { computed, ref, watch } from 'vue';
 import ProviderLanguageBadges from '../publicServices/ProviderLanguageBadges.vue';
 import { openingPreferencePresentation } from '../../utils/openingPreferencePresentation';
-const props = defineProps({ provider: Object, opening: Object, error: String, notice: String, locale: String });
+const props = defineProps({ provider: Object, opening: Object, error: String, notice: String, locale: String, readonly: Boolean });
 defineEmits(['remove']);
 const spanish = computed(() => String(props.locale || '').startsWith('es'));
 const openingSummary = computed(() => openingPreferencePresentation(props.opening, spanish.value ? 'es' : 'en-US'));

@@ -4862,7 +4862,7 @@ const terminatedStatusId = computed(() => {
   return s ? String(s.id) : '';
 });
 const isTerminatedStatusSelected = computed(() =>
-  editingOverview.value && overviewForm.value.client_status_id === terminatedStatusId.value
+  editingOverview.value && !!terminatedStatusId.value && overviewForm.value.client_status_id === terminatedStatusId.value
 );
 
 // Client identifier code (6-digit, permanent)
@@ -5227,7 +5227,8 @@ const cancelEditOverview = () => {
 };
 
 const jumpToEditDemographics = async () => {
-  setChartNav('account', 'demographics');
+  // Demographics fields live in the profile editor; 'demographics' is not a tab.
+  setChartNav('account', 'profile');
   await startEditOverview(true);
 };
 

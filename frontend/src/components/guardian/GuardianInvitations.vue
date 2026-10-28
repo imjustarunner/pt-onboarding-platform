@@ -30,6 +30,7 @@
   </section>
 </template>
 <script setup>
+import {portalDateTime} from '../../utils/portalDates';
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 const props = defineProps({ agencyId: [Number, String], clientId: [Number,String], language: { type: String, default: 'en' } });
@@ -37,10 +38,8 @@ const es = computed(() => props.language === 'es');
 const invitations = ref([]), error = ref(''), busy = ref(null);
 const isFailed = invite => ['failed','bounced','undelivered','not_sent'].includes(invite.deliveryStatus);
 function deliveryLabel(status) { return ({sent:es.value?'Enviada':'Sent',delivered:es.value?'Entregada':'Delivered',failed:es.value?'No enviada':'Failed',bounced:es.value?'Rechazada':'Bounced',pending:es.value?'Pendiente':'Pending',sending:es.value?'Enviando':'Sending'})[status] || status; }
-function dateText(value) {
-  const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat(es.value ? 'es-US' : 'en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(date) : '';
-}
+function dateText(value) { return portalDateTime(value, {locale:es.value ? 'es-US' : 'en-US'}); }
+
 function statusText(invite) {
   if (invite.status === 'accepted') return Number(invite.accountConnected)
     ? (es.value ? 'Invitación aceptada. El tutor tiene su propia cuenta conectada al portal.' : 'Invitation accepted. This guardian has their own connected portal account.')

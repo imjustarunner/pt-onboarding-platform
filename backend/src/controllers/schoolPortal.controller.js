@@ -4370,6 +4370,10 @@ export const addSchoolStaff = async (req, res, next) => {
       roleTitle: roleTitle !== undefined ? roleTitle : undefined,
       groupEmailSubscription
     });
+    // Group subscription is independent of account access. A missing Google
+    // Group must not strand an already-created staff member without an invitation.
+    let groupSubscriptionWarning = null;
+    try {
     await applySchoolGroupSubscription({
       schoolOrganizationId: orgId,
       email,
@@ -4379,6 +4383,10 @@ export const addSchoolStaff = async (req, res, next) => {
       displayName: fullName || `${user.first_name || ''} ${user.last_name || ''}`.trim() || null,
       notify: groupEmailSubscription !== 'all_mail'
     });
+    } catch (error) {
+      groupSubscriptionWarning = 'The account was created, but its school group email subscription needs support follow-up.';
+      console.warn('[addSchoolStaff] Group subscription pending:', error?.code || 'subscription_failed');
+    }
 
     const setupLink = await User.generatePasswordlessToken(user.id, 24 * 7, 'setup');
     const config = (await import('../config/config.js')).default;
@@ -4414,8 +4422,27 @@ export const addSchoolStaff = async (req, res, next) => {
       }
     }).catch(() => {});
 
-    // Respond as soon as the account exists. SMTP hangs were leaving the portal spinner
-    // running even after the staff member was already created.
+    // Await the send attempt: post-response work may be suspended by the host.
+    // Return its actual outcome so the caller never mistakes creation for delivery.
+    let welcomeDelivery = null;
+    let welcomeError = null;
+    if (to) {
+      try {
+        const { sendSchoolStaffWelcomeEmail } = await import('../services/schoolStaffWelcomeEmail.service.js');
+        welcomeDelivery = await sendSchoolStaffWelcomeEmail({
+          agencyId: activeAgencyId, schoolOrganizationId: orgId,
+          userId: addedUserId, actorUserId: actorId, to,
+          firstName: addedFirstName, schoolName: orgName,
+          isSchoolAdmin: assignSchoolAdmin, isScheduler: assignScheduler,
+          accessUrl: setupUrl, setup: true
+        });
+      } catch (error) {
+        welcomeError = 'The setup email could not be sent. The account is saved; use Send recovery email or contact support.';
+        console.error('[addSchoolStaff] Welcome email failed:', error?.code || 'send_failed');
+      }
+    }
+    const emailQueued = welcomeDelivery?.queued === true;
+    const emailSent = !!welcomeDelivery?.id && !welcomeDelivery?.blocked && !welcomeDelivery?.skipped && !emailQueued;
     res.status(201).json({
       ok: true,
       user: {
@@ -4430,32 +4457,16 @@ export const addSchoolStaff = async (req, res, next) => {
       },
       setupLink: setupUrl,
       setupExpiresAt,
-      emailSent: false,
-      emailQueued: !!to,
-      message: to
-        ? 'School staff added. Setup email is being sent.'
-        : 'School staff added; share the setup link manually'
+      emailSent,
+      emailQueued,
+      groupSubscriptionWarning,
+      message: emailSent ? 'School staff added. Setup email sent.'
+        : emailQueued ? 'School staff added. Setup email queued; delivery is not yet confirmed.'
+        : welcomeError || 'School staff added, but the setup email was not sent. Use Send recovery email or contact support.'
     });
 
     setImmediate(() => {
       void (async () => {
-        if (to) {
-          try {
-            const { sendSchoolStaffWelcomeEmail } = await import('../services/schoolStaffWelcomeEmail.service.js');
-            const delivery = await sendSchoolStaffWelcomeEmail({
-              agencyId: activeAgencyId, schoolOrganizationId: orgId,
-              userId: addedUserId, actorUserId: actorId, to,
-              firstName: addedFirstName, schoolName: orgName,
-              isSchoolAdmin: assignSchoolAdmin, isScheduler: assignScheduler,
-              accessUrl: setupUrl, setup: true
-            });
-            if (delivery?.blocked || delivery?.skipped || delivery?.queued) {
-              console.warn('[addSchoolStaff] Welcome email not yet sent:', delivery.reason || 'queued');
-            }
-          } catch (err) {
-            console.error('[addSchoolStaff] Failed to send setup email:', err);
-          }
-        }
 
         if (activeAgencyId) {
           try {

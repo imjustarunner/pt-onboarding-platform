@@ -122,7 +122,7 @@
       </div>
       <div class="sco-card">
         <div class="sco-k">Submitted</div>
-        <div class="sco-v">{{ formatDate(client.submission_date) }}</div>
+        <div class="sco-v">{{ portalCalendarDate(client.submission_date) }}</div>
       </div>
       <div v-if="false" class="sco-card">
         <div class="sco-k">Paperwork</div>
@@ -288,6 +288,7 @@
 </template>
 
 <script setup>
+import {portalDateTime, portalCalendarDate} from '../../utils/portalDates';
 import ParentContactAttempts from '../clients/ParentContactAttempts.vue';
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
@@ -394,7 +395,7 @@ function formatDateShort(d) {
   return parsed.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 function formatDateTime(d) {
-  return d ? new Date(d).toLocaleString() : '';
+  return portalDateTime(d);
 }
 
 async function loadAdminNote() {

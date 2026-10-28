@@ -1,0 +1,184 @@
+ITSCOLLC EXTERNAL QA — OCTOBER 28 REPAIR AND RETEST ADDENDUM
+
+Use with the October 27 v2 external-team plan. This is a new document; earlier
+reports and instructions are retained. Today's FAIL / BLOCKED remains the
+overall result until the affected browser workflows have been retested.
+
+ACCESS AND SCOPE
+
+The external team tests through the ordinary application screens using its
+provided role accounts. It has no repository, database, cloud, or owner-machine
+access. Do not ask it to inspect backend records, configure services, run SQL,
+use administrator impersonation, or obtain setup/superadmin credentials.
+
+Use agency 450 ITSCOLLC, school 451 Cedar Grove K-8 — DEMO, and clinic 452 only.
+Agency login: https://app.itsco.health/auricwell-qa-demo/login
+Use the supplied school login for Jamie. Each tester should use a separate
+browser profile/context for its assigned role. Explicit switching tests below
+deliberately reuse a browser to check the reported defect.
+
+Avery is provider 1433. The owner has a separately supplied, privately stored
+login verified in a fresh browser on October 28; enter it into the coordinator's
+secure sign-in form. Do not copy passwords, reset links, or cookies into reports.
+The application cannot make the external coordinator's vault fill its browser.
+
+Retain synthetic records; maximum 30 clients and 10 providers. Owner-side checks
+confirmed 17 clients after Noa and three provider-role accounts: Avery 1433,
+Cameron 1438, and Alex 1439. The dashboard's reported count of four remains a
+display/counting discrepancy to investigate; it is not evidence of a fourth
+provider. Recount in the UI before making another enrollment.
+
+Do not send claims or charge cards. Keep new test enrollments email-only unless
+the owner explicitly assigns an approved SMS fixture. Do not use a real family's
+information. Testing email remains testing@itsco.health. Existing controlled
+SMS fixtures and consent rules from v2 remain in effect.
+
+CHANGES IN THIS REPAIR
+
+1. An explicit agency login no longer redirects to a remembered school portal.
+   A stale school username handoff is cleared on the agency login. Remembered
+   school credentials remain usable on the matching school login.
+2. Normal public enrollment does not expose Dev Fill, consent/copy editing, or
+   staff validation bypass because another tab has a remembered staff session.
+   Intentional administrative preview requires an explicit preview and a scoped
+   admin account. Support cannot change enrollment legal/communication wording
+   through the API either.
+3. School enrollment omits provider-fit preferences as well as office provider
+   selection. Schools continue to use their assigned-provider workflow.
+4. Office enrollment displays the selected provider through later steps and
+   completion. A virtual-only available provider opens the virtual slot picker
+   rather than an empty in-person calendar. The selected timezone is passed to
+   the picker. A preference is not an appointment confirmation.
+5. Jules's demographic edit opens Account > Profile. An organization with no
+   configured status choices no longer treats an empty status as Terminated.
+   Intentionally selecting Terminated still requires a termination reason.
+6. A school Google Group subscription failure no longer prevents the welcome
+   email attempt after a school staff account has been created. The screen
+   reports sent, queued, or unsuccessful delivery and a separate group warning.
+   "Sent" is the application's transport result; actual inbox receipt still
+   needs independent verification.
+7. Reported invitation, school last-login, school conversation/history, and
+   published-openings timestamps use the saved account/organization timezone
+   and display its abbreviation. School submission calendar dates do not shift
+   to the prior day because the browser is in Pacific time. The three demo
+   organizations now have America/Denver configured; their previously empty
+   timezone fields caused new accounts to fall back to the device timezone.
+
+Developer verification: 103 targeted tests passed and the frontend production
+build completed. These checks do not establish an end-to-end external QA pass.
+
+WHAT THE RETAINED RECORDS SHOW
+
+- Noa: client 2281, submission 1294, guardian Pat 1466. Avery 1433 was saved as
+  the preferred provider. No opening preference was saved. Do not say the
+  provider choice was lost or that an appointment was booked.
+- Kai: client 2279, submission 1292, guardian Robin 1463.
+- Lia: client 2280, submission 1293, guardian Marisol 1464.
+- The completion emails for 1292 and 1293 were recorded as skipped because the
+  enrollment email choice was off. Noa's was recorded as sent; actual external
+  receipt was not independently verified. A skipped completion email and a
+  requested second-guardian invitation are different events.
+- Jamie 1465 was created, but the Google Group failure interrupted the original
+  welcome flow. The later recovery email was sent. Do not recreate Jamie or
+  treat that recovery as proof that first-time welcome mail worked.
+- Jules remains 2277 with Morgan 1459 and Casey 1460; signed copies 1285/1289
+  remain retained. No new signatures or submissions were made for either.
+
+RETEST ORDER — ORDINARY BROWSER ACTIONS ONLY
+
+A. Login blocker, before continuing the other lanes
+   1. In one browser profile, sign in as Jamie, then explicitly sign out.
+   2. Open the agency login URL above. It must stay on that URL, without Jamie's
+      username or an automatic jump to the school domain.
+   3. Sign in as Avery using the secure vault. Verify Avery's name and ITSCOLLC.
+   4. Sign out and visit the school login. Verify that school access still works.
+   5. Repeat with the ordinary /login entry and record the landing URL and any
+      prefill separately. An explicit school login is allowed to remember Jamie.
+   Stop on cross-account access. For a rate limit, record it and wait for the
+   displayed retry time; do not repeatedly submit passwords or weaken controls.
+
+B. Public enrollment and office preference
+   1. Use an existing retained draft when possible. Never clear storage or start
+      over to recover someone's unfinished enrollment.
+   2. Check both school EN and ES: no Dev Fill, copy editor, or provider-fit step.
+      Also test a public enrollment tab after a support session in another tab.
+   3. Run the previously NOT RUN Office ES lane. Use a new synthetic record only
+      after checking the cap. Choose the provider's offered format, then select
+      the provider and inspect dated openings. Capture a selected time and zone.
+   4. Verify the provider/time preference remains visible at review/completion
+      and after resuming a saved draft. A full or conflicting calendar may have
+      no openings; record the shown week, format, and provider instead of calling
+      a missing opening a successful booking.
+   5. Check that the signed documents belong to this guardian, that school ROI
+      includes Jamie where authorized, and that English/Spanish remain correct.
+      Translation gaps are still open and must be reported individually.
+
+C. Jules demographic save
+   As Jordan, open Jules > Edit demographics. Change a harmless synthetic field
+   to a meaningful test value, save, reload, and confirm persistence. Do not
+   terminate Jules or invent a termination reason to get past validation. Record
+   the pending guardian update separately; saving staff edits does not prove the
+   pending update was accepted. Check both guardians see permitted dependent
+   details without gaining access to each other's private documents or answers.
+
+D. School staff invitation and replies
+   Use a new synthetic school-staff invitation only if needed for this specific
+   test; reuse Jamie for all existing school scenarios. Capture the creation
+   result, whether the roster refreshes, the welcome email's subject/school/role,
+   and receipt in the controlled inbox. Do not use password recovery as a
+   substitute for a failed invitation test. A group warning must not obscure the
+   invitation result. Finish Jamie's verification of Avery's replies on #503 and
+   #504; report the recipient/routing of unassigned-client ticket #505 separately.
+
+E. Time and dates
+   With a Pacific-time device and a Denver-time account, compare the reported
+   screens to the event's actual Mountain time. October 28 should display MDT;
+   November 2 should display MST. Kai/Lia's submitted date should remain Oct 28.
+   Record the account zone, device zone, displayed value, and event time together.
+
+F. Resume the blocked v2 lanes
+   - Avery assigns Blake's questionnaires; the guardian completes them and the
+     provider sees the results/notification using only authorized screens.
+   - School second-parent EN and ES: invite, delivery, independent completion,
+     own signed copies, both guardians linked, private documents kept separate.
+   - Exchange: post the intended unassigned fixture, inspect matches/exclusions,
+     accept with the intended provider, and verify that provider's client list.
+   - Notes/signing/cosign: use session-linked synthetic drafts; do not recreate
+     old draft 261 / signed note 75 or agreement 413.
+   - Appointment email/SMS and in-app history: use the controlled fixtures;
+     capture actual delivery and subsequent cancellation/confirmation changes.
+   - Recount clients/providers and check the reported dashboard discrepancy.
+
+KNOWN OPEN ITEMS — DO NOT REPORT THESE AS FIXED
+
+- Full-enrollment versus portal-only second-parent invitation mode in a client
+  Portal tab remains a feature request requiring implementation/verification.
+  Do not substitute recovery, impersonation, or admin access for that workflow.
+- Guardian shared messages, care-access, and shared-files 403 responses; empty
+  other-guardian lists and inconsistent name/email masking require further work.
+  Do not remove clinical disclosure protections merely to make a test pass.
+- Office ES and Spanish packet/portal translation gaps, duplicate disclosure
+  entries, branding/support footer links, and used-link feedback remain open.
+- Legal-guardian authority-document flow, emergency-contact validation, typed
+  signatures, progress labels, and channel-choice clarity remain open.
+- Support All schools navigation, provider school navigation, office records on
+  the school roster, missing school main number, and unassigned ticket routing
+  remain open. Do not repair those by granting support administrator access.
+- The reported fourth provider, external vault autofill, and the true automated
+  5 AM run remain unverified. A kickoff reminder is not an unattended test run.
+
+EVIDENCE AND REPORTING
+
+For each retest record role/user ID, agency, exact browser URL, action, expected
+and actual result, timestamp with timezone, relevant record ID, and a screenshot.
+Use PASS / FAIL / BLOCKED / NOT RUN. Separate visible UI results, actual email
+receipt, and owner-supplied backend observations. Do not call "sent" delivered.
+
+The October 28 evidence ZIP is on the external team's computer, not the owner's
+workspace. Before sharing, make a redacted copy: remove the non-QA phone number
+from notes.md and check screenshots/filenames for the same value and for login or
+recovery secrets. Keep the original evidence private. This repair does not claim
+to have opened or sanitized that inaccessible ZIP.
+
+Provide one updated brief against this addendum and the v2 baseline, with the
+remaining blocked lanes named. Do not overwrite the earlier FAIL brief.

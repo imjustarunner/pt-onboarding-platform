@@ -167,6 +167,11 @@ jobs:
         run: >-
           node frontend/node_modules/vitest/vitest.mjs run
           --config backend/vitest.school-support.config.js
+      - name: Agency login isolation, enrollment permissions, and portal timestamps
+        working-directory: frontend
+        run: |
+          node node_modules/vitest/vitest.mjs run --config ../backend/vitest.qa-oct28.config.js
+          node node_modules/vitest/vitest.mjs run --config vitest.qa-oct28.config.js
       - name: Provider update SSO completion
         run: >-
           node frontend/node_modules/vitest/vitest.mjs run

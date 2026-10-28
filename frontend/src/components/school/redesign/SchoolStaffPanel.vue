@@ -619,6 +619,7 @@
 </template>
 
 <script setup>
+import {portalDateTime} from '../../../utils/portalDates';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../../services/api';
@@ -1004,7 +1005,7 @@ watch(totalPages, (pages) => {
 
 const formatDate = (d) => {
   if (!d) return '—';
-  return new Date(d).toLocaleString();
+  return portalDateTime(d);
 };
 
 const setRoleFilter = (value) => {
@@ -1299,7 +1300,7 @@ const addStaff = async () => {
     adding.value = true;
     error.value = '';
     addSuccess.value = '';
-    await api.post(`/school-portal/${props.schoolOrganizationId}/school-staff`, {
+    const { data } = await api.post(`/school-portal/${props.schoolOrganizationId}/school-staff`, {
       email,
       fullName: addName.value.trim() || undefined,
       roleTitle: addRoleTitle.value.trim() || undefined,
@@ -1314,7 +1315,7 @@ const addStaff = async () => {
     addPhoneNumber.value = '';
     addAccessRole.value = 'standard';
     addGroupEmailSubscription.value = 'all_mail';
-    addSuccess.value = 'Staff added. They should appear in the list now; a setup email is being sent.';
+    addSuccess.value = [data?.message || 'Staff added. Check their setup email status.', data?.groupSubscriptionWarning].filter(Boolean).join(' ');
     await load();
     if (error.value) {
       addSuccess.value = 'Staff added, but the roster could not be refreshed. Please reload the page.';

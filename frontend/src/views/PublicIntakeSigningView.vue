@@ -98,7 +98,8 @@
       <template v-if="!(isJobApplication && step === -1) && step >= 1 && publicFormLead">
         <p class="df-form-lead">{{ publicFormLead }}</p>
       </template>
-      <IntakeProviderRequest v-if="providerProfileRequest && isOfficeInDepthIntake && step !== 0.5 && step < 3"
+      <IntakeProviderRequest v-if="requestedProviderSummary && isOfficeInDepthIntake && step !== 0.5"
+        :readonly="step === 3"
         :provider="requestedProviderSummary"
         :opening="intakeResponses.submission?.requested_opening_preference"
         :locale="intakeLocale"
@@ -1992,7 +1993,7 @@
             <p v-if="selectedEnrollmentProvider && enrollmentProviderStatus(selectedEnrollmentProvider,enrollmentModality)==='waitlist'" role="status">Your enrollment requests {{selectedEnrollmentProvider.name}}’s waitlist. No appointment or start date is confirmed; the care team will follow up.</p>
             <p v-if="providerSelectionNotice" role="status">{{providerSelectionNotice}}</p>
             <p v-if="providerHoldChangeError" role="alert">{{ providerHoldChangeError }}</p>
-            <PublicProviderSlotPicker v-if="providerChoicesVisible && selectedOfficeProviderIds.length === 1 && selectedEnrollmentProvider && enrollmentProviderStatus(selectedEnrollmentProvider,enrollmentModality)==='accepting' && !hasBridgeLearning()" :agency-slug="referralAgencySlug || agencyInfo?.portal_url || agencyInfo?.slug || ''" :provider-id="Number(selectedOfficeProviderIds[0])" :fixed-format="enrollmentModality==='ALL'?'':enrollmentModality" :care-type="serviceSubject==='couple'?'COUPLES':serviceSubject==='family'?'FAMILY':'INDIVIDUAL'" :service-type="link?.master_channel==='tutoring'?'tutoring':'counseling'" @hold="saveOpeningPreference" />
+            <PublicProviderSlotPicker v-if="providerChoicesVisible && selectedOfficeProviderIds.length === 1 && selectedEnrollmentProvider && enrollmentProviderStatus(selectedEnrollmentProvider,enrollmentModality)==='accepting' && !hasBridgeLearning()" :agency-slug="referralAgencySlug || agencyInfo?.portal_url || agencyInfo?.slug || ''" :provider-id="Number(selectedOfficeProviderIds[0])" :fixed-format="selectedProviderSlotFormat" :time-zone="enrollmentPreferenceTimeZone" :care-type="serviceSubject==='couple'?'COUPLES':serviceSubject==='family'?'FAMILY':'INDIVIDUAL'" :service-type="link?.master_channel==='tutoring'?'tutoring':'counseling'" @hold="saveOpeningPreference" />
           </template>
         </div>
 
@@ -4131,19 +4132,17 @@ const looksLikeOfficeIntake = computed(() =>
   looksLikeOfficeIntakeFromRoute({ link: link.value, publicKey })
 );
 
-const canBypassIntakeRequired = computed(() => {
-  if (!authStore.isAuthenticated) return false;
-  const role = String(authStore.user?.role || '').toLowerCase();
-  return ['admin', 'super_admin', 'support', 'staff'].includes(role);
-});
+// Public enrollment stays in family mode even when a staff session exists in
+// another tab. Administrative tooling is an explicit, scoped preview only.
+const canBypassIntakeRequired = computed(() => canUseDevFill.value);
 
 const intakeAgencyId = computed(() => Number(link.value?.agency_id || link.value?.organization_id || 0) || null);
 
 const canUseDevFill = computed(() => {
-  if (!authStore.isAuthenticated) return false;
+  if (route.query.staffPreview !== '1' || !authStore.isAuthenticated) return false;
   const user = authStore.user;
   const role = String(user?.role || '').toLowerCase();
-  if (!['admin', 'super_admin', 'support', 'staff'].includes(role)) return false;
+  if (!['admin', 'super_admin'].includes(role)) return false;
   if (role === 'super_admin') return true;
   const agencyId = intakeAgencyId.value;
   if (!agencyId) return false;
@@ -4769,7 +4768,7 @@ const communications = reactive({
   internalWorkforceOptIn: ''
 });
 
-const showMatchingPreferences=computed(()=>!isOfficeInDepthIntake.value&&!isJobApplication.value&&!isMedicalRecordsRequest.value&&!isClientBound.value&&(usesSchoolChildDetails.value||['counseling','coaching'].includes(String(link.value?.master_channel||''))||isOfficeInDepthIntake.value&&link.value?.master_channel!=='tutoring'));
+const showMatchingPreferences=computed(()=>!isSchoolScopedIntake.value&&!usesSchoolChildDetails.value&&!isOfficeInDepthIntake.value&&!isJobApplication.value&&!isMedicalRecordsRequest.value&&!isClientBound.value&&(usesSchoolChildDetails.value||['counseling','coaching'].includes(String(link.value?.master_channel||''))||isOfficeInDepthIntake.value&&link.value?.master_channel!=='tutoring'));
 const allowsFullProviderChoice=computed(()=>isOfficeInDepthIntake.value&&!/quick|short|interest|registration|request/.test(String(link.value?.form_type||'').toLowerCase()));
 const officeProviders = ref([]);
 const officeProvidersLoading=ref(false),officeProvidersLoaded=ref(false),providerSelectionNotice=ref('');
@@ -4804,6 +4803,14 @@ const matchingOfficeProviders=computed(()=>matchingEnrollmentProviders(officePro
 }));
 const providerProfileRequest=computed(()=>intakeResponses.submission?.enrollment_source==='provider'&&intakeResponses.submission?.requested_profile_provider_id);
 const selectedEnrollmentProvider=computed(()=>matchingOfficeProviders.value.find(p=>selectedOfficeProviderIds.value.includes(String(p.id))));
+// A provider offering only virtual care must not open an empty in-person calendar.
+const selectedProviderSlotFormat = computed(() => {
+  if (enrollmentModality.value !== 'ALL') return enrollmentModality.value;
+  const provider = selectedEnrollmentProvider.value;
+  if (!provider) return '';
+  const formats = ['VIRTUAL','IN_PERSON'].filter(format => enrollmentProviderStatus(provider,format) === 'accepting');
+  return formats.length === 1 ? formats[0] : '';
+});
 const entryProviderProfile = ref(null);
 const requestedProviderSummary = computed(() => entryProviderProfile.value || selectedEnrollmentProvider.value);
 let entryProviderGeneration = 0;
@@ -6970,11 +6977,8 @@ const otherGuardian = reactive({
   courtFiles: []
 });
 const intakeLegal = ref(null);
-const canEditIntakeLegal = computed(() => {
-  if (!authStore.isAuthenticated) return false;
-  const role = String(authStore.user?.role || '').toLowerCase();
-  return role === 'admin' || role === 'support' || role === 'super_admin';
-});
+const canEditIntakeLegal = computed(() => canUseDevFill.value);
+
 const otherGuardianCopy = computed(() => {
   const legal = intakeLegal.value || {};
   const school = isSchoolScopedIntake.value;

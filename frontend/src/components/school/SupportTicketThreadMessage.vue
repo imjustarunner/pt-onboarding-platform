@@ -37,6 +37,7 @@
 </template>
 
 <script setup>
+import {portalDateTime} from '../../utils/portalDates';
 import { computed } from 'vue';
 defineOptions({ name: 'SupportTicketThreadMessage' });
 
@@ -51,7 +52,7 @@ const props = defineProps({
 
 defineEmits(['reply', 'delete']);
 
-const fmt = (dt) => (dt ? new Date(dt).toLocaleString() : '');
+const fmt = (dt) => portalDateTime(dt);
 
 const author = (m) => {
   const fn = String(m?.author_first_name || '').trim();

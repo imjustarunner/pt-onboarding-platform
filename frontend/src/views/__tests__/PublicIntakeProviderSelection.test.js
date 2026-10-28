@@ -197,3 +197,27 @@ it('honors an explicit English link instead of retaining another packet’s Span
  get.mockImplementation(async url=>({data:url==='/public-intake/office-test'?{...structuredClone(data),link:{...structuredClone(data.link),language_code:'en'}}:{}}));
  await render();expect(wrapper.vm.intakeLocale).toBe('en');setPublicLocale('en');
 });
+
+it('shows selected provider and a slot picker after an ordinary preference button click',async()=>{
+ await render();await showProviderStep();wrapper.vm.providerChoicesVisible=true;await flushPromises();
+ await wrapper.get('[data-provider-id="9"] .cpd-select-provider').trigger('click');await flushPromises();
+ expect(wrapper.vm.selectedOfficeProviderIds).toEqual(['9']);
+ expect(wrapper.get('[data-provider-id="9"] .cpd-select-provider').text()).toContain('Selected');
+ expect(wrapper.find('public-provider-slot-picker-stub').exists()).toBe(true);
+ expect(wrapper.find('public-provider-slot-picker-stub').attributes('fixedformat')).toBe('VIRTUAL');
+ wrapper.vm.step=3;await flushPromises();
+ expect(wrapper.get('.intake-provider-request').text()).toContain('Open Provider');
+ expect(wrapper.get('.intake-provider-request').find('button').exists()).toBe(false);
+});
+it.each(['support','staff','client_guardian','admin'])('keeps public enrollment free of privileged tooling for a remembered %s session',async role=>{
+ localStorage.setItem('user',JSON.stringify({id:4,role,agencyIds:[2]}));
+ await render();
+ expect(wrapper.vm.canUseDevFill).toBe(false);
+ expect(wrapper.vm.canEditIntakeLegal).toBe(false);
+ expect(wrapper.vm.canBypassIntakeRequired).toBe(false);
+});
+it('hides school fit preferences as well as provider selection',async()=>{
+ const original=get.getMockImplementation();
+ get.mockImplementation(async(...args)=>args[0]==='/public-intake/office-test'?{data:{...structuredClone(data),link:{...structuredClone(data.link),scope_type:'school',inherits_office_master:0},organization:{id:3,name:'Example School',organization_type:'school'}}}:original(...args));
+ await render();expect(wrapper.vm.showMatchingPreferences).toBe(false);
+});

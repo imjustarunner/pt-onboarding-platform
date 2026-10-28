@@ -9,13 +9,14 @@
    <fieldset v-if="preferences.inPerson"><legend>In-person offices for {{context.agencyName||'this agency'}}</legend><label><input type="checkbox" :checked="preferences.officeIds===null" @change="preferences.officeIds=$event.target.checked?null:[]"/> All assigned offices in this agency</label><template v-if="preferences.officeIds!==null"><label v-for="office in context.offices||[]" :key="office.id"><input v-model="preferences.officeIds" type="checkbox" :value="office.id"/>{{office.name}} · {{office.city}}</label></template><small v-if="!context.offices?.length">Assign an office before publishing in-person openings.</small></fieldset>
    </div>
    <div class="actions"><button type="button" :disabled="busy" @click="save">{{busy?'Working…':'Save availability'}}</button><button type="button" :disabled="busy" @click="check">Check published openings</button><router-link :to="schedulePath">Add or edit openings →</router-link></div>
-   <p v-if="checkedAt">Openings last checked {{new Date(checkedAt).toLocaleString()}}.</p>
+   <p v-if="checkedAt">Openings last checked {{portalDateTime(checkedAt,{timeZone:context.timeZone})}}.</p>
    <article v-for="reminder in reminders" :key="reminder.format" class="warning"><strong>No bookable {{reminder.format==='IN_PERSON'?'in-person':'virtual'}} new-client openings found in the next four schedule weeks.</strong><p>Published hours may still be occupied by appointments, school assignments, or schedule blocks.</p><p><router-link :to="schedulePath">Add {{reminder.format==='IN_PERSON'?'in-person':'virtual'}} openings →</router-link> or update your choices above.</p><p v-if="reminder.snoozed">Reminder snoozed until {{new Date(reminder.snoozedUntil).toLocaleDateString()}}. This warning remains here until resolved.</p><button v-else type="button" :disabled="busy" @click="snooze(reminder.format)">Snooze reminder for 7 days</button></article>
   </template><p v-if="error" role="alert">{{error}}</p><p v-if="notice" role="status">{{notice}}</p>
  </section>
  <ProviderServiceOfferings :key="servicesRefresh" :provider-id="providerId" :agency-id="agencyId" @updated="$emit('updated', {kind: 'services', ...$event})" />
 </template>
 <script setup>
+import {portalDateTime} from '../../utils/portalDates';
 import {computed,ref,watch} from 'vue';
 import {useRoute} from 'vue-router';
 import {useAuthStore} from '../../store/auth';

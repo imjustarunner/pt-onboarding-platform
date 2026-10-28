@@ -1391,62 +1391,9 @@ onMounted(async () => {
     router.replace({ path: route.path, query: rest });
   }
 
-  // Partner hub at /:partner/login (e.g. /itsco/login): remembered nested school portal is /partner/school/login.
-  // Without this, isOrgLogin is true here so the platform /login shortcut above never runs, and return visits
-  // would stay on the hub instead of opening the school login with username prefilled + verify.
-  if (
-    !isSchoolCareBridge.value &&
-    isOrgLogin.value &&
-    loginSlug.value &&
-    !String(route.query?.u || '').trim() &&
-    !route.query?.error &&
-    route.query?.verified !== '1'
-  ) {
-    const hubSlug = String(loginSlug.value).trim().toLowerCase();
-    let rememberedPortal = getRememberedLogin();
-    if (!rememberedPortal?.username || !rememberedPortal?.orgSlug) {
-      rememberedPortal = getRememberedSchoolStaffPasswordLogin();
-    }
-    const uMem = String(rememberedPortal?.username || '').trim();
-    const schoolSlug = String(rememberedPortal?.orgSlug || '').trim().toLowerCase();
-    const parentMem = String(rememberedPortal?.parentOrgSlug || '').trim().toLowerCase() || null;
-    // Never nest a top-level agency under another (bad remember: parent=tisi, org=itsco → /tisi/itsco/login).
-    if (
-      uMem
-      && schoolSlug
-      && parentMem
-      && parentMem === hubSlug
-      && schoolSlug !== hubSlug
-      && !TOP_LEVEL_AGENCY_LOGIN_SLUGS.has(schoolSlug)
-    ) {
-      const hostImplied = String(brandingStore.portalHostPortalUrl || '').trim().toLowerCase() || null;
-      try {
-        sessionStorage.setItem('__pt_login_pending_username__', uMem);
-        sessionStorage.setItem('__pt_login_pending_verify__', '1');
-        sessionStorage.setItem('__pt_login_pending_remember__', '1');
-      } catch {
-        // ignore
-      }
-      await router.replace({
-        path: buildOrgLoginPath(schoolSlug, parentMem, hostImplied),
-        query: { ...route.query, u: uMem }
-      });
-      return;
-    }
-    // Repair stale peer-agency remember payloads left from the old parent heuristic.
-    if (
-      rememberedPortal
-      && parentMem
-      && TOP_LEVEL_AGENCY_LOGIN_SLUGS.has(schoolSlug)
-      && parentMem !== schoolSlug
-    ) {
-      setRememberedLogin({
-        username: uMem,
-        orgSlug: schoolSlug,
-        parentOrgSlug: null
-      });
-    }
-  }
+  // An explicit agency login owns its destination. Remembering a school account
+  // must never navigate a returning agency staff member into that school portal.
+  // Portal-specific shortcuts are restored below without changing the URL.
 
   if (isOrgLogin.value && loginSlug.value) {
     // Fetch agency-specific login theme
@@ -1478,7 +1425,6 @@ onMounted(async () => {
       && hubSlugNow
       && remNow?.orgSlug
       && remNow.orgSlug !== hubSlugNow
-      && TOP_LEVEL_AGENCY_LOGIN_SLUGS.has(remNow.orgSlug)
     ) {
       try {
         sessionStorage.removeItem('__pt_login_pending_username__');
@@ -1550,7 +1496,7 @@ onMounted(async () => {
   // including custom-domain /login. An explicit username always takes priority.
   const memory = restoreLoginMemory();
 
-  if (memory.remembered && !memory.google && username.value && !showPassword.value) {
+  if (effectiveLoginSlug.value && memory.remembered && !memory.google && username.value && !showPassword.value) {
     await verifyUsername({ reason: 'remembered' });
   }
   await playTenantLoginBgVideos();

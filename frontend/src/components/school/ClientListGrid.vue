@@ -560,7 +560,7 @@
               </div>
             </td>
             <td v-if="showAssignedColumn">{{ formatDate(client.provider_assigned_at) }}</td>
-            <td class="col-submitted">{{ formatDate(client.submission_date) }}</td>
+            <td class="col-submitted">{{ portalCalendarDate(client.submission_date) }}</td>
           </tr>
         </tbody>
         </table>
@@ -731,6 +731,7 @@
 </template>
 
 <script setup>
+import {portalCalendarDate} from '../../utils/portalDates';
 import ParentContactAttempts from '../clients/ParentContactAttempts.vue';
 import FictionalClientPreview from './redesign/FictionalClientPreview.vue';
 import { isSchoolOnboardingDemoActive } from '../../utils/schoolOnboardingDemoContext.js';

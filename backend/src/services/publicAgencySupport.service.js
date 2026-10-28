@@ -312,6 +312,14 @@ export async function updatePublicAgencySupportSettings(agencySlug, payload = {}
   }
   await assertCanEditPublicAgencySupport(user, agency.id);
 
+  // Support can maintain the public contact page, but changing enrollment consent
+  // or legal wording is an administrative action even through a direct API call.
+  const editsEnrollmentPolicy = Object.hasOwn(payload, 'officeCommunications') || Object.hasOwn(payload, 'intakeLegal');
+  const role = String(user?.role || user?.effectiveRole || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (editsEnrollmentPolicy && !['admin','super_admin','superadmin'].includes(role)) {
+    throw Object.assign(new Error('Only an administrator can edit enrollment policy or communication wording.'), {status:403});
+  }
+
   const theme = parseJson(agency.theme_settings, {});
   const current = parsePublicSupportTheme(theme);
   const nextPage = {
