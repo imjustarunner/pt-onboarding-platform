@@ -146,8 +146,19 @@
           {{ resolveLoading ? 'Working…' : 'Mark resolved' }}
         </button>
         <button v-if="selectedCount" type="button" class="cc-btn outline sm" @click="clearSelection">Clear</button>
+        <button
+          v-if="status === 'failed' && channel === 'email' && selectedCount"
+          type="button"
+          class="cc-btn outline sm"
+          :disabled="removeLoading || loading"
+          @click="removeSelectedFailures"
+        >
+          {{ removeLoading ? 'Removing…' : 'Remove selected from Failed' }}
+        </button>
       </div>
 
+      <p v-if="status === 'failed' && channel === 'email'" class="hint">Remove handled emails from this list. Their delivery history stays in the client or user record.</p>
+      <p v-if="removeFeedback" role="status" class="hint">{{ removeFeedback }}</p>
       <div v-if="error" class="cc-banner-err">{{ error }}</div>
       <div v-else-if="loading" class="cc-empty pad">Loading delivery queue…</div>
       <ul v-else-if="rows.length" class="cc-tickets">
@@ -459,6 +470,15 @@
       </div>
 
       <footer class="cc-detail-foot">
+        <button
+          v-if="canRemoveFailure(activeDetail)"
+          type="button"
+          class="cc-btn outline"
+          :disabled="removeLoading || actionLoading || detailLoading"
+          @click="removeFailures([activeDetail.id])"
+        >
+          {{ removeLoading ? 'Removing…' : 'Remove from Failed' }}
+        </button>
         <button v-if="activeDetail.client_id" type="button" class="cc-btn outline" @click="openClient(activeDetail.client_id)">
           Open client
         </button>
@@ -530,6 +550,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import { useCommunicationsCountsStore } from '../../store/communicationsCounts';
 import {
   MESSAGE_CATEGORY_GROUPS,
   categoriesForGroup as getCategoriesForGroup,
@@ -553,6 +574,7 @@ const emit = defineEmits(['go-home', 'counts-changed']);
 
 const router = useRouter();
 const agencyStore = useAgencyStore();
+const communicationsCounts = useCommunicationsCountsStore();
 const emailSettingsTo = computed(() => `${props.prefix}/admin/email-settings`);
 
 const PAGE_SIZE = 50;
@@ -581,6 +603,8 @@ const actionSuccess = ref('');
 const roiPaused = ref(false);
 const categoryCounts = ref({});
 const resolveLoading = ref(false);
+const removeLoading = ref(false);
+const removeFeedback = ref('');
 const editDraft = ref({
   subject: '',
   recipient_address: '',
@@ -884,6 +908,43 @@ function canApprove(row) {
 function canCancel(row) {
   const s = String(row?.delivery_status || '').toLowerCase();
   return s === 'pending' || s === 'failed';
+}
+
+function canRemoveFailure(row) {
+  const meta = row?.meta || (typeof row?.metadata === 'object' ? row.metadata : {});
+  return String(row?.channel || '').toLowerCase() === 'email'
+    && ['failed', 'bounced', 'undelivered', 'skipped'].includes(String(row?.delivery_status || '').toLowerCase())
+    && !meta?.failedListRemovedAt;
+}
+
+async function removeSelectedFailures() {
+  const ids = rows.value.filter(row => selectedIds.value.has(row.id) && canRemoveFailure(row)).map(row => row.id);
+  await removeFailures(ids);
+}
+
+async function removeFailures(ids) {
+  const agencyId = agencyStore.currentAgency?.id;
+  if (!agencyId || !ids.length || removeLoading.value) return;
+  removeLoading.value = true;
+  removeFeedback.value = '';
+  error.value = '';
+  actionError.value = '';
+  try {
+    const { data } = await api.post('/communications/remove-failed', { agencyId, ids }, { skipGlobalLoading: true });
+    emit('counts-changed');
+    communicationsCounts.fetchCounts();
+    if (agencyId !== agencyStore.currentAgency?.id) return;
+    if (ids.includes(selected.value?.id)) closeDetail();
+    await loadRows();
+    removeFeedback.value = `${data.removed || 0} email${data.removed === 1 ? '' : 's'} removed from Failed. Delivery history retained.`;
+  } catch (e) {
+    if (agencyId !== agencyStore.currentAgency?.id) return;
+    const message = e?.response?.data?.error?.message || 'Unable to remove emails from Failed. Please try again.';
+    error.value = message;
+    actionError.value = message;
+  } finally {
+    removeLoading.value = false;
+  }
 }
 
 function selectRow(row) {
@@ -1265,6 +1326,9 @@ onMounted(() => {
   loadRoiSetting();
 });
 watch(() => agencyStore.currentAgency?.id, () => {
+  closeDetail();
+  clearSelection();
+  removeFeedback.value = '';
   loadRows();
   loadRoiSetting();
 });

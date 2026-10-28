@@ -2929,6 +2929,9 @@ const deliverPacketCompletionEmail = async ({
         : 'The email service did not confirm sending this confirmation.';
     }
     result.communicationId = sendResult?.communicationId || null;
+    result.content = sendResult?.content || null;
+    result.deduplicated = sendResult?.deduplicated === true;
+    result.essentialConfirmation = sendResult?.content?.templateType === 'enrollment_submission_confirmation';
   } catch (sendErr) {
     const isUnconfigured = String(sendErr?.message || '').includes('email_not_configured');
     result.error = isUnconfigured ? 'email_not_configured' : 'send_failed';
@@ -2993,6 +2996,8 @@ const mirrorPacketCompletionRowToSiblings = async ({
   flowLabel = 'public_intake',
   outcome
 }) => {
+  if (outcome?.deduplicated) return { mirrored: 0 };
+  if (outcome?.content) ({ subject, text, html, templateType } = outcome.content);
   const safeSiblings = (Array.isArray(siblingClientIds) ? siblingClientIds : [])
     .map((id) => Number(id || 0))
     .filter((id) => Number.isFinite(id) && id > 0 && id !== Number(primaryClientId || 0));
@@ -3023,7 +3028,8 @@ const mirrorPacketCompletionRowToSiblings = async ({
           submissionId,
           flow: flowLabel,
           mirroredFromClientId: Number(primaryClientId || 0) || null,
-          isSiblingMirror: true
+          isSiblingMirror: true,
+          primaryCommunicationId: outcome?.communicationId || null
         }
       });
       mirrored += 1;
@@ -10300,6 +10306,8 @@ export const finalizePublicIntake = async (req, res, next) => {
             flowLabel: 'school-roi'
           });
           emailDelivery.sent = sendOutcome.sent;
+          emailDelivery.essentialConfirmation = sendOutcome.essentialConfirmation;
+          emailDelivery.reason = sendOutcome.error;
           if (!sendOutcome.sent) {
             emailDelivery.error = sendOutcome.error;
             emailDelivery.errorMessage = sendOutcome.errorMessage;
@@ -11661,6 +11669,8 @@ export const submitPublicIntake = async (req, res, next) => {
             flowLabel: 'registration'
           });
           emailDelivery.sent = sendOutcome.sent;
+          emailDelivery.essentialConfirmation = sendOutcome.essentialConfirmation;
+          emailDelivery.reason = sendOutcome.error;
           if (!sendOutcome.sent) {
             emailDelivery.error = sendOutcome.error;
             emailDelivery.errorMessage = sendOutcome.errorMessage;

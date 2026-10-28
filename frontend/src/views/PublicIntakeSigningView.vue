@@ -1761,6 +1761,10 @@
             <p v-if="officeCommsSaveStatus" class="muted">{{ officeCommsSaveStatus }}</p>
           </div>
 
+          <p v-if="communicationConsent?.essentialText && !isWorkforceAudience" class="communications-disclosure">
+            <strong>{{ intakeLocale === 'es' ? 'Mensajes esenciales: ' : 'Essential messages: ' }}</strong>
+            {{ intakeLocale === 'es' ? 'La confirmación de inscripción y los correos de acceso, creación y recuperación de contraseña que solicite son independientes de las actualizaciones opcionales. Sus elecciones no afectan la atención ni el permiso para mensajes de texto. Use las opciones de contacto si el correo automático no es seguro para usted.' : communicationConsent.essentialText }}
+          </p>
           <section class="communications-campaign-card">
             <h4>{{ communicationsEmailTitle }} <span class="required-indicator">*</span></h4>
             <p class="communications-disclosure">
@@ -1777,10 +1781,11 @@
               </label>
               <label class="radio-row">
                 <input type="radio" name="communications_email_preference" value="no" v-model="communications.emailPreference" />
-                <span>{{ t('no') }}</span>
+                <span>{{ isWorkforceAudience ? t('no') : (intakeLocale === 'es' ? 'Solo mensajes esenciales — sin actualizaciones opcionales' : 'Essential messages only — no optional updates') }}</span>
               </label>
             </div>
           </section>
+          <EnrollmentContactOptions v-if="!isWorkforceAudience" :choices="communications" :es="intakeLocale === 'es'" @change="Object.assign(communications, $event)" />
 
           <section class="communications-campaign-card">
             <h4>{{ communicationsSmsTitle }} <span class="required-indicator">*</span></h4>
@@ -3002,6 +3007,7 @@
 </template>
 
 <script setup>
+import EnrollmentContactOptions from '../components/public-intake/EnrollmentContactOptions.vue';
 import EnrollmentTerminationDialog from '../components/public-intake/EnrollmentTerminationDialog.vue';
 import { useEnrollmentTermination } from '../composables/useEnrollmentTermination.js';
 import EnrollmentPortalAccess from '../components/public-intake/EnrollmentPortalAccess.vue';
@@ -4747,6 +4753,8 @@ const signerLabel = computed(() => {
 const emailDeliveryStatus = ref(null);
 const completionReservationNotice = ref('');
 const completionEmailMessage = computed(() => {
+  if (emailDeliveryStatus.value?.essentialConfirmation && emailDeliveryStatus.value?.sent === true) return intakeLocale.value === 'es' ? 'Enviamos una confirmación breve. Sus documentos están disponibles en esta página; no se adjuntaron al correo.' : 'A brief confirmation was emailed. Your documents are available on this page; they were not attached to the email.';
+  if (String(emailDeliveryStatus.value?.reason || emailDeliveryStatus.value?.error || '').includes('enrollment_automatic_email_off')) return intakeLocale.value === 'es' ? 'Inscripción guardada. Respetamos su elección de no recibir correo automático. Aún puede solicitar acceso al portal aquí.' : 'Enrollment saved. Automatic email is off as you requested. You can still request portal access here.';
   if (emailDeliveryStatus.value?.attempted && emailDeliveryStatus.value?.sent === false) {
     return t('completionEmailFailed');
   }
@@ -4797,6 +4805,9 @@ const communications = reactive({
   signerName: '',
   signatureAccepted: false,
   emailPreference: '',
+  noRoutineCalls: false,
+  noAutomaticEmail: false,
+  alternativeContactInstructions: '',
   smsPreference: '',
   providerTextingOptIn: '',
   programUpdatesOptIn: '',
@@ -5214,6 +5225,7 @@ const communicationsIntroText = computed(() =>
     : tx('Choose how you would like to receive platform communications. You can update these preferences at any time.')
 );
 const communicationsEmailTitle = computed(() => {
+  if (!isWorkforceAudience.value) return intakeLocale.value === 'es' ? 'Actualizaciones opcionales por correo' : 'Optional email updates';
   const saved = officeCommsSaved('emailTitle');
   if (saved) return tx(saved);
   const override = currentFlowStep.value?.campaigns?.content?.scheduling?.emailTitle?.trim();
@@ -6456,6 +6468,9 @@ watch(
     if (currentFlowStep.value?.type !== 'communications') return;
     const stored = intakeResponses.submission?.communicationPreferences || {};
     communications.emailPreference = String(stored.emailPreference || communications.emailPreference || '');
+    communications.noRoutineCalls = stored.noRoutineCalls === true;
+    communications.noAutomaticEmail = stored.noAutomaticEmail === true;
+    communications.alternativeContactInstructions = String(stored.alternativeContactInstructions || '');
     communications.smsPreference = String(stored.smsPreference || communications.smsPreference || '');
     communications.recipientPhone = String(stored.recipientPhone || '');
     communications.signerName = String(stored.signerName || '');
@@ -6827,6 +6842,8 @@ const registeredClientNames = computed(() => {
  */
 const registrationEmailMessageForBanner = computed(() => {
   if (!downloadUrl.value) return '';
+  if (String(emailDeliveryStatus.value?.reason || '').includes('enrollment_automatic_email_off')) return 'Your enrollment is saved. No automatic email was sent, as requested. You can use the portal access options here.';
+  if (emailDeliveryStatus.value?.essentialConfirmation && emailDeliveryStatus.value?.sent) return 'A brief enrollment confirmation has been emailed. Your signed documents are available below; they were not attached to that email.';
   if (emailDeliveryStatus.value?.attempted && emailDeliveryStatus.value?.sent === false) {
     return "We couldn't deliver the confirmation email right now — please use the download buttons below to grab your packet.";
   }
@@ -6885,6 +6902,8 @@ const pendingConfirmationMessage = computed(() => packetNeedsReview.value
     ? 'Recibimos su información. Aún no se ha confirmado el envío del correo.'
     : 'We received your information. Email delivery has not been confirmed yet.'));
 const intakeSuccessEmailMessage = computed(() => {
+  if (emailDeliveryStatus.value?.essentialConfirmation && emailDeliveryStatus.value?.sent === true) return intakeLocale.value === 'es' ? 'Enviamos una confirmación breve. Sus documentos están disponibles en esta página; no se adjuntaron al correo.' : 'A brief confirmation was emailed. Your documents are available on this page; they were not attached to the email.';
+  if (String(emailDeliveryStatus.value?.reason || emailDeliveryStatus.value?.error || '').includes('enrollment_automatic_email_off')) return intakeLocale.value === 'es' ? 'Inscripción guardada. Respetamos su elección de no recibir correo automático. Aún puede solicitar acceso al portal aquí.' : 'Enrollment saved. Automatic email is off as you requested. You can still request portal access here.';
   if (emailDeliveryStatus.value?.attempted && emailDeliveryStatus.value?.sent === false) {
     const to = String(emailDeliveryStatus.value?.to || guardianEmail.value || '').trim();
     return to
@@ -11538,6 +11557,11 @@ const completeCommunicationsStep = () => {
     schoolDisclosure: communicationConsent.value?.schoolText,
     displayedDisclosure: communicationsSmsDisclosure.value,
     emailDisclosure: communicationConsent.value?.emailText,
+    emailNoticeVersion: communicationConsent.value?.emailNoticeVersion,
+    essentialDisclosure: communicationConsent.value?.essentialText,
+    noRoutineCalls: communications.noRoutineCalls,
+    noAutomaticEmail: communications.noAutomaticEmail,
+    alternativeContactInstructions: communications.alternativeContactInstructions,
     recipientPhone: communications.recipientPhone,
     signerName: communications.signerName.trim(),
     signatureAccepted: communications.signatureAccepted,

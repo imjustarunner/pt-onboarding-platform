@@ -15,6 +15,7 @@ import {
   retryCommunicationSend
 } from '../controllers/userCommunication.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
+import { removeFailedCommunications } from '../controllers/communicationFailureQueue.controller.js';
 
 const router = express.Router();
 
@@ -35,6 +36,7 @@ router.get('/communications/pending-count', getPendingCommunicationsCount);
 router.get('/communications/categories', listCommunicationCategories);
 router.get('/communications/pending', listPendingCommunications);
 router.post('/communications/resolve-quality-bulk', resolveCommunicationsQualityBulk);
+router.post('/communications/remove-failed', removeFailedCommunications);
 router.get('/communications/:id/detail', getCommunicationDetail);
 router.patch('/communications/:id', updateCommunicationDraft);
 router.post('/communications/:id/approve', approveCommunication);

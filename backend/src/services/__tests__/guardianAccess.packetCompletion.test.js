@@ -1,3 +1,4 @@
+vi.mock('../enrollmentConfirmation.service.js',()=>({sendEnrollmentReceiptOnce:async(message,send)=>send(message)}));
 vi.mock('../portalGroupSender.service.js',()=>({ensurePortalGroupSender:vi.fn(async()=>{})}));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../models/Agency.model.js', () => ({ default: { findById: vi.fn() } }));
@@ -41,7 +42,7 @@ describe('packet receipt delivery', () => {
     await sendPacketCompletionNotification({organizationId:2,scopeType:'agency'});
     expect(Agency.findById).toHaveBeenCalledWith(2);
   });
-  it.each([{queued:true},{id:'test',pendingApproval:true},{blocked:true},{skipped:true},{id:'test',redirected:true},{}])('does not mistake %j for a sent receipt',async status => {
+  it.each([{queued:true},{id:'test',pendingApproval:true},{blocked:true},{skipped:true},{}])('does not mistake %j for a sent receipt',async status => {
     sendEmailFromIdentity.mockResolvedValue(status);
     expect((await sendPacketCompletionNotification({agencyId:2})).sent).toBe(false);
   });
@@ -49,4 +50,8 @@ describe('packet receipt delivery', () => {
     sendEmailFromIdentity.mockRejectedValue(Object.assign(new Error('Sender unavailable'),{communicationId:44}));
     await expect(sendPacketCompletionNotification({agencyId:2})).rejects.toHaveProperty('communicationId',44);
   });
+});
+it('reports an accepted test-inbox redirect as transmitted, without claiming delivery to the original parent',async()=>{
+ sendEmailFromIdentity.mockResolvedValue({id:'test',redirected:true,originalTo:'parent@example.test'});
+ expect(await sendPacketCompletionNotification({agencyId:2})).toMatchObject({sent:true,redirected:true,originalTo:'parent@example.test'});
 });

@@ -186,3 +186,15 @@ it('retained billing permission allows consented billing, but never insurance or
  const original=db.execute.getMockImplementation();db.execute.mockImplementation((q,a)=>q.includes('FROM client_portal_independence')?[[{email,scopes_json:['billing']}]]:original(q,a));saved={choices_json:all('email')};
  for(const [category,allowed] of [['billing',true],['insurance',false],['messages',false]])expect((await familyNotificationDeliveryGate({agencyId:2,clientId:22,to:email,channel:'email',notificationCategory:category},db)).allowed).toBe(allowed);
 });
+it('separates an essential receipt from optional email categories',async()=>{
+ saved={choices_json:all('off')};m.intake.mockResolvedValue({recipientEmail:email,emailPreference:'no'});
+ const input={agencyId:2,clientId:22,to:email,templateType:'enrollment_submission_confirmation'};
+ expect(await familyNotificationDeliveryGate(input,db)).toEqual({allowed:true});
+ expect(await familyNotificationDeliveryGate({...input,templateType:'intake_packet_completion'},db)).toMatchObject({allowed:false});
+});
+it.each(['enrollment_submission_confirmation','hub_portal_invite','session_reminder','guardian_plan_review'])('honors confidential no-email instructions for %s',async templateType=>{
+ m.intake.mockResolvedValue({recipientEmail:email,emailPreference:'all',noAutomaticEmail:true});
+ const input={agencyId:2,clientId:22,to:email,templateType};expect(await familyNotificationDeliveryGate(input,db)).toEqual({allowed:false,reason:'enrollment_automatic_email_off'});
+ expect(await familyNotificationDeliveryGate({...input,templateType:'password_reset'},db)).toEqual({allowed:true});
+ expect(await familyNotificationDeliveryGate({...input,to:'+17195550100',channel:'sms',templateType:'session_reminder'},db)).toEqual({allowed:true});
+});

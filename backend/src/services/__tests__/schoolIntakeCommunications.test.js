@@ -71,3 +71,25 @@ it('rejects changed email disclosures and requires a phone for care-team texts e
   cp.recipientPhone='+17195550100';cp.internalWorkforceOptIn='yes';await stamp();
   expect(cp.providerTextingActivationStatus).toBe('awaiting_recipient_and_campaign_review');expect(cp.internalWorkforceOptIn).toBeNull();
 });
+
+it('records essential-email notice and call choices separately without activating text campaigns',async()=>{
+ const d=intakeCommunicationDisclosure(agency);
+ Object.assign(cp,{emailNoticeVersion:d.emailNoticeVersion,essentialDisclosure:d.essentialText,emailDisclosure:d.emailText,noRoutineCalls:true,noAutomaticEmail:false,alternativeContactInstructions:' After 4 PM ',smsPreference:'scheduling_only',recipientPhone:'+17195550100'});
+ await stamp();expect(cp).toMatchObject({noRoutineCalls:true,noAutomaticEmail:false,alternativeContactInstructions:'After 4 PM',emailActivationStatus:'declined',activationStatus:'awaiting_recipient_and_campaign_review'});
+ expect(classifyIntakeReminderChoice(cp)).toBe('signed_choice_for_review');
+});
+it('does not silently convert a legacy No into the new essential-message policy',async()=>{
+ const d=intakeCommunicationDisclosure(agency);cp.emailDisclosure=d.emailText.replace('Choose all optional account emails, scheduling only, or essential messages only.','Choose all account emails, scheduling only, or No.');
+ cp.noRoutineCalls=true;cp.noAutomaticEmail=true;await stamp();expect(cp.emailPreference).toBe('no');expect(cp.emailNoticeVersion).toBeUndefined();expect(cp.noAutomaticEmail).toBeUndefined();
+});
+it('requires the exact new notice and explicit contact booleans for the new email policy',async()=>{
+ const d=intakeCommunicationDisclosure(agency);Object.assign(cp,{emailNoticeVersion:d.emailNoticeVersion,emailDisclosure:d.emailText,noRoutineCalls:false,noAutomaticEmail:false});
+ await expect(stamp()).rejects.toThrow('Email communication');cp.essentialDisclosure=d.essentialText;cp.noRoutineCalls='false';await expect(stamp()).rejects.toThrow('contact options');
+});
+it('finds this recipient’s signed choices even if another guardian submitted a newer packet',async()=>{
+ const {default:pool}=await import('../../config/database.js');const {default:submissions}=await import('../../models/IntakeSubmission.model.js');
+ const {latestIntakeCommunicationChoices}=await import('../intakeCommunicationChoices.service.js');
+ pool.execute.mockResolvedValue([[{id:12},{id:11}]]);submissions.findById.mockImplementation(async id=>({signer_email:id===12?'other@example.test':'parent@example.test',intake_data:{submission:{communicationPreferences:{agencyId:2,noAutomaticEmail:id===11}}}}));
+ expect(await latestIntakeCommunicationChoices(8,2,null,'parent@example.test')).toMatchObject({noAutomaticEmail:true,submissionId:11});
+ expect(await latestIntakeCommunicationChoices(8,99,null,'parent@example.test')).toBeNull();
+});

@@ -1,7 +1,7 @@
 import pool from '../config/database.js';
 
 import { isSchoolEmailType } from './schoolCareBridgeEmail.service.js';
-const sharedTypes = new Set(['password_reset','admin_initiated_password_reset','invitation','guardian_portal_login_info','intake','intake_packet_completion','intake_summary_pdf_copy','co_guardian_invite','client_assigned','client_terminated','client_checklist_updated','client_renewal','enrollment_unfinished_reminder','enrollment_unfinished_reminder_24h','enrollment_unfinished_reminder_72h','enrollment_unfinished_reminder_7d']);
+const sharedTypes = new Set(['password_reset','admin_initiated_password_reset','invitation','guardian_portal_login_info','intake','intake_packet_completion','enrollment_submission_confirmation','intake_summary_pdf_copy','co_guardian_invite','client_assigned','client_terminated','client_checklist_updated','client_renewal','enrollment_unfinished_reminder','enrollment_unfinished_reminder_24h','enrollment_unfinished_reminder_72h','enrollment_unfinished_reminder_7d']);
 export async function isSchoolCommunication({templateType,schoolOrganizationId,clientId,userId,agencyId}) {
   if (isSchoolEmailType(templateType)) return true;
   if (!sharedTypes.has(String(templateType || '').toLowerCase())) return false;

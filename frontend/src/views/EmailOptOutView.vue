@@ -10,7 +10,7 @@
         You still have school portal access and remain a member of the group — we only stopped email delivery. You can still read correspondence sent to or from your school group under Messages → Email in the app.
       </p>
       <p v-else>
-        We won’t email <strong>{{ email }}</strong> from this system anymore.
+        Your email opt-out is saved for <strong>{{ email }}</strong>. You can still request account setup, sign-in, or password recovery emails.
       </p>
     </div>
     <div v-else-if="error" class="err pad">{{ error }}</div>
@@ -26,6 +26,7 @@
         Confirm you want to stop receiving emails
         <template v-if="email"> at <strong>{{ email }}</strong></template>
         <template v-if="agencyName"> from {{ agencyName }}</template>.
+        Account setup, sign-in, and password recovery emails that you request will remain available.
       </p>
       <button type="button" class="btn" :disabled="busy" @click="confirm">
         {{ busy ? 'Saving…' : (isSchoolStaff ? 'Change to No email' : 'Confirm opt out') }}

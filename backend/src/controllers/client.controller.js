@@ -6978,6 +6978,9 @@ export const getClientDemographics = async (req, res, next) => {
           }));
         };
         addCp('emailPreference', 'Email (program messages)', cp.emailPreference);
+        addCp('routineCalls', 'Routine phone calls', cp.noRoutineCalls === true ? 'No routine calls — use other contact options' : null);
+        addCp('automaticEmail', 'Automatic emails', cp.noAutomaticEmail === true ? 'No automatic email — requested login/recovery remains available' : null);
+        addCp('alternativeContactInstructions', 'Safe contact instructions', cp.alternativeContactInstructions);
         addCp('smsPreference', 'SMS / text messages', cp.smsPreference);
         addCp('providerTextingOptIn', 'Provider / care-team texting', cp.providerTextingOptIn);
         addCp('programUpdatesOptIn', 'Program updates', cp.programUpdatesOptIn);

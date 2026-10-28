@@ -1,3 +1,4 @@
+import { latestIntakeCommunicationChoices } from './intakeCommunicationChoices.service.js';
 import pool from '../config/database.js';
 import { hubClientScope, canAccessHubClient } from './hubPeopleAccess.service.js';
 import { emailClientCandidates } from './clientConversationRecord.service.js';
@@ -14,8 +15,14 @@ export async function guardianContactContext({ userId, guardianId }) {
     ORDER BY a.name,c.full_name,c.initials,c.id`,[guardianId,...scope.params]);
   if(!rows.length)throw Object.assign(new Error('Guardian not found'),{status:404});
   const first=rows[0];
+  const preferences = new Map();
+  for (const row of rows) {
+    const cp = await latestIntakeCommunicationChoices(row.id,row.agency_id,guardianId);
+    preferences.set(Number(row.id), cp ? { noRoutineCalls: cp.noRoutineCalls === true, noAutomaticEmail: cp.noAutomaticEmail === true,
+      alternativeContactInstructions: cp.alternativeContactInstructions || null } : null);
+  }
   return {guardian:{id:Number(first.guardian_id),name:[first.first_name,first.last_name].filter(Boolean).join(' '),email:first.email},
-    clients:rows.map(r=>({id:Number(r.id),name:r.name,agencyId:Number(r.agency_id),agencyName:r.agency_name,agencySlug:r.agency_slug,relationship:r.relationship_title}))};
+    clients:rows.map(r=>({id:Number(r.id),name:r.name,agencyId:Number(r.agency_id),agencyName:r.agency_name,agencySlug:r.agency_slug,relationship:r.relationship_title,contactPreferences:preferences.get(Number(r.id))}))};
 }
 
 export async function emailFilingOptions({userId,agencyId,to='',cc='',bcc=''}) {

@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { activeCommunicationFailureSql } from '../utils/communicationFailureQueue.js';
 import UserCommunication from '../models/UserCommunication.model.js';
 import EmailTemplate from '../models/EmailTemplate.model.js';
 import EmailTemplateService from '../services/emailTemplate.service.js';
@@ -141,6 +142,7 @@ function sortEnrichedCommunications(items, sort = 'newest', { reviewedLast = fal
 }
 
 async function sendCommunicationRecord(comm, meta, userId) {
+  if (meta.isSiblingMirror) throw Object.assign(new Error('This is a history copy of the family email. Review or retry the original communication instead.'), { status: 409 });
   const subject = String(comm.subject || '').trim();
   const body = String(comm.body || '').trim();
   const looksLikeHtml = /<[a-z][\s\S]*>/i.test(body);
@@ -241,7 +243,7 @@ function inferPurpose(row, meta = {}) {
   if (templateType === 'job_application_received' || subject.startsWith('application received')) {
     return 'Job application confirmation email to applicant';
   }
-  if (['intake', 'intake_packet_completion'].includes(templateType)) {
+  if (['intake', 'intake_packet_completion', 'enrollment_submission_confirmation'].includes(templateType)) {
     return 'Intake / paperwork completion email';
   }
   if (subject.includes('release of information') || bodyMentionsRoiLink(row?.body)) {
@@ -266,7 +268,7 @@ function shouldLookupIntakeSubmission(row, meta = {}) {
   if (Number(meta.intakeSubmissionId || meta.intake_submission_id || 0)) return true;
   const templateType = String(row?.template_type || '').toLowerCase();
   const subject = String(row?.subject || '').toLowerCase();
-  if (['intake', 'intake_packet_completion', 'job_application_received', 'school_roi_signing'].includes(templateType)) {
+  if (['intake', 'intake_packet_completion', 'enrollment_submission_confirmation', 'job_application_received', 'school_roi_signing'].includes(templateType)) {
     return true;
   }
   if (subject.startsWith('application received')) return true;
@@ -739,7 +741,8 @@ export const getPendingCommunicationsCount = async (req, res, next) => {
     const [rows] = await pool.execute(
       `SELECT COUNT(*) AS cnt FROM user_communications uc
        WHERE uc.agency_id IN (${placeholders})
-         AND uc.delivery_status IN ('pending', 'failed', 'bounced', 'undelivered')`,
+         AND uc.delivery_status IN ('pending', 'failed', 'bounced', 'undelivered', 'skipped')
+         AND ${activeCommunicationFailureSql('uc')}`,
       agencyIds
     );
     const count = Number(rows?.[0]?.cnt || 0);
@@ -1333,6 +1336,8 @@ export const retryCommunicationSend = async (req, res, next) => {
     };
     delete sentMeta.qualityFlags;
     delete sentMeta.qualityBlockedAt;
+    delete sentMeta.failedListRemovedAt;
+    delete sentMeta.failedListRemovedByUserId;
 
     await UserCommunication.updateDeliveryStatus(
       comm.id,

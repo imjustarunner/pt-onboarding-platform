@@ -1,5 +1,5 @@
 import { it, expect, vi } from 'vitest';
-vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(),getConnection:async()=>({execute:async sql=>sql.includes('GET_LOCK')?[[{acquired:1}]]:[[]],release:vi.fn()})},onTableWrite:vi.fn()}));
 vi.mock('../passwordRecovery.service.js',()=>({requestPasswordRecoveryEmail:vi.fn()}));
 import { enrollmentPortalAccess } from '../enrollmentPortalAccess.service.js';
 const guardian={id:8,email:'saved@example.test',role:'client_guardian',password_hash:null};
@@ -36,4 +36,15 @@ it('blocks drafts, unlinked submissions and non-guardian accounts',async()=>{
 });
 it('surfaces unsuccessful delivery without claiming an email was sent',async()=>{
  const result=await enrollmentPortalAccess({...context,sendSetupEmail:true},{users:{findById:async()=>guardian},recover:async()=>({outcome:'failed',deliveryStatus:'failed'})});expect(result.deliveryStatus).toBe('failed');
+});
+it.each(['pending','sent','delivered'])('reuses a recent %s setup email instead of generating another token',async status=>{
+ const recover=vi.fn(),execute=vi.fn(async sql=>sql.includes('GET_LOCK')?[[{acquired:1}]]:sql.includes('SELECT delivery_status')?[[{delivery_status:status}]]:[[]]);
+ const release=vi.fn();const db={getConnection:async()=>({execute,release})};
+ const result=await enrollmentPortalAccess({...context,sendSetupEmail:true},{users:{findById:async()=>guardian},recover,db});
+ expect(result.deliveryStatus).toBe(status==='pending'?'pending':'sent');expect(recover).not.toHaveBeenCalled();expect(release).toHaveBeenCalled();
+ expect(execute).toHaveBeenCalledWith(expect.stringContaining('INTERVAL 60 SECOND'),[4,8,'saved@example.test']);
+});
+it('waits for an in-progress setup request without sending a duplicate',async()=>{
+ const recover=vi.fn(),db={getConnection:async()=>({execute:async()=>[[{acquired:0}]],release:vi.fn()})};
+ expect(await enrollmentPortalAccess({...context,sendSetupEmail:true},{users:{findById:async()=>guardian},recover,db})).toMatchObject({deliveryStatus:'pending'});expect(recover).not.toHaveBeenCalled();
 });

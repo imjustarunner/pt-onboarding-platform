@@ -2,6 +2,7 @@
  * Aggregated summaries for employee Messages Dashboard and admin Communications Center.
  */
 import pool from '../config/database.js';
+import { activeCommunicationFailureSql } from '../utils/communicationFailureQueue.js';
 import User from '../models/User.model.js';
 import { countMultiAgencyCommunicationQualityIssues } from '../services/outboundEmailQuality.service.js';
 import { appendSupportTicketKindFilter } from '../utils/supportTicketKindFilter.js';
@@ -405,7 +406,8 @@ export const getCommunicationsCenterSummary = async (req, res, next) => {
       const [pRows] = await pool.query(
         `SELECT
            SUM(CASE WHEN delivery_status IN ('pending') THEN 1 ELSE 0 END) AS pending_cnt,
-           SUM(CASE WHEN delivery_status IN ('failed', 'bounced', 'undelivered', 'skipped') THEN 1 ELSE 0 END) AS failed_cnt,
+           SUM(CASE WHEN delivery_status IN ('failed', 'bounced', 'undelivered', 'skipped')
+                      AND ${activeCommunicationFailureSql()} THEN 1 ELSE 0 END) AS failed_cnt,
            SUM(CASE WHEN delivery_status IN ('sent', 'delivered')
                       AND generated_at > DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) AS sent_cnt,
            SUM(CASE WHEN delivery_status IN ('sent', 'delivered') THEN 1 ELSE 0 END) AS sent_total_cnt,
@@ -440,6 +442,7 @@ export const getCommunicationsCenterSummary = async (req, res, next) => {
          FROM user_communications
          WHERE agency_id IN (${placeholders})
            AND delivery_status IN ('pending', 'failed', 'bounced', 'undelivered', 'skipped')
+           AND ${activeCommunicationFailureSql()}
          ORDER BY generated_at DESC
          LIMIT 8`,
         agencyIds

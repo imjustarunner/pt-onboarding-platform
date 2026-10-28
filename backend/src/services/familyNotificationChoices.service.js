@@ -1,3 +1,4 @@
+import { isRequestedAccountEmail } from '../utils/accountAccessEmail.js';
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -33,7 +34,7 @@ export async function createFamilyNotificationInvitation({agencyId,clientId,guar
   const {latestIntakeCommunicationChoices}=await import('./intakeCommunicationChoices.service.js');
   const intake=await latestIntakeCommunicationChoices(clientId,agencyId);
   const own=Number(intake?.guardianUserId)===Number(guardianUserId)||familyContactHash(intake?.recipientEmail)===scope.recipient_hash;
-  if(!forAccountSettings&&own&&intake?.emailPreference==='no')throw fail('This recipient declined email during enrollment. Use their permitted contact method.',409);
+  if(!forAccountSettings&&own&&(intake?.noAutomaticEmail===true||intake?.emailPreference==='no'))throw fail('This recipient declined email during enrollment. Use their permitted contact method.',409);
   const token=crypto.randomBytes(32).toString('hex');
   await db.execute(`INSERT INTO family_notification_invitations
     (token_hash,agency_id,client_id,guardian_user_id,recipient_hash,created_by_user_id,expires_at) VALUES (?,?,?,?,?,?,?)`,
@@ -55,7 +56,7 @@ export async function familyNotificationInvitationContext(token,db=pool) {
   const savedAt=new Date(saved?.updated_at instanceof Date?saved.updated_at:utcMysqlToIso(saved?.updated_at)).getTime();
   const intakeAt=new Date(intake?.signedAt||intake?.submittedAt||0).getTime();
   if(saved&&intakeAt>savedAt)for(const category of FAMILY_NOTIFICATION_CATEGORIES) {
-    if(intake.emailPreference==='no'||(intake.emailPreference==='scheduling_only'&&!['appointments','schedule_changes','school_sessions'].includes(category.key)))
+    if(intake.noAutomaticEmail===true||intake.emailPreference==='no'||(intake.emailPreference==='scheduling_only'&&!['appointments','schedule_changes','school_sessions'].includes(category.key)))
       choices[category.key]=choiceAllows(choices[category.key],'sms')?'sms':'off';
   }
   const [[school]]=await db.execute(`SELECT disabled_at FROM school_session_email_preferences WHERE product='guardian' AND agency_id=? AND client_id=? AND recipient_hash=?`,[scope.agency_id,scope.client_id,scope.recipient_hash]);
@@ -115,6 +116,17 @@ export async function latestFamilyEmailSchedulingChoice({agencyId,clientId,to,af
 }
 // Restricts existing permitted delivery; never creates SMS consent or bypasses an agency pause.
 export async function familyNotificationDeliveryGate({agencyId,clientId,to,channel='email',templateType,notificationCategory},db=pool) {
+  if (channel === 'email' && isRequestedAccountEmail(templateType)) return {allowed:true};
+  // Confidential contact instructions cover automated notices as well as optional
+  // categories. Only a specifically requested access email bypasses this choice.
+  let intake = null;
+  if (channel === 'email' && Number(clientId) && Number(agencyId)) {
+    const {latestIntakeCommunicationChoices}=await import('./intakeCommunicationChoices.service.js');
+    intake=await latestIntakeCommunicationChoices(clientId,agencyId,null,to);
+    if (intake?.noAutomaticEmail === true && familyContactHash(intake.recipientEmail) === familyContactHash(to))
+      return {allowed:false,reason:'enrollment_automatic_email_off'};
+  }
+  if (String(templateType || '').replace(/^trigger:/,'') === 'enrollment_submission_confirmation') return {allowed:true};
   const category=notificationCategory||familyNotificationCategory(templateType);
   if(!category||!Number(agencyId))return {allowed:true};
   if(channel==='sms'&&category==='insurance')return {allowed:false,reason:'insurance_notifications_email_only'};
@@ -136,8 +148,6 @@ export async function familyNotificationDeliveryGate({agencyId,clientId,to,chann
   const [rows]=await db.execute(`SELECT choices_json,updated_at FROM family_notification_choices WHERE agency_id=? AND ${column}=?${clientId?' AND client_id=?':''}`,
     [Number(agencyId),familyContactHash(address),...(clientId?[Number(clientId)]:[])]);
   if(channel==='email'&&Number(clientId)) {
-    const {latestIntakeCommunicationChoices}=await import('./intakeCommunicationChoices.service.js');
-    const intake=await latestIntakeCommunicationChoices(clientId,agencyId);
     const signedAt=new Date(intake?.signedAt||intake?.submittedAt||0).getTime();
     const laterIntake=!rows.length||rows.every(row=>signedAt>new Date(row.updated_at instanceof Date?row.updated_at:utcMysqlToIso(row.updated_at)).getTime());
     if(laterIntake&&intake?.recipientEmail&&familyContactHash(intake.recipientEmail)===familyContactHash(address)) {

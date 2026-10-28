@@ -1,3 +1,4 @@
+import { isRequestedAccountEmail } from '../../utils/accountAccessEmail.js';
 import { isRequiredProviderWorkEmail } from '../requiredProviderWorkEmail.service.js';
 import { withSsoSenderCopy } from '../ssoEmailCopy.service.js';
 import { assertFreshCardEmail } from '../insuranceCards/scope.js';
@@ -345,7 +346,7 @@ export async function finalizeOutboundContent({
     agencyId: aid,
     userId,
     misdirectedReportUrl,
-    skipOptOutLink: isCredentialSecurityNotice(identity, templateType) || templateType==='school_session_notice'
+    skipOptOutLink: isCredentialSecurityNotice(identity, templateType) || isRequestedAccountEmail(templateType) || templateType==='school_session_notice'
       || await isRequiredProviderWorkEmail({templateType,to,userId,agencyId:aid})
   });
 }
@@ -732,7 +733,7 @@ export async function sendNotificationEmail({
   }
 
   const requiredWorkNotice = await isRequiredProviderWorkEmail({templateType:templateType || triggerKey,to,userId,agencyId});
-  const optGate = requiredWorkNotice ? {allowed:true} : await assertRecipientAllowsEmail({ to, agencyId });
+  const optGate = requiredWorkNotice || isRequestedAccountEmail(templateType || triggerKey) ? {allowed:true} : await assertRecipientAllowsEmail({ to, agencyId });
   if (!optGate.allowed) {
     await logSkippedOrFailedEmail({
       to,
@@ -1030,6 +1031,7 @@ export async function sendEmailFromIdentity({
   intakeLinkId = null,
   jobDescriptionId = null,
   existingCommunicationId = null,
+  preloggedReceipt = false,
   usedFallbackSender = false,
   fallbackReason = null,
   replyToOverride = null,
@@ -1064,8 +1066,11 @@ export async function sendEmailFromIdentity({
   const emailGate = await canSendEmail({ source, agencyId: identity?.agency_id || null });
   const gate = emailGate.allowed ? await routineParentEmailGate({source,agencyId:identity.agency_id,to,cc,bcc,templateType,clientId,existingCommunicationId}) : emailGate;
   if (!gate.allowed) {
-    // Gate blocked — log a visible "skipped" row on the recipient's / client's
-    if(existingCommunicationId && gate.reason==='routine_parent_emails_paused') await pool.execute("UPDATE user_communications SET delivery_status='skipped',error_message=? WHERE id=?",[gate.reason,existingCommunicationId]);
+    if (existingCommunicationId) {
+      await pool.execute("UPDATE user_communications SET delivery_status='skipped',error_message=? WHERE id=? AND agency_id=?", [`send skipped — ${gate.reason}`, existingCommunicationId, identity.agency_id]);
+      return { skipped: true, reason: gate.reason, communicationId: Number(existingCommunicationId) };
+    }
+    // Gate blocked — log a visible skipped row on the recipient's / client's
     // Communications tab so an absent email is diagnosable instead of silent.
     await logSkippedOrFailedEmail({
       to,
@@ -1139,8 +1144,12 @@ export async function sendEmailFromIdentity({
   // Required credential alerts are independent of communication subscriptions.
   const securityNotice = isCredentialSecurityNotice(identity, templateType);
   const requiredWorkNotice = await isRequiredProviderWorkEmail({templateType,to,userId,agencyId:identity?.agency_id});
-  const optGate = securityNotice || requiredWorkNotice ? { allowed: true } : await assertRecipientAllowsEmail({ to, agencyId: identity?.agency_id || null });
+  const optGate = securityNotice || requiredWorkNotice || isRequestedAccountEmail(templateType) ? { allowed: true } : await assertRecipientAllowsEmail({ to, agencyId: identity?.agency_id || null });
   if (!optGate.allowed) {
+    if (existingCommunicationId) {
+      await pool.execute("UPDATE user_communications SET delivery_status='skipped',error_message=? WHERE id=? AND agency_id=?", [`send skipped — ${optGate.reason}`, existingCommunicationId, identity.agency_id]);
+      return { skipped: true, reason: optGate.reason, communicationId: Number(existingCommunicationId) };
+    }
     await logSkippedOrFailedEmail({
       to,
       subject,
@@ -1265,6 +1274,12 @@ export async function sendEmailFromIdentity({
   let comm = null;
   if (existingCommunicationId) {
     comm = { id: Number(existingCommunicationId) };
+    if (preloggedReceipt) {
+      await pool.execute(`UPDATE user_communications SET subject=?,body=?,
+        metadata=JSON_MERGE_PATCH(COALESCE(metadata,JSON_OBJECT()),CAST(? AS JSON)) WHERE id=? AND agency_id=?`,
+      [redirected.subject || subject, htmlWithPixel || signedContent.text || '', JSON.stringify({senderIdentityId:identity.id,
+        fromEmail:identity.from_email,replyTo,source,...(hasAttachments ? {hadAttachments:true,attachmentCount:attachments.length} : {}),...fallbackMeta,...redirectMeta}), comm.id,identity.agency_id]);
+    }
     // Buffered schedule notices create their receipt before transport. Attach
     // the actual pixel token to that receipt, just as for newly logged mail.
     if (trackingToken) await UserCommunication.setTrackingToken(comm.id, identity.agency_id, trackingToken);
@@ -1335,15 +1350,11 @@ export async function sendEmailFromIdentity({
 
   const resolvedTemplateType = templateType || 'identity_send';
   const ttNorm = String(resolvedTemplateType).trim().toLowerCase();
-  const isLoginRecoveryEmail = [
-    'password_reset',
-    'admin_initiated_password_reset',
-    'school_staff_account_recovery'
-  ].includes(ttNorm);
+  const isLoginRecoveryEmail = isRequestedAccountEmail(ttNorm);
   // Internal testing inbox redirects and login recovery must not sit in the approval queue.
   const needsApproval =
     !redirected.redirected &&
-    !existingCommunicationId &&
+    (!existingCommunicationId || preloggedReceipt) &&
     !isLoginRecoveryEmail &&
     !securityNotice &&
     comm?.id &&

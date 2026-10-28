@@ -1,3 +1,4 @@
+import { isRequestedAccountEmail } from '../utils/accountAccessEmail.js';
 import { routineParentEmailGate } from './routineParentEmailPause.service.js';
 import { isSchoolCommunication } from './schoolCommunicationContext.service.js';
 import { compactSchoolCareBridgeEmail } from './schoolCareBridgeEmail.service.js';
@@ -187,7 +188,7 @@ class EmailService {
       };
     }
 
-    const optGate = await assertRecipientAllowsEmail({ to, agencyId });
+    const optGate = isRequestedAccountEmail(templateType) ? { allowed: true } : await assertRecipientAllowsEmail({ to, agencyId });
     if (!optGate.allowed) {
       return { skipped: true, reason: optGate.reason };
     }
@@ -204,7 +205,8 @@ class EmailService {
       html: outboundHtml,
       to,
       agencyId,
-      userId
+      userId,
+      skipOptOutLink: isRequestedAccountEmail(templateType)
     });
     outboundText = footered.text;
     outboundHtml = footered.html;
@@ -358,6 +360,7 @@ class EmailService {
     if (
       !redirectedPreview.redirected &&
       !existingCommunicationId &&
+      !isRequestedAccountEmail(resolvedTemplateType) &&
       comm?.id &&
       (await emailRequiresAdminApproval({
         agencyId,

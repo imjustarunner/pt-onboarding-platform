@@ -4,14 +4,18 @@ import Agency from '../models/Agency.model.js';
 import IntakeSubmission from '../models/IntakeSubmission.model.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 
+export const ENROLLMENT_EMAIL_NOTICE_VERSION = '2026-10-28.1';
+export const ENROLLMENT_CONTACT_NOTICE = 'Your enrollment confirmation and requested portal setup, sign-in and password recovery emails are separate from optional updates. These choices do not affect care. Texting choices are separate. Use the contact options below if automatic email is not safe for you.';
+
 export const INTAKE_COMMUNICATION_VERSION = '2026-10-06.2';
 export const SCHOOL_COMMUNICATION_NOTICE = 'For visits at school, no appointment confirmation is needed. If your child will be absent or plans change, let our team know. A reply is reviewed by staff and does not automatically cancel a visit or create a fee. Continue to report absences to the school as usual. Your billing office may differ from the school where services take place.';
 
 export function intakeCommunicationDisclosure(agency) {
   const brandName = String(agency?.official_name || agency?.name || '').trim();
   return { version: INTAKE_COMMUNICATION_VERSION, agencyId: Number(agency?.id), brandName,
-    emailText: `${brandName} offers optional account emails about appointments, school sessions when applicable, schedule changes, secure-message alerts, forms and signatures, enrollment follow-ups, billing and required insurance cards. Medicaid cards are not requested. Choose all account emails, scheduling only, or No. This choice does not include marketing, enroll another adult, or affect your care. Requested login, password recovery and essential security messages are separate.`,
-    emailAllLabel: 'Yes - All account-related emails (no marketing)',
+    emailNoticeVersion: ENROLLMENT_EMAIL_NOTICE_VERSION, essentialText: ENROLLMENT_CONTACT_NOTICE,
+    emailText: `${brandName} offers optional account emails about appointments, school sessions when applicable, schedule changes, secure-message alerts, forms and signatures, enrollment follow-ups, billing and required insurance cards. Medicaid cards are not requested. Choose all optional account emails, scheduling only, or essential messages only. This choice does not include marketing, enroll another adult, or affect your care. Requested login, password recovery and essential security messages are separate.`,
+    emailAllLabel: 'All optional account updates (no marketing)',
     text: `${brandName} offers optional text messages for appointment reminders, schedule changes, cancellations and links to sign in or join a scheduled session. Choose Yes or No below. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Choosing No does not affect care, enrollment or school services. This choice does not authorize marketing or enroll other contacts. Texts may appear on a shared phone or lock screen; use the secure app for private details.`,
     schoolText: SCHOOL_COMMUNICATION_NOTICE,
     signatureText: 'By typing my name and continuing, I electronically sign these choices. If I request texts, I control the listed phone and am the recipient or their authorized guardian. I can decline texts and still receive services.' };
@@ -53,7 +57,23 @@ export async function validateAndStampIntakeCommunications({ link, agencyId, int
     fail('Communication information has changed. Refresh and review your communication choices before signing.');
   }
   if (!String(cp.signerName || '').trim() || cp.signatureAccepted !== true) fail('Please sign your communication choices. You may decline all texts.');
-  if (cp.emailDisclosure != null && cp.emailDisclosure !== disclosure.emailText) fail('Email communication information has changed. Refresh and review your choices.');
+  // Existing open forms retain their original meaning; SMS evidence keeps its version.
+  const legacyEmailText = disclosure.emailText.replace('Choose all optional account emails, scheduling only, or essential messages only.', 'Choose all account emails, scheduling only, or No.');
+  if (cp.emailNoticeVersion != null) {
+    if (cp.emailNoticeVersion !== ENROLLMENT_EMAIL_NOTICE_VERSION || cp.essentialDisclosure !== disclosure.essentialText || cp.emailDisclosure !== disclosure.emailText)
+      fail('Email communication information has changed. Refresh and review your choices.');
+    for (const key of ['noRoutineCalls', 'noAutomaticEmail']) {
+      if (typeof cp[key] !== 'boolean') fail('Please review your contact options.');
+    }
+    if (cp.alternativeContactInstructions != null && (typeof cp.alternativeContactInstructions !== 'string' || cp.alternativeContactInstructions.length > 500))
+      fail('Keep alternate contact instructions to 500 characters.');
+    cp.alternativeContactInstructions = String(cp.alternativeContactInstructions || '').trim();
+  } else {
+    if (cp.emailDisclosure != null && ![legacyEmailText, disclosure.emailText].includes(cp.emailDisclosure))
+      fail('Email communication information has changed. Refresh and review your choices.');
+    // A legacy page cannot opt someone into the new essential confirmation policy.
+    delete cp.essentialDisclosure; delete cp.noRoutineCalls; delete cp.noAutomaticEmail; delete cp.alternativeContactInstructions;
+  }
   if (cp.providerTextingOptIn != null && !['yes','no'].includes(cp.providerTextingOptIn)) fail('Choose Yes or No for care-team texting.');
   if ((cp.smsPreference === 'scheduling_only' || cp.providerTextingOptIn === 'yes') && !normalizeSmsPhone(cp.recipientPhone)) fail('Enter the phone you control to request texts, or choose No.');
   if (!cp.termsUrl || !cp.privacyUrl) fail('The communication terms and privacy policy must be available before signing.');
@@ -68,7 +88,7 @@ export async function validateAndStampIntakeCommunications({ link, agencyId, int
   cp.providerTextingActivationStatus = cp.providerTextingOptIn === 'yes' ? 'awaiting_recipient_and_campaign_review' : 'declined';
 }
 
-export async function latestIntakeCommunicationChoices(clientId, agencyId, guardianUserId = null) {
+export async function latestIntakeCommunicationChoices(clientId, agencyId, guardianUserId = null, recipientEmail = null) {
   const [rows] = await pool.execute(
     `SELECT DISTINCT s.id FROM intake_submissions s
      LEFT JOIN intake_submission_clients ic ON ic.intake_submission_id = s.id
@@ -81,6 +101,7 @@ export async function latestIntakeCommunicationChoices(clientId, agencyId, guard
      ORDER BY s.id DESC LIMIT 20`, [clientId, clientId, guardianUserId, guardianUserId, agencyId, agencyId, agencyId]);
   for (const row of rows) {
     const submission = await IntakeSubmission.findById(row.id);
+    if (recipientEmail && String(submission?.signer_email || '').trim().toLowerCase() !== String(recipientEmail).trim().toLowerCase()) continue;
     const cp = getIntakeCommunicationChoices(submission?.intake_data);
     if (cp && (!cp.agencyId || Number(cp.agencyId) === Number(agencyId))) return { ...cp, submissionId: row.id, submittedAt: submission.submitted_at, guardianUserId: submission.guardian_user_id || null, recipientEmail: submission.signer_email || null };
   }

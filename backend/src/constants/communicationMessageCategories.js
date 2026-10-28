@@ -83,7 +83,7 @@ export function appendCategoryFilter(category, where) {
     return;
   }
   if (cat === 'intake') {
-    where.push(`uc.template_type IN ('intake', 'intake_packet_completion')`);
+    where.push(`uc.template_type IN ('intake', 'intake_packet_completion', 'enrollment_submission_confirmation')`);
     return;
   }
   if (cat === 'events') {

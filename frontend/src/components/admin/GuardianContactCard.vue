@@ -8,6 +8,11 @@
       <fieldset v-for="agency in agencies" :key="agency.id">
         <legend>{{ agency.name }}</legend>
         <label v-for="client in agency.clients" :key="client.id"><input v-model="selectedIds" type="checkbox" :value="client.id" /> {{ client.name }}</label>
+        <div v-for="client in agency.clients.filter(c => c.contactPreferences)" :key="`preferences-${client.id}`">
+          <p v-if="client.contactPreferences.noRoutineCalls"><strong>{{ client.name }}: No routine phone calls.</strong> Use the family's other contact options.</p>
+          <p v-if="client.contactPreferences.noAutomaticEmail"><strong>{{ client.name }}: No automatic emails.</strong> Review a safe contact method before outreach.</p>
+          <p v-if="client.contactPreferences.alternativeContactInstructions">{{ client.name }} — {{ client.contactPreferences.alternativeContactInstructions }}</p>
+        </div>
         <button type="button" class="btn btn-primary" :disabled="!contact.guardian.email || !selectedFor(agency).length" @click="compose(agency)">Email guardian about {{ selectedFor(agency).length || 'selected' }} {{ selectedFor(agency).length === 1 ? 'client' : 'clients' }}</button>
       </fieldset>
       <section v-if="voicemails.length || voicemailError" aria-label="Guardian voicemails">

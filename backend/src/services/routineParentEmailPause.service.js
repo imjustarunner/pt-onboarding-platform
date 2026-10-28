@@ -1,3 +1,4 @@
+import { isRequestedAccountEmail } from '../utils/accountAccessEmail.js';
 import pool from '../config/database.js';
 import {familyNotificationDeliveryGate} from './familyNotificationChoices.service.js';
 
@@ -7,8 +8,6 @@ function addresses(value) {
   if(value && typeof value==='object') return addresses(value.email || value.address);
   return (String(value || '').match(/[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}/ig) || []).map(email);
 }
-const recovery = new Set(['password_reset','admin_initiated_password_reset','account_login_help','school_staff_account_recovery',
-  'guardian_portal_login_info','auricwell_account_recovery']);
 const familyTypes = new Set(['portal_onboarding_reminder','hub_portal_invite','portal_migration_invite','co_guardian_invite','co_guardian_invite_failed','guardian_plan_review',
   'adaptive_full_intake_invite','intake_packet_completion','intake_summary_pdf_copy','insurance_card_followup',
   'session_reminder','session_confirmation','session_change','session_cancellation','school_session_notice','auricwell_session_reminder',
@@ -23,7 +22,7 @@ const staffRoles = new Set(['admin','super_admin','support','staff','provider','
  */
 async function parentPauseGate({agencyId,to,cc,bcc,source='auto',templateType,clientId,existingCommunicationId}, db=pool) {
   const type=String(templateType || '').replace(/^trigger:/,'').toLowerCase();
-  if(recovery.has(type) || type.startsWith('security_')) return {allowed:true};
+  if(isRequestedAccountEmail(type) || type === 'enrollment_submission_confirmation' || type.startsWith('security_')) return {allowed:true};
   const recipients=[...new Set([...addresses(to),...addresses(cc),...addresses(bcc)])];
   if(recipients.length && recipients.every(address=>address==='testing@itsco.health' || address.endsWith('@example.com'))) return {allowed:true};
   let origin=String(source || '').toLowerCase();
