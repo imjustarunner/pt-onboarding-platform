@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import jwt from 'jsonwebtoken';
-const m = vi.hoisted(() => ({ execute: vi.fn(), events: vi.fn(), canJoin: vi.fn(), authenticate: vi.fn() }));
+const m = vi.hoisted(() => ({ execute: vi.fn(), events: vi.fn(), canJoin: vi.fn(), authenticate: vi.fn(), rsvp: vi.fn() }));
+vi.mock('../supervisionRsvp.service.js', () => ({ getSupervisionRsvp: m.rsvp }));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.execute } }));
 vi.mock('../../config/config.js', () => ({ default: { jwt: { secret: 'test-only-app-secret' } } }));
 vi.mock('../meetingInvitations.service.js', () => ({ invitationEvents: m.events }));
@@ -17,6 +18,7 @@ beforeEach(() => {
   invitation = { id: 3, user_id: 8, agency_id: 2, provider_id: 7, event_id: 9, meeting_type: 'supervision', join_token: personalToken };
   session = { id: 9, agency_id: 2, supervisor_user_id: 7, supervisee_user_id: 8, status: 'SCHEDULED', start_at: '2026-10-01 15:00:00', end_at: '2026-10-01 16:00:00', modality: 'VIRTUAL' };
   m.events.mockImplementation(async () => [session]); m.canJoin.mockResolvedValue(true);
+  m.rsvp.mockResolvedValue(null);
   m.execute.mockImplementation(async sql => {
     if (sql.includes('meeting_email_invitations')) return [[invitation]];
     if (sql.includes('SELECT s.*')) return [[session]];
@@ -42,6 +44,18 @@ describe('personal supervision invitation without app sign-in', () => {
   });
   it('does not exchange a team meeting link for anonymous access', async () => {
     invitation.meeting_type = 'team_meeting'; expect(await resolveSupervisionInvitationAccess(personalToken)).toBeNull();
+  });
+  it('offers a declined recipient their own RSVP page without issuing room credentials', async () => {
+    m.canJoin.mockResolvedValue(false);
+    m.rsvp.mockResolvedValue({status:'DECLINED',canAccept:true});
+    const result = await resolveSupervisionInvitationAccess(personalToken);
+    expect(result).toEqual({rsvpUrl:`https://tenant.example/join/invitation/${personalToken}?rsvp=1&eventId=9`});
+    expect(m.events).toHaveBeenCalledWith(invitation,{includeDeclined:true});
+    expect(m.rsvp).toHaveBeenCalledWith({sessionId:9,userId:8,now:expect.any(Date)});
+  });
+  it.each([{status:'DECLINED',canAccept:false},{status:'REMOVED',canAccept:true}])('does not offer recovery when it is not permitted: %j',async rsvp => {
+    m.canJoin.mockResolvedValue(false);m.rsvp.mockResolvedValue(rsvp);
+    await expect(resolveSupervisionInvitationAccess(personalToken)).rejects.toMatchObject({status:410});
   });
   it('allows rejoining an active session after its scheduled end', async () => {
     session.end_at = '2026-10-01 14:59:00'; session.has_live_presence = 1;

@@ -128,6 +128,11 @@ it('opens a group attendee’s RSVP first and lets them continue to details', as
   const dialog=wrapper.findComponent({name:'SupervisionRsvpDialog'});
   expect(dialog.exists()).toBe(true);expect(dialog.props('session').id).toBe(10);expect(s.showRequestModal).toBe(false);
   dialog.vm.$emit('details');await flushPromises();expect(s.personalSupervisionRsvp).toBeNull();expect(s.showRequestModal).toBe(true);
+  clock.mockReturnValue(new Date(2026,9,5,10,15).getTime());
+  Object.assign(fixture.supervisionSessions[0],{enrollmentMode:'invited',viewerRsvpStatus:'DECLINED'});s.summary={...fixture};
+  s.openSupervisionEditInScheduleModal('Monday',10,10);await flushPromises();
+  expect(wrapper.findComponent({name:'SupervisionRsvpDialog'}).exists()).toBe(true);
+  wrapper.findComponent({name:'SupervisionRsvpDialog'}).vm.$emit('close');await flushPromises();
   for(const patch of [{sessionType:'individual'},{sessionType:'group',supervisorUserId:7},{sessionType:'group',supervisorUserId:9,coFacilitatorUserId:7}]) {
    Object.assign(fixture.supervisionSessions[0],patch);s.summary={...fixture};s.openSupervisionEditInScheduleModal('Monday',10,10);await flushPromises();
    expect(s.personalSupervisionRsvp).toBeNull();expect(s.showRequestModal).toBe(true);

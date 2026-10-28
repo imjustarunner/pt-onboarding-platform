@@ -1,8 +1,22 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { saveSupervisionAccess, supervisionAccessFor, attachSupervisionAccess } from '../supervisionInvitationAccess';
-afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+import { saveSupervisionAccess, supervisionAccessFor, attachSupervisionAccess, supervisionAccountJoinUrl } from '../supervisionInvitationAccess';
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); history.replaceState(null,'','/'); });
 const save = (id = 92) => saveSupervisionAccess({ sessionId: id, token: 'session-only', expiresAt: Date.now() + 60000 });
 describe('personal supervision credential routing', () => {
+  it('creates a shareable account link without carrying the sender’s identity',()=>{
+    expect(supervisionAccountJoinUrl(92,'https://tenant.example')).toBe('https://tenant.example/join/supervision/92?account=1');
+    expect(supervisionAccountJoinUrl('personal-token')).toBe('');
+  });
+  it('ignores a cached personal grant when following a shared account link',()=>{
+    save();history.replaceState(null,'','/join/supervision/92?account=1');
+    expect(attachSupervisionAccess({url:'/supervision/sessions/92/video-token'}).headers).toBeUndefined();
+    expect(attachSupervisionAccess({url:'/meeting-agendas',params:{meetingType:'supervision_session',meetingId:92}}).headers).toBeUndefined();
+  });
+  it('always uses account authentication for calendar RSVP edits',()=>{
+    save();
+    expect(attachSupervisionAccess({url:'/supervision/sessions/92/rsvp',method:'post'}).headers).toBeUndefined();
+    expect(attachSupervisionAccess({url:'/supervision/sessions/92/rsvp',method:'get'}).headers).toBeUndefined();
+  });
   it('attaches a grant only to its session requests', () => {
     save();
     expect(attachSupervisionAccess({ url: '/supervision/sessions/92/video-token' })).toMatchObject({ headers: { 'X-Supervision-Access': 'session-only' }, skipAuthRedirect: true });

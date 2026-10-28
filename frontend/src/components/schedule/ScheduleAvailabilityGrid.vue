@@ -16,7 +16,7 @@
     <button v-if="fullscreenActive" type="button" class="sched-fullscreen-exit" title="Exit full screen (Escape)" @click="toggleFullscreen">× Exit full screen</button>
     <SupervisionRsvpDialog v-if="personalSupervisionRsvp" :key="personalSupervisionRsvp.session.id"
       :session="personalSupervisionRsvp.session" @close="personalSupervisionRsvp = null"
-      @details="openPersonalSupervisionDetails" @saved="refreshPersonalSupervisionRsvp" />
+      @details="openPersonalSupervisionDetails" @saved="refreshPersonalSupervisionRsvp" @join="joinPersonalSupervision" />
     <OfferedTimeDialog v-if="offeredTime" :item="offeredTime" @close="offeredTime=null" @released="onOfferReleased" />
     <DayCancellationDialog v-if="cancelDayDate" :date="cancelDayDate" :provider-id="Number(userId || authStore.user?.id)"
       :agency-id="Number(effectiveAgencyId || 0)" :agency-options="headerTenantOptions"
@@ -1811,6 +1811,7 @@
             :people="supvSessionAttendees" :can-see-declined="supvCanSeeDeclined"
             :loading="supvSessionAttendeesLoading" :error="supvSessionAttendeesError"
           />
+          <SupervisionShareLink v-if="editorIsSupervision && isAppointmentEditMode && selectedSupvSession?.sessionType === 'group' && canJoinSelectedSupvSession && editorWorkspaceTab === 'info'" :session-id="Number(selectedSupvSessionId)" />
           <div
             v-show="editorWorkspaceTab === 'info'"
             class="supv-info-layout"
@@ -5866,6 +5867,7 @@ import { confirmOneTimeRoom, ANY_ROOM_NOTE } from '../../utils/officeRequestConf
 import { isWorkplaceSchedulePerson } from '../../utils/workplacePeople';
 import SupervisionAttendeeMandatoryPanel from './SupervisionAttendeeMandatoryPanel.vue';
 import SupervisionRsvpDialog from './SupervisionRsvpDialog.vue';
+import SupervisionShareLink from '../supervision/SupervisionShareLink.vue';
 import SupervisionSignupCountdown from './SupervisionSignupCountdown.vue';
 import { supervisionSignupState, supervisionSignupLabel } from '../../utils/supervisionSignupState.js';
 import SupervisionNotePanel from './SupervisionNotePanel.vue';
@@ -25925,6 +25927,7 @@ const pickScheduleEventForEdit = async (item) => {
 };
 
 const personalSupervisionRsvp = ref(null);
+const joinPersonalSupervision = (url) => window.location.assign(url);
 const openPersonalSupervisionDetails = () => {
   const context = personalSupervisionRsvp.value;
   personalSupervisionRsvp.value = null;
@@ -25951,7 +25954,8 @@ const openSupervisionEditInScheduleModal = (dayName, hour, preferredId = 0, skip
   if (!skipRsvp && actorId === Number(props.userId)
     && String(first.sessionType || '').toLowerCase() === 'group'
     && ![Number(first.supervisorUserId), Number(first.coFacilitatorUserId)].includes(actorId)
-    && !isScheduleEventTerminal(first) && parseMaybeDate(first.startAt)?.getTime() > Date.now()
+    && !isScheduleEventTerminal(first) && !first.liveEndedAt
+    && (parseMaybeDate(first.endAt)?.getTime() > Date.now() || first.status === 'IN_PROGRESS')
     && (!isSignupSupervisionEvent(first) || first.viewerSignedUp || ['DECLINED', 'INVITED'].includes(first.viewerRsvpStatus))) {
     showRequestModal.value = false;
     personalSupervisionRsvp.value = { session: first, dayName, hour };

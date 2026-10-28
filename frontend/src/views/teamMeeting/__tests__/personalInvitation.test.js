@@ -9,6 +9,12 @@ import { supervisionAccessFor } from '../../../utils/supervisionInvitationAccess
 beforeEach(()=>{vi.clearAllMocks();m.query=reactive({});});
 const render=()=>mount(PersonalMeetingInvitationView,{global:{stubs:{RouterLink:true}}});
 describe('personal meeting entry',()=>{
+  it('opens the recipient’s RSVP page when their personal join link needs a declined response changed',async()=>{
+    m.get.mockResolvedValue({data:{rsvpUrl:`${window.location.origin}/join/invitation/personal?rsvp=1&eventId=19`}});
+    const wrapper=render();await flushPromises();
+    expect(m.replace).toHaveBeenCalledWith('/join/invitation/personal?rsvp=1&eventId=19');
+    expect(m.post).not.toHaveBeenCalled();wrapper.unmount();
+  });
   it.each(['Mandatory · Compensated','Optional · Not compensated'])('loads %s before asking for an RSVP',async label=>{
     Object.assign(m.query,{rsvp:'1',eventId:'19'});
     m.get.mockResolvedValue({data:{meeting:{title:'Group supervision',when:'Tomorrow',attendance:{label,tier:label.startsWith('Optional')?'optional':'mandatory',description:'Attendance policy'}}}});

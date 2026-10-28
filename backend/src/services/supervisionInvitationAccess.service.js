@@ -7,6 +7,7 @@ import { canJoinSupervision, roomUnavailable } from './meetingJoinPolicy.service
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { joinUrlForSupervision } from '../utils/joinToken.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
+import { getSupervisionRsvp } from './supervisionRsvp.service.js';
 
 const audience = 'supervision-session';
 const issuer = 'personal-supervision-invitation';
@@ -20,9 +21,20 @@ export async function resolveSupervisionInvitationAccess(token, now = new Date()
   const [rows] = await pool.execute('SELECT * FROM meeting_email_invitations WHERE join_token=?', [token]);
   const invitation = rows[0];
   if (!invitation || invitation.meeting_type !== 'supervision') return null;
-  const events = await invitationEvents(invitation);
+  const events = await invitationEvents(invitation, { includeDeclined: true });
   const session = events.find(e => !e.live_ended_at && (parseUtcDate(e.end_at) > now || e.status === 'IN_PROGRESS' || Number(e.has_live_presence) === 1));
-  if (!session || !await canJoinSupervision(session, invitation.user_id)) throw unavailable();
+  if (!session) throw unavailable();
+  if (!await canJoinSupervision(session, invitation.user_id)) {
+    // A decline can be reversed by its recipient; it never grants room access itself.
+    const rsvp = await getSupervisionRsvp({sessionId:session.id,userId:invitation.user_id,now}).catch(error => {
+      if (error.status === 404) return null;
+      throw error;
+    });
+    if (rsvp?.status === 'DECLINED' && rsvp.canAccept) {
+      return { rsvpUrl: `${await tenantMeetingBase(session.agency_id)}/join/invitation/${encodeURIComponent(token)}?rsvp=1&eventId=${session.id}` };
+    }
+    throw unavailable();
+  }
   if (['IN_PERSON','IN-PERSON'].includes(String(session.modality || '').toUpperCase())) {
     return { joinUrl: null, meeting: { title: session.title || 'Supervision', location: session.location_text || '', when: String(session.start_at || '') } };
   }

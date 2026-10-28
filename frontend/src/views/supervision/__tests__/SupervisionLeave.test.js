@@ -1,21 +1,48 @@
 import { mount, flushPromises } from '@vue/test-utils';
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
-const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),finish:vi.fn(),host:true}));
+const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),finish:vi.fn(),host:true,query:{},replace:vi.fn()}));
 vi.mock('../../../services/api',()=>({default:{get:m.get,post:m.post}}));
 vi.mock('../../../utils/finishMeetingTranscription',()=>({finishMeetingTranscription:m.finish}));
 vi.mock('../../../utils/orgScopedPath',()=>({resolveHostImpliedPortalSlug:()=>''}));
 vi.mock('../../../store/auth',()=>({useAuthStore:()=>({isAuthenticated:true,user:{id:9}})}));
-vi.mock('vue-router',()=>({useRoute:()=>({params:{sessionId:'101',organizationSlug:'tenant'},fullPath:'/tenant/join/supervision/101'}),useRouter:()=>({replace:vi.fn(),push:vi.fn()})}));
+vi.mock('vue-router',()=>({useRoute:()=>({params:{sessionId:'101',organizationSlug:'tenant'},query:m.query,fullPath:'/tenant/join/supervision/101'}),useRouter:()=>({replace:m.replace,push:vi.fn()})}));
 import JoinSupervisionView from '../JoinSupervisionView.vue';
 let wrapper;
 beforeEach(()=>{
-  vi.clearAllMocks();vi.useFakeTimers();m.host=true;vi.spyOn(window,'confirm').mockReturnValue(true);
+  vi.clearAllMocks();vi.useFakeTimers();m.host=true;m.query={};vi.spyOn(window,'confirm').mockReturnValue(true);
   m.get.mockImplementation(async url=>({data:url.includes('join-info')?{orgSlug:'tenant',sessionId:101}:{token:'video',sessionId:'room',applicationId:'app',supervisionSessionId:101,isSupervisor:m.host,identity:'user-9',sessionType:'group',hostPresent:true}}));
   m.post.mockResolvedValue({data:{ok:true,canEndForEveryone:true}});m.finish.mockResolvedValue(true);
 });
 afterEach(()=>{wrapper?.unmount();vi.clearAllTimers();vi.useRealTimers();vi.restoreAllMocks();});
 async function render(){wrapper=mount(JoinSupervisionView,{global:{stubs:{SupervisionLiveRoom:true,MeetingSessionExitPanel:true}}});await flushPromises();return wrapper.findComponent({name:'SupervisionLiveRoom'});}
 describe('supervision leave versus explicit meeting closure',()=>{
+  it('lets a declined invitee explicitly update RSVP and join using their account',async()=>{
+    const get=m.get.getMockImplementation();let accepted=false;
+    m.get.mockImplementation(async(url,...args)=>{
+      if(url.endsWith('/video-token')&&!accepted)throw {response:{status:403,data:{error:{message:'Access denied'}}}};
+      if(url.endsWith('/rsvp'))return {data:{status:'DECLINED',canAccept:true}};
+      return get(url,...args);
+    });
+    m.post.mockImplementation(async(url,body)=>{if(url.endsWith('/rsvp')){expect(body).toEqual({response:'accepted',reason:''});accepted=true;}return {data:{ok:true}};});
+    await render();expect(wrapper.text()).toContain('You previously RSVP’d not attending');
+    expect(accepted).toBe(false);
+    await wrapper.findAll('button').find(b=>b.text()==='Update RSVP and join').trigger('click');await flushPromises();
+    expect(accepted).toBe(true);expect(wrapper.findComponent({name:'SupervisionLiveRoom'}).exists()).toBe(true);
+  });
+  it.each([false,true])('does not offer RSVP recovery without permission (missing invitation=%s)',async missing=>{
+    const get=m.get.getMockImplementation();
+    m.get.mockImplementation(async(url,...args)=>{
+      if(url.endsWith('/video-token'))throw {response:{status:403,data:{error:{message:'Access denied'}}}};
+      if(url.endsWith('/rsvp')){if(missing)throw {response:{status:404}};return {data:{status:'DECLINED',canAccept:false}};}
+      return get(url,...args);
+    });
+    await render();expect(wrapper.text()).not.toContain('Update RSVP and join');
+    expect(m.post.mock.calls.some(([url])=>url.endsWith('/rsvp'))).toBe(false);
+  });
+  it('preserves account-based entry through the organization redirect',async()=>{
+    m.query={account:'1'};m.get.mockResolvedValue({data:{orgSlug:'other-tenant',sessionId:101,joinToken:'101'}});
+    await render();expect(m.replace).toHaveBeenCalledWith('/other-tenant/join/supervision/101?account=1');
+  });
   it('keeps a retry available after a connection interruption and a failed rejoin request',async()=>{
     const room=await render();
     room.vm.$emit('disconnected',{reason:'networkDisconnected'});await flushPromises();

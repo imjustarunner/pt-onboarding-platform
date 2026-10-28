@@ -74,6 +74,12 @@ it('rejects recipients removed from the invitation roster',async()=>{
  m.events.mockResolvedValue([]);await expect(invitationResponseContext(token,19)).rejects.toMatchObject({status:410});
  expect(m.events).toHaveBeenCalledWith(invitation,{includeDeclined:true});
 });
+it('keeps the invited RSVP available while group supervision is still in progress after its scheduled end',async()=>{
+ event.status='IN_PROGRESS';event.end_at='2026-10-27 23:00:00';
+ await expect(invitationResponseContext(token,19,new Date('2026-10-27T23:05:00Z'))).resolves.toMatchObject({userId:7,event:{id:19}});
+ event.live_ended_at='2026-10-27 23:04:00';
+ await expect(invitationResponseContext(token,19,new Date('2026-10-27T23:05:00Z'))).rejects.toMatchObject({status:410});
+});
 it.each([{end_at:'2000-01-01 00:00:00'},{live_ended_at:'2026-10-15 17:00:00'},{meeting_completed_at:'2026-10-15 17:00:00'}])('rejects ended invitations %j',async patch=>{
  Object.assign(event,patch);await expect(invitationResponseContext(token,19)).rejects.toMatchObject({status:410});
 });

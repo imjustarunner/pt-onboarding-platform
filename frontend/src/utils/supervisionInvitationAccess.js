@@ -22,6 +22,9 @@ export function supervisionAccessFor(sessionId) {
 }
 
 export function attachSupervisionAccess(config) {
+  // Shared links and calendar RSVP edits always use the signed-in account.
+  if (new URLSearchParams(window.location.search).get('account') === '1'
+    || /^\/supervision\/sessions\/\d+\/rsvp(?:[/?]|$)/.test(String(config.url || ''))) return config;
   const pageRef = /\/join\/supervision\/([^/]+)\/?$/.exec(window.location.pathname)?.[1];
   if (pageRef && !/^\d+$/.test(pageRef)) return config;
   // Only relative session API calls receive this credential, never external URLs.
@@ -41,4 +44,10 @@ export function attachSupervisionAccess(config) {
     config.skipAuthRedirect = true;
   }
   return config;
+}
+
+export function supervisionAccountJoinUrl(sessionId, base = window.location.origin) {
+  const id = Number(sessionId);
+  if (!Number.isSafeInteger(id) || id <= 0) return '';
+  return new URL(`/join/supervision/${id}?account=1`, base).href;
 }

@@ -46,3 +46,26 @@ it('respects closed registration and makes past sessions read-only', async () =>
 it('opens details without changing the RSVP', async () => {
  await open();await wrapper.find('footer button').trigger('click');expect(wrapper.emitted('details')).toHaveLength(1);expect(api.post).not.toHaveBeenCalled();
 });
+it('lets a declined attendee explicitly update their RSVP and then join as themselves',async()=>{
+ await open({...current,status:'DECLINED',required:false});
+ await wrapper.setProps({session:{...wrapper.props('session'),joinUrl:'https://tenant.example/join/invitation/someone-elses-link'}});
+ expect(api.post).not.toHaveBeenCalled();
+ await wrapper.findAll('button').find(b=>b.text()==='Update RSVP and join').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/supervision/sessions/10/rsvp',{response:'accepted',reason:''});
+ expect(wrapper.emitted('join')).toEqual([[`${window.location.origin}/join/supervision/10?account=1`]]);
+ expect(wrapper.get('a').attributes('href')).toBe(`${window.location.origin}/join/supervision/10?account=1`);
+});
+it('does not navigate into a session if saving the RSVP fails',async()=>{
+ await open({...current,status:'DECLINED'});
+ await wrapper.setProps({session:{...wrapper.props('session'),joinUrl:'/join/supervision/10'}});
+ api.post.mockRejectedValue({response:{data:{error:{message:'This meeting has ended.'}}}});
+ await wrapper.findAll('button').find(b=>b.text()==='Update RSVP and join').trigger('click');await flushPromises();
+ expect(wrapper.emitted('join')).toBeUndefined();expect(wrapper.text()).toContain('Current RSVP: Not attending');
+});
+it('does not offer joining when signup is closed or the session is in person',async()=>{
+ await open({...current,status:'DECLINED',canAccept:false});
+ await wrapper.setProps({session:{...wrapper.props('session'),joinUrl:'/join/supervision/10'}});
+ expect(wrapper.text()).not.toContain('Update RSVP and join');
+ wrapper.unmount();await open({...current,status:'DECLINED'});
+ expect(wrapper.text()).not.toContain('Update RSVP and join');
+});

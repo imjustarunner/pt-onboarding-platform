@@ -13,7 +13,8 @@ export async function invitationResponseContext(token, eventId, now = new Date()
     throw Object.assign(new Error('This personal invitation was not found.'), { status: 404 });
   }
   const event = (await invitationEvents(invitation, { includeDeclined: true })).find(e => Number(e.id) === Number(eventId));
-  if (!event || event.meeting_completed_at || event.live_ended_at || !(parseUtcDate(event.end_at || event.end_date) > now)) {
+  const ongoingSupervision = invitation.meeting_type === 'supervision' && event?.status === 'IN_PROGRESS';
+  if (!event || event.meeting_completed_at || event.live_ended_at || (!(parseUtcDate(event.end_at || event.end_date) > now) && !ongoingSupervision)) {
     throw Object.assign(new Error('This meeting has ended, was canceled, or you are no longer invited.'), { status: 410 });
   }
   return { invitation, event, userId: Number(invitation.user_id) };

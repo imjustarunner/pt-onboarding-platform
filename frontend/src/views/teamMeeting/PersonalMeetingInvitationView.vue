@@ -36,7 +36,7 @@
         <RouterLink :to="{path:route.path,query:{rsvp:'1',eventId:route.query.eventId}}">RSVP</RouterLink>
         <RouterLink :to="route.path">Open session</RouterLink>
       </template>
-      <RouterLink v-else-if="route.query.rsvp" :to="route.path">Open session</RouterLink>
+      <RouterLink v-else-if="route.query.rsvp" :to="route.path">{{ rsvpSaved === 'accepted' ? 'Join session' : 'Open session' }}</RouterLink>
       <p v-else>This meeting has no online video link. See My Schedule for the meeting details.</p>
     </section>
     <p v-else-if="!error && !(route.query.rsvp || route.name === 'InterviewRsvp')">Opening your meeting…</p>
@@ -67,7 +67,7 @@ watch(() => [route.params.token, route.query.details, route.query.rsvp, route.qu
       declining.value = route.query.rsvp === 'absence' && data.meeting.attendance?.tier === 'mandatory';
       return;
     }
-    const url = new URL(data.joinUrl);
+    const url = new URL(data.rsvpUrl || data.joinUrl);
     if (data.supervisionAccess || data.teamMeetingAccess) {
       if (url.origin !== window.location.origin) {
         // Exchange on the destination origin; never put the session grant in a URL.

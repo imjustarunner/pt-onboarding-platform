@@ -19,6 +19,7 @@
     <div v-else-if="resolving" class="join-placeholder">Resolving session…</div>
     <div v-else-if="error && !token && !sessionHasEnded" class="join-error">
       <p>{{ error }}</p>
+      <button v-if="canRecoverRsvp" type="button" class="join-login-btn" :disabled="recoveringRsvp" @click="acceptRsvpAndJoin">{{ recoveringRsvp ? 'Updating RSVP…' : 'Update RSVP and join' }}</button>
       <button
         v-if="showLoginFallback"
         type="button"
@@ -28,7 +29,7 @@
         Log in to join
       </button>
       <button
-        v-if="sessionExit === null && !showLoginFallback"
+        v-if="sessionExit === null && !showLoginFallback && !canRecoverRsvp"
         type="button"
         class="join-login-btn join-login-btn--secondary"
         @click="rejoinSession"
@@ -97,6 +98,7 @@ const hostPortalSlug = computed(() => resolveHostImpliedPortalSlug());
 const resolving = ref(false);
 const error = ref('');
 const showLoginFallback = ref(false);
+const canRecoverRsvp = ref(false), recoveringRsvp = ref(false);
 const token = ref('');
 const vonageSessionId = ref('');
 const applicationId = ref('');
@@ -452,6 +454,7 @@ async function resolveAndRedirect() {
     const slug = String(data.orgSlug || '').trim();
     if (data.canonicalJoinUrl) {
       const target = new URL(data.canonicalJoinUrl);
+      if (route.query?.account === '1') target.searchParams.set('account', '1');
       if (target.protocol === 'https:' && target.origin !== window.location.origin) {
         window.location.replace(target.href);
         return 'redirected';
@@ -486,7 +489,7 @@ async function resolveAndRedirect() {
     if (slug !== organizationSlug.value) {
       joinAttemptedForPath.value = '';
       const joinKey = String(data.joinToken || sid).trim();
-      router.replace(`/${slug}/join/supervision/${encodeURIComponent(joinKey)}`);
+      router.replace(`/${slug}/join/supervision/${encodeURIComponent(joinKey)}${route.query?.account === '1' ? '?account=1' : ''}`);
       return 'redirected';
     }
     return 'continue';
@@ -535,6 +538,7 @@ async function fetchTokenAndJoin() {
   joinInFlight = true;
   error.value = '';
   showLoginFallback.value = false;
+  canRecoverRsvp.value = false;
   const sid = sessionId.value;
   try {
     let resp;
@@ -563,6 +567,16 @@ async function fetchTokenAndJoin() {
       error.value = 'Please log in to join this session.';
       return;
     }
+    if (status === 403 && appearsLoggedInLocally() && numericSessionId.value) {
+      try {
+        const { data } = await api.get(`/supervision/sessions/${numericSessionId.value}/rsvp`, { skipAuthRedirect: true });
+        if (data.status === 'DECLINED' && data.canAccept) {
+          canRecoverRsvp.value = true;
+          error.value = 'You previously RSVP’d not attending. You can update your response and join this session.';
+          return;
+        }
+      } catch { /* Keep the original access error when there is no current invitation. */ }
+    }
     if (status === 409) {
       error.value = e?.response?.data?.error?.message
         || 'This session is full right now. When someone leaves, try the link again.';
@@ -579,6 +593,18 @@ async function fetchTokenAndJoin() {
   } finally {
     joinInFlight = false;
   }
+}
+
+async function acceptRsvpAndJoin() {
+  if (!canRecoverRsvp.value || recoveringRsvp.value) return;
+  recoveringRsvp.value = true;
+  try {
+    await api.post(`/supervision/sessions/${numericSessionId.value}/rsvp`, { response: 'accepted', reason: '' });
+    window.dispatchEvent(new CustomEvent('meeting-rsvp-changed'));
+    await fetchTokenAndJoin();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Could not update your RSVP. Please try again.';
+  } finally { recoveringRsvp.value = false; }
 }
 
 async function runJoinFlowForCurrentRoute() {

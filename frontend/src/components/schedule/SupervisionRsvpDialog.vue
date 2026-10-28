@@ -25,7 +25,12 @@
       <p v-if="error" role="alert">{{ error }}</p>
       <button v-if="!loading && !rsvp" type="button" class="btn btn-secondary" @click="load">Try again</button>
       <p v-if="saved" role="status">Your RSVP has been updated.</p>
-      <footer><button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('details')">View session details</button></footer>
+      <footer>
+        <a v-if="accepted && rsvp.canRespond && session.joinUrl" class="btn btn-primary" :href="joinUrl">Join session</a>
+        <button v-else-if="rsvp?.canRespond && canAccept && session.joinUrl" type="button" class="btn btn-primary" :disabled="saving" @click="acceptAndJoin">Update RSVP and join</button>
+        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('details')">View session details</button>
+        <SupervisionShareLink v-if="rsvp?.canRespond" :session-id="session.id" />
+      </footer>
     </section>
   </div>
 </template>
@@ -33,11 +38,14 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import api from '../../services/api';
 import { supervisionSignupState } from '../../utils/supervisionSignupState.js';
+import { supervisionAccountJoinUrl } from '../../utils/supervisionInvitationAccess';
+import SupervisionShareLink from '../supervision/SupervisionShareLink.vue';
 const props = defineProps({ session: { type: Object, required: true } });
-const emit = defineEmits(['close', 'details', 'saved']);
+const emit = defineEmits(['close', 'details', 'saved', 'join']);
 const dialog = ref(null), rsvp = ref(null), loading = ref(true), saving = ref(false), error = ref(''), saved = ref(false);
 const response = ref(''), reason = ref('');
 const previousFocus = document.activeElement;
+const joinUrl = computed(() => supervisionAccountJoinUrl(props.session.id));
 const when = computed(() => new Date(props.session.startAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }));
 const accepted = computed(() => ['SIGNED_UP', 'JOINED'].includes(rsvp.value?.status));
 const canAccept = computed(() => rsvp.value?.canAccept && (props.session.enrollmentMode !== 'signup_only' || accepted.value || supervisionSignupState(props.session) === 'open'));
@@ -46,7 +54,7 @@ const canSave = computed(() => !saving.value && rsvp.value?.canRespond && (respo
   ? canAccept.value : response.value === 'declined' && (!rsvp.value.required || reason.value.trim())));
 function close() { if (!saving.value) emit('close'); }
 function trapFocus(event) {
-  const controls = [...dialog.value.querySelectorAll('button:not(:disabled), input:not(:disabled), textarea:not(:disabled)')].filter(el => !el.matches(':disabled'));
+  const controls = [...dialog.value.querySelectorAll('a[href], button:not(:disabled), input:not(:disabled), textarea:not(:disabled)')].filter(el => !el.matches(':disabled'));
   const first = controls[0], last = controls.at(-1);
   if (event.shiftKey && [first, dialog.value].includes(document.activeElement)) { event.preventDefault(); last?.focus(); }
   else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
@@ -71,8 +79,13 @@ async function save() {
     rsvp.value = { ...rsvp.value, status: nextResponse === 'accepted' ? 'SIGNED_UP' : 'DECLINED', reason: nextReason };
     saved.value = true;
     emit('saved');
+    return true;
   } catch (e) { error.value = e.response?.data?.error?.message || 'Could not save your RSVP. Please try again.'; }
   finally { saving.value = false; }
+}
+async function acceptAndJoin() {
+  response.value = 'accepted';
+  if (await save()) emit('join', joinUrl.value);
 }
 onMounted(() => { dialog.value?.focus(); void load(); });
 onUnmounted(() => previousFocus?.focus?.());

@@ -14,6 +14,7 @@
         </div>
       </div>
       <div class="gsl__header-right">
+        <SupervisionShareLink :session-id="supervisionSessionId" />
         <button v-if="!isInLobby" type="button" class="btn btn-secondary btn-sm" @click="tileFocus = 'collapsed'; presentationBandOpen = true">Presentation layout</button>
         <button
           v-if="isSupervisor || isPresenter"
@@ -400,6 +401,7 @@
 </template>
 
 <script setup>
+import SupervisionShareLink from './SupervisionShareLink.vue';
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
