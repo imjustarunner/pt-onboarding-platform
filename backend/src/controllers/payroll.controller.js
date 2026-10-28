@@ -1215,12 +1215,23 @@ async function resolveKioskEventClaimPay({ claim, payload = {}, storedBucket, ag
     || (split ? 'Skill Builders event' : 'Event');
   const slotLabel = rateSlotLabel(slot, titles)
     || String(payload?.payrollRateLabel || '').trim();
+  let rate=rateAmountForSlot(rateCard,slot,titles);
+  if(Number(agencyId)===2 && claim?.user_id && claim?.claim_date) {
+    const payContext=await loadUserPaySystemContext({agencyId,userId:Number(claim.user_id),periodEnd:claim.claim_date});
+    if(payContext?.enabled) {
+      const key=slot==='direct'?'hcodeRate':'indirectRate';
+      rate=Number(payContext.status?.useReducedRates
+        ? payContext.rateProfile?.[key+'Probation'] ?? payContext.rateProfile?.[key]
+        : payContext.rateProfile?.[key]);
+      if(!Number.isFinite(rate)||rate<=0)throw Object.assign(new Error('The active compensation schedule needs an event hourly rate.'),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
+    }
+  }
   return {
     ...treatment,
     eventTitle,
     slot,
     slotLabel,
-    rate: rateAmountForSlot(rateCard, slot, titles),
+    rate,
     split
   };
 }
@@ -19375,7 +19386,7 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
         });
         const rate = Number(pay.rate || 0) || 0;
         if (rate > 0) return Math.round(hrs * rate * 100) / 100;
-      } catch { /* fall through to legacy direct/indirect */ }
+      } catch (error) { if(error?.code==='AMENDMENT_PAYROLL_REVIEW_REQUIRED')throw error; }
     }
     const rate = bucket === 'direct' ? directRate : indirectRate;
     if (Number.isFinite(hrs) && hrs > 0 && rate > 0) {

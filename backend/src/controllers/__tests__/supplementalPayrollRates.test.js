@@ -4,6 +4,7 @@ vi.mock('../../services/paySystem.service.js',()=>({loadUserPaySystemContext:vi.
 vi.mock('../../models/PayrollRate.model.js',()=>({default:{findBestRate:vi.fn()}}));
 vi.mock('../../models/PayrollCompensationLevel.model.js',()=>({default:{getForUser:vi.fn()}}));
 vi.mock('../../models/PayrollPaySystemRate.model.js',()=>({default:{isAgencyEnabled:vi.fn()}}));
+vi.mock('../../services/eventPayrollRate.service.js',async original=>({...await original(),loadEventPayrollContext:vi.fn().mockResolvedValue({rateSlot:'indirect',useDirectIndirectSplit:false})}));
 import {loadUserPaySystemContext} from '../../services/paySystem.service.js';
 import PayrollRate from '../../models/PayrollRate.model.js';
 import {computeDefaultAppliedAmountForTimeClaim} from '../payroll.controller.js';
@@ -14,6 +15,21 @@ it('uses the minimum-workload indirect rate when applicable',async()=>{loadUserP
 it('uses the assigned administrative rate instead of the ordinary indirect rate',async()=>{expect(await computeDefaultAppliedAmountForTimeClaim({claim:claim('admin_duties','Admin Time'),rateCard:{indirect_rate:30}})).toBe(7.67);});
 it('retains the saved admin rate before activation and never substitutes an unrelated rate',async()=>{loadUserPaySystemContext.mockResolvedValue({enabled:false});PayrollRate.findBestRate.mockResolvedValue({rate_amount:23});expect(await computeDefaultAppliedAmountForTimeClaim({claim:claim('admin_duties','Admin Time'),rateCard:{indirect_rate:30}})).toBe(7.67);PayrollRate.findBestRate.mockResolvedValue(null);expect(await computeDefaultAppliedAmountForTimeClaim({claim:claim('admin_duties','Admin Time'),rateCard:{indirect_rate:30}})).toBeNull();});
 it('pays support activities at their own rate',async()=>{expect(await computeDefaultAppliedAmountForTimeClaim({claim:claim('support_activity','MEETING'),rateCard:{indirect_rate:30}})).toBe(6);});
+
+it('reprices school outreach at the active schedule instead of the old event rate card',async()=>{
+ const {default:pool}=await import('../../config/database.js');pool.execute.mockResolvedValue([[]]);
+ const c={agency_id:2,user_id:7,claim_date:'2026-10-17',claim_type:'skill_builder_event',credits_hours:2.6,payload:{companyEventId:1,bucketRole:'indirect',source:'school_events_kiosk'}};
+ loadUserPaySystemContext.mockResolvedValue({enabled:true,status:{useReducedRates:false},rateProfile:{indirectRate:20}});
+ expect(await computeDefaultAppliedAmountForTimeClaim({claim:c,approveCreditsHours:2.6,rateCard:{indirect_rate:18}})).toBe(52);
+ loadUserPaySystemContext.mockResolvedValue({enabled:false});
+ expect(await computeDefaultAppliedAmountForTimeClaim({claim:c,approveCreditsHours:2.6,rateCard:{indirect_rate:18}})).toBe(46.8);
+});
+it('does not fall back to old event pay when an active schedule is incomplete',async()=>{
+ const {default:pool}=await import('../../config/database.js');pool.execute.mockResolvedValue([[]]);
+ loadUserPaySystemContext.mockResolvedValue({enabled:true,status:{},rateProfile:{}});
+ const c={agency_id:2,user_id:7,claim_date:'2026-10-17',claim_type:'skill_builder_event',payload:{companyEventId:1,bucketRole:'indirect'}};
+ await expect(computeDefaultAppliedAmountForTimeClaim({claim:c,approveCreditsHours:2.6,rateCard:{indirect_rate:18}})).rejects.toMatchObject({code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
+});
 
 it('holds excess-only claims for review when the automatic allowance is not active',async()=>{loadUserPaySystemContext.mockResolvedValue({enabled:false});const c=claim('indirect_service');c.payload.excessIndirect={code:'H0004',units:20,actualMinutes:70};expect(await computeDefaultAppliedAmountForTimeClaim({claim:c,rateCard:{indirect_rate:22}})).toBeNull();});
 
