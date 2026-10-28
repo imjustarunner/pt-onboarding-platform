@@ -600,7 +600,9 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
       if (isApiRateLimited()) return;
       // A slow transcript/presentation read must not stall attendance heartbeats.
       if (lifecyclePosted.value) void postLifecycle('joined');
-      if (pollInFlight) return;
+      // Keep attendance alive while another tab is in front, but defer optional
+      // presentation, discussion, and transcript refreshes until this tab is shown.
+      if (pollInFlight || document.visibilityState === 'hidden') return;
       pollInFlight = true;
       try {
         await Promise.allSettled([

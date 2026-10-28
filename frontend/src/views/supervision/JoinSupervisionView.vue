@@ -32,9 +32,10 @@
         v-if="sessionExit === null && !showLoginFallback && !canRecoverRsvp"
         type="button"
         class="join-login-btn join-login-btn--secondary"
+        :disabled="joinRetrySeconds > 0"
         @click="rejoinSession"
       >
-        Try joining again
+        {{ joinRetrySeconds > 0 ? `Try again in ${joinRetrySeconds}s` : 'Try joining again' }}
       </button>
     </div>
     <SupervisionLiveRoom
@@ -82,7 +83,8 @@ import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import SupervisionLiveRoom from '../../components/supervision/SupervisionLiveRoom.vue';
 import MeetingSessionExitPanel from '../../components/meetings/MeetingSessionExitPanel.vue';
-import api from '../../services/api';
+import api, { isApiRateLimited } from '../../services/api';
+import { rateLimitRetryAt } from '../../utils/rateLimitRetry';
 import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath';
 import { supervisionAccessFor } from '../../utils/supervisionInvitationAccess';
 import { reportSupervisionConnection } from '../../utils/supervisionConnectionDiagnostics';
@@ -97,6 +99,7 @@ const hostPortalSlug = computed(() => resolveHostImpliedPortalSlug());
 
 const resolving = ref(false);
 const error = ref('');
+const joinRetrySeconds = ref(0);
 const showLoginFallback = ref(false);
 const canRecoverRsvp = ref(false), recoveringRsvp = ref(false);
 const token = ref('');
@@ -135,6 +138,33 @@ const liveEndedAt = ref(null);
 const meetingClosedByName = ref('');
 const participantJoinUrl = ref('');
 let joinInFlight = false;
+let admissionInFlight = false;
+let presenceInFlight = false;
+let joinRetryTimer = null;
+let disposed = false;
+
+function clearJoinRetry() {
+  if (joinRetryTimer) clearInterval(joinRetryTimer);
+  joinRetryTimer = null;
+  joinRetrySeconds.value = 0;
+}
+
+function showJoinError(e, fallback) {
+  if (disposed) return;
+  clearJoinRetry();
+  if (Number(e?.response?.status) !== 429) {
+    error.value = e?.response?.data?.error?.message || e?.message || fallback;
+    return;
+  }
+  error.value = 'The service is temporarily busy. Please wait a moment and try joining again.';
+  const retryAt = rateLimitRetryAt(e, Date.now(), 5000);
+  const tick = () => {
+    joinRetrySeconds.value = Math.max(0, Math.ceil((retryAt - Date.now()) / 1000));
+    if (!joinRetrySeconds.value) clearJoinRetry();
+  };
+  tick();
+  if (joinRetrySeconds.value) joinRetryTimer = setInterval(tick, 1000);
+}
 
 const sessionHasEnded = computed(() => !!liveEndedAt.value);
 
@@ -225,7 +255,8 @@ function startAdmissionPolling() {
 
 async function pollAdmissionStatus() {
   const sid = sessionId.value;
-  if (!sid || !isInLobby.value) return;
+  if (!sid || !isInLobby.value || admissionInFlight || isApiRateLimited()) return;
+  admissionInFlight = true;
   try {
     const resp = await api.get(`/supervision/sessions/${encodeURIComponent(sid)}/admission-status`, {
       skipAuthRedirect: true,
@@ -258,6 +289,8 @@ async function pollAdmissionStatus() {
       stopAdmissionPolling();
       void finishLeave({ variant: 'host-ended', canRejoin: false });
     }
+  } finally {
+    admissionInFlight = false;
   }
 }
 
@@ -266,7 +299,8 @@ function startPresenceHeartbeat() {
   const tick = async () => {
     const sid = numericSessionId.value || sessionId.value;
     const identity = joinIdentity.value;
-    if (!sid || !identity) return;
+    if (!sid || !identity || presenceInFlight || isApiRateLimited()) return;
+    presenceInFlight = true;
     try {
       const { data } = await api.post(
         `/supervision/sessions/${encodeURIComponent(sid)}/join-presence`,
@@ -281,6 +315,8 @@ function startPresenceHeartbeat() {
       canEndForEveryone.value = !intentionalLeave.value && data?.canEndForEveryone === true;
     } catch {
       canEndForEveryone.value = false;
+    } finally {
+      presenceInFlight = false;
     }
   };
   void tick();
@@ -343,7 +379,8 @@ function goToScheduleFromExit() {
 }
 
 async function rejoinSession() {
-  if (joinInFlight) return;
+  if (joinInFlight || joinRetrySeconds.value > 0) return;
+  clearJoinRetry();
   if (sessionHasEnded.value) {
     showSessionExit({ variant: 'host-ended', canRejoin: false });
     return;
@@ -501,7 +538,7 @@ async function resolveAndRedirect() {
       showSessionExit({ variant: 'host-ended', canRejoin: false });
       return 'error';
     }
-    error.value = e?.response?.data?.error?.message || e?.message || 'Session not found';
+    showJoinError(e, 'Session not found');
     joinAttemptedForPath.value = '';
     return 'error';
   } finally {
@@ -589,7 +626,7 @@ async function fetchTokenAndJoin() {
       showSessionExit({ variant: 'host-ended', canRejoin: false });
       return;
     }
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to join video room';
+    showJoinError(e, 'Failed to join video room');
   } finally {
     joinInFlight = false;
   }
@@ -610,6 +647,7 @@ async function acceptRsvpAndJoin() {
 async function runJoinFlowForCurrentRoute() {
   const pathKey = String(route.fullPath || '');
   if (joinAttemptedForPath.value === pathKey) return;
+  clearJoinRetry();
   joinAttemptedForPath.value = pathKey;
 
   {
@@ -637,6 +675,8 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  disposed = true;
+  clearJoinRetry();
   window.removeEventListener('pagehide', onPageLeave);
   window.removeEventListener('beforeunload', onPageLeave);
   stopAdmissionPolling();
@@ -683,5 +723,9 @@ onUnmounted(() => {
 .join-login-btn--secondary {
   background: #1e293b;
   color: #e2e8f0;
+}
+.join-login-btn:disabled {
+  opacity: 0.65;
+  cursor: wait;
 }
 </style>

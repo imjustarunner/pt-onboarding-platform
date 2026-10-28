@@ -59,20 +59,22 @@ const _stormError = (scope) => {
   return err;
 };
 
-// --- Global 429 backoff ----------------------------------------------------
+// --- 429 backoff -----------------------------------------------------------
 // Cloud Run returns plain-text "Rate exceeded." at the edge when instances
 // cannot scale fast enough. If every open tab keeps hammering (heartbeats,
 // dashboard bursts, refresh loops), the service never recovers. When we see
-// 429s, pause ALL outbound API calls for a short cooldown so capacity can
-// come back online.
+// unclassified/edge 429s, pause ordinary API calls so capacity can recover.
+// Application limits are scoped to the request that hit them. Session recovery
+// and supervision entry may proceed during an unrelated background cooldown,
+// but still honor their own Retry-After and the request-storm limits.
 const RATE_LIMIT_COOLDOWN_MS = 20000;
 const RATE_LIMIT_TRIP_THRESHOLD = 3; // 429s within the window before global pause
 const RATE_LIMIT_WINDOW_MS = 10000;
 let _rateLimitHits = [];
 let _rateLimitedUntil = 0;
 let _rateLimitLastLogAt = 0;
-const _sessionRateLimits = new Map();
-const isSessionRecovery = config => /^(?:get \/auth\/session-lock-config|post \/auth\/(?:session-activity|verify-session-pin|logout))$/.test(_stormKeyOf(config));
+const _requestRateLimits = new Map();
+const isRecoveryRequest = config => /^(?:get \/auth\/session-lock-config|post \/auth\/(?:session-activity|verify-session-pin|logout)|get \/supervision\/(?:join-info\/[^/?#]+|sessions\/[^/?#]+\/video-token))$/.test(_stormKeyOf(config));
 
 const _rateLimitError = (retryAt = _rateLimitedUntil) => {
   const err = new Error('API temporarily rate-limited; cooling down');
@@ -94,10 +96,14 @@ export function apiRateLimitRetryAt() {
 
 function noteRateLimitResponse(error) {
   const now = Date.now();
-  if (isSessionRecovery(error.config)) {
+  const applicationLimit = error.response?.data?.error && typeof error.response.data.error === 'object';
+  if (isRecoveryRequest(error.config) || applicationLimit) {
     const key = _stormKeyOf(error.config);
-    const until = Math.max(_sessionRateLimits.get(key) || 0, rateLimitRetryAt(error, now, 5000));
-    _sessionRateLimits.set(key, until);
+    for (const [requestKey, deadline] of _requestRateLimits) {
+      if (deadline <= now) _requestRateLimits.delete(requestKey);
+    }
+    const until = Math.max(_requestRateLimits.get(key) || 0, rateLimitRetryAt(error, now, 5000));
+    _requestRateLimits.set(key, until);
     error.retryAt = until;
     return;
   }
@@ -116,10 +122,9 @@ function checkRequestStorm(config) {
   const now = Date.now();
   const key = _stormKeyOf(config);
 
-  // Global 429 cooldown — fail fast, do not touch the network.
-  // A background meeting poll must not block the user's explicit resume.
-  // Recovery still honors its own server Retry-After and the storm limits.
-  const until = isSessionRecovery(config) ? (_sessionRateLimits.get(key) || 0) : _rateLimitedUntil;
+  // A background poll must not block session recovery or entering supervision.
+  // Every request still respects its own server deadline, including entry.
+  const until = Math.max(_requestRateLimits.get(key) || 0, isRecoveryRequest(config) ? 0 : _rateLimitedUntil);
   if (now < until) throw _rateLimitError(until);
 
   // Honor active cooldowns first — fail fast with no network usage.
@@ -324,7 +329,7 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
     if (error.response?.data?.error?.code === 'MFA_REQUIRED') return Promise.reject(error);
-    // Cloud Run / edge 429 — trip global cooldown so tabs stop the death spiral.
+    // Scope application limits; back off ordinary traffic for edge overload.
     if (error?.response?.status === 429 && !error?.__rateLimited) {
       noteRateLimitResponse(error);
     }

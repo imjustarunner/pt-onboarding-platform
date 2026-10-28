@@ -1,7 +1,7 @@
 import { mount, flushPromises } from '@vue/test-utils';
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
-const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),finish:vi.fn(),host:true,query:{},replace:vi.fn()}));
-vi.mock('../../../services/api',()=>({default:{get:m.get,post:m.post}}));
+const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),finish:vi.fn(),host:true,rateLimited:false,query:{},replace:vi.fn()}));
+vi.mock('../../../services/api',()=>({default:{get:m.get,post:m.post},isApiRateLimited:()=>m.rateLimited}));
 vi.mock('../../../utils/finishMeetingTranscription',()=>({finishMeetingTranscription:m.finish}));
 vi.mock('../../../utils/orgScopedPath',()=>({resolveHostImpliedPortalSlug:()=>''}));
 vi.mock('../../../store/auth',()=>({useAuthStore:()=>({isAuthenticated:true,user:{id:9}})}));
@@ -9,13 +9,93 @@ vi.mock('vue-router',()=>({useRoute:()=>({params:{sessionId:'101',organizationSl
 import JoinSupervisionView from '../JoinSupervisionView.vue';
 let wrapper;
 beforeEach(()=>{
-  vi.clearAllMocks();vi.useFakeTimers();m.host=true;m.query={};vi.spyOn(window,'confirm').mockReturnValue(true);
+  vi.clearAllMocks();vi.useFakeTimers();m.host=true;m.rateLimited=false;m.query={};vi.spyOn(window,'confirm').mockReturnValue(true);
   m.get.mockImplementation(async url=>({data:url.includes('join-info')?{orgSlug:'tenant',sessionId:101}:{token:'video',sessionId:'room',applicationId:'app',supervisionSessionId:101,isSupervisor:m.host,identity:'user-9',sessionType:'group',hostPresent:true}}));
   m.post.mockResolvedValue({data:{ok:true,canEndForEveryone:true}});m.finish.mockResolvedValue(true);
 });
 afterEach(()=>{wrapper?.unmount();vi.clearAllTimers();vi.useRealTimers();vi.restoreAllMocks();});
 async function render(){wrapper=mount(JoinSupervisionView,{global:{stubs:{SupervisionLiveRoom:true,MeetingSessionExitPanel:true}}});await flushPromises();return wrapper.findComponent({name:'SupervisionLiveRoom'});}
 describe('supervision leave versus explicit meeting closure',()=>{
+  it.each(['join-info', 'video-token'])('waits for Retry-After when %s is throttled, then permits a successful retry', async endpoint => {
+    const normalGet = m.get.getMockImplementation();
+    m.get.mockImplementation(url => url.includes(endpoint)
+      ? Promise.reject({ response: { status: 429, headers: { 'retry-after': '30' }, data: 'Rate exceeded.' } })
+      : normalGet(url));
+    await render();
+    expect(wrapper.text()).toContain('The service is temporarily busy');
+    const retry = wrapper.get('button.join-login-btn--secondary');
+    expect(retry.element.disabled).toBe(true);
+    expect(retry.text()).toContain('30s');
+    const requests = m.get.mock.calls.length;
+    await retry.trigger('click');
+    expect(m.get).toHaveBeenCalledTimes(requests);
+    await vi.advanceTimersByTimeAsync(29000);
+    expect(retry.element.disabled).toBe(true);
+    expect(retry.text()).toContain('1s');
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(retry.element.disabled).toBe(false);
+    m.get.mockImplementation(normalGet);
+    await retry.trigger('click'); await flushPromises();
+    expect(wrapper.findComponent({ name: 'SupervisionLiveRoom' }).exists()).toBe(true);
+  });
+
+  it('uses the client deadline for a synthetic cooldown and clears its countdown on unmount', async () => {
+    m.get.mockRejectedValueOnce({ retryAt: Date.now() + 75000, response: { status: 429, data: { error: { message: 'Too many requests — cooling down' } } } });
+    await render();
+    expect(wrapper.get('button.join-login-btn--secondary').text()).toContain('75s');
+    wrapper.unmount(); wrapper = null;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('does not start a countdown when a pending join fails after the page closes', async () => {
+    let failJoin;
+    m.get.mockImplementationOnce(() => new Promise((_resolve, reject) => { failJoin = reject; }));
+    await render();
+    wrapper.unmount(); wrapper = null;
+    failJoin({ response: { status: 429, headers: { 'retry-after': '30' } } });
+    await flushPromises();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('does not overlap slow lobby admission or presence requests', async () => {
+    const normalGet = m.get.getMockImplementation();
+    let finishAdmission, finishPresence;
+    m.get.mockImplementation(async url => {
+      if (url.endsWith('/admission-status')) return new Promise(resolve => { finishAdmission = resolve; });
+      const result = await normalGet(url);
+      return url.endsWith('/video-token') ? { data: { ...result.data, roomMode: 'lobby' } } : result;
+    });
+    m.post.mockImplementation(url => url.endsWith('/join-presence')
+      ? new Promise(resolve => { finishPresence = resolve; }) : Promise.resolve({ data: {} }));
+    await render();
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(m.get.mock.calls.filter(([url]) => url.endsWith('/admission-status'))).toHaveLength(1);
+    expect(m.post.mock.calls.filter(([url]) => url.endsWith('/join-presence'))).toHaveLength(1);
+    finishAdmission({ data: {} }); finishPresence({ data: { canEndForEveryone: true } });
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(m.get.mock.calls.filter(([url]) => url.endsWith('/admission-status'))).toHaveLength(2);
+    expect(m.post.mock.calls.filter(([url]) => url.endsWith('/join-presence'))).toHaveLength(2);
+  });
+
+  it('pauses lobby polling and presence during an edge cooldown and resumes afterward', async () => {
+    const normalGet = m.get.getMockImplementation();
+    m.get.mockImplementation(async url => {
+      const result = await normalGet(url);
+      return url.endsWith('/video-token') ? { data: { ...result.data, roomMode: 'lobby' } } : result;
+    });
+    await render();
+    const reads = m.get.mock.calls.length, writes = m.post.mock.calls.length;
+    m.rateLimited = true;
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(m.get).toHaveBeenCalledTimes(reads);
+    expect(m.post).toHaveBeenCalledTimes(writes);
+    m.rateLimited = false;
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(m.get.mock.calls.length).toBeGreaterThan(reads);
+    expect(m.post.mock.calls.length).toBeGreaterThan(writes);
+  });
+
   it('lets a declined invitee explicitly update RSVP and join using their account',async()=>{
     const get=m.get.getMockImplementation();let accepted=false;
     m.get.mockImplementation(async(url,...args)=>{

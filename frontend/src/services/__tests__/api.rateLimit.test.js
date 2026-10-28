@@ -71,3 +71,54 @@ it('allows session resume during background cooldown but respects a recovery-spe
  vi.advanceTimersByTime(30000);
  expect(resume).not.toThrow();expect(request).toThrow('cooling down');
 });
+
+it.each([
+  '/supervision/join-info/9',
+  '/supervision/sessions/9/video-token',
+  '/supervision/join-info/personal-invitation',
+  '/supervision/sessions/personal-invitation/video-token'
+])('allows supervision entry during background cooldown, honoring its own deadline: %s', async url => {
+  await throttle({ 'retry-after': '120' });
+  const join = () => m.request({ method: 'get', url, headers: {}, skipGlobalLoading: true });
+  expect(join).not.toThrow();
+  expect(request).toThrow('cooling down');
+  const error = { config: { method: 'get', url }, response: { status: 429, headers: { 'retry-after': '30' }, data: 'Rate exceeded.' } };
+  await expect(m.error(error)).rejects.toBe(error);
+  expect(join).toThrow('cooling down');
+  vi.advanceTimersByTime(30000);
+  expect(join).not.toThrow();
+  expect(request).toThrow('cooling down');
+});
+
+it('keeps application-specific throttling from blocking unrelated requests', async () => {
+  const url = '/clinical-note-generator/work-queue';
+  for (let i = 0; i < 3; i++) {
+    const error = { config: { method: 'get', url }, response: { status: 429, headers: { 'retry-after': '60' }, data: { error: { message: 'Too many requests, please try again later' } } } };
+    await expect(m.error(error)).rejects.toBe(error);
+  }
+  const limited = () => m.request({ method: 'get', url, headers: {}, skipGlobalLoading: true });
+  expect(limited).toThrow('cooling down');
+  expect(api.isApiRateLimited()).toBe(false);
+  expect(request).not.toThrow();
+  expect(() => m.request({ url: '/supervision/sessions/9/video-token', headers: {}, skipGlobalLoading: true })).not.toThrow();
+  vi.advanceTimersByTime(60000);
+  expect(limited).not.toThrow();
+});
+
+it('keeps supervision background reads and heartbeats paused during edge overload', async () => {
+  await throttle({ 'retry-after': '120' });
+  for (const [method, url] of [
+    ['get', '/supervision/sessions/9/activity'],
+    ['get', '/supervision/sessions/9/admission-status'],
+    ['post', '/supervision/sessions/9/join-presence']
+  ]) {
+    expect(() => m.request({ method, url, headers: {}, skipGlobalLoading: true })).toThrow('cooling down');
+  }
+});
+
+it('still stops a runaway loop on a supervision entry endpoint', async () => {
+  await throttle({ 'retry-after': '120' });
+  const join = () => m.request({ url: '/supervision/sessions/9/video-token', headers: {}, skipGlobalLoading: true });
+  for (let i = 0; i < 40; i++) expect(join).not.toThrow();
+  expect(join).toThrow('Request circuit breaker tripped');
+});

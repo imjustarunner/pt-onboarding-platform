@@ -55,6 +55,24 @@ describe('supervision session without app authentication', () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(m.get.mock.calls.length).toBeGreaterThan(reads);
   });
+  it('defers optional reads in a hidden tab while keeping attendance heartbeats running', async () => {
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    try {
+      await render(); live.onVideoConnected();
+      await vi.advanceTimersByTimeAsync(5000);
+      const reads = m.get.mock.calls.length;
+      m.post.mockClear();
+      visibility.mockReturnValue('hidden');
+      await vi.advanceTimersByTimeAsync(15000);
+      expect(m.get).toHaveBeenCalledTimes(reads);
+      expect(m.post).toHaveBeenCalledWith('/supervision/sessions/9/join-presence', expect.objectContaining({ action: 'heartbeat' }), expect.any(Object));
+      visibility.mockReturnValue('visible');
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(m.get.mock.calls.length).toBeGreaterThan(reads);
+    } finally {
+      visibility.mockRestore();
+    }
+  });
   it('does not stack poll requests while the previous response is pending', async () => {
     await render();
     live.onVideoConnected();
