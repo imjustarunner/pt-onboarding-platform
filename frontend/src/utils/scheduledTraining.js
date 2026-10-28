@@ -1,4 +1,12 @@
 export const canScheduleTraining = user => ['admin','super_admin','superadmin','clinical_practice_assistant','provider_plus'].includes(String(user?.role || '').toLowerCase());
+export function trainingLogCredit(log) {
+  const approved = log?.credit_approved_at != null && log?.credit_approved_by_user_id != null
+    && log?.credited_seconds != null && Number.isFinite(Number(log.credited_seconds)) && Number(log.credited_seconds) >= 0;
+  const seconds = approved ? Number(log.credited_seconds) : Number(log?.attendance_seconds || 0);
+  const type = approved ? log.credited_type || log.credit_type : log?.credit_type;
+  const label = ({ indirect: 'Indirect · unpaid', support_activity: 'Support Activity', admin_time: 'Administrative time override', group_supervision: 'Eligible group supervision · unpaid' })[type] || 'Optional attendance';
+  return { hours: seconds / 3600, label, approved };
+}
 export function trainingWallInstant(date,time,timeZone) {
   const text=`${date}T${time}:00`, wall=Date.parse(`${text}Z`);
   if(!Number.isFinite(wall))throw Error('Choose a date, start time, and end time for every training day.');

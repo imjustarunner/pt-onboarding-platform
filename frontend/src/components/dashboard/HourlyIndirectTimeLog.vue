@@ -634,7 +634,7 @@ const indirectSessionStore = useIndirectTimeSessionStore();
 const router = useRouter();
 const route = useRoute();
 
-const EXCLUDED_INDIRECT_TYPE_KEYS = new Set(['other_indirect', 'billing_correction', 'approved_travel', 'clinical_supervision_sa', 'supervision']);
+const EXCLUDED_INDIRECT_TYPE_KEYS = new Set(['other_indirect', 'billing_correction', 'approved_travel', 'clinical_supervision_sa', 'supervision', 'supervisors_meeting']);
 
 /** Categories that often overlap with automatically recorded meeting/training claims. */
 const AUTO_CLAIM_WARN_TYPE_KEYS = new Set([
@@ -692,7 +692,7 @@ const supportServiceTypes = computed(() =>
 );
 const supervisionNoteTypes = computed(() =>
   (serviceTypes.value || []).filter(
-    (t) => normalizePayBucket(t.payBucket || t.pay_bucket) === 'supervision_note'
+    (t) => normalizePayBucket(t.payBucket || t.pay_bucket) === 'supervision_note' && !isExcludedIndirectType(t)
   )
 );
 const visibleServiceTypes = computed(() => {

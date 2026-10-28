@@ -26,3 +26,9 @@ it('protects automatic supervision records from employee edits', async () => {
  await updateMyTimeClaim({ user: { id: 20 }, params: { id: 1 }, body: { editReason: 'Changing time', payload: {} } }, res(), next);
  expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
 });
+it('rejects manual supervisors meeting claims from payroll', async () => {
+ const next = vi.fn();
+ await createMyTimeClaim.at(-1)({ user: { id: 20, role: 'supervisor' }, body: { agencyId: 2, claimType: 'indirect_time', payload: { allocations: [{ serviceTypeKey: 'supervisors_meeting', minutes: 90 }] } } }, res(), next);
+ expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 403, message: expect.stringContaining('automatically') }));
+ expect(m.create).not.toHaveBeenCalled();
+});

@@ -82,9 +82,11 @@ export const listMyIndirectServiceTypes = async (req, res, next) => {
       userId: req.user.id,
       activeOnly: true
     });
+    // Meeting attendance creates these claims; retain the type for historical reporting only.
+    const manualTypes = types.filter(t => String(t.typeKey || t.type_key || '').trim().toLowerCase() !== 'supervisors_meeting');
     const filtered = isAdminRole(req.user?.role)
-      ? types
-      : filterServiceTypesForUser(types, caps);
+      ? manualTypes
+      : filterServiceTypesForUser(manualTypes, caps);
     const showIndirectService = caps.isHourly
       || filtered.some((t) => normalizePayBucket(t?.payBucket || t?.pay_bucket) === 'indirect');
     res.json({
