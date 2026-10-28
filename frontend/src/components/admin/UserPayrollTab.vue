@@ -196,7 +196,7 @@
                 <span v-if="currentCompLevel.label" class="comp-level-name">{{ currentCompLevel.label }}</span>
               </template>
             </div>
-            <div class="comp-level-rates" v-if="!currentCompLevel.bypass && (currentCompLevel.direct_rate != null || currentCompLevel.indirect_rate != null)">
+            <div class="comp-level-rates" v-if="!compensationSchedule?.effective && !currentCompLevel.bypass && (currentCompLevel.direct_rate != null || currentCompLevel.indirect_rate != null)">
               <span v-if="currentCompLevel.direct_rate != null">Direct: <strong>${{ Number(currentCompLevel.direct_rate).toFixed(2) }}/hr</strong></span>
               <span v-if="currentCompLevel.indirect_rate != null">Indirect: <strong>${{ Number(currentCompLevel.indirect_rate).toFixed(2) }}/hr</strong></span>
               <span v-if="currentCompLevel.has_ffs && currentCompLevel.ffs_rate != null">FFS: <strong>${{ Number(currentCompLevel.ffs_rate).toFixed(2) }}/unit</strong></span>
@@ -211,7 +211,7 @@
           </div>
 
           <!-- Apply Rates form (shown when a non-bypass level is assigned) -->
-          <div v-if="currentCompLevel && !currentCompLevel.bypass" class="comp-level-assign-row">
+          <div v-if="currentCompLevel && !currentCompLevel.bypass && !compensationSchedule?.effective" class="comp-level-assign-row">
             <div class="field-inline comp-level-preview" v-if="previewCompLevel">
               <label>Rates at Level {{ currentCompLevel.level }}</label>
               <div class="comp-level-preview-rates">
@@ -286,10 +286,21 @@
         </div>
       </div>
 
-      <div v-if="selectedAgencyId" class="comp-card">
+      <div v-if="selectedAgencyId && compensationSchedule?.effective" class="comp-card">
+        <h3>Active compensation schedule · {{ compensationSchedule.startsOn }}</h3>
+        <p>Clinical FFS: <strong>${{ Number(compensationSchedule.schedule.creditRate).toFixed(2) }}/credit</strong>
+          · Minimum: ${{ Number(compensationSchedule.schedule.creditRateProbation).toFixed(2) }}/credit</p>
+        <p>Hourly / H-code: <strong>${{ Number(compensationSchedule.schedule.hcodeRate).toFixed(2) }}/hour</strong>
+          · Minimum: ${{ Number(compensationSchedule.schedule.hcodeRateProbation).toFixed(2) }}/hour</p>
+        <p>Indirect: <strong>${{ Number(compensationSchedule.schedule.indirectRate).toFixed(2) }}/hour</strong>
+          · Support Activity: <strong>${{ Number(compensationSchedule.schedule.supportRate).toFixed(2) }}/hour</strong></p>
+        <p>These rates apply to current services. Period-specific salary overrides are shown in payroll adjustments.</p>
+        <label><input type="checkbox" v-model="showLegacyRates" /> Show historical per-code rates</label>
+      </div>
+      <div v-if="selectedAgencyId && (!compensationSchedule?.effective || showLegacyRates)" class="comp-card">
         <div class="comp-header">
           <div>
-            <h3 class="comp-title">Compensation (Rate Sheet)</h3>
+            <h3 class="comp-title">{{ compensationSchedule?.effective ? 'Historical rate sheet' : 'Compensation (Rate Sheet)' }}</h3>
             <div class="muted">Per-code rates only. Category/unit math is edited in Agency → Edit Organization → Payroll.</div>
           </div>
           <div class="actions comp-toolbar">
@@ -915,6 +926,8 @@ const compLoading = ref(false);
 const compError = ref('');
 const hasPayrollAccessForAgency = ref(false);
 const rateCard = ref(null);
+const compensationSchedule = ref(null);
+const showLegacyRates = ref(false);
 const perCodeRates = ref([]);
 const serviceCodeRules = ref([]);
 const percentOfChargePayEnabled = ref(false);
@@ -1611,6 +1624,8 @@ const loadComp = async () => {
     compError.value = '';
     hasPayrollAccessForAgency.value = false;
     templateDetails.value = null;
+    compensationSchedule.value = null;
+    showLegacyRates.value = false;
     const [rc, rates, rules, vis, tmpl, pctPolicy] = await Promise.all([
       api.get('/payroll/rate-cards', { params: { agencyId: selectedAgencyId.value, userId: props.userId } }),
       api.get('/payroll/rates', { params: { agencyId: selectedAgencyId.value, userId: props.userId } }),
@@ -1620,6 +1635,7 @@ const loadComp = async () => {
       api.get('/payroll/percentage-pay-policy', { params: { agencyId: selectedAgencyId.value } }).catch(() => ({ data: {} }))
     ]);
     rateCard.value = rc.data || null;
+    compensationSchedule.value = rc.data?.compensationSchedule || null;
     perCodeRates.value = rates.data || [];
     serviceCodeRules.value = rules.data || [];
     percentOfChargePayEnabled.value = !!pctPolicy?.data?.enabled;
@@ -2651,4 +2667,3 @@ input {
   margin-top: 2px;
 }
 </style>
-

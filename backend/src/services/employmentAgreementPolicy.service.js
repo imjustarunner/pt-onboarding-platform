@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {authorizedCompensationSchedules} from './payrollCompensationAuthorization.service.js';
 import {SERVICE_CREDIT_POLICY_VERSION, isServiceCreditPolicy, defaultHcodeIndirectMinutes, conditionalLevelBonus} from '../utils/serviceCreditPolicy.js';
 
 export const COMPENSATION_POLICY_VERSION = SERVICE_CREDIT_POLICY_VERSION;
@@ -34,7 +35,12 @@ export async function latestEmploymentAgreementDate(userId, db = pool) {
 }
 export async function effectiveCompensationAgreement({agencyId,userId,asOfDate}, db = pool) {
   const agreements = await signedAgreements(userId,agencyId,db);
-  return agreements.filter(a=>isServiceCreditPolicy(a.data.compensationPolicyVersion) && a.effectiveOn <= ymd(asOfDate))
+  const approved = await authorizedCompensationSchedules({agencyId,userId},db);
+  const approvedIds = new Set(approved.map(a=>a.id));
+  // A later countersignature does not move an explicitly approved payroll cutover.
+  const schedules = [...agreements.filter(a=>!approvedIds.has(a.id)),
+    ...approved.map(a=>({...a,executed:agreements.some(s=>s.id===a.id)}))];
+  return schedules.filter(a=>isServiceCreditPolicy(a.data.compensationPolicyVersion) && a.effectiveOn <= ymd(asOfDate))
     .sort((a,b)=>b.effectiveOn.localeCompare(a.effectiveOn)||b.id-a.id)[0] || null;
 }
 export function agreementRateProfile(profile, agreement) {

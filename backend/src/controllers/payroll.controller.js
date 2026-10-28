@@ -6,7 +6,7 @@ import { billedAmountFromReport, rateAtDate, billedPayForStagingRow } from '../s
 import { payrollAliasUsers, canMatchPayrollUser, archivedPayrollName } from '../services/payrollProviderMatching.service.js';
 import { isUnpaidInternActivity } from '../services/internMeetingPolicy.service.js';
 import {meetingClaimHourlyRate, getMeetingClaimRateOverride, MEETING_RATE_TYPES} from '../services/meetingClaimRate.service.js';
-import {validateSupplementalTime} from '../services/payrollSubmissionContext.service.js';
+import {validateSupplementalTime,submissionContext} from '../services/payrollSubmissionContext.service.js';
 import { materializeRecurring, normalizeRecurring, day as recurringDay } from '../services/recurringPayroll.service.js';
 import { appliedLeaveExportHours } from '../utils/payrollLeaveExport.js';
 import {hasSchoolAssignment,confirmTrainingHandoff,validateTrainingHandoff,catchUpTrainingAfterHandoff} from '../services/supplementalLeave.service.js';
@@ -97,6 +97,7 @@ import {
 import { syncHolidayBonusClaimsForPeriod } from '../services/payrollHolidayBonus.service.js';
 import TrainingFocusPayrollService from '../services/trainingFocusPayroll.service.js';
 import { loadUserPaySystemContext, applyPaySystemToBreakdown, classifyPayType } from '../services/paySystem.service.js';
+import {approvedPeriodSalaryOverride} from '../services/payrollSalaryOverridePolicy.js';
 import {
   loadEventPayrollContext,
   resolveEventPayrollTreatment,
@@ -5866,7 +5867,11 @@ async function getEffectiveStagingAggregates(payrollPeriodId, { agencyId = null,
   return merged;
 }
 
-async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, periodStart, periodEnd }) {
+export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, periodStart, periodEnd }) {
+  const recomputePeriod=await PayrollPeriod.findById(payrollPeriodId);
+  if(!recomputePeriod || Number(recomputePeriod.agency_id)!==Number(agencyId) || isEffectivelyPostedOrFinalized(recomputePeriod)) {
+    throw Object.assign(new Error('Only open payroll periods can be recalculated.'),{status:409});
+  }
   await materializeRecurring({agencyId,payrollPeriodId});
   const rows = await getEffectiveStagingAggregates(payrollPeriodId, { agencyId, periodStart, periodEnd });
   // Percent-of-client-paid pay policy (agency default + feature flag). Best-effort:
@@ -7063,7 +7068,9 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         displayTierLevel
       });
       if (payCtx?.enabled && payCtx.rateProfile) {
-        if(salaryAmount>0.001 && !salaryIncludeServicePay)throw Object.assign(new Error(`Employee ${userId} has salary and new service terms in this period. Reconcile the salary/service-pay split before running payroll so service pay is not suppressed.`),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
+        const salaryOverride=salaryAmount>0.001 && !salaryIncludeServicePay
+          ? await approvedPeriodSalaryOverride({agencyId,payrollPeriodId,userId,manualSalaryAmount:salaryAmountManual}) : null;
+        if(salaryAmount>0.001 && !salaryIncludeServicePay && !salaryOverride)throw Object.assign(new Error(`Employee ${userId} has salary and new service terms in this period. Reconcile the salary/service-pay split before running payroll so service pay is not suppressed.`),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
         const shiftDirect = Number(shiftHours?.directHours || 0) || 0;
         const shiftIndirect = Number(shiftHours?.indirectHours || 0) || 0;
         const datedForUser = new Map();
@@ -7099,7 +7106,8 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
           totalHours += autoHrs;
         }
 
-        paySystemBonusAmount = Number(meta.paySystemBonusTotal || 0) || 0;
+        if(salaryOverride)breakdown.__adjustments.salaryOverrideApprovalId=salaryOverride.id;
+        paySystemBonusAmount = salaryOverride ? 0 : Number(meta.paySystemBonusTotal || 0) || 0;
         if (paySystemBonusAmount > 1e-9) {
           bonusAmount = (Number(bonusAmount || 0) || 0) + paySystemBonusAmount;
           if (breakdown.__adjustments) {
@@ -22285,7 +22293,8 @@ export const getPayrollRateCard = async (req, res, next) => {
     const resolvedAgencyId = await requirePayrollAccess(req, res, agencyId);
     if (!resolvedAgencyId) return;
     const card = await PayrollRateCard.findForUser(resolvedAgencyId, userId);
-    res.json(card || {
+    const compensationSchedule=await submissionContext({agencyId:resolvedAgencyId,userId});
+    res.json({...card || {
       agency_id: resolvedAgencyId,
       user_id: userId,
       direct_rate: 0,
@@ -22297,7 +22306,7 @@ export const getPayrollRateCard = async (req, res, next) => {
       other_rate_3: 0,
       other_rate_3_bucket: 'other',
       percent_pay_enabled: 0
-    });
+    },compensationSchedule});
   } catch (e) {
     next(e);
   }

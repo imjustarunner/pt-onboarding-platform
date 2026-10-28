@@ -12,7 +12,7 @@
       <section v-if="data?.submission?.schedule" class="rate-transition">
         <img src="/assets/fundthred/wordmark.svg" alt="FundThred" width="170" />
         <h3>New compensation · {{ data.submission.startsOn || 'Date awaiting confirmation' }}</h3>
-        <p>{{ data.submission.executed ? 'Signed terms. Payroll activation and service dates determine when these rates apply.' : 'Planned terms. Your completed agreement and payroll activation are required before these rates apply.' }}</p>
+        <p>{{ data.submission.effective ? 'Active compensation schedule. These rates apply from the date shown.' : data.submission.executed ? 'Signed terms. Payroll activation and service dates determine when these rates apply.' : 'Planned terms. Payroll approval and activation are pending.' }}</p>
         <div class="rate-pair"><article v-if="data.submission.schedule.clinicalCreditEligible !== false"><h4>Clinical Session Rate</h4><strong>{{ fmtMoney(data.submission.schedule.creditRate) }} / credit</strong><p>Minimum-workload rate: {{ fmtMoney(data.submission.schedule.creditRateProbation) }} / credit, when applicable.</p></article><article><h4>Direct Care Rate</h4><strong>{{ fmtMoney(data.submission.schedule.hcodeRate) }} / direct hour</strong><p>Minimum-workload rate: {{ fmtMoney(data.submission.schedule.hcodeRateProbation) }} / hour, when applicable.</p></article></div>
         <p>Indirect: {{ fmtMoney(data.submission.schedule.indirectRate) }}/hour · Support activities: {{ fmtMoney(data.submission.schedule.supportRate) }}/hour.</p>
         <p>{{ data.submission.indirectMinutesPerHour }} minutes of indirect pay are included per Direct Care hour. Submit only work above that allowance. Credits measure compensation, not actual hours.</p>
@@ -20,8 +20,9 @@
       <section v-for="group in codeGroups" :key="group.id" class="rate-transition"><h3>{{ group.label }} · approved code mappings</h3><div class="code-grid"><article v-for="code in group.codes" :key="code.code"><strong>{{ code.code }}</strong><p>{{ code.quantityLabel }}</p></article></div><p>Use only services approved for your scope, setting and payer. Any group service requires express written approval under the handbook moratorium.</p></section>
       <details v-if="restrictedCodes.length"><summary>Restricted or unapproved codes</summary><p v-for="code in restrictedCodes" :key="code.code"><strong>{{ code.code }}</strong> — {{ code.status }}</p></details>
       <SupplementalTime :agency-id="agencyId" :context="data?.submission" :codes="data?.codeGuide" />
-      <h3 v-if="data?.submission?.startsOn">Prior rate card · through {{ priorEndDate }}</h3>
-      <p v-if="data?.submission?.startsOn">Earlier services retain their prior terms. If signatures or payroll activation are pending, the prior terms continue until the new rates take effect.</p>
+      <details :open="!data?.submission?.effective">
+      <summary>{{ data?.submission?.effective ? `Historical rates · through ${priorEndDate}` : 'Prior / per-code rate sheet' }}</summary>
+      <p v-if="data?.submission?.effective">These rates apply only to earlier services. Current services use the active compensation schedule above.</p>
 
       <div class="row">
         <strong>Compensation method:</strong>
@@ -51,6 +52,7 @@
       <div class="hint">
         If anything looks wrong, payroll admins can update your rates for a specific pay period.
       </div>
+      </details>
     </div>
 
     <div v-if="healthBenefits.show" class="card health-card">
@@ -267,4 +269,3 @@ onMounted(load);
   .grid { grid-template-columns: 1fr 1fr; }
 }
 </style>
-
