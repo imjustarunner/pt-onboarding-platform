@@ -103,21 +103,16 @@ class PayrollIndirectServiceType {
     } catch {
       hasPayBucket = false;
     }
-    for (const d of DEFAULT_TYPES) {
+    for (const original of DEFAULT_TYPES) {
+      const d = aid === 2 && original.typeKey === 'outreach_activities'
+        ? { ...original, payBucket: 'support', displayCode: 'SUP-07' } : original;
       if (hasPayBucket) {
-        // display_code is only set on first INSERT — never overwritten on conflict,
-        // so an admin's custom code is preserved across future ensureDefaults() calls.
+        // Listing activities may seed missing defaults, but must preserve Payroll's
+        // saved category, visibility and labels for existing rows.
         await pool.execute(
-          `INSERT INTO payroll_indirect_service_types
+          `INSERT IGNORE INTO payroll_indirect_service_types
            (agency_id, type_key, label, description, icon_key, pay_bucket, sort_order, is_active, display_code)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
-           ON DUPLICATE KEY UPDATE
-             label = VALUES(label),
-             description = VALUES(description),
-             icon_key = VALUES(icon_key),
-             pay_bucket = VALUES(pay_bucket),
-             sort_order = VALUES(sort_order),
-             is_active = 1`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
           [aid, d.typeKey, d.label, d.description, d.iconKey, normalizePayBucket(d.payBucket), d.sortOrder, d.displayCode || null]
         );
       } else if (normalizePayBucket(d.payBucket) === 'indirect') {
