@@ -1,6 +1,13 @@
 // The server rebuilds this itinerary from answers; client-supplied legs never determine eligibility.
 export const EVENT_TRAVEL_STEPS = ['Event', 'Materials', 'Your trips', 'Review'];
 export const locationKinds = ['home', 'office', 'school', 'other'];
+export function eventTravelLinkRequest(query = {}) {
+  const eventId = Number(query.eventTravel);
+  if (!Number.isSafeInteger(eventId) || eventId <= 0) return null;
+  const date = typeof query.eventDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(query.eventDate) ? query.eventDate : '';
+  const mileageClaimId = Number(query.mileageClaim);
+  return { eventId, eventDate: date, existingMileageClaimId: Number.isSafeInteger(mileageClaimId) && mileageClaimId > 0 ? mileageClaimId : null };
+}
 export function eventTravelJourneys(form) {
   const office = { kind: 'office' }, event = { kind: 'event' };
   const journeys = [];
@@ -18,7 +25,7 @@ export function eventTravelJourneys(form) {
 }
 
 export function eventTravelDefaultForm() {
-  return { eventDate: '', officeLocationId: null, materialsPickup: '', pickupTiming: 'on_way',
+  return { eventDate: '', existingMileageClaimId: null, officeLocationId: null, materialsPickup: '', pickupTiming: 'on_way',
     pickupRequirement: 'convenient', materialsReturn: '', returnRequirement: 'convenient', vehicle: 'personal',
     departure: { kind: 'home' }, returnTo: { kind: 'home' }, pickupFrom: { kind: 'home' }, pickupTo: { kind: 'home' },
     dropoffFrom: { kind: 'home' }, dropoffTo: { kind: 'home' }, intervals: {}, handling: {}, notes: '', attestation: false };

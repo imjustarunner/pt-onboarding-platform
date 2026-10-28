@@ -13,7 +13,7 @@ beforeEach(() => {
   api.get.mockImplementation(async () => ({ data: options })); api.post.mockImplementation(async url => ({ data: url.endsWith('/preview') ? report : { id: 66, report } }));
 });
 afterEach(() => { wrapper?.unmount(); vi.clearAllMocks(); vi.useRealTimers(); });
-async function open() { wrapper = mount(EventTravelReportModal, { props: { agencyId: 2 }, global: { stubs: { Teleport: true } } }); await flushPromises(); return wrapper; }
+async function open(props = {}) { wrapper = mount(EventTravelReportModal, { props: { agencyId: 2, ...props }, global: { stubs: { Teleport: true } } }); await flushPromises(); return wrapper; }
 const submitStep = async () => { await wrapper.get('form').trigger('submit'); await flushPromises(); };
 async function chooseEvent() { await wrapper.get('select').setValue(8); await submitStep(); }
 async function alreadyHadMaterials() { await wrapper.findAll('select')[0].setValue('already_had'); await wrapper.findAll('select')[1].setValue('kept'); await submitStep(); }
@@ -22,6 +22,22 @@ async function times() {
   for (let i = 0; i < fields.length; i++) await fields[i].setValue(`2026-10-29T${i < 2 ? '09' : '15'}:${i % 2 ? '20' : '00'}`);
 }
 describe('Event travel reimbursement wizard', () => {
+  it('opens a requested assigned event/date and preselects the employee’s approved mileage for time-only reporting', async () => {
+    options.approvedMileageClaims = [{ id: 193, drive_date: '2026-10-29', applied_amount: '9.66', end_location: 'School fair' }];
+    await open({ initialEventId: 8, initialEventDate: '2026-10-29', initialMileageClaimId: 193 });
+    expect(wrapper.get('select[aria-label="Assigned event"]').element.value).toBe('8');
+    expect(wrapper.get('select[aria-label="Event date"]').element.value).toBe('2026-10-29');
+    expect(wrapper.get('select[aria-label="Existing mileage reimbursement"]').element.value).toBe('193');
+    expect(wrapper.text()).toContain('no additional mileage claim will be created');
+    await submitStep(); await alreadyHadMaterials(); await times(); await submitStep();
+    expect(api.post).toHaveBeenCalledWith('/me/company-events/8/travel-report/preview', expect.objectContaining({ existingMileageClaimId: 193 }));
+  });
+  it('does not accept a link to an unassigned event or an unavailable mileage reimbursement', async () => {
+    await open({ initialEventId: 999, initialEventDate: '2026-10-29', initialMileageClaimId: 193 });
+    expect(wrapper.text()).toContain('not available for your account');
+    expect(wrapper.get('select[aria-label="Assigned event"]').element.value).toBe('');
+    expect(api.post).not.toHaveBeenCalled();
+  });
   it('prefills home and event addresses without asking exception checkbox questions', async () => {
     await open(); await chooseEvent();
     expect(wrapper.findAll('input[type="checkbox"]')).toHaveLength(0);

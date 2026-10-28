@@ -12,8 +12,10 @@ import { buildEventTravelReport, submitEventTravelReport, assertEventTravelNoOve
 import { eventTravelDefaultForm, eventTravelJourneys, recommendEventTravelLeg } from '../../../../frontend/src/navigation/eventTravel.js';
 
 const event = { id: 8, agency_id: 2, title: 'School fair', timezone: 'America/Denver', starts_at: '2026-10-29T16:00:00Z', ends_at: '2026-10-29T18:00:00Z', is_active: 1, address: '10 Event St, Denver, CO' };
-let assigned, policyDate, existingReport, mileageFailure, savedClaims, overlaps;
+let assigned, policyDate, existingReport, mileageFailure, savedClaims, overlaps, approvedMileage;
 const sql = async (query, args = []) => {
+  if (query.includes('SELECT id, drive_date, applied_amount FROM payroll_mileage_claims')) return [approvedMileage && args[0] === 193 && args[1] === 2 && args[2] === 7 && args[3] === '2026-10-29' ? [approvedMileage] : []];
+  if (query.includes('SELECT id, drive_date, trip_purpose')) return [approvedMileage ? [approvedMileage] : []];
   if (query.includes('SELECT e.id, e.agency_id')) return [assigned ? [event] : []];
   if (query.includes('SELECT DISTINCT e.id')) return [[event]];
   if (query.includes('SELECT 1 AS assigned')) return [assigned ? [{ assigned: 1 }] : []];
@@ -45,9 +47,37 @@ function formWithRoute(change = {}) {
   return f;
 }
 const build = input => buildEventTravelReport({ eventId: 8, userId: 7, input, now: new Date('2026-10-31T20:00:00Z'), distance: vi.fn(async () => 1609.344 * 5) });
-beforeEach(() => { vi.clearAllMocks(); assigned = true; policyDate = '2026-10-27T18:00:00Z'; existingReport = null; mileageFailure = false; savedClaims = []; overlaps = false; pool.execute.mockImplementation(sql); });
+beforeEach(() => { vi.clearAllMocks(); assigned = true; policyDate = '2026-10-27T18:00:00Z'; existingReport = null; mileageFailure = false; savedClaims = []; overlaps = false; approvedMileage = null; pool.execute.mockImplementation(sql); });
 
 describe('one event travel report', () => {
+  it('submits travel time without duplicating a verified separate mileage reimbursement', async () => {
+    approvedMileage = { id: 193, drive_date: '2026-10-29', applied_amount: '9.66' };
+    policyDate = '2026-10-30T18:00:00Z';
+    const report = await build(formWithRoute({ existingMileageClaimId: 193 }));
+    expect(report.totalMinutes).toBeGreaterThan(0); expect(report.totalMiles).toBe(0);
+    expect(report.segments.every(s => !s.mileageEligible)).toBe(true);
+    expect(report.flags.join(' ')).toContain('Travel time only');
+    const db = { execute: vi.fn(sql), beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() }; pool.getConnection.mockResolvedValue(db);
+    await submitEventTravelReport({ eventId: 8, userId: 7, input: { attestation: true }, build: async () => report });
+    expect(PayrollTimeClaim.create).toHaveBeenCalledOnce();
+    expect(db.execute.mock.calls.some(([q]) => q.includes('INSERT INTO payroll_mileage_claims'))).toBe(false);
+    expect(db.execute.mock.calls.some(([q]) => q.includes('SELECT id, drive_date, applied_amount') && q.includes('FOR UPDATE'))).toBe(true);
+  });
+  it('rejects an unavailable or differently owned/date mileage claim and rechecks before writing', async () => {
+    await expect(build(formWithRoute({ existingMileageClaimId: 193 }))).rejects.toThrow('approved event mileage');
+    approvedMileage = { id: 193, drive_date: '2026-10-29', applied_amount: '9.66' };
+    await expect(build(formWithRoute({ existingMileageClaimId: 999 }))).rejects.toThrow('approved event mileage');
+    const report = await build(formWithRoute({ existingMileageClaimId: 193 })); approvedMileage = null;
+    const db = { execute: vi.fn(sql), beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() }; pool.getConnection.mockResolvedValue(db);
+    await expect(submitEventTravelReport({ eventId: 8, userId: 7, input: { attestation: true }, build: async () => report })).rejects.toThrow('approved event mileage');
+    expect(db.rollback).toHaveBeenCalledOnce(); expect(PayrollTimeClaim.create).not.toHaveBeenCalled();
+  });
+  it('prevents payroll review from adding duplicate mileage to a time-only report', async () => {
+    approvedMileage = { id: 193, drive_date: '2026-10-29', applied_amount: '9.66' };
+    const report = await build(formWithRoute({ existingMileageClaimId: 193 })); existingReport = { id: 66, agency_id: 2, user_id: 7, revision: 1, report_json: report };
+    const db = { execute: vi.fn(sql), beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() }; pool.getConnection.mockResolvedValue(db);
+    await expect(reviewEventTravelReport({ id: 66, reviewerId: 9, input: { revision: 1, note: 'Reviewed', segments: report.segments.map(s => ({ ...s, mileageEligible: true, miles: 4 })) } })).rejects.toThrow('already covered');
+  });
   it('returns the employee’s saved home address and uses the school-mileage Google calculator for each route leg', async () => {
     expect((await listMyEventTravelOptions({ userId: 7, agencyId: 2 })).homeAddress).toBe('40 Home St, Denver, CO');
     getDrivingDistanceMeters.mockResolvedValue(1609.344 * 5);

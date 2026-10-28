@@ -9,7 +9,7 @@
             <small>{{ segment.reason }}<span v-if="segment.distanceSource === 'employee'"> Reported mileage: {{ segment.distanceNote }}</span></small>
             <small v-if="segment.from">{{ segment.from.address || 'Origin address missing' }} → {{ segment.to.address || 'Destination address missing' }}</small>
             <label><input v-model="decisions[segment.key].timeEligible" type="checkbox" /> Pay {{ segment.minutes }} minutes at Support Activity rate</label>
-            <template v-if="segment.kind === 'travel' && record.report.form.vehicle === 'personal'">
+            <template v-if="segment.kind === 'travel' && record.report.form.vehicle === 'personal' && !record.report.form.existingMileageClaimId">
               <label><input v-model="decisions[segment.key].mileageEligible" type="checkbox" /> Reimburse personal vehicle miles</label>
               <label v-if="decisions[segment.key].mileageEligible">Verified miles <input v-model="decisions[segment.key].miles" type="number" min="0" max="2000" step="0.01" /></label>
             </template>
@@ -17,7 +17,8 @@
         </template>
       </EventTravelReportSummary>
       <label class="etpr-note">Review note<textarea v-model.trim="note" rows="2" maxlength="2000" placeholder="Confirm the route and explain any changes or exceptions." /></label>
-      <p>Save this review, then approve the linked time and mileage entries into payroll. Event mileage uses the organization’s flat mileage rate, independently of school benefit tiers.</p>
+      <p v-if="record.report.form.existingMileageClaimId">Save this review, then approve the linked travel-time entry. The existing mileage reimbursement remains unchanged.</p>
+      <p v-else>Save this review, then approve the linked time and mileage entries into payroll. Event mileage uses the organization’s flat mileage rate, independently of school benefit tiers.</p>
       <button type="button" class="btn btn-primary" :disabled="saving || !note" @click="save">{{ saving ? 'Saving…' : 'Save travel review' }}</button>
       <p v-if="success" role="status">Review saved. The linked time and mileage entries have been updated.</p>
     </template>

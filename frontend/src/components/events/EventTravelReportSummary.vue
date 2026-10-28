@@ -3,6 +3,7 @@
     <h3>{{ report.eventTitle }}</h3>
     <p>{{ report.eventDate }} · {{ report.eventAddress }}</p>
     <p><strong>{{ report.totalMinutes }} minutes</strong> at Support Activity rate · <strong>{{ Number(report.totalMiles || 0).toFixed(2) }} miles</strong> for reimbursement{{ report.reviewed ? '' : ' proposed' }}</p>
+    <p v-if="report.form.existingMileageClaimId">Travel time only. Mileage is already covered by approved claim #{{ report.form.existingMileageClaimId }}.</p>
     <dl>
       <dt>Materials before the event</dt><dd>{{ pickupLabel }}</dd>
       <dt>Materials after the event</dt><dd>{{ returnLabel }}</dd>
@@ -12,7 +13,7 @@
     <div v-for="segment in report.segments" :key="segment.key" class="travel-report-leg">
       <strong>{{ segment.kind === 'travel' ? `${segment.from.label} → ${segment.to.label}` : segment.label }}</strong>
       <div>{{ segment.label }} · {{ when(segment.startedAt) }} – {{ when(segment.endedAt) }}</div>
-      <div>{{ segment.minutes }} minutes<span v-if="segment.kind === 'travel' && report.form.vehicle === 'personal'"> · {{ segment.miles == null ? 'Mileage needs verification' : `${segment.miles} miles` }}</span></div>
+      <div>{{ segment.minutes }} minutes<span v-if="segment.kind === 'travel' && report.form.vehicle === 'personal' && !report.form.existingMileageClaimId"> · {{ segment.miles == null ? 'Mileage needs verification' : `${segment.miles} miles` }}</span></div>
       <div class="muted">{{ segment.timeEligible ? 'Support Activity time' : 'No travel time proposed' }}<span v-if="segment.mileageEligible"> · mileage reimbursement</span></div>
       <slot name="segment" :segment="segment" />
     </div>

@@ -13,6 +13,16 @@ const dateOnly = value => value instanceof Date ? value.toISOString().slice(0, 1
 const address = r => [r.street_address, r.city, r.state, r.postal_code].filter(Boolean).join(', ');
 const round = value => Math.round(value * 100) / 100;
 
+async function validateExistingMileage({ claimId, agencyId, userId, eventDate, db, forUpdate = false }) {
+  if (!claimId) return null;
+  const [rows] = await db.execute(`SELECT id, drive_date, applied_amount FROM payroll_mileage_claims
+    WHERE id = ? AND agency_id = ? AND user_id = ? AND drive_date = ?
+      AND claim_type = 'standard' AND status IN ('approved', 'paid') AND event_travel_report_id IS NULL${forUpdate ? ' FOR UPDATE' : ''}`,
+  [claimId, agencyId, userId, eventDate]);
+  if (!rows[0]) fail(409, 'Choose your approved event mileage claim for this date, or submit time and mileage together.');
+  return rows[0];
+}
+
 export async function listMyEventTravelOptions({ userId, agencyId, eventId = null, db = pool }) {
   const [rows] = await db.execute(`SELECT DISTINCT e.id, e.title, e.starts_at, e.ends_at, e.timezone,
       COALESCE(NULLIF(TRIM(e.event_location_address), ''), NULLIF(TRIM(e.public_location_address), ''),
@@ -65,7 +75,10 @@ export async function listMyEventTravelOptions({ userId, agencyId, eventId = nul
   const [users] = await db.execute('SELECT home_street_address, home_address_line2, home_city, home_state, home_postal_code FROM users WHERE id = ?', [userId]);
   const u = users[0] || {};
   const homeAddress = [u.home_street_address, u.home_address_line2, u.home_city, u.home_state, u.home_postal_code].filter(Boolean).join(', ');
-  return { events, homeAddress, offices: officeRows.map(r => ({ id: Number(r.id), name: r.name, address: address(r) })),
+  const [approvedMileageClaims] = await db.execute(`SELECT id, drive_date, trip_purpose, end_location, applied_amount
+    FROM payroll_mileage_claims WHERE agency_id = ? AND user_id = ? AND claim_type = 'standard'
+      AND status IN ('approved', 'paid') AND event_travel_report_id IS NULL ORDER BY drive_date DESC LIMIT 250`, [agencyId, userId]);
+  return { events, homeAddress, approvedMileageClaims: approvedMileageClaims.map(r => ({ ...r, drive_date: dateOnly(r.drive_date) })), offices: officeRows.map(r => ({ id: Number(r.id), name: r.name, address: address(r) })),
     schools: schools.map(r => ({ id: Number(r.id), name: r.name, address: address(r) })),
     reports: reports.map(r => ({ id: r.id, eventId: r.company_event_id, eventDate: dateOnly(r.event_date), revision: r.revision,
       locked: !!Number(r.locked), reviewed: !!r.reviewed_at, notes: [...new Set(reviewNotes.filter(n => n.event_travel_report_id === r.id).map(n => n.rejection_reason).filter(Boolean))], report: parse(r.report_json) })) };
@@ -82,6 +95,8 @@ function cleanForm(input) {
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.eventDate || '')) fail(400, 'Choose an assigned event date');
   form.eventDate = input.eventDate;
+  form.existingMileageClaimId = Number(input.existingMileageClaimId) || null;
+  if (form.existingMileageClaimId && (!Number.isSafeInteger(form.existingMileageClaimId) || form.existingMileageClaimId <= 0)) fail(400, 'Choose a valid approved mileage claim');
   form.officeLocationId = Number(input.officeLocationId) || null;
   for (const key of ['departure', 'returnTo', 'pickupFrom', 'pickupTo', 'dropoffFrom', 'dropoffTo']) {
     const p = input[key] || { kind: 'home' };
@@ -97,6 +112,7 @@ function cleanForm(input) {
 
 export async function buildEventTravelReport({ eventId, userId, input, db = pool, now = new Date(), distance = getDrivingDistanceMeters }) {
   const form = cleanForm(input), event = await loadEmployeeEvent({ eventId, userId, db });
+  const existingMileage = await validateExistingMileage({ claimId: form.existingMileageClaimId, agencyId: event.agency_id, userId, eventDate: form.eventDate, db });
   if (!await employeeAssignedToEvent({ event, userId, date: form.eventDate, db }) || !await isEmployeeEventDay({ event, date: form.eventDate, db })) fail(403, 'Choose an event date you are assigned to work');
   const options = await listMyEventTravelOptions({ userId, agencyId: event.agency_id, eventId: event.id, db });
   const chosen = options.events.find(e => e.id === Number(event.id));
@@ -126,6 +142,7 @@ export async function buildEventTravelReport({ eventId, userId, input, db = pool
   const policyDate = utcDateToZonedYmd(policy[0]?.effective_at, event.timezone);
   const legacyTravelPolicy = !policyDate || form.eventDate <= policyDate;
   const segments = [], flags = [];
+  if (existingMileage) flags.push(`Travel time only: mileage for this event is already covered by approved claim #${existingMileage.id}. No additional mileage reimbursement is requested.`);
   if (legacyTravelPolicy) flags.push('Earlier event: preserve the travel-time policy/agreement in effect on the trip date.');
   if (form.transportDuties || form.specialTrip) flags.push(form.exceptionNote);
   if (form.notes) flags.push(`Employee notes: ${form.notes}`);
@@ -144,8 +161,9 @@ export async function buildEventTravelReport({ eventId, userId, input, db = pool
       }
       const from = resolve(leg.from), to = resolve(leg.to);
       const recommendation = recommendEventTravelLeg({ from, to, journey: journey.key, form, legacyTravelPolicy });
+      if (existingMileage) recommendation.mileageEligible = false;
       let miles = null, distanceSource = 'not_needed', distanceNote = '';
-      if (form.vehicle === 'personal') {
+      if (form.vehicle === 'personal' && !existingMileage) {
         try { miles = from.address && from.address === to.address ? 0 : round(metersToMiles(await distance(from.address, to.address))); distanceSource = 'route'; }
         catch { distanceSource = 'unavailable'; flags.push(`Mileage needs verification: ${from.label} → ${to.label}.`); }
         if (entered?.reportedMiles !== '' && entered?.reportedMiles != null) {
@@ -245,7 +263,7 @@ async function syncClaims({ report, reportId, db }) {
     else timeId = (await PayrollTimeClaim.create({ agencyId: report.agencyId, userId: report.userId, submittedByUserId: report.submittedByUserId || report.userId, claimType: 'indirect_time', claimDate: day, payload, suggestedPayrollPeriodId: report.windows[day], db })).id;
     await db.execute("UPDATE payroll_time_claims SET event_travel_report_id = ?, bucket = 'indirect', credits_hours = ?, suggested_payroll_period_id = ? WHERE id = ?", [reportId, minutes / 60, report.windows[day], timeId]);
     const previous = mileRows.find(r => dateOnly(r.drive_date) === day);
-    if (report.form.vehicle === 'personal') {
+    if (report.form.vehicle === 'personal' && !report.form.existingMileageClaimId) {
       const notes = `Event travel report #${reportId}: ${report.eventTitle}. ${segments.map(s => `${s.label}: ${s.from?.label || ''} → ${s.to?.label || ''}; ${s.minutes} minutes; ${s.miles ?? 'unverified'} miles. ${s.reason}`).join('\n')}`;
       if (previous) await db.execute(`UPDATE payroll_mileage_claims SET status = 'submitted', miles = ?, eligible_miles = ?, round_trip = 0, notes = ?,
         target_payroll_period_id = NULL, applied_amount = NULL, tier_level = NULL, rate_per_mile = NULL, approved_by_user_id = NULL, approved_at = NULL,
@@ -254,7 +272,7 @@ async function syncClaims({ report, reportId, db }) {
         (agency_id, user_id, submitted_by_user_id, status, claim_type, drive_date, office_location_id, miles, eligible_miles, round_trip, trip_purpose, notes, attestation, suggested_payroll_period_id, event_travel_report_id)
         VALUES (?, ?, ?, 'submitted', 'standard', ?, ?, ?, ?, 0, ?, ?, 1, ?, ?)`,
       [report.agencyId, report.userId, report.submittedByUserId || report.userId, day, report.office?.id || null, miles, miles, `Event: ${report.eventTitle}`.slice(0, 255), notes, report.windows[day], reportId]);
-    } else if (previous) await db.execute("UPDATE payroll_mileage_claims SET status = 'rejected', rejection_reason = 'Updated report: no personal vehicle expense', miles = 0, eligible_miles = 0 WHERE id = ?", [previous.id]);
+    } else if (previous) await db.execute("UPDATE payroll_mileage_claims SET status = 'rejected', rejection_reason = ?, miles = 0, eligible_miles = 0 WHERE id = ?", [report.form.existingMileageClaimId ? 'Mileage already covered by the separate approved claim' : 'Updated report: no personal vehicle expense', previous.id]);
   }
   for (const row of timeRows.filter(r => !dates.includes(dateOnly(r.claim_date)))) await db.execute("UPDATE payroll_time_claims SET status = 'withdrawn' WHERE id = ?", [row.id]);
   for (const row of mileRows.filter(r => !dates.includes(dateOnly(r.drive_date)))) await db.execute("UPDATE payroll_mileage_claims SET status = 'rejected', rejection_reason = 'Trip removed in updated report' WHERE id = ?", [row.id]);
@@ -274,6 +292,7 @@ export async function submitEventTravelReport({ eventId, userId, submittedByUser
   try {
     await db.beginTransaction();
     await db.execute('SELECT id FROM users WHERE id = ? FOR UPDATE', [userId]);
+    await validateExistingMileage({ claimId: report.form.existingMileageClaimId, agencyId: report.agencyId, userId, eventDate: report.eventDate, db, forUpdate: true });
     // Recheck assignment within the write transaction; an interested employee cannot self-assign.
     const event = await loadEmployeeEvent({ eventId, userId, db });
     if (!await employeeAssignedToEvent({ event, userId, date: report.eventDate, db })) fail(403, 'You are no longer assigned to this event date');
@@ -314,10 +333,12 @@ export async function reviewEventTravelReport({ id, reviewerId, input, dbPool = 
     const row = await getEventTravelReport(id, db, { forUpdate: true }), report = row.report;
     if (Number(input.revision) !== Number(row.revision)) fail(409, 'This report changed. Reload it before reviewing.');
     await assertEditable(id, db);
+    await validateExistingMileage({ claimId: report.form.existingMileageClaimId, agencyId: row.agency_id, userId: row.user_id, eventDate: report.eventDate, db, forUpdate: true });
     if (!Array.isArray(input.segments) || input.segments.length !== report.segments.length) fail(400, 'Review each trip segment');
     const segments = report.segments.map(segment => {
       const decision = input.segments.find(s => s.key === segment.key);
       if (!decision || typeof decision.timeEligible !== 'boolean' || typeof decision.mileageEligible !== 'boolean') fail(400, 'Choose time and mileage eligibility for each segment');
+      if (decision.mileageEligible && report.form.existingMileageClaimId) fail(409, 'Mileage is already covered by the separate approved claim. Review this report for travel time only.');
       const miles = decision.miles == null || decision.miles === '' ? null : Number(decision.miles);
       if (decision.mileageEligible && (report.form.vehicle !== 'personal' || segment.kind !== 'travel')) fail(400, 'Only personal vehicle driving can receive mileage reimbursement');
       if (decision.mileageEligible && (!Number.isFinite(miles) || miles < 0 || miles > 2000)) fail(400, 'Verify the mileage for each reimbursable segment');

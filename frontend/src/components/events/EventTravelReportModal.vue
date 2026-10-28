@@ -4,7 +4,7 @@
       <section ref="dialog" class="etr-modal" role="dialog" aria-modal="true" aria-labelledby="etr-title" tabindex="-1" @keydown.tab="trapFocus">
         <header><div><h2 id="etr-title">Event travel reimbursement</h2><p>Report your trips and materials handling in one place.</p></div><button type="button" class="btn btn-secondary" aria-label="Close event travel form" :disabled="busy" @click="emit('close')">Close</button></header>
         <div v-if="loading" role="status">Loading your assigned events…</div>
-        <div v-else-if="saved" role="status" class="etr-saved"><h3>Report submitted</h3><p>Your event travel report #{{ saved.id }} is ready for payroll review. Time and mileage are included together.</p><button class="btn btn-primary" type="button" @click="emit('close')">Done</button></div>
+        <div v-else-if="saved" role="status" class="etr-saved"><h3>Report submitted</h3><p>Your event travel report #{{ saved.id }} is ready for payroll review. {{ form.existingMileageClaimId ? 'Your existing mileage reimbursement is preserved; this report requests travel time only.' : 'Time and mileage are included together.' }}</p><button class="btn btn-primary" type="button" @click="emit('close')">Done</button></div>
         <template v-else>
           <ol class="etr-steps" aria-label="Progress"><li v-for="(label, index) in EVENT_TRAVEL_STEPS" :key="label" :aria-current="step === index ? 'step' : undefined" :class="{ active: step === index }">{{ index + 1 }}. {{ label }}</li></ol>
           <p v-if="error" class="etr-error" role="alert">{{ error }}</p>
@@ -16,6 +16,8 @@
               <label v-if="selectedEvent">Event date<select aria-label="Event date" v-model="form.eventDate" required><option value="" disabled>Choose the date you worked</option><option v-for="day in selectedEvent.dates" :key="day" :value="day">{{ day }}</option></select></label>
               <p v-if="selectedEvent?.address" class="etr-address">{{ selectedEvent.address }}</p>
               <p v-else-if="selectedEvent" class="etr-error" role="alert">Your coordinator needs to save the venue address on this event before you can submit travel.</p>
+              <label v-if="approvedMileageForDate.length">Mileage already reimbursed for this event?<select aria-label="Existing mileage reimbursement" v-model="form.existingMileageClaimId"><option :value="null">No — request eligible time and mileage</option><option v-for="claim in approvedMileageForDate" :key="claim.id" :value="claim.id">Claim #{{ claim.id }} — {{ claim.end_location || claim.trip_purpose || 'Event mileage' }} — ${{ Number(claim.applied_amount).toFixed(2) }}</option></select></label>
+              <p v-if="form.existingMileageClaimId" class="etr-notice">Travel time only. Select this only if the approved claim covers this event’s mileage. You will still describe your actual trips, but no additional mileage claim will be created.</p>
               <div v-if="existing" class="etr-notice"><p>A report already exists for this event date{{ existing.reviewed ? ' and has been reviewed' : '' }}.</p><p v-for="note in existing.notes || []" :key="note">Payroll: {{ note }}</p><button type="button" class="btn btn-secondary" @click="openExisting">{{ existing.locked ? 'View report' : 'Open to review or correct' }}</button></div>
             </fieldset>
             <fieldset v-else-if="step === 1" :disabled="busy || locked">
@@ -67,7 +69,7 @@ import api from '../../services/api';
 import EventTravelLocation from './EventTravelLocation.vue';
 import EventTravelReportSummary from './EventTravelReportSummary.vue';
 import { EVENT_TRAVEL_STEPS, eventTravelDefaultForm, eventTravelJourneys } from '../../navigation/eventTravel.js';
-const props = defineProps({ agencyId: { type: Number, required: true } });
+const props = defineProps({ agencyId: { type: Number, required: true }, initialEventId: { type: Number, default: null }, initialEventDate: { type: String, default: '' }, initialMileageClaimId: { type: Number, default: null } });
 const emit = defineEmits(['close', 'submitted']);
 const dialog = ref(null), formElement = ref(null), loading = ref(true), busy = ref(false), error = ref(''), saved = ref(null);
 const options = ref({ events: [], offices: [], schools: [], reports: [], homeAddress: '' }), eventId = ref(''), form = ref(eventTravelDefaultForm()), step = ref(0), preview = ref(null), expectedRevision = ref(null), locked = ref(false);
@@ -76,6 +78,8 @@ const deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const toLocal = iso => { if (!iso) return ''; const d = new Date(iso); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
 const localNow = toLocal(new Date().toISOString());
 const selectedEvent = computed(() => options.value.events.find(e => e.id === Number(eventId.value)));
+const approvedMileageForDate = computed(() => (options.value.approvedMileageClaims || []).filter(c => c.drive_date === form.value.eventDate));
+watch(() => form.value.eventDate, () => { if (!approvedMileageForDate.value.some(c => Number(c.id) === Number(form.value.existingMileageClaimId))) form.value.existingMileageClaimId = null; });
 const selectedOffice = computed(() => options.value.offices.find(o => o.id === Number(form.value.officeLocationId)));
 const existing = computed(() => options.value.reports.find(r => r.eventId === Number(eventId.value) && r.eventDate === form.value.eventDate));
 const separatePickup = computed(() => form.value.materialsPickup === 'before_event' && form.value.pickupTiming === 'separate');
@@ -122,7 +126,20 @@ function trapFocus(event) {
 }
 onMounted(async () => {
   dialog.value?.focus();
-  try { options.value = (await api.get('/me/company-events/travel-options', { params: { agencyId: props.agencyId } })).data; }
+  try {
+    options.value = (await api.get('/me/company-events/travel-options', { params: { agencyId: props.agencyId } })).data;
+    if (props.initialEventId) {
+      const requested = options.value.events.find(e => e.id === props.initialEventId);
+      if (!requested) error.value = 'This event is not available for your account. Please contact Payroll.';
+      else {
+        eventId.value = requested.id;
+        await nextTick();
+        if (requested.dates.includes(props.initialEventDate)) form.value.eventDate = props.initialEventDate;
+        await nextTick();
+        if (approvedMileageForDate.value.some(c => Number(c.id) === props.initialMileageClaimId)) form.value.existingMileageClaimId = props.initialMileageClaimId;
+      }
+    }
+  }
   catch (e) { error.value = e.response?.data?.error?.message || 'Unable to load your assigned events'; }
   finally { loading.value = false; }
 });

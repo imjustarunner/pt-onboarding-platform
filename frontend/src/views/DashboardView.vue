@@ -1155,7 +1155,7 @@
     />
 
     <EventTravelReportModal v-if="showEventTravelReport && currentAgencyId && !previewMode"
-      :agency-id="Number(currentAgencyId)" @close="showEventTravelReport = false"
+      :agency-id="Number(currentAgencyId)" :initial-event-id="eventTravelRequest?.eventId" :initial-event-date="eventTravelRequest?.eventDate" :initial-mileage-claim-id="eventTravelRequest?.existingMileageClaimId" @close="closeEventTravelReport"
       @submitted="onEventTravelSubmitted" />
 
     <!-- Hidden MyPayrollTab used to open mileage/reimbursement/medcancel/PTO modals from Submit panel (no navigation). -->
@@ -1353,6 +1353,7 @@
 
 <script setup>
 import EventTravelReportModal from '../components/events/EventTravelReportModal.vue';
+import { eventTravelLinkRequest } from '../navigation/eventTravel.js';
 import ProviderUpdateAssignedBanner from '../components/provider/ProviderUpdateAssignedBanner.vue';
 import StaffDirectory from '../components/dashboard/StaffDirectory.vue';
 import DashboardLearningTips from '../components/dashboard/DashboardLearningTips.vue';
@@ -5216,6 +5217,16 @@ const openInSchoolClaims = () => {
 };
 
 const showEventTravelReport = ref(false);
+const eventTravelRequest = computed(() => eventTravelLinkRequest(route.query));
+watch([eventTravelRequest, currentAgencyId], ([request, agencyId]) => {
+  if (request && agencyId && !props.previewMode) showEventTravelReport.value = true;
+}, { immediate: true });
+const closeEventTravelReport = () => {
+  showEventTravelReport.value = false;
+  if (!eventTravelRequest.value) return;
+  const { eventTravel, eventDate, mileageClaim, ...query } = route.query;
+  router.replace({ query }).catch(() => {});
+};
 const onEventTravelSubmitted = () => { submitPanelRef.value?.refreshHistory?.(); };
 const pendingMileageModalOpen = ref(null);
 const pendingReimbursementModalOpen = ref(false);
