@@ -44,7 +44,7 @@
         <template v-if="activeSection === 'school'">
           <label class="pct-field">
             <span class="pct-field__label">School</span>
-            <select class="pct-control" v-model="selectedSchoolOrgId">
+            <select class="pct-control" v-model="selectedSchoolOrgId" @change="setSection('school')">
               <option value="all">All schools</option>
               <option v-for="s in schools" :key="s.schoolOrganizationId" :value="Number(s.schoolOrganizationId)">
                 {{ s.name }}
@@ -121,6 +121,19 @@
           {{ (loading || officeLoading) ? 'Loading…' : 'Refresh' }}
         </button>
       </div>
+
+      <section v-if="schoolOverview.length && ['all', 'school'].includes(activeSection)" class="pct-school-overview" aria-label="Schools and caseload">
+        <h3>Schools &amp; caseload</h3>
+        <p class="muted">Select a school to view this provider’s assigned clients.</p>
+        <div class="pct-school-cards">
+          <button v-for="school in schoolOverview" :key="school.id" type="button" class="pct-school-card"
+            :aria-pressed="activeSection === 'school' && Number(selectedSchoolOrgId) === school.id"
+            @click="openSchoolCaseload(school.id)">
+            <strong>{{ school.name }}</strong>
+            <span>{{ loading ? 'Loading clients…' : school.count === null ? 'Roster unavailable' : `${school.count} client${school.count === 1 ? '' : 's'}` }}</span>
+          </button>
+        </div>
+      </section>
 
       <p v-if="feedbackError" role="alert">{{ feedbackError }}</p>
       <CaseloadFeedbackSummary :by-client="feedbackByClient" />
@@ -275,9 +288,12 @@
       <template v-else-if="activeSection === 'school'">
         <div v-if="error" class="error">{{ error }}</div>
         <div v-else-if="officeError" class="error">{{ officeError }}</div>
+        <p v-if="schoolSelectionUnavailable && !loading" role="alert">
+          This school is not available for this provider in the selected agency. Choose another school or switch to the agency for this assignment.
+        </p>
 
         <ClientListGrid
-          v-if="selectedSchoolOrgId && schools.length"
+          v-if="selectedSchoolOrgId && schools.length && !schoolSelectionUnavailable"
           :organization-slug="organizationSlug"
           :organization-id="Number(selectedSchoolOrgId) || null"
           :organization-name="selectedSchoolName"
@@ -300,7 +316,7 @@
         />
 
         <div
-          v-if="schoolBillingTableClients.length"
+          v-if="schoolBillingTableClients.length && !schoolSelectionUnavailable"
           class="office-clients-table-wrap"
           :style="schools.length ? 'margin-top: 16px;' : ''"
         >
@@ -659,6 +675,8 @@ const officeError = ref('');
 const officeAcceptance = ref(null);
 
 const isAllSchools = computed(() => selectedSchoolOrgId.value === 'all');
+const schoolSelectionUnavailable = computed(() => !!route.query.schoolId
+  && !schools.value.some(school => Number(school.schoolOrganizationId) === Number(route.query.schoolId)));
 
 const selectedSchoolName = computed(() => {
   const id = selectedSchoolOrgId.value;
@@ -668,6 +686,7 @@ const selectedSchoolName = computed(() => {
 });
 const loading = ref(false);
 const allClients = ref([]);
+const schoolRosters = ref({});
 const skillBuildersOnlyFilter = ref(false);
 const error = ref('');
 const sessionTotalsByClientId = ref(null);
@@ -1022,6 +1041,17 @@ const sectionIcons = {
   referrals: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="14" y2="11"/></svg>',
 };
 
+const schoolOverview = computed(() => (schools.value || []).map(school => {
+  const id = Number(school.schoolOrganizationId);
+  const rows = schoolRosters.value[id];
+  return { id, name: school.name, count: Array.isArray(rows)
+    ? new Set(rows.filter(client => showTerminated.value || !isTerminatedClient(client)).map(client => client.id)).size : null };
+}));
+function openSchoolCaseload(id) {
+  selectedSchoolOrgId.value = Number(id);
+  setSection('school');
+}
+
 const primarySections = computed(() => {
   const schoolCount = new Set([
     ...(currentSchoolBillingClients.value || []).map((c) => Number(c?.id)).filter(Boolean),
@@ -1042,12 +1072,12 @@ const allSections = computed(() => {
       { id: 'all', label: 'All Clients', iconKey: 'all', badge: sortedCombinedClientsList.value.length || 0 },
       {
         id: 'school',
-        label: 'In School',
+        label: 'By School',
         iconKey: 'school',
-        badge: currentSchoolBillingClients.value.length || 0
+        badge: primarySections.value.find(section => section.id === 'school').badge
       },
       { id: 'office', label: 'In Office', iconKey: 'office', badge: currentOfficeClients.value.length || 0 }
-    ];
+    ].filter(section => section.id !== 'school' || loading.value || error.value || schools.value.length || section.badge > 0);
   }
   return [
     ...primarySections.value,
@@ -1058,7 +1088,7 @@ const allSections = computed(() => {
 
 const sectionTitle = computed(() => {
   if (activeSection.value === 'all') return 'All Clients';
-  if (activeSection.value === 'school') return props.profileEmbed ? 'In School Clients' : 'School Clients';
+  if (activeSection.value === 'school') return props.profileEmbed ? 'Schools & clients' : 'School Clients';
   if (activeSection.value === 'office') return props.profileEmbed ? 'In Office Clients' : 'Office Clients';
   if (activeSection.value === 'new') return 'New Clients';
   return 'Clients';
@@ -1067,12 +1097,12 @@ const sectionTitle = computed(() => {
 const sectionHint = computed(() => {
   if (activeSection.value === 'all') {
     return props.profileEmbed
-      ? 'Every client assigned to this provider. Use In School or In Office to filter by setting.'
+      ? 'Every client assigned to this provider across school and office settings.'
       : 'All clients on your caseload across school and office settings.';
   }
   if (activeSection.value === 'school') {
     return props.profileEmbed
-      ? 'Clients with school billing (Place of Service 03) or on a school roster.'
+      ? 'School-based clients assigned to this provider. Select a school to see its roster.'
       : 'School roster clients plus billing lines with Place of Service 03.';
   }
   if (activeSection.value === 'office') {
@@ -1089,10 +1119,9 @@ const sectionHint = computed(() => {
 function setSection(id) {
   const next = normalizeSection(id);
   activeSection.value = next;
-  const q = { ...route.query, tab: 'clients', clients: activeSection.value };
-  if (!props.profileEmbed) {
-    router.replace({ query: q }).catch(() => {});
-  }
+  const q = { ...route.query, tab: 'clients', clients: activeSection.value,
+    schoolId: next === 'school' && Number(selectedSchoolOrgId.value) > 0 ? String(selectedSchoolOrgId.value) : undefined };
+  router.replace({ query: q }).catch(() => {});
   if (activeSection.value === 'office' || activeSection.value === 'new') {
     loadOfficeClients();
   }
@@ -1431,10 +1460,14 @@ const loadSchools = async () => {
     // Surface on All/School views; office clients can still load via /clients.
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load assigned schools';
   }
-  if (!selectedSchoolOrgId.value) {
-    selectedSchoolOrgId.value = 'all';
-  }
+  applySchoolQuery();
 };
+
+function applySchoolQuery() {
+  const requested = Number(route.query.schoolId);
+  selectedSchoolOrgId.value = Number.isSafeInteger(requested) && requested > 0
+    && schools.value.some(school => Number(school.schoolOrganizationId) === requested) ? requested : 'all';
+}
 
 const loadAllRosters = async () => {
   const list = schools.value || [];
@@ -1455,12 +1488,13 @@ const loadAllRosters = async () => {
             skipGlobalLoading: true,
           })
           .then((res) => ({ school: s, rows: Array.isArray(res?.data) ? res.data : [] }))
-          .catch(() => ({ school: s, rows: [] }))
+          .catch(() => ({ school: s, rows: null }))
       )
     );
+    schoolRosters.value = Object.fromEntries(results.map(({ school, rows }) => [Number(school.schoolOrganizationId), rows]));
     const byId = new Map();
     for (const { school, rows } of results) {
-      for (const c of rows) {
+      for (const c of rows || []) {
         const id = c?.id;
         if (!id || byId.has(id)) continue;
         byId.set(id, {
@@ -1551,13 +1585,15 @@ const load = async () => {
       selectedFiscalYearStart.value = fiscalYearOptions.value[0]?.startYmd || '';
     }
 
+    schoolRosters.value = {};
+    allClients.value = [];
     await loadSchools();
     const tasks = [loadOfficeClients(), loadSessionTotals()];
     if (!props.profileEmbed) {
       tasks.push(loadPendingClients());
     }
     await Promise.all(tasks);
-    if (isAllSchools.value || activeSection.value === 'all') await loadAllRosters();
+    await loadAllRosters();
     await loadTerminatedOfficeExtras();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load clients';
@@ -1597,6 +1633,7 @@ onUnmounted(() => {
 });
 
 watch(() => agencyId.value, load);
+watch(() => route.query.schoolId, applySchoolQuery);
 watch(
   () => route.query.clients,
   (v) => {
@@ -1614,8 +1651,8 @@ watch(showTerminated, () => {
   loadTerminatedOfficeExtras().catch(() => {});
 });
 watch(() => currentUserId.value, () => {
-  loadPendingClients().catch(() => {});
-  loadOfficeClients().catch(() => {});
+  selectedSchoolOrgId.value = 'all';
+  load();
 });
 watch(() => newClientsCount.value, () => emitPendingCount());
 
@@ -1635,6 +1672,12 @@ watch(skillBuildersOnlyFilter, async () => {
 </script>
 
 <style scoped>
+.pct-school-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 12px; }
+.pct-school-card { display: grid; gap: 8px; padding: 16px; text-align: left; border: 1px solid var(--pct-border); border-radius: 12px; background: var(--bg-card, white); color: inherit; cursor: pointer; }
+.pct-school-card[aria-pressed="true"] { border-color: var(--pct-green); background: var(--bg-secondary, #f0fdf4); }
+.pct-school-card:focus-visible { outline: 2px solid var(--pct-green); outline-offset: 3px; }
+.pct-school-card span { color: var(--pct-muted); }
+
 .provider-clients-tab {
   --pct-green: #166534;
   --pct-border: #e5e7eb;

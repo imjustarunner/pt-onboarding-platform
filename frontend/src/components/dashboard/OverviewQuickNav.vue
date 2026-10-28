@@ -80,6 +80,7 @@
 </template>
 
 <script setup>
+import { useProviderClientQuickNav } from '../../composables/useProviderClientQuickNav.js';
 import { getRegisteredQuickNavEntries, resolveRegisteredQuickNav, canDiscoverQuickNavRoute } from '../../navigation/quickNavRuntime';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -156,8 +157,9 @@ const quickNavigationOptions = computed(() => ({
 }));
 const registeredNavEntries = computed(() => getRegisteredQuickNavEntries(router, ctx.value, quickNavigationOptions.value));
 const searchResult = computed(() => searchQuickNav(query.value, ctx.value, { entries: registeredNavEntries.value }));
-const groups = computed(() => searchResult.value.groups);
-const flat = computed(() => searchResult.value.flat);
+const providerResults = useProviderClientQuickNav(query, quickNavigationOptions, router);
+const groups = computed(() => [...(providerResults.value.length ? [{ group: 'people', label: 'People', items: providerResults.value }] : []), ...searchResult.value.groups]);
+const flat = computed(() => [...providerResults.value, ...searchResult.value.flat]);
 
 const panelOpen = computed(
   () => (focused.value || panelForcedOpen.value) && String(query.value || '').trim().length > 0

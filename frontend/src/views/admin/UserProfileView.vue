@@ -1340,6 +1340,7 @@
 
         <div v-if="activeTab === 'clients' && isProviderLikeUser" class="tab-panel tab-panel--flush">
           <ProviderClientsTab
+            :key="`${userId}:${scheduleAgencyId}`"
             :subject-user-id="userId"
             :subject-agency-id="scheduleAgencyId"
             :subject-user-name="headerDisplayName"
@@ -1933,20 +1934,23 @@
                 <div class="aff-sidebar-head">
                   Assigned {{ activeAffiliationPluralLabel }} ({{ affiliationsForActiveTab.length }})
                 </div>
-                <div v-if="affiliationsForActiveTab.length" class="aff-sidebar-list" role="listbox">
+                <div v-if="affiliationsForActiveTab.length" class="aff-sidebar-list" aria-label="Assigned organizations">
+                  <div v-for="o in affiliationsForActiveTab" :key="o.id" class="aff-sidebar-row">
                   <button
-                    v-for="o in affiliationsForActiveTab"
-                    :key="o.id"
                     type="button"
-                    role="option"
                     class="aff-sidebar-item"
                     :class="{ active: String(o.id) === selectedSchoolAffiliationId }"
-                    :aria-selected="String(o.id) === selectedSchoolAffiliationId"
+                    :aria-pressed="String(o.id) === selectedSchoolAffiliationId"
                     @click="selectAffiliationForEditing(o.id)"
                   >
                     <span class="aff-sidebar-item-name">{{ o.name }}</span>
                     <span v-if="o.organization_type" class="aff-sidebar-item-meta">{{ o.organization_type }}</span>
                   </button>
+                  <button v-if="isProviderLikeUser && o.organization_type === 'school'"
+                    type="button" class="btn btn-secondary btn-sm aff-clients-button"
+                    :aria-label="`View ${headerDisplayName}’s clients at ${o.name}`"
+                    @click="openAssignmentClients(o)">Clients</button>
+                  </div>
                 </div>
                 <p v-else class="aff-sidebar-empty">No {{ activeAffiliationPluralLabel.toLowerCase() }} assigned yet.</p>
 
@@ -2013,6 +2017,10 @@
                         {{ o.name }}
                       </option>
                     </select>
+                    <button v-if="isProviderLikeUser && selectedSchoolIsSchool" type="button"
+                      class="btn btn-secondary btn-sm" @click="openAssignmentClients(selectedSchoolAffiliation)">
+                      Clients
+                    </button>
                     <a
                       v-if="selectedSchoolIsSchool"
                       class="btn btn-secondary btn-sm"
@@ -4095,6 +4103,20 @@ const selectedSchoolAffiliation = computed(() => {
   const list = Array.isArray(schoolAffiliations.value) ? schoolAffiliations.value : [];
   return list.find((o) => Number(o?.id) === id) || null;
 });
+async function openAssignmentClients(organization) {
+  if (!isProviderLikeUser.value || organization?.organization_type !== 'school') return;
+  const schoolId = Number(organization.id);
+  if (!Number.isSafeInteger(schoolId) || schoolId <= 0) return;
+  await router.push({ path: route.path, query: {
+    ...route.query, tab: 'clients', clients: 'school', schoolId: String(schoolId),
+    agencyId: String(scheduleAgencyId.value), section: undefined, clinicalSubTab: undefined, profileField: undefined
+  } });
+  // Profile tabs can change locally without changing the URL. Also activate the
+  // tab when this exact Clients link is already in the address bar.
+  await nextTick();
+  selectTab('clients');
+}
+
 const selectedSchoolAffiliationSlug = computed(() => {
   const slug = String(selectedSchoolAffiliation.value?.slug || '').trim();
   return slug || '';
@@ -8429,6 +8451,10 @@ onUnmounted(() => {
   border-bottom: 1px solid #e2e8f0;
   flex-shrink: 0;
 }
+
+.aff-sidebar-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.aff-sidebar-row .aff-sidebar-item { flex: 1; min-width: 0; }
+.aff-clients-button { flex-shrink: 0; }
 
 .aff-sidebar-list {
   flex: 1;

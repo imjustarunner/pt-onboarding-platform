@@ -520,6 +520,7 @@
 </template>
 
 <script setup>
+import { useProviderClientQuickNav } from '../../composables/useProviderClientQuickNav.js';
 import { getRegisteredQuickNavEntries, resolveRegisteredQuickNav, canDiscoverQuickNavRoute } from '../../navigation/quickNavRuntime';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
@@ -1109,6 +1110,7 @@ const quickNavigationOptions = computed(() => ({
   currentPath: route.path, orgSlug: orgSlugForNavigation(), dashboardPath: dashboardPathForQuickNav(),
   user: authStore.user, agency: agencyStore.currentAgency || {}, platformBranding: brandingStore.platformBranding || {}
 }));
+const providerClientNavResults = useProviderClientQuickNav(computed(() => effectiveSurfaceMode.value === 'ask' ? '' : prompt.value), quickNavigationOptions, router);
 const registeredNavEntries = computed(() => getRegisteredQuickNavEntries(router, quickNavCtx.value, quickNavigationOptions.value));
 const quickNavSearch = computed(() => searchQuickNav(prompt.value, quickNavCtx.value, { limit: 12, surface: commandSurface.value, entries: registeredNavEntries.value }));
 
@@ -1131,10 +1133,11 @@ function looksLikeQuestion(q) {
 const quickNavGroups = computed(() => {
   if (effectiveSurfaceMode.value === 'ask') return [];
   const q = String(prompt.value || '').trim();
-  if (looksLikeQuestion(q)) return [];
+  if (looksLikeQuestion(q) && !providerClientNavResults.value.length) return [];
   const base = quickNavSearch.value.groups;
   const schools = schoolPortalNavResults.value;
   const groups = [];
+  if (providerClientNavResults.value.length) groups.push({ group: 'people', label: 'People', items: providerClientNavResults.value });
   if (schools.length) groups.push({ group: 'school-portal', label: 'School Portals', items: schools });
   return [...groups, ...base];
 });
@@ -1142,10 +1145,10 @@ const quickNavGroups = computed(() => {
 const quickNavFlat = computed(() => {
   if (effectiveSurfaceMode.value === 'ask') return [];
   const q = String(prompt.value || '').trim();
-  if (looksLikeQuestion(q)) return [];
+  if (looksLikeQuestion(q) && !providerClientNavResults.value.length) return [];
   const base = quickNavSearch.value.flat;
   const schools = schoolPortalNavResults.value;
-  return [...schools, ...base];
+  return [...providerClientNavResults.value, ...schools, ...base];
 });
 
 const quickNavPanelOpen = computed(
