@@ -122,14 +122,14 @@ export function shouldSuggest99051(startAt, { timeZone } = {}) {
     const hourStr = new Intl.DateTimeFormat('en-US', {
       ...(opts || {}),
       hour: 'numeric',
-      hour12: false
+      hourCycle: 'h23'
     }).format(d);
     const hour = Number(String(hourStr).replace(/\D/g, '').slice(0, 2));
     const isWeekend = weekday === 'Sat' || weekday === 'Sun';
     if (isWeekend) return true;
     if (!Number.isFinite(hour)) return false;
     // Outside 8–17 inclusive of before 8 and after 17.
-    return hour < 8 || hour >= 17;
+    return hour < 9 || hour >= 17;
   } catch {
     return false;
   }
@@ -179,7 +179,7 @@ export function resolveNoteAidBillingCodes({
         'EXTENDED ENCOUNTER: Session 75+ minutes — bill two units of 90834 (not 90837).'
       ]));
       switchedFrom = switchedFrom || (code !== String(primaryCode || '').toUpperCase() ? String(primaryCode || '').toUpperCase() : '90837');
-    } else if (code === '90837') {
+    } else if (code === '90837' || (code === '90834' && Number(durationMinutes) >= 75)) {
       code = ext.primaryCode;
       primaryUnits = ext.primaryUnits;
       isExtendedEncounter = ext.isExtendedEncounter;

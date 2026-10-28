@@ -742,6 +742,7 @@
                 <th>Code</th>
                 <th>Category</th>
                 <th>Pay category</th>
+                <th>Flat $ / occurrence</th>
                 <th>Show to staff?</th>
                 <th>Pay method</th>
                 <th class="right">Pay %</th>
@@ -771,9 +772,11 @@
                     <option value="hcode">Hourly / H-code</option>
                     <option value="indirect">Indirect</option>
                     <option value="support_activity">Support activity</option>
+                    <option value="flat">Flat add-on</option>
                     <option value="skip">Excluded from new pay system</option>
                   </select>
                 </td>
+                <td><input v-model.number="r.flat_rate_amount" @change="scOnChange(r)" type="number" min="0" step="0.01" :disabled="r.pay_system_bucket !== 'flat'" aria-label="Flat dollars per eligible occurrence" style="width:90px;" /></td>
                 <td><input v-model="r.show_in_rate_sheet" type="checkbox" @change="scOnChange(r)" aria-label="Show code to staff" /></td>
                 <td>
                   <select v-model="r.pay_method" @change="scOnChange(r)">
@@ -1953,6 +1956,7 @@ const scSerialize = (r) => JSON.stringify({
   service_code: String(r?.service_code || '').trim(),
   category: String(r?.category || 'direct').toLowerCase(),
   pay_system_bucket: r.pay_system_bucket,
+  flat_rate_amount: r.flat_rate_amount === '' || r.flat_rate_amount == null ? null : Number(r.flat_rate_amount),
   show_in_rate_sheet: r.show_in_rate_sheet ? 1 : 0,
   pay_method: String(r?.pay_method || 'fixed_rate').toLowerCase(),
   pay_percent: r?.pay_percent === '' || r?.pay_percent == null ? null : Number(r.pay_percent),
@@ -1969,6 +1973,7 @@ const scIsDirty = (r) => {
 };
 const scDirtyCodes = computed(() => (scRules.value || []).filter(r => scIsDirty(r)).map(r => r.service_code).sort());
 const scOnChange = (r) => {
+  if (r.pay_system_bucket === 'flat') Object.assign(r,{credit_value:0,counts_for_tier:0,pay_divisor:1,pay_rate_unit:'per_unit',pay_method:'fixed_rate',pay_percent:null});
   const cat = String(r.category || 'direct').toLowerCase();
   r.category = cat;
   if (!(cat === 'other' || cat === 'tutoring')) r.other_slot = 1;
@@ -2013,6 +2018,7 @@ const scSaveOne = async (r) => {
       payMethod: r.pay_method || 'fixed_rate',
       payPercent: r.pay_method === 'percent_of_charge' ? (r.pay_percent === '' ? null : r.pay_percent) : null,
       payRateUnit: r.pay_rate_unit || 'per_unit',
+      flatRateAmount: r.flat_rate_amount === '' ? null : r.flat_rate_amount,
       paySystemBucket: r.pay_system_bucket, showInRateSheet: r.show_in_rate_sheet ? 1 : 0,
       countsForTier: r.counts_for_tier ? 1 : 0, payDivisor: r.pay_divisor, creditValue: r.credit_value
     });

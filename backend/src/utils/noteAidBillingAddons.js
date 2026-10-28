@@ -92,12 +92,12 @@ export function shouldSuggest99051(startAt, { timeZone } = {}) {
     const hourStr = new Intl.DateTimeFormat('en-US', {
       ...(opts || {}),
       hour: 'numeric',
-      hour12: false
+      hourCycle: 'h23'
     }).format(d);
     const hour = Number(String(hourStr).replace(/\D/g, '').slice(0, 2));
     if (weekday === 'Sat' || weekday === 'Sun') return true;
     if (!Number.isFinite(hour)) return false;
-    return hour < 8 || hour >= 17;
+    return hour < 9 || hour >= 17;
   } catch {
     return false;
   }
@@ -125,7 +125,7 @@ export function resolveNoteAidBillingCodes({
     addons.push(...crisis.addons);
     warnings.push(...crisis.warnings);
     switchedFrom = crisis.switchedFrom;
-  } else if (code === '90837') {
+  } else if (code === '90837' || (code === '90834' && Number(durationMinutes) >= 75)) {
     const ext = resolveExtendedEncounter90837({
       durationMinutes,
       includeInteractiveComplexity

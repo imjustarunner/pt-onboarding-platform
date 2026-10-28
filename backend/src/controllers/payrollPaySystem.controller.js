@@ -38,6 +38,7 @@ function mapServiceCodeForCalculator(r) {
     serviceCode: String(r.service_code || r.serviceCode || '').trim().toUpperCase(),
     category: r.category,
     payType: r.payType,
+    flatRateAmount: r.flat_rate_amount ?? r.flatRateAmount,
     paySystemBucket: r.pay_system_bucket ?? r.paySystemBucket,
     payDivisor: r.pay_divisor ?? r.payDivisor,
     creditValue: r.credit_value ?? r.creditValue,

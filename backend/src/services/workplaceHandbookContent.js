@@ -1,3 +1,4 @@
+import { applyFlatAddonHandbookAmendment } from '../content/flatAddonHandbookAmendment.js';
 import { applyEventTimeHandbookAmendment, applyEventTimeReviewAmendment } from '../content/eventTimeHandbookAmendment.js';
 import { applyEventTravelHandbookAmendment } from '../content/eventTravelHandbookAmendment.js';
 import { applySchoolSupportHandbookAmendment } from '../content/schoolSupportHandbookAmendment.js';
@@ -32,6 +33,7 @@ export function getHandbookSource(agency, { employeeTemplates } = {}) {
   const source = applyEventTimeHandbookAmendment(structuredClone({ itsco, nlu, isi }[tenant]), tenant);
   applyEventTravelHandbookAmendment(source, tenant);
   applySchoolSupportHandbookAmendment(source, tenant);
+  applyFlatAddonHandbookAmendment(source, tenant);
   const facilitatorUpdate = applyFacilitatorHandbookScope(source, tenant);
   const updateDrafts = { itsco: itscoUpdateDrafts, nlu: nluUpdateDrafts, isi: isiUpdateDrafts }[tenant];
   const trainingTemplate = studentTrainingTemplate();

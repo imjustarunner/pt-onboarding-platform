@@ -978,7 +978,7 @@
             <label
               v-if="showInteractiveComplexityOption"
               class="na-toggle-row na-toggle-row--inline"
-              title="Document interactive complexity factors when clinically supported (90785)"
+              title="90785 requires a documented qualifying communication difficulty and eligible accompanying service; not translation alone or an extended encounter. See Workplace Handbook eligibility."
             >
               <span>Interactive Complexity (90785)</span>
               <span class="na-switch" :class="{ on: includeInteractiveComplexity }">
@@ -989,7 +989,7 @@
             <label
               v-if="showAfterHours99051Option"
               class="na-toggle-row na-toggle-row--inline"
-              title="99051 — session outside Mon–Fri 8am–5pm"
+              title="99051 — eligible scheduled evening/weekend office service outside Mon–Fri 9am–5pm; confirm payer and service eligibility"
             >
               <span>After hours (99051)</span>
               <span class="na-switch" :class="{ on: includeAfterHours99051 }">

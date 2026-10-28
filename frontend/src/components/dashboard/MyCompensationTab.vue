@@ -114,7 +114,7 @@ const handbookUrl = computed(() => `/${agencyStore.currentAgency?.slug || agency
 const loading = ref(false);
 const error = ref('');
 const data = ref(null);
-const codeGroups=computed(()=>[{id:'clinical_session',label:'Clinical Session Rate'},{id:'direct_care',label:'Hourly / H-code Rate'},{id:'indirect',label:'Indirect Rate'},{id:'support_activity',label:'Support Activity Rate'}].map(g=>({...g,codes:(data.value?.codeGuide||[]).filter(c=>c.group===g.id&&!c.restricted)})).filter(g=>g.codes.length));
+const codeGroups=computed(()=>[{id:'clinical_session',label:'Clinical Session Rate'},{id:'direct_care',label:'Hourly / H-code Rate'},{id:'indirect',label:'Indirect Rate'},{id:'support_activity',label:'Support Activity Rate'},{id:'flat',label:'Flat add-ons'}].map(g=>({...g,codes:(data.value?.codeGuide||[]).filter(c=>c.group===g.id&&!c.restricted)})).filter(g=>g.codes.length));
 const priorEndDate=computed(()=>{const start=data.value?.submission?.startsOn;if(!start)return '';const d=new Date(start+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-1);return d.toISOString().slice(0,10);});
 
 const otherRateTitles = ref({ title1: 'Other 1', title2: 'Other 2', title3: 'Other 3' });

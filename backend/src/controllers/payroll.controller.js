@@ -6261,6 +6261,10 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
       if (codeKey === 'SALARY') continue;
       const rule = ruleByCode.get(codeKey) || null;
       const defaults = payrollDefaultsForCode(codeKey);
+      const isFlatAddon = classifyPayType(codeKey, rule) === 'flat';
+      if (isFlatAddon && (!Number.isSafeInteger(finalizedUnits) || finalizedUnits < 0)) throw new Error(`Review ${codeKey}: add-ons require whole eligible occurrences.`);
+      const flatRateAmount = isFlatAddon ? Number(rule?.flat_rate_amount) : null;
+      if (isFlatAddon && (rule?.flat_rate_amount == null || !Number.isFinite(flatRateAmount) || flatRateAmount < 0)) throw new Error(`Set a valid flat payment for ${codeKey} in Payroll settings.`);
       const category = String(rule?.category ?? defaults?.category ?? 'direct').trim().toLowerCase();
       const otherSlot = Number(rule?.other_slot ?? defaults?.otherSlot ?? 1);
       // Divisor + credits are driven by service code rule fields.
@@ -6282,12 +6286,12 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
 
       const d = Number.isFinite(payDivisor) ? Number(payDivisor) : 1;
       const safeDivisor = (!Number.isFinite(d) || d <= 0) ? 1 : d;
-      const safeCreditValue = Number.isFinite(creditValue) ? creditValue : 0;
+      const safeCreditValue = isFlatAddon ? 0 : (Number.isFinite(creditValue) ? creditValue : 0);
 
       // Credits/Hours: minute-based rows use unit_count minutes and credit_value = 1/60.
       // Pay-hours: unit_count / pay_divisor (e.g. minutes / 60).
       const creditsHours = (finalizedUnits * safeCreditValue);
-      const payHours = (finalizedUnits / safeDivisor);
+      const payHours = isFlatAddon ? 0 : (finalizedUnits / safeDivisor);
 
       // 99414/99416: prelicensed tracking codes don't feed PTO (MEETING pays) but still display hours.
       const uidNum = Number(userId);
@@ -6307,7 +6311,7 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
               : 'direct';
 
       // Tutoring counts as Direct while baseBucket retains its assigned rate source.
-      const bucket = payrollReportingBucketForCode(codeKey, category, otherSlot, rateCard);
+      const bucket = isFlatAddon ? 'flat' : payrollReportingBucketForCode(codeKey, category, otherSlot, rateCard);
 
       if (bucket === 'indirect') indirectHours += ptoCreditsHours;
       else if (bucket === 'other') otherHours += ptoCreditsHours;
@@ -6339,7 +6343,11 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
       if (isSupervisionMeetingCode(codeKey)) {
         perCodePayUnit = 'per_hour';
       }
-      if (perCode) {
+      if (isFlatAddon) {
+        rateSource = 'agency_flat_addon';
+        rateAmount = flatRateAmount;
+        perCodePayUnit = 'per_unit';
+      } else if (perCode) {
         rateSource = 'per_code_rate';
         rateAmount = Number(perCode.rate_amount || 0);
       } else if (codeKey === 'MEETING') {
@@ -6369,11 +6377,13 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
         userPercentPayEnabled: rateCard?.percent_pay_enabled
       });
 
+      if (isFlatAddon) { pctPay.usesPercentPay = false; pctPay.basis = null; }
       const billedPay = pctPay.basis === 'billed'
         ? await billedPayForStagingRow({ row, payrollPeriodId, agencyId, rates: ratesByCode.get(codeKey) || [] }) : null;
 
       // Always compute wage math on pay-hours for non-flat categories.
       const computeLineAmount = ({ units, payHours }) => {
+        if (isFlatAddon) return units * flatRateAmount;
         const isPrelicensedSupervisee = supervisionPrelicensedUserIds.has(Number(userId));
         // Prelicensed 99414/99416 tracking codes never pay (MEETING is the payable path).
         if (codeKey === '99414' && isPrelicensedSupervisee) return 0;
@@ -6445,6 +6455,7 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
         payDivisor: safeDivisor,
         creditValue: safeCreditValue,
         paySystemBucket: rule?.pay_system_bucket ?? null,
+        flatRateAmount,
         durationMinutes: Number.isFinite(durationMinutes) ? durationMinutes : null,
         rateAmount,
         rateUnit: perCode ? perCodePayUnit : (rateSource === 'rate_card' ? 'per_hour' : 'per_unit'),
@@ -22427,7 +22438,7 @@ export const listServiceCodeRules = async (req, res, next) => {
 
 export const upsertServiceCodeRule = async (req, res, next) => {
   try {
-    const { agencyId, serviceCode, category, otherSlot, unitToHourMultiplier, countsForTier, durationMinutes, tierCreditMultiplier, payDivisor, payRateUnit, creditValue, showInRateSheet, payMethod, payPercent, paySystemBucket } = req.body || {};
+    const { agencyId, serviceCode, category, otherSlot, unitToHourMultiplier, countsForTier, durationMinutes, tierCreditMultiplier, payDivisor, payRateUnit, creditValue, showInRateSheet, payMethod, payPercent, paySystemBucket, flatRateAmount } = req.body || {};
     if (!agencyId || !serviceCode) return res.status(400).json({ error: { message: 'agencyId and serviceCode are required' } });
     const agencyIdNum = parseInt(agencyId);
     const resolvedAgencyId = await requirePayrollAccess(req, res, agencyIdNum);
@@ -22448,6 +22459,9 @@ export const upsertServiceCodeRule = async (req, res, next) => {
 
     const configuredBucket = paySystemBucket === undefined ? (existing?.pay_system_bucket ?? null) : paySystemBucket;
     if (configuredBucket !== null && !PAY_SYSTEM_BUCKETS.includes(configuredBucket)) return res.status(400).json({error:{message:'Choose a valid payroll pay category.'}});
+    const flatRaw = flatRateAmount === undefined ? existing?.flat_rate_amount : flatRateAmount;
+    const flatAmount = flatRaw == null || flatRaw === '' ? null : Number(flatRaw);
+    if ((flatAmount !== null && (!Number.isFinite(flatAmount) || flatAmount < 0 || flatAmount > 99999999.99)) || (configuredBucket === 'flat' && flatAmount === null)) return res.status(400).json({error:{message:'Enter a valid flat dollar amount per eligible occurrence.'}});
     const catInput = (category === undefined || category === null || String(category).trim() === '')
       ? (existing?.category || 'direct')
       : category;
@@ -22528,18 +22542,19 @@ export const upsertServiceCodeRule = async (req, res, next) => {
       serviceCode: codeTrimmed,
       category: cat,
       otherSlot: slot,
-      unitToHourMultiplier: mult,
-      durationMinutes: dur,
-      countsForTier: (countsForTier === undefined || countsForTier === null)
+      unitToHourMultiplier: configuredBucket === 'flat' ? 0 : mult,
+      durationMinutes: configuredBucket === 'flat' ? null : dur,
+      countsForTier: configuredBucket === 'flat' ? 0 : (countsForTier === undefined || countsForTier === null)
         ? (existing?.counts_for_tier === 0 ? 0 : 1)
         : (countsForTier === false || countsForTier === 0 ? 0 : 1),
-      tierCreditMultiplier: tcm,
-      payDivisor: Math.trunc(pd),
-      payRateUnit: payUnit,
-      creditValue: cv,
+      tierCreditMultiplier: configuredBucket === 'flat' ? 0 : tcm,
+      payDivisor: configuredBucket === 'flat' ? 1 : Math.trunc(pd),
+      payRateUnit: configuredBucket === 'flat' ? 'per_unit' : payUnit,
+      creditValue: configuredBucket === 'flat' ? 0 : cv,
       showInRateSheet: vis,
       paySystemBucket: configuredBucket,
-      payMethod: payMethodNorm,
+      flatRateAmount: flatAmount,
+      payMethod: configuredBucket === 'flat' ? 'fixed_rate' : payMethodNorm,
       payPercent: payPercentNum
     });
     try {

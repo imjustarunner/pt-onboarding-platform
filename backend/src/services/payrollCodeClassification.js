@@ -1,5 +1,5 @@
 import { payrollDefaultsForCode } from './payrollServiceCodeDefaults.js';
-export const PAY_SYSTEM_BUCKETS = ['credit', 'hcode', 'indirect', 'support_activity', 'skip'];
+export const PAY_SYSTEM_BUCKETS = ['credit', 'hcode', 'indirect', 'support_activity', 'skip', 'flat'];
 export const isPayrollCodeVisible = r => Number(r?.show_in_rate_sheet ?? r?.showInRateSheet ?? 1) !== 0;
 export function classifyPayType(serviceCode, ruleOrDefaults = null) {
   const code = String(serviceCode || '').trim().toUpperCase();

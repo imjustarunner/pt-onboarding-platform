@@ -24,8 +24,9 @@ export async function submissionContext({agencyId,userId,asOf=day(new Date())}) 
   effective:!!agencyEnabled&&Number(assignment?.pay_system_enabled)===1&&!!agreement&&!!schedule&&!!starts&&asOf>=starts};
 }
 export function compensationCodes(rules) {
- return rules.filter(r=>isPayrollCodeVisible(r) && ['credit','hcode','indirect','support_activity'].includes(classifyPayType(r.service_code,r))).map(r=>{
+ return rules.filter(r=>isPayrollCodeVisible(r) && ['credit','hcode','indirect','support_activity','flat'].includes(classifyPayType(r.service_code,r))).map(r=>{
   const code=r.service_code,payType=classifyPayType(code,r),h=payType==='hcode';
+  if (payType === 'flat') return {code,group:'flat',payType,creditValue:0,basis:'occurrences',flatRateAmount:Number(r.flat_rate_amount),quantityLabel:`$${Number(r.flat_rate_amount).toFixed(2)} per eligible occurrence · no credits or hours`,restricted:false};
   const value=Number(r.credit_value),perMinute=h&&Number(r.pay_divisor)===60;
   const group={credit:'clinical_session',hcode:'direct_care',indirect:'indirect',support_activity:'support_activity'}[payType];
   return {code,group,payType,creditValue:value,basis:perMinute?'minutes':h?'units':payType==='credit'?'credits':'hours',

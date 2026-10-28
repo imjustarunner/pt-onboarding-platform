@@ -97,7 +97,7 @@ describe('resolveNoteAidBillingCodes', () => {
 });
 
 describe('99051 after hours', () => {
-  it('suggests outside weekday 8–5', () => {
+  it('suggests outside weekday 9–5', () => {
     expect(shouldSuggest99051(new Date('2026-09-02T07:30:00'))).toBe(true); // Wed 7:30
     expect(shouldSuggest99051(new Date('2026-09-02T12:00:00'))).toBe(false); // Wed noon
     expect(shouldSuggest99051(new Date('2026-09-02T17:00:00'))).toBe(true); // Wed 5pm

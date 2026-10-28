@@ -127,7 +127,7 @@
                 :value="sc.serviceCode"
                 :disabled="isServiceTaken(sc.serviceCode, line)"
               >
-                {{ sc.serviceCode }} ({{ payTypeLabel(sc.payType) }})
+                {{ sc.serviceCode }} ({{ sc.payType === 'flat' ? `$${fmt(sc.flatRateAmount)} per eligible occurrence` : payTypeLabel(sc.payType) }})
               </option>
             </select>
             <select
@@ -145,7 +145,7 @@
               v-model.number="line.quantity"
               type="number"
               min="0"
-              step="0.25"
+              :step="findCode(line.code)?.payType === 'flat' ? 1 : 0.25"
               class="pay-calc__qty"
               :placeholder="qtyPlaceholder(line)"
               @input="scheduleEstimate()"
@@ -172,9 +172,9 @@
                 <tr v-for="(row, i) in estimate.lines" :key="i">
                   <td>
                     <strong>{{ rowLabel(row) }}</strong>
-                    <div v-if="row.quantityLabel" class="pay-calc__hint">{{ row.quantityLabel }}</div>
+                    <div v-if="row.quantityLabel" class="pay-calc__hint">{{ row.quantityLabel }}<span v-if="row.payType === 'flat'"> @ ${{ fmt(row.rate) }} each</span></div>
                   </td>
-                  <td>{{ fmtHrs(row.timeHours) }} hr</td>
+                  <td>{{ row.payType === 'flat' ? '—' : `${fmtHrs(row.timeHours)} hr` }}</td>
                   <td>{{ row.bucketLabel || '—' }}</td>
                   <td class="right">
                     <template v-if="Number(row.directHours || 0) > 0">
@@ -197,6 +197,7 @@
           </div>
 
           <div class="pay-calc__summary">
+            <div v-if="Number(estimate.summary.flatPay || 0) > 0" class="pay-calc__sum-row"><span>Flat add-ons</span><strong>${{ fmt(estimate.summary.flatPay) }}</strong></div>
             <div v-if="Number(estimate.summary.directHours || 0) > 0" class="pay-calc__sum-row">
               <span>Direct ({{ fmtHrs(estimate.summary.directHours) }} hr)</span>
               <strong>${{ fmt(estimate.summary.directPay) }}</strong>
@@ -337,6 +338,7 @@ const fmtHrs = (n) => {
 };
 
 const payTypeLabel = (t) => {
+  if (t === 'flat') return 'Flat add-on';
   if (t === 'credit') return 'Clinical Session Rate';
   if (t === 'hcode') return 'Direct Care Rate';
   if (t === 'indirect') return 'indirect';
@@ -353,6 +355,7 @@ const qtyPlaceholder = (line) => {
   if (line.kind === 'event') return 'hours';
   const sc = findCode(line.code);
   if (!sc) return 'qty';
+  if (sc.payType === 'flat') return 'eligible occurrences';
   if (sc.payType === 'hcode' && Number(sc.payDivisor) === 60) return 'minutes';
   if (Number(sc.creditValue) === 0.25 || Number(sc.payDivisor) === 4) return 'units';
   if (sc.payType === 'credit') return 'credits / units';

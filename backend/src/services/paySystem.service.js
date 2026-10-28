@@ -79,6 +79,12 @@ export function eraLabelForStatus(status) {
  */
 export function resolveQuantities({ serviceCode, quantity, rule = null }) {
   const code = String(serviceCode || '').trim().toUpperCase();
+  if (classifyPayType(code, rule) === 'flat') {
+    const units = Number(quantity);
+    if (!Number.isSafeInteger(units) || units < 0) throw Object.assign(new Error('Flat add-ons require a whole number of eligible occurrences.'), {status:400});
+    return { units, payDivisor: 1, creditValue: 0, payHours: 0, hourEquivalent: 0,
+      quantityLabel: `${units} eligible occurrence${units === 1 ? '' : 's'}` };
+  }
   const defaults = payrollDefaultsForCode(code) || {};
   const payDivisor = Number(
     (rule?.pay_divisor ?? rule?.payDivisor) == null
@@ -231,7 +237,12 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
   let hcodeFallbackToCredit = false;
 
   const roleRate=roleCompensationRate(rateProfile?.roleCompensation,code,{categoryGroup:code==='ADMIN TIME'?'supervision_note':undefined});
-  if(roleRate>0 && !(code==='OUTREACH' && payType==='support_activity') && payType!=='skip'){
+  if (payType === 'flat') {
+    rate = Number(rule?.flat_rate_amount ?? rule?.flatRateAmount);
+    if (!Number.isFinite(rate) || rate < 0) throw Object.assign(new Error(`Set a valid flat payment for ${code} in Payroll settings.`), {code:'PAYROLL_FLAT_RATE_REQUIRED'});
+    rateLabel = 'flat_per_occurrence';
+    amount = qty.units * rate;
+  } else if(roleRate>0 && !(code==='OUTREACH' && payType==='support_activity') && payType!=='skip'){
     payType='indirect';rate=roleRate;rateLabel='assigned_role_hourly_rate';qty.hourEquivalent=qty.payHours;amount=qty.payHours*roleRate;
   } else if (payType === 'credit') {
     rate = Number(reduced
@@ -385,6 +396,12 @@ export function decorateEstimateLine(result, rateProfile, extras = {}) {
   const isIndirectStyle = payType === 'indirect' || payType === 'support_activity'
     || (isEvent && eventBucket !== 'direct');
 
+  if (payType === 'flat') return {
+    ...result, ...extras, kind, timeHours: 0, bucketLabel: 'Flat add-on',
+    directHours: 0, directRate: 0, directAmount: 0,
+    indirectHours: 0, indirectRate: 0, indirectAmount: 0,
+    flatAmount: round2(result.amount), lineTotal: round2(result.amount)
+  };
   if (isIndirectStyle) {
     const isDirectEvent = isEvent && eventBucket === 'direct';
     const bucketLabel = isDirectEvent
@@ -489,6 +506,7 @@ export function estimatePay({ rateProfile, status, lines = [], rulesByCode = new
   let directPayTotal = 0;
   let indirectHoursTotal = 0;
   let indirectPayTotal = 0;
+  let flatPayTotal = 0;
 
   for (const line of lines) {
     const kind = String(line?.kind || '').toLowerCase();
@@ -514,6 +532,7 @@ export function estimatePay({ rateProfile, status, lines = [], rulesByCode = new
     }
 
     computedLines.push(decorated);
+    flatPayTotal += Number(decorated.flatAmount || 0);
     baseAmount += Number(decorated.directAmount || 0);
     autoIndirectTotal += Number(decorated.indirectAmount || 0);
     totalHourEquivalent += Number(decorated.timeHours || 0);
@@ -540,12 +559,13 @@ export function estimatePay({ rateProfile, status, lines = [], rulesByCode = new
     hcodeHourEquivalent: hcodeHours
   });
 
-  const grandTotal = round2(directPayTotal + indirectPayTotal + bonuses.totalBonusAmount);
+  const grandTotal = round2(directPayTotal + indirectPayTotal + flatPayTotal + bonuses.totalBonusAmount);
 
   return {
     lines: computedLines,
     summary: {
-      baseAmount: round2(directPayTotal),
+      baseAmount: round2(directPayTotal + flatPayTotal),
+      flatPay: round2(flatPayTotal),
       autoIndirectAmount: round2(indirectPayTotal),
       directHours: round2(directHoursTotal),
       directPay: round2(directPayTotal),
@@ -926,6 +946,7 @@ export function applyPaySystemToBreakdown({
     const rule = {
       category: row.category,
       pay_system_bucket: row.paySystemBucket ?? row.pay_system_bucket,
+      flat_rate_amount: row.flatRateAmount ?? row.flat_rate_amount,
       pay_divisor: row.payDivisor,
       credit_value: row.creditValue,
       duration_minutes: row.durationMinutes
@@ -948,7 +969,8 @@ export function applyPaySystemToBreakdown({
 
     row.amount = result.amount;
     row.rateAmount = result.rate;
-    row.rateUnit = 'per_hour_equivalent';
+    row.rateUnit = result.payType === 'flat' ? 'per_unit' : 'per_hour_equivalent';
+    if (result.payType === 'flat') { row.hours = 0; row.creditsHours = 0; row.payHours = 0; }
     row.rateSource = 'pay_system';
     row.payType = result.payType;
     row.hourEquivalent = result.hourEquivalent;
