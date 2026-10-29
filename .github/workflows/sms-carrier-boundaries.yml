@@ -20,7 +20,7 @@ jobs:
             backend/package-lock.json
             frontend/package-lock.json
       - run: npm ci --prefix backend
-      - run: npm ci --prefix frontend
+      - run: npm ci --prefix frontend --ignore-scripts
       - name: Verify client, staff and campaign separation without real sends
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.sms-carrier.config.js
       - name: Verify AuricWell client and account verification settings
