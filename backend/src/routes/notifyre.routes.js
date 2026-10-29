@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import pool from '../config/database.js';
 import { verifyNotifyreSignature, normalizeNotifyreEvent } from '../services/notifyre.service.js';
 import { getSmsSender } from '../services/smsCompliance.service.js';
+import { assertNotifyreAgencyCampaign, assertSmsCarrierPurpose } from '../utils/smsCarrierPolicy.js';
 import { inboundSmsWebhook } from '../controllers/vonageWebhook.controller.js';
 
 const router = express.Router();
@@ -16,7 +17,10 @@ export const notifyreWebhook = async (req, res, next) => {
     const event = normalizeNotifyreEvent(JSON.parse(req.body.toString('utf8')));
     if (!event) return res.status(200).json({ ignored: true });
     const sender = await getSmsSender(event.type === 'sms_received' ? event.to : event.from);
-    if (sender.registration?.provider !== 'notifyre' || sender.registration.campaignId !== process.env.NOTIFYRE_CLIENT_CAMPAIGN_ID) {
+    try {
+      assertNotifyreAgencyCampaign(sender.registration, sender.agency_id);
+      assertSmsCarrierPurpose({ registration: sender.registration, controlReply: true });
+    } catch {
       return res.status(403).json({ error: 'This sender is not assigned to the Notifyre client campaign' });
     }
     key = crypto.createHash('sha256').update(`${event.type}:${event.id}:${event.status || ''}`).digest('hex');

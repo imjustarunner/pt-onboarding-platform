@@ -6,6 +6,7 @@ import { prepareSmsDelivery, processSmsKeyword, recordInboundConversation, staff
 import { parseSmsKeyword, validateSmsRegistration, validateSmsConsentEvidence } from '../../utils/smsCompliancePolicy.js';
 
 const registration = {
+  provider: 'notifyre',
   brandId: 'B123', campaignId: 'C123', resellerId: 'R123', brandName: 'ITSCO', legalName: 'ITSCO, LLC',
   supportContact: 'support@itsco.health', website: 'https://www.itsco.health', privacyUrl: 'https://www.itsco.health/privacy',
   termsUrl: 'https://www.itsco.health/terms', evidenceUrl: 'https://www.itsco.health/proof',
@@ -56,7 +57,7 @@ describe('campaign-wide SMS delivery gate', () => {
   it('requires a separately reviewed hiring grant and never turns it into staff consent',async()=>{
     const original=pool.execute.getMockImplementation();let hiringGranted=false;
     pool.execute.mockImplementation(async(sql,args)=>{
-      if(sql.includes('FROM twilio_numbers'))return [[{...sender,registration_json:{...registration,purposes:['workforce']}}]];
+      if(sql.includes('FROM twilio_numbers'))return [[{...sender,registration_json:{...registration,provider:'vonage',purposes:['workforce']}}]];
       if(sql.includes('FROM hire_communication_preferences'))return [hiringGranted?[{id:1}]:[]];
       return original(sql,args);
     });
@@ -70,7 +71,7 @@ describe('campaign-wide SMS delivery gate', () => {
   });
 
   it('does not grandfather a self-activated staff preference into reviewed enrollment', async () => {
-    pool.execute.mockResolvedValueOnce([[{ ...sender, registration_json: { ...registration, purposes: ['workforce'] } }]]);
+    pool.execute.mockResolvedValueOnce([[{ ...sender, registration_json: { ...registration, provider: 'vonage', purposes: ['workforce'] } }]]);
     permissions.push({ scope: 'campaign:C123', phone: message.to, purpose: 'workforce', status: 'opted_in',
       evidence_json: { reference: 'staff_communications:old-signature' } });
     await expect(prepareSmsDelivery({ ...message, purpose: 'workforce' })).rejects.toMatchObject({ code: 'sms_consent_review_required' });
@@ -78,7 +79,7 @@ describe('campaign-wide SMS delivery gate', () => {
   it('honors separate staff categories even when workforce campaign consent exists', async () => {
     const original=pool.execute.getMockImplementation();
     pool.execute.mockImplementation(async(sql,args)=> {
-      if(sql.includes('FROM twilio_numbers')) return [[{...sender,registration_json:{...registration,purposes:['workforce','polling']}}]];
+      if(sql.includes('FROM twilio_numbers')) return [[{...sender,registration_json:{...registration,provider:'vonage',purposes:['workforce','polling']}}]];
       if(sql.includes('AS choices')) return [[{choices:{phoneHash:phoneFingerprint(message.to),choices:{notifications:false,messageAlerts:true,exchangeMatches:true,polling:false}}}]];
       return original(sql,args);
     });
@@ -189,7 +190,7 @@ it('a provider name does not bypass consent or STOP', async () => {
 
 it('allows one bounded staff request reply without changing recurring consent, but honors STOP and rejects forged/reused replies',async()=>{
  const original=pool.execute.getMockImplementation();const from='+17197163884';
- pool.execute.mockImplementation((sql,args)=>sql.includes('FROM twilio_numbers')?Promise.resolve([[{...sender,phone_number:from,registration_json:{...registration,purposes:['workforce','polling']}}]]):original(sql,args));
+ pool.execute.mockImplementation((sql,args)=>sql.includes('FROM twilio_numbers')?Promise.resolve([[{...sender,phone_number:from,registration_json:{...registration,provider:'vonage',purposes:['workforce','polling']}}]]):original(sql,args));
  const request={from,to:message.to,body:'ITSCO: Open your request securely.',purpose:'workforce'};
  await expect(prepareSmsDelivery({...request,staffAssistantReply:{...request,messageId:'fake'}})).rejects.toMatchObject({code:'sms_consent_required'});
  const capability=staffAssistantReplyCapability({...request,messageId:'inbound-1'});

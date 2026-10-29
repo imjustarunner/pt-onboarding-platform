@@ -1,0 +1,93 @@
+SMS CARRIER AND CAMPAIGN CORRECTION — OCTOBER 28, 2026
+New addendum. Keep earlier briefs as historical evidence. This corrects earlier
+instructions that described Vonage as the demo's client care carrier.
+
+AUTHORITATIVE PURPOSES
+- Notifyre: each organization's approved client care campaign handles family
+  reminders, appointment confirmations/cancellations, billing/portal notices,
+  support replies, and provider-to-client texting. Main/support and provider
+  lines remain separate roles within this clinical messaging setup.
+- Notifyre: the separate AuricWell Account Verification campaign handles
+  user-requested authentication/verification codes. Notifyre currently reports
+  this campaign ACTIVE with use case 2FA. Its actual campaign ID is
+  4b3001a1-4d22-24d5-e14c-eb3705eeea95. Do not call it "Campaign 2" or treat
+  its approval as approval for client care or workforce traffic.
+- Vonage: existing approved, nonclinical employee/provider staff notifications
+  and polling. Alerts direct staff to the app; do not include patient message
+  bodies, clinical documents or patient identifiers in these texts.
+- ITSCO, NLU and TISI/Inner Strength keep their own approved care campaign IDs.
+  ITSCOLLC is the isolated ITSCO demo; it can use the ITSCO mapping only when
+  explicitly configured for that demo. No cross-agency fallback is allowed.
+
+CURRENT STATUS
+The earlier texts from 719-716-3661 actually used Vonage. They demonstrated
+parts of the reminder/reply workflow but do not verify Notifyre clinical
+messaging. The live demo registration for that number now permits workforce
+only; care and reminder purposes have been removed. Its old consent records,
+message history and real ITSCO staff sender have been preserved.
+
+No new number was purchased, no number was moved between carriers, and no
+Notifyre client sending was activated by this correction. The Notifyre API
+inventory checked today had no SMS numbers. Approved campaigns alone do not
+mean clinical sends are ready. Hold live clinical-SMS acceptance testing until
+the owner confirms that Notifyre's sender, agency campaign, signed webhook and
+recipient permissions have been verified. Continue email and in-app tests.
+
+APPLICATION CHANGE
+Client traffic must select Notifyre, with the actual brand/campaign bound to
+the sending agency. Missing configuration, disallowed purpose, wrong agency,
+API failure or uncertain acceptance must never cause a Vonage fallback.
+Staff notifications still select the approved Vonage staff sender.
+
+Client replies received at the old Vonage number are retained in support's
+communication review queue; they must not automatically confirm/cancel a
+patient appointment or forward client text. Existing staff assistant and poll
+replies remain available. STOP/HELP controls remain on the applicable carrier.
+
+AuricWell settings now offer Notifyre or Off for client texting, and identify
+account verification separately. A legacy Vonage clinical-enable flag cannot
+reactivate patient texting. This addendum does not claim that the separate
+inbox ownership/presence/topic work has been released.
+
+EXTERNAL TESTER CHECKLIST — BROWSER ACCESS ONLY
+The QA team uses only the app and supplied demo accounts. Do not request
+repository, database, cloud, carrier credentials or other organizations' data.
+1. Keep clinical SMS marked BLOCKED until the owner gives the verified Notifyre
+   sender numbers. A blocked send must be visible as failed/not sent; an email
+   or in-app notification does not prove an SMS was delivered.
+2. After activation, send a synthetic appointment reminder and confirm Y/N/R
+   replies from the designated test phone. Capture the sending number, time,
+   appointment state, acknowledgment, and provider/support in-app evidence.
+3. Test a provider-client chat through the provider line. Test support replies
+   through the main line. Both clinical lines must be Notifyre numbers.
+4. Test employee/provider staff alerts through their approved Vonage number.
+   Patient text bodies or identifiers must not appear in those alerts.
+5. Test AuricWell's requested verification-code flow separately. Capture the
+   number and result without putting passwords or live codes into the brief.
+6. Keep agency 450 demo boundaries and existing synthetic population caps.
+   Do not test isolation by opening real patients or another agency's records.
+7. Report acceptance, delivery, phone receipt and inbound reply separately.
+   Do not mark live Notifyre delivery PASS based on mocked developer tests.
+
+OWNER/DEPLOYMENT NOTES
+The full platform uses NOTIFYRE_CLIENT_CAMPAIGNS_JSON, an agency-ID map to
+{brandId,campaignId}; there is no global-campaign authorization fallback.
+NOTIFYRE_API_TOKEN, NOTIFYRE_WEBHOOK_SECRET, NOTIFYRE_BAA_REFERENCE and explicit
+NOTIFYRE_ENABLED=true are also required for sends. Keep sending disabled until
+number ownership, campaign linking and webhook tests are complete. Keep
+secrets outside the repository. Standalone AuricWell retains its separately
+verified per-practice routes and dedicated verification campaign.
+
+Do not silently copy Vonage campaign consent/opt-outs into a new campaign.
+Review the existing signed choices and preserve suppressions during migration.
+The carrier correction does not enable any additional automatic workers.
+
+DEVELOPER VALIDATION
+- Focused carrier/routing suite: 169 passed across 12 files, with mocked carrier
+  requests and local signed-webhook tests; no real texts were sent.
+- AuricWell client/verification/integration policy suite: 18 passed.
+- AuricWell production build passed (existing bundle-size warnings).
+- Broader messaging suite: 902 passed, 23 skipped, one existing guardian
+  voicemail mock failure. The broader enrollment suite also has four existing
+  own-document mock failures. Both unrelated failures were reproduced in the
+  prior checkout; this is not a claim that every repository test passes.

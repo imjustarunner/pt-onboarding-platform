@@ -16,14 +16,14 @@ describe('Vonage transport', () => {
     expect(verifyCarrierSmsDelivery).not.toHaveBeenCalled();
   });
   it('does not send or switch numbers when the carrier rejects readiness', async () => {
-    prepareSmsDelivery.mockResolvedValue({ from: '+13035550100' });
+    prepareSmsDelivery.mockResolvedValue({ purpose: 'workforce', from: '+13035550100' });
     verifyCarrierSmsDelivery.mockRejectedValue(new Error('Campaign suspended'));
     const getClient = vi.spyOn(VonageService, 'getClient');
     await expect(VonageService.sendSms({})).rejects.toThrow('Campaign suspended');
     expect(getClient).not.toHaveBeenCalled();
   });
   it('sends the normalized, branded result of the gate', async () => {
-    prepareSmsDelivery.mockResolvedValue({ to: '+13035550101', from: '+13035550100', body: 'ITSCO: Hello. Reply STOP to opt out.' });
+    prepareSmsDelivery.mockResolvedValue({ purpose: 'workforce', to: '+13035550101', from: '+13035550100', body: 'ITSCO: Hello. Reply STOP to opt out.' });
     const send = vi.fn().mockResolvedValue({ messages: [{ status: '0', 'message-id': 'id1' }] });
     vi.spyOn(VonageService, 'getClient').mockReturnValue({ sms: { send } });
     await expect(VonageService.sendSms({ body: 'Hello' })).resolves.toMatchObject({ sid: 'id1' });

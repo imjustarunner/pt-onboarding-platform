@@ -4,7 +4,7 @@ vi.mock('../smsCompliance.service.js', () => ({ getSmsSender: vi.fn(), recordSms
 import { getSmsSender, recordSmsPermission, isSmsSuppressed } from '../smsCompliance.service.js';
 import pool from '../../config/database.js';
 import { enrollSmsRecipient, enrollSmsRecipientBatch, saveSmsRegistration } from '../smsEnrollment.service.js';
-const registration = { brandId: 'B123', campaignId: 'C123', resellerId: 'R123', brandName: 'ITSCO', legalName: 'ITSCO, LLC',
+const registration = { provider: 'notifyre', brandId: 'B123', campaignId: 'C123', resellerId: 'R123', brandName: 'ITSCO', legalName: 'ITSCO, LLC',
   supportContact: 'support@itsco.health', website: 'https://www.itsco.health', privacyUrl: 'https://www.itsco.health/privacy',
   termsUrl: 'https://www.itsco.health/terms', evidenceUrl: 'https://www.itsco.health/proof',
   purposes: ['reminders'], keywordOwner: 'application', approved: true, numberLinked: true };
@@ -12,19 +12,19 @@ const enrollment = { from: '+13035550100', phone: '+13035550101', purpose: 'remi
   evidence: { source: 'web_form', reference: 'request:4', signatureReference: 'request:4', signerVerified: true,
     disclosure: 'Exact disclosed choices', collectedAt: '2026-01-01T00:00:00Z' } };
 beforeEach(() => {
-  vi.resetAllMocks(); getSmsSender.mockResolvedValue({ agency_id: 2, registration, scope: 'campaign:C123', phone_number: enrollment.from });
+  vi.resetAllMocks(); vi.stubEnv('NOTIFYRE_CLIENT_CAMPAIGNS_JSON', JSON.stringify({'2':{brandId:'B123',campaignId:'C123'}})); getSmsSender.mockResolvedValue({ agency_id: 2, registration, scope: 'campaign:C123', phone_number: enrollment.from });
   isSmsSuppressed.mockResolvedValue(false);
 });
 describe('signed enrollment', () => {
   it('accepts separately reviewed staff consent when account preferences have never been saved', async () => {
-    getSmsSender.mockResolvedValue({ agency_id: 450, registration: { ...registration, purposes: ['workforce'] }, scope: 'campaign:C123', phone_number: enrollment.from });
+    getSmsSender.mockResolvedValue({ agency_id: 450, registration: { ...registration, provider: 'vonage', purposes: ['workforce'] }, scope: 'campaign:C123', phone_number: enrollment.from });
     pool.execute.mockResolvedValue([[{ staff_choices: null }, { staff_choices: 'null' }]]);
     const sendConfirmation = vi.fn();
     await enrollSmsRecipient({ ...enrollment, purpose: 'workforce', sendConfirmation });
     expect(sendConfirmation).toHaveBeenCalledWith(expect.objectContaining({ agencyId: 450, staffNotificationKind: 'notifications' }));
   });
   it('preserves explicit staff opt-outs even when another shared-phone account has no preferences', async () => {
-    getSmsSender.mockResolvedValue({ agency_id: 450, registration: { ...registration, purposes: ['workforce'] }, scope: 'campaign:C123', phone_number: enrollment.from });
+    getSmsSender.mockResolvedValue({ agency_id: 450, registration: { ...registration, provider: 'vonage', purposes: ['workforce'] }, scope: 'campaign:C123', phone_number: enrollment.from });
     pool.execute.mockResolvedValue([[{ staff_choices: null }, { staff_choices: { notifications: false, messageAlerts: false } }]]);
     const sendConfirmation = vi.fn();
     await expect(enrollSmsRecipient({ ...enrollment, purpose: 'workforce', sendConfirmation })).rejects.toMatchObject({ code: 'sms_staff_choice_off' });
@@ -32,7 +32,7 @@ describe('signed enrollment', () => {
     expect(sendConfirmation).not.toHaveBeenCalled();
   });
   it('confirms administrator-reviewed message alerts without enabling general notifications', async () => {
-    getSmsSender.mockResolvedValue({ agency_id: 2, registration: { ...registration, purposes: ['workforce'] }, scope: 'campaign:C123', phone_number: enrollment.from });
+    getSmsSender.mockResolvedValue({ agency_id: 2, registration: { ...registration, provider: 'vonage', purposes: ['workforce'] }, scope: 'campaign:C123', phone_number: enrollment.from });
     pool.execute.mockResolvedValue([[{ staff_choices: {notifications:false,messageAlerts:true} }]]);
     const sendConfirmation = vi.fn();
     await enrollSmsRecipient({ ...enrollment, purpose: 'workforce', sendConfirmation });
@@ -81,7 +81,7 @@ it('does not promise START when the registered program does not support restarti
 });
 
 it('permits only the owner-approved ITSCO test sender to share the ITSCO brand',async()=>{
- const approved={...registration,brandId:'BRC2ZW3',campaignId:'VCV2DNM4'};
+ const approved={...registration,provider:'vonage',purposes:['workforce'],brandId:'BRC2ZW3',campaignId:'VCV2DNM4'};
  pool.execute.mockResolvedValueOnce([[{id:2,agency_id:450}]])
   .mockResolvedValueOnce([[{number_id:3,agency_id:2,brand_id:'BRC2ZW3'}]])
   .mockResolvedValueOnce([[{id:450,slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,smsSponsorAgencyId:2}}}]])
@@ -93,6 +93,6 @@ it.each([['different workspace',451,'BRC2ZW3'],['different brand',450,'OTHER']])
  pool.execute.mockResolvedValueOnce([[{id:2,agency_id:agencyId}]])
   .mockResolvedValueOnce([[{agency_id:2,brand_id:brandId}]])
   .mockResolvedValueOnce([[{id:agencyId,slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,smsSponsorAgencyId:2}}}]]);
- await expect(saveSmsRegistration({numberId:2,registration:{...registration,brandId,campaignId:'VCV2DNM4'},actorUserId:1435}))
+ await expect(saveSmsRegistration({numberId:2,registration:{...registration,provider:'vonage',purposes:['workforce'],brandId,campaignId:'VCV2DNM4'},actorUserId:1435}))
   .rejects.toMatchObject({code:'sms_cross_tenant_campaign'});
 });

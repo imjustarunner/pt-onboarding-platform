@@ -1,21 +1,17 @@
 import crypto from 'node:crypto';
 import { smsPolicyError, validateSmsRegistration } from '../utils/smsCompliancePolicy.js';
+import { assertSmsCarrierPurpose, assertNotifyreAgencyCampaign } from '../utils/smsCarrierPolicy.js';
 
-export const CLIENT_SMS_PURPOSES = ['care', 'reminders', 'billing', 'account_security'];
+export { CLIENT_SMS_PURPOSES } from '../utils/smsCarrierPolicy.js';
 export function smsTransport(delivery, env = process.env) {
   const registration = delivery.registration || {};
-  if (registration.provider !== 'notifyre') {
-    if (env.NOTIFYRE_CLIENT_CAMPAIGN_ID && registration.campaignId === env.NOTIFYRE_CLIENT_CAMPAIGN_ID) {
-      throw smsPolicyError('notifyre_registration_incomplete', 'Client campaign transport must be configured before sending.');
-    }
-    return 'vonage';
-  }
-  if (validateSmsRegistration(registration).length || registration.campaignId !== env.NOTIFYRE_CLIENT_CAMPAIGN_ID ||
-      registration.purposes.some(p => !CLIENT_SMS_PURPOSES.includes(p)) ||
-      (!delivery.controlReply && !CLIENT_SMS_PURPOSES.includes(delivery.purpose))) {
+  const carrier = assertSmsCarrierPurpose(delivery);
+  if (carrier === 'vonage') return carrier;
+  assertNotifyreAgencyCampaign(registration, delivery.agencyId, env);
+  if (validateSmsRegistration(registration).length) {
     throw smsPolicyError('notifyre_client_scope_required', 'Notifyre is limited to the approved client notification campaign.');
   }
-  if (env.NOTIFYRE_ENABLED !== 'true' || !env.NOTIFYRE_API_TOKEN || !env.NOTIFYRE_WEBHOOK_SECRET) {
+  if (env.NOTIFYRE_ENABLED !== 'true' || !env.NOTIFYRE_API_TOKEN || !env.NOTIFYRE_WEBHOOK_SECRET || !env.NOTIFYRE_BAA_REFERENCE) {
     throw smsPolicyError('notifyre_not_ready', 'Notifyre client messaging is awaiting activation.');
   }
   return 'notifyre';

@@ -26,27 +26,21 @@
       <fieldset>
         <legend>Patient texting · agency campaigns</legend>
         <label>Send client texts through<select v-model="form.smsProvider">
-          <option value="disabled">Off — email only</option><option value="notifyre">Notifyre</option><option value="vonage">Vonage Campaign 1</option>
+          <option value="disabled">Off — email only</option><option value="notifyre">Notifyre</option>
         </select></label>
-        <p>Campaign 2 workforce messages use their existing setup. This switch changes AuricWell client texts. Failed sends do not automatically switch carriers.</p>
+        <p>The approved Notifyre client care campaign handles client reminders and provider–client conversations. Employee and provider staff notifications continue through Vonage. Client texts cannot fall back to Vonage.</p>
         <h3>Notifyre connection</h3>
         <label>Executed Notifyre BAA reference<input v-model="form.notifyre.baaReference" placeholder="Agreement date or internal document reference" /></label>
         <p v-if="form.notifyre.apiTokenManaged" class="muted">API token is configured in Google Secret Manager.</p>
         <label v-else>Notifyre API token<input v-model="form.notifyre.apiToken" type="password" autocomplete="new-password" :placeholder="form.notifyre.hasApiToken ? 'Saved securely — leave blank to keep' : 'From Notifyre Settings → Developer'" /></label>
         <label v-if="!form.notifyre.apiTokenManaged" class="check-row"><input v-model="form.notifyre.removeToken" type="checkbox" /><span>Remove the saved Notifyre token</span></label>
         <ClientMessagingSetup :settings="form" :practices="state.practices" :busy="busy" @verify="verify" @verify-fax="verifyFax" />
-        <h3>Vonage Campaign 1 connection</h3>
-        <div class="integration-grid">
-          <label>Registered patient SMS number<input v-model="form.vonage.from" type="tel" placeholder="+17195550123" /></label>
-          <label>Campaign 1 registration ID<input v-model="form.vonage.campaignId" autocomplete="off" /></label>
-        </div>
-        <p class="muted">Uses the existing Vonage server credentials, carrier registration, consent and opt-out checks. Patient SMS readiness must be enabled before switching. A different sender or campaign requires the recipient's preferences to be reviewed again.</p>
       </fieldset>
       <fieldset>
-        <legend>AuricWell account verification · platform campaign</legend>
+        <legend>AuricWell account verification · Notifyre</legend>
         <p>Only user-requested account, sign-in and recovery codes. This uses a dedicated AuricWell number and campaign, separate from every agency’s client texts.</p>
         <label>Verification number<input v-model="form.verificationSms.from" type="tel" placeholder="+17195550123" /></label>
-        <label>AuricWell 2FA campaign ID<input v-model="form.verificationSms.campaignId" /></label>
+        <label>Approved Notifyre verification campaign ID<input v-model="form.verificationSms.campaignId" /></label>
         <label>Campaign status<select v-model="form.verificationSms.approval"><option value="draft">Draft</option><option value="submitted">Submitted</option><option value="rejected">Rejected</option><option value="approved">Approved</option></select></label>
         <label>Carrier approval reference<input v-model="form.verificationSms.approvalReference" /></label>
         <label class="check-row"><input v-model="form.verificationSms.carrierKeywordsConfirmed" type="checkbox" /><span>Notifyre’s standard START, STOP and HELP replies are configured for AuricWell verification texts.</span></label>
@@ -67,10 +61,10 @@ import { api } from './api';
 import ClientMessagingSetup from './ClientMessagingSetup.vue';
 const emit = defineEmits(['changed']);
 const state = ref({}), form = ref(null), busy = ref(false), error = ref(''), notice = ref('');
-function accept(value) { state.value = value; form.value = structuredClone(value.settings); form.value.notifyre.apiToken = ''; form.value.notifyre.webhookSecret = ''; form.value.clientMessaging ||= {routes:[]}; form.value.verificationSms ||= {enabled:false,from:'',campaignId:'',approval:'draft',approvalReference:'',verifiedAt:null,carrierKeywordsConfirmed:false}; }
+function accept(value) { state.value = value; form.value = structuredClone(value.settings); if (form.value.smsProvider === 'vonage') form.value.smsProvider = 'disabled'; form.value.notifyre.apiToken = ''; form.value.notifyre.webhookSecret = ''; form.value.clientMessaging ||= {routes:[]}; form.value.verificationSms ||= {enabled:false,from:'',campaignId:'',approval:'draft',approvalReference:'',verifiedAt:null,carrierKeywordsConfirmed:false}; }
 async function run(fn) { busy.value = true; error.value = ''; notice.value = ''; try { await fn(); } catch(e) { error.value = e.message; } finally { busy.value = false; } }
 const save = () => run(async () => { accept(await api('/platform/integrations', { method: 'PUT', body: { revision: state.value.revision, settings: form.value } })); notice.value = 'Platform settings saved for all AuricWell practices.'; emit('changed'); });
-const verify = (practiceId) => run(async () => { accept(await api(`/platform/integrations/${form.value.smsProvider==='vonage'?'vonage':'notifyre'}/verify`, { method: 'POST', body: {practiceId} })); notice.value = 'Agency numbers verified. Signed webhooks and campaign approval must also be ready before texting.'; });
+const verify = (practiceId) => run(async () => { accept(await api('/platform/integrations/notifyre/verify', { method: 'POST', body: {practiceId} })); notice.value = 'Agency numbers verified. Signed webhooks and campaign approval must also be ready before texting.'; });
 const verifyAccountNumber=()=>run(async()=>{accept(await api('/platform/integrations/notifyre/verification/verify',{method:'POST',body:{}}));notice.value='AuricWell verification number checked. Complete signed webhook verification before enabling sends.';});
 const verifyFax = (practiceId) => run(async () => { accept(await api('/platform/integrations/notifyre/fax/verify', {method:'POST',body:{practiceId}})); notice.value='Primary fax number verified. Enable fax sending, save, and test incoming and outgoing faxes before clinical use.'; });
 onMounted(() => run(async () => accept(await api('/platform/integrations'))));

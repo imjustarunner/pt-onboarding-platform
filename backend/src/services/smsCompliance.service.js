@@ -4,6 +4,7 @@ import pool from '../config/database.js';
 import { allowQaSmsDelivery } from '../utils/auricwellQaPolicy.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import { parseSmsKeyword, SMS_PURPOSES, smsPolicyError, validateSmsRegistration, formatRegisteredSms } from '../utils/smsCompliancePolicy.js';
+import { CLIENT_SMS_PURPOSES, assertSmsCarrierPurpose, notifyreCampaignForAgency } from '../utils/smsCarrierPolicy.js';
 
 const json = (value) => typeof value === 'string' ? JSON.parse(value) : value;
 // One-use capabilities bind an automated control reply to its exact recipient/body.
@@ -113,7 +114,7 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
   if (complianceReply && controlReplies.has(complianceReply)
       && complianceReply.to === recipient && complianceReply.from === sender.phone_number && complianceReply.body === body) {
     controlReplies.delete(complianceReply);
-    return { to: recipient, from: sender.phone_number, body, registration: sender.registration, controlReply: true };
+    return { to: recipient, from: sender.phone_number, agencyId: sender.agency_id, body, registration: sender.registration, controlReply: true };
   }
   if (!allowQaSmsDelivery({id:sender.agency_id,slug:sender.agency_slug,feature_flags:sender.agency_feature_flags},{to:recipient,purpose,clientId})) {
     throw smsPolicyError('sms_qa_recipient_blocked','QA texts are limited to the owner-approved testing phone.');
@@ -123,6 +124,7 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
   if (!SMS_PURPOSES.includes(purpose) || !registration.purposes.includes(purpose)) {
     throw smsPolicyError('sms_campaign_purpose_mismatch', 'This sending number is not registered for the requested SMS purpose');
   }
+  assertSmsCarrierPurpose({ registration, purpose });
   if (await isSmsSuppressed(sender, recipient)) throw smsPolicyError('sms_opted_out', 'Recipient has opted out of this SMS campaign');
   if(notificationCategory) {
     const {familyNotificationDeliveryGate}=await import('./familyNotificationChoices.service.js');
@@ -145,12 +147,12 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
       AND JSON_EXTRACT(r.activation_json,'$.workforce.activated')=TRUE
       AND JSON_UNQUOTE(JSON_EXTRACT(r.activation_json,'$.workforce.choice'))='yes' LIMIT 1`,[Number(hiringUserId),sender.agency_id,recipient,sender.campaign_id]);
     if(!grants.length)throw smsPolicyError('sms_hiring_consent_required','Reviewed hiring notification consent is required.');
-    return {to:recipient,from:sender.phone_number,body:formatRegisteredSms(body,registration.brandName),registration,purpose};
+    return {to:recipient,from:sender.phone_number,agencyId:sender.agency_id,body:formatRegisteredSms(body,registration.brandName),registration,purpose};
   }
   if(purpose==='workforce' && sender.phone_number===ITSCO_STAFF_ASSISTANT_NUMBER && staffAssistantReply && staffAssistantReplies.has(staffAssistantReply)
       && staffAssistantReply.from===sender.phone_number && staffAssistantReply.to===recipient && staffAssistantReply.body===body) {
     staffAssistantReplies.delete(staffAssistantReply);
-    return {to:recipient,from:sender.phone_number,body:formatRegisteredSms(body,registration.brandName),registration,purpose};
+    return {to:recipient,from:sender.phone_number,agencyId:sender.agency_id,body:formatRegisteredSms(body,registration.brandName),registration,purpose};
   }
   const staffStates = [];
   if (['workforce','polling'].includes(purpose)) {
@@ -181,13 +183,17 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
   if (['workforce', 'polling'].includes(purpose) && String(evidence?.reference || '').startsWith('staff_communications:')) {
     throw smsPolicyError('sms_consent_review_required', 'Staff preferences require administrator-reviewed SMS enrollment before delivery');
   }
-  return { to: recipient, from: sender.phone_number, body: formatRegisteredSms(body, registration.brandName, purpose === 'care' ? senderFirstName : null), registration, purpose };
+  return { to: recipient, from: sender.phone_number, agencyId: sender.agency_id, body: formatRegisteredSms(body, registration.brandName, purpose === 'care' ? senderFirstName : null), registration, purpose };
 }
 
 export async function resolveRegisteredSmsSender({ agencyId, purpose, numberId = null, requiredPurpose = null }) {
   if (!Number(agencyId) || !SMS_PURPOSES.includes(purpose)) return null;
   if (numberId != null && (!Number.isSafeInteger(Number(numberId)) || Number(numberId) <= 0)) return null;
   if (requiredPurpose != null && !SMS_PURPOSES.includes(requiredPurpose)) return null;
+  const clientTraffic = CLIENT_SMS_PURPOSES.includes(purpose);
+  if (requiredPurpose && CLIENT_SMS_PURPOSES.includes(requiredPurpose) !== clientTraffic) return null;
+  const campaign = clientTraffic ? notifyreCampaignForAgency(agencyId) : null;
+  if (clientTraffic && !campaign) return null;
   const [rows] = await pool.execute(
     `SELECT n.phone_number FROM twilio_numbers n JOIN sms_sender_registrations r ON r.number_id = n.id
      WHERE n.agency_id = ? AND n.is_active = TRUE AND n.status <> 'released'
@@ -196,7 +202,12 @@ export async function resolveRegisteredSmsSender({ agencyId, purpose, numberId =
        AND JSON_EXTRACT(r.registration_json, '$.numberLinked') = TRUE
        AND (? IS NULL OR n.id = ?)
        AND (? IS NULL OR JSON_CONTAINS(JSON_EXTRACT(r.registration_json, '$.purposes'), JSON_QUOTE(?)))
-     ORDER BY n.id LIMIT 1`, [Number(agencyId), purpose, numberId, numberId, requiredPurpose, requiredPurpose]
+       AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(r.registration_json, '$.provider')), 'vonage') = ?
+       AND (? IS NULL OR r.campaign_id = ?)
+       AND (? IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(r.registration_json, '$.brandId')) = ?)
+     ORDER BY n.id LIMIT 1`, [Number(agencyId), purpose, numberId, numberId, requiredPurpose, requiredPurpose,
+       clientTraffic ? 'notifyre' : 'vonage', campaign?.campaignId || null, campaign?.campaignId || null,
+       campaign?.brandId || null, campaign?.brandId || null]
   );
   return rows[0]?.phone_number || null;
 }

@@ -38,3 +38,15 @@ test('saving routes cannot forge verification, reuse another agency number or ex
  assert.throws(()=>cleanPlatformSettings({...current,clientMessaging:{routes:[{...route,enabled:true}]}},current),{status:409});
  assert.throws(()=>cleanPlatformSettings({...current,clientMessaging:{routes:[route,{...route,practiceId:'22222222-2222-4222-8222-222222222222'}]}},current),{status:400});
 });
+test('a legacy Vonage clinical environment flag cannot authorize either patient line',()=>{
+ const previous=process.env.VONAGE_CLINICAL_APPROVED;
+ process.env.VONAGE_CLINICAL_APPROVED='true';
+ try {
+  const settings={...integrationDefaults(),smsProvider:'vonage',clientMessaging:{routes:[{practiceId:'p',brand:'Test',enabled:true,approval:'approved',campaignId:'old',mainNumber:'+17195550123',providerNumber:'+17195550124',verifiedAt:'today',verifiedProvider:'vonage'}]}};
+  for(const line of ['main','provider'])assert.throws(()=>assertMessagingReady(settings,'p',line),/Notifyre/);
+ }finally{if(previous===undefined)delete process.env.VONAGE_CLINICAL_APPROVED;else process.env.VONAGE_CLINICAL_APPROVED=previous;}
+});
+test('platform settings cannot reactivate Vonage for client texts',()=>{
+ const current=integrationDefaults();
+ assert.throws(()=>cleanPlatformSettings({...current,smsProvider:'vonage',vonage:{from:'+17195550123',campaignId:'old'}},current),/Notifyre/);
+});

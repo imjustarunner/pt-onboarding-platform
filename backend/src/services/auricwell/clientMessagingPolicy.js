@@ -29,7 +29,7 @@ export function assertMessagingReady(settings, practiceId, line = 'main') {
     if (!settings.notifyre.apiToken || !settings.notifyre.baaReference || !settings.notifyre.webhookSecret || !settings.notifyre.webhookVerifiedAt)
       throw fail(409, 'Connect Notifyre, record the BAA, and verify signed webhooks before sending.');
   } else if (settings.smsProvider === 'vonage') {
-    if (process.env.VONAGE_CLINICAL_APPROVED !== 'true') throw fail(409, 'Vonage patient messaging is not enabled.');
+    throw fail(409, 'Client care texts require the agency’s approved Notifyre campaign. Vonage is reserved for staff notifications.');
   } else throw fail(409, 'Patient texting is turned off.');
   return route;
 }

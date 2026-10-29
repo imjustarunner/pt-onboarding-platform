@@ -17,7 +17,7 @@ export async function integrationStatus(ctx) {
   return { ...value, settings: publicPlatformSettings(value.settings),
     practices, webhookPath: '/api/auricwell-sms/webhook',
     googleCredentialsConfigured: !!(process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64 || process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON),
-    vonageClinicalApproved: process.env.VONAGE_CLINICAL_APPROVED === 'true',
+    vonageClinicalApproved: false,
     vonageVideoApproved: process.env.VONAGE_CLINICAL_VIDEO_APPROVED === 'true' };
 }
 async function write(ctx, settings, revision, db, action) {
@@ -43,40 +43,14 @@ export async function savePlatformIntegrations(ctx, input) {
     }
     if ((settings.videoProvider === 'vonage' || settings.alwaysAvailableOffice) && process.env.VONAGE_CLINICAL_VIDEO_APPROVED !== 'true')
       throw fail(409, 'Enable Vonage clinical video readiness on the server before turning on native sessions or permanent offices.');
-    if (settings.smsProvider === 'vonage') {
-      if (process.env.VONAGE_CLINICAL_APPROVED !== 'true') throw fail(409, 'Enable Vonage clinical SMS readiness in the server configuration before switching.');
-      const { getSmsSender } = await import('../smsCompliance.service.js');
-      if (!settings.clientMessaging.routes.length) {
-        const sender = await getSmsSender(settings.vonage.from);
-        if (String(sender.campaign_id) !== settings.vonage.campaignId || !sender.registration?.purposes?.includes('reminders') || sender.registration?.purposes?.includes('workforce'))
-          throw fail(409, 'Choose the registered patient Campaign 1 sender, not the workforce Campaign 2 number.');
-      }
-    }
     await write(ctx, settings, current.revision, db, 'platform.integrations_saved');
   });
   return integrationStatus(ctx);
 }
-export async function verifyVonageAgency(ctx, practiceId) {
+// Keep the old endpoint explicit for saved clients; it can no longer activate care traffic.
+export async function verifyVonageAgency(ctx) {
   requirePlatformSuperadmin(ctx);
-  if (process.env.VONAGE_CLINICAL_APPROVED !== 'true') throw fail(409, 'Vonage clinical approval must be enabled on the server first.');
-  const current = await platformIntegrations();
-  const route = current.settings.clientMessaging.routes.find(r => r.practiceId === practiceId);
-  if (!route || route.approval !== 'approved' || !route.approvalReference || !route.mainNumber) throw fail(409, 'Save the agency’s approved Vonage campaign with sending disabled first.');
-  const [[practice]] = await pool.execute('SELECT agency_id FROM auricwell_practices WHERE id=?', [practiceId]);
-  const { getSmsSender } = await import('../smsCompliance.service.js');
-  for (const number of [route.mainNumber, route.providerNumber].filter(Boolean)) {
-    const sender = await getSmsSender(number);
-    if (!practice?.agency_id || Number(sender.agency_id) !== Number(practice.agency_id) || String(sender.campaign_id) !== route.campaignId
-      || sender.registration?.purposes?.includes('workforce') || !['care','reminders','billing'].every(p=>sender.registration?.purposes?.includes(p)))
-      throw fail(409, 'Both numbers must belong to this agency’s registered clinical campaign with care, reminder and billing purposes.');
-  }
-  await transaction(async db => {
-    const latest = await platformIntegrations(db, true);
-    if (latest.revision !== current.revision) throw fail(409, 'Settings changed. Try verification again.');
-    route.verifiedAt = new Date().toISOString(); route.verifiedProvider = 'vonage';
-    await write(ctx, { ...latest.settings, clientMessaging: current.settings.clientMessaging }, latest.revision, db, 'platform.vonage_agency_verified');
-  });
-  return integrationStatus(ctx);
+  throw fail(409, 'Client care texts require Notifyre. Vonage is reserved for staff notifications.');
 }
 export async function verifyNotifyre(ctx, practiceId = null) {
   requirePlatformSuperadmin(ctx);

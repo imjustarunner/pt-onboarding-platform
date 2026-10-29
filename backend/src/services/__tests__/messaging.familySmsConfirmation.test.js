@@ -9,7 +9,7 @@ import {getSmsSender,isSmsSuppressed,recordSmsPermission} from '../smsCompliance
 import {buildSmsConsentDisclosure} from '../../utils/smsConsentDisclosure.js';
 import {reviewSmsConsentRequest} from '../smsConsentRequest.service.js';
 
-const registration={brandId:'B1',campaignId:'C2',resellerId:'R1',brandName:'ITSCO',legalName:'ITSCO, LLC',supportContact:'support@example.test',
+const registration={provider:'notifyre',brandId:'B1',campaignId:'C2',resellerId:'R1',brandName:'ITSCO',legalName:'ITSCO, LLC',supportContact:'support@example.test',
  website:'https://example.test',termsUrl:'https://example.test/terms',privacyUrl:'https://example.test/privacy',evidenceUrl:'https://example.test/proof',
  purposes:['care','reminders','billing'],keywordOwner:'application',approved:true,numberLinked:true};
 let signed,activation,send,row;

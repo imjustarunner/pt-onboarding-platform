@@ -3,9 +3,9 @@ import crypto from 'node:crypto';
 import { missingInsuranceCards } from '../insuranceCardRequirements.js';
 import { safeEnrollmentPortalUrl } from '../enrollmentPortalAccess.js';
 import { verifyNotifyreSignature, normalizeNotifyreEvent, smsTransport, sendNotifyreSms } from '../../services/notifyre.service.js';
-const env = { NOTIFYRE_ENABLED:'true',NOTIFYRE_API_TOKEN:'secret',NOTIFYRE_WEBHOOK_SECRET:'hook-secret',NOTIFYRE_CLIENT_CAMPAIGN_ID:'campaign1' };
+const env = { NOTIFYRE_ENABLED:'true',NOTIFYRE_API_TOKEN:'secret',NOTIFYRE_WEBHOOK_SECRET:'hook-secret',NOTIFYRE_BAA_REFERENCE:'signed-test',NOTIFYRE_CLIENT_CAMPAIGNS_JSON:JSON.stringify({'2':{brandId:'brand',campaignId:'campaign1'}}) };
 const registration = { provider:'notifyre',brandId:'brand',campaignId:'campaign1',resellerId:'notifyre',brandName:'Agency',legalName:'Agency LLC',supportContact:'support@example.test',website:'https://example.test',privacyUrl:'https://example.test/privacy',termsUrl:'https://example.test/terms',evidenceUrl:'https://example.test/consent',purposes:['care','reminders','billing','account_security'],keywordOwner:'notifyre',approved:true,numberLinked:true };
-const delivery = { registration,purpose:'reminders',to:'+17195550123',from:'+17195550124',body:'Agency: Please check your portal.' };
+const delivery = { agencyId:2,registration,purpose:'reminders',to:'+17195550123',from:'+17195550124',body:'Agency: Please check your portal.' };
 describe('insurance card requirements',()=>{
  it('exempts no insurance and Medicaid-only',()=>{expect(missingInsuranceCards(null)).toEqual([]);expect(missingInsuranceCards({primary:{insurerName:'Health First Colorado'}})).toEqual([]);});
  it('never blocks enrollment for missing commercial or Medicaid cards',()=>{expect(missingInsuranceCards({primary:{insurerName:'Commercial'}})).toEqual([]);expect(missingInsuranceCards({primary:{isMedicaid:true},secondary:{insurerName:'Commercial'}})).toEqual([]);});
@@ -13,7 +13,7 @@ describe('insurance card requirements',()=>{
 });
 describe('Notifyre client campaign routing',()=>{
  it('leaves workforce on Vonage and selects only the configured client campaign',()=>{expect(smsTransport({registration:{campaignId:'staff'},purpose:'workforce'},env)).toBe('vonage');expect(smsTransport(delivery,env)).toBe('notifyre');});
- it('blocks inactive transport, wrong campaigns, marketing and workforce',()=>{expect(()=>smsTransport(delivery,{...env,NOTIFYRE_ENABLED:'false'})).toThrow();expect(()=>smsTransport(delivery,{...env,NOTIFYRE_CLIENT_CAMPAIGN_ID:'other'})).toThrow();for(const purpose of ['workforce','marketing','polling'])expect(()=>smsTransport({...delivery,purpose},env)).toThrow();});
+ it('blocks inactive transport, wrong campaigns, marketing and workforce',()=>{expect(()=>smsTransport(delivery,{...env,NOTIFYRE_ENABLED:'false'})).toThrow();expect(()=>smsTransport(delivery,{...env,NOTIFYRE_CLIENT_CAMPAIGNS_JSON:JSON.stringify({'2':{brandId:'brand',campaignId:'other'}})})).toThrow();for(const purpose of ['workforce','marketing','polling'])expect(()=>smsTransport({...delivery,purpose},env)).toThrow();});
  it('posts documented SMS format and reports acceptance as queued',async()=>{let request;const result=await sendNotifyreSms(delivery,{env,fetchImpl:async(url,options)=>{request={url,...options};return {ok:true,json:async()=>({success:true,payload:{smsMessageID:'123',invalidToNumbers:[]}})};}});expect(result).toMatchObject({sid:'notifyre:123',status:'queued'});expect(JSON.parse(request.body)).toMatchObject({From:delivery.from,Recipients:[{type:'mobile_number',value:delivery.to}]});});
  it('never falls back or retries after timeout or rejection',async()=>{let calls=0;await expect(sendNotifyreSms(delivery,{env,fetchImpl:async()=>{calls++;throw new Error('timeout');}})).rejects.toThrow('Check message activity');expect(calls).toBe(1);await expect(sendNotifyreSms(delivery,{env,fetchImpl:async()=>({ok:true,json:async()=>({success:false})})})).rejects.toThrow('did not accept');});
 });

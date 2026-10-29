@@ -33,7 +33,8 @@ import NotificationGatekeeperService from '../services/notificationGatekeeper.se
 import VonageService from '../services/vonage.service.js';
 import PhoneNumberRule from '../models/PhoneNumberRule.model.js';
 import SmsOptInState from '../models/SmsOptInState.model.js';
-import { processSmsKeyword, recordInboundConversation } from '../services/smsCompliance.service.js';
+import { getSmsSender, resolveRegisteredSmsSender, prepareSmsDelivery, processSmsKeyword, recordInboundConversation } from '../services/smsCompliance.service.js';
+import { sendNotifyreSms } from '../services/notifyre.service.js';
 import { parseSmsKeyword as parseInboundKeyword } from '../utils/smsCompliancePolicy.js';
 import SmsThreadEscalation from '../models/SmsThreadEscalation.model.js';
 import Agency from '../models/Agency.model.js';
@@ -133,15 +134,10 @@ export const inboundSmsWebhook = async (req, res, next) => {
     const fromNorm = from.startsWith('+') ? from : `+${from}`;
     const toNorm = to.startsWith('+') ? to : `+${to}`;
 
-    if (req.smsProvider !== 'notifyre') {
-    const { acceptVonageClientInbound } = await import('../services/auricwell/clientMessaging.js');
-    if (await acceptVonageClientInbound({ from: fromNorm, to: toNorm, body, messageId, timestamp: body_payload.timestamp })) {
-      // Retain Vonage's transport-level suppression and standard control replies.
-      const handled = await processSmsKeyword({ from: fromNorm, to: toNorm, body, messageId, sendReply: options => VonageService.sendSms(options) });
-      if (!handled) await recordInboundConversation({ from: fromNorm, to: toNorm, messageId });
-      return res.status(200).json({ ok: true });
-    }
-
+    const incomingCarrier = req.smsProvider === 'notifyre' ? 'notifyre' : 'vonage';
+    const sender = await getSmsSender(toNorm);
+    if ((sender.registration?.provider || 'vonage') !== incomingCarrier) {
+      return res.status(403).json({ error: 'The webhook carrier does not match this sending number' });
     }
 
     // Extract MMS media URLs (Vonage Messages API sends media array).
@@ -174,40 +170,50 @@ export const inboundSmsWebhook = async (req, res, next) => {
     };
     if (['blocked_sender','suspected_advertising'].includes(reception.reason)) return await holdForReview();
     // SUPPORT is scoped to a sent offer; appointment and poll Y/N replies remain independent.
-    if (!reception.reason && reception.number?.agency_id && reception.profile?.clientId && await handleOutOfOfficeSupportReply({
+    if (incomingCarrier === 'notifyre' && !reception.reason && reception.number?.agency_id && reception.profile?.clientId && await handleOutOfOfficeSupportReply({
       agencyId: reception.number.agency_id, numberId: reception.number.id, clientId: reception.profile.clientId,
       from: fromNorm, to: toNorm, body, messageId
     })) return res.status(200).json({ ok: true, supportChoice: true });
 
 
 
-    if (await handleStaffSmsAssistant({from:fromNorm,to:toNorm,body,messageId})) return res.status(200).json({ok:true,staffAssistant:true});
+    if (incomingCarrier === 'vonage') {
+      if (await handleStaffSmsAssistant({from:fromNorm,to:toNorm,body,messageId})) return res.status(200).json({ok:true,staffAssistant:true});
 
-    const eventCheckinHandled = await handleCompanyEventCheckinInbound({ from: fromNorm, to: toNorm, body, messageId });
-    if (eventCheckinHandled?.handled) {
-      try {
-        await deliverCompanyEventVoteReply({ result: eventCheckinHandled, from: fromNorm, to: toNorm, send: options => VonageService.sendSms(options) });
-      } catch (error) { console.warn('Event check-in confirmation not sent:', error?.code || 'delivery_failed'); }
-      return res.status(200).json({ ok: true });
-    }
-    const eventTopicHandled = await handleCompanyEventTopicInbound({ from: fromNorm, to: toNorm, body, messageId,
-      sendReply: (options) => VonageService.sendSms(options) });
-    const companyEventHandled = eventTopicHandled?.handled ? eventTopicHandled : await handleCompanyEventInbound({ from: fromNorm, to: toNorm, body,
-      smsTopicEventId: eventTopicHandled?.eventId, topicResponse: eventTopicHandled?.response });
-    if (companyEventHandled?.handled) {
-      try {
-        await deliverCompanyEventVoteReply({ result: companyEventHandled, from: fromNorm, to: toNorm,
-          send: (options) => VonageService.sendSms(options) });
-      } catch (error) {
-        // The vote is recorded even if a confirmation is suppressed or delivery fails.
-        console.warn('Vote SMS confirmation not sent:', error?.code || 'delivery_failed');
+      const eventCheckinHandled = await handleCompanyEventCheckinInbound({ from: fromNorm, to: toNorm, body, messageId });
+      if (eventCheckinHandled?.handled) {
+        try {
+          await deliverCompanyEventVoteReply({ result: eventCheckinHandled, from: fromNorm, to: toNorm, send: options => VonageService.sendSms(options) });
+        } catch (error) { console.warn('Event check-in confirmation not sent:', error?.code || 'delivery_failed'); }
+        return res.status(200).json({ ok: true });
+      }
+      const eventTopicHandled = await handleCompanyEventTopicInbound({ from: fromNorm, to: toNorm, body, messageId,
+        sendReply: (options) => VonageService.sendSms(options) });
+      const companyEventHandled = eventTopicHandled?.handled ? eventTopicHandled : await handleCompanyEventInbound({ from: fromNorm, to: toNorm, body,
+        smsTopicEventId: eventTopicHandled?.eventId, topicResponse: eventTopicHandled?.response });
+      if (companyEventHandled?.handled) {
+        try {
+          await deliverCompanyEventVoteReply({ result: companyEventHandled, from: fromNorm, to: toNorm,
+            send: (options) => VonageService.sendSms(options) });
+        } catch (error) {
+          // The vote is recorded even if a confirmation is suppressed or delivery fails.
+          console.warn('Vote SMS confirmation not sent:', error?.code || 'delivery_failed');
+        }
+        return res.status(200).json({ ok: true });
+      }
+
+      const campaignHandled = await handleAgencyCampaignInbound({ from: fromNorm, to: toNorm, body });
+      if (campaignHandled?.handled) {
+        return res.status(200).json({ ok: true, message: campaignHandled.responseMessage || 'Thanks!' });
+      }
+
+      // Preserve unexpected replies for support, but never run patient Y/N/R
+      // automation or provider/client forwarding on a staff notification carrier.
+      if (reception.number?.agency_id) {
+        reception.reason = reception.profile?.clientId ? 'client_sms_requires_notifyre' : 'staff_line_review';
+        return await holdForReview();
       }
       return res.status(200).json({ ok: true });
-    }
-
-    const campaignHandled = await handleAgencyCampaignInbound({ from: fromNorm, to: toNorm, body });
-    if (campaignHandled?.handled) {
-      return res.status(200).json({ ok: true, message: campaignHandled.responseMessage || 'Thanks!' });
     }
 
     if (reception.reason) return await holdForReview();
@@ -482,9 +488,11 @@ export const inboundSmsWebhook = async (req, res, next) => {
       if (mirrorEnabled && supportPhone && clientId && (number?.phone_number || ownerUser?.system_phone_number)) {
         try {
           const supportBody = staffNotificationBody('inbound_client_message',buildPublicPortalBaseUrl(agency));
+          const staffFrom = await resolveRegisteredSmsSender({agencyId, purpose:'workforce'});
+          if (!staffFrom) throw new Error('No approved staff notification sender is configured');
           await VonageService.sendSms({ purpose: 'workforce', agencyId, staffNotificationKind:'messageAlerts',
             to: supportPhone,
-            from: MessageLog.normalizePhone(number?.phone_number || ownerUser.system_phone_number) || number?.phone_number || ownerUser.system_phone_number,
+            from: staffFrom,
             body: supportBody
           });
           await SmsThreadEscalation.createOrKeep({
@@ -660,11 +668,14 @@ export const inboundSmsWebhook = async (req, res, next) => {
                 metadata: { autoReply: true, provider: req.smsProvider || 'vonage', numberId }
               });
 
-              const msg = await VonageService.sendSms({ purpose: 'care',
+              // Preserve registration, consent and STOP checks, then use only
+              // Notifyre's transport for this patient-facing acknowledgment.
+              const careFrom = await resolveRegisteredSmsSender({ agencyId, purpose: 'care', numberId });
+              if (!careFrom) throw new Error('No approved Notifyre care sender is configured');
+              const delivery = await prepareSmsDelivery({ purpose: 'care', agencyId,
                 to: MessageLog.normalizePhone(fromNorm) || fromNorm,
-                from: MessageLog.normalizePhone(number?.phone_number || ownerUser.system_phone_number) || number?.phone_number || ownerUser.system_phone_number,
-                body: autoReplyMessage
-              });
+                from: careFrom, body: autoReplyMessage });
+              const msg = await sendNotifyreSms(delivery);
 
               await MessageLog.markSent(outboundLog.id, msg.sid, { autoReply: true, provider: req.smsProvider || 'vonage', status: msg.status });
               if (ownerUser?.id) {

@@ -19,8 +19,8 @@ export function requirePlatformSuperadmin(ctx) {
 export function cleanPlatformSettings(input, current) {
   if (!['google_meet', 'vonage', 'disabled'].includes(input.videoProvider))
     throw fail(400, 'Choose Google Meet, Vonage video, or disabled.');
-  if (!['disabled', 'notifyre', 'vonage'].includes(input.smsProvider))
-    throw fail(400, 'Choose an appointment SMS provider.');
+  if (!['disabled', 'notifyre'].includes(input.smsProvider))
+    throw fail(400, 'Choose Notifyre for client texts, or leave client texting off. Vonage is reserved for staff notifications.');
   if (typeof input.alwaysAvailableOffice !== 'boolean' || typeof input.emailReminders !== 'boolean')
     throw fail(400, 'Choose the platform room and reminder settings.');
   const organizer = String(input.googleOrganizer || '').trim().toLowerCase();
@@ -84,8 +84,6 @@ export function cleanPlatformSettings(input, current) {
     settings.notifyre.verifiedAt = null;
   if (settings.smsProvider === 'notifyre' && !settings.notifyre.verifiedAt && !settings.clientMessaging.routes.some(r => r.verifiedAt && r.verifiedProvider === 'notifyre'))
     throw fail(409, 'Save the Notifyre setup with SMS off, verify the number, then enable Notifyre.');
-  if (settings.smsProvider === 'vonage' && !settings.clientMessaging.routes.length && (!settings.vonage.from || !settings.vonage.campaignId))
-    throw fail(409, 'Link the Vonage Campaign 1 number before enabling appointment texts.');
   settings.verificationSms = cleanVerificationSettings(input.verificationSms ?? current.verificationSms, current.verificationSms, settings, current);
   return settings;
 }

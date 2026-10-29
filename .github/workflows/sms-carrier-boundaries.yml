@@ -1,0 +1,30 @@
+name: SMS carrier and campaign boundaries
+on:
+  push:
+    branches: [main]
+    paths: ['backend/src/**/sms*', 'backend/src/**/notifyre*', 'backend/src/**/vonage*', 'backend/src/services/auricwell/**', 'backend/src/**/__tests__/messaging.*', 'backend/src/**/__tests__/enrollmentCompletion.*', 'backend/vitest.sms-carrier.config.js', '.github/workflows/sms-carrier-boundaries.yml']
+  pull_request:
+    paths: ['backend/src/**/sms*', 'backend/src/**/notifyre*', 'backend/src/**/vonage*', 'backend/src/services/auricwell/**', 'backend/src/**/__tests__/messaging.*', 'backend/src/**/__tests__/enrollmentCompletion.*', 'backend/vitest.sms-carrier.config.js', '.github/workflows/sms-carrier-boundaries.yml']
+permissions:
+  contents: read
+jobs:
+  carrier-boundaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - run: npm ci --prefix backend
+      - run: npm ci --prefix frontend
+      - name: Verify client, staff and campaign separation without real sends
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.sms-carrier.config.js
+      - name: Verify AuricWell client and account verification settings
+        env:
+          NODE_ENV: test
+          SKIP_DB_CONNECT: '1'
+        run: node --test --test-force-exit backend/src/services/auricwell/clientMessagingPolicy.test.js backend/src/services/auricwell/sessionIntegrations.test.js backend/src/services/auricwell/verificationSmsPolicy.test.js

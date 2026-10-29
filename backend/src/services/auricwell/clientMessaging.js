@@ -179,17 +179,7 @@ export async function sendClientSmsTransport(settings, route, { to, body, line, 
     });
     return notifyreReceipt(result);
   }
-  const { getSmsSender, recordSmsPermission } = await import('../smsCompliance.service.js');
-  const sender = await getSmsSender(from);
-  if (String(sender.campaign_id) !== route.campaignId || Number(sender.agency_id) !== Number(agencyId) || sender.registration?.purposes?.includes('workforce')) throw fail(409, 'The sender is not this agency’s clinical campaign.');
-  const purpose = category === 'account' ? 'billing' : ['conversations','relay','relay_control','help','preference'].includes(category) ? 'care' : 'reminders';
-  const [[prior]] = await pool.execute('SELECT status,expires_at FROM sms_recipient_permissions WHERE scope_key=? AND phone=? AND purpose=?', [sender.scope, to, purpose]);
-  if (!prior || (prior.status === 'opted_in' && prior.expires_at && Date.parse(prior.expires_at) < Date.now())) await recordSmsPermission({ scope: sender.scope, phone: to, purpose, status: 'opted_in', evidence: { source: 'auricwell_guarded_outbox', dispatchId: id }, expiresAt: new Date(Date.now() + 60000) });
-  const { default: Vonage } = await import('../vonage.service.js');
-  const result = await Vonage.sendSms({ to, from, body: body + smsFooter(category), agencyId, purpose });
-  const providerId = result?.sid;
-  if (!providerId) throw fail(503, 'The SMS receipt is uncertain.');
-  return String(providerId);
+  throw fail(409, 'Client care texts require Notifyre. Nothing was sent.');
 }
 export async function dispatchSms(id, deps = {}) {
   // Claim is committed BEFORE the carrier call. A crash/timeout cannot put a send
@@ -457,7 +447,7 @@ export async function acceptNotifyreWebhook(raw, header) {
   return { accepted: true };
 }
 // Invoked only after the existing Vonage signature middleware validates callbacks.
-// Workforce Campaign 2 numbers do not match these platform-owned clinical routes.
+// Legacy inbound preservation only; new clinical delivery requires Notifyre.
 export async function acceptVonageClientInbound({ from, to, body, messageId, timestamp }) {
   if (process.env.AURICWELL_ENABLED !== 'true') return false;
   const { settings } = await platformIntegrations();

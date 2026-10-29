@@ -4,6 +4,7 @@ import { smsPolicyError, validateSmsRegistration, validateSmsConsentEvidence } f
 import { staffCommunicationKey, staffDeliveryKinds } from '../utils/staffCommunicationChoices.js';
 import { isAuricwellQaAgency } from '../utils/auricwellQaPolicy.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
+import { assertSmsCarrierPurpose, assertNotifyreAgencyCampaign } from '../utils/smsCarrierPolicy.js';
 
 function enrollmentMessageTypes(entries) {
   const labels = {
@@ -24,6 +25,7 @@ async function prepareEnrollment({ from, phone, purpose, status, evidence, actor
   if (validateSmsRegistration(sender.registration).length || !sender.registration.purposes.includes(purpose)) {
     throw smsPolicyError('sms_campaign_not_ready', 'Configure an approved campaign for this purpose first');
   }
+  if (status === 'opted_in') assertSmsCarrierPurpose({ registration: sender.registration, purpose });
   if (status === 'opted_in' && await isSmsSuppressed(sender, phone)) {
     throw smsPolicyError('sms_opted_out', 'A saved form or staff edit cannot clear STOP; the recipient must use the registered re-opt-in flow');
   }
@@ -100,6 +102,10 @@ export async function saveSmsRegistration({ numberId, registration, actorUserId 
   if (errors.length) throw smsPolicyError('sms_registration_invalid', errors.join('; '));
   const [numbers] = await pool.execute('SELECT id, agency_id FROM twilio_numbers WHERE id = ? AND is_active = TRUE', [numberId]);
   if (!numbers[0]) throw smsPolicyError('sms_unknown_sender', 'Number not found');
+  if (registration.approved === true && registration.numberLinked === true) {
+    for (const purpose of registration.purposes) assertSmsCarrierPurpose({ registration, purpose });
+    if (registration.provider === 'notifyre') assertNotifyreAgencyCampaign(registration, numbers[0].agency_id);
+  }
   const [conflicts] = await pool.execute(
     `SELECT r.number_id, n.agency_id, JSON_UNQUOTE(JSON_EXTRACT(r.registration_json, '$.brandId')) AS brand_id FROM sms_sender_registrations r JOIN twilio_numbers n ON n.id = r.number_id
      WHERE (r.campaign_id = ? AND JSON_UNQUOTE(JSON_EXTRACT(r.registration_json, '$.brandId')) <> ?)
