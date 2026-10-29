@@ -1,3 +1,4 @@
+import { withOfficeReferralSource } from '../utils/officeReferralSource.js';
 import { extractInsuranceCardFieldsBestEffort } from '../services/insuranceCardReading.service.js';
 import ProviderAvailabilityService from '../services/providerAvailability.service.js';
 import { validateQaIntakeGuardian } from '../services/qaIntakeIdentity.service.js';
@@ -5762,7 +5763,8 @@ const applyChannelMasterReadOnly = async (link, agency) => {
 
 const applyAgencyMastersReadOnly = async (link, agency) => {
   const withOffice = await applyOfficeMasterReadOnly(link, agency);
-  return applyChannelMasterReadOnly(withOffice, agency);
+  const withChannel = await applyChannelMasterReadOnly(withOffice, agency);
+  return withOfficeReferralSource(withChannel, agency);
 };
 
 const INTAKE_STEP_VISIBILITY = new Set(['always', 'new_client_only', 'existing_client_only']);

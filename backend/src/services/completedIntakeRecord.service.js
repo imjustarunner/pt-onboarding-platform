@@ -13,6 +13,7 @@ import {
 } from '../utils/intakeFieldLabels.js';
 import { matchesShowIf, childAgeFlags } from '../utils/intakeShowIf.js';
 import { schoolRoiRecordSections } from './schoolRoiChartText.service.js';
+import { OFFICE_REFERRAL_SOURCE_KEY } from '../utils/officeReferralSource.js';
 
 const SECRET_KEY = /password|preview|card_number|cvc|cvv|ssn|secret|signaturedata|dataurl|token/i;
 const PHOTO_KEY = /photo|image|front|back|preview/i;
@@ -249,6 +250,16 @@ function formatDateTime(value) {
 
 function fieldIndex(link) {
   const byKey = new Map();
+  // Preserve a readable label in saved records even when a master is reloaded.
+  byKey.set(OFFICE_REFERRAL_SOURCE_KEY, {
+    key: OFFICE_REFERRAL_SOURCE_KEY,
+    label: String(link?.language_code || '').startsWith('es')
+      ? '¿Cómo se enteró de la agencia?'
+      : 'How did you hear about the agency?',
+    labelEs: '¿Cómo se enteró de la agencia?',
+    scope: 'submission',
+    type: 'text'
+  });
   const fields = Array.isArray(link?.intake_fields) ? link.intake_fields : [];
   for (const field of fields) {
     if (field?.key) byKey.set(field.key, field);

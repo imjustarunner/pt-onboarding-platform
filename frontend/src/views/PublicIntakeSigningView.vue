@@ -634,6 +634,17 @@
             </template>
           </div>
 
+          <div v-if="officeReferralSourceField" class="form-group intake-section">
+            <label for="office-referral-source">{{ txField(officeReferralSourceField) }}</label>
+            <p id="office-referral-source-help" class="helper-text">{{ txField(officeReferralSourceField, 'helperText') }}</p>
+            <input
+              id="office-referral-source"
+              v-model="intakeResponses.submission.office_referral_source"
+              type="text"
+              aria-describedby="office-referral-source-help"
+            />
+          </div>
+
           <div
             v-if="showCaptchaGate && !sessionToken"
             class="captcha-block captcha-block-start"
@@ -8855,6 +8866,9 @@ const intakeFields = computed(() => {
 });
 const guardianFields = computed(() => intakeFields.value.filter((f) => (f.scope || 'client') === 'guardian'));
 const submissionFields = computed(() => intakeFields.value.filter((f) => (f.scope || 'client') === 'submission'));
+const officeReferralSourceField = computed(() => isOfficeInDepthIntake.value
+  ? submissionFields.value.find(field => field.key === 'office_referral_source') || null
+  : null);
 const clientFields = computed(() => intakeFields.value.filter((f) => (f.scope || 'client') === 'client'));
 /** Adaptive shell section grouping for existing intake_fields (presentation helper; storage keys unchanged). */
 const adaptiveIntakeFieldGroups = computed(() =>
