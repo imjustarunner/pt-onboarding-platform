@@ -8,6 +8,18 @@ export function excludeSupportClinicalContent(req, res, next) {
   } });
   return next();
 }
+
+// Families use guardian-portal endpoints, which enforce signer ownership or an
+// explicit recipient share. The staff chart endpoints expose the whole chart.
+export function excludeFamilyClinicalWorkspace(req, res, next) {
+  if (['client_guardian', 'guardian', 'client'].includes(String(req.user?.role || '').trim().toLowerCase())) {
+    return res.status(403).json({ error: {
+      code: 'FAMILY_CLINICAL_WORKSPACE_RESTRICTED',
+      message: 'Use your family portal to view your own enrollment or files shared with you.'
+    } });
+  }
+  return next();
+}
 export function excludeSupportSettings(req, res, next) {
   if (isSupportActor(req.user)) return res.status(403).json({ error: {
     code: 'SUPPORT_SETTINGS_RESTRICTED', message: 'Administrator access is required for agency configuration.'

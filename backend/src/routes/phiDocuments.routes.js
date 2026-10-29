@@ -1,6 +1,6 @@
 import { fileShareRecipients,setFileShare } from '../services/guardianFileShares.service.js';
 import express from 'express';
-import { excludeSupportClinicalContent } from '../middleware/supportContentAccess.middleware.js';
+import { excludeSupportClinicalContent, excludeFamilyClinicalWorkspace } from '../middleware/supportContentAccess.middleware.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
   listClientPhiDocuments,
@@ -21,7 +21,7 @@ import {
 const router = express.Router();
 // These are completed PHI records and medical attachments. Blank-document and
 // questionnaire dispatch use their existing operational routes.
-router.use(authenticate, excludeSupportClinicalContent);
+router.use(authenticate, excludeSupportClinicalContent, excludeFamilyClinicalWorkspace);
 
 // List PHI docs for a client
 router.get('/clients/:clientId',  listClientPhiDocuments);

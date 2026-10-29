@@ -16,3 +16,5 @@ For both office and school enrollment, in English and Spanish:
 Report the role, route, submission reference shown by the app, expected and actual results, and screenshots. Do not include passwords, invitation tokens, session links, or real family information in the report. Mark checks blocked when the required account or screen is unavailable.
 
 Existing saved enrollments with accidental extra child rows retain those extra answers privately in the draft, outside the invited-child roster. Removing a completely blank child placeholder must not erase signatures for an unchanged named child. Adding or changing a real child still requires reviewing the relevant agreements.
+
+Privacy follow-up: family accounts must also be denied access to the staff clinical-document interface and its direct routes. Own enrollment downloads and explicitly shared portal files remain available through the family portal. Stop and report if any view exposes the other guardian’s private enrollment.
