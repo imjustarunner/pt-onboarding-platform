@@ -28,7 +28,9 @@ it('extends Tuesday and Thursday blocks independently, retaining reason, privacy
  expect(inserts().map(r=>r.start_at)).toEqual(['2027-10-12 19:00:00','2027-10-14 19:00:00']);
  expect(inserts().every(r=>r.reason_code==='DOCUMENTATION'&&r.description==='Keep this note'&&r.is_private===1&&r.focus_session_enabled===1&&!r.join_token&&r.agency_id===null)).toBe(true);
  expect(m.execute.mock.calls.some(([sql])=>sql.includes('INSERT INTO provider_schedule_event_attendees'))).toBe(false);
- expect(m.execute.mock.calls.find(([sql])=>sql.startsWith('SELECT MAX'))[0]).toContain('agency_id <=> ? AND provider_id=?');
+ const seriesCheck=m.execute.mock.calls.find(([sql])=>sql.startsWith('SELECT MAX'));
+ expect(seriesCheck[0]).toContain("kind='SCHEDULE_HOLD' AND client_id IS NULL AND provider_id=? AND recurrence_series_id=?");
+ expect(seriesCheck[1]).toEqual([7,'blocks']);
 });
 it('extends an all-day block across DST using exclusive calendar end dates',async()=>{
  const row=block({all_day:1,start_at:null,end_at:null,start_date:'2026-10-27',end_date:'2026-10-28'});
@@ -36,7 +38,9 @@ it('extends an all-day block across DST using exclusive calendar end dates',asyn
  rows=[block({all_day:1,start_at:null,end_at:null,start_date:new Date('2027-10-05T00:00:00Z'),end_date:new Date('2027-10-06T00:00:00Z')})];
  expect((await maintainRecurringScheduleWindow({now:new Date('2026-10-13T18:00:00Z')})).added).toBe(1);
  expect(inserts()[0]).toMatchObject({all_day:1,start_at:null,end_at:null,start_date:'2027-10-12',end_date:'2027-10-13'});
- expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('SELECT id FROM provider_schedule_events WHERE agency_id')&&sql.includes('start_date=?'))).toBe(true);
+ const occurrenceCheck=m.execute.mock.calls.find(([sql])=>sql.startsWith('SELECT id FROM provider_schedule_events WHERE')&&sql.includes('start_date=?'));
+ expect(occurrenceCheck[0]).toContain("kind='SCHEDULE_HOLD' AND client_id IS NULL AND provider_id=?");
+ expect(occurrenceCheck[1]).toEqual([7,'blocks','2027-10-12']);
 });
 it('preserves the wall-clock time through DST and a monthly all-day anchor through February',()=>{
  const row=block({start_at:'2026-10-27 19:00:00',end_at:'2026-10-27 20:00:00'});
