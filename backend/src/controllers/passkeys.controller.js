@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
+import { signFullSuiteToken } from '../services/productIdentity.service.js';
 import config from '../config/config.js';
 import User from '../models/User.model.js';
 import { getSessionSecurity } from '../services/sessionSecurity.service.js';
@@ -31,7 +32,7 @@ export const loginVerify=handle(async(req,res)=>{
  // Respect a time-limited account even if a browser remains open.
  const duration=user.status_expires_at?Math.min(12*3600,Math.floor((new Date(user.status_expires_at).getTime()-Date.now())/1000)):12*3600;
  if(duration<=0)return res.status(403).json({error:{message:'This account access has expired.'}});
- const token=jwt.sign({id:user.id,email:user.email,role:user.role,sessionId,authMethod:'passkey',passkeyId:credentialId},config.jwt.secret,{expiresIn:duration});
+ const token=await signFullSuiteToken({id:user.id,email:user.email,role:user.role,sessionId,authMethod:'passkey',passkeyId:credentialId},config.jwt.secret,{expiresIn:duration});
  const claims=jwt.verify(token,config.jwt.secret);
  req.user={id:user.id,email:user.email,role:user.role,sessionId};req.authClaims=claims;
  req.sessionSecurity=await getSessionSecurity(claims,token);

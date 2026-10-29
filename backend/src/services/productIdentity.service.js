@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import pool from '../config/database.js';
+import { assertHireStaffAccess } from './hireStaffAccess.service.js';
 
 // Product authentication is separate from the shared clinical person ID. Do
 // not infer permission from a JWT role, matching email, or a clinical identity.
@@ -29,5 +30,6 @@ export async function assertFullSuitePrincipal(claims, db = pool) {
 }
 export async function signFullSuiteToken(claims, secret, options) {
   await assertFullSuitePrincipal(claims);
+  await assertHireStaffAccess(claims);
   return jwt.sign(claims, secret, options);
 }
