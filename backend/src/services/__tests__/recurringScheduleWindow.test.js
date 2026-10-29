@@ -68,6 +68,33 @@ it('does not duplicate an occurrence that a prior attempt already saved',async()
  expect((await maintainRecurringScheduleWindow({now:new Date('2026-10-09T18:00:00Z')})).added).toBe(0);
  expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO supervision_sessions'))).toBe(false);
 });
+it('keeps personal holds in one series when a single occurrence gains an agency',async()=>{
+ const hold={provider_id:507,kind:'SCHEDULE_HOLD',status:'ACTIVE',recurrence_series_id:'personal-hold',recurrence_frequency:'EVERY_4_WEEKS',recurrence_policy:'INDEFINITE',event_timezone:'America/Denver'};
+ const occurrences=[
+  {...hold,id:386,agency_id:2,recurrence_index:0,start_at:'2026-11-03 21:00:00',end_at:'2026-11-03 22:00:00'},
+  {...hold,id:398,agency_id:null,recurrence_index:12,start_at:'2027-10-05 20:00:00',end_at:'2027-10-05 21:00:00'}
+ ];
+ const base=m.execute.getMockImplementation();
+ m.execute.mockImplementation(async(sql,...args)=>sql.startsWith('SELECT * FROM provider_schedule_events')?[occurrences]:base(sql,...args));
+ expect(await maintainRecurringScheduleWindow({now:new Date('2026-10-26T16:00:00Z')})).toEqual({held:0,restored:0,added:0});
+ expect(m.beginTransaction).not.toHaveBeenCalled();
+ expect(m.execute.mock.calls.some(([sql])=>/^(INSERT|UPDATE|DELETE)/.test(sql))).toBe(false);
+});
+it('checks existing personal hold dates across agency metadata while preserving provider scope',async()=>{
+ const hold={id:8,agency_id:2,provider_id:7,kind:'SCHEDULE_HOLD',status:'ACTIVE',recurrence_series_id:'personal-hold',recurrence_frequency:'WEEKLY',recurrence_policy:'INDEFINITE',event_timezone:'America/Denver',start_at:'2027-10-01 16:00:00',end_at:'2027-10-01 17:00:00'};
+ const base=m.execute.getMockImplementation();
+ m.execute.mockImplementation(async(sql,params=[])=>{
+  if(sql.startsWith('SELECT * FROM provider_schedule_events'))return [[hold]];
+  if(sql.startsWith('SELECT id FROM provider_schedule_events'))return [[{id:9}]];
+  return base(sql,params);
+ });
+ expect((await maintainRecurringScheduleWindow({now:new Date('2026-10-09T18:00:00Z')})).added).toBe(0);
+ const [sql,params]=m.execute.mock.calls.find(([sql])=>sql.startsWith('SELECT id FROM provider_schedule_events'));
+ expect(sql).toContain("kind='SCHEDULE_HOLD' AND client_id IS NULL AND provider_id=? AND recurrence_series_id=?");
+ expect(sql).not.toContain('agency_id');
+ expect(params).toEqual([7,'personal-hold','2027-10-08 16:00:00']);
+ expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT'))).toBe(false);
+});
 it('copies mandatory/cohost settings but not RSVP responses or presenter assignments',async()=>{
  await copyRecurringRoster(m,'meeting',1,20);
  const sql=m.execute.mock.calls.map(([sql])=>sql).join('\n');

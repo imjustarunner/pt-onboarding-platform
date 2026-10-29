@@ -24,7 +24,10 @@ const definitions = {
     fields: 'agency_id provider_id kind title description reason_code is_private focus_session_enabled all_day start_date end_date start_at end_at event_timezone recurrence_series_id recurrence_frequency recurrence_index recurrence_policy platform_video_link google_meet_link created_by_user_id waiting_room_enabled meeting_subtype attendance_tracking_enabled notify_participants reminder_minutes meeting_settings_json is_training_pay_eligible'
   }
 };
-const key = row => `${row.agency_id}:${row.provider_id || row.supervisor_user_id}:${row.recurrence_series_id}:${row.recurrence_frequency === 'MONTHLY' ? '' : new Date(`${date(row)}T12:00:00Z`).getUTCDay()}`;
+// Personal holds belong to the provider. Editing one date can attach an agency
+// to that occurrence without changing the rest of its series; that must not
+// start a second recurrence that collides with dates already on the calendar.
+const key = row => `${row.kind === 'SCHEDULE_HOLD' ? 'provider-hold' : row.agency_id}:${row.provider_id || row.supervisor_user_id}:${row.recurrence_series_id}:${row.recurrence_frequency === 'MONTHLY' ? '' : new Date(`${date(row)}T12:00:00Z`).getUTCDay()}`;
 const date = (row, now) => !now && Number(row.all_day) === 1 ? recurringCalendarDate(row.start_date)
   : utcToZonedMysqlWall(now || row.start_at, row.event_timezone || 'America/Denver')?.slice(0,10);
 const advance = (row, window, index) => ({ ...row, start_at: window.startAt, end_at: window.endAt,
@@ -182,6 +185,13 @@ export async function maintainRecurringScheduleWindow({ now = new Date() } = {})
         const anchor = items[0];
         let last = items[items.length-1];
         const boundary = recurringWindowEnd(now, template.event_timezone || 'America/Denver');
+        const personalHold = template.kind === 'SCHEDULE_HOLD';
+        const scopeSql = personalHold
+          ? "kind='SCHEDULE_HOLD' AND client_id IS NULL AND provider_id=? AND recurrence_series_id=?"
+          : `agency_id <=> ? AND ${def.host}=? AND recurrence_series_id=?`;
+        const scopeParams = personalHold
+          ? [template.provider_id,template.recurrence_series_id]
+          : [template.agency_id,template[def.host],template.recurrence_series_id];
         for (let n=0; n<600; n++) {
           const window = nextRecurringWindow(anchor,last);
           if (!window || window.day >= boundary) break;
@@ -192,10 +202,10 @@ export async function maintainRecurringScheduleWindow({ now = new Date() } = {})
           }
           await db.beginTransaction();
           try {
-            const [[stopped]] = await db.execute(`SELECT MAX(recurrence_stopped) AS stopped,COALESCE(MAX(recurrence_index),-1)+1 AS next_index FROM ${def.table} WHERE agency_id <=> ? AND ${def.host}=? AND recurrence_series_id=?`, [template.agency_id,template[def.host],template.recurrence_series_id]);
+            const [[stopped]] = await db.execute(`SELECT MAX(recurrence_stopped) AS stopped,COALESCE(MAX(recurrence_index),-1)+1 AS next_index FROM ${def.table} WHERE ${scopeSql}`, scopeParams);
             if (Number(stopped?.stopped)) { await db.rollback(); break; }
             index=Number(stopped?.next_index ?? index);
-            const [existing] = await db.execute(`SELECT id FROM ${def.table} WHERE agency_id <=> ? AND ${def.host}=? AND recurrence_series_id=? AND ${Number(template.all_day) === 1 ? 'start_date' : 'start_at'}=? LIMIT 1`, [template.agency_id,template[def.host],template.recurrence_series_id,window.startDate || window.startAt]);
+            const [existing] = await db.execute(`SELECT id FROM ${def.table} WHERE ${scopeSql} AND ${Number(template.all_day) === 1 ? 'start_date' : 'start_at'}=? LIMIT 1`, [...scopeParams,window.startDate || window.startAt]);
             if (!existing.length) {
               await withOccurrenceWindow(db, kind, template, window, false, async () => {
                 await appendOccurrence(db, kind, template, window, index);
