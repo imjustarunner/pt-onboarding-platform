@@ -2,7 +2,7 @@
   "scope": "Reconciliation of the saved October 28 audit snapshot. Original working files and other worktrees preserved. Subsequent work in concurrent sessions is not automatically included.",
   "baseline": "edeeb02243d700162d6473a2c475588b48984e2e",
   "release_base": "a60a975b8",
-  "selection_status": "Ready changes selected for release; final deployment must be verified from both public version endpoints.",
+  "selection_status": "Release verified live; unfinished features remain excluded.",
   "features": [
     {
       "request": "Change an existing meeting date, including back to today",
@@ -15,50 +15,58 @@
     },
     {
       "request": "Keep Google sign-in on the same website",
-      "decision": "selected",
+      "decision": "released_and_verified",
       "commit": "8e48c43b4",
-      "validation": "23 API-base routing tests; same-origin cookies retained."
+      "validation": "23 API-base routing tests; same-origin cookies retained.",
+      "releaseCommit": "17e60a59338910f8c2f369c2812ea6cd058aa3f2"
     },
     {
       "request": "Prevent database pool exhaustion",
-      "decision": "selected",
+      "decision": "released_and_verified",
       "commit": "5fc47d96a",
-      "validation": "5 pool-budget tests; production workflow limits preserved; proxy shell syntax checked."
+      "validation": "5 pool-budget tests; production workflow limits preserved; proxy shell syntax checked.",
+      "releaseCommit": "17e60a59338910f8c2f369c2812ea6cd058aa3f2"
     },
     {
       "request": "Prevent duplicate recurring personal calendar holds after editing",
-      "decision": "selected",
+      "decision": "released_and_verified",
       "commit": "b4fa53a8a",
-      "validation": "20 recurrence tests."
+      "validation": "20 recurrence tests.",
+      "releaseCommit": "17e60a59338910f8c2f369c2812ea6cd058aa3f2"
     },
     {
       "request": "Optional office intake referral-source question",
-      "decision": "selected",
+      "decision": "released_and_verified",
       "commit": "8954f198d",
-      "validation": "5 backend and 6 frontend tests; newer guardian/enrollment safeguards preserved."
+      "validation": "5 backend and 6 frontend tests; newer guardian/enrollment safeguards preserved.",
+      "releaseCommit": "17e60a59338910f8c2f369c2812ea6cd058aa3f2"
     },
     {
       "request": "Clinical and Denver group membership and staff channel chat",
-      "decision": "selected",
+      "decision": "released_and_verified",
       "commit": "fe633d43c",
-      "validation": "45 focused tests. Read-only database verification confirmed scoped Clinical/Denver enrollment with full group sync disabled. No messages sent."
+      "validation": "45 focused tests. Read-only database verification confirmed scoped Clinical/Denver enrollment with full group sync disabled. No messages sent.",
+      "releaseCommit": "17e60a59338910f8c2f369c2812ea6cd058aa3f2"
     },
     {
       "request": "Offer meeting/evaluation times for invitees to reserve",
-      "decision": "selected",
+      "decision": "released_and_verified",
       "commit": "2e4ac897f",
-      "validation": "Real MySQL tests caught and fixed DISTINCT/ORDER BY and JSON key-order errors. Persistence, competing claims, idempotency, conflict rollback and closing unused holds verified. 4 real-DB tests, 50 unit cases, 10 screen tests. Production tables exist and contain no offers or pending deliveries."
+      "validation": "Real MySQL tests caught and fixed DISTINCT/ORDER BY and JSON key-order errors. Persistence, competing claims, idempotency, conflict rollback and closing unused holds verified. 4 real-DB tests, 50 unit cases, 10 screen tests. Production tables exist and contain no offers or pending deliveries.",
+      "releaseCommit": "17e60a59338910f8c2f369c2812ea6cd058aa3f2"
     },
     {
       "request": "Event clock reminders for app-only employees",
-      "decision": "selected",
+      "decision": "released_and_verified",
       "commit": "774498af2",
-      "validation": "7 priority-email tests; no real emails sent."
+      "validation": "7 priority-email tests; no real emails sent.",
+      "releaseCommit": "17e60a59338910f8c2f369c2812ea6cd058aa3f2"
     },
     {
       "request": "Quick navigation in the school portal",
-      "decision": "selected",
-      "validation": "Added the existing role-filtered Quick Nav control only for signed-in, non-preview school portals; retained newer Conversa labels. Vue compilation checked."
+      "decision": "released_and_verified",
+      "validation": "Added the existing role-filtered Quick Nav control only for signed-in, non-preview school portals; retained newer Conversa labels. Vue compilation checked.",
+      "releaseCommit": "17e60a59338910f8c2f369c2812ea6cd058aa3f2"
     },
     {
       "request": "Disable archived/inactive accounts across login and recovery",
@@ -181,25 +189,25 @@
     {
       "path": "backend/src/config/__tests__/databasePoolLimits.test.js",
       "source_blob": "419e2fb16ee948d1dadf71673ebfcbf179c5b594",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
       "path": "backend/src/config/clinicalDatabase.js",
       "source_blob": "18c66b327fdafaf9d6c6d1f596617e1753fc471e",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
       "path": "backend/src/config/database.js",
       "source_blob": "3bbca121944a58b50d3fa2c57c45bc681e007cd6",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
       "path": "backend/src/config/databasePoolLimits.js",
       "source_blob": "957f96bfee40ec245e0acecdf23c263a260026ea",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -235,7 +243,7 @@
     {
       "path": "backend/src/controllers/agency.controller.js",
       "source_blob": "74576f0d85b42489bd2b20bfad1653c7d51b509e",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -283,7 +291,7 @@
     {
       "path": "backend/src/controllers/publicIntake.controller.js",
       "source_blob": "34c15ed1b6f55afbd37a1e755333305f54c4831a",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -385,7 +393,7 @@
     {
       "path": "backend/src/routes/meetingReservations.routes.js",
       "source_blob": "6065a2cbf48f10edb04fd5341bc51f4b04a2858f",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -409,7 +417,7 @@
     {
       "path": "backend/src/scripts/reconcileManagedWorkspaceGroups.js",
       "source_blob": "c034a21f4b8a7d3201036ff0ecdaad2f78d766b3",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -421,7 +429,7 @@
     {
       "path": "backend/src/server.js",
       "source_blob": "35b143289bd527a619d5b701b97310d9ae134989",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -487,25 +495,25 @@
     {
       "path": "backend/src/services/__tests__/meetingPriorityEmail.test.js",
       "source_blob": "4ee6b1d3f2dcb061bd25177ee74958130bcfd43f",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
       "path": "backend/src/services/__tests__/messaging.clinicalGroups.test.js",
       "source_blob": "3f7708f64adc83463af69265a3c11a4660e23eee",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
       "path": "backend/src/services/__tests__/messaging.managedGroupSync.test.js",
       "source_blob": "51f9d5d05aa88858af5c97b6f68eac8a41321b14",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
       "path": "backend/src/services/__tests__/messaging.managedGroups.test.js",
       "source_blob": "165d1c2300c02679a1fd19e68f9de5810d2a09b9",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -517,19 +525,19 @@
     {
       "path": "backend/src/services/__tests__/recurringScheduleWindow.test.js",
       "source_blob": "a394b0c85df2c2519bc91847f66ca7fb1ca4ace6",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
       "path": "backend/src/services/__tests__/scheduling.meetingReservationDelivery.test.js",
       "source_blob": "9392ba25f661e127f9972cf3e0fe8dd0c812187b",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
       "path": "backend/src/services/__tests__/scheduling.meetingReservations.test.js",
       "source_blob": "7e81de9599c1e8e51f7c4f8593e38603635fd0a9",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -595,7 +603,7 @@
     {
       "path": "backend/src/services/completedIntakeRecord.service.js",
       "source_blob": "14795379e64eff472b7e3e12c7d0315e0c7719c9",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -637,19 +645,19 @@
     {
       "path": "backend/src/services/managedWorkspaceGroupAccess.service.js",
       "source_blob": "37774a31f96d5e3eedd2749159b8cbe22f6d1e52",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
       "path": "backend/src/services/managedWorkspaceGroupPolicy.js",
       "source_blob": "99af20d44f2ddcc5076a93c7870c89b15f8a86a1",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
       "path": "backend/src/services/managedWorkspaceGroups.service.js",
       "source_blob": "a1749afdf5be35be6573b680ab1749de3b20793f",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -727,19 +735,19 @@
     {
       "path": "backend/src/services/meetingReservationDelivery.service.js",
       "source_blob": "f2fef2402be1e4ded5a31dc81fb4b3664a741579",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
       "path": "backend/src/services/meetingReservationPolicy.js",
       "source_blob": "59b76cc74766f8b714478abda6ad13b21ea46cd1",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
       "path": "backend/src/services/meetingReservations.service.js",
       "source_blob": "cd63d5742a2ed639eb915195696027f7b4fb499a",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -757,7 +765,7 @@
     {
       "path": "backend/src/services/priorityEventEmail.service.js",
       "source_blob": "f102b7b3d257b9a0393a01df101e308573baee68",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -769,7 +777,7 @@
     {
       "path": "backend/src/services/recurringScheduleWindow.service.js",
       "source_blob": "95033ededf62df04ea7defae64b89e8f72035aae",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -853,7 +861,7 @@
     {
       "path": "backend/src/utils/__tests__/officeReferralSource.test.js",
       "source_blob": "a73faaecb762a91adbf569d56b6ca00bb24dd046",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -901,7 +909,7 @@
     {
       "path": "backend/src/utils/officeReferralSource.js",
       "source_blob": "8c21084fd6f90e1457db3970e0540ff09e6d25b8",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -955,7 +963,7 @@
     {
       "path": "cloudbuild-backend.yaml",
       "source_blob": "b19cd580d38f95bcc842cf937e6a6ff200803cb6",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -967,7 +975,7 @@
     {
       "path": "database/migrations/1693_meeting_reservation_offers.sql",
       "source_blob": "689ea4a4195a09079183373bcc4a718fd6a88456",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -1111,19 +1119,19 @@
     {
       "path": "frontend/src/components/schedule/MeetingReservationPicker.vue",
       "source_blob": "c830f5091e1b227f0bbefbb71d119bf36d7b10d3",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
       "path": "frontend/src/components/schedule/ScheduleAvailabilityGrid.vue",
       "source_blob": "5316f29730ff8b06b9e483d9ae78caec9d274844",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
       "path": "frontend/src/components/schedule/__tests__/MeetingReservationPicker.test.js",
       "source_blob": "01d2a63a214606d6374c2be31f847dbacae081e1",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -1177,7 +1185,7 @@
     {
       "path": "frontend/src/router/index.js",
       "source_blob": "c0a09731f9b09bab23b96f764636c74296c3f9e8",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -1195,7 +1203,7 @@
     {
       "path": "frontend/src/utils/__tests__/apiBaseUrl.test.js",
       "source_blob": "508cefd83d17b049a8b398ea4776558e83b4a076",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -1207,13 +1215,13 @@
     {
       "path": "frontend/src/utils/apiBaseUrl.js",
       "source_blob": "8273137e57bd57d706e4bb59cdc29225043781e3",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
       "path": "frontend/src/utils/notificationActions.js",
       "source_blob": "dfe3e327a4a6a114c094fed19ef84b481bc83aee",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -1225,19 +1233,19 @@
     {
       "path": "frontend/src/views/MeetingTimesView.vue",
       "source_blob": "cbf0bb7c93e2df8f7502e249e801eeafe41bec62",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
       "path": "frontend/src/views/MyScheduleView.vue",
       "source_blob": "8afc4ad8c3a623b961e1e5deb2dcaa0f6d9a36d4",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
       "path": "frontend/src/views/PublicIntakeSigningView.vue",
       "source_blob": "d537050f6b13fbdfa643c6c95111d5db617957e9",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -1249,13 +1257,13 @@
     {
       "path": "frontend/src/views/__tests__/MeetingTimesView.test.js",
       "source_blob": "6f3b70ed4e6a0e86e745f8c9da75f8e05e98d97f",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
       "path": "frontend/src/views/__tests__/PublicIntakeReferralSource.test.js",
       "source_blob": "3bc426f1a0369cc9a771ac32417a4f6355af295e",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -1267,13 +1275,13 @@
     {
       "path": "frontend/src/views/public/MeetingReservationView.vue",
       "source_blob": "393a178f8c473d83367647004a22cd34f0e88984",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
       "path": "frontend/src/views/school/SchoolPortalView.vue",
       "source_blob": "b3d8c803550483e468efd39ba67597fe5ba860d9",
-      "decision": "selected_partial",
+      "decision": "released_selected_changes",
       "reason": "Include Quick Nav button/import only. Preserve newer messaging branding."
     },
     {
@@ -1303,7 +1311,7 @@
     {
       "path": "frontend/vitest.office-referral.config.js",
       "source_blob": "a2373c3d80ffc7da40707a78c9c7d90effdfb7c6",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     },
     {
@@ -1315,7 +1323,7 @@
     {
       "path": "scripts/start-cloud-sql-proxy.sh",
       "source_blob": "9d97565fba172b9340c84b523dbe1278926437ad",
-      "decision": "selected",
+      "decision": "released",
       "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
     }
   ],
@@ -1608,5 +1616,47 @@
       "source_blob": "2494a5339238e1d48de1bf6ab7052dd4c8a021ce",
       "decision": "held_sms"
     }
-  ]
+  ],
+  "production_verification": {
+    "verifiedAt": "2026-10-29T01:24:46.592Z",
+    "releaseCommit": "17e60a59338910f8c2f369c2812ea6cd058aa3f2",
+    "frontend": {
+      "schemaVersion": 1,
+      "buildId": "17e60a59338910f8c2f369c2812ea6cd058aa3f2",
+      "requiredBackendBuildId": "17e60a59338910f8c2f369c2812ea6cd058aa3f2"
+    },
+    "backend": {
+      "buildId": "17e60a59338910f8c2f369c2812ea6cd058aa3f2",
+      "ready": true
+    },
+    "publicReservationInvalidTokenStatus": 404,
+    "signedOutStaffStatus": 401,
+    "browser": {
+      "viewport": "390x844",
+      "heading": "Reserve a meeting time",
+      "invalidInvitation": "Invitation not found",
+      "runtimeErrors": []
+    },
+    "productionMessagesSentForTesting": 0,
+    "productionBookingsCreatedForTesting": 0,
+    "workflows": [
+      {
+        "name": "backend deployment",
+        "result": "success",
+        "url": "https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40799151535"
+      },
+      {
+        "name": "frontend deployment",
+        "result": "success",
+        "url": "https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40799227673"
+      },
+      {
+        "name": "scheduling regressions",
+        "result": "success",
+        "url": "https://github.com/imjustarunner/pt-onboarding-platform/actions/runs/40799151550"
+      }
+    ],
+    "calendar_regressions": "155 tests passed under UTC and 155 under America/Denver; final CI also passed both timezone matrices.",
+    "pdf_variants": "Both additional local program-guide PDFs have exactly the same extracted text as main."
+  }
 }
