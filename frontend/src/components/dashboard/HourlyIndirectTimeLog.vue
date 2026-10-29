@@ -1745,6 +1745,21 @@ async function postIndirectTimeClaim({
 
 async function submitTime() {
   if (!canSubmit.value || !agencyId.value) return;
+  // Validate the whole selection before the first per-activity request is saved.
+  const prepared = mergeAllocationsByType(getSubmitAllocations());
+  const missingNotes = prepared.filter(a => typeKeyOf(findServiceTypeById(a.serviceTypeId)).startsWith('jacquelyne_') && String(a.note || '').trim().length < 5);
+  if (missingNotes.length) {
+    error.value = 'Add a short work note for each assigned activity before submitting.';
+    return;
+  }
+  if (selectedOnboarding.value) {
+    const huddle = huddlesForDate.value.find(m => Number(m.id) === Number(onboardingHuddleId.value));
+    const minutes = prepared.filter(a => typeKeyOf(findServiceTypeById(a.serviceTypeId)) === 'jacquelyne_onboarding').reduce((total, a) => total + Number(a.minutes || 0), 0);
+    if (!huddle || minutes > (new Date(huddle.end_at) - new Date(huddle.start_at)) / 60000) {
+      error.value = 'Onboarding help cannot exceed the scheduled huddle duration.';
+      return;
+    }
+  }
   const panel = allocationPanelRef.value;
   let emptyNotes = selectedTypeIds.value.size > 1 ? (panel?.getEmptyNoteLabels?.() || []) : [];
   if (selectedTypeIds.value.size === 1 && !String(singleActivityNote.value || '').trim()) {

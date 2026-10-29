@@ -55,3 +55,13 @@ it('requires a scheduled huddle before submitting onboarding help',async()=>{
  expect(wrapper.text()).toContain('No scheduled huddle is available');
  expect(wrapper.findAll('button').find(b=>b.classes().includes('itl-submit')).attributes('disabled')).toBeDefined();
 });
+
+it('validates required notes for the entire selection before saving any individual activity',async()=>{
+ await openActivities();
+ for(const label of ['Translation','Team check-ins']) await wrapper.findAll('.itl-type-card').find(c=>c.text().includes(label)).trigger('click');
+ await flushPromises();
+ await wrapper.findAll('input[type="checkbox"]').find(i=>i.element.closest('.itl-attest-card')).setValue(true);
+ await wrapper.get('.itl-submit').trigger('click');await flushPromises();
+ expect(m.post).not.toHaveBeenCalled();
+ expect(wrapper.text()).toContain('Add a short work note for each assigned activity');
+});
