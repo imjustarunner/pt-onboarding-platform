@@ -21,6 +21,14 @@ function providerCtx(overrides = {}) {
 }
 
 describe('quickNavCatalog', () => {
+  it.each(['year awards', 'anniversary awards', 'service awards', 'cup', 'dinner', 'pullover', 'engagement retention'])('finds Year Awards for %s', (query) => {
+    const ctx = buildQuickNavContext({ user: { role: 'admin', capabilities: { canManageHiring: true } } });
+    const entry = searchQuickNav(query, ctx).flat.find((row) => row.path === '/admin/employee-relations');
+    expect(entry?.label).toBe('Year Awards');
+    expect(resolveQuickNavLocation(entry, { orgSlug: 'itsco' })).toBe('/itsco/admin/employee-relations');
+    if (query === 'year awards') expect(searchQuickNav(query, ctx).flat[0]).toEqual(entry);
+  });
+
   it('pay fuzzy-matches Payroll account destination', () => {
     const { flat } = searchQuickNav('pay', providerCtx());
     expect(flat.length).toBeGreaterThan(0);

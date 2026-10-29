@@ -30,8 +30,16 @@ export const listMilestones = async (req, res, next) => {
     const agencyId = parseAgencyId(req);
     await ensureAgencyAccess(req, agencyId);
     const status = req.query?.status ? String(req.query.status) : null;
-    const rows = await EmployeeServiceMilestone.listByAgency(agencyId, { status });
-    res.json({ agencyId, milestones: rows });
+    // Keep eligibility fresh without requiring a manual sync after staff date edits.
+    await EmployeeServiceMilestone.syncFromStartDates(agencyId);
+    const [rows, definitions, dinners, missingStartDates, today] = await Promise.all([
+      EmployeeServiceMilestone.listByAgency(agencyId, { status }),
+      EmployeeServiceMilestone.definitions(agencyId),
+      EmployeeServiceMilestone.dinners(agencyId),
+      EmployeeServiceMilestone.missingStartDates(agencyId),
+      EmployeeServiceMilestone.today(agencyId)
+    ]);
+    res.json({ agencyId, milestones: rows, definitions, dinners, missingStartDates, today });
   } catch (e) {
     next(e);
   }
@@ -63,10 +71,54 @@ export const updateMilestone = async (req, res, next) => {
     const updated = await EmployeeServiceMilestone.update(id, {
       status: req.body?.status,
       giftNotes: req.body?.giftNotes ?? req.body?.gift_notes,
-      assignedToUserId: req.body?.assignedToUserId ?? req.body?.assigned_to_user_id
-    });
+      fulfilledOn: req.body?.fulfilledOn
+    }, req.user.id);
     res.json({ milestone: updated });
   } catch (e) {
     next(e);
   }
+};
+
+export const saveGift = async (req, res, next) => {
+  try {
+    const agencyId = parseAgencyId(req);
+    await ensureAgencyAccess(req, agencyId);
+    const definitions = await EmployeeServiceMilestone.saveDefinition(agencyId, Number(req.params.years), req.body);
+    res.json({ definitions });
+  } catch (e) { next(e); }
+};
+
+async function accessibleAward(req) {
+  const row = await EmployeeServiceMilestone.findById(Number(req.params.id));
+  if (!row) throw Object.assign(new Error('Award not found.'), { status: 404 });
+  await ensureAgencyAccess(req, row.agency_id);
+  return row;
+}
+export const listNotes = async (req, res, next) => {
+  try {
+    const row = await accessibleAward(req);
+    res.json({ notes: await EmployeeServiceMilestone.notes(row.id) });
+  } catch (e) { next(e); }
+};
+export const addNote = async (req, res, next) => {
+  try {
+    const row = await accessibleAward(req);
+    res.json({ notes: await EmployeeServiceMilestone.addNote(row.id, req.body?.note, req.user.id) });
+  } catch (e) { next(e); }
+};
+export const createDinner = async (req, res, next) => {
+  try {
+    const agencyId = parseAgencyId(req);
+    await ensureAgencyAccess(req, agencyId);
+    const dinner = await EmployeeServiceMilestone.createDinner(agencyId, req.body, req.user.id);
+    res.status(201).json({ dinner });
+  } catch (e) { next(e); }
+};
+export const updateAttendance = async (req, res, next) => {
+  try {
+    const agencyId = parseAgencyId(req);
+    await ensureAgencyAccess(req, agencyId);
+    await EmployeeServiceMilestone.attendance(agencyId, Number(req.params.dinnerId), Number(req.params.id), req.body?.attendance, req.user.id);
+    res.json({ ok: true });
+  } catch (e) { next(e); }
 };

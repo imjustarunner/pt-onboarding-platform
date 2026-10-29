@@ -69,3 +69,7 @@ it('opens an exchange match in its own agency, even from another tenant', () => 
 it('opens urgent SMS support requests in the ticket queue', () => {
  expect(notificationDestination({type:'support_safety_net_alert',related_entity_type:'support_ticket',related_entity_id:60}, {organizationSlug:'itsco',role:'support'})).toBe('/itsco/tickets?status=open&ticketId=60');
 });
+
+it('opens eligible year awards in the notification agency', () => {
+  expect(notificationDestination({type:'employee_award_eligible',agency_id:2},{organizationSlug:'itsco',role:'admin'})).toBe('/itsco/admin/employee-relations?agencyId=2&status=owed');
+});

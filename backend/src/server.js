@@ -2824,6 +2824,16 @@ if (!isBootstrap) {
     setInterval(scheduleInboundEmailAgent, 30 * 1000);
   }, 30 * 1000);
 
+  // Year-award eligibility: agency administrator inbox notices, deduped in SQL.
+  const yearAwardTick = async () => {
+    try {
+      const { runEmployeeAwardTick } = await import('./services/employeeAwardNotifications.service.js');
+      await runEmployeeAwardTick();
+    } catch (error) { console.warn('[year-awards]', error.code || error.message); }
+  };
+  setTimeout(yearAwardTick, 60_000).unref();
+  setInterval(yearAwardTick, 60 * 60 * 1000).unref();
+
   // Agency birthday/anniversary automation (runs hourly; deduped per agency/day/type)
   const scheduleAgencyAnnouncementAutomation = async () => {
     try {

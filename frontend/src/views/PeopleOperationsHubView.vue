@@ -340,7 +340,7 @@
               v-if="canManageHiring && (hasHiringFeature || hasPeopleOpsFeature)"
               :to="orgTo('/admin/employee-relations')"
               class="hub-quick-link"
-            >Employee Relations</router-link>
+            >Year Awards</router-link>
           </div>
         </section>
       </aside>
@@ -820,9 +820,9 @@ const allSections = computed(() => [
     cards: [
       {
         id: 'engagement-retention',
-        title: 'Engagement & Retention',
-        shortDesc: 'Service milestones and gifts.',
-        desc: 'Track service anniversaries, gifts owed, and acknowledgements.',
+        title: 'Year Awards',
+        shortDesc: 'Anniversary awards and eligibility.',
+        desc: 'See who is eligible for a cup, dinner, pullover, or later milestone, and track gifts sent.',
         cta: 'Open →',
         to: orgTo('/admin/employee-relations'),
         tone: 'rose',

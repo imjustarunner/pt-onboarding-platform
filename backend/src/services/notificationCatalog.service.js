@@ -87,7 +87,7 @@ const TYPES_BY_CATEGORY = {
     'sstc_club_member_application_pending', 'sstc_club_invite_request'
   ],
   recognition_announcements: [
-    'birthday_announcement', 'anniversary_announcement', 'kudos_received',
+    'employee_award_eligible', 'birthday_announcement', 'anniversary_announcement', 'kudos_received',
     'kudos_earned_admin_digest', 'survey_completed', 'agency_campaign_opt_out'
   ],
   marketing: [
@@ -200,7 +200,7 @@ const WORKFORCE_RELEVANT = new Set([
   'hiring_task_assigned', 'training_assigned', 'training_due_soon',
   'supervision_presenter_reminder', 'program_reminder',
   'supervision_session_scheduled', 'team_meeting_scheduled',
-  'birthday_announcement', 'anniversary_announcement', 'kudos_received',
+  'employee_award_eligible', 'birthday_announcement', 'anniversary_announcement', 'kudos_received',
   'survey_completed', 'agency_campaign_opt_out'
 ]);
 

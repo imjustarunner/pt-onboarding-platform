@@ -671,11 +671,11 @@ export const APP_PAGES = [
     desc: 'Track onboarding progress and resend portal / login invites.'
   },
   {
-    title: 'Engagement & Retention',
+    title: 'Year Awards',
     section: 'People Ops › Employee Relations',
     path: '/admin/employee-relations',
-    keywords: ['employee relations', 'engagement', 'retention', 'service milestones', 'anniversary', 'gifts'],
-    desc: 'Service anniversary milestones, gifts owed, and acknowledgements.'
+    keywords: ['year awards', 'year award', 'annual awards', 'anniversary awards', 'service awards', 'employee relations', 'engagement', 'retention', 'service milestones', 'anniversary', 'gifts', 'cup', 'dinner', 'pullover', 'eligible', 'eligibility', 'gifts owed', 'gifts sent'],
+    desc: 'Anniversary award eligibility, gifts sent, notes, and two-year dinner invitations and attendance.'
   },
   {
     title: 'Training Modules',

@@ -1,6 +1,7 @@
 export function notificationDestination(notification, { organizationSlug = null, role = null } = {}) {
   const n = notification || {};
   const base = organizationSlug ? `/${organizationSlug}` : '';
+  if (n.type === 'employee_award_eligible') return `${base}/admin/employee-relations?agencyId=${Number(n.agency_id)}&status=owed`;
   const entityType = String(n.related_entity_type || '').toLowerCase();
   const entityId = Number(n.related_entity_id || 0);
   if (entityType === 'meeting_reservation_invitation' && entityId) return `${base}/meeting-times?invitation=${entityId}&agencyId=${Number(n.agency_id)}`;
