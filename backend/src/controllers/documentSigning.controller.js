@@ -1,3 +1,4 @@
+import { documentSignerAccess, requireAssignedDocumentSigner, requireCurrentSignatureRequest, requireValidPrimarySignature } from '../utils/documentSignerAccess.js';
 import { isEmploymentContract, addContractSignatureFields, signContractField } from '../utils/contractSignatureFields.js';
 import Task from '../models/Task.model.js';
 import DocumentTemplate from '../models/DocumentTemplate.model.js';
@@ -376,12 +377,19 @@ export const getDocumentTask = async (req, res, next) => {
       existingSigned = null;
     }
 
+    const signingAccess = documentSignerAccess(task, existingSigned, req.user);
+    if (task.assigned_to_user_id) {
+      const User = (await import('../models/User.model.js')).default;
+      const assigned = await User.findById(task.assigned_to_user_id);
+      signingAccess.assignedSignerName = [assigned?.first_name, assigned?.last_name].filter(Boolean).join(' ') || signingAccess.assignedSignerName;
+    }
     res.json({
       task,
       template,
       userDocument, // Personalized copy if exists
       userSpecificDocument, // User-specific document if exists
       signedDocument: existingSigned,
+      signingAccess,
       workflow
     });
   } catch (error) {
@@ -428,9 +436,12 @@ export const giveConsent = async (req, res, next) => {
 
     console.log(`giveConsent: Task found, reference_id: ${task.reference_id}`);
 
+    requireAssignedDocumentSigner(task, req.user);
+
     // Check if already signed and finalized (has a PDF path)
     const existingSigned = await SignedDocument.findByTask(taskId);
     if (existingSigned) {
+      requireAssignedDocumentSigner(task, req.user, existingSigned);
       // Only block if document is actually finalized (has a signed PDF)
       if (existingSigned.signed_pdf_path && existingSigned.signed_pdf_path.trim() !== '') {
         console.log(`giveConsent: Document already signed and finalized for task ${taskId}`);
@@ -632,7 +643,7 @@ export const giveConsent = async (req, res, next) => {
     });
     
     // Always return detailed error info for debugging
-    return res.status(500).json({
+    return res.status(Number(error?.status || error?.statusCode) || 500).json({
       error: {
         message: error.message || 'Internal server error',
         code: error.code,
@@ -660,10 +671,13 @@ export const recordIntent = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Document task not found' } });
     }
 
+    requireAssignedDocumentSigner(task, req.user);
     const signedDoc = await SignedDocument.findByTask(taskId);
     if (!signedDoc) {
       return res.status(400).json({ error: { message: 'Consent must be given first' } });
     }
+
+    requireAssignedDocumentSigner(task, req.user, signedDoc);
 
     await DocumentSignatureWorkflow.recordIntent(signedDoc.id, ipAddress, userAgent);
 
@@ -698,11 +712,13 @@ export const signDocument = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Document task not found' } });
     }
 
+    requireAssignedDocumentSigner(task, req.user);
     const signedDoc = await SignedDocument.findByTask(taskId);
     if (!signedDoc) {
       console.error(`signDocument: Signed document not found for task ${taskId}`);
       return res.status(400).json({ error: { message: 'Consent and intent must be recorded first' } });
     }
+    requireAssignedDocumentSigner(task, req.user, signedDoc);
     const existingSignedPath = String(signedDoc.signed_pdf_path || '').trim();
     if (existingSignedPath) {
       console.log(`signDocument: Task ${taskId} already finalized with signed PDF, returning existing result`);
@@ -1079,7 +1095,7 @@ export const signDocument = async (req, res, next) => {
       sqlState: error.sqlState
     });
     
-    const status = Number(error?.statusCode || 0) || 500;
+    const status = Number(error?.status || error?.statusCode || 0) || 500;
     return res.status(status).json({
       error: {
         message: error.message || 'Internal server error',
@@ -1122,6 +1138,7 @@ export const counterSignDocument = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Document must be signed before countersigning' } });
     }
 
+    requireValidPrimarySignature(originalTask, signedDoc, req.user);
     const existingAudit = signedDoc.audit_trail || {};
     if (existingAudit.adminCountersign?.signedAt) {
       return res.status(400).json({ error: { message: 'Document already countersigned' } });
@@ -1284,6 +1301,8 @@ export const viewSignedDocument = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Task not found' } });
     }
 
+    requireCurrentSignatureRequest(task);
+
     const signedDoc = await SignedDocument.findByTask(taskId);
     if (!signedDoc) {
       console.error(`viewSignedDocument: Signed document not found for task ${taskId}`);
@@ -1415,7 +1434,7 @@ export const viewSignedDocument = async (req, res, next) => {
   } catch (error) {
     console.error('viewSignedDocument: Error:', error);
     console.error('viewSignedDocument: Error stack:', error.stack);
-    return res.status(500).json({
+    return res.status(Number(error?.status || error?.statusCode) || 500).json({
       error: {
         message: error.message || 'Internal server error',
         ...(process.env.NODE_ENV === 'development' && { 
@@ -1438,6 +1457,8 @@ export const downloadSignedDocument = async (req, res, next) => {
       console.error(`downloadSignedDocument: Task ${taskId} not found`);
       return res.status(404).json({ error: { message: 'Task not found' } });
     }
+
+    requireCurrentSignatureRequest(task);
 
     let signedDoc = await SignedDocument.findByTask(taskId);
     if (!signedDoc) {
@@ -1548,7 +1569,7 @@ export const downloadSignedDocument = async (req, res, next) => {
       sqlMessage: error.sqlMessage
     });
     
-    return res.status(500).json({
+    return res.status(Number(error?.status || error?.statusCode) || 500).json({
       error: {
         message: error.message || 'Internal server error',
         code: error.code,
@@ -1566,6 +1587,8 @@ export const verifyDocument = async (req, res, next) => {
     const { taskId } = req.params;
     const userId = req.user.id;
 
+    const task = await Task.findById(taskId);
+    requireCurrentSignatureRequest(task);
     const signedDoc = await SignedDocument.findByTask(taskId);
     if (!signedDoc) {
       return res.status(404).json({ error: { message: 'Signed document not found' } });

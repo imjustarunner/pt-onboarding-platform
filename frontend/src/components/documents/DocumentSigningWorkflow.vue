@@ -14,7 +14,27 @@
       :agency-id="focusStepContext.agencyId"
       :enabled="true"
     />
-    <div v-if="currentStep === 1" class="step step-consent">
+    <div v-if="task" class="signer-status" role="status">
+      <strong>Assigned signer: {{ assignedSignerName }}</strong>
+      <p>{{ signingState.signed ? `Signed by ${assignedSignerName}.` : `${assignedSignerName} has not signed this request.` }}</p>
+      <p v-if="signingState.countersigned">Supervisor countersignature recorded.</p>
+    </div>
+    <div v-if="task && signingState.superseded" class="error-message">
+      <h2>Signature request superseded</h2>
+      <p>Do not use this copy. Its audit record has been preserved.</p>
+      <router-link v-if="replacementSigningPath" :to="replacementSigningPath">Open replacement request</router-link>
+    </div>
+    <div v-else-if="task && signingState.signerMismatch" class="error-message">
+      <h2>Signer does not match the assignment</h2>
+      <p>This record cannot be treated as {{ assignedSignerName }}’s signature. Ask the sender for a replacement request.</p>
+    </div>
+    <div v-else-if="task && !signingState.signed && !signingState.canSign" class="step step-waiting">
+      <h2>Waiting for {{ assignedSignerName }}</h2>
+      <p>This first signature belongs to {{ assignedSignerName }}. You cannot sign on their behalf.</p>
+      <p>After they sign, reopen this page to review the signed document and add your countersignature.</p>
+      <button class="btn btn-secondary" @click="loadDocumentTask" :disabled="loading">Refresh signature status</button>
+    </div>
+    <div v-else-if="task && currentStep === 1" class="step step-consent">
       <h2>Electronic Signature Consent</h2>
       <div class="consent-content">
         <p><strong>ESIGN Act Disclosure</strong></p>
@@ -193,9 +213,9 @@
     </div>
 
     <div v-else-if="currentStep === 4" class="step step-complete">
-      <h2>Document Signed Successfully</h2>
+      <h2>Document Signature Status</h2>
       <div class="success-message">
-        <p>✓ Your document has been signed and finalized.</p>
+        <p>✓ {{ assignedSignerName }} has signed this document.</p>
         <p>The signed document includes an audit certificate with all required ESIGN Act compliance information.</p>
       </div>
       <div class="complete-actions">
@@ -207,7 +227,7 @@
         </button>
       </div>
 
-      <div v-if="isAdminUser" class="admin-countersign">
+      <div v-if="isAdminUser && (signingState.canCountersign || signingState.countersigned)" class="admin-countersign">
         <div v-if="adminCountersigned" class="success-message" style="margin-top: 16px;">
           <p>✓ Admin counter-signature recorded.</p>
         </div>
@@ -260,6 +280,30 @@ const userSpecificDocument = ref(null);
 const task = ref(null);
 const workflow = ref(null);
 const signedDocument = ref(null);
+const signingAccess = ref(null);
+const signingState = computed(() => {
+  if (signingAccess.value) return signingAccess.value;
+  // Safe while an older API revision is serving an in-flight request.
+  const assignedId = Number(task.value?.assigned_to_user_id || 0);
+  const actorId = Number(authStore.user?.id || 0);
+  const doc = signedDocument.value;
+  const mismatch = !!doc && !!assignedId && Number(doc.user_id) !== assignedId;
+  let meta = task.value?.metadata || {};
+  if (typeof meta === 'string') { try { meta = JSON.parse(meta); } catch { meta = {}; } }
+  const superseded = !!meta.signatureRequestSupersededAt;
+  const signed = !!doc?.signed_pdf_path && !mismatch && !superseded;
+  const countersigned = signed && !!doc?.audit_trail?.adminCountersign?.signedAt;
+  return { signed, superseded, countersigned, signerMismatch: mismatch, assignedSignerName: meta.assignedSignerName,
+    replacementTaskId: meta.replacementTaskId,
+    canSign: !superseded && !mismatch && !signed && (!assignedId || actorId === assignedId),
+    canCountersign: signed && !countersigned && actorId !== Number(doc?.user_id) && isAdminUser.value
+      && (!meta.requiredCountersignerUserId || actorId === Number(meta.requiredCountersignerUserId)) };
+});
+const assignedSignerName = computed(() => signingState.value.assignedSignerName || 'The assigned signer');
+const replacementSigningPath = computed(() => {
+  const id = Number(signingState.value.replacementTaskId || 0);
+  return id ? `${route.params.organizationSlug ? '/' + route.params.organizationSlug : ''}/tasks/documents/${id}/sign` : null;
+});
 const hasSignature = ref(false);
 const signatureData = ref('');
 const hasAdminSignature = ref(false);
@@ -581,6 +625,7 @@ const loadDocumentTask = async () => {
     userSpecificDocument.value = response.data.userSpecificDocument;
     workflow.value = response.data.workflow;
     signedDocument.value = response.data.signedDocument || null;
+    signingAccess.value = response.data.signingAccess || null;
 
     const rawFieldDefs = template.value?.field_definitions || userSpecificDocument.value?.field_definitions || [];
     const parsedDefs = (() => {
@@ -708,6 +753,7 @@ const loadDocumentTask = async () => {
 };
 
 const giveConsent = async () => {
+  if (!signingState.value.canSign) return;
   try {
     loading.value = true;
     error.value = '';
@@ -738,6 +784,7 @@ const giveConsent = async () => {
 };
 
 const recordIntent = async () => {
+  if (!signingState.value.canSign) return;
   if (displayType.value === 'pdf' && !canProceed.value) {
     pageNotice.value = 'Please review all pages. Jumping to the next page.';
     if (pageNoticeTimer) clearTimeout(pageNoticeTimer);
@@ -855,6 +902,7 @@ const completeAndExitAfterFinalize = async () => {
 };
 
 const finalizeSignature = async () => {
+  if (!signingState.value.canSign) return;
   if (!hasSignature.value || !signatureData.value) {
     error.value = 'Please provide a signature';
     errorDetails.value = null;
@@ -1014,6 +1062,7 @@ const closeSession = () => {
 };
 
 const finalizeAdminCountersign = async () => {
+  if (!signingState.value.canCountersign) return;
   if (!hasAdminSignature.value || !adminSignatureData.value) {
     error.value = 'Please provide the admin signature';
     errorDetails.value = null;
@@ -1045,6 +1094,8 @@ watch(fieldValues, () => {
 </script>
 
 <style scoped>
+.signer-status { margin-bottom: 20px; padding: 16px; border: 1px solid #c7d8ed; border-radius: 8px; background: #f1f6fc; }
+.signer-status p { margin: 6px 0 0; }
 .document-signing-workflow {
   max-width: 1200px;
   width: 100%;
