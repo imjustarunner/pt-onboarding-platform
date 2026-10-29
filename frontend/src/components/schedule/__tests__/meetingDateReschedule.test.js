@@ -28,6 +28,8 @@ import { invalidateScheduleSummaryCacheForUser } from '../../../utils/scheduleSu
 let wrapper;
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-29T00:15:00Z'));
   vi.clearAllMocks();
   setActivePinia(createPinia());
   localStorage.clear();
@@ -46,10 +48,11 @@ afterEach(async () => {
   invalidateScheduleSummaryCacheForUser(7);
   invalidateScheduleSummaryCacheForUser(8);
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe('rescheduling an existing meeting from the Edit tab', () => {
-  it.each(['2026-10-30', '2026-11-05'])
+  it.each(['2026-10-28', '2026-10-30', '2026-11-05'])
     ('saves %s while preserving the meeting clock times and timezone', async (dateYmd) => {
       const event = {
         id: 10, kind: 'TEAM_MEETING', title: 'Check In', meetingSubtype: 'general',
@@ -101,5 +104,8 @@ describe('rescheduling an existing meeting from the Edit tab', () => {
         attendeeUserIds: [8]
       }), { skipGlobalLoading: true });
       expect(state.showRequestModal).toBe(false);
+      if (dateYmd === '2026-10-28') {
+        expect(window.confirm).toHaveBeenCalledWith('This meeting has already passed. Are you sure you want to update it?');
+      }
     });
 });
