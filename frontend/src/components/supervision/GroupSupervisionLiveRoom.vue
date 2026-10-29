@@ -201,7 +201,12 @@
           @meeting-ended="$emit('meeting-ended', $event)"
           @activity-notice-click="onFullscreenActivityClick"
           @leave-request="onLeaveClick"
-        />
+          @screen-sharing-change="onScreenSharingChange"
+        >
+          <template #extra-controls>
+            <button type="button" class="btn btn-secondary btn-sm" @click="showSessionDetails">Show goals, agenda &amp; actions</button>
+          </template>
+        </SupervisionVideoRoom>
       </div>
     </div>
 
@@ -220,8 +225,19 @@
               :live="agendaOpen"
               :live-sidebar="true"
               theme="dark"
+              @updated="refreshSharedContent"
             />
           </div>
+        </section>
+        <section class="gsl__workspace-section">
+          <MeetingGoalsActionsPanel
+            :session-id="numericSessionId || supervisionSessionId"
+            section="both"
+            :disabled="!canEditAgenda"
+            live
+            embedded
+            @saved="refreshSharedContent"
+          />
         </section>
         <section v-if="canFacilitate" class="gsl__workspace-section" :class="{ 'gsl__workspace-section--collapsed': !attendanceOpen }">
           <button type="button" class="gsl__section-head" @click="attendanceOpen = !attendanceOpen">
@@ -403,7 +419,7 @@
 <script setup>
 import SupervisionShareLink from './SupervisionShareLink.vue';
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
-import api from '../../services/api';
+import api, { isApiRateLimited } from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { supervisionAccessFor } from '../../utils/supervisionInvitationAccess';
 import BrandingLogo from '../BrandingLogo.vue';
@@ -411,6 +427,7 @@ import SupervisionVideoRoom from './SupervisionVideoRoom.vue';
 import SupervisionVideoLobbyPanel from './SupervisionVideoLobbyPanel.vue';
 import SupervisionWaitingRoomStage from './SupervisionWaitingRoomStage.vue';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
+import MeetingGoalsActionsPanel from '../meetings/MeetingGoalsActionsPanel.vue';
 import MeetingLiveActivityPanel from '../meetings/MeetingLiveActivityPanel.vue';
 import MeetingAttendancePanel from '../meetings/MeetingAttendancePanel.vue';
 import {
@@ -429,11 +446,68 @@ const emit = defineEmits(['leave', 'connected', 'meeting-ended', 'disconnected',
 
 const videoRoomRef = ref(null);
 const transcriptionNoticeDismissed = ref(false);
-const tileFocus = ref('collapsed');
+const tileFocus = ref('equal');
 const videoFullscreen = ref(false);
 const videoFullscreenActivityNotice = ref('');
 let fullscreenNoticeTimer = null;
 const waitingAgenda = ref([]);
+const sharedGoals = ref([]);
+const sharedActions = ref([]);
+const anyScreenSharing = ref(false);
+let contentLayoutReady = false;
+let sharedContentPoll = null;
+let sharedContentLoading = false;
+let roomDisposed = false;
+let pendingContentReveal = false;
+let emptyLayoutAwaitingAdmission = false;
+function showSessionDetails() {
+  agendaOpen.value = true;
+  videoFullscreen.value = false;
+}
+function onScreenSharingChange(active) {
+  anyScreenSharing.value = active;
+  if (!active && pendingContentReveal) {
+    pendingContentReveal = false;
+    void nextTick(showSessionDetails);
+  }
+}
+function contentList(value) {
+  if (Array.isArray(value)) return value;
+  try { const parsed = JSON.parse(value || '[]'); return Array.isArray(parsed) ? parsed : []; } catch { return []; }
+}
+function sharedContentCounts() {
+  return [sharedGoals.value, sharedActions.value, waitingAgenda.value].map(items =>
+    items.filter(item => String(typeof item === 'string' ? item : item.text || item.title || '').trim()).length);
+}
+async function refreshSharedContent() {
+  const sid = numericSessionId.value || Number(props.supervisionSessionId || 0);
+  if (!sid || sharedContentLoading || isApiRateLimited()) return;
+  sharedContentLoading = true;
+  const before = sharedContentCounts();
+  try {
+    const [artifactResponse, agendaResponse] = await Promise.all([
+      api.get(`/supervision/sessions/${sid}/artifacts`, { skipGlobalLoading: true, skipAuthRedirect: true }),
+      api.get('/meeting-agendas', { params: { meetingType: 'supervision_session', meetingId: sid }, skipGlobalLoading: true, skipAuthRedirect: true })
+    ]);
+    if (roomDisposed) return;
+    const artifact = artifactResponse?.data?.artifact || artifactResponse?.data || {};
+    sharedGoals.value = contentList(artifact.goals || artifact.goals_json);
+    sharedActions.value = contentList(artifact.actionItems || artifact.action_items_json);
+    waitingAgenda.value = contentList(agendaResponse?.data?.items);
+    const counts = sharedContentCounts();
+    if (!contentLayoutReady && !counts.some(Boolean) && !presentation.value) {
+      tileFocus.value = 'equal';
+      videoFullscreen.value = !props.isInLobby;
+      emptyLayoutAwaitingAdmission = props.isInLobby;
+    } else if (contentLayoutReady && counts.some((count, index) => count > before[index])) {
+      if (anyScreenSharing.value) pendingContentReveal = true;
+      else showSessionDetails();
+    }
+    contentLayoutReady = true;
+  } catch { /* Retain content and layout if the snapshot could not be loaded. */ }
+  finally { sharedContentLoading = false; }
+}
+
 const showHostLeaveModal = ref(false);
 const endingBusy = ref(false);
 const agendaOpen = ref(true);
@@ -603,24 +677,21 @@ const hasCaseGlance = computed(() => {
   return !!(c.client || c.presentingConcerns || c.duration || c.setting);
 });
 
-async function loadWaitingPrep() {
-  const sid = numericSessionId.value || Number(props.supervisionSessionId || 0);
-  if (!sid || !props.isInLobby) return;
-  try {
-    const agendaResp = await api.get('/meeting-agendas', {
-      params: { meetingType: 'supervision_session', meetingId: sid },
-      skipGlobalLoading: true,
-      skipAuthRedirect: true
-    }).catch(() => null);
-    const agenda = agendaResp?.data?.items || [];
-    waitingAgenda.value = Array.isArray(agenda) ? agenda : [];
-  } catch {
-    waitingAgenda.value = [];
+watch(() => props.isInLobby, inLobby => {
+  if (!inLobby && emptyLayoutAwaitingAdmission) {
+    emptyLayoutAwaitingAdmission = false;
+    if (!sharedContentCounts().some(Boolean) && !presentation.value) videoFullscreen.value = true;
   }
-}
-
+});
+watch(() => presentation.value?.id, (id, previous) => {
+  if (id && id !== previous) {
+    if (anyScreenSharing.value) pendingContentReveal = true;
+    else showSessionDetails();
+  }
+});
 onMounted(() => {
-  void loadWaitingPrep();
+  void refreshSharedContent();
+  sharedContentPoll = setInterval(() => { void refreshSharedContent(); }, 8000);
 });
 
 const canFacilitate = computed(() => (
@@ -745,6 +816,8 @@ function onLiveActivityNotice(payload) {
 }
 
 onUnmounted(() => {
+  roomDisposed = true;
+  clearInterval(sharedContentPoll);
   clearTimeout(slideSaveTimer);
   if (fullscreenNoticeTimer) clearTimeout(fullscreenNoticeTimer);
 });

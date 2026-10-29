@@ -1,5 +1,5 @@
 <template>
-  <Teleport to="body" :disabled="!mini">
+  <Teleport to="body" :disabled="!mini && !videoFullscreen">
   <div
     v-bind="$attrs"
     class="vsr"
@@ -9,7 +9,7 @@
       'vsr--tile-focus': allowTileFocus,
       'vsr--compact': compact,
       'vsr--strip': layout === 'strip',
-      'vsr--hide-controls': hideControls,
+      'vsr--hide-controls': hideControls && !videoFullscreen && !mini,
       'vsr--fullscreen': videoFullscreen,
       'vsr--lobby': lobbyMode,
       'vsr--preserve-aspect': preserveVideoAspect,
@@ -386,7 +386,7 @@
           </label>
         </div>
       </details>
-      <div v-if="!hideControls" class="vsr__controls" role="toolbar" aria-label="Session media controls">
+      <div v-if="!hideControls || videoFullscreen || mini" class="vsr__controls" role="toolbar" aria-label="Session media controls">
         <button v-if="meetingViewport?.canMinimize.value && sessionReady && !lobbyMode && !mini" type="button"
           class="vsr__ctrl vsr__mini-button" title="Keep this meeting open while you use the app" @click="minimizeMeeting">Mini</button>
         <button
@@ -447,11 +447,11 @@
           type="button"
           class="vsr__ctrl"
           :aria-pressed="sharingScreen"
-          :disabled="!sessionReady || (!effectiveCanShareScreen && !sharingScreen)"
+          :disabled="screenShareStarting || !sessionReady || (!effectiveCanShareScreen && !sharingScreen)"
           :title="screenShareButtonTitle"
           @click="toggleScreenShare"
         >
-          {{ sharingScreen ? 'Stop share' : 'Share screen' }}
+          {{ screenShareStarting ? 'Starting share…' : sharingScreen ? 'Stop share' : 'Share screen' }}
         </button>
         <span
           v-if="voiceIsolationStatus"
@@ -483,7 +483,7 @@
             @click="sendReaction(rx)"
           >{{ rx }}</button>
         </div>
-        <div v-if="allowTileFocus || showLayoutControls" class="vsr__layout-wrap">
+        <div v-if="allowTileFocus || showLayoutControls || videoFullscreen" class="vsr__layout-wrap">
           <button
             ref="layoutMenuButton"
             type="button"
@@ -498,6 +498,7 @@
           </button>
           <div
             v-if="layoutMenuOpen"
+            ref="layoutMenuEl"
             class="vsr__layout-menu"
             :class="{ 'vsr__layout-menu--up': layoutMenuOpensUp }"
             :style="layoutMenuStyle"
@@ -558,7 +559,7 @@ import {
 
 defineOptions({ inheritAttrs: false });
 const meetingViewport = inject(meetingViewportKey, null);
-const mini = computed(() => !!meetingViewport?.mini.value);
+const mini = computed(() => !!meetingViewport?.mini.value && !videoFullscreen.value);
 const miniPosition = ref({});
 function minimizeMeeting() {
   setVideoFullscreen(false);
@@ -681,8 +682,19 @@ const emit = defineEmits([
   'audio-map-change',
   'reaction',
   'transcript-control',
-  'cohost-granted'
+  'cohost-granted',
+  'screen-sharing-change'
 ]);
+
+// Standalone rooms do not always bind v-model. Keep their layout functional too.
+const tileFocus = ref(props.tileFocus);
+const videoFullscreen = ref(props.videoFullscreen);
+watch(() => props.tileFocus, value => { tileFocus.value = value; });
+watch(() => props.videoFullscreen, value => { videoFullscreen.value = value; });
+function setTileFocus(value) {
+  tileFocus.value = value;
+  emit('update:tileFocus', value);
+}
 
 const localMediaStageEl = ref(null);
 const localPublisherHostEl = ref(null);
@@ -721,19 +733,35 @@ const listeningVolumes = ref(new Map());
 /** @type {import('vue').Ref<Array<{ streamId: string, connectionId: string, name: string, hasVideo: boolean, hasAudio: boolean, profilePhotoUrl: string }>>} */
 const remotes = ref([]);
 const sharingScreen = ref(false);
+const screenShareStarting = ref(false);
+let screenShareAttempt = 0;
+const screenShareEndWaiters = new Map();
 const hasScreenShare = ref(false);
 const prioritizeScreen = ref(true);
 const screenFocused = computed(() => hasScreenShare.value && prioritizeScreen.value);
+let layoutBeforeScreenShare = null;
 watch(hasScreenShare, (active) => {
-  if (!active) return;
-  prioritizeScreen.value = true;
-  // A collapsed parent container must expand as well as the shared-screen tile.
-  if (props.tileFocus === 'collapsed') emit('update:tileFocus', 'equal');
+  emit('screen-sharing-change', active);
+  if (active) {
+    layoutBeforeScreenShare = {
+      fullscreen: videoFullscreen.value,
+      focus: tileFocus.value,
+      priority: prioritizeScreen.value
+    };
+    prioritizeScreen.value = true;
+    setVideoFullscreen(true);
+  } else if (layoutBeforeScreenShare) {
+    const previous = layoutBeforeScreenShare;
+    layoutBeforeScreenShare = null;
+    prioritizeScreen.value = previous.priority;
+    setTileFocus(previous.focus);
+    setVideoFullscreen(previous.fullscreen);
+  }
 });
 const screenShareLabel = ref('');
 const sessionReady = ref(false);
 watch(sessionReady, ready => {
-  if (!ready && mini.value) void meetingViewport.restore();
+  if (!ready && meetingViewport?.mini.value) void meetingViewport.restore();
 }, { flush: 'sync' });
 const remoteMediaEls = new Map();
 const localHandRaised = ref(false);
@@ -766,6 +794,7 @@ const hasRemote = computed(() => remotes.value.length > 0);
 const layoutMenuOpen = ref(false);
 const layoutMenuOpensUp = ref(false);
 const layoutMenuButton = ref(null);
+const layoutMenuEl = ref(null);
 /** Positioned via fixed viewport coordinates (not absolute-within-parent) so it
  * can never get trapped/clipped by an ancestor's overflow:hidden — e.g. the
  * video box shrinking to make room for a tall chat panel below it. */
@@ -780,15 +809,16 @@ function toggleLayoutMenu() {
   nextTick(() => {
     const rect = layoutMenuButton.value?.getBoundingClientRect?.();
     if (!rect) return;
+    const menu = layoutMenuEl.value;
+    const width = menu?.offsetWidth || Math.min(560, window.innerWidth - 16);
+    const height = menu?.offsetHeight || (window.innerWidth >= 600 ? 280 : 480);
     const spaceBelow = window.innerHeight - rect.bottom;
-    const estimatedMenuHeight = 320;
-    const estimatedMenuWidth = 200;
-    const opensUp = spaceBelow < estimatedMenuHeight && rect.top > spaceBelow;
+    const opensUp = spaceBelow < height && rect.top > spaceBelow;
     layoutMenuOpensUp.value = opensUp;
-    const left = Math.min(rect.left, Math.max(8, window.innerWidth - estimatedMenuWidth - 8));
-    layoutMenuStyle.value = opensUp
-      ? { left: `${left}px`, bottom: `${window.innerHeight - rect.top + 6}px`, top: 'auto' }
-      : { left: `${left}px`, top: `${rect.bottom + 6}px`, bottom: 'auto' };
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+    const desiredTop = opensUp ? rect.top - height - 6 : rect.bottom + 6;
+    const top = Math.max(8, Math.min(desiredTop, window.innerHeight - height - 8));
+    layoutMenuStyle.value = { left: `${left}px`, top: `${top}px`, bottom: 'auto' };
   });
 }
 const lastSpeakerStreamId = ref('');
@@ -843,12 +873,12 @@ onBeforeUnmount(() => clearInterval(waitTimer));
 const stageEl = ref(null);
 const stageSize = ref({ width: 960, height: 540 });
 const thumbnailSide = ref('bottom');
-const sideThumbnails = computed(()=>['left','right'].includes(thumbnailSide.value) && props.tileFocus==='remote' && !screenFocused.value && stageSize.value.width>=520);
+const sideThumbnails = computed(()=>['left','right'].includes(thumbnailSide.value) && tileFocus.value==='remote' && !screenFocused.value && stageSize.value.width>=520);
 let stageResizeObserver = null;
 const thumbnailKeys = computed(() => {
-  if (!screenFocused.value && !['remote', 'local', 'speaker'].includes(props.tileFocus)) return [];
-  const featured = screenFocused.value ? null : props.tileFocus === 'remote'
-    ? (focusedRemoteStreamId.value || 'local') : props.tileFocus === 'speaker'
+  if (!screenFocused.value && !['remote', 'local', 'speaker'].includes(tileFocus.value)) return [];
+  const featured = screenFocused.value ? null : tileFocus.value === 'remote'
+    ? (focusedRemoteStreamId.value || 'local') : tileFocus.value === 'speaker'
       ? (featuredSpeakerStreamId.value || 'local') : 'local';
   return [...stageRemotes.value.map(r => r.streamId),
     ...(showLocalOnStage.value ? ['local'] : [])].filter(key => key !== featured);
@@ -860,7 +890,7 @@ const thumbnailGrid = computed(() => {
   return { columns, side, rows: Math.ceil(thumbnailKeys.value.length / columns) };
 });
 function tileStageStyle(kind, key) {
-  if (!screenFocused.value && props.tileFocus === 'equal') return { order: tileOrderFor(kind, key) };
+  if (!screenFocused.value && tileFocus.value === 'equal') return { order: tileOrderFor(kind, key) };
   if (sideThumbnails.value) return null;
   const index = thumbnailKeys.value.indexOf(key);
   if (index < 0) return null;
@@ -874,7 +904,7 @@ const stageGridStyle = computed(() => {
       gridTemplateRows:`repeat(${count},minmax(90px,1fr))`,
       '--vsr-camera-side':`${Math.min(stageSize.value.width-rail-6,stageSize.value.height)}px`};
   }
-  if (screenFocused.value || ['remote', 'local', 'speaker'].includes(props.tileFocus)) {
+  if (screenFocused.value || ['remote', 'local', 'speaker'].includes(tileFocus.value)) {
     const { columns, side, rows } = thumbnailGrid.value;
     const minimumFeaturedHeight = mini.value ? 80 : 180;
     return {
@@ -884,7 +914,7 @@ const stageGridStyle = computed(() => {
       gridTemplateRows: `minmax(${minimumFeaturedHeight}px, 1fr)${rows ? ` repeat(${rows}, ${side}px)` : ''}`
     };
   }
-  if (props.lobbyMode || props.layout === 'strip' || props.tileFocus === 'collapsed') return null;
+  if (props.lobbyMode || props.layout === 'strip' || tileFocus.value === 'collapsed') return null;
   const count = Math.max(1, Math.min(stageVideoCount.value, visibleStagePages.value * STAGE_TILE_PAGE_SIZE));
   const { width, height } = stageSize.value;
   const grid = tileGrid(count, width, height, props.compact || mini.value ? 'mini' : tileSizePreset.value);
@@ -977,11 +1007,11 @@ const layoutMenuOptions = computed(() => [
 const useSplitCamOffLayout = computed(() =>
   props.layout !== 'strip'
   && !screenFocused.value
-  && props.tileFocus === 'equal'
-  && !props.videoFullscreen
+  && tileFocus.value === 'equal'
+  && !videoFullscreen.value
 );
 const featuredSpeakerStreamId = computed(() => {
-  if (props.tileFocus !== 'speaker') return '';
+  if (tileFocus.value !== 'speaker') return '';
   if (lastSpeakerStreamId.value === 'local' && showLocalOnStage.value) return '';
   if (lastSpeakerStreamId.value && stageRemotes.value.some((r) => r.streamId === lastSpeakerStreamId.value)) {
     return lastSpeakerStreamId.value;
@@ -1648,33 +1678,34 @@ function muteAllExcept(excludeConnectionIds = []) {
 
 function isLayoutOptionActive(opt) {
   if (!opt) return false;
-  if (opt.kind === 'side') return props.tileFocus==='remote' && !screenFocused.value && thumbnailSide.value===opt.side;
+  if (opt.kind === 'side') return tileFocus.value==='remote' && !screenFocused.value && thumbnailSide.value===opt.side;
   if (opt.kind === 'screen') return prioritizeScreen.value;
-  if (opt.kind === 'fullscreen') return !!props.videoFullscreen;
-  return !screenFocused.value && props.tileFocus === opt.id && !props.videoFullscreen;
+  if (opt.kind === 'fullscreen') return !!videoFullscreen.value;
+  return !screenFocused.value && tileFocus.value === opt.id && !videoFullscreen.value;
 }
 
 function setVideoFullscreen(on) {
-  if (on && props.tileFocus === 'collapsed') emit('update:tileFocus', 'equal');
+  if (on && tileFocus.value === 'collapsed') setTileFocus('equal');
+  videoFullscreen.value = !!on;
   emit('update:videoFullscreen', !!on);
   layoutMenuOpen.value = false;
 }
 
 function applyLayoutOption(opt) {
   if (!opt) return;
-  if(opt.kind==='side'){thumbnailSide.value=opt.side;prioritizeScreen.value=false;emit('update:tileFocus','remote');layoutMenuOpen.value=false;return;}
+  if(opt.kind==='side'){thumbnailSide.value=opt.side;prioritizeScreen.value=false;setTileFocus('remote');layoutMenuOpen.value=false;return;}
   if (opt.kind === 'screen') {
     prioritizeScreen.value = true;
-    if (props.tileFocus === 'collapsed') emit('update:tileFocus', 'equal');
+    if (tileFocus.value === 'collapsed') setTileFocus('equal');
     layoutMenuOpen.value = false;
     return;
   }
   if (opt.kind === 'fullscreen') {
-    setVideoFullscreen(!props.videoFullscreen);
+    setVideoFullscreen(!videoFullscreen.value);
     return;
   }
   prioritizeScreen.value = false;
-  emit('update:tileFocus', opt.id);
+  setTileFocus(opt.id);
   layoutMenuOpen.value = false;
 }
 
@@ -1685,12 +1716,12 @@ function onActivityNoticeClick() {
 
 function cycleLayoutFocus() {
   const order = ['equal', 'speaker', 'remote', 'local', 'collapsed'];
-  const idx = order.indexOf(props.tileFocus);
+  const idx = order.indexOf(tileFocus.value);
   const next = order[(idx + 1) % order.length];
-  emit('update:tileFocus', next);
+  setTileFocus(next);
 }
 
-watch(() => props.videoFullscreen, (on) => {
+watch(() => videoFullscreen.value, (on) => {
   if (on) layoutMenuOpen.value = false;
 });
 
@@ -1712,20 +1743,20 @@ const visibleLocal = computed(() => !hideSelfView.value);
 const visibleTileCount = computed(() => stageVideoCount.value);
 const isSoloStage = computed(() =>
   props.layout !== 'strip'
-  && props.tileFocus === 'equal'
+  && tileFocus.value === 'equal'
   && stageVideoCount.value === 1
   && (hasRemote.value || props.promoteLocalWhenAlone || props.lobbyMode)
 );
 const isDuoStage = computed(() =>
   props.equalTilesWhenRemote
   && props.layout !== 'strip'
-  && props.tileFocus === 'equal'
+  && tileFocus.value === 'equal'
   && stageVideoCount.value === 2
 );
 const isGridStage = computed(() =>
   props.equalTilesWhenRemote
   && props.layout !== 'strip'
-  && props.tileFocus === 'equal'
+  && tileFocus.value === 'equal'
   && stageVideoCount.value >= 3
 );
 
@@ -1862,20 +1893,20 @@ function setRemoteMediaEl(streamId, el) {
 
 function onTileActivate(which, streamId = '') {
   if (!props.allowTileFocus) return;
-  const alreadyFocused = !screenFocused.value && props.tileFocus === which
+  const alreadyFocused = !screenFocused.value && tileFocus.value === which
     && (which !== 'remote' || focusedRemoteStreamId.value === streamId);
   prioritizeScreen.value = false;
   if (which === 'remote') selectedRemoteStreamId.value = streamId;
   if (alreadyFocused) {
-    emit('update:tileFocus', 'equal');
+    setTileFocus('equal');
     return;
   }
-  emit('update:tileFocus', which);
+  setTileFocus(which);
 }
 
 function requestLeave() {
   setVideoFullscreen(false);
-  if (mini.value) void meetingViewport.restore();
+  if (meetingViewport?.mini.value) void meetingViewport.restore();
   emit('leave-request');
 }
 
@@ -1993,6 +2024,8 @@ function reconcileSubscriptions() {
   }
 }
 let screenSubscriber = null;
+let pendingScreenStream = null;
+let screenSubscriptionRevision = 0;
 let pendingUnmuteAfterPublish = false;
 let micToggleInFlight = false;
 
@@ -2105,21 +2138,25 @@ async function subscribeStreamOnce(stream, owner) {
   if (!streamId) return;
 
   if (screen) {
-    if (props.trainingPolicy) {
-      const permission=trainingStreamPermission(stream);
-      if (!permission.proctor) return;
-      if (!permission.primary && props.trainingPolicy.primaryId===props.trainingPolicy.userId && sharingScreen.value) return;
-      const current=screenSubscriber?.stream;
-      if (!permission.primary && current && trainingStreamPermission(current).primary) return;
-      if (permission.primary && sharingScreen.value) stopScreenShare();
+    if (props.trainingPolicy && !trainingStreamPermission(stream).proctor) return;
+    // Concurrent picker completions can race. Every client chooses the same
+    // presenter, retaining the lead trainer's precedence over co-trainers.
+    if (sharingScreen.value) {
+      if (!screenStreamPrecedes(stream, localScreenStream())) return;
+      stopScreenShare();
+      showConnectionNotice('Another participant started sharing. Your screen share has stopped.');
     }
-    if (screenSubscriber && String(screenSubscriber.stream?.streamId || '') === streamId) return;
+    const currentScreen = screenSubscriber?.stream || pendingScreenStream;
+    if (currentScreen && !screenStreamPrecedes(stream, currentScreen)) return;
+    pendingScreenStream = stream;
+    const revision = ++screenSubscriptionRevision;
     if (screenSubscriber) {
       try { session.unsubscribe(screenSubscriber); } catch { /* ignore */ }
       screenSubscriber = null;
     }
     await nextTick();
-    if (session !== owner) return;
+    if (session !== owner || revision !== screenSubscriptionRevision || !availableStreams.has(streamId)) return;
+    if (sharingScreen.value && !screenStreamPrecedes(stream, localScreenStream())) return;
     const targetEl = screenEl.value;
     if (!targetEl) return;
     targetEl.innerHTML = '';
@@ -2152,6 +2189,7 @@ async function subscribeStreamOnce(stream, owner) {
         }
       );
       screenSubscriber = sub;
+      pendingScreenStream = null;
       monitorMeetingAudio(sub, owner);
     };
     doScreenSubscribe();
@@ -2309,6 +2347,8 @@ async function subscribeStreamOnce(stream, owner) {
 }
 
 function clearScreenShareTile() {
+  pendingScreenStream = null;
+  ++screenSubscriptionRevision;
   hasScreenShare.value = false;
   screenShareLabel.value = '';
 
@@ -2512,6 +2552,7 @@ async function connect() {
       const stream = event.stream;
       const streamId = String(stream?.streamId || '');
       forgetStream(streamId);
+      screenShareEndWaiters.get(streamId)?.(true);
       // Ignored attendee/co-trainer shares can end while the lead trainer is still
       // presenting. Only clear the screen subscription that actually ended.
       if (screenSubscriber && String(screenSubscriber.stream?.streamId || '') === streamId) {
@@ -2610,6 +2651,26 @@ async function connect() {
       emit('reaction', payload);
     });
 
+    session.on('signal:screen_share_takeover', (event) => {
+      // This request only stops this participant's current presentation. It
+      // cannot turn media on, grant permissions, or end the meeting.
+      let data;
+      try { data = JSON.parse(event?.data || '{}'); } catch { return; }
+      const from = connectionIdFrom(event?.from);
+      const target = String(data.streamId || '');
+      if (!from || from === localConnectionId() || !roomConnections.has(from)) return;
+      if (!sharingScreen.value || target !== String(screenPublisher?.stream?.streamId || '')) return;
+      if (props.trainingPolicy) {
+        const permission = trainingStreamPermission({ connection: event.from });
+        if (!permission.proctor || (props.trainingPolicy.userId === props.trainingPolicy.primaryId && !permission.primary)) return;
+      } else if (isRestrictedScreenShare.value && !screenShareGrants.value[from]) {
+        let metadata = {};
+        try { metadata = JSON.parse(event.from.data || '{}'); } catch { return; }
+        if (!/^(host|co-?host|supervisor|presenter|interviewer)$/i.test(String(metadata.roleLabel || ''))) return;
+      }
+      stopScreenShare();
+      showConnectionNotice(`${cleanPersonName(participantIdentity(event.from).name) || 'Another participant'} is taking over screen sharing.`);
+    });
     session.on('signal:screen_share_grant', (event) => {
       if (props.trainingPolicy) return;
       let data = {};
@@ -2882,29 +2943,55 @@ async function connect() {
 }
 
 function stopScreenShare() {
+  ++screenShareAttempt;
+  screenShareStarting.value = false;
   screenPublisherHost?.remove();
   screenPublisherHost = null;
-  if (!screenPublisher) {
-    sharingScreen.value = false;
-    clearScreenShareTile();
-    return;
-  }
-  try {
-    session?.unpublish(screenPublisher);
-  } catch {
-    /* ignore */
-  }
-  try {
-    const el = mediaElement(screenPublisher)?.parentElement;
-    screenPublisher.destroy();
-    if (el && el.parentNode && el !== screenEl.value) el.parentNode.removeChild(el);
-  } catch {
-    /* ignore */
-  }
+  const stoppedPublisher = screenPublisher;
+  const wasSharing = sharingScreen.value;
+  // Clear ownership first: destroy() can synchronously fire mediaStopped.
   screenPublisher = null;
   sharingScreen.value = false;
-  // Always clear the featured screen tile — otherwise a black pane remains after Stop share.
-  clearScreenShareTile();
+  if (stoppedPublisher) {
+    try { session?.unpublish(stoppedPublisher); } catch { /* already stopped */ }
+    try { stoppedPublisher.destroy(); } catch { /* already stopped */ }
+  }
+  // A canceled picker must never remove someone else's active screen.
+  if (wasSharing && !screenSubscriber) clearScreenShareTile();
+}
+
+function localScreenStream() {
+  return { ...screenPublisher?.stream, connection: session?.connection, localScreen: true };
+}
+function screenStreamPrecedes(candidate, current) {
+  if (props.trainingPolicy) {
+    const primary = stream => stream.localScreen
+      ? props.trainingPolicy.userId === props.trainingPolicy.primaryId
+      : trainingStreamPermission(stream).primary;
+    if (primary(candidate) !== primary(current)) return primary(candidate);
+  }
+  const id = stream => String(stream?.streamId || connectionIdFrom(stream?.connection));
+  return id(candidate) < id(current);
+}
+
+function remoteScreenStreams() {
+  return [...availableStreams.values()].filter(stream => isScreenStream(stream) && !isOwnStream(stream)
+    && (!props.trainingPolicy || trainingStreamPermission(stream).proctor));
+}
+
+function waitForScreenShareEnd(stream, owner) {
+  const id = String(stream.streamId || '');
+  if (!availableStreams.has(id)) return Promise.resolve(true);
+  return new Promise(resolve => {
+    const finish = (ended) => {
+      clearTimeout(timer);
+      screenShareEndWaiters.delete(id);
+      resolve(ended && session === owner);
+    };
+    const timer = setTimeout(() => finish(false), 6000);
+    screenShareEndWaiters.set(id, finish);
+    if (!sendSessionSignal('screen_share_takeover', { streamId: id }, stream.connection)) finish(false);
+  });
 }
 
 async function toggleScreenShare() {
@@ -2912,6 +2999,7 @@ async function toggleScreenShare() {
     showConnectionNotice('Connect to the session before sharing your screen.');
     return;
   }
+  if (screenShareStarting.value) return;
   if (sharingScreen.value) {
     stopScreenShare();
     return;
@@ -2920,17 +3008,22 @@ async function toggleScreenShare() {
     showConnectionNotice('Ask the host or co-host to allow you to share your screen.');
     return;
   }
-  if (props.trainingPolicy && props.trainingPolicy.userId!==props.trainingPolicy.primaryId && [...availableStreams.values()].some(stream=>isScreenStream(stream) && trainingStreamPermission(stream).primary)) {
+  const existingScreens = remoteScreenStreams();
+  if (props.trainingPolicy && props.trainingPolicy.userId !== props.trainingPolicy.primaryId
+    && existingScreens.some(stream => trainingStreamPermission(stream).primary)) {
     showConnectionNotice('The lead trainer is sharing. Wait until they finish to share your screen.');
     return;
   }
+  if (existingScreens.length && !window.confirm('End the other person’s screen share and share your screen?')) return;
+  const confirmedIds = new Set(existingScreens.map(stream => String(stream.streamId)));
+  const owner = session;
+  const attempt = ++screenShareAttempt;
+  screenShareStarting.value = true;
   try {
-    // Safari requires screen capture to start directly in the click handler.
-    // connect() has already loaded the SDK; do not yield before initPublisher.
+    // Safari needs capture to begin directly in the click handler. Confirm is
+    // synchronous; do not await network requests before opening its picker.
     const OT = videoSdk;
     if (!OT) throw new Error('Reconnect to the session before sharing your screen.');
-    // Publish into a hidden off-screen container so the local publisher DOM
-    // never conflicts with the remote screen subscriber rendering in screenEl.
     const offscreen = document.createElement('div');
     screenPublisherHost = offscreen;
     offscreen.style.cssText = 'position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;';
@@ -2951,13 +3044,39 @@ async function toggleScreenShare() {
         (err) => (err ? reject(err) : resolve())
       );
     });
-    screenPublisher.on('mediaStopped', () => {
-      stopScreenShare();
-      clearScreenShareTile();
-    });
+    if (attempt !== screenShareAttempt || session !== owner) return;
+    screenPublisher.on('mediaStopped', () => { if (attempt === screenShareAttempt) stopScreenShare(); });
+    const currentScreens = remoteScreenStreams();
+    if (currentScreens.some(stream => !confirmedIds.has(String(stream.streamId)))) {
+      throw new Error('Someone started sharing while you chose a screen. Click Share screen again to confirm taking over.');
+    }
+    // Do not interrupt the existing presenter if the picker is canceled. Once
+    // capture is ready, wait for the SDK to confirm the prior stream has ended.
+    const ended = await Promise.all(currentScreens.map(stream => waitForScreenShareEnd(stream, owner)));
+    if (attempt !== screenShareAttempt || session !== owner) return;
+    if (ended.some(value => !value) || remoteScreenStreams().length) {
+      throw new Error('The other screen share has not ended. Ask the presenter to stop sharing, then try again.');
+    }
     await new Promise((resolve, reject) => {
-      session.publish(screenPublisher, (err) => (err ? reject(err) : resolve()));
+      owner.publish(screenPublisher, (err) => (err ? reject(err) : resolve()));
     });
+    if (attempt !== screenShareAttempt || session !== owner) return;
+    // A second publisher may appear during the publish acknowledgement. Pick
+    // the same winner as every receiver, including the training lead priority.
+    const concurrentScreens = remoteScreenStreams();
+    const winner = concurrentScreens.find(stream => screenStreamPrecedes(stream, localScreenStream()));
+    if (winner) {
+      stopScreenShare();
+      await subscribeToStream(winner);
+      showConnectionNotice('Another participant started sharing first. Click Share screen to request taking over.');
+      return;
+    }
+    if (screenSubscriber) {
+      try { owner.unsubscribe(screenSubscriber); } catch { /* already gone */ }
+      screenSubscriber = null;
+    }
+    pendingScreenStream = null;
+    ++screenSubscriptionRevision;
     sharingScreen.value = true;
     hasScreenShare.value = true;
     screenShareLabel.value = `${props.localName || 'You'} (screen)`;
@@ -2967,9 +3086,9 @@ async function toggleScreenShare() {
     screenPublisherHost?.remove();
     screenPublisherHost = null;
   } catch (err) {
+    if (attempt !== screenShareAttempt || session !== owner) return;
     console.error('[VideoSessionRoom] screen share failed', err);
     stopScreenShare();
-    clearScreenShareTile();
     const name = String(err?.name || '');
     const msg = String(err?.message || '');
     if (/InvalidAccess|InvalidState/.test(name)) {
@@ -2979,10 +3098,13 @@ async function toggleScreenShare() {
     showConnectionNotice(name.includes('MEDIA_ACCESS') || /permission|denied|blocked|NotAllowed/i.test(msg)
       ? 'Screen share was blocked. Allow screen sharing in your browser, then try again.'
       : (msg || 'Could not share your screen.'));
+  } finally {
+    if (attempt === screenShareAttempt) screenShareStarting.value = false;
   }
 }
 
 function disconnect(emitEvent = true) {
+  for (const finish of screenShareEndWaiters.values()) finish(false);
   blockedSubscribers.clear();
   blockedAudioCount.value = 0;
   audioResumeNeeded.value = false;
@@ -3443,6 +3565,9 @@ defineExpose({
   publishAudio,
   publishVideo,
   sharingScreen,
+  screenSharing: hasScreenShare,
+  videoFullscreen,
+  applyViewOption: (id) => applyLayoutOption(layoutMenuOptions.value.find(option => option.id === id)),
   hideSelfView,
   localHandRaised,
   handByConnection,
@@ -4230,7 +4355,7 @@ defineExpose({
 .vsr--fullscreen {
   position: fixed;
   inset: 0;
-  z-index: 1200;
+  z-index: 10200;
   background: #070a10;
   border-radius: 0;
   max-height: none;
@@ -4261,18 +4386,21 @@ defineExpose({
      see toggleLayoutMenu(). Escapes any ancestor's overflow:hidden instead of
      being clipped/hidden when this component is squeezed short by a sibling. */
   position: fixed;
-  z-index: 2000;
-  min-width: 200px;
-  max-height: min(50vh, 320px);
-  overflow: auto;
+  z-index: 10300;
+  width: min(560px, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
   background: #111827;
   border: 1px solid #334155;
   border-radius: 10px;
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
   padding: 6px;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 2px;
+}
+@media (max-width: 599px) and (min-height: 540px) {
+  .vsr__layout-menu { grid-template-columns: 1fr; }
 }
 .vsr__layout-item {
   display: flex;

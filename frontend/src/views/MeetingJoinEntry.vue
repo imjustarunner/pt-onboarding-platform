@@ -11,12 +11,16 @@
  </main>
  <main v-else class="calendar-guest"><h1>{{ title || 'Join meeting' }}</h1><p v-if="error" role="alert">{{ error }}</p>
   <p v-if="loading">Checking meeting access…</p>
-  <template v-else><p>You are joining as a guest. To register attendance as yourself, use your private email link or <RouterLink :to="{path:'/login',query:{redirect:route.fullPath}}">sign in</RouterLink>.</p>
+  <template v-else><p>You are on a guest account. Attendance and compensation are not tracked for guests. To have attendance and eligible compensation tracked, <RouterLink :to="{path:'/login',query:{redirect:route.fullPath}}">log in</RouterLink> with your invited account or use your personal invitation.</p>
+   <p v-if="guestAccountNotice" role="status">{{ guestAccountNotice }}</p>
+   <p v-if="guestLinkEnabled" role="status">{{ waitingRoomEnabled ? 'Guest link enabled · Guests wait for admission.' : 'This room is open · Guests can join with the shared link.' }}</p>
+   <p v-if="type === 'team-meeting'" role="status">This room is not HIPAA protected in its beta version. Do not have clinical sessions in this meeting room.</p>
+   <p v-if="!visit && !ended">{{ waitingRoomEnabled ? 'The waiting room is on. The host must admit you before you can join.' : 'This room is open. Guests can join when the meeting video is available.' }}</p>
    <p v-if="type === 'supervision'" role="status">This supervision session uses audio transcription and summaries for authorized participants. Joining as a guest does not pause transcription. Your current supervision agreement still requires your signature and your assigned supervisor’s countersignature.</p>
    <VideoSessionRoom v-if="video" v-bind="video" @leave-request="leave" @disconnected="leave" @meeting-ended="leave" />
-   <p v-else-if="visit && !ended" role="status">Waiting for the host to admit {{ displayName }} (Guest)…</p>
+   <p v-else-if="visit && !ended" role="status">{{ waitingRoomEnabled ? `Waiting for the host to admit ${displayName} (Guest)…` : 'Connecting to the open meeting…' }} <button type="button" @click="leave">Leave waiting room</button></p>
    <p v-else-if="ended">You have left the meeting. Reopen the calendar link to request admission again.</p>
-   <form v-else @submit.prevent="join"><label>Your display name<input v-model="displayName" maxlength="120" required /></label><button :disabled="busy">Request to join as guest</button></form>
+   <form v-else-if="linkAvailable" @submit.prevent="join"><label>Your display name<input v-model="displayName" maxlength="120" required /></label><button :disabled="busy">{{ waitingRoomEnabled ? 'Request to join as guest' : 'Join as guest' }}</button></form>
   </template>
  </main>
 </template>
@@ -27,17 +31,18 @@ import {supervisionAccessFor} from '../utils/supervisionInvitationAccess';import
 import VideoSessionRoom from '../components/video/VideoSessionRoom.vue';
 import {setApplicantInterviewMode} from '../utils/applicantInterviewMode';
 const ApplicantInterview=defineAsyncComponent(()=>import('./teamMeeting/ApplicantInterviewView.vue'));
-const route=useRoute(),auth=useAuthStore(),loading=ref(true),identified=ref(false),interview=ref(false),title=ref(''),displayName=ref(''),visit=ref(null),video=ref(null),error=ref(''),busy=ref(false),ended=ref(false);let timer,stopped=false,version=0;
+const route=useRoute(),auth=useAuthStore(),loading=ref(true),identified=ref(false),interview=ref(false),title=ref(''),displayName=ref(''),visit=ref(null),video=ref(null),error=ref(''),busy=ref(false),ended=ref(false),waitingRoomEnabled=ref(true),linkAvailable=ref(false),guestAccountNotice=ref(''),guestLinkEnabled=ref(false);let timer,stopped=false,version=0;
 const type=computed(()=>route.params.sessionId?'supervision':'team-meeting'),refId=computed(()=>String(route.params.sessionId||route.params.eventId));
 const accountJoin=computed(()=>type.value==='supervision' && route.query?.account==='1');
 const meetingComponent=computed(()=>type.value==='supervision'?Supervision:Team);
 const Supervision=defineAsyncComponent(()=>import('./supervision/JoinSupervisionView.vue')),Team=defineAsyncComponent(()=>import('./teamMeeting/JoinTeamMeetingView.vue'));
 const base=()=>`/meeting-calendar/${type.value}/${encodeURIComponent(refId.value)}`;
 const opts=()=>({skipAuthRedirect:true,skipGlobalLoading:true,headers:{'X-Calendar-Guest':visit.value?.credential||''}});
-async function join(){busy.value=true;error.value='';try{const url=base(),requestVersion=version;const data=(await api.post(`${url}/guests`,{displayName:displayName.value},opts())).data;if(stopped||requestVersion!==version)return;visit.value={...data,base:url};timer=setInterval(poll,4000);}catch(e){error.value=e.response?.data?.error?.message||'Cannot join meeting.';}finally{busy.value=false;}}
-async function poll(){if(stopped||!visit.value||ended.value)return;const current=visit.value;try{const state=(await api.get(`${current.base}/guests/${current.id}`,opts())).data;if(current!==visit.value||stopped||ended.value)return;if(state.status==='admitted'&&!video.value){const credentials=(await api.post(`${current.base}/guests/${current.id}/video-token`,{},opts())).data;if(current===visit.value&&!stopped&&!ended.value)video.value=credentials;}if(state.status==='left')leave();}catch(e){error.value=e.response?.data?.error?.message||'Cannot check meeting status.';if([403,404,410].includes(Number(e.response?.status)))leave();}}
+async function join(){busy.value=true;error.value='';try{const url=base(),requestVersion=version;const data=(await api.post(`${url}/guests`,{displayName:displayName.value},opts())).data;if(stopped||requestVersion!==version)return;visit.value={...data,base:url};timer=setInterval(poll,4000);void poll();}catch(e){error.value=e.response?.data?.error?.message||'Cannot join meeting.';}finally{busy.value=false;}}
+async function poll(){if(stopped||!visit.value||ended.value)return;const current=visit.value;try{const state=(await api.get(`${current.base}/guests/${current.id}`,opts())).data;if(current!==visit.value||stopped||ended.value)return;waitingRoomEnabled.value=state.waitingRoomEnabled!==false;if(video.value&&state.videoPolicy)video.value={...video.value,...state.videoPolicy};if(state.status==='admitted'&&!video.value){const credentials=(await api.post(`${current.base}/guests/${current.id}/video-token`,{},opts())).data;if(current===visit.value&&!stopped&&!ended.value)video.value=credentials;}if(state.status==='left')leave();}catch(e){error.value=e.response?.data?.error?.message||'Cannot check meeting status.';if([403,404,410].includes(Number(e.response?.status)))leave();}}
 function leave(){if(ended.value)return;ended.value=true;clearInterval(timer);video.value=null;if(visit.value)void api.post(`${visit.value.base}/guests/${visit.value.id}/leave`,{},opts()).catch(()=>{});}
 async function initialize(){const requestVersion=++version;try{
+ let sharedInfo;
  // Resolve applicant invitations before touching staff authentication. Existing
  // onboarding or expired staff cookies must not prevent an applicant joining.
  if(type.value==='team-meeting' && /^[\w-]{32}$/.test(refId.value) && !/^\d+$/.test(refId.value)){
@@ -45,6 +50,7 @@ async function initialize(){const requestVersion=++version;try{
    try { info=(await api.get(base(),opts())).data; }
    catch(e) { if(e.response?.status!==404)throw e; /* Staff host tokens are not calendar guest links. */ }
    if(requestVersion!==version||stopped)return;
+   sharedInfo=info;
    if(info?.interview){
      title.value=info.title;
      setApplicantInterviewMode(true);
@@ -56,13 +62,24 @@ async function initialize(){const requestVersion=++version;try{
  }
  // A shared opaque calendar URL must never inherit a stored personal grant.
  if(!accountJoin.value && /^\d+$/.test(refId.value)&&(type.value==='supervision'?supervisionAccessFor(refId.value):teamMeetingAccessFor(refId.value))){identified.value=true;return;}
- try{const {data}=await api.get('/users/me',{skipAuthRedirect:true,skipGlobalLoading:true});if(requestVersion!==version||stopped)return;if(data?.id){auth.setAuth(null,data,null);identified.value=true;return;}}catch{/* signed-out guests remain guests */}
+ let account;
+ try{account=(await api.get('/users/me',{skipAuthRedirect:true,skipGlobalLoading:true})).data;}catch{/* signed-out guests remain guests */}
+ if(requestVersion!==version||stopped)return;
+ if(account?.id){
+   auth.setAuth(null,account,null);
+   if(sharedInfo?.guestLinkEnabled && type.value==='team-meeting'){
+     const entry=(await api.post(`/team-meetings/${encodeURIComponent(refId.value)}/shared-link-entry`,{},opts())).data;
+     if(requestVersion!==version||stopped)return;
+     if(entry.identified===true){identified.value=true;return;}
+     guestAccountNotice.value=entry.guestReason||'This account will join as an untracked guest.';
+   }else{identified.value=true;return;}
+ }
 
  if(accountJoin.value)return;
- const info=(await api.get(base(),opts())).data;if(requestVersion!==version||stopped)return;title.value=info.title;interview.value=info.interview;
+ const info=sharedInfo||(await api.get(base(),opts())).data;if(requestVersion!==version||stopped)return;title.value=info.title;interview.value=info.interview;linkAvailable.value=true;waitingRoomEnabled.value=info.waitingRoomEnabled !== false;guestLinkEnabled.value=info.guestLinkEnabled===true;
  }catch(e){error.value=e.response?.data?.error?.message||'This meeting link is unavailable.';}finally{if(requestVersion===version)loading.value=false;}}
 onMounted(initialize);
-watch(()=>`${type.value}:${refId.value}:${accountJoin.value}`,()=>{setApplicantInterviewMode(false);leave();visit.value=null;ended.value=false;video.value=null;identified.value=false;interview.value=false;error.value='';loading.value=true;void initialize();});
+watch(()=>`${type.value}:${refId.value}:${accountJoin.value}`,()=>{setApplicantInterviewMode(false);leave();visit.value=null;ended.value=false;video.value=null;identified.value=false;interview.value=false;error.value='';loading.value=true;linkAvailable.value=false;waitingRoomEnabled.value=true;guestAccountNotice.value='';guestLinkEnabled.value=false;void initialize();});
 onBeforeUnmount(()=>{setApplicantInterviewMode(false);stopped=true;clearInterval(timer);if(visit.value)leave();});
 </script>
 <style scoped>.interviewer-sign-in{margin:0;padding:12px 20px;background:#fff;color:#182536}.interviewer-sign-in a{color:#174ea6;text-decoration:underline}.calendar-guest{max-width:1100px;margin:30px auto;padding:24px}.calendar-guest label{display:block}.calendar-guest input,.calendar-guest button{padding:12px;margin:10px}.calendar-guest [role=alert]{color:#9c2020}</style>

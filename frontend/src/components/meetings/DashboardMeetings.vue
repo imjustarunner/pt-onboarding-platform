@@ -9,6 +9,7 @@
     <details ref="meetingsDetails" class="dashboard-shortcut" :class="{ 'meetings-today': todayMeetings.length > 0 }" @toggle="onMeetingsToggle">
       <summary>My Meetings <span class="shortcut-hint">{{ meetings.length ? `${meetings.length} upcoming` : 'Meetings and notes' }}</span></summary>
       <div class="shortcut-content">
+    <div class="shortcut-close-row"><button type="button" class="shortcut-close" aria-label="Close My Meetings" @click="closeMeetings">Close <span aria-hidden="true">×</span></button></div>
     <RouterLink class="meetings-workspace-link" :to="{ path: `${route.params.organizationSlug ? `/${route.params.organizationSlug}` : ''}/my-meetings`, query: {} }" @click="notifyNavigation">My meetings · attended meetings and notes</RouterLink>
     <article v-for="meeting in meetings.slice(0, 4)" :key="meeting.key" :class="{ ready: canJoin(meeting) }">
       <div><strong>{{ meeting.title }}</strong><p>{{ formatTime(meeting.start) }} · {{ meeting.end <= now ? 'Ended' : meeting.start <= now ? 'In progress' : 'Upcoming' }}</p></div>
@@ -53,6 +54,12 @@ const officeLogo = computed(() => {
   return ehr ? AURICWELL_MARK_URL : toUploadsUrl(agency.logo_url || agency.logoUrl || '') || '';
 });
 const meetingsDetails = ref(null);
+function closeMeetings() {
+  if (!meetingsDetails.value) return;
+  meetingsDetails.value.open = false;
+  meetingsOpen.value = false;
+  meetingsDetails.value.querySelector('summary')?.focus();
+}
 const todayMeetings = computed(() => meetings.value.filter(m => new Date(m.start).toDateString() === new Date(now.value).toDateString()));
 let openedDay = '';
 
@@ -95,6 +102,9 @@ onMounted(()=>{if (!props.lazy) void load();timer=setInterval(()=>{now.value=Dat
 .dashboard-shortcut summary{padding:12px 14px;cursor:pointer;font-size:14px;font-weight:700;line-height:1.4}
 .shortcut-hint{font-size:12px;font-weight:400;color:var(--text-secondary,#526b65);margin-left:8px}
 .shortcut-content{padding:0 14px 12px;overflow-wrap:anywhere}
+.shortcut-close-row{display:flex;justify-content:flex-end;margin-bottom:4px}
+.shortcut-close{display:inline-flex;align-items:center;gap:8px;padding:5px 9px;border:1px solid var(--border,#b4d5cb);border-radius:6px;background:var(--bg-card,#fff);color:inherit;font:inherit;font-size:13px;cursor:pointer}
+.shortcut-close:focus-visible{outline:2px solid currentColor;outline-offset:2px}
 .dashboard-shortcut summary:focus-visible{outline:2px solid currentColor;outline-offset:2px;border-radius:10px}
 @media(min-width:1200px){.dashboard-meetings{margin-inline:24px}}
 @media(max-width:600px){.dashboard-shortcut{flex-basis:100%}.dashboard-meetings{margin:8px 16px}.shortcut-hint{display:block;margin-left:16px}}.dashboard-meetings h2{font-size:1.1rem;margin:0 0 10px;color:inherit}.dashboard-meetings article{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px;border-radius:9px}.dashboard-meetings article.ready{background:#d9f5e7;border:2px solid #2d6a50}.dashboard-meetings p{margin:5px 0;font-size:.85rem}.meeting-join{display:inline-flex;padding:14px 24px;border-radius:8px;background:#245b44;color:white;font-size:1.05rem;font-weight:800;white-space:nowrap}@media(max-width:600px){.dashboard-meetings article{flex-wrap:wrap}.meeting-join{width:100%;justify-content:center}}

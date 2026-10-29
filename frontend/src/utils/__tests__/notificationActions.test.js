@@ -2,6 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { notificationDestination, notificationDismissPayload } from '../notificationActions';
 
 describe('notificationActions', () => {
+  it('opens a live invitation directly and supports older plural event entity types', () => {
+    expect(notificationDestination({type:'team_meeting_scheduled',related_entity_type:'provider_schedule_event',related_entity_id:20,audience_json:'{"live":true}'},{organizationSlug:'itsco'})).toBe('/itsco/join/team-meeting/20');
+    expect(notificationDestination({type:'team_meeting_scheduled',related_entity_type:'provider_schedule_events',related_entity_id:20})).toBe('/my-schedule?eventId=20&eventKind=TEAM_MEETING');
+  });
+  it('opens a tagged meeting offer and the reserved meeting from their notifications', () => {
+    expect(notificationDestination({type:'team_meeting_scheduled',related_entity_type:'meeting_reservation_invitation',related_entity_id:30,agency_id:2},{organizationSlug:'itsco',role:'provider'}))
+      .toBe('/itsco/meeting-times?invitation=30&agencyId=2');
+    expect(notificationDestination({type:'team_meeting_scheduled',related_entity_type:'provider_schedule_event',related_entity_id:20},{organizationSlug:'itsco',role:'provider'}))
+      .toBe('/itsco/my-schedule?eventId=20&eventKind=TEAM_MEETING');
+  });
   it('routes packets to the client documents tab with organization context', () => {
     expect(notificationDestination({
       type: 'new_packet_uploaded', related_entity_type: 'client', related_entity_id: 42

@@ -69,6 +69,9 @@
           @click="transcriptionNoticeDismissed = true"
         >×</button>
       </div>
+      <div v-if="guestLinkEnabled" class="join-guest-link-status" :class="{'join-guest-link-status--fullscreen':videoFullscreen}" role="status">
+        {{ guestRoomOpen ? 'This room is open · Guests can join with the shared link.' : 'Guest link enabled · Guests wait for admission.' }}
+      </div>
       <header v-if="!videoFullscreen" class="join-header">
         <div class="join-header__left">
           <BrandingLogo size="large" class="join-header__logo" :logo-url="joinHeaderLogoUrl || undefined" />
@@ -119,7 +122,7 @@
             <button type="button" class="btn btn-secondary btn-sm" @click="toolsOpen = !toolsOpen">Tools</button>
             <div v-if="toolsOpen" class="join-tools__menu">
               <button type="button" class="join-tools__item" @click="openAddAttendeeModal">
-                Invite someone · send personal link
+                Invite someone
               </button>
               <button
                 v-if="canMuteParticipants && !isTraining"
@@ -205,7 +208,7 @@
         class="join-session-layout"
         :class="{
           'join-session-layout--interview': isInterviewMeeting && canSeeFullWorkspace && !isInLobby && !videoFullscreen,
-          'join-session-layout--chat-only': !canSeeFullWorkspace,
+          'join-session-layout--chat-only': !canSeeMeetingWorkspace,
           'join-session-layout--lobby': isInLobby && !videoFullscreen,
           'join-session-layout--video-focus': !chatPanelOpen || videoFullscreen,
           'join-session-layout--video-fs': videoFullscreen
@@ -281,8 +284,14 @@
               @cohost-granted="onCohostGranted"
               @participant-left="onParticipantLeft"
               @activity-notice-click="onFullscreenActivityClick"
+              @screen-sharing-change="onMeetingScreenSharing"
               @leave-request="requestLeave"
-            />
+            >
+              <template #extra-controls>
+                <button v-if="canSeeMeetingWorkspace && !isInLobby && !isInterviewMeeting && !isEvaluationMeeting" type="button" class="btn btn-secondary btn-sm" @click="showMeetingDetails">Show goals, agenda &amp; actions</button>
+                <button v-if="canManageMeetingLive && !isInLobby" type="button" class="btn btn-secondary btn-sm" @click="openAddAttendeeModal">Invite someone</button>
+              </template>
+            </SupervisionVideoRoom>
           </div>
           <ScheduledTrainingPanel v-if="isTraining && resolvedEventId" ref="trainingPanelRef" :event-id="resolvedEventId" :live="!isInLobby" @state="trainingState=$event" @private-chat="trainingPrivateChat" />
           <InterviewSharedChat v-if="isInterviewMeeting && canSeeFullWorkspace && !isInLobby && resolvedEventId && !videoFullscreen"
@@ -323,7 +332,7 @@
             />
           </section>
         </div>
-        <aside v-if="resolvedEventId && !isInLobby && canSeeFullWorkspace && !videoFullscreen" class="join-workspace">
+        <aside v-if="resolvedEventId && !isInLobby && canSeeMeetingWorkspace && !videoFullscreen" class="join-workspace">
           <div v-if="workspaceBannerVisible && !isInterviewMeeting && !isEvaluationMeeting" class="join-workspace__banner">
             <span class="join-workspace__lock" aria-hidden="true">🔒</span>
             <p>
@@ -430,7 +439,7 @@
           </div>
 
           <div v-else class="join-workspace__body join-workspace__body--stack">
-            <section v-if="meetingSettings?.agenda !== false" class="join-stack-section">
+            <section v-if="detailsRequested || workspaceContent.agenda || meetingSettings?.agenda !== false" class="join-stack-section">
               <MeetingAgendaPanel
                 meeting-type="provider_schedule_event"
                 :meeting-id="resolvedEventId"
@@ -439,25 +448,28 @@
                 :live="true"
                 :live-sidebar="true"
                 theme="dark"
+                @updated="refreshWorkspaceLayout"
               />
             </section>
-            <section v-if="!isGroupHuddle && meetingSettings?.goals !== false" class="join-stack-section">
+            <section v-if="!isGroupHuddle && (detailsRequested || workspaceContent.goals || meetingSettings?.goals !== false)" class="join-stack-section">
               <MeetingGoalsActionsPanel :disabled="isTraining && !trainingState?.proctor"
                 :event-id="resolvedEventId"
                 section="goals"
                 :compact="false"
                 :meeting-subtype="meetingSubtype"
                 :live="true"
+                @saved="refreshWorkspaceLayout"
                 embedded
               />
             </section>
-            <section v-if="!isHuddle && meetingSettings?.actionItems !== false" class="join-stack-section">
+            <section v-if="!isHuddle && (detailsRequested || workspaceContent.actionItems || meetingSettings?.actionItems !== false)" class="join-stack-section">
               <MeetingGoalsActionsPanel :disabled="isTraining && !trainingState?.proctor"
                 :event-id="resolvedEventId"
                 section="actions"
                 :compact="false"
                 :meeting-subtype="meetingSubtype"
                 :live="true"
+                @saved="refreshWorkspaceLayout"
                 embedded
               />
             </section>
@@ -571,10 +583,18 @@
 
     <div v-if="showAddAttendeeModal" class="join-modal-backdrop" role="dialog" aria-modal="true" @click.self="closeAddAttendeeModal">
       <div class="join-modal">
-        <h3>Invite someone · send personal link</h3>
+        <h3>Invite someone</h3>
+        <section v-if="canShareGuestLink" class="join-guest-link-controls">
+          <h4>Share a guest link</h4>
+          <p>Guests can join without an account. Attendance and eligible compensation are tracked only when they log in. Your waiting-room settings still apply.</p>
+          <button type="button" class="btn btn-primary btn-sm" :disabled="guestLinkBusy" @click="copyGuestLink">{{ guestLinkBusy ? 'Preparing link…' : guestLinkCopied ? 'Guest link copied' : 'Copy guest join link' }}</button>
+          <label v-if="guestJoinUrl">Guest join link<input :value="guestJoinUrl" readonly aria-label="Guest join link" @focus="$event.target.select()" /></label>
+          <p v-if="guestLinkMessage" role="status">{{ guestLinkMessage }}</p>
+          <p v-if="guestLinkError" role="alert">{{ guestLinkError }}</p>
+        </section>
+        <h4>Invite a team member</h4>
         <p class="muted" style="margin: 0 0 4px;">
-          They’ll be able to join right away (waiting room still applies) and their attendance —
-          and pay, if this meeting type is compensated — is tracked automatically once they’re in.
+          Send a personal invitation. Waiting-room settings still apply, and attendance and eligible compensation follow this meeting’s tracking settings.
         </p>
         <input
           v-model="addAttendeeSearch"
@@ -594,7 +614,7 @@
               @click="addAttendee(c)"
             >
               <span>{{ c.label }}</span>
-              <span class="join-add-attendee-added" v-if="addedAttendeeIds.has(c.id)">Invitation queued ✓</span>
+              <span class="join-add-attendee-added" v-if="addedAttendeeIds.has(c.id)">Added ✓</span>
               <span v-else class="join-add-attendee-add">{{ addingAttendeeId === c.id ? 'Sending…' : 'Send invitation' }}</span>
             </button>
           </li>
@@ -602,6 +622,7 @@
             No matches.
           </li>
         </ul>
+        <p v-if="addAttendeeNotice" role="status">{{ addAttendeeNotice }}</p>
         <p v-if="addAttendeeError" class="error-inline">{{ addAttendeeError }}</p>
         <div class="join-modal-actions">
           <button type="button" class="btn btn-secondary" @click="closeAddAttendeeModal">Done</button>
@@ -706,6 +727,14 @@ const canEndForEveryone = ref(false);
 const resolvedEventId = ref(0);
 const roomMode = ref('main');
 const waitingRoomEnabled = ref(true);
+const guestLinkEnabled = ref(false);
+const guestJoinUrl = ref('');
+const guestLinkBusy = ref(false);
+const guestLinkCopied = ref(false);
+const guestLinkMessage = ref('');
+const guestLinkError = ref('');
+const addAttendeeNotice = ref('');
+const guestRoomOpen = computed(() => !waitingRoomEnabled.value);
 const waitingLobbyCount = ref(0);
 const hostPresent = ref(false);
 const hostRoleLabel = ref('Host');
@@ -831,6 +860,67 @@ const addedAttendeeIds = ref(new Set());
 const addAttendeeError = ref('');
 const tileFocus = ref('equal');
 const videoFullscreen = ref(false);
+const detailsRequested = ref(false);
+const screenSharing = ref(false);
+let contentRevealPending = false;
+function onMeetingScreenSharing(active) {
+  screenSharing.value = !!active;
+  if (!active && contentRevealPending) {
+    contentRevealPending = false;
+    void nextTick(() => showMeetingDetails());
+  }
+}
+const workspaceContent = ref({ agenda: false, goals: false, actionItems: false });
+let workspaceLayoutTimer = null;
+let workspaceLayoutLoading = false;
+let workspaceLayoutInitialized = false;
+let workspaceContentKeys = new Set();
+let workspaceLayoutGeneration = 0;
+function showMeetingDetails() {
+  detailsRequested.value = true;
+  videoFullscreen.value = false;
+  chatPanelOpen.value = false;
+}
+async function refreshWorkspaceLayout() {
+  const eid = Number(resolvedEventId.value || 0);
+  if (!eid || !canSeeMeetingWorkspace.value || isInLobby.value || isInterviewMeeting.value || isEvaluationMeeting.value || workspaceLayoutLoading) return;
+  const generation = workspaceLayoutGeneration;
+  workspaceLayoutLoading = true;
+  try {
+    const [workspaceResult, agendaResult] = await Promise.all([
+      api.get(`/team-meetings/${eid}/workspace`, { skipGlobalLoading: true, skipAuthRedirect: true }),
+      api.get('/meeting-agendas', { params: { meetingType: 'provider_schedule_event', meetingId: eid }, skipGlobalLoading: true, skipAuthRedirect: true })
+    ]);
+    if (generation !== workspaceLayoutGeneration || eid !== Number(resolvedEventId.value) || intentionalLeave.value) return;
+    const data = workspaceResult.data || {};
+    applyGuestLinkStatus(data);
+    if (!data.workspace || !Array.isArray(agendaResult.data?.items)) return;
+    if (data.meetingSettings) meetingSettings.value = data.meetingSettings;
+    const present = rows => (Array.isArray(rows) ? rows : []).filter(item => String(item?.text || item?.title || item?.description || '').trim());
+    const content = {
+      agenda: present(agendaResult.data.items),
+      goals: isGroupHuddle.value ? [] : present(data.workspace.goals),
+      actionItems: isHuddle.value ? [] : present(data.workspace.actionItems)
+    };
+    const keys = new Set(Object.entries(content).flatMap(([kind, rows]) => rows.map((row, index) => `${kind}:${row.id ?? index}`)));
+    const hasNewContent = [...keys].some(key => !workspaceContentKeys.has(key));
+    workspaceContent.value = Object.fromEntries(Object.entries(content).map(([kind, rows]) => [kind, rows.length > 0]));
+    if (!workspaceLayoutInitialized) {
+      // Training has additional required content even without agenda/goals.
+      if (!keys.size && !detailsRequested.value && !isTraining.value) {
+        tileFocus.value = 'equal';
+        videoFullscreen.value = true;
+      }
+    } else if (hasNewContent) {
+      if (screenSharing.value) contentRevealPending = true;
+      else showMeetingDetails();
+    }
+    workspaceContentKeys = keys;
+    workspaceLayoutInitialized = true;
+  } catch { /* Preserve the chosen layout while content cannot be verified. */ }
+  finally { workspaceLayoutLoading = false; }
+}
+
 const videoFullscreenActivityNotice = ref('');
 let fullscreenNoticeTimer = null;
 const chatPanelOpen = ref(true);
@@ -1077,6 +1167,12 @@ const canSeeFullWorkspace = computed(() => {
   return FULL_WORKSPACE_ROLES.has(actorRole.value);
 });
 
+// Regular attendees may collaborate on shared content without gaining access
+// to attendance administration, transcripts or specialized private workspaces.
+const canSeeMeetingWorkspace = computed(() => canSeeFullWorkspace.value || (
+  !isInterviewMeeting.value && !isEvaluationMeeting.value && !!Number(authStore.user?.id || 0)
+));
+
 watch([isInterviewMeeting, canSeeFullWorkspace], ([interview, interviewer]) => {
   if (interview) tileFocus.value = interviewer ? 'remote' : 'equal';
 }, { immediate: true });
@@ -1085,6 +1181,7 @@ watch([isInterviewMeeting, canSeeFullWorkspace], ([interview, interviewer]) => {
 const canEditAgenda = computed(() => {
   if (isTraining.value) return !!trainingState.value?.proctor;
   if (isHost.value) return true;
+  if (!isInterviewMeeting.value && !isEvaluationMeeting.value) return !!Number(authStore.user?.id || 0);
   return ['super_admin', 'admin', 'support', 'clinical_practice_assistant'].includes(actorRole.value);
 });
 
@@ -1175,8 +1272,14 @@ function retryJoin() {
   void runJoinFlowForCurrentRoute();
 }
 
+function applyGuestLinkStatus(data = {}) {
+  if (typeof data.guestLinkEnabled === 'boolean') guestLinkEnabled.value = data.guestLinkEnabled;
+  if (typeof data.waitingRoomEnabled === 'boolean') waitingRoomEnabled.value = data.waitingRoomEnabled;
+}
+
 function applyTokenPayload(data) {
   applyClosurePayload(data);
+  applyGuestLinkStatus(data);
   const tok = String(data.token || data.data?.token || '').trim();
   if (tok) token.value = tok;
   const sid = String(data.sessionId || data.roomSid || data.vonageSessionId || '').trim();
@@ -1263,6 +1366,7 @@ async function readMeetingCompletion() {
       timeout: 10000
     });
     const data = resp?.data || {};
+    applyGuestLinkStatus(data);
     if (data.interviewGuestEnded) { onInterviewGuestEndedSignal(data); return; }
     if (data.attendanceTrackingEnabled != null) {
       applyAttendanceTrackingStatus(!!data.attendanceTrackingEnabled);
@@ -1319,6 +1423,7 @@ async function pollAdmission() {
       timeout: 10000
     });
     const data = resp?.data || {};
+    applyGuestLinkStatus(data);
     if (data.interviewGuestEnded) { onInterviewGuestEndedSignal(data); return; }
     if (data.meetingCompleted || data.meetingCompletedAt || data.roomMode === 'ended') {
       applyClosurePayload(data);
@@ -1649,6 +1754,7 @@ function openAddAttendeeModal() {
   toolsOpen.value = false;
   addAttendeeError.value = '';
   addAttendeeSearch.value = '';
+  addAttendeeNotice.value = '';
   addedAttendeeIds.value = new Set();
   showAddAttendeeModal.value = true;
   if (!addAttendeeCandidates.value.length) void loadAddAttendeeCandidates();
@@ -1664,13 +1770,39 @@ async function addAttendee(candidate) {
   addingAttendeeId.value = candidate.id;
   addAttendeeError.value = '';
   try {
-    await api.post(`/team-meetings/${eid}/attendees`, { userId: candidate.id, resend: true });
+    const { data } = await api.post(`/team-meetings/${eid}/attendees`, { userId: candidate.id, resend: true });
+    addAttendeeNotice.value = data?.notificationWarning || (data?.notificationSent ? `Invitation sent to ${candidate.label}.` : `Added ${candidate.label} to the meeting.`);
     addedAttendeeIds.value = new Set([...addedAttendeeIds.value, candidate.id]);
   } catch (e) {
     addAttendeeError.value = e?.response?.data?.error?.message || e?.message || 'Failed to add attendee';
   } finally {
     addingAttendeeId.value = 0;
   }
+}
+
+// isHost is verified by the server and includes persisted roster cohosts.
+const canShareGuestLink = computed(() => !isInterviewMeeting.value && isHost.value);
+async function copyGuestLink() {
+  const eid = Number(resolvedEventId.value || eventId.value || 0);
+  if (!eid || guestLinkBusy.value || !canShareGuestLink.value) return;
+  guestLinkBusy.value = true;
+  guestLinkCopied.value = false;
+  guestLinkError.value = '';
+  guestLinkMessage.value = '';
+  try {
+    const { data } = await api.post(`/team-meetings/${eid}/guest-link`, {}, { skipGlobalLoading: true });
+    guestJoinUrl.value = data.joinUrl;
+    applyGuestLinkStatus(data);
+    try {
+      await navigator.clipboard.writeText(data.joinUrl);
+      guestLinkCopied.value = true;
+      guestLinkMessage.value = guestRoomOpen.value ? 'Link copied. This room is open to guests.' : 'Link copied. Guests will wait for admission.';
+    } catch {
+      guestLinkMessage.value = 'Your guest link is ready. Select the link above to copy it.';
+    }
+  } catch (e) {
+    guestLinkError.value = e?.response?.data?.error?.message || e.message || 'Could not prepare a guest link.';
+  } finally { guestLinkBusy.value = false; }
 }
 
 async function enableAttendanceTracking() {
@@ -2068,6 +2200,7 @@ watch(
         skipAuthRedirect: true
       });
       meetingSettings.value = data?.meetingSettings || null;
+      applyGuestLinkStatus(data);
       const subtype = String(data?.meetingSubtype || 'general').toLowerCase();
       meetingSubtype.value = (subtype === 'admin' || ['training','town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation') ? subtype : 'general';
 
@@ -2109,12 +2242,24 @@ watch(
   }
 );
 
+watch([resolvedEventId, isInLobby, canSeeMeetingWorkspace], () => {
+  clearInterval(workspaceLayoutTimer);
+  workspaceLayoutGeneration += 1;
+  workspaceLayoutInitialized = false;
+  workspaceContentKeys = new Set();
+  if (!resolvedEventId.value || isInLobby.value || !canSeeMeetingWorkspace.value) return;
+  void refreshWorkspaceLayout();
+  workspaceLayoutTimer = setInterval(refreshWorkspaceLayout, 8000);
+});
+
 onMounted(async () => {
   initMeetingDarkMode();
   await runJoinFlowForCurrentRoute();
 });
 
 onUnmounted(() => {
+  workspaceLayoutGeneration += 1;
+  clearInterval(workspaceLayoutTimer);
   resumeInactivityTimeout();
   if (!intentionalLeave.value) sendPresence('leave');
   stopAdmissionPolling();
@@ -2128,6 +2273,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.join-guest-link-status{padding:8px 12px;border:1px solid #79ac93;border-radius:8px;background:#e8f5ee;color:#1b5439;font-size:13px;flex-shrink:0}.join-guest-link-status--fullscreen{position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:10350;max-width:calc(100vw - 40px);pointer-events:none}.join-guest-link-controls{padding:14px;border:1px solid #d9e5df;border-radius:12px;margin-bottom:18px}.join-guest-link-controls h4{margin-top:0}.join-guest-link-controls p{font-size:14px;line-height:1.5}.join-guest-link-controls label{display:block;margin-top:12px}.join-guest-link-controls input{display:block;width:100%;box-sizing:border-box;margin-top:4px}.join-modal-backdrop{z-index:10400!important}
 .join-team-meeting-view {
   min-height: 100vh;
   min-height: 100dvh;

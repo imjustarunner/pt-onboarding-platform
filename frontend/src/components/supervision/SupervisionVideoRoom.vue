@@ -50,6 +50,7 @@
       @hand-raised-change="$emit('hand-raised-change', $event)"
       @hands-map-change="$emit('hands-map-change', $event)"
       @audio-map-change="$emit('audio-map-change', $event)"
+      @screen-sharing-change="$emit('screen-sharing-change', $event)"
       @reaction="$emit('reaction', $event)"
       @transcript-control="$emit('transcript-control', $event)"
       @cohost-granted="$emit('cohost-granted', $event)"
@@ -140,7 +141,8 @@ defineEmits([
   'reaction',
   'transcript-control',
   'cohost-granted',
-  'participant-left'
+  'participant-left',
+  'screen-sharing-change'
 ]);
 
 const authStore = useAuthStore();
@@ -201,6 +203,7 @@ defineExpose({
   toggleMic: (...args) => videoRoomRef.value?.toggleMic?.(...args),
   toggleCamera: (...args) => videoRoomRef.value?.toggleCamera?.(...args),
   toggleScreenShare: (...args) => videoRoomRef.value?.toggleScreenShare?.(...args),
+  applyViewOption: (...args) => videoRoomRef.value?.applyViewOption?.(...args),
   toggleRaiseHand: (...args) => videoRoomRef.value?.toggleRaiseHand?.(...args),
   sendReaction: (...args) => videoRoomRef.value?.sendReaction?.(...args),
   signalTranscriptControl: (...args) => videoRoomRef.value?.signalTranscriptControl?.(...args),
@@ -213,6 +216,8 @@ defineExpose({
   get publishAudio() { return videoRoomRef.value?.publishAudio; },
   get publishVideo() { return videoRoomRef.value?.publishVideo; },
   get sharingScreen() { return videoRoomRef.value?.sharingScreen; },
+  get screenSharing() { return videoRoomRef.value?.screenSharing; },
+  get videoFullscreen() { return videoRoomRef.value?.videoFullscreen; },
   get localHandRaised() { return videoRoomRef.value?.localHandRaised; },
   get handByConnection() { return videoRoomRef.value?.handByConnection; }
 });

@@ -17,7 +17,8 @@ const props = { supervisionSessionId: 101, isSupervisor: true, isInLobby: false,
 let wrapper;
 beforeEach(() => {
   vi.useFakeTimers(); vi.clearAllMocks(); m.capture = null;
-  m.get.mockResolvedValue({ data: { artifact: {}, activity: [] } });
+  // Nonempty content keeps the workspace visible while testing its status and polling.
+  m.get.mockResolvedValue({ data: { artifact: { goals: [{ id: 'goal', text: 'Discuss progress' }] }, items: [], activity: [] } });
   m.post.mockResolvedValue({ data: {} });
 });
 afterEach(async () => { wrapper?.unmount(); await flushPromises(); vi.clearAllTimers(); vi.useRealTimers(); });

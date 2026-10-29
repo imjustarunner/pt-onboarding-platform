@@ -302,6 +302,11 @@ class NotificationDispatcherService {
     });
     if (!typePushEnabled) return { dispatched: false, reason: 'type_push_disabled' };
     let notificationUrl = '/notifications';
+    if (notification.type === 'team_meeting_scheduled' && ['provider_schedule_event', 'provider_schedule_events'].includes(notification.related_entity_type)) {
+      const eventId = Number(notification.related_entity_id);
+      const audience = parseJsonMaybe(notification.audience_json) || {};
+      if (eventId > 0 && audience.live === true) notificationUrl = `/join/team-meeting/${eventId}`;
+    }
     if (notification.type === 'company_event_message') {
       const audience = parseJsonMaybe(notification.audience_json) || {};
       try {

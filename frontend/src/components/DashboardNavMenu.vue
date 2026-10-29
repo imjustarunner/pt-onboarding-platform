@@ -1,15 +1,18 @@
 <template>
-  <span ref="anchor" class="dashboard-nav-menu" @pointerenter="enter" @pointerleave="leave">
-    <RouterLink :to="to" custom v-slot="{ href, isActive }">
-      <a ref="trigger" :href="href" class="dashboard-nav-trigger" :class="{ 'router-link-active': isActive }" :aria-expanded="open" :aria-controls="menuId"
-        data-testid="desktop-dashboard-menu-trigger" @click="click" @keydown.space.prevent="click" @keydown.down.prevent="show(true)">
-        My Dashboard <span aria-hidden="true" class="dashboard-nav-caret">▾</span>
+  <span ref="anchor" class="dashboard-nav-menu" title="" @pointerenter="enter" @pointerleave="leave">
+    <RouterLink :to="homeTarget" custom v-slot="{ href, isActive, navigate }">
+      <a :href="href" class="dashboard-nav-trigger" :class="{ 'router-link-active': isActive }"
+        data-testid="desktop-dashboard-home" @click="navigateHome($event, navigate)" @keydown.down.prevent="show(true)">
+        My Dashboard
       </a>
     </RouterLink>
+    <button ref="trigger" type="button" class="dashboard-nav-caret" :aria-expanded="open" :aria-controls="menuId"
+      aria-label="My Dashboard sections" data-testid="desktop-dashboard-menu-trigger" @click="open ? close() : show(true)" @keydown.down.prevent="show(true)">
+      <span aria-hidden="true">▾</span>
+    </button>
     <Teleport to="body">
       <nav v-if="open" :id="menuId" ref="panel" class="dashboard-nav-panel" :style="position" aria-label="My Dashboard sections"
         @pointerenter="cancelClose" @pointerleave="leave">
-        <template v-if="rows.length">
           <div v-for="row in rows" :key="row.id" class="dashboard-nav-row" :style="{ '--depth': row.depth }">
             <button type="button" class="dashboard-nav-item" :aria-expanded="row.kind === 'nest' ? expanded.has(row.id) : undefined"
               @click="row.kind === 'nest' ? toggle(row) : select(row)">
@@ -22,8 +25,6 @@
             <button v-if="row.children?.length && row.kind !== 'nest'" type="button" class="dashboard-nav-disclosure"
               :aria-label="`${expanded.has(row.id) ? 'Collapse' : 'Expand'} ${row.label}`" :aria-expanded="expanded.has(row.id)" @click="toggle(row)">{{ expanded.has(row.id) ? '▾' : '▸' }}</button>
           </div>
-        </template>
-        <button v-else type="button" class="dashboard-nav-item" @click="loadDashboard">Open My Dashboard <span aria-hidden="true">↗</span></button>
       </nav>
     </Teleport>
   </span>
@@ -39,10 +40,18 @@ const menuId = `dashboard-nav-${getCurrentInstance().uid}`;
 const anchor = ref(null), trigger = ref(null), panel = ref(null), open = ref(false), position = ref({});
 const expanded = ref(new Set()), failedIcons = ref(new Set());
 let hoverTimer, closeTimer;
-let loadingDashboard = false;
+const homeTarget = computed(() => ({ path: router.resolve(props.to).path, query: { tab: 'overview' } }));
+// The rail registers its full menu on the first dashboard visit. Keep useful,
+// working destinations available when someone first opens a different page.
+const availableItems = computed(() => props.items.length ? props.items : [
+  { id: 'overview', label: 'Overview', destination: homeTarget.value },
+  { id: 'my', label: 'My Account', destination: { path: homeTarget.value.path, query: { tab: 'my', my: 'account' } } },
+  { id: 'my_schedule', label: 'My Schedule', destination: homeTarget.value.path.replace(/\/dashboard\/?$/, '/my-schedule') },
+  { id: 'meetings', label: 'My Meetings', destination: homeTarget.value.path.replace(/\/dashboard\/?$/, '/my-meetings') }
+]);
 const rows = computed(() => {
   const walk = (items, depth = 0) => items.flatMap(item => [{ ...item, depth }, ...(expanded.value.has(item.id) ? walk(item.children || [], depth + 1) : [])]);
-  return walk(props.items.filter(item => !item.nestedUnder));
+  return walk(availableItems.value.filter(item => !item.nestedUnder));
 });
 function cancelClose() { clearTimeout(closeTimer); }
 function reposition() {
@@ -60,17 +69,21 @@ function show(focus = false) {
   open.value = true; reposition();
   void nextTick(() => { reposition(); if (focus) panel.value?.querySelector('button')?.focus(); });
 }
-function close(restoreFocus = false) { clearTimeout(hoverTimer); cancelClose(); open.value = false; loadingDashboard = false; if (restoreFocus) trigger.value?.focus(); }
-function loadDashboard() { loadingDashboard = true; emit('open-dashboard'); }
+function close(restoreFocus = false) { clearTimeout(hoverTimer); cancelClose(); open.value = false; if (restoreFocus) trigger.value?.focus(); }
 function enter(event) { if (event.pointerType === 'touch') return; cancelClose(); clearTimeout(hoverTimer); hoverTimer = setTimeout(() => show(), 500); }
 function leave() { clearTimeout(hoverTimer); cancelClose(); closeTimer = setTimeout(() => { if (!panel.value?.contains(document.activeElement)) close(); }, 250); }
-function click(event) {
+function navigateHome(event, navigate) {
   if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button > 0) return;
-  event.preventDefault();
-  if (open.value && props.items.length) close(); else { show(true); if (!props.items.length) loadDashboard(); }
+  close();
+  emit('open-dashboard');
+  return navigate(event);
 }
 function toggle(row) { const next = new Set(expanded.value); next.has(row.id) ? next.delete(row.id) : next.add(row.id); expanded.value = next; }
-function select(row) { close(); emit('select', row); }
+function select(row) {
+  close();
+  if (row.destination) { emit('open-dashboard'); void router.push(row.destination); }
+  else emit('select', row);
+}
 function outside(event) { if (!anchor.value?.contains(event.target) && !panel.value?.contains(event.target)) close(); }
 function keys(event) {
   if (!open.value) return;
@@ -84,27 +97,21 @@ function keys(event) {
 }
 function focusOutside(event) { if (open.value && !anchor.value?.contains(event.target) && !panel.value?.contains(event.target)) close(); }
 watch(() => props.contextKey, () => close());
-watch(() => route.path, () => {
-  if (loadingDashboard) { loadingDashboard = false; return; }
-  close();
-});
-watch(() => props.items.length, count => {
-  if (count && route.path === router.resolve(props.to).path) void nextTick(() => { loadingDashboard = false; });
-});
+watch(() => route.fullPath, () => close());
 onMounted(() => { document.addEventListener('pointerdown', outside); document.addEventListener('keydown', keys); document.addEventListener('focusin', focusOutside); window.addEventListener('resize', reposition); document.addEventListener('scroll', reposition, true); });
 onBeforeUnmount(() => { close(); document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', keys); document.removeEventListener('focusin', focusOutside); window.removeEventListener('resize', reposition); document.removeEventListener('scroll', reposition, true); });
 </script>
 <style scoped>
-.dashboard-nav-menu { display:inline-flex; flex-shrink:0; }
-.dashboard-nav-trigger { display:inline-flex; align-items:center; gap:5px; color:inherit; font:inherit; font-size:16px; text-decoration:none; white-space:nowrap; padding:6px 12px; border-radius:5px; }
-.dashboard-nav-trigger:hover, .dashboard-nav-trigger.router-link-active, .dashboard-nav-trigger[aria-expanded="true"] { background:#ffffff1a; }
-.dashboard-nav-caret { font-size:10px; }
+.dashboard-nav-menu { display:inline-flex; flex-shrink:0; align-items:stretch; }
+.dashboard-nav-trigger { display:inline-flex; align-items:center; color:inherit; font:inherit; font-size:16px; text-decoration:none; white-space:nowrap; padding:6px 4px 6px 12px; border-radius:5px 0 0 5px; }
+.dashboard-nav-trigger:hover, .dashboard-nav-trigger.router-link-active, .dashboard-nav-caret:hover, .dashboard-nav-caret[aria-expanded="true"] { background:#ffffff1a; }
+.dashboard-nav-caret { min-width:30px; padding:6px 8px; border:0; border-radius:0 5px 5px 0; background:transparent; color:inherit; font:inherit; font-size:10px; cursor:pointer; }
 .dashboard-nav-panel { position:fixed; z-index:10110; box-sizing:border-box; overflow:auto; overscroll-behavior:contain; padding:8px; border:1px solid var(--border,#cbd5e1); border-radius:12px; background:var(--bg-card,#fff); color:var(--text-primary,#183a37); box-shadow:0 10px 35px #0003; }
 .dashboard-nav-row { display:flex; padding-left:calc(var(--depth) * 12px); }
 .dashboard-nav-item, .dashboard-nav-disclosure { border:0; background:transparent; color:inherit; font:inherit; font-size:14px; cursor:pointer; border-radius:7px; padding:10px 8px; }
 .dashboard-nav-item { display:flex; align-items:center; gap:10px; text-align:left; width:100%; min-width:0; }
 .dashboard-nav-item:hover, .dashboard-nav-disclosure:hover { background:var(--bg-alt,#f1f5f9); }
-.dashboard-nav-item:focus-visible, .dashboard-nav-disclosure:focus-visible, .dashboard-nav-trigger:focus-visible { outline:2px solid var(--primary,#247252); outline-offset:1px; }
+.dashboard-nav-item:focus-visible, .dashboard-nav-disclosure:focus-visible, .dashboard-nav-trigger:focus-visible, .dashboard-nav-caret:focus-visible { outline:2px solid var(--primary,#247252); outline-offset:1px; }
 .dashboard-nav-item img, .dashboard-nav-icon { width:24px; height:24px; flex:0 0 24px; object-fit:contain; text-align:center; }
 .dashboard-nav-label { flex:1; overflow-wrap:anywhere; }
 .dashboard-nav-badge { padding:1px 6px; border-radius:10px; background:var(--bg-alt,#f1f5f9); font-size:11px; }

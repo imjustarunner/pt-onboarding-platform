@@ -44,7 +44,7 @@ it('lets a signed-out candidate resolve a personal interview invitation', async 
   const base = await appUrl();
   const response = await fetch(`${base}/api/meeting-calendar/team-meeting/${'p'.repeat(32)}`);
   expect(response.status).toBe(200);
-  expect(await response.json()).toEqual({ title: 'Interview', interview: true });
+  expect(await response.json()).toEqual({ title: 'Interview', interview: true, waitingRoomEnabled: true, guestLinkEnabled: false });
 });
 
 it('lets shared-calendar visitors request admission without an account', async () => {

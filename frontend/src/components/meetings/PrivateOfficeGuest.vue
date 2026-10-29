@@ -1,5 +1,6 @@
 <template>
   <div class="join-my-room" :style="brandStyle">
+    <VirtualOfficeUseNotice />
     <div v-if="loading" class="jmr-card jmr-muted">Loading room…</div>
     <div v-else-if="error && !room" class="jmr-card jmr-error">{{ error }}</div>
     <template v-else>
@@ -93,6 +94,7 @@
 </template>
 
 <script setup>
+import VirtualOfficeUseNotice from './VirtualOfficeUseNotice.vue';
 import { officeAccent } from '../../utils/officeBranding';
 import OfficeBrand from './OfficeBrand.vue';
 import OfficeWaitingMessages from './OfficeWaitingMessages.vue';

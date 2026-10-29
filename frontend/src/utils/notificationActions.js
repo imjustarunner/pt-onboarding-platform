@@ -5,6 +5,11 @@ export function notificationDestination(notification, { organizationSlug = null,
   const entityType = String(n.related_entity_type || '').toLowerCase();
   const entityId = Number(n.related_entity_id || 0);
   if (entityType === 'meeting_reservation_invitation' && entityId) return `${base}/meeting-times?invitation=${entityId}&agencyId=${Number(n.agency_id)}`;
+  if (n.type === 'team_meeting_scheduled' && ['provider_schedule_event', 'provider_schedule_events'].includes(entityType) && entityId) {
+    let audience = n.audience_json || n.audienceJson || {};
+    if (typeof audience === 'string') { try { audience = JSON.parse(audience); } catch { audience = {}; } }
+    return audience.live === true ? `${base}/join/team-meeting/${entityId}` : `${base}/my-schedule?eventId=${entityId}&eventKind=TEAM_MEETING`;
+  }
   if (n.type === 'guardian_plan_review' && ['client_guardian', 'client'].includes(String(role || '').toLowerCase())) {
     let audience = n.audience_json || {};
     if (typeof audience === 'string') { try { audience = JSON.parse(audience); } catch { audience = {}; } }
@@ -102,6 +107,7 @@ export function notificationDestination(notification, { organizationSlug = null,
 
 export function notificationPrimaryLabel(notification) {
   if (!notification) return null;
+  if (notification.related_entity_type === 'meeting_reservation_invitation') return 'Choose a meeting time';
   if (notification.type === 'guardian_plan_review') return 'Review and sign plan';
   if (notification.type === 'provider_waitlist_reminder') return 'Review waitlist';
   if(notification.related_entity_type==='provider_availability')return 'Review availability';

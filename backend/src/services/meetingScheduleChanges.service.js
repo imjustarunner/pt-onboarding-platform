@@ -48,6 +48,15 @@ export async function queueMeetingChange(event,before,notify,batchKey=randomUUID
   await pool.execute(`INSERT INTO meeting_schedule_change_queue (event_id,batch_key,baseline_json,current_json,ready_at)
     VALUES (?,?,?,?,DATE_ADD(UTC_TIMESTAMP(),INTERVAL 5 MINUTE))
     ON DUPLICATE KEY UPDATE current_json=VALUES(current_json),ready_at=VALUES(ready_at),notify_enabled=1`,[event.id,batchKey,JSON.stringify(before),JSON.stringify(after)]);
+  // Newly added invitees need an immediate in-app alert; email changes remain debounced.
+  const added = after.attendees.filter(id => !before.attendees.includes(id));
+  if (added.length && String(event.meeting_subtype || '').toLowerCase() !== 'interview') {
+    const { notifyAddedTeamMeetingAttendee } = await import('./teamMeetingAddedNotification.service.js');
+    for (const userId of added) {
+      try { await notifyAddedTeamMeetingAttendee({ event, userId }); }
+      catch (error) { console.warn('[Meeting changes] Added attendee notification failed', event.id, userId, error?.code || error?.message); }
+    }
+  }
 }
 export async function sendDueMeetingChanges() {
   const [rows]=await pool.execute('SELECT event_id,batch_key FROM meeting_schedule_change_queue WHERE ready_at<=UTC_TIMESTAMP() LIMIT 100');

@@ -6,8 +6,22 @@ import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import { hasActiveMeetingMembership,roomUnavailable } from './meetingJoinPolicy.service.js';
 import Video from './vonageVideo.service.js';
 import { resolveVideoProjectId } from './video.service.js';
+import { parseMeetingSettings } from './meetingSettingsPolicy.js';
 const fail=(status,message)=>Object.assign(new Error(message),{status});
 const hash=token=>crypto.createHash('sha256').update(String(token||'')).digest('hex');
+async function calendarGuestVideoPolicy(row) {
+ const training=String(row.meeting_subtype||'').toLowerCase()==='training';
+ const canShareScreen=!training&&parseMeetingSettings(row.meeting_settings_json).screenShare!==false;
+ const policy={screenShareMode:canShareScreen?'everyone':'restricted',canShareScreen,canGrantScreenShare:false,isHostOrCohost:false};
+ if(training){
+  const [settings]=await pool.execute('SELECT video_allowed,video_default_on,mute_all FROM scheduled_trainings WHERE event_id=?',[row.id]);
+  const [cohosts]=await pool.execute('SELECT p.user_id FROM meeting_participant_preferences p JOIN provider_schedule_event_attendees a ON a.event_id=p.event_id AND a.user_id=p.user_id WHERE p.event_id=? AND p.is_cohost=1',[row.id]);
+  const videoAllowed=Number(settings[0]?.video_allowed)===1,muteAll=Number(settings[0]?.mute_all??1)!==0;
+  policy.trainingPolicy={userId:0,proctor:false,primaryId:Number(row.provider_id),proctorIds:[Number(row.provider_id),...cohosts.map(p=>Number(p.user_id))],approvedIds:[],videoAllowed,muteAll,canUnmute:!muteAll};
+  policy.startMuted=muteAll;policy.startVideoOff=!videoAllowed||Number(settings[0]?.video_default_on)!==1;
+ }
+ return policy;
+}
 export async function calendarMeeting(type,ref,{host=false}={}){
  const calendarInterviewId=type==='team-meeting'?interviewCalendarEventId(ref):null;
  if(!['supervision','team-meeting'].includes(type)||(!host&&!calendarInterviewId&&!/^[\w-]{32}$/.test(String(ref||''))))throw fail(404,'Meeting not found.');
@@ -49,11 +63,11 @@ export async function calendarGuestStatus(type,ref,id,credential,{leave=false,vi
 
  await pool.execute(`UPDATE meeting_calendar_guests SET last_seen_at=UTC_TIMESTAMP(),status=? WHERE id=?`,[leave?'left':guest.status,id]);
  if(leave)return {status:'left'};
- if(!video)return {status:guest.status};
+ if(!video)return {status:guest.status,waitingRoomEnabled:![0,false,'0','false'].includes(row.waiting_room_enabled),...(guest.status==='admitted'?{videoPolicy:await calendarGuestVideoPolicy(row)}:{})};
  if(guest.status!=='admitted')throw fail(403,'Wait for the host to admit you.');
  if(!row.twilio_room_sid)throw fail(409,'The host is opening the meeting.');
  if(!Video.isVideoConfigured())throw fail(503,'Video unavailable.');
- return {sessionId:row.twilio_room_sid,applicationId:resolveVideoProjectId(),localName:`${guest.display_name} (Guest)`,token:Video.generateToken(row.twilio_room_sid,{expireTime:Math.floor(Date.now()/1000)+60,data:JSON.stringify({identity:`calendar-guest-${id}`,displayName:`${guest.display_name} (Guest)`,role:'participant',roleLabel:'Guest'})})};
+ return {sessionId:row.twilio_room_sid,applicationId:resolveVideoProjectId(),localName:`${guest.display_name} (Guest)`,...await calendarGuestVideoPolicy(row),token:Video.generateToken(row.twilio_room_sid,{expireTime:Math.floor(Date.now()/1000)+60,data:JSON.stringify({identity:`calendar-guest-${id}`,displayName:`${guest.display_name} (Guest)`,role:'participant',roleLabel:'Guest'})})};
 }
 export async function listCalendarGuests(type,ref,userId){
  const row=await calendarMeeting(type,ref,{host:true});await assertCalendarHost(type,row,userId);

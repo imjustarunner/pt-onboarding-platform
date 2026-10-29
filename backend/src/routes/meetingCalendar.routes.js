@@ -4,7 +4,7 @@ import * as guest from '../services/meetingCalendarGuest.service.js';
 import { interviewCalendarEventId } from '../utils/interviewCalendarLink.js';
 const router=express.Router();
 export const calendarReply=fn=>async(req,res,next)=>{res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});try{res.json(await fn(req));}catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}};
-router.get('/:type/:ref',calendarReply(async req=>{const row=await guest.calendarMeeting(req.params.type,req.params.ref);return {title:row.title||'Supervision',interview:!interviewCalendarEventId(req.params.ref)&&String(row.meeting_subtype||'').toLowerCase()==='interview'};}));
+router.get('/:type/:ref',calendarReply(async req=>{const row=await guest.calendarMeeting(req.params.type,req.params.ref);return {title:row.title||'Supervision',guestLinkEnabled:!!row.guest_link_shared_at,waitingRoomEnabled:![0,false,'0','false'].includes(row.waiting_room_enabled),interview:!interviewCalendarEventId(req.params.ref)&&String(row.meeting_subtype||'').toLowerCase()==='interview'};}));
 router.post('/:type/:ref/guests',rateLimit({windowMs:60000,max:10,standardHeaders:true,legacyHeaders:false}),calendarReply(req=>guest.createCalendarGuest(req.params.type,req.params.ref,req.body.displayName)));
 router.get('/:type/:ref/guests/:id',calendarReply(req=>guest.calendarGuestStatus(req.params.type,req.params.ref,Number(req.params.id),req.get('X-Calendar-Guest'))));
 router.post('/:type/:ref/guests/:id/video-token',calendarReply(req=>guest.calendarGuestStatus(req.params.type,req.params.ref,Number(req.params.id),req.get('X-Calendar-Guest'),{video:true})));

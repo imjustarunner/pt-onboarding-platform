@@ -40,6 +40,7 @@ import {
 import PayrollRateCard from '../models/PayrollRateCard.model.js';
 import PayrollRate from '../models/PayrollRate.model.js';
 import pool from '../config/database.js';
+import { enableMeetingContentSettings } from '../services/meetingContentSettings.service.js';
 import { isAdminLikeRole, isSupervisorActor } from '../utils/supervisorSchoolAccess.js';
 import { joinUrlForSupervision } from '../utils/joinToken.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
@@ -3503,6 +3504,7 @@ export const upsertSupervisionSessionArtifacts = async (req, res, next) => {
       actionItems,
       updatedByUserId: Number(req.user?.id || 0) || null
     });
+    await enableMeetingContentSettings('supervision_session', row, { goals, actionItems });
 
     if (autoSummarize) {
       const { triggerSupervisionSummaryFromTranscript } = await import('../services/supervisionTranscriptSummary.service.js');

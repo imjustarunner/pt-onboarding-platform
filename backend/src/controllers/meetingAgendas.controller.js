@@ -1,4 +1,5 @@
 import { isTrainingProctor } from '../services/scheduledTraining.service.js';
+import { enableMeetingContentSettings } from '../services/meetingContentSettings.service.js';
 /**
  * Meeting agendas API - attach agenda items to supervision sessions and team meetings.
  */
@@ -9,7 +10,7 @@ import MeetingAgendaItem from '../models/MeetingAgendaItem.model.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import Task from '../models/Task.model.js';
-import { canJoinSupervision } from '../services/meetingJoinPolicy.service.js';
+import { canJoinSupervision, canJoinTeamMeeting } from '../services/meetingJoinPolicy.service.js';
 
 const MEETING_TYPES = ['supervision_session', 'provider_schedule_event'];
 
@@ -119,7 +120,7 @@ async function canManageMeetingAgenda(userId, meetingType, meetingId) {
 
 /**
  * Who can add/edit agenda items:
- * - Team / group huddles: host + agency admin (not every attendee)
+ * - Team / group huddles: invited active participants, host, and agency admin
  * - Individual supervision / 1:1 huddle: host facilitators + named supervisee / both participants
  * - Group/triadic supervision: host, co-host, admin only (not presenters)
  */
@@ -162,6 +163,8 @@ async function canEditMeetingAgenda(userId, meetingType, meetingId) {
     if (!event || (kind !== 'TEAM_MEETING' && kind !== 'HUDDLE')) return false;
 
     if (uid === Number(event.provider_id) || uid === Number(event.created_by_user_id)) return true;
+
+    if (String(event.meeting_subtype || '').toLowerCase() !== 'interview' && await canJoinTeamMeeting(event, uid)) return true;
 
     const user = await User.findById(uid);
     const role = String(user?.role || '').toLowerCase();
@@ -337,6 +340,8 @@ export const addAgendaItem = async (req, res, next) => {
       sortOrder: maxOrder,
       createdByUserId: userId
     });
+    const meeting = await (agenda.meeting_type === 'provider_schedule_event' ? ProviderScheduleEvent : SupervisionSession).findById(agenda.meeting_id);
+    await enableMeetingContentSettings(agenda.meeting_type, meeting, { agenda: [{ title: titleStr }] });
 
     res.status(201).json(item);
   } catch (err) {
@@ -363,6 +368,8 @@ export const addAgendaItemsBulk = async (req, res, next) => {
     }
 
     const created = await MeetingAgendaItem.bulkCreate(agendaId, items, userId);
+    const meeting = await (agenda.meeting_type === 'provider_schedule_event' ? ProviderScheduleEvent : SupervisionSession).findById(agenda.meeting_id);
+    await enableMeetingContentSettings(agenda.meeting_type, meeting, { agenda: created });
     res.status(201).json({ items: created });
   } catch (err) {
     next(err);

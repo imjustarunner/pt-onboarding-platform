@@ -1,4 +1,4 @@
-<template><section v-if="guests.length" class="calendar-lobby"><h4>Calendar guests waiting · {{ guests.length }}</h4><p role="status">These guests are not signed in. Their display names are self-reported.</p><p v-if="error" role="alert">{{ error }}</p><div v-for="guest in guests" :key="guest.id"><strong>{{ guest.displayName }} · Guest</strong> <button :disabled="busy" @click="admit(guest.id)">Admit individually</button></div></section></template>
+<template><section v-if="guests.length" class="calendar-lobby"><h4>Guests waiting · {{ guests.length }}</h4><p role="status">These guests are not signed in. Their display names are self-reported; attendance and compensation are not tracked.</p><p v-if="error" role="alert">{{ error }}</p><div v-for="guest in guests" :key="guest.id"><strong>{{ guest.displayName }} · Guest</strong> <button :disabled="busy" @click="admit(guest.id)">Admit individually</button></div></section></template>
 <script setup>
 import {ref,watch,onBeforeUnmount} from 'vue';import api from '../../services/api';
 const props=defineProps({meetingKind:String,sessionId:[String,Number]});const guests=ref([]),error=ref(''),busy=ref(false);let timer;

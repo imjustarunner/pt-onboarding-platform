@@ -2,6 +2,8 @@ import { trainingRsvp,trainingCalendar,getTrainingRoster,createTraining,getTrain
 import { getManualMeetingOptions, previewManualMeetingLog, createManualMeetingLog, resolveManualMeetingLog } from '../controllers/manualMeetingLog.controller.js';
 import { listMyMeetings, getMyMeeting, saveMyMeetingNote, retryMyMeetingSummary, getMyMeetingActivity } from '../controllers/myMeetings.controller.js';
 import {calendarHostList,calendarHostAdmit} from './meetingCalendar.routes.js';
+import { calendarReply } from './meetingCalendar.routes.js';
+import { shareTeamMeetingGuestLink, enterSharedTeamMeetingLink } from '../services/teamMeetingGuestLink.service.js';
 import { authenticateTeamMeeting, authenticateTeamMeetingOptional } from '../middleware/teamMeetingInvitationAccess.middleware.js';
 import express from 'express';
 import interviewApplicantRoutes from './interviewApplicant.routes.js';
@@ -92,6 +94,8 @@ router.post('/:eventId/calendar-guests/:guestId/admit',calendarHostAdmit('team-m
 router.get('/:eventId/lobby-participants', getTeamMeetingLobbyParticipants);
 router.post('/:eventId/admit/:userId', admitTeamMeetingParticipant);
 router.post('/:eventId/attendees', addTeamMeetingAttendee);
+router.post('/:eventId/guest-link', calendarReply(req => shareTeamMeetingGuestLink(req.params.eventId, req.user.id)));
+router.post('/:eventId/shared-link-entry', calendarReply(req => enterSharedTeamMeetingLink(req.params.eventId, req.user)));
 router.get('/:eventId/training/invite-candidates', trainingInviteCandidates);
 router.post('/:eventId/waiting-room', setTeamMeetingWaitingRoomLive);
 router.post('/:eventId/recording-rules', setTeamMeetingRecordingRules);

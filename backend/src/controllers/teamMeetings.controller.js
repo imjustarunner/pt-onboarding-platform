@@ -1,4 +1,7 @@
 import { teamMeetingSpeakerNames } from '../services/meetingSpeakerNames.service.js';
+import { teamMeetingGuestLinkStatus } from '../services/teamMeetingGuestLink.service.js';
+import { notifyAddedTeamMeetingAttendee } from '../services/teamMeetingAddedNotification.service.js';
+import { enableMeetingContentSettings } from '../services/meetingContentSettings.service.js';
 import { canViewDeclinedMeetingParticipants, visibleMeetingRsvpParticipants } from '../services/meetingRsvpVisibility.js';
 import { isTrainingProctor } from '../services/scheduledTraining.service.js';
 import { isStudentIntern } from '../services/internMeetingPolicy.service.js';
@@ -908,6 +911,7 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
       roomMode: useLobby ? 'lobby' : 'main',
       lobbyEnabledForSession: waitingRoomOn,
       waitingRoomEnabled: waitingRoomOn,
+      guestLinkEnabled: !!row.guest_link_shared_at,
       kind: kindNorm,
       meetingSubtype: String(row.meeting_subtype || 'general').trim().toLowerCase(),
       attendanceTrackingEnabled: isAttendanceTrackingEnabledForEvent(row),
@@ -1160,32 +1164,22 @@ export const addTeamMeetingAttendee = async (req, res, next) => {
     const { personalMeetingInvitation } = await import('../services/meetingInvitations.service.js');
     const personalInvite = await personalMeetingInvitation(row,userId,{queue:Number(row.notify_participants ?? 1)!==0,resend:req.body?.resend===true});
 
+    let notificationWarning = null;
     try {
-      const { createNotificationAndDispatch } = await import('../services/notificationDispatcher.service.js');
       const actor = await User.findById(actorId);
-      const actorName = displayNameFromUser(actor) || 'A teammate';
-      const title = String(row.title || '').trim() || 'Team meeting';
-      const joinUrl = personalInvite.url;
-      await createNotificationAndDispatch({
-        type: 'team_meeting_invited_live',
-        severity: 'info',
-        title: `Added to "${title}"`,
-        message: `${actorName} added you to "${title}" — it's happening now. Tap to join.`,
-        userId,
-        agencyId,
-        relatedEntityType: 'provider_schedule_events',
-        relatedEntityId: row.id,
-        actorSource: 'Schedule',
-        metadata: { eventId: row.id, joinUrl, live: true }
-      }).catch(() => null);
+      await notifyAddedTeamMeetingAttendee({ event: row, userId, actorUserId: actorId, actorName: displayNameFromUser(actor) });
     } catch (notifyErr) {
-      console.warn('[teamMeeting] add-attendee notify skipped', notifyErr?.message || notifyErr);
+      notificationWarning = 'The attendee was added, but their in-app notification could not be delivered. Please retry the invitation.';
+      console.warn('[teamMeeting] add-attendee notification failed', notifyErr?.message || notifyErr);
     }
 
     res.json({
       ok: true,
       userId,
       eventId: row.id,
+      notificationSent: !notificationWarning,
+      notificationWarning,
+      emailInvitationQueued: personalInvite.delivery_status === 'pending',
       displayName: displayNameFromUser(newAttendee) || newAttendee.email || `User ${userId}`
     });
   } catch (e) {
@@ -1642,6 +1636,7 @@ export const getTeamMeetingWorkspace = async (req, res, next) => {
       title: String(event.title || '').trim() || null,
       participants,
       meetingSettings: eventMeetingSettings(event),
+      ...teamMeetingGuestLinkStatus(event),
       workspace
     });
   } catch (e) {
@@ -1674,6 +1669,10 @@ export const upsertTeamMeetingWorkspace = async (req, res, next) => {
       goals: body.goals !== undefined ? body.goals : body.goalsJson,
       actionItems: body.actionItems !== undefined ? body.actionItems : body.actionItemsJson,
       updatedByUserId: req.user?.id
+    });
+    await enableMeetingContentSettings('provider_schedule_event', event, {
+      goals: body.goals !== undefined || body.goalsJson !== undefined ? workspace.goals : [],
+      actionItems: body.actionItems !== undefined || body.actionItemsJson !== undefined ? workspace.actionItems : []
     });
 
     // Bidirectional: completing/dismissing an escalated action item updates the desk ticket.

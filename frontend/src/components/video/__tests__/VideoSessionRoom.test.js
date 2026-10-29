@@ -1,10 +1,18 @@
-import { flushPromises, mount } from '@vue/test-utils';
+import { DOMWrapper, flushPromises, mount as mountComponent } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import VideoSessionRoom from '../VideoSessionRoom.vue';
 import { ref } from 'vue';
 import { meetingViewportKey } from '../../../utils/meetingMiniMode';
 import { updateRemoteVideoState } from '../remoteVideoState.js';
 import { acquireNativeAudioSource } from '../nativeAudioCapture.js';
+
+
+const mount = (component, options = {}) => {
+  const wrapper = mountComponent(component, options);
+  const localRoot = wrapper.find('.vsr');
+  wrapper.videoDOM = new DOMWrapper(localRoot.exists() ? localRoot.element : document.querySelector('.vsr--fullscreen'));
+  return wrapper;
+};
 
 const videoSdk = vi.hoisted(() => ({
   session: null,
@@ -62,9 +70,9 @@ describe('VideoSessionRoom connection lifecycle', () => {
     videoSdk.session._handlers['signal:screen_share_grant']({data:JSON.stringify({granted:true})});
     wrapper.vm.toggleCamera();await wrapper.vm.toggleMic();
     expect(wrapper.vm.publishVideo).toBe(false);expect(wrapper.vm.publishAudio).toBe(false);
-    expect(wrapper.findAll('button').find(b=>b.text()==='Cam off').attributes('disabled')).toBeDefined();
+    expect(wrapper.videoDOM.findAll('button').find(b=>b.text()==='Cam off').attributes('disabled')).toBeDefined();
     await wrapper.setProps({trainingPolicy:{...policy,videoAllowed:true,canUnmute:true,approvedIds:[4]}});
-    expect(wrapper.findAll('button').find(b=>b.text()==='Cam off').attributes('disabled')).toBeUndefined();
+    expect(wrapper.videoDOM.findAll('button').find(b=>b.text()==='Cam off').attributes('disabled')).toBeUndefined();
     expect(wrapper.vm.publishAudio).toBe(false); // Approval permits unmute; it never turns a microphone on automatically.
     wrapper.unmount();
   });
@@ -77,11 +85,11 @@ describe('VideoSessionRoom connection lifecycle', () => {
     for(const [id,userId] of [['Trainer',1],['Cohost',2],['Attendee',3]]){
       videoSdk.session._handlers.streamCreated({stream:{streamId:id,name:id,hasVideo:true,hasAudio:true,connection:{connectionId:id,data:JSON.stringify({identity:`user-${userId}`,displayName:id})}}});await flushPromises();
     }
-    expect(wrapper.find('.vsr__tile--featured').text()).toContain('Trainer');
+    expect(wrapper.videoDOM.find('.vsr__tile--featured').text()).toContain('Trainer');
     expect(wrapper.vm.stageRemotes.map(r=>r.streamId)).toEqual(['Trainer','Cohost']);
-    wrapper.vm.lastSpeakerStreamId='Cohost';await flushPromises();expect(wrapper.find('.vsr__tile--featured').text()).toContain('Cohost');
+    wrapper.vm.lastSpeakerStreamId='Cohost';await flushPromises();expect(wrapper.videoDOM.find('.vsr__tile--featured').text()).toContain('Cohost');
     await wrapper.setProps({trainingPolicy:{...policy,videoAllowed:true},tileFocus:'equal'});
-    expect(wrapper.vm.stageRemotes.map(r=>r.streamId)).toEqual(['Trainer','Cohost','Attendee']);expect(wrapper.find('.vsr__stage--grid').exists()).toBe(true);expect(videoSdk.session.disconnect).not.toHaveBeenCalled();wrapper.unmount();
+    expect(wrapper.vm.stageRemotes.map(r=>r.streamId)).toEqual(['Trainer','Cohost','Attendee']);expect(wrapper.videoDOM.find('.vsr__stage--grid').exists()).toBe(true);expect(videoSdk.session.disconnect).not.toHaveBeenCalled();wrapper.unmount();
   });
 
   it.each([true,false])('keeps a connected training publisher and camera choice when video is allowed (trainer=%s)',async proctor=>{
@@ -100,7 +108,7 @@ describe('VideoSessionRoom connection lifecycle', () => {
     expect(publisher.destroy).not.toHaveBeenCalled();expect(videoSdk.initPublisher).toHaveBeenCalledTimes(1);
     expect(wrapper.vm.publishVideo).toBe(proctor);
     expect(publisher.publishVideo).not.toHaveBeenCalledWith(true);
-    if(!proctor){await wrapper.get('button[title="Turn camera on"]').trigger('click');expect(publisher.publishVideo).toHaveBeenCalledWith(true);}
+    if(!proctor){await wrapper.videoDOM.get('button[title="Turn camera on"]').trigger('click');expect(publisher.publishVideo).toHaveBeenCalledWith(true);}
     expect(wrapper.emitted('disconnected')).toBeUndefined();wrapper.unmount();
   });
 
@@ -133,22 +141,22 @@ describe('VideoSessionRoom connection lifecycle', () => {
     expect(wrapper.vm.publishAudio).toBe(true);
     audioTrack.dispatchEvent(new Event('mute'));
     await flushPromises();
-    expect(wrapper.text()).toContain('Microphone input paused');
+    expect(wrapper.videoDOM.text()).toContain('Microphone input paused');
     audioTrack.dispatchEvent(new Event('unmute'));
     await flushPromises();
-    expect(wrapper.text()).not.toContain('Microphone input paused');
+    expect(wrapper.videoDOM.text()).not.toContain('Microphone input paused');
     audioTrack.readyState = 'ended';
     audioTrack.dispatchEvent(new Event('ended'));
     await flushPromises();
     expect(wrapper.vm.publishAudio).toBe(false);
-    expect(wrapper.text()).toContain('Microphone disconnected');
-    await wrapper.get('.vsr__ctrl--mic').trigger('click');
+    expect(wrapper.videoDOM.text()).toContain('Microphone disconnected');
+    await wrapper.videoDOM.get('.vsr__ctrl--mic').trigger('click');
     await flushPromises();
     expect(publisher.setAudioSource).toHaveBeenCalledWith('default');
     expect(publisher.publishAudio).toHaveBeenLastCalledWith(true);
     expect(wrapper.vm.publishAudio).toBe(true);
-    await wrapper.get('.vsr__ctrl--mic').trigger('click');
-    await wrapper.get('.vsr__audio-settings button').trigger('click');
+    await wrapper.videoDOM.get('.vsr__ctrl--mic').trigger('click');
+    await wrapper.videoDOM.get('.vsr__audio-settings button').trigger('click');
     await flushPromises();
     expect(publisher.publishAudio).toHaveBeenLastCalledWith(false);
     expect(publisher.destroy).not.toHaveBeenCalled();
@@ -166,7 +174,7 @@ describe('VideoSessionRoom connection lifecycle', () => {
     videoSdk.session.subscribe = vi.fn((_stream, target) => {
       const element = document.createElement('div');
       element.appendChild(document.createElement('video')); target.appendChild(element);
-      return { element, on: vi.fn() };
+      return { stream, element, on: vi.fn() };
     });
     for (const [id, identity, roleLabel] of [['host', 'user-1', 'Host'], ['candidate', 'guest-iv-opaque', 'Participant'], ['peer', 'user-2', 'Host']]) {
       videoSdk.session._handlers.streamCreated({ stream: {
@@ -175,20 +183,20 @@ describe('VideoSessionRoom connection lifecycle', () => {
       } });
       await flushPromises();
     }
-    expect(wrapper.findAll('.vsr__tile--featured')).toHaveLength(1);
-    expect(wrapper.find('.vsr__tile--featured').text()).toContain('candidate');
-    expect(wrapper.findAll('.vsr__tile--remote.vsr__tile--pip')).toHaveLength(2);
-    expect(wrapper.find('.vsr__stage').attributes('style')).toContain('repeat(3, 120px)');
-    const thumbnailColumns = wrapper.findAll('.vsr__tile--pip').map(tile => Number(tile.element.style.gridColumn)).sort();
+    expect(wrapper.videoDOM.findAll('.vsr__tile--featured')).toHaveLength(1);
+    expect(wrapper.videoDOM.find('.vsr__tile--featured').text()).toContain('candidate');
+    expect(wrapper.videoDOM.findAll('.vsr__tile--remote.vsr__tile--pip')).toHaveLength(2);
+    expect(wrapper.videoDOM.find('.vsr__stage').attributes('style')).toContain('repeat(3, 120px)');
+    const thumbnailColumns = wrapper.videoDOM.findAll('.vsr__tile--pip').map(tile => Number(tile.element.style.gridColumn)).sort();
     expect(thumbnailColumns).toEqual([2, 3, 4]);
     expect(videoSdk.session.subscribe.mock.calls.every(call => call[2].fitMode === 'contain')).toBe(true);
     // Candidate keeps the same position when the camera is disabled or re-enabled.
     videoSdk.session._handlers.streamPropertyChanged({stream: {streamId:'candidate'}, changedProperty:'hasVideo', newValue:false});
     await flushPromises();
-    expect(wrapper.find('.vsr__tile--featured').text()).toContain('candidate');
+    expect(wrapper.videoDOM.find('.vsr__tile--featured').text()).toContain('candidate');
     await wrapper.setProps({ tileFocus:'equal', focusCandidate:false });
-    expect(wrapper.find('.vsr__stage--grid').exists()).toBe(true);
-    expect(wrapper.findAll('.vsr__tile--featured')).toHaveLength(0);
+    expect(wrapper.videoDOM.find('.vsr__stage--grid').exists()).toBe(true);
+    expect(wrapper.videoDOM.findAll('.vsr__tile--featured')).toHaveLength(0);
     wrapper.unmount();
   });
 
@@ -196,9 +204,9 @@ describe('VideoSessionRoom connection lifecycle', () => {
     const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'layout',token:'eyJ.test.token',allowTileFocus:true,tileFocus:'remote',focusCandidate:true,playJoinTone:false}});
     await flushPromises();await vi.dynamicImportSettled();
     for(const side of ['left','right']){
-      await wrapper.findAll('button').find(b=>b.text()==='Layout').trigger('click');
-      await wrapper.findAll('button').find(b=>b.text().includes(`small videos ${side}`)).trigger('click');
-      expect(wrapper.find(`.vsr__stage--side-${side}`).exists()).toBe(true);
+      await wrapper.videoDOM.findAll('button').find(b=>b.text()==='Layout').trigger('click');
+      await wrapper.videoDOM.findAll('button').find(b=>b.text().includes(`small videos ${side}`)).trigger('click');
+      expect(wrapper.videoDOM.find(`.vsr__stage--side-${side}`).exists()).toBe(true);
       expect(wrapper.emitted('update:tileFocus').at(-1)).toEqual(['remote']);
       expect(videoSdk.session.disconnect).not.toHaveBeenCalled();
     }
@@ -218,10 +226,10 @@ describe('VideoSessionRoom connection lifecycle', () => {
 
     await vi.dynamicImportSettled();
     expect(videoSdk.session).not.toBeNull();
-    expect(wrapper.find('.vsr__connecting').exists()).toBe(true);
-    expect(wrapper.find('.vsr__viewport').exists()).toBe(true);
-    expect(wrapper.find('.vsr__publisher-host').exists()).toBe(true);
-    expect(wrapper.find('.vsr__tile--local .vsr__media').exists()).toBe(true);
+    expect(wrapper.videoDOM.find('.vsr__connecting').exists()).toBe(true);
+    expect(wrapper.videoDOM.find('.vsr__viewport').exists()).toBe(true);
+    expect(wrapper.videoDOM.find('.vsr__publisher-host').exists()).toBe(true);
+    expect(wrapper.videoDOM.find('.vsr__tile--local .vsr__media').exists()).toBe(true);
 
     wrapper.unmount();
   });
@@ -244,7 +252,7 @@ describe('VideoSessionRoom connection lifecycle', () => {
       element.appendChild(document.createElement('video'));
       target.appendChild(element);
       elements.push(element);
-      return { element, on: vi.fn() };
+      return { stream, element, on: vi.fn() };
     });
     for (let i = 0; i < 5; i += 1) {
       const event = { stream: {
@@ -273,8 +281,8 @@ describe('VideoSessionRoom connection lifecycle', () => {
     const wrapper = mount(VideoSessionRoom, { props: {
       autoConnect: false, tileFocus: 'collapsed', allowTileFocus: true
     } });
-    await wrapper.get('[title="Video layout"]').trigger('click');
-    const fullScreen = wrapper.findAll('.vsr__layout-item').find((item) => item.text().includes('Full screen'));
+    await wrapper.videoDOM.get('[title="Video layout"]').trigger('click');
+    const fullScreen = wrapper.videoDOM.findAll('.vsr__layout-item').find((item) => item.text().includes('Full screen'));
     await fullScreen.trigger('click');
     expect(wrapper.emitted('update:tileFocus')).toEqual([['equal']]);
     expect(wrapper.emitted('update:videoFullscreen')).toEqual([[true]]);
@@ -296,16 +304,16 @@ describe('VideoSessionRoom connection lifecycle', () => {
     });
     session._handlers.streamCreated({ stream: { streamId: 'peer', name: 'Rachel', hasVideo: true, hasAudio: true, connection: { connectionId: 'rachel' } } });
     await flushPromises(); session.signal.mockClear(); setAudioVolume.mockClear(); subscribeToAudio.mockClear();
-    const select = wrapper.get('.vsr__tile--remote .vsr__tile-select');
+    const select = wrapper.videoDOM.get('.vsr__tile--remote .vsr__tile-select');
     await select.trigger('pointerdown', { pointerType: 'touch' }); await select.trigger('click');
     expect(wrapper.emitted('update:tileFocus')).toEqual([['remote']]);
     await wrapper.setProps({ tileFocus: 'remote' });
-    expect(wrapper.get('.vsr__tile--remote').classes()).toContain('vsr__tile--featured');
-    expect(wrapper.get('.vsr__tile--local').classes()).toContain('vsr__tile--pip');
+    expect(wrapper.videoDOM.get('.vsr__tile--remote').classes()).toContain('vsr__tile--featured');
+    expect(wrapper.videoDOM.get('.vsr__tile--local').classes()).toContain('vsr__tile--pip');
     expect(wrapper.vm.remotes[0].hasAudio).toBe(true);
     expect(session.signal).not.toHaveBeenCalled();
     expect(setAudioVolume).not.toHaveBeenCalled(); expect(subscribeToAudio).not.toHaveBeenCalled();
-    await wrapper.get('.vsr__mute-other').trigger('click');
+    await wrapper.videoDOM.get('.vsr__mute-other').trigger('click');
     expect(session.signal.mock.calls.some(([message]) => message.type === 'force_mute')).toBe(true);
     expect(wrapper.emitted('update:tileFocus')).toHaveLength(1);
     expect(session.disconnect).not.toHaveBeenCalled(); wrapper.unmount();
@@ -328,17 +336,17 @@ describe('VideoSessionRoom connection lifecycle', () => {
     session.subscribe = vi.fn((stream, target) => {
       const element = document.createElement('div'); element.dataset.stream = stream.streamId;
       element.appendChild(document.createElement('video')); target.appendChild(element); elements.push(element);
-      return { element, on: vi.fn() };
+      return { stream, element, on: vi.fn() };
     });
     for (const [streamId, videoType] of [['peer', 'camera'], ['shared', 'screen']]) {
       session._handlers.streamCreated({ stream: { streamId, videoType, name: streamId, hasVideo: true, hasAudio: true, connection: { connectionId: streamId } } });
       await flushPromises();
     }
-    const root = wrapper.get('.vsr').element;
-    const originalParent = root.parentElement;
+    const root = wrapper.videoDOM.element;
     expect(root.classList.contains('meeting-video')).toBe(true);
     expect(root.getAttribute('aria-label')).toBe('Meeting video');
-    await wrapper.get('.vsr__mini-button').trigger('click'); expect(viewport.minimize).toHaveBeenCalledOnce();
+    await wrapper.videoDOM.get('.vsr__mini-button').trigger('click'); expect(viewport.minimize).toHaveBeenCalledOnce();
+    const originalParent = root.parentElement;
     for (let cycle = 0; cycle < 2; cycle++) {
       viewport.mini.value = true; await flushPromises();
       expect(root.parentElement).toBe(document.body);
@@ -352,6 +360,17 @@ describe('VideoSessionRoom connection lifecycle', () => {
     expect(session.subscribe).toHaveBeenCalledTimes(2); expect(videoSdk.initPublisher).toHaveBeenCalledOnce();
     expect(session.disconnect).not.toHaveBeenCalled(); expect(session.unpublish).not.toHaveBeenCalled(); expect(publisher.destroy).not.toHaveBeenCalled();
     viewport.mini.value = true; await flushPromises();
+    session._handlers.streamDestroyed({ stream: { streamId: 'shared', videoType: 'screen' } });
+    await flushPromises();
+    const nextShare = { streamId: 'next-share', videoType: 'screen', name: 'Presenter', hasVideo: true, connection: { connectionId: 'presenter' } };
+    session._handlers.streamCreated({ stream: nextShare }); await flushPromises();
+    expect(root.classList.contains('vsr--fullscreen')).toBe(true);
+    expect(root.classList.contains('vsr--mini-window')).toBe(false);
+    expect(viewport.mini.value).toBe(true);
+    session._handlers.streamDestroyed({ stream: nextShare }); await flushPromises();
+    expect(root.classList.contains('vsr--mini-window')).toBe(true);
+    expect(root.classList.contains('vsr--fullscreen')).toBe(false);
+    expect(session.disconnect).not.toHaveBeenCalled(); expect(videoSdk.initPublisher).toHaveBeenCalledOnce();
     root.querySelector('.vsr__ctrl--mic').click(); await flushPromises();
     expect(publisher.publishAudio).toHaveBeenLastCalledWith(false);
     session._handlers.sessionDisconnected({ reason: 'networkDisconnected' });
@@ -362,17 +381,17 @@ describe('VideoSessionRoom connection lifecycle', () => {
     const wrapper = mount(VideoSessionRoom, {props:{autoConnect:false,allowTileFocus:true,tileFocus:'remote'}});
     wrapper.vm.remotes.push({streamId:'alice',name:'Alice',hasVideo:true,hasAudio:true},{streamId:'bob',name:'Bob',hasVideo:true,hasAudio:true});
     await wrapper.vm.$nextTick();
-    await wrapper.findAll('.vsr__tile--remote')[1].trigger('click');
+    await wrapper.videoDOM.findAll('.vsr__tile--remote')[1].trigger('click');
     expect(wrapper.emitted('update:tileFocus').at(-1)).toEqual(['remote']);
-    expect(wrapper.get('.vsr__tile--remote.vsr__tile--featured').text()).toContain('Bob');
-    await wrapper.findAll('.vsr__tile--remote')[0].trigger('click');
-    expect(wrapper.get('.vsr__tile--remote.vsr__tile--featured').text()).toContain('Alice');
+    expect(wrapper.videoDOM.get('.vsr__tile--remote.vsr__tile--featured').text()).toContain('Bob');
+    await wrapper.videoDOM.findAll('.vsr__tile--remote')[0].trigger('click');
+    expect(wrapper.videoDOM.get('.vsr__tile--remote.vsr__tile--featured').text()).toContain('Alice');
     wrapper.unmount();
   });
 
   it('exposes leave in full screen and delegates the host leave/end flow', async () => {
     const wrapper=mount(VideoSessionRoom,{props:{autoConnect:false,videoFullscreen:true}});
-    await wrapper.get('.vsr__fs-leave').trigger('click');
+    await wrapper.videoDOM.get('.vsr__fs-leave').trigger('click');
     expect(wrapper.emitted('leave-request')).toHaveLength(1);
     expect(wrapper.emitted('update:videoFullscreen').at(-1)).toEqual([false]);
     expect(wrapper.emitted('disconnected')).toBeUndefined();
@@ -381,11 +400,11 @@ describe('VideoSessionRoom connection lifecycle', () => {
 
   it('hides sharing until permission arrives, then reveals it without remounting', async () => {
     const wrapper=mount(VideoSessionRoom,{props:{autoConnect:false,screenShareMode:'restricted',canShareScreen:false}});
-    expect(wrapper.find('[title="Share your screen"]').exists()).toBe(false);
+    expect(wrapper.videoDOM.find('[title="Share your screen"]').exists()).toBe(false);
     await wrapper.setProps({canShareScreen:true});
-    expect(wrapper.find('[title="Share your screen"]').exists()).toBe(true);
+    expect(wrapper.videoDOM.find('[title="Share your screen"]').exists()).toBe(true);
     await wrapper.setProps({canShareScreen:false});
-    expect(wrapper.find('[title="Share your screen"]').exists()).toBe(false);
+    expect(wrapper.videoDOM.find('[title="Share your screen"]').exists()).toBe(false);
     wrapper.unmount();
   });
 
@@ -395,16 +414,16 @@ describe('VideoSessionRoom connection lifecycle', () => {
     videoSdk.session.subscribe=vi.fn((stream,target)=>({element:target,stream,on:vi.fn()}));
     videoSdk.session._handlers.streamCreated({stream:{streamId:'screen-1',videoType:'screen',connection:{connectionId:'presenter'},hasVideo:true,hasAudio:false}});
     await flushPromises();
-    expect(wrapper.find('.vsr__stage--screen').exists()).toBe(true);
-    expect(wrapper.find('.vsr__tile--mini').exists()).toBe(false);
+    expect(wrapper.videoDOM.find('.vsr__stage--screen').exists()).toBe(true);
+    expect(wrapper.videoDOM.find('.vsr__tile--mini').exists()).toBe(false);
     expect(wrapper.emitted('update:tileFocus').at(-1)).toEqual(['equal']);
     await wrapper.setProps({tileFocus:'equal'});
-    await wrapper.get('[title="Video layout"]').trigger('click');
-    await wrapper.findAll('.vsr__layout-item').find(b=>b.text().includes('Equal tiles')).trigger('click');
-    expect(wrapper.find('.vsr__stage--screen').exists()).toBe(false);
-    await wrapper.get('[title="Video layout"]').trigger('click');
-    await wrapper.findAll('.vsr__layout-item').find(b=>b.text().includes('Shared screen')).trigger('click');
-    expect(wrapper.find('.vsr__stage--screen').exists()).toBe(true);
+    await wrapper.videoDOM.get('[title="Video layout"]').trigger('click');
+    await wrapper.videoDOM.findAll('.vsr__layout-item').find(b=>b.text().includes('Equal tiles')).trigger('click');
+    expect(wrapper.videoDOM.find('.vsr__stage--screen').exists()).toBe(false);
+    await wrapper.videoDOM.get('[title="Video layout"]').trigger('click');
+    await wrapper.videoDOM.findAll('.vsr__layout-item').find(b=>b.text().includes('Shared screen')).trigger('click');
+    expect(wrapper.videoDOM.find('.vsr__stage--screen').exists()).toBe(true);
     expect(videoSdk.session.subscribe).toHaveBeenCalledTimes(1);
     wrapper.unmount();
   });
@@ -418,14 +437,14 @@ describe('VideoSessionRoom connection lifecycle', () => {
     const lead=screen(1,'Megan'),co=screen(2,'Co-trainer'),attendee=screen(5,'Attendee');
     for(const stream of [lead,co,attendee]){videoSdk.session._handlers.streamCreated({stream});await flushPromises();}
     expect(videoSdk.session.subscribe).toHaveBeenCalledTimes(1);
-    expect(wrapper.find('.vsr__tile--screen').text()).toContain('Megan');
+    expect(wrapper.videoDOM.find('.vsr__tile--screen').text()).toContain('Megan');
     videoSdk.session._handlers.streamDestroyed({stream:co});await flushPromises();
     videoSdk.session._handlers.streamDestroyed({stream:attendee});await flushPromises();
     expect(videoSdk.session.unsubscribe).not.toHaveBeenCalled();
-    expect(wrapper.find('.vsr__tile--screen').text()).toContain('Megan');
+    expect(wrapper.videoDOM.find('.vsr__tile--screen').text()).toContain('Megan');
     videoSdk.session._handlers.streamDestroyed({stream:lead});await flushPromises();
     expect(videoSdk.session.unsubscribe).toHaveBeenCalledTimes(1);
-    expect(wrapper.find('.vsr__stage--screen').exists()).toBe(false);
+    expect(wrapper.videoDOM.find('.vsr__stage--screen').exists()).toBe(false);
     wrapper.unmount();
   });
 
@@ -437,7 +456,7 @@ describe('VideoSessionRoom connection lifecycle', () => {
     for(const userId of [2,1]){videoSdk.session._handlers.streamCreated({stream:{streamId:`screen-${userId}`,name:`Trainer ${userId}`,videoType:'screen',connection:{connectionId:`c-${userId}`,data:JSON.stringify({identity:`user-${userId}`})},hasVideo:true,hasAudio:false}});await flushPromises();}
     expect(videoSdk.session.subscribe).toHaveBeenCalledTimes(2);
     expect(videoSdk.session.unsubscribe).toHaveBeenCalledWith(expect.objectContaining({stream:expect.objectContaining({streamId:'screen-2'})}));
-    expect(wrapper.find('.vsr__tile--screen').text()).toContain('Trainer 1');
+    expect(wrapper.videoDOM.find('.vsr__tile--screen').text()).toContain('Trainer 1');
     wrapper.unmount();
   });
 
@@ -469,7 +488,7 @@ describe('VideoSessionRoom connection lifecycle', () => {
     });
     await flushPromises();
 
-    const micButton = wrapper.find('.vsr__ctrl--mic');
+    const micButton = wrapper.videoDOM.find('.vsr__ctrl--mic');
     expect(micButton.text()).toContain('Test mic');
     await micButton.trigger('click');
     await flushPromises();
@@ -518,7 +537,7 @@ describe('VideoSessionRoom connection lifecycle', () => {
     });
     await flushPromises();
 
-    const micButton = wrapper.get('.vsr__ctrl--mic');
+    const micButton = wrapper.videoDOM.get('.vsr__ctrl--mic');
     await micButton.trigger('click');
     await flushPromises();
 
@@ -526,7 +545,7 @@ describe('VideoSessionRoom connection lifecycle', () => {
     expect(stop).toHaveBeenCalled();
     expect(micButton.text()).toContain('Mic tested');
     expect(micButton.attributes('aria-pressed')).toBe('true');
-    expect(wrapper.text()).toContain('you will still join muted');
+    expect(wrapper.videoDOM.text()).toContain('you will still join muted');
 
     wrapper.unmount();
   });
@@ -622,30 +641,30 @@ describe('alone-room disconnect and arrivals', () => {
   it('prompts, tears down paid media, and emits a rejoinable timeout without completing the meeting',async()=>{
     const session=videoSdk.session;
     await vi.advanceTimersByTimeAsync(120000);
-    expect(wrapper.find('[role="alertdialog"]').text()).toContain('Waiting for someone?');
+    expect(wrapper.videoDOM.find('[role="alertdialog"]').text()).toContain('Waiting for someone?');
     await vi.advanceTimersByTimeAsync(30000);
     expect(session.disconnect).toHaveBeenCalled();expect(publisher.destroy).toHaveBeenCalled();
     expect(wrapper.emitted('disconnected').at(-1)).toEqual([{reason:'alone-timeout'}]);
     expect(wrapper.emitted('meeting-ended')).toBeUndefined();
-    expect(wrapper.text()).toContain('Rejoin meeting');
+    expect(wrapper.videoDOM.text()).toContain('Rejoin meeting');
   });
   it('announces a person once, counts audio-only connections, and cancels the pending timeout on arrival',async()=>{
     await vi.advanceTimersByTimeAsync(120000);
     const person={connectionId:'rachel',data:JSON.stringify({identity:'user-8',displayName:'Rachel'})};
     videoSdk.session._handlers.connectionCreated({connection:person});await flushPromises();
-    expect(wrapper.text()).toContain('Rachel joined the meeting. 2 people here.');
-    expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false);
+    expect(wrapper.videoDOM.text()).toContain('Rachel joined the meeting. 2 people here.');
+    expect(wrapper.videoDOM.find('[role="alertdialog"]').exists()).toBe(false);
     await vi.advanceTimersByTimeAsync(700000);expect(wrapper.emitted('disconnected')).toBeUndefined();
     videoSdk.session._handlers.connectionDestroyed({connection:person});await flushPromises();
-    await vi.advanceTimersByTimeAsync(120000);expect(wrapper.find('[role="alertdialog"]').exists()).toBe(true);
+    await vi.advanceTimersByTimeAsync(120000);expect(wrapper.videoDOM.find('[role="alertdialog"]').exists()).toBe(true);
   });
   it('disconnects at the hard ten-minute limit despite repeated extensions',async()=>{
     for(let i=0;i<4;i++){
       await vi.advanceTimersByTimeAsync(120000);
-      await wrapper.findAll('button').find(b=>b.text()==='Keep waiting').trigger('click');
+      await wrapper.videoDOM.findAll('button').find(b=>b.text()==='Keep waiting').trigger('click');
     }
     await vi.advanceTimersByTimeAsync(90000);
-    expect(wrapper.findAll('button').some(b=>b.text()==='Keep waiting')).toBe(false);
+    expect(wrapper.videoDOM.findAll('button').some(b=>b.text()==='Keep waiting')).toBe(false);
     await vi.advanceTimersByTimeAsync(30000);
     expect(wrapper.emitted('disconnected').at(-1)).toEqual([{reason:'alone-timeout'}]);
   });
@@ -664,10 +683,10 @@ describe('meeting speaker playback recovery',()=>{
   const applicant={streamId:'a1',hasVideo:true,hasAudio:true,connection:{connectionId:'a',data:JSON.stringify({identity:'candidate-1',displayName:'Applicant'})}};
   const interviewer={streamId:'b1',hasVideo:true,hasAudio:true,connection:{connectionId:'b',data:JSON.stringify({identity:'user-2',displayName:'Interviewer'})}};
   for(const stream of [applicant,interviewer]){videoSdk.session._handlers.streamCreated({stream});await flushPromises();}
-  await wrapper.get('input[aria-label="Listening volume for Applicant"]').setValue('25');
+  await wrapper.videoDOM.get('input[aria-label="Listening volume for Applicant"]').setValue('25');
   expect(subs[0].setAudioVolume).toHaveBeenLastCalledWith(25);
   expect(subs[1].setAudioVolume).toHaveBeenLastCalledWith(100);
-  await wrapper.findAll('.vsr__audio-settings button').find(b=>b.text()==='Enable meeting sound').trigger('click');await flushPromises();
+  await wrapper.videoDOM.findAll('.vsr__audio-settings button').find(b=>b.text()==='Enable meeting sound').trigger('click');await flushPromises();
   expect(subs[0].setAudioVolume).toHaveBeenLastCalledWith(25);
   expect(subs[1].setAudioVolume).toHaveBeenLastCalledWith(100);
   videoSdk.session._handlers.streamDestroyed({stream:applicant});await flushPromises();
@@ -685,11 +704,11 @@ describe('meeting speaker playback recovery',()=>{
   await flushPromises();await vi.dynamicImportSettled();videoSdk.session.publish.mockImplementation((_p,done)=>done(null));videoSdk.connectCallback(null);await flushPromises();
   expect(videoSdk.initPublisher.mock.calls.at(-1)[1]).toMatchObject({autoGainControl:true,noiseSuppression:true,echoCancellation:true,disableAudioProcessing:false,publishAudio:false});
   const before=videoSdk.initPublisher.mock.calls.length;
-  await wrapper.get('.vsr__audio-settings input[type="checkbox"]').setValue(false);await flushPromises();
+  await wrapper.videoDOM.get('.vsr__audio-settings input[type="checkbox"]').setValue(false);await flushPromises();
   expect(track.applyConstraints).toHaveBeenLastCalledWith(expect.objectContaining({autoGainControl:false,noiseSuppression:true,echoCancellation:true}));
   expect(wrapper.vm.publishAudio).toBe(false);expect(publisher.destroy).not.toHaveBeenCalled();
   expect(videoSdk.initPublisher.mock.calls).toHaveLength(before);
-  await wrapper.get('.vsr__audio-settings input[type="checkbox"]').setValue(true);await flushPromises();
+  await wrapper.videoDOM.get('.vsr__audio-settings input[type="checkbox"]').setValue(true);await flushPromises();
   expect(track.applyConstraints).toHaveBeenLastCalledWith(expect.objectContaining({autoGainControl:true}));
   wrapper.unmount();
  });
@@ -707,8 +726,8 @@ describe('meeting speaker playback recovery',()=>{
   expect(sub.subscribeToAudio).toHaveBeenCalledWith(false);expect(sub.subscribeToAudio).toHaveBeenLastCalledWith(true);
   expect(publisher.publishAudio).toHaveBeenLastCalledWith(false);expect(wrapper.vm.publishAudio).toBe(false);
   expect(videoSdk.session.disconnect).not.toHaveBeenCalled();
-  await wrapper.findAll('button').find(b=>b.text()==='Resume meeting sound').trigger('click');await flushPromises();
-  expect(wrapper.text()).not.toContain('Back from another app?');expect(videoSdk.unblockAudio).toHaveBeenCalled();
+  await wrapper.videoDOM.findAll('button').find(b=>b.text()==='Resume meeting sound').trigger('click');await flushPromises();
+  expect(wrapper.videoDOM.text()).not.toContain('Back from another app?');expect(videoSdk.unblockAudio).toHaveBeenCalled();
   wrapper.unmount();hidden.mockRestore();
  });
  it('shows a recovery button when the browser blocks a subscriber and enables sound from a click',async()=>{
@@ -719,16 +738,16 @@ describe('meeting speaker playback recovery',()=>{
   videoSdk.session.subscribe=vi.fn((_stream,target)=>({...sub,element:target}));
   videoSdk.session._handlers.streamCreated({stream:{streamId:'sound-person',hasVideo:true,hasAudio:true,connection:{connectionId:'peer'}}});
   await flushPromises();
-  expect(wrapper.text()).toContain('Your browser has paused meeting sound.');
+  expect(wrapper.videoDOM.text()).toContain('Your browser has paused meeting sound.');
   videoSdk.unblockAudio.mockImplementation(async()=>{blocked=false;for(const h of handlers.audioUnblocked)h();});
-  await wrapper.get('.vsr__audio-problem button').trigger('click');await flushPromises();
+  await wrapper.videoDOM.get('.vsr__audio-problem button').trigger('click');await flushPromises();
   expect(videoSdk.unblockAudio).toHaveBeenCalled();
   expect(sub.subscribeToAudio).toHaveBeenCalledWith(true);expect(sub.setAudioVolume).toHaveBeenCalledWith(100);
-  expect(wrapper.text()).not.toContain('Your browser has paused meeting sound.');
+  expect(wrapper.videoDOM.text()).not.toContain('Your browser has paused meeting sound.');
   blocked=true;for(const h of handlers.audioBlocked)h();await flushPromises();
   videoSdk.unblockAudio.mockRejectedValueOnce(new Error('Autoplay denied'));
-  await wrapper.get('.vsr__audio-problem button').trigger('click');await flushPromises();
-  expect(wrapper.text()).toContain('Meeting sound could not start');
+  await wrapper.videoDOM.get('.vsr__audio-problem button').trigger('click');await flushPromises();
+  expect(wrapper.videoDOM.text()).toContain('Meeting sound could not start');
   wrapper.unmount();
  });
 });
@@ -745,8 +764,132 @@ it('starts screen capture synchronously from the click without losing Safari use
  // This assertion deliberately runs before yielding to any promise/microtask.
  expect(videoSdk.initPublisher).toHaveBeenCalledWith(expect.any(HTMLElement),expect.objectContaining({videoSource:'screen'}),expect.any(Function));
  await sharing;await flushPromises();
- expect(wrapper.text()).toContain('Stop share');
+ expect(wrapper.videoDOM.text()).toContain('Stop share');
  await wrapper.vm.toggleScreenShare();
  expect(videoSdk.session.unpublish).toHaveBeenCalledWith(publisher);
  wrapper.unmount();
+});
+
+describe('shared presentation layout and exclusive screen sharing', () => {
+  let wrapper;
+  let camera;
+  let screen;
+  const remoteScreen = { streamId: 'remote-screen', name: 'Alex (screen)', videoType: 'screen', hasVideo: true, hasAudio: false, connection: { connectionId: 'alex' } };
+  beforeEach(async () => {
+    camera = { on: vi.fn(), publishAudio: vi.fn(), publishVideo: vi.fn(), destroy: vi.fn(), getAudioSource: () => null };
+    screen = { on: vi.fn(), destroy: vi.fn(), stream: { streamId: 'local-screen' } };
+    videoSdk.initPublisher.mockImplementation((_el, options, callback) => {
+      queueMicrotask(() => callback(null));
+      return options.videoSource === 'screen' ? screen : camera;
+    });
+    wrapper = mount(VideoSessionRoom, { props: { applicationId: '11111111-1111-4111-8111-111111111111', sessionId: 'shared-screen', token: 'eyJ.test.token', playJoinTone: false, startMuted: true, tileFocus: 'remote', hideControls: true } });
+    await flushPromises(); await vi.dynamicImportSettled();
+    videoSdk.session.connection = { connectionId: 'self' };
+    videoSdk.session.subscribe = vi.fn((stream, target) => ({ stream, element: target, on: vi.fn() }));
+    videoSdk.session.publish.mockImplementation((_publisher, done) => done(null));
+    videoSdk.connectCallback(null);
+    await flushPromises();
+  });
+  afterEach(() => { wrapper?.unmount(); vi.restoreAllMocks(); });
+  async function receiveScreen(stream = remoteScreen) {
+    videoSdk.session._handlers.streamCreated({ stream });
+    await flushPromises();
+  }
+
+  it('automatically shows a remote screen full size and restores the prior layout without parent v-model', async () => {
+    await receiveScreen();
+    expect(wrapper.videoDOM.classes()).toContain('vsr--fullscreen');
+    expect(wrapper.videoDOM.element.parentElement).toBe(document.body);
+    expect(wrapper.videoDOM.classes()).not.toContain('vsr--hide-controls');
+    expect(wrapper.videoDOM.find('.vsr__controls').exists()).toBe(true);
+    expect(wrapper.videoDOM.find('[title="Video layout"]').exists()).toBe(true);
+    expect(wrapper.emitted('screen-sharing-change').at(-1)).toEqual([true]);
+    await wrapper.videoDOM.get('[title="Video layout"]').trigger('click');
+    expect(wrapper.videoDOM.findAll('.vsr__layout-item')).toHaveLength(10);
+    expect(wrapper.videoDOM.findAll('.vsr__layout-item').some(item => item.text().includes('Full screen videos'))).toBe(true);
+    videoSdk.session._handlers.streamDestroyed({ stream: remoteScreen });
+    await flushPromises();
+    expect(wrapper.videoDOM.classes()).not.toContain('vsr--fullscreen');
+    expect(wrapper.videoDOM.classes()).toContain('vsr--focus-remote');
+    expect(wrapper.videoDOM.element.parentElement).not.toBe(document.body);
+    expect(wrapper.emitted('screen-sharing-change').at(-1)).toEqual([false]);
+  });
+
+  it('leaves the current presenter untouched when takeover is declined', async () => {
+    await receiveScreen();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    videoSdk.initPublisher.mockClear();
+    await wrapper.vm.toggleScreenShare();
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('End the other person'));
+    expect(videoSdk.initPublisher).not.toHaveBeenCalled();
+    expect(videoSdk.session.signal).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'screen_share_takeover' }), expect.any(Function));
+    expect(wrapper.videoDOM.find('.vsr__tile--screen').text()).toContain('Alex');
+  });
+
+  it('captures first, then waits for the previous stream to end before publishing the replacement', async () => {
+    await receiveScreen();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const starting = wrapper.vm.toggleScreenShare();
+    // Safari capture starts directly during the click, before awaiting the old presenter.
+    expect(videoSdk.initPublisher).toHaveBeenLastCalledWith(expect.any(HTMLElement), expect.objectContaining({ videoSource: 'screen' }), expect.any(Function));
+    await flushPromises();
+    expect(videoSdk.session.signal).toHaveBeenCalledWith(expect.objectContaining({ type: 'screen_share_takeover', to: remoteScreen.connection, data: JSON.stringify({ streamId: 'remote-screen' }) }), expect.any(Function));
+    expect(videoSdk.session.publish).not.toHaveBeenCalledWith(screen, expect.any(Function));
+    videoSdk.session._handlers.streamDestroyed({ stream: remoteScreen });
+    await starting; await flushPromises();
+    expect(videoSdk.session.publish).toHaveBeenCalledWith(screen, expect.any(Function));
+    expect(wrapper.vm.sharingScreen).toBe(true);
+    await wrapper.vm.toggleScreenShare(); await flushPromises();
+    expect(wrapper.videoDOM.classes()).not.toContain('vsr--fullscreen');
+  });
+
+  it('preserves the remote screen if the capture picker is canceled', async () => {
+    await receiveScreen();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    videoSdk.initPublisher.mockImplementation((_el, _options, callback) => { queueMicrotask(() => callback(new Error('Capture canceled'))); return screen; });
+    await wrapper.vm.toggleScreenShare(); await flushPromises();
+    expect(wrapper.videoDOM.find('.vsr__tile--screen').text()).toContain('Alex');
+    expect(wrapper.videoDOM.classes()).toContain('vsr--fullscreen');
+    expect(videoSdk.session.signal).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'screen_share_takeover' }), expect.any(Function));
+    expect(camera.destroy).not.toHaveBeenCalled();
+  });
+
+  it('stops only the targeted local presentation when a connected peer takes over', async () => {
+    await wrapper.vm.toggleScreenShare(); await flushPromises();
+    videoSdk.session._handlers.connectionCreated({ connection: remoteScreen.connection });
+    videoSdk.session._handlers['signal:screen_share_takeover']({ from: remoteScreen.connection, data: JSON.stringify({ streamId: 'outdated-screen' }) });
+    expect(wrapper.vm.sharingScreen).toBe(true);
+    videoSdk.session._handlers['signal:screen_share_takeover']({ from: remoteScreen.connection, data: JSON.stringify({ streamId: 'local-screen' }) });
+    expect(wrapper.vm.sharingScreen).toBe(false);
+    expect(screen.destroy).toHaveBeenCalledOnce();
+    expect(camera.destroy).not.toHaveBeenCalled();
+    expect(videoSdk.session.disconnect).not.toHaveBeenCalled();
+  });
+  it.each([null, { userId: 2, proctor: true, primaryId: 1, proctorIds: [1, 2, 3], approvedIds: [], muteAll: false, videoAllowed: true, canUnmute: true }])('resolves simultaneous equal-priority shares to one publisher (training policy %s)', async trainingPolicy => {
+    await wrapper.setProps({ trainingPolicy });
+    await wrapper.vm.toggleScreenShare();
+    await flushPromises();
+    const peer = { ...remoteScreen, streamId: 'a-winning-screen', connection: { connectionId: 'alex', data: JSON.stringify({ identity: 'user-3', roleLabel: 'Presenter' }) } };
+    await receiveScreen(peer);
+    expect(wrapper.vm.sharingScreen).toBe(false);
+    expect(screen.destroy).toHaveBeenCalledOnce();
+    expect(wrapper.videoDOM.find('.vsr__tile--screen').text()).toContain('Alex');
+    expect(camera.destroy).not.toHaveBeenCalled();
+  });
+
+  it('rejects a restricted participant takeover until the host has granted screen sharing', async () => {
+    await wrapper.setProps({ screenShareMode: 'restricted', canShareScreen: true });
+    await wrapper.vm.toggleScreenShare();
+    const from = { connectionId: 'alex', data: JSON.stringify({ roleLabel: 'Participant' }) };
+    videoSdk.session._handlers.connectionCreated({ connection: from });
+    const event = { from, data: JSON.stringify({ streamId: 'local-screen' }) };
+    videoSdk.session._handlers['signal:screen_share_takeover'](event);
+    expect(wrapper.vm.sharingScreen).toBe(true);
+    videoSdk.session._handlers['signal:screen_share_grant']({ data: JSON.stringify({ connectionId: 'alex', granted: true }) });
+    videoSdk.session._handlers['signal:screen_share_takeover'](event);
+    expect(wrapper.vm.sharingScreen).toBe(false);
+    expect(screen.destroy).toHaveBeenCalledOnce();
+  });
+
 });

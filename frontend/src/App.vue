@@ -312,7 +312,7 @@
               </template>
               <template v-else>
               <DashboardNavMenu v-if="!isSscClubManager && isPrivilegedPortalUser" :to="myDashboardTo" :items="dashboardMobileNavItems" :context-key="dashboardMenuContextKey"
-                @select="onDashboardDesktopSectionClick" @open-dashboard="openDashboardMenuHome" />
+                @select="onDashboardDesktopSectionClick" @open-dashboard="closeMobileMenu" />
               <router-link v-else :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }">
                 {{ isSscClubManager ? 'Manager Dashboard' : 'Dashboard' }}
               </router-link>
@@ -1005,7 +1005,7 @@
               <!-- Non-admin desktop: My Dashboard stays in the top bar (other word links are in the hamburger). -->
               <DashboardNavMenu v-if="isAuthenticated && !showDesktopHeaderWordNav && desktopMyDashboardLabel === 'My Dashboard'"
                 :to="myDashboardTo" :items="dashboardMobileNavItems" :context-key="dashboardMenuContextKey"
-                @select="onDashboardDesktopSectionClick" @open-dashboard="openDashboardMenuHome" />
+                @select="onDashboardDesktopSectionClick" @open-dashboard="closeMobileMenu" />
               <router-link
                 v-else-if="isAuthenticated && !showDesktopHeaderWordNav"
                 :to="myDashboardTo"
@@ -5875,8 +5875,6 @@ const onDashboardDesktopSectionClick = (item) => {
   const navigate = isMyDashboardRoute.value ? router.replace : router.push;
   navigate({ path, query }).catch(() => {});
 };
-const openDashboardMenuHome = () => { closeMobileMenu(); router.push(myDashboardTo.value).catch(() => {}); };
-
 // When already on My Dashboard (possibly a drill-in tab), force Overview / clear tab query.
 const onMyDashboardClick = (e) => {
   const target = myDashboardTo.value;

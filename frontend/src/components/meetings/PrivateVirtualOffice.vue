@@ -1,5 +1,6 @@
 <template>
   <section class="private-office" :style="{'--office-accent':officeAccent(room?.branding)}" :class="{'office-active':video||externalMeeting,'auricwell-surface':auricwell}">
+    <VirtualOfficeUseNotice />
     <header class="office-header"><OfficeBrand :branding="room?.branding" /><span v-if="plan" class="plan-badge">{{ plan.name }}</span></header>
     <div class="office-heading"><div><p class="eyebrow">{{ auricwell ? 'Your space for care' : 'Your space to connect' }}</p><h1>My Virtual Office</h1><p>Welcome guests, connect, and make space for a conversation.</p></div><div class="office-state" :class="{ready:canAdmit}"><span></span>{{ officeStatus }}</div></div>
     <p v-if="error" class="office-error" role="alert">{{ error }}</p><a v-if="needsMfa" href="/account-security">Open Account security</a>
@@ -44,6 +45,7 @@
   </section>
 </template>
 <script setup>
+import VirtualOfficeUseNotice from './VirtualOfficeUseNotice.vue';
 import { isAuricWellOffice, officeAccent } from '../../utils/officeBranding';
 import { registerClinicalWorkspace } from '../../composables/useClinicalWorkspace';
 import OfficeDayList from './OfficeDayList.vue';
