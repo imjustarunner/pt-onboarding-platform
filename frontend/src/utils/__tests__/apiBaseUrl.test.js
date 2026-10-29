@@ -24,6 +24,15 @@ describe('API routing for public login pages', () => {
     expect(resolveApiBaseUrl('/api/', publicLocation)).toBe('/api');
   });
 
+  it.each([
+    'https://onboarding-backend-65v3jdyqba-wm.a.run.app/api',
+    'https://onboarding-backend-378990906760.us-west3.run.app/api/'
+  ])('keeps public Google session cookies on the site when configured with %s', configured => {
+    expect(resolveApiBaseUrl(configured, publicLocation)).toBe('/api');
+    expect(resolveApiBaseUrl(configured, { hostname: 'plottwisthq.com' })).toBe('/api');
+    expect(resolveApiBaseUrl(configured, { hostname: 'localhost' })).toBe(configured.replace(/\/+$/, ''));
+  });
+
   it('allows explicit local development and native localhost configurations', () => {
     for (const hostname of ['localhost', '127.0.0.1', '[::1]']) {
       expect(resolveApiBaseUrl('http://localhost:3000/api', { hostname }))
@@ -42,7 +51,7 @@ describe('API routing for public login pages', () => {
     expect(resolveApiBaseUrl('https://backend.example.test/api', location)).toBe('/api');
   });
 
-  it.each(['', 'http://localhost:3000/api'])
+  it.each(['', 'http://localhost:3000/api', 'https://onboarding-backend-65v3jdyqba-wm.a.run.app/api'])
   ('keeps Google sign-in, API calls and uploads on the public site with config %s', async configured => {
     vi.stubGlobal('window', { location: publicLocation });
     vi.stubEnv('VITE_API_URL', configured);

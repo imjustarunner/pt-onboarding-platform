@@ -21,6 +21,12 @@ export function resolveApiBaseUrl(configuredUrl, location = {}) {
     const target = new URL(base, 'https://api-base.invalid');
     // A development build/config must never send public-site users to their own computers.
     if (isLoopbackHost(target.hostname) && !isLoopbackHost(hostname)) return '/api';
+    // Google signs in on the public site's host. Its host-only session cookie
+    // cannot accompany calls to our separate Cloud Run backend hostname.
+    // Public web builds must use the site's API proxy even if a build supplies
+    // the backend's direct URL; local/native clients retain their explicit API.
+    if (hostname && !isLoopbackHost(hostname) &&
+        /^onboarding-backend-[a-z0-9-]+(?:\.[a-z0-9-]+)?\.run\.app$/i.test(target.hostname)) return '/api';
   } catch {
     return '/api';
   }
