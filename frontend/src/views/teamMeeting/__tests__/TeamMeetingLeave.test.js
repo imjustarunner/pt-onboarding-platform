@@ -6,7 +6,6 @@ vi.mock('../../../utils/orgScopedPath', () => ({ resolveHostImpliedPortalSlug: (
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ isAuthenticated: true, user: { id: 9, role: 'provider' } }) }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: { id: 2 } }) }));
 vi.mock('../../../utils/activityTracker', () => ({ suspendInactivityTimeout: vi.fn(), resumeInactivityTimeout: vi.fn() }));
-vi.mock('../../../composables/useActiveMeeting', () => ({ useActiveMeeting: () => ({ setMiniMode: vi.fn(), takeReturnMedia: vi.fn() }) }));
 vi.mock('../../../composables/consentedAudioCapture.js', () => ({ createConsentedAudioCapture: () => ({ start: vi.fn(), stop: vi.fn(), flush: vi.fn() }) }));
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { eventId: '101', organizationSlug: 'tenant' }, fullPath: '/tenant/join/team-meeting/101' }), useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }));
 import JoinTeamMeetingView from '../JoinTeamMeetingView.vue';

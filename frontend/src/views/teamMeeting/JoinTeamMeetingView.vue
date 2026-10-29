@@ -196,14 +196,6 @@
           </span>
           <span v-if="raisedHandCount" class="join-hand-chip" title="Hands raised">✋ {{ raisedHandCount }}</span>
           <span v-if="meetingCompletedAt" class="join-completed-chip">Session completed</span>
-          <button
-            v-if="canUseMeetingMiniMode() && authStore.isAuthenticated && token && vonageSessionId && !isInLobby"
-            type="button"
-            class="btn btn-secondary btn-sm join-mini-btn"
-            title="Collapse to mini view — stay in meeting while you use the app"
-            :disabled="miniHandoffBusy"
-            @click="activateMiniMode"
-          >{{ miniHandoffBusy ? 'Switching…' : '⊡ Mini' }}</button>
           <button type="button" class="btn btn-danger btn-sm" @click="requestLeave">
             {{ isHost ? 'Leave / End meeting' : 'Leave meeting' }}
           </button>
@@ -260,8 +252,8 @@
               :screen-share-mode="screenShareMode"
               :can-share-screen="canShareScreenByDefault"
               :can-grant-screen-share="canGrantScreenShare"
-              :start-muted="returnMediaPreferences?.startMuted ?? !isHost"
-              :start-video-off="isTraining ? (!trainingState?.proctor && (!trainingState?.event.videoDefaultOn || !trainingState?.event.videoAllowed)) : (returnMediaPreferences?.startVideoOff ?? false)"
+              :start-muted="!isHost"
+              :start-video-off="isTraining ? (!trainingState?.proctor && (!trainingState?.event.videoDefaultOn || !trainingState?.event.videoAllowed)) : false"
               :mute-others-mode="muteOthersMode"
               :lobby-mode="isInLobby && !videoFullscreen"
               :show-layout-controls="!isInLobby"
@@ -621,8 +613,8 @@
 
 <script setup>
 import ScheduledTrainingPanel from '../../components/meetings/ScheduledTrainingPanel.vue';
-import { canUseMeetingMiniMode } from '../../utils/meetingMiniMode.js';
-import { ref, onMounted, onUnmounted, computed, watch, provide, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch, provide, nextTick, inject } from 'vue';
+import { meetingViewportKey } from '../../utils/meetingMiniMode';
 import { t } from '../../composables/useMeetingI18n.js';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
@@ -648,50 +640,11 @@ import api from '../../services/api';
 import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath';
 import { tenantDarkLogoUrl } from '../../utils/tenantBrandAssets.js';
 import { applyDarkMode, getStoredDarkMode, setDarkMode } from '../../utils/darkMode';
-import { useActiveMeeting } from '../../composables/useActiveMeeting';
 
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
-
-const { setMiniMode, takeReturnMedia } = useActiveMeeting();
-const returnMediaPreferences = takeReturnMedia(route.fullPath);
-const miniHandoffBusy = ref(false);
-
-async function activateMiniMode() {
-  if (!canUseMeetingMiniMode() || !token.value || !vonageSessionId.value || miniHandoffBusy.value) return;
-  miniHandoffBusy.value = true;
-  const params = {
-    token: token.value,
-    vonageSessionId: vonageSessionId.value,
-    applicationId: applicationId.value,
-    roomName: roomName.value,
-    eventId: resolvedEventId.value,
-    meetingPath: route.fullPath,
-    meetingTitle: displayMeetingTitle.value || 'Meeting',
-    joinIdentity: joinIdentity.value,
-    localName: localDisplayName.value,
-    startMuted: !videoRoomRef.value?.publishAudio,
-    startVideoOff: !videoRoomRef.value?.publishVideo,
-    isHostOrCohost: isHost.value || isCoHostBySignal.value,
-    screenShareMode: screenShareMode.value,
-    canShareScreen: canShareScreenByDefault.value,
-    canGrantScreenShare: canGrantScreenShare.value,
-    transcriptionActive: transcriptEnabled.value && !transcriptPaused.value && !transcriptRoomStopped.value,
-  };
-  const slug = organizationSlug.value || hostPortalSlug.value || authStore.user?.organization?.slug;
-  const dashboardPath = slug ? `/${slug}/dashboard` : '/dashboard';
-  // Hang up this page's publisher first. Starting Mini while the live room is
-  // still connected reuses the same Vonage token and kicks everyone (including us) out.
-  intentionalLeave.value = true;
-  try {
-    videoRoomRef.value?.disconnect?.(false);
-  } catch { /* already tearing down */ }
-  await new Promise((r) => setTimeout(r, 450));
-  setMiniMode(params);
-  router.push(dashboardPath).catch(() => router.push('/dashboard'));
-}
 
 // Dark theme toggle — persisted per user, defaults to their stored pref.
 const meetingDarkMode = ref(false);
@@ -862,6 +815,11 @@ const {
   getStream: () => videoRoomRef.value?.getTranscriptionStream?.(),
   displayName: localDisplayName
 });
+const meetingViewport = inject(meetingViewportKey, null);
+watch([transcriptEnabled, transcriptPaused, transcriptRoomStopped], ([enabled, paused, stopped]) => {
+  if (meetingViewport) meetingViewport.transcriptionStatus.value = stopped ? 'Transcription stopped'
+    : paused ? 'Transcription paused' : enabled ? 'Transcription is on' : 'Transcription is off';
+}, { immediate: true });
 
 const toolsOpen = ref(false);
 const showAddAttendeeModal = ref(false);
@@ -2343,16 +2301,6 @@ onUnmounted(() => {
   padding: 0 !important;
   border: 0 !important;
 }
-.join-mini-btn {
-  border-color: rgba(255, 255, 255, 0.18) !important;
-  color: #e2e8f0 !important;
-  background: rgba(255, 255, 255, 0.06) !important;
-  font-size: 0.78rem !important;
-  letter-spacing: 0.02em;
-}
-.join-mini-btn:hover {
-  background: rgba(255, 255, 255, 0.12) !important;
-}
 .join-dark-toggle {
   border: 1px solid rgba(255, 255, 255, 0.18);
   background: rgba(255, 255, 255, 0.08);
@@ -2965,8 +2913,4 @@ onUnmounted(() => {
   .interview-candidate-brief { order: 1; max-height: 40vh; flex: 0 0 auto; }
   .join-session-layout--interview .join-workspace { order: 2; min-height: 60vh; max-height: none; flex: 0 0 auto; }
 }
-</style>
-
-<style scoped>
-@media (max-width: 1024px), (pointer: coarse) { .join-mini-btn { display: none; } }
 </style>

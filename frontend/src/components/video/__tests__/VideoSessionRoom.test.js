@@ -1,6 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import VideoSessionRoom from '../VideoSessionRoom.vue';
+import { ref } from 'vue';
+import { meetingViewportKey } from '../../../utils/meetingMiniMode';
 import { updateRemoteVideoState } from '../remoteVideoState.js';
 import { acquireNativeAudioSource } from '../nativeAudioCapture.js';
 
@@ -277,6 +279,83 @@ describe('VideoSessionRoom connection lifecycle', () => {
     expect(wrapper.emitted('update:tileFocus')).toEqual([['equal']]);
     expect(wrapper.emitted('update:videoFullscreen')).toEqual([[true]]);
     wrapper.unmount();
+  });
+
+  it('uses the video surface only for focus, and sends mute only from the explicit button', async () => {
+    const wrapper = mount(VideoSessionRoom, { props: {
+      applicationId: '11111111-1111-4111-8111-111111111111', sessionId: 'focus', token: 'eyJ.test.token',
+      allowTileFocus: true, isHostOrCohost: true, tileFocus: 'equal', playJoinTone: false
+    } });
+    await flushPromises(); await vi.dynamicImportSettled();
+    const session = videoSdk.session;
+    session.connection = { connectionId: 'local' };
+    const setAudioVolume = vi.fn(), subscribeToAudio = vi.fn();
+    session.subscribe = vi.fn((_stream, target) => {
+      const element = document.createElement('div'); element.appendChild(document.createElement('video')); target.appendChild(element);
+      return { element, on: vi.fn(), setAudioVolume, subscribeToAudio };
+    });
+    session._handlers.streamCreated({ stream: { streamId: 'peer', name: 'Rachel', hasVideo: true, hasAudio: true, connection: { connectionId: 'rachel' } } });
+    await flushPromises(); session.signal.mockClear(); setAudioVolume.mockClear(); subscribeToAudio.mockClear();
+    const select = wrapper.get('.vsr__tile--remote .vsr__tile-select');
+    await select.trigger('pointerdown', { pointerType: 'touch' }); await select.trigger('click');
+    expect(wrapper.emitted('update:tileFocus')).toEqual([['remote']]);
+    await wrapper.setProps({ tileFocus: 'remote' });
+    expect(wrapper.get('.vsr__tile--remote').classes()).toContain('vsr__tile--featured');
+    expect(wrapper.get('.vsr__tile--local').classes()).toContain('vsr__tile--pip');
+    expect(wrapper.vm.remotes[0].hasAudio).toBe(true);
+    expect(session.signal).not.toHaveBeenCalled();
+    expect(setAudioVolume).not.toHaveBeenCalled(); expect(subscribeToAudio).not.toHaveBeenCalled();
+    await wrapper.get('.vsr__mute-other').trigger('click');
+    expect(session.signal.mock.calls.some(([message]) => message.type === 'force_mute')).toBe(true);
+    expect(wrapper.emitted('update:tileFocus')).toHaveLength(1);
+    expect(session.disconnect).not.toHaveBeenCalled(); wrapper.unmount();
+  });
+
+  it('moves the existing camera and shared screen into mini without restarting media, and keeps its controls', async () => {
+    const viewport = { mini: ref(false), canMinimize: ref(true), minimize: vi.fn(), restore: vi.fn(), transcriptionStatus: ref('Transcription is on') };
+    const audioTrack = Object.assign(new EventTarget(), { readyState: 'live', getSettings: () => ({}) });
+    const publisher = { on: vi.fn(), destroy: vi.fn(), publishVideo: vi.fn(), publishAudio: vi.fn(), getAudioSource: () => audioTrack };
+    videoSdk.initPublisher.mockImplementation((_el, _opts, callback) => { queueMicrotask(() => callback(null)); return publisher; });
+    const wrapper = mount(VideoSessionRoom, { attachTo: document.body, attrs: { class: 'meeting-video', 'aria-label': 'Meeting video' }, global: { provide: { [meetingViewportKey]: viewport } }, props: {
+      applicationId: '11111111-1111-4111-8111-111111111111', sessionId: 'mini', token: 'eyJ.test.token',
+      allowTileFocus: true, playJoinTone: false
+    } });
+    await flushPromises(); await vi.dynamicImportSettled();
+    const session = videoSdk.session;
+    session.publish.mockImplementation((_publisher, callback) => callback(null));
+    videoSdk.connectCallback(null); await flushPromises();
+    const elements = [];
+    session.subscribe = vi.fn((stream, target) => {
+      const element = document.createElement('div'); element.dataset.stream = stream.streamId;
+      element.appendChild(document.createElement('video')); target.appendChild(element); elements.push(element);
+      return { element, on: vi.fn() };
+    });
+    for (const [streamId, videoType] of [['peer', 'camera'], ['shared', 'screen']]) {
+      session._handlers.streamCreated({ stream: { streamId, videoType, name: streamId, hasVideo: true, hasAudio: true, connection: { connectionId: streamId } } });
+      await flushPromises();
+    }
+    const root = wrapper.get('.vsr').element;
+    const originalParent = root.parentElement;
+    expect(root.classList.contains('meeting-video')).toBe(true);
+    expect(root.getAttribute('aria-label')).toBe('Meeting video');
+    await wrapper.get('.vsr__mini-button').trigger('click'); expect(viewport.minimize).toHaveBeenCalledOnce();
+    for (let cycle = 0; cycle < 2; cycle++) {
+      viewport.mini.value = true; await flushPromises();
+      expect(root.parentElement).toBe(document.body);
+      expect(document.querySelector('.vsr--mini-window')).toBe(root);
+      expect(root.querySelector('.vsr__tile--screen').style.display).not.toBe('none');
+      expect(root.textContent).toContain('Transcription is on');
+      expect(elements.every(element => root.contains(element))).toBe(true);
+      viewport.mini.value = false; await flushPromises();
+      expect(root.parentElement).toBe(originalParent);
+    }
+    expect(session.subscribe).toHaveBeenCalledTimes(2); expect(videoSdk.initPublisher).toHaveBeenCalledOnce();
+    expect(session.disconnect).not.toHaveBeenCalled(); expect(session.unpublish).not.toHaveBeenCalled(); expect(publisher.destroy).not.toHaveBeenCalled();
+    viewport.mini.value = true; await flushPromises();
+    root.querySelector('.vsr__ctrl--mic').click(); await flushPromises();
+    expect(publisher.publishAudio).toHaveBeenLastCalledWith(false);
+    session._handlers.sessionDisconnected({ reason: 'networkDisconnected' });
+    expect(viewport.restore).toHaveBeenCalledOnce(); wrapper.unmount();
   });
 
   it('switches focused peers without dropping back to equal tiles', async () => {

@@ -1037,8 +1037,7 @@ defineExpose({
   display: flex;
   flex-direction: column;
   gap: 12px;
-  flex: 1;
-  min-height: 0;
+  flex: 1 0 auto;
 }
 .isl__card {
   background: rgba(255, 255, 255, 0.035);
@@ -1113,9 +1112,9 @@ defineExpose({
   grid-template-columns: minmax(0, 1.55fr) minmax(220px, 0.55fr);
   grid-template-areas: "focus sidebar";
   gap: 12px;
-  flex: 0 1 auto;
-  min-height: 0;
-  max-height: min(38vh, 360px);
+  /* Chat has its own S/M/L height. Let this row and the page contain it,
+     instead of letting it overflow the dark background into the page below. */
+  flex: 0 0 auto;
   align-items: stretch;
 }
 .isl__main-grid--video-only {

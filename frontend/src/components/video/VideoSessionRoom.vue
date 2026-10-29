@@ -1,7 +1,12 @@
 <template>
+  <Teleport to="body" :disabled="!mini">
   <div
+    v-bind="$attrs"
     class="vsr"
+    :style="mini ? miniPosition : undefined"
     :class="{
+      'vsr--mini-window': mini,
+      'vsr--tile-focus': allowTileFocus,
       'vsr--compact': compact,
       'vsr--strip': layout === 'strip',
       'vsr--hide-controls': hideControls,
@@ -12,6 +17,12 @@
       [`vsr--tile-size-${tileSizePreset}`]: true
     }"
   >
+    <div v-if="mini" class="vsr__mini-header" @pointerdown="startMiniDrag">
+      <span>Meeting in progress</span>
+      <button type="button" class="vsr__ctrl" @click="meetingViewport.restore">Return to meeting</button>
+      <button type="button" class="vsr__ctrl vsr__ctrl--danger" @click="requestLeave">Leave</button>
+    </div>
+    <p v-if="mini && meetingViewport.transcriptionStatus?.value" class="vsr__mini-notice" role="status">{{ meetingViewport.transcriptionStatus.value }}</p>
     <div v-if="errorMessage" class="vsr__error" role="alert">
       <p class="vsr__error-title">{{ errorMessage }}</p>
       <ul v-if="diagnosticHints.length" class="vsr__hints">
@@ -109,6 +120,10 @@
               class="vsr__media"
               :ref="(el) => setRemoteMediaEl(r.streamId, el)"
             />
+            <button v-if="allowTileFocus" type="button" class="vsr__tile-select"
+              :aria-label="`Enlarge ${r.name}'s video`"
+              :aria-pressed="!screenFocused && tileFocus === 'remote' && focusedRemoteStreamId === r.streamId"
+              @click.stop="onTileActivate('remote', r.streamId)" />
             <span v-if="r.videoIssue" class="vsr__connection-issue" role="status">{{ r.videoIssue }}</span>
             <div v-if="!useSplitCamOffLayout && !r.hasVideo" class="vsr__avatar" aria-hidden="true">
               <img v-if="r.profilePhotoUrl" :src="r.profilePhotoUrl" alt="" class="vsr__avatar-img" />
@@ -182,6 +197,9 @@
             @click="onTileActivate('local')"
           >
             <div ref="localMediaStageEl" class="vsr__media" />
+            <button v-if="allowTileFocus" type="button" class="vsr__tile-select"
+              aria-label="Enlarge your video" :aria-pressed="!screenFocused && tileFocus === 'local'"
+              @click.stop="onTileActivate('local')" />
             <span v-if="lobbyMode" class="vsr__lobby-preview-label">Your preview</span>
             <div v-if="!publishVideo && !useSplitCamOffLayout" class="vsr__avatar" aria-hidden="true">
               <img v-if="localProfilePhotoUrl" :src="localProfilePhotoUrl" alt="" class="vsr__avatar-img" />
@@ -369,6 +387,8 @@
         </div>
       </details>
       <div v-if="!hideControls" class="vsr__controls" role="toolbar" aria-label="Session media controls">
+        <button v-if="meetingViewport?.canMinimize.value && sessionReady && !lobbyMode && !mini" type="button"
+          class="vsr__ctrl vsr__mini-button" title="Keep this meeting open while you use the app" @click="minimizeMeeting">Mini</button>
         <button
           v-if="canSelfUnmute || publishAudio"
           type="button"
@@ -519,12 +539,14 @@
       </div>
     </template>
   </div>
+  </Teleport>
 </template>
 
 <script setup>
 import { createMeetingWaitPolicy, participantIdentity } from './meetingWaitPolicy';
 import { startLiveMeetingPresence } from '../../utils/liveMeetingPresence';
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, inject } from 'vue';
+import { meetingViewportKey } from '../../utils/meetingMiniMode';
 import { updateRemoteVideoState } from './remoteVideoState.js';
 import { mediaElement, tileGrid, createSpeakerTracker } from './meetingPresentation.js';
 import { nativeAudioConstraints, enhancePublishedAudioTrack } from './nativeAudioCapture.js';
@@ -533,6 +555,47 @@ import {
   isPublishTimeoutError,
   shouldUseVonageAdvancedNoiseSuppression
 } from './vonageAudioProcessor.js';
+
+defineOptions({ inheritAttrs: false });
+const meetingViewport = inject(meetingViewportKey, null);
+const mini = computed(() => !!meetingViewport?.mini.value);
+const miniPosition = ref({});
+function minimizeMeeting() {
+  setVideoFullscreen(false);
+  layoutMenuOpen.value = false;
+  miniPosition.value = {};
+  void meetingViewport?.minimize();
+}
+let stopMiniDrag;
+function startMiniDrag(event) {
+  if (event.button !== 0 || event.target.closest('button')) return;
+  stopMiniDrag?.();
+  const header = event.currentTarget;
+  const rect = header.closest('.vsr').getBoundingClientRect();
+  const dx = event.clientX - rect.left, dy = event.clientY - rect.top;
+  header.setPointerCapture?.(event.pointerId);
+  const move = e => {
+    miniPosition.value = {
+      left: `${Math.max(0, Math.min(window.innerWidth - rect.width, e.clientX - dx))}px`,
+      top: `${Math.max(0, Math.min(window.innerHeight - rect.height, e.clientY - dy))}px`,
+      right: 'auto', bottom: 'auto'
+    };
+  };
+  stopMiniDrag = () => {
+    header.removeEventListener('pointermove', move);
+    header.removeEventListener('pointerup', stopMiniDrag);
+    header.removeEventListener('pointercancel', stopMiniDrag);
+  };
+  header.addEventListener('pointermove', move);
+  header.addEventListener('pointerup', stopMiniDrag);
+  header.addEventListener('pointercancel', stopMiniDrag);
+}
+function resetMiniPosition() { stopMiniDrag?.(); miniPosition.value = {}; }
+onMounted(() => window.addEventListener('resize', resetMiniPosition));
+onBeforeUnmount(() => {
+  stopMiniDrag?.();
+  window.removeEventListener('resize', resetMiniPosition);
+});
 
 const props = defineProps({
   trainingPolicy: { type: Object, default: null },
@@ -669,6 +732,9 @@ watch(hasScreenShare, (active) => {
 });
 const screenShareLabel = ref('');
 const sessionReady = ref(false);
+watch(sessionReady, ready => {
+  if (!ready && mini.value) void meetingViewport.restore();
+}, { flush: 'sync' });
 const remoteMediaEls = new Map();
 const localHandRaised = ref(false);
 /** @type {import('vue').Ref<Record<string, boolean>>} */
@@ -788,8 +854,9 @@ const thumbnailKeys = computed(() => {
     ...(showLocalOnStage.value ? ['local'] : [])].filter(key => key !== featured);
 });
 const thumbnailGrid = computed(() => {
-  const columns = Math.max(1, Math.min(thumbnailKeys.value.length, Math.floor(stageSize.value.width / 126)));
-  const side = Math.max(1, Math.min(120, Math.floor((stageSize.value.width - 6 * (columns + 1)) / columns)));
+  const maxSide = mini.value ? 64 : 120;
+  const columns = Math.max(1, Math.min(thumbnailKeys.value.length, Math.floor(stageSize.value.width / (maxSide + 6))));
+  const side = Math.max(1, Math.min(maxSide, Math.floor((stageSize.value.width - 6 * (columns + 1)) / columns)));
   return { columns, side, rows: Math.ceil(thumbnailKeys.value.length / columns) };
 });
 function tileStageStyle(kind, key) {
@@ -809,17 +876,18 @@ const stageGridStyle = computed(() => {
   }
   if (screenFocused.value || ['remote', 'local', 'speaker'].includes(props.tileFocus)) {
     const { columns, side, rows } = thumbnailGrid.value;
+    const minimumFeaturedHeight = mini.value ? 80 : 180;
     return {
-      '--vsr-camera-side': `${Math.max(1, Math.min(stageSize.value.width, Math.max(180, stageSize.value.height - rows * (side + 6))))}px`,
+      '--vsr-camera-side': `${Math.max(1, Math.min(stageSize.value.width, Math.max(minimumFeaturedHeight, stageSize.value.height - rows * (side + 6))))}px`,
       '--vsr-thumbnail-side': `${side}px`,
       gridTemplateColumns: `minmax(0, 1fr) repeat(${columns}, ${side}px) minmax(0, 1fr)`,
-      gridTemplateRows: `minmax(180px, 1fr)${rows ? ` repeat(${rows}, ${side}px)` : ''}`
+      gridTemplateRows: `minmax(${minimumFeaturedHeight}px, 1fr)${rows ? ` repeat(${rows}, ${side}px)` : ''}`
     };
   }
   if (props.lobbyMode || props.layout === 'strip' || props.tileFocus === 'collapsed') return null;
   const count = Math.max(1, Math.min(stageVideoCount.value, visibleStagePages.value * STAGE_TILE_PAGE_SIZE));
   const { width, height } = stageSize.value;
-  const grid = tileGrid(count, width, height, props.compact ? 'mini' : tileSizePreset.value);
+  const grid = tileGrid(count, width, height, props.compact || mini.value ? 'mini' : tileSizePreset.value);
   const side = Math.max(1, Math.floor(Math.min((width - 6 * (grid.columns - 1)) / grid.columns,
     Math.max(1, (height - 6 * (grid.rows - 1)) / grid.rows))));
   return { gridTemplateColumns: `repeat(${grid.columns}, ${side}px)`, gridTemplateRows: `repeat(${grid.rows}, ${side}px)`,
@@ -1807,6 +1875,7 @@ function onTileActivate(which, streamId = '') {
 
 function requestLeave() {
   setVideoFullscreen(false);
+  if (mini.value) void meetingViewport.restore();
   emit('leave-request');
 }
 
@@ -3887,6 +3956,10 @@ defineExpose({
   font-size: 0.65rem;
   font-weight: 700;
   cursor: pointer;
+  width: auto;
+  height: auto;
+  min-height: 32px;
+  touch-action: manipulation;
 }
 .vsr__mute-other:hover {
   background: rgba(185, 28, 28, 0.85);
@@ -4334,6 +4407,24 @@ defineExpose({
   max-width: none !important;
   max-height: none !important;
 }
+/* SDK media is a display surface. Only our explicit controls change audio.
+   A real focus button above it also makes the same action available to keyboards. */
+.vsr--tile-focus .vsr__media { pointer-events: none; }
+.vsr__tile :deep(.OT_mute) { display: none !important; pointer-events: none !important; }
+.vsr__tile-select {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.vsr__tile-select:focus-visible { outline: 3px solid #6ee7b7; outline-offset: -3px; }
 /* Camera tiles fill the available height; shared documents stay uncropped. */
 .vsr__tile :deep(video) {
   width: 100% !important;
@@ -4596,6 +4687,32 @@ defineExpose({
 .vsr__alone-prompt p, .vsr__alone-ended p { font-size: .875rem; line-height: 1.4; }
 .vsr__alone-prompt button { margin: 4px; }
 .vsr__alone-waiting { margin: 0; padding: 4px 10px; font-size: .8rem; color: #cbd5e1; }
+/* Same mounted media and controls, moved by Teleport rather than reconnected. */
+.vsr.vsr--mini-window {
+  position: fixed !important;
+  inset: auto 12px 12px auto;
+  z-index: 8900;
+  width: min(400px, calc(100vw - 24px));
+  height: min(420px, 70dvh);
+  min-height: 0;
+  border: 1px solid #475569;
+  box-shadow: 0 12px 40px #0008;
+  box-sizing: border-box;
+}
+.vsr__mini-header { display: flex; align-items: center; gap: 6px; padding: 8px; flex: 0 0 auto; background: #182333; cursor: grab; touch-action: none; }
+.vsr__mini-header > span { flex: 1; font-size: 0.75rem; }
+.vsr__mini-header .vsr__ctrl { padding: 6px; font-size: 0.75rem; }
+.vsr__mini-notice { margin: 0; padding: 4px 8px; font-size: 0.75rem; background: #18382f; }
+.vsr--mini-window .vsr__viewport { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; }
+.vsr--mini-window .vsr__stage { min-height: 0; height: auto; flex: 1 1 0; }
+.vsr--mini-window .vsr__stage > .vsr__tile { min-height: 0 !important; }
+.vsr--mini-window .vsr__cam-off-panel { max-height: 60px; overflow: auto; flex: 0 0 auto; }
+.vsr--mini-window .vsr__audio-settings,
+.vsr--mini-window .vsr__react-group,
+.vsr--mini-window .vsr__layout-wrap,
+.vsr--mini-window .vsr__grid-toolbar { display: none; }
+.vsr--mini-window .vsr__controls { flex-wrap: nowrap; overflow-x: auto; }
+.vsr--mini-window .vsr__controls > * { flex-shrink: 0; }
 </style>
 
 <style scoped>

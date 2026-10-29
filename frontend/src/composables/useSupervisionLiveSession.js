@@ -2,7 +2,8 @@
  * Shared supervision live-session plumbing (lifecycle, activity, transcript).
  * Room shells (individual vs group) own their own layout and UX.
  */
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, inject, onMounted, onUnmounted, ref, watch } from 'vue';
+import { meetingViewportKey } from '../utils/meetingMiniMode';
 import api, { isApiRateLimited } from '../services/api';
 import { supervisionAccessFor } from '../utils/supervisionInvitationAccess';
 import { useAuthStore } from '../store/auth';
@@ -234,6 +235,10 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     if (!transcriptRequested.value) return 'Waiting for transcription to start';
     return transcriptPaused.value ? 'Transcription paused' : 'This session is being transcribed';
   });
+  const meetingViewport = inject(meetingViewportKey, null);
+  watch(transcriptionStatus, status => {
+    if (meetingViewport) meetingViewport.transcriptionStatus.value = status;
+  }, { immediate: true });
 
   function stopLiveTranscriptCapture() {
     if (transcriptFlushTimer) {

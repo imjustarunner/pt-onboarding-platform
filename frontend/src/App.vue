@@ -1954,7 +1954,7 @@
         <!-- Use path (not fullPath) so query-only updates don't destroy/recreate the page (avoids flash + repeated dashboard_view logs). -->
         <ProviderAvailabilityNotice v-if="isAuthenticated && !clinicalWorkspaceActive && !route.meta?.publicMarketingHub && !hideGlobalNavForSchoolStaff" />
         <SchoolCareBridgeBrand v-if="route.path.startsWith('/schoolcarebridge/app/') && !route.meta.schoolCareBridgeEntry && route.name !== 'SchoolCareBridgeOperations'" style="margin: 10px auto" />
-        <router-view :key="route.path" />
+        <MeetingRouteHost :can-minimize="isAuthenticated" />
         <TenantLegalFooter v-if="route.meta?.publicMarketingHub" />
       </main>
       <PublicTranslateWidget v-if="showPublicTranslateWidget" />
@@ -1969,7 +1969,6 @@
       <HelperWidget v-if="isAuthenticated && !isImmersiveJoinRoute && !hideGlobalNavForSchoolStaff" />
       <BetaFeedbackWidget v-if="isAuthenticated && !isNative && !isImmersiveJoinRoute && !hideGlobalNavForSchoolStaff" />
       <EmailComposerDock v-if="!applicantInterviewMode" :owner-id="user?.id" :locked="sessionLockStore.isLocked || sessionLockStore.warningActive" />
-      <FloatingMeetingBar v-if="isAuthenticated && !hideGlobalNavForSchoolStaff" />
       <HowToVideoWidget
         v-if="isAuthenticated && !isImmersiveJoinRoute && !isPublicIntakeRoute && !isPublicOfficeRoute && !sessionLockStore.isLocked && !sessionLockStore.warningActive"
         :key="user?.id"
@@ -2346,7 +2345,7 @@ import TourManager from './components/TourManager.vue';
 import SuperAdminBuilderPanel from './components/SuperAdminBuilderPanel.vue';
 import HelperWidget from './components/HelperWidget.vue';
 import BetaFeedbackWidget from './components/BetaFeedbackWidget.vue';
-import FloatingMeetingBar from './components/meetings/FloatingMeetingBar.vue';
+import MeetingRouteHost from './components/meetings/MeetingRouteHost.vue';
 import MomentumStickiesOverlay from './components/momentum/MomentumStickiesOverlay.vue';
 import AddStickyFab from './components/momentum/AddStickyFab.vue';
 import AddToStickyContextMenu from './components/momentum/AddToStickyContextMenu.vue';
