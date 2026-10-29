@@ -8,7 +8,7 @@ export const reservationHash = value => createHash('sha256').update(String(value
 export const reservationSql = value => parseUtcDate(value).toISOString().slice(0,19).replace('T',' ');
 export const reservationIso = value => parseUtcDate(value)?.toISOString() || null;
 export const reservationConfig = value => typeof value === 'string' ? JSON.parse(value) : value;
-export const reservationStaffRoles = Object.freeze(['super_admin','admin','assistant_admin','support','staff','provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant','facilitator','clinician','qbha']);
+export const reservationStaffRoles = Object.freeze(['super_admin','admin','assistant_admin','support','staff','provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant','facilitator','tutor','clinician','qbha']);
 export const reservationStaff = user => !!user?.id && reservationStaffRoles.includes(String(user.role || '').toLowerCase());
 const text = (value, max) => String(value || '').trim().slice(0,max);
 export function reservationEmail(value) {

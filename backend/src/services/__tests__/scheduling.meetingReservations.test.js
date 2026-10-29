@@ -15,7 +15,7 @@ const draft=()=>({agencyId:2,title:'Quarterly evaluation',type:'evaluation',time
 describe('standalone meeting offer parameters',()=>{
   it('limits employee offers to staff roles, including when another account has agency membership',()=>{
     for(const role of ['athlete','guardian','client','school_staff','candidate','unknown','']) expect(reservationStaff({id:8,role})).toBe(false);
-    for(const role of ['provider','staff','assistant_admin','intern','clinical_practice_assistant']) expect(reservationStaff({id:8,role})).toBe(true);
+    for(const role of ['provider','staff','assistant_admin','intern','clinical_practice_assistant','tutor']) expect(reservationStaff({id:8,role})).toBe(true);
   });
   it('generates complete 30/45/60 minute openings with gaps in the agency time zone',()=>{
     const config=normalizeReservation(draft(),roster,now);
