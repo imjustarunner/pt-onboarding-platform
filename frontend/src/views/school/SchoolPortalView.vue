@@ -479,6 +479,7 @@
           <p class="sp-topbar-subtitle"><strong>{{ tenantBrandName }}</strong><span v-if="tenantBrandName"> · </span>SchoolCareBridge · Schedule + roster</p>
         </div>
         <div class="sp-topbar-right">
+          <NavSearchBar v-if="authStore.isAuthenticated && !props.previewMode && !props.publicDemoToken && !onboardingDemoToken" />
           <DistrictScheduleLinkButton
             v-if="affiliatedAgencyId && canManageSchoolPortalBackofficeNav"
             :agency-id="affiliatedAgencyId"
@@ -2545,6 +2546,7 @@
 </template>
 
 <script setup>
+import NavSearchBar from '../../components/NavSearchBar.vue';
 import { isSchoolScheduleClientLocked } from '../../utils/schoolStaffRoiLabels.js';
 import PortalIcon from '../../components/portal/PortalIcon.vue';
 import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
