@@ -1,7 +1,8 @@
-import { APP_GROUP_OWNER } from './appGroupOwnership.service.js';
+import { APP_GROUP_OWNER, ensureAppGroupMember } from './appGroupOwnership.service.js';
 import pool from '../config/database.js';
 import Directory from './googleWorkspaceDirectory.service.js';
-import { managedDomain, activeManagedStaff, buildManagedGroupPlan, CURRENT_MANAGED_DOMAINS } from './managedWorkspaceGroupPolicy.js';
+import { managedDomain, managedGroupScope, activeManagedStaff, buildManagedGroupPlan, CURRENT_MANAGED_DOMAINS } from './managedWorkspaceGroupPolicy.js';
+import { scopeProviderRow } from '../utils/providerAgencyAvailability.js';
 import { ensurePersonalMailboxForAddress } from './personalMailbox.service.js';
 
 const normalize = value => String(value || '').trim().toLowerCase();
@@ -14,7 +15,8 @@ export async function loadManagedWorkspaceRoster(agencyId) {
     u.is_demo,u.languages_spoken,
     (SELECT public_details_json FROM provider_public_profiles WHERE user_id=u.id) AS public_details_json,
     (SELECT GROUP_CONCAT(v.value) FROM user_info_values v JOIN user_info_field_definitions d ON d.id=v.field_definition_id WHERE v.user_id=u.id AND d.field_key IN ('languages_spoken','provider_languages_spoken')) AS recorded_languages,
-    u.credential,u.has_supervisor_privileges,u.work_location,u.login_is_group_email,
+    u.credential,u.has_supervisor_privileges,u.sees_clients,u.has_provider_access,u.work_location,u.login_is_group_email,
+    EXISTS(SELECT 1 FROM client_provider_assignments cpa JOIN clients c ON c.id=cpa.client_id WHERE cpa.provider_user_id=u.id AND c.agency_id=ua.agency_id AND cpa.is_active=1) AS has_client_assignments,
     ua.is_active AS membership_active,ua.agency_position,ua.supervision_is_prelicensed,
     (SELECT GROUP_CONCAT(DISTINCT i.from_email) FROM communication_inboxes i
       WHERE i.owner_user_id=u.id AND i.agency_id=ua.agency_id AND i.kind='personal') AS mailbox_emails
@@ -23,7 +25,10 @@ export async function loadManagedWorkspaceRoster(agencyId) {
   const [locations] = await pool.execute(`SELECT DISTINCT ul.user_id,ol.city,ol.state FROM user_office_locations ul
     JOIN office_locations ol ON ol.id=ul.office_location_id AND ol.is_active=1
     WHERE ul.is_active=1 AND (ol.agency_id=? OR EXISTS (SELECT 1 FROM office_location_agencies ola WHERE ola.office_location_id=ol.id AND ola.agency_id=?))`, [agencyId,agencyId]);
-  for (const row of rows) row.locations = locations.filter(loc => Number(loc.user_id) === Number(row.id));
+  for (const row of rows) {
+    row.locations = locations.filter(loc => Number(loc.user_id) === Number(row.id));
+    Object.assign(row, scopeProviderRow(row, agencyId, row.public_details_json));
+  }
   return { rows, assignments };
 }
 
@@ -63,7 +68,7 @@ export async function ensureManagedAppGroup({ agencyId, plan, userIds, managerUs
     if (!threadId) {
       const [result] = await db.execute(`INSERT INTO chat_threads
         (agency_id,thread_type,name,slug,description,visibility,membership_rule)
-        VALUES (?,'channel',?,?,?,'private','managed_workspace_group')`, [agencyId,plan.label,`workspace-${plan.key.replace(':','-')}`,`${plan.email} · Email, internal messages and meeting invitees. SMS coming soon.`]);
+        VALUES (?,'channel',?,?,?,'private','managed_workspace_group')`, [agencyId,plan.label,`workspace-${plan.key.replace(':','-')}`,`Chat with ${plan.label}. Messages stay in the app. Email the group separately at ${plan.email}.`]);
       threadId=result.insertId;
     }
     if (!meetingId) {
@@ -90,7 +95,7 @@ export async function reconcileManagedWorkspaceGroups({ apply=false, agencyIds=n
   const [agencies] = await pool.execute("SELECT id,name,slug,organization_type,is_active,feature_flags FROM agencies WHERE is_active=1 AND organization_type='agency'");
   const tenants=agencies.filter(a => {
     const flags=typeof a.feature_flags==='string'?JSON.parse(a.feature_flags||'{}'):a.feature_flags||{};
-    return managedDomain(a) && (!enrolledOnly || flags.managedWorkspaceGroupsEnabled===true) && (!agencyIds || agencyIds.includes(Number(a.id)));
+    return managedDomain(a) && (!enrolledOnly || flags.managedWorkspaceGroupsEnabled===true || managedGroupScope(a)?.length) && (!agencyIds || agencyIds.includes(Number(a.id)));
   });
   const domainOwners = new Map();
   for (const a of tenants) { const d=managedDomain(a); if(domainOwners.has(d)) throw new Error(`Multiple managed tenants claim ${d}; resolve before syncing`); domainOwners.set(d,a.id); }
@@ -102,8 +107,9 @@ export async function reconcileManagedWorkspaceGroups({ apply=false, agencyIds=n
     reports.push(report);
     try {
       const {rows,assignments}=await loadManagedWorkspaceRoster(agency.id);
-      const plans=buildManagedGroupPlan({domain:report.domain,rows,assignments});
       const [stored]=await pool.execute('SELECT group_key,email FROM managed_workspace_groups WHERE agency_id=?', [agency.id]);
+      const scope=managedGroupScope(agency);
+      const plans=buildManagedGroupPlan({domain:report.domain,rows,assignments,includeClinical:scope?.includes('clinical') || stored.some(g=>g.group_key==='clinical') || groupKeys?.includes('clinical')});
       for(const p of plans) p.email=stored.find(s=>s.group_key===p.key)?.email || p.email;
       // Keep former supervisors' groups reconciled to empty after reassignment.
       for(const old of stored) if(!plans.some(p=>p.key===old.group_key)) plans.push({key:old.group_key,email:old.email,label:old.email.split('@')[0],userIds:[],managerUserIds:[]});
@@ -128,6 +134,7 @@ export async function reconcileManagedWorkspaceGroups({ apply=false, agencyIds=n
         if(!plans.some(p=>['interns','unlicensed','prelicensed','licensed'].includes(p.key) && p.userIds.includes(Number(row.id))) && ['provider','provider_plus','intern','intern_plus'].includes(row.role)) report.unclassified.push(row.id);
       }
       for(const plan of plans) {
+        if(scope?.length && !scope.includes(plan.key))continue;
         if(groupKeys&&!groupKeys.includes(plan.key))continue;
         if(plan.key.startsWith('supervisor:') && !selected.has(Number(plan.key.split(':')[1])) && !stored.some(g=>g.group_key===plan.key)) continue;
         const result={email:plan.email,created:false,aiRole:null,added:[],removed:[],preserved:[],error:null};report.groups.push(result);
@@ -149,18 +156,28 @@ export async function reconcileManagedWorkspaceGroups({ apply=false, agencyIds=n
           const preferred=new Map([...selected.values()].map(email=>[canonical.get(email)||email,email]));
           const current=new Map(members.map(m=>[preferred.get(normalize(m.email))||normalize(m.email),m]));
           result.aiRole=current.get(relay)?.role || 'ABSENT';
+          // Clinical group management was explicitly enrolled by the owner.
+          if(plan.key==='clinical' && apply) {
+            const member=await write(()=>ensureAppGroupMember({admin,groupKey:plan.email,email:relay}));
+            current.set(relay,member);result.aiRole=member.role;
+          }
           // Existing groups lacking the relay manager are reported for the owner
           // to grant access, as requested. Do not self-promote existing roles.
-          if(isNew && apply) {
+          if(isNew && apply && plan.key!=='clinical') {
             await write(()=>Directory.addGroupMember({groupEmail:plan.email,memberEmail:relay,role:'MANAGER',client:admin,memberType:'USER'}));
             await write(()=>Directory.setGroupMemberDeliverySettings({groupEmail:plan.email,memberEmail:relay,deliverySettings:'ALL_MAIL',client:admin}));
             current.set(relay,{email:relay,role:'MANAGER'});result.aiRole='MANAGER';
           }
-          if(apply) await write(()=>Directory.applyGroupAccessSettings({groupEmail:plan.email,whoCanJoin:'INVITED_CAN_JOIN',whoCanPostMessage:plan.key==='spanish'?'ALL_IN_DOMAIN_CAN_POST':'ALL_MANAGERS_CAN_POST',whoCanViewMembership:'ALL_MANAGERS_CAN_VIEW',whoCanViewGroup:'ALL_MEMBERS_CAN_VIEW',allowExternalMembers:true,...(plan.key==='spanish'?{membersCanPostAsTheGroup:true}:{})}));
-          const spanishOwner=plan.key==='spanish'?rows.find(r=>activeManagedStaff(r)&&normalize(r.first_name)==='michael'&&normalize(r.last_name)==='mendez'):null;
-          const ownerEmail=spanishOwner?selected.get(Number(spanishOwner.id)):null;
+          if(apply && (!scope?.length || isNew)) await write(()=>Directory.applyGroupAccessSettings({groupEmail:plan.email,whoCanJoin:'INVITED_CAN_JOIN',whoCanPostMessage:plan.key==='spanish'?'ALL_IN_DOMAIN_CAN_POST':'ALL_MANAGERS_CAN_POST',whoCanViewMembership:'ALL_MANAGERS_CAN_VIEW',whoCanViewGroup:'ALL_MEMBERS_CAN_VIEW',allowExternalMembers:true,...(plan.key==='spanish'?{membersCanPostAsTheGroup:true}:{})}));
+          let ownerEmail=plan.key==='spanish'?APP_GROUP_OWNER:null;
           if(plan.key==='spanish'&&apply){
-            if(!ownerEmail)throw new Error('Spanish group owner Michael Mendez could not be resolved');
+            // Application group ownership is independent of tenant employment.
+            // Use the same verified account as all other managed groups; matching
+            // a display name in this tenant's roster can miss the platform owner
+            // or select a different person with the same name.
+            const owner=await lookupUser(admin,APP_GROUP_OWNER);
+            if(!owner || owner.suspended || owner.archived)throw new Error(`Spanish group owner ${APP_GROUP_OWNER} is unavailable in Google Workspace`);
+            ownerEmail=normalize(owner.primaryEmail || APP_GROUP_OWNER);
             await write(()=>Directory.addGroupMember({groupEmail:plan.email,memberEmail:ownerEmail,role:'OWNER',client:admin,memberType:'USER'}));
             current.set(ownerEmail,{email:ownerEmail,role:'OWNER'});
             const alias=`espanol@${report.domain}`;
@@ -207,6 +224,9 @@ export async function reconcileManagedWorkspaceGroups({ apply=false, agencyIds=n
             if(createMissingOnly) {result.preserved.push(email);continue;}
             const people=known.get(email);
             if(!people?.length) {result.preserved.push(email);continue;}
+            // Scoped enrollment adds the requested audience without silently
+            // removing current employees whose care/demo flags need review.
+            if(scope?.length && plan.key==='clinical' && people.some(r=>Number(r.is_active)===1 && !Number(r.is_archived) && Number(r.membership_active)===1 && ['ACTIVE_EMPLOYEE','ACTIVE','ONBOARDING'].includes(String(r.status || '').toUpperCase()))) {result.preserved.push(email);continue;}
             const active=people.filter(activeManagedStaff);
             if(manager(m) && active.length && domains.has(email.split('@')[1])) continue;
             if(active.length && ['costaff','denver','cosprings'].includes(plan.key) && active.some(r=>!r.locations.length && !r.work_location)) {result.preserved.push(email);continue;}
@@ -224,7 +244,7 @@ export async function reconcileManagedWorkspaceGroups({ apply=false, agencyIds=n
           if(apply) result.app=await ensureManagedAppGroup({agencyId:agency.id,plan,userIds:[...appIds],memberEmails:[...current.keys()].filter(e=>e!==relay && e!==ownerEmail && domains.has(e.split('@')[1]) && (known.get(e)||[]).some(activeManagedStaff)),managerUserIds:[...managerIds].filter(id=>rows.some(r=>Number(r.id)===id && activeManagedStaff(r)))});
         } catch(e) {result.error=String(e.message).slice(0,240);}
       }
-      if(apply && !createMissingOnly && !groupKeys) for(const [id,email] of selected) {
+      if(apply && !createMissingOnly && !groupKeys && !scope?.length) for(const [id,email] of selected) {
         const row=rows.find(r=>Number(r.id)===id);
         if(!(row.mailbox_emails || '').split(',').map(normalize).includes(email)) await ensurePersonalMailboxForAddress({agencyId:agency.id,userId:id,fromEmail:email});
       }

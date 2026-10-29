@@ -6,7 +6,7 @@ const value = name => process.argv.find(s=>s.startsWith(`${name}=`))?.slice(name
 try {
   const prior=value('--resume-created')?JSON.parse(await readFile(value('--resume-created'),'utf8')):[];
   const createdGroupEmails=prior.flatMap(r=>(r.groups||[]).filter(g=>g.created).map(g=>g.email));
-  const work = () => reconcileManagedWorkspaceGroups({ apply:process.argv.includes('--apply'), createdGroupEmails, createMissingOnly:process.argv.includes('--create-missing-only'), agencyIds:value('--agency')?.split(',').map(Number) || null });
+  const work = () => reconcileManagedWorkspaceGroups({ apply:process.argv.includes('--apply'), createdGroupEmails, createMissingOnly:process.argv.includes('--create-missing-only'), agencyIds:value('--agency')?.split(',').map(Number) || null, groupKeys:value('--groups')?.split(',').filter(Boolean) || null });
   let report;
   for(let attempt=0;attempt<10;attempt++) {
     report = process.argv.includes('--apply') ? await withMessagingJobLock(process.argv.includes('--create-missing-only') ? 'workspace-new-groups' : 'staff-membership',work,{timeoutSeconds:30}) : await work();

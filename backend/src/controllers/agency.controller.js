@@ -895,7 +895,9 @@ export const updateAgency = async (req, res, next) => {
       else formattedFeatureFlags.schoolCareBridgeOnly = previousFeatureFlags.schoolCareBridgeOnly;
       if (previousFeatureFlags.managedWorkspaceGroupsEnabled === undefined) delete formattedFeatureFlags.managedWorkspaceGroupsEnabled;
       else formattedFeatureFlags.managedWorkspaceGroupsEnabled = previousFeatureFlags.managedWorkspaceGroupsEnabled;
-      if (previousFeatureFlags.managedWorkspaceGroupsEnabled === true) formattedFeatureFlags.workspaceEmailDomain = previousFeatureFlags.workspaceEmailDomain;
+      if (previousFeatureFlags.managedWorkspaceGroupKeys === undefined) delete formattedFeatureFlags.managedWorkspaceGroupKeys;
+      else formattedFeatureFlags.managedWorkspaceGroupKeys = previousFeatureFlags.managedWorkspaceGroupKeys;
+      if (previousFeatureFlags.managedWorkspaceGroupsEnabled === true || previousFeatureFlags.managedWorkspaceGroupKeys?.length) formattedFeatureFlags.workspaceEmailDomain = previousFeatureFlags.workspaceEmailDomain;
     }
 
     const agency = await Agency.update(id, { 

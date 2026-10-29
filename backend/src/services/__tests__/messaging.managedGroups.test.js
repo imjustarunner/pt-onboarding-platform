@@ -17,11 +17,11 @@ describe('managed staff membership',()=>{
  });
  it('moves interns to candidates to licensed without stale credential memberships',()=>{
   expect(staffGroupKeys(staff)).toEqual(expect.arrayContaining(['staff','interns','unlicensed']));
-  expect(staffGroupKeys({...staff,credential:'MA, LPCC',agency_position:'Intern'})).toEqual(['staff','prelicensed']);
-  expect(staffGroupKeys({...staff,credential:'MA, LPC',supervision_is_prelicensed:1})).toEqual(['staff','licensed']);
+  expect(staffGroupKeys({...staff,credential:'MA, LPCC',agency_position:'Intern'})).toEqual(['staff','prelicensed','clinical']);
+  expect(staffGroupKeys({...staff,credential:'MA, LPC',supervision_is_prelicensed:1})).toEqual(['staff','licensed','clinical']);
  });
  it('does not misread a degree as a license or enroll demo, inactive, guardian, or prospective users',()=>{
-  expect(staffGroupKeys({...staff,credential:'MFA'})).toEqual(['staff']);
+  expect(staffGroupKeys({...staff,credential:'MFA'})).toEqual(['staff','clinical']);
   for(const change of [{is_demo:1},{membership_active:0},{is_active:0},{is_archived:1},{status:'PROSPECTIVE'},{role:'client_guardian'}])expect(staffGroupKeys({...staff,...change})).toEqual([]);
  });
  it('includes onboarding employees once provisioned and uses work offices, including both cities',()=>{
@@ -45,7 +45,7 @@ describe('manager-only distribution',()=>{
  it('rejects non-managers, background mail without an actor, and inactive managers',async()=>{
   for(const actorUserId of [null,25])await expect(managedGroupEnvelope({to:group.email,actorUserId})).rejects.toMatchObject({code:'GROUP_MANAGER_REQUIRED'});
   pool.execute.mockImplementation(async sql=>[sql.includes('FROM managed_workspace_groups')?[group]:[{...staff,is_active:0}]]);
-  await expect(assertManagedChatPost(2,12)).rejects.toMatchObject({code:'GROUP_MANAGER_REQUIRED'});
+  await expect(assertManagedChatPost(2,12)).rejects.toMatchObject({code:'GROUP_MEMBER_REQUIRED'});
  });
  it('does not alter unrelated recipients',async()=>{
   pool.execute.mockResolvedValue([[]]);const input={to:'Name <person@example.org>',cc:null,bcc:null,actorUserId:12};

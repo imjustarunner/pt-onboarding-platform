@@ -73,3 +73,53 @@ it('recognizes a selected tenant alias when Directory lists the primary account'
  const group=report.groups.find(g=>g.email==='staff@itsco.health');
  expect(group.added).toEqual([]);expect(group.removed).toEqual([]);
 });
+
+it('uses the verified application owner even when absent from a tenant roster',async()=>{
+ client.users.get.mockResolvedValue({data:{primaryEmail:'michael@plottwistco.com'}});
+ client.groups.aliases={list:vi.fn(async()=>({data:{aliases:[{alias:'espanol@itsco.health'}]}}))};
+ // Stop after verifying the owner and support membership, before app persistence.
+ Directory.addGroupMember.mockImplementation(async ({memberEmail})=>{
+  if(memberEmail==='support@itsco.health')throw new Error('support membership reached');
+ });
+ const [report]=await reconcileManagedWorkspaceGroups({apply:true,groupKeys:['spanish']});
+ expect(Directory.addGroupMember).toHaveBeenCalledWith(expect.objectContaining({
+  groupEmail:'spanish@itsco.health',memberEmail:'michael@plottwistco.com',role:'OWNER',memberType:'USER'
+ }));
+ expect(report.groups[0].error).toBe('support membership reached');
+});
+
+it('never chooses another tenant employee just because their name matches the owner',async()=>{
+ roster=[{...staff,first_name:'Michael',last_name:'Mendez'}];
+ client.users.get.mockImplementation(async ({userKey})=>{
+  if(userKey==='michael@plottwistco.com')throw Object.assign(new Error('missing'),{code:404});
+  return {data:{primaryEmail:staff.email}};
+ });
+ const [report]=await reconcileManagedWorkspaceGroups({apply:true,groupKeys:['spanish']});
+ expect(report.groups[0].error).toContain('michael@plottwistco.com is unavailable');
+ expect(Directory.addGroupMember).not.toHaveBeenCalled();
+});
+
+it('does not assign a suspended Workspace account as the Spanish group owner',async()=>{
+ client.users.get.mockResolvedValue({data:{primaryEmail:'michael@plottwistco.com',suspended:true}});
+ const [report]=await reconcileManagedWorkspaceGroups({apply:true,groupKeys:['spanish']});
+ expect(report.groups[0].error).toContain('unavailable in Google Workspace');
+ expect(Directory.addGroupMember).not.toHaveBeenCalled();
+});
+
+it('limits background reconciliation to the explicitly selected groups of a disabled tenant',async()=>{
+ const original=pool.execute.getMockImplementation();
+ pool.execute.mockImplementation(async sql=>sql.includes('FROM agencies WHERE')?[[{id:2,slug:'itsco',is_active:1,organization_type:'agency',feature_flags:{managedWorkspaceGroupsEnabled:false,workspaceEmailDomain:'itsco.health',managedWorkspaceGroupKeys:['clinical','denver']}}]]:original(sql));
+ const [report]=await reconcileManagedWorkspaceGroups({enrolledOnly:true});
+ expect(report.groups.map(g=>g.email)).toEqual(['clinical@itsco.health','denver@itsco.health']);
+ expect(report.groups[0].added).toEqual([staff.email]);
+ expect(Directory.listGroupMembers.mock.calls.map(([email])=>email)).toEqual(['clinical@itsco.health','denver@itsco.health']);
+});
+
+it('preserves existing active clinical recipients with conflicting care flags for review',async()=>{
+ roster=[{...staff,sees_clients:0}];
+ const original=pool.execute.getMockImplementation();
+ pool.execute.mockImplementation(async sql=>sql.includes('FROM agencies WHERE')?[[{id:2,slug:'itsco',is_active:1,organization_type:'agency',feature_flags:{managedWorkspaceGroupsEnabled:false,workspaceEmailDomain:'itsco.health',managedWorkspaceGroupKeys:['clinical']}}]]:original(sql));
+ Directory.listGroupMembers.mockResolvedValue([{email:staff.email,role:'MEMBER'}]);
+ const [report]=await reconcileManagedWorkspaceGroups({enrolledOnly:true});
+ expect(report.groups[0]).toMatchObject({removed:[],preserved:[staff.email]});
+});

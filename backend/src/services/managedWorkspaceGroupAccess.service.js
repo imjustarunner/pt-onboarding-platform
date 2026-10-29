@@ -13,7 +13,15 @@ export async function assertManagedGroupManager(group, userId) {
 }
 export async function assertManagedChatPost(threadId,userId) {
   const groups=await findGroups('g.chat_thread_id=?',[threadId]);
-  if(groups[0]) await assertManagedGroupManager(groups[0],userId);
+  if(!groups.length)return;
+  const group=groups[0];
+  const [[row]]=await pool.execute(`SELECT u.*,ua.is_active AS membership_active
+    FROM chat_thread_participants p JOIN users u ON u.id=p.user_id
+    JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=?
+    WHERE p.thread_id=? AND p.user_id=?`,[group.agency_id,threadId,userId]);
+  if(!Number(group.is_active) || !row || !activeManagedStaff(row)) {
+    throw Object.assign(new Error('Active group membership is required to message this channel.'),{status:403,code:'GROUP_MEMBER_REQUIRED'});
+  }
 }
 export async function assertManagedMeetingGroupEditable(groupId) {
   if((await findGroups('g.meeting_group_id=?',[groupId])).length) throw Object.assign(new Error('This group is managed automatically from staff records. Update staff credentials, work locations, or supervision assignments instead.'),{status:409});
@@ -44,7 +52,7 @@ export async function managedGroupEnvelope({to,cc=null,bcc=null,actorUserId}) {
 
 export async function managedChatPostingAllowed(threadId,userId) {
   try { await assertManagedChatPost(threadId,userId);return true; }
-  catch(e) { if(e.code==='GROUP_MANAGER_REQUIRED')return false;throw e; }
+  catch(e) { if(['GROUP_MANAGER_REQUIRED','GROUP_MEMBER_REQUIRED'].includes(e.code))return false;throw e; }
 }
 export async function assertManagedMeetingInvite(groupIds,userId) {
   if(!groupIds.length)return;

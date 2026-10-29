@@ -5,16 +5,26 @@ export const CURRENT_MANAGED_DOMAINS = Object.freeze({
   tisi: 'innerstrengthin.com', mh4kidz: 'mh4kidz.org'
 });
 export const GROUP_LABELS = Object.freeze({
+  clinical: 'Clinical',
   staff: 'Staff', unlicensed: 'Unlicensed', prelicensed: 'Prelicensed', licensed: 'Licensed',
   supervisors: 'Supervisors', supervisees: 'Supervisees', interns: 'Interns',
   spanish: 'Spanish intake coordination', costaff: 'Colorado staff', denver: 'Denver', cosprings: 'Colorado Springs'
 });
 const norm = value => String(value || '').trim().toLowerCase();
-const staffRoles = new Set(['super_admin','admin','support','staff','provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant']);
+const staffRoles = new Set(['super_admin','admin','assistant_admin','support','staff','provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant','facilitator','clinician','qbha']);
+export function managedGroupScope(agency) {
+  const flags = typeof agency.feature_flags === 'string' ? JSON.parse(agency.feature_flags || '{}') : agency.feature_flags || {};
+  if (flags.managedWorkspaceGroupsEnabled === true) return null;
+  return Array.isArray(flags.managedWorkspaceGroupKeys)
+    ? [...new Set(flags.managedWorkspaceGroupKeys.filter(key => Object.hasOwn(GROUP_LABELS, key)))] : [];
+}
 export function managedDomain(agency) {
   const flags = typeof agency.feature_flags === 'string' ? JSON.parse(agency.feature_flags || '{}') : agency.feature_flags || {};
-  if (!Number(agency.is_active) || agency.organization_type !== 'agency' || flags.managedWorkspaceGroupsEnabled === false) return null;
-  const domain = flags.managedWorkspaceGroupsEnabled === true
+  const scope = managedGroupScope(agency);
+  if (!Number(agency.is_active) || agency.organization_type !== 'agency'
+    || (flags.managedWorkspaceGroupsEnabled === false && !scope?.length)
+    || (scope?.length && agency.group_key && !scope.includes(agency.group_key))) return null;
+  const domain = flags.managedWorkspaceGroupsEnabled === true || scope?.length
     ? norm(flags.workspaceEmailDomain) : CURRENT_MANAGED_DOMAINS[agency.slug];
   return /^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain || '') ? domain : null;
 }
@@ -43,6 +53,11 @@ export function staffGroupKeys(row, { supervisorIds = new Set(), superviseeIds =
   else if (intern || ['ba','bs','bachelors','unlicensed'].some(t => tokens.has(t))) keys.add('unlicensed');
   if (intern) keys.add('interns');
   if (supervisorIds.has(Number(row.id)) || norm(row.role) === 'supervisor' || Number(row.has_supervisor_privileges) === 1) keys.add('supervisors');
+  // sees_clients defaults to true even for nonclinical staff. Require a care
+  // role, provider access, or an actual client assignment as well.
+  const careRole = ['provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant','facilitator','clinician','qbha','admin','super_admin'].includes(norm(row.role));
+  const seesClients = ![false,0,'0'].includes(row.sees_clients ?? true);
+  if (keys.has('supervisors') || (seesClients && (careRole || Number(row.has_provider_access) === 1 || Number(row.has_client_assignments) === 1))) keys.add('clinical');
   if (superviseeIds.has(Number(row.id))) keys.add('supervisees');
   for (const loc of row.locations || []) {
     const city = norm(loc.city), state = norm(loc.state);
@@ -56,14 +71,14 @@ export function staffGroupKeys(row, { supervisorIds = new Set(), superviseeIds =
   if (/\b(colorado|co)\b/.test(work)) keys.add('costaff');
   return [...keys];
 }
-export function buildManagedGroupPlan({ domain, rows, assignments = [] }) {
+export function buildManagedGroupPlan({ domain, rows, assignments = [], includeClinical = false }) {
   const active = rows.filter(activeManagedStaff), byId = new Map(active.map(r => [Number(r.id), r]));
   const validAssignments = assignments.filter(s => byId.has(Number(s.supervisor_id)) && byId.has(Number(s.supervisee_id)));
   const supervisorIds = new Set(validAssignments.map(s => Number(s.supervisor_id)));
   const superviseeIds = new Set(validAssignments.map(s => Number(s.supervisee_id)));
-  const plans = Object.entries(GROUP_LABELS).map(([key, label]) => ({ key, label, email: `${key}@${domain}`, userIds: [], managerUserIds: [] }));
+  const plans = Object.entries(GROUP_LABELS).filter(([key]) => key !== 'clinical' || includeClinical).map(([key, label]) => ({ key, label, email: `${key}@${domain}`, userIds: [], managerUserIds: [] }));
   for (const row of active) {
-    for (const key of staffGroupKeys(row, { supervisorIds, superviseeIds })) plans.find(p => p.key === key).userIds.push(Number(row.id));
+    for (const key of staffGroupKeys(row, { supervisorIds, superviseeIds })) plans.find(p => p.key === key)?.userIds.push(Number(row.id));
   }
   // Use a stable user-id key; the first created address is retained on later name
   // changes. Duplicate first names get a user-id suffix, never a shared roster.
