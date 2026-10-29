@@ -81,6 +81,7 @@ import PayrollPtoRequest from '../models/PayrollPtoRequest.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import pool from '../config/database.js';
+import { validateJacquelyneTime, jacquelyneAdminRate, persistJacquelyneTimeClaim } from '../services/jacquelyneTime.service.js';
 import AdpPayrollService from '../services/adpPayroll.service.js';
 import StorageService from '../services/storage.service.js';
 import { GoogleDriveService } from '../services/googleDrive.service.js';
@@ -1215,6 +1216,10 @@ async function resolveKioskEventClaimPay({ claim, payload = {}, storedBucket, ag
   const eventTitle = String(payload?.eventTitle || ctx?.eventTitle || '').trim()
     || String(treatment.eventTypeLabel || ctx?.eventTypeLabel || '').trim()
     || (split ? 'Skill Builders event' : 'Event');
+  if (String(treatment.eventType || payload.eventType || '') === 'school_outreach' && !split) {
+    const personalRate = await jacquelyneAdminRate({ agencyId, userId: claim?.user_id, asOf: recurringDay(claim?.claim_date) });
+    if (personalRate != null) return { ...treatment, eventTitle, slot, slotLabel: 'Admin Time', rate: personalRate, split };
+  }
   const slotLabel = rateSlotLabel(slot, titles)
     || String(payload?.payrollRateLabel || '').trim();
   let rate=rateAmountForSlot(rateCard,slot,titles);
@@ -18549,6 +18554,7 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
       }
 
       payload.categoryGroup = categoryGroup;
+      await validateJacquelyneTime({ agencyId, userId, claimDate, payload });
       if(categoryGroup==='admin_duties'||payload.excessIndirect){
         delete payload.amount;delete payload.amountExplicit;delete payload.payRateAmountOverride;
       }
@@ -18598,7 +18604,7 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
         const sortOrder = Number(row?.sortOrder);
         const noteRaw = String(row?.note || row?.activityNote || '').trim();
         const rowBucket = normalizePayBucket(row?.payBucket || row?.pay_bucket || (
-          categoryGroup === 'support_activity' ? 'support'
+          categoryGroup === 'admin_duties' ? 'admin' : categoryGroup === 'support_activity' ? 'support'
             : categoryGroup === 'supervision_note' ? 'supervision_note'
               : 'indirect'
         ));
@@ -18623,7 +18629,7 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
       if (typeIds.length) {
         const types = await PayrollIndirectServiceType.findByIds(typeIds);
         const byId = new Map(types.map((t) => [Number(t.id), t]));
-        const expectedBucket = categoryGroup === 'support_activity'
+        const expectedBucket = categoryGroup === 'admin_duties' ? 'admin' : categoryGroup === 'support_activity'
           ? 'support'
           : categoryGroup === 'supervision_note'
             ? 'supervision_note'
@@ -18712,7 +18718,7 @@ const _createMyTimeClaimHandler = async (req, res, next) => {
     });
 
     const persistClaim = claimType === 'indirect_time' && (payload.eventWorkType === 'travel' || payload.source === 'company_event_travel')
-      ? persistEventTravelClaim : claimType === 'indirect_time' && payload.ffsExcess ? persistFfsExcessClaim : (args) => PayrollTimeClaim.create(args);
+      ? persistEventTravelClaim : claimType === 'indirect_time' && payload.ffsExcess ? persistFfsExcessClaim : persistJacquelyneTimeClaim;
     const claim = await persistClaim({
       agencyId,
       userId,
@@ -18974,6 +18980,7 @@ export const updateMyTimeClaim = async (req, res, next) => {
       editHistory: history.slice(-20)
     };
 
+    await validateJacquelyneTime({agencyId:claim.agency_id,userId,claimDate:recurringDay(req.body?.claimDate||claim.claim_date),payload:nextPayload,claimId:id});
     await validateFfsExcess({agencyId:claim.agency_id,userId,claimDate:recurringDay(req.body?.claimDate||claim.claim_date),payload:nextPayload,claimId:id});
     if(categoryGroup==='admin_duties'||nextPayload.excessIndirect||nextPayload.ffsExcess){delete nextPayload.amount;delete nextPayload.amountExplicit;delete nextPayload.payRateAmountOverride;}
 
@@ -18990,7 +18997,7 @@ export const updateMyTimeClaim = async (req, res, next) => {
         agencyId: Number(claim.agency_id), userId: Number(userId), claimDate,
         payload: { ...nextPayload, eventWorkType: 'travel', source: 'company_event_travel' }
       }, { existingClaimId: id })
-      : await PayrollTimeClaim.resubmit({ id, claimDate, payload: nextPayload });
+      : await persistJacquelyneTimeClaim({ agencyId: Number(claim.agency_id), userId: Number(userId), claimDate, payload: nextPayload }, { existingClaimId: id });
     const hours = Math.round((totalMinutes / 60) * 10000) / 10000;
     await pool.execute(
       `UPDATE payroll_time_claims SET bucket = 'indirect', credits_hours = ? WHERE id = ? LIMIT 1`,
@@ -19495,6 +19502,11 @@ export async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard,
         return rate>0?Math.round(hrs*rate*100)/100:null;
       }
       if(payload.excessIndirect||payload.ffsExcess)return null;
+    }
+
+    if (payload.categoryGroup === 'admin_duties') {
+      const personalRate = await jacquelyneAdminRate({ agencyId: claim.agency_id, userId: claim.user_id, asOf: recurringDay(claim.claim_date) });
+      if (personalRate != null) return Math.round(hrs * personalRate * 100) / 100;
     }
 
     // Per-user Log Time duty rate override (compensation tab).

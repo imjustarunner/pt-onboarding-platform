@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { jacquelyneAdminRate } from './jacquelyneTime.service.js';
 import PayrollRate from '../models/PayrollRate.model.js';
 import PayrollRateCard from '../models/PayrollRateCard.model.js';
 import { loadUserPaySystemContext } from './paySystem.service.js';
@@ -34,6 +35,10 @@ export async function meetingClaimHourlyRate(claim, override = undefined) {
   const code = ({ support_activity: 'MEETING', admin_time: 'Admin Time', indirect: 'INDIRECT' })[chosen?.rate_type]
     || claim.payload?.serviceCode || 'MEETING';
   if (code === 'Unpaid Indirect') return 0;
+  if (code === 'Admin Time') {
+    const rate = await jacquelyneAdminRate({ agencyId: claim.agency_id, userId: claim.user_id, asOf: claim.claim_date });
+    if (rate != null) return rate;
+  }
   const ctx = await loadUserPaySystemContext({ agencyId: Number(claim.agency_id), userId: Number(claim.user_id), periodEnd: claim.claim_date });
   if (ctx?.enabled) {
     const key = code === 'MEETING' ? 'supportActivityRate' : code === 'INDIRECT' ? 'indirectRate' : null;

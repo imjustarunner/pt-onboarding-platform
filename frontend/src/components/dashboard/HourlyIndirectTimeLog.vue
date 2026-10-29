@@ -1,5 +1,6 @@
 <template>
   <div class="itl" data-tour="hourly-indirect-time-log">
+    <EventTravelReportModal v-if="showOutreachTravel" :agency-id="agencyId" outreach @close="showOutreachTravel = false" @submitted="emit('submitted')" />
     <header class="itl-top">
       <div class="itl-top-left">
         <span class="itl-top-icon" aria-hidden="true">
@@ -282,6 +283,10 @@
                   v-for="t in indirectServiceTypes"
                   :key="t.id"
                   class="itl-type-card"
+                  :title="t.description"
+                  tabindex="0"
+                  @keydown.enter.prevent="toggleType(t, $event)"
+                  @keydown.space.prevent="toggleType(t, $event)"
                   :class="{ selected: selectedTypeIds.has(t.id) }"
                   @mousedown.prevent
                   @click.prevent="toggleType(t, $event)"
@@ -318,6 +323,10 @@
                   v-for="t in supportServiceTypes"
                   :key="t.id"
                   class="itl-type-card"
+                  :title="t.description"
+                  tabindex="0"
+                  @keydown.enter.prevent="toggleType(t, $event)"
+                  @keydown.space.prevent="toggleType(t, $event)"
                   :class="{ selected: selectedTypeIds.has(t.id) }"
                   @mousedown.prevent
                   @click.prevent="toggleType(t, $event)"
@@ -345,6 +354,25 @@
               </p>
             </div>
 
+            <div v-if="showAdminColumn" class="itl-dual-col itl-dual-col--admin">
+              <div class="itl-dual-head">
+                <span class="itl-dual-badge itl-dual-badge--admin">Admin Time</span>
+                <span class="itl-dual-sub">${{ Number(adminTime?.rate || 0).toFixed(2) }}/hour · assigned duties</span>
+              </div>
+              <div class="itl-type-grid" role="group" aria-label="Admin Time">
+                <label v-for="t in adminServiceTypes" :key="t.id" class="itl-type-card" :class="{ selected: selectedTypeIds.has(t.id) }"
+                  :title="t.description" tabindex="0" @mousedown.prevent @click.prevent="toggleType(t, $event)"
+                  @keydown.enter.prevent="toggleType(t, $event)" @keydown.space.prevent="toggleType(t, $event)">
+                  <input type="checkbox" class="itl-type-check" :checked="selectedTypeIds.has(t.id)" :aria-label="t.label" tabindex="-1" />
+                  <span class="itl-type-icon" aria-hidden="true"><IndirectTimeIcon :name="t.iconKey" :size="22" :stroke-width="1.75" /></span>
+                  <span class="itl-type-text"><span class="itl-type-label">{{ activityCardTitle(t) }}</span><span class="itl-type-code">{{ activityCardCode(t) }}</span></span>
+                </label>
+              </div>
+              <p class="itl-disclaimer">Outreach must be directed by admin to develop or maintain Denver school relationships. Translation covers help for support staff or providers that is not already paid as direct time. Onboarding help must be a scheduled huddle in the app; check My time records before submitting.</p>
+              <button type="button" class="itl-link-btn" @click="showOutreachTravel = true">Submit outreach trips</button>
+              <p class="itl-disclaimer">Have admin assign your school visit as a District Outreach event in the app. Report the actual trips here using the event travel form, mileage calculation, and payroll eligibility review. Outreach work is Admin Time; eligible travel follows the event travel rate. Do not duplicate event attendance already recorded.</p>
+            </div>
+
             <div v-if="showSupervisionColumn" class="itl-dual-col itl-dual-col--supervision">
               <div class="itl-dual-head">
                 <span class="itl-dual-badge itl-dual-badge--supervision">Supervision Note Time</span>
@@ -355,6 +383,10 @@
                   v-for="t in supervisionNoteTypes"
                   :key="t.id"
                   class="itl-type-card"
+                  :title="t.description"
+                  tabindex="0"
+                  @keydown.enter.prevent="toggleType(t, $event)"
+                  @keydown.space.prevent="toggleType(t, $event)"
                   :class="{ selected: selectedTypeIds.has(t.id) }"
                   @mousedown.prevent
                   @click.prevent="toggleType(t, $event)"
@@ -440,7 +472,7 @@
           />
 
           <label v-if="selectedTypeIds.size === 1" class="itl-approver-field itl-single-note-field">
-            <span class="itl-approver-label">Activity note <em>(suggested)</em></span>
+            <span class="itl-approver-label">Activity note <em>{{ selectedPrivateActivity ? '(required)' : '(suggested)' }}</em></span>
             <textarea
               v-model="singleActivityNote"
               class="itl-approver-input"
@@ -448,7 +480,7 @@
               maxlength="1000"
               :placeholder="`What did you do for ${singleSelectedActivityLabel}?`"
             />
-            <span class="itl-approver-hint">A short description helps payroll review. Optional — you'll be asked to confirm if blank.</span>
+            <span class="itl-approver-hint">{{ selectedPrivateActivity ? 'Describe the work. For outreach, include the Denver school and relationship purpose; for translation, identify the support provided without client information.' : 'A short description helps payroll review. Optional — you will be asked to confirm if blank.' }}</span>
           </label>
 
           <div v-if="selectedCategoryWarnings.length" class="itl-category-warnings" role="status">
@@ -460,9 +492,18 @@
             <p class="itl-category-warning">{{ duplicateWarning }}</p>
           </div>
 
+          <label v-if="selectedOnboarding" class="itl-approver-field">
+            <span class="itl-approver-label">Scheduled onboarding huddle <em>(required)</em></span>
+            <select v-model="onboardingHuddleId" class="itl-approver-input" aria-label="Scheduled onboarding huddle">
+              <option value="">Choose the huddle you attended</option>
+              <option v-for="meeting in huddlesForDate" :key="meeting.id" :value="meeting.id">{{ meeting.title }} · {{ meeting.date }}</option>
+            </select>
+            <span class="itl-approver-hint">Only scheduled huddles you joined on this date are eligible. Record office tours, operations orientation, and interview participation in the huddle. If it was recorded automatically, use that time record.</span>
+            <span v-if="!huddlesForDate.length" class="itl-approver-hint">No scheduled huddle is available for this date. Ask admin to schedule or record the huddle in the app.</span>
+          </label>
           <div class="itl-submit-wrap">
           <label class="itl-approver-field">
-            <span class="itl-approver-label">Who approved this time? <em>(optional, suggested)</em></span>
+            <span class="itl-approver-label">Who approved this time? <em>{{ selectedOutreach ? '(required for outreach)' : '(optional, suggested)' }}</em></span>
             <input
               v-model="approvedByName"
               type="text"
@@ -584,6 +625,7 @@
 import FfsExcessTime from '../payroll/FfsExcessTime.vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import EventTravelReportModal from '../events/EventTravelReportModal.vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
@@ -675,7 +717,7 @@ const showIndirectColumn = computed(() => {
   );
 });
 const showSupervisionColumn = computed(() => isSupervisorUser.value);
-const showThreeColumns = computed(() => showIndirectColumn.value && showSupervisionColumn.value);
+const showThreeColumns = computed(() => Number(showIndirectColumn.value) + Number(showSupervisionColumn.value) + Number(showAdminColumn.value) + 1 >= 3);
 
 const indirectServiceTypes = computed(() =>
   (serviceTypes.value || []).filter(
@@ -699,6 +741,7 @@ const visibleServiceTypes = computed(() => {
   const out = [];
   if (showIndirectColumn.value) out.push(...indirectServiceTypes.value);
   out.push(...supportServiceTypes.value);
+  if (showAdminColumn.value) out.push(...adminServiceTypes.value);
   if (showSupervisionColumn.value) out.push(...supervisionNoteTypes.value);
   return out;
 });
@@ -736,6 +779,15 @@ const attestation = ref(false);
 const approvedByName = ref('');
 const singleActivityNote = ref('');
 const serviceTypes = ref([]);
+const adminTime = ref(null);
+const onboardingHuddleId = ref('');
+const showOutreachTravel = ref(false);
+const adminServiceTypes = computed(() => serviceTypes.value.filter(t => normalizePayBucket(t.payBucket) === 'admin'));
+const showAdminColumn = computed(() => adminServiceTypes.value.length > 0);
+const selectedPrivateActivity = computed(() => serviceTypes.value.some(t => selectedTypeIds.value.has(t.id) && typeKeyOf(t).startsWith('jacquelyne_')));
+const selectedOnboarding = computed(() => serviceTypes.value.some(t => selectedTypeIds.value.has(t.id) && typeKeyOf(t) === 'jacquelyne_onboarding'));
+const selectedOutreach = computed(() => serviceTypes.value.some(t => selectedTypeIds.value.has(t.id) && typeKeyOf(t) === 'jacquelyne_outreach'));
+const huddlesForDate = computed(() => (adminTime.value?.huddles || []).filter(m => m.date === displayClaimDateYmd.value));
 const typesLoading = ref(false);
 const selectedTypeIds = ref(new Set());
 const allocationPanelRef = ref(null);
@@ -1153,6 +1205,9 @@ const canSubmit = computed(() => {
   if (!props.enabled || !agencyId.value) return false;
   if (!hasChosenEntryMethod.value || !hasEstablishedTime.value) return false;
   if (!attestation.value) return false;
+  if (selectedOnboarding.value && !huddlesForDate.value.some(m => Number(m.id) === Number(onboardingHuddleId.value))) return false;
+  if (selectedOutreach.value && approvedByName.value.trim().length < 2) return false;
+  if (selectedPrivateActivity.value && selectedTypeIds.value.size === 1 && singleActivityNote.value.trim().length < 5) return false;
   if (entryMethod.value === 'manual' && !/^\d{4}-\d{2}-\d{2}$/.test(String(claimDate.value || ''))) return false;
   if (!(sessionTotalMinutes.value >= 1)) return false;
   if (!selectedTypeIds.value.size) return false;
@@ -1527,6 +1582,7 @@ async function loadTypes() {
   try {
     const resp = await api.get('/payroll/me/indirect-service-types', { params: { agencyId: agencyId.value } });
     const raw = Array.isArray(resp.data?.types) ? resp.data.types : [];
+    adminTime.value = resp.data?.adminTime || null;
     registerActivityCodes(raw);
     serviceTypes.value = raw.filter((t) => !isExcludedIndirectType(t));
     if (indirectSessionStore.noteAidUsedDuringSession) {
@@ -1667,6 +1723,8 @@ async function postIndirectTimeClaim({
       totalMinutes,
       allocations: tagged,
       categoryGroup: group,
+      ...(group === 'admin_duties' ? { description: tagged.map(a => a.note || '').join('; '), purpose: tagged.map(a => a.serviceTypeLabel).join('; ') } : {}),
+      ...(tagged.some(a => a.serviceTypeKey === 'jacquelyne_onboarding') ? { scheduleEventId: Number(onboardingHuddleId.value) } : {}),
       excludesAutomaticIndirect: excludesAutomaticIndirect.value,
       categoryLabel: displayLabel,
       activityCode: resolvedCode,
@@ -2464,6 +2522,10 @@ textarea.itl-approver-input {
   border-color: #93c5fd;
   background: #eff6ff;
 }
+.itl-dual-col--admin { border-color: #fbbf24; background: #fffbeb; }
+.itl-dual-badge--admin { background: #92400e; color: #fff; }
+.itl-type-card:focus-visible { outline: 3px solid #0f172a; outline-offset: 2px; }
+.itl-sub-category[data-category="admin_duties"] { background: #fef3c7; color: #92400e; }
 .itl-dual-col--supervision {
   border-color: #c4b5fd;
   background: #f5f3ff;

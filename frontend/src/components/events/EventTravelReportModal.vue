@@ -2,7 +2,7 @@
   <Teleport to="body">
     <div class="etr-overlay" @keydown.esc="!busy && emit('close')">
       <section ref="dialog" class="etr-modal" role="dialog" aria-modal="true" aria-labelledby="etr-title" tabindex="-1" @keydown.tab="trapFocus">
-        <header><div><h2 id="etr-title">Event travel reimbursement</h2><p>Report your trips and materials handling in one place.</p></div><button type="button" class="btn btn-secondary" aria-label="Close event travel form" :disabled="busy" @click="emit('close')">Close</button></header>
+        <header><div><h2 id="etr-title">{{ outreach ? 'Outreach travel reimbursement' : 'Event travel reimbursement' }}</h2><p>Report your trips and materials handling in one place.</p></div><button type="button" class="btn btn-secondary" aria-label="Close event travel form" :disabled="busy" @click="emit('close')">Close</button></header>
         <div v-if="loading" role="status">Loading your assigned events…</div>
         <div v-else-if="saved" role="status" class="etr-saved"><h3>Report submitted</h3><p>Your event travel report #{{ saved.id }} is ready for payroll review. {{ form.existingMileageClaimId ? 'Your existing mileage reimbursement is preserved; this report requests travel time only.' : 'Time and mileage are included together.' }}</p><button class="btn btn-primary" type="button" @click="emit('close')">Done</button></div>
         <template v-else>
@@ -69,7 +69,7 @@ import api from '../../services/api';
 import EventTravelLocation from './EventTravelLocation.vue';
 import EventTravelReportSummary from './EventTravelReportSummary.vue';
 import { EVENT_TRAVEL_STEPS, eventTravelDefaultForm, eventTravelJourneys, eventTravelInputError } from '../../navigation/eventTravel.js';
-const props = defineProps({ agencyId: { type: Number, required: true }, initialEventId: { type: Number, default: null }, initialEventDate: { type: String, default: '' }, initialMileageClaimId: { type: Number, default: null } });
+const props = defineProps({ outreach: { type: Boolean, default: false }, agencyId: { type: Number, required: true }, initialEventId: { type: Number, default: null }, initialEventDate: { type: String, default: '' }, initialMileageClaimId: { type: Number, default: null } });
 const emit = defineEmits(['close', 'submitted']);
 const dialog = ref(null), formElement = ref(null), loading = ref(true), busy = ref(false), error = ref(''), saved = ref(null);
 const options = ref({ events: [], offices: [], schools: [], reports: [], homeAddress: '' }), eventId = ref(''), form = ref(eventTravelDefaultForm()), step = ref(0), preview = ref(null), expectedRevision = ref(null), locked = ref(false);

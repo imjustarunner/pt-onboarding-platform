@@ -1,4 +1,6 @@
 import pool from '../config/database.js';
+import { isJacquelyneTimeUser } from '../utils/jacquelyneTimePolicy.js';
+import { jacquelyneAdminRate } from './jacquelyneTime.service.js';
 import PayrollRate from '../models/PayrollRate.model.js';
 import PayrollCompensationLevel from '../models/PayrollCompensationLevel.model.js';
 import PayrollPaySystemRate from '../models/PayrollPaySystemRate.model.js';
@@ -18,8 +20,9 @@ export async function submissionContext({agencyId,userId,asOf=day(new Date())}) 
  const data=agreement?.data||parse(draft?.token_values_json),schedule=data.schedule||null;
  const role=data.roleCompensation?.cpa||data.roleCompensation?.mentor;
  const starts=[day(assignment?.pay_system_effective_start),day(agreement?.effectiveOn||data.effectiveDate)].filter(Boolean).sort().at(-1)||null;
- const admin=Number(role?.adminRate ?? adminRate?.rate_amount);
- return {assignment,schedule,startsOn:starts,executed:!!agreement&&agreement.executed!==false,payrollAuthorized:!!agreement?.payrollAuthorized,adminRate:admin>0?admin:null,
+ const personalAdminRate = await jacquelyneAdminRate({agencyId,userId,asOf});
+ const admin=Number(personalAdminRate ?? role?.adminRate ?? adminRate?.rate_amount);
+ return {adminActivitiesRequired:isJacquelyneTimeUser(agencyId,userId),assignment,schedule,startsOn:starts,executed:!!agreement&&agreement.executed!==false,payrollAuthorized:!!agreement?.payrollAuthorized,adminRate:admin>0?admin:null,
   indirectMinutesPerHour:schedule?Number(schedule.autoIndirectMinutes??defaultHcodeIndirectMinutes(schedule.category)):0,
   effective:!!agencyEnabled&&Number(assignment?.pay_system_enabled)===1&&!!agreement&&!!schedule&&!!starts&&asOf>=starts};
 }

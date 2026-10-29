@@ -1,4 +1,6 @@
 import pool from '../config/database.js';
+import { isJacquelyneTimeUser } from '../utils/jacquelyneTimePolicy.js';
+import { listJacquelyneHuddles, jacquelyneAdminRate } from '../services/jacquelyneTime.service.js';
 import Agency from '../models/Agency.model.js';
 import PayrollIndirectServiceType from '../models/PayrollIndirectServiceType.model.js';
 import PayrollUserIndirectServiceAssignment from '../models/PayrollUserIndirectServiceAssignment.model.js';
@@ -50,12 +52,13 @@ async function loadLogTimeCapabilities(userId) {
 }
 
 /** Role-gate which Log Time category columns a user may select. */
-export function filterServiceTypesForUser(types, { isHourly, isSupervisor }) {
+export function filterServiceTypesForUser(types, { isHourly, isSupervisor, allowIndirectService = false }) {
   const list = Array.isArray(types) ? types : [];
   return list.filter((t) => {
     const bucket = normalizePayBucket(t?.payBucket || t?.pay_bucket);
     const hasExplicitAssignment = t?.assignmentId != null || t?.assignment_id != null;
-    if (bucket === 'indirect') return !!isHourly || hasExplicitAssignment;
+    if (bucket === 'admin') return hasExplicitAssignment;
+    if (bucket === 'indirect') return !!isHourly || allowIndirectService || hasExplicitAssignment;
     if (bucket === 'support' || bucket === 'other_1') return true;
     if (bucket === 'supervision_note') return !!isSupervisor;
     return false;
@@ -77,6 +80,7 @@ export const listMyIndirectServiceTypes = async (req, res, next) => {
     const agencyId = await resolveAgencyId(req);
     if (!(await assertAgencyMembership(req, res, agencyId))) return;
     const caps = await loadLogTimeCapabilities(req.user.id);
+    caps.allowIndirectService = isJacquelyneTimeUser(agencyId, req.user.id);
     const types = await PayrollUserIndirectServiceAssignment.listMergedTypesForUser({
       agencyId,
       userId: req.user.id,
@@ -91,6 +95,10 @@ export const listMyIndirectServiceTypes = async (req, res, next) => {
       || filtered.some((t) => normalizePayBucket(t?.payBucket || t?.pay_bucket) === 'indirect');
     res.json({
       types: filtered,
+      adminTime: caps.allowIndirectService ? {
+        rate: await jacquelyneAdminRate({ agencyId, userId: req.user.id, asOf: new Date().toISOString().slice(0, 10) }),
+        huddles: await listJacquelyneHuddles({ agencyId, userId: req.user.id })
+      } : null,
       capabilities: {
         isHourly: caps.isHourly,
         isSupervisor: caps.isSupervisor,

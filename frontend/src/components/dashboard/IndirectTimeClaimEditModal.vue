@@ -112,7 +112,7 @@ const props = defineProps({
 });
 
 const compensation=ref(null);
-const isSupplemental=computed(()=>props.claim?.payload?.categoryGroup==='admin_duties'||!!props.claim?.payload?.excessIndirect);
+const isSupplemental=computed(()=>(props.claim?.payload?.categoryGroup==='admin_duties' && !props.claim?.payload?.allocations?.some(a => a.serviceTypeKey?.startsWith('jacquelyne_')))||!!props.claim?.payload?.excessIndirect);
 const emit = defineEmits(['close', 'saved']);
 
 const form = reactive({

@@ -1,6 +1,6 @@
 <template>
 <section class="ft-time" v-if="context?.effective || context?.adminRate">
- <div v-if="!claim" class="ft-time-actions"><button v-if="context.adminRate" class="admin" @click="mode='admin_duties'">Administrative duties · {{ money(context.adminRate) }}/hour</button><button v-if="context.effective" @click="mode='indirect_service'">Direct Care indirect-time calculator</button></div>
+ <div v-if="!claim" class="ft-time-actions"><button v-if="context.adminRate && !context.adminActivitiesRequired" class="admin" @click="mode='admin_duties'">Administrative duties · {{ money(context.adminRate) }}/hour</button><button v-if="context.effective" @click="mode='indirect_service'">Direct Care indirect-time calculator</button></div>
  <div v-if="mode" class="ft-time-form" :class="{admin:mode==='admin_duties'}">
  <header><img src="/assets/fundthred/icon.svg" alt="FundThred" /><h3>{{ mode==='admin_duties'?'Administrative duties':'Extra indirect time' }}</h3><button @click="claim ? emit('close') : mode=''" aria-label="Close time entry">×</button></header>
  <p v-if="mode==='admin_duties'">Describe your work and the assignment it supports. Payroll reviews this at your assigned admin rate. Do not include time already covered by a recurring payment.</p>

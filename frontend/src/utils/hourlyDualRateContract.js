@@ -35,6 +35,7 @@ export function isHourlyDualRateEnabled(user) {
 
 export function normalizePayBucket(raw) {
   const b = String(raw || '').trim().toLowerCase();
+  if (b === 'admin' || b === 'admin_duties') return 'admin';
   if (b === 'other_1') return 'other_1';
   if (b === 'support' || b === 'support_activity') return 'support';
   if (b === 'supervision_note' || b === 'supervision_note_time') return 'supervision_note';
@@ -43,6 +44,7 @@ export function normalizePayBucket(raw) {
 
 export function categoryGroupFromPayBucket(payBucket) {
   const b = normalizePayBucket(payBucket);
+  if (b === 'admin') return 'admin_duties';
   if (b === 'support' || b === 'other_1') return 'support_activity';
   if (b === 'supervision_note') return 'supervision_note';
   return 'indirect_service';
@@ -50,6 +52,7 @@ export function categoryGroupFromPayBucket(payBucket) {
 
 export function serviceCodeForCategoryGroup(categoryGroup) {
   const g = String(categoryGroup || '').trim().toLowerCase();
+  if (g === 'admin_duties') return 'Admin Time';
   if (g === 'support_activity') return 'MEETING';
   if (g === 'supervision_note') return 'Admin Time';
   return null;
@@ -57,6 +60,7 @@ export function serviceCodeForCategoryGroup(categoryGroup) {
 
 export function categoryGroupLabel(categoryGroup) {
   const g = String(categoryGroup || '').trim().toLowerCase();
+  if (g === 'admin_duties') return 'Admin Time';
   if (g === 'support_activity') return 'Support Activity';
   if (g === 'supervision_note') return 'Supervision Note Time';
   if (g === 'indirect_service') return 'Indirect Service';

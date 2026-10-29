@@ -20,6 +20,7 @@ import AgencyMeetingAttendanceRollup from '../models/AgencyMeetingAttendanceRoll
 import ProviderScheduleEventAttendee from '../models/ProviderScheduleEventAttendee.model.js';
 import { computeSubmissionWindow } from '../utils/payrollSubmissionWindow.js';
 import pool from '../config/database.js';
+import { isJacquelyneHuddle, JACQUELYNE_TIME_START } from '../utils/jacquelyneTimePolicy.js';
 
 export const COMP_CLAIM_SOURCE = 'meeting_compensation_auto';
 export const HUDDLE_HOST_SERVICE_CODE = 'Individual Meeting';
@@ -212,6 +213,13 @@ async function upsertClaim({
   claimDate,
   payload
 }) {
+  if (payload.payRateSource === 'jacquelyne_onboarding_huddle') {
+    const [manual] = await pool.execute(`SELECT id FROM payroll_time_claims WHERE agency_id=? AND user_id=?
+      AND claim_type='indirect_time' AND status NOT IN ('withdrawn','rejected')
+      AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload_json,'$.scheduleEventId')) AS UNSIGNED)=? LIMIT 1`,
+    [agencyId, userId, payload.scheduleEventId]);
+    if (manual.length) return { ok: true, skipped: true, claimId: manual[0].id, userId, error: 'existing_manual_huddle_claim' };
+  }
   const existing = await findSubmittedCompensationClaim({
     agencyId,
     userId,
@@ -387,6 +395,11 @@ async function syncCompensationClaimsUnlocked({
         serviceCode = huddleHostServiceCode(row, role);
         payRateSource = serviceCode === 'Admin Time' ? 'admin_time' : 'individual_meeting';
       }
+      if (isJacquelyneHuddle(row, uid) && claimDate >= JACQUELYNE_TIME_START) {
+        serviceCode = ADMIN_TIME_SERVICE_CODE;
+        payRateSource = 'jacquelyne_onboarding_huddle';
+        categoryLabel = 'Admin Time · Onboarding help';
+      }
       if (ADMIN_SALARY_ROLES.has(role) && !(kind === 'TEAM_MEETING' && ['admin','training'].includes(meetingSubtype))) { results.push({userId:uid,ok:true,skipped:true,error:'admin_not_compensated'}); continue; }
       const salary = await PayrollSalaryPosition.findActiveForUser({agencyId,userId:uid,asOfDate:claimDate});
       if (!training && Number(salary?.salary_per_pay_period)>0) { results.push({userId:uid,ok:true,skipped:true,error:'salary_not_compensated'}); continue; }
@@ -424,6 +437,7 @@ async function syncCompensationClaimsUnlocked({
         categoryLabel,
         compensationNote
       });
+      if (payRateSource === 'jacquelyne_onboarding_huddle') payload.categoryGroup = 'admin_duties';
       if (training) payload.totalMinutes = mins;
       if (trainingOverride) payload.trainingCompensationOverride = {
         rateType: trainingOverride.rate_type,

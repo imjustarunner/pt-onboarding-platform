@@ -57,3 +57,25 @@ it('uses the applicable reduced Support Activity rate for event travel', async (
   const c = claim('support_activity', 'MEETING'); c.payload.source = 'event_travel_report';
   expect(await computeDefaultAppliedAmountForTimeClaim({ claim: c })).toBe(5);
 });
+
+it('pays Jacquelyne admin work at $25 per hour and preserves support and indirect rates', async () => {
+ PayrollRate.findBestRate.mockResolvedValue({rate_amount:25});
+ const c={...claim('admin_duties','Admin Time'),user_id:485,claim_date:'2026-10-29'};
+ expect(await computeDefaultAppliedAmountForTimeClaim({claim:c})).toBe(8.33);
+ expect(await computeDefaultAppliedAmountForTimeClaim({claim:{...c,payload:{...c.payload,categoryGroup:'support_activity',serviceCode:'MEETING'}}})).toBe(6);
+ expect(await computeDefaultAppliedAmountForTimeClaim({claim:{...c,payload:{...c.payload,categoryGroup:'indirect_service',serviceCode:null}}})).toBe(7.33);
+});
+it('pays Jacquelyne scheduled onboarding huddles at $25, including under the new pay system', async () => {
+ const {default:pool}=await import('../../config/database.js');pool.execute.mockResolvedValue([[]]);
+ PayrollRate.findBestRate.mockResolvedValue({rate_amount:25});
+ const c={...claim('admin_duties','Admin Time'),user_id:485,claim_date:'2026-10-29',claim_type:'meeting_training',payload:{source:'meeting_compensation_auto',serviceCode:'Admin Time',totalMinutes:30}};
+ expect(await computeDefaultAppliedAmountForTimeClaim({claim:c})).toBe(12.5);
+});
+it('pays her District Outreach event attendance at Admin Time and travel at Support Activity', async () => {
+ const {default:pool}=await import('../../config/database.js');pool.execute.mockResolvedValue([[]]);
+ PayrollRate.findBestRate.mockResolvedValue({rate_amount:25});
+ const c={agency_id:2,user_id:485,claim_date:'2026-10-29',claim_type:'skill_builder_event',credits_hours:2,payload:{companyEventId:1,eventType:'school_outreach',bucketRole:'indirect'}};
+ expect(await computeDefaultAppliedAmountForTimeClaim({claim:c,approveCreditsHours:2})).toBe(50);
+ const travel={...claim('support_activity','MEETING'),user_id:485,claim_date:'2026-10-29'};travel.payload.source='event_travel_report';
+ expect(await computeDefaultAppliedAmountForTimeClaim({claim:travel})).toBe(6);
+});

@@ -106,6 +106,7 @@
               <select v-model="newTypePayBucket" class="ltd-new-type-input" :disabled="newTypeSaving">
                 <option value="indirect">Indirect Service (hourly rate)</option>
                 <option value="support">Support Activity (MEETING rate)</option>
+                <option value="admin">Admin Time (assigned duties)</option>
                 <option value="supervision_note">Supervision Note (Admin Time)</option>
               </select>
             </div>
@@ -157,6 +158,7 @@ const newTypeError = ref('');
 
 const bucketLabel = (b) => {
   const v = String(b || '').toLowerCase();
+  if (v === 'admin') return 'Admin Time';
   if (v === 'support') return 'Support (MEETING rate)';
   if (v === 'supervision_note') return 'Supervision note (Admin Time)';
   if (v === 'other_1') return 'Other 1 (legacy)';

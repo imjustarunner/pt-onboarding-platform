@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { isJacquelyneActivity, isJacquelyneTimeUser } from '../utils/jacquelyneTimePolicy.js';
 import PayrollIndirectServiceType from './PayrollIndirectServiceType.model.js';
 
 class PayrollUserIndirectServiceAssignment {
@@ -73,6 +74,7 @@ class PayrollUserIndirectServiceAssignment {
 
     const out = [];
     for (const t of types) {
+      if (activeOnly && isJacquelyneActivity(t.typeKey) && !isJacquelyneTimeUser(agencyId, userId)) continue;
       const a = byTypeId.get(t.id);
       if (a) {
         if (!a.isEnabled) continue;

@@ -252,6 +252,7 @@
             <select v-model="indirectTypeDraft.payBucket" class="filters-input" :disabled="indirectTypesSaving">
               <option value="indirect">Indirect Service</option>
               <option value="support">Support Activity</option>
+              <option value="admin">Admin Time (assigned duties)</option>
               <option value="supervision_note">Supervision Note</option>
               <option value="other_1">Other 1 (legacy)</option>
             </select>
@@ -308,7 +309,8 @@
                     <select v-model="t.payBucket" :disabled="indirectTypesSaving" @change="saveIndirectType(t)">
                       <option value="indirect">Indirect Service</option>
                       <option value="support">Support Activity</option>
-                      <option value="supervision_note">Supervision Note</option>
+                      <option value="admin">Admin Time (assigned duties)</option>
+              <option value="supervision_note">Supervision Note</option>
                       <option value="other_1">Other 1 (legacy)</option>
                     </select>
                   </td>

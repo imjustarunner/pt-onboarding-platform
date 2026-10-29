@@ -29,6 +29,7 @@ export function isHourlyDualRateEnabled(userOrRow) {
 /** Service-type pay bucket / Log Time category group. */
 export function normalizePayBucket(raw) {
   const b = String(raw || '').trim().toLowerCase();
+  if (b === 'admin' || b === 'admin_duties') return 'admin';
   if (b === 'other_1') return 'other_1';
   if (b === 'support' || b === 'support_activity') return 'support';
   if (b === 'supervision_note' || b === 'supervision_note_time') return 'supervision_note';
@@ -38,6 +39,7 @@ export function normalizePayBucket(raw) {
 /** Map service-type pay_bucket → claim categoryGroup + pay serviceCode. */
 export function categoryGroupFromPayBucket(payBucket) {
   const b = normalizePayBucket(payBucket);
+  if (b === 'admin') return 'admin_duties';
   if (b === 'support') return 'support_activity';
   if (b === 'supervision_note') return 'supervision_note';
   if (b === 'other_1') return 'support_activity'; // legacy Other 1 → support semantics
@@ -54,7 +56,7 @@ export function serviceCodeForCategoryGroup(categoryGroup) {
 
 export function categoryGroupLabel(categoryGroup) {
   const g = String(categoryGroup || '').trim().toLowerCase();
-  if (g === 'admin_duties') return 'Administrative Duties';
+  if (g === 'admin_duties') return 'Admin Time';
   if (g === 'support_activity') return 'Support Activity';
   if (g === 'supervision_note') return 'Supervision Note Time';
   if (g === 'indirect_service') return 'Indirect Service';

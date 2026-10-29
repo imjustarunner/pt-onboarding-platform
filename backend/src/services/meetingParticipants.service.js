@@ -3,6 +3,7 @@ import { isStudentIntern } from '../utils/studentIntern.js';
 import { huddleHostServiceCode } from './huddlePolicy.js';
 import { resolveMeetingRecipient } from './meetingRecipientIdentity.service.js';
 import pool from '../config/database.js';
+import { isJacquelyneHuddle, JACQUELYNE_TIME_START } from '../utils/jacquelyneTimePolicy.js';
 import TeamArtifact from '../models/ProviderScheduleEventArtifact.model.js';
 import { mapMeetingAgendaItem } from '../models/MeetingAgendaItem.model.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
@@ -30,7 +31,7 @@ export async function meetingParticipantRows(event,{includeCompensation=false,re
     if(includeCompensation) {
       const salary=await PayrollSalaryPosition.findActiveForUser({agencyId:event.agency_id,userId:row.id,asOfDate});
       const supervisorRate = ['admin','leadership_circle','supervisors_meeting'].includes(event.meeting_subtype) && (row.role==='supervisor' || Number(row.has_supervisor_privileges)===1);
-      const serviceCode = event.kind==='HUDDLE' && row.isHost ? huddleHostServiceCode(event,row.role) : supervisorRate ? 'Supervisor meeting' : 'MEETING';
+      const serviceCode = isJacquelyneHuddle(event, row.id) && asOfDate >= JACQUELYNE_TIME_START ? 'Admin Time' : event.kind==='HUDDLE' && row.isHost ? huddleHostServiceCode(event,row.role) : supervisorRate ? 'Supervisor meeting' : 'MEETING';
       if (event.meeting_subtype==='training' && !Number(row.is_required)) row.compensation='Optional attendance · no automatic training pay';
       else if (event.meeting_subtype==='training' && isStudentIntern(row)) row.compensation='Unpaid indirect training time · recorded attendance';
       else if (event.meeting_subtype==='training') {

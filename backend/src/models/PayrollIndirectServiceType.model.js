@@ -25,6 +25,7 @@ export const DEFAULT_INDIRECT_SERVICE_TYPES = [
 const DEFAULT_TYPES = DEFAULT_INDIRECT_SERVICE_TYPES;
 
 const DISPLAY_CODE_PREFIX_BY_BUCKET = {
+  admin: 'ADM',
   indirect: 'IND',
   support: 'SUP',
   supervision_note: 'SN',
