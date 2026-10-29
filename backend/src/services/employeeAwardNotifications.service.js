@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import EmployeeServiceMilestone from '../models/EmployeeServiceMilestone.model.js';
+import { DEFAULT_GIFTS } from '../utils/employeeAwards.js';
 
 // One transaction both creates the administrator inbox entries and marks the
 // milestones notified. A named lock prevents overlapping syncs across replicas.
@@ -21,7 +22,7 @@ export async function notifyEligibleAwards(agencyId, { db = pool } = {}) {
       WHERE ua.agency_id=? AND COALESCE(ua.is_active,1)=1 AND u.role IN ('admin','super_admin')
         AND COALESCE(u.is_archived,0)=0 AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE_EMPLOYEE','ACTIVE','COMPLETED')`, [agencyId]);
     if (!admins.length) { await connection.commit(); return 0; }
-    const names = rows.map(r => `${r.first_name} ${r.last_name}: ${r.milestone_years}-year ${r.gift_name || ({1:'Cup',2:'Dinner',3:'Pullover'}[r.milestone_years]) || 'award'}`);
+    const names = rows.map(r => `${r.first_name} ${r.last_name}: ${r.milestone_years}-year ${r.gift_name || DEFAULT_GIFTS[r.milestone_years] || 'award'}`);
     const message = `${rows.length} anniversary award${rows.length === 1 ? ' is' : 's are'} eligible. ${names.slice(0,20).join('; ')}${names.length > 20 ? '; see Year Awards for the full list.' : '.'}`;
     for (const admin of admins) {
       await connection.execute(`INSERT INTO notifications

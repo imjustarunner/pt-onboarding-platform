@@ -674,7 +674,7 @@ export const APP_PAGES = [
     title: 'Year Awards',
     section: 'People Ops › Employee Relations',
     path: '/admin/employee-relations',
-    keywords: ['year awards', 'year award', 'annual awards', 'anniversary awards', 'service awards', 'employee relations', 'engagement', 'retention', 'service milestones', 'anniversary', 'gifts', 'cup', 'dinner', 'pullover', 'eligible', 'eligibility', 'gifts owed', 'gifts sent'],
+    keywords: ['year awards', 'year award', 'annual awards', 'anniversary awards', 'service awards', 'employee relations', 'engagement', 'retention', 'service milestones', 'anniversary', 'gifts', 'cup', 'dinner', 'pullover', 'cooler bag', 'four year', 'eligible', 'eligibility', 'gifts owed', 'gifts sent'],
     desc: 'Anniversary award eligibility, gifts sent, notes, and two-year dinner invitations and attendance.'
   },
   {

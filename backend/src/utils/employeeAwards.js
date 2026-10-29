@@ -1,5 +1,5 @@
 export const AWARD_YEARS = [1, 2, 3, 4, 5, 10];
-export const DEFAULT_GIFTS = { 1: 'Cup', 2: 'Dinner', 3: 'Pullover' };
+export const DEFAULT_GIFTS = { 1: 'Cup', 2: 'Dinner', 3: 'Pullover', 4: 'Cooler bag' };
 export const COMPLETED_AWARD_STATUSES = ['gift_sent', 'acknowledged'];
 export function awardError(message, status = 400) { return Object.assign(new Error(message), { status }); }
 export function dateOnly(value) {
