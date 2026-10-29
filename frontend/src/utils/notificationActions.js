@@ -3,6 +3,7 @@ export function notificationDestination(notification, { organizationSlug = null,
   const base = organizationSlug ? `/${organizationSlug}` : '';
   const entityType = String(n.related_entity_type || '').toLowerCase();
   const entityId = Number(n.related_entity_id || 0);
+  if (entityType === 'meeting_reservation_invitation' && entityId) return `${base}/meeting-times?invitation=${entityId}&agencyId=${Number(n.agency_id)}`;
   if (n.type === 'guardian_plan_review' && ['client_guardian', 'client'].includes(String(role || '').toLowerCase())) {
     let audience = n.audience_json || {};
     if (typeof audience === 'string') { try { audience = JSON.parse(audience); } catch { audience = {}; } }

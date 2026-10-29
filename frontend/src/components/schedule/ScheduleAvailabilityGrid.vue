@@ -481,6 +481,7 @@
           >
             Staff schedules
           </router-link>
+          <router-link v-if="Number(userId) === Number(authStore.user?.id)" class="sched-pill sched-pill-link" :to="scheduleOrgTo('/meeting-times')">Offer meeting times</router-link>
         </div>
 
         <div v-if="!hideOfficeAndCalendarIntegration" id="sched-settings-office" v-show="!compactPageChrome || activeSettingsSection === 'office'" class="sched-tool-cluster" title="Filter your office rooms by building">

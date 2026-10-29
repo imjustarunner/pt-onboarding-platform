@@ -21,6 +21,7 @@
           <router-link v-if="teamUserId && (canPickEmployeeSchedule || isSupervisorUser)" :to="{ path: orgTo('/dashboard'), query: { tab: 'my_schedule', scheduleViewAs: String(teamUserId) } }" class="btn btn-secondary btn-sm">Open schedule tools</router-link>
         </template>
         <template #header-actions>
+          <router-link class="btn btn-secondary btn-sm" :to="orgTo('/meeting-times')">Offer meeting times</router-link>
           <button v-if="isSuperadmin" class="btn btn-secondary btn-sm" @click="showOfficeTransition = !showOfficeTransition" :aria-expanded="showOfficeTransition">Office scheduling transition</button>
           <router-link
             v-if="canApproveOfficeRequests"

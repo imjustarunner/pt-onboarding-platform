@@ -1,0 +1,21 @@
+import express from 'express';
+import rateLimit from 'express-rate-limit';
+import { authenticate, authenticateOptional, requireActiveStatus } from '../middleware/auth.middleware.js';
+import { meetingReservations as service } from '../services/meetingReservations.service.js';
+
+export const staffRouter=express.Router(),publicRouter=express.Router();
+const handle=fn=>async(req,res,next)=>{try{res.set('Cache-Control','no-store');res.set('Referrer-Policy','no-referrer');res.json(await fn(req));}catch(e){next(e);}};
+staffRouter.use(authenticate,requireActiveStatus);
+staffRouter.get('/',handle(req=>service.list(Number(req.query.agencyId),req.user)));
+staffRouter.get('/roster',handle(req=>service.roster(Number(req.query.agencyId),req.user)));
+staffRouter.post('/windows',handle(req=>service.windows(req.body,req.user)));
+staffRouter.post('/',handle(req=>service.save(req.body,req.user)));
+staffRouter.get('/invitations/:id',handle(req=>service.view(Number(req.params.id),req.user)));
+staffRouter.post('/invitations/:id/claim',handle(req=>service.claim(Number(req.params.id),req.body,req.user)));
+staffRouter.get('/:id',handle(req=>service.detail(Number(req.params.id),req.user)));
+staffRouter.put('/:id',handle(req=>service.save(req.body,req.user,Number(req.params.id))));
+staffRouter.post('/:id/publish',handle(req=>service.publish(Number(req.params.id),req.body,req.user)));
+staffRouter.post('/:id/close',handle(req=>service.close(Number(req.params.id),req.user)));
+publicRouter.use(rateLimit({windowMs:60000,limit:60,standardHeaders:'draft-7',legacyHeaders:false}),authenticateOptional);
+publicRouter.get('/:token',handle(req=>service.view(req.params.token,req.user)));
+publicRouter.post('/:token/claim',handle(req=>service.claim(req.params.token,req.body,req.user)));

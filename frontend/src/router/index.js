@@ -343,6 +343,30 @@ const flattenPathForHostPortal = (targetPath, brandingStore) => {
 };
 
 const routes = [
+  {
+    path: '/meeting-times',
+    name: 'MeetingTimes',
+    component: () => import('../views/MeetingTimesView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/:organizationSlug/meeting-times',
+    name: 'OrganizationMeetingTimes',
+    component: () => import('../views/MeetingTimesView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/reserve-meeting/:token',
+    name: 'OrganizationMeetingReservation',
+    component: () => import('../views/public/MeetingReservationView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/reserve-meeting/:token',
+    name: 'MeetingReservation',
+    component: () => import('../views/public/MeetingReservationView.vue'),
+    meta: { requiresGuest: false }
+  },
   ...(window.location.hostname === 'auricwell.com' ? [{path:'/app/:pathMatch(.*)*', name:'AuricWellAppEntry', beforeEnter: to => {window.location.assign(to.fullPath); return false;}, component: {template:'<p>Opening AuricWell…</p>'}}] : []),
   { path: '/family-website', name: 'FamilyWebsite', component: () => import('../views/public/FamilyWebsite.vue'), meta: { publicMarketingHub: true, hideNav: true, familyWebsite: true } },
   { path: '/plotline/app', name: 'PlotlineEntry', component: () => import('../views/PlotlineEntryView.vue'), meta: { plotlineEntry: true, hideNav: true } },

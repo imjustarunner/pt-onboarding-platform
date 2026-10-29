@@ -1,3 +1,4 @@
+import { publicRouter as publicMeetingReservationRoutes, staffRouter as meetingReservationRoutes } from './routes/meetingReservations.routes.js';
 import clientSupportRoutes from './routes/clientSupport.routes.js';
 import dependentPortalRoutes from './routes/dependentPortal.routes.js';
 import publicAppointmentResponseRoutes from './routes/publicAppointmentResponse.routes.js';
@@ -984,6 +985,8 @@ app.get('/api/learning-program-classes/:classId/logo', serveSeasonLogo);
 // Public join-info endpoints must register before catch-all `/api` routers that call authenticate.
 app.use('/api/supervision', supervisionSessionsRoutes);
 app.use('/api/team-meetings', teamMeetingsRoutes);
+app.use('/api/meeting-reservations', meetingReservationRoutes);
+app.use('/api/public/meeting-reservations', publicMeetingReservationRoutes);
 // Signed-out interview candidates and calendar guests must reach token-based
 // entry before userCommunicationRoutes applies its catch-all login check.
 app.use('/api/meeting-calendar', meetingCalendarRoutes);
@@ -2546,6 +2549,17 @@ if (!isBootstrap) {
 
   // App invitations and configurable join reminders. A one-minute tick must fit
   // inside the three-minute delivery window; prevent overlapping local workers.
+  let meetingReservationsInFlight = false;
+  const meetingReservationTick = async () => {
+    if (meetingReservationsInFlight) return;
+    meetingReservationsInFlight = true;
+    try { await (await import('./services/meetingReservationDelivery.service.js')).meetingReservationDelivery.process(); }
+    catch (error) { console.warn('[Meeting reservations] Worker unavailable:', error.code || 'error'); }
+    finally { meetingReservationsInFlight = false; }
+  };
+  void meetingReservationTick();
+  setInterval(meetingReservationTick, 60 * 1000).unref();
+
   let joinReminderInFlight = false;
   const scheduleJoinReminder = async () => {
     if (joinReminderInFlight) return;
