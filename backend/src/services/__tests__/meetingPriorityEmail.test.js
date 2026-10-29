@@ -15,6 +15,9 @@ beforeEach(()=>{vi.clearAllMocks();m.user.mockResolvedValue({email:'provider@its
 it('sends a priority invitation immediately to the verified app-only personal recipient with tenant branding',async()=>{
  expect(await priorityEventEmailRecipient(args)).toEqual({to:'personal@example.com',subject:'ITSCO: Invitation: CPA Meeting',personal:true,appOnly:true});
 });
+it('delivers event clock reminders to the reachable personal email for app-only employees',async()=>{
+ expect(await priorityEventEmailRecipient({...args,templateType:'company_event_checkin',subject:'Clock-out reminder: School fair'})).toEqual({to:'personal@example.com',subject:'ITSCO: Clock-out reminder: School fair',personal:true,appOnly:true});
+});
 it('keeps SSO invitations on work email and does not redirect an unrelated or multiple recipient',async()=>{
  m.recipient.mockResolvedValue(null);expect((await priorityEventEmailRecipient(args)).to).toBe(args.to);
  expect((await priorityEventEmailRecipient({...args,to:'another@example.com'})).to).toBe('another@example.com');
