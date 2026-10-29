@@ -7,7 +7,7 @@ import { hasActiveMeetingMembership } from './meetingJoinPolicy.service.js';
 import { invalidateReplacementAvailability } from './privateReplacementSlots.service.js';
 import { defaultMeetingSettings } from './meetingSettingsPolicy.js';
 import { maybeEncryptNotePayload, maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
-import { normalizeReservation, reservationWindows, reservationError as fail, reservationStaff, reservationConfig as decode,
+import { normalizeReservation, reservationWindows, reservationError as fail, reservationStaff, reservationStaffRoles, reservationConfig as decode,
   reservationHash, reservationSql as sqlDate, reservationIso as iso, assertReservationClaim, reservationSnapshot } from './meetingReservationPolicy.js';
 
 export function createMeetingReservationService(overrides = {}) {
@@ -24,8 +24,8 @@ export function createMeetingReservationService(overrides = {}) {
       COALESCE(NULLIF(u.work_email,''),u.email) email FROM users u
       WHERE EXISTS (SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1) AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_demo,0)=0
       AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE_EMPLOYEE','ACTIVE','ONBOARDING')
-      AND u.role NOT IN ('client','guardian','client_guardian','parent','family_member','school','school_staff','school_admin','school_support','kiosk','candidate','prehire')
-      AND u.id<>? ORDER BY u.last_name,u.first_name`,[agencyId,actor.id]);
+      AND u.role IN (${reservationStaffRoles.map(() => '?').join(',')})
+      AND u.id<>? ORDER BY u.last_name,u.first_name`,[agencyId,...reservationStaffRoles,actor.id]);
     return rows;
   }
   async function offer(id,actor,connection=db) {

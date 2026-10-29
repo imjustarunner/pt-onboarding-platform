@@ -5,7 +5,7 @@ vi.mock('../appointmentConflict.service.js',()=>({assertAppointmentWindowAvailab
 vi.mock('../supervisionReviewTime.service.js',()=>({assertNoReviewTimeOverlap:vi.fn()}));
 vi.mock('../clinicalNoteCrypto.service.js',()=>({maybeEncryptNotePayload:s=>s,maybeDecryptNotePayload:s=>s}));
 import {createMeetingReservationService} from '../meetingReservations.service.js';
-import {normalizeReservation,reservationWindows,reservationHash,reservationSnapshot} from '../meetingReservationPolicy.js';
+import {normalizeReservation,reservationWindows,reservationHash,reservationSnapshot,reservationStaff} from '../meetingReservationPolicy.js';
 const now=new Date('2030-01-01T10:00:00Z'),host={id:7,role:'provider'},employee={id:8,role:'staff'};
 const roster=[{id:8,name:'Employee One',email:'one@example.test'}];
 const draft=()=>({agencyId:2,title:'Quarterly evaluation',type:'evaluation',timeZone:'America/Denver',modality:'BOTH',location:'Office 4, 10 Main St',meetingUrl:'https://meet.example.test/room',
@@ -13,6 +13,10 @@ const draft=()=>({agencyId:2,title:'Quarterly evaluation',type:'evaluation',time
   selectedStarts:['2030-01-04T17:00:00.000Z','2030-01-04T18:00:00.000Z'],expiresLocal:'2030-01-03T17:00',
   recipients:[{userId:8,email:'reviewed@example.test',sendEmail:true}],subject:'Choose your evaluation time',message:'Please reserve a time.'});
 describe('standalone meeting offer parameters',()=>{
+  it('limits employee offers to staff roles, including when another account has agency membership',()=>{
+    for(const role of ['athlete','guardian','client','school_staff','candidate','unknown','']) expect(reservationStaff({id:8,role})).toBe(false);
+    for(const role of ['provider','staff','assistant_admin','intern','clinical_practice_assistant']) expect(reservationStaff({id:8,role})).toBe(true);
+  });
   it('generates complete 30/45/60 minute openings with gaps in the agency time zone',()=>{
     const config=normalizeReservation(draft(),roster,now);
     expect(config.slots).toEqual([{startAt:'2030-01-04T17:00:00.000Z',endAt:'2030-01-04T17:45:00.000Z',holdEndAt:'2030-01-04T18:00:00.000Z'},{startAt:'2030-01-04T18:00:00.000Z',endAt:'2030-01-04T18:45:00.000Z',holdEndAt:'2030-01-04T19:00:00.000Z'}]);

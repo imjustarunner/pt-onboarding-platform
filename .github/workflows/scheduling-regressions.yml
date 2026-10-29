@@ -58,6 +58,12 @@ jobs:
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.intake-contact.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.guardian-enrollment-policy.config.js
           npm test --prefix frontend -- --run src/components/admin/__tests__/ClientGuardianContactEditor.test.js src/components/public/__tests__/SharedSchoolSigning.test.js src/views/__tests__/PublicIntakeProviderSelection.test.js src/views/__tests__/PublicIntakeSchoolChildren.test.js src/components/public-intake/__tests__/EnrollmentPortalAccess.test.js src/components/clients/__tests__/ClientPortalInviteDialog.test.js src/components/portal/__tests__/PortalNotificationSetup.test.js
+      - name: Meeting offers, date editing, and optional office referral source
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.meeting-reservations.config.js
+          node --test backend/src/config/__tests__/databasePoolLimits.test.js backend/src/utils/__tests__/officeReferralSource.test.js
+          npm test --prefix frontend -- --run src/views/__tests__/MeetingTimesView.test.js src/components/schedule/__tests__/MeetingReservationPicker.test.js src/components/schedule/__tests__/meetingDateReschedule.test.js src/utils/__tests__/apiBaseUrl.test.js src/utils/__tests__/notificationActions.test.js
+          (cd frontend && node node_modules/vitest/vitest.mjs run --config vitest.office-referral.config.js)
       - name: Meeting and planned-out API regressions
         run: >-
           node frontend/node_modules/vitest/vitest.mjs run

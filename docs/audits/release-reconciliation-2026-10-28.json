@@ -1,0 +1,1612 @@
+{
+  "scope": "Reconciliation of the saved October 28 audit snapshot. Original working files and other worktrees preserved. Subsequent work in concurrent sessions is not automatically included.",
+  "baseline": "edeeb02243d700162d6473a2c475588b48984e2e",
+  "release_base": "a60a975b8",
+  "selection_status": "Ready changes selected for release; final deployment must be verified from both public version endpoints.",
+  "features": [
+    {
+      "request": "Change an existing meeting date, including back to today",
+      "decision": "released_and_verified",
+      "commits": [
+        "6b3d7310b",
+        "a60a975b8"
+      ],
+      "validation": "21 component tests and desktop/narrow Chrome interaction checks; frontend and backend public version endpoints both matched a60a975b8."
+    },
+    {
+      "request": "Keep Google sign-in on the same website",
+      "decision": "selected",
+      "commit": "8e48c43b4",
+      "validation": "23 API-base routing tests; same-origin cookies retained."
+    },
+    {
+      "request": "Prevent database pool exhaustion",
+      "decision": "selected",
+      "commit": "5fc47d96a",
+      "validation": "5 pool-budget tests; production workflow limits preserved; proxy shell syntax checked."
+    },
+    {
+      "request": "Prevent duplicate recurring personal calendar holds after editing",
+      "decision": "selected",
+      "commit": "b4fa53a8a",
+      "validation": "20 recurrence tests."
+    },
+    {
+      "request": "Optional office intake referral-source question",
+      "decision": "selected",
+      "commit": "8954f198d",
+      "validation": "5 backend and 6 frontend tests; newer guardian/enrollment safeguards preserved."
+    },
+    {
+      "request": "Clinical and Denver group membership and staff channel chat",
+      "decision": "selected",
+      "commit": "fe633d43c",
+      "validation": "45 focused tests. Read-only database verification confirmed scoped Clinical/Denver enrollment with full group sync disabled. No messages sent."
+    },
+    {
+      "request": "Offer meeting/evaluation times for invitees to reserve",
+      "decision": "selected",
+      "commit": "2e4ac897f",
+      "validation": "Real MySQL tests caught and fixed DISTINCT/ORDER BY and JSON key-order errors. Persistence, competing claims, idempotency, conflict rollback and closing unused holds verified. 4 real-DB tests, 50 unit cases, 10 screen tests. Production tables exist and contain no offers or pending deliveries."
+    },
+    {
+      "request": "Event clock reminders for app-only employees",
+      "decision": "selected",
+      "commit": "774498af2",
+      "validation": "7 priority-email tests; no real emails sent."
+    },
+    {
+      "request": "Quick navigation in the school portal",
+      "decision": "selected",
+      "validation": "Added the existing role-filtered Quick Nav control only for signed-in, non-preview school portals; retained newer Conversa labels. Vue compilation checked."
+    },
+    {
+      "request": "Disable archived/inactive accounts across login and recovery",
+      "decision": "saved_not_released",
+      "commit": "5886f8567",
+      "branch": "codex/hold-account-access-conflicts-20261028",
+      "validation": "74 account tests, 37 lifecycle tests including real MySQL, 18 frontend API tests passed. Production preflight found 9 conflicting flags, including one school account with a recorded October login. No account status changes made.",
+      "next_step": "Reconcile whether each conflicting account should retain access before enforcing all flags."
+    },
+    {
+      "request": "School annual-update schedule, deadlines, and follow-up automation",
+      "decision": "held",
+      "validation": "56 tests pass, 1 DB test skipped. Code inspection found write access ignores rules.enabled and uses already-expired August defaults.",
+      "next_step": "Honor disabled/legacy mode, validate the rollout cycle, and verify migration and notification behavior before enabling."
+    },
+    {
+      "request": "Telephone dial-in for meetings and supervision",
+      "decision": "held_disabled",
+      "validation": "Dedicated Voice app/number, callback/signing secrets and real call pilot remain necessary.",
+      "next_step": "Complete carrier setup and browser/phone audio, attendance and transcription pilot."
+    },
+    {
+      "request": "Shared SMS conversation ownership, drafts, topics, and separate lines",
+      "decision": "held",
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "validation": "7 line-policy tests pass; conversation suite fails on a missing database mock export. New tables absent; main SMS line unset. Code disables history pagination and closes an episode before validating a new topic. Current Notifyre care-SMS restrictions retained.",
+      "next_step": "Complete conversation tests and transactional topic/history behavior, apply tested schema, and validate configured main/provider lines."
+    },
+    {
+      "request": "Older support-email pilot, Finance Operations routes and scheduling lifecycle branches",
+      "decision": "already_in_main",
+      "validation": "Patch-equivalent commits/routes found in main. Pilot variants would remove newer reply evidence, privacy, delivery, and mobile-layout fixes."
+    },
+    {
+      "request": "Old recovery snapshots and January stashes",
+      "decision": "retained_backup_not_release",
+      "validation": "Historical copies predate the current implementation; no bulk merge or deletion performed."
+    },
+    {
+      "request": "Event analytics report scripts, generated PDFs, and local test configurations",
+      "decision": "retained_artifacts",
+      "validation": "These are report/build/test artifacts, not unreleased website features."
+    }
+  ],
+  "original_file_counts": [
+    {
+      "area": "evidence/docs",
+      "comparison": "differs; review required",
+      "count": 3
+    },
+    {
+      "area": "evidence/docs",
+      "comparison": "identical to main",
+      "count": 170
+    },
+    {
+      "area": "evidence/docs",
+      "comparison": "local evidence/docs",
+      "count": 164
+    },
+    {
+      "area": "source/config",
+      "comparison": "differs; review required",
+      "count": 197
+    },
+    {
+      "area": "source/config",
+      "comparison": "identical to main",
+      "count": 489
+    },
+    {
+      "area": "source/config",
+      "comparison": "matches pushed history",
+      "count": 49
+    }
+  ],
+  "source_decisions": [
+    {
+      "path": ".github/workflows/deploy-backend.yml",
+      "source_blob": "bb69214b4676e3d3b3932987b87ecdfd916581d1",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/package-lock.json",
+      "source_blob": "5d617e33513e3c5e0514132926ab76ca2e48a094",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/package.json",
+      "source_blob": "f162091735ebce5ddb823f1d41d0732b6b012f2a",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/scripts/auditAccountAccessState.js",
+      "source_blob": "7df257099a9f0391d66153f69c7d2fe7072109a4",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/scripts/render-itsco-event-report.mjs",
+      "source_blob": "82f8ab5d460bc181868b687ea13b0c9c1215bb42",
+      "decision": "local_report",
+      "reason": "One-off event analytics/report extraction and rendering; existing deliverables retained, no app deployment required."
+    },
+    {
+      "path": "backend/scripts/report-itsco-event-analytics.mjs",
+      "source_blob": "17f1371037b321fc7a0a0321af3115d9209e8cc9",
+      "decision": "local_report",
+      "reason": "One-off event analytics/report extraction and rendering; existing deliverables retained, no app deployment required."
+    },
+    {
+      "path": "backend/src/bootstrap.js",
+      "source_blob": "c57f367120ecf37d8716eda6aa2163e70474c82a",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/config/__tests__/databasePoolLimits.test.js",
+      "source_blob": "419e2fb16ee948d1dadf71673ebfcbf179c5b594",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/config/clinicalDatabase.js",
+      "source_blob": "18c66b327fdafaf9d6c6d1f596617e1753fc471e",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/config/database.js",
+      "source_blob": "3bbca121944a58b50d3fa2c57c45bc681e007cd6",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/config/databasePoolLimits.js",
+      "source_blob": "957f96bfee40ec245e0acecdf23c263a260026ea",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/constants/automatedEmailCatalog.js",
+      "source_blob": "aee083ebd4e1292e23f54fadbf1b89cc51c3c51a",
+      "decision": "held_school_annual",
+      "reason": "Annual rules apply the August deadline without honoring the enable flag; deployment could close current manually opened forms. Migration also enables outbound automation. Keep current school flow."
+    },
+    {
+      "path": "backend/src/controllers/__tests__/accountAccess.test.js",
+      "source_blob": "d48b5b7bd37c15e00a898bbf85968b58f43d527a",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/controllers/__tests__/clientExchange.test.js",
+      "source_blob": "e8131e199594b6ee3f7dc87db9fe64776ad182ee",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/controllers/__tests__/schoolStaffPhone.test.js",
+      "source_blob": "cb9635ea7c56307d18087214070b93a995d71e0f",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/controllers/__tests__/staffDirectory.test.js",
+      "source_blob": "0de096a5df54a1c8beb53a20844c195c6dc494b7",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/controllers/agency.controller.js",
+      "source_blob": "74576f0d85b42489bd2b20bfad1653c7d51b509e",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/controllers/auth.controller.js",
+      "source_blob": "aa2c14ec02eec10639ae725b3f0b9ccc901273de",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/controllers/challengeMemberApplications.controller.js",
+      "source_blob": "c807ffb6dc9e11c916eef0a0144dbfef38944270",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/controllers/clientExchange.controller.js",
+      "source_blob": "410779e2c55eb39940614406a93a7957049f9d2f",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/controllers/meetingDialIn.controller.js",
+      "source_blob": "e2415a5ec1b9a090556ae2d6b24e54e3260eaf81",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/controllers/passkeys.controller.js",
+      "source_blob": "dc51c87ecd8f7d0a42e472c9114faa1fb0f7bf84",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/controllers/practitionerPackages.controller.js",
+      "source_blob": "ffe3e1bc012c445b844c8fcf8f2c07fb87464bc1",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/controllers/providerYearUpdate.controller.js",
+      "source_blob": "9eed749ce5d1dc292acbf94bb4ad033fab2d3e64",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/controllers/publicIntake.controller.js",
+      "source_blob": "34c15ed1b6f55afbd37a1e755333305f54c4831a",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/controllers/schoolOnboarding.controller.js",
+      "source_blob": "9d27d33165bb161fbc95cf9dbb9ed0dac9f2c6f7",
+      "decision": "held_account_access",
+      "reason": "Additional token-issuance integration belongs to the held login guard; preserve existing onboarding until conflicting account flags are reconciled."
+    },
+    {
+      "path": "backend/src/controllers/schoolPortal.controller.js",
+      "source_blob": "6dfa5c3d61902c51cb015cc203703bd45c0c3cf0",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/controllers/schoolReinit.controller.js",
+      "source_blob": "ceb32985bab6d857124d4b4fc837e339851723ad",
+      "decision": "held_school_annual",
+      "reason": "Part of annual-update deadlines/receipts; current code would apply the expired August window to manually opened forms."
+    },
+    {
+      "path": "backend/src/controllers/staff.controller.js",
+      "source_blob": "2b528e2a05c87535e6421c4923f38b2a695654f8",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/controllers/supervisionSessions.controller.js",
+      "source_blob": "002b3939ff2b2b3881588cbb9a8372d35cc2f869",
+      "decision": "held_phone_dial_in",
+      "reason": "Phone/media/attendance integration; retain newer main RSVP behavior while dial-in remains disabled."
+    },
+    {
+      "path": "backend/src/controllers/teamMeetings.controller.js",
+      "source_blob": "42ff90c56b5a6de8d5c2a77cef292624b29fc95d",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/controllers/user.controller.js",
+      "source_blob": "42d8fca61eaf3fca3fd8eaf129832f171d41a4eb",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/controllers/userCommunication.controller.js",
+      "source_blob": "b05a6df2c30933e50d1a408285c6b569c2b848b0",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/middleware/__tests__/accountAccess.test.js",
+      "source_blob": "006c1d5a864b53f8ec1b0f8e4de8a36b9a033147",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/middleware/auth.middleware.js",
+      "source_blob": "b943970a9ef9dda62a4893b4319794249e61c0a4",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/middleware/conditionalAdmin.middleware.js",
+      "source_blob": "16be6f7aca63f732bc94516432ffc523b2eaa72e",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/models/User.model.js",
+      "source_blob": "19c6bc2402b8b7777a7940fa6c4a228f4cd89076",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/routes/client.routes.js",
+      "source_blob": "d63da6c08a75f84bf96ba9f8a3fd3b0a2395aed2",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/routes/clientExchange.routes.js",
+      "source_blob": "86fa94251e20f0b25721fc1c707b167d1a4156f1",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/routes/communications.routes.js",
+      "source_blob": "5db738cd0948bce386ac5164fa503a355ecad29c",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/routes/meetingDialInWebhook.routes.js",
+      "source_blob": "5f56e6ee4a56e72eaa504c47dd3ec90b52b65a69",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/routes/meetingReservations.routes.js",
+      "source_blob": "6065a2cbf48f10edb04fd5341bc51f4b04a2858f",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/routes/schoolReinit.routes.js",
+      "source_blob": "080896026477c7f1b6a9a7e93a3e22e904aa69e2",
+      "decision": "held_school_annual",
+      "reason": "Part of annual-update deadlines/receipts; current code would apply the expired August window to manually opened forms."
+    },
+    {
+      "path": "backend/src/routes/supervisionSessions.routes.js",
+      "source_blob": "f647afc39bf5d951fd6b6bc17aa3b081f4518d6f",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/routes/teamMeetings.routes.js",
+      "source_blob": "938aa35ede38c1fb5b0f7ec6701af79c2751cdc9",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/scripts/reconcileManagedWorkspaceGroups.js",
+      "source_blob": "c034a21f4b8a7d3201036ff0ecdaad2f78d766b3",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/scripts/testMeetingDialInLocal.js",
+      "source_blob": "9dba750868902da873cd8fac31718b9f4975b58a",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/server.js",
+      "source_blob": "35b143289bd527a619d5b701b97310d9ae134989",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/services/__tests__/accountAccess.test.js",
+      "source_blob": "fbd36490e7e7d8026c52dd7644e2a5d8378eba27",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/services/__tests__/accountLifecycle.mysql.test.js",
+      "source_blob": "32ba6dd96a37e344fd3fff29603930777c0099fd",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/services/__tests__/clientExchangeNotifications.test.js",
+      "source_blob": "dc434449f63728824193139d0616ba28b30d20bf",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/services/__tests__/clientExchangePosting.test.js",
+      "source_blob": "1efe7783562317dded813395363bec501926c132",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/services/__tests__/events.travelReport.test.js",
+      "source_blob": "ef05091077be8235b0845a965dddd4918b8686ed",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/services/__tests__/hire.loginGate.test.js",
+      "source_blob": "931df4664679147b2801e2e4af4ff3462c76f07b",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/services/__tests__/meetingDialIn.mysql.test.js",
+      "source_blob": "4d106f22e4795ecd553e63daab2e001466abf845",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/services/__tests__/meetingDialInAccess.test.js",
+      "source_blob": "bdf2fc17e2fe6d5df6f2ebb67351f4f878e5803b",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/services/__tests__/meetingDialInPolicy.test.js",
+      "source_blob": "bcea97a0aad0c436e490e4f8774a854e4b77f772",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/services/__tests__/meetingDialInTranscription.test.js",
+      "source_blob": "b783131ed5d5419a294dc229f0f02c396f6f3a11",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/services/__tests__/meetingPriorityEmail.test.js",
+      "source_blob": "4ee6b1d3f2dcb061bd25177ee74958130bcfd43f",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/services/__tests__/messaging.clinicalGroups.test.js",
+      "source_blob": "3f7708f64adc83463af69265a3c11a4660e23eee",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/services/__tests__/messaging.managedGroupSync.test.js",
+      "source_blob": "51f9d5d05aa88858af5c97b6f68eac8a41321b14",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/services/__tests__/messaging.managedGroups.test.js",
+      "source_blob": "165d1c2300c02679a1fd19e68f9de5810d2a09b9",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/services/__tests__/passkeys.controller.test.js",
+      "source_blob": "b047c98708f8405cf8b55162d5b96aebf9fba0fc",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/services/__tests__/recurringScheduleWindow.test.js",
+      "source_blob": "a394b0c85df2c2519bc91847f66ca7fb1ca4ace6",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/services/__tests__/scheduling.meetingReservationDelivery.test.js",
+      "source_blob": "9392ba25f661e127f9972cf3e0fe8dd0c812187b",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/services/__tests__/scheduling.meetingReservations.test.js",
+      "source_blob": "7e81de9599c1e8e51f7c4f8593e38603635fd0a9",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/services/__tests__/schoolOnboarding.accountAccess.test.js",
+      "source_blob": "e06b868291762a5181ce92564199afeb4525348c",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/services/__tests__/schoolOnboardingWelcome.test.js",
+      "source_blob": "e8ee5f10b5550bd285b05881339b86aa213e535e",
+      "decision": "held_school_annual",
+      "reason": "Part of annual-update deadlines/receipts; current code would apply the expired August window to manually opened forms."
+    },
+    {
+      "path": "backend/src/services/__tests__/schoolYearUpdate.mysql.test.js",
+      "source_blob": "10f7f22547297acba3d508a603802730783748c1",
+      "decision": "held_school_annual",
+      "reason": "Annual rules apply the August deadline without honoring the enable flag; deployment could close current manually opened forms. Migration also enables outbound automation. Keep current school flow."
+    },
+    {
+      "path": "backend/src/services/__tests__/schoolYearUpdateAccess.test.js",
+      "source_blob": "d174700009d16221986163f2af1897f9b713a13b",
+      "decision": "held_school_annual",
+      "reason": "Annual rules apply the August deadline without honoring the enable flag; deployment could close current manually opened forms. Migration also enables outbound automation. Keep current school flow."
+    },
+    {
+      "path": "backend/src/services/__tests__/schoolYearUpdateAutomation.test.js",
+      "source_blob": "35e4ee899658594f5ef7b23ffd7876504d07bc98",
+      "decision": "held_school_annual",
+      "reason": "Annual rules apply the August deadline without honoring the enable flag; deployment could close current manually opened forms. Migration also enables outbound automation. Keep current school flow."
+    },
+    {
+      "path": "backend/src/services/accountAccess.service.js",
+      "source_blob": "a14c6c4fa5dfbfde87da1d1e618b0533a157d077",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/services/clientExchange.service.js",
+      "source_blob": "5af8b67e3bcc9dd2dec61598d9d9becda8c96e02",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/services/clientExchangeNotifications.service.js",
+      "source_blob": "c6d428bd5cb37773c80ac198f3611dbdb95b4804",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/services/clientExchangePosting.service.js",
+      "source_blob": "6d3fa96358ab69627d0c0b4d948911bb0b8a9244",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/services/clientExchangeReferral.service.js",
+      "source_blob": "8554d8057227bb351025ced29e5e3942078fd8b9",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/services/completedIntakeRecord.service.js",
+      "source_blob": "14795379e64eff472b7e3e12c7d0315e0c7719c9",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/services/devFill.service.js",
+      "source_blob": "b05439e41806e7dd2c35fc4eee19bb796ccd6641",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/services/emailSettings.service.js",
+      "source_blob": "92fb1ba795677915c9efc4f2634ecd048cd0377d",
+      "decision": "held_school_annual",
+      "reason": "Annual rules apply the August deadline without honoring the enable flag; deployment could close current manually opened forms. Migration also enables outbound automation. Keep current school flow."
+    },
+    {
+      "path": "backend/src/services/enrollmentProviderSelection.service.js",
+      "source_blob": "63aa01d07b8e09cc6de16c5584287379153f5e9f",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/services/eventTravelReport.service.js",
+      "source_blob": "8778a0110b031abde01f4dc1da03ac77b93b0297",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/services/hireStaffAccess.service.js",
+      "source_blob": "47154d423f712dd56b4373c10e221017505d6f2b",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/services/identityHygiene.service.js",
+      "source_blob": "336624e9f1db013345b89752242a5a4dbc748f7f",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/services/managedWorkspaceGroupAccess.service.js",
+      "source_blob": "37774a31f96d5e3eedd2749159b8cbe22f6d1e52",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/services/managedWorkspaceGroupPolicy.js",
+      "source_blob": "99af20d44f2ddcc5076a93c7870c89b15f8a86a1",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/services/managedWorkspaceGroups.service.js",
+      "source_blob": "a1749afdf5be35be6573b680ab1749de3b20793f",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/services/meetingAttendanceSegments.service.js",
+      "source_blob": "7c125e4bf2643831295e85aced92ad018e439a10",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/services/meetingConfiguredReminders.service.js",
+      "source_blob": "3e0a833899897dc0cbf5a29fb0bec9c1526f691b",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/services/meetingDialIn.service.js",
+      "source_blob": "2e779e5a6b53fbf5904880d9957fed4c238fc94d",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/services/meetingDialInAttendance.service.js",
+      "source_blob": "771253b48b9c1c159e437a74ca6057632a07eb4b",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/services/meetingDialInContext.service.js",
+      "source_blob": "8aab100b2370c41524e0dbaa91c480f2ca410ed6",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/services/meetingDialInDelivery.service.js",
+      "source_blob": "50ad290a022ae8f4db420cbc92feee7b694604d4",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/services/meetingDialInPolicy.js",
+      "source_blob": "791a6bde5580f90acbb6ece5d813fdc9e0f9c547",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/services/meetingDialInTranscription.service.js",
+      "source_blob": "ea713ddae8bf9be04f6fa6e99e7f7686d823dbb6",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/services/meetingDialInTransport.service.js",
+      "source_blob": "f9bfb9b816d50851d4a918926eae0e6d88854988",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/services/meetingEndPermission.service.js",
+      "source_blob": "582f8967b2893ad91bf4536ea27146cc2a2848b7",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/services/meetingInvitationPolicy.js",
+      "source_blob": "fc9bb2034d066d04e11f0012ccdf589f764125ab",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/services/meetingInvitations.service.js",
+      "source_blob": "088e6ee980d7e2cfb1d1c922a5b102c5a61401a7",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/services/meetingReservationDelivery.service.js",
+      "source_blob": "f2fef2402be1e4ded5a31dc81fb4b3664a741579",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/services/meetingReservationPolicy.js",
+      "source_blob": "59b76cc74766f8b714478abda6ad13b21ea46cd1",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/services/meetingReservations.service.js",
+      "source_blob": "cd63d5742a2ed639eb915195696027f7b4fb499a",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/services/meetingTranscription.service.js",
+      "source_blob": "9222eed242d8624d9cd82bf231b23df398e3d395",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/services/personalMailboxDisplayName.service.js",
+      "source_blob": "d668b93a0d100eaf94e2a5b67105a95740ebab7b",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/services/priorityEventEmail.service.js",
+      "source_blob": "f102b7b3d257b9a0393a01df101e308573baee68",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/services/productIdentity.service.js",
+      "source_blob": "e2dfcd107daf2838e754e61dee00f670e6988048",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/services/recurringScheduleWindow.service.js",
+      "source_blob": "95033ededf62df04ea7defae64b89e8f72035aae",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/services/schoolOnboarding.service.js",
+      "source_blob": "b1d8c3b5a31c33a9f68cee21c7e205dbbe03d109",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/services/schoolOnboardingWelcome.service.js",
+      "source_blob": "7a7aa64c6567dfdf125fb7f8a840300bd47d8484",
+      "decision": "held_school_annual",
+      "reason": "Part of annual-update deadlines/receipts; current code would apply the expired August window to manually opened forms."
+    },
+    {
+      "path": "backend/src/services/schoolReinit.service.js",
+      "source_blob": "09d7e58bdbd460eeb80023958e94bcfe72baea02",
+      "decision": "held_school_annual",
+      "reason": "Part of annual-update deadlines/receipts; current code would apply the expired August window to manually opened forms."
+    },
+    {
+      "path": "backend/src/services/schoolYearUpdateAccess.service.js",
+      "source_blob": "c7b521913c55f0ffc0a425a30d79c2059b529d70",
+      "decision": "held_school_annual",
+      "reason": "Annual rules apply the August deadline without honoring the enable flag; deployment could close current manually opened forms. Migration also enables outbound automation. Keep current school flow."
+    },
+    {
+      "path": "backend/src/services/schoolYearUpdateAutomation.service.js",
+      "source_blob": "10a146b4fa0e80c14f607f9d54ede4ffe76609d0",
+      "decision": "held_school_annual",
+      "reason": "Annual rules apply the August deadline without honoring the enable flag; deployment could close current manually opened forms. Migration also enables outbound automation. Keep current school flow."
+    },
+    {
+      "path": "backend/src/services/supervisionAttendanceRollup.service.js",
+      "source_blob": "3344c1dc43d60a6995bfd39432e6585ffcc06af4",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/services/supervisionEmail.service.js",
+      "source_blob": "a4ce8079b942a0e8474dd69f940d6ab1f5026985",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/services/supervisionInvitationAccess.service.js",
+      "source_blob": "495af99816913657f71ba418c151d9e27737220a",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/services/teamMeetingInvitationAccess.service.js",
+      "source_blob": "28e5e930c00fa8a60f5b45d1d533bf58d199fb76",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/services/unifiedEmail/inboundEmailAgent.service.js",
+      "source_blob": "fd745260b29514a0f2c76718999d46b425d0a0a3",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/services/unifiedEmail/unifiedEmailSender.service.js",
+      "source_blob": "1036f1dc8845a70a0dea9b0d9757b0c8bd4015b9",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/services/video.service.js",
+      "source_blob": "08b80f9dc9fdac266c0fcc9058663e606df6e832",
+      "decision": "held_phone_dial_in",
+      "reason": "Phone/media/attendance integration; retain newer main RSVP behavior while dial-in remains disabled."
+    },
+    {
+      "path": "backend/src/utils/__tests__/clientExchangeMatching.test.js",
+      "source_blob": "79998e7e9f4030efa4ce9a2e6425ef3a59b1f91c",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/utils/__tests__/officeReferralSource.test.js",
+      "source_blob": "a73faaecb762a91adbf569d56b6ca00bb24dd046",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/utils/__tests__/schoolYearUpdatePolicy.test.js",
+      "source_blob": "1f4a677d5bc53cf7ac2798695d7893a45786d98a",
+      "decision": "held_school_annual",
+      "reason": "Annual rules apply the August deadline without honoring the enable flag; deployment could close current manually opened forms. Migration also enables outbound automation. Keep current school flow."
+    },
+    {
+      "path": "backend/src/utils/accessControl.js",
+      "source_blob": "11fcba789b0cd84043bf9049af04e847090f3871",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/utils/accountAccess.js",
+      "source_blob": "a6de326ed72055d80b0b6065f570d1f4c83a261d",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/src/utils/clientExchangeMatching.js",
+      "source_blob": "0cb4a2363a65c5bb23642a5faaf72638c5aa78c3",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/utils/clientExchangeProvider.js",
+      "source_blob": "4055f4f2284b8bf7620c41c7da078dc084971e0d",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/utils/clientExchangeSummary.js",
+      "source_blob": "cceaeb4ad10c6c28d5dd3c0a1eb6cb740f3a7c87",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "backend/src/utils/meetingDialInEmail.js",
+      "source_blob": "d1e96d24e50196def139f732b236a9d754e1c1b1",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/src/utils/officeReferralSource.js",
+      "source_blob": "8c21084fd6f90e1457db3970e0540ff09e6d25b8",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "backend/src/utils/schoolYearUpdateEmail.js",
+      "source_blob": "600bd0ead17da419a9b0f4c81e82a03839865e15",
+      "decision": "held_school_annual",
+      "reason": "Annual rules apply the August deadline without honoring the enable flag; deployment could close current manually opened forms. Migration also enables outbound automation. Keep current school flow."
+    },
+    {
+      "path": "backend/src/utils/schoolYearUpdatePolicy.js",
+      "source_blob": "5f83c3ef9139dd0907d8aee45e70afda9129be20",
+      "decision": "held_school_annual",
+      "reason": "Annual rules apply the August deadline without honoring the enable flag; deployment could close current manually opened forms. Migration also enables outbound automation. Keep current school flow."
+    },
+    {
+      "path": "backend/src/utils/supervisionEmailBody.js",
+      "source_blob": "0af8dfc5b69cb1d78950d30ff26e1ed188e3e3ee",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/vitest.account-access.config.js",
+      "source_blob": "8f0205c2302c2409b7c2b9086276dbd31c7f0d29",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/vitest.account-lifecycle.config.js",
+      "source_blob": "90adbafa82ed2e533bb443231895dce068da3971",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "backend/vitest.meeting-dial-in.config.js",
+      "source_blob": "d30d95153746afaf17cb8a70af5d2f629ca5dcc5",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "backend/vitest.school-annual.config.js",
+      "source_blob": "4cbde78b910f53e092e3faef63e7aefa620e5fed",
+      "decision": "held_school_annual",
+      "reason": "Annual rules apply the August deadline without honoring the enable flag; deployment could close current manually opened forms. Migration also enables outbound automation. Keep current school flow."
+    },
+    {
+      "path": "backend/vitest.school-staff-phone.config.js",
+      "source_blob": "f852c20dc7b65f327c918fcdba0f28b6063bd2ff",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "cloudbuild-backend.yaml",
+      "source_blob": "b19cd580d38f95bcc842cf937e6a6ff200803cb6",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "database/migrations/1692_school_year_update_cycle.sql",
+      "source_blob": "a91e91720179d20da4fd96f1b5ded94d283e931d",
+      "decision": "held_school_annual",
+      "reason": "Annual rules apply the August deadline without honoring the enable flag; deployment could close current manually opened forms. Migration also enables outbound automation. Keep current school flow."
+    },
+    {
+      "path": "database/migrations/1693_meeting_reservation_offers.sql",
+      "source_blob": "689ea4a4195a09079183373bcc4a718fd6a88456",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "database/migrations/1694_meeting_personal_dial_in.sql",
+      "source_blob": "fb697a95c4be8939852a46a5b38fb3453cc3d7f6",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "frontend/public/assets/skillbuilders/skill-builders-program-guide.pdf",
+      "source_blob": "32274e9f19e91d0475781e354b3da7e6f54648d2",
+      "decision": "generated_asset",
+      "reason": "Program guide is generated by the existing build; regenerated binary differences are not a missing feature."
+    },
+    {
+      "path": "frontend/src/components/admin/SchoolAnnualFollowup.vue",
+      "source_blob": "d9e53b9e63592d15313e30e9e9724509c64d0d60",
+      "decision": "held_school_annual",
+      "reason": "Annual rules apply the August deadline without honoring the enable flag; deployment could close current manually opened forms. Migration also enables outbound automation. Keep current school flow."
+    },
+    {
+      "path": "frontend/src/components/admin/SchoolAnnualSchedule.vue",
+      "source_blob": "9c870ac8058ecd022270560cb874070d9c292e7b",
+      "decision": "held_school_annual",
+      "reason": "Annual rules apply the August deadline without honoring the enable flag; deployment could close current manually opened forms. Migration also enables outbound automation. Keep current school flow."
+    },
+    {
+      "path": "frontend/src/components/admin/SchoolReinitAdminPanel.vue",
+      "source_blob": "ed552c67360645897ff95d83c997536b57570b29",
+      "decision": "held_school_annual",
+      "reason": "Annual rules apply the August deadline without honoring the enable flag; deployment could close current manually opened forms. Migration also enables outbound automation. Keep current school flow."
+    },
+    {
+      "path": "frontend/src/components/admin/__tests__/SchoolAnnualCycle.test.js",
+      "source_blob": "a4f11f473657c37b53f0d5d4e16d1a115c924c30",
+      "decision": "held_school_annual",
+      "reason": "Annual rules apply the August deadline without honoring the enable flag; deployment could close current manually opened forms. Migration also enables outbound automation. Keep current school flow."
+    },
+    {
+      "path": "frontend/src/components/admin/account/UserAccountDashboard.vue",
+      "source_blob": "2db9f4c3b77d52cc038dbf7d882b1e32d4597224",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/components/clientExchange/ClientExchangePanel.vue",
+      "source_blob": "cbb7f6373e9650ea007c16154c2812acd8d424ae",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/components/clientExchange/ClientExchangeSummary.vue",
+      "source_blob": "d78bd75627db07a4957c608bf9b0e1b8dfc02867",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/components/clientExchange/ListingCard.vue",
+      "source_blob": "2a8100008d46dd0a02bd118988ae9c4f86ef89c1",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/components/clientExchange/NewReferralModal.vue",
+      "source_blob": "c300dfb57ac64b3aa489ae0ccbd77a56ec34c93e",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/components/clientExchange/PostListingModal.vue",
+      "source_blob": "4ef713e15a7621a4bd3df084156b1093d069b93b",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/components/clientExchange/__tests__/ClientExchangePanel.test.js",
+      "source_blob": "cf9111fc42d88e47b3761deac10c0fba93907be3",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/components/dashboard/DashboardOverviewHome.vue",
+      "source_blob": "c370cdd25b6f104aae3029e0ce7d4db551e80c61",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/components/dashboard/HourlyIndirectTimeLog.vue",
+      "source_blob": "60f2be65d19193458cd2b1775649fd337af98639",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/components/dashboard/ProviderClientsTab.vue",
+      "source_blob": "a735d6ff8f169d6d0b66297d26db477989a3314c",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/components/dashboard/__tests__/DashboardWork.test.js",
+      "source_blob": "9cc9cdd9d2f8ce210ac1a5a77d9127864ba9b6af",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/components/events/EventTravelReportModal.vue",
+      "source_blob": "0548d5c25370dc829fb488b46907a22223b5e5a6",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/components/events/EventTravelReportSummary.vue",
+      "source_blob": "efa749158d3cb01f01e6ba69b25aa29180b3442e",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/components/events/__tests__/EventTravelReportModal.test.js",
+      "source_blob": "e4335192cd4cbc3226c3e658d745261151c38fb0",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/components/meetings/MeetingDialInPanel.vue",
+      "source_blob": "c15108d445c3b135f725c76b35a8c570107fc341",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "frontend/src/components/meetings/__tests__/MeetingDialInPanel.test.js",
+      "source_blob": "d78fd1eae7d4c5ebf671745c4f59c72a4d365f9f",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "frontend/src/components/messages/MessagesHubShell.vue",
+      "source_blob": "65c7120f30ca5f9529b748ae6661546c9f18a8d6",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/components/schedule/MeetingReservationPicker.vue",
+      "source_blob": "c830f5091e1b227f0bbefbb71d119bf36d7b10d3",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "frontend/src/components/schedule/ScheduleAvailabilityGrid.vue",
+      "source_blob": "5316f29730ff8b06b9e483d9ae78caec9d274844",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "frontend/src/components/schedule/__tests__/MeetingReservationPicker.test.js",
+      "source_blob": "01d2a63a214606d6374c2be31f847dbacae081e1",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "frontend/src/components/schedule/__tests__/scheduleOverlap.test.js",
+      "source_blob": "00807de5db8e6f61ce53c042edb316af12e0b692",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/components/school/redesign/SchoolStaffPanel.vue",
+      "source_blob": "d1d16d453e443c90099c9e326401510441a932c8",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/components/school/redesign/__tests__/SchoolStaffPanel.phone.test.js",
+      "source_blob": "3effb8da8e66ac7bc28e3b95436fa38af0824a88",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/components/school/reinit/SchoolReinitDashboard.vue",
+      "source_blob": "2d4f7e5887b1f0f95b3424fdbeb60f57259c77cd",
+      "decision": "held_school_annual",
+      "reason": "Part of annual-update deadlines/receipts; current code would apply the expired August window to manually opened forms."
+    },
+    {
+      "path": "frontend/src/components/supervision/SupervisionLiveRoom.vue",
+      "source_blob": "17c2193fd5e83129d53ba83a6ab4a045bce266f6",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "frontend/src/constants/automatedEmailCatalog.js",
+      "source_blob": "b0d0d01f0c60662d76d53a21af895ceec6f79306",
+      "decision": "held_school_annual",
+      "reason": "Annual rules apply the August deadline without honoring the enable flag; deployment could close current manually opened forms. Migration also enables outbound automation. Keep current school flow."
+    },
+    {
+      "path": "frontend/src/navigation/eventTravel.js",
+      "source_blob": "f8b8284bd1918c8dc1d0a53bc88cbc161fd0b29f",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/navigation/quickNavCatalog.js",
+      "source_blob": "61d6455a0435809f189a30c9c03bf6aeb0f957ce",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/router/index.js",
+      "source_blob": "c0a09731f9b09bab23b96f764636c74296c3f9e8",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "frontend/src/services/__tests__/api.accountAccess.test.js",
+      "source_blob": "97d23f2fa4e639d0c480f5c2df16285579c238a9",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "frontend/src/services/api.js",
+      "source_blob": "d73af6c003804629e93e76ccd240df369505e517",
+      "decision": "held_account_access",
+      "reason": "9 live accounts have conflicting active/archive flags. Tested guard saved at 5886f8567, excluded from production until intent is reconciled."
+    },
+    {
+      "path": "frontend/src/utils/__tests__/apiBaseUrl.test.js",
+      "source_blob": "508cefd83d17b049a8b398ea4776558e83b4a076",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "frontend/src/utils/__tests__/notificationActions.test.js",
+      "source_blob": "0b1491c87f946e3e607c3faef7507c647ac755f3",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/utils/apiBaseUrl.js",
+      "source_blob": "8273137e57bd57d706e4bb59cdc29225043781e3",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "frontend/src/utils/notificationActions.js",
+      "source_blob": "dfe3e327a4a6a114c094fed19ef84b481bc83aee",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "frontend/src/views/DashboardView.vue",
+      "source_blob": "7c53603b44c00e3aea566700d0a379c77b6b9cb9",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/views/MeetingTimesView.vue",
+      "source_blob": "cbf0bb7c93e2df8f7502e249e801eeafe41bec62",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "frontend/src/views/MyScheduleView.vue",
+      "source_blob": "8afc4ad8c3a623b961e1e5deb2dcaa0f6d9a36d4",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "frontend/src/views/PublicIntakeSigningView.vue",
+      "source_blob": "d537050f6b13fbdfa643c6c95111d5db617957e9",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "frontend/src/views/__tests__/DashboardAccountNavigation.test.js",
+      "source_blob": "3ebc661d4e1159126a94a9cca460d91ed221689e",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/views/__tests__/MeetingTimesView.test.js",
+      "source_blob": "6f3b70ed4e6a0e86e745f8c9da75f8e05e98d97f",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "frontend/src/views/__tests__/PublicIntakeReferralSource.test.js",
+      "source_blob": "3bc426f1a0369cc9a771ac32417a4f6355af295e",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "frontend/src/views/admin/TenantAdminDashboard.vue",
+      "source_blob": "89352b017b344c0d9253546713e785febb065dfe",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/views/public/MeetingReservationView.vue",
+      "source_blob": "393a178f8c473d83367647004a22cd34f0e88984",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "frontend/src/views/school/SchoolPortalView.vue",
+      "source_blob": "b3d8c803550483e468efd39ba67597fe5ba860d9",
+      "decision": "selected_partial",
+      "reason": "Include Quick Nav button/import only. Preserve newer messaging branding."
+    },
+    {
+      "path": "frontend/src/views/supervision/JoinSupervisionView.vue",
+      "source_blob": "8656c2370a274114026dc61db09cb77962376fa8",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/views/supervision/__tests__/SupervisionLeave.test.js",
+      "source_blob": "6f2f2f6af00699e5e798182ecde895cba25138ad",
+      "decision": "keep_newer_main",
+      "reason": "Local variant is superseded or removes fixes already in main; retain current production behavior."
+    },
+    {
+      "path": "frontend/src/views/teamMeeting/JoinTeamMeetingView.vue",
+      "source_blob": "a9de2f4b9bd57d3eefb112f621010e06e61c9d2a",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "frontend/vitest.meeting-dial-in.config.js",
+      "source_blob": "398b0ffcb40245f71a5da0bc49f49e7c8de3161d",
+      "decision": "held_phone_dial_in",
+      "reason": "Feature requires dedicated carrier/number configuration and real audio, attendance, and transcription validation; retain disabled."
+    },
+    {
+      "path": "frontend/vitest.office-referral.config.js",
+      "source_blob": "a2373c3d80ffc7da40707a78c9c7d90effdfb7c6",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    },
+    {
+      "path": "frontend/vitest.school-annual.config.js",
+      "source_blob": "6fb3ab095201e7062fedcbfa74cd9c99ff9b8f61",
+      "decision": "held_school_annual",
+      "reason": "Annual rules apply the August deadline without honoring the enable flag; deployment could close current manually opened forms. Migration also enables outbound automation. Keep current school flow."
+    },
+    {
+      "path": "scripts/start-cloud-sql-proxy.sh",
+      "source_blob": "9d97565fba172b9340c84b523dbe1278926437ad",
+      "decision": "selected",
+      "reason": "Reviewed feature changes included; newer main fixes preserved where the original file also contained old edits."
+    }
+  ],
+  "other_worktree_decisions": [
+    {
+      "worktree": "/private/tmp/itsco-qa-main-20261025",
+      "path": "frontend/public/assets/skillbuilders/skill-builders-program-guide.pdf",
+      "source_blob": "e24de7dfb60d81c67bb0b703d70306d12045e5f0",
+      "decision": "generated_asset"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "backend/src/server.js",
+      "source_blob": "ce13202c8101865c2eb7afa1ba1803d22c367a92",
+      "decision": "keep_newer_main"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "backend/src/services/__tests__/supportEmailDraft.service.test.js",
+      "source_blob": "f576e1f184cac55aa165f3d0946151b757ad8d6a",
+      "decision": "keep_newer_main"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "backend/src/services/__tests__/supportReplyReview.service.test.js",
+      "source_blob": "0bd800059d607bba0013655c52d0d534dd2c0466",
+      "decision": "keep_newer_main"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "backend/src/services/__tests__/supportTicketEmail.service.test.js",
+      "source_blob": "a84fd433a2d4ada3186b350d4ce60371156c6be8",
+      "decision": "keep_newer_main"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "backend/src/services/__tests__/supportTicketEmailDeliveryReconcile.service.test.js",
+      "source_blob": "f96b3b120e2d314321bca49e1765a5cd58c79569",
+      "decision": "keep_newer_main"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "backend/src/services/__tests__/supportTicketEmailInbound.service.test.js",
+      "source_blob": "31cadcdc89cfa57c8f4b2a0f86d364ba85948c02",
+      "decision": "keep_newer_main"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "backend/src/services/schoolSupportReplyRetrieval.service.js",
+      "source_blob": "ecb43ccd4bcf20a588a380022dacf011884b4791",
+      "decision": "keep_newer_main"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "backend/src/services/supportEmailDraft.service.js",
+      "source_blob": "f6b6d2c4b3f73edebf252bd9fcd42f151378a078",
+      "decision": "keep_newer_main"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "backend/src/services/supportReplyReview.service.js",
+      "source_blob": "713624f715b586705e376cd8f6fa4803beb0d092",
+      "decision": "keep_newer_main"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "backend/src/services/supportTicketEmail.service.js",
+      "source_blob": "6d8753b829a7f4aef445ffe12f3c0d9113e8abee",
+      "decision": "keep_newer_main"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "backend/src/services/supportTicketEmailDeliveryReconcile.service.js",
+      "source_blob": "ffe20746d025d522fcf56ef806c34de573ebe33d",
+      "decision": "keep_newer_main"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "backend/src/services/supportTicketEmailInbound.service.js",
+      "source_blob": "c76bdddbd58bc2e8c6c8d5ce3f9d40ab7874f542",
+      "decision": "keep_newer_main"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "backend/src/services/supportTicketEmailPolicy.js",
+      "source_blob": "c96708f5910f0cf179dc4f997518e5ce80b7fce1",
+      "decision": "keep_newer_main"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "backend/src/services/ticketEmailInboxAdapter.service.js",
+      "source_blob": "24f6e05991ac6ea8481729812139bc193d287b85",
+      "decision": "keep_newer_main"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "backend/src/services/unifiedEmail/inboundEmailAgent.service.js",
+      "source_blob": "413141a7992c45df040faf95d94d1e6e796544bd",
+      "decision": "keep_newer_main"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "backend/src/services/unifiedEmail/ticketInboundAttachments.service.js",
+      "source_blob": "d617918c12058a1fb7d85ea9ef75abf56d5e9f38",
+      "decision": "keep_newer_main"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "backend/src/utils/__tests__/schoolSupportReplyRetrieval.shared.test.js",
+      "source_blob": "c1f6d1c3ac75252e981d21882a33d2883249ba46",
+      "decision": "keep_newer_main"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "backend/src/utils/schoolSupportReplyRetrieval.shared.js",
+      "source_blob": "2e457a4c14a932e96262cc0c710641e34a5e3c30",
+      "decision": "keep_newer_main"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "backend/src/utils/supportEmailDraft.shared.js",
+      "source_blob": "de52f4d1a18847456fce7fc67cae92dd729f22a0",
+      "decision": "keep_newer_main"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "database/migrations/1696_support_reply_pilot_review.sql",
+      "source_blob": "80355fbd67ba0d601fa2dac0cf92520d4f5a210d",
+      "decision": "keep_newer_main"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "frontend/src/components/tickets/TicketDeskView.vue",
+      "source_blob": "06d8c45a3db3ede2e6cdf8ad60547a17a1e1b95d",
+      "decision": "keep_newer_main"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot",
+      "path": "frontend/vite.support-pilot.config.mjs",
+      "source_blob": "37cf5654f428b21e1f477075dc05efe4c1018a10",
+      "decision": "local_test_config"
+    },
+    {
+      "worktree": "/private/tmp/pt-support-email-pilot-ready",
+      "path": "frontend/vite.support-pilot.config.mjs",
+      "source_blob": "37cf5654f428b21e1f477075dc05efe4c1018a10",
+      "decision": "local_test_config"
+    },
+    {
+      "worktree": "/private/tmp/pto-request-main",
+      "path": "frontend/vitest.release-local.config.mjs",
+      "source_blob": "9672fdfce78bcc6260264a0bc90afea958c387ed",
+      "decision": "local_test_config"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "backend/src/controllers/message.controller.js",
+      "source_blob": "5904433cea38dfb41f38a97872e3b98c309d10fe",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "backend/src/controllers/smsNumbers.controller.js",
+      "source_blob": "df792984a7dfd3dad3d34e434b1a78df07d839c7",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "backend/src/controllers/vonageWebhook.controller.js",
+      "source_blob": "4e283e1045a38e5e23ba4997c30d72c60b2a4dcc",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "backend/src/routes/communications.routes.js",
+      "source_blob": "12029cb428a40ccfeb4111580c8204a9ce679668",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "backend/src/services/__tests__/messaging.communicationCoverage.test.js",
+      "source_blob": "a6ecff09bb174d0a9b83851d066d9aa02201f8f7",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "backend/src/services/__tests__/messaging.communicationReception.test.js",
+      "source_blob": "3c2b9dceaed90af5f224ed5ad7b8a8ca18066daf",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "backend/src/services/__tests__/messaging.smsConversationWorkspace.test.js",
+      "source_blob": "4ec3a4443be34bcf9025d2edc8038c8a4268ca12",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "backend/src/services/__tests__/messaging.smsLinePolicy.test.js",
+      "source_blob": "f32803f6afe8f9675be7817b486b07ca41465fc1",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "backend/src/services/appointmentReply.service.js",
+      "source_blob": "5a313e7a7173cb2c3f72f73dcdfa1dc03b44a00f",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "backend/src/services/channelInboxAdapter.service.js",
+      "source_blob": "a7898de20a33a51e1d9d8447a11a5976dda3f143",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "backend/src/services/clinicalSmsSend.service.js",
+      "source_blob": "f765768da0ca27dc4b3fabaff6f1c2615efe72d1",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "backend/src/services/communicationReview.service.js",
+      "source_blob": "84c257a63f229c27d185c6e0269c015dc2c166fb",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "backend/src/services/communicationRouting.service.js",
+      "source_blob": "fb8629876fe3a24e62fc97a2b58a190e62d0af6b",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "backend/src/services/smsConversationWorkspace.service.js",
+      "source_blob": "197382afe31f3bb73c72d702b9def91b6b23409c",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "backend/src/services/smsLinePolicy.service.js",
+      "source_blob": "c76aeeb12455e9d1bc9cf77ce8f9e8b272f91b9f",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "backend/src/services/unifiedInbox.service.js",
+      "source_blob": "fd54905f250fbc21e154f08c58a8e631fd1f2ca0",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "backend/src/utils/smsConversationTopic.js",
+      "source_blob": "6c78e781ae6ea4c334429c349a52e33267567749",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "database/migrations/1707_sms_shared_conversations.sql",
+      "source_blob": "deed269b3776da0f886447c509fca74bbffd90c7",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "frontend/src/components/admin/SmsNumbersManagement.vue",
+      "source_blob": "48192b9da2a8444b8df982d68750d826c2add09e",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "frontend/src/components/unifiedInbox/SmsConversationControls.vue",
+      "source_blob": "80ac6652c339aa844179ad8f78673d450c49463b",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "frontend/src/components/unifiedInbox/UnifiedConversationThread.vue",
+      "source_blob": "36cc952037e1060ddb31378712315dca4a7e76be",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "frontend/src/components/unifiedInbox/UnifiedInboxShell.vue",
+      "source_blob": "643c691d797e41b0e90f7ae35b21c047715cc4b2",
+      "decision": "held_sms"
+    },
+    {
+      "worktree": "/private/tmp/qa-oct28-fixes",
+      "path": "frontend/src/composables/useSmsInboxLive.js",
+      "source_blob": "2494a5339238e1d48de1bf6ab7052dd4c8a021ce",
+      "decision": "held_sms"
+    }
+  ]
+}
