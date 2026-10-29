@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defineComponent, reactive } from 'vue';
+import { defineComponent, reactive, ref } from 'vue';
 import { mount, flushPromises } from '@vue/test-utils';
 const m = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), capture: null, start: vi.fn(), stop: vi.fn(), flush: vi.fn(), control: vi.fn(), auth: { isAuthenticated: false, user: null } }));
 vi.mock('../../services/api', () => ({ default: { get: m.get, post: m.post }, isApiRateLimited: () => m.rateLimited }));
@@ -17,11 +17,53 @@ beforeEach(() => {
   props = reactive({ supervisionSessionId: 9, isSupervisor: false, isInLobby: false, localDisplayName: 'Rachel Example', joinIdentity: 'user-8' });
 });
 afterEach(async () => { wrapper?.unmount(); await flushPromises(); vi.clearAllTimers(); vi.useRealTimers(); });
-async function render() {
-  wrapper = mount(defineComponent({ setup() { live = useSupervisionLiveSession(props, vi.fn(), { enableActivityFeed: false }); return () => null; } }));
+async function render(options = {}) {
+  wrapper = mount(defineComponent({ setup() { live = useSupervisionLiveSession(props, vi.fn(), { enableActivityFeed: false, ...options }); return () => null; } }));
   await flushPromises();
 }
 describe('supervision session without app authentication', () => {
+  it('leaves presence to the join page while still running microphone capture', async () => {
+    props.presenceManagedExternally = true;
+    await render(); live.onVideoConnected();
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(m.start).toHaveBeenCalledOnce();
+    expect(m.post.mock.calls.filter(([url]) => url.endsWith('/join-presence'))).toHaveLength(0);
+    wrapper.unmount(); wrapper = null; await flushPromises();
+    expect(m.flush).toHaveBeenCalled();
+    expect(m.post.mock.calls.filter(([url]) => url.endsWith('/join-presence'))).toHaveLength(0);
+  });
+
+  it('reads the transcript only while open, without stopping speech capture or attendance', async () => {
+    const visible = ref(false);
+    await render({ isTranscriptVisible: () => visible.value }); live.onVideoConnected();
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(m.get.mock.calls.filter(([url]) => url.endsWith('/artifacts'))).toHaveLength(0);
+    expect(m.start).toHaveBeenCalledOnce();
+    expect(m.stop).not.toHaveBeenCalled();
+    expect(m.post.mock.calls.some(([url]) => url.endsWith('/join-presence'))).toBe(true);
+    visible.value = true; await flushPromises();
+    expect(m.get.mock.calls.filter(([url]) => url.endsWith('/artifacts'))).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(m.get.mock.calls.filter(([url]) => url.endsWith('/artifacts'))).toHaveLength(2);
+    visible.value = false; await flushPromises();
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(m.get.mock.calls.filter(([url]) => url.endsWith('/artifacts'))).toHaveLength(2);
+    expect(m.stop).not.toHaveBeenCalled();
+  });
+
+  it('shares an in-flight transcript read when the panel is reopened', async () => {
+    const visible = ref(false);
+    await render({ isTranscriptVisible: () => visible.value });
+    let finish;
+    m.get.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    visible.value = true; await flushPromises();
+    visible.value = false; await flushPromises();
+    visible.value = true; await flushPromises();
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(m.get).toHaveBeenCalledTimes(1);
+    finish({ data: { artifact: { transcriptText: 'Saved speech' } } }); await flushPromises();
+    expect(live.sessionTranscriptPreview.value).toBe('Saved speech');
+  });
   it.each([false, true])('saves identified speech and presence for supervisor=%s', async supervisor => {
     props.isSupervisor = supervisor; await render(); live.onVideoConnected();
     await vi.advanceTimersByTimeAsync(3000); expect(m.start).toHaveBeenCalledOnce();

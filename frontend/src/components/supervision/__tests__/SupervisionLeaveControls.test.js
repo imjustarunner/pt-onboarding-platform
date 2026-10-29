@@ -1,6 +1,6 @@
 import { shallowMount, flushPromises } from '@vue/test-utils';
 import { beforeEach, afterEach, it, expect, vi } from 'vitest';
-vi.mock('../../../services/api',()=>({default:{get:vi.fn(async()=>({data:{}})),post:vi.fn(async()=>({data:{}})),put:vi.fn(async()=>({data:{}}))}}));
+vi.mock('../../../services/api',()=>({default:{get:vi.fn(async()=>({data:{}})),post:vi.fn(async()=>({data:{}})),put:vi.fn(async()=>({data:{}}))},isApiRateLimited:()=>false}));
 vi.mock('../../../store/auth',()=>({useAuthStore:()=>({isAuthenticated:true,user:{id:9,role:'provider'}})}));
 vi.mock('../../../utils/activityTracker',()=>({suspendInactivityTimeout:vi.fn(),resumeInactivityTimeout:vi.fn()}));
 vi.mock('../../../composables/consentedAudioCapture.js',()=>({createConsentedAudioCapture:()=>({start:vi.fn(),stop:vi.fn(),flush:vi.fn(),control:vi.fn()})}));

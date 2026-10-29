@@ -57,8 +57,8 @@
       class="isl__transcript-banner"
       role="status"
     >
-      <span class="isl__transcript-dot" aria-hidden="true" />
-      <p>This session is being transcribed. Live speech may be captured and summarized for participants with access.</p>
+      <span class="isl__transcript-dot" :class="{ 'isl__transcript-dot--inactive': !transcriptionActive }" aria-hidden="true" />
+      <p><strong>{{ transcriptionStatus }}.</strong> When enabled, live speech may be captured and summarized for participants with access.</p>
       <button
         type="button"
         class="isl__transcript-x"
@@ -362,6 +362,8 @@ function requestEndForEveryone() {
 }
 
 const transcriptionNoticeDismissed = ref(false);
+const transcriptOpen = ref(false);
+const videoFullscreen = ref(false);
 
 const {
   numericSessionId,
@@ -380,6 +382,8 @@ const {
   topics,
   chatMessages,
   transcriptHint,
+  transcriptionStatus,
+  transcriptionActive,
   transcriptCapturing,
   transcriptPaused,
   pauseLiveTranscript,
@@ -391,18 +395,22 @@ const {
   postTopic,
   postChat,
   upvote
-} = useSupervisionLiveSession(props, emit, { enablePresentation: false, getAudioStream:()=>videoRoomRef.value?.getTranscriptionStream?.() });
+} = useSupervisionLiveSession(props, emit, {
+  enablePresentation: false,
+  // The discussion sidebar owns chat/activity; a second feed is unused.
+  enableActivityFeed: false,
+  getAudioStream: () => videoRoomRef.value?.getTranscriptionStream?.(),
+  isTranscriptVisible: () => transcriptOpen.value && !videoFullscreen.value
+});
 
 const showTranscriptionNotice = computed(() => (
   !transcriptionNoticeDismissed.value
   && !props.isInLobby
   && !!props.token
-  && transcriptCapturing.value
 ));
 
 const videoRoomRef = ref(null);
 const tileFocus = ref('equal');
-const videoFullscreen = ref(false);
 const videoFullscreenActivityNotice = ref('');
 let fullscreenNoticeTimer = null;
 const discussionOpen = ref(true);
@@ -415,7 +423,6 @@ const sectionState = reactive({
 const focusTitle = ref('Individual Supervision');
 const viewOptionsOpen = ref(false);
 const attendanceOpen = ref(false);
-const transcriptOpen = ref(false);
 const raisedHandCount = ref(0);
 const raisedHandNames = ref([]);
 const mutedParticipantNames = ref([]);
@@ -743,6 +750,10 @@ defineExpose({
   border-radius: 10px;
   padding: 10px 12px;
   margin-bottom: 12px;
+}
+.isl__transcript-dot.isl__transcript-dot--inactive {
+  background: #94a3b8;
+  box-shadow: none;
 }
 .isl__transcript-banner p {
   margin: 0;

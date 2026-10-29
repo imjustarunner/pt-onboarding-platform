@@ -16,6 +16,16 @@ beforeEach(()=>{
 afterEach(()=>{wrapper?.unmount();vi.clearAllTimers();vi.useRealTimers();vi.restoreAllMocks();});
 async function render(){wrapper=mount(JoinSupervisionView,{global:{stubs:{SupervisionLiveRoom:true,MeetingSessionExitPanel:true}}});await flushPromises();return wrapper.findComponent({name:'SupervisionLiveRoom'});}
 describe('supervision leave versus explicit meeting closure',()=>{
+  it('owns one attendance heartbeat every ten seconds after connecting', async () => {
+    const room = await render();
+    expect(room.props('presenceManagedExternally')).toBe(true);
+    room.vm.$emit('connected'); await flushPromises();
+    m.post.mockClear();
+    await vi.advanceTimersByTimeAsync(60000);
+    const heartbeats = m.post.mock.calls.filter(([url, body]) => url.endsWith('/join-presence') && body.action === 'heartbeat');
+    expect(heartbeats).toHaveLength(6);
+    expect(heartbeats.every(([, body]) => body.inMainRoom === true)).toBe(true);
+  });
   it.each(['join-info', 'video-token'])('waits for Retry-After when %s is throttled, then permits a successful retry', async endpoint => {
     const normalGet = m.get.getMockImplementation();
     m.get.mockImplementation(url => url.includes(endpoint)

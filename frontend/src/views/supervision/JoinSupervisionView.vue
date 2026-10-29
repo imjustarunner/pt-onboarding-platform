@@ -41,6 +41,7 @@
     <SupervisionLiveRoom
       v-else-if="token && vonageSessionId && applicationId"
       ref="liveRoomRef"
+      :presence-managed-externally="true"
       :supervision-session-id="numericSessionId || sessionId"
       :token="token"
       :vonage-session-id="vonageSessionId"

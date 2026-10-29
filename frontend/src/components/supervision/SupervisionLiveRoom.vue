@@ -46,6 +46,7 @@ defineExpose({
 const isIndividual = computed(() => isIndividualSupervisionType(props.sessionMeta));
 
 const roomProps = computed(() => ({
+  presenceManagedExternally: props.presenceManagedExternally,
   supervisionSessionId: props.supervisionSessionId,
   token: props.token,
   vonageSessionId: props.vonageSessionId,

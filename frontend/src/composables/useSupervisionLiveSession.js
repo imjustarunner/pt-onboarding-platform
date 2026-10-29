@@ -8,8 +8,9 @@ import { supervisionAccessFor } from '../utils/supervisionInvitationAccess';
 import { useAuthStore } from '../store/auth';
 import { suspendInactivityTimeout, resumeInactivityTimeout } from '../utils/activityTracker';
 import { createConsentedAudioCapture } from './consentedAudioCapture.js';
+import { createMeetingRefresh } from '../utils/meetingRefresh';
 
-export function useSupervisionLiveSession(props, emit, { enablePresentation = false, enableActivityFeed = true, getAudioStream } = {}) {
+export function useSupervisionLiveSession(props, emit, { enablePresentation = false, enableActivityFeed = true, getAudioStream, isTranscriptVisible = () => true } = {}) {
   const authStore = useAuthStore();
 
   const sideTab = ref('discussion');
@@ -35,6 +36,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   const lifecyclePosted = ref(false);
   const liveTranscriptChunks = ref([]);
   const sessionTranscriptText = ref('');
+  const transcriptRefresh = createMeetingRefresh();
   const transcriptHint = ref('');
   const transcriptCapturing = ref(false);
   const prioritizeSelfView = ref(false);
@@ -167,6 +169,9 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
 
   const hasSessionAccess = () => !!(authStore.isAuthenticated || supervisionAccessFor(numericSessionId.value));
   async function postLifecycle(eventType) {
+    // The standalone join page owns presence (including lobby and leave).
+    // Embedded schedule rooms retain their own presence lifecycle.
+    if (props.presenceManagedExternally) return;
     const sid = numericSessionId.value;
     if (!sid || !hasSessionAccess()) return;
     const leaving = ['left', 'closed'].includes(eventType);
@@ -194,16 +199,19 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
 
   async function loadSessionTranscript() {
     const sid = numericSessionId.value;
-    if (!sid || props.isInLobby || !hasSessionAccess()) return;
+    if (disposed || !sid || props.isInLobby || !hasSessionAccess() || !isTranscriptVisible() || isApiRateLimited()) return;
     try {
-    const { data } = await api.get(`/supervision/sessions/${sid}/artifacts`, {
-      skipGlobalLoading: true,
-      skipAuthRedirect: true
-    });
-    const artifact = data?.artifact || data || {};
-    sessionTranscriptText.value = String(
-      artifact.transcriptText || artifact.transcript_text || data?.transcriptText || data?.transcript_text || ''
-    ).trim();
+      await transcriptRefresh.run(async () => {
+        const { data } = await api.get(`/supervision/sessions/${sid}/artifacts`, {
+          skipGlobalLoading: true,
+          skipAuthRedirect: true
+        });
+        if (disposed || sid !== numericSessionId.value) return;
+        const artifact = data?.artifact || data || {};
+        sessionTranscriptText.value = String(
+          artifact.transcriptText || artifact.transcript_text || data?.transcriptText || data?.transcript_text || ''
+        ).trim();
+      });
     } catch {
       /* optional */
     }
@@ -216,6 +224,16 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   const transcriptAllowed = ref(false);
   const transcriptRoomStopped = ref(false);
   const transcriptStopMeta = ref(null);
+  const transcriptStateKnown = ref(false);
+  const transcriptionActive = computed(() => transcriptRequested.value && transcriptAllowed.value && !transcriptPaused.value && !transcriptRoomStopped.value);
+  // Session status is independent of the recorder's ten-second audio segments.
+  const transcriptionStatus = computed(() => {
+    if (transcriptRoomStopped.value) return 'Transcription stopped';
+    if (!transcriptStateKnown.value) return 'Checking transcription status';
+    if (!transcriptAllowed.value) return 'Transcription unavailable';
+    if (!transcriptRequested.value) return 'Waiting for transcription to start';
+    return transcriptPaused.value ? 'Transcription paused' : 'This session is being transcribed';
+  });
 
   function stopLiveTranscriptCapture() {
     if (transcriptFlushTimer) {
@@ -239,6 +257,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
       getStream: getAudioStream,
       isHost: props.isSupervisor,
       onState: state => {
+        transcriptStateKnown.value = true;
         transcriptPaused.value=state.paused; transcriptRoomStopped.value=state.stopped;
         transcriptRequested.value=!!state.requested;
         transcriptAllowed.value=!!state.allowed;
@@ -574,6 +593,10 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     }
   }
 
+  watch(isTranscriptVisible, visible => {
+    if (visible) void loadSessionTranscript();
+  });
+
   watch(() => props.isInLobby, (inLobby) => {
     lifecyclePosted.value = false;
     if (!inLobby) prioritizeSelfView.value = false;
@@ -644,6 +667,8 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     topics,
     chatMessages,
     transcriptHint,
+    transcriptionStatus,
+    transcriptionActive,
     transcriptRequested,
     transcriptAllowed,
     availablePresentations,
@@ -687,6 +712,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
 }
 
 export const supervisionLiveRoomProps = {
+  presenceManagedExternally: { type: Boolean, default: false },
   supervisionSessionId: { type: [Number, String], required: true },
   token: { type: String, default: '' },
   vonageSessionId: { type: String, default: '' },

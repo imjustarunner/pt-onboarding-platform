@@ -68,8 +68,8 @@
       class="gsl__transcript-banner"
       role="status"
     >
-      <span class="gsl__transcript-dot" aria-hidden="true" />
-      <p>This session is being transcribed. Live speech may be captured and summarized for participants with access.</p>
+      <span class="gsl__transcript-dot" :class="{ 'gsl__transcript-dot--inactive': !transcriptionActive }" aria-hidden="true" />
+      <p><strong>{{ transcriptionStatus }}.</strong> When enabled, live speech may be captured and summarized for participants with access.</p>
       <button
         type="button"
         class="gsl__transcript-x"
@@ -217,7 +217,7 @@
               :meeting-id="numericSessionId || supervisionSessionId"
               :can-add-item="canEditAgenda"
               :embedded="true"
-              :live="true"
+              :live="agendaOpen"
               :live-sidebar="true"
               theme="dark"
             />
@@ -233,7 +233,7 @@
               ref="attendancePanelRef"
               meeting-kind="supervision"
               :event-id="numericSessionId || supervisionSessionId"
-              :live-poll="true"
+              :live-poll="attendanceOpen"
               :raised-hands="raisedHandCount"
               :raised-hand-names="raisedHandNames"
               :muted-names="mutedParticipantNames"
@@ -475,6 +475,8 @@ const {
   onSelfStageClick,
   viewAsAttendee,
   transcriptHint,
+  transcriptionStatus,
+  transcriptionActive,
     transcriptRequested,
     transcriptAllowed,
     availablePresentations,
@@ -506,7 +508,12 @@ const {
   onVideoConnected,
   prevSlide,
   nextSlide
-} = useSupervisionLiveSession(props, emit, { enablePresentation: true, enableActivityFeed: false,getAudioStream:()=>videoRoomRef.value?.getTranscriptionStream?.() });
+} = useSupervisionLiveSession(props, emit, {
+  enablePresentation: true,
+  enableActivityFeed: false,
+  getAudioStream: () => videoRoomRef.value?.getTranscriptionStream?.(),
+  isTranscriptVisible: () => transcriptOpen.value && !videoFullscreen.value
+});
 
 const editingSlide = ref(false);
 const slideEditDraft = reactive({ bodyHtml: '', presenterNotes: '' });
@@ -707,7 +714,6 @@ const showTranscriptionNotice = computed(() => (
   !transcriptionNoticeDismissed.value
   && !props.isInLobby
   && !!props.token
-  && transcriptCapturing.value
 ));
 
 const transcriptCombined = computed(() => {
@@ -1076,6 +1082,10 @@ defineExpose({
   border-radius: 10px;
   padding: 10px 12px;
   margin-bottom: 12px;
+}
+.gsl__transcript-dot.gsl__transcript-dot--inactive {
+  background: #94a3b8;
+  box-shadow: none;
 }
 .gsl__transcript-banner p {
   margin: 0;
