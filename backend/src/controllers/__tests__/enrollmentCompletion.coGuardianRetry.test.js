@@ -1,6 +1,7 @@
 import {expect,it,vi} from 'vitest';
 import fs from 'node:fs';
 import * as signing from '../../utils/multiChildIntake.js';
+import { assertInvitedEnrollmentChildren } from '../../services/coGuardianEnrollmentRoster.js';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));
 import {assertActiveCoGuardianInvite,assertCoGuardianSubmissionBinding} from '../../services/coGuardianInvite.service.js';
 
@@ -8,7 +9,9 @@ import {assertActiveCoGuardianInvite,assertCoGuardianSubmissionBinding} from '..
 // Stop at account acceptance so tests cannot generate documents or send mail.
 const source=fs.readFileSync(new URL('../publicIntake.controller.js',import.meta.url),'utf8');
 function setup({allowResume=false,bundles=[],failed=false,templates=[],signedDocs=[],bindingClients=[{id:5}],requiredSteps=[]}={}) {
- const intakeData={clients:[{fullName:'Child Example',dateOfBirth:'2015-01-01'}],responses:{submission:{}}};
+ bindingClients=bindingClients.map((c,i)=>({...c,full_name:`Child ${i} Example`,date_of_birth:'2015-01-01'}));
+ const intakeData={clients:bindingClients.map(c=>({clientId:c.id,fullName:c.full_name,dateOfBirth:c.date_of_birth})),responses:{submission:{}}};
+ if(bindingClients.length>1)intakeData.multiClientSignatureConsent={accepted:true,acceptedAt:new Date().toISOString(),clientCount:bindingClients.length};
  const submission={id:18,intake_link_id:8,status:'submitted',guardian_user_id:9,co_guardian_invite_id:3,session_token:'session',
   intake_data:JSON.stringify({...intakeData,...(failed?{packetGeneration:{status:'needs_review'}}:{})})};
  const invite={id:3,status:'accepted',agency_id:2,public_key:'packet',invited_email:'parent@example.test',accepted_user_id:9,
@@ -16,7 +19,7 @@ function setup({allowResume=false,bundles=[],failed=false,templates=[],signedDoc
  const reachedAcceptance=new Error('reached verified account acceptance');
  const accept=vi.fn(async()=>{throw reachedAcceptance;});
  const update=vi.fn(async(_id,updates)=>({...submission,...updates}));
- const deps={...signing,
+ const deps={...signing,assertInvitedEnrollmentChildren,
   validationResult:()=>({isEmpty:()=>true}),
   resolvePublicIntakeContext:async()=>({link:{id:8,is_active:true,scope_type:'agency',form_type:'intake',organization_id:2,create_client:1,create_guardian:1,intake_steps:requiredSteps}}),
   applyChannelMasterReadOnly:async link=>link,applySmartRoiPayloadFallback:()=>{},resolveAgencyIdForLink:async()=>2,
@@ -153,4 +156,10 @@ it('does not fall back to the saved session when an explicit different invitatio
  const state=setup({allowResume:true});state.submission.co_guardian_invite_id=4;
  expect((await state.run()).error).toHaveProperty('status',403);
  expect(state.accept).not.toHaveBeenCalled();
+});
+
+it('rejects additional children before accepting or changing a guardian account',async()=>{
+ const state=setup();state.req.body.clients.push({fullName:'Uninvited Child',dateOfBirth:'2018-01-01'});
+ expect((await state.run()).error).toHaveProperty('status',400);
+ expect(state.accept).not.toHaveBeenCalled();expect(state.update).not.toHaveBeenCalled();
 });

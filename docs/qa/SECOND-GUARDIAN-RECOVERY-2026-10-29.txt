@@ -1,0 +1,18 @@
+Second-guardian enrollment: additional QA instructions
+October 29, 2026
+
+Use the existing demo agency and browser accounts. These checks require no repository, database, or cloud access. Do not use real families as test fixtures.
+
+For both office and school enrollment, in English and Spanish:
+
+1. Parent 1 enrolls two children and requests Parent 2's invitation. Confirm both children appear in the invitation's enrollment form with the correct names and birth dates.
+2. Parent 2 enters their own contact information, observations, answers, and agreements for each child. Confirm there is no Add another child, Remove child, or one/multiple-child selector. The invited children's names and birth dates should be read-only. Parent 1 must still be able to add children in their original enrollment.
+3. Save Parent 2's progress after answering both children's questions and signing agreements. Reopen the same return link and verify each child's answers remain attached to that child and saved signatures remain present.
+4. Have authorized support resend the invitation to the SAME address. Open the latest email and verify it resumes saved progress rather than starting over. Record any expired-link error. A reissued invitation renews its selected unfinished draft through the new invitation expiry.
+5. If an invitation address is corrected to a DIFFERENT person, the new recipient must start their own enrollment and must not receive the previous recipient's saved answers. The previous unfinished return link must no longer open those answers.
+6. Complete enrollment. Verify Parent 2 sees both invited children and their own signed documents. Parent 1 must not see Parent 2's private enrollment answers or signed documents. Each authorized provider should see the additional guardian's submission on the relevant child's record.
+7. Confirm no extra client was created by Parent 2. Check both children separately; a successful first child does not establish success for the second.
+
+Report the role, route, submission reference shown by the app, expected and actual results, and screenshots. Do not include passwords, invitation tokens, session links, or real family information in the report. Mark checks blocked when the required account or screen is unavailable.
+
+Existing saved enrollments with accidental extra child rows retain those extra answers privately in the draft, outside the invited-child roster. Removing a completely blank child placeholder must not erase signatures for an unchanged named child. Adding or changing a real child still requires reviewing the relevant agreements.

@@ -561,7 +561,7 @@ async function loadInviteClients(inviteId) {
        FROM co_guardian_invite_clients ic
        JOIN co_guardian_invites i ON i.id = ic.invite_id
        JOIN clients c ON c.id = ic.client_id AND c.agency_id = i.agency_id
-      WHERE ic.invite_id = ?`,
+      WHERE ic.invite_id = ? ORDER BY c.id`,
     [Number(inviteId)]
   );
   return rows || [];
@@ -605,7 +605,8 @@ export async function presentCoGuardianInvite(row) {
     },
     dependents: clients.map((c) => ({
       id: c.id,
-      firstName: firstNameOnly(c.full_name),
+      ...splitName(c.full_name),
+      dateOfBirth: c.date_of_birth instanceof Date ? c.date_of_birth.toISOString().slice(0, 10) : String(c.date_of_birth || '').slice(0, 10),
       initials: c.initials || null,
       insuranceOnFile: !!c.insurance_on_file
     })),

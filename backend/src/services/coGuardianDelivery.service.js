@@ -1,3 +1,4 @@
+import { renewInvitedGuardianDraft } from './coGuardianDraftRenewal.js';
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
@@ -204,12 +205,16 @@ async function rotateAndSendInvitation({ userId, agencyId, inviteId, email, staf
         AND JSON_EXTRACT(cg.permissions_json,'$.coGuardianInviteId')=?`, [inviteId, invite.invited_email.toLowerCase(), Number(inviteId)]);
     }
     const token = crypto.randomBytes(32).toString('hex');
-    await db.execute(`UPDATE co_guardian_invites SET invited_email=?, token_hash=?, expires_at=DATE_ADD(NOW(),INTERVAL 21 DAY), status='pending' WHERE id=?`,
-      [recipient, crypto.createHash('sha256').update(token).digest('hex'), inviteId]);
+    const expiresAt = new Date(Date.now() + 21 * 86400000);
+    await db.execute(`UPDATE co_guardian_invites SET invited_email=?, token_hash=?, expires_at=?, status='pending' WHERE id=?`,
+      [recipient, crypto.createHash('sha256').update(token).digest('hex'), expiresAt, inviteId]);
+    const resumeToken = await renewInvitedGuardianDraft(db, { invite, recipient, expiresAt });
     await db.commit();
     const agency = await Agency.findById(agencyId);
+    const inviteUrl = new URL(invitePublicUrl({ agency, token, publicKey: invite.public_key, serviceType: last?.enrollment_channel || invite.enrollment_channel || 'counseling' }));
+    if (resumeToken) inviteUrl.searchParams.set('session', resumeToken);
     const delivery = await deliverCoGuardianInvite({ inviteId, agency, to: recipient, firstName: invite.invited_first_name,
-      inviteUrl: invitePublicUrl({ agency, token, publicKey: invite.public_key, serviceType: last?.enrollment_channel || invite.enrollment_channel || 'counseling' }), clientId: clients[0].id,
+      inviteUrl: inviteUrl.toString(), clientId: clients[0].id,
       enrollmentChannel: last?.enrollment_channel || invite.enrollment_channel || null, school: invite.source === 'school', reminder: isReminder, automaticReminder });
     return { deliveryStatus: delivery.deliveryStatus, email: recipient, communicationId: delivery.communicationId || null };
   } catch (error) { await db.rollback(); throw error; }

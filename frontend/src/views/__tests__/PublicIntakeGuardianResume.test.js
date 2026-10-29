@@ -11,7 +11,7 @@ const capture = { signatureData: 'data:image/png;base64,c2F2ZWQ=', signerName: '
 beforeEach(() => {
  localStorage.clear(); window.scrollTo = vi.fn(); Element.prototype.scrollIntoView = vi.fn();
  route.query = { session: 'saved-session-for-second-parent' };
- progress = { submissionId: 121, coGuardianInvite: { dependents: [{ id: 201, firstName: 'Child', insuranceOnFile: true }], paymentCollectionAvailable: false }, intakeData: { progressSnapshot: {
+ progress = { submissionId: 121, coGuardianInvite: { dependents: [{ id: 201, firstName: 'Child', lastName: 'Example', dateOfBirth: '2015-01-01', insuranceOnFile: true }], paymentCollectionAvailable: false }, intakeData: { progressSnapshot: {
   version: 1, sessionToken: route.query.session, submissionId: 121, step: 2, currentFlowIndex: 0,
   guardian: { firstName: 'Second', lastName: 'Guardian', email: 'second@example.test' },
   clients: [{ firstName: 'Child', lastName: 'Example', dateOfBirth: '2015-01-01' }],
@@ -66,4 +66,37 @@ it('preserves an existing signed roster including an old empty child placeholder
  await render();
  expect(wrapper.vm.embeddedSmartDisclosure).toEqual(snapshot.embeddedSmartDisclosure);
  expect(wrapper.vm.embeddedPacketSections).toEqual(snapshot.embeddedPacketSections);
+});
+
+it('keeps all invited siblings and blocks second-parent roster mutations', async () => {
+ progress.coGuardianInvite.dependents.push({ id: 202, firstName: 'Sibling', lastName: 'Example', dateOfBirth: '2017-02-02' });
+ const snapshot = progress.intakeData.progressSnapshot;
+ snapshot.clients.push({ firstName: 'Sibling', lastName: 'Example', dateOfBirth: '2017-02-02' });
+ snapshot.intakeResponses.clients.push({ ownAnswer: 'sibling observations' });
+ await render();
+ expect(wrapper.vm.clients).toHaveLength(2);
+ expect(wrapper.vm.intakeResponses.clients[1].ownAnswer).toBe('sibling observations');
+ wrapper.vm.onClickAddClient(); wrapper.vm.addAnotherChildFromReview(); wrapper.vm.removeClient(0);
+ wrapper.vm.onSelectMultiClientPlan('one'); wrapper.vm.chooseServiceSubject('self');
+ expect(wrapper.vm.clients.map(c => c.clientId)).toEqual([201, 202]);
+ expect(wrapper.vm.intakeForSelf).toBe(false);
+ expect(wrapper.find('.child-review-add').exists()).toBe(false);
+});
+it('keeps the original parent able to add another child', async () => {
+ delete progress.coGuardianInvite;
+ await render();
+ expect(wrapper.vm.isCoGuardianInvitee).toBe(false);
+ wrapper.vm.onClickAddClient(); wrapper.vm.acceptMultiClientConsent();
+ expect(wrapper.vm.clients).toHaveLength(2);
+});
+it('restores the signing step by ID after dropping an old extra child placeholder', async () => {
+ const snapshot = progress.intakeData.progressSnapshot;
+ snapshot.clients.push({ firstName: '', lastName: '', dateOfBirth: '' });
+ snapshot.intakeResponses.clients.push({ ownAnswer: 'preserved accidental extra' });
+ snapshot.currentFlowIndex = 26;
+ snapshot.currentFlowStepId = 'disclosure';
+ await render();
+ expect(wrapper.vm.clients).toHaveLength(1);
+ expect(wrapper.vm.excludedCoGuardianChildren[0].answers.ownAnswer).toBe('preserved accidental extra');
+ expect(wrapper.vm.currentFlowStep?.id).toBe('disclosure');
 });

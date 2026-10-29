@@ -1,3 +1,4 @@
+import { assertInvitedEnrollmentChildren } from '../services/coGuardianEnrollmentRoster.js';
 import { withOfficeReferralSource } from '../utils/officeReferralSource.js';
 import { extractInsuranceCardFieldsBestEffort } from '../services/insuranceCardReading.service.js';
 import ProviderAvailabilityService from '../services/providerAvailability.service.js';
@@ -7832,6 +7833,8 @@ export const finalizePublicIntake = async (req, res, next) => {
       if (String(req.body?.guardian?.email || '').trim().toLowerCase() !== invitedEmail) {
         return res.status(400).json({ error: { message: 'Use the email address on your invitation, or request a corrected invitation.' } });
       }
+      assertInvitedEnrollmentChildren(coGuardianBinding.clients, req.body?.clients, req.body?.intakeData?.responses?.clients);
+      assertInvitedEnrollmentChildren(coGuardianBinding.clients, req.body?.intakeData?.clients);
       await IntakeSubmission.bindCoGuardianInvite(submission.id, coGuardianBinding.invite.id);
     }
 

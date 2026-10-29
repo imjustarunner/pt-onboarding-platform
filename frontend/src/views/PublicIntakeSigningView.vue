@@ -412,7 +412,7 @@
         </template>
         <template #default>
           <div class="intake-start-meta"><span>{{ t('expectTime') }}</span><span>{{ t('expectSaveReturn') }}</span></div>
-          <div v-if="intakeForSelf !== false || serviceSubject" class="intake-start-grid">
+          <div v-if="!isCoGuardianInvitee && (intakeForSelf !== false || serviceSubject)" class="intake-start-grid">
             <section class="intake-start-col">
               <h2 class="intake-start-col-title">
                 <span class="intake-start-col-num">1.</span>
@@ -532,6 +532,7 @@
                   <strong>{{ t('dependentN') }}</strong>
                   <button
                     type="button"
+                    v-if="!isCoGuardianInvitee"
                     class="intake-add-dependent"
                     @click="onClickAddClient"
                   >+ {{ t('addAnotherDependent') }}</button>
@@ -545,7 +546,7 @@
                     <label>{{ t('dependentFirstName') }} <span class="required-indicator">*</span></label>
                     <input
                       :id="`clientFirstName_${idx}`"
-                      v-model="c.firstName"
+                      v-model="c.firstName" :readonly="isCoGuardianInvitee"
                       type="text"
                       placeholder="First"
                       :class="{ 'input-error': !!startClientErrors[idx]?.firstName }"
@@ -553,20 +554,21 @@
                   </div>
                   <div class="form-group form-group--middle">
                     <label>{{ t('middleNameOptional') }}</label>
-                    <input :id="`clientMiddleName_${idx}`" v-model="c.middleName" type="text" placeholder="Middle" />
+                    <input :id="`clientMiddleName_${idx}`" v-model="c.middleName" :readonly="isCoGuardianInvitee" type="text" placeholder="Middle" />
                   </div>
                   <div class="form-group form-group--name">
                     <label>
                       {{ t('dependentLastName') }} <span class="required-indicator">*</span>
                       <button
                         type="button"
+                        v-if="!isCoGuardianInvitee"
                         class="intake-same-as-me"
                         @click="applySameLastName(idx)"
                       >{{ t('sameAsMe') }}</button>
                     </label>
                     <input
                       :id="`clientLastName_${idx}`"
-                      v-model="c.lastName"
+                      v-model="c.lastName" :readonly="isCoGuardianInvitee"
                       type="text"
                       placeholder="Last"
                       :class="{ 'input-error': !!startClientErrors[idx]?.lastName }"
@@ -576,13 +578,13 @@
                     <label>{{ t('dependentDateOfBirth') }} <span class="required-indicator">*</span></label>
                     <input
                       :id="`clientDob_${idx}`"
-                      v-model="c.dateOfBirth"
+                      v-model="c.dateOfBirth" :readonly="isCoGuardianInvitee"
                       type="date"
                       :class="{ 'input-error': !!startClientErrors[idx]?.dob }"
                     />
                   </div>
                   <button
-                    v-if="clients.length > 1"
+                    v-if="clients.length > 1 && !isCoGuardianInvitee"
                     type="button"
                     class="intake-start-child-remove"
                     @click="removeClient(idx)"
@@ -1050,7 +1052,7 @@
         </div>
 
         <div
-          v-if="!isMedicalRecordsRequest && !isJobApplication && !isClientBound && !intakeForSelf"
+          v-if="!isCoGuardianInvitee && !isMedicalRecordsRequest && !isJobApplication && !isClientBound && !intakeForSelf"
           class="multi-client-plan-block intake-section"
         >
           <h4 class="df-section-title">{{ t('multiClientPlanTitle') }}</h4>
@@ -1127,20 +1129,20 @@
             <h4>{{ intakeForSelf ? t('client') : t('clients') }}</h4>
           </div>
           <SchoolIntakeChildDetails v-if="usesSchoolChildDetails" :clients="clients" :answers="intakeResponses.clients"
-            :fields="schoolDetailFields" :errors="startClientErrors" :locale="intakeLocale" allow-remove
+            :fields="schoolDetailFields" :errors="startClientErrors" :locale="intakeLocale" :allow-remove="!isCoGuardianInvitee" :identity-readonly="isCoGuardianInvitee"
             @identity="updateSchoolChildIdentity" @answer="updateSchoolChildAnswer" @remove="removeClient" />
           <template v-else>
           <div v-for="(c, idx) in clients" :key="idx" class="client-card" :class="{ 'client-card-alt': idx % 2 === 1 }">
             <div class="client-card-header">
               <strong>{{ intakeForSelf ? t('yourInformation') : (t('clientN') + ' ' + (idx + 1)) }}</strong>
-              <button v-if="clients.length > 1" class="btn btn-secondary btn-sm" type="button" @click="removeClient(idx)">{{ t('remove') }}</button>
+              <button v-if="clients.length > 1 && !isCoGuardianInvitee" class="btn btn-secondary btn-sm" type="button" @click="removeClient(idx)">{{ t('remove') }}</button>
             </div>
             <div class="form-grid">
                 <div v-if="!intakeForSelf" class="form-group form-group--span-4">
                   <label>{{ t('clientFirstName') }}</label>
                   <input
                     :id="`clientFirstName_${idx}`"
-                    v-model="c.firstName"
+                    v-model="c.firstName" :readonly="isCoGuardianInvitee"
                     type="text"
                     :class="{ 'input-error': idx === 0 && !!consentErrors.clientFirstName }"
                   />
@@ -1150,7 +1152,7 @@
                   <label>{{ t('clientLastName') }}</label>
                   <input
                     :id="`clientLastName_${idx}`"
-                    v-model="c.lastName"
+                    v-model="c.lastName" :readonly="isCoGuardianInvitee"
                     type="text"
                     :class="{ 'input-error': idx === 0 && !!consentErrors.clientLastName }"
                   />
@@ -1245,7 +1247,7 @@
             opted into packaging multiple children together.
           -->
           <div
-            v-if="!intakeForSelf && multiClientPlanChoice === 'multiple' && multiClientConsentAccepted"
+            v-if="!isCoGuardianInvitee && !intakeForSelf && multiClientPlanChoice === 'multiple' && multiClientConsentAccepted"
             class="clients-footer"
           >
             <button
@@ -1394,7 +1396,7 @@
         </div>
         <section v-if="usesSchoolChildDetails && schoolChildDetailsOpen" class="school-child-editor" aria-label="Edit children’s details">
           <SchoolIntakeChildDetails :clients="clients" :answers="intakeResponses.clients" :fields="schoolDetailFields"
-            :errors="startClientErrors" :locale="intakeLocale" @identity="updateSchoolChildIdentity" @answer="updateSchoolChildAnswer" />
+            :errors="startClientErrors" :locale="intakeLocale" :identity-readonly="isCoGuardianInvitee" @identity="updateSchoolChildIdentity" @answer="updateSchoolChildAnswer" />
           <button type="button" class="btn btn-primary" @click="saveSchoolChildDetails">{{ intakeLocale === 'es' ? 'Guardar datos y continuar' : 'Save details & continue' }}</button>
         </section>
         <div v-if="currentChildBanner" class="intake-child-banner" role="status">
@@ -2308,7 +2310,7 @@
               Edit {{ currentChildReviewName }}
             </button>
           </div>
-          <div class="child-review-add">
+          <div v-if="!isCoGuardianInvitee" class="child-review-add">
             <p class="df-section-help">Are you signing up another dependent?</p>
             <div
               v-if="reviewAddConsentOpen"
@@ -3024,6 +3026,7 @@ import { useEnrollmentTermination } from '../composables/useEnrollmentTerminatio
 import EnrollmentPortalAccess from '../components/public-intake/EnrollmentPortalAccess.vue';
 import { i18n, setPublicLocale } from '../i18n.js';
 import { readJoinBrandingForPacket } from '../utils/joinLandingTemplate.js';
+import { restoreInvitedChildren, sameInvitedSigningChildren } from '../utils/coGuardianEnrollmentRoster.js';
 import { clinicalAnswersForStep, SHARED_SIGNING_STEP_TYPES, sharedSigningChildren } from '../utils/sharedIntakeSigning.js';
 import SchoolIntakeChildDetails from '../components/public-intake/SchoolIntakeChildDetails.vue';
 import { groupSchoolChildSteps, schoolStepRepeatsForChild, schoolChildDetailFields, childDetailKind, validChildDob, syncSchoolChildIdentity, syncSiblingAddresses, migrateLegacySchoolAnswers } from '../utils/schoolIntakeChildren.js';
@@ -3372,7 +3375,7 @@ const INTAKE_TRANSLATIONS = {
     otherGuardianInviteEmailed: 'We emailed them at {email}.',
     otherGuardianInvitePhoneFollowUp: 'We have their phone number — our team will call to start their enrollment.',
     coGuardianIsolatedTitle: 'Your own guardian enrollment',
-    coGuardianIsolatedLead: 'Complete your own agreements, observations, and expectations for the dependent(s) listed here. Your care team can review your answers separately. This does not replace your child’s identifying information or reveal the other parent’s private submission. Use your own email for your portal account.',
+    coGuardianIsolatedLead: 'This invitation includes only the children listed by the inviting parent. To enroll another child, contact the care team. Complete your own agreements, observations, and expectations for the dependent(s) listed here. Your care team can review your answers separately. This does not replace your child’s identifying information or reveal the other parent’s private submission. Use your own email for your portal account.',
     whoIsThisForTitle: 'Who is this for?',
     whoIsThisForLead: 'This helps us show the right questions and set up the right kind of account.',
     chooseWhoForToContinue: 'Please choose whether you are completing this for yourself or someone else.',
@@ -3772,7 +3775,7 @@ const INTAKE_TRANSLATIONS = {
     otherGuardianInviteEmailed: 'Les enviamos un correo a {email}.',
     otherGuardianInvitePhoneFollowUp: 'Tenemos su teléfono — nuestro equipo llamará para iniciar su admisión.',
     coGuardianIsolatedTitle: 'Su propia inscripción como tutor',
-    coGuardianIsolatedLead: 'Complete sus propios acuerdos, observaciones y expectativas para los dependientes indicados. Su equipo puede revisar sus respuestas por separado. Esto no reemplaza los datos de identificación del menor ni revela el formulario privado del otro padre o madre. Use su propio correo para su cuenta del portal.',
+    coGuardianIsolatedLead: 'Esta invitación incluye solo a los menores indicados por quien le invitó. Para inscribir a otro menor, contacte al equipo de atención. Complete sus propios acuerdos, observaciones y expectativas para los dependientes indicados. Su equipo puede revisar sus respuestas por separado. Esto no reemplaza los datos de identificación del menor ni revela el formulario privado del otro padre o madre. Use su propio correo para su cuenta del portal.',
     whoIsThisForTitle: '¿Para quién es esto?',
     whoIsThisForLead: 'Esto nos ayuda a mostrar las preguntas correctas y preparar la cuenta adecuada.',
     chooseWhoForToContinue: 'Elija si lo completa para usted o para otra persona.',
@@ -6246,6 +6249,7 @@ const schoolDetailFields = computed(() => schoolChildDetailFields(intakeSteps.va
   label: txField(f), helperText: txField(f, 'helperText'), options: f.options?.map(o => ({ ...o, label: txOption(o) }))
 })));
 function updateSchoolChildIdentity(index, key, value) {
+  if (isCoGuardianInvitee.value && ['firstName', 'lastName', 'dateOfBirth'].includes(key)) return;
   clients.value[index][key] = value;
   syncSchoolChildIdentity(clients.value[index], ensureClientBag(index), intakeSteps.value.flatMap(s => s.fields || []));
   syncSiblingAddresses(clients.value, intakeResponses.clients, schoolDetailFields.value);
@@ -7322,6 +7326,7 @@ const resumedCoGuardianInvite = ref(false);
 const isCoGuardianInvitee = computed(() => resumedCoGuardianInvite.value || Boolean(String(route.query.coGuardian || '').trim()));
 const coGuardianInviteError = ref('');
 const coGuardianDependents = ref([]);
+const excludedCoGuardianChildren = ref([]);
 const coGuardianPaymentCollectionAvailable = ref(true);
 const coGuardianInsuranceOnFile = computed(() => isCoGuardianInvitee.value && coGuardianDependents.value.length > 0 && coGuardianDependents.value.every(dep => dep.insuranceOnFile));
 const addCoGuardianInsurance = ref(false);
@@ -7610,6 +7615,7 @@ function isEnrollmentOptionEnabled(subject) {
 }
 
 function chooseServiceSubject(subject) {
+  if (isCoGuardianInvitee.value) return;
   const next = String(subject || '').trim().toLowerCase();
   if (!isEnrollmentOptionEnabled(next)) return;
   serviceSubject.value = next;
@@ -7806,12 +7812,9 @@ async function applyCoGuardianInviteFromQuery() {
       if (invite.contact.relationship) guardianRelationship.value = invite.contact.relationship;
     }
     if (Array.isArray(invite.dependents) && invite.dependents.length) {
-      clients.value = invite.dependents.map((dep) => ({
-        firstName: dep.firstName || '',
-        middleName: '',
-        lastName: '',
-        dateOfBirth: ''
-      }));
+      const restored = restoreInvitedChildren(invite.dependents);
+      clients.value = restored.clients;
+      intakeResponses.clients = restored.answers;
     }
   } catch (error) {
     coGuardianInviteError.value = error?.response?.data?.error?.message || 'This invitation could not be verified. Please contact the care team for a new link.';
@@ -8111,6 +8114,7 @@ const buildDraftSnapshot = () => ({
     } catch { /* ignore */ }
     return snap;
   })(),
+  excludedCoGuardianChildren: excludedCoGuardianChildren.value,
   documentSigningRoster: documentSigningRoster.value,
   docStatus: (() => {
     const snap = {};
@@ -8453,6 +8457,18 @@ const restoreServerProgress = async () => {
     const snapTok = String(snapshot?.sessionToken || '').trim();
     if (snapTok && snapTok !== token) return false;
     if (!hasMeaningfulDraftSnapshot(snapshot)) return false;
+    if (isCoGuardianInvitee.value) {
+      const restored = restoreInvitedChildren(coGuardianDependents.value, snapshot.clients, snapshot.intakeResponses?.clients);
+      excludedCoGuardianChildren.value = [...(snapshot.excludedCoGuardianChildren || []), ...restored.excluded];
+      const restoredSnapshot = { ...snapshot, intakeForSelf: false, clients: restored.clients,
+        intakeResponses: { ...(snapshot.intakeResponses || {}), clients: restored.answers } };
+      const applied = applyDraftSnapshot(restoredSnapshot);
+      // Removing an old blank placeholder changes index counts, not the saved
+      // signing step. Restore by stable step ID for office and school alike.
+      const index = flowSteps.value.findIndex(flow => flow.id === snapshot.currentFlowStepId);
+      if (index >= 0) currentFlowIndex.value = index;
+      return applied;
+    }
     return applyDraftSnapshot(snapshot);
   } catch (error) {
     savedProgressLoadFailed.value = true;
@@ -9618,9 +9634,9 @@ const loadLink = async () => {
     }
     if (isOfficeInDepthIntake.value) {
       await loadOfficeJoinChrome();
-      await applyCoGuardianInviteFromQuery();
       await applyConvertPrefillFromQuery();
     }
+    await applyCoGuardianInviteFromQuery();
     void hydrateHeavyIntakeAssets();
   } catch (e) {
     fatalError.value = e.response?.data?.error?.message || 'Failed to load intake link';
@@ -10144,13 +10160,15 @@ const buildClientPayloads = () =>
     const lastName = intakeForSelf.value ? String(guardianLastName.value || '').trim() : rawLast;
     const fullName = [firstName, middleName, lastName].filter(Boolean).join(' ');
     return {
+      ...(isCoGuardianInvitee.value ? { clientId: c.clientId } : {}),
       firstName,
       middleName,
       lastName,
       fullName,
       // Persist first-3 + last-3 (e.g. FakFak). packetInitials stays for PDF filenames only.
       initials: deriveClientInitials(firstName, lastName) || packetInitials(firstName, middleName, lastName),
-      dateOfBirth: String(intakeResponses.clients?.[clientIndex]?.child_dob
+      dateOfBirth: String((isCoGuardianInvitee.value ? c?.dateOfBirth : null)
+        || intakeResponses.clients?.[clientIndex]?.child_dob
         || intakeResponses.clients?.[clientIndex]?.client_dob
         || intakeResponses.clients?.[clientIndex]?.date_of_birth
         || c?.dateOfBirth || (clientIndex === 0 ? starterDob.value : '') || '').trim() || undefined,
@@ -12300,6 +12318,7 @@ const handlePageChange = ({ currentPage, totalPages }) => {
 };
 
 const addClient = () => {
+  if (isCoGuardianInvitee.value) return;
   clients.value.push(emptyOfficeClient());
   intakeResponses.clients.push({});
   if (usesSchoolChildDetails.value) syncSiblingAddresses(clients.value, intakeResponses.clients, schoolDetailFields.value);
@@ -12326,6 +12345,7 @@ const multiClientPlanChoice = ref('one');
 const multiClientUpfrontPlan = ref(false);
 
 const onSelectMultiClientPlan = (choice) => {
+  if (isCoGuardianInvitee.value) return;
   if (choice === 'one') {
     multiClientPlanChoice.value = 'one';
     multiClientConsentDialogOpen.value = false;
@@ -12353,6 +12373,7 @@ const onSelectMultiClientPlan = (choice) => {
 };
 
 const onClickAddClient = () => {
+  if (isCoGuardianInvitee.value) return;
   if (multiClientConsentAccepted.value) {
     addClient();
     return;
@@ -12388,6 +12409,7 @@ const acceptMultiClientConsent = () => {
   multiClientConsentAcceptedAt.value = new Date().toISOString();
   multiClientConsentDeclined.value = false;
   multiClientConsentDialogOpen.value = false;
+  if (isCoGuardianInvitee.value) return;
   if (multiClientPlanChoice.value === 'multiple') {
     multiClientUpfrontPlan.value = true;
     if (clients.value.length < 2) addClient();
@@ -12412,6 +12434,7 @@ const dismissMultiClientDeclineNotice = () => {
 };
 
 const removeClient = (idx) => {
+  if (isCoGuardianInvitee.value) return;
   if (usesSchoolChildDetails.value) intakeResponses.submission.completedSchoolChildSteps = [];
   clients.value.splice(idx, 1);
   intakeResponses.clients.splice(idx, 1);
@@ -12795,6 +12818,7 @@ const editCurrentChildIntake = () => {
   if (Number.isInteger(idx)) jumpToChildFirstPage(idx);
 };
 const addAnotherChildFromReview = () => {
+  if (isCoGuardianInvitee.value) return;
   if (!multiClientConsentAccepted.value) {
     reviewAddConsentOpen.value = true;
     multiClientPlanChoice.value = 'multiple';
@@ -12805,6 +12829,7 @@ const addAnotherChildFromReview = () => {
   nextTick(() => jumpToChildFirstPage(newIndex));
 };
 const acceptReviewAddChild = () => {
+  if (isCoGuardianInvitee.value) return;
   acceptMultiClientConsent();
   reviewAddConsentOpen.value = false;
   const newIndex = clients.value.length - 1;
@@ -13719,7 +13744,9 @@ const handleSmartRoiCompleted = ({ submissionId: nextSubmissionId, downloadUrl: 
 watch(() => JSON.stringify(sharedSigningRoster.value), (next, previous) => {
   if (!previous || next === previous) return;
   const changed = capture => capture?.sharedSigningChildren
-    && JSON.stringify(capture.sharedSigningChildren) !== next;
+    && !(isCoGuardianInvitee.value
+      ? sameInvitedSigningChildren(capture.sharedSigningChildren, JSON.parse(next))
+      : JSON.stringify(capture.sharedSigningChildren) === next);
   if (changed(embeddedSmartSchoolRoi.value)) {
     embeddedSmartSchoolRoi.value = null;
     intakeResponses.submission.smartSchoolRoi = null;

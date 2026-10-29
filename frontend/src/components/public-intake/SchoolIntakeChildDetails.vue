@@ -9,17 +9,17 @@
       <div class="child-details-grid">
         <div class="form-group">
           <label :for="`clientFirstName_${index}`">{{ es ? 'Nombre' : 'First name' }} *</label>
-          <input :id="`clientFirstName_${index}`" :value="child.firstName" :aria-invalid="!!errors[index]?.firstName" @input="update(index, 'firstName', $event.target.value)" />
+          <input :id="`clientFirstName_${index}`" :value="child.firstName" :readonly="identityReadonly" :aria-invalid="!!errors[index]?.firstName" @input="update(index, 'firstName', $event.target.value)" />
           <span v-if="errors[index]?.firstName" class="error-text">{{ es ? 'Ingrese el nombre.' : 'Enter a first name.' }}</span>
         </div>
         <div class="form-group">
           <label :for="`clientLastName_${index}`">{{ es ? 'Apellido' : 'Last name' }} *</label>
-          <input :id="`clientLastName_${index}`" :value="child.lastName" :aria-invalid="!!errors[index]?.lastName" @input="update(index, 'lastName', $event.target.value)" />
+          <input :id="`clientLastName_${index}`" :value="child.lastName" :readonly="identityReadonly" :aria-invalid="!!errors[index]?.lastName" @input="update(index, 'lastName', $event.target.value)" />
           <span v-if="errors[index]?.lastName" class="error-text">{{ es ? 'Ingrese el apellido.' : 'Enter a last name.' }}</span>
         </div>
         <div class="form-group">
           <label :for="`clientDob_${index}`">{{ es ? 'Fecha de nacimiento' : 'Date of birth' }} *</label>
-          <input :id="`clientDob_${index}`" :value="child.dateOfBirth" type="date" :max="today" :aria-invalid="!!errors[index]?.dob" @input="update(index, 'dateOfBirth', $event.target.value)" />
+          <input :id="`clientDob_${index}`" :value="child.dateOfBirth" :readonly="identityReadonly" type="date" :max="today" :aria-invalid="!!errors[index]?.dob" @input="update(index, 'dateOfBirth', $event.target.value)" />
           <span v-if="errors[index]?.dob" class="error-text">{{ es ? 'Ingrese una fecha de nacimiento válida.' : 'Enter a valid date of birth.' }}</span>
         </div>
         <IntakeQuestionField v-for="field in visiblePersonalFields(index)" :key="field.key" :field="field" :name-prefix="`child_${index}_`"
@@ -51,7 +51,7 @@ import IntakeQuestionField from '../digital-form/IntakeQuestionField.vue';
 import { matchesShowIf } from '../../utils/intakeShowIf.js';
 import { childDetailKind } from '../../utils/schoolIntakeChildren.js';
 const props = defineProps({ clients: { type: Array, required: true }, answers: { type: Array, required: true },
-  fields: { type: Array, default: () => [] }, errors: { type: Array, default: () => [] }, locale: { type: String, default: 'en' }, allowRemove: Boolean });
+  fields: { type: Array, default: () => [] }, errors: { type: Array, default: () => [] }, locale: { type: String, default: 'en' }, allowRemove: Boolean, identityReadonly: Boolean });
 const emit = defineEmits(['identity', 'answer', 'remove']);
 const es = computed(() => props.locale === 'es');
 const today = new Date().toISOString().slice(0, 10);
@@ -60,7 +60,10 @@ const personalFields = computed(() => props.fields.filter(f => !childDetailKind(
 const visiblePersonalFields = index => personalFields.value.filter(f => matchesShowIf(f.showIf, props.answers[index] || {}));
 const visibleAddressFields = index => addressFields.value.filter(f => matchesShowIf(f.showIf, props.answers[index] || {}));
 const addressSummary = computed(() => addressFields.value.map(f => props.answers[0]?.[f.key]).filter(Boolean).join(', '));
-const update = (index, key, value) => emit('identity', index, key, value);
+const update = (index, key, value) => {
+  if (props.identityReadonly && ['firstName', 'lastName', 'dateOfBirth'].includes(key)) return;
+  emit('identity', index, key, value);
+};
 </script>
 
 <style scoped>

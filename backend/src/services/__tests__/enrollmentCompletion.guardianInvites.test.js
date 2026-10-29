@@ -134,3 +134,14 @@ it('keeps owner management separate from read-only progress when another linked 
  m.execute.mockResolvedValue([[{...statusRow,invitedByUserId:8},{...statusRow,invitedByUserId:8,accessEnabled:0}]]);
  expect((await listGuardianInvitations({userId:8,agencyId:4}))[0]).toMatchObject({canManage:false});
 });
+
+it('sends the refreshed invitation directly to the same guardian’s renewed saved draft',async()=>{
+ const original=db.execute.getMockImplementation();
+ db.execute.mockImplementation(async(sql,args)=>sql.startsWith('SELECT s.id,s.session_token')
+  ? [[{id:101,session_token:'saved-second-parent-session'}]]
+  : sql.includes('SELECT * FROM co_guardian_invites') ? [[{...invite,public_key:'synthetic-office'}]] : original(sql,args));
+ await resendGuardianInvitation({userId:8,agencyId:4,inviteId:3,email:invite.invited_email});
+ const sent=m.email.mock.calls[0][0];
+ expect(new URL(sent.inviteUrl).searchParams.get('session')).toBe('saved-second-parent-session');
+ expect(db.execute.mock.calls.some(([sql])=>sql.includes('SET draft_expires_at='))).toBe(true);
+});
