@@ -1,27 +1,47 @@
 <template>
   <div class="roster">
+    <RosterScopeFilters
+      v-if="requireTenant"
+      :organizations="organizations"
+      :agency-id="agencyId"
+      :organization-id="organizationId"
+      :status-filter="statusFilter || ''"
+      :role-filter="roleFilter"
+      :persona="persona"
+      :roles="rosterRoles"
+      @update:agency-id="$emit('update:agencyId', $event)"
+      @update:organization-id="$emit('update:organizationId', $event)"
+      @update:status-filter="$emit('update:statusFilter', $event)"
+      @update:role-filter="$emit('update:roleFilter', $event)"
+    />
     <div class="roster-toolbar">
       <label class="roster-search">
         <span>Search this roster</span>
         <input v-model="search" type="search" placeholder="LPCC, last name, date…" autocomplete="off" />
       </label>
-      <button type="button" class="btn btn-secondary btn-sm" @click="pickerOpen = !pickerOpen">
+      <button type="button" class="btn btn-secondary btn-sm" :aria-expanded="pickerOpen" @click="pickerOpen = !pickerOpen">
         Columns ({{ selectedKeys.length }}/{{ maxColumns }})
       </button>
-      <label class="roster-picker-item">
+      <label v-if="statusFilter === null" class="roster-picker-item">
         <input v-model="includeArchived" type="checkbox" />
         Include archived
       </label>
-      <span class="muted">{{ visibleRows.length }} people</span>
+      <span class="roster-count" aria-live="polite">{{ loading ? 'Loading…' : `${visibleRows.length} people` }}</span>
       <span v-if="savingCount" class="muted">Saving…</span>
       <span v-if="banner" class="roster-banner" :class="{ error: bannerError }">{{ banner }}</span>
     </div>
 
     <div v-if="pickerOpen" class="roster-picker">
-      <p class="muted">Choose up to {{ maxColumns }} columns. Name stays frozen on the left.</p>
+      <div class="roster-picker-header">
+        <div><strong>Build your view</strong><p class="muted">Choose up to {{ maxColumns }} columns. Name stays frozen on the left.</p></div>
+        <label class="roster-search"><span>Search columns</span><input v-model="columnSearch" type="search" placeholder="Find a column or category…" /></label>
+      </div>
+      <div v-if="selectedFields.length" class="roster-selected-fields" aria-label="Selected columns">
+        <button v-for="field in selectedFields" :key="field.key" type="button" :aria-label="`Remove ${field.label} column`" @click="toggleField(field.key, false)">{{ field.label }} <span aria-hidden="true">×</span></button>
+      </div>
       <p v-if="emailSignatureGuidance" class="muted roster-sig-hint">{{ emailSignatureGuidance }}</p>
       <div class="roster-picker-grid">
-        <div v-for="group in fieldGroups" :key="group.name" class="roster-picker-group">
+        <div v-for="group in matchingFieldGroups" :key="group.name" class="roster-picker-group">
           <div class="roster-picker-group-title">{{ group.name }}</div>
           <label v-for="f in group.fields" :key="f.key" class="roster-picker-item">
             <input
@@ -31,10 +51,11 @@
               @change="toggleField(f.key, $event.target.checked)"
             />
             <span>{{ f.label }}</span>
-            <span v-if="f.needsAgency && !agencyId" class="muted"> (pick an agency)</span>
+            <small v-if="f.needsAgency && !agencyId" class="muted">Choose a tenant</small>
           </label>
         </div>
       </div>
+      <p v-if="!matchingFieldGroups.length" class="muted" role="status">No columns match “{{ columnSearch }}”. Try a field name or category.</p>
     </div>
 
     <div v-if="!viewOnly && selectedIds.size" class="roster-bulk">
@@ -78,7 +99,8 @@
       <button type="button" class="btn btn-secondary btn-sm" @click="clearSelection">Clear</button>
     </div>
 
-    <div v-if="loading" class="loading">Loading roster…</div>
+    <div v-if="requireTenant && !agencyId" class="roster-empty-scope">Choose a tenant above to load its roster.</div>
+    <div v-else-if="loading" class="loading">Loading roster…</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else class="roster-scroller">
       <table class="roster-table">
@@ -214,6 +236,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
+import RosterScopeFilters from './RosterScopeFilters.vue';
 
 const props = defineProps({
   persona: { type: String, default: 'employees' },
@@ -221,12 +244,17 @@ const props = defineProps({
   organizationId: { type: [String, Number], default: '' },
   roleFilter: { type: String, default: '' },
   extraRole: { type: String, default: '' },
+  statusFilter: { type: String, default: null },
+  organizations: { type: Array, default: () => [] },
+  requireTenant: { type: Boolean, default: false },
   canArchive: { type: Boolean, default: false },
   canDelete: { type: Boolean, default: false },
   profileBase: { type: String, default: '/admin/users' },
   /** Same column catalog/sort as roster editor; cells are display-only. */
   viewOnly: { type: Boolean, default: false }
 });
+
+defineEmits(['update:agencyId', 'update:organizationId', 'update:statusFilter', 'update:roleFilter']);
 
 const maxColumns = 10;
 const loading = ref(false);
@@ -236,6 +264,7 @@ const bannerError = ref(false);
 const savingCount = ref(0);
 const pickerOpen = ref(false);
 const search = ref('');
+const columnSearch = ref('');
 const rows = ref([]);
 const allFields = ref([]);
 const selectedKeys = ref([]);
@@ -265,6 +294,24 @@ const fieldGroups = computed(() => {
   return groups;
 });
 
+const matchingFieldGroups = computed(() => {
+  const query = columnSearch.value.trim().toLowerCase();
+  return fieldGroups.value.map((group) => ({
+    ...group,
+    fields: group.fields.filter((field) => `${group.name} ${field.label} ${field.key}`.toLowerCase().includes(query))
+  })).filter((group) => group.fields.length);
+});
+const rosterRoles = computed(() => {
+  const options = allFields.value.find((field) => field.key === 'role')?.options || [];
+  const roles = options.filter((role) => !['school_staff', 'client_guardian', 'kiosk'].includes(role.value));
+  if (!roles.some((role) => role.value === 'super_admin')) roles.push({ value: 'super_admin', label: 'Super Admin' });
+  return roles;
+});
+const normalizedStatus = (value) => {
+  const status = String(value || '').toUpperCase();
+  return ({ ACTIVE: 'ACTIVE_EMPLOYEE', COMPLETED: 'ACTIVE_EMPLOYEE', PENDING: 'PREHIRE_OPEN', READY_FOR_REVIEW: 'PREHIRE_REVIEW', TERMINATED: 'TERMINATED_PENDING' })[status] || status;
+};
+
 const selectedFields = computed(() =>
   selectedKeys.value.map((k) => allFields.value.find((f) => f.key === k)).filter(Boolean)
 );
@@ -278,6 +325,8 @@ const bulkFieldDef = computed(() => selectedFields.value.find((f) => f.key === b
 
 const visibleRows = computed(() => {
   let list = [...(rows.value || [])];
+  if (props.statusFilter) list = list.filter((row) => normalizedStatus(row.status) === normalizedStatus(props.statusFilter));
+  if (props.persona === 'applicants') list = list.filter((row) => normalizedStatus(row.status) === 'PROSPECTIVE');
   if (props.extraRole === 'providers') {
     list = list.filter((r) => String(r.role || '').toLowerCase() === 'provider');
   } else if (props.extraRole === 'staff') {
@@ -536,12 +585,23 @@ function showBanner(msg, isError = false) {
   }, 4000);
 }
 
+let loadVersion = 0;
 async function load() {
+  const version = ++loadVersion;
+  clearSelection();
+  rows.value = [];
+  compensationOptions.value = [];
+  if (props.requireTenant && !props.agencyId) {
+    loading.value = false;
+    error.value = '';
+    return;
+  }
   loading.value = true;
   error.value = '';
   try {
     if (!allFields.value.length) {
       const catalog = await api.get('/users/grid/fields', { skipGlobalLoading: true });
+      if (version !== loadVersion) return;
       allFields.value = catalog.data?.fields || [];
     }
     if (!selectedKeys.value.length) {
@@ -551,19 +611,20 @@ async function load() {
     const params = {
       persona: props.persona,
       fields: selectedKeys.value.join(','),
-      includeArchived: includeArchived.value ? 'true' : 'false'
+      includeArchived: (props.statusFilter === null ? includeArchived.value : !props.statusFilter || props.statusFilter === 'ARCHIVED') ? 'true' : 'false'
     };
     if (props.agencyId) params.agency_id = props.agencyId;
     if (props.organizationId) params.organization_id = props.organizationId;
     if (props.roleFilter) params.role = props.roleFilter;
     const res = await api.get('/users/grid', { params, skipGlobalLoading: true });
+    if (version !== loadVersion) return;
     rows.value = res.data?.rows || [];
     if (res.data?.meta?.compensationOptions) compensationOptions.value = res.data.meta.compensationOptions;
     clearSelection();
   } catch (err) {
-    error.value = err.response?.data?.error?.message || 'Failed to load roster';
+    if (version === loadVersion) error.value = err.response?.data?.error?.message || 'Failed to load roster';
   } finally {
-    loading.value = false;
+    if (version === loadVersion) loading.value = false;
   }
 }
 
@@ -583,6 +644,7 @@ async function saveCell(row, field, value) {
     }, { skipGlobalLoading: true });
     if (!row.values) row.values = {};
     row.values[field.key] = value;
+    if (field.key === 'status' || field.key === 'role') row[field.key] = value;
   } catch (err) {
     showBanner(err.response?.data?.error?.message || 'Save failed', true);
     await load();
@@ -666,7 +728,7 @@ async function bulkDelete() {
 }
 
 watch(
-  () => [props.persona, props.agencyId, props.organizationId, props.roleFilter, includeArchived.value],
+  () => [props.persona, props.agencyId, props.organizationId, props.roleFilter, props.statusFilter, props.requireTenant, includeArchived.value],
   ([persona], prev) => {
     const oldPersona = prev?.[0];
     if (oldPersona && oldPersona !== persona) {
@@ -676,6 +738,11 @@ watch(
   },
   { immediate: true }
 );
+// A hidden row must never remain selected for a bulk edit after filtering.
+watch(visibleRows, (visible) => {
+  const ids = new Set(visible.map((row) => row.id));
+  selectedIds.value = new Set([...selectedIds.value].filter((id) => ids.has(id)));
+});
 </script>
 
 <style scoped>
@@ -690,6 +757,16 @@ watch(
 .roster-picker {
   border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: var(--bg);
 }
+.roster-picker-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.roster-picker-header p { margin: 5px 0 0; font-size: 12px; }
+.roster-selected-fields { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.roster-selected-fields button { border: 1px solid var(--border); border-radius: 20px; background: var(--bg-alt); color: var(--text-primary); padding: 5px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.roster-count { padding: 7px 12px; border-radius: 20px; background: var(--bg-alt); color: var(--text-secondary); font-size: 12px; font-weight: 700; }
+.roster-empty-scope { padding: 40px 20px; text-align: center; border: 1px dashed var(--border); border-radius: 12px; color: var(--text-secondary); }
+.roster-picker-group { padding: 12px; border: 1px solid var(--border); border-radius: 12px; }
+.roster-picker-group .roster-picker-item { padding: 5px 0; align-items: flex-start; }
+.roster-picker-item input { flex-shrink: 0; accent-color: var(--primary); }
+.roster-picker-item small { font-size: 10px; }
 .roster-picker-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
 .roster-picker-group-title { font-size: 12px; font-weight: 800; margin-bottom: 6px; }
 .roster-picker-item { display: flex; align-items: center; gap: 6px; font-size: 13px; }
@@ -710,7 +787,7 @@ watch(
 .roster-table thead .sticky-col { z-index: 5; }
 .roster-table tr.selected td { background: color-mix(in srgb, var(--primary, #B80016) 12%, var(--bg)); }
 .name-link { font-weight: 700; color: var(--text-primary); text-decoration: none; }
-.name-sub { font-size: 11px; }
+.name-sub { font-size: 11px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; }
 .cell-input {
   width: 100%; min-width: 140px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
   background: var(--bg); color: var(--text-primary);

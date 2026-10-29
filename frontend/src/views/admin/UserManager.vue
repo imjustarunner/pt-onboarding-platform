@@ -190,7 +190,7 @@
             />
           </div>
 
-          <div v-if="!isSscSstcTenant" class="filter-section">
+          <div v-if="!isSscSstcTenant && !rosterEditorMode && !columnViewMode" class="filter-section">
             <label for="agencySort" class="filter-label">Agency</label>
             <select id="agencySort" v-model="agencySort" class="filter-select">
               <option value="">All agencies</option>
@@ -199,7 +199,7 @@
             <div class="filter-help muted">Scopes directory results.</div>
           </div>
 
-          <div v-if="!isSscSstcTenant" class="filter-section">
+          <div v-if="!isSscSstcTenant && !rosterEditorMode && !columnViewMode" class="filter-section">
             <label for="organizationSort" class="filter-label">Organization</label>
             <input
               v-model="organizationSearch"
@@ -220,7 +220,7 @@
             </select>
           </div>
 
-          <div v-if="!isAffiliationContext && !isSscSstcTenant" class="filter-section">
+          <div v-if="!isAffiliationContext && !isSscSstcTenant && !rosterEditorMode && !columnViewMode" class="filter-section">
             <label for="statusSort" class="filter-label">Status</label>
             <select id="statusSort" v-model="statusSort" class="filter-select">
               <option value="">All</option>
@@ -232,6 +232,7 @@
               <option value="ACTIVE_EMPLOYEE">Active</option>
               <option value="TERMINATED_PENDING">Terminated (Grace Period)</option>
               <option value="INACTIVE_EMPLOYEE">Inactive (offboarded)</option>
+              <option value="ARCHIVED">Archived</option>
             </select>
           </div>
 
@@ -245,7 +246,7 @@
             </div>
           </div>
 
-          <div v-if="directoryPersona === 'employees' || isSscSstcTenant" class="filter-section advanced-filters">
+          <div v-if="(directoryPersona === 'employees' || isSscSstcTenant) && !rosterEditorMode && !columnViewMode" class="filter-section advanced-filters">
             <div class="filter-label">Role</div>
             <div v-if="isSscSstcTenant" class="filter-subsection">
               <select id="roleSort" v-model="roleSort" class="filter-select">
@@ -373,9 +374,13 @@
               v-if="(rosterEditorMode || columnViewMode) && !isSscSstcTenant"
               :key="`${directoryPersona}-${rosterEditorMode ? 'edit' : 'view'}`"
               :persona="directoryPersona"
-              :agency-id="agencySort"
-              :organization-id="organizationSort"
+              v-model:agency-id="agencySort"
+              v-model:organization-id="organizationSort"
+              v-model:status-filter="statusSort"
+              :organizations="agencies"
+              require-tenant
               :role-filter="directoryPersona === 'school_staff' ? 'school_staff' : roleSort"
+              @update:role-filter="roleSort = $event"
               :extra-role="userTypeFilter"
               :can-archive="rosterEditorMode && isSuperAdmin"
               :can-delete="rosterEditorMode && isSuperAdmin"
@@ -2205,7 +2210,7 @@ const organizationOptions = computed(() => {
   const scoped = list.filter(isChildType);
   const q = String(organizationSearch.value || '').trim().toLowerCase();
   const applySearch = (rows) => (q ? rows.filter((o) => String(o?.name || '').toLowerCase().includes(q)) : rows);
-  if (!agencySort.value) return applySearch(scoped).sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+  if (!agencySort.value) return [];
   const aid = parseInt(String(agencySort.value), 10);
   if (!aid) return [];
   return applySearch(scoped)
@@ -2886,7 +2891,7 @@ const resolveDefaultAgencyAndOrg = () => {
   }
   // Prefer the currently-selected brand/agency (stored in agencyStore.currentAgency) when present.
   if (agencySort.value) return;
-  const cur = agencyStore.currentAgency?.value || null;
+  const cur = agencyStore.currentAgency || null;
   if (!cur?.id) return;
   const curId = parseInt(String(cur.id), 10);
   if (!curId) return;
@@ -2910,9 +2915,12 @@ watch(
     if (!organizationSort.value) return;
     const orgId = parseInt(String(organizationSort.value), 10);
     const agencyId = parseInt(String(agencySort.value), 10);
-    if (!orgId || !agencyId) return;
+    if (!orgId || !agencyId) {
+      organizationSort.value = '';
+      return;
+    }
     const parentId = parseInt(String(orgAffiliationById.value?.[String(orgId)] || ''), 10);
-    if (parentId && parentId !== agencyId) {
+    if (parentId !== agencyId) {
       organizationSort.value = '';
     }
   }
