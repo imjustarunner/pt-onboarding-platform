@@ -7,6 +7,8 @@ import bcrypt from 'bcrypt';
 import { changeSessionSecurity, loadSessionPolicy, finalizeExpiredSession } from '../services/sessionSecurity.service.js';
 import { isHirePortalOnly, requiresHireActivation, HIRE_ACTIVATION_MESSAGE } from '../utils/hirePortalToken.js';
 import jwt from 'jsonwebtoken';
+import { signFullSuiteToken } from '../services/productIdentity.service.js';
+import { assertCurrentAccountEnabled } from '../services/accountAccess.service.js';
 import crypto from 'crypto';
 import { signBrandSwitchMemory, readBrandSwitchMemory } from '../utils/brandSwitchLoginMemory.js';
 import { validationResult } from 'express-validator';
@@ -468,7 +470,7 @@ export const approvedEmployeeLogin = async (req, res, next) => {
 
     // Create session token (expires in 24 hours)
     // Include all agency IDs in the token for agency switching
-    const sessionToken = jwt.sign(
+    const sessionToken = await signFullSuiteToken(
       { 
         email: matchedEmployee.email,
         type: 'approved_employee',
@@ -596,6 +598,8 @@ export const login = async (req, res, next) => {
         } 
       });
     }
+
+    await assertCurrentAccountEnabled(user.id);
 
     // SSO enforcement: block password login when user is forced to Google SSO by any org (everywhere, every slug).
     const pickSlugForLogin = (org) => String(org?.portal_url || org?.portalUrl || org?.slug || '').trim().toLowerCase() || null;
@@ -812,7 +816,7 @@ export const login = async (req, res, next) => {
       console.error('Failed to get user agencies for activity log:', err);
     }
 
-    const token = jwt.sign(
+    const token = await signFullSuiteToken(
       { id: user.id, email: user.email, role: user.role, sessionId },
       config.jwt.secret,
       { expiresIn: config.jwt.expiresIn }
@@ -1950,7 +1954,7 @@ export const googleOAuthCallback = async (req, res, next) => {
 
     // Issue session cookie + log activity
     const sessionId = crypto.randomUUID();
-    const token = jwt.sign(
+    const token = await signFullSuiteToken(
       { id: user.id, email: user.email, role: user.role, sessionId, authMethod: 'google' },
       config.jwt.secret,
       { expiresIn: config.jwt.expiresIn }
@@ -2172,7 +2176,7 @@ export const passwordlessTokenLogin = async (req, res, next) => {
 
     // Generate JWT token for session
     try {
-      const jwtToken = jwt.sign(
+      const jwtToken = await signFullSuiteToken(
         { id: user.id, email: user.email, role: user.role, status: user.status, sessionId },
         config.jwt.secret,
         { expiresIn: config.jwt.expiresIn }
@@ -2409,7 +2413,7 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
 
     // Generate JWT token for session
     try {
-      const jwtToken = jwt.sign(
+      const jwtToken = await signFullSuiteToken(
         { id: user.id, email: user.email, role: user.role, status: user.status, sessionId },
         config.jwt.secret,
         { expiresIn: config.jwt.expiresIn }
@@ -2598,6 +2602,7 @@ export const validateResetToken = async (req, res, next) => {
     if (passwordRecoveryRequiresSupport(recoveryUser)) {
       return res.status(403).json({ error: { message: 'Please submit a password recovery request from the sign-in page so our support team can assist you.' } });
     }
+    await assertCurrentAccountEnabled(recoveryUser.id);
     if ((await getPasswordRecoverySsoState(recoveryUser)).ssoRequired) {
       return res.status(409).json({ error: { message: 'Password reset is disabled for SSO accounts. Use Google sign-in.' } });
     }
@@ -2662,17 +2667,13 @@ const normalizeOrgSlug = (value) => {
  * Promote PENDING_SETUP / PREHIRE_OPEN → ACTIVE_EMPLOYEE once a real password exists.
  */
 const activateExternalPortalUserAfterPasswordSet = async (user) => {
+  await assertCurrentAccountEnabled(user.id);
   const nextStatus = statusAfterExternalPortalPasswordSet(user);
   if (!nextStatus) return user;
   try {
     await User.updateStatus(user.id, nextStatus, user.id);
   } catch (e) {
     console.error('[auth] activate after password set failed', e?.message || e);
-  }
-  try {
-    await pool.execute('UPDATE users SET is_active = TRUE WHERE id = ?', [user.id]);
-  } catch {
-    // ignore missing is_active or similar
   }
   return (await User.findById(user.id)) || user;
 };
@@ -3304,6 +3305,7 @@ export const resetPasswordWithToken = async (req, res, next) => {
     if (passwordRecoveryRequiresSupport(recoveryUser)) {
       return res.status(403).json({ error: { message: 'Please submit a password recovery request from the sign-in page so our support team can assist you.' } });
     }
+    await assertCurrentAccountEnabled(recoveryUser.id);
     if ((await getPasswordRecoverySsoState(recoveryUser)).ssoRequired) {
       return res.status(409).json({ error: { message: 'Password reset is disabled for SSO accounts. Use Google sign-in.' } });
     }
@@ -3384,13 +3386,6 @@ export const resetPasswordWithToken = async (req, res, next) => {
     // School staff / guardians: leave PENDING_SETUP (or accidental PREHIRE) and become active
     let updatedUser = await activateExternalPortalUserAfterPasswordSet(user);
 
-    // Best-effort: ensure user is active after reset
-    try {
-      await pool.execute('UPDATE users SET is_active = TRUE WHERE id = ?', [user.id]);
-    } catch (e) {
-      // ignore
-    }
-
     // Invalidate the token so it cannot be reused
     await User.markTokenAsUsed(user.id);
 
@@ -3401,7 +3396,7 @@ export const resetPasswordWithToken = async (req, res, next) => {
     const sessionId = crypto.randomUUID();
 
     // Generate JWT token for session
-    const jwtToken = jwt.sign(
+    const jwtToken = await signFullSuiteToken(
       {
         id: updatedUser.id,
         email: updatedUser.username || updatedUser.email,
@@ -3496,6 +3491,7 @@ export const initialSetup = async (req, res, next) => {
     if (!setupUser || passwordRecoveryRequiresSupport(setupUser)) {
       return res.status(403).json({ error: { message: 'Please submit a password recovery request from the sign-in page so our support team can assist you.' } });
     }
+    await assertCurrentAccountEnabled(user.id);
 
     // Check if user already has password
     if (user.password_hash) {
@@ -3545,7 +3541,7 @@ export const initialSetup = async (req, res, next) => {
     const sessionId = crypto.randomUUID();
 
     // Generate JWT token for session
-    const jwtToken = jwt.sign(
+    const jwtToken = await signFullSuiteToken(
       { id: updatedUser.id, email: updatedUser.email, role: updatedUser.role, status: updatedUser.status, sessionId },
       config.jwt.secret,
       { expiresIn: config.jwt.expiresIn }
@@ -3697,7 +3693,7 @@ export const demoSwitchView = async (req, res, next) => {
     }
 
     const sessionId = crypto.randomUUID();
-    const token = jwt.sign(
+    const token = await signFullSuiteToken(
       {
         id: actor.id,
         email: actor.email,
@@ -3825,7 +3821,7 @@ export const demoLaunchWindow = async (req, res, next) => {
     }
 
     const sessionId = crypto.randomUUID();
-    const token = jwt.sign(
+    const token = await signFullSuiteToken(
       {
         id: actor.id,
         email: actor.email,
@@ -4167,7 +4163,7 @@ export const switchTestAccount = async (req, res, next) => {
     const originalUserId = Number.parseInt(req.user?.switchedFromUserId, 10) || Number(actor.id);
     const returningHome = Number(originalUserId) === Number(targetUser.id);
     const sessionId = crypto.randomUUID();
-    const token = jwt.sign(
+    const token = await signFullSuiteToken(
       {
         id: targetUser.id,
         email: targetUser.email,
@@ -4273,7 +4269,7 @@ export const returnTestAccount = async (req, res, next) => {
     }
 
     const sessionId = crypto.randomUUID();
-    const token = jwt.sign(
+    const token = await signFullSuiteToken(
       {
         id: targetUser.id,
         email: targetUser.email,
@@ -5256,7 +5252,7 @@ export const consumeBrandSwitchHandoff = async (req, res, next) => {
     }
 
     const sessionId = crypto.randomUUID();
-    const token = jwt.sign(
+    const token = await signFullSuiteToken(
       // loginMethod is display provenance only. Do not claim a fresh Google
       // authentication here: account-security reauthentication uses authMethod/iat.
       { id: user.id, email: user.email, role: user.role, sessionId, brandSwitch: true, loginMethod: loginMemory.authMethod, rememberGoogle: loginMemory.rememberGoogle },

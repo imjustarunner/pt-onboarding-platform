@@ -1,4 +1,5 @@
 import { requiresHireActivation } from './hirePortalToken.js';
+import { isAccountDisabled } from './accountAccess.js';
 
 /**
  * Access Control Helper
@@ -235,7 +236,7 @@ export function checkAccess(user, { effectiveRole } = {}) {
  * @returns {boolean} Whether user can login
  */
 export function canLogin(user) {
-  if (!user || requiresHireActivation(user)) return false;
+  if (!user || isAccountDisabled(user) || requiresHireActivation(user)) return false;
 
   const status = user.status;
   const userRole = user.role;

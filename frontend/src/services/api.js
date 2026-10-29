@@ -403,9 +403,10 @@ api.interceptors.response.use(
       path.includes('/clubs') ||
       isBrandedKioskPath;
     const isPrehirePortalApi = reqUrl.includes('/prehire-portal/');
+    const accountDisabled = securityCode === 'ACCOUNT_DISABLED' || securityCode === 'ACCOUNT_UNAVAILABLE';
     
     if (
-      error.response?.status === 401 &&
+      (error.response?.status === 401 || accountDisabled) &&
       !isLoginPage &&
       !isPasswordlessLogin &&
       !isInitialSetup &&
@@ -418,7 +419,7 @@ api.interceptors.response.use(
     ) {
       // Post-login races (cookie not yet accepted, especially incognito): retry with Bearer.
       const retryCount = Number(error.config._authRetryCount || 0);
-      if ((justLoggedIn || justLoggedInFresh) && retryCount < 3) {
+      if (!accountDisabled && (justLoggedIn || justLoggedInFresh) && retryCount < 3) {
         error.config._authRetryCount = retryCount + 1;
         error.config._retry = true;
         try {

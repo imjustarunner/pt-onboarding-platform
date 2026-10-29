@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { changeAccountLifecycle } from './accountLifecycle.service.js';
 import User from '../models/User.model.js';
 import {
   CLIENT_MERGE_FIELDS,
@@ -299,19 +300,16 @@ export async function mergeUsers({ keepId, sourceIds, fieldChoices = {}, actorUs
       await execIgnore(`UPDATE supervisor_assignments SET supervisor_id = ? WHERE supervisor_id = ?`, [keepId, other.id], conn);
       await execIgnore(`UPDATE supervisor_assignments SET supervisee_id = ? WHERE supervisee_id = ?`, [keepId, other.id], conn);
       const mergedEmail = `merged+${other.id}.${String(other.email || 'user').replace('@', '.at.')}@merged.invalid`;
-      try {
-        await conn.execute(
+      await changeAccountLifecycle({
+        connection: conn, userId: other.id, actorUserId, source: 'duplicate_user_merged',
+        reason: `Duplicate account merged into user ${keepId}.`,
+        mutate: async (db) => (await db.execute(
           `UPDATE users
            SET email = ?, status = 'ARCHIVED', is_archived = 1, archived_at = NOW(), archived_by_user_id = ?, is_active = 0
            WHERE id = ?`,
           [mergedEmail.slice(0, 250), actorUserId, other.id]
-        );
-      } catch {
-        await conn.execute(
-          `UPDATE users SET email = ?, status = 'ARCHIVED', is_active = 0 WHERE id = ?`,
-          [mergedEmail.slice(0, 250), other.id]
-        );
-      }
+        ))[0]
+      });
     }
     await conn.commit();
   } catch (err) {

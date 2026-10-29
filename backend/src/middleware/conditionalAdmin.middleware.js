@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.model.js';
 import config from '../config/config.js';
+import { assertHireStaffAccess } from '../services/hireStaffAccess.service.js';
 import { getSessionSecurity, sessionRouteAllowed } from '../services/sessionSecurity.service.js';
 import { enforceAccountSecurity } from './accountSecurity.middleware.js';
 
@@ -24,6 +25,7 @@ export const requireAdminOrFirstUser = async (req, res, next) => {
     }
     
     const decoded = jwt.verify(token, config.jwt.secret);
+    await assertHireStaffAccess(decoded);
     await req.auditIdentify?.(decoded);
     const security = await getSessionSecurity(decoded, token);
     if (!sessionRouteAllowed(security, req.method, String(req.originalUrl || req.path || '').split('?')[0])) {

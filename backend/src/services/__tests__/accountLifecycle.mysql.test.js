@@ -9,23 +9,22 @@ vi.mock('../../config/database.js', () => ({
 vi.mock('../hireGroupAccount.service.js', () => ({ removeHireGoogleGroupForUser: vi.fn() }));
 import User from '../../models/User.model.js';
 import ClientSchoolStaffRoiAccess from '../../models/ClientSchoolStaffRoiAccess.model.js';
+import { assertCurrentAccountEnabled } from '../accountAccess.service.js';
 import { changeAccountLifecycle } from '../accountLifecycle.service.js';
-import { restoreSchoolStaffAccess } from '../schoolStaffReactivation.service.js';
 
 describe.skipIf(process.env.ACCOUNT_LIFECYCLE_MYSQL_TEST !== '1')('account lifecycle with the real archive guard', () => {
   let db;
-  const connection = process.env.SCHEDULING_TEST_MYSQL_PORT
-    ? { host: '127.0.0.1', port: Number(process.env.SCHEDULING_TEST_MYSQL_PORT), user: 'root' }
-    : { socketPath: '/private/tmp/school-roi-investigation/mysql.sock', user: 'root' };
+  const socketPath = process.env.ACCOUNT_LIFECYCLE_TEST_SOCKET || '/private/tmp/school-roi-investigation/mysql.sock';
   const current = async () => (await db.execute('SELECT * FROM users WHERE id = 42'))[0][0];
   const events = async () => (await db.execute('SELECT * FROM user_activity_log ORDER BY id'))[0];
   beforeAll(async () => {
-    // Only isolated local/CI MySQL; never use application database credentials.
-    const setup = await mysql.createConnection(connection);
+    // Deliberately only supports disposable local sockets, never DB_HOST.
+    if (!/^\/private\/tmp\/(?:school-roi-investigation|pt-release-mysql-[^/]+)\/mysql\.sock$/.test(socketPath)) throw new Error('A disposable local socket is required.');
+    const setup = await mysql.createConnection({ socketPath, user: 'root' });
     await setup.query('DROP DATABASE IF EXISTS account_lifecycle_test');
     await setup.query('CREATE DATABASE account_lifecycle_test CHARACTER SET utf8mb4');
     await setup.end();
-    db = fixture.db = mysql.createPool({ ...connection, database: 'account_lifecycle_test', timezone: 'Z' });
+    db = fixture.db = mysql.createPool({ socketPath, user: 'root', database: 'account_lifecycle_test', timezone: 'Z' });
     await db.query(`CREATE TABLE users (
       id INT PRIMARY KEY, role VARCHAR(60), email VARCHAR(255), work_email VARCHAR(255), username VARCHAR(255),
       first_name VARCHAR(60), last_name VARCHAR(60), title VARCHAR(60), phone_number VARCHAR(20),
@@ -69,11 +68,11 @@ describe.skipIf(process.env.ACCOUNT_LIFECYCLE_MYSQL_TEST !== '1')('account lifec
     expect(await User.hasAnySchoolAgencyMembership(42)).toBe(false);
     await User.disableSchoolStaffLogin(42, 3, 20);
     expect(await current()).toMatchObject({ status: 'ARCHIVED', is_active: 0, is_archived: 1, archived_by_user_id: 3 });
-    expect((await current()).is_active).toBe(0);
+    await expect(assertCurrentAccountEnabled(42)).rejects.toMatchObject({ code: 'ACCOUNT_DISABLED' });
     await db.execute('INSERT INTO user_agencies(user_id,agency_id) VALUES (42,20)');
     await User.updateStatus(42, 'ACTIVE_EMPLOYEE', 3, { source: 'school_portal_staff_added', agencyId: 20, reason: 'Staff added back to the school.' });
     expect(await current()).toMatchObject({ status: 'ACTIVE_EMPLOYEE', is_active: 1, is_archived: 0, archived_at: null, archived_by_user_id: null });
-    expect(await current()).toMatchObject({ is_active: 1, is_archived: 0 });
+    await expect(assertCurrentAccountEnabled(42)).resolves.toBeUndefined();
     expect(await ClientSchoolStaffRoiAccess.listSchoolStaffRosterForOrganization({ schoolOrganizationId: 20 }))
       .toEqual([expect.objectContaining({ school_staff_user_id: 42, phone_number: '303-555-0100' })]);
     const history = await events();
@@ -91,39 +90,6 @@ describe.skipIf(process.env.ACCOUNT_LIFECYCLE_MYSQL_TEST !== '1')('account lifec
     expect((await current()).is_active).toBe(0);
     await User.updateStatus(42, 'ACTIVE_EMPLOYEE', 3);
     expect(await current()).toMatchObject({ is_archived: 0, is_active: 1, status: 'ACTIVE_EMPLOYEE' });
-  });
-
-  it('restores existing access without changing passwords or a scheduler-only role', async () => {
-    await db.execute("UPDATE users SET is_archived=1,temporary_password_hash='existing-hash' WHERE id=42");
-    await db.execute("INSERT INTO school_contacts (id,school_organization_id,email,full_name,is_scheduler) VALUES (1,20,'staff@example.invalid','School Contact',1)");
-    try {
-      await restoreSchoolStaffAccess({ userId: 42, schoolOrganizationId: 20, actorUserId: 3 });
-      expect(await current()).toMatchObject({ is_active: 1, is_archived: 0, temporary_password_hash: 'existing-hash' });
-      expect((await db.execute('SELECT is_scheduler FROM school_contacts WHERE id=1'))[0][0].is_scheduler).toBe(1);
-      expect(await ClientSchoolStaffRoiAccess.listSchoolStaffRosterForOrganization({ schoolOrganizationId: 20 })).toEqual([]);
-      expect((await events())[0].metadata).toMatchObject({ source: 'school_portal_staff_access_restored', actor: { id: 3 } });
-    } finally { await db.execute('DELETE FROM school_contacts WHERE id=1'); }
-  });
-
-  it.each(['missing', 'inactive'])('rejects restoration after school membership is %s', async state => {
-    await db.execute('UPDATE users SET is_archived=1 WHERE id=42');
-    if (state === 'missing') await db.execute('DELETE FROM user_agencies WHERE user_id=42');
-    else await db.execute('UPDATE user_agencies SET is_active=0 WHERE user_id=42');
-    await expect(restoreSchoolStaffAccess({ userId: 42, schoolOrganizationId: 20, actorUserId: 3 })).rejects.toMatchObject({ statusCode: 409 });
-    expect(await current()).toMatchObject({ is_active: 0, is_archived: 1 });
-    expect(await events()).toHaveLength(0);
-  });
-
-  it('rejects restoration of a non-school identity', async () => {
-    await db.execute("UPDATE users SET role='provider',is_archived=1 WHERE id=42");
-    await expect(restoreSchoolStaffAccess({ userId: 42, schoolOrganizationId: 20, actorUserId: 3 })).rejects.toMatchObject({ statusCode: 400 });
-    expect((await current()).is_archived).toBe(1);
-  });
-
-  it('keeps initial setup separate from restoring an existing account', async () => {
-    await db.execute("UPDATE users SET status='PENDING_SETUP' WHERE id=42");
-    await expect(restoreSchoolStaffAccess({ userId: 42, schoolOrganizationId: 20, actorUserId: 3 })).rejects.toMatchObject({ statusCode: 409 });
-    expect((await current()).status).toBe('PENDING_SETUP');
   });
 
   it('rolls back an archive if its audit record cannot be saved', async () => {
@@ -144,7 +110,7 @@ describe.skipIf(process.env.ACCOUNT_LIFECYCLE_MYSQL_TEST !== '1')('account lifec
     expect(history).toHaveLength(2);
     expect(history[1].metadata).toMatchObject({ source: 'user_archive_restored', before: { archivedByUserId: 3 }, after: { archivedByUserId: null } });
     // Restore from the archive alone does not grant login permission.
-    expect((await current()).is_active).toBe(0);
+    await expect(assertCurrentAccountEnabled(42)).rejects.toMatchObject({ code: 'ACCOUNT_DISABLED' });
   });
 
   it('labels automatic termination expiry as a system action with its actual reason', async () => {

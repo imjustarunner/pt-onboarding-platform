@@ -1,5 +1,6 @@
 import {beforeEach,describe,it,expect,vi} from 'vitest';
 import jwt from 'jsonwebtoken';
+vi.mock('../productIdentity.service.js', () => ({ signFullSuiteToken: async (...args) => (await import('jsonwebtoken')).default.sign(...args) }));
 const mocks=vi.hoisted(()=>({finish:vi.fn(),proof:vi.fn(),session:vi.fn(),record:vi.fn(),agencies:vi.fn()}));
 vi.mock('../passkeys.service.js',()=>({PASSKEY_COOKIE:'ptPasskeyChallenge',currentPasskeySite:()=>({origin:'https://portal.example.org',rpID:'portal.example.org'}),finishPasskeyAuthentication:mocks.finish,recordPasskeyLoginProof:mocks.proof}));
 vi.mock('../sessionSecurity.service.js',()=>({getSessionSecurity:mocks.session}));

@@ -5,6 +5,7 @@
  */
 import crypto from 'crypto';
 import pool from '../config/database.js';
+import { changeAccountLifecycle } from '../services/accountLifecycle.service.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import Icon from '../models/Icon.model.js';
@@ -3699,14 +3700,21 @@ export const mergeClubMemberDuplicates = async (req, res, next) => {
         await conn.execute(`DELETE FROM user_agencies WHERE user_id = ?`, [sourceUserId]);
         await conn.execute(`UPDATE challenge_member_applications SET user_id = ? WHERE user_id = ?`, [targetUserId, sourceUserId]).catch(() => {});
         await conn.execute(`UPDATE user_photos SET user_id = ? WHERE user_id = ?`, [targetUserId, sourceUserId]).catch(() => {});
-        await conn.execute(
-          `UPDATE users
-           SET is_archived = 1,
-               status = 'ARCHIVED',
-               email = CONCAT('merged-', id, '-', email)
-           WHERE id = ?`,
-          [sourceUserId]
-        );
+        await changeAccountLifecycle({
+          connection: conn, userId: sourceUserId, actorUserId: req.user.id, agencyId: clubId,
+          source: 'duplicate_club_member_merged', reason: `Duplicate account merged into user ${targetUserId}.`,
+          mutate: async (db) => (await db.execute(
+            `UPDATE users
+             SET is_archived = 1,
+                 is_active = 0,
+                 archived_at = NOW(),
+                 archived_by_user_id = ?,
+                 status = 'ARCHIVED',
+                 email = CONCAT('merged-', id, '-', email)
+             WHERE id = ?`,
+            [req.user.id, sourceUserId]
+          ))[0]
+        });
       }
       await conn.commit();
     } catch (err) {
