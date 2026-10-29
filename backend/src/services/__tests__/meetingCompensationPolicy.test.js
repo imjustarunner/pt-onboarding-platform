@@ -110,3 +110,14 @@ it('applies an audited Administrative time override only to its mandatory partic
  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO scheduled_training_logs'),[event.id,3,2,1800,'indirect',1,0]);
  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO scheduled_training_logs'),[event.id,4,2,1800,'attendance',0,0]);
 });
+
+it('pays Jacquelyne Admin Time and each eligible group-huddle attendee Support Activity for their own attendance', async () => {
+ m.attendees.mockResolvedValue([12,13]); m.rollups.mockResolvedValue([{user_id:485,total_seconds:3600},{user_id:12,total_seconds:1800},{user_id:13,total_seconds:2700}]);
+ m.execute.mockImplementation(async (sql,args)=>sql.includes('SELECT role')?[[{role:args[0]===485?'provider_plus':'provider'}]]:[[]]);
+ m.rate.mockImplementation(async ({userId})=>({rate_amount:userId===485?25:20}));
+ await syncCompensationClaimsForEvent({event:{...event,provider_id:485,kind:'HUDDLE',meeting_subtype:'mentorship',start_at:'2026-10-29 16:00:00',end_at:'2026-10-29 17:00:00'}});
+ expect(m.create).toHaveBeenCalledTimes(3);
+ expect(m.create).toHaveBeenCalledWith(expect.objectContaining({userId:485,payload:expect.objectContaining({serviceCode:'Admin Time',categoryGroup:'admin_duties',totalMinutes:60})}));
+ expect(m.create).toHaveBeenCalledWith(expect.objectContaining({userId:12,payload:expect.objectContaining({serviceCode:'MEETING',totalMinutes:30})}));
+ expect(m.create).toHaveBeenCalledWith(expect.objectContaining({userId:13,payload:expect.objectContaining({serviceCode:'MEETING',totalMinutes:45})}));
+});

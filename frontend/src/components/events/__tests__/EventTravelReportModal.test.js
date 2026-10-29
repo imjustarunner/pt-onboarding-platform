@@ -106,3 +106,19 @@ it('identifies the exact reversed trip before an API call and retains the entrie
  expect(wrapper.text()).toContain('To the event (home → event): arrival must be after departure');
  expect(api.post).not.toHaveBeenCalled();expect(fields[1].element.value).toBe('2026-10-29T08:20');
 });
+
+it('updates multi-school travel fields when actual stops are skipped or reordered', async () => {
+  options.events[0].outreachTripId=3;
+  options.events[0].outreachStops=[{id:10,name:'First school',address:'First address'},{id:11,name:'Second school',address:'Second address'},{id:12,name:'Third school',address:'Third address'}];
+  await open(); await chooseEvent(); await alreadyHadMaterials();
+  expect(wrapper.findAll('.etr-leg')).toHaveLength(4);
+  const stopChecks=wrapper.findAll('input[type="checkbox"]');
+  await stopChecks[1].setValue(false); await flushPromises();
+  expect(wrapper.findAll('.etr-leg')).toHaveLength(3);
+  const up=wrapper.findAll('button').find(b=>b.text()==='Move up');
+  await up.trigger('click'); await flushPromises();
+  const labels=wrapper.findAll('.etr-leg strong').map(el=>el.text());
+  expect(labels[0]).toBe('Home → Third school');
+  expect(labels[1]).toBe('Third school → First school');
+  expect(wrapper.findAll('.etr-leg input[type="datetime-local"]')).toHaveLength(6);
+});

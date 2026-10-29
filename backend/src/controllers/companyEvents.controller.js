@@ -2167,6 +2167,7 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
 
   const existing = await loadEventByIdForAgency(eventId, agencyId);
   if (!existing) return { error: { status: 404, message: 'Company event not found' } };
+  if (Number(readEventOperations(existing).outreachTripId)) return { error: { status: 409, message: 'Edit this linked Outreach Event from its trip in Outreach Hub so the route, calendar and assignments stay together.' } };
 
   await assertEventCommunicationManager(req, existing, body || {});
   const existingVote = parseJsonMaybe(existing.voting_config_json) || {};
@@ -2387,6 +2388,7 @@ export const deleteCompanyEvent = async (req, res, next) => {
     }
     const event = await loadEventByIdForAgency(eventId, agencyId);
     if (!event) return res.status(404).json({ error: { message: 'Company event not found' } });
+    if (Number(readEventOperations(event).outreachTripId)) return res.status(409).json({ error: { message: 'Cancel this Outreach Event from its trip in Outreach Hub. School notes and trip history will be preserved.' } });
     await assertEventCommunicationManager(req, event);
     const [result] = await pool.execute(
       'DELETE FROM company_events WHERE id = ? AND agency_id = ?',
@@ -4411,6 +4413,7 @@ export const getCompanyEventPublic = async (req, res, next) => {
         startsAt: row.starts_at || null,
         endsAt: row.ends_at || null,
         timezone: row.timezone || 'UTC',
+        outreachTripId: req.companyEventStaffLink ? Number(readEventOperations(row).outreachTripId) || null : undefined,
         employeeReportTime: req.companyEventStaffLink && row.employee_report_time ? String(row.employee_report_time).slice(0, 5) : undefined,
         rsvpDeadline: row.rsvp_deadline || null,
         rsvpMode: String(row.rsvp_mode || 'none').trim().toLowerCase(),

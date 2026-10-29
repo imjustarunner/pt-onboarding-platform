@@ -7,7 +7,6 @@ import { isJacquelyneHuddle, JACQUELYNE_TIME_START } from '../utils/jacquelyneTi
 import TeamArtifact from '../models/ProviderScheduleEventArtifact.model.js';
 import { mapMeetingAgendaItem } from '../models/MeetingAgendaItem.model.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
-import PayrollRate from '../models/PayrollRate.model.js';
 import { isCompensationClaimMeeting } from './meetingCompensationClaims.service.js';
 import PayrollSalaryPosition from '../models/PayrollSalaryPosition.model.js';
 import { trainingCompensationOverrides } from './scheduledTrainingCompensation.service.js';
@@ -41,13 +40,14 @@ export async function meetingParticipantRows(event,{includeCompensation=false,re
         row.compensation=Number(rate)>0 ? `${label} · $${Number(rate).toFixed(2)}/hour · recorded attendance` : `${label} rate needed before compensation`;
         if (override) row.compensationOverride = { rateType:override.rate_type, reason:override.reason };
       }
-      else if (event.kind==='HUDDLE' && row.role==='intern') row.compensation='Unpaid indirect time · recorded attendance';
+      else if (event.kind==='HUDDLE' && isStudentIntern(row)) row.compensation='Unpaid indirect time · recorded attendance';
       else if (['admin','super_admin','superadmin'].includes(row.role)) row.compensation='Not compensated · administrator';
       else if (Number(salary?.salary_per_pay_period)>0) row.compensation='Not compensated · salaried';
       else if (!isCompensationClaimMeeting(event)) row.compensation='Not compensated · meeting setting';
       else {
-        const rate=await PayrollRate.findBestRate({agencyId:event.agency_id,userId:row.id,serviceCode,asOf:asOfDate});
-        row.compensation=Number(rate?.rate_amount)>0 ? `Compensated · $${Number(rate.rate_amount).toFixed(2)}/hour · recorded attendance` : 'Rate needed before compensation';
+        const rate=await meetingClaimHourlyRate({agency_id:event.agency_id,user_id:row.id,claim_date:asOfDate,payload:{serviceCode}},null);
+        const label = serviceCode === 'Admin Time' ? 'Admin Time' : serviceCode === 'MEETING' ? 'Support Activity' : serviceCode;
+        row.compensation=Number(rate)>0 ? `${label} · $${Number(rate).toFixed(2)}/hour · recorded attendance` : `${label} rate needed before compensation`;
       }
     }
     delete row.credential; delete row.title; delete row.employment_type;

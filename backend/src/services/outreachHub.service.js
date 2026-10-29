@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { readOutreachEventConfig, normalizeOutreachEventConfig, assertOutreachTripActor, syncOutreachTripEvent } from './outreachTripEvent.service.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import {
   COLORADO_OUTREACH_SCHOOLS
@@ -735,8 +736,34 @@ export async function getOutreachSchool(agencyId, schoolId) {
     if (e?.code !== 'ER_BAD_FIELD_ERROR' && e?.code !== 'ER_NO_SUCH_TABLE') throw e;
   }
 
+  // Read historical trip/stop notes at their source, including visits that were
+  // never marked attended. Do not copy notes into another table or lose edits.
+  const [tripNotes] = await pool.execute(
+    `SELECT ts.id AS stop_id, ts.attendance_notes, ts.attended_at, ts.stop_color,
+            t.id AS trip_id, t.title AS trip_title, t.notes AS trip_notes,
+            t.planned_date, t.created_at,
+            TRIM(CONCAT_WS(' ', u.first_name, u.last_name)) AS created_by_name
+     FROM outreach_trip_stops ts
+     JOIN outreach_trips t ON t.id = ts.trip_id AND t.agency_id = ?
+     LEFT JOIN users u ON u.id = t.created_by_user_id
+     WHERE ts.outreach_school_id = ?
+       AND (NULLIF(TRIM(ts.attendance_notes), '') IS NOT NULL OR NULLIF(TRIM(t.notes), '') IS NOT NULL)
+     ORDER BY COALESCE(ts.attended_at, t.planned_date, t.created_at) DESC`, [agencyId, schoolId]);
   const feed = buildSchoolActivityFeed({ activities: acts, notes, tasks: taskFeed });
-  return { ...school, activities: acts || [], notes, contacts, feed };
+  for (const trip of tripNotes) {
+    for (const [kind, body] of [['stop', trip.attendance_notes], ['trip', trip.trip_notes]]) {
+      if (!String(body || '').trim()) continue;
+      if (feed.some(item => Number(item.trip_id) === Number(trip.trip_id) && String(item.body || '').trim() === String(body).trim())) continue;
+      feed.push({ id: `${kind}-context-${trip.stop_id}`, entry_type: 'note',
+        title: kind === 'stop' ? 'Visit note' : 'Trip-wide note', body,
+        trip_id: Number(trip.trip_id), trip_title: trip.trip_title,
+        trip_stop_id: Number(trip.stop_id), stop_color: trip.stop_color,
+        occurred_at: trip.attended_at || trip.planned_date || trip.created_at,
+        created_by_name: kind === 'trip' ? trip.created_by_name : null });
+    }
+  }
+  feed.sort((a, b) => new Date(b.occurred_at || 0) - new Date(a.occurred_at || 0));
+  return { ...school, general_notes: school.notes || null, activities: acts || [], notes, contacts, feed };
 }
 
 function buildSchoolActivityFeed({ activities = [], notes = [], tasks = [] } = {}) {
@@ -765,6 +792,7 @@ function buildSchoolActivityFeed({ activities = [], notes = [], tasks = [] } = {
       note_id: Number(n.id),
       entry_type: kind === 'conversation' ? 'conversation' : kind === 'follow_up' ? 'follow_up' : 'note',
       note_kind: kind,
+      source: n.source || null,
       title: kind === 'follow_up'
         ? (n.follow_up_at ? `Follow-up · ${String(n.follow_up_at).slice(0, 10)}` : 'Follow-up')
         : kind === 'conversation'
@@ -2269,6 +2297,9 @@ function mapTripRow(row, stops = [], participants = []) {
     planned_date: row.planned_date,
     completed_at: row.completed_at,
     notes: row.notes,
+    company_event_id: Number(row.company_event_id) || null,
+    eventStaffPath: row.company_event_id && row.event_staff_link_token ? `/company-events/${row.company_event_id}/staff/${row.event_staff_link_token}` : null,
+    outreachEvent: readOutreachEventConfig(row.event_config_json),
     created_by_user_id: row.created_by_user_id != null ? Number(row.created_by_user_id) : null,
     created_by_name: row.created_by_name || null,
     created_at: row.created_at,
@@ -2296,12 +2327,41 @@ export async function listOutreachTrips(agencyId) {
   return trips.filter(Boolean);
 }
 
-export async function getOutreachTrip(agencyId, tripId) {
-  const [rows] = await pool.execute(
-    `SELECT t.*,
+async function loadTripSchools(db, agencyId, schoolIds) {
+  if (!schoolIds.length || new Set(schoolIds.map(Number)).size !== schoolIds.length) throw Object.assign(new Error('Choose distinct school stops'), { status: 400 });
+  const [schools] = await db.execute(`SELECT * FROM outreach_schools WHERE agency_id = ? AND id IN (${schoolIds.map(() => '?').join(',')})`, [agencyId, ...schoolIds]);
+  if (schools.length !== schoolIds.length) throw Object.assign(new Error('Every stop must belong to this agency'), { status: 400 });
+  return schools;
+}
+
+async function mutateOutreachTrip(agencyId, tripId, actorUserId, mutate) {
+  const db = await pool.getConnection();
+  try {
+    // After waiting on an event lock, see attendance/report commits that just finished.
+    await db.execute('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+    await db.beginTransaction();
+    await assertOutreachTripActor(db, agencyId, actorUserId);
+    if (tripId) {
+      const [rows] = await db.execute('SELECT id FROM outreach_trips WHERE id = ? AND agency_id = ? FOR UPDATE', [tripId, agencyId]);
+      if (!rows.length) throw Object.assign(new Error('Trip not found'), { status: 404 });
+    }
+    const result = await mutate(db);
+    await db.commit();
+    return result;
+  } catch (error) { await db.rollback(); throw error; } finally { db.release(); }
+}
+export const createOutreachTrip = (agencyId, payload, userId) => mutateOutreachTrip(agencyId, null, userId, db => createOutreachTripInTransaction(agencyId, payload, userId, db));
+export const updateOutreachTrip = (agencyId, tripId, payload, userId) => mutateOutreachTrip(agencyId, tripId, userId, db => updateOutreachTripInTransaction(agencyId, tripId, payload, userId, db));
+export const deleteOutreachTrip = (agencyId, tripId, userId) => mutateOutreachTrip(agencyId, tripId, userId, db => deleteOutreachTripInTransaction(agencyId, tripId, userId, db));
+export const completeOutreachTrip = (agencyId, tripId, payload, userId) => mutateOutreachTrip(agencyId, tripId, userId, db => completeOutreachTripInTransaction(agencyId, tripId, payload, userId, db));
+
+export async function getOutreachTrip(agencyId, tripId, db = pool) {
+  const [rows] = await db.execute(
+    `SELECT t.*, ce.staff_link_token AS event_staff_link_token,
             TRIM(CONCAT_WS(' ', cu.first_name, cu.last_name)) AS created_by_name,
             TRIM(CONCAT_WS(' ', uu.first_name, uu.last_name)) AS updated_by_name
      FROM outreach_trips t
+     LEFT JOIN company_events ce ON ce.id = t.company_event_id AND ce.agency_id = t.agency_id
      LEFT JOIN users cu ON cu.id = t.created_by_user_id
      LEFT JOIN users uu ON uu.id = t.updated_by_user_id
      WHERE t.agency_id = ? AND t.id = ?
@@ -2310,7 +2370,7 @@ export async function getOutreachTrip(agencyId, tripId) {
   );
   const row = rows?.[0];
   if (!row) return null;
-  const [stops] = await pool.execute(
+  const [stops] = await db.execute(
     `SELECT ts.*, s.name AS school_name, s.city, s.district_name, s.address, s.school_level,
             s.lat, s.lng, s.outreach_stage
      FROM outreach_trip_stops ts
@@ -2319,21 +2379,23 @@ export async function getOutreachTrip(agencyId, tripId) {
      ORDER BY ts.stop_order ASC`,
     [tripId]
   );
-  const [parts] = await pool.execute(
+  const [parts] = await db.execute(
     `SELECT * FROM outreach_trip_participants WHERE trip_id = ? ORDER BY id ASC`,
     [tripId]
   );
   return mapTripRow(row, stops || [], parts || []);
 }
 
-export async function createOutreachTrip(agencyId, payload, userId) {
+async function createOutreachTripInTransaction(agencyId, payload, userId, db) {
   const schoolIds = Array.isArray(payload?.schoolIds) ? payload.schoolIds.map((id) => Number(id)).filter(Boolean) : [];
   if (!schoolIds.length) throw new Error('Add at least one school to the trip');
   const title = String(payload?.title || '').trim() || `Outreach trip (${schoolIds.length} stop${schoolIds.length === 1 ? '' : 's'})`;
-  const [result] = await pool.execute(
+  const config = normalizeOutreachEventConfig(payload?.outreachEvent || { enabled: false }, payload?.planned_date || payload?.plannedDate);
+  const allSchools = await loadTripSchools(db, agencyId, schoolIds);
+  const [result] = await db.execute(
     `INSERT INTO outreach_trips (
-       agency_id, title, status, origin_label, origin_address, planned_date, notes, created_by_user_id
-     ) VALUES (?, ?, 'planned', ?, ?, ?, ?, ?)`,
+       agency_id, title, status, origin_label, origin_address, planned_date, notes, created_by_user_id, event_config_json
+     ) VALUES (?, ?, 'planned', ?, ?, ?, ?, ?, ?)`,
     [
       agencyId,
       title.slice(0, 255),
@@ -2341,12 +2403,11 @@ export async function createOutreachTrip(agencyId, payload, userId) {
       WINDCHIME_ORIGIN.address,
       payload?.planned_date || payload?.plannedDate || null,
       payload?.notes ? String(payload.notes) : null,
-      userId || null
+      userId || null, JSON.stringify(config)
     ]
   );
   const tripId = result.insertId;
   let prev = WINDCHIME_ORIGIN;
-  const allSchools = await listOutreachSchools(agencyId, {});
   const byId = new Map(allSchools.map((s) => [Number(s.id), s]));
   let order = 1;
   for (const sid of schoolIds) {
@@ -2355,14 +2416,14 @@ export async function createOutreachTrip(agencyId, payload, userId) {
     const miles = prev && pt ? haversineMiles(prev, pt) : null;
     const color = stopColorForOrder(order - 1);
     try {
-      await pool.execute(
+      await db.execute(
         `INSERT INTO outreach_trip_stops (trip_id, outreach_school_id, stop_order, miles_from_prev, stop_color)
          VALUES (?, ?, ?, ?, ?)`,
         [tripId, sid, order, miles, color]
       );
     } catch (e) {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-      await pool.execute(
+      await db.execute(
         `INSERT INTO outreach_trip_stops (trip_id, outreach_school_id, stop_order, miles_from_prev)
          VALUES (?, ?, ?, ?)`,
         [tripId, sid, order, miles]
@@ -2375,7 +2436,7 @@ export async function createOutreachTrip(agencyId, payload, userId) {
   for (const p of participants) {
     const name = String(p.display_name || p.displayName || p.name || '').trim();
     if (!name) continue;
-    await pool.execute(
+    await db.execute(
       `INSERT INTO outreach_trip_participants (trip_id, user_id, display_name, start_time, end_time)
        VALUES (?, ?, ?, ?, ?)`,
       [
@@ -2387,15 +2448,16 @@ export async function createOutreachTrip(agencyId, payload, userId) {
       ]
     );
   }
-  const trip = await getOutreachTrip(agencyId, tripId);
-  await syncOutreachTripCalendarEvents(agencyId, trip, userId);
-  return trip;
+  const trip = await getOutreachTrip(agencyId, tripId, db);
+  trip.company_event_id = await syncOutreachTripEvent(db, agencyId, trip, userId);
+  await syncOutreachTripCalendarEvents(agencyId, trip, userId, db);
+  return getOutreachTrip(agencyId, tripId, db);
 }
 
-async function replaceOutreachTripStops(agencyId, tripId, schoolIds) {
-  const trip = await getOutreachTrip(agencyId, tripId);
+async function replaceOutreachTripStops(agencyId, tripId, schoolIds, db) {
+  const trip = await getOutreachTrip(agencyId, tripId, db);
   if (!trip) throw new Error('Trip not found');
-  if (trip.status === 'completed') throw new Error('Completed trips cannot be edited');
+  if (['completed', 'cancelled'].includes(trip.status)) throw new Error('Completed or cancelled trips cannot be edited');
 
   const ids = (Array.isArray(schoolIds) ? schoolIds : []).map((id) => Number(id)).filter(Boolean);
   if (!ids.length) throw new Error('Add at least one school to the trip');
@@ -2404,11 +2466,11 @@ async function replaceOutreachTripStops(agencyId, tripId, schoolIds) {
   const keepSchoolIds = new Set(ids);
   for (const stop of trip.stops || []) {
     if (!keepSchoolIds.has(Number(stop.outreach_school_id))) {
-      await pool.execute(`DELETE FROM outreach_trip_stops WHERE id = ? AND trip_id = ?`, [stop.id, tripId]);
+      await db.execute(`DELETE FROM outreach_trip_stops WHERE id = ? AND trip_id = ?`, [stop.id, tripId]);
     }
   }
 
-  const allSchools = await listOutreachSchools(agencyId, {});
+  const allSchools = await loadTripSchools(db, agencyId, ids);
   const byId = new Map(allSchools.map((s) => [Number(s.id), s]));
   let prev = WINDCHIME_ORIGIN;
   let order = 1;
@@ -2421,7 +2483,7 @@ async function replaceOutreachTripStops(agencyId, tripId, schoolIds) {
     const existing = existingBySchool.get(sid);
     if (existing) {
       try {
-        await pool.execute(
+        await db.execute(
           `UPDATE outreach_trip_stops
            SET stop_order = ?, miles_from_prev = ?, stop_color = ?
            WHERE id = ? AND trip_id = ?`,
@@ -2429,7 +2491,7 @@ async function replaceOutreachTripStops(agencyId, tripId, schoolIds) {
         );
       } catch (e) {
         if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-        await pool.execute(
+        await db.execute(
           `UPDATE outreach_trip_stops
            SET stop_order = ?, miles_from_prev = ?
            WHERE id = ? AND trip_id = ?`,
@@ -2438,14 +2500,14 @@ async function replaceOutreachTripStops(agencyId, tripId, schoolIds) {
       }
     } else {
       try {
-        await pool.execute(
+        await db.execute(
           `INSERT INTO outreach_trip_stops (trip_id, outreach_school_id, stop_order, miles_from_prev, stop_color)
            VALUES (?, ?, ?, ?, ?)`,
           [tripId, sid, order, miles, color]
         );
       } catch (e) {
         if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-        await pool.execute(
+        await db.execute(
           `INSERT INTO outreach_trip_stops (trip_id, outreach_school_id, stop_order, miles_from_prev)
            VALUES (?, ?, ?, ?)`,
           [tripId, sid, order, miles]
@@ -2457,9 +2519,9 @@ async function replaceOutreachTripStops(agencyId, tripId, schoolIds) {
   }
 }
 
-async function touchOutreachTripEdited(tripId, userId) {
+async function touchOutreachTripEdited(tripId, userId, db) {
   try {
-    await pool.execute(
+    await db.execute(
       `UPDATE outreach_trips SET updated_by_user_id = ? WHERE id = ?`,
       [userId || null, tripId]
     );
@@ -2468,13 +2530,15 @@ async function touchOutreachTripEdited(tripId, userId) {
   }
 }
 
-export async function updateOutreachTrip(agencyId, tripId, payload, userId) {
-  const trip = await getOutreachTrip(agencyId, tripId);
+async function updateOutreachTripInTransaction(agencyId, tripId, payload, userId, db) {
+  const trip = await getOutreachTrip(agencyId, tripId, db);
   if (!trip) throw new Error('Trip not found');
-  if (trip.status === 'completed') throw new Error('Completed trips cannot be edited');
+  if (['completed', 'cancelled'].includes(trip.status)) throw new Error('Completed or cancelled trips cannot be edited');
 
-  const sets = [];
-  const vals = [];
+  const nextDate = payload?.planned_date !== undefined || payload?.plannedDate !== undefined ? (payload.planned_date || payload.plannedDate) : trip.planned_date;
+  const config = normalizeOutreachEventConfig(payload?.outreachEvent ?? trip.outreachEvent, nextDate);
+  const sets = ['event_config_json = ?'];
+  const vals = [JSON.stringify(config)];
   if (payload?.title !== undefined) {
     const title = String(payload.title || '').trim();
     if (title) {
@@ -2495,28 +2559,28 @@ export async function updateOutreachTrip(agencyId, tripId, payload, userId) {
     vals.push(userId || null);
     vals.push(tripId);
     try {
-      await pool.execute(`UPDATE outreach_trips SET ${sets.join(', ')} WHERE id = ?`, vals);
+      await db.execute(`UPDATE outreach_trips SET ${sets.join(', ')} WHERE id = ?`, vals);
     } catch (e) {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
       const fallbackSets = sets.filter((s) => !s.startsWith('updated_by_user_id'));
       const fallbackVals = vals.slice(0, -2).concat([tripId]);
       if (fallbackSets.length) {
-        await pool.execute(`UPDATE outreach_trips SET ${fallbackSets.join(', ')} WHERE id = ?`, fallbackVals);
+        await db.execute(`UPDATE outreach_trips SET ${fallbackSets.join(', ')} WHERE id = ?`, fallbackVals);
       }
     }
   }
 
   if (Array.isArray(payload?.schoolIds)) {
-    await replaceOutreachTripStops(agencyId, tripId, payload.schoolIds);
-    await touchOutreachTripEdited(tripId, userId);
+    await replaceOutreachTripStops(agencyId, tripId, payload.schoolIds, db);
+    await touchOutreachTripEdited(tripId, userId, db);
   }
 
   if (Array.isArray(payload?.participants)) {
-    await pool.execute(`DELETE FROM outreach_trip_participants WHERE trip_id = ?`, [tripId]);
+    await db.execute(`DELETE FROM outreach_trip_participants WHERE trip_id = ?`, [tripId]);
     for (const p of payload.participants) {
       const name = String(p.display_name || p.displayName || p.name || '').trim();
       if (!name) continue;
-      await pool.execute(
+      await db.execute(
         `INSERT INTO outreach_trip_participants (trip_id, user_id, display_name, start_time, end_time)
          VALUES (?, ?, ?, ?, ?)`,
         [
@@ -2528,30 +2592,32 @@ export async function updateOutreachTrip(agencyId, tripId, payload, userId) {
         ]
       );
     }
-    await touchOutreachTripEdited(tripId, userId);
+    await touchOutreachTripEdited(tripId, userId, db);
   }
 
-  const updated = await getOutreachTrip(agencyId, tripId);
-  await syncOutreachTripCalendarEvents(agencyId, updated, userId);
-  return updated;
+  const updated = await getOutreachTrip(agencyId, tripId, db);
+  updated.company_event_id = await syncOutreachTripEvent(db, agencyId, updated, userId, trip);
+  await syncOutreachTripCalendarEvents(agencyId, updated, userId, db);
+  return getOutreachTrip(agencyId, tripId, db);
 }
 
-export async function deleteOutreachTrip(agencyId, tripId, userId) {
-  const trip = await getOutreachTrip(agencyId, tripId);
+async function deleteOutreachTripInTransaction(agencyId, tripId, userId, db) {
+  const trip = await getOutreachTrip(agencyId, tripId, db);
   if (!trip) throw new Error('Trip not found');
   if (trip.status === 'completed') throw new Error('Completed trips cannot be deleted');
 
-  await syncOutreachTripCalendarEvents(agencyId, { ...trip, status: 'cancelled' }, userId);
-  await pool.execute(`DELETE FROM outreach_trips WHERE id = ? AND agency_id = ?`, [tripId, agencyId]);
+  await syncOutreachTripEvent(db, agencyId, { ...trip, status: 'cancelled' }, userId, trip);
+  await syncOutreachTripCalendarEvents(agencyId, { ...trip, status: 'cancelled' }, userId, db);
+  await db.execute(`UPDATE outreach_trips SET status = 'cancelled', updated_by_user_id = ? WHERE id = ? AND agency_id = ?`, [userId, tripId, agencyId]);
   return { deleted: true, id: tripId };
 }
 
 /**
  * Create/update OUTREACH_TRIP provider_schedule_events for each participant with a user_id.
  */
-export async function syncOutreachTripCalendarEvents(agencyId, trip, actorUserId = null) {
+export async function syncOutreachTripCalendarEvents(agencyId, trip, actorUserId = null, db = pool) {
   if (!trip?.id) return;
-  const plannedDate = trip.planned_date ? String(trip.planned_date).slice(0, 10) : null;
+  const plannedDate = trip.planned_date instanceof Date ? trip.planned_date.toISOString().slice(0, 10) : trip.planned_date ? String(trip.planned_date).slice(0, 10) : null;
   const stopCount = (trip.stops || []).length;
   const title = String(trip.title || `Outreach trip: ${stopCount} stop${stopCount === 1 ? '' : 's'}`).slice(0, 200);
   const description = [
@@ -2564,21 +2630,31 @@ export async function syncOutreachTripCalendarEvents(agencyId, trip, actorUserId
   // Cancel existing events if trip cancelled
   if (trip.status === 'cancelled') {
     try {
-      await pool.execute(
+      await db.execute(
         `UPDATE provider_schedule_events
          SET status = 'CANCELLED', updated_by_user_id = ?
          WHERE outreach_trip_id = ? AND agency_id = ? AND status = 'ACTIVE'`,
         [actorUserId || null, trip.id, agencyId]
       );
     } catch (e) {
+      if (trip.company_event_id) throw e;
       if (e?.code !== 'ER_BAD_FIELD_ERROR') console.warn('[outreachHub] cancel calendar events', e?.message);
     }
     return;
   }
 
+  const byUser = new Map((trip.participants || []).filter(p => Number(p.user_id || p.userId) > 0).map(p => [Number(p.user_id || p.userId), p]));
+  if (trip.outreachEvent?.enabled && trip.company_event_id) {
+    const [events] = await db.execute('SELECT starts_at, ends_at FROM company_events WHERE id = ? AND agency_id = ?', [trip.company_event_id, agencyId]);
+    for (const id of trip.outreachEvent.assigneeUserIds) byUser.set(Number(id), { user_id: Number(id), start_time: events[0]?.starts_at, end_time: events[0]?.ends_at });
+  }
+  const participants = [...byUser.values()];
+  const ids = participants.map(p => Number(p.user_id || p.userId));
+  await db.execute(`UPDATE provider_schedule_events SET status = 'CANCELLED', updated_by_user_id = ?
+    WHERE outreach_trip_id = ? AND agency_id = ? AND status = 'ACTIVE'
+      ${plannedDate && ids.length ? `AND provider_id NOT IN (${ids.map(() => '?').join(',')})` : ''}`,
+    [actorUserId || null, trip.id, agencyId, ...(plannedDate ? ids : [])]);
   if (!plannedDate) return;
-
-  const participants = (trip.participants || []).filter((p) => Number(p.user_id || p.userId || 0) > 0);
   for (const p of participants) {
     const providerId = Number(p.user_id || p.userId);
     const startTime = p.start_time || p.startTime;
@@ -2587,7 +2663,9 @@ export async function syncOutreachTripCalendarEvents(agencyId, trip, actorUserId
     let startAt = null;
     let endAt = null;
     let startDate = plannedDate;
-    let endDate = plannedDate;
+    let endDate = new Date(`${plannedDate}T12:00:00Z`);
+    endDate.setUTCDate(endDate.getUTCDate() + 1);
+    endDate = endDate.toISOString().slice(0, 10);
     if (startTime) {
       startAt = mysqlDateTime(startTime);
       endAt = mysqlDateTime(endTime) || startAt;
@@ -2595,17 +2673,17 @@ export async function syncOutreachTripCalendarEvents(agencyId, trip, actorUserId
       endDate = null;
     }
     try {
-      const [existing] = await pool.execute(
+      const [existing] = await db.execute(
         `SELECT id FROM provider_schedule_events
          WHERE outreach_trip_id = ? AND provider_id = ? AND agency_id = ? AND status = 'ACTIVE'
          LIMIT 1`,
         [trip.id, providerId, agencyId]
       );
       if (existing?.[0]?.id) {
-        await pool.execute(
+        await db.execute(
           `UPDATE provider_schedule_events
            SET title = ?, description = ?, all_day = ?, start_at = ?, end_at = ?,
-               start_date = ?, end_date = ?, updated_by_user_id = ?, kind = 'OUTREACH_TRIP'
+               start_date = ?, end_date = ?, updated_by_user_id = ?, kind = 'OUTREACH_TRIP', event_timezone = ?
            WHERE id = ?`,
           [
             title,
@@ -2616,16 +2694,17 @@ export async function syncOutreachTripCalendarEvents(agencyId, trip, actorUserId
             startDate,
             endDate,
             actorUserId || null,
+            trip.outreachEvent?.timezone || 'America/Denver',
             existing[0].id
           ]
         );
       } else {
-        await pool.execute(
+        await db.execute(
           `INSERT INTO provider_schedule_events (
              agency_id, provider_id, kind, title, description, is_private, all_day,
              start_at, end_at, start_date, end_date, status,
-             created_by_user_id, updated_by_user_id, outreach_trip_id
-           ) VALUES (?, ?, 'OUTREACH_TRIP', ?, ?, 0, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?)`,
+             created_by_user_id, updated_by_user_id, outreach_trip_id, event_timezone
+           ) VALUES (?, ?, 'OUTREACH_TRIP', ?, ?, 0, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)`,
           [
             agencyId,
             providerId,
@@ -2638,11 +2717,13 @@ export async function syncOutreachTripCalendarEvents(agencyId, trip, actorUserId
             endDate,
             actorUserId || null,
             actorUserId || null,
-            trip.id
+            trip.id,
+            trip.outreachEvent?.timezone || 'America/Denver'
           ]
         );
       }
     } catch (e) {
+      if (trip.company_event_id) throw e;
       if (e?.code === 'ER_BAD_FIELD_ERROR') {
         console.warn('[outreachHub] outreach_trip_id column missing on provider_schedule_events — run migration 1239');
       } else {
@@ -2652,16 +2733,17 @@ export async function syncOutreachTripCalendarEvents(agencyId, trip, actorUserId
   }
 }
 
-export async function completeOutreachTrip(agencyId, tripId, payload, userId) {
-  const trip = await getOutreachTrip(agencyId, tripId);
+async function completeOutreachTripInTransaction(agencyId, tripId, payload, userId, db) {
+  const trip = await getOutreachTrip(agencyId, tripId, db);
   if (!trip) throw new Error('Trip not found');
   if (trip.status === 'completed') return trip;
+  if (trip.status === 'cancelled') throw Object.assign(new Error('Cancelled trips cannot be completed'), { status: 400 });
   if (Array.isArray(payload?.participants)) {
-    await pool.execute(`DELETE FROM outreach_trip_participants WHERE trip_id = ?`, [tripId]);
+    await db.execute(`DELETE FROM outreach_trip_participants WHERE trip_id = ?`, [tripId]);
     for (const p of payload.participants) {
       const name = String(p.display_name || p.displayName || p.name || '').trim();
       if (!name) continue;
-      await pool.execute(
+      await db.execute(
         `INSERT INTO outreach_trip_participants (trip_id, user_id, display_name, start_time, end_time)
          VALUES (?, ?, ?, ?, ?)`,
         [
@@ -2674,12 +2756,12 @@ export async function completeOutreachTrip(agencyId, tripId, payload, userId) {
       );
     }
   }
-  await pool.execute(
+  await db.execute(
     `UPDATE outreach_trips SET status = 'completed', completed_at = NOW(), notes = COALESCE(?, notes) WHERE id = ?`,
     [payload?.notes ? String(payload.notes) : null, tripId]
   );
-  const completed = await getOutreachTrip(agencyId, tripId);
-  await syncOutreachTripCalendarEvents(agencyId, completed, userId);
+  const completed = await getOutreachTrip(agencyId, tripId, db);
+  await syncOutreachTripCalendarEvents(agencyId, completed, userId, db);
   return completed;
 }
 
@@ -2693,7 +2775,7 @@ export async function updateOutreachTripStopAttendance(agencyId, tripId, stopId,
     throw new Error('Attendance must be pending, attended, skipped, or time_short');
   }
   const notesRaw = payload?.attendance_notes ?? payload?.attendanceNotes;
-  const notes = notesRaw ? String(notesRaw) : null;
+  const notes = notesRaw === undefined ? stop.attendance_notes : notesRaw ? String(notesRaw) : null;
   const prev = String(stop.attendance_status || 'pending');
   await pool.execute(
     `UPDATE outreach_trip_stops

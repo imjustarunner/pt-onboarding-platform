@@ -1,3 +1,5 @@
+import pool from '../config/database.js';
+import { assertOutreachTripActor, listOutreachEventAssignableUsers } from '../services/outreachTripEvent.service.js';
 import {
   listOutreachSchools,
   getOutreachSchool,
@@ -42,6 +44,7 @@ function agencyIdFrom(req) {
 
 function handleServiceError(res, err) {
   const msg = String(err?.message || 'Request failed');
+  if (err?.status >= 400 && err.status < 500) return res.status(err.status).json({ error: { message: msg } });
   if (/invalid|must be/i.test(msg)) {
     return res.status(400).json({ error: { message: msg } });
   }
@@ -205,7 +208,8 @@ export const getAssignableUsers = async (req, res, next) => {
   try {
     const agencyId = agencyIdFrom(req);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    const users = await listOutreachAssignableUsers(agencyId);
+    await assertOutreachTripActor(pool, agencyId, req.user?.id);
+    const users = req.query?.purpose === 'event' ? await listOutreachEventAssignableUsers(agencyId, pool) : await listOutreachAssignableUsers(agencyId);
     res.json({ users });
   } catch (err) {
     next(err);

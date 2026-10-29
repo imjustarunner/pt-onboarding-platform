@@ -51,7 +51,7 @@ test('a replayed SMS cannot create another punch even after a later checkout', a
   t.mock.method(pool, 'getConnection', async () => db);
   const result = await recordEmployeeEventParticipation({ eventId: 4, userId: 9, action: 'check-in', source: 'employee_event_sms', idempotencyKey: 'original-message' });
   assert.equal(result.alreadyProcessed, true);
-  assert.deepEqual(actions, ['begin', 'lock', 'commit', 'release']);
+  assert.deepEqual(actions, ['begin', 'lock', 'lock', 'commit', 'release']);
 });
 test('travel rejects cross-agency or unassigned event claims', async () => {
   await assert.rejects(validate({ agencyId: 99 }), /organization/);

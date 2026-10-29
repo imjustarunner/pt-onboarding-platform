@@ -1,3 +1,4 @@
+import { jacquelyneAdminRate } from './jacquelyneTime.service.js';
 import pool from '../config/database.js';
 import PayrollTimeClaim from '../models/PayrollTimeClaim.model.js';
 import { utcDateToZonedYmd, toUtcIso } from '../utils/zonedWallTime.util.js';
@@ -13,7 +14,7 @@ export async function loadEmployeeEvent({ eventId, userId, db = pool }) {
   const eid = Number(eventId), uid = Number(userId);
   if (!Number.isInteger(eid) || eid <= 0 || !Number.isInteger(uid) || uid <= 0) fail(400, 'Valid event and user IDs are required');
   const [rows] = await db.execute(
-    `SELECT e.id, e.agency_id, e.title, e.starts_at, e.ends_at, e.timezone, e.is_active, e.school_event_status, u.role AS user_role
+    `SELECT e.id, e.agency_id, e.title, e.starts_at, e.ends_at, e.timezone, e.is_active, e.school_event_status, e.event_type, u.role AS user_role
      FROM company_events e
      JOIN user_agencies ua ON ua.agency_id = e.agency_id AND ua.user_id = ? AND COALESCE(ua.is_active, 1) = 1
      JOIN users u ON u.id = ua.user_id AND COALESCE(u.is_archived, 0) = 0 AND u.is_active = 1 AND u.terminated_at IS NULL
@@ -57,7 +58,8 @@ export async function getEmployeeEventParticipation({ eventId, userId, db = pool
   const isEventDay = await isEmployeeEventDay({ event, date, db });
   const canManage = ['super_admin', 'admin', 'support', 'staff'].includes(String(event.user_role || '').toLowerCase())
     || await isEventCoordinator({ userId, agencyId: event.agency_id, eventId: event.id });
-  return { eventId: Number(event.id), agencyId: Number(event.agency_id), userId: Number(userId), assigned, canSubmitTravel, clockedIn, isEventDay, canManage,
+  const adminRate = event.event_type === 'school_outreach' ? await jacquelyneAdminRate({ agencyId: event.agency_id, userId, asOf: utcDateToZonedYmd(event.starts_at, event.timezone) }) : null;
+  return { adminTimeHourlyRate: adminRate, eventId: Number(event.id), agencyId: Number(event.agency_id), userId: Number(userId), assigned, canSubmitTravel, clockedIn, isEventDay, canManage,
     canCheckIn: assigned && isEventDay && Number(event.is_active) === 1 && event.school_event_status !== 'canceled' && !clockedIn, canCheckOut: clockedIn,
     timezone: event.timezone || 'America/Denver', today: date,
     lastPunch: last ? { id: Number(last.id), type: last.punch_type, at: toUtcIso(last.punched_at), sessionId: last.session_id } : null,
@@ -85,6 +87,7 @@ export async function recordEmployeeEventParticipation({ eventId, userId, action
     await db.beginTransaction();
     // Attendance and event travel use the same lock, including concurrent phone taps.
     await db.execute('SELECT id FROM users WHERE id = ? FOR UPDATE', [userId]);
+    await db.execute('SELECT id FROM company_events WHERE id = ? FOR UPDATE', [eventId]);
     const event = await loadEmployeeEvent({ eventId, userId, db });
     if (idempotencyKey) {
       const [receipt] = await db.execute(`INSERT IGNORE INTO company_event_checkin_sms_receipts

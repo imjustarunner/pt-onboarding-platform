@@ -370,7 +370,7 @@
               </div>
               <p class="itl-disclaimer">Outreach must be directed by admin to develop or maintain Denver school relationships. Translation covers help for support staff or providers that is not already paid as direct time. Onboarding help must be a scheduled huddle in the app; check My time records before submitting.</p>
               <button type="button" class="itl-link-btn" @click="showOutreachTravel = true">Submit outreach trips</button>
-              <p class="itl-disclaimer">Have admin assign your school visit as a District Outreach event in the app. Report the actual trips here using the event travel form, mileage calculation, and payroll eligibility review. Outreach work is Admin Time; eligible travel follows the event travel rate. Do not duplicate event attendance already recorded.</p>
+              <p class="itl-disclaimer">Have admin assign your trip as an Outreach Event in Outreach Hub. Report the actual trips here using the event travel form, mileage calculation, and payroll eligibility review. Outreach work is Admin Time; eligible travel follows the event travel rate. Do not duplicate event attendance already recorded.</p>
             </div>
 
             <div v-if="showSupervisionColumn" class="itl-dual-col itl-dual-col--supervision">

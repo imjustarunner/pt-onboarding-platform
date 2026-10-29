@@ -329,7 +329,7 @@
               <h2>{{ openedTrip.title }}</h2>
               <span class="ohub-stage" :class="openedTrip.status">{{ tripStatusLabel(openedTrip.status) }}</span>
               <button
-                v-if="openedTrip.status !== 'completed'"
+                v-if="!['completed', 'cancelled'].includes(openedTrip.status)"
                 type="button"
                 class="btn btn-secondary btn-sm"
                 @click="startTripRouteEdit"
@@ -683,7 +683,7 @@
 
             <section class="ohub-card ohub-card--notes">
               <h3>Notes</h3>
-              <p class="ohub-muted ohub-notes-hint">Saved notes and details imported from the spreadsheet appear here.</p>
+              <p class="ohub-muted ohub-notes-hint">Notes, conversations, and visit details from every trip appear here, including earlier visits.</p>
               <form class="ohub-log" @submit.prevent="submitNote">
                 <label class="ohub-field">
                   <span>Add a note</span>
@@ -693,6 +693,7 @@
               </form>
               <ol class="ohub-timeline">
                 <li v-for="n in schoolNotesFeed" :key="n.id">
+                  <strong v-if="n.trip_title">{{ n.trip_title }}</strong>
                   <div>
                     <div v-if="n.sourceLabel || n.activityLabel" class="ohub-note-tags">
                       <span v-if="n.sourceLabel" class="ohub-import-badge">{{ n.sourceLabel }}</span>
@@ -996,6 +997,13 @@
 
         <section v-else-if="viewMode === 'trips'" class="ohub-trip-meta">
           <template v-if="openedTrip && !tripRouteEditing">
+            <section v-if="openedTrip.outreachEvent?.enabled && openedTrip.eventStaffPath" class="ohub-card">
+              <h3>Assigned Outreach Event</h3>
+              <p>{{ openedTrip.outreachEvent.startTime }}–{{ openedTrip.outreachEvent.endTime }} · {{ openedTrip.outreachEvent.timezone }}</p>
+              <ul class="ohub-plain-list"><li v-for="id in openedTrip.outreachEvent.assigneeUserIds" :key="id">{{ eventAssigneeName(id) }}</li></ul>
+              <router-link class="btn btn-primary" :to="openedTrip.eventStaffPath">Open Outreach Event</router-link>
+              <p class="ohub-muted">Assignees check in/out for work at each stop and submit travel from the event. Check out while driving.</p>
+            </section>
             <h2>Who’s going</h2>
             <ul class="ohub-plain-list">
               <li v-for="(p, i) in openedTrip.participants || []" :key="`${p.display_name}-${i}`">
@@ -1011,20 +1019,20 @@
             <p class="ohub-muted">Tap a stop on the left to log conversations, follow-ups, and tasks for that school.</p>
             <div class="ohub-trip-meta-actions">
               <button
-                v-if="openedTrip.status !== 'completed'"
+                v-if="!['completed', 'cancelled'].includes(openedTrip.status)"
                 type="button"
                 class="btn btn-secondary"
                 @click="startTripRouteEdit"
               >Edit trip</button>
               <button
-                v-if="openedTrip.status !== 'completed'"
+                v-if="!['completed', 'cancelled'].includes(openedTrip.status)"
                 type="button"
                 class="btn btn-danger"
                 :disabled="tripSaving"
                 @click="deleteOpenedTrip"
-              >Delete trip</button>
+              >Cancel trip</button>
               <button
-                v-if="openedTrip.status !== 'completed'"
+                v-if="!['completed', 'cancelled'].includes(openedTrip.status)"
                 type="button"
                 class="btn btn-primary"
                 :disabled="tripSaving"
@@ -1084,12 +1092,13 @@
               <span>Notes</span>
               <textarea v-model="tripNotes" rows="2" />
             </label>
+            <OutreachEventAssignment v-model="tripOutreachEvent" :users="eventAssignableUsers" :can-assign="canAssignOutreachEvent" />
             <div class="ohub-trip-meta-actions">
               <button type="button" class="btn btn-primary" :disabled="!tripStops.length || tripSaving" @click="saveTripEdits">
                 {{ tripSaving ? 'Saving…' : 'Save trip' }}
               </button>
               <button type="button" class="btn btn-secondary" :disabled="tripSaving" @click="cancelTripRouteEdit">Cancel</button>
-              <button type="button" class="btn btn-danger" :disabled="tripSaving" @click="deleteOpenedTrip">Delete trip</button>
+              <button type="button" class="btn btn-danger" :disabled="tripSaving" @click="deleteOpenedTrip">Cancel trip</button>
             </div>
           </template>
           <template v-else>
@@ -1140,6 +1149,7 @@
               <span>Notes</span>
               <textarea v-model="tripNotes" rows="2" />
             </label>
+            <OutreachEventAssignment v-model="tripOutreachEvent" :users="eventAssignableUsers" :can-assign="canAssignOutreachEvent" />
             <button type="button" class="btn btn-primary" :disabled="!tripStops.length || tripSaving" @click="saveTrip">
               {{ tripSaving ? 'Saving…' : 'Save planned trip' }}
             </button>
@@ -1224,7 +1234,9 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api.js';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+import OutreachEventAssignment from '../../components/admin/OutreachEventAssignment.vue';
 import OutreachTripStopEditor from '../../components/admin/OutreachTripStopEditor.vue';
+import { outreachSchoolNotes } from '../../utils/outreachSchoolNotes.js';
 import CaseloadHubEventsView from './caseload-hub/CaseloadHubEventsView.vue';
 import CaseloadHubCalendarView from './caseload-hub/CaseloadHubCalendarView.vue';
 
@@ -1385,6 +1397,11 @@ const tripSort = ref('closest');
 const tripDate = ref('');
 const tripTitle = ref('');
 const tripNotes = ref('');
+const eventAssigneeName = id => { const user = eventAssignableUsers.value.find(u => Number(u.id) === Number(id)); return user ? userDisplayName(user) : `Employee #${id}`; };
+const blankOutreachEvent = () => ({ enabled: false, assigneeUserIds: [], startTime: '', endTime: '', timezone: 'America/Denver' });
+const tripOutreachEvent = ref(blankOutreachEvent());
+const eventAssignableUsers = ref([]);
+const canAssignOutreachEvent = computed(() => ['admin','super_admin','support','staff'].includes(String(authStore.user?.role || '').toLowerCase()));
 const tripSaving = ref(false);
 const tripRouteEditing = ref(false);
 const tripEditorSaving = ref(false);
@@ -1495,33 +1512,7 @@ const activityGroups = computed(() => {
   return [...map.values()];
 });
 
-const schoolNotesFeed = computed(() => {
-  const notes = (selected.value?.notes || []).map((n) => ({
-    id: `note-${n.id}`,
-    body: n.body,
-    created_at: n.created_at,
-    created_by_name: n.created_by_name,
-    sourceLabel: n.source === 'historical_import' ? 'From spreadsheet' : null,
-    activityLabel: null
-  }));
-  const noteBodies = new Set(notes.map((n) => String(n.body || '').trim()).filter(Boolean));
-  const fromActivities = (selected.value?.activities || [])
-    .filter((a) => String(a.notes || '').trim())
-    .filter((a) => !noteBodies.has(String(a.notes).trim()))
-    .map((a) => ({
-      id: `act-note-${a.id}`,
-      body: a.notes,
-      created_at: a.activity_at || a.created_at,
-      created_by_name: a.created_by_name,
-      sourceLabel: a.source === 'historical_import' ? 'From spreadsheet' : null,
-      activityLabel: `${a.contact_type || 'contact'}${a.summary ? ` · ${a.summary}` : ''}`
-    }));
-  return [...notes, ...fromActivities].sort((a, b) => {
-    const ta = new Date(a.created_at || 0).getTime();
-    const tb = new Date(b.created_at || 0).getTime();
-    return tb - ta;
-  });
-});
+const schoolNotesFeed = computed(() => outreachSchoolNotes(selected.value || {}));
 
 const activeTripStopContext = computed(() => {
   if (viewMode.value !== 'trips' || !selected.value) return null;
@@ -1605,7 +1596,11 @@ const loadAssignableUsers = async () => {
   const aid = Number(agencyStore.currentAgency?.id || 0);
   if (!aid) return;
   try {
-    const { data } = await api.get('/outreach/assignable-users', { skipGlobalLoading: true });
+    const [{ data }, eventResponse] = await Promise.all([
+      api.get('/outreach/assignable-users', { skipGlobalLoading: true }),
+      api.get('/outreach/assignable-users', { params: { purpose: 'event' }, skipGlobalLoading: true })
+    ]);
+    eventAssignableUsers.value = eventResponse.data?.users || [];
     const list = Array.isArray(data?.users) ? data.users : [];
     assignableUsers.value = list
       .map(normalizeAgencyUser)
@@ -2728,6 +2723,7 @@ const startTripRouteEdit = async () => {
   tripTitle.value = t.title || '';
   tripDate.value = t.planned_date ? String(t.planned_date).slice(0, 10) : '';
   tripNotes.value = t.notes || '';
+  tripOutreachEvent.value = { ...blankOutreachEvent(), ...(t.outreachEvent || {}) };
   tripParticipants.value = (t.participants || []).map((p) => ({
     display_name: p.display_name,
     user_id: p.user_id || null,
@@ -2750,6 +2746,7 @@ const cancelTripRouteEdit = () => {
   tripStops.value = [];
   tripTitle.value = '';
   tripNotes.value = '';
+  tripOutreachEvent.value = blankOutreachEvent();
   tripParticipants.value = [];
   tripClosestToBoth.value = false;
 };
@@ -2764,6 +2761,7 @@ const saveTripEdits = async () => {
       schoolIds: tripStops.value.map((s) => s.id),
       plannedDate: tripDate.value || null,
       notes: tripNotes.value || null,
+      outreachEvent: tripOutreachEvent.value,
       participants: tripParticipants.value
     }, { skipGlobalLoading: true });
     const updated = res.data?.trip;
@@ -2776,6 +2774,7 @@ const saveTripEdits = async () => {
     tripStops.value = [];
     tripTitle.value = '';
     tripNotes.value = '';
+    tripOutreachEvent.value = blankOutreachEvent();
     tripParticipants.value = [];
     await loadTripPreview();
   } catch (err) {
@@ -2787,7 +2786,7 @@ const saveTripEdits = async () => {
 
 const deleteOpenedTrip = async () => {
   if (!openedTripId.value || openedTrip.value?.status === 'completed') return;
-  if (!window.confirm('Delete this trip? Stops and notes stay on each school, but the trip route will be removed.')) return;
+  if (!window.confirm('Cancel this trip? School notes and trip history will be kept. Its linked Outreach Event will be canceled.')) return;
   tripSaving.value = true;
   error.value = '';
   try {
@@ -2878,10 +2877,12 @@ const saveTrip = async () => {
       schoolIds: tripStops.value.map((s) => s.id),
       plannedDate: tripDate.value || null,
       notes: tripNotes.value || null,
+      outreachEvent: tripOutreachEvent.value,
       participants: tripParticipants.value
     }, { skipGlobalLoading: true });
     tripStops.value = [];
     tripNotes.value = '';
+    tripOutreachEvent.value = blankOutreachEvent();
     tripParticipants.value = [];
     await Promise.all([loadTrips(), loadTripPreview(), reloadSummary()]);
   } catch (err) {

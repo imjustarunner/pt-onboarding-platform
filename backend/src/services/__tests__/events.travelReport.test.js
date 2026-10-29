@@ -17,6 +17,7 @@ const sql = async (query, args = []) => {
   if (query.includes('SELECT id, drive_date, applied_amount FROM payroll_mileage_claims')) return [approvedMileage && args[0] === 193 && args[1] === 2 && args[2] === 7 && args[3] === '2026-10-29' ? [approvedMileage] : []];
   if (query.includes('SELECT id, drive_date, trip_purpose')) return [approvedMileage ? [approvedMileage] : []];
   if (query.includes('SELECT e.id, e.agency_id')) return [assigned ? [event] : []];
+  if (query.includes('FROM outreach_trip_stops ts')) return [[{id:10,name:'First school',address:'10 Event St, Denver, CO'}, {id:11,name:'Second school',address:'20 Other St, Denver, CO'}]];
   if (query.includes('SELECT DISTINCT e.id')) return [[event]];
   if (query.includes('SELECT 1 AS assigned')) return [assigned ? [{ assigned: 1 }] : []];
   if (query.includes('SELECT session_date')) return [[{ session_date: '2026-10-29' }]];
@@ -29,6 +30,7 @@ const sql = async (query, args = []) => {
   if (query.includes('FROM skill_builders_event_kiosk_punches')) return [overlaps ? [{ id: 44 }] : []];
   if (query.includes('payload_json FROM payroll_time_claims')) return [savedClaims];
   if (query.includes('SELECT * FROM company_event_travel_reports')) return [existingReport ? [existingReport] : []];
+  if (query.includes('SELECT id FROM company_events')) return [[{ id: 8 }]];
   if (query.includes('SELECT id FROM users')) return [[{ id: 7 }]];
   if (query.includes('SELECT status FROM payroll_')) return [[{ status: 'submitted' }]];
   if (query.includes('SELECT id, label FROM payroll_indirect_service_types')) return [[{ id: 6, label: 'Approved Travel' }]];
@@ -218,4 +220,43 @@ it('still blocks an open check-in on the travel day',async()=>{
  const report={agencyId:2,userId:7,timezone:'America/Denver',segments:[{startedAt:'2026-10-25T03:40:00Z',endedAt:'2026-10-25T04:00:00Z'}]};
  pool.execute.mockImplementation((q,a)=>q.includes('FROM skill_builders_event_kiosk_punches')?[[{id:44,title:'Today event',timezone:'America/Denver',started_at:new Date('2026-10-25T00:00:00Z'),ended_at:null,event_ends_at:new Date('2026-10-25T03:00:00Z')}]]:sql(q,a));
  await expect(assertEventTravelNoOverlap({report,db:pool})).rejects.toThrow('event attendance');
+});
+
+
+describe('Outreach Hub multi-school travel', () => {
+  const stops = [{id:10,name:'First school',address:'10 Event St, Denver, CO'}, {id:11,name:'Second school',address:'20 Other St, Denver, CO'}];
+  it('uses actual visited schools, includes inter-school travel and preserves commute exclusions', async () => {
+    event.outreach_trip_id = 3;
+    try {
+      const f = formWithRoute({ materialsPickup:'none', materialsReturn:'none', outreachStopIds:[10,11] });
+      f.intervals['outbound-0'] = {startedAt:'2026-10-29T14:00:00Z',endedAt:'2026-10-29T14:20:00Z'};
+      f.intervals['between-0'] = {startedAt:'2026-10-29T15:00:00Z',endedAt:'2026-10-29T15:20:00Z'};
+      f.intervals['inbound-0'] = {startedAt:'2026-10-29T18:00:00Z',endedAt:'2026-10-29T18:20:00Z'};
+      const report = await build(f);
+      expect(report.segments).toHaveLength(3);
+      expect(report.segments.find(s=>s.journey==='between')).toMatchObject({timeEligible:true,mileageEligible:true,from:{stopId:10,label:'First school'},to:{stopId:11,label:'Second school'}});
+      expect(report.segments.find(s=>s.journey==='outbound').mileageEligible).toBe(false);
+      expect(report.segments.find(s=>s.journey==='inbound').from.label).toBe('Second school');
+      expect(report.totalMiles).toBe(5);
+      expect(report.outreachTripId).toBe(3);
+      const one = await build({...f,outreachStopIds:[11]});
+      expect(one.segments).toHaveLength(2);
+      expect(one.segments[0].to.label).toBe('Second school');
+    } finally { delete event.outreach_trip_id; }
+  });
+  it('rejects forged or duplicate stops and inter-school times outside the actual journey', async () => {
+    event.outreach_trip_id = 3;
+    try {
+      for (const ids of [[999],[10,10],[]]) await expect(build(formWithRoute({outreachStopIds:ids}))).rejects.toThrow(/outreach|school/i);
+      const f = formWithRoute({outreachStopIds:[10,11]});
+      f.intervals['between-0'] = {startedAt:'2026-10-29T10:00:00Z',endedAt:'2026-10-29T10:20:00Z'};
+      await expect(build(f)).rejects.toThrow('Travel between schools');
+    } finally { delete event.outreach_trip_id; }
+  });
+  it('preserves route order in the shared client/server itinerary', () => {
+    const route = eventTravelJourneys(formWithRoute(), [...stops].reverse());
+    expect(route.find(j=>j.key==='outbound').legs.at(-1).to.stopId).toBe(11);
+    expect(route.find(j=>j.key==='between').legs[0]).toMatchObject({from:{stopId:11},to:{stopId:10}});
+    expect(route.find(j=>j.key==='inbound').legs[0].from.stopId).toBe(10);
+  });
 });

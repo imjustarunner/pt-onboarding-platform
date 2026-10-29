@@ -13,7 +13,9 @@
         <p v-if="event.employeeReportTime">Report by {{ event.employeeReportTime }}</p>
         <a v-if="!signedIn" :href="signInUrl" class="btn btn-primary">Sign in to RSVP or check in</a>
         <template v-else>
-          <a v-if="participation?.canManage" class="btn btn-secondary" :href="`/admin/company-events?eventId=${eventId}&agencyId=${participation.agencyId}`">Manage this event</a>
+          <a v-if="participation?.canManage && !event.outreachTripId" class="btn btn-secondary" :href="`/admin/company-events?eventId=${eventId}&agencyId=${participation.agencyId}`">Manage this event</a>
+          <a v-if="event.outreachTripId && authStore.user?.capabilities?.canAccessOutreach" class="btn btn-secondary" :href="`/admin/outreach-hub?trip=${event.outreachTripId}`">School notes and trip route</a>
+          <a v-if="participation?.canSubmitTravel" class="btn btn-secondary" :href="`/dashboard?tab=submit&eventTravel=${eventId}`">Submit event travel</a>
           <section>
             <h2>Can you help?</h2>
             <p>Your response lets the coordinator know you are interested. The coordinator confirms staff assignments.</p>
@@ -26,7 +28,9 @@
           </section>
           <section v-if="participation" id="event-check-in">
             <h2>Event check-in</h2>
-            <p v-if="String(event.eventType || '').startsWith('school_')">Approved event time is compensated at your indirect rate. Record travel separately below.</p>
+            <p v-if="participation.adminTimeHourlyRate">Your approved outreach work uses Admin Time at ${{ Number(participation.adminTimeHourlyRate).toFixed(2) }}/hour. Submit travel separately.</p>
+            <p v-else-if="String(event.eventType || '').startsWith('school_')">Approved event work uses your applicable event rate. Submit travel separately.</p>
+            <p v-if="event.outreachTripId">Check in and out at each school stop. Check out while driving between schools; report that travel in Submit.</p>
             <p v-if="participation.clockedIn">You are checked in. Check out when your event work ends.</p>
             <p v-else-if="participation.assigned">You are assigned to this event. {{ participation.isEventDay ? 'Check in when your event work begins.' : 'Check-in opens on the event day.' }}</p>
             <p v-else>The coordinator must assign you before you can check in or submit travel time.</p>

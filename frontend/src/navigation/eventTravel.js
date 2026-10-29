@@ -8,18 +8,20 @@ export function eventTravelLinkRequest(query = {}) {
   const mileageClaimId = Number(query.mileageClaim);
   return { eventId, eventDate: date, existingMileageClaimId: Number.isSafeInteger(mileageClaimId) && mileageClaimId > 0 ? mileageClaimId : null };
 }
-export function eventTravelJourneys(form) {
+export function eventTravelJourneys(form, outreachStops = []) {
   const office = { kind: 'office' }, event = { kind: 'event' };
+  const venues = outreachStops.length ? outreachStops.map(stop => ({ kind: 'event', stopId: Number(stop.id) })) : [event];
   const journeys = [];
   const add = (key, label, points) => {
-    const stops = points.filter((p, i) => !i || p.kind !== points[i - 1].kind || (p.kind !== 'office' && p.kind !== 'event'));
+    const stops = points.filter((p, i) => !i || p.kind !== points[i - 1].kind || p.stopId !== points[i - 1].stopId || (p.kind !== 'office' && p.kind !== 'event'));
     journeys.push({ key, label, legs: stops.slice(1).map((to, i) => ({ key: `${key}-${i}`, from: stops[i], to })) });
   };
   if (form.materialsPickup === 'before_event' && form.pickupTiming === 'separate') {
     add('pickup', 'Separate materials pickup', [form.pickupFrom, office, form.pickupTo]);
   }
-  add('outbound', 'To the event', [form.departure, ...(form.materialsPickup === 'before_event' && form.pickupTiming === 'on_way' ? [office] : []), event]);
-  add('inbound', 'After the event', [event, ...(form.materialsReturn === 'after_event' ? [office] : []), form.returnTo]);
+  add('outbound', 'To the event', [form.departure, ...(form.materialsPickup === 'before_event' && form.pickupTiming === 'on_way' ? [office] : []), venues[0]]);
+  if (venues.length > 1) add('between', 'Between outreach schools', venues);
+  add('inbound', 'After the event', [venues.at(-1), ...(form.materialsReturn === 'after_event' ? [office] : []), form.returnTo]);
   if (form.materialsReturn === 'separate') add('return', 'Separate materials return', [form.dropoffFrom, office, form.dropoffTo]);
   return journeys;
 }
@@ -48,7 +50,7 @@ export function recommendEventTravelLeg({ from, to, journey, form, legacyTravelP
 }
 
 /** Validate visible legs before sending, with enough context to fix one field. */
-export function eventTravelInputError(form, now = new Date()) {
+export function eventTravelInputError(form, now = new Date(), outreachStops = []) {
   const check = (row, label, optional = false) => {
     if (optional && !row?.startedAt && !row?.endedAt) return '';
     if (!row?.startedAt || !row?.endedAt) return `${label}: enter both departure and arrival dates and times.`;
@@ -60,7 +62,7 @@ export function eventTravelInputError(form, now = new Date()) {
     if (end > now) return `${label}: arrival cannot be in the future.`;
     return '';
   };
-  for (const journey of eventTravelJourneys(form)) for (const leg of journey.legs) {
+  for (const journey of eventTravelJourneys(form, outreachStops)) for (const leg of journey.legs) {
     const issue = check(form.intervals?.[leg.key], `${journey.label} (${leg.from.kind} → ${leg.to.kind})`);
     if (issue) return issue;
   }
@@ -69,4 +71,10 @@ export function eventTravelInputError(form, now = new Date()) {
     if (enabled) { const issue = check(form.handling?.[key], `Materials ${key}`, true); if (issue) return issue; }
   }
   return '';
+}
+
+// Resolve selected stop IDs against the assigned server route, never addresses supplied by an employee.
+export function selectedOutreachStops(stops = [], ids = null) {
+  if (ids == null) return stops;
+  return ids.map(id => stops.find(stop => Number(stop.id) === Number(id))).filter(Boolean);
 }

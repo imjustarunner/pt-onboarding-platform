@@ -133,7 +133,7 @@
             <span><i class="lg bts" /> Back to School</span>
             <span><i class="lg fair" /> Resource Fair / School Event</span>
             <span><i class="lg open" /> Open House / Orientation</span>
-            <span><i class="lg outreach" /> District Outreach</span>
+            <span><i class="lg outreach" /> Outreach Event</span>
             <span><i class="lg family" /> Family Night</span>
             <span><i class="lg spring" /> Spring / Other</span>
             <span><i class="lg holiday" /> Holiday / Day off</span>

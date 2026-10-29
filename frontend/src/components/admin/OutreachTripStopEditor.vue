@@ -46,6 +46,21 @@
       </div>
     </div>
 
+    <section class="otse-card" aria-label="School notes from all trips">
+      <h3>School notes · all trips</h3>
+      <p class="ohub-muted">Review earlier visits before meeting with this school. Trip-wide notes are shared context for the whole route.</p>
+      <ol class="otse-feed">
+        <li v-for="note in schoolHistory" :key="note.id" class="otse-feed-item">
+          <div class="otse-feed-body">
+            <strong>{{ note.activityLabel || 'Note' }}</strong>
+            <p>{{ note.body }}</p>
+            <div class="ohub-muted">{{ note.trip_title || 'School record' }}<template v-if="note.created_at"> · {{ formatDateTime(note.created_at) }}</template><template v-if="note.created_by_name"> · {{ note.created_by_name }}</template></div>
+          </div>
+        </li>
+        <li v-if="!schoolHistory.length" class="ohub-muted">No saved school notes yet.</li>
+      </ol>
+    </section>
+
     <div class="otse-card">
       <div class="otse-card-head">
         <h3>Contacts</h3>
@@ -234,6 +249,7 @@
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
+import { outreachSchoolNotes } from '../../utils/outreachSchoolNotes.js';
 
 const props = defineProps({
   school: { type: Object, default: null },
@@ -320,6 +336,8 @@ watch(
 );
 
 const tripTagLabel = computed(() => props.tripTitle || (props.tripId ? `Trip #${props.tripId}` : ''));
+
+const schoolHistory = computed(() => outreachSchoolNotes(props.school || {}));
 
 const tripFeed = computed(() => {
   const tid = Number(props.tripId || 0);

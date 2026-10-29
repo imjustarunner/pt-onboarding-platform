@@ -19,7 +19,7 @@ export const KNOWN_EVENT_PAYROLL_TYPES = [
   { eventType: 'school_family_night', label: 'Family Night', defaultSlot: 'indirect', defaultSplit: false },
   { eventType: 'school_orientation', label: 'Orientation', defaultSlot: 'indirect', defaultSplit: false },
   { eventType: 'school_other', label: 'School Event', defaultSlot: 'indirect', defaultSplit: false },
-  { eventType: 'school_outreach', label: 'District Outreach', defaultSlot: 'indirect', defaultSplit: false },
+  { eventType: 'school_outreach', label: 'Outreach Event', defaultSlot: 'indirect', defaultSplit: false },
   { eventType: 'school_fall_check_in', label: 'Fall School Check-in', defaultSlot: 'indirect', defaultSplit: false },
   { eventType: 'school_spring_event', label: 'Spring School Check-in', defaultSlot: 'indirect', defaultSplit: false },
   { eventType: 'school_first_day', label: 'First Day of School', defaultSlot: 'indirect', defaultSplit: false },

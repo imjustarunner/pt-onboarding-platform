@@ -33,6 +33,12 @@
             <fieldset v-else-if="step === 2" :disabled="busy || locked">
               <legend>Your actual trips</legend>
               <p class="hint">Saved home, office, and event addresses are filled in for you. Google calculates driving distances. Use actual travel times, excluding personal stops and time already clocked at the event. Check the date and AM/PM for each departure and arrival. Each part of the trip must end after it starts and last no more than 24 hours. Times below use your device timezone ({{ deviceTimezone }}).</p>
+              <section v-if="selectedEvent?.outreachStops?.length" class="etr-route">
+                <h3>Schools you actually visited</h3>
+                <p class="hint">Select the stops you visited, then put them in travel order. Check out of outreach work while driving between stops.</p>
+                <label v-for="stop in selectedEvent.outreachStops" :key="stop.id" class="etr-check"><input v-model="form.outreachStopIds" @change="resetRouteIntervals" type="checkbox" :value="stop.id" />{{ stop.name }} · {{ stop.address }}</label>
+                <ol><li v-for="(stop, index) in outreachStops" :key="stop.id">{{ stop.name }} <button v-if="index > 0" type="button" @click="moveOutreachStop(index, -1)">Move up</button> <button v-if="index < outreachStops.length - 1" type="button" @click="moveOutreachStop(index, 1)">Move down</button></li></ol>
+              </section>
               <label>How did you travel?<select aria-label="How did you travel?" v-model="form.vehicle"><option value="personal">I drove my own vehicle</option><option value="company">I drove a company vehicle</option><option value="passenger">I was a passenger / carpooled</option><option value="other">Other transportation</option></select></label>
               <div class="etr-grid"><EventTravelLocation v-model="form.departure" label="Where did you leave from?" :schools="options.schools" :home-address="options.homeAddress" :office-address="selectedOffice?.address" /><EventTravelLocation v-model="form.returnTo" label="Where did you go after the event / materials dropoff?" :schools="options.schools" :home-address="options.homeAddress" :office-address="selectedOffice?.address" /></div>
               <label v-if="usesOffice">Assigned office for pickup / return<select aria-label="Assigned office for pickup / return" v-model="form.officeLocationId" required><option :value="null" disabled>Choose your assigned office</option><option v-for="office in options.offices" :key="office.id" :value="office.id">{{ office.name }}</option></select><span class="hint">{{ selectedOffice?.address || 'Ask your coordinator to update your office assignment if it is missing.' }}</span></label>
@@ -68,7 +74,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import api from '../../services/api';
 import EventTravelLocation from './EventTravelLocation.vue';
 import EventTravelReportSummary from './EventTravelReportSummary.vue';
-import { EVENT_TRAVEL_STEPS, eventTravelDefaultForm, eventTravelJourneys, eventTravelInputError } from '../../navigation/eventTravel.js';
+import { EVENT_TRAVEL_STEPS, eventTravelDefaultForm, eventTravelJourneys, eventTravelInputError, selectedOutreachStops } from '../../navigation/eventTravel.js';
 const props = defineProps({ outreach: { type: Boolean, default: false }, agencyId: { type: Number, required: true }, initialEventId: { type: Number, default: null }, initialEventDate: { type: String, default: '' }, initialMileageClaimId: { type: Number, default: null } });
 const emit = defineEmits(['close', 'submitted']);
 const dialog = ref(null), formElement = ref(null), loading = ref(true), busy = ref(false), error = ref(''), saved = ref(null);
@@ -83,15 +89,25 @@ watch(() => form.value.eventDate, () => { if (!approvedMileageForDate.value.some
 const selectedOffice = computed(() => options.value.offices.find(o => o.id === Number(form.value.officeLocationId)));
 const existing = computed(() => options.value.reports.find(r => r.eventId === Number(eventId.value) && r.eventDate === form.value.eventDate));
 const separatePickup = computed(() => form.value.materialsPickup === 'before_event' && form.value.pickupTiming === 'separate');
-const journeys = computed(() => eventTravelJourneys(form.value));
+const outreachStops = computed(() => selectedOutreachStops(selectedEvent.value?.outreachStops || [], form.value.outreachStopIds));
+const journeys = computed(() => eventTravelJourneys(form.value, outreachStops.value));
 const usesOffice = computed(() => journeys.value.some(j => j.legs.some(l => l.from.kind === 'office' || l.to.kind === 'office')));
 const handlingKeys = computed(() => [...(['before_event', 'already_had'].includes(form.value.materialsPickup) ? ['pickup'] : []), ...(['after_event', 'separate', 'kept'].includes(form.value.materialsReturn) ? ['return'] : [])]);
 watch(journeys, rows => { for (const j of rows) for (const leg of j.legs) form.value.intervals[leg.key] ||= { startedAt: '', endedAt: '', reportedMiles: '', mileageNote: '' }; }, { immediate: true });
 watch(handlingKeys, keys => { for (const key of keys) form.value.handling[key] ||= { startedAt: '', endedAt: '' }; }, { immediate: true });
-watch(eventId, () => { form.value = { ...eventTravelDefaultForm(), officeLocationId: options.value.offices[0]?.id || null, eventDate: selectedEvent.value?.dates.length === 1 ? selectedEvent.value.dates[0] : '' }; expectedRevision.value = null; locked.value = false; preview.value = null; });
+watch(eventId, () => { form.value = { ...eventTravelDefaultForm(), officeLocationId: options.value.offices[0]?.id || null, outreachStopIds: selectedEvent.value?.outreachStops?.map(stop => stop.id), eventDate: selectedEvent.value?.dates.length === 1 ? selectedEvent.value.dates[0] : '' }; expectedRevision.value = null; locked.value = false; preview.value = null; });
 watch(step, async () => { await nextTick(); if (dialog.value) { dialog.value.scrollTop = 0; dialog.value.focus({ preventScroll: true }); } });
-const placeLabel = p => p.kind === 'event' ? selectedEvent.value?.title : p.kind === 'office' ? selectedOffice.value?.name || 'Assigned office' : p.kind === 'home' ? 'Home' : p.kind === 'school' ? options.value.schools.find(s => s.id === p.id)?.name || 'School / client worksite' : p.address || 'Other location';
-const placeAddress = p => p.kind === 'event' ? selectedEvent.value?.address : p.kind === 'home' ? options.value.homeAddress : p.kind === 'office' ? selectedOffice.value?.address : p.kind === 'school' ? options.value.schools.find(s => s.id === p.id)?.address : p.address;
+const placeLabel = p => p.kind === 'event' ? (outreachStops.value.find(s => s.id === p.stopId)?.name || selectedEvent.value?.title) : p.kind === 'office' ? selectedOffice.value?.name || 'Assigned office' : p.kind === 'home' ? 'Home' : p.kind === 'school' ? options.value.schools.find(s => s.id === p.id)?.name || 'School / client worksite' : p.address || 'Other location';
+const placeAddress = p => p.kind === 'event' ? (outreachStops.value.find(s => s.id === p.stopId)?.address || selectedEvent.value?.address) : p.kind === 'home' ? options.value.homeAddress : p.kind === 'office' ? selectedOffice.value?.address : p.kind === 'school' ? options.value.schools.find(s => s.id === p.id)?.address : p.address;
+function moveOutreachStop(index, delta) {
+  const ids = [...form.value.outreachStopIds];
+  [ids[index], ids[index + delta]] = [ids[index + delta], ids[index]];
+  form.value.outreachStopIds = ids;
+  resetRouteIntervals();
+}
+function resetRouteIntervals() {
+  form.value.intervals = Object.fromEntries(journeys.value.flatMap(journey => journey.legs).map(leg => [leg.key, { startedAt: '', endedAt: '', reportedMiles: '', mileageNote: '' }]));
+}
 function payload() {
   const result = JSON.parse(JSON.stringify(form.value));
   for (const collection of ['intervals', 'handling']) for (const row of Object.values(result[collection])) for (const key of ['startedAt', 'endedAt']) if (row[key]) row[key] = new Date(row[key]).toISOString();
@@ -99,8 +115,9 @@ function payload() {
 }
 async function next() {
   error.value = '';
-  if (step.value === 2) { error.value = eventTravelInputError(form.value); if (error.value) { dialog.value.scrollTop = 0; return; } }
+  if (step.value === 2) { error.value = eventTravelInputError(form.value, new Date(), outreachStops.value); if (error.value) { dialog.value.scrollTop = 0; return; } }
   if (!formElement.value.reportValidity()) return;
+  if (selectedEvent.value?.outreachTripId && !outreachStops.value.length) { error.value = 'Choose at least one school you actually visited.'; return; }
   if (step.value === 0 && !selectedEvent.value?.address) { error.value = 'Your coordinator needs to save the venue address first.'; return; }
   if (step.value < 2) { step.value++; return; }
   busy.value = true;

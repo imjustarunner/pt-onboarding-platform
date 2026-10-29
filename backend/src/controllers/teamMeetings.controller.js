@@ -1,3 +1,5 @@
+import { isJacquelyneHuddle, JACQUELYNE_TIME_START } from '../utils/jacquelyneTimePolicy.js';
+import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 import { teamMeetingSpeakerNames } from '../services/meetingSpeakerNames.service.js';
 import { teamMeetingGuestLinkStatus } from '../services/teamMeetingGuestLink.service.js';
 import { notifyAddedTeamMeetingAttendee } from '../services/teamMeetingAddedNotification.service.js';
@@ -2448,7 +2450,7 @@ export const getTeamMeetingTimeClaims = async (req, res, next) => {
     const rows = (attendance?.participants || []).map((p) => {
       const claim = latestByUser.get(Number(p.userId)) || null;
       const unpaidIndirect = isStudentIntern(identities.find(u=>Number(u.id)===Number(p.userId)));
-      const defaultCode = unpaidIndirect ? 'Unpaid Indirect' : (kind === 'HUDDLE' && p.isHost) ? huddleHostServiceCode(event,p.role) : 'MEETING';
+      const defaultCode = unpaidIndirect ? 'Unpaid Indirect' : isJacquelyneHuddle(event, p.userId) && utcDateToZonedYmd(event.start_at, event.event_timezone) >= JACQUELYNE_TIME_START ? 'Admin Time' : (kind === 'HUDDLE' && p.isHost) ? huddleHostServiceCode(event,p.role) : 'MEETING';
       return {
         userId: p.userId,
         name: p.name,

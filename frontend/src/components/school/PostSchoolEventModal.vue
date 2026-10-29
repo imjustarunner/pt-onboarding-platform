@@ -45,7 +45,7 @@
             <span class="lbl">Calendar entry type</span>
             <select v-model="form.category" class="input" :disabled="!!lockedCategory || isOutreachCreate || isOutreachEvent">
               <option v-if="isOutreachCreate || isOutreachEvent || form.category === 'outreach'" value="outreach">
-                {{ isGeneralOutreachCreate || isGeneralOutreachEvent ? 'General Outreach' : 'District Outreach' }} (attendable / staffed)
+                {{ isGeneralOutreachCreate || isGeneralOutreachEvent ? 'General Outreach' : 'Outreach Event' }} (attendable / staffed)
               </option>
               <option v-if="!isDistrictImportantDate && !isDistrictCreate" value="back_to_school">Back to School (attendable event)</option>
               <option v-if="!isDistrictImportantDate && !isDistrictCreate" value="open_house">Open House</option>

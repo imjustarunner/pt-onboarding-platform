@@ -5,7 +5,7 @@ import { loadEmployeeEvent, employeeAssignedToEvent, isEmployeeEventDay, eventTr
 import { getDrivingDistanceMeters, metersToMiles } from './googleDistance.service.js';
 import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 import { computeSubmissionWindow } from '../utils/payrollSubmissionWindow.js';
-import { eventTravelJourneys, locationKinds, recommendEventTravelLeg } from '../../../frontend/src/navigation/eventTravel.js';
+import { eventTravelJourneys, locationKinds, recommendEventTravelLeg, selectedOutreachStops } from '../../../frontend/src/navigation/eventTravel.js';
 
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 const parse = raw => typeof raw === 'string' ? JSON.parse(raw) : (raw || {});
@@ -25,15 +25,16 @@ async function validateExistingMileage({ claimId, agencyId, userId, eventDate, d
 }
 
 export async function listMyEventTravelOptions({ userId, agencyId, eventId = null, db = pool }) {
-  const [rows] = await db.execute(`SELECT DISTINCT e.id, e.title, e.starts_at, e.ends_at, e.timezone,
+  const [rows] = await db.execute(`SELECT DISTINCT e.id, e.title, e.starts_at, e.ends_at, e.timezone, ot.id AS outreach_trip_id,
       COALESCE(NULLIF(TRIM(e.event_location_address), ''), NULLIF(TRIM(e.public_location_address), ''),
         CASE WHEN NULLIF(TRIM(s.street_address), '') IS NOT NULL THEN
           CONCAT_WS(', ', NULLIF(TRIM(s.street_address), ''), NULLIF(TRIM(s.city), ''), NULLIF(TRIM(s.state), ''), NULLIF(TRIM(s.postal_code), '')) END) AS address
     FROM company_events e
     JOIN user_agencies ua ON ua.agency_id = e.agency_id AND ua.user_id = ? AND COALESCE(ua.is_active, 1) = 1
     JOIN users u ON u.id = ua.user_id AND u.is_active = 1 AND COALESCE(u.is_archived, 0) = 0 AND u.terminated_at IS NULL
+    LEFT JOIN outreach_trips ot ON ot.company_event_id = e.id AND ot.agency_id = e.agency_id
     LEFT JOIN agencies s ON s.id = e.organization_id AND s.organization_type = 'school'
-    WHERE e.agency_id = ? ${eventId ? 'AND e.id = ?' : ''} AND (
+    WHERE e.agency_id = ? AND e.is_active = 1 AND COALESCE(e.school_event_status, '') NOT IN ('canceled', 'cancelled') ${eventId ? 'AND e.id = ?' : ''} AND (
       EXISTS (SELECT 1 FROM company_event_provider_assignments a WHERE a.company_event_id = e.id AND a.provider_user_id = ?)
       OR EXISTS (SELECT 1 FROM company_event_session_providers p WHERE p.company_event_id = e.id AND p.provider_user_id = ? AND p.assignment_status = 'finalized')
       OR EXISTS (SELECT 1 FROM skills_groups g JOIN skills_group_providers p ON p.skills_group_id = g.id WHERE g.company_event_id = e.id AND g.agency_id = e.agency_id AND p.provider_user_id = ?))
@@ -51,7 +52,14 @@ export async function listMyEventTravelOptions({ userId, agencyId, eventId = nul
     }
     const assignedDates = [];
     for (const day of dates) if (await employeeAssignedToEvent({ event, userId, date: day, db })) assignedDates.push(day);
-    events.push({ id: Number(row.id), title: row.title, address: row.address || '', dates: assignedDates, timezone: row.timezone || 'America/Denver' });
+    let outreachStops = [];
+    if (row.outreach_trip_id) {
+      const [stops] = await db.execute(`SELECT ts.id, s.name, s.address FROM outreach_trip_stops ts
+        JOIN outreach_schools s ON s.id = ts.outreach_school_id AND s.agency_id = ?
+        WHERE ts.trip_id = ? ORDER BY ts.stop_order`, [agencyId, row.outreach_trip_id]);
+      outreachStops = stops.map(stop => ({ id: Number(stop.id), name: stop.name, address: stop.address }));
+    }
+    events.push({ outreachTripId: Number(row.outreach_trip_id) || null, outreachStops, id: Number(row.id), title: row.title, address: row.address || '', dates: assignedDates, timezone: row.timezone || 'America/Denver' });
   }
   const [officeRows] = await db.execute(`SELECT ol.id, ol.name, ol.street_address, ol.city, ol.state, ol.postal_code
     FROM user_office_locations uol JOIN office_locations ol ON ol.id = uol.office_location_id
@@ -113,16 +121,28 @@ function cleanForm(input) {
 
 export async function buildEventTravelReport({ eventId, userId, input, db = pool, now = new Date(), distance = getDrivingDistanceMeters }) {
   const form = cleanForm(input), event = await loadEmployeeEvent({ eventId, userId, db });
+  if (!Number(event.is_active) || ['canceled', 'cancelled'].includes(event.school_event_status)) fail(409, 'This event is canceled or inactive');
   const existingMileage = await validateExistingMileage({ claimId: form.existingMileageClaimId, agencyId: event.agency_id, userId, eventDate: form.eventDate, db });
   if (!await employeeAssignedToEvent({ event, userId, date: form.eventDate, db }) || !await isEmployeeEventDay({ event, date: form.eventDate, db })) fail(403, 'Choose an event date you are assigned to work');
   const options = await listMyEventTravelOptions({ userId, agencyId: event.agency_id, eventId: event.id, db });
   const chosen = options.events.find(e => e.id === Number(event.id));
+  let outreachStops = [];
+  if (chosen?.outreachTripId) {
+    const ids = input.outreachStopIds ?? chosen.outreachStops.map(stop => stop.id);
+    if (!Array.isArray(ids) || !ids.length || ids.length > chosen.outreachStops.length || ids.some(id => !Number.isSafeInteger(Number(id))) || new Set(ids.map(Number)).size !== ids.length) fail(400, 'Choose the outreach schools you actually visited, in travel order');
+    outreachStops = selectedOutreachStops(chosen.outreachStops, ids);
+    if (outreachStops.length !== ids.length || outreachStops.some(stop => !stop.address)) fail(400, 'Choose only school stops on your assigned outreach route with saved addresses');
+    form.outreachStopIds = outreachStops.map(stop => stop.id);
+  }
   const office = options.offices.find(o => o.id === form.officeLocationId);
   const homeAddress = options.homeAddress;
   const eventAddress = chosen?.address;
   if (!eventAddress) fail(409, 'Your coordinator needs to save the venue address on this event before you can submit travel.');
   const resolve = p => {
-    if (p.kind === 'event') return { kind: 'event', label: event.title, address: eventAddress };
+    if (p.kind === 'event') {
+      const stop = outreachStops.find(stop => stop.id === p.stopId);
+      return { kind: 'event', ...(stop ? { stopId: stop.id } : {}), label: stop?.name || event.title, address: stop?.address || eventAddress };
+    }
     if (p.kind === 'home') {
       if (!homeAddress) fail(409, 'Add your home address in your payroll profile before submitting this trip.');
       return { kind: 'home', label: 'Home', address: homeAddress };
@@ -147,7 +167,7 @@ export async function buildEventTravelReport({ eventId, userId, input, db = pool
   if (legacyTravelPolicy) flags.push('Earlier event: preserve the travel-time policy/agreement in effect on the trip date.');
   if (form.transportDuties || form.specialTrip) flags.push(form.exceptionNote);
   if (form.notes) flags.push(`Employee notes: ${form.notes}`);
-  for (const journey of eventTravelJourneys(form)) {
+  for (const journey of eventTravelJourneys(form, outreachStops)) {
     for (const leg of journey.legs) {
       const entered = input.intervals?.[leg.key];
       let interval;
@@ -208,9 +228,11 @@ export async function buildEventTravelReport({ eventId, userId, input, db = pool
   const ordered = [...segments].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
   for (let i = 1; i < ordered.length; i++) if (ordered[i].startedAt < ordered[i - 1].endedAt) fail(400, 'Trip and materials-handling times cannot overlap');
   const outbound = segments.filter(s => s.journey === 'outbound' && s.kind === 'travel');
+  const between = segments.filter(s => s.journey === 'between' && s.kind === 'travel');
   const inbound = segments.filter(s => s.journey === 'inbound' && s.kind === 'travel');
+  if (between.length && (between[0].startedAt < outbound.at(-1)?.endedAt || between.at(-1).endedAt > inbound[0]?.startedAt)) fail(400, 'Travel between schools must follow arrival at the first school and precede the return trip');
   if (outbound.at(-1)?.endedAt > inbound[0]?.startedAt) fail(400, 'Travel home must start after arrival at the event');
-  for (const journey of eventTravelJourneys(form)) {
+  for (const journey of eventTravelJourneys(form, outreachStops)) {
     const route = journey.legs.map(l => segments.find(s => s.key === l.key));
     for (let i = 1; i < route.length; i++) if (route[i].startedAt < route[i - 1].endedAt) fail(400, 'Enter each part of the trip in order');
   }
@@ -224,7 +246,7 @@ export async function buildEventTravelReport({ eventId, userId, input, db = pool
     if (existingMileage.length) flags.push(`Other mileage claims already exist on ${day} (#${existingMileage.map(r => r.id).join(', #')}). Verify these trips are not duplicated.`);
   }
   const report = { version: 1, eventId: Number(event.id), agencyId: Number(event.agency_id), userId: Number(userId), eventTitle: event.title,
-    eventDate: form.eventDate, eventAddress, timezone: event.timezone || 'America/Denver', office: office || null, form, segments,
+    outreachTripId: chosen?.outreachTripId || null, eventDate: form.eventDate, eventAddress, timezone: event.timezone || 'America/Denver', office: office || null, form, segments,
     flags: [...new Set(flags)], legacyTravelPolicy, windows, reviewed: false,
     totalMinutes: segments.reduce((n, s) => n + (s.timeEligible ? s.minutes : 0), 0),
     totalMiles: round(segments.reduce((n, s) => n + (s.mileageEligible ? Number(s.miles || 0) : 0), 0)) };
@@ -321,10 +343,20 @@ export async function submitEventTravelReport({ eventId, userId, submittedByUser
   try {
     await db.beginTransaction();
     await db.execute('SELECT id FROM users WHERE id = ? FOR UPDATE', [userId]);
+    await db.execute('SELECT id FROM company_events WHERE id = ? FOR UPDATE', [eventId]);
     await validateExistingMileage({ claimId: report.form.existingMileageClaimId, agencyId: report.agencyId, userId, eventDate: report.eventDate, db, forUpdate: true });
     // Recheck assignment within the write transaction; an interested employee cannot self-assign.
     const event = await loadEmployeeEvent({ eventId, userId, db });
-    if (!await employeeAssignedToEvent({ event, userId, date: report.eventDate, db })) fail(403, 'You are no longer assigned to this event date');
+    if (!Number(event.is_active) || ['canceled', 'cancelled'].includes(event.school_event_status)) fail(409, 'This event is canceled or inactive');
+    if (report.outreachTripId) {
+      const [stops] = await db.execute(`SELECT ts.id, s.address FROM outreach_trip_stops ts
+        JOIN outreach_trips t ON t.id = ts.trip_id AND t.company_event_id = ? AND t.agency_id = ?
+        JOIN outreach_schools s ON s.id = ts.outreach_school_id AND s.agency_id = t.agency_id`, [eventId, report.agencyId]);
+      for (const point of report.segments.flatMap(segment => [segment.from, segment.to]).filter(point => point?.stopId)) {
+        if (!stops.some(stop => Number(stop.id) === Number(point.stopId) && stop.address === point.address)) fail(409, 'The outreach route changed. Reopen the travel form to review the current school stops.');
+      }
+    }
+    if (!await employeeAssignedToEvent({ event, userId, date: report.eventDate, db }) || !await isEmployeeEventDay({ event, date: report.eventDate, db })) fail(403, 'You are no longer assigned to this event date');
     const [existing] = await db.execute('SELECT * FROM company_event_travel_reports WHERE agency_id = ? AND user_id = ? AND company_event_id = ? AND event_date = ? FOR UPDATE', [report.agencyId, userId, eventId, report.eventDate]);
     const prior = existing[0];
     if (prior && JSON.stringify(parse(prior.report_json).form) === JSON.stringify(report.form)) { await db.commit(); return { id: prior.id, revision: prior.revision, report: parse(prior.report_json), alreadySubmitted: true }; }
