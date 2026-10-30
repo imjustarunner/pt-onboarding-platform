@@ -1,3 +1,4 @@
+import { getBillingImportMetadata } from '../utils/payrollBillingImportMetadata.js';
 import pool from '../config/database.js';
 import {
   encryptBillingSecret,
@@ -56,6 +57,7 @@ class PayrollImportRow {
         const n = Number(r.clientPaidAmount);
         return Number.isFinite(n) && n > 0 ? n : null;
       })();
+      const profileSource = getBillingImportMetadata(r);
       const row = [
         r.payrollImportId,
         r.payrollPeriodId,
@@ -72,6 +74,8 @@ class PayrollImportRow {
         patientEnc?.authTagB64 || null,
         patientEnc?.keyId || null,
         r.serviceCode,
+        profileSource?.sourceRowNumber ?? r.sourceRowNumber ?? r.source_row_number ?? null,
+        String(profileSource?.placeOfService ?? r.placeOfService ?? r.place_of_service ?? '').trim().slice(0,16) || null,
         String(r.location || '').trim() || null,
         r.serviceDate || null,
         r.noteStatus || null,
@@ -99,7 +103,7 @@ class PayrollImportRow {
        (payroll_import_id, payroll_period_id, agency_id, user_id, provider_name, patient_first_name,
         provider_name_ciphertext_b64, provider_name_iv_b64, provider_name_auth_tag_b64, provider_name_key_id,
         patient_first_name_ciphertext_b64, patient_first_name_iv_b64, patient_first_name_auth_tag_b64, patient_first_name_key_id,
-        service_code, location, service_date, note_status, appt_type, amount_collected, ${hasClientPaid ? 'client_paid_amount, ' : ''}billed_amount, paid_status, draft_payable, unit_count, raw_row, row_fingerprint, requires_processing, processed_at, processed_by_user_id)
+        service_code, source_row_number, place_of_service, location, service_date, note_status, appt_type, amount_collected, ${hasClientPaid ? 'client_paid_amount, ' : ''}billed_amount, paid_status, draft_payable, unit_count, raw_row, row_fingerprint, requires_processing, processed_at, processed_by_user_id)
        VALUES ${placeholders}`,
       flat
     );
@@ -139,6 +143,8 @@ class PayrollImportRow {
          pir.patient_first_name_auth_tag_b64,
          pir.patient_first_name_key_id,
          pir.service_code,
+         pir.source_row_number,
+         pir.place_of_service,
          pir.location,
          pir.service_date,
          pir.note_status,

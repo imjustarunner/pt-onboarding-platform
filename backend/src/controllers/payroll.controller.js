@@ -1,3 +1,6 @@
+import { extractBillingProfileFields } from '../services/billingClientProfileEnrichment.service.js';
+import { billingImportMetadata, copyBillingImportMetadata, getBillingImportMetadata } from '../utils/payrollBillingImportMetadata.js';
+import { enrichPayrollBillingImport } from '../services/payrollBillingClientImport.service.js';
 import { assertNoManualSupervisionClaim } from '../services/supervisionSubmissionPolicy.js';
 import { resolveHourlySuperviseePay } from '../services/hourlySupervisionPay.service.js';
 import { validateFfsExcess, persistFfsExcessClaim } from '../services/ffsExcessTime.service.js';
@@ -2282,11 +2285,12 @@ async function guessScheduledPayrollPeriodByMajorityDates({ agencyId, dates }) {
   };
 }
 
-function parsePayrollRows(records, opts = {}) {
+export function parsePayrollRows(records, opts = {}) {
   const rowsArr = Array.isArray(records) ? records : [];
   if (!rowsArr.length) return { rows: [], missedAppointmentsPaidInFull: [] };
   const rowNumberBase = Number.isFinite(Number(opts?.rowNumberBase)) ? Number(opts.rowNumberBase) : 2;
   const missedAppointmentsPaidInFull = [];
+  const profileSourceRows = [];
 
   const detectedHeaders = Array.from(
     new Set(
@@ -2345,6 +2349,11 @@ function parsePayrollRows(records, opts = {}) {
         /staff.*name/
       ]) ||
       '';
+
+    const profileFields = extractBillingProfileFields(normalized);
+    if (profileFields.fullName || profileFields.dateOfBirth || profileFields.explicitMemberId || profileFields.reportedAccountIdentifier) {
+      profileSourceRows.push({ sourceRowNumber: rowNumberBase + idx, providerName: String(providerName || '').trim(), profileFields, serviceDate: parseServiceDate(normalized['date of service'] || normalized['date of service dos'] || normalized['service date'] || normalized.dos || normalized.date || ''), placeOfService: String(normalized.pos || normalized['place of service'] || '').trim(), location: String(normalized.location || '').trim() });
+    }
 
     // Patient first name column (report header: "First Name").
     const firstNameCol =
@@ -2490,6 +2499,7 @@ function parsePayrollRows(records, opts = {}) {
     const mod4 = normalized['modifier code 4'] || normalized['modifier 4'] || '';
 
     return {
+      ...billingImportMetadata({ sourceRowNumber: rowNumberBase + idx, placeOfService: String(pos || normalized['place of service'] || normalized['place of service code'] || '').trim(), profileFields, additionalProfileRows: profileSourceRows }),
       providerName: String(providerName).trim(),
       patientFirstName: firstNameCol ? String(firstNameCol).trim() : '',
       serviceCode: String(serviceCode).trim(),
@@ -2690,7 +2700,7 @@ function buildRowKeyAggregateIndex({ agencyId, parsedRows }) {
   return byKey;
 }
 
-function parsePayrollFile(buffer, originalName) {
+export function parsePayrollFile(buffer, originalName) {
   const empty = { rows: [], missedAppointmentsPaidInFull: [] };
   const name = String(originalName || '').toLowerCase();
   if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
@@ -7335,6 +7345,23 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
   }
 }
 
+
+async function insertPayrollRowsWithClientProfiles(rows, req) {
+  const inserted = await PayrollImportRow.bulkInsert(rows);
+  const groups = new Map();
+  for (const row of rows) {
+    if (!getBillingImportMetadata(row)) continue;
+    const key = `${row.agencyId}:${row.payrollImportId}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  for (const group of groups.values()) {
+    const first = group[0];
+    await enrichPayrollBillingImport({ agencyId: first.agencyId, payrollImportId: first.payrollImportId, rows: group, actorId: req.user.id });
+  }
+  return inserted;
+}
+
 export const importPayrollCsv = [
   upload.single('file'),
   async (req, res, next) => {
@@ -7463,6 +7490,7 @@ export const importPayrollCsv = [
           agencyId,
           clinicianName: r.providerName,
           patientFirstName: r.patientFirstName,
+          ...copyBillingImportMetadata(r),
           apptType: r.apptType || (r.fingerprintFields && r.fingerprintFields.apptType) || null,
           serviceCode: r.serviceCode,
           serviceDate: r.serviceDate,
@@ -7475,6 +7503,7 @@ export const importPayrollCsv = [
           userId,
           providerName: r.providerName,
           patientFirstName: r.patientFirstName,
+          ...copyBillingImportMetadata(r),
           apptType: r.apptType || (r.fingerprintFields && r.fingerprintFields.apptType) || null,
           serviceCode: r.serviceCode,
           location,
@@ -7492,7 +7521,7 @@ export const importPayrollCsv = [
         };
       });
 
-      await PayrollImportRow.bulkInsert(rowsToInsert);
+      await insertPayrollRowsWithClientProfiles(rowsToInsert, req);
       // Import is a raw ingest step. Do NOT compute totals until "Run Payroll".
       // Clear any prior run results and mark the period as raw_imported.
       await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [payrollPeriodId]);
@@ -7685,6 +7714,7 @@ export const importPayrollAuto = [
           agencyId: resolvedAgencyId,
           clinicianName: r.providerName,
           patientFirstName: r.patientFirstName,
+          ...copyBillingImportMetadata(r),
           apptType: r.apptType || (r.fingerprintFields && r.fingerprintFields.apptType) || null,
           serviceCode: r.serviceCode,
           serviceDate: r.serviceDate,
@@ -7697,6 +7727,7 @@ export const importPayrollAuto = [
           userId,
           providerName: r.providerName,
           patientFirstName: r.patientFirstName,
+          ...copyBillingImportMetadata(r),
           apptType: r.apptType || (r.fingerprintFields && r.fingerprintFields.apptType) || null,
           serviceCode: r.serviceCode,
           location,
@@ -7714,7 +7745,7 @@ export const importPayrollAuto = [
         };
       });
 
-      await PayrollImportRow.bulkInsert(rowsToInsert);
+      await insertPayrollRowsWithClientProfiles(rowsToInsert, req);
       // Import is a raw ingest step. Do NOT compute totals until "Run Payroll".
       // Clear any prior run results and mark the period as raw_imported.
       await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [period.id]);
@@ -7920,6 +7951,7 @@ export const batchCatchUp = [
                 userId,
                 providerName: r.providerName,
                 patientFirstName: r.patientFirstName,
+                ...copyBillingImportMetadata(r),
                 apptType: r.apptType || (r.fingerprintFields && r.fingerprintFields.apptType) || null,
                 serviceCode: r.serviceCode,
                 location,
@@ -7944,7 +7976,7 @@ export const batchCatchUp = [
                 skippedOutOfPeriod
               });
             }
-            await PayrollImportRow.bulkInsert(rowsToInsertPersist);
+            await insertPayrollRowsWithClientProfiles(rowsToInsertPersist, req);
             if (!isEffectivelyPostedOrFinalized(period)) {
               await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [period.id]);
               await pool.execute(
@@ -8035,6 +8067,7 @@ export const batchCatchUp = [
               userId,
               providerName: r.providerName,
               patientFirstName: r.patientFirstName,
+              ...copyBillingImportMetadata(r),
               apptType: r.apptType || (r.fingerprintFields && r.fingerprintFields.apptType) || null,
               serviceCode: r.serviceCode,
               location,
@@ -8050,7 +8083,7 @@ export const batchCatchUp = [
               billedAmount: r.billedAmount ?? r.billed_amount ?? null
             };
           });
-          await PayrollImportRow.bulkInsert(rowsToInsert2);
+          await insertPayrollRowsWithClientProfiles(rowsToInsert2, req);
           if (!isEffectivelyPostedOrFinalized(period)) {
             await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [period.id]);
             await pool.execute(
@@ -8417,6 +8450,7 @@ export const batchCatchUp = [
             userId,
             providerName: r.providerName,
             patientFirstName: r.patientFirstName,
+            ...copyBillingImportMetadata(r),
             apptType: r.apptType || (r.fingerprintFields && r.fingerprintFields.apptType) || null,
             serviceCode: r.serviceCode,
             location,
@@ -8432,7 +8466,7 @@ export const batchCatchUp = [
             billedAmount: r.billedAmount ?? r.billed_amount ?? null
           });
         }
-        await PayrollImportRow.bulkInsert(rowsToInsert);
+        await insertPayrollRowsWithClientProfiles(rowsToInsert, req);
         try {
           await PayrollImportMissedAppointment.replaceForImport({
             payrollImportId: imp.id,
@@ -11642,6 +11676,7 @@ export const replacePayrollImport = [
           agencyId,
           clinicianName: r.providerName,
           patientFirstName: r.patientFirstName,
+          ...copyBillingImportMetadata(r),
           apptType: r.apptType || (r.fingerprintFields && r.fingerprintFields.apptType) || null,
           serviceCode: r.serviceCode,
           serviceDate: r.serviceDate,
@@ -11654,6 +11689,7 @@ export const replacePayrollImport = [
           userId,
           providerName: r.providerName,
           patientFirstName: r.patientFirstName,
+          ...copyBillingImportMetadata(r),
           apptType: r.apptType || (r.fingerprintFields && r.fingerprintFields.apptType) || null,
           serviceCode: r.serviceCode,
           location,
@@ -11679,7 +11715,7 @@ export const replacePayrollImport = [
         });
       }
 
-      await PayrollImportRow.bulkInsert(rowsToInsert);
+      await insertPayrollRowsWithClientProfiles(rowsToInsert, req);
       await PayrollImport.updateFilename(importId, req.file.originalname);
 
       try {
@@ -23395,4 +23431,18 @@ export const savePayrollActualHoursReview = async (req, res, next) => {
     if (error.status) return res.status(error.status).json({ error: { message: error.message } });
     next(error);
   }
+};
+
+
+export const getSchoolSupportAccrualReview = async (req, res, next) => {
+  try {
+    const payrollPeriodId = Number(req.params.id);
+    if (!Number.isSafeInteger(payrollPeriodId) || payrollPeriodId <= 0) return res.status(400).json({ error: { message: 'A valid payroll period is required.' } });
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found.' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+    const { buildSchoolSupportAccrualReview } = await import('../services/schoolSupportAccrualReview.service.js');
+    res.set('Cache-Control', 'private, no-store');
+    res.json(await buildSchoolSupportAccrualReview({ agencyId: period.agency_id, payrollPeriodId }));
+  } catch (error) { next(error); }
 };

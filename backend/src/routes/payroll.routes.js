@@ -228,6 +228,7 @@ import {
   ,upsertUserSalaryPosition
   ,deleteUserSalaryPosition
   ,switchUserHourlyDualRateContract
+  ,getSchoolSupportAccrualReview
   ,getMyPtoBalances
   ,getUserPtoBalances
   ,createMyPtoRequest
@@ -270,6 +271,7 @@ router.post('/periods/ensure-future', ensureFuturePayrollPeriods);
 router.get('/periods', listPayrollPeriods);
 router.get('/periods/unpaid-drafts-report', getUnpaidDraftsReport);
 router.get('/periods/:id', getPayrollPeriod);
+router.get('/periods/:id/school-support-review', getSchoolSupportAccrualReview);
 router.get('/periods/:id/actual-hours/:userId', getPayrollActualHoursReview);
 router.put('/periods/:id/actual-hours/:userId', savePayrollActualHoursReview);
 router.get('/periods/:id/raw-audit', getPayrollPeriodRawAudit);
