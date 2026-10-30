@@ -214,6 +214,7 @@ jobs:
           src/components/schedule/__tests__/scheduleLoading.test.js
           src/components/schedule/__tests__/scheduleDayLayout.test.js
           src/components/schedule/__tests__/scheduleQuarterHourPicker.test.js
+          src/components/schedule/__tests__/scheduleQuarterHourFlow.test.js
           src/components/schedule/__tests__/dayCancellationDialog.test.js
           src/components/schedule/__tests__/AppointmentStaffTools.test.js
           src/components/schedule/__tests__/AppointmentCommunicationsPanel.test.js
