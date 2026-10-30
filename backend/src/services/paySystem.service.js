@@ -3,7 +3,7 @@ export { classifyPayType } from './payrollCodeClassification.js';
 import {roleCompensationRate} from './roleCompensationRate.js';
 import {loadAdditionHistory,profileWithDatedAddition,HANDBOOK_ADDITION_MODE} from './conditionalAdditionPolicy.service.js';
 import {effectiveCompensationAgreement, agreementRateProfile, COMPENSATION_POLICY_VERSION} from './employmentAgreementPolicy.service.js';
-import {isServiceCreditPolicy} from '../utils/serviceCreditPolicy.js';
+import {isServiceCreditPolicy, directCareIndirectMinutes} from '../utils/serviceCreditPolicy.js';
 /**
  * New pay system calculation service.
  * Used by both the self-serve Pay Calculator estimator and live payroll recompute.
@@ -55,8 +55,7 @@ function daysBetween(start, end) {
 }
 
 function applyAutoIndirect({ rateProfile, hourEquivalent, status }) {
-  if (rateProfile?.compensationPolicyVersion === COMPENSATION_POLICY_VERSION && Number(rateProfile.category) === 1) return {autoIndirectHours:0,autoIndirectAmount:0};
-  const minsPerHour = Number(rateProfile?.autoIndirectMinutesPerHour ?? 10);
+  const minsPerHour = directCareIndirectMinutes(rateProfile?.autoIndirectMinutesPerHour);
   if (!(minsPerHour > 0) || !(hourEquivalent > 1e-9)) {
     return { autoIndirectHours: 0, autoIndirectAmount: 0 };
   }
@@ -274,9 +273,10 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
         : (rateProfile?.creditRate ?? 0)) || 0;
       rateLabel = reduced ? 'credit_rate_probation_hcode_fallback' : 'credit_rate_hcode_fallback';
       amount = qty.hourEquivalent * rate;
-      // Probation / MWR still get the 10-min auto-indirect add-on on that reduced rate.
-      if (reduced || isServiceCreditPolicy(rateProfile?.compensationPolicyVersion)) {
-        const auto = applyAutoIndirect({ rateProfile: specialRate != null ? { ...rateProfile, compensationPolicyVersion: null, autoIndirectMinutesPerHour: 10 } : rateProfile, hourEquivalent: qty.hourEquivalent, status });
+      // Every approved Direct Care service receives the automatic allowance,
+      // including fallback rates and probation / minimum-workload rates.
+      {
+        const auto = applyAutoIndirect({ rateProfile: specialRate != null ? { ...rateProfile, autoIndirectMinutesPerHour: 10 } : rateProfile, hourEquivalent: qty.hourEquivalent, status });
         autoIndirectHours = auto.autoIndirectHours;
         autoIndirectAmount = auto.autoIndirectAmount;
       }

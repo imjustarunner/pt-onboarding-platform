@@ -1,3 +1,4 @@
+import {applyDirectCareIndirectCorrection} from '../content/directCareIndirectCorrection.js';
 import { applyFlatAddonHandbookAmendment } from '../content/flatAddonHandbookAmendment.js';
 import { applyEventTimeHandbookAmendment, applyEventTimeReviewAmendment } from '../content/eventTimeHandbookAmendment.js';
 import { applyEventTravelHandbookAmendment } from '../content/eventTravelHandbookAmendment.js';
@@ -56,6 +57,7 @@ export function getHandbookSource(agency, { employeeTemplates } = {}) {
     form.sectionBodyHtml = cleanHandbookHtml(employeeSelfAssessmentHtml(form));
     source.sections.push({ slug: form.sectionSlug, title: form.name, parentSlug: 'appendix-i', sourcePage: null, status: 'ready', bodyHtml: form.sectionBodyHtml });
   }
+  applyDirectCareIndirectCorrection(source);
   source.revision = createHash('sha256').update(JSON.stringify(source)).digest('hex');
   source.sections = source.sections.map((s, index) => ({
     slug: s.slug, parent_slug: s.parentSlug, title: s.title, source_page: s.sourcePage,

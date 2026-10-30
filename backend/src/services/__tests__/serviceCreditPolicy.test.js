@@ -9,7 +9,7 @@ describe('signed service-credit compensation',()=>{
  it('pays a psychotherapy credit once, with no indirect cash supplement',()=>{expect(line('90837')).toMatchObject({amount:44,autoIndirectHours:0,autoIndirectAmount:0,totalWithAutoIndirect:44});});
  it('pays H0004 four units at direct plus exactly ten minutes indirect',()=>{expect(line('H0004',4)).toMatchObject({hourEquivalent:1,amount:32,autoIndirectHours:1/6,autoIndirectAmount:3.67,totalWithAutoIndirect:35.67});});
  it('uses each disclosed probation rate including indirect',()=>{expect(line('H0004',4,{useReducedRates:true})).toMatchObject({amount:28,autoIndirectHours:1/6,autoIndirectAmount:3.33});expect(line('MEETING',1,{useReducedRates:true}).rate).toBe(21);});
- it('respects explicit zero instead of restoring a default allowance',()=>{expect(computeLineAmount({rateProfile:{...profile,autoIndirectMinutesPerHour:0},serviceCode:'H0004',quantity:4,status:{}}).autoIndirectHours).toBe(0);});
+ it('corrects a saved zero Direct Care allowance',()=>{expect(computeLineAmount({rateProfile:{...profile,autoIndirectMinutesPerHour:0},serviceCode:'H0004',quantity:4,status:{}}).autoIndirectHours).toBe(1/6);});
  it.each([['90837',25,25,0]])('25 credits of %s earn exactly 1 sick hour without double multiplication',(code,units,direct,indirect)=>{
   const breakdown={[code]:{units,finalizedUnits:units,category:'direct'}};
   const meta=applyPaySystemToBreakdown({breakdown,rateProfile:profile,status:{}});
@@ -53,10 +53,10 @@ describe('Tier 3 conditional level additions',()=>{
   expect(computeBonuses({rateProfile:p,status:{tierLevel:3,currentTierLevel:3},totalHourEquivalent:3,ffsHourEquivalent:2,hcodeHourEquivalent:1}).tierBonusAmount).toBe(2*bonus);
   expect(computeBonuses({rateProfile:p,status:{tierLevel:3,currentTierLevel:2},totalHourEquivalent:3}).tierBonusAmount).toBe(0);
  });
- it('pays Category 1 additions for both clinical and H-code equivalents without automatic indirect',()=>{
+ it('pays Category 1 additions for both clinical and H-code equivalents with automatic indirect',()=>{
   const p=agreementRateProfile(profile,agreement(1,3));
   expect(computeBonuses({rateProfile:p,status:{tierLevel:3},totalHourEquivalent:3,ffsHourEquivalent:2,hcodeHourEquivalent:1}).tierBonusAmount).toBe(6);
-  expect(computeLineAmount({rateProfile:p,status:{},serviceCode:'H0004',quantity:4}).autoIndirectHours).toBe(0);
+  expect(computeLineAmount({rateProfile:p,status:{},serviceCode:'H0004',quantity:4}).autoIndirectHours).toBe(1/6);
  });
  it('does not rewrite already signed v2 terms or retained benefit tier bonuses',()=>{
   const old={...profile,tierBonus:{3:4},autoIndirectMinutesPerHour:12};
@@ -93,4 +93,34 @@ it('uses the saved original agreement date for the remaining new-hire probation 
  expect(resolveUserPaySystemStatus({...args,periodEnd:'2026-12-11'}).inProbation).toBe(false);
  expect(resolveUserPaySystemStatus({...args,periodEnd:'2026-10-23',displayTierLevel:3}).inProbation).toBe(false);
  expect(resolveUserPaySystemStatus({...args,assignment:{...assignment,probation_ended_on:'2026-10-23'},periodEnd:'2026-11-06'}).inProbation).toBe(false);
+});
+
+
+describe('automatic indirect for the whole approved Direct Care category',()=>{
+ const codes=[['H0004',4],['H0023',4],['H0031',60],['H0032',60],['H2014',4],['H2015',4],['H2016',60],['H2017',4],['H2018',60],['H2021',4],['H2022',60],['H2033',4]];
+ it.each([1,2,3])('pays every mapped H-code for Category %s at normal and reduced rates',category=>{
+  for(const [serviceCode,quantity] of codes)for(const useReducedRates of [false,true]){
+   const result=computeLineAmount({rateProfile:{...profile,category,autoIndirectMinutesPerHour:0},status:{useReducedRates},serviceCode,quantity});
+   expect(result.autoIndirectHours*60,serviceCode).toBeCloseTo(10,6);
+   expect(result.autoIndirectAmount,serviceCode).toBe(useReducedRates?3.33:3.67);
+  }
+ });
+ it.each([['T1017',4,4,.25],['APPROVED HOURLY SERVICE',1,1,1],['APPROVED MINUTE SERVICE',30,60,1/60]])('includes approved non-9 Direct Care mapping %s',(serviceCode,quantity,pay_divisor,credit_value)=>{
+  const result=computeLineAmount({rateProfile:{...profile,category:1},status:{},serviceCode,quantity,rule:{category:'direct',pay_system_bucket:'hcode',pay_divisor,credit_value}});
+  expect(result.payType).toBe('hcode');expect(result.autoIndirectHours*60).toBeCloseTo(quantity/pay_divisor*10,6);
+ });
+ it('preserves a signed source schedule and a greater historical allowance',()=>{
+  for(const minutes of [0,12]){
+   const agreement={effectiveOn:'2026-10-10',data:{compensationPolicyVersion:COMPENSATION_POLICY_VERSION,schedule:{...profile,category:1,autoIndirectMinutes:minutes}}};
+   const original={...agreement,data:{...agreement.data,schedule:{...agreement.data.schedule}}},p=agreementRateProfile(profile,agreement);
+   expect(p.autoIndirectMinutesPerHour).toBe(minutes||10);expect(agreement).toEqual(original);
+  }
+ });
+ it('retains the allowance on the direct-rate fallback and includes it in leave once',()=>{
+  const p={...profile,category:1,hcodeRate:0,autoIndirectMinutesPerHour:0};
+  const result=computeLineAmount({rateProfile:p,status:{},serviceCode:'H0004',quantity:4});
+  expect(result.autoIndirectHours).toBe(1/6);
+  const meta=applyPaySystemToBreakdown({rateProfile:p,status:{},breakdown:{H0004:{units:4,category:'direct'}}});
+  expect(meta.leaveBasis.indirect).toBe(1/6);
+ });
 });

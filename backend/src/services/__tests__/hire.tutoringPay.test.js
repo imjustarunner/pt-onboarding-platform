@@ -31,12 +31,12 @@ describe('NLU supplemental pay',()=>{
   expect(result.summary).toMatchObject({grandTotal:21,totalBonusAmount:0});
  });
  it('preserves other services and profiles without supplemental rates',()=>{
-  expect(line({h2014Rate:22},'H0004')).toMatchObject({amount:28,autoIndirectAmount:0});
-  expect(line({},'H2014')).toMatchObject({amount:28,autoIndirectAmount:0});
+  expect(line({h2014Rate:22},'H0004')).toMatchObject({amount:28,autoIndirectAmount:3});
+  expect(line({},'H2014')).toMatchObject({amount:28,autoIndirectAmount:3});
  });
  it('preserves historical H2014 pay and splits a crossing period by service date',()=>{
   const p={...profile,h2014Rate:22,supplementalRatesEffectiveOn:'2026-10-14'};
-  expect(line(p,'H2014',4,{asOfDate:'2026-10-13'})).toMatchObject({amount:28,autoIndirectAmount:0});
+  expect(line(p,'H2014',4,{asOfDate:'2026-10-13'})).toMatchObject({amount:28,autoIndirectAmount:3});
   const breakdown={H2014:{units:8,category:'direct'}};
   const result=applyPaySystemToBreakdown({breakdown,rateProfile:p,status:{asOfDate:'2026-10-20'},datedUnitsByCode:new Map([['H2014',[{serviceDate:'2026-10-13',units:4},{serviceDate:'2026-10-14',units:4}]]])});
   expect(result.servicePay).toBe(50);

@@ -1,3 +1,4 @@
+import {directCareIndirectMinutes} from '../utils/serviceCreditPolicy.js';
 import { CATEGORY_LEVEL_COMPENSATION_CLAUSE } from './contractCategoryLevelCompensation.js';
 import { handbookTenant } from '../services/handbookTenant.js';
 import {personalRateTable, personalPayTypeDescriptions, SICK_LEAVE_RATE_POLICY} from './compensationSchedulePresentation.js';
@@ -15,7 +16,7 @@ export function employmentCategoryLevelTerms({row,tokens={},agencyName='the Prac
  const required=['hcodeRate','hcodeRateProbation','indirectRate','supportActivityRate',...(clinical?['creditRate','creditRateProbation']:[])];
  for(const key of required)if(!positive(p[key]))throw Object.assign(new Error(`Category ${row.category}, Level ${row.level}: confirm ${key} in the current compensation settings.`),{status:400});
  const school=handbookTenant({slug:agencySlug || tokens.AGENCY_SLUG})==='itsco' && /\bschools?\b/i.test(tokens.SERVICE_FOCUS||'');
- const schedule={...p,supportRate:p.supportActivityRate,clinicalEligible:clinical,category:Number(row.category),level:Number(row.level),autoIndirectMinutes:Number(row.category)===1?0:p.autoIndirectMinutesPerHour,tier3LevelBonus:Number(p.tierBonus?.[3]||0)};
+ const schedule={...p,supportRate:p.supportActivityRate,clinicalEligible:clinical,category:Number(row.category),level:Number(row.level),autoIndirectMinutes:directCareIndirectMinutes(p.autoIndirectMinutesPerHour),tier3LevelBonus:Number(p.tierBonus?.[3]||0)};
  const adapt=s=>escape(s).replaceAll('ITSCO',escape(agencyName));
  const compensation=`<h2>Compensation · Category ${Number(row.category)}, Level ${Number(row.level)}</h2>
  <p>The individual schedule below sets the agreed rates for this appointment. Category reflects qualifications; level selects rates within that category. Workload and benefit tiers are separate. These terms replace conflicting legacy direct/indirect, hourly-or-credit and funding-percentage language for work under this agreement. Changes require advance written notice and any required agreement; earned pay and leave are preserved.</p>

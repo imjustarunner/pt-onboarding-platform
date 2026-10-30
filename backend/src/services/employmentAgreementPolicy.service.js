@@ -1,6 +1,6 @@
 import pool from '../config/database.js';
 import {authorizedCompensationSchedules} from './payrollCompensationAuthorization.service.js';
-import {SERVICE_CREDIT_POLICY_VERSION, isServiceCreditPolicy, defaultHcodeIndirectMinutes, conditionalLevelBonus} from '../utils/serviceCreditPolicy.js';
+import {SERVICE_CREDIT_POLICY_VERSION, isServiceCreditPolicy, defaultHcodeIndirectMinutes, directCareIndirectMinutes, conditionalLevelBonus} from '../utils/serviceCreditPolicy.js';
 
 export const COMPENSATION_POLICY_VERSION = SERVICE_CREDIT_POLICY_VERSION;
 const parse = value => { try { return typeof value === 'string' ? JSON.parse(value) : (value || {}); } catch { return {}; } };
@@ -55,7 +55,7 @@ export function agreementRateProfile(profile, agreement) {
     creditRateProbation:s.creditRateProbation,hcodeRateProbation:s.hcodeRateProbation,
     indirectRateProbation:s.indirectRateProbation ?? s.indirectRate,
     supportActivityRateProbation:s.supportRateProbation ?? s.supportRate,
-    autoIndirectMinutesPerHour:s.autoIndirectMinutes ?? (agreement.data.compensationPolicyVersion === 'itsco-2026-10-service-credit-v2' ? 12 : defaultHcodeIndirectMinutes(s.category)),
+    autoIndirectMinutesPerHour:directCareIndirectMinutes(s.autoIndirectMinutes ?? (agreement.data.compensationPolicyVersion === 'itsco-2026-10-service-credit-v2' ? 12 : defaultHcodeIndirectMinutes(s.category))),
     leaveAdminRatio:s.leaveAdminRatio ?? 0.2,compensationPolicyVersion:agreement.data.compensationPolicyVersion,
     agreementEffectiveOn:agreement.effectiveOn,agreementId:agreement.id};
 }
