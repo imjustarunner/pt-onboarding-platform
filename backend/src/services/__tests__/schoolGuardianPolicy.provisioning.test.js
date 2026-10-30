@@ -55,3 +55,19 @@ it('reuses a parent’s own client account and preserves restricted dependent ac
  const result=await PublicIntakeClientService.provisionGuardianForIntakeClients({link:{id:1,scope_type:'agency',create_guardian:0},agencyId:2,clients:[{id:22}],payload:{guardian:{email:guardian.email}}});
  expect(result.guardianUser.role).toBe('client');expect(m.create).not.toHaveBeenCalled();expect(m.link).toHaveBeenCalledWith(expect.objectContaining({accessEnabled:false,permissionsJson:{noView:true}}));expect(m.token).not.toHaveBeenCalled();
 });
+
+it('links a new sibling to the existing login without affecting the first child or password', async () => {
+ m.find.mockResolvedValue({...guardian,password_hash:'unchanged-password'});
+ const result = await PublicIntakeClientService.provisionGuardianForIntakeClients({link:{id:1,scope_type:'school'},agencyId:2,
+  clients:[{id:24}],payload:{guardian:{email:' Parent@Example.test ',relationship:'Parent'}}});
+ expect(result.guardianUser.id).toBe(8);expect(m.create).not.toHaveBeenCalled();expect(m.token).not.toHaveBeenCalled();
+ expect(m.link).toHaveBeenCalledTimes(1);
+ expect(m.link).toHaveBeenCalledWith(expect.objectContaining({clientId:24,guardianUserId:8,relationshipType:'guardian'}));
+});
+it('links self-enrollment to the parent’s existing login as Self', async () => {
+ m.find.mockResolvedValue({...guardian,password_hash:'unchanged-password'});
+ const result = await PublicIntakeClientService.provisionGuardianForIntakeClients({link:{id:1,scope_type:'agency'},agencyId:2,
+  clients:[{id:25}],payload:{intakeForSelf:true,guardian:{email:guardian.email,relationship:'Self'}}});
+ expect(result.guardianUser.id).toBe(8);expect(m.create).not.toHaveBeenCalled();expect(m.token).not.toHaveBeenCalled();
+ expect(m.link).toHaveBeenCalledWith(expect.objectContaining({clientId:25,guardianUserId:8,relationshipType:'self',relationshipTitle:'Self'}));
+});

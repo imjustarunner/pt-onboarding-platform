@@ -6,12 +6,13 @@ const m=vi.hoisted(()=>({pool:null}));
 vi.mock('../../config/database.js',()=>({default:{execute:(...args)=>m.pool.execute(...args)}}));
 import IntakeSubmission from '../../models/IntakeSubmission.model.js';
 const socket=process.env.EVIDENCE_TEST_SOCKET;
-describe.skipIf(!socket)('isolated immutable guardian enrollment binding SQL',()=>{
+const connection=socket?{socketPath:socket}:{host:'127.0.0.1',port:Number(process.env.EVIDENCE_TEST_MYSQL_PORT)};
+describe.skipIf(!socket&&!process.env.EVIDENCE_TEST_MYSQL_PORT)('isolated immutable guardian enrollment binding SQL',()=>{
  let admin;const database=`guardian_binding_${crypto.randomBytes(5).toString('hex')}`;
  const oldKey=process.env.INTAKE_RESPONSES_ENCRYPTION_KEY_BASE64;
  beforeAll(async()=>{
-  admin=await mysql.createConnection({socketPath:socket,user:'root',multipleStatements:true});await admin.query(`CREATE DATABASE ${database}`);
-  m.pool=mysql.createPool({socketPath:socket,user:'root',database,multipleStatements:true});
+  admin=await mysql.createConnection({...connection,user:'root',multipleStatements:true});await admin.query(`CREATE DATABASE ${database}`);
+  m.pool=mysql.createPool({...connection,user:'root',database,multipleStatements:true});
   await m.pool.query(`CREATE TABLE intake_submissions(
    id INT AUTO_INCREMENT PRIMARY KEY,intake_link_id INT,status VARCHAR(32),signer_name TEXT,signer_initials TEXT,signer_email TEXT,signer_phone TEXT,intake_data LONGTEXT,
    intake_data_hash VARCHAR(255),payload_encrypted MEDIUMBLOB,payload_iv_b64 VARCHAR(64),payload_auth_tag_b64 VARCHAR(64),payload_key_id VARCHAR(50),
@@ -49,5 +50,17 @@ describe.skipIf(!socket)('isolated immutable guardian enrollment binding SQL',()
   expect(results.filter(result=>result.status==='fulfilled')).toHaveLength(1);
   expect(results.filter(result=>result.status==='rejected')).toHaveLength(1);
   expect([3,4]).toContain((await IntakeSubmission.findById(created.id)).co_guardian_invite_id);
+ });
+ it('preserves an authenticated portal identity through encrypted saves and strips public binding injection',async()=>{
+  const binding={userId:8,email:'parent@example.test',agencyId:450};
+  const created=await IntakeSubmission.create({intakeLinkId:8,guardianUserId:8,sessionToken:'portal-session',portalEnrollment:binding,
+    intakeData:{guardian:{email:binding.email},portalEnrollment:{userId:99}}});
+  expect(created.intake_data.portalEnrollment).toEqual(binding);
+  const saved=await IntakeSubmission.updateById(created.id,{intake_data:JSON.stringify({guardian:{email:binding.email},portalEnrollment:{userId:99}})});
+  expect(saved.intake_data.portalEnrollment).toEqual(binding);expect(saved.guardian_user_id).toBe(8);
+  const ordinary=await IntakeSubmission.create({intakeLinkId:8,intakeData:{portalEnrollment:binding}});
+  expect(ordinary.intake_data.portalEnrollment).toBeUndefined();
+  const forged=await IntakeSubmission.updateById(ordinary.id,{intake_data:{portalEnrollment:binding}});
+  expect(forged.intake_data.portalEnrollment).toBeUndefined();
  });
 });

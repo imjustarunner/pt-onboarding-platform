@@ -1,4 +1,5 @@
 import { downloadEnrollmentCopy } from '../services/guardianEnrollmentCopies.service.js';
+import { enrollmentOptions, startGuardianEnrollment } from '../services/guardianEnrollmentStart.service.js';
 import * as guardianSessionBooking from '../controllers/guardianSessionBooking.controller.js';
 import { listSharedFiles,sharedFile } from '../services/guardianFileShares.service.js';
 import { guardianCheckins } from '../services/guardianCheckins.service.js';
@@ -95,6 +96,17 @@ router.use((req, res, next) => {
 // separate disclosure checks on the clinical routes.
 
 router.get('/account',requireActiveStatus,async(req,res,next)=>{try{if(req.guardianPreviewMode)return res.status(403).json({error:{message:'Preview cannot access account details'}});res.set('Cache-Control','no-store').json(await familyAccount(req.user.id));}catch(e){next(e);}});
+router.get('/enrollments/options', requireActiveStatus, async (req, res, next) => {
+  try { res.set('Cache-Control', 'no-store').json(await enrollmentOptions(req.user)); } catch (error) { next(error); }
+});
+router.post('/enrollments', requireActiveStatus, rateLimit({ windowMs: 60 * 60 * 1000, max: 15 }), async (req, res, next) => {
+  try {
+    res.set('Cache-Control', 'no-store').status(201).json(await startGuardianEnrollment({
+      user: req.user, linkId: req.body?.linkId, subject: req.body?.subject,
+      ipAddress: req.ip, userAgent: req.get('user-agent')
+    }));
+  } catch (error) { next(error); }
+});
 router.put('/account',requireActiveStatus,rateLimit({windowMs:60000,max:10}),async(req,res,next)=>{try{if(req.guardianPreviewMode)return res.status(403).json({error:{message:'Preview cannot edit account details'}});res.json(await updateFamilyAccount({userId:req.user.id,agencyId:Number(req.body.agencyId),input:req.body}));}catch(e){next(e);}});
 router.get('/clients/:clientId/session-booking', guardianSessionBooking.options);
 router.get('/clients/:clientId/session-booking/slots', guardianSessionBooking.slots);

@@ -36,6 +36,21 @@ it('does not invite a contact without shared or stated legal rights',async()=>{
  expect(await maybeCreateFromIntakeGuardian({agencyId:2,clientIds:[22],publicKey:'packet',intakeData:{guardian:{other_guardian_has_legal_rights:'no',other_guardian_email:user.email}}})).toBeNull();
  expect(m.deliver).not.toHaveBeenCalled();
 });
+it('does not invite a child’s other guardian into the adult’s own care',async()=>{
+ const result=await maybeCreateFromIntakeGuardian({agencyId:2,clientIds:[22],publicKey:'packet',intakeData:{intakeForSelf:true,guardian:{other_guardian_has_legal_rights:'shared',other_guardian_email:user.email}}});
+ expect(result).toBeNull();expect(m.deliver).not.toHaveBeenCalled();expect(m.link).not.toHaveBeenCalled();
+});
+it('reuses the existing second-parent login for both siblings without replacing prior children or permissions',async()=>{
+ m.find.mockResolvedValue(user);m.getLink.mockResolvedValue({access_enabled:1,relationship_type:'guardian',permissions_json:{canMessage:false}});
+ const execute=m.execute.getMockImplementation();
+ m.execute.mockImplementation(async(sql,...args)=>sql.includes('FROM co_guardian_invite_clients')
+  ? [[{id:22,agency_id:2,full_name:'First Child'},{id:23,agency_id:2,full_name:'Second Child'}]] : execute(sql,...args));
+ const result=await acceptCoGuardianInvite({token:'synthetic',enrollmentCompleted:true});
+ expect(result.acceptedUserId).toBe(11);expect(m.create).not.toHaveBeenCalled();
+ expect(m.link.mock.calls.map(([row])=>row.clientId)).toEqual([22,23]);
+ for(const [row] of m.link.mock.calls) expect(row).toMatchObject({guardianUserId:11,permissionsJson:{canMessage:false}});
+ expect(m.execute.mock.calls.some(([sql])=>/DELETE FROM client_guardians/i.test(sql))).toBe(false);
+});
 it('keeps queued mail distinguishable from successful transmission',async()=>{
  m.deliver.mockResolvedValue({sent:false,queued:true,deliveryStatus:'pending'});
  expect(await maybeCreateFromIntakeGuardian({agencyId:2,clientIds:[22],publicKey:'packet',intakeData:{guardian:{other_guardian_has_legal_rights:'yes',other_guardian_email:user.email}}})).toMatchObject({emailed:false,queued:true,deliveryStatus:'pending'});

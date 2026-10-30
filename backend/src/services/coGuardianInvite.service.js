@@ -375,6 +375,9 @@ export async function maybeCreateFromIntakeGuardian({
   const guardian = intakeData?.guardian && typeof intakeData.guardian === 'object'
     ? intakeData.guardian
     : {};
+  // An adult enrolling for their own care does not invite their children's
+  // other guardian, even if a prior dependent step left contact fields behind.
+  if (intakeData.intakeForSelf === true || String(guardian.relationship || '').trim().toLowerCase() === 'self') return null;
   const rights = String(guardian.other_guardian_has_legal_rights || '').trim().toLowerCase();
   if (rights !== 'yes' && rights !== 'shared') return null;
   const email = String(guardian.other_guardian_email || '').trim().toLowerCase();

@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import { moveEnrollmentRecords } from './clientEnrollmentMerge.service.js';
 import {
   CLIENT_MERGE_FIELDS,
   USER_MERGE_FIELDS,
@@ -255,9 +256,12 @@ export async function previewClientMerge({ keepId, sourceIds, fieldChoices = {} 
     if (row) others.push(row);
   }
   if (!keep || !others.length) throw Object.assign(new Error('Keep and source records are required'), { status: 400 });
+  // Support needs demographic merge choices, not unrelated chart content.
+  const publicRow = row => Object.fromEntries(['id', 'agency_id', ...CLIENT_MERGE_FIELDS.map(f => f.key)]
+    .map(key => [key, row[key]]));
   return {
-    keep,
-    others,
+    keep: publicRow(keep),
+    others: others.map(publicRow),
     fields: buildMergePreview({ keep, others, fields: CLIENT_MERGE_FIELDS, fieldChoices })
   };
 }
@@ -336,6 +340,11 @@ export async function mergeClients({ keepId, sourceIds, fieldChoices = {}, actor
     }
     await conn.beginTransaction();
     if (clinicalConn) await clinicalConn.beginTransaction();
+    const ids = [Number(keepId), ...preview.others.map(row => Number(row.id))];
+    const [locked] = await conn.execute(`SELECT id, agency_id, status FROM clients WHERE id IN (${ids.map(() => '?').join(',')}) FOR UPDATE`, ids);
+    if (locked.length !== ids.length || locked.some(row => Number(row.agency_id) !== Number(preview.keep.agency_id) || row.status === 'ARCHIVED')) {
+      throw Object.assign(new Error('Client records changed or belong to different agencies. Refresh the merge review.'), { status: 409 });
+    }
 
     // Free unique identifier_code on sources before any keep-field update that might adopt one.
     for (const other of preview.others) {
@@ -364,7 +373,7 @@ export async function mergeClients({ keepId, sourceIds, fieldChoices = {}, actor
       await conn.execute(`UPDATE clients SET ${sets.join(', ')} WHERE id = ?`, values);
     }
     for (const other of preview.others) {
-      await execIgnore(`UPDATE client_guardians SET client_id = ? WHERE client_id = ?`, [keepId, other.id], conn);
+      await moveEnrollmentRecords(conn, keepId, other.id);
       await execIgnore(`UPDATE client_organization_assignments SET client_id = ? WHERE client_id = ?`, [keepId, other.id], conn);
       await execIgnore(`UPDATE client_agency_assignments SET client_id = ? WHERE client_id = ?`, [keepId, other.id], conn);
       await execIgnore(`UPDATE client_notes SET client_id = ? WHERE client_id = ?`, [keepId, other.id], conn);
@@ -405,6 +414,9 @@ export async function mergeClients({ keepId, sourceIds, fieldChoices = {}, actor
          WHERE id = ?`,
         [other.id % 100000, other.id]
       );
+      await conn.execute(`INSERT INTO client_status_history (client_id, changed_by_user_id, field_changed, from_value, to_value, note)
+        VALUES (?, ?, 'merged_into_client', ?, ?, 'Duplicate reviewed and merged; signed enrollment files and signer ownership retained')`,
+      [other.id, actorUserId, String(other.id), String(keepId)]);
     }
     await conn.commit();
     if (clinicalConn) await clinicalConn.commit();

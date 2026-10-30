@@ -138,6 +138,8 @@ import ProgramStaffAssignment from '../models/ProgramStaffAssignment.model.js';
 import ProgramShiftSignup from '../models/ProgramShiftSignup.model.js';
 import config from '../config/config.js';
 import pool from '../config/database.js';
+import { assertPortalEnrollmentIdentity } from '../utils/portalEnrollmentBinding.js';
+import { persistSubmissionRoster, restoreSubmissionRoster, submittedChildCount, submissionArtifactsComplete } from '../services/enrollmentSubmissionRoster.service.js';
 import { verifyRecaptchaV3 } from '../services/captcha.service.js';
 import ActivityLogService from '../services/activityLog.service.js';
 import Notification from '../models/Notification.model.js';
@@ -2175,7 +2177,7 @@ const ensureGuardianAccountLinkedForClient = async ({ clientId, profile = {}, ac
   await ClientGuardian.upsertLink({
     clientId: cid,
     guardianUserId: Number(guardianUser.id),
-    relationshipType: 'guardian',
+    relationshipType: existingLink?.relationship_type || (String(profile?.relationship || '').trim().toLowerCase() === 'self' ? 'self' : 'guardian'),
     relationshipTitle: String(profile?.relationship || 'Guardian').trim() || 'Guardian',
     accessEnabled: existingLink ? Number(existingLink.access_enabled) === 1 : !!accessEnabled,
     permissionsJson: { ...(existingLink?.permissions_json || {}), intakeLinkGuardianProfile: true },
@@ -3567,6 +3569,7 @@ async function computePublicIntakeClientMatch({ link, intakeData = null, payload
     registration_matched_client_id: null
   };
   if (!linkSupportsPublicRegistrationFeatures(link)) return base;
+  if (isEnrollmentReminderLink(link)) return base;
   const orgId = Number(
     payload?.organizationId
       || intakeData?.responses?.submission?.organizationId
@@ -3652,6 +3655,11 @@ async function resolveIntakeExistingClientAttach({ link, intakeData, payload, su
   }
 
   if (!link?.create_client) return empty;
+
+  // General enrollment may attach the submitted email to its existing login,
+  // but names/initials on a public form do not prove access to an existing chart.
+  // Keep possible duplicate children for the authorized staff merge workflow.
+  if (isEnrollmentReminderLink(link)) return empty;
 
   const submissionPatient = intakeData?.responses?.submission || {};
   const orgId = Number(
@@ -6888,6 +6896,7 @@ export const savePublicIntakeProgress = async (req, res, next) => {
       return res.status(loaded.error.status).json({ error: { message: loaded.error.message } });
     }
     const { submission } = loaded;
+    assertPortalEnrollmentIdentity(submission, req.body, sessionToken);
     if (String(submission.status || '').toLowerCase() === 'submitted') {
       return res.json({ ok: true, alreadyCompleted: true, submissionId: submission.id });
     }
@@ -7028,6 +7037,7 @@ export const createPublicConsent = async (req, res, next) => {
     const sessionToken = String(req.body?.sessionToken || '').trim();
     let submission = sessionToken ? await IntakeSubmission.findBySessionToken(sessionToken) : null;
     if (submission) {
+      assertPortalEnrollmentIdentity(submission, req.body, sessionToken);
       if (Number(submission.intake_link_id) !== Number(link.id)) return res.status(403).json({ error: { message: 'This session belongs to a different enrollment packet.' } });
       if (!req.body?.coGuardianToken && submission.co_guardian_invite_id) {
         coGuardianBinding = await CoGuardianInvite.resolveCoGuardianResumeBinding(submission, sessionToken, {
@@ -7818,6 +7828,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Submission not found' } });
     }
     const coGuardianToken = String(req.body?.coGuardianToken || '').trim();
+    assertPortalEnrollmentIdentity(submission, req.body, req.body?.sessionToken || req.headers?.['x-intake-session']);
     const coGuardianScope = { agencyId: (coGuardianToken || submission.co_guardian_invite_id) ? await resolveAgencyIdForLink(link) : null, publicKey };
     const resumeSessionToken = String(req.body?.sessionToken || req.headers['x-intake-session'] || '').trim();
     const coGuardianBinding = coGuardianToken
@@ -7876,10 +7887,7 @@ export const finalizePublicIntake = async (req, res, next) => {
           clientBundles: []
         });
       }
-      // Idempotent submitted-retry: surface whatever bundle artifacts already
-      // exist. Multi-child submissions have no combined bundle by design, so
-      // enter this block whenever EITHER the combined bundle OR at least one
-      // per-child bundle exists, and let downstream handle missing pieces.
+      // A completed first sibling is not completion of the entire enrollment.
       const _existingClientRows = await IntakeSubmissionClient.listBySubmissionId(submissionId);
       const _hasAnyPerChildBundle = (_existingClientRows || []).some((c) => c?.bundle_pdf_path);
       // Additional-guardian persistence (including demographic review) precedes
@@ -7892,7 +7900,9 @@ export const finalizePublicIntake = async (req, res, next) => {
           (_existingClientRows || []).some(row => Number(row.client_id) === Number(client.id) && row.bundle_pdf_path)
           || (coGuardianBinding.clients.length === 1 && submission.combined_pdf_path))
       );
-      if ((submission.combined_pdf_path || _hasAnyPerChildBundle) && _coGuardianArtifactsComplete) {
+      const _firstGuardianArtifactsComplete = coGuardianBinding || !link.create_client
+        || submissionArtifactsComplete(submission, _existingClientRows || [], submittedChildCount(submission.intake_data));
+      if ((submission.combined_pdf_path || _hasAnyPerChildBundle) && _coGuardianArtifactsComplete && _firstGuardianArtifactsComplete) {
         let downloadUrl = null;
         if (submission.combined_pdf_path) {
           try {
@@ -8974,21 +8984,9 @@ export const finalizePublicIntake = async (req, res, next) => {
       }
     }
     if (link.create_client && !createdClients.length) {
-      // Retry guard: the submission status is written 'submitted' before PDF
-      // generation completes (see updateById above). If finalize fails after
-      // client creation but before the PDF is saved, a subsequent retry falls
-      // through the idempotent check (no PDF yet) and would create a second set
-      // of duplicate clients. Guard against this by reusing the client that was
-      // already linked to the submission on a prior attempt.
+      // Restore every saved sibling before retrying document generation.
       if (updatedSubmission.client_id) {
-        const retryClient = await Client.findById(updatedSubmission.client_id, { includeSensitive: true });
-        if (retryClient?.id) {
-          createdClients = [retryClient];
-          console.info('[publicIntake] finalize retry: reusing existing client, skipping creation', {
-            submissionId,
-            clientId: retryClient.id
-          });
-        }
+        createdClients = await restoreSubmissionRoster(updatedSubmission, submittedChildCount(intakeData), await resolveAgencyIdForLink(link));
       }
       if (!createdClients.length) {
       const attachInfo = await resolveIntakeExistingClientAttach({
@@ -9156,6 +9154,8 @@ export const finalizePublicIntake = async (req, res, next) => {
       } // end if (!createdClients.length)
     }
 
+    // Persist the entire roster before any appointment or document work can fail.
+    await persistSubmissionRoster(submissionId, createdClients);
     await attachSubmittedProviderHold(link,intakeData,createdClients,updatedSubmission,req.body?.providerHoldToken);
 
     const signedDocs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
@@ -9544,9 +9544,9 @@ export const finalizePublicIntake = async (req, res, next) => {
         willCreatePhiDocs: Boolean(clientId)
       });
 
-      // A failed additional-guardian finalize may already have a child row.
-      // Reuse that association so retrying cannot turn one child into siblings.
-      const priorGuardianChild = coGuardianBinding && clientId
+      // The roster is saved before generation. Reuse it on initial completion
+      // and retries, for either parent, so each child keeps one association.
+      const priorGuardianChild = clientId
         ? (await IntakeSubmissionClient.listBySubmissionId(submissionId))
           .find(row => Number(row.client_id) === Number(clientId)) : null;
       intakeClientRows.push(
@@ -10571,6 +10571,7 @@ export const submitPublicIntake = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Submission not found' } });
     }
     CoGuardianInvite.assertCoGuardianSubmissionBinding(submission, null);
+    assertPortalEnrollmentIdentity(submission, req.body, req.body?.sessionToken || req.headers?.['x-intake-session']);
     const billingSteps = (Array.isArray(link.intake_steps) ? link.intake_steps : []).some(step => ['insurance_info','payment_collection'].includes(step.type));
     if (billingSteps) {
       if (!matchesIntakeSession(String(req.body?.sessionToken || req.headers['x-intake-session'] || ''), submission.session_token)) return res.status(403).json({ error: { message: 'A valid intake session is required' } });

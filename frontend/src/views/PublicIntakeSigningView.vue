@@ -502,7 +502,7 @@
             </div>
             <div class="form-group form-group--email">
               <label for="guardianEmail">{{ t('yourEmail') }} <span class="required-indicator">*</span></label>
-              <input id="guardianEmail" v-model="guardianEmail" type="email" :class="{ 'input-error': !!consentErrors.guardianEmail }" />
+              <input id="guardianEmail" v-model="guardianEmail" type="email" :readonly="!!portalEnrollmentEmail" :class="{ 'input-error': !!consentErrors.guardianEmail }" />
             </div>
             <div v-if="intakeForSelf !== false" class="form-group form-group--dob">
               <label for="starterDob">{{ t('dateOfBirth') }} <span class="required-indicator">*</span></label>
@@ -879,6 +879,7 @@
             <input
               id="guardianEmail"
               v-model="guardianEmail"
+              :readonly="!!portalEnrollmentEmail"
               type="email"
               :class="{ 'input-error': !!consentErrors.guardianEmail }"
             />
@@ -7046,6 +7047,7 @@ const guardianFirstName = ref('');
 const guardianMiddleName = ref('');
 const guardianLastName = ref('');
 const guardianEmail = ref('');
+const portalEnrollmentEmail = ref('');
 const guardianPhone = ref('');
 const starterDob = ref('');
 const fluentLanguagesInput = ref('');
@@ -8435,6 +8437,7 @@ const restoreServerProgress = async () => {
     }
     const intakeData = data?.intakeData && typeof data.intakeData === 'object' ? data.intakeData : null;
     if (!intakeData) return false;
+    portalEnrollmentEmail.value = intakeData.portalEnrollment?.email || '';
     const snapshot = intakeData.progressSnapshot && typeof intakeData.progressSnapshot === 'object'
       ? intakeData.progressSnapshot
       : {

@@ -86,7 +86,7 @@ function enrichGuardianClientRow(c) {
     full_name: noView ? (firstNameOnly(fullName) || c.initials || 'Dependent') : (fullName || c.full_name),
     date_of_birth: noView ? null : c.date_of_birth,
     no_view: noView,
-    guardian_portal_locked: isDobAdultLocked(c.date_of_birth)
+    guardian_portal_locked: c.relationship_type !== 'self' && isDobAdultLocked(c.date_of_birth)
   };
 }
 
@@ -216,7 +216,7 @@ export const getGuardianPortalOverview = async (req, res, next) => {
         initials: c?.initials || null,
         full_name: noView ? (firstNameOnly(fullName) || c?.initials || 'Dependent') : (fullName || null),
         no_view: noView,
-        guardian_portal_locked: isDobAdultLocked(meta?.date_of_birth)
+        guardian_portal_locked: c.relationship_type !== 'self' && isDobAdultLocked(meta?.date_of_birth)
       });
     }
 

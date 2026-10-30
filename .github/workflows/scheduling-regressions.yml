@@ -276,6 +276,13 @@ jobs:
         env:
           ACCOUNT_LIFECYCLE_MYSQL_TEST: '1'
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.account-lifecycle.config.js
+      - name: Family enrollment, sibling recovery, and duplicate merge preservation
+        env:
+          EVIDENCE_TEST_MYSQL_PORT: '3306'
+        run: |
+          (cd backend && node ../frontend/node_modules/vitest/vitest.mjs run --config vitest.family-enrollment.config.js)
+          node --test backend/src/controllers/__tests__/sharedIntakeArtifacts.test.js
+          (cd frontend && node node_modules/vitest/vitest.mjs run --config vitest.family-enrollment.config.js)
       - name: Provider archive cleanup and scheduling integration
         run: >-
           node frontend/node_modules/vitest/vitest.mjs run

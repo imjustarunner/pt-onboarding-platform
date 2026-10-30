@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { buildSharedIntakeDocuments } from '../../services/sharedIntakeDocuments.service.js';
+import { assertPortalEnrollmentIdentity } from '../../utils/portalEnrollmentBinding.js';
 
 // Exercise the real controller artifact functions with storage/DB/PDF boundaries
 // replaced, so no real patient records or external services are required.
@@ -88,6 +89,11 @@ test('finalize rejects missing shared-signature consent before updating the subm
   let updates = 0;
   const deps = {
     ...signing,
+    assertPortalEnrollmentIdentity,
+    CoGuardianInvite: { assertCoGuardianSubmissionBinding: () => {} },
+    validateIntakeMatchingPreferences: () => {},
+    validateAndStampIntakeCommunications: async () => {},
+    resolveAgencyIdForLink: async () => 10,
     validationResult: () => ({ isEmpty: () => true }),
     resolvePublicIntakeContext: async () => ({ link: { id: 8, is_active: true, scope_type: 'school', form_type: 'intake', create_client: true, intake_steps: [] } }),
     AgencySchoolIntakeMaster: { resolveParentAgencyIdForSchool: async () => null },
@@ -104,7 +110,7 @@ test('finalize rejects missing shared-signature consent before updating the subm
   const res = { status(code) { responseCode = code; return this; }, json(body) { response = body; return this; } };
   const clients = [{ fullName: 'Alex Example', dateOfBirth: '2012-02-03' }, { fullName: 'Blair Example', dateOfBirth: '2017-06-07' }];
   let unexpected;
-  await handler({ params: { publicKey: 'school', submissionId: '1' }, body: { clients, guardian: { firstName: 'Pat', email: 'pat@example.com' }, intakeData: { clients } } }, res, error => { unexpected = error; });
+  await handler({ params: { publicKey: 'school', submissionId: '1' }, headers: {}, body: { clients, guardian: { firstName: 'Pat', email: 'pat@example.com' }, intakeData: { clients } } }, res, error => { unexpected = error; });
   assert.equal(unexpected, undefined);
   assert.equal(responseCode, 400);
   assert.match(response.error.message, /confirm.*signatures/);

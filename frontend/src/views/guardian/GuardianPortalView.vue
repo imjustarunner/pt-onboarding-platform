@@ -27,10 +27,11 @@
       <PortalMigrationChecklist :profiles="allFamilyProfiles" v-if="!isSuperadminPreview && selectedChildId" v-show="activePanel === 'onboarding'" :key="`${selectedChildAgencyId}:${selectedChildId}`" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :client-type="selectedChildClientType" :active="activePanel === 'onboarding'" @state="onMigrationState" @navigate="navigatePortal" @finished="navigatePortal('overview')" />
       <AuricWellPortalGuide v-if="!isSuperadminPreview && activePanel === 'help'" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" @navigate="navigatePortal" />
       <ClientSupportAccounts v-if="!isSuperadminPreview && activePanel === 'assistance'" />
+      <GuardianEnrollmentStart v-if="!isSuperadminPreview && activePanel === 'enroll'" :agency-id="currentAgencyId" :language="familyLocale" />
       <GuardianInvitations v-if="!isSuperadminPreview && activePanel === 'family'" :agency-id="selectedChildAgencyId || currentAgencyId" :language="familyLocale" />
       <FamilyNotificationChoices v-if="activePanel === 'notifications' && !isSuperadminPreview" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :profiles="allFamilyProfiles" />
 
-      <div v-if="programs.length === 0 && children.length === 0 && !['account','messages','payment_methods','billing','assistance'].includes(activePanel)" class="empty-state">
+      <div v-if="programs.length === 0 && children.length === 0 && !['account','messages','payment_methods','billing','assistance','enroll'].includes(activePanel)" class="empty-state">
         <p>No children or programs are linked to this guardian account yet.</p>
         <p class="hint">Ask your organization to add you as a guardian on the child’s record.</p>
       </div>
@@ -620,6 +621,7 @@ import PortalSafetyPlans from '../../components/safetyPlans/PortalSafetyPlans.vu
 import GuardianSharedFiles from '../../components/guardian/GuardianSharedFiles.vue';
 import GuardianProgressRecords from '../../components/guardian/GuardianProgressRecords.vue';
 import FamilyDashboard from '../../components/guardian/FamilyDashboard.vue';
+import GuardianEnrollmentStart from '../../components/guardian/GuardianEnrollmentStart.vue';
 import FamilyPayments from '../../components/guardian/FamilyPayments.vue';
 import { resolveFamilyPortalOrganization, familyPortalClients, familyCareAgencies } from '../../utils/familyPortalContext.js';
 import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
@@ -1007,9 +1009,10 @@ const portalNavigation = computed(() => {
   if(onboardingRequired.value) items.unshift({key:'onboarding',label:'Complete onboarding',icon:'tasks'});
   items.unshift({key:'family',label:familyHomeLabel.value,icon:'dashboard'},{key:'family_billing',label:'Balances & payments',icon:'billing'},{key:'family_messages',label:'All secure messages',icon:'messages'});
   items.push({key:'assistance',label:'Accounts I help with',icon:'account'});
+  if (!isSuperadminPreview.value) items.push({key:'enroll',label:familyLocale.value === 'es' ? 'Inscribir a un hijo o a mí' : 'Enroll a child or yourself',icon:'sessions'});
   items.push( {key:'records',label:'Request my records',icon:'documents'}, {key:'help',label:'Portal help & feedback',icon:'support'});
   items.push({key:'contact',label:'Reminder contacts',icon:'support'},{key:'signout',label:'Sign out',icon:'account'});
-  const accountKeys=['assistance','family','family_billing','family_messages','notifications','account','records','help'];
+  const accountKeys=['assistance','family','family_billing','family_messages','notifications','account','records','help','enroll'];
   const ordered=[...items.filter(i=>accountKeys.includes(i.key)),...items.filter(i=>!accountKeys.includes(i.key)&&i.key!=='signout'),...items.filter(i=>i.key==='signout')];
   return ordered.map(i=>({...i,label:ft(i.label),group:i.key==='signout'?ft('Account'):accountKeys.includes(i.key)?ft('Family & account'):`${ft('Viewing')} ${selectedFirstName.value}`}));
 });

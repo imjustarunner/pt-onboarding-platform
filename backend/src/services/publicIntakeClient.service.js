@@ -2,6 +2,7 @@ import { clientPortalInviteUrl, intakeClientPortal } from './clientPortalContext
 import { deferGuardianInvitation as shouldDeferGuardianInvitation } from '../utils/schoolGuardianPortalPolicy.js';
 import config from '../config/config.js';
 import pool from '../config/database.js';
+import { enrollmentRelationship } from '../utils/portalEnrollmentBinding.js';
 import { validateQaIntakeGuardian, markQaIntakeGuardian } from './qaIntakeIdentity.service.js';
 import { isAuricwellQaAgency } from '../utils/auricwellQaPolicy.js';
 import Agency from '../models/Agency.model.js';
@@ -488,6 +489,7 @@ class PublicIntakeClientService {
         await ClientGuardian.upsertLink({
           clientId: client.id,
           guardianUserId: guardianUser.id,
+          relationshipType: enrollmentRelationship(payload, priorLink),
           relationshipTitle: guardianPayload.relationship || 'Guardian',
           accessEnabled: priorLink ? Number(priorLink.access_enabled)===1 : true,
           permissionsJson: priorLink?.permissions_json || { intakeLink: link.id },
@@ -676,6 +678,7 @@ class PublicIntakeClientService {
         await ClientGuardian.upsertLink({
         clientId: client.id,
         guardianUserId: guardianUser.id,
+        relationshipType: enrollmentRelationship(payload, priorLink),
         relationshipTitle: guardianPayload.relationship || 'Guardian',
         accessEnabled: priorLink ? Number(priorLink.access_enabled)===1 : true,
         permissionsJson: priorLink?.permissions_json || { intakeLink: link.id },

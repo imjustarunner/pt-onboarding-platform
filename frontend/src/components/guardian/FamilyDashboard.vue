@@ -1,5 +1,6 @@
 <template>
 <section class="family-dashboard">
+  <div v-if="!preview" class="family-quick"><button type="button" @click="$emit('navigate','enroll')">{{ familyLocale === 'es' ? 'Inscribir a otro hijo o a mí' : 'Enroll another child or yourself' }}</button></div>
   <div class="family-quick"><button @click="$emit('navigate','notifications')">{{ ft("Notification settings") }}</button><button @click="$emit('navigate','family_billing')">{{ ft("Balances & payments") }}</button><button @click="$emit('navigate','family_messages')">{{ ft("All secure messages") }}</button><button @click="$emit('navigate','account')">{{ ft("Account settings") }}</button></div>
   <p v-if="loading" role="status">{{ ft("Loading your family overview…") }}</p><p v-if="errors.length" role="alert">{{ errors.join(' ') }} <button @click="load">{{ ft("Retry") }}</button></p>
   <div class="family-summary-grid">

@@ -100,3 +100,16 @@ it('restores the signing step by ID after dropping an old extra child placeholde
  expect(wrapper.vm.excludedCoGuardianChildren[0].answers.ownAnswer).toBe('preserved accidental extra');
  expect(wrapper.vm.currentFlowStep?.id).toBe('disclosure');
 });
+
+it.each([false,true])('opens a portal-started enrollment for self=%s with own account details and no old child answers', async forSelf => {
+ progress = { submissionId: 150, intakeData: { portalEnrollment: { userId: 8, email: 'parent@example.test' }, intakeForSelf: forSelf,
+  guardian: { firstName: 'Parent', lastName: 'Example', email: 'parent@example.test', relationship: forSelf ? 'Self' : 'Parent' },
+  clients: [], progressStep: 1, responses: { guardian: {}, submission: { service_subject: forSelf ? 'self' : 'dependent' }, clients: [] } } };
+ await render();
+ expect(wrapper.vm.intakeForSelf).toBe(forSelf);expect(wrapper.vm.guardianEmail).toBe('parent@example.test');
+ expect(wrapper.vm.portalEnrollmentEmail).toBe('parent@example.test');expect(wrapper.vm.isCoGuardianInvitee).toBe(false);
+ expect(wrapper.vm.intakeResponses.clients.every(answer => !answer.ownAnswer)).toBe(true);
+ const emailInput = wrapper.find('input#guardianEmail');
+ if (emailInput.exists()) expect(emailInput.attributes()).toHaveProperty('readonly');
+ expect(wrapper.vm.embeddedSmartDisclosure).not.toEqual(capture);
+});

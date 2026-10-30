@@ -1,0 +1,293 @@
+ITSCOLLC / AURICWELL — CONSOLIDATED EXTERNAL QA PLAN
+October 29, 2026
+
+SEND THIS DOCUMENT TO THE COORDINATOR
+
+This is the current combined handoff. It integrates the October 27 saved
+second-guardian instructions, October 28 repair/retest instructions, October 29
+second-guardian recovery addendum, and the additional-child/self-enrollment and
+duplicate-merge scenarios. Retain earlier reports as history. Do not run old,
+conflicting SMS or account-provisioning instructions in place of this plan.
+
+This release is not an end-to-end QA pass. Report every scenario as PASS, FAIL,
+BLOCKED, or NOT RUN, with evidence. Developer checks and deployment do not prove
+that an external browser journey or an email/text delivery succeeded.
+
+ACCESS, SCHEDULE, AND LIMITS
+
+- Start at 5 AM America/Denver daily. Report the actual start time and scheduler
+  result; a kickoff reminder is not proof of an unattended run.
+- This is an external browser testing team. Use the ordinary app screens and
+  supplied vault accounts only. You have no repository, database, cloud, carrier,
+  or owner-computer access. Do not request admin impersonation or superadmin.
+- Use agency 450 ITSCOLLC, school 451 Cedar Grove K-8 — DEMO, and clinic 452.
+  Staff entry: https://app.itsco.health/auricwell-qa-demo/login
+  Primary target: the complete ITSCO-style staff platform. Also test the supplied
+  standalone AuricWell interface where the same role has access.
+- Avery 1433 is a provider; Cameron 1438 is the supervisor; Alex 1439 is the
+  supervisee; Jordan 1434 is support; Jamie 1465 is school staff. Use the separately
+  supplied biller and guardian credentials. A missing or broken saved login is
+  BLOCKED, not permission to use another role. No passwords belong in reports.
+- Recount before creating records. Maximum 30 retained clients and 10 providers.
+  The last October 28 count was 17 clients and three providers; do not assume it
+  is still current. Investigate the dashboard's fourth-provider discrepancy.
+  Do not create a provider every day by default. Reuse controlled fixtures.
+- Keep synthetic records and screenshots for review. Do not delete nightly.
+  A merge archives a duplicate; it is not permission to exceed the retained
+  record cap. Rotate the matrix across days if necessary and report coverage.
+- Use realistic synthetic names, dates, ages, grades, preferences, answers,
+  addresses, and documents. Do not use real families, real schools, or real PHI.
+  Do not submit insurance claims or charge a real card. Default to self-pay.
+- QA email is testing@itsco.health. Every synthetic identity keeps its own unique
+  @example.com login. Verify the intended recipient and the actual destination
+  separately. A shared delivery inbox does not make the accounts interchangeable.
+- Only the owner-approved SMS fixtures may receive texts: 618-910-7000 is reserved
+  for Rowan's family; 815-212-2875 is Harper's receiving number. Google Voice may
+  reply from 618 even when a message was received at 815. Never assume the reply
+  belongs to Harper. Keep all other new families email-only unless reassigned.
+- Clinical reminders, family replies, and provider-client SMS must use an enabled,
+  owner-confirmed Notifyre number and the agency's approved care campaign. The
+  main/support and provider lines are separate. Do not use the old Vonage
+  719-716-3661 line for care tests. Number purchase alone is not activation.
+  If sender/webhook readiness is unconfirmed, mark SMS BLOCKED and continue email
+  and portal tests. Vonage remains for approved nonclinical workforce alerts;
+  AuricWell verification codes use their separate Notifyre verification campaign.
+
+ENROLLMENT ENTRY POINTS
+
+Office EN: https://app.itsco.health/intake/office-intake-450-en-876e98bf5af05de5
+Office ES: https://app.itsco.health/intake/office-intake-450-es-1cadfe975924387d
+School EN: https://app.itsco.health/intake/f243e3ac1cf550565687a32028d7ff535ad4965b7d47ce60
+School ES: https://app.itsco.health/intake/a816de239557a6bbc0e953e085f6fd235c494f4ab936fc7e
+
+Verify the displayed agency, school/office, and language before submitting.
+The portal now has “Enroll a child or yourself” in Family & account, plus
+“Enroll another child or yourself” on the family dashboard. It offers published
+enrollments in that guardian's agencies. Adult self-enrollment uses office or
+virtual services, not a school child's form. Missing forms are a configuration
+failure to report, not a reason to use another agency's link.
+
+FIRST GATE: LOGIN AND ROLE ISOLATION
+
+1. Use separate browser profiles for the ordinary role journeys. As a specific
+   switching test, sign in as Jamie, sign out, then open the agency login above.
+   It must not redirect to the school login or carry Jamie's username into an
+   unrelated person's login. Verify the signed-in name and agency every time.
+2. Jordan must be denied /admin/users and administrative settings, Add user,
+   role editing, payroll administration, progress-note bodies, medical records,
+   and other guardians' private enrollment content. Normal support can review
+   contacts, schedules, permitted billing/status information, Exchange, and
+   duplicate clients within the demo. No role elevation to make a test pass.
+3. Guardians must not see Dev Fill, the copy editor, staff clinical document
+   routes, other families, or another guardian's private answers/signatures.
+   Stop the affected lane and report any cross-account exposure immediately.
+
+PRIORITY FAMILY MATRIX
+
+Run school and office versions in EN and ES. Track each combination explicitly;
+one office English pass does not establish school or Spanish behavior. Use
+separate account sessions for Parent A and Parent B, even with one test inbox.
+
+A. NEW PARENT A ENROLLS TWO CHILDREN, THEN INVITES PARENT B
+1. A starts from a public website link. Add Child One and Child Two, with distinct
+   names, birth dates, grades, and different synthetic answers for each child.
+   Indicate B has the applicable legal rights and request B's invitation.
+2. Submit A's full enrollment. Record both client IDs and the submission reference.
+   A must receive both profiles under one login. Verify the correct provider's
+   client list or support assignment queue, not just the completion screen.
+3. Inspect B's actual first invitation in the controlled inbox. It must identify
+   the inviting guardian appropriately and consistently identify both children.
+   The first successful invitation is not labelled a reminder. No existing-account
+   hint, other-family information, or A's private return link may be exposed.
+4. B opens their own invitation. Both invited children have the correct names and
+   birth dates. B can complete separate answers for each child, with their own
+   contact information, consent choices, and signatures. “Independent” means B's
+   own enrollment/answers, not access to A's completed private enrollment.
+5. B cannot add/remove children, change their locked identities, or switch this
+   invitation into enrolling themselves. A can still add children in an ordinary
+   first-parent enrollment. Shared signing may cover both children only after
+   the displayed multi-child consent; verify each child's separate signed copy.
+6. Complete B's enrollment, activate the portal normally if needed, and reload.
+   Both A and B must see both children once. Each guardian sees their own signed
+   copies and answers, not the other's private forms, signatures, address, phone,
+   or payer details. Verify the simple other-guardian reference and consistent
+   masking separately; do not assume earlier reference defects are fixed.
+7. An authorized provider must see both guardians' submissions on the correct
+   child records. B's observations must not silently replace A's established
+   child demographics or erase A's signed copy.
+
+B. EXISTING PARENT ADDS ANOTHER CHILD FROM THE PORTAL
+1. Reuse A's login and record current children and account identity first.
+2. Open “Enroll another child or yourself”; choose child/children and the proper
+   form/language. The new form may prefill A's own account contact information.
+   It must not carry a previous child's answers, signatures, payment details, or
+   another guardian's information into this new enrollment.
+3. Complete a new child's enrollment and invite the already-existing Parent B.
+   After submission, A's same login shows the original children plus the new one.
+   A's password and previous profiles/documents remain unchanged.
+4. B completes the new invitation with B's existing email, then signs in with the
+   same credentials. B sees the original linked children plus this child. No
+   duplicate guardian account, password reset requirement, or lost old access.
+5. Check every profile and signed copy separately. Do not infer the sibling was
+   linked because the first child's profile is visible.
+
+C. EXISTING PARENT ENROLLS THEMSELVES
+1. As A, select “Myself” from the portal enrollment entry and an office form.
+2. Complete the actual adult enrollment and signed agreements. Existing login is
+   reused; this does not skip the enrollment, consent, payment-choice, or clinical
+   review requirements. No child answers/signatures may be copied automatically.
+3. A's portal shows a distinct own client profile with a Self relationship, plus
+   the existing children. A can view their own submitted documents and permitted
+   account information; an adult-age guardian restriction must not lock them out
+   of their own record.
+4. B must not gain access to A's adult client profile, private documents, billing,
+   or messages simply because they share children. A's self-enrollment must not
+   send a co-parent invitation or notice to B from stale child-enrollment fields.
+
+D. EXISTING GUARDIAN SUBMITS A SEPARATE WEBSITE ENROLLMENT
+1. Use a signed-out browser and a public link, with the exact existing synthetic
+   guardian email. Enroll an additional child and invite the existing other parent.
+2. Before submission, no screen may announce an existing account/client match,
+   list existing children, or reveal saved family information. Match decisions
+   belong on the staff side. A completed form is not authentication into an account.
+3. After submission and ordinary sign-in, the existing account must show its old
+   profiles plus the new child. Repeat the second-parent invitation acceptance
+   and verify B's existing account is reused. Different email addresses, shared
+   phone numbers, similar names, or matching initials alone must not merge logins
+   or grant access to someone else's existing child.
+
+E. NEW PARENT, EXISTING SECOND PARENT
+1. Create a new synthetic Parent C and new Child Three through a public form;
+   invite the existing Parent B using B's exact email and legal-rights choice.
+2. C must not learn that B already has an account or which other children B sees.
+3. B signs their own enrollment for Child Three and uses B's same login. B sees
+   this child alongside B's previously linked children. C sees only C's child;
+   C must not gain access to A, A's self profile, or A/B's other children.
+
+F. SAVED SECOND-PARENT PROGRESS AND RESENDING
+1. Stop B near the final disclosure after answering both children and signing.
+   Save the personal return link privately; reload and resume in a fresh browser.
+   Verify both children's own answers, signed agreements, and saved step.
+2. Repeat with the personal session link alone and with its original invitation.
+   Use support's normal resend action to the SAME address. The newest invitation
+   must resume saved work and renew the selected unfinished draft, rather than
+   sending B back to a blank form or reporting the old draft expired.
+3. Use an owner-provided expired-draft fixture for the expiry regression. If none
+   is available, mark that subcase BLOCKED; do not change server dates or clear
+   storage to simulate recovery. Slow/failed loading must not overwrite answers.
+4. Correct a different synthetic invitation to a DIFFERENT email only through
+   the authorized UI. The new recipient starts their own work and must not receive
+   the prior recipient's answers. The old unfinished return link must be revoked.
+5. A wrong session/invitation combination, other form/agency, revoked invitation,
+   or record ID without its private session must not expose saved answers.
+6. Reopening or retrying a completed enrollment must not create extra clients,
+   re-sign documents, rotate a password, or erase either guardian's copy.
+
+G. SAME CHILD ENROLLED TWICE, THEN SUPPORT MERGES THE DUPLICATE
+1. In the demo only, submit the same synthetic child twice through separate new
+   enrollments by the same guardian. Record both submissions and client IDs.
+   Retrying a single submission is a different test and should not create a duplicate.
+2. Open support's Clients > Show Duplicates / Review merge for the demo agency.
+   Compare name, DOB, guardian, and context. A similarity score is a review aid,
+   not proof of identity. Choose the surviving record and review the field choices.
+3. Merge through the ordinary UI. Verify the surviving record contains both signed
+   enrollments, the proper guardian links, pending invitations, and the merge audit.
+   The duplicate is archived. Documents and signatures must not be regenerated.
+4. Sign in as each guardian and reload. Each sees one active child profile, retains
+   all of their own signed copies, and cannot download the other's private copy.
+   Confirm the provider can see the retained documents on the surviving chart.
+5. Conflicting guardian restrictions must stop the merge without partial changes.
+   Do not grant broader permissions to force it. Cross-agency merges and guardian-
+   initiated merges must be denied; test only with approved synthetic fixtures.
+
+H. PRIVATE DOCUMENTS, SHARED CARE, AND NOTIFICATIONS
+1. Confirm own signed copies for office/school EN/ES, including the correct HIPAA
+   language. Verify timestamps, link destination/expiry, and completion wording.
+2. With authorized shared-message participants, A posts a synthetic message. B
+   receives a neutral new-message notice and signs in to read it; the message body
+   and attachments stay inside the portal. Repeat B-to-A and provider-to-both.
+3. Shared conversation membership must be visible. Shared messages are intentionally
+   shared; ordinary enrollment answers, private documents, adult self records, and
+   payer-specific information remain separate. Never suggest that this replaces
+   TalkingParents or that shared-child access grants all clinical-message rights.
+4. Check invitation sent/reminder/accepted history and appointment/email/SMS history
+   in the appropriate portals. Metadata visibility must not reveal another parent's
+   private links or content. A held/queued/failed send is not an inbox delivery.
+
+CONTINUE THE DAILY CORE LANES
+
+- Enrollment: cover the four entry points over the planned matrix; validate required
+  fields, phone paste, consent/signatures, legal-guardian authority, uploads, save/
+  resume, payment authorization, and English/Spanish end-to-end. No Dev Fill or
+  copy editor. School enrollment must omit office provider-fit selection. Office
+  provider/time choice must persist and produce a real appointment when booked.
+- Availability/booking: providers publish dated office/virtual openings; reload.
+  A guardian selects a real opening, support schedules on behalf of a client,
+  conflicting bookings are rejected, and rescheduling releases the old slot.
+  Verify provider, guardian, and support views, not only the availability screen.
+- Exchange: support posts an unassigned synthetic client; inspect eligibility,
+  exclusions, provider application/acceptance, assignment, and notifications.
+  Nobody outside demo receives a match notification. Verify Clients lists after
+  assignment. Test “How can I help you find someone?” using names, criteria,
+  no-match, and a correction. Record the visible filter/result change.
+- Clinical: create session-linked drafts from completed synthetic sessions and
+  quick notes. Verify My Work Started and the client draft match. Test a licensed
+  provider signature, Alex's signature, Cameron's cosign, and agreement 413.
+  Do not re-create old draft 261/signed note 75. Support may see status, not content.
+- Billing: use the biller for self-pay balances, insurance-pending estimates that
+  are not yet due, verified copays, 50/50 split, alternating A/B responsibility,
+  payment plans, and the request-to-share flow. Prepare insurance claims only as
+  an explicitly isolated non-submitting fixture. Never click submit to Claim.MD
+  or charge a real card. If the balance screen/fixture is absent, mark BLOCKED.
+- Appointment notices: for authorized office/virtual fixtures, confirm Y, cancel
+  N outside the fee window, request/reschedule, and free-text late-arrival replies.
+  Check provider schedule status, provider email/in-app copy, and support inbox.
+  Both authorized guardians can act on the same appointment; the other receives
+  the correct guardian/provider cancellation attribution. A later Y must not
+  reopen a canceled appointment. Ambiguous shared-phone replies must not guess.
+- Fees: compare the displayed/signed policy with the configured $80 late cancel
+  inside 24 hours and $100 no-show demo cases. Verify fee disclosure/acknowledgment
+  before applying a fee-bearing cancellation, then the proper balance. Test email
+  and portal paths while SMS is blocked. School absence notices are not office
+  Y/N/R cancellation or automatic fee cases. Do not retroactively change a signed
+  policy or treat a policy mismatch as PASS.
+- Communications: provider-to-external contact test emails may go to the owner-
+  approved michael@plottwistco.com using synthetic text and a QA subject. Verify
+  contact creation, sent view, desktop/mobile email rendering, and replies. Also
+  test internal messages and secure family/provider messages. No real clinical
+  content or login secrets in external email.
+- School: Jamie's invitation/welcome delivery, permitted roster/ROI, provider
+  questionnaire assignment/completion, and Avery/Jamie replies. Existing Jules
+  demographic edits must save without inventing a termination reason.
+- Staff: training/quiz save/submit/result, permitted payroll/time entry, account
+  settings, notifications, navigation, and responsive layouts. No real payroll
+  processing. Inspect local Mountain time with a Pacific device; account for the
+  MDT-to-MST change on November 1. Capture displayed timezone abbreviations.
+
+OPEN ISSUES TO RETEST, NOT ASSUME FIXED
+
+Spanish translation gaps; other-parent reference names/masking; school versus
+office portal login branding and footer links; used setup-link feedback; school
+staff welcome mail; provider client-list/assignment inconsistencies; permissions
+for shared messages/files/care access; full-enrollment versus portal-only invite
+choice; Account Support navigation; read-only completed forms; inactive-account
+and expired-password fixtures; and the provider count discrepancy. An unavailable
+fixture is BLOCKED. Keep these separate from the new family-enrollment results.
+
+ONE REPORT BACK
+
+Provide one morning brief plus a later delivery update when reminders arrive.
+For each case include role/user ID, synthetic client/submission IDs, browser URL
+with secrets removed, exact steps, expected and actual results, Mountain timestamp,
+PASS/FAIL/BLOCKED/NOT RUN, and screenshots. List the number of retained clients and
+providers and the remaining untested matrix combinations. Record browser identity
+and viewport; mobile emulation is not physical-phone testing.
+
+Keep private invitation/session/reset links, passwords, signature images, and
+non-QA phone/contact details out of shared evidence. The previous October 28 ZIP
+contained a non-QA phone in notes.md; redact a shareable copy, preserve the private
+original, and check screenshots too. Files on the bot's computer are not accessible
+to the application developer unless separately provided.
+
+Do not submit or sign a real family's enrollment. The real guardian recovery that
+prompted this release is not a bot fixture. Do not overwrite previous FAIL briefs.

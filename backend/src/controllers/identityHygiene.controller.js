@@ -1,3 +1,5 @@
+import { authorizeClientMerge } from '../services/clientEnrollmentMerge.service.js';
+import { assertEnrollmentAgencyMembership } from '../services/enrollmentAgencyAccess.service.js';
 import {
   bulkSetClientDemo,
   bulkSetUserDemo,
@@ -40,6 +42,8 @@ export async function getPeopleDuplicates(req, res, next) {
     const agencyId = req.query.agencyId || req.query.agency_id || null;
     const includeArchived = String(req.query.includeArchived || '') === 'true';
     if (persona === 'clients') {
+      if (!Number(agencyId)) return res.status(400).json({ error: { message: 'Choose an agency to review duplicate clients.' } });
+      await assertEnrollmentAgencyMembership(req.user, Number(agencyId));
       const result = await findClientDuplicateGroups({ agencyId, includeArchived });
       return res.json(result);
     }
@@ -74,6 +78,7 @@ export async function previewPeopleMerge(req, res, next) {
     if (!keepId || !sourceIds.length) {
       return res.status(400).json({ error: { message: 'keepId and sourceIds are required' } });
     }
+    if (persona === 'clients') await authorizeClientMerge(req.user, keepId, sourceIds);
     const preview = persona === 'clients'
       ? await previewClientMerge({ keepId, sourceIds, fieldChoices })
       : await previewUserMerge({ keepId, sourceIds, fieldChoices });
@@ -93,6 +98,7 @@ export async function applyPeopleMerge(req, res, next) {
     if (!keepId || !sourceIds.length) {
       return res.status(400).json({ error: { message: 'keepId and sourceIds are required' } });
     }
+    if (persona === 'clients') await authorizeClientMerge(req.user, keepId, sourceIds);
     const result = persona === 'clients'
       ? await mergeClients({ keepId, sourceIds, fieldChoices, actorUserId: req.user.id })
       : await mergeUsers({ keepId, sourceIds, fieldChoices, actorUserId: req.user.id });

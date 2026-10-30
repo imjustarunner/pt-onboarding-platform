@@ -211,7 +211,7 @@ export const listMyGuardianClients = async (req, res, next) => {
     res.json(
       (rows || []).map((c) => ({
         ...c,
-        guardian_portal_locked: isDobAdultLocked(c?.date_of_birth)
+        guardian_portal_locked: c.relationship_type !== 'self' && isDobAdultLocked(c?.date_of_birth)
       }))
     );
   } catch (e) {

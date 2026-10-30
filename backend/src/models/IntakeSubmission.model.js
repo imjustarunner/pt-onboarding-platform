@@ -1,4 +1,6 @@
 import pool from '../config/database.js';
+import crypto from 'node:crypto';
+import { preservePortalEnrollmentBinding } from '../utils/portalEnrollmentBinding.js';
 import {
   buildIntakePayloadEnvelope,
   decryptIntakeSubmissionRow,
@@ -41,7 +43,7 @@ class IntakeSubmission {
       signerInitials = null,
       signerEmail = null,
       signerPhone = null,
-      intakeData = null,
+      intakeData: suppliedIntakeData = null,
       intakeDataHash = null,
       consentGivenAt = null,
       submittedAt = null,
@@ -55,6 +57,8 @@ class IntakeSubmission {
       retentionExpiresAt = null,
       sessionToken = null
     } = data;
+    const intakeData = suppliedIntakeData || data.portalEnrollment
+      ? preservePortalEnrollmentBinding(null, suppliedIntakeData, data.portalEnrollment) : null;
 
     let signerNameCol = signerName;
     let signerInitialsCol = signerInitials;
@@ -101,7 +105,7 @@ class IntakeSubmission {
         signerEmailCol,
         signerPhoneCol,
         intakeDataCol,
-        intakeDataHash,
+        intakeData ? crypto.createHash('sha256').update(JSON.stringify(intakeData)).digest('hex') : intakeDataHash,
         payloadEncrypted,
         payloadIv,
         payloadAuthTag,
@@ -217,6 +221,14 @@ class IntakeSubmission {
             ? effectiveUpdates.signer_phone
             : (existingDecrypted?.signer_phone ?? null)
       };
+
+      if ('intake_data' in effectiveUpdates) {
+        const binding = existingDecrypted?.intake_data?.portalEnrollment;
+        if (merged.intake_data || binding) {
+          merged.intake_data = preservePortalEnrollmentBinding(existingDecrypted?.intake_data, merged.intake_data);
+          effectiveUpdates.intake_data_hash = crypto.createHash('sha256').update(JSON.stringify(merged.intake_data)).digest('hex');
+        }
+      }
 
       const enc = buildEncryptedColumns(merged);
 
