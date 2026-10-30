@@ -10,11 +10,12 @@ export function meetingSummaryEmailHtml(summary) {
     return `<p style="margin:6px 0;line-height:1.55">${bullet ? '• ' + inline(bullet[1]) : inline(line)}</p>`;
   }).join('');
 }
-export function meetingFollowupContent({ title, summary, generatedAt, url, receipt = {}, backfill = false, training = false, recordNotice = null }) {
+export function meetingFollowupContent({ title, summary, generatedAt, url, receipt = {}, attendeeNames = [], backfill = false, training = false, recordNotice = null }) {
   const transcriptUrl = new URL(url); transcriptUrl.searchParams.set('tab', 'Transcript');
   const assetsUrl = new URL(url); assetsUrl.searchParams.set('tab', training ? 'Documents' : 'Overview');
   const disclaimer = recordNotice?.manual ? 'Manually recorded meeting notes. Please review for accuracy.' : `Auto-generated meeting notes. Please review for accuracy.${training ? '' : ' Suggested next steps are not confirmed assignments.'}`;
   const details = [receipt.dateLabel, receipt.host ? `Host: ${receipt.host}` : '',
+    attendeeNames.length ? `Present: ${attendeeNames.join(', ')}` : '',
     receipt.minutes != null ? `Your recorded attendance: ${receipt.minutes} minutes.` : 'Your attendance duration needs review.', receipt.compensation];
   if (receipt.balance) {
     const b = receipt.balance;

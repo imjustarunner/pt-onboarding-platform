@@ -92,6 +92,20 @@ async function participantRecords(type, ids) {
       (SELECT 1 FROM ${s.admission} va WHERE va.${s.key}=jp.${s.key} AND (CONCAT('user-',va.user_id)=jp.join_identity OR va.join_identity COLLATE utf8mb4_unicode_ci=jp.join_identity COLLATE utf8mb4_unicode_ci)))`, [...ids,...ids]);
   return rows;
 }
+export async function meetingParticipantNames(type, id) {
+  if (!sources[type] || !Number.isInteger(Number(id)) || Number(id) < 1) deny();
+  // Use recorded attendance and admitted presence, never the invitation/RSVP
+  // list. A reconnect can appear in both sources; list each person only once.
+  const rows = await participantRecords(type, [Number(id)]);
+  const names = new Map();
+  for (const row of rows) {
+    const name = String(row.name || '').trim();
+    if (!name) continue;
+    const key = row.user_id ? `user-${row.user_id}` : row.identity || name;
+    if (!names.has(key)) names.set(key, name);
+  }
+  return [...names.values()].sort((a, b) => a.localeCompare(b));
+}
 export async function requireAttendedMeeting(type, id, userId, actor = { id: userId }) {
   const s = sources[type];
   if (!s || !Number.isInteger(Number(id)) || Number(id)<1) deny();

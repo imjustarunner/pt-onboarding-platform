@@ -5,7 +5,7 @@ import { meetingAttendanceReceipt } from './meetingAttendanceReceipt.service.js'
 import { supervisionDisplayTitle } from '../utils/supervisionDisplayTitle.js';
 import Notification from '../models/Notification.model.js';
 import pool from '../config/database.js';
-import { requireAttendedMeeting } from './myMeetings.service.js';
+import { meetingParticipantNames, requireAttendedMeeting } from './myMeetings.service.js';
 import TeamArtifact from '../models/ProviderScheduleEventArtifact.model.js';
 import SupervisionArtifact from '../models/SupervisionSessionArtifact.model.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
@@ -39,6 +39,9 @@ export async function deliverMeetingFollowup(type, id, { deliveryKey='initial', 
   }
   const [[supervisee]] = type === 'supervision' && meeting.supervisee_user_id ? await pool.execute("SELECT COALESCE(NULLIF(preferred_name,''),first_name) first_name FROM users WHERE id=?",[meeting.supervisee_user_id]) : [[]];
   const title=meeting.title || supervisionDisplayTitle(meeting,supervisee?.first_name);
+  const attendeeNames = type === 'team' && meeting.meeting_subtype === 'supervisors_meeting'
+    ? await meetingParticipantNames(type, id)
+    : [];
   const base = await tenantMeetingBase(meeting.agency_id);
   const url = `${base}/my-meetings?type=${type}&meetingId=${id}&tab=Summary`;
   const mailboxes = await ensureTenantMessageMailboxes(meeting.agency_id);
@@ -56,7 +59,7 @@ export async function deliverMeetingFollowup(type, id, { deliveryKey='initial', 
     const recipient = await resolveMeetingRecipient({ agencyId:meeting.agency_id,user });
     if (!recipient.email) continue;
     const receipt = await meetingAttendanceReceipt(type,id,user.id,meeting);
-    const content = meetingFollowupContent({ title, summary, generatedAt:artifact?.summary_generated_at, url, receipt, backfill, recordNotice, training:meeting.meeting_subtype === 'training' });
+    const content = meetingFollowupContent({ title, summary, generatedAt:artifact?.summary_generated_at, url, receipt, attendeeNames, backfill, recordNotice, training:meeting.meeting_subtype === 'training' });
     const key = [type,id,user.id,deliveryKey];
     if (sentCount>=maxRecipients) return false;
     const [claim] = await pool.execute(`INSERT IGNORE INTO meeting_followup_deliveries (meeting_type,meeting_id,user_id,delivery_key,delivery_status) VALUES (?,?,?,?,'sending')`, key);

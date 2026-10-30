@@ -2,6 +2,13 @@ import {describe,it,expect} from 'vitest';
 import {meetingFollowupContent} from '../meetingFollowupContent.service.js';
 import {compactSchoolCareBridgeEmail} from '../schoolCareBridgeEmail.service.js';
 describe('meeting follow-up email',()=>{
+ it('renders only the supplied attendee names and escapes them in HTML',()=>{
+  const content=meetingFollowupContent({title:'Supervisors meeting',summary:'Notes',url:'https://example.test/my-meetings',attendeeNames:['Liz Rosas','Pat <Smith>'],receipt:{minutes:64.92}});
+  expect(content.text).toContain('Present: Liz Rosas, Pat <Smith>');
+  expect(content.html).toContain('Present: Liz Rosas, Pat &lt;Smith&gt;');
+  expect(content.html).not.toContain('<Smith>');
+  expect(content.text).toContain('Your recorded attendance: 64.92 minutes.');
+ });
  it('includes the saved notes and separate authenticated summary and transcript destinations',()=>{
   const content=meetingFollowupContent({title:'CPA',summary:'## Tasks by person\n- **Pat**: Send the schedule\n## Suggested next steps\n- Review options',url:'https://example.test/agency/my-meetings?type=team&meetingId=7&tab=Summary'});
   expect(content.html).toContain('<strong>Pat</strong>');expect(content.html).toContain('tab=Transcript');expect(content.html).toContain('tab=Summary');expect(content.text).toContain('Send the schedule');

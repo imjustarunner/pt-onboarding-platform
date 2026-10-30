@@ -8,7 +8,7 @@ vi.mock('../../models/HiringInterviewArtifact.model.js',()=>({default:{findByInt
 vi.mock('../../models/VideoMeetingActivity.model.js',()=>({default:{list:mocks.activity}}));
 vi.mock('../../models/ProviderScheduleEventArtifact.model.js',()=>({default:{findByEventId:mocks.artifact,toWorkspaceDto:()=>({goals:[],actionItems:[]})}}));
 vi.mock('../meetingSummaryJobs.service.js',()=>({meetingSummaryStatus:mocks.status,enqueueMeetingSummary:vi.fn()}));
-import {requireAttendedMeeting,myMeetingDetail,listMyMeetings,myMeetingActivity,saveMyMeetingNote,retryMyMeetingSummary,meetingCategory} from '../myMeetings.service.js';
+import {requireAttendedMeeting,myMeetingDetail,listMyMeetings,myMeetingActivity,saveMyMeetingNote,retryMyMeetingSummary,meetingCategory,meetingParticipantNames} from '../myMeetings.service.js';
 beforeEach(()=>{
  vi.resetAllMocks();mocks.member.mockResolvedValue(true);mocks.status.mockResolvedValue('generating');
  mocks.artifact.mockResolvedValue({transcript_text:'Shared transcript',summary_text:'Summary',private_notes_text:'Never share legacy private notes'});
@@ -20,6 +20,22 @@ beforeEach(()=>{
  });
 });
 describe('personal attended meeting library',()=>{
+ it('lists distinct present people by name using attendance and admitted presence',async()=>{
+  mocks.execute.mockResolvedValue([[
+   {user_id:10,identity:'user-10',name:'Michael Mendez'},
+   {user_id:11,identity:'user-11',name:'Liz Rosas'},
+   {user_id:10,identity:'user-10',name:'Michael Mendez'},
+   {user_id:null,identity:'guest-1',name:'Pat Guest'},
+   {user_id:null,identity:'guest-1',name:'Pat Guest'},
+   {user_id:12,identity:'user-12',name:''}
+  ]]);
+  expect(await meetingParticipantNames('team',7)).toEqual(['Liz Rosas','Michael Mendez','Pat Guest']);
+  const [sql,args]=mocks.execute.mock.calls[0];
+  expect(args).toEqual([7,7]);
+  expect(sql).toContain('ar.total_seconds>0');
+  expect(sql).toContain('provider_schedule_event_video_admissions');
+  expect(sql).not.toContain('provider_schedule_event_attendees');
+ });
  it('denies an invited non-attendee without loading shared records',async()=>{
   mocks.execute.mockResolvedValue([[]]);
   await expect(myMeetingDetail('team',7,10)).rejects.toMatchObject({status:403});expect(mocks.artifact).not.toHaveBeenCalled();

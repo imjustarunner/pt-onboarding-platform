@@ -1,9 +1,9 @@
 import {beforeEach,describe,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),access:vi.fn(),artifact:vi.fn(),send:vi.fn(),recipient:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),access:vi.fn(),artifact:vi.fn(),send:vi.fn(),recipient:vi.fn(),names:vi.fn()}));
 vi.mock('../meetingAttendanceReceipt.service.js',()=>({meetingAttendanceReceipt:async()=>({minutes:30,host:'Trainer',compensation:'Estimate pending payroll review.'})}));
 vi.mock('../../models/Notification.model.js',()=>({default:{create:async()=>({id:3})}}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
-vi.mock('../myMeetings.service.js',()=>({requireAttendedMeeting:m.access}));
+vi.mock('../myMeetings.service.js',()=>({requireAttendedMeeting:m.access,meetingParticipantNames:m.names}));
 vi.mock('../../models/ProviderScheduleEventArtifact.model.js',()=>({default:{findByEventId:m.artifact}}));
 vi.mock('../../models/SupervisionSessionArtifact.model.js',()=>({default:{findBySessionId:m.artifact}}));
 vi.mock('../../utils/tenantMeetingUrl.js',()=>({tenantMeetingBase:async()=> 'https://app.test/itsco'}));
@@ -23,8 +23,24 @@ beforeEach(()=>{
  m.access.mockImplementation(async(_type,_id,userId)=>{if(userId===11)throw Object.assign(new Error('denied'),{status:403});return meeting;});
  m.artifact.mockResolvedValue({summary_text:'## Tasks by person\n- Pat: send schedule',transcript_text:'not sent',private_notes_text:'private'});
  m.recipient.mockResolvedValue({email:'attendee@test'});m.send.mockResolvedValue({id:'sent',communicationId:22});
+ m.names.mockResolvedValue(['Liz Rosas','Michael Mendez']);
 });
 describe('automatic meeting follow-ups',()=>{
+ it('includes the recorded roster in supervisors meeting follow-ups',async()=>{
+  meeting.meeting_subtype='supervisors_meeting';
+  await deliverMeetingFollowup('team',7);
+  expect(m.names).toHaveBeenCalledExactlyOnceWith('team',7);
+  expect(m.send).toHaveBeenCalledOnce();
+  const content=m.send.mock.calls[0][0];
+  expect(content.text).toContain('Present: Liz Rosas, Michael Mendez');
+  expect(content.html).toContain('Present: Liz Rosas, Michael Mendez');
+  expect(content.text).not.toContain('waiting@test');
+ });
+ it('keeps other meeting follow-ups scoped to the existing personal receipt',async()=>{
+  await deliverMeetingFollowup('team',7);
+  expect(m.names).not.toHaveBeenCalled();
+  expect(m.send.mock.calls[0][0].text).not.toContain('Present:');
+ });
  it('sends only to authorized attendees and never includes personal notes or the raw transcript',async()=>{
   expect(await deliverMeetingFollowup('team',7)).toBe(true);expect(m.send).toHaveBeenCalledTimes(1);
   expect(m.send.mock.calls[0][0]).toMatchObject({to:'attendee@test',replyToOverride:'noreply@test.example',agencyId:2,userId:10,templateType:'meeting_summary_ready',linkUrl:'https://app.test/itsco/my-meetings?type=team&meetingId=7&tab=Summary'});
