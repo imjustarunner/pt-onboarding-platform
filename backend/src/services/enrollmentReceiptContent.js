@@ -1,7 +1,7 @@
 import { escapePortalHtml as e, portalMessageHtml } from './portalEmailBranding.service.js';
 
 /** A receipt contains no answers, child identities, or signed attachments. */
-export function enrollmentConfirmationContent({ portalLoginUrl = null, locale = 'en', agencyName = '', school = false } = {}) {
+export function enrollmentConfirmationContent({ portalLoginUrl = null, needsPasswordSetup = false, locale = 'en', agencyName = '', school = false } = {}) {
   const es = String(locale).toLowerCase().startsWith('es');
   const c = es ? {
     subject: 'Inscripción recibida', heading: 'Gracias por dar este paso con nosotros.',
@@ -10,8 +10,8 @@ export function enrollmentConfirmationContent({ portalLoginUrl = null, locale = 
     school: 'Si los servicios se ofrecen en la escuela, coordinaremos los próximos pasos con el equipo escolar según sus autorizaciones.',
     booking: 'Si eligió un profesional o un horario, lo revisaremos con usted. La inscripción por sí sola no confirma una cita.',
     portal: 'En su portal puede consultar los documentos y mensajes que su equipo comparta con usted.',
-    setup: '¿Es su primera visita? En la página de inicio de sesión, solicite un enlace para crear su contraseña con el correo que utilizó al inscribirse.',
-    action: 'Abrir mi portal', help: 'Si tiene preguntas o necesita ayuda para comenzar, comuníquese con nuestro equipo.',
+    setup: needsPasswordSetup ? 'Use este enlace personal para crear su contraseña y entrar directamente a su portal. No necesita solicitar otro correo. Por favor, no reenvíe este enlace.' : 'Inicie sesión con la contraseña que ya creó.',
+    action: needsPasswordSetup ? 'Crear mi contraseña' : 'Abrir mi portal', help: 'Si tiene preguntas o necesita ayuda para comenzar, comuníquese con nuestro equipo.',
     thanks: 'Estamos aquí para ayudarle,', signature: agencyName ? `El equipo de ${agencyName}` : 'Su equipo de atención'
   } : {
     subject: 'Enrollment received', heading: 'Thank you for taking this step with us.',
@@ -20,8 +20,8 @@ export function enrollmentConfirmationContent({ portalLoginUrl = null, locale = 
     school: 'For services at school, we will coordinate next steps with the school team according to your permissions.',
     booking: 'If you requested a provider or time, we will review that preference with you. Enrollment alone does not confirm an appointment.',
     portal: 'Your portal is where you can find documents and messages shared by your team.',
-    setup: 'First visit? Request a password setup link on the sign-in page using the email you enrolled with.',
-    action: 'Open my portal', help: 'If you have questions or need help getting started, please contact our team.',
+    setup: needsPasswordSetup ? 'Use this personal link to create your password and go straight to your portal. No additional email is needed. Please do not forward this link.' : 'Sign in with the password you already created.',
+    action: needsPasswordSetup ? 'Create my password' : 'Open my portal', help: 'If you have questions or need help getting started, please contact our team.',
     thanks: 'We’re here to help,', signature: agencyName ? `Your ${agencyName} care team` : 'Your care team'
   };
   const next = [c.review, school ? c.school : c.booking];

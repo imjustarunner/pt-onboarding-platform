@@ -6,7 +6,7 @@ import Agency from '../models/Agency.model.js';
 import UserCommunication from '../models/UserCommunication.model.js';
 import Task from '../models/Task.model.js';
 import { ENROLLMENT_EMAIL_NOTICE_VERSION, getIntakeCommunicationChoices } from './intakeCommunicationChoices.service.js';
-import { clientPortalInviteUrl, intakeClientPortal } from './clientPortalContext.service.js';
+import { enrollmentReceiptPortalAction } from './enrollmentReceiptPortal.service.js';
 import { resolveIntakeFormLocale } from '../utils/intakeFieldLabels.js';
 import { enrollmentConfirmationContent } from './enrollmentReceiptContent.js';
 export { enrollmentConfirmationContent } from './enrollmentReceiptContent.js';
@@ -40,15 +40,7 @@ export async function sendEnrollmentReceiptOnce(message, send, deps = {}) {
   const modern = cp?.emailNoticeVersion === ENROLLMENT_EMAIL_NOTICE_VERSION && cp.signatureAccepted === true && !!cp.signedAt
     && Number(cp.agencyId) === Number(message.agencyId);
   let content = { templateType: message.templateType, subject: message.subject, text: message.text, html: message.html, attachments: message.attachments };
-  if (modern) {
-    const agency = await agencies.findById(message.agencyId);
-    const link = await (deps.links || IntakeLink).findById(submission.intake_link_id);
-    const portalLoginUrl = submission.guardian_user_id ? clientPortalInviteUrl({
-      portal: intakeClientPortal(agency, { channel: message.enrollmentChannel, school: !!message.schoolOrganizationId }), existingAccount: true
-    }) : null;
-    content = enrollmentConfirmationContent({ portalLoginUrl, agencyName: agency?.name,
-      locale: resolveIntakeFormLocale(link, submission.intake_data), school: !!message.schoolOrganizationId });
-  }
+  if (modern) content = enrollmentConfirmationContent();
   const lock = `enrollment-receipt:${createHash('sha256').update(`${message.agencyId}:${submission.id}:${address(message.to)}`).digest('hex').slice(0,40)}`;
   const connection = await db.getConnection();
   let locked = false, receipt = null, delivered = null;
@@ -62,6 +54,15 @@ export async function sendEnrollmentReceiptOnce(message, send, deps = {}) {
         AND JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.intakeSubmissionId'))=? ORDER BY id DESC LIMIT 1`,
     [message.agencyId, message.to, String(submission.id)]);
     if (prior) return priorOutcome(prior, content);
+    if (modern) {
+      const agency = await agencies.findById(message.agencyId);
+      const link = await (deps.links || IntakeLink).findById(submission.intake_link_id);
+      const action = cp.noAutomaticEmail ? {} : await (deps.portalAction || enrollmentReceiptPortalAction)({
+        submission, agency, to: message.to, enrollmentChannel: message.enrollmentChannel, schoolOrganizationId: message.schoolOrganizationId
+      }, { db: connection });
+      content = enrollmentConfirmationContent({ ...action, agencyName: agency?.name,
+        locale: resolveIntakeFormLocale(link, submission.intake_data), school: !!message.schoolOrganizationId });
+    }
     receipt = await communications.create({ agencyId: message.agencyId, clientId: message.clientId || submission.client_id,
       userId: submission.guardian_user_id || null, templateType: content.templateType, channel: 'email',
       subject: content.subject, body: content.html || content.text || '', recipientAddress: message.to,

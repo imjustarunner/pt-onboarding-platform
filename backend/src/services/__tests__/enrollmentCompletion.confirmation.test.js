@@ -5,6 +5,7 @@ vi.mock('../../models/IntakeLink.model.js',()=>({default:{}}));
 vi.mock('../../models/Agency.model.js',()=>({default:{}}));
 vi.mock('../../models/UserCommunication.model.js',()=>({default:{}}));
 vi.mock('../../models/Task.model.js',()=>({default:{}}));
+vi.mock('../enrollmentReceiptPortal.service.js',()=>({enrollmentReceiptPortalAction:vi.fn()}));
 import { sendEnrollmentReceiptOnce } from '../enrollmentConfirmation.service.js';
 import { ENROLLMENT_EMAIL_NOTICE_VERSION } from '../intakeCommunicationChoices.service.js';
 let cp, submission, deps, send, records, chain;
@@ -14,7 +15,7 @@ beforeEach(()=>{
  cp={agencyId:2,emailNoticeVersion:ENROLLMENT_EMAIL_NOTICE_VERSION,signatureAccepted:true,signedAt:'2026-10-28T12:00:00Z',emailPreference:'no',smsPreference:'no',noRoutineCalls:false,noAutomaticEmail:false};
  submission={id:10,intake_link_id:3,status:'submitted',signer_email:message.to,client_id:8,guardian_user_id:20,intake_data:{submission:{communicationPreferences:cp}}};
  records=[];chain=Promise.resolve();
- deps={links:{findById:vi.fn(async()=>({language_code:'en'}))},submissions:{findById:vi.fn(async()=>submission)},agencies:{findById:vi.fn(async()=>({id:2,slug:'tenant'}))},tasks:{create:vi.fn(async()=>({id:9}))},
+ deps={portalAction:vi.fn(async()=>({portalLoginUrl:'https://app.itsco.health/tenant/login',needsPasswordSetup:false})),links:{findById:vi.fn(async()=>({language_code:'en'}))},submissions:{findById:vi.fn(async()=>submission)},agencies:{findById:vi.fn(async()=>({id:2,slug:'tenant'}))},tasks:{create:vi.fn(async()=>({id:9}))},
   communications:{create:vi.fn(async data=>{const row={...data,id:records.length+1,delivery_status:'pending'};records.push(row);return row;})},
   db:{getConnection:vi.fn(async()=>{let unlock;return {release:vi.fn(),execute:vi.fn(async(sql,args)=>{
    if(sql.includes('GET_LOCK')){const previous=chain;chain=new Promise(resolve=>{unlock=resolve;});await previous;return [[{acquired:1}]];}
@@ -36,6 +37,7 @@ it('replaces the packet email with one minimal receipt when optional email is of
 it('sends once for concurrent finalization, refresh and sibling clients',async()=>{
  const outcomes=await Promise.all([deliver(),deliver({...message,clientId:9}),deliver()]);
  expect(send).toHaveBeenCalledTimes(1);expect(records).toHaveLength(1);expect(outcomes.filter(r=>r.deduplicated)).toHaveLength(2);
+ expect(deps.portalAction).toHaveBeenCalledTimes(1);
 });
 it.each([{sent:false,queued:true,reason:'requires_approval'},{sent:false,skipped:true,reason:'opted_out'}])('does not retry a recorded held or skipped receipt on refresh',async outcome=>{
  send.mockResolvedValue(outcome);await deliver();const again=await deliver();expect(again.deduplicated).toBe(true);expect(send).toHaveBeenCalledTimes(1);
@@ -48,6 +50,7 @@ it('honors no automatic email and creates an encrypted staff follow-up without a
  Object.assign(cp,{noAutomaticEmail:true,smsPreference:'scheduling_only',alternativeContactInstructions:'Use the portal'});
  expect(await deliver()).toMatchObject({skipped:true,reason:'enrollment_automatic_email_off'});await deliver();
  expect(send).not.toHaveBeenCalled();expect(deps.tasks.create).toHaveBeenCalledTimes(1);expect(deps.tasks.create).toHaveBeenCalledWith(expect.objectContaining({encryptDescription:true,assignedToAgencyId:2}));
+ expect(deps.portalAction).not.toHaveBeenCalled();
  expect(cp.smsPreference).toBe('scheduling_only');expect(records[0].body).not.toContain('Use the portal');
 });
 it('flags an all-off routine contact choice for staff review',async()=>{
@@ -80,4 +83,12 @@ it('uses the saved Spanish form locale for the subject, body and branded footer'
 });
 it('honors an explicitly saved Spanish language even when the link began in English',async()=>{
  submission.intake_data.formLocale='es';await deliver();expect(send.mock.calls[0][0].subject).toBe('Inscripción recibida');
+});
+it.each([['en',null,'Create my password'],['es',30,'Crear mi contraseña']])('includes direct setup in the single %s receipt, including school enrollment',async(language_code,schoolOrganizationId,label)=>{
+ deps.links.findById.mockResolvedValue({language_code});
+ deps.portalAction.mockResolvedValue({portalLoginUrl:'https://auricwell.com/tenant/new_account/private-setup',needsPasswordSetup:true});
+ await deliver({...message,schoolOrganizationId});await deliver({...message,schoolOrganizationId});
+ expect(send).toHaveBeenCalledTimes(1);expect(deps.portalAction).toHaveBeenCalledTimes(1);
+ expect(send.mock.calls[0][0].html).toContain(label);expect(send.mock.calls[0][0].html).toContain('/new_account/private-setup');
+ expect(send.mock.calls[0][0].text).not.toContain('Request a password setup link');expect(records).toHaveLength(1);
 });
