@@ -25,9 +25,9 @@
         <div class="label">PTO training</div>
         <div class="value">{{ formatNumber(summary?.pto?.balances?.trainingHours || 0) }} hrs</div>
       </article>
+      <article v-if="summary?.pto?.policy?.schoolSupportEnabled && (summary?.pto?.account?.school_support_eligible || summary?.pto?.balances?.schoolSupportHours > 0)" class="stat"><div class="label">School Support Hours</div><div class="value">{{ formatNumber(summary?.pto?.balances?.schoolSupportHours || 0) }} / 20 hrs</div></article>
     </div>
 
-    <article v-if="summary?.pto?.policy?.schoolSupportEnabled" class="stat"><div class="label">School Support Hours</div><div class="value">{{ formatNumber(summary?.pto?.balances?.schoolSupportHours || 0) }} / 20 hrs</div></article>
     <h3>Recent Periods</h3>
     <div v-if="loading" class="muted">Loading payroll…</div>
     <div v-else-if="periods.length === 0" class="muted">No payroll periods found.</div>

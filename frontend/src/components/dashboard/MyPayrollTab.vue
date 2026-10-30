@@ -12,7 +12,7 @@
     @action-item="onPayrollActionItem"
   >
     <template #after-filters>
-      <FundthredBalances :agency-id="agencyId" @request="requestLeave" @submit="goToSubmit" />
+      <FundthredBalances :agency-id="agencyId" :refresh-key="schoolSupportRefreshKey" @request="requestLeave" @submit="goToSubmit" @updated="refreshSchoolSupport(false)" />
 
       <RecurringPayments :agency-id="agencyId" />
       <AccountabilityWorkspace :agency-id="agencyId" />
@@ -403,7 +403,7 @@
                     {{ (ptoPolicy?.trainingPtoEnabled === true && ptoAccount?.training_pto_eligible) ? fmtNum(Math.max(0, (ptoBalances.trainingHours || 0) - ptoPendingTrainingHours)) : '—' }}
                   </td>
                 </tr>
-            <tr v-if="ptoPolicy?.schoolSupportEnabled && (ptoAccount?.school_support_eligible || ptoBalances.schoolSupportHours > 0)"><td>School Support Hours</td><td class="right">{{ fmtNum(ptoBalances.schoolSupportHours || 0) }} / 20 hours</td><td class="muted">Paid at your support-activity rate; deducted on payroll approval.</td></tr>
+            <tr v-if="ptoPolicy?.schoolSupportEnabled && (ptoAccount?.school_support_eligible || ptoBalances.schoolSupportHours > 0)"><td>School Support Hours</td><td class="right">{{ fmtNum(ptoBalances.schoolSupportHours || 0) }} / 20 hours</td><td v-if="ptoPendingSickHours + ptoPendingTrainingHours > 0" class="right">{{ fmtNum(Math.max(0,(ptoBalances.schoolSupportHours || 0)-(ptoBalances.schoolSupportPendingHours || 0))) }}</td></tr>
                 <tr>
                   <td>PTO Pay Rate</td>
                   <td class="right" colspan="2">{{ fmtMoney(ptoEffectivePayRate) }}/hr</td>
@@ -1515,6 +1515,12 @@
 
   <!-- PTO modals (Teleport to body so visible when opened from hidden Submit-panel tab) -->
   <Teleport to="body">
+  <div v-if="showSchoolSupportSubmit" class="modal-backdrop fundthred-modal-backdrop" @click.self="showSchoolSupportSubmit=false">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="School Support Hours — Temporary">
+      <button class="btn btn-secondary" type="button" @click="showSchoolSupportSubmit=false">Close</button>
+      <SchoolSupportSubmit :agency-id="agencyId" @submitted="refreshSchoolSupport" />
+    </div>
+  </div>
   <div v-if="showPtoChooser" class="modal-backdrop fundthred-modal-backdrop" @click.self="closePtoChooserModal">
     <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
       <p v-if="submitContext" class="hint"><strong>Submitting for {{ submitUser.firstName }} {{ submitUser.lastName }}</strong> · You are recorded as the submitter.</p>
@@ -1557,7 +1563,7 @@
                 <template v-else>—</template>
               </td>
             </tr>
-            <tr v-if="ptoPolicy?.schoolSupportEnabled && (ptoAccount?.school_support_eligible || ptoBalances.schoolSupportHours > 0)"><td>School Support Hours</td><td class="right">{{ fmtNum(ptoBalances.schoolSupportHours || 0) }} / 20 hours</td><td class="muted">Paid at your support-activity rate; deducted on payroll approval.</td></tr>
+            <tr v-if="ptoPolicy?.schoolSupportEnabled && (ptoAccount?.school_support_eligible || ptoBalances.schoolSupportHours > 0)"><td>School Support Hours</td><td class="right">{{ fmtNum(ptoBalances.schoolSupportHours || 0) }} / 20 hours</td><td v-if="ptoPendingSickHours + ptoPendingTrainingHours > 0" class="right">{{ fmtNum(Math.max(0,(ptoBalances.schoolSupportHours || 0)-(ptoBalances.schoolSupportPendingHours || 0))) }}</td></tr>
           </tbody>
         </table>
       </div>
@@ -1574,7 +1580,7 @@
         <button class="btn btn-secondary" type="button" @click="openPtoTraining" :disabled="ptoPolicy?.trainingPtoEnabled !== true || !ptoAccount?.training_pto_eligible">
           Training PTO Request
         </button>
-        <button v-if="ptoPolicy?.schoolSupportEnabled && (ptoAccount?.school_support_eligible || ptoBalances.schoolSupportHours > 0)" class="btn btn-secondary" type="button" @click="openPtoSick('school_support')">Request School Support Hours</button>
+        <button v-if="ptoPolicy?.schoolSupportEnabled && (ptoAccount?.school_support_eligible || ptoBalances.schoolSupportHours > 0)" class="btn btn-secondary" type="button" @click="openPtoSick('school_support')">School Support Hours — Temporary</button>
       </div>
     </div>
   </div>
@@ -1585,7 +1591,7 @@
       <p v-if="submitContext" class="hint"><strong>Submitting for {{ submitUser.firstName }} {{ submitUser.lastName }}</strong> · You are recorded as the submitter.</p>
       <div class="modal-header">
         <div>
-          <div class="modal-title">{{ ptoDateRequestType === 'school_support' ? 'Request School Support Hours' : 'PTO Request — Sick Leave' }}</div>
+          <div class="modal-title">{{ ptoDateRequestType === 'school_support' ? 'School Support Hours — Temporary' : 'PTO Request — Sick Leave' }}</div>
           <div class="hint">Select the date and number of hours you want to use. Your balance is deducted only after payroll approves and applies the payment.</div>
         </div>
         <button class="btn btn-secondary btn-sm" @click="closePtoSick">Close</button>
@@ -1642,7 +1648,7 @@
 
       <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
         <button class="btn btn-primary" @click="submitPtoSick" :disabled="submittingPtoRequest">
-          {{ submittingPtoRequest ? 'Submitting…' : 'Submit for approval' }}
+          {{ submittingPtoRequest ? 'Submitting…' : ptoDateRequestType === 'school_support' ? 'Submit School Support Hours' : 'Submit for approval' }}
         </button>
       </div>
     </div>
@@ -2482,6 +2488,7 @@ import PayrollHubPanel from './PayrollHubPanel.vue';
 import AccountabilityWorkspace from './AccountabilityWorkspace.vue';
 import PayrollHubSection from './PayrollHubSection.vue';
 import FundthredBalances from './FundthredBalances.vue';
+import SchoolSupportSubmit from '../payroll/SchoolSupportSubmit.vue';
 import IndirectTimeClaimEditModal from './IndirectTimeClaimEditModal.vue';
 import PayCalculatorCard from './PayCalculatorCard.vue';
 import { employeeTimeStatusLabel, isTimeAppliedToPayroll } from '../../utils/employeeTimeStatus';
@@ -2516,6 +2523,8 @@ const authStore = useAuthStore();
 const route = useRoute();
 const router = useRouter();
 const goToSubmit = () => router.push({ query: { ...route.query, tab: 'submit' } });
+const showSchoolSupportSubmit = ref(false), schoolSupportRefreshKey = ref(0);
+const refreshSchoolSupport = async (refreshCards=true) => { if(refreshCards)schoolSupportRefreshKey.value++; await Promise.all([loadPto(),loadPtoRequests()]); };
 const requestLeave = async (type) => { await loadPto(); type === 'training' ? openPtoTraining() : openPtoSick(type); };
 
 
@@ -5060,7 +5069,8 @@ const loadPto = async () => {
     ptoBalances.value = {
       sickHours: Number(resp.data?.balances?.sickHours || 0),
       trainingHours: Number(resp.data?.balances?.trainingHours || 0),
-      schoolSupportHours:Number(resp.data?.balances?.schoolSupportHours||0)
+      schoolSupportHours:Number(resp.data?.balances?.schoolSupportHours||0),
+      schoolSupportPendingHours:Number(resp.data?.balances?.schoolSupportPendingHours||0)
     };
   } catch (e) {
     ptoError.value = e.response?.data?.error?.message || e.message || 'Failed to load PTO';
@@ -5163,6 +5173,7 @@ const removePtoItem = (formRef, idx) => {
 };
 
 const openPtoSick = (type='sick') => {
+  if(type==='school_support'){showPtoChooser.value=false;showSchoolSupportSubmit.value=true;return;}
   ptoDateRequestType.value=typeof type==='string'?type:'sick';
   submitPtoError.value = '';
   const today = new Date();
@@ -5266,6 +5277,7 @@ const submitPto = async ({ requestType, form }) => {
     const fd = new FormData();
     fd.append('agencyId', String(agencyId.value));
     fd.append('requestType', requestType);
+    if(requestType==='school_support'){form.value.submissionKey ||= crypto.randomUUID();fd.append('submissionKey',form.value.submissionKey);}
     fd.append('items', JSON.stringify(items));
     if (String(form.value.notes || '').trim()) fd.append('notes', String(form.value.notes || '').trim());
     if (requestType === 'training') {
@@ -5293,7 +5305,7 @@ const submitPto = async ({ requestType, form }) => {
     emit('pto-submitted');
     showPtoSickModal.value = false;
     showPtoTrainingModal.value = false;
-    submitSuccess.value = 'PTO request submitted successfully. Payroll will review and approve it.';
+    submitSuccess.value = requestType==='school_support' ? 'School Support Hours added to payroll. Your bank has been updated.' : 'PTO request submitted successfully. Payroll will review and approve it.';
     window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
     await Promise.all([loadPto(), loadPtoRequests()]);
   } catch (e) {

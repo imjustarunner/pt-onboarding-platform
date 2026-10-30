@@ -41,6 +41,7 @@
     </header>
 
     <slot name="search" />
+    <FundthredBalances v-if="showPayroll" :agency-id="agencyId" @submit="navigate('submit')" @request="navigate('payroll')" />
 
     <OverviewEmailDrafts v-if="showChats" :agency-id="agencyId" :enabled="enabled" />
 
@@ -193,6 +194,7 @@
 </template>
 
 <script setup>
+import FundthredBalances from './FundthredBalances.vue';
 import { computed, onMounted, ref, toRef, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';

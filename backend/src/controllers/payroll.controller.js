@@ -21258,6 +21258,21 @@ export const createMyPtoRequest = [
 
       // Training eligibility + proof requirements.
       const acct = await ensurePtoAccount({ agencyId, userId, updatedByUserId: userId });
+      if (requestType === 'school_support') {
+        const { submitSchoolSupportAutomatically } = await import('../services/schoolSupportAutomatic.service.js');
+        const result = await submitSchoolSupportAutomatically({ agencyId, userId, actorId: req.actorUser?.id || userId, items, submissionKey: body.submissionKey, policy });
+        let payrollRefreshPending = false;
+        for (const pid of result.affectedPayrollPeriodIds) {
+          try {
+            const period = await PayrollPeriod.findById(pid);
+            if (period?.status === 'ran') await recomputeSummariesFromStaging({ payrollPeriodId: pid, agencyId, periodStart: period.period_start, periodEnd: period.period_end });
+          } catch (error) {
+            payrollRefreshPending = true;
+            console.error('School support payment saved; payroll summary refresh failed', { requestId: result.requestId, payrollPeriodId: pid, message: error.message });
+          }
+        }
+        return res.status(result.alreadySubmitted ? 200 : 201).json({ ...await PayrollPtoRequest.findById(result.requestId), items: await PayrollPtoRequest.listItemsForRequest(result.requestId), automatic: true, payrollRefreshPending });
+      }
       // Validate balance before creating request
       const currentBalance=Number(acct[LEAVE_BALANCE_COLUMNS[requestType]]||0);
       if (totalHours > currentBalance) {
@@ -21307,11 +21322,6 @@ export const createMyPtoRequest = [
       // Auditing: who actually submitted this request (provider vs admin-on-behalf).
       const submittedByUserId = req.actorUser?.id ? Number(req.actorUser.id) : userId;
 
-      if(requestType==='school_support'){
-        const {createSchoolSupportRequest}=await import('../services/schoolSupportRequest.service.js');
-        const {requestId}=await createSchoolSupportRequest({agencyId,userId,actorId:submittedByUserId,items,notes});
-        return res.status(201).json({...await PayrollPtoRequest.findById(requestId),items:await PayrollPtoRequest.listItemsForRequest(requestId)});
-      }
       const created = await PayrollPtoRequest.create({
         agencyId,
         userId,
