@@ -41,7 +41,7 @@ describe('agreement and probation dates',()=>{
 
 it('calculator renders H-code indirect-rate details without losing the probation rate',()=>{const result=line('H0004',4,{useReducedRates:true});expect(()=>decorateEstimateLine(result,profile)).not.toThrow();});
 
-it('preserves Colorado sick carryover and higher promised limits',()=>{expect(protectedSickRolloverLimit({agencyId:2,configuredLimit:10})).toBe(48);expect(protectedSickRolloverLimit({agencyId:2,configuredLimit:65})).toBe(65);});
+it('preserves Colorado sick carryover and higher promised limits for every handbook agency',()=>{for(const agencyId of [2,6,377]){expect(protectedSickRolloverLimit({agencyId,configuredLimit:10})).toBe(48);expect(protectedSickRolloverLimit({agencyId,configuredLimit:65})).toBe(65);}});
 it('keeps a fully explicit fractional H-code calculation',()=>{expect(line('H0004',1)).toMatchObject({amount:8,autoIndirectHours:1/24,autoIndirectAmount:.92,totalWithAutoIndirect:8.92});});
 
 

@@ -33,6 +33,7 @@ import PayrollStageCarryover from '../models/PayrollStageCarryover.model.js';
 import PayrollStagePriorUnpaid from '../models/PayrollStagePriorUnpaid.model.js';
 import PayrollAdjustment from '../models/PayrollAdjustment.model.js';
 import PayrollManualPayLine from '../models/PayrollManualPayLine.model.js';
+import { approveMissedFeeClaim, MISSED_FEE_CLAIM_TYPE } from '../services/missedSessionFeePayroll.service.js';
 import PayrollImportMissedAppointment from '../models/PayrollImportMissedAppointment.model.js';
 import PayrollTodoTemplate from '../models/PayrollTodoTemplate.model.js';
 import PayrollPeriodTodo from '../models/PayrollPeriodTodo.model.js';
@@ -83,6 +84,9 @@ import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import pool from '../config/database.js';
 import { validateJacquelyneTime, jacquelyneAdminRate, persistJacquelyneTimeClaim } from '../services/jacquelyneTime.service.js';
 import AdpPayrollService from '../services/adpPayroll.service.js';
+import { calculateSickLeaveHours, uniformSickLeavePolicyApplies } from '../utils/payrollSickLeaveHours.js';
+import PayrollActualHoursReview from '../models/PayrollActualHoursReview.model.js';
+import { payrollHoursSourceFingerprint, payrollPeriodIsLocked } from '../utils/payrollActualHoursReview.js';
 import StorageService from '../services/storage.service.js';
 import { GoogleDriveService } from '../services/googleDrive.service.js';
 import { accruePrelicensedSupervisionFromPayroll } from '../services/supervision.service.js';
@@ -4031,6 +4035,7 @@ export const getPayrollReportProviderPaySummary = async (req, res, next) => {
 
         const nonTaxableAmount = Number(adj?.nonTaxableAmount ?? 0);
         const taxableAdjustmentsAmount = Number(adj?.taxableAdjustmentsAmount ?? 0);
+        const sickLeaveSummary = s.sick_leave_calculation_active === false ? null : (s.sick_leave_summary || calculateSickLeaveHours(s));
 
         return {
           user_id: Number(s.user_id),
@@ -4046,7 +4051,14 @@ export const getPayrollReportProviderPaySummary = async (req, res, next) => {
           adjustments_total: Number(s.adjustments_amount || 0),
           taxable_adjustments_total: Number(taxableAdjustmentsAmount || 0),
           non_taxable_total: Number(nonTaxableAmount || 0),
-          total_pay: Number(s.total_amount || 0)
+          total_pay: Number(s.total_amount || 0),
+          sick_leave_hours: sickLeaveSummary?.sickLeaveHours ?? null,
+          adp_allocation_rate: sickLeaveSummary?.adpAllocationRate ?? null,
+          ordinary_earnings: sickLeaveSummary?.ordinaryEarnings ?? null,
+          actual_worked_hours: sickLeaveSummary?.actualWorkedHours ?? null,
+          actual_hours_review_required: sickLeaveSummary ? (sickLeaveSummary.actualHoursReviewRequired ? 'YES' : 'NO') : '',
+          sick_leave_calculation_active: s.sick_leave_calculation_active !== false,
+          sick_leave_summary: sickLeaveSummary
         };
       });
 
@@ -4682,11 +4694,13 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       }
     }
 
-    // Export format (payroll processor output):
+    // Processor reconciliation worksheet (earning-code mapping still requires review):
     // - Sorted by provider last name
-    // - Direct/indirect hour credits and derived hourly rates
+    // - Sick-leave equivalents and one ordinary-earnings allocation rate
     // - Applied PTO hours (sick + training split) + key adjustment columns
-    const header = [
+    const { policy: exportPolicy } = await getAgencyPtoPolicy({ agencyId: period.agency_id });
+    const useAppSickLeave = uniformSickLeavePolicyApplies({ policy: exportPolicy, periodStart: period.period_start });
+    const legacyHeader = [
       'Employee',
       'Benefit Tier',
       'Direct Hour Credits',
@@ -4706,8 +4720,34 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       'Pay Period Start',
       'Pay Period End'
     ];
+    const header = [
+      'Employee',
+      'Benefit Tier',
+      'Sick Leave Hours (Accrual Basis)',
+      'ADP Earnings Allocation Rate',
+      'Ordinary Earnings',
+      'Total Extra Taxable Pay (No Hours)',
+      'PTO Pay',
+      'Sick Leave PTO (Hours)',
+      'Training PTO (Hours)',
+      'Bonus Added (Taxable)',
+      'Salary (Taxable)',
+      'Mileage',
+      'Reimbursement',
+      'Tuition Reimbursement',
+      'Total Pay',
+      'Pay Period Start',
+      'Pay Period End',
+      'Recorded Actual Worked Hours',
+      'Actual Hours Review Required',
+      'Projected Sick Leave Accrual (1 per 30)',
+      'Pay Reconciliation Required',
+      'Unclassified Pay for Review',
+      'Reviewed Statutory Sick Leave Basis Hours',
+      'Actual Hours Review ID'
+    ];
 
-    const lines = [header.join(',')];
+    const lines = [(useAppSickLeave ? header : legacyHeader).join(',')];
     const fmt2 = (n) => (Number(n || 0).toFixed(2));
     const safeNum = (n) => (Number.isFinite(Number(n)) ? Number(n) : 0);
 
@@ -4864,8 +4904,8 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       })();
 
       const totalPay = safeNum(s.total_amount || 0);
-
-      lines.push(
+      if (!useAppSickLeave) {
+        lines.push(
         [
           csvEscape(employee),
           csvEscape(fmtTierExportCell(s)),
@@ -4885,6 +4925,38 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
           fmt2(totalPay),
           csvEscape(ymdFromDbDate(period.period_start)),
           csvEscape(ymdFromDbDate(period.period_end))
+        ].join(',')
+      );
+        continue;
+      }
+      const sickLeaveSummary = s.sick_leave_summary || calculateSickLeaveHours(s);
+
+      lines.push(
+        [
+          csvEscape(employee),
+          csvEscape(fmtTierExportCell(s)),
+          Number(sickLeaveSummary.sickLeaveHours).toFixed(6),
+          sickLeaveSummary.adpAllocationRate === null ? '' : Number(sickLeaveSummary.adpAllocationRate).toFixed(6),
+          fmt2(sickLeaveSummary.ordinaryEarnings),
+          fmt2(sickLeaveSummary.extraTaxablePay || extraTaxableNoHours),
+          fmt2(ptoPay),
+          fmt2(sickPtoCsv),
+          fmt2(trainingPtoCsv),
+          fmt2(sickLeaveSummary.bonusPay || bonus),
+          fmt2(salary),
+          fmt2(mileage),
+          fmt2(reimbursement),
+          fmt2(tuition),
+          fmt2(totalPay),
+          csvEscape(ymdFromDbDate(period.period_start)),
+          csvEscape(ymdFromDbDate(period.period_end)),
+          sickLeaveSummary.actualWorkedHours === null ? '' : Number(sickLeaveSummary.actualWorkedHours).toFixed(6),
+          sickLeaveSummary.actualHoursReviewRequired ? 'YES' : 'NO',
+          Number(sickLeaveSummary.projectedSickLeaveAccrual).toFixed(6),
+          sickLeaveSummary.reconciliationRequired ? 'YES' : 'NO',
+          fmt2(sickLeaveSummary.unclassifiedPay),
+          sickLeaveSummary.statutorySickBasisHours === null || sickLeaveSummary.statutorySickBasisHours === undefined ? '' : Number(sickLeaveSummary.statutorySickBasisHours).toFixed(6),
+          sickLeaveSummary.actualHoursReviewId || ''
         ].join(',')
       );
     }
@@ -4912,6 +4984,7 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
     lines.push(`Payroll ran by,${csvEscape(ranByLabel)}`);
     lines.push(`Payroll ran at,${csvEscape(ranAt)}`);
     lines.push(`Report downloaded at,${csvEscape(downloadedAt)}`);
+    if (useAppSickLeave) lines.push(`Processor mapping,${csvEscape('Review earning-code mapping before ADP import. Sick leave hours are accrual equivalents; preserve daily actual hours for wage and overtime compliance. Use Ordinary Earnings as the dollar control; the displayed allocation rate is rounded and is not the protected sick-leave payment rate.')}`);
 
     const ps = ymdFromDbDate(period.period_start);
     const pe = ymdFromDbDate(period.period_end);
@@ -6874,6 +6947,8 @@ export async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId,
             }
           });
           continue;
+        } else if (claimType === MISSED_FEE_CLAIM_TYPE) {
+          lineLabel = `Collected missed-session fee share (${Number(payload.percent)}% · appointment #${payload.appointmentId})`;
         } else if (claimType === 'indirect_time') {
           const code = String(payload?.activityCode || '').trim();
           const catLabel = String(payload?.categoryLabel || '').trim();
@@ -14279,6 +14354,17 @@ export const postPayrollPeriod = async (req, res, next) => {
       return res.status(409).json({ error: { message: 'No run results found. Please Run Payroll again before posting.' } });
     }
 
+    const { policy: sickLeavePolicy } = await getAgencyPtoPolicy({ agencyId: period.agency_id });
+    if (uniformSickLeavePolicyApplies({ policy: sickLeavePolicy, periodStart: period.period_start })) {
+      const summaries = await PayrollSummary.listForPeriod(payrollPeriodId);
+      const missing = [];
+      for (const summary of summaries) {
+        const review = await PayrollActualHoursReview.latest({ agencyId: period.agency_id, payrollPeriodId, userId: summary.user_id });
+        if (!review || review.summary_fingerprint !== payrollHoursSourceFingerprint(summary)) missing.push(Number(summary.user_id));
+      }
+      if (missing.length) return res.status(409).json({ error: { message: `Review actual work hours and the statutory sick-leave basis for ${missing.length} employee(s) in Preview Post before posting this period.` }, actualHoursReviewUserIds: missing });
+    }
+
     await pool.execute(
       `UPDATE payroll_periods
        SET status = 'posted',
@@ -18828,6 +18914,7 @@ export const deleteMyTimeClaim = async (req, res, next) => {
     const claim = await PayrollTimeClaim.findById(id);
     if (!claim) return res.status(404).json({ error: { message: 'Time claim not found' } });
     if (Number(claim.user_id) !== Number(userId)) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (claim.claim_type === MISSED_FEE_CLAIM_TYPE) return res.status(409).json({ error: { message: 'Collected fee compensation follows the billing ledger and cannot be deleted or withdrawn. Ask payroll to review the linked fee.' } });
     if (claim.event_travel_report_id) return res.status(409).json({ error: { message: 'Edit the complete report in Submit → Event travel reimbursement so time and mileage stay together.' } });
 
     const s = String(claim.status || '').toLowerCase();
@@ -19642,8 +19729,14 @@ export const patchTimeClaim = async (req, res, next) => {
         return res.status(409).json({ error: { message: 'Cannot change a claim in a posted/finalized pay period' } });
       }
     }
-
-
+    if (claim.claim_type === MISSED_FEE_CLAIM_TYPE) {
+      if (action !== 'approve') return res.status(409).json({ error: { message: 'Fee shares follow the collected billing ledger. Review the source fee or refund in Family billing; approved wages are never automatically deducted.' } });
+      if (Number(body.creditsHours || body.credits_hours || 0) !== 0) return res.status(400).json({ error: { message: 'A fee share has no service hours. Record actual work and required waiting separately.' } });
+      const updated = await approveMissedFeeClaim({ agencyId: claim.agency_id, claimId: id, targetPayrollPeriodId: Number(body.targetPayrollPeriodId), actorUserId: req.user.id, expectedAmount: body.appliedAmount ?? claim.payload?.amount });
+      const period = await PayrollPeriod.findById(updated.target_payroll_period_id);
+      if (period?.status === 'ran') await recomputeSummariesFromStaging({ payrollPeriodId: period.id, agencyId: period.agency_id, periodStart: period.period_start, periodEnd: period.period_end });
+      return res.json({ claim: updated });
+    }
     if (action === 'approve') {
       const eventTravelReviewedAt = await assertEventTravelReviewed(claim);
       if (claim.event_travel_report_id && body.appliedAmount != null && body.appliedAmount !== '') return res.status(400).json({ error: { message: 'Event travel uses the assigned Support Activity rate. Update the compensation rate before approving if it is incorrect.' } });
@@ -23262,4 +23355,34 @@ export const reviewPayrollEventTravelReport = async (req, res, next) => {
     if (!(await requirePayrollAccess(req, res, row.agency_id))) return;
     res.json(await reviewEventTravelReport({ id: row.id, reviewerId: req.user.id, input: req.body || {} }));
   } catch (e) { next(e); }
+};
+
+export const getPayrollActualHoursReview = async (req, res, next) => {
+  try {
+    const payrollPeriodId = Number(req.params.id), userId = Number(req.params.userId);
+    if (!Number.isSafeInteger(payrollPeriodId) || payrollPeriodId <= 0 || !Number.isSafeInteger(userId) || userId <= 0) return res.status(400).json({ error: { message: 'Valid pay period and employee IDs are required.' } });
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found.' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+    const [rows] = await pool.execute('SELECT * FROM payroll_summaries WHERE payroll_period_id=? AND agency_id=? AND user_id=? LIMIT 1', [payrollPeriodId, period.agency_id, userId]);
+    if (!rows[0]) return res.status(404).json({ error: { message: 'Payroll summary not found.' } });
+    const review = await PayrollActualHoursReview.latest({ agencyId: period.agency_id, payrollPeriodId, userId });
+    const fingerprint = payrollHoursSourceFingerprint(rows[0]);
+    res.json({ review, summaryFingerprint: fingerprint, current: !!review && review.summary_fingerprint === fingerprint, locked: payrollPeriodIsLocked(period) });
+  } catch (error) { next(error); }
+};
+
+export const savePayrollActualHoursReview = async (req, res, next) => {
+  try {
+    const payrollPeriodId = Number(req.params.id), userId = Number(req.params.userId);
+    if (!Number.isSafeInteger(payrollPeriodId) || payrollPeriodId <= 0 || !Number.isSafeInteger(userId) || userId <= 0) return res.status(400).json({ error: { message: 'Valid pay period and employee IDs are required.' } });
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found.' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+    const result = await PayrollActualHoursReview.save({ agencyId: period.agency_id, payrollPeriodId, userId, actorUserId: req.user.id, body: req.body || {} });
+    res.json(result);
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: { message: error.message } });
+    next(error);
+  }
 };

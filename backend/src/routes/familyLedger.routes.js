@@ -1,4 +1,5 @@
 import {guardianBillingNeeds} from '../services/familyLedger/needs.js';
+import { createMissedSessionFee, listMissedFeePayroll, saveMissedFeePolicy } from '../services/missedSessionFeePayroll.service.js';
 import {pendingProviderCopays,recordCopayAttendance,resetPendingAttendance} from '../services/familyLedger/copayAttendance.js';
 import insuranceCardsRoutes from './insuranceCards.routes.js';
 import {postSignedService,listSignedServiceVisits} from '../services/familyLedger/serviceCharges.js';
@@ -61,6 +62,16 @@ router.get('/clinical-access',run(async(req,res)=>{const c=context(req),[links]=
 router.post('/clinical-access/:clientId/:guardianUserId/restrict',run(async(req,res)=>res.json(await revokeClinicalGrant({...req.body,...context(req),clientId:positiveId(req.params.clientId),guardianUserId:positiveId(req.params.guardianUserId)}))));
 router.post('/clinical-access/:clientId/:guardianUserId',run(async(req,res)=>{const c=context(req);await requireClinicalAccessManager(req.user,c.agencyId);res.json(await setClinicalGrant({...req.body,...c,clientId:positiveId(req.params.clientId),guardianUserId:positiveId(req.params.guardianUserId)}));}));
 router.use('/staff',staffOnly);
+router.get('/staff/missed-session-fees',run(async(req,res)=>res.json(await listMissedFeePayroll(context(req).agencyId))));
+router.post('/staff/missed-session-fees',run(async(req,res)=>res.json(await createMissedSessionFee({...req.body,...context(req)}))));
+router.put('/staff/missed-session-fee-policy',run(async(req,res)=>{
+  if(!['super_admin','superadmin','admin','agency_admin'].includes(req.user.role))return res.status(403).json({error:{message:'An agency administrator must activate compensation policy.'}});
+  if(!['super_admin','superadmin'].includes(req.user.role)){
+    const [[membership]]=await pool.execute('SELECT user_id FROM user_agencies WHERE agency_id=? AND user_id=? AND is_active=1 AND has_payroll_access=1',[context(req).agencyId,req.user.id]);
+    if(!membership)return res.status(403).json({error:{message:'Payroll administration access to this organization is required.'}});
+  }
+  res.json(await saveMissedFeePolicy({...req.body,...context(req)}));
+}));
 router.get('/staff/service-visits',run(async(req,res)=>res.json({visits:await listSignedServiceVisits({...req.query,...context(req)})})));
 router.post('/staff/service-charges',run(async(req,res)=>res.json(await postSignedService({...req.body,...context(req)}))));
 router.get('/staff/service-rates',run(async(req,res)=>res.json({rates:await listServiceRates(context(req).agencyId)})));

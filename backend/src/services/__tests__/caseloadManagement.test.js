@@ -20,7 +20,8 @@ describe('caseload management resource', () => {
   it('keeps service boundaries separate by company', () => {
     const body = slug => referenceSource({ slug }, key).sections.find(s => s.slug === 'company-caseload-context').body_html;
     expect(body('itsco')).toContain('school-practice-guide'); expect(body('itsco')).toContain('moratorium');
-    expect(body('nlu')).toContain('at least two attending'); expect(body('nlu')).not.toContain('school');
+    expect(body('nlu')).toContain('two or more actual attendees'); expect(body('nlu')).not.toContain('school');
+    expect(body('nlu')).toContain('individual H2014 service may proceed');
     expect(body('tisi')).toContain('counseling-only'); expect(body('tisi')).not.toContain('school');
     expect(referenceSource({ slug: 'unknown' }, key, { packageAssigned: true })).toBeNull();
   });

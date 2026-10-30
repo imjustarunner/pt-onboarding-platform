@@ -70,6 +70,9 @@ export const PAYROLL_SERVICE_CODE_DEFAULTS = new Map(
     ['TUTORING VIRTUAL', { category: 'tutoring', otherSlot: 1, durationMinutes: 60, payDivisor: 1, creditValue: 1 }],
     ['TUTORING IN PERSON', { category: 'tutoring', otherSlot: 1, durationMinutes: 60, payDivisor: 1, creditValue: 1 }],
     ['TUTORING', { category: 'tutoring', otherSlot: 1, durationMinutes: 60, payDivisor: 1, creditValue: 1 }],
+    ['TUTORING 15 MIN', { category: 'tutoring', otherSlot: 1, durationMinutes: 15, payDivisor: 4, creditValue: 0.25 }],
+    ['HOMEWORK HELP', { category: 'homework_help', otherSlot: 1, durationMinutes: 60, payDivisor: 1, creditValue: 1 }],
+    ['HOMEWORK HELP 15 MIN', { category: 'homework_help', otherSlot: 1, durationMinutes: 15, payDivisor: 4, creditValue: 0.25 }],
     ['HOMEWORK', { category: 'indirect', otherSlot: 1, durationMinutes: 45, payDivisor: 1, creditValue: 1 }],
     ['HOLIDAY BONUS', { category: 'bonus', otherSlot: 1, durationMinutes: 0, payDivisor: 1, creditValue: 0 }]
   ].map(([k, v]) => [String(k).trim().toUpperCase(), v])
@@ -87,7 +90,7 @@ export function payrollDefaultsForCode(code) {
 export function payrollReportingBucketForCode(code, category, otherSlot = 1, rateCard = null) {
   const key = String(code || '').trim().toUpperCase();
   const cat = String(category || '').trim().toLowerCase();
-  if (cat === 'tutoring' || ['TUTORING', 'TUTORING 15 MIN', 'TUTORING VIRTUAL', 'TUTORING IN PERSON'].includes(key)) return 'direct';
+  if (['tutoring','homework_help'].includes(cat) || ['TUTORING', 'TUTORING 15 MIN', 'TUTORING VIRTUAL', 'TUTORING IN PERSON', 'HOMEWORK HELP', 'HOMEWORK HELP 15 MIN'].includes(key)) return 'direct';
   if (['indirect', 'admin', 'meeting'].includes(cat)) return 'indirect';
   if (cat === 'other') {
     const slot = [2, 3].includes(Number(otherSlot)) ? Number(otherSlot) : 1;

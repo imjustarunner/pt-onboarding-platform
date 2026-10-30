@@ -63,11 +63,17 @@
         <div class="ppp-kpis">
           <div><strong>Total Pay:</strong> {{ fmtMoney(summary.total_amount) }}</div>
           <div><strong>Credits/Hours:</strong> {{ fmtNum(summary.total_hours) }}</div>
+          <div v-if="summary.sick_leave_summary"><strong>Sick leave hours:</strong> {{ Number(summary.sick_leave_summary.sickLeaveHours || 0).toFixed(4) }}</div>
+          <div v-if="summary.sick_leave_summary?.automaticIndirectHours"><strong>Automatic indirect allowance (included):</strong> {{ Number(summary.sick_leave_summary.automaticIndirectHours).toFixed(4) }} hours · {{ fmtMoney(summary.sick_leave_summary.automaticIndirectPay) }}</div>
+          <div v-if="summary.sick_leave_summary?.adpAllocationRate != null"><strong>ADP earnings allocation rate:</strong> {{ fmtMoney(summary.sick_leave_summary.adpAllocationRate) }}</div>
           <div>
             <strong>Tier Credits:</strong>
             {{ fmtNum(summary.tier_credits_final ?? summary.tier_credits_current) }}
           </div>
         </div>
+
+        <div class="ppp-warn ppp-warn--amber" v-if="summary.sick_leave_summary?.actualHoursReviewRequired || summary.sick_leave_summary?.reconciliationRequired">Review actual work hours and processor earning-code mapping before payroll handoff. Sick leave hours are accrual equivalents, separate from actual hours and overtime. The ordinary-earnings amount controls; the displayed allocation rate is rounded.</div>
+        <PayrollActualHoursReview :key="`${props.periodId}-${summary.user_id}`" :period-id="props.periodId" :user-id="summary.user_id" @saved="reload" />
 
         <div class="ppp-card" v-if="summary.breakdown?.__tier">
           <div class="ppp-card-title">Benefit Tier</div>
@@ -154,6 +160,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api.js';
 import { isPayrollServiceCodeKey } from '../../utils/payrollBreakdownDisplay.js';
+import PayrollActualHoursReview from './PayrollActualHoursReview.vue';
 
 const props = defineProps({
   periodId: { type: [Number, String], required: true },

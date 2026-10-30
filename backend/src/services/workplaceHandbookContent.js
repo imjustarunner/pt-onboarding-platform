@@ -1,6 +1,5 @@
 import { applyNluServicePayClarification } from '../content/nluServicePayClarification.js';
-import {applyDirectCareIndirectCorrection} from '../content/directCareIndirectCorrection.js';
-import { applyFlatAddonHandbookAmendment } from '../content/flatAddonHandbookAmendment.js';
+import {applyDirectCareIndirectCorrection, correctDirectCareIndirectText} from '../content/directCareIndirectCorrection.js';
 import { applyEventTimeHandbookAmendment, applyEventTimeReviewAmendment } from '../content/eventTimeHandbookAmendment.js';
 import { applyEventTravelHandbookAmendment } from '../content/eventTravelHandbookAmendment.js';
 import { applySchoolSupportHandbookAmendment } from '../content/schoolSupportHandbookAmendment.js';
@@ -11,6 +10,12 @@ import { studentTrainingTemplate, studentTrainingAppendixHtml } from './studentT
 import { employeeHandbookForms, employeeSelfAssessmentHtml } from './employeeEvaluationHandbookForms.js';
 import { handbookTenant } from './handbookTenant.js';
 import { applyFacilitatorHandbookScope } from './careGuideScope.js';
+import { applyAutumnHandbookReconciliation } from '../content/agencyHandbookAutumn2026.js';
+import { applyCurrentOctoberPolicies } from '../content/currentOctober2026Policies.js';
+import { applyNluH2014ProgramClarification, applyNluH2014ReviewClarification } from '../content/nluH2014ProgramClarification.js';
+import { applySessionCompensationAmendment } from '../content/sessionCompensationAmendment.js';
+import { applyProgramRateHandbookAmendment } from '../content/programRateHandbookAmendment.js';
+import { applyAdpSickLeaveReportingHandbook } from '../content/adpSickLeaveReportingHandbook.js';
 
 const itsco = JSON.parse(readFileSync(new URL('../content/handbooks/itsco.json', import.meta.url), 'utf8'));
 const itscoUpdateDrafts = JSON.parse(readFileSync(new URL('../content/handbooks/itsco-draft-updates.json', import.meta.url), 'utf8'));
@@ -32,12 +37,23 @@ export function getHandbookSource(agency, { employeeTemplates } = {}) {
   // Match the tenant's configured slug, never a fuzzy name or another tenant's ID.
   const tenant = handbookTenant(agency);
   if (!tenant) return null;
-  const source = applyEventTimeHandbookAmendment(structuredClone({ itsco, nlu, isi }[tenant]), tenant);
+  const source = structuredClone({ itsco, nlu, isi }[tenant]);
+  const currentOctoberUpdates = applyCurrentOctoberPolicies(source, tenant);
+  applyNluH2014ProgramClarification(source, tenant);
+  const sessionPolicyUpdates = applySessionCompensationAmendment(source, tenant);
+  applyEventTimeHandbookAmendment(source, tenant);
   applyEventTravelHandbookAmendment(source, tenant);
   applySchoolSupportHandbookAmendment(source, tenant);
-  applyFlatAddonHandbookAmendment(source, tenant);
-  const facilitatorUpdate = applyFacilitatorHandbookScope(source, tenant);
+  const facilitatorUpdate = tenant !== 'isi' ? applyFacilitatorHandbookScope(source, tenant) : null;
   const updateDrafts = { itsco: itscoUpdateDrafts, nlu: nluUpdateDrafts, isi: isiUpdateDrafts }[tenant];
+  const autumn = applyAutumnHandbookReconciliation(source, [
+    ...applyEventTimeReviewAmendment(structuredClone(updateDrafts.updates), tenant),
+    ...currentOctoberUpdates,
+    ...sessionPolicyUpdates,
+    ...(facilitatorUpdate ? [facilitatorUpdate] : [])
+  ], tenant);
+  const programUpdates = applyProgramRateHandbookAmendment(source, autumn.updates, tenant);
+  const payrollReportingUpdates = applyAdpSickLeaveReportingHandbook(source, programUpdates, tenant);
   const trainingTemplate = studentTrainingTemplate();
   const selfAssessments = employeeHandbookForms(employeeTemplates ?? (tenant !== 'itsco' ? [] : undefined));
   source.forms = { studentTrainingEvaluation: trainingTemplate, employeeSelfAssessments: selfAssessments };
@@ -68,8 +84,8 @@ export function getHandbookSource(agency, { employeeTemplates } = {}) {
   validateHandbookSections(source.sections);
   // These are review material only. Never put draft policies into a published
   // section or its metadata merely because their source snapshot is available.
-  source.reviewUpdates = [...applyEventTimeReviewAmendment(structuredClone(updateDrafts.updates), tenant), facilitatorUpdate];
-  source.reviewUpdatesCapturedAt = updateDrafts.capturedAt;
+  source.reviewUpdates = applyNluH2014ReviewClarification(payrollReportingUpdates, tenant).map(update => ({ ...update, changed_content: correctDirectCareIndirectText(update.changed_content) }));
+  source.reviewUpdatesCapturedAt = '2026-10-29';
   return source;
 }
 

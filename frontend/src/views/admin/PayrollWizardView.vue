@@ -448,7 +448,7 @@
                       :disabled="!selectedPeriodId || downloadingExport"
                       @click="downloadAdpExportCsv"
                     >
-                      {{ downloadingExport ? 'Downloading…' : 'Download ADP / Payroll Export CSV' }}
+                      {{ downloadingExport ? 'Downloading…' : 'Download Payroll Reconciliation CSV' }}
                     </button>
                     <button
                       type="button"
@@ -1158,11 +1158,11 @@ const stepsAll = [
     title: 'Run Payroll',
     description: 'Calculate provider totals for this pay period. Blocked if To-Dos are still open. Pending claims can be left for the next period.',
     tip: 'Run results stay private until you post. Skipped claims stay submitted and move to the next period so you can approve them later.',
-    checklist: ['Confirm stage is complete', 'Click Run Payroll', 'Download ADP export if needed', 'Review totals'],
+    checklist: ['Confirm stage is complete', 'Click Run Payroll', 'Download payroll reconciliation CSV if needed', 'Review totals'],
     actions: [
       { id: 'run_payroll', label: 'Run Payroll', primary: true, runPayroll: true },
       { id: 'restage_payroll', label: 'Restage (clear run)', primary: false, restage: true },
-      { id: 'download_adp', label: 'Download ADP / Payroll Export CSV', primary: false, downloadAdp: true },
+      { id: 'download_adp', label: 'Download Payroll Reconciliation CSV', primary: false, downloadAdp: true },
       { id: 'done', label: 'Already ran — continue', primary: false, complete: true }
     ],
     skippable: false
@@ -1171,11 +1171,11 @@ const stepsAll = [
     key: 'preview',
     title: 'Preview Post',
     description: 'Preview what providers will see and which notifications will send on post.',
-    tip: 'Open Preview Post here in the wizard to spot-check providers, then collapse when done. Download the ADP export anytime after run.',
+    tip: 'Open Preview Post here in the wizard to spot-check providers, then collapse when done. Download the payroll reconciliation CSV anytime after run.',
     checklist: ['Open Preview Post in the wizard', 'Spot-check a few providers', 'Confirm notifications look right'],
     actions: [
       { id: 'open_preview', label: 'Open Preview Post', primary: true, open: 'preview_inline' },
-      { id: 'download_adp', label: 'Download ADP / Payroll Export CSV', primary: false, downloadAdp: true },
+      { id: 'download_adp', label: 'Download Payroll Reconciliation CSV', primary: false, downloadAdp: true },
       { id: 'done', label: 'Mark done & continue', primary: false, complete: true }
     ],
     skippable: false
@@ -1184,10 +1184,10 @@ const stepsAll = [
     key: 'post',
     title: 'Post Payroll',
     description: 'Post payroll to make it visible to providers. This locks the period as posted.',
-    tip: 'Only post when you are confident. Download the ADP export before or after posting if you still need the file.',
-    checklist: ['Confirm run looks correct', 'Download ADP export if needed', 'Post Payroll', 'Verify providers can see results'],
+    tip: 'Only post when you are confident. Download the payroll reconciliation CSV before or after posting if you still need the file.',
+    checklist: ['Confirm run looks correct', 'Download payroll reconciliation CSV if needed', 'Post Payroll', 'Verify providers can see results'],
     actions: [
-      { id: 'download_adp', label: 'Download ADP / Payroll Export CSV', primary: false, downloadAdp: true },
+      { id: 'download_adp', label: 'Download Payroll Reconciliation CSV', primary: false, downloadAdp: true },
       { id: 'post_payroll', label: 'Post Payroll', primary: true, postPayroll: true },
       { id: 'done', label: 'Already posted — finish', primary: false, complete: true }
     ],
@@ -1593,7 +1593,7 @@ const downloadAdpExportCsv = async () => {
     a.click();
     a.remove();
     window.URL.revokeObjectURL(url);
-    actionMessage.value = 'ADP / payroll export downloaded.';
+    actionMessage.value = 'Payroll reconciliation worksheet downloaded. Confirm ADP earning and accrual code mapping before import.';
   } catch (e) {
     actionError.value = true;
     actionMessage.value = e?.response?.data?.error?.message || e?.message

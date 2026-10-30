@@ -6,11 +6,14 @@
         <p class="hint">{{ session?.status || 'scheduled' }} · {{ actorRoleLabel }}</p>
       </div>
       <div class="group-room-actions">
-        <button v-if="canModerate && session?.status !== 'live'" class="btn btn-primary btn-sm" :disabled="busy" @click="startSession">
+        <button v-if="canModerate && session?.status === 'scheduled'" class="btn btn-primary btn-sm" :disabled="busy" @click="startSession">
           Start live
         </button>
         <button v-if="canModerate && session?.status === 'live'" class="btn btn-secondary btn-sm" :disabled="busy" @click="endSession">
           End session
+        </button>
+        <button v-if="canModerate && session?.status === 'ended' && session?.session_subtype === 'tutoring'" class="btn btn-secondary btn-sm" :disabled="busy" @click="endSession">
+          Review session payroll
         </button>
         <button class="btn btn-secondary btn-sm" :disabled="busy" @click="refreshAll">Refresh</button>
       </div>
@@ -249,8 +252,11 @@ async function startSession() {
 async function endSession() {
   busy.value = true;
   try {
-    await api.post(`/learning-class-sessions/sessions/${props.sessionId}/end`, {}, { skipGlobalLoading: true });
+    const { data } = await api.post(`/learning-class-sessions/sessions/${props.sessionId}/end`, {}, { skipGlobalLoading: true });
     await refreshAll();
+    if (data?.payrollWarning) error.value = `Session saved. Payroll needs review: ${data.payrollWarning}`;
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e?.message || 'Could not review session payroll.';
   } finally {
     busy.value = false;
   }

@@ -212,7 +212,7 @@
                 <td>
                   <select
                     v-model="timeBucketById[c.id]"
-                    :disabled="c.claim_type === 'tutoring_session' || busyId === `time-${c.id}`"
+                    :disabled="['tutoring_session','missed_session_fee'].includes(c.claim_type) || busyId === `time-${c.id}`"
                     style="min-width: 100px;"
                   >
                     <option value="indirect">Indirect</option>
@@ -229,7 +229,7 @@
                     style="width: 88px; text-align: right;"
                     :value="timeHoursOverrideById[c.id] ?? claimHoursValue(c) ?? ''"
                     placeholder="hrs"
-                    :disabled="!!c.event_travel_report_id || busyId === `time-${c.id}`"
+                    :disabled="c.claim_type === 'missed_session_fee' || !!c.event_travel_report_id || busyId === `time-${c.id}`"
                     @input="timeHoursOverrideById[c.id] = $event.target.value"
                   />
                 </td>
@@ -251,7 +251,7 @@
                   <button type="button" class="btn btn-primary btn-sm" :disabled="busyId === `time-${c.id}` || !isValidOpenPeriod(claimTargetByKey[`time-${c.id}`])" @click="approveTime(c)">
                     {{ busyId === `time-${c.id}` ? '…' : 'Approve' }}
                   </button>
-                  <button type="button" class="btn btn-secondary btn-sm" :disabled="busyId === `time-${c.id}`" @click="returnTime(c)">Send back…</button>
+                  <button v-if="c.claim_type !== 'missed_session_fee'" type="button" class="btn btn-secondary btn-sm" :disabled="busyId === `time-${c.id}`" @click="returnTime(c)">Send back…</button>
                 </td>
               </tr>
             </tbody>
@@ -1309,11 +1309,13 @@ const timeTypeLabel = (c) => {
 };
 
 const logTimeSummary = (c) => {
+  if (c.claim_type === 'missed_session_fee') return `Category ${c.payload?.category}: ${c.payload?.percent}% of collected fees. Appointment #${c.payload?.appointmentId}. No service hours; review regular-rate overtime separately.`;
   if (String(c?.claim_type || '').toLowerCase() !== 'indirect_time') return '';
   return logTimeActivitiesSummary(c?.payload);
 };
 
 const timeClaimApproveBucket = (c) => {
+  if (c.claim_type === 'missed_session_fee') return 'direct';
   if (c.claim_type === 'tutoring_session') return c.payload?.part === 'indirect' ? 'indirect' : 'direct';
   const fromUi = String(timeBucketById[c.id] || '').trim().toLowerCase();
   if (fromUi === 'other_1' || fromUi === 'direct' || fromUi === 'indirect') return fromUi;
@@ -1333,6 +1335,7 @@ const timePayEstimateHours = (c) => {
 };
 
 const timePayEstimateMoney = (c) => {
+  if (c.claim_type === 'missed_session_fee') return `$${Number(c.payload?.amount || 0).toFixed(2)}`;
   const hrs = timePayEstimateHours(c);
   if (!(Number.isFinite(hrs) && hrs > 0)) return '—';
 
@@ -1373,6 +1376,7 @@ const timePayEstimateMoney = (c) => {
 };
 
 const timePayEstimateRateLabel = (c) => {
+  if (c.claim_type === 'missed_session_fee') return 'Collected fee share · no hours';
   const t = String(c?.claim_type || '').toLowerCase();
   const bucket = timeClaimApproveBucket(c);
   if (t === 'tutoring_session') return c.payload?.part === 'indirect' ? 'Tutoring indirect rate' : 'Tutoring rate';
@@ -1927,6 +1931,7 @@ const approveTime = async (c) => {
         action: 'approve',
         targetPayrollPeriodId,
         bucket,
+        ...(c.claim_type === 'missed_session_fee' ? { appliedAmount: c.payload?.amount } : {}),
         ...(Number.isFinite(hours) && hours >= 0 ? { creditsHours: hours } : {}),
         ...override
       }),

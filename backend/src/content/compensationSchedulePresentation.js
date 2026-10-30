@@ -1,4 +1,6 @@
 import {SPANISH_DIFFERENTIAL_HANDBOOK} from './spanishDifferential.js';
+import { ADVANCED_CATEGORY_DESCRIPTION, ADVANCED_CATEGORY_PLACEMENT } from './advancedCompensationCategory.js';
+import { PROGRAM_RATE_VERSION, PROGRAM_RATE_SCHEDULES } from './programServiceRates.js';
 const e = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export const amount = value => value != null && Number(value) > 0 ? `$${Number(value).toFixed(2)}` : '[confirm rate]';
 import {conditionalLevelBonus, directCareIndirectMinutes} from '../utils/serviceCreditPolicy.js';
@@ -6,7 +8,7 @@ export {conditionalLevelBonus};
 export const categoryDescriptions = {
   1: 'Unlicensed staff. The Direct Care Rate row currently applies to eligible bachelor’s-level services. The Clinical Session Rate row applies only to authorized intern/unlicensed master’s-level services. Scope and supervision requirements still apply. Approved Direct Care services include 10 minutes of automatic indirect pay per direct-hour equivalent. Report additional actual indirect work without duplicating the allowance.',
   2: 'Pre-licensed master’s-level staff. Approved psychotherapy/9-series and other designated master’s-level services use Clinical Session Rate. Approved H-code services use the separate Direct Care Rate plus 10 minutes of indirect pay per direct-hour equivalent.',
-  3: 'Fully licensed professionals. Approved psychotherapy/9-series and other designated master’s-level services use Clinical Session Rate. Approved H-code services use the separate Direct Care Rate plus 10 minutes of indirect pay per direct-hour equivalent.'
+  3: `${ADVANCED_CATEGORY_DESCRIPTION} ${ADVANCED_CATEGORY_PLACEMENT} Approved psychotherapy/9-series and other designated master’s-level services use Clinical Session Rate. Approved H-code services use the separate Direct Care Rate plus 10 minutes of indirect pay per direct-hour equivalent.`
 };
 export const payTypeDescriptions = `<dl>
 <dt><strong>Clinical Session Rate</strong></dt><dd>The assigned credit value multiplied by your Clinical Session Rate. This currently covers approved 9-series clinical codes in the appendix; it does not authorize every code beginning with 9. A 1.00-credit service pays the full rate and a 0.75-credit service pays 75%. Routine administrative work is included in this service pay. The 1.20 equivalent affects sick-leave accrual, not additional cash pay.</dd>
@@ -32,21 +34,23 @@ export function personalPayTypeDescriptions(s) {
 
 export function personalRateTable(s) {
   const bonus=Number(s.tier3LevelBonus ?? 0), clinical=s.clinicalEligible!==false;
+  const program = s.programRatesVersion === PROGRAM_RATE_VERSION;
   const rows = [
     ...(clinical ? [['Clinical Session Rate','per credit',s.creditRate,s.creditRateProbation,bonus]] : []),
     ['Direct Care Rate','per direct-hour equivalent',s.hcodeRate,s.hcodeRateProbation,Number(s.category)===1?bonus:0],
-    ...(s.tutoringRate != null ? [['Tutoring','per hour-equivalent (four 15-minute units)',s.tutoringRate,s.tutoringRate,0]] : []),
-    ...(s.h2014Rate != null ? [['H2014','per hour-equivalent (four 15-minute units)',s.h2014Rate,s.h2014Rate,0]] : []),
+    ...(!program && s.tutoringRate != null ? [['Tutoring','per hour-equivalent (four 15-minute units)',s.tutoringRate,s.tutoringRate,0]] : []),
+    ...(!program && s.h2014Rate != null ? [['H2014','per hour-equivalent (four 15-minute units)',s.h2014Rate,s.h2014Rate,0]] : []),
     ['Indirect pay','per hour',s.indirectRate,s.indirectRateProbation ?? s.indirectRate,0],
     ['Support activities','per hour',s.supportRate,s.supportRateProbation ?? s.supportRate,0]
   ];
-  return '<table class="compensation-rates"><thead><tr><th scope="col">Pay type / basis</th><th scope="col">Regular base rate</th><th scope="col">'+(s.probationWaived?'Minimum-workload rate':'Probationary / minimum-workload rate')+'</th>'+(bonus>0?'<th scope="col">Conditional Tier 3 addition</th><th scope="col">Regular rate while Tier 3 eligible</th>':'')+'</tr></thead><tbody>'+rows.map(([label,basis,regular,reduced,addition])=>`<tr><th scope="row">${label}<br /><small>${basis}</small></th><td>${amount(regular)}</td><td>${amount(reduced)}</td>${bonus>0?`<td>${addition>0?'+'+amount(addition):'—'}</td><td>${addition>0?amount(Number(regular)+addition):'—'}</td>`:''}</tr>`).join('')+'</tbody></table>';
+  const programTable = program ? '<h3>Separate program pay types</h3><table class="compensation-rates"><thead><tr><th>Pay type</th><th>Regular hourly-equivalent rate</th><th>First 60 calendar days of applicable new-hire probation</th></tr></thead><tbody>'+Object.values(PROGRAM_RATE_SCHEDULES).map(({label,field})=>`<tr><th>${label}</th><td>${amount(s[field])}</td><td>${amount(s.probationWaived ? s[field] : s[`${field}Probation`])}</td></tr>`).join('')+'</tbody></table><p>These program rates are included for your selected category and level and apply when you provide the corresponding service. Service qualifications and payer billing requirements still apply. Categories 2 and 3 receive 85% of the listed program base during applicable 60-day new-hire probation; Category 1 is not reduced. Program rows do not receive the clinical/general H-code minimum-workload reduction or conditional clinical tier additions. An amendment does not restart probation. Record each service and nonoverlapping time separately. Required minimum-wage and overtime adjustments remain payable.</p>' : '';
+  return '<table class="compensation-rates"><thead><tr><th scope="col">Pay type / basis</th><th scope="col">Regular base rate</th><th scope="col">'+(s.probationWaived?'Minimum-workload rate':'Probationary / minimum-workload rate')+'</th>'+(bonus>0?'<th scope="col">Conditional Tier 3 addition</th><th scope="col">Regular rate while Tier 3 eligible</th>':'')+'</tr></thead><tbody>'+rows.map(([label,basis,regular,reduced,addition])=>`<tr><th scope="row">${label}<br /><small>${basis}</small></th><td>${amount(regular)}</td><td>${amount(reduced)}</td>${bonus>0?`<td>${addition>0?'+'+amount(addition):'—'}</td><td>${addition>0?amount(Number(regular)+addition):'—'}</td>`:''}</tr>`).join('')+'</tbody></table>'+programTable;
 }
 
 export function categoryRateSchedule(rates, levels = []) {
   return '<h2>Category and level rate schedule</h2>'+payTypeDescriptions+SPANISH_DIFFERENTIAL_HANDBOOK+[1,2,3].map(category=>{
     const rows = rates.filter(r=>Number(r.category)===category).sort((a,b)=>Number(a.level)-Number(b.level));
-    return `<section class="compensation-category"><h2>Category ${category} · ${['','Unlicensed','Pre-licensed','Fully licensed'][category]}</h2><p>${categoryDescriptions[category]}</p>`+rows.map(r=>{
+    return `<section class="compensation-category"><h2>Category ${category} · ${['','Unlicensed','Pre-licensed','Licensed &amp; Advanced Professionals'][category]}</h2><p>${categoryDescriptions[category]}</p>`+rows.map(r=>{
       const description=levels.find(l=>Number(l.category)===category&&Number(l.level)===Number(r.level))?.label;
       const map=typeof r.tier_bonus_json==='string'?JSON.parse(r.tier_bonus_json):r.tier_bonus_json;
       const bonus=Number(map?.[3] ?? conditionalLevelBonus(r.level));

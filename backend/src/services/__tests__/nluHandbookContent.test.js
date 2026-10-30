@@ -18,7 +18,7 @@ describe('NLU handbook reconciliation', () => {
     assert.equal(source.forms.employeeSelfAssessments.length, 0);
     assert.equal(section('appendix-i').content_status, 'pending');
     assert.equal(source.presentation.founders[1].name, 'Melissa Mendez');
-    for (const s of source.sections) assert.ok(!/ITSCO|Rachel Finch|Skill Builders|school-assigned|school-based|Grasshopper/i.test(s.title + s.body_html), s.slug);
+    for (const s of source.sections) assert.ok(!/ITSCO|Rachel Finch|Skill Builders|school-assigned|school-based|Grasshopper/i.test((s.title + s.body_html).replace('ITSCO retains its separate policy.', '')), s.slug);
     assert.match(body('history-and-background-of-next-level-up'), /Melissa/);
     assert.match(body('history-and-background-of-next-level-up'), /Michael/);
     assert.match(getHandbookSource({ slug: 'itsco' }).presentation.founders[0].name, /Rachel/);
@@ -36,18 +36,22 @@ describe('NLU handbook reconciliation', () => {
   });
   it('keeps approved shared compensation and supervision while removing school-only commitments', () => {
     assert.match(active, /20%/);
-    assert.match(active, /12 minutes/);
+    assert.match(body('compensation-included-indirect-service-component'), /10 minutes/);
+    assert.doesNotMatch(body('compensation-included-indirect-service-component'), /20%|12 minutes/);
     assert.match(body('supervision-procedures'), /60 completed individual\/triadic supervision hours plus 40 group supervision opportunities offered/);
     assert.match(body('compensation-level-expectations-and-review'), /four \(4\) hours/);
     assert.doesNotMatch(body('compensation-level-expectations-and-review'), /\beight\b|school/i);
     assert.doesNotMatch(body('non-mandatory-company-events'), /\beight\b|school/i);
     assert.equal(section('school-support-activity-hours'), undefined);
   });
-  it('states the confirmed attendance exception without converting a lone attendee into an insurance claim', () => {
+  it('permits eligible individual H2014 and pays a distinct supplement only for actual groups', () => {
     assert.match(body('therapy-plus-tutoring-groups'), /at least three clients/);
-    assert.match(body('therapy-plus-tutoring-groups'), /At least two must attend/);
-    assert.match(body('therapy-plus-tutoring-groups'), /one client attends, reschedule or offer a separately agreed self-pay/);
-    assert.match(body('therapy-plus-tutoring-groups'), /Individual skills services are not currently provided through insurance/);
+    assert.match(body('therapy-plus-tutoring-groups'), /at least two actual participants/);
+    assert.match(body('therapy-plus-tutoring-groups'), /one client attends, an eligible individual H2014 skills session may proceed/);
+    assert.match(body('therapy-plus-tutoring-groups'), /\$5 per attendee/);
+    assert.match(body('therapy-plus-tutoring-groups'), /Count the base service compensation once/);
+    assert.match(body('therapy-plus-tutoring-groups'), /An individual session has no group supplement/);
+    assert.doesNotMatch(active, /Individual skills services are not (?:offered|currently provided) through insurance/);
     assert.match(body('therapy-plus-tutoring-blended-visit'), /sequential, separately identifiable service periods/);
     assert.match(body('therapy-plus-tutoring-documentation-and-billing'), /not automatically a two-unit claim/);
     assert.match(body('therapy-plus-tutoring-documentation-and-billing'), /must not be automatically transferred to the family/);
@@ -64,11 +68,12 @@ describe('NLU handbook reconciliation', () => {
   it('has valid navigation and exact ready policy destinations without foreign update IDs', () => {
     validateHandbookSections(source.sections);
     for (const s of source.sections) for (const [, target] of s.body_html.matchAll(/href="#handbook-([^"]+)"/g)) assert.ok(section(target), `${s.slug} → ${target}`);
-    assert.equal(source.reviewUpdates.length, 19);
+    assert.equal(source.reviewUpdates.length, 35);
+    assert.ok(source.reviewUpdates.every(update => update.period_label === 'October 2026'));
     for (const update of source.reviewUpdates) {
       assert.match(update.id, /^nlu-source-/);
       for (const target of update.policy_section_slugs) assert.equal(section(target)?.content_status, 'ready', target);
-      assert.doesNotMatch(update.changed_content, /Skill Builders|ITSCO|school-assigned/i);
+      assert.doesNotMatch(update.changed_content.replace('ITSCO retains its separate policy.', ''), /Skill Builders|ITSCO|school-assigned/i);
     }
     assert.equal(handbookMetadata(source).presentation.theme, 'nlu-foundations');
   });
@@ -95,9 +100,9 @@ describe('NLU handbook reconciliation', () => {
     assert.equal(section('typical-duties-mental-health-facilitator').title, 'Typical Duties – Learning & Wellness Facilitator');
     for (const slug of ['typical-duties-mental-health-facilitator', 'typical-duties-academic-tutor', 'typical-duties-mental-health-counselor']) {
       assert.equal(section(slug).content_status, 'ready');
-      assert.match(body(slug), /Individual skills services are not offered through insurance/);
+      assert.match(body(slug), /Eligible individual H2014 skills services are permitted/);
       assert.match(body(slug), /actual-time reporting in the app/);
-      assert.match(body(slug), /at least two attending/);
+      assert.match(body(slug), /two or more actual participants/);
     }
     assert.match(body('typical-duties-academic-tutor'), /Provide one-on-one tutoring/);
     assert.match(body('typical-duties-mental-health-counselor'), /Conduct clinical assessments/);
@@ -114,9 +119,10 @@ describe('NLU handbook reconciliation', () => {
     assert.match(body('nlu-parent-pickup'), /safe, supervised area/);
     assert.match(body('nlu-emergency-contacts'), /call 911 first/);
     assert.doesNotMatch(body('nlu-emergency-contacts'), /Insert main office number/);
-    assert.match(body('client-policies-and-attendance'), /\$100/);
-    assert.match(body('client-policies-and-attendance'), /\$80/);
-    assert.match(body('client-policies-and-attendance'), /Under no circumstances will clients with Medicaid be charged/);
+    assert.match(body('client-policies-and-attendance'), /client’s applicable signed agreement/);
+    assert.match(body('client-policies-and-attendance'), /package.*exemption/i);
+    assert.match(body('client-policies-and-attendance'), /Medicaid-only/);
+    assert.match(body('client-policies-and-attendance'), /primary/i);
     assert.match(body('client-policies-and-attendance'), /does not cancel wages earned/);
     assert.doesNotMatch(body('client-policies-and-attendance'), /will not be paid out|Charge a Fee for this Missed Appointment/);
     assert.match(body('employee-separation-and-transitions-resignation-and-termination'), /protected leave/);

@@ -1,5 +1,6 @@
 import LearningProgramClass from '../models/LearningProgramClass.model.js';
 import { createTutoringPayrollDraft } from '../services/tutoringPayroll.service.js';
+import { learningServiceMetadata } from '../services/learningServiceCompensation.js';
 import { payFamilyCharge } from '../services/familyBillingPayment.service.js';
 import pool from '../config/database.js';
 import multer from 'multer';
@@ -282,13 +283,15 @@ export const startClassSession = async (req, res, next) => {
     const sessionId = asInt(req.params.sessionId);
     const { session, canModerate } = await assertLearningSessionAccess(req, sessionId);
     if (!canModerate) return res.status(403).json({ error: { message: 'Moderator access required' } });
+    if (session.status === 'ended') return res.status(409).json({ error: { message: 'This session has ended. Review its payroll submission or schedule a new session.' } });
     if (String(session?.delivery_context || '').toLowerCase() === 'in_person') {
       const updated = await LearningClassSession.update(sessionId, {
         status: 'live',
         actualStartedAt: session.actual_started_at || new Date(),
         startedByUserId: req.user.id,
         deliveryContext: 'in_person'
-      });
+      }, { activeOnly: true });
+      if (updated?.status !== 'live') return res.status(409).json({error:{message:'This session is no longer available to start.'}});
       await logClassSessionTelemetry({
         sessionId,
         eventType: 'session_started',
@@ -308,7 +311,8 @@ export const startClassSession = async (req, res, next) => {
       twilioRoomSid: room?.roomSid || session.twilio_room_sid,
       twilioRoomUniqueName: room?.uniqueName || roomName,
       startedByUserId: req.user.id
-    });
+    }, { activeOnly: true });
+    if (updated?.status !== 'live') return res.status(409).json({error:{message:'This session is no longer available to start.'}});
     await logClassSessionTelemetry({
       sessionId,
       eventType: 'session_started',
@@ -323,14 +327,27 @@ export const startClassSession = async (req, res, next) => {
 
 // ── Post-session billing (POST_SESSION payment policy) ─────────────────────────────────────────
 
-async function triggerPostSessionCharge(session) {
+export async function triggerPostSessionCharge(session) {
   if (!isStripeConfigured()) return;
-  const agencyId = Number(session?.agency_id || 0);
-  const clientId = Number(session?.client_id || 0);
+  const agencyId = Number(session?.organization_id || session?.agency_id || 0);
   const sessionId = Number(session?.id || 0);
-  if (!agencyId || !clientId) return;
+  if (!agencyId || !sessionId || session.status !== 'ended') return;
+  if (session.agency_id && Number(session.agency_id) !== agencyId) return;
+  if (String(learningServiceMetadata(session).learningServiceCode || 'TUTORING').toUpperCase() !== 'TUTORING') return;
 
   try {
+    // Learning-session rows carry organization_id and use an explicit student
+    // join table. Never borrow a client or agency from an unrelated booking.
+    const [students] = await pool.execute(`SELECT DISTINCT c.id AS client_id FROM learning_class_sessions s
+      JOIN learning_program_classes program ON program.id=s.learning_class_id AND program.organization_id=?
+      JOIN tutoring_session_clients student ON student.session_id=s.id
+      JOIN clients c ON c.id=student.client_id
+      WHERE s.id=? AND s.provider_user_id=? AND s.status='ended'
+        AND (c.agency_id=? OR EXISTS(SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))`,
+    [agencyId,sessionId,Number(session.provider_user_id||0),agencyId,agencyId]);
+    if (students.length !== 1) return;
+    const clientId = Number(students[0].client_id);
+    if (!clientId || (session.client_id && Number(session.client_id) !== clientId)) return;
     // Only charge if the tutor has POST_SESSION policy
     const [profileRows] = await pool.execute(
       `SELECT p.session_rate_cents, p.payment_policy, p.user_id AS provider_user_id
@@ -342,15 +359,17 @@ async function triggerPostSessionCharge(session) {
     const profile = profileRows?.[0];
     if (!profile || String(profile.payment_policy || '').toUpperCase() !== 'POST_SESSION') return;
     const rateCents = Number(profile.session_rate_cents || 0);
-    if (!rateCents) return;
+    if (!Number.isSafeInteger(rateCents) || rateCents <= 0) return;
 
     // Only a specific, active payer/card authorization can trigger a charge.
     const [payers] = await pool.execute(`SELECT p.guardian_user_id FROM client_billing_payers p
       JOIN client_guardians cg ON cg.client_id = p.client_id AND cg.guardian_user_id = p.guardian_user_id
       JOIN guardian_payment_cards card ON card.id = p.payment_card_id AND card.guardian_user_id = p.guardian_user_id AND card.agency_id = p.agency_id
       JOIN guardian_billing_consents consent ON consent.id = p.consent_id AND consent.revoked_at IS NULL
+        AND consent.agency_id=p.agency_id AND consent.guardian_user_id=p.guardian_user_id
+        AND consent.client_id=p.client_id AND consent.payment_card_id=p.payment_card_id
       WHERE p.client_id = ? AND p.agency_id = ? AND p.status = 'active' AND cg.access_enabled = 1
-        AND card.is_active = 1 AND consent.purpose = 'recurring'`, [clientId, agencyId]);
+        AND card.is_active = 1 AND consent.purpose = 'recurring' AND p.recurring_limit_cents>=?`, [clientId, agencyId, rateCents]);
     if (payers.length !== 1) return;
     const key = `post_session:${agencyId}:${sessionId}`;
     const [created] = await pool.execute(`INSERT INTO learning_session_charges
@@ -364,46 +383,55 @@ async function triggerPostSessionCharge(session) {
   }
 }
 
+async function prepareSessionPayroll(sessionId, actorUserId) {
+  try { return { payrollDraft: await createTutoringPayrollDraft(sessionId, actorUserId), payrollWarning: null }; }
+  catch (error) { return { payrollDraft: null, payrollWarning: error.message }; }
+}
+
 export async function completeLearningSession(sessionId,actorUserId,transcript=null) {
     const session=await LearningClassSession.findById(sessionId);
     if(!session)throw Object.assign(new Error('Session not found'),{status:404});
-    if(session.status==='ended')return {session,message:'Session ended.'};
+    // A finished visit keeps its original time, transcript and billing action.
+    // Retrying repairs only a missing payroll draft; the draft creator is idempotent.
+    if(session.status==='ended')return {session,...await prepareSessionPayroll(sessionId,actorUserId),message:'Session ended.'};
     // Support optional transcript submission from frontend or Vonage webhook
     let transcriptText = transcript || null;
     if (!transcriptText && String(session?.delivery_context || '').toLowerCase() === 'in_person') {
       transcriptText = await buildInPersonTranscriptSummaryText(sessionId);
     }
-    if (transcriptText) {
-      await LearningClassSession.updateWithJson(sessionId, { transcriptText });
-    }
-
-    const updated = await LearningClassSession.update(sessionId, {
-      status: 'ended',
-      endsAt: session.status === 'ended' ? session.ends_at : new Date(),
-      endedByUserId: actorUserId
+    const completed = await LearningClassSession.completeOnce(sessionId, {
+      endedAt: new Date(),
+      endedByUserId: actorUserId,
+      transcriptText
     });
+    const freshSession = await LearningClassSession.findById(sessionId);
+    if (!freshSession) throw Object.assign(new Error('Session not found'), {status:404});
+    if (!completed) {
+      if (freshSession.status !== 'ended') throw Object.assign(new Error('This session cannot be completed in its current status.'), {status:409});
+      return {session:freshSession,...await prepareSessionPayroll(sessionId,actorUserId),message:'Session ended.'};
+    }
 
     // If this is a tutoring session, trigger AI transcript analysis for strengths/needs, standards mapping,
     // progress update, and guardian homework generation (non-blocking)
-    const freshSession = await LearningClassSession.findById(sessionId);
     if (freshSession?.session_subtype === 'tutoring' || String(freshSession?.mode || '').toLowerCase() === 'individual') {
       setImmediate(() => {
         tutoringTranscriptSummary.triggerTutoringSessionSummary(sessionId)
           .catch(err => console.error('Background tutoring transcript analysis failed:', err));
       });
-      // Post-session charge for tutors who use POST_SESSION billing policy
-      setImmediate(() => {
-        triggerPostSessionCharge(freshSession)
-          .catch(err => console.error('Background post-session charge failed:', err));
-      });
+      // Homework Help has its own service price and authorization; the tutoring
+      // profile price does not authorize charging for that separate service.
+      if (String(learningServiceMetadata(freshSession).learningServiceCode || 'TUTORING').toUpperCase() === 'TUTORING') {
+        setImmediate(() => {
+          triggerPostSessionCharge(freshSession)
+            .catch(err => console.error('Background post-session charge failed:', err));
+        });
+      }
     }
 
-    let payrollDraft = null, payrollWarning = null;
-    try { payrollDraft = await createTutoringPayrollDraft(sessionId, actorUserId); }
-    catch (error) { payrollWarning = error.message; }
+    const { payrollDraft, payrollWarning } = await prepareSessionPayroll(sessionId, actorUserId);
     await logClassSessionTelemetry({ sessionId, eventType: 'session_ended', actorUserId: actorUserId });
     return {
-      session: updated, payrollDraft, payrollWarning,
+      session: freshSession, payrollDraft, payrollWarning,
       message: freshSession?.session_subtype === 'tutoring'
         ? (String(freshSession?.delivery_context || '').toLowerCase() === 'in_person'
             ? 'In-person tutoring session ended. AI is analyzing tutor notes and saved responses for the progress summary and homework.'
@@ -418,7 +446,13 @@ export const endClassSession = async (req, res, next) => {
     const { session, canModerate } = await assertLearningSessionAccess(req, sessionId);
     if (!canModerate) return res.status(403).json({ error: { message: 'Moderator access required' } });
 
-    res.json(await completeLearningSession(sessionId,req.user.id,req.body?.transcript||req.body?.transcript_text));
+    const result = await completeLearningSession(sessionId,req.user.id,req.body?.transcript||req.body?.transcript_text);
+    await pool.execute(`UPDATE appointments a JOIN tutoring_appointment_sessions link ON link.appointment_id=a.id
+      JOIN learning_class_sessions s ON s.id=link.session_id JOIN learning_program_classes program ON program.id=s.learning_class_id
+      SET a.status='completed',a.updated_by_user_id=?
+      WHERE s.id=? AND s.status='ended' AND a.agency_id=program.organization_id AND a.provider_user_id=s.provider_user_id
+        AND a.business_type IN ('learning','tutoring') AND a.status IN ('scheduled','confirmed','client_confirmed','in_progress')`,[req.user.id,sessionId]);
+    res.json(result);
   } catch (e) {
     next(e);
   }
@@ -428,6 +462,7 @@ export const getClassSessionVideoToken = async (req, res, next) => {
   try {
     const sessionId = asInt(req.params.sessionId);
     const { session, actorRole } = await assertLearningSessionAccess(req, sessionId);
+    if (!['scheduled','live'].includes(session.status)) return res.status(409).json({error:{message:'This session is no longer available to join.'}});
     if (String(session?.delivery_context || '').toLowerCase() === 'in_person') {
       return res.status(400).json({ error: { message: 'Video is not used for in-person tutoring sessions' } });
     }
@@ -444,7 +479,8 @@ export const getClassSessionVideoToken = async (req, res, next) => {
       videoResponse = await LearningClassSession.getVideoToken(sessionId, `user-${req.user.id}`, isTutor);
       // Update status if scheduled
       if (session.status === 'scheduled' || (session.status === 'live' && isTutor && !session.actual_started_at)) {
-        await LearningClassSession.update(sessionId, { status: 'live', ...(isTutor ? { actualStartedAt: session.actual_started_at || new Date() } : {}) });
+        const updated = await LearningClassSession.update(sessionId, { status: 'live', ...(isTutor ? { actualStartedAt: session.actual_started_at || new Date() } : {}) }, { activeOnly: true });
+        if (updated?.status !== 'live') return res.status(409).json({error:{message:'This session is no longer available to join.'}});
       }
     } else {
       // Legacy group class path (Twilio/Vonage hybrid)
@@ -452,12 +488,13 @@ export const getClassSessionVideoToken = async (req, res, next) => {
       const room = await createOrGetRoomByUniqueName(roomName);
       if (!room) return res.status(500).json({ error: { message: 'Failed to provision room' } });
       if (!session.twilio_room_sid || !session.twilio_room_unique_name || String(session.status || '').toLowerCase() === 'scheduled') {
-        await LearningClassSession.update(sessionId, {
+        const updated = await LearningClassSession.update(sessionId, {
           status: String(session.status || '').toLowerCase() === 'scheduled' ? 'live' : session.status,
           actualStartedAt: session.actual_started_at || new Date(),
           twilioRoomSid: room.roomSid,
           twilioRoomUniqueName: room.uniqueName
-        });
+        }, { activeOnly: true });
+        if (updated?.status !== 'live') return res.status(409).json({error:{message:'This session is no longer available to join.'}});
       }
       const token = await createAccessTokenAsync({
         identity: `user-${req.user.id}`,

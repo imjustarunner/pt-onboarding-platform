@@ -4,6 +4,9 @@ import { createHash } from 'node:crypto';
 import { handbookTenant } from './handbookTenant.js';
 import { cleanHandbookHtml, validateHandbookSections } from './workplaceHandbookContent.js';
 import { applyFacilitatorProviderReference } from './careGuideScope.js';
+import { MISSED_SESSION_FEE_SECTION, missedSessionFeeSectionForTenant, NLU_BETWEEN_SESSION_SECTION, EXTENDED_PSYCHOTHERAPY_HTML } from '../content/sessionCompensationHandbook.js';
+import { programRatesHandbookHtml } from '../content/programServiceRates.js';
+import { ADP_PAY_STATEMENT_SECTION, SICK_LEAVE_HOURS_SECTION, BONUS_TAX_SECTION } from '../content/adpSickLeaveReportingHandbook.js';
 
 const sources = Object.fromEntries(['itsco', 'nlu', 'isi'].map(key => [key, JSON.parse(readFileSync(new URL(`../content/provider-guides/${key}.json`, import.meta.url), 'utf8'))]));
 const schoolSource = JSON.parse(readFileSync(new URL('../content/school-practice-guides/itsco.json', import.meta.url), 'utf8'));
@@ -45,7 +48,15 @@ export const referenceAllowed = (agency, key) => {
 };
 export const referenceCatalogFor = agency => referenceCatalog.filter(d => referenceAllowed(agency, d.key));
 const escape = text => String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-export function referenceSource(agency, key, { packageAssigned = false } = {}) {
+function appendHandbookPolicy(source, section) {
+  source.sourceDate = '2026-10-29';
+  source.sections.push({
+    slug: section.slug, title: section.title, parent_slug: null,
+    sort_order: source.sections.length, content_status: 'ready', source_page: null,
+    body_html: `${section.bodyHtml.replaceAll('href="#handbook-', 'href="/workplace-handbook#handbook-')}<p><a href="/workplace-handbook#handbook-${section.slug}">Current Workplace Handbook · ${escape(section.title)}</a></p>`
+  });
+}
+function baseReferenceSource(agency, key, { packageAssigned = false } = {}) {
   if (!referenceAllowed(agency, key)) return null;
   if (key === 'school-practice-guide') {
     const source = structuredClone(schoolSource);
@@ -108,7 +119,7 @@ export function referenceSource(agency, key, { packageAssigned = false } = {}) {
     source.presentation.sectionArtwork = { 'purpose-and-priorities': 'bear-lake', 'engagement-and-retention': 'aspens' };
     const context = {
       itsco: '<p>ITSCO caseload planning includes approved school assignments and office services. Account for school access, travel, breaks and closures alongside the clinical plan. Coordinate scheduling with authorized school contacts without disclosing unnecessary clinical information. School calendar changes do not automatically terminate care.</p><p>Follow the <a href="/library?companyDocument=school-practice-guide">ITSCO School Practice Guide</a> for setting-specific procedures. ITSCO’s group-service moratorium remains in effect unless a specific written approval authorizes the group. Do not add group appointments to fill a caseload without that approval.</p>',
-      nlu: '<p>Next Level Up provides counseling and tutoring. Keep clinical care, tutoring and approved small-group skill development distinct in scheduling, documentation and billing review. The client’s learning and care needs determine the plan; a productivity goal does not justify relabeling a service.</p><p>For approved small-group skills services, schedule three participants and proceed with at least two attending. With one attending, offer separately agreed self-pay or reschedule. Therapy Plus Tutoring requires the actual, separately identified services and nonoverlapping time; a combined booking does not automatically authorize insurance claims. These rules do not establish a Skill Builders program.</p>',
+      nlu: '<p>Next Level Up provides counseling and tutoring. Keep clinical care, tutoring and approved individual or small-group skill development distinct in scheduling, documentation and billing review. The client’s learning and care needs determine the plan; a productivity goal does not justify relabeling a service.</p><p>Within Therapy + Tutoring, H2014 may be delivered individually or in an eligible small group. Small groups are encouraged; scheduling three participants is a planning preference, and two or more actual attendees constitute a group. If only one attends, an individual H2014 service may proceed when the actual service, plan, provider, authorization and payer requirements permit it. Record the format and attendance actually delivered; never bill absent participants. Compensation uses the employee’s approved category and level Direct Care rate, with the group base paid once and an additional $5 per actual attendee for a group of two or more. Therapy Plus Tutoring requires separately identified services and nonoverlapping time; a combined booking does not automatically authorize insurance claims. These rules do not establish a Skill Builders program.</p><p><a href="/workplace-handbook#handbook-nlu-tutoring-and-h2014-compensation">Handbook · NLU tutoring and H2014 compensation</a></p>',
       isi: '<p>Inner Strength Institute is counseling-only. Plan caseload capacity around approved counseling services, documentation, coordination, supervision and continuity. This edition does not establish tutoring or skills-development programs.</p>'
     };
     source.sections.find(section => section.slug === 'company-caseload-context').body_html = context[tenant];
@@ -126,7 +137,7 @@ export function referenceSource(agency, key, { packageAssigned = false } = {}) {
     source.presentation.sectionArtwork = { 'purpose-and-use': 'bear-lake', 'review-and-completion': 'aspens' };
     const context = {
       itsco: '<p>ITSCO’s group-service moratorium remains in effect unless a specific written approval authorizes the group. This resource does not lift that restriction. Confirm approval, an eligible clinical leader and approved setting before recruiting or scheduling.</p><p>For an explicitly approved school group, follow the School Practice Guide and complete the applicable school packet, group informed-consent addendum and group policies/services addendum in the app. School permission does not replace clinical consent. Office groups follow the office intake requirements.</p>',
-      nlu: '<p>Next Level Up provides counseling and tutoring in approved settings, not school-based services. A psychotherapy group requires its own clinical and operational approval, qualified leader and billing review.</p><p>Therapy Plus Tutoring and NLU small-group skill development are separate services. Their three-scheduled/two-attending rules do not authorize 90853, and tutoring or skills practice must not be relabeled group psychotherapy. This SOP does not change that program or establish a Skill Builders program.</p>',
+      nlu: '<p>Next Level Up provides counseling and tutoring in approved settings, not school-based services. Group psychotherapy remains under the group-service moratorium unless an express written exception is approved. Any exception requires a qualified clinical leader and billing review.</p><p>Therapy Plus Tutoring permits eligible individual and small-group H2014 skills services as its defined program exception. That exception does not authorize 90853 or another group code, and tutoring or skills practice must not be relabeled group psychotherapy. This SOP does not establish a Skill Builders program.</p><p><a href="/workplace-handbook#handbook-therapy-plus-tutoring-program">Handbook · Therapy + Tutoring</a></p>',
       isi: '<p>Inner Strength Institute is counseling-only. Any proposed psychotherapy group requires clinical and operational approval, an appropriately qualified leader and billing review. This resource does not create tutoring, Skill Builders or school-based services, and does not by itself authorize a group.</p>'
     };
     source.sections.find(s => s.slug === 'company-group-approval').body_html = context[tenant];
@@ -197,6 +208,10 @@ export function referenceSource(agency, key, { packageAssigned = false } = {}) {
     source.presentation.chapterDividers = [];
     source.presentation.coverImageUrl = '/assets/handbooks/colorado-bear-lake.jpg';
     source.presentation.sectionArtwork = { 'skills-orientation': 'pikes-peak', 'program-boundaries': 'bear-lake', 'skill-domains': 'aspens', rapport: 'bear-lake', 'practice-examples': 'aspens', 'learning-moments': 'pikes-peak', precepting: 'bear-lake', 'research-and-rationale': 'pikes-peak' };
+    if (tenant === 'nlu') {
+      appendHandbookPolicy(source, MISSED_SESSION_FEE_SECTION);
+      appendHandbookPolicy(source, NLU_BETWEEN_SESSION_SECTION);
+    }
     source.sections = source.sections.map(s => ({ ...s, body_html: cleanHandbookHtml(s.body_html) }));
     validateHandbookSections(source.sections);
     source.revision = createHash('sha256').update(JSON.stringify(source)).digest('hex');
@@ -229,6 +244,20 @@ export function referenceSource(agency, key, { packageAssigned = false } = {}) {
   const source = applyScreenerReference(structuredClone(sources[tenant || 'isi']), tenant);
   if (tenant) {
     applyFacilitatorProviderReference(source);
+    if (tenant === 'isi') {
+      const scope = source.sections.find(s => s.slug === 'facilitator-scope-reference');
+      scope.body_html = scope.body_html.replace('<p>The <a href="/workplace-handbook#handbook-bachelors-level-facilitator-scope-and-h0004">Workplace Handbook → Bachelor’s-level facilitators · Scope, oversight and H0004</a> contains the agency policy.', '<p>ISI remains counseling-only. Follow the current approved assignment and <a href="/library?companyDocument=counseling-guide#counseling-guide-facilitator-scope">Care Approaches &amp; Practice Guide · Facilitator scope</a>; this reference does not establish a separate program.');
+    }
+    appendHandbookPolicy(source, missedSessionFeeSectionForTenant(tenant));
+    if (tenant === 'nlu') appendHandbookPolicy(source, NLU_BETWEEN_SESSION_SECTION);
+    source.sections.push({ slug: 'extended-psychotherapy-90834', title: '90834 · Extended psychotherapy', parent_slug: null,
+      sort_order: source.sections.length, content_status: 'ready', source_page: null, body_html: EXTENDED_PSYCHOTHERAPY_HTML });
+    const attendance = source.sections.find(s => s.slug === 'medicaid-attendance-standards');
+    if (attendance) attendance.body_html = '<p>Do not charge missed-appointment fees to Medicaid-only members. Any potential exception involving Medicare or commercial primary coverage requires documented billing review under the applicable plan and advance-notice rules. Staff must not independently assess a fee or consume a credit to bypass member-billing restrictions.</p><p>Record every missed appointment accurately. Follow <a href="/workplace-handbook#handbook-missed-session-fee-compensation">Collected missed-session fees and employee compensation</a> for fee eligibility and employee compensation. Actual compensable work and required waiting remain payable separately.</p>';
+    const medicaid = source.sections.find(s => s.slug === 'medicaid-specific-requirements');
+    if (medicaid) medicaid.body_html = medicaid.body_html
+      .replace('Medicaid clients may never be charged for sessions or missed sessions', 'Do not charge Medicaid members for covered services. Missed-appointment fees follow the Medicaid Attendance Standards and current handbook policy')
+      .replace('Do not charge Medicaid clients for covered counseling sessions or missed sessions', 'Do not charge Medicaid members for covered counseling sessions');
     const related = source.sections.find(s => s.slug === '6-relationship-to-other-documents');
     if (related) {
       if (tenant === 'isi') related.body_html = related.body_html.replace('There is no separate facilitator or tutoring program at ISI.', 'ISI remains counseling-only; the facilitator protocol applies to approved bachelor’s-level counseling assignments and does not create a separate program.');
@@ -259,6 +288,26 @@ export function referenceSource(agency, key, { packageAssigned = false } = {}) {
     }
   }
   source.sections = source.sections.map(s => ({ ...s, body_html: cleanHandbookHtml(s.body_html) }));
+  validateHandbookSections(source.sections);
+  source.revision = createHash('sha256').update(JSON.stringify(source)).digest('hex');
+  return source;
+}
+
+export function referenceSource(agency, key, options = {}) {
+  const source = baseReferenceSource(agency, key, options);
+  const tenant = handbookTenant(agency);
+  if (!source || !tenant) return source;
+  if (tenant === 'nlu') {
+    for (const section of source.sections) section.body_html = String(section.body_html || '')
+      .replace(/approved category and level Direct Care rate/g, 'approved category and level Therapy + Tutoring H2014 program rate');
+  }
+  if (key === 'provider-guide') {
+    for (const section of [SICK_LEAVE_HOURS_SECTION,ADP_PAY_STATEMENT_SECTION,BONUS_TAX_SECTION]) appendHandbookPolicy(source,section);
+  }
+  if ((key === 'provider-guide' && ['nlu','isi'].includes(tenant)) || (key === 'skill-development-guide' && tenant === 'nlu')) {
+    appendHandbookPolicy(source,{slug:tenant === 'nlu' ? 'nlu-tutoring-and-h2014-compensation' : 'program-service-rate-schedules',title:'Homework Help, Tutoring and Therapy + Tutoring rates',bodyHtml:programRatesHandbookHtml(tenant)});
+  }
+  source.sections = source.sections.map(section=>({...section,body_html:cleanHandbookHtml(section.body_html)}));
   validateHandbookSections(source.sections);
   source.revision = createHash('sha256').update(JSON.stringify(source)).digest('hex');
   return source;

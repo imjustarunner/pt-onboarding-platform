@@ -15,6 +15,7 @@ import pool from '../config/database.js';
 import PayrollPaySystemRate from '../models/PayrollPaySystemRate.model.js';
 import PayrollCompensationLevel from '../models/PayrollCompensationLevel.model.js';
 import { payrollDefaultsForCode } from './payrollServiceCodeDefaults.js';
+import { programRateForProfile, programServiceForCode, programProbationApplies } from '../content/programServiceRates.js';
 
 const PROBATION_DAYS = 90;
 
@@ -220,11 +221,15 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
   let payType = classifyPayType(code, rule || payrollDefaultsForCode(code));
   const supplementalEffective = !rateProfile?.supplementalRatesEffectiveOn || String(status?.asOfDate || new Date().toISOString()).slice(0,10) >= String(rateProfile.supplementalRatesEffectiveOn).slice(0,10);
   const tutoring = supplementalEffective && (String(rule?.category || payrollDefaultsForCode(code)?.category || '').toLowerCase() === 'tutoring' || /^TUTORING(?: |$)/.test(code)) && rateProfile?.tutoringRate != null;
-  const specialRate = tutoring ? Number(rateProfile.tutoringRate) : supplementalEffective && code === 'H2014' && rateProfile?.h2014Rate != null ? Number(rateProfile.h2014Rate) : null;
+  const program = programRateForProfile(rateProfile, status, code, rule?.category || payrollDefaultsForCode(code)?.category);
+  if (!program && programServiceForCode(code,rule?.category) === 'homework_help') throw Object.assign(new Error('Homework Help requires an approved, effective program compensation schedule; the general clinical rate cannot be substituted.'), {code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
+  const programPending = rateProfile?.programRatesVersion && !program && programServiceForCode(code, rule?.category);
+  if (programPending) throw Object.assign(new Error('Review the service date and historical program rate before applying the new program schedule.'), {code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
+  const specialRate = program?.rate ?? (tutoring ? Number(rateProfile.tutoringRate) : supplementalEffective && code === 'H2014' && rateProfile?.h2014Rate != null ? Number(rateProfile.h2014Rate) : null);
   // Tutoring and the NLU H2014 override use the same unit/indirect path as H0004.
   // Null fields preserve all other agencies' existing calculations.
   if (specialRate != null) payType = 'hcode';
-  const effectiveRule = specialRate != null && (code === 'TUTORING 15 MIN' || code === 'H2014') ? { ...rule, pay_divisor: 4, credit_value: 0.25, duration_minutes: 15 } : rule;
+  const effectiveRule = specialRate != null && (code === 'TUTORING 15 MIN' || code === 'HOMEWORK HELP 15 MIN' || code === 'H2014') ? { ...rule, pay_divisor: 4, credit_value: 0.25, duration_minutes: 15 } : rule;
   const qty = resolveQuantities({ serviceCode: code, quantity, rule: effectiveRule });
   const reduced = !!status?.useReducedRates;
 
@@ -256,13 +261,15 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
 
     if (hRate > 0) {
       rate = hRate;
-      rateLabel = tutoring ? 'tutoring_rate' : specialRate != null ? 'h2014_rate' : reduced ? 'hcode_rate_probation' : 'hcode_rate';
+      rateLabel = program?.service === 'homework_help' ? 'homework_help_rate' : tutoring || program?.service === 'tutoring' ? 'tutoring_rate' : specialRate != null ? 'h2014_rate' : reduced ? 'hcode_rate_probation' : 'hcode_rate';
       const gross = qty.hourEquivalent * rate;
       amount = round2(gross);
       // H-code pay is the full H rate for face time; auto-indirect minutes are ADDED on top
       // (default 10 min per hour at the indirect rate).
       // Example: $32/hr H + $24/hr indirect → $32 + $4 (10 min) = $36 total.
-      const auto = applyAutoIndirect({ rateProfile: specialRate != null ? { ...rateProfile, compensationPolicyVersion: null, autoIndirectMinutesPerHour: 10 } : rateProfile, hourEquivalent: qty.hourEquivalent, status });
+      const auto = program?.service === 'homework_help'
+        ? { autoIndirectHours: 0, autoIndirectAmount: 0 }
+        : applyAutoIndirect({ rateProfile, hourEquivalent: qty.hourEquivalent, status });
       autoIndirectHours = auto.autoIndirectHours;
       autoIndirectAmount = auto.autoIndirectAmount;
     } else {
@@ -276,7 +283,7 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
       // Every approved Direct Care service receives the automatic allowance,
       // including fallback rates and probation / minimum-workload rates.
       {
-        const auto = applyAutoIndirect({ rateProfile: specialRate != null ? { ...rateProfile, autoIndirectMinutesPerHour: 10 } : rateProfile, hourEquivalent: qty.hourEquivalent, status });
+        const auto = applyAutoIndirect({ rateProfile, hourEquivalent: qty.hourEquivalent, status });
         autoIndirectHours = auto.autoIndirectHours;
         autoIndirectAmount = auto.autoIndirectAmount;
       }
@@ -294,6 +301,9 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
   return {
     serviceCode: code,
     fixedSupplementalRate: specialRate != null,
+    programService: program?.service || null,
+    programRateLabel: program?.label || null,
+    programProbationApplied: program?.probation || false,
     compensationPolicyVersion: rateProfile?.compensationPolicyVersion || null,
     leaveAdminRatio: rateProfile?.leaveAdminRatio ?? 0,
     payType,
@@ -433,7 +443,7 @@ export function decorateEstimateLine(result, rateProfile, extras = {}) {
     ...extras,
     kind,
     timeHours: hours,
-    bucketLabel: result.rateLabel === 'tutoring_rate' ? 'Tutoring' : payType === 'hcode' && !result.hcodeFallbackToCredit ? 'H-code' : 'Direct',
+    bucketLabel: result.programRateLabel || (result.rateLabel === 'tutoring_rate' ? 'Tutoring' : payType === 'hcode' && !result.hcodeFallbackToCredit ? 'H-code' : 'Direct'),
     directHours: hours,
     directRate,
     directAmount: round2(result.amount),
@@ -856,7 +866,7 @@ function splitAgreementDatedLines(breakdown, {status,rateProfile,datedUnitsByCod
       if (prior && !status.agreementPriorRateProfile) throw Object.assign(new Error(`Work dated ${date} for ${code} precedes the new pay terms. Review its historical rate separately; the current category/level matrix cannot price earlier work.`),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
       const lineStatus=resolveUserPaySystemStatus({...args,assignment:prior?status.agreementLegacyAssignment:args.assignment,asOfDate:date});
       const datedProfile=prior?status.agreementPriorRateProfile:profileWithDatedAddition(rateProfile,date);
-      const groupKey=`${prior?'prior':'amendment'}-${lineStatus.useReducedRates?'reduced':'regular'}-${datedProfile.conditionalAdditionPolicyId||''}-${date >= (datedProfile.supplementalRatesEffectiveOn || '') ? 'supplemental' : 'legacy'}`;
+      const groupKey=`${prior?'prior':'amendment'}-${lineStatus.useReducedRates?'reduced':'regular'}-${programProbationApplies(datedProfile,lineStatus)?'program-probation':'program-regular'}-${datedProfile.conditionalAdditionPolicyId||''}-${date >= (datedProfile.supplementalRatesEffectiveOn || '') ? 'supplemental' : 'legacy'}`;
       const group=groups.get(groupKey)||{units:0,status:lineStatus,profile:datedProfile};
       group.units+=Number(item.units??item.payable_units??0);groups.set(groupKey,group);
     }
@@ -975,6 +985,13 @@ export function applyPaySystemToBreakdown({
     row.payType = result.payType;
     row.hourEquivalent = result.hourEquivalent;
     row.compensationPolicyVersion = result.compensationPolicyVersion;
+    row.programService = result.programService;
+    row.programRateLabel = result.programRateLabel;
+    row.programProbationApplied = result.programProbationApplied;
+    if (result.programService) {
+      row.label = `${serviceCode} (${result.programProbationApplied ? '60-day program probation' : 'program rate'})`;
+      row.paySystemEra = result.programProbationApplied ? '60-day program probation' : 'Program rate';
+    }
     if (result.splitNote) {
       row.paySystemSplitNote = result.splitNote;
       row.hcodeGrossAmount = result.hcodeGrossAmount;

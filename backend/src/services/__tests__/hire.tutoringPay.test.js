@@ -49,7 +49,7 @@ describe('NLU supplemental pay',()=>{
   const office=make('itsco','Office-Based Counseling');
   expect(office.benefits).toMatch(/training/i); expect(office.benefits).toMatch(/health insurance/i);
   expect(office.benefits).not.toMatch(/School support activity hours/);
-  expect(make('itsco','Office-Based Counseling; School-Based Counseling').benefits).toMatch(/School support activity hours/);
+  expect(make('itsco','Office-Based Counseling; School-Based Counseling').benefits).toMatch(/School Support Hours/);
   expect(make('nlu','School-Based Counseling').benefits).not.toMatch(/School support activity hours/);
  });
 });
@@ -60,9 +60,9 @@ describe('tutoring session payroll records',()=>{
   expect(tutoringSessionQuantities('2026-10-14 15:00:00','2026-10-14 15:10:00').units).toBeCloseTo(2/3);
   expect(()=>tutoringSessionQuantities(null,new Date())).toThrow('actual tutoring');
  });
- function connection(existing=[]){
+ function connection(existing=[],metadata={},providerUserId=4){
   const c={beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),execute:vi.fn()};
-  c.execute.mockImplementation(async sql=>sql.includes('FROM learning_class_sessions')?[[{id:7,agency_id:2,agency_slug:'nlu',session_subtype:'tutoring',status:'ended',actual_started_at:'2026-10-14 15:00:00',ends_at:'2026-10-14 16:00:00'}]]:sql.includes('FROM learning_class_session_participants')?[[{user_id:4}]]:[existing]);
+  c.execute.mockImplementation(async sql=>sql.includes('FROM learning_class_sessions')?[[{id:7,agency_id:2,agency_slug:'nlu',provider_user_id:providerUserId,session_subtype:'tutoring',status:'ended',actual_started_at:'2026-10-14 15:00:00',ends_at:'2026-10-14 16:00:00',metadata_json:metadata}]]:sql.includes('FROM learning_class_session_participants')?[[{user_id:4}]]:[existing.map(row=>({user_id:4,...row}))]);
   return c;
  }
  it('creates separate direct and indirect claims and reuses existing claims on retry',async()=>{
@@ -74,9 +74,32 @@ describe('tutoring session payroll records',()=>{
   const retry=connection([{id:10,payload_json:{part:'direct'}},{id:11,payload_json:JSON.stringify({part:'indirect'})}]);
   expect((await createTutoringPayrollDraft(7,9,{getConnection:async()=>retry})).claimIds).toEqual([10,11]);expect(mocks.create).not.toHaveBeenCalled();
  });
+ it('rejects a changed presenter without paying a different employee',async()=>{
+  const c=connection([],{},5);
+  await expect(createTutoringPayrollDraft(7,9,{getConnection:async()=>c})).rejects.toThrow('assigned provider matches its single presenter');
+  expect(mocks.create).not.toHaveBeenCalled();expect(c.rollback).toHaveBeenCalledOnce();
+ });
+ it('checks all employee claims before recreating a completed session after provider reassignment',async()=>{
+  const c=connection([{id:10,user_id:5,payload_json:{part:'direct'}}]);
+  await expect(createTutoringPayrollDraft(7,9,{getConnection:async()=>c})).rejects.toThrow('before changing its assigned provider');
+  expect(mocks.create).not.toHaveBeenCalled();expect(c.rollback).toHaveBeenCalledOnce();
+  const query=c.execute.mock.calls.find(([sql])=>sql.includes('FROM payroll_time_claims'));
+  expect(query[0]).not.toMatch(/AND user_id=\?/);expect(query[1]).toEqual([2,'7']);
+ });
  it('rolls back incomplete claim creation',async()=>{
   const c=connection();mocks.create.mockRejectedValue(new Error('database unavailable'));
   await expect(createTutoringPayrollDraft(7,9,{getConnection:async()=>c})).rejects.toThrow('database unavailable');
   expect(c.rollback).toHaveBeenCalledOnce();expect(c.release).toHaveBeenCalledOnce();
+ });
+ it('creates Homework Help direct-only claims from an explicit selection',async()=>{
+  const c=connection([],{learningServiceCode:'HOMEWORK HELP'});mocks.create.mockResolvedValue({id:12});
+  expect(await createTutoringPayrollDraft(7,9,{getConnection:async()=>c})).toMatchObject({claimIds:[12],directHours:1,indirectHours:0});
+  expect(mocks.create).toHaveBeenCalledOnce();
+  expect(mocks.create.mock.calls[0][0].payload).toMatchObject({serviceCode:'HOMEWORK HELP 15 MIN',part:'direct',units:4});
+ });
+ it('requires reconciliation before switching a session with existing tutoring claims to Homework Help',async()=>{
+  const c=connection([{id:10,payload_json:{part:'direct',serviceCode:'TUTORING 15 MIN'}}],{learningServiceCode:'HOMEWORK HELP'});
+  await expect(createTutoringPayrollDraft(7,9,{getConnection:async()=>c})).rejects.toThrow('Reconcile the existing payroll claims');
+  expect(mocks.create).not.toHaveBeenCalled();expect(c.rollback).toHaveBeenCalledOnce();
  });
 });

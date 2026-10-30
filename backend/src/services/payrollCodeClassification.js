@@ -26,7 +26,7 @@ export function classifyPayType(serviceCode, ruleOrDefaults = null) {
     return 'hcode';
   }
   // Remaining direct / tutoring / other clinical → credit rate
-  if (cat === 'direct' || cat === 'tutoring' || cat === 'other' || !cat) {
+  if (cat === 'direct' || cat === 'tutoring' || cat === 'homework_help' || cat === 'other' || !cat) {
     return 'credit';
   }
   return 'skip';

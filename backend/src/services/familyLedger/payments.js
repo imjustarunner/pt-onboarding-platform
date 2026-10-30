@@ -9,6 +9,7 @@ import { cents, key, transaction, assertCollectible, allocationDue, dateOnly, ag
 import { findReceivable, allocationsFor, sourcePayload } from './receivables.js';
 import { responsibilityLabels } from './presentation.js';
 import { requireLiveGuardianBilling } from '../guardianTestAccess.service.js';
+import { reconcileMissedFeePayroll } from '../missedSessionFeePayroll.service.js';
 
 const context = (agencyId, allocationId) => `ledger-payment:${agencyId}:${allocationId}`;
 export async function lockAllocation(agencyId, allocationId, db) {
@@ -123,7 +124,7 @@ async function receiptSnapshot(payment,receivable,allocation,snapshot,db,receive
   const [payers]=await db.execute('SELECT first_name,last_name FROM users WHERE id=?',[payment.payer_user_id]);
   const [clients]=await db.execute('SELECT full_name,initials FROM clients WHERE id=? AND agency_id=?',[receivable.client_id,payment.agency_id]);
   const responsibility=sourcePayload(receivable),type=responsibilityLabels[responsibility.responsibilityType]||'Service payment';
-  return {...(responsibility.serviceTerm?{serviceCode:responsibility.serviceTerm.serviceCode,serviceUnits:responsibility.serviceTerm.units,unitAmountCents:responsibility.serviceTerm.amountCents,priceBasis:responsibility.serviceTerm.priceBasis}:{}),clientName:clients[0]?.full_name||clients[0]?.initials||null,receiptNumber:`R-${payment.agency_id}-${payment.id}`,agencyName:agencies[0]?.name||'Organization',payerName:[payers[0]?.first_name,payers[0]?.last_name].filter(Boolean).join(' '),service:['mental_health','clinical','unknown'].includes(receivable.service_domain)?'Services':`${receivable.service_domain} services`,serviceDate:receivable.service_date?dateOnly(receivable.service_date):null,balanceReference:receivable.id,responsibilityType:type,verificationBasis:responsibility.verificationBasis==='era'?'Payer remittance':responsibility.responsibilityType==='copay'?'Verified visit copay, subject to payer determination':'Verified patient responsibility / agreed service terms',shareCents:Number(allocation.amount_cents),previouslyPaidCents:Number(allocation.paid_cents),remainingAtPaymentCents:allocationDue(allocation)-Number(payment.amount_cents),amountCents:Number(payment.amount_cents),currency:payment.currency,receivedAt:new Date(receivedAt).toISOString(),method:payment.processor==='CASH'?'Cash':payment.processor==='LEGACY'?'Previously recorded payment':`${snapshot.brand||'Card'} ending in ${snapshot.last4||'••••'}`};
+  return {...(responsibility.serviceTerm?{serviceCode:responsibility.serviceTerm.serviceCode,serviceUnits:responsibility.serviceTerm.units,unitAmountCents:responsibility.serviceTerm.amountCents,priceBasis:responsibility.serviceTerm.priceBasis}:{}),clientName:clients[0]?.full_name||clients[0]?.initials||null,receiptNumber:`R-${payment.agency_id}-${payment.id}`,agencyName:agencies[0]?.name||'Organization',payerName:[payers[0]?.first_name,payers[0]?.last_name].filter(Boolean).join(' '),service:['mental_health','clinical','unknown'].includes(receivable.service_domain)?'Services':`${receivable.service_domain} services`,serviceDate:receivable.service_date?dateOnly(receivable.service_date):null,balanceReference:receivable.id,responsibilityType:type,verificationBasis:responsibility.responsibilityType==='missed_session_fee'?'Missed-appointment fee under existing client agreement; no service claim':responsibility.verificationBasis==='era'?'Payer remittance':responsibility.responsibilityType==='copay'?'Verified visit copay, subject to payer determination':'Verified patient responsibility / agreed service terms',shareCents:Number(allocation.amount_cents),previouslyPaidCents:Number(allocation.paid_cents),remainingAtPaymentCents:allocationDue(allocation)-Number(payment.amount_cents),amountCents:Number(payment.amount_cents),currency:payment.currency,receivedAt:new Date(receivedAt).toISOString(),method:payment.processor==='CASH'?'Cash':payment.processor==='LEGACY'?'Previously recorded payment':`${snapshot.brand||'Card'} ending in ${snapshot.last4||'••••'}`};
 }
 async function postCapture(payment,receivable,allocation,snapshot,db,receivedAt=new Date()) {
   if(payment.status==='succeeded')return;
@@ -137,6 +138,7 @@ async function postCapture(payment,receivable,allocation,snapshot,db,receivedAt=
     await db.execute('INSERT INTO family_fulfillment_jobs (agency_id,receivable_id) VALUES (?,?) ON DUPLICATE KEY UPDATE status=IF(status=\'completed\',status,\'pending\')',[payment.agency_id,receivable.id]);
   }
   await auditBilling({agencyId:payment.agency_id,clientId:receivable.client_id,userId:payment.created_by_user_id,action:'ledger_payment_received',objectId:payment.id},db);
+  await reconcileMissedFeePayroll(receivable, db);
 }
 export async function finalizePayment(paymentId,agencyId,intent,accountId) {
   return transaction(async db=>{

@@ -134,9 +134,9 @@ export function computeServiceCreditLeave({summaryRow, alreadyCreditedManualDire
     reconciliationAddedHours:Math.max(0,statutoryFloor-programEarn)};
 }
 
-/** ITSCO's Colorado protected sick-leave bank must retain the statutory carryover. */
+/** These Colorado agencies' protected sick-leave banks retain statutory carryover. */
 export function protectedSickRolloverLimit({agencyId,configuredLimit}) {
   const value=Number(configuredLimit);
   const configured=Number.isFinite(value)&&value>=0?value:48;
-  return Number(agencyId)===2?Math.max(48,configured):configured;
+  return [2,6,377].includes(Number(agencyId))?Math.max(48,configured):configured;
 }

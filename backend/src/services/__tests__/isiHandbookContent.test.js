@@ -21,10 +21,21 @@ describe('Inner Strength counseling handbook', () => {
     assert.equal(getHandbookSource({ slug: 'tisi' }).sections[0].title, 'FOUNDATIONS OF INNER STRENGTH INSTITUTE');
   });
   it('has a complete counseling edition without inherited program duties or foreign branding', () => {
-    assert.equal(source.sections.length, 165);
+    assert.equal(source.sections.length, 177);
     assert.ok(source.sections.every(s => s.content_status === 'ready' || s.slug === 'appendix-i'));
-    for (const s of source.sections) assert.doesNotMatch(s.title+' '+s.body_html, /tutoring|Skill Builders|facilitator|\bNLU\b|ITSCO|Next Level|nextleveluplcc|school-assigned|school-based|&lt;a /i, s.slug);
-    for (const u of source.reviewUpdates) assert.doesNotMatch(u.subject+' '+u.changed_content, /tutoring|Skill Builders|facilitator|\bNLU\b|ITSCO|Next Level|nextleveluplcc/i, u.subject);
+    const programReferences = new Set(['role-based-supplemental-compensation-rate-schedule', 'compensation-rate-category-1', 'compensation-rate-category-2', 'compensation-rate-category-3', 'sick-leave-accrual-and-protected-use', 'compensation-included-indirect-service-component', 'program-service-rate-schedules']);
+    const removeExplicitOtherAgencyExceptions = text => text.replace('at Next Level Up and Inner Strength', 'at the applicable agency').replace('ITSCO retains its separate policy.', '').replace(/For NLU eligible H2014 groups[^<]*?once per session\./, '');
+    const forbiddenBranding = /Skill Builders|facilitator|\bNLU\b|ITSCO|Next Level|nextleveluplcc|school-assigned|school-based|&lt;a /i;
+    for (const s of source.sections) {
+      assert.doesNotMatch(removeExplicitOtherAgencyExceptions(s.title+' '+s.body_html), forbiddenBranding, s.slug);
+      if (!programReferences.has(s.slug)) assert.doesNotMatch(s.title+' '+s.body_html, /tutoring/i, s.slug);
+    }
+    for (const u of source.reviewUpdates) {
+      assert.doesNotMatch(removeExplicitOtherAgencyExceptions(u.subject+' '+u.changed_content), forbiddenBranding, u.subject);
+      if (!u.policy_section_slugs.some(slug => programReferences.has(slug))) assert.doesNotMatch(u.subject+' '+u.changed_content, /tutoring/i, u.subject);
+    }
+    assert.match(body('program-service-rate-schedules'), /Your selected compensation category and level determine the rates/);
+    assert.match(body('program-service-rate-schedules'), /Service qualifications and payer billing requirements still apply/);
     assert.match(body('service-focus-assignment'), /counseling-only practice/);
     assert.match(body('service-focus-assignment'), /approved telehealth/);
     assert.doesNotMatch(body('direct-behavioral-health-services-hcpcs'), /H2014|H2021|97535|T1017/);
@@ -35,7 +46,14 @@ describe('Inner Strength counseling handbook', () => {
   });
   it('retains compensation, leave and the distinct supervision milestone and clinical placement rules', () => {
     const shared = getHandbookSource({ slug: 'nlu' });
-    for (const slug of ['compensation-rate-category-1','compensation-rate-category-2','compensation-rate-category-3','compensation-included-indirect-service-component']) assert.equal(body(slug), shared.sections.find(s => s.slug === slug).body_html);
+    for (const slug of ['compensation-rate-category-2','compensation-rate-category-3']) {
+      const tables = html => [...html.matchAll(/<table>[\s\S]*?<\/table>/g)].map(match => match[0]);
+      assert.deepEqual(tables(body(slug)), tables(shared.sections.find(s => s.slug === slug).body_html));
+      assert.match(body(slug), /selected category and level determine these program rates/);
+    }
+    assert.match(body('compensation-included-indirect-service-component'), /10 minutes/);
+    assert.match(body('compensation-included-indirect-service-component'), /separate program pay rows/);
+    assert.match(body('compensation-included-indirect-service-component'), /They do not replace the Clinical Session Rate or general Direct Care Rate/);
     assert.match(body('supervision-procedures'), /60 completed individual\/triadic supervision hours plus 40 group supervision opportunities offered/);
     assert.match(body('supervision-and-professional-development'), /at least once weekly/);
     assert.match(body('student-training-agreement'), /agreement in the app before clinical placement begins/);
@@ -46,7 +64,8 @@ describe('Inner Strength counseling handbook', () => {
   it('has valid links and exact current policy destinations in every updater entry', () => {
     validateHandbookSections(source.sections);
     for (const s of source.sections) for (const [,slug] of s.body_html.matchAll(/href="#handbook-([^"]+)"/g)) assert.ok(section(slug), `${s.slug} → ${slug}`);
-    assert.equal(source.reviewUpdates.length, 19);
+    assert.equal(source.reviewUpdates.length, 33);
+    assert.ok(source.reviewUpdates.every(update => update.period_label === 'October 2026'));
     for (const u of source.reviewUpdates) {
       assert.match(u.id, /^isi-source-/);
       for (const slug of u.policy_section_slugs) assert.equal(section(slug)?.content_status, 'ready', slug);

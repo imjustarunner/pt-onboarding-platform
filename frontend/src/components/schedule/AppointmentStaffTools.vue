@@ -5,6 +5,19 @@ const AppointmentConversa = defineAsyncComponent(() => import('./AppointmentConv
 const props = defineProps({ appointmentId: { type: Number, required: true } });
 const data = ref(null); const draft = ref(''); const editing = ref(false); const loading = ref(false); const saving = ref(false); const error = ref(''); const saved = ref(''); const selectedClientId = ref(0); const messaging = ref(false); let request = 0;
 const selectedClient = computed(() => data.value?.clients?.find(c => Number(c.id) === Number(selectedClientId.value)));
+const openingLearning = ref(false);
+async function openLearningWorkspace() {
+  if (openingLearning.value) return;
+  openingLearning.value=true;error.value='';
+  const id=props.appointmentId;
+  try {
+    const {data:result}=await api.post(`/appointments/${id}/learning-workspace`,{}, {skipGlobalLoading:true});
+    if (props.appointmentId!==id) return;
+    if (!/^\/in-person-tutoring-session\/\d+$/.test(result.destination||'')) throw new Error('The learning session could not be opened.');
+    window.location.assign(result.destination);
+  } catch(e) { error.value=e.response?.data?.error?.message||e.message||'Could not open the learning session.'; }
+  finally { openingLearning.value=false; }
+}
 async function load() {
   const current = ++request; loading.value = true; error.value = ''; saved.value = ''; data.value = null; editing.value = false; messaging.value = false;
   try { const result = await api.get(`/appointments/${props.appointmentId}/staff-tools`, { skipGlobalLoading: true }); if (current === request) { data.value = result.data; draft.value = result.data.alert?.text || ''; selectedClientId.value = result.data.clients?.[0]?.id || 0; } }
@@ -29,6 +42,7 @@ watch(() => props.appointmentId, load, { immediate: true });
   <section v-if="data || loading || error" class="appointment-staff-tools">
     <p v-if="loading" role="status">Loading appointment tools…</p>
     <template v-if="data">
+      <p v-if="data.canOpenLearningWorkspace"><button type="button" :disabled="openingLearning" @click="openLearningWorkspace">{{ openingLearning ? 'Opening…' : 'Open learning session' }}</button></p>
       <div class="staff-alert" :class="{ 'staff-alert--active': !!data.alert.text }">
         <div class="staff-alert__heading"><strong>⚑ Internal appointment alert</strong><button v-if="data.canEdit && !editing" type="button" @click="editing = true; draft = data.alert.text">{{ data.alert.text ? 'Edit alert' : 'Add alert' }}</button></div>
         <p class="hint">Visible to staff with full access to this schedule. Never sent to clients.</p>

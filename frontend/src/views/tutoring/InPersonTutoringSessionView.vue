@@ -56,7 +56,7 @@
             Builder
           </router-link>
           <button
-            v-if="payload.session?.status !== 'live' && canModerate"
+            v-if="payload.session?.status === 'scheduled' && canModerate"
             type="button"
             class="ipts-btn"
             :disabled="startingSession"
@@ -65,7 +65,7 @@
             {{ startingSession ? 'Starting…' : 'Start session' }}
           </button>
           <button v-if="canModerate" type="button" class="ipts-btn ipts-btn-danger" :disabled="endingSession" @click="endSession">
-            {{ endingSession ? 'Ending…' : 'End session' }}
+            {{ endingSession ? 'Saving…' : payload.session?.status === 'ended' ? 'Review session payroll' : 'End session' }}
           </button>
         </div>
       </header>
@@ -853,7 +853,12 @@ async function endSession() {
     const result = await endInPersonSession(sessionId.value);
     if (result?.session) payload.value.session = result.session;
     saveMessage.value = result?.message || 'Tutoring session ended.';
-    if (result?.payrollDraft?.status === 'submitted') saveMessage.value += ` ${Number(result.payrollDraft.units.toFixed(4))} tutoring units and the indirect allowance submitted for payroll review.`;
+    if (result?.payrollDraft?.status === 'submitted') {
+      const homeworkHelp = String(result.payrollDraft.serviceCode || result.payrollDraft.learningServiceCode || payload.value.session?.metadata_json?.learningServiceCode || '').startsWith('HOMEWORK HELP');
+      saveMessage.value += homeworkHelp
+        ? ' Homework Help time submitted for payroll review.'
+        : ' Tutoring time and its eligible indirect allowance submitted for payroll review.';
+    }
     errorMessage.value = result?.payrollWarning ? `Session saved. Payroll needs review: ${result.payrollWarning}` : '';
   } catch (error) {
     errorMessage.value = error.response?.data?.error?.message || error.message || 'Could not end the tutoring session.';

@@ -11,7 +11,12 @@ export function probationEndDate(start) {
   d.setUTCDate(d.getUTCDate()+90); return d.toISOString().slice(0,10);
 }
 export function executedAgreement(row) {
-  const data = parse(row.token_values_json), audit = parse(row.audit_trail), metadata = parse(row.metadata);
+  const savedData = parse(row.token_values_json), audit = parse(row.audit_trail), metadata = parse(row.metadata);
+  // New employment schedules use merge tokens; retain the signed snapshot and
+  // normalize only this explicitly supported generation for payroll readers.
+  const data = savedData.COMPENSATION_POLICY_VERSION === 'category-level-employment-2026-10-29-program'
+    ? {...savedData, employmentPayVersion:savedData.COMPENSATION_POLICY_VERSION, compensationPolicyVersion:COMPENSATION_POLICY_VERSION, schedule:parse(savedData.COMPENSATION_SCHEDULE)}
+    : savedData;
   if (!row.signed_pdf_path || !audit.adminCountersign?.signedAt) return null;
   if (!(metadata.contractGeneration || metadata.employmentContract || metadata.autoFromSendPreHire || data.draftKind === 'provider_update_compensation')) return null;
   const completedOn = ymd(audit.adminCountersign.signedAt);
@@ -50,7 +55,12 @@ export function agreementRateProfile(profile, agreement) {
   const tierTerms = agreement.data.compensationPolicyVersion === COMPENSATION_POLICY_VERSION
     ? {tierBonusFfs:{1:0,2:0,3:bonus},tierBonusHcode:{1:0,2:0,3:Number(s.category)===1?bonus:0}}
     : {};
-  return {...profile, ...tierTerms, tutoringRate:s.tutoringRate ?? profile?.tutoringRate, h2014Rate:s.h2014Rate ?? profile?.h2014Rate, roleCompensation:agreement.data.roleCompensation||null, conditionalAdditionMode:agreement.data.conditionalAdditionMode||null, sickLeaveRateMode:agreement.data.sickLeaveRateMode||null, clinicalEligible:s.clinicalEligible!==false, category:s.category,level:s.level,creditRate:s.creditRate,hcodeRate:s.hcodeRate,
+  return {...profile, ...tierTerms,
+    programRatesVersion:s.programRatesVersion || null, programTenant:s.programTenant || null,
+    programRatesEffectiveOn:s.programRatesVersion ? [agreement.effectiveOn,s.programRatesEffectiveOn || agreement.effectiveOn].sort().at(-1) : null,
+    homeworkHelpRate:s.homeworkHelpRate ?? null, homeworkHelpRateProbation:s.homeworkHelpRateProbation ?? null,
+    tutoringRateProbation:s.tutoringRateProbation ?? null, h2014RateProbation:s.h2014RateProbation ?? null,
+    tutoringRate:s.tutoringRate ?? profile?.tutoringRate, h2014Rate:s.h2014Rate ?? profile?.h2014Rate, roleCompensation:agreement.data.roleCompensation||null, conditionalAdditionMode:agreement.data.conditionalAdditionMode||null, sickLeaveRateMode:agreement.data.sickLeaveRateMode||null, clinicalEligible:s.clinicalEligible!==false, category:s.category,level:s.level,creditRate:s.creditRate,hcodeRate:s.hcodeRate,
     indirectRate:s.indirectRate,supportActivityRate:s.supportRate,
     creditRateProbation:s.creditRateProbation,hcodeRateProbation:s.hcodeRateProbation,
     indirectRateProbation:s.indirectRateProbation ?? s.indirectRate,

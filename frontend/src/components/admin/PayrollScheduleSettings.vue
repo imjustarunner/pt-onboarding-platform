@@ -568,12 +568,17 @@
             <input v-model="ptoDraft.defaultPayRate" type="number" step="0.01" min="0" :disabled="ptoSaving" />
           </div>
           <div class="field">
-            <label>Hourly sick (per worked hour)</label>
+            <label>App sick leave calculation: first pay-period start</label>
+            <input v-model="ptoDraft.sickLeaveHoursEffectiveOn" type="date" :disabled="ptoSaving" />
+            <div class="hint">This date identifies the first included pay period for moving the existing 1/30 calculation from ADP into the app. Include the applicable automatic indirect allowance and additional submitted time once. Preserve processing for earlier periods and earned balances.</div>
+          </div>
+          <div class="field">
+            <label>Prior policy: hourly sick (per worked hour)</label>
             <input v-model="ptoDraft.sickHourlyMultiplier" type="number" step="0.001" min="0" :disabled="ptoSaving" />
             <div class="hint">Default 0.034 — sick hours per 1 direct+indirect+other paid hour after post.</div>
           </div>
           <div class="field">
-            <label>FFS sick (per credit)</label>
+            <label>Prior policy: FFS sick (per credit)</label>
             <input v-model="ptoDraft.sickFfsMultiplier" type="number" step="0.001" min="0" :disabled="ptoSaving" />
             <div class="hint">Default 0.04 — sick hours per 1 credit/hour of paid time after post.</div>
           </div>
@@ -1776,7 +1781,7 @@ const ptoLoading = ref(false);
 const ptoSaving = ref(false);
 const ptoError = ref('');
 const ptoDraft = ref({
-  ptoEnabled: true, defaultPayRate: 0, sickHourlyMultiplier: 0.034, sickFfsMultiplier: 0.04,
+  ptoEnabled: true, defaultPayRate: 0, sickLeaveHoursEffectiveOn: '', sickHourlyMultiplier: 0.034, sickFfsMultiplier: 0.04,
   trainingAccrualPer30: 0.25,
   trainingPtoEnabled: false, sickAnnualRolloverCap: 10, sickAnnualMaxAccrual: 65,
   trainingMaxBalance: 20, trainingForfeitOnTermination: true,
@@ -1791,6 +1796,7 @@ const loadPto = async () => {
     ptoDraft.value = {
       ptoEnabled: resp.data?.policy?.ptoEnabled !== false && resp.data?.ptoEnabled !== false,
       defaultPayRate: Number(resp.data?.defaultPayRate || 0),
+      sickLeaveHoursEffectiveOn: String(policy.sickLeaveHoursEffectiveOn || ''),
       sickHourlyMultiplier: Number(policy.sickHourlyMultiplier ?? 0.034),
       sickFfsMultiplier: Number(policy.sickFfsMultiplier ?? 0.04),
       trainingAccrualPer30: Number(policy.trainingAccrualPer30 ?? 0.25),
@@ -1815,6 +1821,7 @@ const savePto = async () => {
       ptoEnabled: ptoDraft.value.ptoEnabled !== false,
       defaultPayRate: Number(ptoDraft.value.defaultPayRate || 0),
       policy: {
+        sickLeaveHoursEffectiveOn: ptoDraft.value.sickLeaveHoursEffectiveOn || null,
         sickHourlyMultiplier: Number(ptoDraft.value.sickHourlyMultiplier ?? 0.034),
         sickFfsMultiplier: Number(ptoDraft.value.sickFfsMultiplier ?? 0.04),
         trainingAccrualPer30: Number(ptoDraft.value.trainingAccrualPer30 || 0),

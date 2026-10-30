@@ -23,7 +23,16 @@ export function applyFlatAddonHandbookAmendment(source, tenant) {
   if (tenant !== 'itsco') return source;
   const sections = source.sections || (source.sections = []);
   for (const section of sections) {
-    if (section.status !== 'ready' || !['colorado-billing-compensation-appendix','service-code-approval-and-credit-reference'].includes(section.slug)) continue;
+    if (section.status !== 'ready') continue;
+    if (section.slug === 'direct-clinical-services-billable-when-authorized') {
+      section.bodyHtml = section.bodyHtml.replace(/<tr><th>\+(99051|90785)<\/th><td>[\s\S]*?<\/td><\/tr>/g,
+        (_, code) => `<tr><th>+${code}</th><td>${code === '99051' ? 'An evening, weekend or holiday service requires payer, provider, setting and schedule review; timing alone does not establish eligibility.' : 'Interactive complexity requires a documented qualifying communication factor and an eligible accompanying service; age, caregiver attendance or routine use of toys alone does not qualify.'} See <a href="${FLAT_ADDON_HANDBOOK_URL}">flat add-on payments and eligibility</a>.</td></tr>`);
+    }
+    if (section.slug === 'company-fees-and-associated-policy') {
+      section.bodyHtml = section.bodyHtml.replace(/(<tr><th>\+90785<\/th><td>)[\s\S]*?(<\/td><td>)/g,
+        `$1<p>Interactive complexity requires documented eligibility under the <a href="${FLAT_ADDON_HANDBOOK_URL}">flat add-on policy</a>. A listed client fee does not determine employee compensation or establish payer coverage.</p>$2`);
+    }
+    if (!['colorado-billing-compensation-appendix','service-code-approval-and-credit-reference','service-code-compensation-and-authorizations'].includes(section.slug)) continue;
     // Remove obsolete credit-table rows, preserving all other mappings and restrictions.
     section.bodyHtml = (section.bodyHtml || '').replace(/<tr><t[dh]>(?:90785|99051)<\/t[dh]>[\s\S]*?<\/tr>/g, '');
     section.bodyHtml = section.bodyHtml.replace('90785 pays $4 and 99051 pays $2 per eligible occurrence', '90785 pays $2 and 99051 pays $2 per eligible occurrence');

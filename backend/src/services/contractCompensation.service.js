@@ -36,8 +36,9 @@ export function contractServiceRates(row, rules) {
       const profile = row.paySystem;
       const requiredRate = rule.category === 'tutoring' && profile.tutoringRate != null ? profile.tutoringRate : rule.service_code === 'H2014' && profile.h2014Rate != null ? profile.h2014Rate : payType === 'indirect' ? profile.indirectRate : payType === 'support_activity' ? profile.supportActivityRate : payType === 'hcode' ? (profile.hcodeRate ?? profile.creditRate) : profile.creditRate;
       if (requiredRate == null) throw Object.assign(new Error(`Configure the ${payType} rate for service ${rule.service_code}, Category ${row.category}, Level ${row.level}.`), { status: 400 });
-      const normal = computeLineAmount({ rateProfile: profile, status: { useReducedRates: false }, serviceCode: rule.service_code, quantity: 1, rule });
-      const reduced = computeLineAmount({ rateProfile: profile, status: { useReducedRates: true }, serviceCode: rule.service_code, quantity: 1, rule });
+      const previewDate = profile.programRatesEffectiveOn || profile.agreementEffectiveOn || new Date().toISOString().slice(0,10);
+      const normal = computeLineAmount({ rateProfile: profile, status: { useReducedRates: false, asOfDate:previewDate }, serviceCode: rule.service_code, quantity: 1, rule });
+      const reduced = computeLineAmount({ rateProfile: profile, status: { useReducedRates: true, programProbationPreview:true, asOfDate:previewDate }, serviceCode: rule.service_code, quantity: 1, rule });
       const tutoringUnit = normal.rateLabel === 'tutoring_rate' && rule.service_code === 'TUTORING 15 MIN';
       const unitPrice = value => tutoringUnit ? `$${(value.rate / 4).toFixed(3).replace(/0$/, '')}` : `$${value.amount.toFixed(2)}`;
       return { code: rule.service_code, rate: unitPrice(normal), unit: tutoringUnit ? 'per 15-minute unit; money rounded on full line' : 'per entered unit',

@@ -17,7 +17,7 @@ describe('group psychotherapy resource', () => {
   it('preserves the moratorium, service boundaries, and the original workflow', () => {
     const body = slug => referenceSource({ slug }, key).sections.map(s => s.body_html).join(' ');
     expect(body('itsco')).toContain('moratorium');
-    expect(body('nlu')).toContain('do not authorize 90853');
+    expect(body('nlu')).toContain('does not authorize 90853');
     expect(body('tisi')).toContain('counseling-only');
     expect(body('itsco')).toContain('do not bill a group encounter or automatically convert');
     expect(body('itsco')).toContain('insurer-name list is retired');

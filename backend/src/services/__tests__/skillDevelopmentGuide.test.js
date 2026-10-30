@@ -14,7 +14,7 @@ describe('skills editions, program boundaries and curriculum fidelity', () => {
     expect(referenceCatalogFor({ slug }).filter(d => d.key === key)).toHaveLength(1);
     expect(trainingDefinitionsFor({ slug }).filter(d => d.documentKey === key)).toHaveLength(1);
     expect(b.metadata).toMatchObject({ title: 'Skill Development & Learning Guide', coverTitle: ['Skills in', 'practice.'], learningPurpose: 'orientation' });
-    expect(b.sections).toHaveLength(slug === 'itsco' ? 18 : 19);
+    expect(b.sections).toHaveLength(slug === 'itsco' ? 18 : 22);
     expect(requiredTrainingKeys({ slug }, { role: 'facilitator' })).toContain(key);
     expect(requiredTrainingKeys({ slug }, { role: 'staff', sees_clients: false })).not.toContain(key);
     expect(trainingMatchesEdition(d, b)).toBe(true);
@@ -38,7 +38,12 @@ describe('skills editions, program boundaries and curriculum fidelity', () => {
     expect(trainingMatchesEdition(definition('nlu'), book('itsco'))).toBe(false);
     const nlu = book('nlu').sections.find(s => s.slug === 'program-boundaries').body_html;
     expect(nlu).toContain('three clients'); expect(nlu).toContain('two or more attending');
-    expect(nlu).toContain('separately agreed self-pay'); expect(nlu).toContain('does not currently provide individual skills services through insurance');
+    expect(nlu).toContain('individual H2014 service may proceed');
+    expect(nlu).toContain('payer requirements permit it');
+    expect(nlu).toContain('$5 per actual attendee');
+    expect(nlu).not.toContain('does not currently provide individual skills services through insurance');
+    expect(book('nlu').sections.find(s => s.slug === 'nlu-between-session-work-and-release').body_html).toContain('required waiting');
+    expect(book('nlu').sections.find(s => s.slug === 'missed-session-fee-compensation').body_html).toContain('$32.00');
     const itsco = book('itsco').sections.find(s => s.slug === 'program-boundaries').body_html;
     expect(itsco).toContain('current group moratorium'); expect(itsco).toContain('twelve 90-minute');
     expect(itsco).not.toContain('three clients');

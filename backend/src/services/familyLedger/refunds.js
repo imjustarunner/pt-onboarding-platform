@@ -1,5 +1,6 @@
 import { closeZeroClaimResponsibility, sourcePayload } from './receivables.js';
 import pool from '../../config/database.js';
+import { reconcileMissedFeePayroll } from '../missedSessionFeePayroll.service.js';
 import Stripe from '../stripePayments.service.js';
 import { billingError, auditBilling } from '../familyBillingPolicy.service.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from '../familyBillingEncryption.service.js';
@@ -58,6 +59,7 @@ export async function finalizeRefund(refundId,agencyId,processorRefund,accountId
     if (responsibility.zeroResponsibilityClosed && responsibility.finalPatientResponsibilityCents === 0) await closeZeroClaimResponsibility(receivable,responsibility,row.created_by_user_id,db);
     else await db.execute("UPDATE family_receivables SET status='review',hold_reason='refund_review' WHERE id=?",[receivable.id]);
     await auditBilling({agencyId,clientId:receivable.client_id,userId:row.created_by_user_id,action:'payment_refunded',objectId:refundId},db);
+    await reconcileMissedFeePayroll(receivable, db);
   });
 }
 export async function reconcileLedgerRefund(refund,accountId) {

@@ -183,22 +183,18 @@
           </div>
         </div>
 
-        <div class="card" style="margin-top: 10px;" v-if="hourlyRateSummary.effectiveRate !== null">
-          <h3 class="card-title" style="margin: 0 0 6px 0;">Hourly Rate</h3>
-          <div class="row"><strong>Effective hourly rate:</strong> {{ fmtMoney(hourlyRateSummary.effectiveRate) }}</div>
-          <div class="muted" style="margin-top: 6px;">
-            Effective hourly rate represents the total pay divided by earned credits/hours (which can vary by service mix, add-ons, and overrides).
-          </div>
-        </div>
+      <div class="card" style="margin-top: 10px;" v-if="sickLeaveSummary">
+        <h3 class="card-title" style="margin: 0 0 6px 0;">Sick leave hours and payroll allocation</h3>
+        <div class="row"><strong>Sick leave hours:</strong> {{ Number(sickLeaveSummary.sickLeaveHours || 0).toFixed(4) }}</div>
+        <div class="row"><strong>Ordinary earnings:</strong> {{ fmtMoney(sickLeaveSummary.ordinaryEarnings) }}</div>
+        <div class="row"><strong>ADP earnings allocation rate:</strong> {{ sickLeaveSummary.adpAllocationRate == null ? 'No ordinary hours' : fmtMoney(sickLeaveSummary.adpAllocationRate) }}</div>
+        <div class="row" v-if="sickLeaveSummary.actualWorkedHours != null"><strong>Recorded actual hours:</strong> {{ Number(sickLeaveSummary.actualWorkedHours).toFixed(4) }}</div>
+        <div class="muted" style="margin-top: 6px;">The allocation rate is ordinary earnings divided by sick leave hours. Your service detail stays here in the app. Bonuses, leave pay, salary and qualifying reimbursements remain separate. Sick leave hours are accrual equivalents; actual work time, overtime and the protected sick-leave payment rate are calculated separately.</div>
+        <div class="muted" v-if="sickLeaveSummary.actualHoursReviewRequired" style="margin-top: 6px;">Actual work-time reconciliation is required; these equivalent hours do not replace your daily time records.</div>
+        <div class="warn-box" v-if="sickLeaveSummary.reconciliationRequired" style="margin-top: 6px;">Payroll must reconcile {{ fmtMoney(sickLeaveSummary.unclassifiedPay) }} before using this allocation for processing.</div>
+      </div>
 
-        <div class="warn-box" v-else-if="hourlyRateSummary.variableRatesNote" style="margin-top: 10px;">
-          <div><strong>Note about varying service rates</strong></div>
-          <div class="muted" style="margin-top: 6px;">
-            {{ hourlyRateSummary.variableRatesNote }}
-          </div>
-        </div>
-
-        <div class="card" style="margin-top: 10px;" v-if="expanded.breakdown && expanded.breakdown.__tier">
+      <div class="card" style="margin-top: 10px;" v-if="expanded.breakdown && expanded.breakdown.__tier">
           <h3 class="card-title" style="margin: 0 0 6px 0;">Benefit Tier</h3>
           <div class="row"><strong>{{ expanded.breakdown.__tier.label }}</strong></div>
           <div class="row"><strong>Status:</strong> {{ expanded.breakdown.__tier.status }}</div>
@@ -416,7 +412,8 @@
           </div>
 
           <div class="hint" style="margin-top: 10px;">
-            <template v-if="ptoPolicy?.sharedLeaveAccrualEnabled">
+            <template v-if="ptoPolicy?.sickLeaveHoursEffectiveOn">Sick leave accrues at one hour per 30 sick leave hours for pay periods starting on or after {{ ptoPolicy.sickLeaveHoursEffectiveOn }}. Clinical credits use the 1.20 equivalent; other eligible time is counted once. Payroll reconciles actual compensable hours and preserves earned balances. Other PTO keeps its own eligibility and accrual rules.</template>
+            <template v-else-if="ptoPolicy?.sharedLeaveAccrualEnabled">
               Eligible paid time uses the same accrual basis for sick leave, training, and (when school-assigned) missed-session hours. Training earns {{ fmtNum(ptoPolicy?.trainingAccrualPer30 ?? 0.25) }} hours per 30 eligible hours, up to 20 hours. School missed-session time earns 2 School Support Hours per 25 eligible hours, up to 20 hours. Clinical credits use the handbook’s equivalent-hours calculation; balances update after payroll is posted.
             </template>
             <template v-else-if="ptoAccount?.employment_type === 'fee_for_service'">
@@ -3412,54 +3409,7 @@ const expandedServiceLines = computed(() =>
   splitBreakdownForDisplay(expanded.value?.breakdown || null)
 );
 
-const hourlyRateSummary = computed(() => {
-  const b = expanded.value?.breakdown || null;
-  if (!b || typeof b !== 'object') return { directRate: null, indirectRate: null, effectiveRate: null };
-
-  const sums = { directHours: 0, directAmount: 0, indirectHours: 0, indirectAmount: 0, otherHours: 0 };
-  const rateSets = { direct: new Set(), indirect: new Set() };
-  for (const [code, v] of Object.entries(b)) {
-    if (String(code).startsWith('_')) continue;
-    const category = String(v?.category || 'direct').trim().toLowerCase();
-    const bucket = v?.bucket
-      ? String(v.bucket).trim().toLowerCase()
-      : ((category === 'indirect' || category === 'admin' || category === 'meeting') ? 'indirect'
-        : (category === 'other' || category === 'tutoring') ? 'other'
-          : (category === 'mileage' || category === 'bonus' || category === 'reimbursement' || category === 'other_pay') ? 'flat'
-            : 'direct');
-    const hours = Number(v?.hours || 0);
-    const amount = Number(v?.amount || 0);
-    const rateAmount = Number(v?.rateAmount || 0);
-    if (bucket === 'indirect') { sums.indirectHours += hours; sums.indirectAmount += amount; }
-    else if (bucket === 'other') { sums.otherHours += hours; }
-    else if (bucket === 'direct') { sums.directHours += hours; sums.directAmount += amount; }
-
-    // Track unique per-code rates to detect varying rates in a direct+indirect setup.
-    if (hours > 1e-9 && rateAmount > 1e-9 && (bucket === 'direct' || bucket === 'indirect')) {
-      // Round to 4 decimals to avoid tiny float diffs.
-      rateSets[bucket].add(Math.round(rateAmount * 10000) / 10000);
-    }
-  }
-
-  const directRate = sums.directHours > 1e-9 ? (sums.directAmount / sums.directHours) : null;
-  const indirectRate = sums.indirectHours > 1e-9 ? (sums.indirectAmount / sums.indirectHours) : null;
-
-  // Effective rate only when the period is direct-only (no indirect/other credits).
-  const totalHours = Number(expanded.value?.total_hours || 0);
-  const effectiveRate =
-    (sums.directHours > 1e-9 && sums.indirectHours <= 1e-9 && sums.otherHours <= 1e-9 && totalHours > 1e-9)
-      ? (sums.directAmount / totalHours)
-      : null;
-
-  const hasDirectAndIndirect = sums.directHours > 1e-9 && sums.indirectHours > 1e-9;
-  const hasVaryingRates = (rateSets.direct.size > 1) || (rateSets.indirect.size > 1);
-  const variableRatesNote =
-    hasDirectAndIndirect && hasVaryingRates
-      ? 'Your default direct and indirect hourly rates are used for most services. Some service codes may have specific contracted rates (often higher than the defaults) and those rates take precedence; services without a specific rate use the defaults. When services are paid at varying rates, your average hourly pay for the period can change—this is due to a limitation of our payroll system.'
-      : '';
-
-  return { directRate, indirectRate, effectiveRate, variableRatesNote };
-});
+const sickLeaveSummary = computed(() => expanded.value?.sick_leave_summary || expanded.value?.breakdown?.__sickLeaveHours || null);
 
 const periodShadeClass = (idx) => (Number(idx || 0) % 2 === 0 ? 'shade-a' : 'shade-b');
 const sortOrder = ref('desc');
