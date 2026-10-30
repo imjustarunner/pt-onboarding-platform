@@ -19,6 +19,7 @@
         </div>
       </div>
       <div class="otse-head-actions">
+        <button v-if="previewOnly" type="button" class="btn btn-primary" :disabled="saving" @click="$emit('add-stop')">Add to trip</button>
         <button type="button" class="btn-link" @click="$emit('open-full')">Open full school record</button>
         <button type="button" class="btn-link" @click="$emit('close')">Close</button>
       </div>
@@ -31,7 +32,24 @@
       <template v-if="stopOrder != null && stopTotal != null"> · Stop {{ stopOrder }} of {{ stopTotal }}</template>
     </p>
 
-    <div v-if="showAttendance && attendanceOptions?.length" class="otse-card">
+    <p v-if="previewOnly" class="ohub-muted">Review this school's notes and previous trips before adding it to your route.</p>
+
+    <section class="otse-card" aria-label="Trips including this school">
+      <h3>Trips including this school</h3>
+      <ol class="otse-feed">
+        <li v-for="trip in tripHistory" :key="trip.id" class="otse-visit">
+          <strong>{{ trip.title }}</strong>
+          <span v-if="Number(trip.id) === Number(tripId)" class="otse-trip-tag">Current trip</span>
+          <div class="ohub-muted">
+            {{ trip.planned_date ? formatDate(trip.planned_date) : 'Date not set' }}
+            · {{ tripStatusLabel(trip.status) }} · {{ visitStatusLabel(trip.stop.attendance_status) }}
+          </div>
+        </li>
+        <li v-if="!tripHistory.length" class="ohub-muted">This school has not been added to a saved trip yet.</li>
+      </ol>
+    </section>
+
+    <div v-if="!previewOnly && showAttendance && attendanceOptions?.length" class="otse-card">
       <h3>Status</h3>
       <div class="otse-attend">
         <button
@@ -54,13 +72,14 @@
           <div class="otse-feed-body">
             <strong>{{ note.activityLabel || 'Note' }}</strong>
             <p>{{ note.body }}</p>
-            <div class="ohub-muted">{{ note.trip_title || 'School record' }}<template v-if="note.created_at"> · {{ formatDateTime(note.created_at) }}</template><template v-if="note.created_by_name"> · {{ note.created_by_name }}</template></div>
+            <div class="ohub-muted">{{ noteTripTitle(note) }}<template v-if="note.created_at"> · {{ formatDateTime(note.created_at) }}</template><template v-if="note.created_by_name"> · {{ note.created_by_name }}</template></div>
           </div>
         </li>
         <li v-if="!schoolHistory.length" class="ohub-muted">No saved school notes yet.</li>
       </ol>
     </section>
 
+    <template v-if="!previewOnly">
     <div class="otse-card">
       <div class="otse-card-head">
         <h3>Contacts</h3>
@@ -198,7 +217,7 @@
     </div>
 
     <div class="otse-card">
-      <h3>Activity on this trip</h3>
+      <h3>{{ tripId ? 'Activity on this trip' : 'School activity' }}</h3>
       <ol class="otse-feed">
         <li v-for="item in tripFeed" :key="item.id" class="otse-feed-item">
           <span
@@ -241,9 +260,10 @@
             </template>
           </div>
         </li>
-        <li v-if="!tripFeed.length" class="ohub-muted">Nothing logged for this trip yet.</li>
+        <li v-if="!tripFeed.length" class="ohub-muted">{{ tripId ? 'Nothing logged for this trip yet.' : 'No activity logged yet.' }}</li>
       </ol>
     </div>
+    </template>
   </aside>
 </template>
 
@@ -253,6 +273,8 @@ import { outreachSchoolNotes } from '../../utils/outreachSchoolNotes.js';
 
 const props = defineProps({
   school: { type: Object, default: null },
+  previewOnly: { type: Boolean, default: false },
+  tripHistory: { type: Array, default: () => [] },
   tripId: { type: [Number, String], default: null },
   tripStopId: { type: [Number, String], default: null },
   tripTitle: { type: String, default: '' },
@@ -266,11 +288,13 @@ const props = defineProps({
   stageLabel: { type: Function, required: true },
   shortDistrict: { type: Function, required: true },
   formatDateTime: { type: Function, required: true },
+  formatDate: { type: Function, default: value => String(value).slice(0, 10) },
   saving: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false }
 });
 
 const emit = defineEmits([
+  'add-stop',
   'close',
   'open-full',
   'set-attendance',
@@ -320,6 +344,7 @@ function deleteNote(item) {
 watch(
   () => props.school?.id,
   () => {
+    cancelEditNote();
     cancelEditContact();
     convForm.spoken_with_name = '';
     convForm.summary = '';
@@ -338,6 +363,9 @@ watch(
 const tripTagLabel = computed(() => props.tripTitle || (props.tripId ? `Trip #${props.tripId}` : ''));
 
 const schoolHistory = computed(() => outreachSchoolNotes(props.school || {}));
+const noteTripTitle = (note) => props.tripHistory.find(trip => Number(trip.id) === Number(note.trip_id))?.title || note.trip_title || 'School record';
+const tripStatusLabel = (status) => ({ planned: 'Planned', in_progress: 'In progress', completed: 'Completed', cancelled: 'Cancelled' }[status] || status);
+const visitStatusLabel = (status) => ({ attended: 'Attended', skipped: 'Skipped', time_short: "Couldn't make it (time)", pending: 'Attendance not marked' }[status || 'pending'] || status);
 
 const tripFeed = computed(() => {
   const tid = Number(props.tripId || 0);
@@ -573,6 +601,8 @@ const submitGeneralNote = () => {
   align-items: start;
 }
 .otse-feed-body { min-width: 0; }
+.otse-feed-body p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.otse-visit { padding-bottom: 8px; border-bottom: 1px solid #e2e8f0; }
 .otse-feed-actions {
   display: flex;
   gap: 10px;

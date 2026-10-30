@@ -402,7 +402,7 @@
           </div>
           <p class="ohub-muted">
             <template v-if="openedTrip">Reorder stops, add schools in the middle, or remove stops. Changes save when you click Save trip.</template>
-            <template v-else>Starts at Windchime (437 Windchime Place, Colorado Springs). Click a school to add it; remaining schools sort by distance from that stop.</template>
+            <template v-else>Starts at Windchime (437 Windchime Place, Colorado Springs). Open a school's notes and past trips before adding a stop; remaining schools sort by distance from that stop.</template>
           </p>
           <p v-if="openedTrip" class="ohub-muted ohub-trip-provenance">{{ tripProvenanceLine(openedTrip) }}</p>
           <div v-if="tripStops.length" class="ohub-trip-stats">
@@ -505,8 +505,8 @@
             Street addresses are still loading for {{ tripGeocodeRemaining }} schools — distances use city centers until then.
           </p>
           <ul class="ohub-nearby">
-            <li v-for="row in filteredNearbySchools" :key="row.id">
-              <button type="button" class="ohub-nearby-btn" @click="addTripStop(row)">
+            <li v-for="row in filteredNearbySchools" :key="row.id" class="ohub-nearby-row">
+              <button type="button" class="ohub-nearby-btn" :aria-label="`View notes and past trips for ${row.name}`" @click="selectSchool(row.id)">
                 <span class="ohub-nearby-miles">
                   <template v-if="tripClosestToBoth && row.extra_miles != null">
                     +{{ row.extra_miles }}
@@ -531,8 +531,13 @@
                     <template v-if="row.distance_approx"> · approx.</template>
                   </span>
                   <em class="ohub-nearby-addr">{{ row.address || row.city }}</em>
+                  <span class="ohub-nearby-history">
+                    View notes &amp; past trips
+                    <template v-if="tripsForSchool(row.id).length"> · {{ tripsForSchool(row.id).length }} saved trip{{ tripsForSchool(row.id).length === 1 ? '' : 's' }}</template>
+                  </span>
                 </span>
               </button>
+              <button type="button" class="btn btn-secondary btn-sm" :aria-label="`Add ${row.name} to trip`" @click="addTripStop(row)">Add stop</button>
             </li>
             <li v-if="!filteredNearbySchools.length && !tripPreviewLoading" class="ohub-muted">
               No schools match these filters.
@@ -544,6 +549,8 @@
         <OutreachTripStopEditor
           v-if="viewMode === 'trips' && selected && activeTripStopContext"
           :school="selected"
+          :preview-only="activeTripStopContext.previewOnly"
+          :trip-history="tripsForSchool(selected.id)"
           :trip-id="activeTripStopContext.tripId"
           :trip-stop-id="activeTripStopContext.tripStopId"
           :trip-title="activeTripStopContext.tripTitle"
@@ -557,9 +564,11 @@
           :stage-label="stageLabel"
           :short-district="shortDistrict"
           :format-date-time="formatDateTime"
+          :format-date="formatDate"
           :saving="tripEditorSaving"
           :disabled="openedTrip?.status === 'completed'"
           @close="closeSchoolPanel"
+          @add-stop="addTripStop(selected)"
           @open-full="openFullSchoolFromTrip"
           @set-attendance="(status) => activeTripStopContext.stop && setStopAttendance(activeTripStopContext.stop, status)"
           @add-contact="onTripEditorAddContact"
@@ -1360,6 +1369,10 @@ const newLocationForm = reactive({
   district_name: ''
 });
 const trips = ref([]);
+const tripsForSchool = (schoolId) => trips.value.flatMap(trip => {
+  const stop = (trip.stops || []).find(item => Number(item.outreach_school_id) === Number(schoolId));
+  return stop ? [{ ...trip, stop }] : [];
+});
 const plannedTrips = computed(() =>
   trips.value.filter((t) => ['planned', 'in_progress'].includes(String(t?.status || '')))
 );
@@ -1520,7 +1533,7 @@ const activeTripStopContext = computed(() => {
     const stops = tripRouteEditing.value ? tripStops.value : (openedTrip.value.stops || []);
     if (tripRouteEditing.value) {
       const stop = stops.find((s) => Number(s.id) === Number(selectedId.value));
-      if (!stop) return null;
+      if (!stop) return { tripId: openedTrip.value.id, previewOnly: true };
       const idx = stops.findIndex((s) => Number(s.id) === Number(selectedId.value));
       return {
         tripId: openedTrip.value.id,
@@ -1561,7 +1574,7 @@ const activeTripStopContext = computed(() => {
   }
   // Planning mode: school selected from draft stops (no trip id yet)
   const idx = tripStops.value.findIndex((s) => Number(s.id) === Number(selectedId.value));
-  if (idx < 0) return null;
+  if (idx < 0) return { tripId: null, previewOnly: true };
   return {
     tripId: null,
     tripStopId: null,
@@ -1784,9 +1797,11 @@ const openFullSchoolFromTrip = () => {
 const selectSchool = async (id) => {
   editingSchoolDetails.value = false;
   selectedId.value = id;
+  if (Number(selected.value?.id) !== Number(id)) selected.value = null;
   panelTab.value = panelTab.value || 'overview';
   try {
     const res = await api.get(`/outreach/schools/${id}`, { skipGlobalLoading: true });
+    if (Number(selectedId.value) !== Number(id)) return;
     selected.value = res.data?.school || null;
     resetLogForm();
     resetTaskForm();
@@ -1794,6 +1809,7 @@ const selectSchool = async (id) => {
     onboardSuccess.value = '';
     await loadSchoolExtras(id);
   } catch (err) {
+    if (Number(selectedId.value) !== Number(id)) return;
     error.value = err.response?.data?.error?.message || err.message || 'Could not load school.';
   }
 };
@@ -2444,9 +2460,11 @@ const bestInsertIndexLocal = (stops, candidate) => {
 };
 
 const addTripStop = async (row) => {
-  const legMiles = row.miles_from_origin != null ? Number(row.miles_from_origin) : null;
+  if (!row?.id || tripStops.value.some(stop => Number(stop.id) === Number(row.id))) return;
+  const candidate = tripNearby.value.find(school => Number(school.id) === Number(row.id)) || row;
+  const legMiles = candidate.miles_from_origin != null ? Number(candidate.miles_from_origin) : null;
   const next = {
-    ...row,
+    ...candidate,
     miles_from_prev: legMiles,
     miles_from_origin: legMiles
   };
@@ -2458,7 +2476,7 @@ const addTripStop = async (row) => {
   } else {
     tripStops.value = [...tripStops.value, next];
   }
-  await loadTripPreview();
+  await Promise.all([loadTripPreview(), selectSchool(row.id)]);
 };
 
 const addParticipant = () => {
@@ -3227,6 +3245,9 @@ onMounted(async () => {
 .ohub-trip-meta-actions .btn-danger { background: #b91c1c; border-color: #b91c1c; color: #fff; }
 .btn-sm { padding: 4px 10px; font-size: 12px; }
 .ohub-nearby { list-style: none; padding: 0; margin: 0; max-height: 420px; overflow: auto; }
+.ohub-nearby-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.ohub-nearby-row > .btn { flex-shrink: 0; min-height: 40px; }
+.ohub-nearby-history { color: #166534; font-size: 12px; font-weight: 600; }
 .ohub-nearby-btn {
   width: 100%;
   text-align: left;
@@ -3234,7 +3255,7 @@ onMounted(async () => {
   background: #fff;
   border-radius: 10px;
   padding: 7px 10px;
-  margin-bottom: 6px;
+  margin-bottom: 0;
   cursor: pointer;
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr);

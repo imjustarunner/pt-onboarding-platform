@@ -9,6 +9,24 @@ const school = { id:20,name:'Denver school',contacts:[],notes:[{id:1,body:'Call 
   {id:'trip-context',body:'Bring flyers',title:'Trip-wide note',entry_type:'note',trip_id:2,trip_title:'Earlier trip',occurred_at:'2026-10-15'}] };
 
 describe('outreach trip school history', () => {
+  it('previews notes and attendance before adding a school without showing logging forms', async () => {
+    const wrapper = mount(OutreachTripStopEditor, { props: {
+      school, previewOnly: true, tripHistory: [
+        { id: 2, title: 'Earlier trip', status: 'completed', planned_date: '2026-10-15', stop: { attendance_status: 'attended' } },
+        { id: 4, title: 'Next week', status: 'planned', planned_date: '2026-11-05', stop: { attendance_status: 'pending' } }
+      ], stageLabel: v => v, shortDistrict: v => v, formatDateTime: v => v
+    } });
+    expect(wrapper.get('[aria-label="School notes from all trips"]').text()).toContain('Call the principal');
+    const visits = wrapper.get('[aria-label="Trips including this school"]').text();
+    expect(visits).toContain('2026-10-15');
+    expect(visits).toContain('Attended');
+    expect(visits).toContain('Next week');
+    expect(visits).toContain('Attendance not marked');
+    expect(wrapper.findAll('form')).toHaveLength(0);
+    await wrapper.findAll('button').find(button => button.text() === 'Add to trip').trigger('click');
+    expect(wrapper.emitted('add-stop')).toHaveLength(1);
+    wrapper.unmount();
+  });
   it('shows prior-trip conversations immediately while visiting on a different trip', () => {
     const wrapper = mount(OutreachTripStopEditor,{props:{school,tripId:3,tripStopId:11,tripTitle:'Current trip',stageLabel:v=>v,shortDistrict:v=>v,formatDateTime:v=>v}});
     const history=wrapper.get('[aria-label="School notes from all trips"]');

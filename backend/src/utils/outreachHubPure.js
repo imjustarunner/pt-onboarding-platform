@@ -269,3 +269,9 @@ export function bestInsertIndexBetween(stops, candidate, firstIdx = 0, lastIdx =
   }
   return bestIdx;
 }
+// Generated titles follow the route; user-written titles stay unchanged.
+export function outreachTripTitle(title, stopCount) {
+  const value = String(title || '').trim();
+  if (value && !/^Outreach trip \(\d+ stops?\)$/.test(value)) return value;
+  return `Outreach trip (${stopCount} stop${stopCount === 1 ? '' : 's'})`;
+}

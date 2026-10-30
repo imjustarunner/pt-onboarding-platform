@@ -9,6 +9,7 @@ import {
 } from '../data/coloradoOutreachSchoolAdditions.js';
 import {
   WINDCHIME_ORIGIN,
+  outreachTripTitle,
   tripOutboundMiles,
   tripReturnMiles,
   tripRoundTripMiles,
@@ -2290,7 +2291,7 @@ function mapTripRow(row, stops = [], participants = []) {
   return {
     id: Number(row.id),
     agency_id: Number(row.agency_id),
-    title: row.title,
+    title: outreachTripTitle(row.title, mappedStops.length),
     status: row.status,
     origin_label: row.origin_label,
     origin_address: row.origin_address,
@@ -2389,7 +2390,7 @@ export async function getOutreachTrip(agencyId, tripId, db = pool) {
 async function createOutreachTripInTransaction(agencyId, payload, userId, db) {
   const schoolIds = Array.isArray(payload?.schoolIds) ? payload.schoolIds.map((id) => Number(id)).filter(Boolean) : [];
   if (!schoolIds.length) throw new Error('Add at least one school to the trip');
-  const title = String(payload?.title || '').trim() || `Outreach trip (${schoolIds.length} stop${schoolIds.length === 1 ? '' : 's'})`;
+  const title = outreachTripTitle(payload?.title, schoolIds.length);
   const config = normalizeOutreachEventConfig(payload?.outreachEvent || { enabled: false }, payload?.planned_date || payload?.plannedDate);
   const allSchools = await loadTripSchools(db, agencyId, schoolIds);
   const [result] = await db.execute(
@@ -2539,13 +2540,9 @@ async function updateOutreachTripInTransaction(agencyId, tripId, payload, userId
   const config = normalizeOutreachEventConfig(payload?.outreachEvent ?? trip.outreachEvent, nextDate);
   const sets = ['event_config_json = ?'];
   const vals = [JSON.stringify(config)];
-  if (payload?.title !== undefined) {
-    const title = String(payload.title || '').trim();
-    if (title) {
-      sets.push('title = ?');
-      vals.push(title.slice(0, 255));
-    }
-  }
+  const stopCount = Array.isArray(payload?.schoolIds) ? payload.schoolIds.length : trip.stops.length;
+  sets.push('title = ?');
+  vals.push(outreachTripTitle(payload?.title || trip.title, stopCount).slice(0, 255));
   if (payload?.planned_date !== undefined || payload?.plannedDate !== undefined) {
     sets.push('planned_date = ?');
     vals.push(payload.planned_date || payload.plannedDate || null);
