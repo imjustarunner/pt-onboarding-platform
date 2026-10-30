@@ -9,7 +9,8 @@
         :style="position" @mouseenter="cancelClose" @mouseleave="scheduleClose" @mousedown.stop @pointerdown.stop @click.stop
         @keydown.esc.prevent.stop="close(true)" @focusout="onFocusOut">
         <span class="schedule-quarter-menu__label">Start at</span>
-        <button v-for="minute in [0, 15, 30, 45]" :key="minute" type="button" @click="select(minute)">
+        <!-- Keep pointer presses from blurring the menu before Safari delivers click. -->
+        <button v-for="minute in [0, 15, 30, 45]" :key="minute" type="button" @mousedown.prevent @click="select(minute)">
           {{ timeLabel(minute) }}
         </button>
       </div>

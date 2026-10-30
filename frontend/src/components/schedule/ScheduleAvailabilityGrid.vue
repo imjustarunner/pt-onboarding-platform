@@ -22763,7 +22763,9 @@ const submitRequest = async () => {
 };
 
 watch(requestType, (t) => {
-  if (!['supervision', 'agency_meeting', 'huddle', 'personal_event', 'schedule_hold', 'indirect_services'].includes(String(t || ''))) {
+  // The chooser and timed editors share the same selected range. Do not erase
+  // quarter-hours when going back or choosing another quarter-hour action.
+  if (!useModalQuarterHourTime.value) {
     modalStartMinute.value = 0;
     modalEndMinute.value = 0;
   }
