@@ -1,7 +1,8 @@
 import {afterEach,beforeEach,it,expect,vi} from 'vitest';
 import {mount,flushPromises} from '@vue/test-utils';
 import Form from '../SchoolSupportSubmit.vue';
-const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn()}));
+import {SUBMIT_CONTEXT} from '../../../composables/useSubmitContext';
+const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),request:vi.fn()}));
 vi.mock('../../../services/api',()=>({default:m}));
 let wrapper;
 const balances=()=>({policy:{schoolSupportEnabled:true},account:{school_support_eligible:true},balances:{schoolSupportHours:3,schoolSupportPendingHours:1},schoolSupportPayRate:18});
@@ -34,4 +35,11 @@ it('hides the form for non-school staff with no earned bank',async()=>{
 it('discards the previous company balance after switching agencies',async()=>{
  let finish;m.get.mockReturnValueOnce(new Promise(resolve=>finish=resolve));wrapper=mount(Form,{props:{agencyId:2}});await wrapper.setProps({agencyId:6});await flushPromises();
  finish({data:{...balances(),balances:{schoolSupportHours:99}}});await flushPromises();expect(wrapper.text()).not.toContain('99');expect(wrapper.text()).toContain('2 hours available');
+});
+
+it('keeps admin-on-behalf submissions scoped to the selected employee',async()=>{
+ m.request.mockImplementation(async config=>config.method==='get'?{data:balances()}:{data:{approved_rates_json:[{hours:1,rate:18}]}});
+ wrapper=mount(Form,{props:{agencyId:2},global:{provide:{[SUBMIT_CONTEXT]:{agencyId:2,employee:{id:42,firstName:'Selected',lastName:'Employee'}}}}});await flushPromises();
+ expect(wrapper.text()).toContain('Submitting for Selected Employee');await fill();await wrapper.get('form').trigger('submit');await flushPromises();
+ expect(m.request).toHaveBeenCalledWith(expect.objectContaining({method:'post',url:'/payroll/submit-for/42/pto-requests',params:{agencyId:2}}));expect(m.post).not.toHaveBeenCalled();
 });

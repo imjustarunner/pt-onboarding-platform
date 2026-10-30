@@ -1,6 +1,7 @@
 <template>
   <section v-if="eligible || loading || error" class="school-support-submit" aria-label="School Support Hours — Temporary">
     <h3>School Support Hours <span>Temporary</span></h3>
+    <p v-if="submitContext"><strong>Submitting for {{ submitContext.employee.firstName }} {{ submitContext.employee.lastName }}</strong> · You are recorded as the submitter.</p>
     <p v-if="loading">Loading your available hours…</p>
     <p v-if="error" role="alert">{{ error }} <button v-if="!data" type="button" @click="load">Try again</button></p>
     <template v-if="eligible">
@@ -20,7 +21,8 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
-import api from '../../services/api';
+import { useSubmitApi, useSubmitContext } from '../../composables/useSubmitContext';
+const api = useSubmitApi(), submitContext = useSubmitContext();
 const props = defineProps({ agencyId: [Number, String] });
 const emit = defineEmits(['submitted']);
 const data = ref(null), loading = ref(false), saving = ref(false), error = ref(''), success = ref('');
