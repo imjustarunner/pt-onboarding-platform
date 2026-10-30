@@ -35,9 +35,10 @@
       <article v-for="p in periods" :key="p.payroll_period_id" class="period">
         <div class="line1">
           <strong>{{ p.period_start }} - {{ p.period_end }}</strong>
-          <span class="amount">{{ formatMoney(p.total_pay || 0) }}</span>
+          <span class="amount">{{ formatMoney(p.total_amount ?? p.total_pay ?? 0) }}</span>
         </div>
         <div class="line2">Status: {{ p.status || 'posted' }}</div>
+        <div class="line2" v-if="p.sick_leave_summary">Sick leave hours: {{ formatNumber(p.sick_leave_summary.sickLeaveHours) }} · ADP earnings allocation rate: {{ p.sick_leave_summary.adpAllocationRate == null ? '—' : formatMoney(p.sick_leave_summary.adpAllocationRate) }}</div>
       </article>
     </div>
   </section>

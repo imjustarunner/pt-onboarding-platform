@@ -1,4 +1,6 @@
 import {employmentCategoryLevelTerms,applyEmploymentPayTerms} from '../content/employmentCategoryLevelTerms.js';
+import { applyEmploymentHandbookCompensation } from '../content/employmentHandbookCompensationTerms.js';
+import { handbookTenant } from './handbookTenant.js';
 import { employmentStarterClauses } from './employmentStarter.service.js';
 import { contractRoleLabel, jobContractExpectations, expectationsToTokens, renderAdditionalExpectations } from '../utils/contractExpectations.js';
 // Sample merge values are used only by the administrator's read-only packet preview.
@@ -58,9 +60,10 @@ export function sampleRehearsalContract({job,defaults,category,level,pay,now,pay
  const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  let incomplete='';
  if(payMode!=='none') {
-  try { clauses=applyEmploymentPayTerms(clauses,employmentCategoryLevelTerms({row:{...pay,category,level},tokens:t,agencyName:defaults.agency?.name})); }
+  try { clauses=applyEmploymentPayTerms(clauses,employmentCategoryLevelTerms({row:{...pay,category,level},tokens:t,agencyName:defaults.agency?.name,agencySlug:defaults.agency?.slug})); }
   catch(e){incomplete=e.message;}
  }
+ if(handbookTenant(defaults.agency)) clauses=applyEmploymentHandbookCompensation(clauses);
  const table=payMode==='none'?'':`<p>Current category/level compensation requires configuration: ${esc(incomplete)}. No legacy or invented rates are substituted.</p>`;
  let extra='';
  try{extra=renderAdditionalExpectations(expectations,pay||{});}catch(e){extra=`<p>Additional-duty compensation needs configuration: ${esc(e.message)}</p>`;}

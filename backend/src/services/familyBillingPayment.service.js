@@ -6,6 +6,7 @@ import { encryptFamilyBilling, decryptFamilyBilling } from './familyBillingEncry
 import { billingError, requireResponsiblePayer, auditBilling } from './familyBillingPolicy.service.js';
 import { hasMedicaidCoverage } from '../utils/insurancePaymentPolicy.js';
 import { requireLiveGuardianBilling } from './guardianTestAccess.service.js';
+import { resolveLearningChargeDomain } from './learningChargeClassification.service.js';
 
 export function verifyPaymentResult(intent, { amountCents, currency, customerId }) {
   if (intent.status !== 'succeeded' || Number(intent.amount_received) !== Number(amountCents) || String(intent.currency).toLowerCase() !== String(currency).toLowerCase() || (typeof intent.customer === 'string' ? intent.customer : intent.customer?.id) !== customerId) throw billingError(409, 'Payment has not been confirmed by Stripe');
@@ -32,8 +33,7 @@ export async function payFamilyCharge({ agencyId, userId, chargeId, expectedAmou
     if (familyBalance.length) throw billingError(409, 'This charge uses assigned payer shares. Pay it under Balances and payment tasks.');
     // Legacy session checkout has no verified patient-responsibility record.
     // Do not infer self-pay from a missing insurance policy or charge full fees.
-    const [classification]=await db.execute('SELECT ls.service_type FROM learning_program_sessions s JOIN learning_services ls ON ls.id=s.learning_service_id AND ls.agency_id=s.agency_id WHERE s.id=? AND s.agency_id=?',[charge.learning_program_session_id,agencyId]);
-    const domain=String(classification[0]?.service_type||'').toLowerCase();
+    const domain=await resolveLearningChargeDomain(charge,agencyId,db);
     if(!['tutoring','coaching','life_coach','consulting','consultant','mentorship'].includes(domain))throw billingError(409,'Clinical charges require verified patient responsibility. Billing must review this under Balances and payment tasks.');
     const cards = await GuardianPaymentCard.findActiveByGuardian(userId, agencyId, db);
     const card = cards.find(c => Number(c.id) === Number(payer.payment_card_id));
@@ -54,6 +54,9 @@ export async function payFamilyCharge({ agencyId, userId, chargeId, expectedAmou
     if (previousPayment && !previousPayment.processor_intent_id && Date.now() - new Date(previousPayment.created_at).getTime() > 23 * 3600000) throw billingError(409, 'This payment needs reconciliation before retrying');
     let snapshot = previousPayment?.metadata_json ? decryptFamilyBilling(previousPayment.metadata_json, `family-payment:${agencyId}:${chargeId}`) : { customerId: card.stripe_customer_id, paymentMethodId: card.stripe_payment_method_id, accountId: card.connected_account_id, amountCents: Number(charge.total_cents), currency: String(charge.currency || 'USD').toLowerCase() };
     if (snapshot.amountCents !== Number(charge.total_cents)) throw billingError(409, 'A pending payment has a different amount. Contact billing before retrying.');
+    if (automatic && previousPayment && !previousPayment.processor_intent_id && (
+      snapshot.paymentMethodId !== card.stripe_payment_method_id || snapshot.customerId !== card.stripe_customer_id || snapshot.accountId !== card.connected_account_id
+    )) throw billingError(409, 'The authorized card changed while a payment was pending. Billing must reconcile the original attempt before retrying.');
     // Only a definitively cancelled intent permits a fresh attempt. Keep the
     // charge row locked while cancelling so competing requests cannot fork it.
     // Processing, successful, and unknown attempts always retain their key.

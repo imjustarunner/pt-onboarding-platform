@@ -385,4 +385,6 @@ watch(() => [props.agencyId, props.token, props.adminUpdateId, props.pushId, pro
   border-color: transparent;
 }
 .ok { color: #3d6b4f; }
+.changed :deep(table) { overflow-wrap: normal; word-break: normal; }
+.changed :deep(code) { white-space: nowrap; }
 </style>

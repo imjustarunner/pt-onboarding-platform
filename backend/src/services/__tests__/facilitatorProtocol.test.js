@@ -47,7 +47,9 @@ describe('distinct protocol and company editions',()=>{
     expect(sections['code-reference']).toContain('Not permitted for the agency’s bachelor’s-level facilitator pathway');
     expect(sections['company-service-boundaries']).toContain('moratorium');
     const nlu=book('nlu').sections.find(s=>s.slug==='company-service-boundaries').body_html;
-    expect(nlu).toContain('two or more attending');expect(nlu).toContain('nonoverlapping');expect(nlu).toContain('or reschedule');
+    expect(nlu).toContain('two or more actual attendees');expect(nlu).toContain('nonoverlapping');expect(nlu).toContain('individual H2014 may proceed');
+    expect(sections['indirect-and-assigned-work']).toContain('10 minutes per compensated direct-hour');
+    expect(sections['indirect-and-assigned-work']).toContain('Category 1 does not receive an automatic allowance');
     expect(book('tisi').sections.find(s=>s.slug==='company-service-boundaries').body_html).toContain('counseling-only');
     expect(referenceSource({slug:'unknown',name:'ITSCO'},key,{packageAssigned:true})).toBeNull();
   });

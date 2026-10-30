@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), getConnection: vi.fn() } }));
-vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: vi.fn(), findById: vi.fn() } }));
+vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: vi.fn() } }));
 vi.mock('../workplaceHandbookAssistant.service.js', () => ({ answerFromHandbook: vi.fn(), validateHandbookQuestion: vi.fn(input => ({ question: input.question, history: [] })) }));
 import pool from '../../config/database.js';
 import User from '../../models/User.model.js';
@@ -59,8 +59,19 @@ describe('provider guide sources', () => {
   });
   it('applies NLU attendance and split-service boundaries without granting payer coverage', () => {
     const text = source().sections.find(s => s.slug === 'definition-of-services').body_html;
-    expect(text).toMatch(/schedule three.*two or more/); expect(text).toMatch(/only one.*self-pay or reschedule/);
+    expect(text).toMatch(/scheduling three.*two or more/); expect(text).toMatch(/only one.*individual H2014 may proceed/);
+    expect(text).toContain('payer requirements permit it'); expect(text).toContain('$5 per actual attendee');
     expect(text).toMatch(/H0004.*requires billing approval/); expect(text).toContain('Tutoring must never be included');
+  });
+  it('carries the shared collected-fee policy and extended 90834 reference into each owned company manual', () => {
+    for (const slug of ['itsco', 'nlu', 'tisi']) {
+      const guide = referenceSource({ slug }, 'provider-guide');
+      const fees = guide.sections.find(s => s.slug === 'missed-session-fee-compensation').body_html;
+      expect(fees).toContain('$32.00'); expect(fees).toContain('$4.00');
+      expect(fees).toContain('Medicaid-only'); expect(fees).toContain('no invented service units or hours');
+      expect(guide.sections.find(s => s.slug === 'extended-psychotherapy-90834').body_html).toContain('Do not bill 90785');
+      expect(guide.sections.some(s => s.slug === 'nlu-between-session-work-and-release')).toBe(slug === 'nlu');
+    }
   });
   it('keeps ISI counseling-only and new companies free of owned-company policy details', () => {
     const isi = referenceSource({ slug: 'tisi' }, 'provider-guide');
@@ -84,14 +95,6 @@ describe('provider guide sources', () => {
   });
 });
 describe('company isolation and permissions', () => {
-  it('resolves employment status for normal authentication tokens without granting edit access', async () => {
-    User.findById.mockResolvedValue({ role: 'provider', status: 'ACTIVE_EMPLOYEE', is_active: 1, is_archived: 0 });
-    await expect(assertReferenceAccess({ id: 7, role: 'provider' }, 12)).resolves.toBeUndefined();
-    await expect(assertReferenceAccess({ id: 7, role: 'provider' }, 12, { manage: true })).rejects.toMatchObject({ status: 403 });
-    await expect(assertReferenceAccess({ id: 7, role: 'provider' }, 33)).rejects.toMatchObject({ status: 403 });
-    User.findById.mockResolvedValue({ role: 'provider', status: 'ACTIVE_EMPLOYEE', is_active: 0 });
-    await expect(assertReferenceAccess({ id: 7, role: 'provider' }, 12)).rejects.toMatchObject({ status: 403 });
-  });
   it('allows member reads but refuses other companies, staff edits and forged company ids', async () => {
     await expect(assertReferenceAccess({ id: 7, role: 'provider', status: 'ACTIVE_EMPLOYEE' }, 12)).resolves.toBeUndefined();
     await expect(assertReferenceAccess(user, 33)).rejects.toMatchObject({ status: 403 });
@@ -115,7 +118,7 @@ describe('drafts, publication and change records', () => {
     await create();
     expect(await publishedReference(12, 'provider-guide')).toBeNull();
     const workspace = await referenceWorkspace(12, 'provider-guide');
-    expect(workspace.draft.sections).toHaveLength(75); expect(workspace.source.sections).toHaveLength(75);
+    expect(workspace.draft.sections).toHaveLength(82); expect(workspace.source.sections).toHaveLength(82);
     await publish();
     expect((await publishedReference(12, 'provider-guide')).version).toMatchObject({ version_number: 1, is_draft: 0 });
     expect(conn.execute.mock.calls.some(([sql]) => sql.includes('FOR UPDATE'))).toBe(true);

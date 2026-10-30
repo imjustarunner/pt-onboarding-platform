@@ -1,5 +1,7 @@
+import { isProgramServiceRole } from '../content/programServiceRates.js';
 import {validateCredentials} from '../utils/credentialDisplay.js';
 import {employmentCategoryLevelTerms,applyEmploymentPayTerms} from '../content/employmentCategoryLevelTerms.js';
+import { applyEmploymentHandbookCompensation } from '../content/employmentHandbookCompensationTerms.js';
 import Agency from '../models/Agency.model.js';
 import { contractRoleLabel, jobContractExpectations, expectationsToTokens, expectationsFromTokens, renderAdditionalExpectations } from '../utils/contractExpectations.js';
 import { formatContractDate, jobLocationOffice, jobOfficeOptions } from '../utils/contractPresentation.js';
@@ -552,13 +554,14 @@ export async function renderContractHtml({
 
   const category = compensationCategory || Number(mergedTokens.COMPENSATION_CATEGORY) || 3;
   const level = compensationLevel || Number(mergedTokens.COMPENSATION_LEVEL) || 1;
-  const agency = config.pay_mode !== 'none' ? await Agency.findById(agencyId) || {id:agencyId} : {id:agencyId};
-  const clinicalRole = ['provider','facilitator','student'].includes(String(mergedTokens.ROLE_LABEL).toLowerCase());
+  const agency = await Agency.findById(agencyId) || {id:agencyId};
+  const clinicalRole = ['provider','facilitator','student'].includes(String(mergedTokens.ROLE_LABEL).toLowerCase()) || (['nlu','isi'].includes(handbookTenant(agency)) && isProgramServiceRole(mergedTokens.ROLE_LABEL,mergedTokens.JOB_TITLE,mergedTokens.ROLE_TYPE));
   const currentLevels = config.pay_mode !== 'none' && clinicalRole ? await contractCompensationLevels(agencyId) : [];
   const currentRow = currentLevels.find(r=>Number(r.category)===Number(category)&&Number(r.level)===Number(level));
   const categoryLevel = config.pay_mode !== 'none' && clinicalRole && (!!currentRow?.paySystem || /itsco|next ?level ?up|inner ?strength/i.test(`${agency.name||''} ${agency.slug||agency.portal_url||''}`));
   const terms = categoryLevel ? employmentCategoryLevelTerms({row:currentRow,tokens:mergedTokens,agencyName:agency.name,agencySlug:agency.slug}) : null;
-  const clauses = terms ? applyEmploymentPayTerms(originalClauses,terms) : originalClauses;
+  const payClauses = terms ? applyEmploymentPayTerms(originalClauses,terms) : originalClauses;
+  const clauses = handbookTenant(agency) ? applyEmploymentHandbookCompensation(payClauses) : payClauses;
   const compensation = terms ? {row:currentRow,rates:[]} : await selectedContractCompensation(agencyId, category, level, config.pay_mode);
   if(terms) { mergedTokens.COMPENSATION_POLICY_VERSION=terms.version; mergedTokens.COMPENSATION_SCHEDULE=terms.schedule; }
 

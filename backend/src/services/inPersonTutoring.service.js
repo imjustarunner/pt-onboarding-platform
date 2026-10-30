@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import pool from '../config/database.js';
 import LearningClassSession from '../models/LearningClassSession.model.js';
-import LearningProgramClass from '../models/LearningProgramClass.model.js';
+import { listLearningSessionStudents } from './learningSessionRoster.service.js';
 import DocumentTemplate from '../models/DocumentTemplate.model.js';
 import StorageService from './storage.service.js';
 import {
@@ -221,9 +221,7 @@ function buildSessionMaterialKey(sessionId, originalName) {
 }
 
 async function listStudentCandidatesForSession(session) {
-  const classId = asInt(session?.learning_class_id);
-  if (!classId) return [];
-  const members = await LearningProgramClass.listClientMembers(classId);
+  const members = await listLearningSessionStudents(session);
   return (members || [])
     .filter((row) => String(row.membership_status || '').toLowerCase() !== 'removed')
     .map(buildStudentSnapshot)

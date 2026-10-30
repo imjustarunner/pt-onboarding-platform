@@ -96,7 +96,7 @@ class LearningClassSession {
     return (rows || []).map(normalize);
   }
 
-  static async update(sessionId, patch = {}) {
+  static async update(sessionId, patch = {}, { activeOnly = false } = {}) {
     const id = asInt(sessionId);
     if (!id) return null;
     const map = {
@@ -123,13 +123,30 @@ class LearningClassSession {
     const values = [];
     for (const [k, col] of Object.entries(map)) {
       if (patch[k] === undefined) continue;
-      set.push(`${col} = ?`);
+      set.push(activeOnly && k === 'actualStartedAt' ? `${col} = COALESCE(${col}, ?)` : `${col} = ?`);
       values.push(['transcriptText','aiSummaryJson'].includes(k) && patch[k] != null ? maybeEncryptNotePayload(typeof patch[k] === 'object' ? JSON.stringify(patch[k]) : patch[k]) : patch[k]);
     }
     if (!set.length) return this.findById(id);
     values.push(id);
-    await pool.execute(`UPDATE learning_class_sessions SET ${set.join(', ')} WHERE id = ?`, values);
+    await pool.execute(`UPDATE learning_class_sessions SET ${set.join(', ')} WHERE id = ?${activeOnly ? " AND status IN ('scheduled','live')" : ''}`, values);
     return this.findById(id);
+  }
+
+  // The first completion owns the actual end time and its transcript. A second
+  // browser/webhook request must not rewrite records already used for payroll.
+  static async completeOnce(sessionId, { endedAt, endedByUserId, transcriptText = null }) {
+    const id = asInt(sessionId);
+    if (!id) return false;
+    const sets = ["status = 'ended'", 'ends_at = ?', 'ended_by_user_id = ?'];
+    const values = [endedAt, endedByUserId];
+    if (transcriptText) {
+      sets.push('transcript_text = ?');
+      values.push(maybeEncryptNotePayload(transcriptText));
+    }
+    values.push(id);
+    const [result] = await pool.execute(`UPDATE learning_class_sessions SET ${sets.join(', ')}
+      WHERE id = ? AND status IN ('scheduled','live')`, values);
+    return Number(result.affectedRows) === 1;
   }
 
   // Helper for JSON fields in updates (called from update if needed, or directly)

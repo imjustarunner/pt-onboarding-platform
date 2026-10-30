@@ -30,6 +30,8 @@ import {
   listPayrollPeriods,
   getUnpaidDraftsReport,
   getPayrollPeriod,
+  getPayrollActualHoursReview,
+  savePayrollActualHoursReview,
   getPayrollPeriodRawAudit,
   getPayrollPeriodRunsSideBySide,
   listPayrollPeriodImports,
@@ -266,6 +268,8 @@ router.post('/periods/ensure-future', ensureFuturePayrollPeriods);
 router.get('/periods', listPayrollPeriods);
 router.get('/periods/unpaid-drafts-report', getUnpaidDraftsReport);
 router.get('/periods/:id', getPayrollPeriod);
+router.get('/periods/:id/actual-hours/:userId', getPayrollActualHoursReview);
+router.put('/periods/:id/actual-hours/:userId', savePayrollActualHoursReview);
 router.get('/periods/:id/raw-audit', getPayrollPeriodRawAudit);
 router.get('/periods/:id/runs-side-by-side', getPayrollPeriodRunsSideBySide);
 router.get('/periods/:id/imports', listPayrollPeriodImports);

@@ -76,6 +76,10 @@ export async function assertCollectible(receivable, db = pool) {
   if (receivable.source_type === 'qa_appointment') throw billingError(409, 'Synthetic appointment balances are for testing and cannot be collected.');
   if (receivable.status !== 'open' || receivable.disputed_at || receivable.hold_reason) throw billingError(409, 'This balance is settled or on hold and cannot be collected');
   await assertLedgerIntegrity(receivable,db);
+  if (receivable.source_type === 'missed_session_fee') {
+    const { assertMissedFeeCollectible } = await import('../missedSessionFeePayroll.service.js');
+    await assertMissedFeeCollectible(receivable, db);
+  }
   if(receivable.source_type==='clinical_self_pay'){const {assertSelfPayVisit}=await import('./serviceCharges.js');await assertSelfPayVisit(receivable);}
   if(receivable.source_type==='clinical_copay' || (receivable.source_payload && decryptFamilyBilling(receivable.source_payload,`receivable:${receivable.agency_id}:${receivable.client_id}`)?.attendanceSessionId)) {
     const {assertAttendanceCopay}=await import('./copayAttendance.js');await assertAttendanceCopay(receivable,db);

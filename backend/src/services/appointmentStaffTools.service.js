@@ -4,6 +4,7 @@ import User from '../models/User.model.js';
 import { canViewFullScheduleDetails, canManageOthersSchedule } from './scheduleSummaryPrivacy.service.js';
 import { resolveClientRecordAccess } from './clientRecordAccess.service.js';
 import { maybeEncryptNotePayload, maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
+import { canOpenInPersonLearning } from './learningServiceCompensation.js';
 
 const APPOINTMENT_OPERATIONS_ROLES = new Set(['admin', 'super_admin', 'superadmin', 'agency_admin', 'backoffice_admin', 'staff', 'support', 'scheduler', 'front_desk']);
 const STAFF_ROLES = new Set([...APPOINTMENT_OPERATIONS_ROLES, 'super_admin', 'superadmin', 'admin', 'support', 'staff', 'provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'clinical_practice_assistant']);
@@ -43,7 +44,8 @@ export function createAppointmentStaffTools({ db = pool, appointments = Appointm
     }
     let canEdit = true;
     try { await scheduleAccess(user, appointment.providerUserId, appointment.agencyId, true); } catch (error) { if (error.status !== 403) throw error; canEdit = false; }
-    return { appointmentId: appointment.id, agencyId: appointment.agencyId, alert: mapAlert(rows[0]), canEdit, clients };
+    return { appointmentId: appointment.id, agencyId: appointment.agencyId, alert: mapAlert(rows[0]), canEdit, clients,
+      canOpenLearningWorkspace: canOpenInPersonLearning(appointment,user.id) };
   }
   async function save(user, id, body) {
     const appointment = await appointmentAccess(user, id, true);

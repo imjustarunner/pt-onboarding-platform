@@ -1,4 +1,7 @@
 import pool from '../config/database.js';
+import { calculateSickLeaveHours, withSickLeaveHours } from '../utils/payrollSickLeaveHours.js';
+import PayrollActualHoursReview from './PayrollActualHoursReview.model.js';
+import { applyActualHoursReview } from '../utils/payrollActualHoursReview.js';
 
 class PayrollSummary {
   static async upsert({
@@ -21,6 +24,19 @@ class PayrollSummary {
     totalAmount,
     breakdown
   }) {
+    if (breakdown && typeof breakdown === 'object') {
+      const review = await PayrollActualHoursReview.latest({ agencyId, payrollPeriodId, userId });
+      const reviewed = applyActualHoursReview({ breakdown, direct_hours: directHours, indirect_hours: indirectHours, total_hours: totalHours, total_amount: totalAmount }, review);
+      breakdown = reviewed.breakdown;
+      const [periods] = await pool.execute('SELECT pp.period_start, a.pto_policy_json FROM payroll_periods pp JOIN agencies a ON a.id=pp.agency_id WHERE pp.id=? AND pp.agency_id=?', [payrollPeriodId, agencyId]);
+      const context = periods[0];
+      const policy = typeof context?.pto_policy_json === 'string' ? JSON.parse(context.pto_policy_json) : context?.pto_policy_json;
+      // Recompute on an explicit summary save; reads still preserve saved snapshots.
+      delete breakdown.__sickLeaveHours;
+      const annotated = withSickLeaveHours(reviewed, { policy: policy || {}, periodStart: context?.period_start });
+      if (annotated.sick_leave_summary) breakdown.__sickLeaveHours = annotated.sick_leave_summary;
+      else delete breakdown.__sickLeaveHours;
+    }
     await pool.execute(
       `INSERT INTO payroll_summaries
        (payroll_period_id, agency_id, user_id,
@@ -75,9 +91,11 @@ class PayrollSummary {
 
   static async listForPeriod(payrollPeriodId) {
     const [rows] = await pool.execute(
-      `SELECT ps.*, u.first_name, u.last_name, u.email
+      `SELECT ps.*, u.first_name, u.last_name, u.email, pp.period_start, a.pto_policy_json AS sick_leave_policy
        FROM payroll_summaries ps
        JOIN users u ON ps.user_id = u.id
+       JOIN payroll_periods pp ON pp.id=ps.payroll_period_id
+       JOIN agencies a ON a.id=ps.agency_id
        WHERE ps.payroll_period_id = ?
        ORDER BY ps.total_amount DESC`,
       [payrollPeriodId]
@@ -86,7 +104,9 @@ class PayrollSummary {
       if (typeof r.breakdown === 'string') {
         try { r.breakdown = JSON.parse(r.breakdown); } catch { /* ignore */ }
       }
-      return r;
+      const { sick_leave_policy, ...row } = r;
+      const policy = typeof sick_leave_policy === 'string' ? JSON.parse(sick_leave_policy) : sick_leave_policy;
+      return withSickLeaveHours(row, { policy: policy || {}, periodStart: row.period_start });
     });
   }
 
@@ -102,9 +122,10 @@ class PayrollSummary {
     const lim = Math.max(0, Math.min(500, parseInt(limit, 10) || 50));
     const off = Math.max(0, parseInt(offset, 10) || 0);
     const [rows] = await pool.execute(
-      `SELECT ps.*, pp.label, pp.period_start, pp.period_end, pp.status
+      `SELECT ps.*, pp.label, pp.period_start, pp.period_end, pp.status, a.pto_policy_json AS sick_leave_policy
        FROM payroll_summaries ps
        JOIN payroll_periods pp ON ps.payroll_period_id = pp.id
+       JOIN agencies a ON a.id=ps.agency_id
        WHERE ${where}
        ORDER BY pp.period_start DESC
        LIMIT ${lim} OFFSET ${off}`,
@@ -114,10 +135,11 @@ class PayrollSummary {
       if (typeof r.breakdown === 'string') {
         try { r.breakdown = JSON.parse(r.breakdown); } catch { /* ignore */ }
       }
-      return r;
+      const { sick_leave_policy, ...row } = r;
+      const policy = typeof sick_leave_policy === 'string' ? JSON.parse(sick_leave_policy) : sick_leave_policy;
+      return withSickLeaveHours(row, { policy: policy || {}, periodStart: row.period_start });
     });
   }
 }
 
 export default PayrollSummary;
-

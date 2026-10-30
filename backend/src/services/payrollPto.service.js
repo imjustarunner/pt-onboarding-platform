@@ -15,6 +15,7 @@ import {
   DEFAULT_PTO_ACCRUAL_POLICY
 } from '../utils/payrollPtoAccrual.util.js';
 import PayrollSalaryPosition from '../models/PayrollSalaryPosition.model.js';
+import { uniformSickLeavePolicyApplies, uniformSickLeaveAccrual } from '../utils/payrollSickLeaveHours.js';
 
 export { computeAccrualFromBasisHours, paidTimeBasisFromSummaryRow } from '../utils/payrollPtoAccrual.util.js';
 
@@ -65,6 +66,23 @@ export async function upsertAgencyPtoPolicy({ agencyId, policy, defaultPayRate, 
   const {policy: existingPolicy}=await getAgencyPtoPolicy({agencyId});
   // Older settings forms do not know the new bank/handoff fields; preserve them.
   const nextPolicy = { ...DEFAULT_PTO_POLICY, ...existingPolicy, ...(policy || {}) };
+  if (policy?.sickLeaveHoursEffectiveOn !== undefined) {
+    const date = String(policy.sickLeaveHoursEffectiveOn || '').slice(0, 10);
+    if (date && (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`)) || new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date)) {
+      throw Object.assign(new Error('Choose a valid pay-period start date for the app sick-leave calculation.'), { status: 400 });
+    }
+    if (date !== String(existingPolicy.sickLeaveHoursEffectiveOn || '') && date && date <= todayYmd()) {
+      throw Object.assign(new Error('The app calculation must begin prospectively in a future pay period. Current-period and historical ADP processing remain unchanged; the existing 1/30 ratio continues.'), { status: 400 });
+    }
+    if (date && date !== String(existingPolicy.sickLeaveHoursEffectiveOn || '')) {
+      const [periods] = await pool.execute('SELECT id FROM payroll_periods WHERE agency_id=? AND period_start=? LIMIT 1', [agencyId, date]);
+      if (!periods.length) throw Object.assign(new Error('Choose an existing pay-period start date so the new accrual policy does not split a payroll period.'), { status: 400 });
+    }
+    if (existingPolicy.sickLeaveHoursEffectiveOn && String(existingPolicy.sickLeaveHoursEffectiveOn) <= todayYmd() && date !== String(existingPolicy.sickLeaveHoursEffectiveOn)) {
+      throw Object.assign(new Error('An effective sick-leave policy cannot be removed or moved through payroll settings. Preserve earned accruals and request a reviewed policy revision.'), { status: 409 });
+    }
+    nextPolicy.sickLeaveHoursEffectiveOn = date || null;
+  }
   nextPolicy.trainingPtoEnabled = nextPolicy.trainingPtoEnabled === true;
   await pool.execute(
     `UPDATE agencies
@@ -681,6 +699,12 @@ export async function clearPtoLedgerForManualPayLine({
  * are handled separately). Re-running replaces prior ledger rows for this line id
  * so edits do not double-credit.
  */
+export async function manualLineUsesAppSickLeave({ agencyId, payrollPeriodId, policy }) {
+  if (!payrollPeriodId || !policy?.sickLeaveHoursEffectiveOn) return false;
+  const [rows] = await pool.execute('SELECT period_start FROM payroll_periods WHERE id=? AND agency_id=? LIMIT 1', [payrollPeriodId, agencyId]);
+  return uniformSickLeavePolicyApplies({ policy, periodStart: rows[0]?.period_start });
+}
+
 export async function syncPtoAccrualForManualDirectPayLine({
   agencyId,
   userId,
@@ -714,12 +738,16 @@ export async function syncPtoAccrualForManualDirectPayLine({
   if (policy.ptoEnabled === false) return { ok: true, skipped: 'pto_disabled', sickEarn: 0, trainingEarn: 0 };
 
   const acct = await ensurePtoAccount({ agencyId, userId, updatedByUserId: createdByUserId });
-  const { sickEarn, trainingEarn } = computeAccrualFromBasisHours({
+  // A later payment/entry date must not move an older payroll period onto the new app basis.
+  const uniformPolicy = await manualLineUsesAppSickLeave({ agencyId, payrollPeriodId, policy });
+  const legacyEarn = computeAccrualFromBasisHours({
     basisHours: hrs,
     policy,
     employmentType: acct.employment_type,
     trainingPtoEligible: !policy.sharedLeaveAccrualEnabled && Boolean(acct.training_pto_eligible)
   });
+  const sickEarn = uniformPolicy ? Math.ceil((hrs / 30) * 100 - 1e-9) / 100 : legacyEarn.sickEarn;
+  const trainingEarn = legacyEarn.trainingEarn;
 
   if (sickEarn <= 1e-9 && trainingEarn <= 1e-9) {
     return { ok: true, skipped: 'no_earn', sickEarn: 0, trainingEarn: 0 };
@@ -935,13 +963,23 @@ export async function runPtoAccrualForPostedPeriod({
       employmentType: employment,
       trainingPtoEligible: trainingEligible
     });
+    const uniformPolicy = uniformSickLeavePolicyApplies({ policy, periodStart: period.period_start });
+    let uniformAccrual = null;
+    if (uniformPolicy) {
+      const [creditedRows] = await pool.execute(`SELECT COALESCE(SUM(hours_delta),0) AS credited FROM payroll_pto_ledger WHERE agency_id=? AND user_id=? AND payroll_period_id=? AND manual_pay_line_id IS NOT NULL AND pto_bucket='sick'`, [agencyId, userId, payrollPeriodId]);
+      uniformAccrual = uniformSickLeaveAccrual({ summaryRow: sum, alreadyCreditedSickHours: Number(creditedRows[0]?.credited || 0), preservePriorEarn: uniformPolicy ? 0 : earned.sickEarn });
+      earned.sickEarn = uniformAccrual.sickEarn;
+      if (uniformAccrual.summary.actualHoursReviewRequired) warnings.push({ userId, message: 'Sick-leave equivalents are calculated. Reconcile all actual compensable hours and any exempt employee accrual assumption before approving the leave balance.' });
+    }
     let sickEarn = earned.sickEarn;
     let trainingEarn = earned.trainingEarn;
 
     if (sickEarn > 0) {
       const hourlyMult = Number(policy.sickHourlyMultiplier ?? 0.034);
       const ffsMult = Number(policy.sickFfsMultiplier ?? 0.04);
-      const note = serviceCreditLeave
+      const note = uniformAccrual
+        ? `${uniformPolicy ? 'Sick leave' : 'Sick leave with prior-policy protection'}: ${uniformAccrual.summary.sickLeaveHours.toFixed(6)} sick leave hours / 30; total rounded up to ledger hundredths; prior manual credits deducted once.${uniformPolicy ? '' : ' Any higher prior-policy accrual is preserved.'} Actual work hours remain separate.`
+        : serviceCreditLeave
         ? `Sick leave: (${serviceCreditLeave.directBasisHours.toFixed(2)} direct + ${serviceCreditLeave.indirectBasisHours.toFixed(2)} indirect + ${serviceCreditLeave.supportBasisHours.toFixed(2)} support equivalent hours) / 30; prior-policy basis ${serviceCreditLeave.legacyBasisHours.toFixed(2)}; actual-hours reconciliation ${serviceCreditLeave.reconciliationAddedHours.toFixed(4)}`
         : employment === 'fee_for_service'
         ? `Sick leave accrual (${basis.toFixed(2)} credits × ${ffsMult})`
@@ -1003,4 +1041,3 @@ export async function runPtoAccrualForPostedPeriod({
 
   return { ok: true, accruedUsers, warnings, summaryUsers: (summaryRows || []).length };
 }
-

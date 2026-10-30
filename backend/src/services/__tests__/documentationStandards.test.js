@@ -27,7 +27,7 @@ describe('documentation standards audience and editions', () => {
   it('preserves company service boundaries without offering the source to another tenant', () => {
     const context = slug => book(slug).sections.find(s => s.slug === 'company-documentation-context').body_html;
     expect(context('itsco')).toContain('moratorium');
-    expect(context('nlu')).toContain('two or more'); expect(context('nlu')).toContain('nonoverlapping'); expect(context('nlu')).toContain('reschedule');
+    expect(context('nlu')).toContain('two or more'); expect(context('nlu')).toContain('nonoverlapping'); expect(context('nlu')).toContain('individual H2014 service only when actually delivered');
     expect(context('tisi')).toContain('counseling-only');
     expect(referenceSource({ slug: 'other', name: 'ITSCO' }, key, { packageAssigned: true })).toBeNull();
   });

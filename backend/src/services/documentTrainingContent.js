@@ -4,11 +4,12 @@ import { handbookTenant } from './handbookTenant.js';
 import { referenceAllowed } from './companyReferenceContent.js';
 import { needsClinicalProfile } from '../utils/hireClinicalProfile.js';
 import { isBachelorsCredentialText } from '../utils/credentialNormalization.js';
+import { applyProgramRateTrainingAmendment } from '../content/programRateTrainingAmendment.js';
 
 // Register a guide's learning definition here once. Library, onboarding,
 // Plotline/My Learning and on-demand all consume this same catalog.
 export const documentTrainingDefinitions = ['provider-guide', 'school-practice-guide', 'counseling-guide', 'skill-development-guide-itsco', 'skill-development-guide-nlu', 'facilities-guide-itsco', 'facilities-guide-nlu', 'facilities-guide-isi', 'crisis-response-guide-itsco', 'crisis-response-guide-nlu', 'crisis-response-guide-isi', 'facilitator-coding-protocol-itsco', 'facilitator-coding-protocol-nlu', 'facilitator-coding-protocol-isi', 'service-documentation-standards-itsco', 'service-documentation-standards-nlu', 'service-documentation-standards-isi', 'mandated-reporting-sop-itsco', 'mandated-reporting-sop-nlu', 'mandated-reporting-sop-isi'].map(key =>
-  JSON.parse(readFileSync(new URL(`../content/document-training/${key}.json`, import.meta.url), 'utf8')));
+  applyProgramRateTrainingAmendment(JSON.parse(readFileSync(new URL(`../content/document-training/${key}.json`, import.meta.url), 'utf8'))));
 export const trainingHash = value => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex');
 const fail = message => { throw Object.assign(new Error(message), { status: 400 }); };
 export const trainingDefinitionsFor = agency => documentTrainingDefinitions.filter(d => (d.tenants.includes('*') || d.tenants.includes(handbookTenant(agency))) && referenceAllowed(agency, d.documentKey));

@@ -13,6 +13,19 @@ import { buildJobDescClauseMarkdown } from '../jobDescriptionContractClause.serv
 import { ITSCO_CONTRACT_CLAUSES, mdToHtml } from '../../seeds/itscoContractClauseLibrary.js';
 beforeEach(() => vi.clearAllMocks());
 describe('contract merge validation', () => {
+  it.each(['itsco', 'nlu', 'tisi'])('includes handbook fee compensation in every new %s agreement, including tutor roles', async slug => {
+    const { default: Agency } = await import('../../models/Agency.model.js');
+    Agency.findById.mockResolvedValueOnce({ id: 1, slug, name: 'Example Practice' });
+    db.execute.mockResolvedValueOnce([[{ is_active: 1, pay_mode: 'none', clause_keys_json: ['ROLE', 'SIG_BLOCK'] }]])
+      .mockResolvedValueOnce([[{ clause_key: 'ROLE', body_html: '<p>Tutoring appointment.</p>' }, { clause_key: 'SIG_BLOCK', body_html: '<p>Electronic acceptance.</p>' }]]);
+    const result = await renderContractHtml({ agencyId: 1, configId: 1, tokens: { ROLE_LABEL: 'Employee', JOB_TITLE: 'Tutor' } });
+    expect(result.html).toContain('Category 3 · Licensed &amp; Advanced Professionals');
+    expect(result.html).toContain('Workplace Handbook policy communicated');
+    expect(result.html).toContain('actual work and required waiting time is separate');
+    expect(result.html.indexOf('Missed-session fee compensation')).toBeLessThan(result.html.indexOf('class="contract-signatures"'));
+    expect(result.clauseManifest).toEqual(expect.arrayContaining([expect.objectContaining({ key: 'HANDBOOK_CATEGORY_AND_MISSED_SESSION_PAY', included: true })]));
+    expect(result.unresolvedTokens).toEqual([]);
+  });
   function mockServiceClause(body = '<p>Maintain {{MIN_HOURS}} direct service hours per week.</p>') {
     db.execute.mockResolvedValueOnce([[{ is_active: 1, pay_mode: 'none', clause_keys_json: ['SERVICE_EXPECTATIONS'] }]])
       .mockResolvedValueOnce([[{ clause_key: 'SERVICE_EXPECTATIONS', body_html: body }]]);
@@ -204,5 +217,5 @@ it('renders the current profile in the actual contract instead of a legacy direc
  ]]);
  const result=await renderContractHtml({agencyId:1,configId:1,compensationCategory:2,compensationLevel:1,tokens:{ROLE_LABEL:'Provider',MIN_HOURS:'8'}});
  expect(result.html).toContain('Category 2, Level 1');expect(result.html).toContain('$55.00');expect(result.html).not.toContain('Old salary');expect(result.html).not.toContain('$$');
- expect(result.clauseManifest).toEqual(expect.arrayContaining([expect.objectContaining({key:'COMP_HOURLY',policyVersion:'category-level-employment-2026-10-14'})]));
+ expect(result.clauseManifest).toEqual(expect.arrayContaining([expect.objectContaining({key:'COMP_HOURLY',policyVersion:'category-level-employment-2026-10-29-program'})]));
 });

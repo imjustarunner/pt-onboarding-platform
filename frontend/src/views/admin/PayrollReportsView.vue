@@ -123,10 +123,10 @@
       </div>
 
       <div v-if="activeTab === 'export'" style="margin-top: 10px;">
-        <div class="hint">Download the existing payroll export CSV for the selected pay period.</div>
+        <div class="hint">Download the payroll reconciliation worksheet. Confirm actual time, earning codes and sick-leave accrual mapping with the processor before ADP import.</div>
         <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
           <button class="btn btn-primary" type="button" @click="downloadPayrollExportCsv" :disabled="!selectedPeriodId || downloading">
-            {{ downloading ? 'Downloading…' : 'Download Payroll Export CSV' }}
+            {{ downloading ? 'Downloading…' : 'Download Payroll Reconciliation CSV' }}
           </button>
         </div>
       </div>
@@ -395,6 +395,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import { mergePayrollPaySummaryRows } from '../../utils/payrollPaySummary';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 
@@ -795,6 +796,11 @@ const headerLabel = (key) => {
     taxable_adjustments_total: 'Taxable adjustments',
     non_taxable_total: 'Non-taxable total',
     total_pay: 'Total pay',
+    sick_leave_hours: 'Sick leave hours',
+    adp_allocation_rate: 'ADP earnings allocation rate',
+    ordinary_earnings: 'Ordinary earnings',
+    actual_worked_hours: 'Recorded actual work hours',
+    actual_hours_review_required: 'Actual hours review required',
     type: 'Type',
     label: 'Label',
     taxable: 'Taxable',
@@ -938,7 +944,12 @@ const previewPaySummary = async () => {
     'adjustments_total',
     'taxable_adjustments_total',
     'non_taxable_total',
-    'total_pay'
+    'total_pay',
+    'sick_leave_hours',
+    'ordinary_earnings',
+    'adp_allocation_rate',
+    'actual_worked_hours',
+    'actual_hours_review_required'
   ];
   try {
     const providerIds = (selectedProviderIds.value || []).slice().map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0);
@@ -981,7 +992,12 @@ const downloadPaySummaryCsv = async () => {
       'adjustments_total',
       'taxable_adjustments_total',
       'non_taxable_total',
-      'total_pay'
+      'total_pay',
+      'sick_leave_hours',
+      'ordinary_earnings',
+      'adp_allocation_rate',
+      'actual_worked_hours',
+      'actual_hours_review_required'
     ];
     const csv = toCsv(rows, headers);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -1167,28 +1183,7 @@ const downloadCreditsCsv = async () => {
   }
 };
 
-const mergePaySummaryRows = (rows) => {
-  const sumKeys = [
-    'salary_amount',
-    'service_pay_amount',
-    'service_pay_paid_amount',
-    'adjustments_total',
-    'taxable_adjustments_total',
-    'non_taxable_total',
-    'total_pay'
-  ];
-  const map = new Map(); // provider_name -> row
-  for (const r of rows || []) {
-    const k = String(r?.provider_name || '');
-    const cur = map.get(k) || { ...r };
-    for (const sk of sumKeys) {
-      cur[sk] = Number(cur[sk] || 0) + Number(r?.[sk] || 0);
-    }
-    cur.salary_include_service_pay = Number(cur.salary_include_service_pay || 0) || Number(r?.salary_include_service_pay || 0) ? 1 : 0;
-    map.set(k, cur);
-  }
-  return Array.from(map.values());
-};
+const mergePaySummaryRows = mergePayrollPaySummaryRows;
 
 const loadPeriods = async () => {
   if (!agencyId.value) return;
