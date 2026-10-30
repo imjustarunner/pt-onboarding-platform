@@ -9,9 +9,9 @@
    <button type="button" @click="downloadAgreement">Download agreement to read or print</button>
    <iframe sandbox="" title="Your compensation amendment" :srcdoc="documentHtml" />
    <template v-if="amendment.signed">
-    <p role="status">{{amendment.countersigned?'Both signatures recorded.':'Your signature is recorded. Awaiting the agency countersignature.'}}</p>
+    <p role="status">{{amendment.countersigned?'Both signatures recorded.':'Your part is complete. The agency countersignature is handled separately and does not hold up your Provider Update.'}}</p>
     <button type="button" :disabled="previewOnly || busy" @click="download">Download signed copy</button>
-    <button type="button" :disabled="previewOnly || busy" @click="$emit('complete',{amendmentSigned:true})">Mark amendment step complete</button>
+    <button type="button" :disabled="previewOnly || busy" @click="$emit('complete',{amendmentSigned:true})">Continue</button>
    </template>
    <fieldset v-else :disabled="previewOnly || amendment.draft || busy">
     <legend>Electronic signature</legend>
@@ -41,6 +41,7 @@ async function sign(){if(props.previewOnly||amendment.value?.draft||!consent.val
  await api.post(`${props.base}/amendment/consent`,{agencyId:props.agencyId,consent:true});
  await api.post(`${props.base}/amendment/intent`,{agencyId:props.agencyId,intent:true});
  await api.post(`${props.base}/amendment/sign`,{agencyId:props.agencyId,signatureData:signature.value});await load();
+ if(amendment.value?.signed)emit('complete',{amendmentSigned:true});
 }catch(e){error.value=e.response?.data?.error?.message||'Could not save your signature. Refresh to check its status before trying again.';}finally{busy.value=false;}}
 async function download(){busy.value=true;try{const {data}=await api.get(`${props.base}/amendment/download`,{params:{agencyId:props.agencyId},responseType:'blob'});const url=URL.createObjectURL(data),a=document.createElement('a');a.href=url;a.download='signed-compensation-amendment.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch{error.value='Could not download the signed copy.';}finally{busy.value=false;}}
 onMounted(load);

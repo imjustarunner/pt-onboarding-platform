@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import { assertProviderUpdateTaskStatus } from '../services/providerUpdateTasks.service.js';
+import {assertCountersignTaskCompletion} from '../services/documentCountersignTasks.service.js';
 import { normalizeTaskCategories, resolveTaskCategories, isClientRelatedTask } from '../constants/taskCategories.js';
 import {
   ENCRYPTED_TASK_DESCRIPTION_PLACEHOLDER,
@@ -841,6 +842,7 @@ class Task {
   }
 
   static async markComplete(taskId, userId) {
+    await assertCountersignTaskCompletion(taskId);
     await assertProviderUpdateTaskStatus(taskId, 'completed');
     await pool.execute(
       'UPDATE tasks SET status = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?',
@@ -1034,6 +1036,7 @@ class Task {
   }
 
   static async updateStatus(taskId, status) {
+    if (status === 'completed') await assertCountersignTaskCompletion(taskId);
     await assertProviderUpdateTaskStatus(taskId, status);
     await pool.execute(
       'UPDATE tasks SET status = ? WHERE id = ?',

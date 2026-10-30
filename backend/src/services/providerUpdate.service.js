@@ -1,5 +1,6 @@
 import {isValidPersonalEmail} from '../../../frontend/src/navigation/providerUpdateContact.js';
 import {finalizedUpdateProgress} from '../utils/providerUpdateProgress.js';
+import {syncProviderAmendmentCompletion} from './providerAmendmentCompletion.service.js';
 import {getProviderUpdateSignIn} from './providerUpdateSignIn.service.js';
 import { officeRoomLabel } from '../utils/officeRoomLabel.js';
 import {providerUpdateAuditBcc} from './providerUpdateAuditCopy.js';
@@ -841,7 +842,7 @@ export async function getRecipientBundle(recipient, {push: providedPush = null, 
 
   // Keep security setup visible; hide only the existing Quick View code controls.
   const amendmentSection=sectionList.find(s=>s.key==='amendments');
-  if(amendmentSection&&!recipient.locked_at&&(!amendmentTasks.length||amendmentTasks.some(t=>t.status!=='completed')))amendmentSection.completed=false;
+  await syncProviderAmendmentCompletion(pool, recipient, amendmentSection, amendmentTasks);
   const completedCount=sectionList.filter(s=>s.completed).length;
   if(progressOnly)return {progress:{completed:completedCount,total:sectionList.length}};
   return {

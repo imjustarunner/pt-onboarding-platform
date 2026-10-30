@@ -1,5 +1,6 @@
 import express from 'express';
 import {reportTask} from '../controllers/taskReport.controller.js';
+import {getMyCountersignatures} from '../controllers/documentCountersignTasks.controller.js';
 import { body } from 'express-validator';
 import {
   getTask,
@@ -38,6 +39,7 @@ const validateDueDate = [
 
 // User routes
 router.get('/', authenticate, getUserTasks);
+router.get('/countersignatures', authenticate, getMyCountersignatures);
 router.post('/:id/report', authenticate, reportTask);
 router.get('/counts', authenticate, getTaskCounts);
 router.get('/search', authenticate, searchTasksHub);
@@ -58,4 +60,3 @@ router.delete('/:id', authenticate, requireBackofficeAdmin, deleteTask);
 router.get('/:id', authenticate, getTask);
 
 export default router;
-

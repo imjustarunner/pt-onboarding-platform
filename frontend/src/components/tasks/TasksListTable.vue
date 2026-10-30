@@ -82,7 +82,7 @@
             type="button"
             class="task-row__done-btn"
             :class="{ done: task.status === 'completed' }"
-            :title="task.source_ref_type === 'provider_update' ? 'Complete and submit your Provider Update; this task closes automatically.' : 'Mark complete'"
+            :title="task.document_action_type === 'countersignature' ? 'Review and countersign this document' : task.source_ref_type === 'provider_update' ? 'Complete and submit your Provider Update; this task closes automatically.' : 'Mark complete'"
             :disabled="task.source_ref_type === 'provider_update'"
             @click.stop="$emit('toggle-complete', task)"
           >

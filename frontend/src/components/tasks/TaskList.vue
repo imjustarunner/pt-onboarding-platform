@@ -197,7 +197,8 @@ const applyFilters = () => {
 
 const handleTaskClick = (task) => {
   if (task.task_type === 'document') {
-    router.push(`/tasks/documents/${task.id}/sign`);
+    const id=task.document_action_type==='countersignature'?task.reference_id:task.id;
+    router.push({path:`${route.params.organizationSlug?'/'+route.params.organizationSlug:''}/tasks/documents/${id}/sign`,query:{returnTo:route.fullPath}});
   } else if (task.task_type === 'training') {
     // Navigate to module if reference_id is a module
     if (task.reference_id) {
@@ -207,7 +208,8 @@ const handleTaskClick = (task) => {
 };
 
 const openPrint = (task) => {
-  router.push(`/tasks/documents/${task.id}/print`);
+  const id=task.document_action_type==='countersignature'?task.reference_id:task.id;
+  router.push(`/tasks/documents/${id}/print`);
 };
 
 const getSubtasks = (task) => {
@@ -558,4 +560,3 @@ onMounted(async () => {
   margin-top: 16px;
 }
 </style>
-

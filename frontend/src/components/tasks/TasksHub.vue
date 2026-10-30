@@ -51,6 +51,8 @@
       </div>
     </header>
 
+    <DocumentCountersignatures v-if="['super_admin','admin','support'].includes(authStore.user?.role) && (!focusUserIdLocked || focusUserIdLocked === Number(authStore.user?.id))" :agency-id="agencyId" />
+
     <nav class="tasks-hub__tabs" aria-label="Task views">
       <button
         v-for="tab in tabs"
@@ -855,6 +857,7 @@ import SharedListsView from '../dashboard/SharedListsView.vue';
 import ProjectOverviewPanel from './ProjectOverviewPanel.vue';
 import FocusSessionModal from './FocusSessionModal.vue';
 import TaskDetailSidePanel from './TaskDetailSidePanel.vue';
+import DocumentCountersignatures from './DocumentCountersignatures.vue';
 import TaskListProjectFields from './TaskListProjectFields.vue';
 import ClientOnboardingChecklistPanel from '../clients/ClientOnboardingChecklistPanel.vue';
 import LifecycleActionModal from '../school/LifecycleActionModal.vue';
@@ -2344,6 +2347,7 @@ function openActionItem(task) {
 }
 
 async function toggleComplete(task) {
+  if (task.document_action_type === 'countersignature') { goDocument(task); return; }
   if (task.status === 'completed') {
     await tasksStore.incompleteTask(task.id);
   } else {
@@ -2472,7 +2476,8 @@ async function toggleActionItem(task) {
 }
 
 function goDocument(task) {
-  router.push(`${orgPrefix.value}/tasks/documents/${task.id}/sign`);
+  const id=task.document_action_type==='countersignature'?task.reference_id:task.id;
+  router.push({path:`${orgPrefix.value}/tasks/documents/${id}/sign`,query:{returnTo:route.fullPath}});
 }
 
 async function createTask() {

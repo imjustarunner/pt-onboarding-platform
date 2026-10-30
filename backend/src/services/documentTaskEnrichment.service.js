@@ -6,7 +6,8 @@ import pool from '../config/database.js';
 export async function enrichDocumentTasks(tasks) {
   if (!Array.isArray(tasks) || tasks.length === 0) return tasks;
 
-  const docTasks = tasks.filter((t) => t.task_type === 'document' && t.reference_id);
+  // Countersignature reference_id points to the employee's task, not a template.
+  const docTasks = tasks.filter((t) => t.task_type === 'document' && t.document_action_type !== 'countersignature' && t.reference_id);
   if (!docTasks.length) return tasks;
 
   const templateIds = [...new Set(docTasks.map((t) => Number(t.reference_id)).filter(Boolean))];
@@ -23,7 +24,7 @@ export async function enrichDocumentTasks(tasks) {
   const byId = new Map(rows.map((r) => [Number(r.id), r]));
 
   return tasks.map((task) => {
-    if (task.task_type !== 'document') return task;
+    if (task.task_type !== 'document' || task.document_action_type === 'countersignature') return task;
     const tpl = byId.get(Number(task.reference_id));
     if (!tpl) return task;
 

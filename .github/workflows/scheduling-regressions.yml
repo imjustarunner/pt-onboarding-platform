@@ -58,6 +58,11 @@ jobs:
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.dependent-portal.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.dependent-portal.config.js
+      - name: Provider completion and agency countersignature tasks
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.provider-completion.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.countersign-tasks.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.countersign-tasks.config.js
       - name: Enrollment consent loading and guardian contact editing
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.intake-contact.config.js

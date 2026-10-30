@@ -17,7 +17,7 @@
     <div v-if="task" class="signer-status" role="status">
       <strong>Assigned signer: {{ assignedSignerName }}</strong>
       <p>{{ signingState.signed ? `Signed by ${assignedSignerName}.` : `${assignedSignerName} has not signed this request.` }}</p>
-      <p v-if="signingState.countersigned">Supervisor countersignature recorded.</p>
+      <p v-if="signingState.countersigned">Countersignature recorded.</p>
     </div>
     <div v-if="task && signingState.superseded" class="error-message">
       <h2>Signature request superseded</h2>
@@ -229,15 +229,18 @@
 
       <div v-if="isAdminUser && (signingState.canCountersign || signingState.countersigned)" class="admin-countersign">
         <div v-if="adminCountersigned" class="success-message" style="margin-top: 16px;">
-          <p>✓ Admin counter-signature recorded.</p>
+          <p>✓ Your countersignature is saved. The countersignature task is complete.</p>
         </div>
         <div v-else>
-          <h3>Admin Counter-Signature</h3>
-          <p class="instruction">Admins can add a counter-signature to finalize this document.</p>
+          <h3>Review &amp; countersign</h3>
+          <p class="instruction">Review the copy signed by {{ assignedSignerName }}, then add your signature below.</p>
+          <button type="button" class="btn btn-secondary" :disabled="loading" @click="reviewSignedDocument">Review signed document</button>
+          <PDFPreview v-if="signedPreviewUrl" :pdf-url="signedPreviewUrl" />
+          <label v-if="signedPreviewUrl" class="countersign-consent"><input v-model="countersignConfirmed" type="checkbox" /> I have reviewed this signed document and intend to add my electronic countersignature.</label>
           <SignaturePad @signed="handleAdminSignature" ref="adminSignaturePad" />
           <div class="sign-actions">
-            <button @click="finalizeAdminCountersign" class="btn btn-primary" :disabled="!hasAdminSignature || loading">
-              {{ loading ? 'Finalizing...' : 'Finalize Admin Signature' }}
+            <button @click="finalizeAdminCountersign" class="btn btn-primary" :disabled="!hasAdminSignature || !countersignConfirmed || !signedPreviewUrl || loading">
+              {{ loading ? 'Saving…' : 'Save countersignature' }}
             </button>
           </div>
         </div>
@@ -247,7 +250,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, nextTick, watch } from 'vue';
+import { ref, onMounted, onUnmounted, computed, nextTick, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import SignaturePad from '../SignaturePad.vue';
@@ -308,6 +311,18 @@ const hasSignature = ref(false);
 const signatureData = ref('');
 const hasAdminSignature = ref(false);
 const adminSignatureData = ref('');
+const signedPreviewUrl = ref(null);
+const countersignConfirmed = ref(false);
+async function reviewSignedDocument() {
+  loading.value=true;error.value='';
+  try {
+    const {data}=await api.get(`/document-signing/${taskId.value}/view`,{responseType:'blob'});
+    if(signedPreviewUrl.value)URL.revokeObjectURL(signedPreviewUrl.value);
+    signedPreviewUrl.value=URL.createObjectURL(data);
+  } catch { error.value='Could not open the signed document. Please try again before countersigning.'; }
+  finally { loading.value=false; }
+}
+onUnmounted(()=>{if(signedPreviewUrl.value)URL.revokeObjectURL(signedPreviewUrl.value);});
 const pdfUrl = ref(null);
 const displayContent = ref(null);
 const displayType = ref(null);
@@ -1062,7 +1077,7 @@ const closeSession = () => {
 };
 
 const finalizeAdminCountersign = async () => {
-  if (!signingState.value.canCountersign) return;
+  if (!signingState.value.canCountersign || !countersignConfirmed.value || !signedPreviewUrl.value) return;
   if (!hasAdminSignature.value || !adminSignatureData.value) {
     error.value = 'Please provide the admin signature';
     errorDetails.value = null;
@@ -1336,4 +1351,3 @@ watch(fieldValues, () => {
   }
 }
 </style>
-

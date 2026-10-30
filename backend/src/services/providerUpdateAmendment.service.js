@@ -195,19 +195,24 @@ export async function listAmendmentTasksForRecipient({ userId, pushId }) {
   const pid = Number(pushId || 0);
   if (!uid || !pid) return [];
   const [rows] = await pool.execute(
-    `SELECT id, title, status, due_date, completed_at, metadata
-     FROM tasks
-     WHERE assigned_to_user_id = ?
-       AND task_type = 'document'
-       AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.source')) = 'provider_update'
-       AND CAST(JSON_EXTRACT(metadata, '$.pushId') AS UNSIGNED) = ?
-     ORDER BY id DESC`,
+    `SELECT t.id, t.title, t.status, t.due_date, t.completed_at, t.metadata,
+       CASE WHEN t.document_action_type='review' THEN t.status='completed'
+         ELSE (NULLIF(s.signed_pdf_path,'') IS NOT NULL AND s.user_id=t.assigned_to_user_id) END AS provider_completed
+     FROM tasks t LEFT JOIN signed_documents s ON s.task_id=t.id
+     WHERE t.assigned_to_user_id = ?
+       AND t.task_type = 'document'
+       AND COALESCE(t.document_action_type,'signature') <> 'countersignature'
+       AND JSON_EXTRACT(t.metadata,'$.signatureRequestSupersededAt') IS NULL
+       AND JSON_UNQUOTE(JSON_EXTRACT(t.metadata, '$.source')) = 'provider_update'
+       AND CAST(JSON_EXTRACT(t.metadata, '$.pushId') AS UNSIGNED) = ?
+     ORDER BY t.id DESC`,
     [uid, pid]
   );
   return (rows || []).map((r) => ({
     id: r.id,
     title: r.title,
     status: r.status,
+    providerCompleted: Number(r.provider_completed) === 1,
     dueDate: r.due_date,
     completedAt: r.completed_at,
     amendmentMode: (() => {

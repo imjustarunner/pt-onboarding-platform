@@ -154,7 +154,7 @@ export async function persistReviewSection(recipient, key, data, completed) {
   if(key==='amendments'){
     const {listAmendmentTasksForRecipient}=await import('../services/providerUpdateAmendment.service.js');
     const tasks=await listAmendmentTasksForRecipient({userId:recipient.provider_user_id,pushId:recipient.push_id});
-    if(!tasks.length||tasks.some(t=>t.status!=='completed'))throw fail('Your assigned amendment agreement must be signed before this section can be completed.');
+    if(!tasks.length||tasks.some(t=>t.providerCompleted!==true))throw fail('Your assigned amendment agreement must be signed before this section can be completed.');
   }
   await saveProviderReviewProfile(recipient,key,data);
   if(key==='pin'){
