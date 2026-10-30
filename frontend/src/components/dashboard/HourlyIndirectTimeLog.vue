@@ -66,6 +66,7 @@
               type="button"
               class="itl-method"
               :class="{ selected: entryMethod === 'clock' }"
+              v-if="!submitContext"
               @click="chooseEntryMethod('clock')"
             >
               <span class="itl-method-icon" aria-hidden="true">
@@ -585,7 +586,7 @@
                 </li>
               </ul>
               <p v-else-if="autoClaimDetail(s)" class="itl-sub-auto-detail">{{ autoClaimDetail(s) }}</p>
-              <div class="itl-sub-actions">
+              <div v-if="!submitContext" class="itl-sub-actions">
                 <button
                   v-if="canEditSubmission(s)"
                   type="button"
@@ -622,11 +623,14 @@
 </template>
 
 <script setup>
+const api = useSubmitApi();
+const submitContext = useSubmitContext();
+const submitUser = useSubmitUser();
 import FfsExcessTime from '../payroll/FfsExcessTime.vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import EventTravelReportModal from '../events/EventTravelReportModal.vue';
-import api from '../../services/api';
+import { useSubmitApi, useSubmitContext, useSubmitUser } from '../../composables/useSubmitContext';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useUserPreferencesStore } from '../../store/userPreferences';
@@ -705,11 +709,11 @@ function typeKeyOf(t) {
 }
 
 const isHourlyUser = computed(() => {
-  const u = authStore.user || {};
+  const u = submitUser.value || {};
   const raw = u.isHourlyWorker ?? u.is_hourly_worker;
   return raw === true || raw === 1 || raw === '1';
 });
-const isSupervisorUser = computed(() => isSupervisor(authStore.user));
+const isSupervisorUser = computed(() => isSupervisor(submitUser.value));
 const showIndirectColumn = computed(() => {
   if (isHourlyUser.value) return true;
   return (serviceTypes.value || []).some(
@@ -746,7 +750,7 @@ const visibleServiceTypes = computed(() => {
   return out;
 });
 
-const noteAidUsedDuringSession = computed(() => !!indirectSessionStore.noteAidUsedDuringSession);
+const noteAidUsedDuringSession = computed(() => !submitContext && !!indirectSessionStore.noteAidUsedDuringSession);
 
 function parseFeatureFlags(raw) {
   if (!raw) return {};
@@ -758,19 +762,20 @@ function parseFeatureFlags(raw) {
 }
 
 const canUseNoteAid = computed(() => {
-  if (!isNoteAidEmployeeRole(authStore.user?.role)) return false;
+  if (submitContext) return false;
+  if (!isNoteAidEmployeeRole(submitUser.value?.role)) return false;
   const flags = parseFeatureFlags(agencyStore.currentAgency?.feature_flags);
   return isNoteAidEnabledForAgencyFlags(flags);
 });
 const displayTimeZone = computed(() => {
-  const fromPrefs = String(prefsStore.timezone || authStore.user?.timezone || '').trim();
+  const fromPrefs = String(prefsStore.timezone || submitUser.value?.timezone || '').trim();
   if (fromPrefs) return fromPrefs;
   return detectLocalTimezone();
 });
 const todayYmd = new Date().toISOString().slice(0, 10);
 
 const mainTab = ref('enter');
-const entryMethod = ref(null);
+const entryMethod = ref(submitContext ? 'manual' : null);
 const claimDate = ref('');
 const manualStart = ref('');
 const manualEnd = ref('');
@@ -802,6 +807,7 @@ const tickNow = ref(Date.now());
 let tickTimer = null;
 
 function publishSession(next) {
+  if (submitContext) return;
   session.value = next || null;
   const st = String(next?.status || '');
   if (st === 'open' || st === 'on_break') {
@@ -1015,7 +1021,7 @@ function showAllSubmissions() {
 }
 
 const displayName = computed(() => {
-  const u = authStore.user || {};
+  const u = submitUser.value || {};
   const name = [u.first_name || u.firstName, u.last_name || u.lastName].filter(Boolean).join(' ').trim();
   return name || u.email || '';
 });
@@ -1497,7 +1503,7 @@ function submissionCategoryLabel(s) {
 }
 
 function selectionStorageKey() {
-  return agencyId.value ? `itl-selected-types-${agencyId.value}` : null;
+  return agencyId.value ? `itl-selected-types-${agencyId.value}${submitContext ? `-for-${submitContext.employee.id}` : ''}` : null;
 }
 
 function persistSelectedTypes() {
@@ -1585,7 +1591,7 @@ async function loadTypes() {
     adminTime.value = resp.data?.adminTime || null;
     registerActivityCodes(raw);
     serviceTypes.value = raw.filter((t) => !isExcludedIndirectType(t));
-    if (indirectSessionStore.noteAidUsedDuringSession) {
+    if (!submitContext && indirectSessionStore.noteAidUsedDuringSession) {
       restoreSelectedTypes();
       ensureWritingNotesSelected();
     }
@@ -1597,6 +1603,7 @@ async function loadTypes() {
 }
 
 async function loadSession() {
+  if (submitContext) return;
   if (!agencyId.value) return;
   // Prefer handoff from timedown Clock Out (open-session API won't return closed).
   const pending = indirectSessionStore.takePendingClosedSession();
@@ -1631,7 +1638,7 @@ async function clockIn() {
   sessionBusy.value = true;
   error.value = '';
   try {
-    indirectSessionStore.clearNoteAidSessionFlag();
+    if (!submitContext) indirectSessionStore.clearNoteAidSessionFlag();
     try { sessionStorage.removeItem('itl-note-aid-declined-clockin'); } catch { /* ignore */ }
     const resp = await api.post('/payroll/me/indirect-time-session/clock-in', { agencyId: agencyId.value });
     publishSession(resp.data?.session || null);
@@ -1797,7 +1804,7 @@ async function submitTime() {
     const allocations = mergeAllocationsByType(getSubmitAllocations());
     const startTime = sessionBoundsHm.value.start || manualStart.value;
     const endTime = sessionBoundsHm.value.end || manualEnd.value;
-    const usedNoteAid = !!indirectSessionStore.noteAidUsedDuringSession;
+    const usedNoteAid = !submitContext && !!indirectSessionStore.noteAidUsedDuringSession;
     const allocationMode = selectedTypeIds.value.size === 1
       ? 'duration'
       : unrefAllocationMode(panel);
@@ -1851,9 +1858,9 @@ async function submitTime() {
     } catch { /* ignore */ }
     originalClockOutAt.value = null;
     adjustClockOutLocal.value = '';
-    indirectSessionStore.clearNoteAidSessionFlag();
-    indirectSessionStore.clearClockOutAdjust();
-    publishSession(null);
+    if (!submitContext) indirectSessionStore.clearNoteAidSessionFlag();
+    if (!submitContext) indirectSessionStore.clearClockOutAdjust();
+    if (!submitContext) publishSession(null);
     if (createdIds.length) {
       highlightSubmissionIds.value = new Set(createdIds.filter((id) => Number.isFinite(id) && id > 0));
       submissionViewMode.value = 'recent';
@@ -2010,7 +2017,7 @@ watch(
 watch(
   () => [indirectSessionStore.session?.status, indirectSessionStore.session?.breakStartedAt, props.enabled],
   () => {
-    if (!props.enabled) return;
+    if (!props.enabled || submitContext) return;
     const s = indirectSessionStore.session;
     if (s && (s.status === 'open' || s.status === 'on_break')) {
       session.value = s;

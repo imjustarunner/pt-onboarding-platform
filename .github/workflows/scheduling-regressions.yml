@@ -42,8 +42,8 @@ jobs:
           npm ci --prefix frontend --ignore-scripts
       - name: Outreach trips, school history and huddle compensation
         run: |
-          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.outreach-integration.config.js
-          (cd frontend && node node_modules/vitest/vitest.mjs run --config vitest.outreach-integration.config.js)
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.submit-on-behalf.config.js
+          (cd frontend && node node_modules/vitest/vitest.mjs run --config vitest.submit-on-behalf.config.js)
           node --test backend/src/services/__tests__/companyEventParticipation.test.js
       - name: Client Exchange staff review and eligibility
         run: |

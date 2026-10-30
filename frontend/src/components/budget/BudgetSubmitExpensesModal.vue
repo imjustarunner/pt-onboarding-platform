@@ -1,6 +1,7 @@
 <template>
   <div class="modal-overlay" @click.self="$emit('close')">
     <div class="modal budget-submit-modal">
+      <p v-if="submitContext"><strong>Submitting for {{ submitContext.employee.firstName }} {{ submitContext.employee.lastName }}</strong> · You are recorded as the submitter.</p>
       <div class="modal-header">
         <h2>Submit Budget Expenses</h2>
         <button type="button" class="btn-close" @click="$emit('close')" aria-label="Close">&times;</button>
@@ -135,8 +136,10 @@
 </template>
 
 <script setup>
+const api = useSubmitApi();
+const submitContext = useSubmitContext();
 import { ref, computed, watch } from 'vue';
-import api from '../../services/api';
+import { useSubmitApi, useSubmitContext } from '../../composables/useSubmitContext';
 
 const props = defineProps({
   agencyId: { type: [Number, String], required: true },

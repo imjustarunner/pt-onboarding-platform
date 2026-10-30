@@ -237,8 +237,9 @@
 </template>
 
 <script setup>
+const api = useSubmitApi();
 import { ref, computed, onMounted, watch } from 'vue';
-import api from '../../services/api';
+import { useSubmitApi } from '../../composables/useSubmitContext';
 
 const props = defineProps({
   agencyId: { type: [Number, String], default: null },

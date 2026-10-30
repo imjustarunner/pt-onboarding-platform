@@ -21,7 +21,8 @@
 </section>
 </template>
 <script setup>
-import {ref,watch} from 'vue';import api from '../../services/api';
+const api = useSubmitApi();
+import {ref,watch} from 'vue';import { useSubmitApi } from '../../composables/useSubmitContext';
 const props=defineProps({agencyId:[Number,String],userId:[Number,String],editable:Boolean});
 const rows=ref([]),error=ref(''),loading=ref(false),saving=ref(false),adding=ref(false),basis=ref('amount'),endDates=ref({});
 const requestKey=ref(crypto.randomUUID());

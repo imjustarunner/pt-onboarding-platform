@@ -136,7 +136,7 @@ import api from '../../services/api';
 import SignaturePad from '../SignaturePad.vue';
 import { mergeMileage, parseMileagePaste } from '../../utils/accountabilityMileage';
 
-const props = defineProps({ agencyId: { type: [Number, String], default: null } });
+const props = defineProps({ agencyId: { type: [Number, String], default: null }, targetUserId:{type:Number,default:null} });
 const access = ref({}); const expanded = ref(false); const view = ref('expenses'); const busy = ref(false); const error = ref(''); const notice = ref('');
 const report = ref(null); const history = ref([]); const savedData = ref('');
 const selectedMonth = ref(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
@@ -254,7 +254,8 @@ watch(() => props.agencyId, async id => {
   const sequence = ++loadSequence;
   access.value = {}; clearReport(); selectedUser.value = ''; error.value = ''; expanded.value = false;
   try {
-    const list = (await api.get('/accountability/workspaces')).data; if (sequence !== loadSequence) return;
+    const all = (await api.get('/accountability/workspaces')).data; if (sequence !== loadSequence) return;
+    const list = props.targetUserId ? all.filter(w => Number(w.userId) === props.targetUserId && Number(w.agencyId) === Number(id)) : all;
     workspaces.value = list;
     const initial = list.find(w => w.isSelf && w.agencyId === Number(id)) || list.find(w => w.isSelf) || list[0];
     if (!initial) return;

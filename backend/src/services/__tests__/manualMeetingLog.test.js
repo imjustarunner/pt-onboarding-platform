@@ -74,3 +74,15 @@ it('allows a provider-role student intern in the mentor roster and manual log',a
  const options=await manualMeetingOptions(2,477);expect(options.people.some(p=>p.id===979)).toBe(true);
  const b=body();b.people=[{userId:477,minutes:60},{userId:979,minutes:45}];expect(validate(b,options).subtype).toBe('mentorship');
 });
+
+it('records an administrator as submitter while preserving the employee and actual attendees',async()=>{
+ await saveManualMeeting(body(),465,7);
+ const insert=m.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO provider_schedule_events'));
+ expect(insert[1][1]).toBe(465);expect(insert[1][8]).toBe(7);expect(insert[1][9]).toBe(7);
+ const log=m.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO manual_meeting_logs'));
+ expect(log[1][2]).toBe(7);
+ expect(m.write).toHaveBeenCalledWith(expect.objectContaining({updatedByUserId:7,summaryText:expect.stringContaining('on behalf of CPA')}),expect.anything());
+ expect(m.sync).toHaveBeenCalledWith({eventId:100,actorUserId:7});
+ const attendees=m.execute.mock.calls.filter(([sql])=>sql.includes('INSERT INTO manual_meeting_log_attendees')).map(([,args])=>args[1]);
+ expect(attendees).toEqual(expect.arrayContaining([465,11]));expect(attendees).not.toContain(7);
+});

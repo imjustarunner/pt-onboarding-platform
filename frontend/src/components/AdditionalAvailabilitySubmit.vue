@@ -233,9 +233,10 @@
 </template>
 
 <script setup>
+const api = useSubmitApi();
 import { confirmOneTimeRoom } from '../utils/officeRequestConfirmation';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import api from '../services/api';
+import { useSubmitApi } from '../composables/useSubmitContext';
 import {
   OFFICE_ADDITIONAL_AVAILABILITY_ENABLED,
   SKILL_BUILDERS_AVAILABILITY_ENABLED,

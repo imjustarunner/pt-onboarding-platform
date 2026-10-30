@@ -3,7 +3,8 @@
     <p v-if="optionsError" role="alert">Meeting log unavailable. <button type="button" @click="loadOptions">Try again</button></p>
     <div v-else class="launcher"><div><strong>Missing meeting time?</strong><p>App meetings submit time automatically. Use this only for missing claims, in-person meetings, calls, or other meetings outside the app.</p></div><button class="primary" @click="openForm">Log a missed / offline meeting</button></div>
     <dialog ref="dialog" class="meeting-dialog" aria-labelledby="manual-meeting-title" @cancel="cancel">
-      <form v-if="form" @submit.prevent="preview ? save() : check()">
+      <p v-if="submitContext"><strong>Submitting for {{ submitContext.employee.firstName }} {{ submitContext.employee.lastName }}</strong> · You are recorded as the submitter.</p>
+        <form v-if="form" @submit.prevent="preview ? save() : check()">
         <header><img src="/assets/fundthred/icon.svg" alt="FundThred" /><div><small>MEETING ATTENDANCE &amp; PAYROLL</small><h2 id="manual-meeting-title">Log a missed / offline meeting</h2></div><button type="button" aria-label="Close meeting log" :disabled="busy" @click="close">×</button></header>
         <fieldset class="form-content" :disabled="busy || !!result" @input="invalidate" @change="invalidate">
           <p class="notice">List only people who actually attended. Missing claims go to payroll for approval at each person’s applicable meeting rate. Exclude time already covered by admin time, another claim, or a recurring payment. Salaried staff do not receive an extra meeting claim.</p>
@@ -34,8 +35,10 @@
   </section>
 </template>
 <script setup>
+const api = useSubmitApi();
+const submitContext = useSubmitContext();
 import { computed, nextTick, ref, watch } from 'vue';
-import api from '../../services/api';
+import { useSubmitApi, useSubmitContext } from '../../composables/useSubmitContext';
 const props=defineProps({agencyId:[Number,String]});
 const emit=defineEmits(['saved']);
 const options=ref(null), optionsError=ref(false), dialog=ref(null), form=ref(null), selectedPerson=ref(''), preview=ref(null), matches=ref([]), result=ref(null), error=ref(''), busy=ref(false);

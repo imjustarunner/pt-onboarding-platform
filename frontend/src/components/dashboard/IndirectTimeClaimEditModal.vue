@@ -100,8 +100,9 @@
 </template>
 
 <script setup>
+const api = useSubmitApi();
 import { computed, reactive, ref, watch } from 'vue';
-import api from '../../services/api';
+import { useSubmitApi } from '../../composables/useSubmitContext';
 import FfsExcessTime from '../payroll/FfsExcessTime.vue';
 import SupplementalTime from '../payroll/SupplementalTime.vue';
 

@@ -52,8 +52,9 @@
   </section>
 </template>
 <script setup>
+const api = useSubmitApi();
 import { computed, reactive, ref, watch } from 'vue';
-import api from '../../services/api';
+import { useSubmitApi } from '../../composables/useSubmitContext';
 import DocumentationHubTraining from './DocumentationHubTraining.vue';
 const props=defineProps({agencyId:[Number,String],claim:Object});
 const emit=defineEmits(['submitted']);

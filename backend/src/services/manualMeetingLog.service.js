@@ -127,14 +127,14 @@ function publicPreview(review) {
 export async function previewManualMeeting(body,userId) { const input=await prepare(body,userId); return publicPreview(await inspect(input)); }
 
 // Claims use the same event lock and source as automatic attendance; retries never create a second meeting.
-export async function saveManualMeeting(body,userId) {
+export async function saveManualMeeting(body,userId,submittedByUserId=userId) {
   const input=await prepare(body,userId), hash=createHash('sha256').update(JSON.stringify(input)).digest('hex');
   const db=await pool.getConnection(), locks=[];
   let eventId,logId;
   const lock=async key=>{const [rows]=await db.execute('SELECT GET_LOCK(?,10) AS acquired',[key]);if(!Number(rows[0]?.acquired))throw fail(409,'Another meeting is being saved. Please try again.');locks.push(key);};
   try {
     await lock(`manual-meeting:${input.agencyId}`);
-    const [prior]=await db.execute('SELECT * FROM manual_meeting_logs WHERE agency_id=? AND submitted_by_user_id=? AND request_id=?',[input.agencyId,userId,input.requestId]);
+    const [prior]=await db.execute('SELECT * FROM manual_meeting_logs WHERE agency_id=? AND submitted_by_user_id=? AND request_id=?',[input.agencyId,submittedByUserId,input.requestId]);
     if(prior.length){if(prior[0].request_hash!==hash)throw fail(409,'This form was already saved. Open a new log for another meeting.');eventId=prior[0].event_id;logId=prior[0].id;}
     else {
       if(input.eventId)await lock(`meeting-compensation:${input.eventId}`);
@@ -148,16 +148,16 @@ export async function saveManualMeeting(body,userId) {
           (agency_id,provider_id,kind,title,start_at,end_at,event_timezone,meeting_subtype,created_by_user_id,updated_by_user_id,
            platform_video_link,notify_participants,meeting_completed_at,meeting_completed_by_user_id,attendance_tracking_enabled,meeting_settings_json)
           VALUES (?,?,?,?,?,?,?,?,?,?,0,0,?,?,1,?)`,
-          [input.agencyId,input.facilitatorId,input.type==='primary'?'HUDDLE':'TEAM_MEETING',input.title,input.startAt,input.endAt,input.timeZone,input.subtype,userId,userId,input.endAt,userId,JSON.stringify({compensation:true,attendance:true,reminders:[]})]);
+          [input.agencyId,input.facilitatorId,input.type==='primary'?'HUDDLE':'TEAM_MEETING',input.title,input.startAt,input.endAt,input.timeZone,input.subtype,submittedByUserId,submittedByUserId,input.endAt,submittedByUserId,JSON.stringify({compensation:true,attendance:true,reminders:[]})]);
         eventId=created.insertId;
       }
-      const [record]=await db.execute(`INSERT INTO manual_meeting_logs (agency_id,event_id,submitted_by_user_id,request_id,request_hash,platform,reason) VALUES (?,?,?,?,?,?,?)`,[input.agencyId,eventId,userId,input.requestId,hash,input.platform,input.reason]);
+      const [record]=await db.execute(`INSERT INTO manual_meeting_logs (agency_id,event_id,submitted_by_user_id,request_id,request_hash,platform,reason) VALUES (?,?,?,?,?,?,?)`,[input.agencyId,eventId,submittedByUserId,input.requestId,hash,input.platform,input.reason]);
       logId=record.insertId;
       // Preserve existing shared artifacts. Append the author's manual record inside encrypted storage.
       const artifact=await Artifact.findByEventId(eventId,db);
-      const label=`Manually logged by ${input.people.find(p=>p.userId===userId)?.name || 'Staff'} — ${PLATFORMS[input.platform]} — ${REASONS[input.reason]}`;
+      const label=`Manually logged ${submittedByUserId !== userId ? 'by administrator #' + submittedByUserId + ' on behalf of' : 'by'} ${input.people.find(p=>p.userId===userId)?.name || 'Staff'} — ${PLATFORMS[input.platform]} — ${REASONS[input.reason]}`;
       await Artifact.upsertByEventId({eventId,summaryText:[artifact?.summary_text,label,input.summary].filter(Boolean).join('\n\n'),
-        ...(input.transcript?{transcriptText:[artifact?.transcript_text,input.transcript].filter(Boolean).join('\n\n')}:{}),summaryModel:'manual',updatedByUserId:userId},db);
+        ...(input.transcript?{transcriptText:[artifact?.transcript_text,input.transcript].filter(Boolean).join('\n\n')}:{}),summaryModel:'manual',updatedByUserId:submittedByUserId},db);
       for(const person of review.attendees){
         await db.execute('INSERT INTO manual_meeting_log_attendees (log_id,user_id,minutes,claim_policy,covered_claim_id) VALUES (?,?,?,?,?)',[logId,person.userId,person.minutes,person.policy,person.claimId]);
         await db.execute('INSERT IGNORE INTO provider_schedule_event_attendees (event_id,user_id) VALUES (?,?)',[eventId,person.userId]);
@@ -168,11 +168,11 @@ export async function saveManualMeeting(body,userId) {
           await db.execute(`INSERT INTO agency_meeting_attendance_rollups (event_id,user_id,total_seconds,synced_at) VALUES (?,?,?,NOW()) ON DUPLICATE KEY UPDATE total_seconds=VALUES(total_seconds),synced_at=NOW()`,[eventId,person.userId,person.minutes*60]);
         }
       }
-      await queueMeetingRecordNotice(db,{type:'team',id:eventId,kind:'manual',sourceId:logId,actorUserId:userId});
+      await queueMeetingRecordNotice(db,{type:'team',id:eventId,kind:'manual',sourceId:logId,actorUserId:submittedByUserId});
       await db.commit();
     }
   }catch(e){await db.rollback();throw e;}finally{for(const key of locks.reverse())await db.execute('SELECT RELEASE_LOCK(?)',[key]);db.release();}
-  const sync=await syncCompensationClaimsForEvent({eventId,actorUserId:userId});
+  const sync=await syncCompensationClaimsForEvent({eventId,actorUserId:submittedByUserId});
   const [attendees]=await pool.execute(`SELECT a.user_id AS userId,a.claim_policy AS policy,CONCAT_WS(' ',u.first_name,u.last_name) AS name
     FROM manual_meeting_log_attendees a JOIN users u ON u.id=a.user_id WHERE a.log_id=?`,[logId]);
   return {eventId,logId,created:sync.created || 0,syncPending:!sync.ok || sync.error==='sync_in_progress',attendees:attendees.map(p=>({...p,result:sync.results?.find(r=>r.userId===Number(p.userId))?.error || null}))};

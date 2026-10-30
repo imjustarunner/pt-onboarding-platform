@@ -1,5 +1,5 @@
 import { computed, ref, watch } from 'vue';
-import api from '../services/api';
+import { useSubmitApi } from '../composables/useSubmitContext';
 import {
   groupSubmissionHistory,
   normalizeBudgetExpenses,
@@ -18,6 +18,7 @@ import {
  * Load the current user's payroll-style submissions for the Submit hub history column.
  */
 export function useSubmitSubmissionHistory({ agencyId, userId, flags, enabled }) {
+  const api = useSubmitApi();
   const loading = ref(false);
   const error = ref('');
   const items = ref([]);
@@ -88,7 +89,8 @@ export function useSubmitSubmissionHistory({ agencyId, userId, flags, enabled })
         );
       }
 
-      await Promise.allSettled(tasks);
+      const results = await Promise.allSettled(tasks);
+      if (results.some(result => result.status === 'rejected')) error.value = 'Some submission history could not load. Please refresh.';
       collected.push(...normalizeEventTravelClaims(timeRows, mileageRows));
       items.value = collected;
     } catch (e) {

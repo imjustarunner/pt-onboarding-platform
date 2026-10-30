@@ -2,6 +2,7 @@
   <Teleport to="body">
   <div class="modal-overlay" @click.self="$emit('close')">
     <div class="modal company-car-mileage-modal" style="width: min(560px, 100%);">
+      <p v-if="submitContext"><strong>Submitting for {{ submitContext.employee.firstName }} {{ submitContext.employee.lastName }}</strong> · You are recorded as the submitter.</p>
       <div class="modal-header">
         <h2>{{ editTrip ? 'Edit trip' : 'Company Car Mileage' }}</h2>
         <button type="button" class="btn-close" @click="$emit('close')" aria-label="Close">&times;</button>
@@ -136,8 +137,10 @@
 </template>
 
 <script setup>
+const api = useSubmitApi();
+const submitContext = useSubmitContext();
 import { ref, computed, watch } from 'vue';
-import api from '../../services/api';
+import { useSubmitApi, useSubmitContext } from '../../composables/useSubmitContext';
 import { useAuthStore } from '../../store/auth';
 import AddressSearchSelect from './AddressSearchSelect.vue';
 
@@ -297,7 +300,7 @@ async function loadCars() {
 async function loadStartLocations() {
   try {
     const params = { agencyId: props.agencyId };
-    const driverId = props.manageAccess ? form.value.userId : authStore.user?.id;
+    const driverId = submitContext?.employee.id || (props.manageAccess ? form.value.userId : authStore.user?.id);
     if (driverId) params.driverId = driverId;
     const res = await api.get('/company-car/start-locations', { params });
     startLocations.value = res.data?.startLocations || [];

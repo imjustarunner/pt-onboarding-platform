@@ -25,7 +25,8 @@
 </section>
 </template>
 <script setup>
-import {ref,computed,watch} from 'vue';import api from '../../services/api';
+const api = useSubmitApi();
+import {ref,computed,watch} from 'vue';import { useSubmitApi } from '../../composables/useSubmitContext';
 const props=defineProps({agencyId:[Number,String],context:Object,claim:Object,codes:{type:Array,default:()=>[]}});const emit=defineEmits(['submitted','close']);
 const editReason=ref('');
 const mode=ref(''),code=ref('H0004'),units=ref(20),actual=ref(0),minutes=ref(15),description=ref(''),purpose=ref(''),attested=ref(false),saving=ref(false),error=ref(''),success=ref('');

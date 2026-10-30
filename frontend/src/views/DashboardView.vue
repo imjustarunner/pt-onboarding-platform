@@ -990,7 +990,9 @@
             class="my-panel my-panel--submit-hub"
             data-tour="dash-submit-panel"
           >
-            <SubmitPanelTab
+            <SubmitEmployeePicker v-if="canSubmitForEmployee" :agency-id="currentAgencyId" :selected="submitEmployee" @select="submitEmployee = $event" />
+            <EmployeeSubmitWorkspace v-if="canSubmitForEmployee && submitEmployee" :key="`${currentAgencyId}:${submitEmployee.id}`" :agency-id="Number(currentAgencyId)" :employee="submitEmployee" :agency-flags="agencyFlags" />
+            <SubmitPanelTab v-else
               ref="submitPanelRef"
               v-model:view="submitPanelView"
               :agency-id="currentAgencyId"
@@ -1397,6 +1399,8 @@ import UnifiedChecklistTab from '../components/dashboard/UnifiedChecklistTab.vue
 import { useMomentumListAddon } from '../composables/useMomentumListAddon';
 import DashboardOverviewHome from '../components/dashboard/DashboardOverviewHome.vue';
 import HourlyIndirectTimeLog from '../components/dashboard/HourlyIndirectTimeLog.vue';
+import SubmitEmployeePicker from '../components/dashboard/SubmitEmployeePicker.vue';
+import EmployeeSubmitWorkspace from '../components/dashboard/EmployeeSubmitWorkspace.vue';
 import PendingCompletionButton from '../components/PendingCompletionButton.vue';
 import BrandingLogo from '../components/BrandingLogo.vue';
 import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilityGrid.vue';
@@ -5015,6 +5019,9 @@ const syncFromQuery = () => {
   }
 };
 
+const canSubmitForEmployee = computed(() => ['admin', 'super_admin'].includes(authStore.user?.role));
+const submitEmployee = ref(null);
+watch([currentAgencyId, canSubmitForEmployee], () => { submitEmployee.value = null; });
 const submitPanelView = ref('root'); // 'root' | 'in_school' | 'time' | 'availability' | 'virtual_hours' | 'company_car'
 const submitPanelRef = ref(null);
 

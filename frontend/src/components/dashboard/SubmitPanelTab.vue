@@ -11,7 +11,7 @@
       <SupplementalTime :agency-id="agencyId" :context="compensation?.submission" :codes="compensation?.codeGuide" @submitted="refreshHistory" />
       <p v-if="retiredMedcancel" class="submit-hub__sub-hint">School missed-session benefits now use earned School Support Hours. Request them from the leave balances in My Payroll. Prior-period Medicaid no-show records remain in pay history.</p>
       <RecurringPayments :agency-id="agencyId" />
-      <AccountabilityWorkspace :agency-id="agencyId" />
+      <AccountabilityWorkspace :agency-id="agencyId" :target-user-id="submitContext?.employee.id" />
       <PayCalculatorCard :agency-id="agencyId" :start-expanded="false" />
 
       <button
@@ -152,7 +152,7 @@
 
     <div v-else-if="view === 'virtual_hours'" class="submit-hub__embed">
       <p v-if="!agencyId" class="submit-hub__warn">Select an organization from the brand menu (top left) to continue.</p>
-      <VirtualWorkingHoursEditor v-else :agency-id="Number(agencyId)" />
+      <VirtualWorkingHoursEditor v-else :agency-id="Number(agencyId)" :provider-id="submitContext?.employee.id" />
     </div>
 
     <div v-else-if="view === 'company_car'" class="submit-hub__embed">
@@ -169,10 +169,12 @@
 </template>
 
 <script setup>
+const api = useSubmitApi();
+const submitContext = useSubmitContext();
 import ManualMeetingLog from '../meetings/ManualMeetingLog.vue';
 import RecurringPayments from '../payroll/RecurringPayments.vue';
 import { computed, toRef, ref, watch } from 'vue';
-import api from '../../services/api';
+import { useSubmitApi, useSubmitContext } from '../../composables/useSubmitContext';
 import SupplementalTime from '../payroll/SupplementalTime.vue';
 import SubmitHubPanel from './SubmitHubPanel.vue';
 import AccountabilityWorkspace from './AccountabilityWorkspace.vue';

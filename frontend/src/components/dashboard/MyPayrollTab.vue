@@ -1,5 +1,6 @@
 <template>
   <PayrollHubPanel
+    v-if="!submitContext"
     title="FundThred · My Payroll"
     subtitle="Pay history, submissions, and balances for the selected organization."
     :loading="loading"
@@ -619,7 +620,7 @@
       </PayrollHubSection>
 
       <PayrollHubSection
-        v-if="authStore.user?.medcancelEnabled && medcancelEnabledForAgency"
+        v-if="submitUser?.medcancelEnabled && medcancelEnabledForAgency"
         section-id="medcancel"
         :open="true"
         :item-count="(medcancelClaims || []).length"
@@ -755,7 +756,7 @@
       </PayrollHubSection>
 
       <PayrollHubSection
-        v-if="authStore.user?.companyCardEnabled"
+        v-if="submitUser?.companyCardEnabled"
         section-id="company_card"
         :open="true"
         :item-count="(companyCardExpenses || []).length"
@@ -1044,7 +1045,8 @@
   <Teleport to="body">
     <div v-if="showEventTimeEditModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closeEventTimeEdit">
       <div class="modal fundthred-dialog" style="width: min(520px, 100%);">
-        <div class="modal-header">
+        <p v-if="submitContext" class="hint"><strong>Submitting for {{ submitUser.firstName }} {{ submitUser.lastName }}</strong> · You are recorded as the submitter.</p>
+      <div class="modal-header">
           <div>
             <div class="modal-title">Edit event time</div>
             <div class="hint" v-if="eventTimeEditTarget">{{ eventTimeEditTarget.eventTitle || 'Event' }}</div>
@@ -1104,6 +1106,7 @@
   <Teleport to="body">
     <div v-if="showMileageModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closeMileageModal">
     <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
+      <p v-if="submitContext" class="hint"><strong>Submitting for {{ submitUser.firstName }} {{ submitUser.lastName }}</strong> · You are recorded as the submitter.</p>
       <div class="modal-header">
         <div>
           <div class="modal-title">{{ mileageForm.claimType === 'school_travel' ? 'Submit Mileage' : 'Submit Mileage Claim' }}</div>
@@ -1412,6 +1415,7 @@
   <Teleport to="body">
   <div v-if="showMedcancelModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closeMedcancelModal">
     <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
+      <p v-if="submitContext" class="hint"><strong>Submitting for {{ submitUser.firstName }} {{ submitUser.lastName }}</strong> · You are recorded as the submitter.</p>
       <div class="modal-header">
         <div>
           <div class="modal-title">Submit Med Cancel</div>
@@ -1513,6 +1517,7 @@
   <Teleport to="body">
   <div v-if="showPtoChooser" class="modal-backdrop fundthred-modal-backdrop" @click.self="closePtoChooserModal">
     <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
+      <p v-if="submitContext" class="hint"><strong>Submitting for {{ submitUser.firstName }} {{ submitUser.lastName }}</strong> · You are recorded as the submitter.</p>
       <div class="modal-header">
         <div>
           <div class="modal-title">Request earned hours</div>
@@ -1577,6 +1582,7 @@
   <!-- PTO: Sick Leave request modal -->
   <div v-if="showPtoSickModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closePtoSick">
     <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
+      <p v-if="submitContext" class="hint"><strong>Submitting for {{ submitUser.firstName }} {{ submitUser.lastName }}</strong> · You are recorded as the submitter.</p>
       <div class="modal-header">
         <div>
           <div class="modal-title">{{ ptoDateRequestType === 'school_support' ? 'Request School Support Hours' : 'PTO Request — Sick Leave' }}</div>
@@ -1645,6 +1651,7 @@
   <!-- PTO: Training PTO request modal -->
   <div v-if="showPtoTrainingModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closePtoTraining">
     <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
+      <p v-if="submitContext" class="hint"><strong>Submitting for {{ submitUser.firstName }} {{ submitUser.lastName }}</strong> · You are recorded as the submitter.</p>
       <div class="modal-header">
         <div>
           <div class="modal-title">PTO Request — Training PTO</div>
@@ -1727,6 +1734,7 @@
   <Teleport to="body">
   <div v-if="showReimbursementModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closeReimbursementModal">
     <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
+      <p v-if="submitContext" class="hint"><strong>Submitting for {{ submitUser.firstName }} {{ submitUser.lastName }}</strong> · You are recorded as the submitter.</p>
       <div class="modal-header">
         <div>
           <div class="modal-title">{{ editingReimbursementClaimId ? 'Edit + Resubmit Reimbursement' : 'Submit Reimbursement' }}</div>
@@ -1870,6 +1878,7 @@
   <Teleport to="body">
   <div v-if="showCompanyCardExpenseModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closeCompanyCardExpenseModal">
     <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
+      <p v-if="submitContext" class="hint"><strong>Submitting for {{ submitUser.firstName }} {{ submitUser.lastName }}</strong> · You are recorded as the submitter.</p>
       <div class="modal-header">
         <div>
           <div class="modal-title">{{ editingCompanyCardExpenseId ? 'Edit + Resubmit Expense (Company Card)' : 'Submit Expense (Company Card)' }}</div>
@@ -1993,6 +2002,7 @@
   <Teleport to="body">
   <div v-if="showTimeMeetingModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closeTimeMeetingModal">
     <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
+      <p v-if="submitContext" class="hint"><strong>Submitting for {{ submitUser.firstName }} {{ submitUser.lastName }}</strong> · You are recorded as the submitter.</p>
       <div class="modal-header">
         <div>
           <div class="modal-title">Time Claim — Meeting / Training / Outreach</div>
@@ -2108,6 +2118,7 @@
   </div>
   <div v-if="showTimeExcessModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closeTimeExcessModal">
     <div class="modal fundthred-dialog" style="width: min(800px, 100%);">
+      <p v-if="submitContext" class="hint"><strong>Submitting for {{ submitUser.firstName }} {{ submitUser.lastName }}</strong> · You are recorded as the submitter.</p>
       <div class="modal-header">
         <div>
           <div class="modal-title">Time Claim — Excess Time</div>
@@ -2199,6 +2210,7 @@
   </div>
   <div v-if="showTimeCorrectionModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closeTimeCorrectionModal">
     <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
+      <p v-if="submitContext" class="hint"><strong>Submitting for {{ submitUser.firstName }} {{ submitUser.lastName }}</strong> · You are recorded as the submitter.</p>
       <div class="modal-header">
         <div>
           <div class="modal-title">Time Claim — Service Correction</div>
@@ -2265,6 +2277,7 @@
   </div>
   <div v-if="showTimeOvertimeModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closeTimeOvertimeModal">
     <div class="modal fundthred-dialog" style="width: min(720px, 100%);">
+      <p v-if="submitContext" class="hint"><strong>Submitting for {{ submitUser.firstName }} {{ submitUser.lastName }}</strong> · You are recorded as the submitter.</p>
       <div class="modal-header">
         <div>
           <div class="modal-title">Time Claim — Overtime Evaluation</div>
@@ -2384,6 +2397,7 @@
   <!-- Jury Duty Modal -->
   <div v-if="showJuryDutyModal" class="modal-backdrop fundthred-modal-backdrop" @click.self="closeJuryDutyModal">
     <div class="modal fundthred-dialog" style="width: min(560px, 100%);">
+      <p v-if="submitContext" class="hint"><strong>Submitting for {{ submitUser.firstName }} {{ submitUser.lastName }}</strong> · You are recorded as the submitter.</p>
       <div class="modal-header">
         <div>
           <div class="modal-title">Time Claim — Jury Duty</div>
@@ -2453,11 +2467,14 @@
 </template>
 
 <script setup>
+const api = useSubmitApi();
+const submitContext = useSubmitContext();
+const submitUser = useSubmitUser();
 import { automaticClaimLabel } from '../../utils/payrollClaimDisplay';
 import RecurringPayments from '../payroll/RecurringPayments.vue';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import api from '../../services/api';
+import { useSubmitApi, useSubmitContext, useSubmitUser } from '../../composables/useSubmitContext';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import PayrollStatementBrand from '../payroll/PayrollStatementBrand.vue';
@@ -2523,7 +2540,7 @@ const timeClaimServiceCorrectionEnabled = computed(() => agencyFlags.value?.time
 /** When false, omit Therapy Notes attestation on overtime evaluation. Default: enabled (ask). */
 const overtimeTherapyNotesAttestationEnabled = computed(() => agencyFlags.value?.overtimeTherapyNotesAttestationEnabled !== false);
 
-const userId = computed(() => authStore.user?.id || null);
+const userId = computed(() => submitUser.value?.id || null);
 
 const submitterLabel = (row) => {
   if (automaticClaimLabel(row)) return automaticClaimLabel(row);
@@ -2549,6 +2566,7 @@ const mileageClaimRowClass = (c) => {
 };
 
 const agencyId = computed(() => {
+  if (submitContext) return Number(submitContext.agencyId);
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
   // `currentAgency` is persisted to localStorage and can be hydrated; ensure we always return a plain number id.
   // Some call sites depend on this for query params (backend requires `agencyId`).
@@ -2559,7 +2577,7 @@ const agencyId = computed(() => {
 
 const OFFICE_STAFF_ROLES = ['staff', 'admin', 'support', 'clinical_practice_assistant', 'supervisor'];
 const isOfficeStaff = computed(() => {
-  const r = String(authStore.user?.role || '').trim().toLowerCase();
+  const r = String(submitUser.value?.role || '').trim().toLowerCase();
   return OFFICE_STAFF_ROLES.includes(r);
 });
 
@@ -2645,7 +2663,7 @@ const refreshPayrollHub = async () => {
   await loadMileageClaims();
   await loadMileageSchools();
   await loadMileageAssignedOffices();
-  if (authStore.user?.medcancelEnabled && medcancelEnabledForAgency.value) {
+  if (submitUser.value?.medcancelEnabled && medcancelEnabledForAgency.value) {
     await loadMedcancelPolicy();
     await loadMedcancelClaims();
   }
@@ -3177,7 +3195,7 @@ const dateYmd = (v) => {
 };
 
 const medcancelEstimatedAmount = computed(() => {
-  const schedule = String(authStore.user?.medcancelRateSchedule || '').toLowerCase();
+  const schedule = String(submitUser.value?.medcancelRateSchedule || '').toLowerCase();
   const items = Array.isArray(medcancelForm.value.items) ? medcancelForm.value.items : [];
   const pol = medcancelPolicy.value?.policy || medcancelPolicy.value || null;
   const scheduleRates =
@@ -3194,7 +3212,7 @@ const medcancelEstimatedAmount = computed(() => {
 });
 
 const medcancelEstimatedAmountForClaim = (c) => {
-  const schedule = String(authStore.user?.medcancelRateSchedule || '').toLowerCase();
+  const schedule = String(submitUser.value?.medcancelRateSchedule || '').toLowerCase();
   const pol = medcancelPolicy.value?.policy || medcancelPolicy.value || null;
   const scheduleRates =
     schedule === 'high'
@@ -4100,7 +4118,7 @@ const loadReimbursementClaims = async () => {
 
 const loadCompanyCardExpenses = async () => {
   if (!agencyId.value) return;
-  if (!authStore.user?.companyCardEnabled) return;
+  if (!submitUser.value?.companyCardEnabled) return;
   try {
     companyCardExpensesLoading.value = true;
     companyCardExpensesError.value = '';
@@ -5445,7 +5463,7 @@ watch(agencyId, async () => {
   await loadMileageSchools();
   await loadMileageOffices();
   await loadMileageAssignedOffices();
-  if (authStore.user?.medcancelEnabled && medcancelEnabledForAgency.value) {
+  if (submitUser.value?.medcancelEnabled && medcancelEnabledForAgency.value) {
     await loadMedcancelPolicy();
     await loadMedcancelClaims();
   } else {
@@ -5465,7 +5483,7 @@ watch(agencyId, async () => {
 watch(
   () => route.query?.submission,
   async (v) => {
-    if (!v) return;
+    if (!v || submitContext) return;
     await nextTick();
     const key = String(v || '');
     let opened = false;
@@ -5483,7 +5501,7 @@ watch(
         await openMileageModal('standard');
         opened = true;
       } else if (key === 'medcancel') {
-        if (!authStore.user?.medcancelEnabled || !medcancelEnabledForAgency.value) {
+        if (!submitUser.value?.medcancelEnabled || !medcancelEnabledForAgency.value) {
           submitMedcancelError.value = 'Med Cancel is disabled for this organization.';
           return;
         }
@@ -5544,7 +5562,7 @@ onMounted(async () => {
   await loadMileageSchools();
   await loadMileageClaims();
   await loadMileageAssignedOffices();
-  if (authStore.user?.medcancelEnabled && medcancelEnabledForAgency.value) {
+  if (submitUser.value?.medcancelEnabled && medcancelEnabledForAgency.value) {
     await loadMedcancelPolicy();
     await loadMedcancelClaims();
   }
@@ -5593,6 +5611,8 @@ onMounted(async () => {
     else if (t === 'overtime') openTimeOvertimeModal();
     else if (t === 'jury_duty') openJuryDutyModal();
   }
+
+  if (submitContext) return;
 
   // Fallback: if submission param is in URL but modal didn't open (e.g. route timing), open it now.
   const sub = String(route.query?.submission || '').trim();

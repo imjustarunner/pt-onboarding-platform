@@ -3,6 +3,7 @@ import { getMyFfsExcessOptions } from '../controllers/ffsExcessTime.controller.j
 import { getTimeClaimMeetingAttendance } from '../controllers/payroll.controller.js';
 import { listRecurringPayments, saveRecurringPayment, stopRecurringPayment } from '../controllers/payroll.controller.js';
 import express from 'express';
+import submitOnBehalfRoutes from './submitOnBehalf.routes.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
   listCompensationLevels,
@@ -259,6 +260,7 @@ import {
 const router = express.Router();
 
 router.use(authenticate);
+router.use('/submit-for', submitOnBehalfRoutes);
 router.get('/event-travel-reports/:id', getPayrollEventTravelReport);
 router.put('/event-travel-reports/:id/review', reviewPayrollEventTravelReport);
 
