@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import { computeLineAmount, loadUserPaySystemContext } from './paySystem.service.js';
+import { classifyPayType } from './payrollCodeClassification.js';
 import { classifySchoolServiceEvidence, isPayableSchoolReportRow, schoolBasisFromApprovedLine } from '../utils/schoolClientLeaveBasis.js';
 
 export { classifySchoolServiceEvidence } from '../utils/schoolClientLeaveBasis.js';
@@ -45,7 +46,7 @@ export async function resolveSchoolClientRowEvidence({ agencyId, payrollImportId
 /** Only the latest report snapshot contributes. Missing evidence remains a visible review, not a zero accrual. */
 export async function computeSchoolClientLeaveBasis({ agencyId, userId, payrollPeriodId, periodStart, periodEnd, db = pool, loadContext = loadUserPaySystemContext, calculateLine = computeLineAmount }) {
   const [[latestImport]] = await db.execute('SELECT id FROM payroll_imports WHERE agency_id=? AND payroll_period_id=? ORDER BY created_at DESC,id DESC LIMIT 1', [agencyId, payrollPeriodId]);
-  const coverage = { importId: latestImport?.id || null, reportRows: 0, payableRows: 0, schoolRows: 0, excludedRows: 0, nonpayableRows: 0, reviewRows: 0 };
+  const coverage = { importId: latestImport?.id || null, reportRows: 0, payableRows: 0, schoolRows: 0, excludedRows: 0, nonpayableRows: 0, reviewRows: 0, carryoverReviewItems: 0, quantityOverrideReviewItems: 0 };
   const totals = { basisHours: 0, directServiceHours: 0, clinicalAdministrativeEquivalentHours: 0, automaticIndirectHours: 0 };
   const reviewReasons = [];
   if (!latestImport) return { ...totals, complete: false, coverage, reviewReasons: [{ code: 'billing_import_missing' }], provenance: 'verified_school_client_service_rows_v1' };
@@ -55,6 +56,31 @@ export async function computeSchoolClientLeaveBasis({ agencyId, userId, payrollP
     WHERE r.agency_id=? AND r.payroll_period_id=? AND r.payroll_import_id=? AND r.user_id=? AND r.service_date BETWEEN ? AND ? ORDER BY r.service_date,r.id`, [agencyId, payrollPeriodId, latestImport.id, userId, date(periodStart), date(periodEnd)]);
   const [rules] = await db.execute('SELECT * FROM payroll_service_code_rules WHERE agency_id=?', [agencyId]);
   const rulesByCode = new Map(rules.map(rule => [code(rule.service_code), rule]));
+  // Payroll can add carryovers or replace aggregate quantities without retaining a
+  // school/client allocation. Never pretend the raw report alone explains those paid units.
+  const [carryovers] = await db.execute('SELECT service_code,carryover_finalized_units FROM payroll_stage_carryovers WHERE agency_id=? AND payroll_period_id=? AND user_id=? AND carryover_finalized_units>0', [agencyId, payrollPeriodId, userId]);
+  const [overrides] = await db.execute('SELECT service_code,finalized_units FROM payroll_staging_overrides WHERE agency_id=? AND payroll_period_id=? AND user_id=?', [agencyId, payrollPeriodId, userId]);
+  const rawPayableByCode = new Map();
+  for (const row of rows) if (isPayableSchoolReportRow(row)) {
+    const key = code(row.service_code);
+    rawPayableByCode.set(key, (rawPayableByCode.get(key) || 0) + Number(row.unit_count || 0));
+  }
+  const confidentNonService = serviceCode => {
+    const rule = rulesByCode.get(code(serviceCode));
+    return !!rule && ['indirect', 'support_activity', 'skip', 'flat'].includes(classifyPayType(serviceCode, rule));
+  };
+  for (const carryover of carryovers) {
+    const serviceCode = code(carryover.service_code), quantity = Number(carryover.carryover_finalized_units);
+    if (!(quantity > 0) || confidentNonService(serviceCode)) continue;
+    coverage.carryoverReviewItems++;
+    reviewReasons.push({ code: 'school_carryover_attribution_required', serviceCode, quantity, ...(!rulesByCode.has(serviceCode) ? { reasonCodes: ['approved_code_mapping_missing'] } : {}) });
+  }
+  for (const override of overrides) {
+    const serviceCode = code(override.service_code), quantity = Number(override.finalized_units || 0), rawQuantity = rawPayableByCode.get(serviceCode) || 0;
+    if ((Number.isFinite(quantity) && Math.abs(quantity - rawQuantity) <= 1e-8) || confidentNonService(serviceCode)) continue;
+    coverage.quantityOverrideReviewItems++;
+    reviewReasons.push({ code: 'school_quantity_override_attribution_required', serviceCode, rawQuantity, overrideQuantity: Number.isFinite(quantity) ? quantity : null, ...(!rulesByCode.has(serviceCode) ? { reasonCodes: ['approved_code_mapping_missing'] } : {}) });
+  }
   const contexts = new Map();
   for (const row of rows) {
     coverage.reportRows++;
@@ -92,7 +118,7 @@ export async function computeSchoolClientLeaveBasis({ agencyId, userId, payrollP
     }
   }
   for (const key of Object.keys(totals)) totals[key] = Math.round(totals[key] * 1e6) / 1e6;
-  return { ...totals, complete: coverage.reviewRows === 0, coverage, reviewReasons, provenance: 'verified_school_client_service_rows_v1' };
+  return { ...totals, complete: coverage.reviewRows === 0 && coverage.carryoverReviewItems === 0 && coverage.quantityOverrideReviewItems === 0, coverage, reviewReasons, basisScope: 'raw_import_rows_only', provenance: 'verified_school_client_service_rows_v1' };
 }
 
 // Future app-native adapter: provide the same confirmed client + actual service-site evidence
