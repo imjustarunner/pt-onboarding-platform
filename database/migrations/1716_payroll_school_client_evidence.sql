@@ -1,0 +1,25 @@
+-- Row-level school evidence is independent of clinical-session creation.
+CREATE TABLE IF NOT EXISTS payroll_school_client_evidence (
+ payroll_import_row_id INT NOT NULL PRIMARY KEY,
+ agency_id INT NOT NULL,
+ payroll_import_id INT NOT NULL,
+ payroll_period_id INT NOT NULL,
+ source_row_number INT NULL,
+ user_id INT NULL,
+ service_date DATE NULL,
+ client_id INT NULL,
+ match_status VARCHAR(32) NOT NULL,
+ match_method VARCHAR(64) NULL,
+ school_service TINYINT(1) NOT NULL DEFAULT 0,
+ school_organization_id INT NULL,
+ service_location_id INT NULL,
+ reported_place_of_service CHAR(2) NULL,
+ evidence_status VARCHAR(32) NOT NULL,
+ reason_codes_json JSON NOT NULL,
+ classified_by_user_id INT NULL,
+ classified_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+ KEY idx_school_evidence_period_user (agency_id,payroll_period_id,user_id),
+ KEY idx_school_evidence_client (agency_id,client_id),
+ CONSTRAINT fk_school_evidence_import_row FOREIGN KEY (payroll_import_row_id) REFERENCES payroll_import_rows(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
