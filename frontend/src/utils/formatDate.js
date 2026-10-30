@@ -12,6 +12,21 @@ function getStore() {
   }
 }
 
+/** Audit instants are UTC; calendar-only fields must never acquire a time. */
+export function formatAuditTimestamp(value, { timeZone, locale = 'en-US', dateOnly = false } = {}) {
+  if (!value || (value instanceof Date && !Number.isFinite(+value))) return '';
+  const raw = value instanceof Date ? value.toISOString() : String(value).trim();
+  if (dateOnly || /^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const date = new Date(`${raw.slice(0, 10)}T12:00:00Z`);
+    return Number.isFinite(+date) ? new Intl.DateTimeFormat(locale, {timeZone:'UTC',year:'numeric',month:'short',day:'numeric'}).format(date) : '';
+  }
+  const date = new Date(/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(raw) ? `${raw.replace(' ', 'T')}Z` : raw);
+  if (!Number.isFinite(+date)) return '';
+  let zone = timeZone || getStore()?.timezone || 'America/Denver';
+  try { new Intl.DateTimeFormat(locale, {timeZone:zone}).format(date); } catch { zone = 'America/Denver'; }
+  return new Intl.DateTimeFormat(locale, {timeZone:zone,year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}).format(date);
+}
+
 /**
  * Get Intl options for date formatting based on user preferences.
  */

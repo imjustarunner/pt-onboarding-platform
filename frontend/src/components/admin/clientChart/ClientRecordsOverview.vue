@@ -261,6 +261,7 @@
 </template>
 
 <script setup>
+import { formatAuditTimestamp } from '../../../utils/formatDate';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import api from '../../../services/api';
@@ -439,7 +440,7 @@ const activityRows = computed(() => {
 function formatWhen(v) {
   if (!v) return '—';
   try {
-    return new Date(v).toLocaleString();
+    return formatAuditTimestamp(v);
   } catch {
     return String(v);
   }
@@ -448,7 +449,7 @@ function formatWhen(v) {
 function formatDate(v) {
   if (!v) return '—';
   try {
-    return new Date(v).toLocaleDateString();
+    return formatAuditTimestamp(v, {dateOnly:true});
   } catch {
     return String(v);
   }

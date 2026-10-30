@@ -29,3 +29,9 @@ it('discards a stale school username handoff before rendering the agency form',a
  await render();expect(wrapper.vm.username).toBe('');
  expect(post.mock.calls.some(([url])=>url.includes('identify'))).toBe(false);
 });
+it('does not prefill the last family or provider on the shared demo portal even when remembered',async()=>{
+ setRememberedLogin({username:'last.family@example.test',orgSlug:'auricwell-qa-demo'});
+ sessionStorage.setItem('__pt_login_pending_username__','last.provider@example.test');
+ await render();expect(wrapper.vm.username).toBe('');
+ expect(replace.mock.calls.some(([target])=>JSON.stringify(target).includes('example.test'))).toBe(false);
+});

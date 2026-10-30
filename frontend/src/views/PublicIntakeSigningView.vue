@@ -4597,6 +4597,7 @@ const intakeLocale = computed(() => {
 });
 
 provide('intakeLocale', intakeLocale);
+provide('intakeTimeZone', computed(() => link.value?.scheduling_timezone || 'America/Denver'));
 provide('enrollmentTranslate', text => translateJoinEnrollment(text, intakeLocale.value));
 
 const spanishClarificationStep = computed(() => {

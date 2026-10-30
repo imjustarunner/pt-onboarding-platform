@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{},onTableWrite:vi.fn()}));
 vi.mock('../../models/IntakeSubmission.model.js',()=>({default:{}}));
+vi.mock('../../models/IntakeLink.model.js',()=>({default:{}}));
 vi.mock('../../models/Agency.model.js',()=>({default:{}}));
 vi.mock('../../models/UserCommunication.model.js',()=>({default:{}}));
 vi.mock('../../models/Task.model.js',()=>({default:{}}));
@@ -13,7 +14,7 @@ beforeEach(()=>{
  cp={agencyId:2,emailNoticeVersion:ENROLLMENT_EMAIL_NOTICE_VERSION,signatureAccepted:true,signedAt:'2026-10-28T12:00:00Z',emailPreference:'no',smsPreference:'no',noRoutineCalls:false,noAutomaticEmail:false};
  submission={id:10,intake_link_id:3,status:'submitted',signer_email:message.to,client_id:8,guardian_user_id:20,intake_data:{submission:{communicationPreferences:cp}}};
  records=[];chain=Promise.resolve();
- deps={submissions:{findById:vi.fn(async()=>submission)},agencies:{findById:vi.fn(async()=>({id:2,slug:'tenant'}))},tasks:{create:vi.fn(async()=>({id:9}))},
+ deps={links:{findById:vi.fn(async()=>({language_code:'en'}))},submissions:{findById:vi.fn(async()=>submission)},agencies:{findById:vi.fn(async()=>({id:2,slug:'tenant'}))},tasks:{create:vi.fn(async()=>({id:9}))},
   communications:{create:vi.fn(async data=>{const row={...data,id:records.length+1,delivery_status:'pending'};records.push(row);return row;})},
   db:{getConnection:vi.fn(async()=>{let unlock;return {release:vi.fn(),execute:vi.fn(async(sql,args)=>{
    if(sql.includes('GET_LOCK')){const previous=chain;chain=new Promise(resolve=>{unlock=resolve;});await previous;return [[{acquired:1}]];}
@@ -70,4 +71,13 @@ it('does not turn provider acceptance into a failed send when updating the recei
   connection.execute.mockImplementation((q,a)=>q.includes('metadata=JSON_SET')?Promise.reject(Error('Database interrupted')):execute(q,a));return connection;
  });
  expect(await deliver()).toMatchObject({sent:true,communicationId:1});expect(await deliver()).toMatchObject({deduplicated:true});expect(send).toHaveBeenCalledTimes(1);expect(records[0].delivery_status).not.toBe('failed');
+});
+
+it('uses the saved Spanish form locale for the subject, body and branded footer',async()=>{
+ deps.links.findById.mockResolvedValue({language_code:'es'});await deliver({...message,schoolOrganizationId:30});
+ const outbound=send.mock.calls[0][0];expect(outbound.subject).toBe('Inscripción recibida');expect(outbound.locale).toBe('es');
+ expect(outbound.text).toContain('equipo escolar');expect(outbound.text).not.toContain('Enrollment received');expect(outbound.attachments).toBeNull();
+});
+it('honors an explicitly saved Spanish language even when the link began in English',async()=>{
+ submission.intake_data.formLocale='es';await deliver();expect(send.mock.calls[0][0].subject).toBe('Inscripción recibida');
 });

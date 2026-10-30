@@ -123,7 +123,11 @@ export function buildClientLifecycleHistory({
       statusLabel: (c.parents_contacted_at || c.first_service_at || c.services_started_at)
         ? 'Submitted'
         : 'Started',
-      completedAt: iso(c.checklist_updated_at || c.first_service_at || c.parents_contacted_at || joinAnchor),
+      // DATE fields represent a calendar day, never midnight UTC in a viewer's zone.
+      completedAt: c.checklist_updated_at ? iso(c.checklist_updated_at)
+        : c.first_service_at ? ymd(c.first_service_at)
+          : c.parents_contacted_at ? ymd(c.parents_contacted_at)
+            : c.submission_date ? ymd(c.submission_date) : iso(c.created_at),
       actionKey: 'provider_intake',
       details: {
         parentsContactedAt: ymd(c.parents_contacted_at),

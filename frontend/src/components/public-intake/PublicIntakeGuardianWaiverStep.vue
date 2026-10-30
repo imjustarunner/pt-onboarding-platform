@@ -105,6 +105,8 @@
 </template>
 
 <script setup>
+import { formatAuditTimestamp } from '../../utils/formatDate';
+import { unref } from 'vue';
 import { computed, inject, toRef } from 'vue';
 import SignaturePad from '../SignaturePad.vue';
 import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
@@ -114,6 +116,7 @@ import GwvFieldsAllergies from '../../views/guardian/waivers/GwvFieldsAllergies.
 import GwvFieldsMeals from '../../views/guardian/waivers/GwvFieldsMeals.vue';
 import GwvFieldsWalkHome from '../../views/guardian/waivers/GwvFieldsWalkHome.vue';
 
+const auditTimeZone = inject('intakeTimeZone', 'America/Denver');
 const props = defineProps({
   modelValue: { type: Object, required: true },
   sectionKeys: { type: Array, default: () => [] },
@@ -349,7 +352,7 @@ function sectionSignedAtDisplay(idx, key) {
   try {
     const d = new Date(iso);
     if (!Number.isFinite(d.getTime())) return tx('just now');
-    return d.toLocaleString();
+    return formatAuditTimestamp(d, {timeZone:unref(auditTimeZone)});
   } catch {
     return tx('just now');
   }

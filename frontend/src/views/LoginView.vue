@@ -759,6 +759,8 @@ import {
   setRememberedLogin,
   clearRememberedLogin,
   getPortalLoginMemory,
+  setPendingLoginRoute,
+  consumePendingLoginRoute,
   clearRememberedGoogleLogin,
   setSsoRememberChoice,
   getRememberedSchoolStaffPasswordLogin,
@@ -1417,35 +1419,11 @@ onMounted(async () => {
   // Restore username across redirects (and optionally auto-verify).
   try {
     const fromQuery = String(route.query?.u || '').trim();
-    const hubSlugNow = effectiveLoginSlug.value;
-    const remNow = getRememberedLogin();
-    // Don't resurrect another agency's pending username on this hub (e.g. williams@itsco on /tisi/login).
-    if (
-      !fromQuery
-      && hubSlugNow
-      && remNow?.orgSlug
-      && remNow.orgSlug !== hubSlugNow
-    ) {
-      try {
-        sessionStorage.removeItem('__pt_login_pending_username__');
-        sessionStorage.removeItem('__pt_login_pending_verify__');
-        sessionStorage.removeItem('__pt_login_pending_remember__');
-      } catch {
-        /* ignore */
-      }
-    }
-
-    const pendingUsername = String(sessionStorage.getItem('__pt_login_pending_username__') || '').trim();
-    const restored = fromQuery || pendingUsername;
+    const pending = consumePendingLoginRoute(route.path);
+    const restored = fromQuery || pending?.username || '';
     if (restored) username.value = restored;
-
-    const pendingRemember = sessionStorage.getItem('__pt_login_pending_remember__');
-    if (pendingRemember === '1') rememberLogin.value = true;
-
-    const shouldVerify = sessionStorage.getItem('__pt_login_pending_verify__') === '1';
-    if (shouldVerify && restored) {
-      sessionStorage.removeItem('__pt_login_pending_verify__');
-      // Keep pending_username so a route change can rehydrate again if needed.
+    if (pending?.remember) rememberLogin.value = true;
+    if (pending && restored) {
       await verifyUsername({ reason: 'pending_route' });
       return;
     }
@@ -2050,8 +2028,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
 
     if (isSchoolCareBridge.value) {
       if (resolvedOrgType === 'school' && resolvedSlug && route.params.organizationSlug !== resolvedSlug) {
-        sessionStorage.setItem('__pt_login_pending_username__', u);
-        sessionStorage.setItem('__pt_login_pending_verify__', '1');
+        setPendingLoginRoute({ username: u, path: schoolCareBridgePath(resolvedSlug), remember: rememberLogin.value });
         await router.replace({ path: schoolCareBridgePath(resolvedSlug), query: { ...route.query } }); return;
       }
       // Agency identities keep the SchoolCareBridge login presentation.
@@ -2093,15 +2070,13 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
         });
       }
       try {
-        sessionStorage.setItem('__pt_login_pending_username__', u);
-        sessionStorage.setItem('__pt_login_pending_verify__', '1');
-        sessionStorage.setItem('__pt_login_pending_remember__', rememberLogin.value ? '1' : '0');
+        setPendingLoginRoute({ username: u, path: targetLoginPath, remember: rememberLogin.value });
       } catch {
         // ignore
       }
       await router.replace({
         path: targetLoginPath,
-        query: { ...(isFundThredLogin.value ? route.query : {}), u }
+        query: isFundThredLogin.value ? route.query : {}
       });
       return;
     }
@@ -2137,15 +2112,13 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
             });
           }
           try {
-            sessionStorage.setItem('__pt_login_pending_username__', u);
-            sessionStorage.setItem('__pt_login_pending_verify__', '1');
-            sessionStorage.setItem('__pt_login_pending_remember__', rememberLogin.value ? '1' : '0');
+            setPendingLoginRoute({ username: u, path: normalizedTarget, remember: rememberLogin.value });
           } catch {
             // ignore
           }
           await router.replace({
             path: normalizedTarget,
-            query: { ...(isFundThredLogin.value ? route.query : {}), u }
+            query: isFundThredLogin.value ? route.query : {}
           });
           return;
         }

@@ -1,24 +1,18 @@
 import { createHash } from 'node:crypto';
 import pool from '../config/database.js';
 import IntakeSubmission from '../models/IntakeSubmission.model.js';
+import IntakeLink from '../models/IntakeLink.model.js';
 import Agency from '../models/Agency.model.js';
 import UserCommunication from '../models/UserCommunication.model.js';
 import Task from '../models/Task.model.js';
 import { ENROLLMENT_EMAIL_NOTICE_VERSION, getIntakeCommunicationChoices } from './intakeCommunicationChoices.service.js';
 import { clientPortalInviteUrl, intakeClientPortal } from './clientPortalContext.service.js';
+import { resolveIntakeFormLocale } from '../utils/intakeFieldLabels.js';
+import { enrollmentConfirmationContent } from './enrollmentReceiptContent.js';
+export { enrollmentConfirmationContent } from './enrollmentReceiptContent.js';
 
 export const ENROLLMENT_CONFIRMATION_TYPE = 'enrollment_submission_confirmation';
-const escape = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const address = value => String(value || '').trim().toLowerCase();
-
-export function enrollmentConfirmationContent({ portalLoginUrl = null } = {}) {
-  const lines = ['We received your enrollment.',
-    'Your submission is saved. Keep the confirmation page for your records. Your care team will review your next steps.',
-    ...(portalLoginUrl ? ['You can sign in to your portal or request a password setup link from the sign-in page.', portalLoginUrl] : []),
-    'Requested sign-in and password recovery emails remain available even when optional updates are off.'];
-  return { templateType: ENROLLMENT_CONFIRMATION_TYPE, subject: 'Enrollment received', text: lines.join('\n\n'),
-    html: lines.map(line => line === portalLoginUrl ? `<p><a href="${escape(line)}">Open portal</a></p>` : `<p>${escape(line)}</p>`).join(''), attachments: null };
-}
 
 function priorOutcome(row, content) {
   const sent = ['sent','delivered'].includes(row.delivery_status);
@@ -48,10 +42,12 @@ export async function sendEnrollmentReceiptOnce(message, send, deps = {}) {
   let content = { templateType: message.templateType, subject: message.subject, text: message.text, html: message.html, attachments: message.attachments };
   if (modern) {
     const agency = await agencies.findById(message.agencyId);
+    const link = await (deps.links || IntakeLink).findById(submission.intake_link_id);
     const portalLoginUrl = submission.guardian_user_id ? clientPortalInviteUrl({
       portal: intakeClientPortal(agency, { channel: message.enrollmentChannel, school: !!message.schoolOrganizationId }), existingAccount: true
     }) : null;
-    content = enrollmentConfirmationContent({ portalLoginUrl });
+    content = enrollmentConfirmationContent({ portalLoginUrl, agencyName: agency?.name,
+      locale: resolveIntakeFormLocale(link, submission.intake_data), school: !!message.schoolOrganizationId });
   }
   const lock = `enrollment-receipt:${createHash('sha256').update(`${message.agencyId}:${submission.id}:${address(message.to)}`).digest('hex').slice(0,40)}`;
   const connection = await db.getConnection();

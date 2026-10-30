@@ -59,6 +59,7 @@
 </template>
 
 <script setup>
+import { formatAuditTimestamp } from '../../../utils/formatDate';
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
 
@@ -129,9 +130,7 @@ function buildOfficeFallback() {
 
 function formatWhen(value) {
   if (!value) return '';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return String(value).slice(0, 10);
-  return d.toLocaleString();
+  return formatAuditTimestamp(value);
 }
 
 const flatEvents = computed(() => {

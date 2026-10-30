@@ -5,6 +5,19 @@ export function allowsProviderPreference(link) {
  if(String(link?.scope_type||'').toLowerCase()==='school')return false;
  return linkLooksLikeOfficeIntake(link)||link?.master_channel==='tutoring';
 }
+
+// Legacy translated masters must expose the same optional choice as English.
+// Preserve their questions/documents and IDs so saved enrollments remain resumable.
+export function ensureOfficeProviderStep(link, steps = []) {
+ if (!allowsProviderPreference(link) || steps.some(step => step.type === 'provider_match')) return steps;
+ const es = String(link.language_code || '').startsWith('es');
+ const choice = { id:'office_available_providers', type:'provider_match', visibility:'always', fields:[],
+  label: es ? 'Elegir un profesional' : 'Choose a provider' };
+ const list = [...steps];
+ const firstAgreement = list.findIndex(step => ['insurance_info','package_selection','document','smart_disclosure','disclosure','packet_informed_group_consent','packet_policy_services','packet_hipaa_notice'].includes(step.type));
+ list.splice(firstAgreement < 0 ? list.length : firstAgreement, 0, choice);
+ return list;
+}
 export function stripIneligibleProviderPreference(link,intakeData) {
  if(allowsProviderPreference(link))return;
  const bag=intakeData?.responses?.submission;if(!bag)return;

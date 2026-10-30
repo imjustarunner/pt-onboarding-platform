@@ -1,6 +1,7 @@
 const STORAGE_KEY = '__pt_login_remember__';
 const GOOGLE_SSO_STORAGE_KEY = '__pt_google_sso_remember__';
 const SCHOOL_STAFF_PASSWORD_LOGIN_KEY = '__pt_school_staff_password_login_remember__';
+const isSharedQaPortal = slug => /^auricwell-qa-demo(?:-|$)/.test(normalizeOrgSlug(slug));
 
 function normalizeUsername(value) {
   return String(value || '').trim();
@@ -45,7 +46,7 @@ export function getRememberedLogin(portalSlug = '') {
     const parsed = readRecord(STORAGE_KEY, portalSlug);
     const username = normalizeUsername(parsed?.username);
     const orgSlug = normalizeOrgSlug(parsed?.orgSlug);
-    if (!username || !orgSlug) return null;
+    if (!username || !orgSlug || isSharedQaPortal(orgSlug)) return null;
     const parentOrgSlug = normalizeOrgSlug(parsed?.parentOrgSlug) || null;
     return { username, orgSlug, parentOrgSlug };
   } catch {
@@ -80,7 +81,7 @@ export function getRememberedGoogleLogin(portalSlug = '') {
     const parsed = readRecord(GOOGLE_SSO_STORAGE_KEY, portalSlug);
     const username = normalizeUsername(parsed?.username);
     const orgSlug = normalizeOrgSlug(parsed?.orgSlug);
-    if (!username || !orgSlug) return null;
+    if (!username || !orgSlug || isSharedQaPortal(orgSlug)) return null;
     const parentOrgSlug = normalizeOrgSlug(parsed?.parentOrgSlug) || null;
     return { username, orgSlug, parentOrgSlug, displayName: String(parsed?.displayName || '').trim().slice(0, 160), loginHint: String(parsed?.loginHint || username).trim().slice(0, 254), organizationName: String(parsed?.organizationName || '').trim().slice(0, 160), title: String(parsed?.title || '').trim().slice(0, 160) };
   } catch {
@@ -122,7 +123,7 @@ export function getRememberedSchoolStaffPasswordLogin() {
     const parsed = JSON.parse(raw);
     const username = normalizeUsername(parsed?.username);
     const orgSlug = normalizeOrgSlug(parsed?.orgSlug);
-    if (!username || !orgSlug) return null;
+    if (!username || !orgSlug || isSharedQaPortal(orgSlug)) return null;
     const parentOrgSlug = normalizeOrgSlug(parsed?.parentOrgSlug) || null;
     return { username, orgSlug, parentOrgSlug };
   } catch {
@@ -172,9 +173,27 @@ export function clearPortalLoginMemory(orgSlug) {
   clearRememberedLogin(orgSlug);
   clearRememberedGoogleLogin(orgSlug);
   clearRememberedSchoolStaffPasswordLogin(orgSlug);
+  try { sessionStorage.removeItem('__pt_login_route__'); } catch { /* optional */ }
   for (const key of ['username', 'verify', 'remember']) {
     try { sessionStorage.removeItem(`__pt_login_pending_${key}__`); } catch { /* optional storage */ }
   }
+}
+
+// A redirect handoff is single-use, short-lived, and bound to its destination.
+// The old unscoped keys could reappear on another person's next login.
+export function setPendingLoginRoute({ username, path, remember = false }) {
+  try {
+    sessionStorage.setItem('__pt_login_route__', JSON.stringify({ username: normalizeUsername(username), path, remember, at: Date.now() }));
+  } catch { /* Login can still be entered manually when storage is unavailable. */ }
+}
+export function consumePendingLoginRoute(path) {
+  try {
+    const pending = JSON.parse(sessionStorage.getItem('__pt_login_route__') || 'null');
+    sessionStorage.removeItem('__pt_login_route__');
+    for (const key of ['username','verify','remember']) sessionStorage.removeItem(`__pt_login_pending_${key}__`);
+    if (pending?.path !== path || !pending.username || !Number.isFinite(pending.at) || Date.now() - pending.at > 300000 || pending.at > Date.now()) return null;
+    return pending;
+  } catch { return null; }
 }
 
 // A branded portal must never display another agency's saved account.

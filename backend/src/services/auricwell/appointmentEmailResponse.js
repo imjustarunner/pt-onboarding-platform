@@ -5,6 +5,7 @@ import { practiceMessagingContext } from './clientMessaging.js';
 import { clientEmailContext, sendClientPortalEmail } from '../clientPortalEmail.service.js';
 import { renderPortalEmail, enrollmentMailBrand, escapePortalHtml as e } from '../portalEmailBranding.service.js';
 import { portalActionHtml } from '../clientPortalEmailContent.js';
+import { appointmentResponseUrl } from '../../utils/appointmentResponseUrl.js';
 import { dateToMysqlUtcDateTime, utcMysqlToIso } from '../../utils/zonedWallTime.util.js';
 import { createSchoolSessionEmailOptOutLink, schoolSessionEmailOptOutContent, isSchoolSessionEmailOptedOut, SCHOOL_EMAIL_TEMPLATE } from '../schoolSessionEmailPreferences.service.js';
 const hash=value=>crypto.createHash('sha256').update(String(value)).digest('hex');
@@ -58,7 +59,7 @@ export async function sendNativeAppointmentEmail(ctx,to,text,appointment) {
   if(!ctx.agencyId&&!/^notifications@[^@]+$/i.test(process.env.AURICWELL_ACCOUNT_EMAIL_FROM||'')) throw fail('Configure the AuricWell notifications sender before sending.');
   await sharedPool.execute(`INSERT INTO appointment_email_actions(token_hash,agency_id,product,practice_id,native_appointment_id,native_patient_id,recipient_hash,appointment_start,appointment_end,expires_at)
     VALUES(?,?,'auricwell',?,?,?,?,?,?,?)`,[hash(token),ctx.agencyId||null,ctx.practiceId,appointment.id,appointment.patientId,emailHash(to),dateToMysqlUtcDateTime(new Date(appointment.data.start)),dateToMysqlUtcDateTime(new Date(appointment.data.end)),dateToMysqlUtcDateTime(expires)]);
-  const url=`https://plottwisthq.com/api/public/appointment-response/${token}`;
+  const url=appointmentResponseUrl(token,{clinical:true});
   const actions=school?[['My child will miss school','absence']]:[['Confirm appointment','confirm'],['Request cancellation','cancel'],['Request a new time','reschedule']];
   const body=String(text).replace(/For scheduling changes, contact your practice\./,school?'No confirmation is needed. Use the button to notify your care team if your child will miss school. Please also notify the school.':'Use the buttons below to confirm or request a change. No sign-in is needed.');
   const html=`<h2>${school?'School session notice':'Your upcoming appointment'}</h2><p>${e(body).replaceAll('\n','<br>')}</p>${actions.map(([label,action])=>portalActionHtml(label,`${url}?action=${action}`)).join('')}${optOut.html}`;

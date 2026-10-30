@@ -488,6 +488,7 @@
 </template>
 
 <script setup>
+import { formatAuditTimestamp } from '../../utils/formatDate';
 import ProviderUpdateAssignedBanner from '../../components/provider/ProviderUpdateAssignedBanner.vue';
 import { CONVERSA_ICON_URL } from '../../constants/conversa';
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
@@ -848,20 +849,7 @@ const brandVars = computed(() => {
   };
 });
 
-const formattedNow = computed(() => {
-  try {
-    return new Date(nowTick.value).toLocaleString(undefined, {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit'
-    });
-  } catch {
-    return '';
-  }
-});
+const formattedNow = computed(() => formatAuditTimestamp(new Date(nowTick.value)));
 
 const prefix = computed(() => (slug.value ? `/${slug.value}` : ''));
 const ticketsPath = computed(() => `${prefix.value}/tickets`);

@@ -201,6 +201,7 @@
             @open-document="openChartDocument"
           >
             <template #clinical-summary>
+              <EnrollmentPreferencesSummary v-if="!['school_staff','client_guardian'].includes(roleNorm)" :preferences="enrollmentPreferences" />
               <section v-if="canViewMedicalRecord" class="cdp-care-section">
                 <h3 class="cc-hub-section__title">Presenting problems &amp; diagnoses</h3>
                 <p v-if="careSummaryLoading" class="muted">Loading clinical summary…</p>
@@ -2803,6 +2804,8 @@ import ClientMedicalRecordsTab from './ClientMedicalRecordsTab.vue';
 import ClientBillingImportTab from './ClientBillingImportTab.vue';
 import ClientChartShell from './clientChart/ClientChartShell.vue';
 import ClientOverviewHub from './clientChart/ClientOverviewHub.vue';
+import { formatAuditTimestamp } from '../../utils/formatDate';
+import EnrollmentPreferencesSummary from './clientChart/EnrollmentPreferencesSummary.vue';
 import ClientClinicalTab from './clientChart/ClientClinicalTab.vue';
 import ClientClinicalNotesFeed from './clientChart/ClientClinicalNotesFeed.vue';
 import ClientDocumentsTab from './clientChart/ClientDocumentsTab.vue';
@@ -4413,6 +4416,7 @@ const onSchoolAssignmentUpdated = async ({ clientId, providers: providerList } =
 // Compliance checklist
 const savingChecklist = ref(false);
 const checklistAuditText = ref('');
+const enrollmentPreferences = ref(props.client?.intake_preferences_json || props.client?.intakePreferences || null);
 
 const checklistClientIsReturning = computed(() => isReturningSchoolClient(props.client));
 const showFallContinuationChecklist = computed(
@@ -4814,8 +4818,7 @@ const parseDateForDisplay = (dateValue) => {
 
 const formatDateTime = (dateString) => {
   if (!dateString) return '-';
-  const date = new Date(dateString);
-  return date.toLocaleString();
+  return formatAuditTimestamp(dateString);
 };
 
 const formatDocumentStatus = (status) => {
@@ -6334,9 +6337,13 @@ watch(effectiveClientType, async (nextType, prevType) => {
 });
 
 const hydrateChecklist = async () => {
+  const clientId = props.client.id;
+  enrollmentPreferences.value = props.client?.intake_preferences_json || props.client?.intakePreferences || null;
   try {
     const r = await api.get(`/clients/${props.client.id}`);
     const c = r.data || {};
+    if (Number(props.client.id) !== Number(clientId)) return;
+    enrollmentPreferences.value = c.intake_preferences_json || c.intakePreferences || null;
     checklist.value.parentsContactedAt = c.parents_contacted_at ? String(c.parents_contacted_at).slice(0, 10) : '';
     checklist.value.parentsContactedSuccessful =
       c.parents_contacted_successful === null || c.parents_contacted_successful === undefined
@@ -6346,7 +6353,7 @@ const hydrateChecklist = async () => {
     checklist.value.continuation = parseContSvcJson(c.continuation_services_json);
     await fetchChecklistAgencySchools();
     const who = c.checklist_updated_by_name || null;
-    const when = c.checklist_updated_at ? new Date(c.checklist_updated_at).toLocaleString() : null;
+    const when = c.checklist_updated_at ? formatAuditTimestamp(c.checklist_updated_at) : null;
     checklistAuditText.value = who && when ? `Last updated by ${who} on ${when}` : (when ? `Last updated on ${when}` : '');
   } catch {
     // ignore
@@ -6383,7 +6390,7 @@ const saveChecklist = async () => {
     const r = await api.put(`/clients/${props.client.id}/compliance-checklist`, payload);
     const c = r.data || {};
     const who = c.checklist_updated_by_name || null;
-    const when = c.checklist_updated_at ? new Date(c.checklist_updated_at).toLocaleString() : null;
+    const when = c.checklist_updated_at ? formatAuditTimestamp(c.checklist_updated_at) : null;
     checklistAuditText.value = who && when ? `Last updated by ${who} on ${when}` : (when ? `Last updated on ${when}` : '');
     emit('updated');
   } catch (e) {

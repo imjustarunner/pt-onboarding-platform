@@ -592,6 +592,7 @@ export async function listDisclosureProviders({ agencyId, schoolOrganizationId, 
       effectiveRole,
       isActingSupervisor
     })) continue;
+    seen.add(id);
     ordered.push({
       ...row,
       ...membership,

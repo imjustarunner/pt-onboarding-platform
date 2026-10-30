@@ -1,0 +1,159 @@
+ITSCOLLC / AURICWELL — ADDITIONAL QA RETEST INSTRUCTIONS
+October 29, 2026 — evening repair release
+
+SEND THIS AS AN ADDITION TO THE PLAN ALREADY SENT.
+Keep FAMILY-ENROLLMENT-COORDINATOR-PLAN-2026-10-29.txt and the earlier carrier
+restrictions. This addendum does not replace the multi-child, second-parent,
+privacy, self-enrollment, or duplicate-merge tests in that plan.
+
+Use this addendum after the owner confirms that both frontend and backend for
+this repair release are deployed. A deployed fix is ready for retest, not an
+automatic PASS. Test the browser-visible application using the supplied vault
+accounts. You do not need, and must not assume access to, source code, databases,
+cloud consoles, carrier settings, administrator credentials, or hidden APIs.
+
+SCOPE AND EVIDENCE
+- Work only in demo agency 450, ITSCOLLC (auricwell-qa-demo), and its authorized
+  demo school/clinic. Keep the 30-client / 10-provider caps. Last confirmed QA
+  count was 21 clients / 3 providers; recount before creating anything.
+- Retain the existing synthetic records and documents. Do not recreate Wren
+  or overwrite signed packets simply to make a test pass.
+- Capture fresh evidence with the address bar visible. Redact invitation/reset
+  tokens, session data, passwords, and unrelated contact details before sharing.
+  The four repeated Oct 28/29 images cannot establish a new PASS.
+- For each case record role, record ID, language, actual URL host/path without
+  tokens, time with zone, expected/actual behavior, and a fresh screenshot.
+
+A. APPROVED SCHOOL LOGIN DESTINATION
+SchoolCareBridge is the application's school-staff product. The approved demo
+school destination is:
+https://schoolcarebridge.org/app/auricwell-qa-demo-school
+
+The existing app.itsco.health demo school login may transfer Jamie to this exact
+HTTPS host and demo-school path. That transfer alone is not a failure. Use the
+existing Jamie school-staff account; the owner may need to update the vault's
+allowed website. Do not enter credentials on lookalike domains or other tenants.
+Resume the Jamie invite, assignment, ROI, questionnaire, and reply checks that
+were blocked only by the unrecognized host. Report authentication failures
+separately from an approved domain transition.
+
+B. SHARED-BROWSER LOGIN
+1. In the same test browser, sign in as a demo family, log out, then open the
+   explicit agency login: https://app.itsco.health/auricwell-qa-demo/login
+2. Repeat after Avery, Jordan, and Jamie. Also inspect bare /login.
+3. The shared demo must not restore the previous person's saved username,
+   Google shortcut, or school login just because Remember me was selected.
+   A browser/password-manager suggestion is separate: record whether the page
+   supplied the value or the vault/autofill filled it.
+4. Internal login redirects should not put the username in a newly generated
+   ?u= URL. A deliberate school routing handoff can carry the username once;
+   reopening an ordinary login later must not replay that handoff.
+5. Remembered sign-in behavior for ordinary private agency accounts was not
+   disabled by this shared-demo change.
+
+C. NEW ENROLLMENT RECEIPTS — ENGLISH AND SPANISH
+Use the next normal Office EN, Office ES, School EN, and School ES cases rather
+than creating an extra four clients just for email styling.
+- Each completed enrollment should produce one receipt, visible in the normal
+  messaging history and delivered through the existing testing@itsco.health
+  routing. Refreshing completion must not send duplicates.
+- EN subject: "Enrollment received"; ES subject: "Inscripción recibida".
+  Agency/test-routing prefixes may precede it. The receipt body and care-team
+  footer should follow the form language, including a Spanish form opened from
+  its published Spanish link.
+- Expect a welcoming AuricWell heading for clinical care, the agency identity,
+  a short next-steps panel, an Open my portal / Abrir mi portal button when
+  portal access exists, first-time password setup guidance, and a care-team
+  closing. School receipts also explain school coordination.
+- Inspect desktop and narrow phone layouts, with and without remote images.
+  There should be no horizontal scrolling or overlap. The portal action must
+  retain the correct organization/account context.
+- The receipt must not include private answers, another guardian's documents,
+  or signed attachments. Signed copies are verified separately in the portal.
+  A receipt must not claim that selecting a provider/time confirmed a booking.
+- Existing communication choices still apply. Do not turn on declined optional
+  email or SMS just to produce a receipt. Existing sent emails are historical;
+  they will not be rewritten or resent by this release.
+
+D. APPOINTMENT EMAIL ACTION LINKS
+Use an authorized existing demo appointment or one scheduled through the normal
+UI. Do not infer a booking from an enrollment's requested time.
+- Newly generated AuricWell clinical appointment emails must use
+  https://auricwell.com/api/public/appointment-response/… for confirmation,
+  cancellation, and rescheduling actions, including their visible fallback URLs.
+  Those actions must not newly point to plottwisthq.com.
+- Opening a link shows a review form; a GET or mail preview must not change the
+  appointment. Submit only the action required by your test case.
+- Verify the resulting schedule state, the other authorized guardian's notice,
+  provider/support notifications, and fees/acknowledgment where applicable.
+  Confirmed appointments, cancellation requests and completed cancellations
+  are distinct outcomes. School absence notices remain distinct from office
+  cancellations.
+- Old emails may retain their original URL. Test a new email for the domain fix.
+  The shared-platform demo's normal portal login can remain on app.itsco.health.
+- "qa.recovery.parent.20261025@example.com" is a synthetic account alias used
+  for password-recovery testing, not a new guardian role or client status.
+  Keep its existing vault record; do not create a new parent because of the name.
+
+E. OFFICE ES PROVIDER CHOICE AND STAFF VISIBILITY
+1. Office ES must now contain an optional provider-selection step, just as the
+   full Office EN flow does. Existing question and document IDs are preserved.
+2. Select a format, a compatible provider, and an offered dated opening. Also
+   test skipping provider choice and changing provider/format without retaining
+   the wrong person's time. School and brief/interest forms must still omit it.
+3. After submission, Jordan opens the client record's Overview and checks the
+   Enrollment preferences section. It should identify the requested provider,
+   format, dated time, time zone and frequency when supplied.
+4. Retest existing Wren (client 2290, submission 1305): Avery Morgan QA,
+   virtual, October 29 at 2–3 PM America/Denver, weekly. That stored request
+   was never a confirmed reservation; its past date must not become a booking.
+   Staff must coordinate availability and book separately.
+5. Change to another client and ensure Wren's preferences do not remain on the
+   new chart. Confirm that support still cannot open clinical note bodies.
+6. Repeat the Office ES save/resume case and capture the exact step/field names
+   if answers disappear. Preservation of the form IDs is not proof that the
+   previously reported step-8 data loss is resolved.
+
+F. SCHOOL DISCLOSURES AND DATES
+- New EN and ES school disclosures must list each provider once even when the
+  provider belongs to both the agency roster and the school's assigned team.
+  Provider credentials/supervisors must remain present. Previously signed
+  documents are historical and are not rewritten.
+- Check chart records, care workflow, checklist audit, support dashboard clock,
+  insurance and guardian-waiver signature displays. Denver instants should show
+  the appropriate MDT/MST abbreviation. A date-only enrollment remains Oct 29,
+  without an invented midnight time or a shift to Oct 28.
+- Test the daylight-saving boundary too: October dates use MDT; November 5 uses
+  MST. A deliberately selected different account timezone should be respected.
+- Other signature/packet surfaces still need direct verification. Do not mark
+  every timestamp fixed because one surface passes.
+
+G. CARRIER STATUS — ACTIVATION IS NOT AN END-TO-END PASS
+Notifyre activation receipts now show:
+- 719-728-1970: ITSCO client-services/provider-messaging campaign.
+- 719-677-5413: ITSCO client-services/provider-messaging campaign.
+- 719-618-9523: TISI/Inner Strength campaign; not the ITSCO demo campaign.
+The approved intended demo split is 719-728-1970 for main/support and
+719-677-5413 for provider conversations. This investigation did not establish
+that the demo application's routing and inbound webhook configuration are ready.
+Keep clinical SMS BLOCKED until the owner confirms that configuration and a
+controlled receive/reply test succeeds. Do not use the old Vonage care number
+as a fallback, buy numbers, alter campaigns, or enable platform-wide sending.
+
+REMAINING OPEN / NOT PROVEN BY THIS RELEASE
+- Full ES translation coverage: insurance, communications, legal/ROI copy,
+  raw field labels, accents, and provider-selector subcomponents.
+- The Office ES step-8 save/resume report.
+- Signed-copy availability, second-parent/multiple-child privacy and linking,
+  restricted scheduling-only relationships, clinical note signing/cosigning,
+  Exchange, balances/payment plans, and the other unrun lanes in the main plan.
+- The smaller Oct 29 issues: loading/empty states, first-click login delay,
+  guardian phone requirements, surname duplication, and remaining branding.
+Submission 1304 is outside demo agency 450; it is not a missing demo client.
+Do not inspect that submission. Cedar Grove Counseling is the demo clinical
+program; verify the owning tenant separately as ITSCOLLC rather than treating a
+program affiliation alone as a cross-tenant failure.
+
+In the next brief, retain FAIL/BLOCKED for any unresolved required lane. Separate
+fresh passes, failures, and blocked/not-run cases. Do not reuse old screenshots
+as proof that the new release passed.

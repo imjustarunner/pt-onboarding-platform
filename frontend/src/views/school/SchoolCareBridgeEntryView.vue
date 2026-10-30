@@ -63,6 +63,7 @@ import {toUploadsUrl} from '../../utils/uploadsUrl';
 import {schoolCareBridgePath,schoolCareBridgeExternalPath} from '../../utils/schoolCareBridge';
 import {schoolCareBridgePartnerPath} from '../../utils/schoolCareBridgeTenant';
 import '../../styles/schoolCareBridge.css';
+import { setPendingLoginRoute } from '../../utils/loginRemember';
 const route=useRoute(),router=useRouter(),auth=useAuthStore(),agencyStore=useAgencyStore(),organizationStore=useOrganizationStore(),brandingStore=useBrandingStore();
 const partners=ref([]);
 const school=ref(null),schools=ref([]),busy=ref(true),error=ref(''),authorized=ref(false);
@@ -77,7 +78,7 @@ onUnmounted(()=>loadVersion++);
 async function load(){const version=++loadVersion;busy.value=true;error.value='';authorized.value=false;school.value=null;schools.value=[];try{
  const slug=String(route.params.organizationSlug||'');
  if(slug){const {data}=await api.get(`/schoolcarebridge/schools/${encodeURIComponent(slug)}`,options);if(version!==loadVersion)return;school.value=data.school;}
- if(route.query.routingHint){const token=String(route.query.routingHint);const clean={...route.query};delete clean.routingHint;try{const {data}=await api.post('/schoolcarebridge/routing-hint/consume',{token,destination:window.location.origin+schoolCareBridgeExternalPath(route.path)},options);sessionStorage.setItem('__pt_login_pending_username__',data.username);sessionStorage.setItem('__pt_login_pending_verify__','1');}finally{await router.replace({path:route.path,query:clean});}}
+ if(route.query.routingHint){const token=String(route.query.routingHint);const clean={...route.query};delete clean.routingHint;try{const {data}=await api.post('/schoolcarebridge/routing-hint/consume',{token,destination:window.location.origin+schoolCareBridgeExternalPath(route.path)},options);setPendingLoginRoute({username:data.username,path:route.path});}finally{await router.replace({path:route.path,query:clean});}}
  if(version!==loadVersion)return;
  if(auth.isAuthenticated){
   if(!agencyStore.userAgencies?.length)await agencyStore.fetchUserAgencies();

@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import IntakeLink from './IntakeLink.model.js';
 import { flattenIntakeFields } from '../data/counselingIntakeSelfEn.js';
 import { mergeCounselingOfficeEnIntoSteps } from '../data/counselingIntakeDependentEn.js';
+import { ensureOfficeProviderStep } from '../utils/intakeProviderPreference.js';
 
 function normalizeLang(languageCode) {
   const raw = String(languageCode || 'en').trim().toLowerCase();
@@ -522,9 +523,9 @@ class AgencyOfficeIntakeMaster {
     const master = await this.getOrCreateForAgency(aid, { languageCode: link.language_code || 'en' });
     if (!master) return link;
     const lang = normalizeLang(link.language_code || 'en');
-    const intakeSteps = lang === 'en'
+    const intakeSteps = ensureOfficeProviderStep(link, lang === 'en'
       ? mergeCounselingOfficeEnIntoSteps(master.intake_steps || [])
-      : (master.intake_steps || []);
+      : (master.intake_steps || []));
     const intakeFields = lang === 'en' ? flattenIntakeFields(intakeSteps) : master.intake_fields;
     return {
       ...link,

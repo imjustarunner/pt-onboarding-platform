@@ -5,6 +5,7 @@ import { applyAppointmentReply } from './appointmentReply.service.js';
 import { resolveAppointmentServiceSetting, formatAppointmentTime } from './appointmentServiceSetting.service.js';
 import { clientEmailContext, sendClientPortalEmail } from './clientPortalEmail.service.js';
 import { portalActionHtml } from './clientPortalEmailContent.js';
+import { appointmentResponseUrl } from '../utils/appointmentResponseUrl.js';
 import { escapePortalHtml as e } from './portalEmailBranding.service.js';
 import { dateToMysqlUtcDateTime, utcMysqlToIso } from '../utils/zonedWallTime.util.js';
 import { isDobAdultLocked } from '../utils/guardianWaivers.utils.js';
@@ -17,7 +18,7 @@ const date = value => value instanceof Date ? value : new Date(utcMysqlToIso(val
 export const appointmentEmailActions = school => school ? ['absence'] : ['confirm','cancel','reschedule'];
 export const actionLabels = {confirm:'Confirm appointment',cancel:'Cancel appointment',reschedule:'Request a new time',absence:'My child will miss school'};
 
-export async function createAppointmentEmailLink({appointment,clientId,to}) {
+export async function createAppointmentEmailLink({appointment,clientId,to,context}) {
   if (!appointment?.id || !clientId || !to) throw fail('An appointment and its recipient are required.',400);
   const [[participant]] = await pool.execute('SELECT id FROM appointment_participants WHERE appointment_id=? AND client_id=?',[appointment.id,clientId]);
   if (!participant) throw fail('Appointment unavailable.',404);
@@ -31,7 +32,8 @@ export async function createAppointmentEmailLink({appointment,clientId,to}) {
   await pool.execute(`INSERT INTO appointment_email_actions(token_hash,appointment_id,agency_id,client_id,guardian_user_id,recipient_hash,appointment_start,appointment_end,expires_at)
     VALUES(?,?,?,?,?,?,?,?,?)`,[hash(token),appointment.id,appointment.agencyId,clientId,guardian.id,emailHash(to),dateToMysqlUtcDateTime(start),dateToMysqlUtcDateTime(end),dateToMysqlUtcDateTime(expires)]);
   // Backend-rendered form: no login and no changes on GET/link prefetch.
-  return `https://plottwisthq.com/api/public/appointment-response/${token}`;
+  context ||= await clientEmailContext({agencyId:appointment.agencyId,clientId});
+  return appointmentResponseUrl(token,context);
 }
 
 export async function appointmentEmailActionContext(token,db=pool) {
@@ -91,7 +93,7 @@ export async function buildAppointmentEmail({appointment,clientId,to,kind='remin
   const setting=await resolveAppointmentServiceSetting(appointment);
   if(setting.isSchool && schoolOptOut===undefined) schoolOptOut=await createSchoolSessionEmailOptOutLink({agencyId:appointment.agencyId,clientId,to});
   const optOut=setting.isSchool && schoolOptOut ? schoolSessionEmailOptOutContent(schoolOptOut.url) : {text:'',html:''};
-  if(actionUrl===undefined) actionUrl=await createAppointmentEmailLink({appointment,clientId,to});
+  if(actionUrl===undefined) actionUrl=await createAppointmentEmailLink({appointment,clientId,to,context});
   const when=formatAppointmentTime(appointment),name=context.tenant.name;
   const subject=setting.isSchool?`${name}: School session notice`:`${name}: ${kind.startsWith('confirmation')?'Please confirm your appointment':'Appointment reminder'}`;
   const intro=setting.isSchool?`A school session is scheduled for ${when}. No confirmation is needed.`:`Your ${context.learning?'tutoring session':'appointment'} with ${name} is scheduled for ${when}.`;

@@ -501,6 +501,8 @@
 </template>
 
 <script setup>
+import { formatAuditTimestamp } from '../../utils/formatDate';
+import { unref } from 'vue';
 import { ref, reactive, computed, watch, inject } from 'vue';
 import { hasMedicaidCoverage, policyIsMedicaid } from '../../utils/insurancePaymentPolicy.js';
 import { filterInsurances, isMedicaidInsurer } from '../../utils/coloradoInsurances.js';
@@ -514,6 +516,7 @@ const intakeSessionToken = inject('intakeSessionToken', ref(''));
 const DEFAULT_SECONDARY_INSURANCE_NOTICE =
   'If your household carries secondary (supplemental) insurance in addition to the primary plan above, please add it using the option below or contact us promptly with complete policy information. Failure to provide complete and accurate coverage details—including applicable secondary insurance when it exists—may delay authorizations or benefit verification and could result in interruptions or delays in services.';
 
+const auditTimeZone = inject('intakeTimeZone', 'America/Denver');
 const props = defineProps({
   modelValue: { type: Object, default: () => ({}) },
   stepConfig: { type: Object, default: () => ({}) },
@@ -1080,7 +1083,7 @@ function formatSignedAt(iso) {
   try {
     const d = new Date(iso);
     if (!Number.isFinite(d.getTime())) return 'just now';
-    return d.toLocaleString();
+    return formatAuditTimestamp(d, {timeZone:unref(auditTimeZone)});
   } catch {
     return 'just now';
   }
