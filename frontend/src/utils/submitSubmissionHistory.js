@@ -74,13 +74,15 @@ export function normalizeReimbursementClaims(rows = []) {
 
 export function normalizePtoRequests(rows = []) {
   return (rows || []).map((r) => {
-    const kind = String(r.request_type || '').toLowerCase() === 'training' ? 'Training PTO' : 'Sick leave';
+    const requestType = String(r.request_type || '').toLowerCase();
+    const schoolSupport = requestType === 'school_support';
+    const kind = schoolSupport ? 'School Support Hours' : requestType === 'training' ? 'Training PTO' : 'Sick leave';
     return normalizeRow({
       id: `pto:${r.id}`,
       groupId: 'payroll',
       type: 'pto',
-      typeLabel: 'PTO',
-      title: `${kind} — ${Number(r.total_hours || 0)}h`,
+      typeLabel: schoolSupport ? 'School Support Hours' : 'PTO',
+      title: `${kind}${schoolSupport && r.submission_key ? ' — Temporary' : ''} — ${Number(r.total_hours || 0)}h`,
       dateRaw: r.start_date || r.created_at,
       status: r.status,
       sortMs: parseMs(r.created_at || r.start_date),
