@@ -18,6 +18,7 @@ import {
   rewriteSchoolPortalUrlForDemo
 } from '../utils/schoolOnboardingDemoContext.js';
 import { isSchoolPortalShellActive } from '../utils/schoolPortalShell.js';
+import { isPublicAuthFormActive } from '../utils/publicAuthForm.js';
 
 const api = axios.create({
   baseURL: (typeof window !== 'undefined' && (isProductApiHost(window.location.hostname) || isSchoolCareBridgeHost(window.location.hostname) || (window.location.hostname.replace(/^www\./,'') === 'mh4kidz.org' && isSchoolCareBridgePath(window.location.pathname)))) ? '/api' : getApiBaseUrl(),
@@ -407,6 +408,7 @@ api.interceptors.response.use(
     if (
       error.response?.status === 401 &&
       !isLoginPage &&
+      !isPublicAuthFormActive() &&
       !isPasswordlessLogin &&
       !isInitialSetup &&
       !isSessionEndedFlow &&

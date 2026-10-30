@@ -768,6 +768,7 @@ import {
   clearRememberedSchoolStaffPasswordLogin
 } from '../utils/loginRemember';
 import { buildOrgLoginPath } from '../utils/orgLoginPath';
+import { enterPublicAuthForm } from '../utils/publicAuthForm';
 import { resolveHostImpliedPortalSlug } from '../utils/orgScopedPath';
 import { getPlatformAppHostname } from '../utils/brandSwitchUrl';
 import { buildPublicIntakeUrl } from '../utils/publicIntakeUrl';
@@ -786,6 +787,8 @@ import {
 // Removed hardcoded credentials for security
 const router = useRouter();
 const route = useRoute();
+const leavePublicAuthForm = enterPublicAuthForm();
+onUnmounted(leavePublicAuthForm);
 const identifiedFamilySurface = ref('');
 const isAuricWellLogin = computed(() => /^(www\.)?auricwell\.com$/i.test(window.location.hostname) || identifiedFamilySurface.value === 'clinical');
 const isFundThredLogin = computed(() => isFundthredLogin(route));
@@ -1301,16 +1304,22 @@ const tenantVideoAuthSubtitle = computed(() => {
 });
 
 // Fetch agency-specific login theme
+let loginThemeRequest = 0;
+onUnmounted(() => { loginThemeRequest += 1; });
 const fetchLoginTheme = async (portalUrl) => {
+  const request = ++loginThemeRequest;
+  const loginPath = route.path;
+  const isCurrent = () => request === loginThemeRequest && route.path === loginPath;
   try {
     loadingTheme.value = true;
-    const response = await api.get(`/agencies/portal/${portalUrl}/login-theme`);
+    const response = await api.get(`/agencies/portal/${portalUrl}/login-theme`, { skipAuthRedirect: true });
+    if (!isCurrent()) return;
     const data = response.data;
 
     // Summit-family logins serve on the tenant slug directly. Child orgs redirect to the parent tenant login.
     const canonical = (data?.agency?.canonicalLoginSlug || '').toString().trim().toLowerCase();
     const current = (portalUrl || '').toString().trim().toLowerCase();
-    if (canonical && current && canonical !== current) {
+    if (!isSchoolCareBridge.value && canonical && current && canonical !== current) {
       if (isSummitTenantSlug(canonical)) {
         router.replace({ path: `/${canonical}/login`, query: route.query });
       } else {
@@ -1331,13 +1340,14 @@ const fetchLoginTheme = async (portalUrl) => {
     // Apply org theme so CSS variables (colors/background/fonts) match the org on /{slug}/login
     brandingStore.setPortalThemeFromLoginTheme(data);
   } catch (error) {
+    if (!isCurrent()) return;
     console.error('Failed to fetch login theme:', error);
     // If agency not found, redirect to default login
-    if (error.response?.status === 404) {
+    if (!isSchoolCareBridge.value && error.response?.status === 404) {
       router.replace(isFundThredLogin.value ? {path:'/login',query:route.query} : '/login');
     }
   } finally {
-    loadingTheme.value = false;
+    if (isCurrent()) loadingTheme.value = false;
   }
 };
 

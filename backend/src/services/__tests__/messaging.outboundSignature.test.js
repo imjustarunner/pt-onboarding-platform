@@ -13,6 +13,24 @@ import { finalizeOutboundContent } from '../unifiedEmail/unifiedEmailSender.serv
 import { getGmailClient } from '../unifiedEmail/gmailClient.js';
 import { buildStaffSignatureHtml, buildStaffSignatureText } from '../staffHtmlEmailSignature.service.js';
 import { wrapOutboundHtmlWithTenantChrome } from '../tenantEmailChrome.service.js';
+import { schoolPasswordRecoveryEmail } from '../schoolPasswordRecoveryEmail.service.js';
+
+it('keeps school recovery branding and links through the actual outbound finalizer', async () => {
+  const mail = schoolPasswordRecoveryEmail({user:{first_name:'Jamie'},organization:{id:451,slug:'demo-school',name:'Cedar Grove',organization_type:'school'},token:'test-reset',loginEmail:'jamie@example.test',firstSet:false,expiresInHours:48});
+  const result = await finalizeOutboundContent({
+    identity:{id:7,agency_id:450,identity_key:'app',display_name:'SchoolCareBridge',from_email:'app@itsco.health'},
+    agencyId:450,userId:1465,schoolOrganizationId:451,templateType:'password_reset',source:'manual',
+    text:mail.body,html:mail.html,to:'jamie@example.test',
+    portalEmailBrand:{...mail.portalEmailBrand,replyTo:'technology@itsco.health'}
+  });
+  expect(result.html).toContain('aria-label="SchoolCareBridge"');
+  expect(result.html).toContain('Cedar Grove');
+  expect(result.html).toContain('/app/demo-school/reset-password/test-reset');
+  expect(result.html).not.toContain('app.itsco.health');
+  expect(result.html).not.toContain('pt-department-html-signature');
+  expect(result.html).not.toContain('Opt out');
+  expect(wrapOutboundHtmlWithTenantChrome).not.toHaveBeenCalled();
+});
 
 let staff;
 const identity = { id: 7, agency_id: 2, identity_key: 'messages', display_name: 'Michael Mendez', from_email: 'messages@itsco.health', reply_to: 'michael@itsco.health' };

@@ -123,7 +123,7 @@
 <script setup>
 import SchoolCareBridgeBrand from '../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
 import { isSchoolCareBridgePath, schoolCareBridgePath } from '../utils/schoolCareBridge';
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useBrandingStore } from '../store/branding';
 import api from '../services/api';
@@ -133,11 +133,14 @@ import { checkPasswordBasics } from '../utils/passwordPolicy.js';
 import PasswordRecoveryBrand from '../components/PasswordRecoveryBrand.vue';
 import { completePasswordTokenLogin } from '../utils/completePasswordTokenLogin.js';
 import { clearPortalLoginMemory } from '../utils/loginRemember.js';
+import { enterPublicAuthForm } from '../utils/publicAuthForm';
 
 const successMessage = ref('');
 
 const router = useRouter();
 const route = useRoute();
+const leavePublicAuthForm = enterPublicAuthForm();
+onUnmounted(leavePublicAuthForm);
 const brandingStore = useBrandingStore();
 
 const loading = ref(true);

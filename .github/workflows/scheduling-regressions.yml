@@ -200,6 +200,11 @@ jobs:
         run: |
           node node_modules/vitest/vitest.mjs run --config ../backend/vitest.qa-oct29.config.js
           TZ=America/Los_Angeles node node_modules/vitest/vitest.mjs run --config vitest.qa-oct29.config.js
+      - name: School recovery links, branding, and login stability
+        working-directory: frontend
+        run: |
+          node node_modules/vitest/vitest.mjs run --config ../backend/vitest.password-recovery.config.js
+          node node_modules/vitest/vitest.mjs run --config vitest.school-recovery.config.js
       - name: Provider update SSO completion
         run: >-
           node frontend/node_modules/vitest/vitest.mjs run

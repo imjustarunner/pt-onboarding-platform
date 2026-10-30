@@ -98,7 +98,7 @@ describe('password recovery delivery', () => {
     expect(m.token).not.toHaveBeenCalled();
   });
   it('uses the parent tenant for school branding and sender', async () => {
-    m.agencies.mockResolvedValue([{ id: 20, organization_type: 'school' }]); m.parent.mockResolvedValue(9); m.agency.mockResolvedValue(tenant);
+    m.agencies.mockResolvedValue([{ id: 20, slug: 'cedar-grove', name: 'Cedar Grove', organization_type: 'school' }]); m.parent.mockResolvedValue(9); m.agency.mockResolvedValue(tenant);
     await requestPasswordRecoveryEmail({ email: user.email });
     expect(m.identities).toHaveBeenCalledWith(expect.objectContaining({ agencyId: 9, includePlatformDefaults: false }));
   });
@@ -143,6 +143,49 @@ describe('password recovery delivery', () => {
   it('keeps unknown addresses private and sends nothing', async () => {
     m.find.mockResolvedValue(null);
     expect((await requestPasswordRecoveryEmail({ email: 'unknown@example.net' })).outcome).toBe('unknown_user'); expect(m.send).not.toHaveBeenCalled();
+  });
+});
+
+describe('SchoolCareBridge recovery', () => {
+  const school = { id: 20, slug: 'cedar-grove', portal_url: 'cedar-grove-school', name: 'Cedar Grove', organization_type: 'school' };
+  beforeEach(() => {
+    m.agencies.mockResolvedValue([school]); m.parent.mockResolvedValue(9); m.agency.mockResolvedValue(tenant);
+    m.template.mockResolvedValue({ subject: 'ITSCOLLC password reset', body: 'Reset: https://agency.example/old-reset\nPortal: https://agency.example/login' });
+  });
+  it.each([null, 'schoolcarebridge'])('uses one school reset destination and school branding from surface %s', async surface => {
+    const result = await requestPasswordRecoveryEmail({ email: user.email, organizationSlug: school.portal_url, req: { body: { surface } } });
+    expect(result.outcome).toBe('sent');
+    expect(m.send).toHaveBeenCalledWith(expect.objectContaining({
+      subject: 'Cedar Grove: Set your password', fromDisplayNameOverride: 'SchoolCareBridge',
+      senderIdentityId: 12, replyToOverride: 'technology@tenant.example', schoolOrganizationId: 20,
+      portalEmailBrand: expect.objectContaining({ name: 'SchoolCareBridge', replyTo: 'technology@tenant.example' })
+    }));
+    const mail = m.send.mock.calls[0][0];
+    expect(mail.html).toContain('href="https://schoolcarebridge.org/app/cedar-grove-school/reset-password/reset-token"');
+    expect(mail.html).toContain('href="https://schoolcarebridge.org/app/cedar-grove-school"');
+    expect(mail.html.match(/href="[^"]*reset-password/g)).toHaveLength(1);
+    expect(mail.text).toContain('Your sign-in email: eric@school.example');
+    expect(mail.text).not.toContain('agency.example'); expect(mail.html).not.toContain('ITSCOLLC');
+    expect(m.template).not.toHaveBeenCalled();
+    expect(m.log).toHaveBeenCalledWith(expect.objectContaining({ agencyId: 9, userId: 42 }));
+  });
+  it('ignores an unrelated requested school and keeps the account’s own school', async () => {
+    await requestPasswordRecoveryEmail({ email: user.email, organizationSlug: 'unrelated-school', req: { body: { surface: 'schoolcarebridge' } } });
+    const mail = m.send.mock.calls[0][0];
+    expect(mail.html).toContain('/app/cedar-grove-school/reset-password/reset-token');
+    expect(mail.html).not.toContain('unrelated-school');
+  });
+  it('uses reset wording for an existing lasting password', async () => {
+    user.password_hash = 'existing-hash'; user.status = 'ACTIVE_EMPLOYEE';
+    await requestPasswordRecoveryEmail({ email: user.email });
+    expect(m.send.mock.calls[0][0].subject).toBe('Cedar Grove: Reset your password');
+  });
+  it('keeps guardian recovery on the family portal even if requested from a school page', async () => {
+    user.role = 'client_guardian';
+    await requestPasswordRecoveryEmail({ email: user.email, req: { body: { surface: 'schoolcarebridge' } }, enrollment: {agencyId:9, channel:'counseling'} });
+    const mail = m.send.mock.calls[0][0];
+    expect(mail.html).toContain('https://auricwell.com/tenant/reset-password/reset-token');
+    expect(mail.portalEmailBrand).toBeUndefined();
   });
 });
 describe('recovery SSO and account restrictions', () => {

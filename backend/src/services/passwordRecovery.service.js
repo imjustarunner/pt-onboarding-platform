@@ -2,7 +2,7 @@ import { familyEnrollmentContext, familyRecoveryMessage } from './familyPortalLo
 import { intakeClientPortal, clientPortalAppUrl } from './clientPortalContext.service.js';
 import { fullSuiteIdentityAllowed } from './productIdentity.service.js';
 import { sendEnrollmentPortalEmail } from './enrollmentPortalEmail.service.js';
-import { schoolCareBridgeDeployment } from './schoolCareBridgeRouting.service.js';
+import { schoolPasswordRecoveryEmail } from './schoolPasswordRecoveryEmail.service.js';
 /**
  * Password recovery (Forgot Password) — first principles
  *
@@ -114,7 +114,7 @@ async function resolveAgencyFromOrgSlug(orgSlug) {
   return (await Agency.findByPortalUrl(slug)) || (await Agency.findBySlug(slug)) || null;
 }
 
-async function resolveContextAgency({ userId, orgSlug }) {
+async function resolveRecoveryContext({ userId, orgSlug }) {
   const agencies = await User.getAgencies(userId, { includeInactive: true });
   const fromSlug = await resolveAgencyFromOrgSlug(orgSlug);
   const selected = agencies.find((a) => Number(a.id) === Number(fromSlug?.id)) || agencies[0];
@@ -123,9 +123,9 @@ async function resolveContextAgency({ userId, orgSlug }) {
     const parentId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(Number(selected.id)) ||
       await AgencySchool.getActiveAgencyIdForSchool(Number(selected.id));
     if (!parentId) throw new Error('No parent tenant is configured for this organization');
-    return await Agency.findById(parentId);
+    return { agency: await Agency.findById(parentId), organization: selected };
   }
-  return selected;
+  return { agency: selected, organization: selected };
 }
 
 async function resolveRecoverySender(agencyId) {
@@ -162,18 +162,18 @@ function loginReminderLines(loginEmail) {
   };
 }
 
-async function buildMessage({ user, agency, orgSlug, token, loginEmail, req, enrollment, expiresInHours = RESET_HOURS }) {
+async function buildMessage({ user, agency, organization, orgSlug, token, loginEmail, req, enrollment, expiresInHours = RESET_HOURS }) {
+  const firstSet = userNeedsFirstPasswordSet(user);
+  const familyAccount = ['client_guardian', 'guardian', 'client'].includes(user?.role);
+  if (!familyAccount && (req?.body?.surface === 'schoolcarebridge' ||
+      (user.role === 'school_staff' && organization?.organization_type === 'school'))) {
+    return schoolPasswordRecoveryEmail({ user, organization, token, loginEmail, firstSet, expiresInHours });
+  }
   let resetLink = EmailTemplateService.buildResetTokenLink(
     agency || { portal_url: orgSlug, slug: orgSlug },
     token
   );
-  if (req?.body?.surface === 'schoolcarebridge' && /^[a-z0-9][a-z0-9-]*$/.test(orgSlug || agency?.portal_url || agency?.slug || '')) {
-    const deployment = schoolCareBridgeDeployment();
-    const schoolSlug = orgSlug || agency?.portal_url || agency?.slug;
-    resetLink = `${deployment.origin}${deployment.basePath}/app/${encodeURIComponent(schoolSlug)}/reset-password/${encodeURIComponent(token)}`;
-  }
   if(enrollment){const portal=intakeClientPortal(agency,{channel:enrollment.channel,school:!!enrollment.schoolOrganizationId});if(portal.clinical_portal)resetLink=clientPortalAppUrl(portal,`reset-password/${encodeURIComponent(token)}`);}
-  const firstSet = userNeedsFirstPasswordSet(user);
   if (['client_guardian','guardian','client'].includes(user?.role)) return familyRecoveryMessage({locale:enrollment?.locale,firstSet,resetLink,loginEmail,expiresInHours});
   const reminder = loginReminderLines(loginEmail);
   let subject = firstSet ? 'Set your password' : 'Reset your password';
@@ -244,7 +244,9 @@ async function sendResetEmail({
   html,
   userId,
   existingCommunicationId,
-  enrollment = null
+  enrollment = null,
+  schoolOrganizationId = null,
+  portalEmailBrand = null
 }) {
   if (enrollment) return sendEnrollmentPortalEmail({ agencyId, to, subject, text, html, userId, existingCommunicationId, locale: enrollment.locale || 'en', schoolOrganizationId: enrollment.schoolOrganizationId || null, enrollmentChannel: enrollment.channel || null, source: 'manual', templateType: 'password_reset' });
   const { identity, replyTo } = await resolveRecoverySender(agencyId);
@@ -256,6 +258,10 @@ async function sendResetEmail({
     userId,
     existingCommunicationId,
     templateType: 'password_reset',
+    ...(portalEmailBrand ? {
+      portalEmailBrand: { ...portalEmailBrand, replyTo },
+      fromDisplayNameOverride: 'SchoolCareBridge', schoolOrganizationId
+    } : {}),
     usedFallbackSender: false
   });
   return { ...result, fromEmail: identity.from_email, replyTo };
@@ -297,7 +303,7 @@ export async function requestPasswordRecoveryEmail({
   if (!(await fullSuiteIdentityAllowed(found.id))) return { ok: true, outcome: 'unknown_user' };
   const user = targetUser || (await User.findById(found.id)) || found;
   if (passwordRecoveryRequiresSupport(user)) {
-    const agency = await resolveContextAgency({ userId: user.id, orgSlug });
+    const { agency } = await resolveRecoveryContext({ userId: user.id, orgSlug });
     const ticketId = await createPasswordRecoverySupportTicket({
       user, agency, requestedEmail, generatedByUserId, replyEmail: pickRecipientEmail(user, requestedEmail)
     });
@@ -306,7 +312,7 @@ export async function requestPasswordRecoveryEmail({
   if ((await getPasswordRecoverySsoState(user)).ssoRequired) {
     return { ok: true, outcome: 'sso_required' };
   }
-  const agency = await resolveContextAgency({ userId: user.id, orgSlug });
+  const { agency, organization } = await resolveRecoveryContext({ userId: user.id, orgSlug });
   if (['client_guardian','guardian','client'].includes(user.role)) {
     const familyContext = await familyEnrollmentContext(user.id,agency.id);
     enrollment = {...familyContext,...enrollment};
@@ -322,10 +328,11 @@ export async function requestPasswordRecoveryEmail({
   }
 
   const tokenResult = existingTokenResult || await User.generatePasswordlessToken(user.id, RESET_HOURS, 'reset');
-  const { subject, body, html, resetLink, firstSet } = await buildMessage({
+  const { subject, body, html, resetLink, firstSet, schoolOrganizationId, portalEmailBrand } = await buildMessage({
     req,
     user,
     agency,
+    organization,
     orgSlug,
     token: tokenResult.token,
     expiresInHours: tokenResult.expiresInHours || RESET_HOURS,
@@ -403,7 +410,9 @@ export async function requestPasswordRecoveryEmail({
       html,
       userId: user.id,
       existingCommunicationId: comm?.id || null,
-      enrollment
+      enrollment,
+      schoolOrganizationId,
+      portalEmailBrand
     });
   } catch (e) {
     await markCommFailed(comm?.id, e?.message || 'send failed');
