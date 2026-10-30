@@ -51,7 +51,7 @@ async function main(){
    const data=parse(row.token_values_json),s=data.schedule;
    const rate=rates.find(r=>Number(r.category)===Number(s.category)&&Number(r.level)===Number(s.level))||{};
    data.compensationPolicyVersion=SERVICE_POLICY_VERSION;
-   s.tier3LevelBonus=conditionalLevelBonus(s.level);s.autoIndirectMinutes=Number(s.category)===1?0:10;s.leaveAdminRatio=0.2;
+   s.tier3LevelBonus=conditionalLevelBonus(s.level);s.autoIndirectMinutes=10;s.leaveAdminRatio=0.2;
    s.creditRateProbation??=rate.credit_rate_probation??s.creditRate;
    s.hcodeRateProbation??=rate.hcode_rate_probation??s.hcodeRate;
    s.indirectRateProbation??=s.indirectRate;s.supportRateProbation??=s.supportRate;

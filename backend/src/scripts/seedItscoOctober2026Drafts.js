@@ -33,7 +33,7 @@ async function main() {
    employee:{userId:u.id,name:`${u.first_name} ${u.last_name}`,title:u.title||'',credential:u.credential||'',employmentType:u.employment_type||account?.employment_type||null,originalAgreementDate:''},
    schedule:{category:a?.category??null,level:a?.level??null,levelDescription:levels.find(l=>l.category===a?.category&&l.level===a?.level)?.label||'',
     creditRate:r?.credit_rate??null,hcodeRate:r?.hcode_rate??null,indirectRate:r?.indirect_rate??null,supportRate:r?.support_activity_rate??null,
-    ptoRate:account?.pto_pay_rate??null,tier3LevelBonus:conditionalLevelBonus(a?.level),autoIndirectMinutes:Number(a?.category)===1?0:10,leaveAdminRatio:0.2,creditRateProbation:r?.credit_rate_probation??r?.credit_rate??null,hcodeRateProbation:r?.hcode_rate_probation??r?.hcode_rate??null,indirectRateProbation:r?.indirect_rate??null,supportRateProbation:r?.support_activity_rate??null},
+    ptoRate:account?.pto_pay_rate??null,tier3LevelBonus:conditionalLevelBonus(a?.level),autoIndirectMinutes:10,leaveAdminRatio:0.2,creditRateProbation:r?.credit_rate_probation??r?.credit_rate??null,hcodeRateProbation:r?.hcode_rate_probation??r?.hcode_rate??null,indirectRateProbation:r?.indirect_rate??null,supportRateProbation:r?.support_activity_rate??null},
    commonClausesHtml:commonAmendmentClauses('sick'),additionalTerms:'',
    source:{capturedAt:new Date().toISOString(),assignment:a||null,rateProfile:r||null,ptoRate:account?.pto_pay_rate??null,
     notice:'Saved matrix values are draft inputs, not a finding that these rates are already effective. Missing values are not inferred.'}};

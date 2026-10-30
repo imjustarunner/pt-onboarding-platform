@@ -56,7 +56,14 @@ class PayrollTimeClaim {
     } catch {
       payload = {};
     }
-    return { ...row, payload };
+    // Carryovers retain exact approved minutes in their audit payload; the
+    // legacy credits_hours column stores only hundredths of an hour.
+    const carryoverMinutes = Number(payload.totalMinutes);
+    const exactCarryover = row.claim_type === 'indirect_time'
+      && payload.source === 'direct_care_auto_indirect_carryover'
+      && ['approved', 'paid'].includes(row.status)
+      && Number.isFinite(carryoverMinutes) && carryoverMinutes > 0;
+    return { ...row, ...(exactCarryover ? { credits_hours: carryoverMinutes / 60 } : {}), payload };
   }
 
   static async listForUser({ agencyId, userId, status = null, limit = 200, offset = 0 }) {

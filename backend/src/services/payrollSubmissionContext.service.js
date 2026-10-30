@@ -5,7 +5,7 @@ import PayrollRate from '../models/PayrollRate.model.js';
 import PayrollCompensationLevel from '../models/PayrollCompensationLevel.model.js';
 import PayrollPaySystemRate from '../models/PayrollPaySystemRate.model.js';
 import { effectiveCompensationAgreement } from './employmentAgreementPolicy.service.js';
-import { defaultHcodeIndirectMinutes } from '../utils/serviceCreditPolicy.js';
+import { defaultHcodeIndirectMinutes, directCareIndirectMinutes } from '../utils/serviceCreditPolicy.js';
 import {classifyPayType,isPayrollCodeVisible} from './payrollCodeClassification.js';
 import {day} from './recurringPayroll.service.js';
 const parse=v=>{try{return typeof v==='string'?JSON.parse(v):v||{};}catch{return {};}};
@@ -23,7 +23,7 @@ export async function submissionContext({agencyId,userId,asOf=day(new Date())}) 
  const personalAdminRate = await jacquelyneAdminRate({agencyId,userId,asOf});
  const admin=Number(personalAdminRate ?? role?.adminRate ?? adminRate?.rate_amount);
  return {adminActivitiesRequired:isJacquelyneTimeUser(agencyId,userId),assignment,schedule,startsOn:starts,executed:!!agreement&&agreement.executed!==false,payrollAuthorized:!!agreement?.payrollAuthorized,adminRate:admin>0?admin:null,
-  indirectMinutesPerHour:schedule?Number(schedule.autoIndirectMinutes??defaultHcodeIndirectMinutes(schedule.category)):0,
+  indirectMinutesPerHour:schedule?directCareIndirectMinutes(schedule.autoIndirectMinutes??defaultHcodeIndirectMinutes(schedule.category)):0,
   effective:!!agencyEnabled&&Number(assignment?.pay_system_enabled)===1&&!!agreement&&!!schedule&&!!starts&&asOf>=starts};
 }
 export function compensationCodes(rules) {
@@ -51,7 +51,7 @@ export async function validateSupplementalTime({agencyId,userId,claimDate,payloa
  if(payload.excessIndirect) {
   const x=payload.excessIndirect;
   const [[rule]]=await pool.execute('SELECT * FROM payroll_service_code_rules WHERE agency_id=? AND service_code=?',[agencyId,x.code]);
-  if(!ctx.effective||!rule||!/^H\d/.test(rule.service_code)||!(Number(rule.credit_value)>0))throw Object.assign(new Error('Confirm the dated Direct Care Rate and service mapping before submitting excess time.'),{status:409});
+  if(!ctx.effective||!rule||classifyPayType(rule.service_code,rule)!=='hcode'||!(Number(rule.credit_value)>0))throw Object.assign(new Error('Confirm the dated Direct Care Rate and service mapping before submitting excess time.'),{status:409});
   const calc=excessIndirect({units:x.units,actualMinutes:x.actualMinutes,hoursPerUnit:rule.credit_value,minutesPerHour:ctx.indirectMinutesPerHour});
   if(calc.excessMinutes<=0||!Number.isFinite(Number(payload.totalMinutes))||Math.abs(Number(payload.totalMinutes)-calc.excessMinutes)>0.01)throw Object.assign(new Error('Submit only the indirect minutes above the automatic allowance.'),{status:400});
   payload.excessIndirect={...x,...calc,minutesPerHour:ctx.indirectMinutesPerHour};
