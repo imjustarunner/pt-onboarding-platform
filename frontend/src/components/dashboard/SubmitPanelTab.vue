@@ -5,11 +5,12 @@
     @back="$emit('update:view', 'root')"
   >
     <ManualMeetingLog v-if="view === 'root' || view === 'time'" :agency-id="agencyId" @saved="refreshHistory" />
+    <SchoolSupportSubmit v-if="view === 'root' || view === 'in_school'" :agency-id="agencyId" @submitted="refreshHistory" />
     <!-- Root: categorized submit actions -->
     <div v-if="view === 'root'" class="submit-hub__root">
       <p v-if="compensationError" role="alert">{{ compensationError }} <button type="button" @click="loadSubmissionOptions">Try again</button></p>
       <SupplementalTime :agency-id="agencyId" :context="compensation?.submission" :codes="compensation?.codeGuide" @submitted="refreshHistory" />
-      <p v-if="retiredMedcancel" class="submit-hub__sub-hint">School missed-session benefits now use earned School Support Hours. Request them from the leave balances in My Payroll. Prior-period Medicaid no-show records remain in pay history.</p>
+      <p v-if="retiredMedcancel" class="submit-hub__sub-hint">School missed-session benefits now use earned School Support Hours. Use the temporary School Support Hours form above or your balances in My Payroll. Prior-period Medicaid no-show records remain in pay history.</p>
       <RecurringPayments :agency-id="agencyId" />
       <AccountabilityWorkspace :agency-id="agencyId" :target-user-id="submitContext?.employee.id" />
       <PayCalculatorCard :agency-id="agencyId" :start-expanded="false" />
@@ -169,6 +170,7 @@
 </template>
 
 <script setup>
+import SchoolSupportSubmit from '../payroll/SchoolSupportSubmit.vue';
 const api = useSubmitApi();
 const submitContext = useSubmitContext();
 import ManualMeetingLog from '../meetings/ManualMeetingLog.vue';

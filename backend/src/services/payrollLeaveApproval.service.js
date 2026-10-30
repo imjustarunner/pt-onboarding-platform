@@ -3,10 +3,10 @@ import {currentEligibleSickRate} from './sickLeaveRate.service.js';
 import {loadUserPaySystemContext} from './paySystem.service.js';
 import {LEAVE_BALANCE_COLUMNS,validateLeaveItems,leaveLabel} from '../utils/supplementalLeave.js';
 /** Approval, deduction and taxable payroll pay are one transaction. No partial approval on failure. */
-export async function approveLeaveAtomically({agencyId,requestId,actorId,targetPayrollPeriodId,overrideBalance=false,policy,defaultPayRate}) {
- const db=await pool.getConnection();
+export async function approveLeaveAtomically({agencyId,requestId,actorId,targetPayrollPeriodId,overrideBalance=false,policy,defaultPayRate,db:providedDb=null,automatic=false}) {
+ const db=providedDb||await pool.getConnection();
  try{
-  await db.beginTransaction();
+  if(!providedDb)await db.beginTransaction();
   // Match submission's account-first lock order to avoid races and lock inversions.
   const [[acct]]=await db.execute('SELECT * FROM payroll_pto_accounts WHERE agency_id=? AND user_id=(SELECT user_id FROM payroll_pto_requests WHERE id=? AND agency_id=?) FOR UPDATE',[agencyId,requestId,agencyId]);
   const [[req]]=await db.execute('SELECT * FROM payroll_pto_requests WHERE id=? AND agency_id=? FOR UPDATE',[requestId,agencyId]);
@@ -36,7 +36,7 @@ export async function approveLeaveAtomically({agencyId,requestId,actorId,targetP
    let rate;
    if(bucket==='school_support'){
     const ctx=await loadUserPaySystemContext({agencyId,userId:req.user_id,periodEnd:item.date});
-    rate=Number(ctx.enabled?ctx.rateProfile?.supportActivityRate:policy.schoolSupportHourlyRate);
+    rate=Number(ctx.enabled?(ctx.status?.useReducedRates ? ctx.rateProfile?.supportActivityRateProbation ?? ctx.rateProfile?.supportActivityRate : ctx.rateProfile?.supportActivityRate):policy.schoolSupportHourlyRate);
    }else rate=await currentEligibleSickRate({agencyId,userId:req.user_id,asOfDate:item.date,fallbackRate:acct.pto_pay_rate??defaultPayRate});
    if(!Number.isFinite(rate)||rate<=0)throw Error('Confirm a positive leave payment rate before approval');
    rates.push({...item,rate,payrollPeriodId:period.id});
@@ -55,9 +55,9 @@ export async function approveLeaveAtomically({agencyId,requestId,actorId,targetP
     await db.execute(`UPDATE payroll_adjustments SET ${payColumn}=COALESCE(${payColumn},0)+?,pto_hours=?,pto_rate=?,updated_by_user_id=? WHERE payroll_period_id=? AND user_id=?`,[payment.hours,hours,rate,actorId,pid,req.user_id]);
    }
   }
-  for(const item of rates)await db.execute("INSERT INTO payroll_pto_ledger(agency_id,user_id,entry_type,pto_bucket,hours_delta,effective_date,payroll_period_id,request_id,note,created_by_user_id) VALUES(?,?,'usage',?,?,?,?,?,?,?)",[agencyId,req.user_id,bucket,-item.hours,item.date,item.payrollPeriodId,requestId,`${leaveLabel(bucket)} approved at $${item.rate.toFixed(2)}/hour`,actorId]);
+  for(const item of rates)await db.execute("INSERT INTO payroll_pto_ledger(agency_id,user_id,entry_type,pto_bucket,hours_delta,effective_date,payroll_period_id,request_id,note,created_by_user_id) VALUES(?,?,'usage',?,?,?,?,?,?,?)",[agencyId,req.user_id,bucket,-item.hours,item.date,item.payrollPeriodId,requestId,`${leaveLabel(bucket)} ${automatic?'automatically applied (temporary self-service)':'approved'} at $${item.rate.toFixed(2)}/hour`,actorId]);
   await db.execute(`UPDATE payroll_pto_accounts SET ${column}=${column}-?,updated_by_user_id=? WHERE agency_id=? AND user_id=?`,[total,actorId,agencyId,req.user_id]);
   await db.execute("UPDATE payroll_pto_requests SET status='approved',approved_by_user_id=?,approved_at=NOW(),approved_payroll_period_id=?,approved_rates_json=?,rejected_by_user_id=NULL,rejected_at=NULL,rejection_reason=NULL WHERE id=? AND agency_id=?",[actorId,rates[0].payrollPeriodId,JSON.stringify(rates),requestId,agencyId]);
-  await db.commit();return {ok:true,affectedPayrollPeriodIds:[...payments.keys()],skippedDates:[],failedPeriods:[]};
- }catch(e){await db.rollback();throw e;}finally{db.release();}
+  if(!providedDb)await db.commit();return {ok:true,affectedPayrollPeriodIds:[...payments.keys()],skippedDates:[],failedPeriods:[],rates};
+ }catch(e){if(!providedDb)await db.rollback();throw e;}finally{if(!providedDb)db.release();}
 }

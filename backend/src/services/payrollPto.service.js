@@ -244,6 +244,8 @@ async function getUserTerminationInfo({ userId }) {
 export async function getPtoBalances({ agencyId, userId }) {
   const { policy, defaultPayRate } = await getAgencyPtoPolicy({ agencyId });
   const acct = await ensurePtoAccount({ agencyId, userId, updatedByUserId:userId });
+  const { schoolSupportAvailability } = await import('./schoolSupportRequest.service.js');
+  const supportAvailability = policy.schoolSupportEnabled ? await schoolSupportAvailability({ agencyId, userId }) : { pendingHours: 0 };
   const schoolEligible=!!policy.schoolSupportEnabled&&(Number(acct.school_support_balance_hours)>0||await hasSchoolAssignment({agencyId,userId}));
   const schoolContext=schoolEligible?await loadUserPaySystemContext({agencyId,userId,periodEnd:todayYmd()}):null;
   const schoolSupportPayRate=schoolEligible?Number(schoolContext?.enabled?(schoolContext.status?.useReducedRates ? schoolContext.rateProfile?.supportActivityRateProbation ?? schoolContext.rateProfile?.supportActivityRate : schoolContext.rateProfile?.supportActivityRate):policy.schoolSupportHourlyRate)||null:null;
@@ -317,7 +319,8 @@ export async function getPtoBalances({ agencyId, userId }) {
     balances: {
       sickHours: Number(acct.sick_balance_hours || 0),
       trainingHours: policy?.trainingPtoEnabled ? Number(acct.training_balance_hours || 0) : 0,
-      schoolSupportHours:Number(acct.school_support_balance_hours||0)
+      schoolSupportHours:Number(acct.school_support_balance_hours||0),
+      schoolSupportPendingHours:supportAvailability.pendingHours
     }
   };
 }
