@@ -5,5 +5,7 @@ export default defineConfig({plugins:[vue()],resolve:{alias:{'@':new URL('./src'
  'src/components/schedule/__tests__/scheduleLoading.test.js',
  'src/components/schedule/__tests__/scheduleQuarterHourFlow.test.js',
  'src/components/provider/__tests__/ProviderUpdateOfficeSchedule.test.js',
- 'src/components/provider/__tests__/ProviderHoursFocus.test.js'
+ 'src/components/provider/__tests__/ProviderHoursFocus.test.js',
+ 'src/components/schedule/__tests__/OfficeEventSessionNotePanel.test.js',
+ 'src/components/clinical/__tests__/NoteAidTreatmentPlanStandaloneModal.test.js'
 ]}});

@@ -250,6 +250,7 @@ export const updateAppointmentHandler = async (req, res, next) => {
     if (!(await assertAgencyAccess(req, existing.agencyId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
+    await assertAppointmentChangeAccess(req, existing);
     await assertBillingMutationAccess(req, existing.agencyId);
     if (req.body?.startAt || req.body?.participants) {
       const participants = req.body.participants || await Appointment.listParticipants(id);
