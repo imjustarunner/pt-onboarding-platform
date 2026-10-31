@@ -4,6 +4,11 @@ import { resolveAssignedEnrollmentWaitlist } from './providerEnrollmentWaitlist.
 import pool from '../config/database.js';
 import { queueSchoolClientStatusEmails } from './schoolClientStatusEmail.service.js';
 
+async function queueInitialSchoolContact(connection, clientId) {
+  const { queueSchoolContactAssignments } = await import('./schoolContactAutomation.service.js');
+  await queueSchoolContactAssignments(connection, { clientId });
+}
+
 /**
  * Ensure an active client_provider_assignments row exists for client+org+provider.
  * Idempotent; safe to call when the row already exists.
@@ -216,6 +221,7 @@ export async function afterLegacyProviderFieldsChanged(
     isPrimary
   });
   await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentChanged: true });
+  await queueInitialSchoolContact(connection, cid);
 }
 
 /**
@@ -229,6 +235,7 @@ export async function afterScopedProviderAssignmentChanged(connection, { clientI
   if (forceLegacy) {
     await syncPrimaryLegacyFromClientAssignments(connection, { clientId: cid, userId });
     await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentChanged: true });
+    await queueInitialSchoolContact(connection, cid);
     return;
   }
 
@@ -238,6 +245,7 @@ export async function afterScopedProviderAssignmentChanged(connection, { clientI
     await syncPrimaryLegacyFromClientAssignments(connection, { clientId: cid, userId });
   }
   await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentChanged: true });
+  await queueInitialSchoolContact(connection, cid);
 }
 
 /**

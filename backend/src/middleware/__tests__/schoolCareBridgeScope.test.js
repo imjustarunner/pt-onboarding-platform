@@ -13,4 +13,10 @@ describe('SchoolCareBridge tenant scope',()=>{
  it('cannot expand a scoped tenant through organization settings',async()=>{m.members.mockResolvedValue([limited,full]);const {res}=await request('/api/agencies/2',{method:'PUT'});expect(res.status).toHaveBeenCalledWith(403);});
  it('fails closed when membership lookup fails',async()=>{const error=Error('db failure');m.members.mockRejectedValue(error);const {next,res}=await request('/api/clients');expect(next).toHaveBeenCalledWith(error);expect(res.json).not.toHaveBeenCalled();});
  it('limits profile updates to the current account',()=>{expect(schoolCareBridgeApiAllowed('PUT','/api/users/21/profile',20)).toBe(false);expect(schoolCareBridgeApiAllowed('PUT','/api/users/20/profile',20)).toBe(true);});
+ it('allows provider contact-plan settings and reply recording within the school workspace',async()=>{
+  for(const [method,path] of [['GET','/api/school-contact-plan'],['PUT','/api/school-contact-plan'],['POST','/api/school-contact-plan/example'],['POST','/api/school-contact-plan/workflows/1/parent-replied']]){
+   const {next,res}=await request(path,{method});expect(next).toHaveBeenCalledWith();expect(res.status).not.toHaveBeenCalled();
+  }
+  expect(schoolCareBridgeApiAllowed('POST','/api/school-contact-plan-unrelated',20)).toBe(false);
+ });
 });

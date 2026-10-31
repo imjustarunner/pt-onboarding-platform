@@ -1,0 +1,183 @@
+SCHOOL CARE BRIDGE — NEW CLIENT CONTACT PLAN
+Additional bot test instructions for Saturday morning, October 31, 2026
+Timezone: America/Denver. Add these cases to the existing ITSCOLLC QA plan.
+
+RELEASE READINESS
+
+This handoff describes the new feature and expected behavior. A local developer
+test is not a live demo pass. The coordinator must confirm that the frontend,
+backend, and contact-plan migrations are deployed before running these cases.
+If the contact-plan card is absent, report NOT AVAILABLE with the URL, role,
+school assignment, and time. Do not change accounts or create many clients to
+try to make it appear. External bots need only their supplied application role
+accounts, browser access, and access to the controlled testing inbox.
+
+DEMO AND DELIVERY SCOPE
+
+Use ITSCOLLC, agency 450, login:
+https://app.itsco.health/auricwell-qa-demo/login
+Use school 451, Cedar Grove K-8 — DEMO. Do not use archived Demo ITSCO (381),
+production ITSCO, or the public read-only School Care Bridge demonstration.
+Use separate browser profiles for provider Avery (1433), support Jordan, school
+staff Jamie, and the supplied synthetic guardian. Reuse retained test records
+where possible. Existing caps remain 30 clients and 10 providers; count first.
+Use supplied secure credentials. Do not record passwords, tokens, or cookies.
+
+All pilot emails, including provider CC/BCC copies, must be physically delivered
+only to testing@itsco.health. The app may show the intended synthetic guardian
+and provider in its contact record; inspect the received email's actual headers
+to confirm the physical delivery destination and reply route.
+
+Texts require a coordinator-approved, client-specific receiving fixture, the
+family's recorded opt-in, an active registered sender, and no STOP suppression.
+Do not enter a real family's data, switch on consent for convenience, substitute
+an arbitrary phone, or assume a purchased sender is active. The October 28
+Notifyre handoff named 719-728-1970 (main/support) and 719-677-5413 (provider) as
+SENDING numbers with activation then pending. They are not receiving fixtures.
+618-910-7000 belongs only to Rowan's demo family; 815-212-2875 only to Harper's
+demo family. Use them only if the coordinator confirms current readiness and
+enables the matching fixture for this feature. Otherwise mark live SMS BLOCKED
+and continue every email, UI, privacy, and consent-suppression case.
+
+1. OPTIONAL SETUP AND PERSISTENCE
+
+As a school-assigned provider with an unconfigured plan, open the dashboard.
+Capture the welcome modal at desktop and mobile width. Confirm its copy asks
+whether help with initial contact is wanted and offers Yes and No. Check
+keyboard navigation, readable content, scroll behavior, and the minimize action.
+
+Choose No. Confirm dismissal and the small reopen card. Reload/sign in again;
+the full welcome should not repeatedly interrupt the provider. Reopen the card
+and choose Yes. Confirm this has not yet enabled automatic contact: saving the
+final plan is the explicit opt-in. A provider without a school assignment and a
+provider in a different tenant must not get an active contact-plan flow.
+
+2. PREVIEW, EDIT, SEND EXAMPLE, AND RESUME
+
+Confirm the preview includes Parent name, the provider's name, Example Middle
+School, and Example Day. The message should introduce the provider, request
+days/times for a virtual conversation/intake, describe establishing therapy
+goals, and invite a reply. From shows the provider's name using messages@.
+
+Choose Send me an example. Confirm a successful result minimizes the modal,
+retains the draft, and offers reopening. For a non-SSO provider, use Check
+Messages on the card; confirm the example conversation is available and the
+plan can be reopened without losing edits. For SSO, inspect the controlled
+email inbox and reopen the card. Do not infer receipt merely from a toast.
+
+Inspect the actual received subject/body, From, To, Cc, Reply-To, and raw headers
+where available. SSO replies should go to messages@ and return to the app;
+non-SSO replies should go to the provider's email. Pilot physical recipients
+remain testing@. Do not change tenant SSO policy to manufacture an SSO case;
+use a coordinator-provisioned SSO fixture or report that lane NOT RUN.
+
+Edit a sentence while retaining {{parent_name}}, {{provider_name}},
+{{school_name}}, and {{service_day}}. Verify the preview changes. Send another
+example and confirm the received body uses the edit. Missing required fields
+should produce an actionable error. A failed example must keep the modal and
+draft available. Examples must not check Parents Contacted, create a real
+client contact note, or increment any client's contact-attempt count.
+
+3. SAVE THE PLAN; ASSIGN A NEW SCHOOL CLIENT
+
+Review the follow-up settings: text after 3 days, email after 7 days from the
+initial email, stale reply after 72 hours by default. Change a value, save,
+reload, and verify persistence. Email follow-up must be later than text.
+Confirm turning the plan on does not email the existing caseload.
+
+Have support assign a retained, currently unassigned synthetic school client
+to this provider using the ordinary school assignment screen AFTER opt-in.
+Use a client with a linked synthetic guardian whose email or personal email is
+testing@itsco.health. This explicit fixture is necessary for a testing-inbox
+reply to count as that guardian's human response; the system does not treat
+every message from testing@ as a reply on behalf of arbitrary fake addresses.
+Record client ID, provider, school, service day, and assignment time. Do not use
+an office appointment or provider preference as proof of a school assignment.
+
+Allow the background worker's next pass. Confirm exactly one initial email,
+correct guardian/provider/school/day substitution, and the saved custom body.
+Confirm a private provider copy is represented; physical pilot copies remain
+in testing@. Reload, open a second tab, and repeat Save without creating a new
+assignment; no duplicate introduction may be sent. Unassign/reassign and
+concurrent-worker tests belong to the developer lane if UI cannot represent
+them safely. A declined or disabled provider must not send introductions.
+
+4. SCHOOL CARE BRIDGE RECORD AND REPLIES
+
+As provider, support, and Jamie, inspect the permitted School Care Bridge client
+area. After a successful initial send, Parents Contacted is checked and contact
+attempts starts at 1. The contact note must identify the automation/communication
+record without exposing private content to an unauthorized school role. Opening
+or receiving an automatic delivery response does not establish a successful
+parent conversation. Pending, rejected, or failed sends must not count.
+
+Reply as the guardian with synthetic availability. For SSO, verify the reply
+returns to the same provider conversation, not an unrelated/shared inbox only.
+Confirm the provider sees the message, can respond in Messages, and the guardian
+receives the response. Verify all permitted correspondence is linked to the
+client Communications record and human contact is recognized. Unrelated
+providers/schools/tenants must not see the thread or its content.
+
+For non-SSO external replies, confirm the routing limitation is explained.
+If the reply occurs outside the app, use the plan's per-client Parent replied
+action to stop automatic family follow-ups; confirm persistence. Do not label
+automatic external reply detection as passed when the app never received it.
+
+5. NO-REPLY FOLLOW-UPS AND STOP CONDITIONS
+
+The default intervals take days. External bots must not edit the database,
+change the machine clock, or claim these elapsed. The coordinator/developer
+must supply controlled due-time demo fixtures or report NOT RUN for timing.
+Use separate clients for each branch so one result cannot mask another.
+
+No reply + opted-in approved SMS fixture: one text after the configured delay.
+No opt-in, revoked consent, STOP, missing phone, or unapproved fixture: no text.
+No reply to email/text: one later follow-up email with provider private copy.
+Reply to either channel before a step is sent: pending family follow-ups stop.
+Provider replies/intake proceeds/client unassigned/plan declined: no unwanted
+later family follow-up. A stale queued job must recheck current assignment,
+opt-in, reply state, consent, and demo scope before delivery.
+
+Count actual contact attempts in the app and retain every visible message and
+contact event. Expect 1 after the initial email, 2 after a delivered text, and
+3 after the later email. If the text is correctly skipped, the later email
+brings the count from 1 to 2. The automation records its later email as another
+attempt even within the same email thread. A reply does not add an outbound
+attempt or delete prior contact history.
+
+6. PARENT WAITING ON PROVIDER
+
+Use a demo parent reply with availability; leave the provider response pending.
+At the configured stale threshold (72 hours default, controlled fixture needed),
+verify support receives an in-app alert and the provider receives an email and,
+only with recorded staff consent and an approved provider fixture, a text.
+The notice should direct the provider to the client message to begin intake.
+Repeat the worker pass: no duplicate alert/reminder for that same unanswered
+reply. Have the provider answer before the threshold in a separate case: no
+stale reminder. A delivery receipt/auto-reply must not start this timer.
+
+REPORT AND HANDOFF
+
+For each case use PASS / FAIL / BLOCKED / NOT RUN, not a blanket pass. Record
+role, client/provider IDs, URL, America/Denver timestamp, screenshots, message
+and conversation IDs where visible, received email headers, actual SMS sender
+and recipient, and observed count/checklist changes. Distinguish sent/queued
+from confirmed inbox/carrier receipt. Retain synthetic work and enrollment
+drafts. Do not delete history, contacts, or test evidence to reset the scenario.
+Send the coordinator the report through the established handoff, including any
+missing deployment, SSO fixture, activated sender, consent, or timing fixture.
+
+DEVELOPER / COORDINATOR LANE (NOT EXTERNAL BOT REQUIREMENTS)
+
+Release only the feature files after preserving unrelated workspace changes.
+Apply the contact-plan and workflow migrations; confirm the normal worker is
+running. The pilot code gates tenant450/auricwell-qa-demo and performs no mass
+enrollment. Do not set mandatory-provider flags during this optional pilot.
+Provision due-time scenarios only in isolated tests or specifically retained
+demo workflows. Configure schoolContactPlanDemoSmsRecipients using exact
+client:<id> / provider:<id> to approved normalized fixture numbers; never change
+the fixture's family binding. Existing campaign registration and consent still
+apply. Exercise retries/concurrent leases, reassignment, transport ambiguity,
+inbound replay, guardian identity checks, and cross-tenant authorization with
+automated tests. A transport timeout requiring reconciliation must not trigger
+a blind duplicate send. Confirm the live rollout separately from local tests.

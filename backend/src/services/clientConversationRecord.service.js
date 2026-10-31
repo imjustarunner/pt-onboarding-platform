@@ -51,7 +51,7 @@ export async function linkConversationClients(conversationId,clientIds,{deferred
 // The message itself remains the durable record; links add chart attribution.
 export async function autoFileEmailMessage(messageId) {
   const [[m]]=await pool.execute(`SELECT m.*,c.agency_id FROM communication_messages m JOIN communication_conversations c ON c.id=m.conversation_id WHERE m.conversation_id=(SELECT conversation_id FROM communication_messages WHERE id=?) AND m.channel='email' AND COALESCE(m.is_internal_note,0)=0 AND COALESCE(m.send_status,'sent') NOT IN ('cancelled','preparing','failed') ORDER BY m.id LIMIT 1`,[messageId]);
-  if(!m || ['cancelled','preparing'].includes(m.send_status)) return;
+  if(!m || m.auto_reply_kind === 'school_contact_example' || ['cancelled','preparing'].includes(m.send_status)) return;
   const [linked]=await pool.execute("SELECT entity_type FROM communication_links WHERE conversation_id=? AND entity_type IN ('client','client_filing_review')",[m.conversation_id]);
   if(linked.length) return;
   const emails=m.direction==='inbound' ? addresses(parse(m.from_json)) : [...addresses(parse(m.to_json)),...addresses(parse(m.cc_json)),...addresses(parse(m.bcc_json))];

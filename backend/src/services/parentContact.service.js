@@ -23,7 +23,7 @@ export function emailParentContactOutcome(message, guardian, previousOutbound = 
   return original ? { successful: true, authorId: original.author_user_id } : null;
 }
 
-async function recordContact(db, { sourceType, sourceId, client, guardianId, authorId, direction, successful, occurredAt, conversationId, conversationKey }) {
+async function recordContact(db, { sourceType, sourceId, client, guardianId, authorId, direction, successful, occurredAt, conversationId, conversationKey, automated = false }) {
   if (!authorId) return;
   if (direction === 'outbound' && conversationKey) {
     await db.execute(`INSERT IGNORE INTO client_parent_contact_attempts
@@ -37,7 +37,7 @@ async function recordContact(db, { sourceType, sourceId, client, guardianId, aut
   // Keep the note limited to this client's contact event. Shared message bodies
   // remain in Communications, where access to every discussed client is checked.
   const channel = { email: 'email', sms: 'text message', secure: 'secure message' }[sourceType];
-  const message = `Parent / guardian contact — ${channel}\n${successful ? 'Guardian replied. Contact successful.' : 'Message sent to the linked guardian. Awaiting a reply.'}\n${conversationId ? `Conversation #${conversationId}\n` : ''}Message #${sourceId}\nFull communication is available in the client’s Communications record.`;
+  const message = `Parent / guardian contact — ${channel}${automated ? ' (automated school contact plan)' : ''}\n${successful ? 'Guardian replied. Contact successful.' : 'Message sent to the linked guardian. Awaiting a reply.'}\n${conversationId ? `Conversation #${conversationId}\n` : ''}Message #${sourceId}\nFull communication is available in the client’s Communications record.`;
   const enc = encryptChatText(message);
   const [note] = await db.execute(`INSERT INTO client_notes
     (client_id,author_id,category,urgency,message,message_ciphertext,message_iv,message_auth_tag,encryption_key_id,is_internal_only)
@@ -76,7 +76,7 @@ export async function syncEmailParentContact(messageId) {
     return guardians.flatMap(g => {
       const outcome = emailParentContactOutcome(m,g,outbound);
       return outcome ? [{client:g,guardianId:g.guardian_user_id,authorId:outcome.authorId || m.author_user_id,
-        direction:m.direction,successful:outcome.successful,occurredAt:m.sent_at || m.created_at,conversationId:m.conversation_id,conversationKey:String(m.conversation_id)}] : [];
+        direction:m.direction,successful:outcome.successful,occurredAt:m.sent_at || m.created_at,conversationId:m.conversation_id,conversationKey:String(m.conversation_id),automated:!!parse(m.from_json)?.schoolContactAutomation}] : [];
     });
   });
 }
@@ -98,7 +98,7 @@ export async function syncSmsParentContact(messageId) {
       WHERE agency_id=? AND sms_thread_key=? AND id<=? AND direction='OUTBOUND' AND delivery_status IN ('sent','delivered')
       AND JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.startsParentContactConversation'))='true'`,[m.agency_id,m.sms_thread_key,m.id]) : [[null]];
     const conversationKey=`${m.sms_thread_key || `message:${m.id}`}:${start?.id || 'legacy'}`;
-    return [{client:guardian,guardianId:guardian.guardian_user_id,authorId:original.user_id,direction:inbound?'inbound':'outbound',successful:inbound,occurredAt:m.created_at,conversationKey}];
+    return [{client:guardian,guardianId:guardian.guardian_user_id,authorId:original.user_id,direction:inbound?'inbound':'outbound',successful:inbound,occurredAt:m.created_at,conversationKey,automated:!!parse(m.metadata)?.schoolContactWorkflowId}];
   });
 }
 

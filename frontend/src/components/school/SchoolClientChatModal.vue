@@ -370,6 +370,12 @@
           </div>
         </div>
 
+        <SchoolContactWorkflowCard
+          v-if="subView === 'default' && !isSchoolStaff && Number(parentAgencyId || fullClient?.agency_id || client.agency_id) === 450"
+          :agency-id="parentAgencyId || fullClient?.agency_id || client.agency_id"
+          :client-id="client.id"
+        />
+
         <div v-if="subView === 'default' && canViewCollaboration" class="dual" :class="dualClass">
           <section
             class="pane pane-comments"
@@ -521,6 +527,7 @@
 
 <script setup>
 import ParentContactAttempts from '../clients/ParentContactAttempts.vue';
+import SchoolContactWorkflowCard from './SchoolContactWorkflowCard.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';

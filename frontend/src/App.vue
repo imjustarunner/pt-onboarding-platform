@@ -3,6 +3,14 @@
     <AccountSecurityNotice v-if="isAuthenticated" />
     <OfficeArrivalSplash v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :key="user.id" />
     <BillingFollowupSplash v-if="!route.meta?.auricwellPreview && canSeeMedicalBilling && isAuthenticated && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :key="`billing-followup-${user.id}`" />
+    <SchoolContactPlanSplash
+      v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && !isLoginEntry && !isImmersiveJoinRoute && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred"
+      :agency-id="agencyStore.currentAgency?.id"
+      :user-id="user.id"
+      :provider-name="[user.firstName || user.first_name, user.lastName || user.last_name].filter(Boolean).join(' ')"
+      :messages-path="orgTo('/messages')"
+      :locked="sessionLockStore.isLocked || sessionLockStore.warningActive"
+    />
     <router-view v-if="route.meta?.familyCommandCenter" />
     <div v-else class="preview-root" :data-preview-viewport="effectivePreviewViewport">
       <div id="app" :inert="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive)" :aria-hidden="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive) ? 'true' : undefined" :class="{ 'conversa-app': isAuthenticated, 'is-native': isNative, 'is-platform-hq': isPlatformHqShell, 'is-clinical-workspace': clinicalWorkspaceActive }">
@@ -2285,6 +2293,7 @@ const isNative = Capacitor.isNativePlatform();
 import { useAuthStore } from './store/auth';
 import EmailComposerDock from './components/messages/EmailComposerDock.vue';
 import AccountSecurityNotice from './components/AccountSecurityNotice.vue';
+import SchoolContactPlanSplash from './components/school/SchoolContactPlanSplash.vue';
 import { useBrandingStore } from './store/branding';
 import { useAgencyStore } from './store/agency';
 import { useOrganizationStore } from './store/organization';

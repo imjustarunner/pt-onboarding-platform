@@ -117,6 +117,7 @@ import providerDirectoryRoutes from './routes/providerDirectory.routes.js';
 import intakeFieldTemplatesRoutes from './routes/intakeFieldTemplates.routes.js';
 import unassignedDocumentsRoutes from './routes/unassignedDocuments.routes.js';
 import schoolPortalRoutes from './routes/schoolPortal.routes.js';
+import schoolContactPlanRoutes from './routes/schoolContactPlan.routes.js';
 import schoolReinitRoutes from './routes/schoolReinit.routes.js';
 import publicSchoolReinitRoutes from './routes/publicSchoolReinit.routes.js';
 import schoolOnboardingRoutes from './routes/schoolOnboarding.routes.js';
@@ -1020,6 +1021,7 @@ app.use('/api/directory', directoryRoutes);
 app.use('/api/intake-field-templates', intakeFieldTemplatesRoutes);
 app.use('/api/unassigned-documents', unassignedDocumentsRoutes);
 app.use('/api/school-portal', schoolPortalRoutes); // School portal routes (restricted client views)
+app.use('/api/school-contact-plan', schoolContactPlanRoutes);
 app.use('/api/school-reinit', schoolReinitRoutes);
 app.use('/api/school-onboarding', schoolOnboardingRoutes);
 app.use('/api/materials-requests', materialsRequestsRoutes);
@@ -2429,6 +2431,23 @@ if (!isBootstrap) {
   };
   scheduleInboxDigest();
   setInterval(scheduleInboxDigest, 60 * 1000);
+
+  // Optional school contact plans: committed demo assignments, consented
+  // follow-ups, and unanswered guardian reply reminders. Database claims protect
+  // every delivery across instances; all pilot email goes to the test inbox.
+  let schoolContactAutomationBusy = false;
+  const schoolContactAutomationTick = async () => {
+    if (schoolContactAutomationBusy) return;
+    schoolContactAutomationBusy = true;
+    try {
+      const { processSchoolContactAutomation } = await import('./services/schoolContactAutomation.service.js');
+      await processSchoolContactAutomation();
+    } catch (error) {
+      if (error.code !== 'ER_NO_SUCH_TABLE') console.warn('[School contact plans]', error.code || 'tick_failed');
+    } finally { schoolContactAutomationBusy = false; }
+  };
+  void schoolContactAutomationTick();
+  setInterval(schoolContactAutomationTick, 60_000).unref();
 
   // Client assignment: branded email 24h after in-app notify if still unread
   const scheduleClientAssignmentFollowups = async () => {

@@ -6,7 +6,7 @@ export { isSchoolCareBridgeOnly };
 // Product scope narrows existing authorization; it never grants a role, school
 // membership or ROI. Resource controllers remain the final access authority.
 export function schoolCareBridgeApiAllowed(method,path,userId) {
-  if(/^\/api\/(schoolcarebridge|school-portal|school-overview|clients|client-notes|referrals|referral-packet-drafts|phi-documents|public-intake|school-reinit|messages|chat|chats|communications|notifications|document-signing|documents|user-documents|document-acknowledgments|support-tickets|compliance-corner|account-security|presence|auth)(\/|$)/.test(path))return true;
+  if(/^\/api\/(schoolcarebridge|school-portal|school-contact-plan|school-overview|clients|client-notes|referrals|referral-packet-drafts|phi-documents|public-intake|school-reinit|messages|chat|chats|communications|notifications|document-signing|documents|user-documents|document-acknowledgments|support-tickets|compliance-corner|account-security|presence|auth)(\/|$)/.test(path))return true;
   if(method==='GET' && /^\/api\/(agencies|organizations|users|providers|branding|platform-branding|app-version|icons|portal|tasks|user-preferences|client-settings|supervisor-assignments|public)(\/|$)/.test(path))return true;
   if(/^\/api\/organizations\/[^/]+\/upload-referral(\/|$)/.test(path))return true;
   if(/^\/api\/availability\/school-requests(\/|$)/.test(path))return true;

@@ -1,0 +1,153 @@
+School provider contact-plan implementation — October 30, 2026
+
+STATUS
+
+Implemented in the current workspace, limited in code to the existing ITSCOLLC
+demo450/auricwell-qa-demo. No feature deployment or live schema migration was
+performed. Existing unrelated workspace changes have been preserved. The live
+provider splash and assignment worker need the feature release before the
+external bots can exercise them. The public read-only demo is separate.
+
+One actual example was sent using Avery1433's demo context to testing@itsco.health
+only. Conversation5727/message7858 is the retained app record. Gmail sent-copy
+headers verify From Avery Morgan QA <messages@itsco.health>, To/Cc/Bcc testing@,
+and non-SSO Reply-To qa.provider.auricwell@example.com. Inbox receipt and a live
+parent reply were not verified. The example has zero client links and zero
+parent-contact events; it does not check any client's Parent Contacted box.
+The provider's existing external Reply-To is synthetic: use a coordinator-
+provisioned deliverable external-email fixture for a real non-SSO reply test;
+do not modify existing QA login/recovery addresses casually.
+
+No live text was sent. No receiving fixture/consent/SSO policy was changed.
+The SMS branch requires current sender readiness and an approved client- or
+provider-specific receiving fixture plus existing consent checks.
+
+BEHAVIOR
+
+School-assigned providers see an optional welcome, choose Yes or No, and can
+reopen a minimized card. The next screen previews their introduction, allows
+plain-text editing with four required placeholders, sends examples, and saves
+follow-up timing. Sending an example minimizes the plan and preserves the draft;
+non-SSO providers have a Check Messages link. Enabled plans can be turned off.
+Newly mandated providers are prompted again even if previously declined.
+
+Defaults are SMS3 days/email7 days from the initial email, and stale parent
+response72 hours. SMS ranges1–30 days, later email2–60 days, stale1–336 hours.
+Only school assignments created after opt-in enroll. Existing assignments and
+no-op assignment edits do not send to the old caseload. New work is queued in
+the assignment transaction and delivered after commit by the minute worker.
+Repeated updates/retries do not duplicate accepted messages.
+
+Every successful automatic client contact uses the normal communication record
+and encrypted contact note, records an automation label, and updates the existing
+SchoolCareBridge checklist/count. The later email adds a distinct attempt even
+in the initial email conversation. Failed/queued sends and examples do not count.
+The client area includes workflow status and an outside-reply stop action.
+
+From uses provider display name with messages@. SSO uses a messages+token Reply-To
+for routing into the same app thread; non-SSO uses the configured personal email.
+Intended provider copies are recorded; physical pilot To/Cc/Bcc are restricted
+to testing@. A demo guardian explicitly linked with testing@ is required to test
+human replies; there is no general remapping of arbitrary testing-inbox replies.
+
+Human parent email/text replies stop pending family follow-ups. External non-SSO
+replies need the provider's Record parent reply action if the app did not receive
+them. A waiting parent response triggers one support in-app alert and provider
+email, plus a provider text only when its fixture and staff consent permit it.
+The first unanswered parent response starts the stale timer; repeat messages do
+not postpone it. Provider responses or a recorded first service stop that workflow. Plan/assignment/access
+and enrollment-window checks are repeated before delivery.
+
+Ambiguous transport failures enter needs_review and are not blindly resent.
+Reconcile the original sent receipt, RFC Message-ID, and stored
+from_json.schoolContactAutomation before any operator reset. Stable prepared
+IDs use <school-contact-{workflowId}-{stepKey}@itsco.health>. A disabled/re-enabled
+plan does not resurrect work from a prior enrollment window.
+
+SOURCE / RELEASE MANIFEST
+
+New backend files:
+  backend/src/services/schoolContactPlan.service.js
+  backend/src/services/schoolContactAutomation.service.js
+  backend/src/routes/schoolContactPlan.routes.js
+  backend/src/services/__tests__/schoolContactPlan.test.js
+  backend/src/services/__tests__/schoolContactPlan.mysql.test.js
+  backend/src/services/__tests__/schoolContactAutomation.test.js
+  backend/src/services/__tests__/schoolContactAutomation.mysql.test.js
+  backend/vitest.school-contact-plan.config.js
+  database/migrations/1719_school_provider_contact_plans.sql
+  database/migrations/1720_school_contact_automation.sql
+
+Existing backend integration files (contain unrelated prior work; release only
+the feature's hunks):
+  backend/src/server.js — mount route and minute worker
+  backend/src/services/clientProviderAssignmentSync.service.js — enqueue hooks
+  backend/src/services/parentContact.service.js — automated contact-note label
+  backend/src/services/clientConversationRecord.service.js — exclude examples
+  backend/src/middleware/schoolCareBridgeScope.middleware.js — allow scoped API
+  backend/src/middleware/__tests__/schoolCareBridgeScope.test.js — scope regression
+
+New frontend files:
+  frontend/src/components/school/SchoolContactPlanSplash.vue
+  frontend/src/components/school/SchoolContactWorkflowCard.vue
+  frontend/src/components/school/__tests__/SchoolContactPlanSplash.test.js
+  frontend/src/components/school/__tests__/SchoolContactWorkflowCard.test.js
+  frontend/vitest.school-contact-plan.config.js
+
+Existing frontend integrations (preserve unrelated prior changes):
+  frontend/src/App.vue — authenticated global splash/dock
+  frontend/src/components/school/SchoolClientChatModal.vue — workflow history card
+
+API: authenticated /api/school-contact-plan?agencyId=450 (GET/PUT), POST /example,
+GET /workflows?clientId=..., POST /workflows/:id/parent-replied. Every callback
+is bound to the authenticated provider's membership, active school assignment,
+client, and tenant. A selected school context451 resolves to its verified demo
+parent450. An unrelated school/agency cannot opt into the pilot via a request.
+
+Future required enrollment flags are schoolContactPlanRequired or
+schoolContactPlanRequiredProviderIds in demo agency feature_flags; leave them
+unset for the optional pilot. Production rollout still requires a deliberate
+change to the explicit demo-only gate. No production providers were enrolled.
+Demo SMS fixtures use feature_flags.schoolContactPlanDemoSmsRecipients with
+keys client:<id> or provider:<id> and exact normalized approved recipient phones;
+there is no global fallback recipient or consent bypass.
+
+VALIDATION
+
+36 backend feature tests pass, including real1719/1720 migration application
+and preference/workflow persistence in isolated local MySQL, with all workflow
+transports mocked. Coverage includes assignment cutoff, logging/count/checklist,
+no-consent SMS suppression, later email, parent/provider responses,72-hour stale
+handling, scoped manual stop, tenant boundaries, opt-out/reenable races, and
+ambiguous-send replay prevention. Test databases are dropped after use.
+
+15 frontend tests pass, including decline/reopen, editable examples, errors,
+SSO guidance, mandatory prompts, opt-out, tenant changes, workflow stop,
+tenant-aware message links, and saved timezone formatting.
+
+8 SchoolCareBridge API-scope regressions pass. The existing parent-contact/
+messaging regression suite has79 passes and1 unrelated fixture failure:
+messaging.peopleScope.mysql.test.js omits communication_attachments, which the
+pre-existing clientEmailThread implementation queries. This task did not change
+that attachment logic or the incomplete fixture.
+
+All four changed Vue component scripts/templates compile; backend syntax checks pass. Headless installed
+Chrome verifies desktop/mobile rendering, edited draft persistence, minimized
+resume, and save, with no page errors or horizontal overflow. Browser delivery
+was mocked; the separate retained example email verifies actual transport.
+Screenshots and browser-verification.json are in this directory.
+
+Commands from backend/:
+  HUB_SCOPE_MYSQL_SOCKET=<isolated socket> node ../frontend/node_modules/vitest/vitest.mjs run --config vitest.school-contact-plan.config.js
+  node ../frontend/node_modules/vitest/vitest.mjs run --config vitest.schoolcarebridge.config.js src/middleware/__tests__/schoolCareBridgeScope.test.js
+Command from frontend/:
+  node node_modules/vitest/vitest.mjs run --config vitest.school-contact-plan.config.js
+
+No full production build was generated. Dependencies were reused; no checkout,
+worktree, or dependency copy was created. The temporary preview and local MySQL
+are stopped and removed after final verification. Existing frontend/dist and
+other tasks' temporary directories are preserved.
+
+Use BOT-TEST-INSTRUCTIONS-2026-10-31.txt for tomorrow's external bot run. Record
+deployment, actual inbox/carrier receipt, SSO fixture availability, due-time
+fixtures, and live provider/guardian reply behavior separately from local passes.
