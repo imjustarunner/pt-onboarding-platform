@@ -1,0 +1,73 @@
+CONTACT-PLAN QA FIXTURE PREPARATION — OCTOBER 30, 2026
+
+Problem
+The external coordinator had no valid Google SSO provider and no unassigned
+school client whose actual guardian email matched the controlled QA inbox.
+Existing instructions could not prove the reply identity or SSO routing.
+
+Applied configuration
+- Verified Google Directory: testing@itsco.health is the Testing group;
+  qa-inbox@itsco.health is the existing active Quality Tester Google user and
+  belongs to the group. No Google user was created or password reset.
+- Gmail: added testing@itsco.health as a non-default Send As for qa-inbox;
+  verification accepted. Primary/default remains qa-inbox. No group membership
+  or owner changes. Parent replies must use the Testing From identity.
+- Guarded provisioner created app user 1490, Quality Tester QA SSO, provider,
+  active, full_suite; memberships only agency 450 (default) and school 451.
+  This real Google identity is is_demo=0 because shared authentication correctly
+  treats is_demo=1 as password login. Organization access is still restricted.
+  No verified credential, supervisor/admin/biller grants, SMS activation or
+  clinical service assignment. It is excluded from the demo Exchange roster.
+- Added school assignment 742, Tuesday 09:00-13:00, capacity 1. No client assigned.
+- Agency450 Google policy now requires the provider role, allows itsco.health.
+  Existing eight exact QA staff retain password exceptions; no shared auth
+  source, other organization policy or existing password was changed.
+- Created clients 2297/2298, markers QACONTACT-INITIAL-1031/QACONTACT-SSO-1031.
+  Only 450/451, unassigned, pending review, documents NONE, clearance off, status IDs NULL,
+  SMS off. Guardian 1437 exact retained testing@ identity; no existing dependent
+  links or legal/enrollment records changed. No signed forms or care invented.
+- Recount23 active clients, 4 provider-role accounts: 3 clinical QA + 1 contact/SSO.
+- Avery 1433 still assigned Cedar Grove Monday-Friday 09:00-13:00, 4 spots/day.
+  Both Avery and 1490 contact plans remain unconfigured; workflows count 0.
+
+Validation
+- 19 Node fixture tests pass: exact identity/organization checks, rollback,
+  collisions, known provider roster, population caps, repeat no-extra-writes,
+  preservation of passwords/inactive states/assigned records/guardian links.
+- 34 Vitest tests pass across schoolContactAutomation.test.js and
+  schoolContactPlan.test.js. New exact clock-boundary assertions cover 1 ms
+  before and at 3 days, 7 days, 72 hours; replies stop follow-ups; worker receipts
+  prevent repeated stale alerts after an interrupted aggregate update.
+  Transport/database effects mocked; no live time travel or sends.
+- Public live /api/auth/identify: qa-inbox selects Google and resolves 450;
+  Avery/Cameron/Alex/support select password and resolve 450.
+- Public Google start 302 to accounts.google.com with qa-inbox loginHint and
+  https://app.itsco.health/api/auth/google/callback redirect URI.
+  No actual interactive Google login or MFA performed by engineering.
+- Released getSchoolContactPlan service against live DB: both eligible for school 451,
+  unconfigured. Avery external_email, 1490 in_app; correct provider email each.
+- Live 2297/2298: provider/day NULL, documents NONE,clearance 0, SMS 0, guardian 1437 enabled.
+- Syntax and git diff whitespace checks pass. No application source changed;
+  existing deployed auth/contact services consume these live settings.
+  No frontend build/dependency install needed.
+
+Limits retained
+- External Google login/contact-card, initial-delivery and actual inbound-reply
+  checks remain for the coordinator; setup is not a full feature pass.
+- No accelerated live timing fixtures; 3-day/7-day and 72-hour delivery NOT RUN until
+  elapsed. Minimum 1-hour stale option is only a differently configured smoke.
+- Clinical SMS still blocked: running backend lacks Notifyre configuration,
+  approved numbers not imported/routed, contact-plan receiving fixtures off.
+  No clinical fallback to Vonage and no recipient/consent changes performed.
+- Fixtures intentionally lack enrollment/paperwork. School assignment API
+  accepts them; lifecycle may label assigned clients ready_to_schedule, which
+  does not prove clinical/document clearance. Use only for contact tests.
+
+Files
+scripts/provision-school-contact-qa.mjs
+scripts/provision-school-contact-qa.test.mjs
+backend/src/services/__tests__/schoolContactAutomation.test.js
+docs/qa/QA-ADDENDUM-2026-10-31-CONTACT-PLAN-FIXTURES-AND-SSO.txt
+
+Existing QA plans and earlier briefs remain unchanged. Send the new addendum
+to the external team; this engineering receipt is not their runbook.

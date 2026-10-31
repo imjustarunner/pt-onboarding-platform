@@ -1,0 +1,149 @@
+ADDITIONAL QA READINESS — OCTOBER 31, 2026
+Concrete school contact-plan fixtures and Google sign-in
+
+Append this to the contact-plan instructions and school-scheduling addendum
+already sent. It answers the coordinator's missing-fixture questions; earlier
+briefs and remaining retests still apply. Use only the app, approved school
+portal, controlled QA inbox and existing vault. No engineering tools needed.
+
+READY FIXTURES
+
+Organization: ITSCOLLC, agency 450 / auricwell-qa-demo.
+School: Cedar Grove K-8, school 451 / auricwell-qa-demo-school.
+Agency entry: https://app.itsco.health/auricwell-qa-demo/login
+School entry: https://schoolcarebridge.org/app/auricwell-qa-demo-school
+
+1. NON-SSO PROVIDER: Avery Morgan QA, user 1433.
+   Active Cedar Grove assignments: Monday-Friday, 9 AM-1 PM, four client spots
+   per day. Contact plan was UNCONFIGURED when engineering checked. Existing
+   password login remains available. Use Avery for the welcome/decline/reopen,
+   preview/edit/example, save, and non-SSO reply-routing cases.
+
+2. GOOGLE SSO PROVIDER: Quality Tester QA SSO, user 1490.
+   Google email: qa-inbox@itsco.health. School assignment 742 is Tuesday,
+   9 AM-1 PM, one client spot. Contact plan was UNCONFIGURED.
+   This is the fourth provider-role account, specifically for contact-plan
+   and SSO checks. Avery, Cameron and Alex remain the three clinical QA
+   providers. The new account has no verified license, clinical service
+   assignments, supervisor privileges, billing delegation or admin role.
+   Do not use it for clinical booking, signing notes, cosigning or Exchange.
+
+3. INITIAL-CONTACT CLIENT: Ari QA Contact Initial — SYNTHETIC, client 2297.
+   Identifier QACONTACT-INITIAL-1031; initials QACINI. Currently unassigned.
+   After Avery saves the enabled plan, have Jordan assign this client to
+   Avery on an available approved weekday using the ordinary school screen.
+
+4. SSO-CONTACT CLIENT: Sky QA Contact SSO — SYNTHETIC, client 2298.
+   Identifier QACONTACT-SSO-1031; initials QACSSO. Currently unassigned.
+   After user 1490 saves the enabled plan, have Jordan assign this client to
+   user 1490 on Tuesday using the ordinary school screen.
+
+Both new clients belong only to demo agency 450 and school 451. Both link to
+the retained synthetic guardian Jordan QA-SchoolEN-1025, user 1437, whose
+email and personal email are testing@itsco.health. This guardian is separate
+from support Jordan 1434 and Recovery parent 1440. Use its existing vault
+entry; its password and prior dependent links were not changed.
+
+These are contact-workflow fixtures: pending review, no completed enrollment,
+no signed paperwork, no clinical clearance, no charges and no text opt-in.
+Do not treat them as enrollment, consent, readiness or clinical-care passes.
+Normal assignment may change the app's lifecycle label; that does not prove
+paperwork or consent. Do not reuse Dana by unassigning an existing case.
+
+Engineering's recount after preparation: 23 active clients, 4 provider-role
+accounts. Recount in the app first; limits remain 30 clients and 10 providers.
+Do not create another SSO user or replacement fixture just to run these cases.
+
+GOOGLE LOGIN AND THE TESTING INBOX
+
+testing@itsco.health is a Google Group, so it has no Google sign-in password.
+qa-inbox@itsco.health is the existing active Google user (Quality Tester),
+already a member of that group. Use that Google user's existing inbox/vault
+credentials and normal Google verification; no new Google account was made
+and no Google or existing app password was reset.
+
+At the agency sign-in, enter qa-inbox@itsco.health and continue with Google.
+Select that exact Google account, then verify the app shows user 1490 in the
+demo. Access is limited to agency 450 and its affiliated demo school 451.
+The normal login precheck now selects Google for this address. Avery,
+Cameron, Alex and support still select password login.
+
+Engineering verified the Google start redirects to accounts.google.com with
+the callback on app.itsco.health. A complete browser Google login, MFA and
+contact-card rendering remain external QA checks. If Google credentials/MFA
+are unavailable, record the SSO lane BLOCKED; do not reset another account or
+substitute a staff password. Keep school, guardian and provider browser
+profiles separate as before.
+
+The qa-inbox mailbox also has an accepted, non-default Send As address for
+testing@itsco.health. Its primary/default address remains qa-inbox.
+For a GUARDIAN reply test, explicitly choose From: testing@itsco.health in
+the QA inbox and reply to the actual delivered message, preserving its thread
+and Reply-To. Inspect the sent header to confirm that From address. A reply
+from qa-inbox would identify the provider, not guardian 1437, and cannot prove
+the guardian-reply case. If the mail client cannot choose this From address,
+report that lane BLOCKED rather than attributing the reply to another user.
+
+All pilot emails still physically go only to testing@itsco.health. This
+handoff does not authorize emails to real families or other organizations.
+
+ORDER FOR THE CONTACT TESTS
+
+- Verify counts, roles and the contact-plan card before changing anything.
+- Capture welcome/decline/reopen and examples before saving the plan enabled.
+- Inspect an example's actual delivery and From/Reply-To. It must not create
+  a contact attempt, client note or Parents Contacted marker.
+- Save the provider's plan; only THEN assign its designated client through
+  the school interface. Record provider, client, school, day and assignment
+  time. A new provider-school-client assignment is required; do not repeatedly
+  assign/unassign it to force more introductions.
+- Allow the normal worker about a minute, then inspect delivery and the app
+  history. No workflow was pre-created or pre-aged by engineering.
+- Verify exactly one initial contact, attempt count 1 and the intended school
+  record. Refresh/re-save without another initial message.
+- Non-SSO Avery: inspect external reply routing. His retained synthetic Reply-To
+  is an example.com address; do not send an email there. Use the SSO fixture
+  for real guardian-reply delivery. A separate manual Parent replied action
+  can test stopping/persistence, but label it a manual QA simulation rather
+  than receipt of a reply. External replies are not automatically visible here.
+- SSO user 1490: reply as guardian testing@, confirm the inbound message reaches
+  the provider's app conversation, then respond as the provider in the app.
+  Verify the guardian receives it and pending follow-ups stop. Capture actual
+  conversation/message IDs; an email send status alone is not delivery.
+- Test privacy with support and Jamie's supplied roles. Neither gains clinical
+  note bodies, another guardian's private documents or cross-organization data.
+
+TIMING: WHAT CAN AND CANNOT BE CLAIMED TOMORROW
+
+No accelerated live clock or backdated outreach/reply records were created.
+The external team should mark the 3-day text, 7-day follow-up email and 72-hour
+stale escalation NOT RUN until real elapsed time is reached. It can inspect
+and persist timing settings tomorrow, plus test initial contact and replies.
+Do not claim that changing a setting or seeing a preview proves timed delivery.
+
+Engineering's isolated tests cover the exact 3-day, 7-day and 72-hour boundary,
+including the millisecond before each, reply-based stopping and duplicate
+stale-notification prevention. These tests use mocked mail/carrier/database
+effects; they are not an external inbox or SMS delivery pass.
+
+If an owner-approved one-hour stale smoke is chosen through the normal setting,
+wait a real hour after a tracked reply. Label it a one-hour configuration test,
+not a pass of the default 72-hour behavior. Keep any no-reply and replied
+branches on separate clients; ask for a scoped fixture before adding clients.
+
+CLINICAL TEXTS REMAIN BLOCKED
+
+The running app has not been connected to the approved Notifyre transport and
+senders. Purchasing/activating numbers at the carrier is not app readiness.
+No Rowan/Harper contact-plan SMS fixture or new phone opt-in was enabled by
+this preparation. Do not substitute the Vonage workforce sender, share family
+phone identities or infer clinical SMS readiness from the old sender label.
+Continue email/UI/privacy lanes and record the exact suppression state.
+
+REPORT
+
+Report PASS / FAIL / BLOCKED / NOT RUN by lane, exact IDs and roles, current
+counts, fresh screenshots, local time/timezone, actual headers and delivery.
+Keep the previously supplied scheduling, notes, cancellation, enrollment,
+localization and password-setup retests. This adds ready records and an SSO
+identity; it does not declare those earlier failures fixed.
