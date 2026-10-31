@@ -4,6 +4,11 @@ Timezone: America/Denver. Add these cases to the existing ITSCOLLC QA plan.
 
 RELEASE READINESS
 
+The feature's frontend/backend deployment from main commit187fa30b4 succeeded
+on October30 evening. Migrations1719/1720 are applied. The pilot remains optional,
+demo-only, with zero automatic provider enrollments. The coordinator should
+still verify current availability and the final deployment evidence below.
+
 This handoff describes the new feature and expected behavior. A local developer
 test is not a live demo pass. The coordinator must confirm that the frontend,
 backend, and contact-plan migrations are deployed before running these cases.

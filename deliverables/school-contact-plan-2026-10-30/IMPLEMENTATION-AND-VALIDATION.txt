@@ -2,11 +2,15 @@ School provider contact-plan implementation — October 30, 2026
 
 STATUS
 
-Implemented in the current workspace, limited in code to the existing ITSCOLLC
-demo450/auricwell-qa-demo. No feature deployment or live schema migration was
-performed. Existing unrelated workspace changes have been preserved. The live
-provider splash and assignment worker need the feature release before the
-external bots can exercise them. The public read-only demo is separate.
+Released to main from an isolated sparse checkout; unrelated workspace changes
+were preserved. Feature commit187fa30b49eb3248f52999adc7c6f84144ea64b4 deployed
+successfully to both frontend and backend. Live migrations1719 and1720 succeeded.
+The pilot remains optional and restricted to ITSCOLLC demo450/auricwell-qa-demo;
+no providers were automatically enrolled. The public read-only demo is separate.
+Authenticated Avery1433 verified the live demo API, school451 canonical scope,
+production exclusion, welcome modal, and editable email preview. A follow-up UI
+patch explicitly preserves the light heading color under the production theme.
+Final live browser/rollout evidence is retained beside this file.
 
 One actual example was sent using Avery1433's demo context to testing@itsco.health
 only. Conversation5727/message7858 is the retained app record. Gmail sent-copy
@@ -143,10 +147,12 @@ Commands from backend/:
 Command from frontend/:
   node node_modules/vitest/vitest.mjs run --config vitest.school-contact-plan.config.js
 
-No full production build was generated. Dependencies were reused; no checkout,
-worktree, or dependency copy was created. The temporary preview and local MySQL
-are stopped and removed after final verification. Existing frontend/dist and
-other tasks' temporary directories are preserved.
+GitHub Actions completed the full production builds and deployments. Release
+validation reused dependency symlinks in a142MiB sparse checkout; dependencies
+and existing frontend/dist were not copied or rebuilt locally. The temporary
+release-test database was stopped and removed. The sparse release checkout is
+removed after final deployment verification; commits remain on named branches
+and main. Other tasks' files and temporary directories are preserved.
 
 Use BOT-TEST-INSTRUCTIONS-2026-10-31.txt for tomorrow's external bot run. Record
 deployment, actual inbox/carrier receipt, SSO fixture availability, due-time
