@@ -24,6 +24,28 @@ beforeEach(()=>{vi.resetAllMocks();context.agency=reactive({currentAgencyId:7,us
 afterEach(()=>wrapper?.unmount());
 async function open({allAwards=true}={}){wrapper=mount(EmployeeRelationsView);await flushPromises();if(allAwards){await wrapper.get('[aria-label="Milestone year"]').setValue('');await wrapper.get('[aria-label="Eligibility"]').setValue('all');}}
 describe('Year Awards',()=>{
+ it('shows the selected agency logo beside the selector and updates it when switching',async()=>{
+  context.agency.userAgencies=[{id:7,name:'Agency',logo_url:'https://example.test/work.svg'},{id:10,name:'Demo Playground',logo_url:'https://example.test/demo.svg'}];
+  await open({allAwards:false});expect(wrapper.get('.er-agency-logo').attributes('src')).toBe('https://example.test/work.svg');
+  await wrapper.get('[aria-label="Awards agency"]').setValue('10');await flushPromises();
+  expect(wrapper.get('.er-agency-logo').attributes('src')).toBe('https://example.test/demo.svg');
+  expect(wrapper.get('.er-agency-logo').attributes('alt')).toBe('Demo Playground logo');
+  await wrapper.get('.er-agency-logo').trigger('error');expect(wrapper.find('.er-agency-logo').exists()).toBe(false);expect(wrapper.get('.er-agency-initials').text()).toBe('DP');
+ });
+ it('records an offer and reason from the visible row action without marking the dinner received',async()=>{
+  await open({allAwards:false});await findRow('Drew').get('.er-note-action').trigger('click');await flushPromises();
+  const form=wrapper.get('.er-offer-form');await form.get('select').setValue('unable_to_attend');await form.get('input[type="date"]').setValue('2026-10-20');await form.get('textarea').setValue('Could not attend due to another commitment.');
+  api.post.mockImplementation(async(url,body)=>{if(url.endsWith('/dinner-offers'))Object.assign(rows.find(r=>r.id===4),{dinner_offer_status:body.outcome,dinner_offered_on:body.offeredOn,dinner_offer_note:body.note});return {data:{offer:{id:10}}};});
+  await form.trigger('submit');await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/employee-relations/4/dinner-offers',{outcome:'unable_to_attend',offeredOn:'2026-10-20',note:'Could not attend due to another commitment.'});
+  expect(api.patch).not.toHaveBeenCalled();expect(findRow('Drew').text()).toContain('Dinner still owed');expect(findRow('Drew').text()).toContain('Unable to attend');expect(rows.find(r=>r.id===4).status).toBe('owed');
+ });
+ it('separates offered outstanding dinners from dinners with no recorded offer',async()=>{
+  rows.push({id:6,first_name:'Offered',last_name:'Person',milestone_years:2,milestone_date:'2026-01-01',status:'owed',active_employee:1,dinner_offer_status:'declined',dinner_offer_note:'Away that week'});
+  await open({allAwards:false});await wrapper.get('[aria-label="Award status"]').setValue('offered_owed');expect(findRow('Offered')).toBeDefined();expect(findRow('Drew')).toBeUndefined();
+  await wrapper.get('[aria-label="Award status"]').setValue('not_offered_owed');expect(findRow('Offered')).toBeUndefined();expect(findRow('Drew')).toBeDefined();
+  await button('All eligible two-year dinners').trigger('click');await wrapper.get('[aria-label="Search awards"]').setValue('Away that week');expect(findRow('Offered')).toBeDefined();
+ });
  it('keeps existing gift-owed notification links scoped to all award years',async()=>{
   context.route.query.status='owed';await open({allAwards:false});
   expect(findRow('Alex')).toBeDefined();expect(findRow('Drew')).toBeDefined();

@@ -10,6 +10,37 @@ beforeEach(()=>{vi.resetAllMocks();pool.getConnection.mockResolvedValue(db);db.e
 const dinner={milestoneIds:[10,11],scheduledOn:'2026-10-29',title:'October dinner'};
 const candidates=[{id:10,user_id:5,milestone_years:2,status:'owed',milestone_date:'2026-01-01'},{id:11,user_id:6,milestone_years:2,status:'owed',milestone_date:'2026-02-01'}];
 describe('year award persistence',()=>{
+  it.each(['offered','unable_to_attend','declined','no_show'])('records %s with notes without fulfilling the dinner',async outcome=>{
+    db.execute.mockResolvedValueOnce([[{id:10,agency_id:2,milestone_years:2,status:'owed',fulfilled_on:null}]]);
+    await Awards.recordDinnerOffer(10,{outcome,note:'Offered dinner; had a scheduling conflict.'},507);
+    expect(db.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO employee_award_dinner_offers'))[1]).toEqual([10,outcome,null,'Offered dinner; had a scheduling conflict.',507]);
+    expect(db.execute.mock.calls.some(([sql])=>sql.includes('UPDATE employee_service_milestones'))).toBe(false);
+    expect(db.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO employee_award_notes'))[1][2]).toContain('scheduling conflict');
+    expect(db.commit).toHaveBeenCalled();
+  });
+  it('preserves a received dinner when adding historical offer notes',async()=>{
+    db.execute.mockResolvedValueOnce([[{id:10,agency_id:2,milestone_years:2,status:'gift_sent',fulfilled_on:'2026-10-01'}]]);
+    await Awards.recordDinnerOffer(10,{outcome:'offered',note:'Earlier invitation'},507);
+    expect(db.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);
+  });
+  it('rejects future or invalid offer dates and non-dinner awards',async()=>{
+    await expect(Awards.recordDinnerOffer(10,{outcome:'offered',offeredOn:'2026-02-30'},507)).rejects.toThrow('valid offer date');
+    db.execute.mockResolvedValueOnce([[{id:10,agency_id:2,milestone_years:1}]]);
+    await expect(Awards.recordDinnerOffer(10,{outcome:'offered'},507)).rejects.toThrow('two-year');
+    db.execute.mockResolvedValueOnce([[{id:10,agency_id:2,milestone_years:2}]]).mockResolvedValueOnce([[{timezone:'America/Denver'}]]);
+    await expect(Awards.recordDinnerOffer(10,{outcome:'offered',offeredOn:'2099-01-01'},507)).rejects.toThrow('future');
+    expect(db.execute.mock.calls.some(([sql])=>sql.includes('INSERT INTO employee_award_dinner_offers'))).toBe(false);
+  });
+  it('rejects unknown offer responses and oversized notes before writing',async()=>{
+    await expect(Awards.recordDinnerOffer(10,{outcome:'received'},507)).rejects.toThrow('Select a dinner offer');
+    await expect(Awards.recordDinnerOffer(10,{outcome:'offered',note:'a'.repeat(10001)},507)).rejects.toThrow('10,000');
+    expect(db.beginTransaction).not.toHaveBeenCalled();
+  });
+  it('rolls back the offer if recording its history fails',async()=>{
+    db.execute.mockResolvedValueOnce([[{id:10,agency_id:2,milestone_years:2}]]).mockResolvedValueOnce([{insertId:10}]).mockRejectedValueOnce(new Error('history failed'));
+    await expect(Awards.recordDinnerOffer(10,{outcome:'offered'},507)).rejects.toThrow('history failed');
+    expect(db.rollback).toHaveBeenCalled();expect(db.commit).not.toHaveBeenCalled();
+  });
   it('syncs in a batch using the earlier date while preserving completed gifts and flagging missing dates', async () => {
     pool.execute.mockResolvedValueOnce([[
       {id:5,provider_start_date:'2024-01-01',first_client_date:'2023-10-01'},

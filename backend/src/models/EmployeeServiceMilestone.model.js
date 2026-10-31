@@ -4,6 +4,7 @@ import { AWARD_YEARS, DEFAULT_GIFTS, COMPLETED_AWARD_STATUSES, anniversary, awar
 
 const ACTIVE = ACTIVE_EMPLOYEE_SQL;
 const STAFF = EMPLOYEE_ROSTER_SQL;
+const OFFER_OUTCOMES = { offered: 'Offered', unable_to_attend: 'Unable to attend', declined: 'Declined', no_show: 'Did not attend' };
 
 const DATE_FIELDS = `u.provider_start_date,
   (SELECT v.value FROM user_info_values v JOIN user_info_field_definitions f ON f.id=v.field_definition_id
@@ -42,11 +43,13 @@ class EmployeeServiceMilestone {
     const [rows] = await pool.execute(`SELECT m.*, u.first_name,u.last_name,u.email,u.work_email,u.personal_email,
       ${DATE_FIELDS},u.hired_at, u.status employee_status, u.is_archived,
       a.first_name assigned_first_name,a.last_name assigned_last_name,
+      o.outcome dinner_offer_status,o.offered_on dinner_offered_on,o.note dinner_offer_note,
       (SELECT note FROM employee_award_notes n WHERE n.milestone_id=m.id ORDER BY n.id DESC LIMIT 1) latest_note,
       EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=m.agency_id AND ${ACTIVE}) AS active_employee
       FROM employee_service_milestones m JOIN users u ON u.id=m.user_id
       JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=m.agency_id
       LEFT JOIN users a ON a.id=m.assigned_to_user_id
+      LEFT JOIN employee_award_dinner_offers o ON o.id=(SELECT id FROM employee_award_dinner_offers WHERE milestone_id=m.id ORDER BY id DESC LIMIT 1)
       WHERE m.agency_id=? AND ${STAFF} ORDER BY m.milestone_date,u.last_name,u.first_name`, [agencyId]);
     const today = await this.today(agencyId);
     return rows.map(row => ({ ...row, ...serviceDates(row), status: awardStatus(row, today) })).filter(row => !status || row.status === status);
@@ -65,6 +68,27 @@ class EmployeeServiceMilestone {
     if (!text || text.length > 10000) throw awardError('Enter a note of 1–10,000 characters.');
     await pool.execute('INSERT INTO employee_award_notes (milestone_id,actor_user_id,note) VALUES (?,?,?)', [id, actorId, text]);
     return this.notes(id);
+  }
+  static async recordDinnerOffer(id, body = {}, actorId) {
+    const outcome = String(body.outcome || '').trim();
+    if (!Object.hasOwn(OFFER_OUTCOMES, outcome)) throw awardError('Select a dinner offer or response.');
+    const offeredOn = body.offeredOn ? dateOnly(body.offeredOn) : null;
+    if (body.offeredOn && !offeredOn) throw awardError('Enter a valid offer date, or leave it blank if unknown.');
+    const note = String(body.note || '').trim();
+    if (note.length > 10000) throw awardError('Offer notes must be 10,000 characters or fewer.');
+    return transaction(async db => {
+      const [[row]] = await db.execute('SELECT * FROM employee_service_milestones WHERE id=? FOR UPDATE', [id]);
+      if (!row) throw awardError('Award not found.', 404);
+      if (Number(row.milestone_years) !== 2) throw awardError('Dinner offers belong to two-year awards.');
+      if (offeredOn && offeredOn > await this.today(row.agency_id, db)) throw awardError('An offer date cannot be in the future. Use dinner scheduling for future plans.');
+      const [result] = await db.execute(`INSERT INTO employee_award_dinner_offers (milestone_id,outcome,offered_on,note,actor_user_id)
+        VALUES (?,?,?,?,?)`, [id, outcome, offeredOn, note || null, actorId]);
+      await db.execute('INSERT INTO employee_award_notes (milestone_id,actor_user_id,note) VALUES (?,?,?)', [id, actorId,
+        `Dinner offer recorded: ${OFFER_OUTCOMES[outcome]}${offeredOn ? `; offered ${offeredOn}` : '; offer date not recorded'}. ${note || ''}`.trim()]);
+      // Deliberately leave status and fulfilled_on alone: an offer or missed
+      // dinner is follow-up history, never evidence the award was received.
+      return { id: result.insertId, outcome, offeredOn, note: note || null };
+    });
   }
   static async update(id, body = {}, actorId = null) {
     await transaction(async db => {

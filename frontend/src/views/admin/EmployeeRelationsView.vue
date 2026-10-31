@@ -3,7 +3,13 @@
     <header class="er-header">
       <div><h2>Year Awards</h2><p>Anniversary gifts, dinner invitations, and the details of what each person received.</p></div>
       <div class="er-actions">
-        <label v-if="agencyChoices.length > 1">Agency <select v-model="selectedAgencyId" aria-label="Awards agency" :disabled="busy"><option v-for="a in agencyChoices" :key="a.id" :value="String(a.id)">{{ a.name }}</option></select></label>
+        <label v-if="agencyChoices.length" class="er-agency-select">Agency
+          <span class="er-agency-control">
+            <img v-if="agencyLogo && !failedLogos.has(agencyLogo)" :key="agencyLogo" :src="agencyLogo" :alt="`${selectedAgency?.name || 'Agency'} logo`" class="er-agency-logo" @error="failedLogos.add(agencyLogo)" />
+            <span v-else class="er-agency-initials" aria-hidden="true">{{ agencyInitials }}</span>
+            <select v-model="selectedAgencyId" aria-label="Awards agency" :disabled="busy"><option v-for="a in agencyChoices" :key="a.id" :value="String(a.id)">{{ a.name }}</option></select>
+          </span>
+        </label>
         <button :disabled="loading || busy" @click="load">Refresh</button>
         <button class="primary" :disabled="loading || busy || !selectedAgencyId" @click="sync">Sync from start dates</button>
       </div>
@@ -33,7 +39,7 @@
     </div>
     <div class="er-controls">
       <input v-model="q" aria-label="Search awards" placeholder="Search name, email, award, or notes…" />
-      <select v-model="statusFilter" aria-label="Award status"><option value="">All statuses</option><option value="owed">Eligible · gift owed</option><option value="upcoming">Upcoming</option><option value="gift_sent">Gift sent / dinner attended</option><option value="acknowledged">Acknowledged</option><option value="invited">Dinner invited</option></select>
+      <select v-model="statusFilter" aria-label="Award status"><option value="">All statuses</option><option value="owed">Eligible · gift owed</option><option value="offered_owed">Dinner offered · still owed</option><option value="not_offered_owed">Dinner owed · no offer recorded</option><option value="upcoming">Upcoming</option><option value="gift_sent">Gift sent / dinner attended</option><option value="acknowledged">Acknowledged</option><option value="invited">Dinner invited</option></select>
       <select v-model="yearsFilter" aria-label="Milestone year"><option value="">All years</option><option v-for="gift in definitions" :key="gift.milestone_years" :value="String(gift.milestone_years)">{{ gift.milestone_years }} years</option></select>
       <select v-model="eligibilityFilter" aria-label="Eligibility"><option value="eligible">Reached anniversary</option><option value="all">All eligibility dates, including upcoming</option></select>
       <label class="er-check"><input v-model="includeInactive" type="checkbox" /> Include former employees</label>
@@ -71,8 +77,8 @@
               <td>{{ row.milestone_years }} year{{ Number(row.milestone_years) === 1 ? '' : 's' }}</td>
               <td><button class="er-link" @click="openAward(row)">{{ awardName(row.milestone_years) }}</button></td>
               <td>{{ fmtDate(row.milestone_date) }}</td>
-              <td><button class="er-link" @click="openAward(row)">{{ statusLabel(row) }}</button><small v-if="row.fulfilled_on">{{ fmtDate(row.fulfilled_on) }}</small></td>
-              <td><span v-if="invitation(row)">{{ invitation(row).title }} · {{ fmtDate(invitation(row).scheduled_on) }} · {{ attendanceLabel(invitation(row).attendance) }}</span><small>{{ row.latest_note || row.gift_notes || 'Click award to add details' }}</small></td>
+              <td><button class="er-link" @click="openAward(row)">{{ statusLabel(row) }}</button><small v-if="row.fulfilled_on">{{ fmtDate(row.fulfilled_on) }}</small><small v-if="offerLabel(row)" class="er-offer-status">{{ offerLabel(row) }}<span v-if="row.dinner_offered_on"> · {{ fmtDate(row.dinner_offered_on) }}</span></small></td>
+              <td><span v-if="invitation(row)">{{ invitation(row).title }} · {{ fmtDate(invitation(row).scheduled_on) }} · {{ attendanceLabel(invitation(row).attendance) }}</span><small>{{ row.latest_note || row.gift_notes || 'No notes recorded' }}</small><button class="er-link er-note-action" @click="openAward(row)">{{ Number(row.milestone_years) === 2 ? 'Record offer / add note' : 'Add note / details' }}</button></td>
             </tr>
           </template>
         </tbody>
@@ -109,6 +115,15 @@
           <label>Gift details<textarea v-model="awardDraft.giftNotes" maxlength="10000" placeholder="Size, mailing details, left in kitchen…" /></label>
           <button class="primary" :disabled="busy">Save award</button>
         </form>
+        <form v-if="Number(activeAward.milestone_years) === 2" class="er-offer-form" @submit.prevent="recordOffer">
+          <h4>Dinner offer / response</h4>
+          <p>Record the offer and any reason they could not attend. This keeps an outstanding dinner owed until it is received.</p>
+          <p v-if="offerLabel(activeAward)">Last recorded: {{ offerLabel(activeAward) }}<span v-if="activeAward.dinner_offered_on"> · {{ fmtDate(activeAward.dinner_offered_on) }}</span></p>
+          <label>Offer / response<select v-model="offerDraft.outcome" aria-label="Dinner offer response"><option v-for="(label,value) in offerOutcomes" :key="value" :value="value">{{ label }}</option></select></label>
+          <label>Date offered (optional; leave blank if unknown)<input v-model="offerDraft.offeredOn" type="date" :max="today" /></label>
+          <label>Offer notes<textarea v-model="offerDraft.note" maxlength="10000" placeholder="Offered the October dinner; unable to attend due to another commitment…" /></label>
+          <button :disabled="busy">Record dinner offer</button>
+        </form>
         <h4>Notes & history</h4>
         <form @submit.prevent="addNote"><label>Add a note<textarea v-model="noteDraft" required maxlength="10000" placeholder="Left in kitchen, mailed it, dinner arrangements…" /></label><button :disabled="busy || !noteDraft.trim()">Add note</button></form>
         <p v-if="notesLoading">Loading notes…</p>
@@ -143,6 +158,7 @@ import { isLikelyDemoTenant } from '../../utils/demoTenant';
 import { isDemoWindowSession } from '../../utils/demoWindowSession';
 import { resolvePortalSlug } from '../../utils/orgScopedPath';
 import { resolveAwardsAgencyId } from '../../utils/employeeAwardView';
+import { resolveMembershipLogoUrl } from '../../utils/peerTenantBrand';
 const route = useRoute();
 const auth = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -150,6 +166,9 @@ const agencyChoices = computed(() => ((auth.user?.role === 'super_admin' ? agenc
 const defaultAgencyId = () => resolveAwardsAgencyId({ agencies: agencyChoices.value, requestedId: route.query.agencyId, currentId: agencyStore.currentAgencyId, portalSlug: resolvePortalSlug(route.params), demoSession: isDemoWindowSession() });
 const selectedAgencyId = ref(defaultAgencyId());
 const selectedAgency = computed(() => agencyChoices.value.find(a => String(a.id) === selectedAgencyId.value));
+const agencyLogo = computed(() => resolveMembershipLogoUrl(selectedAgency.value));
+const failedLogos = ref(new Set());
+const agencyInitials = computed(() => String(selectedAgency.value?.name || 'Agency').split(/\s+/).filter(Boolean).map(word=>word[0]).join('').slice(0,3).toUpperCase());
 const isDemoAgency = computed(() => isLikelyDemoTenant(selectedAgency.value));
 const milestones = ref([]), definitions = ref([]), giftDrafts = ref([]), dinners = ref([]), missingDates = ref([]);
 const loading = ref(false), busy = ref(false), message = ref(''), error = ref(''), today = ref('');
@@ -158,6 +177,8 @@ const eligibilityFilter = ref(route.query.status === 'upcoming' ? 'all' : 'eligi
 const eligibleFrom=ref(''),eligibleThrough=ref('');
 const selectedIds = ref([]), sortKey = ref('milestone_date'), sortAsc = ref(true);
 const activeAward = ref(null), awardDraft = ref({}), notes = ref([]), noteDraft = ref(''), notesLoading = ref(false), awardDialog = ref(null);
+const offerDraft = ref({outcome:'offered',offeredOn:'',note:''});
+const offerOutcomes = {offered:'Offered',unable_to_attend:'Unable to attend',declined:'Declined',no_show:'Did not attend'};
 const dinnerOpen = ref(false), dinnerDraft = ref({ title: 'Two-year dinner', scheduledOn: '', scheduledTime: '', location: '', notes: '' });
 const attendanceStates = ['invited','attended','declined','no_show','cancelled'];
 const attendanceLabel = value => ({ invited: 'Invited', attended: 'Attended', declined: 'Declined', no_show: 'Did not attend', cancelled: 'Invitation cancelled' }[value] || value);
@@ -177,6 +198,13 @@ const invitation = row => {
   for (const dinner of dinners.value) { const person = dinner.attendees.find(a => a.milestone_id === row.id); if (person) return { ...dinner, attendance: person.attendance }; }
   return null;
 };
+const offerLabel = row => row.dinner_offer_status ? `Offered · ${offerOutcomes[row.dinner_offer_status] || row.dinner_offer_status}`.replace('Offered · Offered','Offered')
+  : ['invited','declined','no_show'].includes(invitation(row)?.attendance) ? `Offered · ${attendanceLabel(invitation(row).attendance)}` : '';
+const matchesStatus = row => {
+  if (statusFilter.value === 'offered_owed') return Number(row.milestone_years) === 2 && row.status === 'owed' && !!offerLabel(row);
+  if (statusFilter.value === 'not_offered_owed') return Number(row.milestone_years) === 2 && row.status === 'owed' && !offerLabel(row);
+  return !statusFilter.value || (statusFilter.value === 'invited' ? invitation(row)?.attendance === 'invited' : row.status === statusFilter.value);
+};
 const columns = [{key:'name',label:'Employee'},{key:'start_date',label:'Start date'},{key:'first_client_date',label:'First client'},{key:'award_start_date',label:'Awards begin'},{key:'milestone_years',label:'Year'},{key:'gift',label:'Gift'},{key:'milestone_date',label:'Eligible on'},{key:'status',label:'Status'}];
 const filtered = computed(() => {
   const search = q.value.trim().toLowerCase();
@@ -185,8 +213,8 @@ const filtered = computed(() => {
     && (!eligibleFrom.value || row.milestone_date?.slice(0,10)>=eligibleFrom.value)
     && (!eligibleThrough.value || row.milestone_date?.slice(0,10)<=eligibleThrough.value)
     && (!yearsFilter.value || String(row.milestone_years) === yearsFilter.value)
-    && (!statusFilter.value || (statusFilter.value === 'invited' ? invitation(row)?.attendance === 'invited' : row.status === statusFilter.value))
-    && (!search || [fullName(row),row.work_email,row.email,row.gift_notes,row.latest_note,awardName(row.milestone_years)].filter(Boolean).join(' ').toLowerCase().includes(search)))
+    && matchesStatus(row)
+    && (!search || [fullName(row),row.work_email,row.email,row.gift_notes,row.latest_note,row.dinner_offer_note,offerLabel(row),awardName(row.milestone_years)].filter(Boolean).join(' ').toLowerCase().includes(search)))
     .sort((a,b) => {
       const value = row => sortKey.value === 'name' ? fullName(row) : sortKey.value === 'gift' ? awardName(row.milestone_years) : row[sortKey.value];
       const av = value(a), bv = value(b);
@@ -222,10 +250,11 @@ async function load() {
 async function action(work) { busy.value=true; error.value=''; try { await work(); } catch(e) { fail(e); } finally { busy.value=false; } }
 async function sync() { await action(async()=>{ const {data} = await api.post('/employee-relations/sync-from-start-dates',null,{params:{agencyId:selectedAgencyId.value}}); await load(); message.value=`Refreshed ${data.scanned} employees. ${data.missingDates || 0} need dates.`; }); }
 async function saveGift(gift) { await action(async()=>{ const {data}=await api.put(`/employee-relations/gifts/${gift.milestone_years}`,{giftName:gift.gift_name,details:gift.details},{params:{agencyId:selectedAgencyId.value}}); definitions.value=data.definitions; message.value='Agency gift saved.'; }); }
-async function openAward(row) { activeAward.value=row; awardDraft.value={status:row.status,fulfilledOn:row.fulfilled_on?.slice(0,10)||'',giftNotes:row.gift_notes||''}; notes.value=[];noteDraft.value='';notesLoading.value=true;error.value=''; await nextTick(); awardDialog.value?.focus(); try { const {data}=await api.get(`/employee-relations/${row.id}/notes`); if(activeAward.value?.id===row.id) notes.value=data.notes; }catch(e){fail(e);}finally{notesLoading.value=false;} }
+async function openAward(row) { activeAward.value=row; awardDraft.value={status:row.status,fulfilledOn:row.fulfilled_on?.slice(0,10)||'',giftNotes:row.gift_notes||''}; offerDraft.value={outcome:'offered',offeredOn:'',note:''}; notes.value=[];noteDraft.value='';notesLoading.value=true;error.value=''; await nextTick(); awardDialog.value?.focus(); try { const {data}=await api.get(`/employee-relations/${row.id}/notes`); if(activeAward.value?.id===row.id) notes.value=data.notes; }catch(e){fail(e);}finally{notesLoading.value=false;} }
 function closeAward(){if(!busy.value)activeAward.value=null;}
 async function saveAward(){await action(async()=>{await api.patch(`/employee-relations/${activeAward.value.id}`,awardDraft.value);await load();const row=milestones.value.find(r=>r.id===activeAward.value.id);if(row)await openAward(row);message.value='Award saved.';});}
 async function addNote(){await action(async()=>{const {data}=await api.post(`/employee-relations/${activeAward.value.id}/notes`,{note:noteDraft.value});notes.value=data.notes;const row=milestones.value.find(r=>r.id===activeAward.value.id);if(row)row.latest_note=noteDraft.value;noteDraft.value='';});}
+async function recordOffer(){await action(async()=>{const id=activeAward.value.id;await api.post(`/employee-relations/${id}/dinner-offers`,{...offerDraft.value});await load();const row=milestones.value.find(r=>r.id===id);if(row)await openAward(row);message.value='Dinner offer and notes recorded.';});}
 async function saveDinner(){await action(async()=>{await api.post('/employee-relations/dinners',{...dinnerDraft.value,milestoneIds:selectedIds.value},{params:{agencyId:selectedAgencyId.value}});dinnerOpen.value=false;selectedIds.value=[];await load();message.value='Dinner and invitees saved. Record attendance after the dinner.';});}
 async function saveAttendance(dinner,person,attendance){await action(async()=>{await api.patch(`/employee-relations/dinners/${dinner.id}/attendees/${person.milestone_id}`,{attendance},{params:{agencyId:selectedAgencyId.value}});await load();});}
 watch(selectedAgencyId,()=>{selectedIds.value=[];activeAward.value=null;dinnerOpen.value=false;message.value='';milestones.value=[];dinners.value=[];load();});
@@ -241,5 +270,6 @@ onMounted(load);
 
 <style scoped>
 .er-context{margin-bottom:4px}.er-warning{background:#fff7ed;color:#9a3412;padding:12px;border:1px solid #fdba74;border-radius:8px}
+.er-agency-select,.er-agency-control{display:flex;align-items:center;gap:8px}.er-agency-control{border:1px solid var(--border,#cbd5e1);border-radius:8px;padding:4px 6px;background:var(--bg-card,#fff)}.er-agency-control select{border:0;min-width:130px}.er-agency-logo{width:52px;height:36px;object-fit:contain;background:#fff;border-radius:4px}.er-agency-initials{min-width:44px;text-align:center;font-weight:700}.er-offer-status{color:#7c4a03}.er-note-action{margin-top:8px}.er-offer-form{margin:20px 0;padding:16px;border:1px solid var(--border,#cbd5e1);border-radius:8px}.er-offer-form p{font-size:13px}
 .er-root{padding:24px;background:var(--bg,#f9fafb);color:var(--text-primary,#111827);min-height:100vh}h2{font-size:28px;margin:0}h3,h4{margin:0 0 12px}p{line-height:1.5}.er-header,.er-actions,.er-controls,.er-bulk,.er-attendee{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.er-header{justify-content:space-between;align-items:flex-start}.er-header p,.er-help{color:var(--text-secondary,#6b7280);font-size:13px;max-width:920px}.er-actions{margin-bottom:12px}button,input,select,textarea{font:inherit;font-size:13px;border:1px solid var(--border,#d1d5db);border-radius:7px;padding:8px 10px;background:var(--bg-card,#fff);color:inherit}button{cursor:pointer}button:disabled{opacity:.55;cursor:not-allowed}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #4f46e5;outline-offset:2px}.primary{background:#1f2937;color:#fff}.er-awards{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}.er-award{display:grid;gap:6px;flex:1 1 120px;text-align:left;padding:12px}.er-award[aria-pressed=true]{background:#eef2ff;border-color:#6366f1}.er-controls{margin-bottom:12px}.er-controls>input{flex:1;min-width:210px}.er-check{display:flex;gap:6px;align-items:center}.er-stats{display:flex;gap:24px;flex-wrap:wrap;font-size:13px;margin:16px 0}.er-bulk{background:#eef2ff;padding:12px;margin:12px 0;border-radius:8px}.er-table-wrap{overflow:auto;border:1px solid var(--border,#e5e7eb);border-radius:10px}table{width:100%;border-collapse:collapse;background:var(--bg-card,#fff);font-size:13px}th,td{padding:10px;text-align:left;border-bottom:1px solid var(--border,#e5e7eb);vertical-align:top}th{white-space:nowrap}th button{border:0;background:transparent;font-weight:600}small{display:block;color:var(--text-secondary,#6b7280);font-size:12px;max-width:280px;margin-top:4px;white-space:pre-wrap}.er-link{border:0;padding:0;background:transparent;color:var(--link-color,#4338ca);text-align:left;text-decoration:underline}.er-owed{background:#fffbeb;color:#111827}.er-empty{text-align:center;padding:24px}.er-settings{padding:14px;border:1px solid var(--border,#e5e7eb);border-radius:8px;margin:14px 0;background:var(--bg-card,#fff)}summary{cursor:pointer;font-weight:600}.er-gift-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-top:18px}.er-gift-grid form{padding:12px;border:1px solid var(--border,#e5e7eb);border-radius:8px}form label{display:grid;gap:5px;margin:12px 0}textarea{min-height:70px;resize:vertical}.er-dinners{margin-top:28px}.er-attendee{justify-content:space-between;max-width:500px;margin:8px 0}.er-error{background:#fef2f2;color:#991b1b;padding:12px;border-radius:8px}.er-success{background:#ecfdf5;color:#065f46;padding:12px;border-radius:8px}.er-overlay{position:fixed;inset:0;background:#0006;display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px}.er-modal{background:var(--bg-card,#fff);padding:24px;border-radius:12px;max-width:640px;width:100%;max-height:90vh;overflow:auto}.er-history{padding-left:20px}.er-history p{white-space:pre-wrap;margin-bottom:4px}.er-history li{margin:12px 0}@media(max-width:650px){.er-root{padding:14px}.er-overlay{padding:8px}.er-modal{padding:16px}.er-controls>*{width:100%}}
 </style>

@@ -106,6 +106,17 @@ export const addNote = async (req, res, next) => {
     res.json({ notes: await EmployeeServiceMilestone.addNote(row.id, req.body?.note, req.user.id) });
   } catch (e) { next(e); }
 };
+export const recordDinnerOffer = async (req, res, next) => {
+  try {
+    const row = await accessibleAward(req);
+    const offer = await EmployeeServiceMilestone.recordDinnerOffer(row.id, {
+      outcome: req.body?.outcome,
+      offeredOn: req.body?.offeredOn,
+      note: req.body?.note
+    }, req.user.id);
+    res.status(201).json({ offer });
+  } catch (e) { next(e); }
+};
 export const createDinner = async (req, res, next) => {
   try {
     const agencyId = parseAgencyId(req);

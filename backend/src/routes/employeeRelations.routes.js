@@ -3,7 +3,7 @@ import { authenticate, requireCapability } from '../middleware/auth.middleware.j
 import {
   listMilestones,
   syncFromStartDates,
-  updateMilestone, saveGift, listNotes, addNote, createDinner, updateAttendance
+  updateMilestone, saveGift, listNotes, addNote, createDinner, updateAttendance, recordDinnerOffer
 } from '../controllers/employeeRelations.controller.js';
 
 const router = express.Router();
@@ -17,6 +17,7 @@ router.post('/dinners', createDinner);
 router.patch('/dinners/:dinnerId/attendees/:id', updateAttendance);
 router.get('/:id/notes', listNotes);
 router.post('/:id/notes', addNote);
+router.post('/:id/dinner-offers', recordDinnerOffer);
 router.patch('/:id', updateMilestone);
 
 export default router;
