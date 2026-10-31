@@ -3,13 +3,15 @@
     <header class="er-header">
       <div><h2>Year Awards</h2><p>Anniversary gifts, dinner invitations, and the details of what each person received.</p></div>
       <div class="er-actions">
-        <label v-if="agencyChoices.length > 1">Agency <select v-model="selectedAgencyId" :disabled="busy"><option v-for="a in agencyChoices" :key="a.id" :value="String(a.id)">{{ a.name }}</option></select></label>
+        <label v-if="agencyChoices.length > 1">Agency <select v-model="selectedAgencyId" aria-label="Awards agency" :disabled="busy"><option v-for="a in agencyChoices" :key="a.id" :value="String(a.id)">{{ a.name }}</option></select></label>
         <button :disabled="loading || busy" @click="load">Refresh</button>
         <button class="primary" :disabled="loading || busy || !selectedAgencyId" @click="sync">Sync from start dates</button>
       </div>
     </header>
     <p class="er-help">Each agency tracks its own gifts. Eligibility uses the earlier of the app’s start date and first-client date. Both dates stay separate. Missing dates need review; highlights here mean eligible with no gift completion recorded.</p>
-    <p class="er-help">The full tracker includes older awards until completion is recorded. Use the eligibility dates below to compare a specific anniversary email or dinner group.</p>
+    <p class="er-context"><strong>{{ selectedAgency?.name || 'Select an agency' }} · Year Awards</strong></p>
+    <p v-if="isDemoAgency" class="er-warning" role="status">You are viewing demo awards. Choose your work agency above to see its employee dinner records.</p>
+    <p class="er-help">The two-year view includes everyone who has reached two years, with dinner received or still owed shown for each person. Completed dinners stay in the history. Date and status filters can narrow this list.</p>
     <p v-if="message" class="er-success" role="status">{{ message }}</p>
     <p v-if="error" class="er-error" role="alert">{{ error }}</p>
     <details class="er-settings">
@@ -25,7 +27,7 @@
     </details>
     <div class="er-awards" aria-label="Anniversary awards">
       <button v-for="gift in definitions" :key="gift.milestone_years" class="er-award" :aria-pressed="yearsFilter === String(gift.milestone_years)"
-        @click="yearsFilter = yearsFilter === String(gift.milestone_years) ? '' : String(gift.milestone_years)">
+        @click="selectYear(gift.milestone_years)">
         <strong>{{ gift.milestone_years }} year{{ Number(gift.milestone_years) === 1 ? '' : 's' }}</strong><span>{{ gift.gift_name }}</span>
       </button>
     </div>
@@ -33,16 +35,18 @@
       <input v-model="q" aria-label="Search awards" placeholder="Search name, email, award, or notes…" />
       <select v-model="statusFilter" aria-label="Award status"><option value="">All statuses</option><option value="owed">Eligible · gift owed</option><option value="upcoming">Upcoming</option><option value="gift_sent">Gift sent / dinner attended</option><option value="acknowledged">Acknowledged</option><option value="invited">Dinner invited</option></select>
       <select v-model="yearsFilter" aria-label="Milestone year"><option value="">All years</option><option v-for="gift in definitions" :key="gift.milestone_years" :value="String(gift.milestone_years)">{{ gift.milestone_years }} years</option></select>
+      <select v-model="eligibilityFilter" aria-label="Eligibility"><option value="eligible">Reached anniversary</option><option value="all">All eligibility dates, including upcoming</option></select>
       <label class="er-check"><input v-model="includeInactive" type="checkbox" /> Include former employees</label>
       <label>Eligible from <input v-model="eligibleFrom" type="date" /></label>
       <label>Eligible through <input v-model="eligibleThrough" type="date" :min="eligibleFrom || undefined" /></label>
       <button v-if="eligibleFrom || eligibleThrough" @click="eligibleFrom='';eligibleThrough=''">All eligibility dates</button>
+      <button @click="showAllDinners">All eligible two-year dinners</button>
       <button @click="showDinnerOwed">Two-year dinner follow-up</button>
     </div>
     <div class="er-stats" aria-label="Awards in this view">
       <span><strong>{{ filtered.length }}</strong> awards in view</span>
-      <span><strong>{{ filtered.filter(r => r.status === 'owed').length }}</strong> eligible · gift owed</span>
-      <span><strong>{{ filtered.filter(r => isComplete(r)).length }}</strong> completed</span>
+      <span><strong>{{ filtered.filter(r => r.status === 'owed').length }}</strong> {{ yearsFilter === '2' ? 'dinner still owed' : 'eligible · gift owed' }}</span>
+      <span><strong>{{ filtered.filter(r => isComplete(r)).length }}</strong> {{ yearsFilter === '2' ? 'dinner received' : 'completed' }}</span>
     </div>
     <div v-if="selectedIds.length" class="er-bulk">
       <strong>{{ selectedIds.length }} people selected</strong>
@@ -135,14 +139,22 @@ import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import { isLikelyDemoTenant } from '../../utils/demoTenant';
+import { isDemoWindowSession } from '../../utils/demoWindowSession';
+import { resolvePortalSlug } from '../../utils/orgScopedPath';
+import { resolveAwardsAgencyId } from '../../utils/employeeAwardView';
 const route = useRoute();
 const auth = useAuthStore();
 const agencyStore = useAgencyStore();
 const agencyChoices = computed(() => ((auth.user?.role === 'super_admin' ? agencyStore.agencies : agencyStore.userAgencies) || []).filter(a => a && (a.organization_type || 'agency') === 'agency'));
-const selectedAgencyId = ref(String(route.query.agencyId || agencyStore.currentAgencyId || agencyChoices.value[0]?.id || ''));
+const defaultAgencyId = () => resolveAwardsAgencyId({ agencies: agencyChoices.value, requestedId: route.query.agencyId, currentId: agencyStore.currentAgencyId, portalSlug: resolvePortalSlug(route.params), demoSession: isDemoWindowSession() });
+const selectedAgencyId = ref(defaultAgencyId());
+const selectedAgency = computed(() => agencyChoices.value.find(a => String(a.id) === selectedAgencyId.value));
+const isDemoAgency = computed(() => isLikelyDemoTenant(selectedAgency.value));
 const milestones = ref([]), definitions = ref([]), giftDrafts = ref([]), dinners = ref([]), missingDates = ref([]);
 const loading = ref(false), busy = ref(false), message = ref(''), error = ref(''), today = ref('');
-const q = ref(''), statusFilter = ref(route.query.status || ''), yearsFilter = ref(''), includeInactive = ref(false);
+const q = ref(''), statusFilter = ref(route.query.status || ''), yearsFilter = ref('2'), includeInactive = ref(false);
+const eligibilityFilter = ref(route.query.status === 'upcoming' ? 'all' : 'eligible');
 const eligibleFrom=ref(''),eligibleThrough=ref('');
 const selectedIds = ref([]), sortKey = ref('milestone_date'), sortAsc = ref(true);
 const activeAward = ref(null), awardDraft = ref({}), notes = ref([]), noteDraft = ref(''), notesLoading = ref(false), awardDialog = ref(null);
@@ -157,7 +169,7 @@ const canInvite = row => {
     && !(invite?.attendance === 'invited' && invite.scheduled_on.slice(0,10) >= today.value);
 };
 const pendingStatus = row => row.milestone_date && row.milestone_date.slice(0,10) <= today.value ? 'owed' : 'upcoming';
-const statusLabel = row => !row.milestone_date && !isComplete(row) ? 'Date needed' : ({ upcoming: 'Upcoming', owed: 'Eligible · gift owed', gift_sent: Number(row.milestone_years) === 2 ? 'Dinner attended' : 'Gift sent', acknowledged: 'Acknowledged' }[row.status]);
+const statusLabel = row => Number(row.milestone_years) === 2 && isComplete(row) ? 'Dinner received' : !row.milestone_date && !isComplete(row) ? 'Date needed' : ({ upcoming: 'Upcoming', owed: Number(row.milestone_years) === 2 ? 'Dinner still owed' : 'Eligible · gift owed', gift_sent: 'Gift sent', acknowledged: 'Acknowledged' }[row.status]);
 const awardName = years => definitions.value.find(g => Number(g.milestone_years) === Number(years))?.gift_name || 'Gift to confirm';
 const giftDetails = years => definitions.value.find(g => Number(g.milestone_years) === Number(years))?.details || '';
 const fmtDate = date => date ? new Date(`${String(date).slice(0,10)}T12:00:00`).toLocaleDateString('en-US',{ month:'short',day:'numeric',year:'numeric' }) : '—';
@@ -169,6 +181,7 @@ const columns = [{key:'name',label:'Employee'},{key:'start_date',label:'Start da
 const filtered = computed(() => {
   const search = q.value.trim().toLowerCase();
   return milestones.value.filter(row => (includeInactive.value || row.active_employee)
+    && (eligibilityFilter.value !== 'eligible' || (row.milestone_date && row.milestone_date.slice(0,10) <= today.value))
     && (!eligibleFrom.value || row.milestone_date?.slice(0,10)>=eligibleFrom.value)
     && (!eligibleThrough.value || row.milestone_date?.slice(0,10)<=eligibleThrough.value)
     && (!yearsFilter.value || String(row.milestone_years) === yearsFilter.value)
@@ -185,7 +198,13 @@ const selectable = computed(() => filtered.value.filter(canInvite));
 const allSelected = computed(() => selectable.value.length > 0 && selectable.value.every(r => selectedIds.value.includes(r.id)));
 function toggleAll(checked) { selectedIds.value = checked ? [...new Set([...selectedIds.value,...selectable.value.map(r=>r.id)])] : selectedIds.value.filter(id=>!selectable.value.some(r=>r.id===id)); }
 function sortBy(key) { sortAsc.value = sortKey.value === key ? !sortAsc.value : true; sortKey.value = key; }
-function showDinnerOwed() { yearsFilter.value = '2'; statusFilter.value = 'owed'; q.value = ''; }
+function showAllDinners() { yearsFilter.value = '2'; eligibilityFilter.value = 'eligible'; statusFilter.value = ''; q.value = ''; eligibleFrom.value = ''; eligibleThrough.value = ''; }
+function showDinnerOwed() { showAllDinners(); statusFilter.value = 'owed'; }
+function selectYear(years) {
+  if (Number(years) === 2) { showAllDinners(); return; }
+  yearsFilter.value = yearsFilter.value === String(years) ? '' : String(years);
+  eligibilityFilter.value = 'all';
+}
 function fail(e) { error.value = e.response?.data?.error?.message || e.message || 'Unable to save. Please try again.'; }
 let requestId = 0;
 async function load() {
@@ -210,9 +229,17 @@ async function addNote(){await action(async()=>{const {data}=await api.post(`/em
 async function saveDinner(){await action(async()=>{await api.post('/employee-relations/dinners',{...dinnerDraft.value,milestoneIds:selectedIds.value},{params:{agencyId:selectedAgencyId.value}});dinnerOpen.value=false;selectedIds.value=[];await load();message.value='Dinner and invitees saved. Record attendance after the dinner.';});}
 async function saveAttendance(dinner,person,attendance){await action(async()=>{await api.patch(`/employee-relations/dinners/${dinner.id}/attendees/${person.milestone_id}`,{attendance},{params:{agencyId:selectedAgencyId.value}});await load();});}
 watch(selectedAgencyId,()=>{selectedIds.value=[];activeAward.value=null;dinnerOpen.value=false;message.value='';milestones.value=[];dinners.value=[];load();});
+// Memberships can arrive after this component mounts. The global tenant picker
+// must also update the roster instead of leaving a second, stale agency selected.
+watch(agencyChoices,()=>{if(!selectedAgencyId.value) selectedAgencyId.value=defaultAgencyId();});
+watch(()=>agencyStore.currentAgencyId,id=>{
+  if (!route.query.agencyId && agencyChoices.value.some(a=>String(a.id)===String(id))) selectedAgencyId.value=String(id);
+});
+watch(()=>route.query.agencyId,()=>{selectedAgencyId.value=defaultAgencyId();});
 onMounted(load);
 </script>
 
 <style scoped>
+.er-context{margin-bottom:4px}.er-warning{background:#fff7ed;color:#9a3412;padding:12px;border:1px solid #fdba74;border-radius:8px}
 .er-root{padding:24px;background:var(--bg,#f9fafb);color:var(--text-primary,#111827);min-height:100vh}h2{font-size:28px;margin:0}h3,h4{margin:0 0 12px}p{line-height:1.5}.er-header,.er-actions,.er-controls,.er-bulk,.er-attendee{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.er-header{justify-content:space-between;align-items:flex-start}.er-header p,.er-help{color:var(--text-secondary,#6b7280);font-size:13px;max-width:920px}.er-actions{margin-bottom:12px}button,input,select,textarea{font:inherit;font-size:13px;border:1px solid var(--border,#d1d5db);border-radius:7px;padding:8px 10px;background:var(--bg-card,#fff);color:inherit}button{cursor:pointer}button:disabled{opacity:.55;cursor:not-allowed}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #4f46e5;outline-offset:2px}.primary{background:#1f2937;color:#fff}.er-awards{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}.er-award{display:grid;gap:6px;flex:1 1 120px;text-align:left;padding:12px}.er-award[aria-pressed=true]{background:#eef2ff;border-color:#6366f1}.er-controls{margin-bottom:12px}.er-controls>input{flex:1;min-width:210px}.er-check{display:flex;gap:6px;align-items:center}.er-stats{display:flex;gap:24px;flex-wrap:wrap;font-size:13px;margin:16px 0}.er-bulk{background:#eef2ff;padding:12px;margin:12px 0;border-radius:8px}.er-table-wrap{overflow:auto;border:1px solid var(--border,#e5e7eb);border-radius:10px}table{width:100%;border-collapse:collapse;background:var(--bg-card,#fff);font-size:13px}th,td{padding:10px;text-align:left;border-bottom:1px solid var(--border,#e5e7eb);vertical-align:top}th{white-space:nowrap}th button{border:0;background:transparent;font-weight:600}small{display:block;color:var(--text-secondary,#6b7280);font-size:12px;max-width:280px;margin-top:4px;white-space:pre-wrap}.er-link{border:0;padding:0;background:transparent;color:var(--link-color,#4338ca);text-align:left;text-decoration:underline}.er-owed{background:#fffbeb;color:#111827}.er-empty{text-align:center;padding:24px}.er-settings{padding:14px;border:1px solid var(--border,#e5e7eb);border-radius:8px;margin:14px 0;background:var(--bg-card,#fff)}summary{cursor:pointer;font-weight:600}.er-gift-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-top:18px}.er-gift-grid form{padding:12px;border:1px solid var(--border,#e5e7eb);border-radius:8px}form label{display:grid;gap:5px;margin:12px 0}textarea{min-height:70px;resize:vertical}.er-dinners{margin-top:28px}.er-attendee{justify-content:space-between;max-width:500px;margin:8px 0}.er-error{background:#fef2f2;color:#991b1b;padding:12px;border-radius:8px}.er-success{background:#ecfdf5;color:#065f46;padding:12px;border-radius:8px}.er-overlay{position:fixed;inset:0;background:#0006;display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px}.er-modal{background:var(--bg-card,#fff);padding:24px;border-radius:12px;max-width:640px;width:100%;max-height:90vh;overflow:auto}.er-history{padding-left:20px}.er-history p{white-space:pre-wrap;margin-bottom:4px}.er-history li{margin:12px 0}@media(max-width:650px){.er-root{padding:14px}.er-overlay{padding:8px}.er-modal{padding:16px}.er-controls>*{width:100%}}
 </style>

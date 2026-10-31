@@ -21,6 +21,7 @@ export async function requireReminderGuardian(clientId, userId) {
 }
 
 function clientInitials(client) {
+  if (String(client?.initials || '').trim()) return String(client.initials).trim();
   const a = String(client?.preferred_name || client?.preferredName || client?.first_name || client?.firstName || '').trim();
   const b = String(client?.last_name || client?.lastName || '').trim();
   return `${a[0] || ''}${b[0] || ''}`.toUpperCase() || '?';
@@ -81,7 +82,7 @@ export async function sendContactAssignedNotifyEmail({
     agencyName: agency.name || 'Care team',
     assignerName,
     contactName: row.contact_full_name,
-    clientFirstName: clientInitials({ first_name: row.client_first_name, last_name: row.client_last_name }),
+    clientFirstName: clientInitials({ initials: row.client_initials }),
     clientLastName: '',
     clientPreferredName: '',
     emailRemindersEnabled: !!row.email_reminders_enabled,

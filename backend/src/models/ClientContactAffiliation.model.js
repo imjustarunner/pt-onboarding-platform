@@ -10,8 +10,8 @@ class ClientContactAffiliation {
               c.email AS contact_email,
               c.phone AS contact_phone,
               c.is_active AS contact_is_active,
-              cl.first_name AS client_first_name,
-              cl.last_name AS client_last_name,
+              cl.initials AS client_initials,
+              cl.full_name AS client_full_name,
               cl.preferred_name AS client_preferred_name
        FROM client_contact_affiliations a
        JOIN agency_contacts c ON c.id = a.agency_contact_id
@@ -195,10 +195,10 @@ class ClientContactAffiliation {
         isActive: row.contact_is_active !== 0 && row.contact_is_active !== false,
         source: row.contact_source || null
       },
-      client: row.client_first_name
+      client: row.client_initials || row.client_full_name
         ? {
-            firstName: row.client_first_name,
-            lastName: row.client_last_name,
+            initials: row.client_initials,
+            fullName: row.client_full_name,
             preferredName: row.client_preferred_name
           }
         : undefined
