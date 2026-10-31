@@ -67,7 +67,7 @@ const title=computed(()=>({new:'New email',reply:'Reply',reply_all:'Reply all',f
 const filingChoices=ref([]),filingRequired=ref(false);
 let filingGeneration=0;
 async function loadFilingChoices(){
- if(qv || !record.value?.agency_id || record.value.mode!=='new')return;
+ if(qv || !record.value?.agency_id || record.value.mode!=='new' || record.value.draft?._schoolContact)return;
  const generation=++filingGeneration;
  try{const {data}=await request('get',`/client-filing-options?${new URLSearchParams({agencyId:record.value.agency_id,to:draft.value.to,cc:draft.value.cc,bcc:draft.value.bcc})}`);
  if(generation===filingGeneration){filingChoices.value=data.clients||[];draft.value.clientIds=(draft.value.clientIds||[]).filter(id=>filingChoices.value.some(c=>c.id===id));}}
@@ -127,7 +127,8 @@ async function openDraft(){
       if(cid){const {data}=await request('get',`/conversations/${cid}?markRead=0`);const c=data.conversation;agencyId=c.agency_id;fromEmail.value=c.inbox_from_email || '';const addresses=emailReplyRecipients(data.messages,{mode,inboxEmail:fromEmail.value});draft.value.to=addresses.to.join(', ');draft.value.cc=addresses.cc.join(', ');draft.value.subject=`${mode==='forward'?'Fwd:':'Re:'} ${String(c.subject || '').replace(/^(?:(?:re|fwd?)\s*:\s*)+/i,'')}`;draft.value.quotedText=quoteEmailHistory(data.messages);draft.value.quotedHtml=quoteEmailHistoryHtml(data.messages);}
       // Creating a draft must not wait for Workspace mailbox provisioning.
       // Sender validation runs independently after the draft is editable.
-      const {data}=await request('post','/drafts',{agencyId,conversationId:cid || null,mode,draft:draft.value});record.value=data.draft;draft.value={...draft.value,...data.draft.draft};await setDraftRoute(record.value.id);notify();
+      const {data}=await request('post','/drafts',{agencyId,conversationId:cid || null,mode,draft:draft.value,
+        ...(context.schoolContactWorkflowId ? {schoolContactWorkflowId:context.schoolContactWorkflowId,schoolStaffUserId:context.schoolStaffUserId} : {})});record.value=data.draft;draft.value={...draft.value,...data.draft.draft};await setDraftRoute(record.value.id);notify();
     }
     fromEmail.value=record.value.from_email || fromEmail.value;sendResult.value=record.value.result || sendResult.value;
     if(String(record.value.id).startsWith('legacy-') && /<[^>]+>/.test(draft.value.text)){const doc=new DOMParser().parseFromString(draft.value.text,'text/html');doc.querySelectorAll('p,div,br').forEach(e=>e.append('\n'));draft.value.text=doc.body.textContent || '';}

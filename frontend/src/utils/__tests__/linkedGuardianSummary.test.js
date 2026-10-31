@@ -4,7 +4,7 @@ const parent = { guardian_user_id: 1437, access_enabled: 1, is_active: 1, relati
   first_name: 'Dana', last_name: 'QA', email: 'testing@itsco.health' };
 describe('linked guardian overview for a chart without an enrollment profile', () => {
   it('shows the actual linked contact used by the contact plan without inventing intake answers', () => {
-    expect(linkedGuardianSummary([parent], { canView: true })).toEqual({ displayName: 'Dana QA', contact: 'testing@itsco.health', additionalCount: 0 });
+    expect(linkedGuardianSummary([parent], { canView: true })).toMatchObject({ displayName: 'Dana QA', contact: 'testing@itsco.health', additionalCount: 0,email:'testing@itsco.health',relationship:'guardian' });
     expect(parent).not.toHaveProperty('guardian_intake_profile');
   });
   it('fails closed when the viewer cannot open guardian links', () => {

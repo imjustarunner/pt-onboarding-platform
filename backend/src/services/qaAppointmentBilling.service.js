@@ -50,7 +50,9 @@ export async function syncQaAppointmentBalance(appointment, actorUserId) {
   if (['completed', 'no_show'].includes(outcome)) {
     const end = new Date(utcMysqlToIso(appointment.endAt) || appointment.endAt);
     if (!Number.isFinite(+end) || end > new Date()) throw Object.assign(new Error('Complete the synthetic session before posting its outcome balance.'), { status: 409 });
-    amountCents = Number(billing.amountCents || 0);
+    // A missed visit posts only its assessed outcome fee. The booked service
+    // price is not a no-show charge, including while payer/policy review holds it.
+    amountCents = Number(outcome === 'no_show' ? appointment.cancellationFeeCents || 0 : billing.amountCents || 0);
   } else if (['late_canceled', 'canceled_by_client', 'canceled_by_provider', 'canceled'].includes(outcome)) {
     amountCents = Number(appointment.cancellationFeeCents || 0);
   } else return null;

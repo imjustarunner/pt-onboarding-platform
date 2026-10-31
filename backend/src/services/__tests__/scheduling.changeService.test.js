@@ -26,7 +26,7 @@ const canceled = { eventType: 'canceled', clientId: 3, initiator: 'client', reas
 let appointment, packageRow;
 beforeEach(() => {
   vi.clearAllMocks();readClientInsurance.mockResolvedValue(null);
-  appointment = { id: 1, agencyId: 2, providerUserId: 9, providerScheduleEventId: 10, startAt: '2026-01-01 17:00:00', status: 'confirmed', clinicalSessionId: 4 };
+  appointment = { id: 1, agencyId: 2, providerUserId: 9, providerScheduleEventId: 10, startAt: '2026-01-01 17:00:00', endAt: '2026-01-01 18:00:00', status: 'confirmed', clinicalSessionId: 4 };
   packageRow = null;
   getAppointmentBundle.mockImplementation(async () => appointment); Appointment.findById.mockImplementation(async () => appointment);
   Appointment.listParticipants.mockResolvedValue([{ clientId: 3, isBillingResponsible: true }]);
@@ -52,6 +52,26 @@ describe('appointment change consequences and completion', () => {
     readClientInsurance.mockRejectedValue(new Error('Encryption unavailable'));
     const result=await previewAppointmentChange(1,{...canceled,eventType:'no_show'},actor);
     expect(result.consequence).toMatchObject({model:'none',feeCents:0});
+  });
+  it.each([['canceled',8000],['no_show',10000]])('uses the retained policy fee for an explicitly self-pay %s, without creating a claim', async(eventType, feeCents)=>{
+    const old=pool.execute.getMockImplementation();
+    pool.execute.mockImplementation((sql,args)=>sql.includes('FROM clients')?Promise.resolve([[{insurance_type:'Self-Pay'}]]):old(sql,args));
+    evaluateCancel.mockResolvedValue({allowed:true,isLate:true,withinNotice:false,recommendedFeeCents:8000,
+      recommendedPackageAction:'release',policySource:'booking_snapshot',policy:{id:3,name:'Retained attendance policy',noticeHours:24,lateFeeCents:8000,noShowFeeCents:10000}});
+    const result=await previewAppointmentChange(1,{...canceled,eventType},actor);
+    expect(result.payer).toMatchObject({billingMode:'self_pay',coverageUnknown:false,isMedicaid:false});
+    expect(result.consequence).toMatchObject({model:'fee',feeCents});
+    expect(result.evaluation).toMatchObject({policyId:3,policySource:'booking_snapshot',lateFeeCents:8000,noShowFeeCents:10000,agreementStatus:'not_verified'});
+    expect(result.insuranceClaim.willAutoSubmit).toBe(false);
+    expect(result.insuranceClaim.willCreatePrimarySessionClaim).toBe(false);
+  });
+  it('does not infer a self-pay agreement from a clinical appointment price or a fee policy', async()=>{
+    const old=pool.execute.getMockImplementation();
+    pool.execute.mockImplementation((sql,args)=>sql.includes('FROM clients')?Promise.resolve([[{insurance_type:null,primary_insurer_name:null}]]):old(sql,args));
+    evaluateCancel.mockResolvedValue({allowed:true,isLate:true,withinNotice:false,recommendedFeeCents:8000,policy:{id:3,lateFeeCents:8000,noShowFeeCents:10000}});
+    const result=await previewAppointmentChange(1,{...canceled,eventType:'no_show'},actor);
+    expect(result.consequence).toMatchObject({model:'none',feeCents:0,reasonCode:'payer_unverified'});
+    expect(result.consequence.summary).toContain('not explicitly recorded as self-pay');
   });
   it('never offers a secondary claim and keeps amounts out of provider narratives', async () => {
     const preview = await previewAppointmentChange(1, canceled, actor);
@@ -117,4 +137,18 @@ describe('appointment change consequences and completion', () => {
     releaseAppointmentCalendar.mockRejectedValueOnce(new Error('calendar unavailable'));
     await expect(completeAppointmentChange(1, canceled, actor)).rejects.toThrow('calendar unavailable');
   });
+});
+
+
+it('retains notifications for a new signed ended no-show but keeps past cancellation corrections record-only', async () => {
+  const facts = { ...canceled, eventType: 'no_show', reasonKnown: false, outreach: ['called'] };
+  await completeAppointmentChange(1, facts, actor);
+  expect(runSignedAppointmentChange.mock.calls[0][1]).toMatchObject({ reviewedAttendanceOutcome: true, followUpAction: 'none' });
+  expect(runSignedAppointmentChange.mock.calls[0][1].notificationMode).not.toBe('none');
+  await completeAppointmentChange(1, canceled, actor);
+  expect(runSignedAppointmentChange.mock.calls[1][1]).toMatchObject({ notificationMode: 'none', suppressionReason: 'Retrospective record correction.' });
+});
+it('rejects a no-show while the session is still in progress', async () => {
+  appointment.endAt = new Date(Date.now() + 60000).toISOString();
+  await expect(completeAppointmentChange(1, { ...canceled, eventType: 'no_show', reasonKnown: false, outreach: ['called'] }, actor)).rejects.toThrow('scheduled end');
 });

@@ -1,3 +1,4 @@
+import { notificationTransportReceipt } from '../utils/notificationTransportReceipt.js';
 import pool from '../config/database.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { maybeEncryptNotePayload, maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
@@ -5,7 +6,7 @@ import { futureAppointment, scheduleNoticeDeadline, buildScheduleNoticeMessage }
 
 const sqlDate = d => d.toISOString().slice(0, 19).replace('T', ' ');
 const active = a => ['scheduled', 'confirmed', 'client_confirmed'].includes(a?.status);
-const canceled = a => ['canceled','cancelled','canceled_by_provider','canceled_by_client','canceled_by_guardian','canceled_by_organization','canceled_by_agency','late_canceled','rescheduled'].includes(a?.status);
+const canceled = a => ['canceled','cancelled','canceled_by_provider','canceled_by_client','canceled_by_guardian','canceled_by_organization','canceled_by_agency','late_canceled','rescheduled','no_show'].includes(a?.status);
 const defaults = {
   database: pool, now: () => new Date(), encrypt: maybeEncryptNotePayload, decrypt: maybeDecryptNotePayload,
   appointment: async id => (await import('../models/Appointment.model.js')).default.findById(id),
@@ -67,7 +68,10 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
     if (!a) return null;
     const providerId = Number(a.providerUserId) || 0;
     const retrospect = !futureAppointment(before || a, d.now());
-    const suppressed = (retrospect && facts.reviewedDeferredCancellation !== true) || facts.notificationMode === 'none';
+    const attendanceOutcome = eventType === 'no_show' && facts.reviewedAttendanceOutcome === true
+      && a.status === 'no_show' && parseUtcDate(a.endAt) && +parseUtcDate(a.endAt) <= +d.now();
+    const suppressed = (retrospect && facts.reviewedDeferredCancellation !== true && !attendanceOutcome)
+      || (eventType === 'no_show' && !attendanceOutcome) || facts.notificationMode === 'none';
     const clientIds = [...new Set((await d.participants(a.id)).map(p => Number(p.clientId)).filter(Boolean))];
     const tenant = suppressed ? null : await d.tenant(a.agencyId);
     const allowedChannels = ['email', ...(tenant?.channelsEnabled?.sms === true && tenant?.changeNotify?.channels?.includes('sms') ? ['sms'] : [])]
@@ -83,8 +87,8 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
           if (existing.length) return;
         }
         // Signed cancellation retries cannot create another invitation or notice.
-        if (['canceled','rescheduled'].includes(eventType)) {
-          const [existing] = await db.execute("SELECT id,status,payload_json FROM appointment_schedule_notices WHERE appointment_id=? AND client_id=? AND event_type IN ('canceled','rescheduled') LIMIT 1", [a.id, clientId]);
+        if (['canceled','rescheduled','no_show'].includes(eventType)) {
+          const [existing] = await db.execute("SELECT id,status,payload_json FROM appointment_schedule_notices WHERE appointment_id=? AND client_id=? AND event_type IN ('canceled','rescheduled','no_show') LIMIT 1", [a.id, clientId]);
           if (existing.length) {
             const row = existing[0];
             // Only the signed deferred-email review can release an explicitly held notice.
@@ -132,7 +136,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
           VALUES (?,?,?,?,?,?,?,?,?,?)`, [a.id,a.agencyId,providerId,clientId,eventType,state,d.encrypt(JSON.stringify(payload)),JSON.stringify(allowedChannels.filter(ch => !selectedContacts || selectedContacts.channels.includes(ch))),sqlDate(due),actorUserId]);
         if (!clientSuppressed) await db.execute("UPDATE appointment_schedule_notices SET fire_at=? WHERE agency_id=? AND provider_id=? AND client_id=? AND status='pending'", [sqlDate(due),a.agencyId,providerId,clientId]);
         const row = { ...group, id: insert.insertId, appointment_id: a.id, created_by_user_id: actorUserId };
-        const explanation = retrospect ? 'Past appointment: record updated only. No cancellation notice, replacement offer, or rescheduling follow-up was sent.'
+        const explanation = retrospect && !attendanceOutcome ? 'Past appointment: record updated only. No cancellation notice, replacement offer, or rescheduling follow-up was sent.'
           : clientSuppressed ? 'Provider chose no email or text. See the signed cancellation record.'
             : 'Schedule update queued. Related edits for this client and provider will be combined; the final appointment details are checked before sending.';
         await audit(row, state, explanation, { scheduledFor: clientSuppressed ? null : due.toISOString() });
@@ -166,7 +170,8 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
         const portalUrl = await d.portal(a.agencyId,row.client_id,a.id);
         let cancellation;
         if (canceled(a)) {
-          if (!['canceled','rescheduled'].includes(payload.eventType)) {
+          if (!['canceled','rescheduled','no_show'].includes(payload.eventType)
+              || (a.status === 'no_show' && (payload.eventType !== 'no_show' || payload.facts.reviewedAttendanceOutcome !== true))) {
             await db.execute("UPDATE appointment_schedule_notices SET status='superseded' WHERE id=?", [row.id]);
             await audit(row,'superseded','Appointment was canceled; its cancellation workflow controls notification.'); continue;
           }
@@ -220,7 +225,17 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
           const permitted = guardianAuthorized && (!target || !selectedContacts || await d.reviewedRecipientAllowed(seed.client_id,seed.agency_id,target,channel)) && channel !== 'in_app' && recipient && consent[channel] && prefs.schedulingChangesEnabled !== false && prefs.providerPushedUpdatesEnabled !== false
             && (prefs.isDefault || prefs.channels?.[channel] !== false)
             && (channel !== 'sms' || (tenant?.channelsEnabled?.sms === true && tenant?.changeNotify?.channels?.includes('sms')));
-          if (!permitted) { status='skipped'; reason='No permitted contact channel. Review and follow up with the client through an approved channel.'; }
+          if (!permitted) {
+            status='skipped';
+            const detail = !guardianAuthorized ? 'The guardian is no longer authorized for this client.'
+              : !recipient ? 'No recipient address is available for this channel.'
+                : !consent[channel] ? 'Current contact permission does not allow this channel.'
+                  : prefs.schedulingChangesEnabled === false ? 'Scheduling-change notifications are disabled in the recipient preferences.'
+                    : prefs.providerPushedUpdatesEnabled === false ? 'Provider schedule updates are disabled in the recipient preferences.'
+                      : !prefs.isDefault && prefs.channels?.[channel] === false ? 'This channel is disabled in the recipient preferences.'
+                        : 'The selected contact or organization channel is no longer permitted.';
+            reason=`No permitted contact channel. ${detail} Review and follow up with the client through an approved channel.`;
+          }
           else {
             sentTargets.add(targetKey);
             let result;
@@ -236,8 +251,10 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
               else { attempted=true; result=await d.sendSms({agencyId:seed.agency_id,clientId:seed.client_id,notificationCategory:'schedule_changes',purpose:'reminders',from,to:recipient,body}); }
             }
             if (result) {
-              externalId = result.id || result.sid || result.messageId || result.messageUuid || result.messageUUID || null;
-              status = externalId && !result.skipped && !result.blocked && !result.redirected && !result.pendingApproval && !result.queued ? 'sent' : 'held';
+              const receipt = notificationTransportReceipt(result, seed.agency_id);
+              externalId = receipt.externalId;
+              if (receipt.accepted && receipt.redirectedTo) recipient = receipt.redirectedTo;
+              status = receipt.accepted ? 'sent' : 'held';
               if(result.reason==='school_session_email_opted_out') status='skipped';
               reason = status === 'sent' ? null : result.reason || 'Transport held the message. Review before resending.';
             } else if (attempted) { status='review'; reason='Transport did not confirm acceptance. Verify before resending.'; }

@@ -1,3 +1,4 @@
+import { notificationTransportReceipt } from '../utils/notificationTransportReceipt.js';
 import pool from '../config/database.js';
 import Appointment from '../models/Appointment.model.js';
 import UserCommunication from '../models/UserCommunication.model.js';
@@ -41,7 +42,8 @@ export function cancellationClientDetails(facts = {}, { requireReason = true } =
 }
 
 export function buildCancellationNotification(appointment, facts, resolved = {}) {
-  const details = cancellationClientDetails(facts);
+  const noShow = facts.eventType === 'no_show';
+  const details = cancellationClientDetails(facts, { requireReason: !noShow });
   const when = new Intl.DateTimeFormat('en-US', { dateStyle: 'full', timeStyle: 'short',
     timeZone: appointment.sourceTimezone || 'America/Denver' }).format(parseUtcDate(appointment.startAt));
   const nextText = resolved.nextAppointment
@@ -53,9 +55,12 @@ export function buildCancellationNotification(appointment, facts, resolved = {})
     ? `${followUpText} Open Appointments in your signed-in client portal by ${appointmentTimeLabel(resolved.offer.expires_at, appointment.sourceTimezone)} (${appointment.sourceTimezone || 'America/Denver'}). These times are reserved for invited clients and may be offered to more than one person. The first completed reservation schedules your replacement appointment immediately. Your provider will reach out if there are any changes to their schedule. The link shows only times still available. ${nextText} This offer does not change your recurring schedule.`
     : `No replacement times are currently being offered. ${nextText}`;
   const moved = facts.eventType === 'rescheduled' && resolved.replacement;
+  const feeCents = Number(appointment.cancellationFeeCents);
+  const feeText = Number.isFinite(feeCents) && feeCents > 0
+    ? `A ${noShow ? 'missed-appointment' : 'cancellation'} fee of ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(feeCents / 100)} was recorded. Review your balance and any payment arrangement in your portal.` : '';
   const paragraphs = [
-    moved ? `Your appointment has moved from ${when} (${appointment.sourceTimezone || 'America/Denver'}) to ${appointmentTimeLabel(resolved.replacement.startAt, resolved.replacement.sourceTimezone || appointment.sourceTimezone)} (${resolved.replacement.sourceTimezone || appointment.sourceTimezone || 'America/Denver'}). The previous time is no longer scheduled.` : `Your appointment${appointment.providerName ? ` with ${appointment.providerName}` : ''} scheduled for ${when} (${appointment.sourceTimezone || 'America/Denver'}) has been canceled.`,
-    `Reason: ${details.clientFacingReason}`,
+    noShow ? `Our records show the appointment${appointment.providerName ? ` with ${appointment.providerName}` : ''} on ${when} (${appointment.sourceTimezone || 'America/Denver'}) was missed. Contact your care team if this needs to be corrected.` : moved ? `Your appointment has moved from ${when} (${appointment.sourceTimezone || 'America/Denver'}) to ${appointmentTimeLabel(resolved.replacement.startAt, resolved.replacement.sourceTimezone || appointment.sourceTimezone)} (${resolved.replacement.sourceTimezone || appointment.sourceTimezone || 'America/Denver'}). The previous time is no longer scheduled.` : `Your appointment${appointment.providerName ? ` with ${appointment.providerName}` : ''} scheduled for ${when} (${appointment.sourceTimezone || 'America/Denver'}) has been canceled.`,
+    ...(!noShow ? [`Reason: ${details.clientFacingReason}`] : []),
     moved ? 'Please sign in to see your updated appointment and any other schedule changes.'
       : `${followUpText}${['keep_next', 'keep_next_or_support', 'private_slots', 'portal_booking'].includes(details.followUpAction) ? '' : ` ${nextText}`} Please sign in to see any updates to your appointments.`,
     ...(details.followUpMessage ? [details.followUpMessage] : []),
@@ -69,8 +74,9 @@ export function buildCancellationNotification(appointment, facts, resolved = {})
     paragraphs.push(followUpText);
     if (!['keep_next','keep_next_or_support','private_slots','portal_booking'].includes(details.followUpAction)) paragraphs.push(nextText);
   }
+  if (feeText) paragraphs.push(feeText);
   const text = [...paragraphs, ...(portalUrl ? [`Review the latest options: ${portalUrl}`] : [])].join('\n\n');
-  return { ...details, when, followUpText, replacementAppointmentId: moved ? resolved.replacement.id : null, subject: reviewed?.subject || (moved ? 'Your appointment has moved' : 'Your appointment has been canceled'), text,
+  return { ...details, noShow, feeText, when, followUpText, replacementAppointmentId: moved ? resolved.replacement.id : null, subject: reviewed?.subject || (noShow ? 'Your missed appointment' : moved ? 'Your appointment has moved' : 'Your appointment has been canceled'), text,
     html: paragraphs.map(p => `<p>${escapeHtml(p).replaceAll('\n', '<br>')}</p>`).join('') + links,
     sms: `Your appointment schedule has been updated. Please review the latest details in your secure portal${portalUrl ? `: ${portalUrl}` : '.'}` };
 }
@@ -150,7 +156,9 @@ export function createCancellationNotificationService({ database = pool, appoint
       const externalId = result?.id || result?.sid || result?.messageId || result?.messageUuid || result?.messageUUID || null;
       acceptedExternalId = externalId;
       if(result?.reason==='school_session_email_opted_out') {await finish('skipped',result.reason);return;}
-      const sent = externalId && !result?.skipped && !result?.blocked && !result?.redirected && !result?.pendingApproval && !result?.queued;
+      const receipt = notificationTransportReceipt(result, row.agency_id);
+      const sent = receipt.accepted;
+      if (sent && receipt.redirectedTo) recipient = receipt.redirectedTo;
       await finish(sent ? 'sent' : 'held', sent ? null : result?.reason || 'Delivery held; review the client communications record before resending.', externalId);
     } catch (error) {
       await finish(attempted ? 'review' : 'failed', String(error?.message || 'Cancellation notification failed').slice(0, 500), acceptedExternalId);
@@ -200,7 +208,8 @@ export function createCancellationNotificationService({ database = pool, appoint
   return { notify, process, processDue, summary, retry };
 }
 export const notifyAppointmentCancellation = async (appointmentId, facts, actorUserId = null) => {
-  if (!['canceled', 'rescheduled'].includes(facts.eventType)) return null;
+  if (!['canceled', 'rescheduled', 'no_show'].includes(facts.eventType)) return null;
+  if (facts.eventType === 'no_show' && facts.reviewedAttendanceOutcome !== true) return null;
   return (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.queue(appointmentId, { eventType: facts.eventType, facts, actorUserId });
 };
 export const processDueCancellationNotifications = (...args) => createCancellationNotificationService().processDue(...args);

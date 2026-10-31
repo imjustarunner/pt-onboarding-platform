@@ -17,6 +17,7 @@ import { useBrandingStore } from '../store/branding';
 import { useAgencyStore } from '../store/agency';
 import { useOrganizationStore } from '../store/organization';
 import { getDashboardRoute } from '../utils/router';
+import {providerSchoolPortalDestination} from '../utils/providerSchoolPortalDestination.js';
 import { extractAdminPageFromPath } from '../utils/normalizeAdminPageKey.js';
 import { useIndirectTimeSessionStore } from '../store/indirectTimeSession';
 import { getLoginUrl, getCurrentPortalSlugFromHostCache } from '../utils/loginRedirect';
@@ -2397,6 +2398,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/school-contact-plans',
+    name: 'OrganizationSchoolContactPlans',
+    component: () => import('../views/admin/SchoolContactPlansView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'super_admin'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/schools/overview',
     name: 'OrganizationSchoolOverviewDashboard',
     component: () => import('../views/admin/SchoolOverviewDashboard.vue'),
@@ -3929,6 +3936,12 @@ const routes = [
     name: 'SchoolContactsImport',
     component: () => import('../views/admin/SchoolContactsImportView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
+  },
+  {
+    path: '/admin/school-contact-plans',
+    name: 'SchoolContactPlans',
+    component: () => import('../views/admin/SchoolContactPlansView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'super_admin'] }
   },
   {
     path: '/admin/schools/overview',
@@ -6190,6 +6203,8 @@ router.beforeEach(async (to, from, next) => {
       // Redirect to appropriate dashboard
       next(getDashboardRoute());
     }
+  } else if (authStore.isAuthenticated && providerSchoolPortalDestination({role:authStore.user?.role,path:to.path,dashboardPath:getDashboardRoute()})) {
+    next(providerSchoolPortalDestination({role:authStore.user?.role,path:to.path,dashboardPath:getDashboardRoute()}));
   } else if (to.meta.requiresRole) {
     if (authStore.isAuthenticated && routeRequiresSchoolPortalsFeature(to)) {
       const agency = agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? {};

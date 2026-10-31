@@ -42,7 +42,7 @@ export const meaningfulDraftSql = `(JSON_UNQUOTE(JSON_EXTRACT(draft_json,'$._has
 const headerKeys = ['to','cc','bcc','subject'];
 export function draftWithMetadata(data, previous = null) {
   const baseline = previous?._baseline || Object.fromEntries(headerKeys.map(k => [k, data[k] || '']));
-  return {...data, _baseline:baseline, _hasContent:!!(data.text.trim() || data.attachments.length ||
+  return {...data, ...(previous?._schoolContact ? {_schoolContact:previous._schoolContact} : {}), _baseline:baseline, _hasContent:!!(data.text.trim() || data.attachments.length ||
     (previous && headerKeys.some(k => String(data[k] || '').trim() !== String(baseline[k] || '').trim())))};
 }
 
@@ -93,8 +93,17 @@ export async function createEmailDraft(actor, input) {
   }
   await agencyAccess(actor,agencyId);
   const initial = { ...input.draft };
+  let schoolContact;
+  if (input.schoolContactWorkflowId || input.schoolStaffUserId) {
+    if (mode !== 'new') throw fail('Start a new school coordination email.');
+    const {schoolContactStaffEmailSeed} = await import('./schoolContactStaffEmail.service.js');
+    const seed = await schoolContactStaffEmailSeed({agencyId,userId:actor.id,workflowId:input.schoolContactWorkflowId,staffUserId:input.schoolStaffUserId});
+    Object.assign(initial,{to:seed.to,cc:'',bcc:'',subject:seed.subject,text:seed.text,clientIds:[seed.clientId]});
+    schoolContact=seed.schoolContact;
+  }
   if (initial.undoDelaySeconds == null) initial.undoDelaySeconds = (await getCommunicationPrefs(actor.id)).sendDelayEmailSeconds;
   const data = draftWithMetadata(validateEmailDraft(initial));
+  if (schoolContact) data._schoolContact=schoolContact;
   let id = randomUUID(), resumed = false;
   const insert = db => db.execute(`INSERT INTO communication_email_drafts(id,user_id,agency_id,conversation_id,mode,draft_json) VALUES(?,?,?,?,?,?)`,[id,actor.id,agencyId,cid,mode,JSON.stringify(data)]);
   if (cid) {
@@ -135,6 +144,10 @@ export async function sendEmailDraft(actor,id,version,deliveryChoice=null) {
   if (draft.state !== 'editing') throw fail('Submission is awaiting confirmation. Check the conversation before sending another copy.',409);
   if (!draft.draft.to.trim() || (!draft.draft.text.trim() && !draft.draft.attachments.length && draft.mode !== 'forward')) throw fail('Add a recipient and a message or attachment');
   const recipients = [draft.draft.to,draft.draft.cc,draft.draft.bcc].flatMap(value => String(value || '').split(/[,;]/).map(s=>s.trim()).filter(Boolean));
+  if (draft.draft._schoolContact) {
+    const {validateSchoolContactStaffDraft} = await import('./schoolContactStaffEmail.service.js');
+    await validateSchoolContactStaffDraft({agencyId:draft.agency_id,userId:actor.id,draft:draft.draft});
+  }
   if (recipients.some(email=>! /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(email))) throw fail('Use complete email addresses separated by commas');
   const deliveryPlan = await planEmailDelivery({agencyId:draft.agency_id,userId:actor.id,...draft.draft,choice:deliveryChoice,requireChoice:true});
   if (['new','forward'].includes(draft.mode)) await resolveEmailClientFiling({agencyId:draft.agency_id,userId:actor.id,...draft.draft,defer:draft.draft.deferClientFiling});

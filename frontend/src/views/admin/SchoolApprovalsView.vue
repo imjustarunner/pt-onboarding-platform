@@ -305,6 +305,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import {parseScheduleUtcInstant} from '../../utils/scheduleEventInstants.js';
 import { useAgencyStore } from '../../store/agency';
 import {
   formatSlotsTotalDisplay,
@@ -549,7 +550,8 @@ function resolvedSchoolOrgIdForSelected() {
 function formatWhen(v) {
   if (!v) return '—';
   try {
-    return new Date(v).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const date=parseScheduleUtcInstant(v);if(!date)return '—';
+    return date.toLocaleString([], { timeZone:agencyStore.currentAgency?.timezone||'America/Denver',timeZoneName:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit' });
   } catch {
     return '—';
   }

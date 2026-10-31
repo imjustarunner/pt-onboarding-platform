@@ -1,0 +1,223 @@
+ADDITIONAL QA PLAN — NOVEMBER 1, 2026
+October 31 PM repairs, three-contact outreach and individual ROI email links
+
+Append this to the instructions already sent. Earlier briefs and evidence remain
+unchanged. This corrects the earlier 3-day / 7-day / 72-hour outreach timings.
+Use the app, approved school portal, QA inbox and vault only. No internal tools,
+repository, database or clock manipulation are expected of the external team.
+Engineering checks are not a live browser or delivered-inbox PASS.
+
+SCOPE AND RETAINED RECORDS
+- Demo 450 ITSCOLLC / auricwell-qa-demo; school 451 Cedar Grove; clinic 452 only.
+- Jordan 1434 is support; Jamie 1465 is School Admin for school 451 only.
+- Avery 1433, Cameron 1438 and Alex 1439 are the clinical providers. Quality
+  Tester 1490 remains the Google SSO/contact fixture, without clinical signing.
+- Engineering verified23 retained clients;4 provider-role accounts were last
+  observed. Recount first. Maximum30 clients /10 providers; reuse records.
+- No real-client tests, card charges, insurance submissions, destructive purge,
+  password publishing, or external delivery outside the approved QA controls.
+- Clinical SMS remains BLOCKED until the approved Notifyre route and consent
+  are active in the app. Do not substitute Vonage clinical messaging.
+
+APPLIED DEMO CONFIGURATION
+- The23 allowlisted synthetic clients are explicitly Self Pay. A repeat dry run
+  found no further changes. Ari 2297 and Sky 2298 still have no completed
+  enrollment/clearance; Self Pay does not supply missing consent or paperwork.
+- The existing demo notification identity now replies to its already-configured
+  support mailbox. This repair did not send messages, create fees, change prices,
+  move appointments, or change historical signed outcomes.
+- Historical Pro Bono prices and signed no-fee decisions remain unchanged.
+  Test prospective fees on a properly enrolled self-pay synthetic client and a
+  newly reviewed outcome; do not repeatedly complete an old signed decision.
+
+1. THREE-CONTACT OUTREACH — REVISED ORDER
+
+A newly assigned school client, after the provider enables the plan:
+1) Immediately: Introduction & Next Steps for Counseling Services email.
+2)48 elapsed hours after the first contact: provider text if permitted and a
+   working approved clinical route is available; otherwise the second email.
+3)48 elapsed hours after the second contact: final email, always.
+
+A queued/ambiguous failed text must not be followed by a duplicate fallback
+email. Review delivery evidence. Only an accepted contact completes its phase.
+Late worker execution must not bunch all three contacts into one run.
+
+A guardian reply or arranged intake stops remaining guardian outreach. An
+arranged-intake marker persists after that appointment time has elapsed.
+If a guardian replies but the provider is silent for 48 hours, alert support
+and remind the provider by email and any permitted staff text.
+
+If three contacts remain unanswered48 hours after contact3 (normally day 6),
+email the provider, copying the support team and assigned supervisor where
+present. Show Intake Follow-Up Required on the client's contact-plan card.
+Repeat documentation reminders every 48 hours until a finalized intake is
+recorded through the supported intake workflow. A scheduled meeting, a draft,
+or a later provider reply must not falsely mark the intake documented.
+These notices do not supply consent or automatically authorize services.
+Missing prerequisites must go to support review.
+
+As Avery/Quality Tester, open the existing plan without toggling it just to
+redisplay setup. Preview/edit all three email bodies and the second-contact
+text. Each email can be sent as an example without recording a client contact;
+the SMS variant is an on-screen preview. Resetting one variant must preserve
+other edits. Old provider-authored introduction edits are preserved; choose
+Use recommended text if replacing them. The unchanged old default receives
+the new introduction wording. Saving an enabled plan does not re-enroll old
+assignments or resend their first contact.
+
+Ari 2297/workflow 1 and Sky 2298/workflow 5 retain their initial-contact history.
+Do not unassign/reassign them or manufacture old timestamps. Use their actual
+send time to determine the next due contact; Denver changes to MST Nov 1, and
+48 elapsed hours across that transition need not be the same displayed hour.
+Real timed-delivery cases remain NOT RUN until due. Inspect settings, examples,
+reply stopping and permissions now; isolated engine tests are not inbox proof.
+
+An agency administrator can open Schools → School contact plans to see On,
+Declined and Setup needed, and require the plan for selected providers.
+This does not turn support into admin or automatically send introductions.
+Jordan must be denied the administrative requirement endpoint/screen. Do not
+change a provider's requirement merely to inspect the list; use the authorized
+setup admin for a separately planned requirement/decline check.
+
+2. DAY6 NOTICE — CLIENT-SPECIFIC ROI CONTACTS AND EMAIL COMPOSER
+
+The provider notice must list the name and email of each CURRENT individually
+approved school staff member for THAT client. A school-admin badge, school-wide
+ROI date, limited/packet access, another child's permission, inactive membership,
+or an expired/revoked grant must not place someone on this list. Speak and
+Speak + documents grants qualify; this does not grant extra document access.
+If none qualify, show that no approved discussion contact is available and ask
+support to review. Ari/Sky's lack of signed paperwork is not permission to
+invent an ROI. Establish any positive fixture through the normal authorized
+synthetic-guardian process; otherwise mark the positive-contact lane BLOCKED.
+Preserve Dana's retained unsigned/read-only renewal check.
+
+Each approved staff row has Start an email. Open it while signed in as the
+assigned provider. It should create an editable in-app email addressed to that
+staff member, linked to the correct client, with initials in the subject/body:
+
+Hi [staff name],
+
+I've reached out three times and haven't heard back from the parent or guardian.
+Do you have time this week or next week to help me fill in some gaps for
+[client initials]?
+
+Thanks!
+[provider name]
+
+The actual recorded outreach phases determine the count. If a guardian has
+subsequently replied, use coordination wording instead of claiming no reply.
+Reminder notices likewise must not repeat an outdated no-response claim.
+Links contain identifiers, not a prewritten clinical history in the URL. Opening
+the link must not send. Editing, review and the normal send action are required.
+
+Test wrong provider/organization, expired/revoked individual ROI, and revocation
+during the normal send-delay window. Permission is rechecked at draft creation,
+submission and actual transport. Keep provider writing when an error occurs;
+do not send to a staff member whose grant is no longer valid. Do not use real
+school addresses for test sends. Record accepted-versus-delivered separately.
+
+For in-app guardian reply detection, reply from testing@ through the QA inbox's
+accepted Send As address, preserving the original Reply-To/thread. qa-inbox@
+identifies provider1490, not guardian 1437. Avery's non-SSO external replies
+still require the normal Record parent reply action if not visible in the app;
+label that manual recording honestly rather than calling it auto-detection.
+
+3. SUPPORT DRAFTS AND GUARDIAN CONTACT DISPLAY
+
+Regenerate #553 and #504 without sending. #553 should find Blake's actual
+booked intake and distinguish virtual/location metadata from a school weekly
+assignment. Do not call a virtual appointment an in-person school appointment.
+#504 should answer the room-change/call request and attribute Avery's recorded
+“will call” statement; it must not claim the call already occurred. Retest
+#551/#552/#503/#505 for regression. Drafting must not move a visit or claim a
+ticket. Show only authorized administrative facts, without clinical bodies.
+
+Open Sky 2298 through both the full chart and chart overlay after changing
+clients and after sign-in. Guardian 1437's current saved name is Dana and its
+email is testing@; Ari 2297 and Sky should agree with the Guardians tab. Check
+Account/Profile too. No guardian names, credentials or links were renamed.
+School staff must not receive private guardian contact/profile access merely
+because the provider/support view now displays the authorized linked guardian.
+
+4. SCHOOL REQUESTS AND PORTAL DISCOVERY
+
+Provider dashboard should show Schools & Programs and direct assigned-school
+portal links. Test the school-portal hours request through that path and the
+calendar block. Pending REQ-117 remains for normal approval, not an automatic
+approval. Providers should see the request number after save and on pending
+rows. Current approved hours/capacity stay unchanged. Support's summary should
+show Avery's Mon–Fri 9–1 assignment despite no separate school membership.
+Request submitted timestamps should honor the displayed timezone. Do not use
+the old admin-only School Management queue as a provider's request form.
+New school onboarding requires a group email saved through its normal setup.
+Cedar Grove's one-off cancel-day recipient did not persist that school field;
+enter testing@ only through the approved synthetic-school setup if authorized.
+
+5. CPT, DURATION AND INLINE RESCHEDULING
+
+Book an assigned 90834 at a quarter-hour start for 45 minutes. Calendar and Note
+Workspace must agree on client/session/service/date/source. Reopen the draft.
+Changing psychotherapy duration outside the selected code's range must ask
+for acceptance of the proposed code. Yes applies/persists it; No restores the
+previous valid duration. A retained already-invalid draft instead keeps its
+recorded text and asks the provider to reconcile code/duration before saving,
+generating or signing. It must not silently choose a code.
+
+Draft 294/session170 and draft 295/session175 still contain retained authored
+content. Their table code was90837 at inspection. Use the explicit reconciliation
+UI, verify the intended booking and never overwrite source text. Retained
+293/session167 remains an unrelated orphan; do not link it by date alone.
+Complete the normal finalized intake/treatment-plan/signature gates and
+Cameron's retained 286 cosign lane. No gate was waived by these repairs.
+
+The reschedule workflow offers booking the replacement inside the form using
+the ordinary conflict/service/location checks. It visibly reserves that new
+appointment first; the original changes only after the reviewed signed step.
+If you abandon after reserving, inspect the retained replacement before any
+retry. Never blindly create another replacement after an uncertain response.
+Verify any office room is actually available and reserved as required.
+
+6. CALENDAR TIME, VOID LABELS, FEES AND DELIVERY
+
+Set the displayed schedule timezone to America/Denver. Compare grid, editor,
+workflow narrative, request time and actual email. A browser using Eastern
+must not draw a Denver 9 AM session at 11 AM. Check both sides of Nov 1 DST.
+New bookings use the displayed calendar zone. Existing UTC instants were not
+shifted: appointments 105–110 were saved with America/New_York. For example
+105 is Nov 5 14:00UTC, which is7 AM MST. Have the authorized provider review
+and explicitly correct intended times before relying on them for reminders;
+do not call the old9 AM expectation verified merely because rendering changed.
+Voided 110 should say Voided; canceled clinical sessions should open the session
+rather than the overlapping school-hours panel. Keep their audit history.
+
+Retest fresh advance cancel, late cancel, ended no-show, provider cancel,
+reschedule and cancel day. Review the actual policy and explicit self-pay mode,
+proposed consequence, recipient list and shared reason before signing. Where
+that policy applies, expected fees are $80 under 24h and $100 for no-show.
+A no-show must be after the scheduled end. Its balance/email must show the
+assessed fee, never the original $120 visit price by accident. Billing Settings
+exposes separate agency self-pay rates per service; changes apply to new quotes
+and must not reprice historical Pro Bono bookings. Use the setup admin to
+inspect rates; do not grant support credential or billing-policy admin access.
+
+A normal newly reviewed no-show can notify the family. Historical suppressed
+signed outcomes remain suppressed and must not be released by retrying them.
+The old signed 106 and 102 no-fee results were not retroactively charged.
+Preserve cancel-day provider attribution and no-client-fee behavior. Check the
+school recipient, exact held/skipped/review reason, logical recipient and QA
+physical inbox. A verified testing@ redirection with an actual transport receipt
+is accepted transport, not proof of inbox arrival. Uncertain/other redirects
+remain held. Do not blindly resend retained held/processed batches.
+
+STILL OPEN / REPORTING
+Clinical Notifyre SMS activation, real elapsed outreach delivery, broader
+historical timestamp repairs, retained orphan drafts, unfinished clinical gates,
+Dana identity/ROI issues, school-staff invite delivery and earlier family/privacy/
+Spanish/Exchange lanes remain open until freshly tested. This addendum does
+not declare them fixed. Keep teen and guardian-reply checks carried forward.
+
+Report visible build, role/entry path, counts/IDs, actual dates/timezone, fresh
+screenshots, received headers/inbox evidence and PASS/FAIL/BLOCKED/NOT RUN.
+For each PM defect say whether its actual click path was retested. Keep test
+configuration changes, transport acceptance and external delivery distinct.

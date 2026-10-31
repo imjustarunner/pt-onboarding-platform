@@ -17,10 +17,11 @@ export function buildScheduleNoticeMessage(entries, portalUrl, { recipientUserId
   const sections = entries.filter(e => !linkedReplacements.has(Number(e.appointment.id))).map(({ appointment: a, payload, cancellation }) => {
     if (cancellation?.replacementAppointmentId) return cancellation;
     if (cancellation) {
+      if (cancellation.noShow) return { ...cancellation, sms: `Please review the missed appointment notice in your secure portal. ${FAMILY_APPOINTMENT_LOGIN}` };
       const attribution = familyCancellationAttribution(a,payload.facts,recipientUserId);
       // The other parent's private explanation is not copied into shared texts/email.
       const text = attribution.familyInitiated
-        ? `${attribution.text} ${cancellation.followUpText || ''} ${FAMILY_APPOINTMENT_LOGIN}`
+        ? `${attribution.text} ${cancellation.followUpText || ''} ${cancellation.feeText || ''} ${FAMILY_APPOINTMENT_LOGIN}`
         : `${attribution.text}\n\n${cancellation.text}\n\n${FAMILY_APPOINTMENT_LOGIN}`;
       return { ...cancellation, text, html: `<p>${escapeNoticeHtml(text).replaceAll('\n','<br>')}</p>`,
         sms: `${attribution.text} ${FAMILY_APPOINTMENT_LOGIN}` };

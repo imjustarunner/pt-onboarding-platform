@@ -14,6 +14,11 @@ it('keeps the school-block change request available independently of an annual u
  await w.get('input[type=number]').setValue(5);await w.findAll('button').find(b=>b.text()==='Submit change for approval').trigger('click');await flushPromises();
  expect(api.post).toHaveBeenCalledWith('/provider-update/me/school-assignments/731/request',expect.objectContaining({agencyId:450,slotsTotal:5,startTime:'09:00',endTime:'13:00',moveToDay:'Monday'}));
  expect(w.text()).toContain('Your current school hours remain reserved until it is approved');expect(w.text()).toContain('4 client spots');
+ expect(w.text()).toContain('REQ-99');
+});
+it('shows the retained request number after reopening without changing approved hours or submitting again',async()=>{
+ api.get.mockResolvedValue({data:{schools:[school],pending:[{id:117,schoolOrganizationId:451,dayOfWeek:'Monday',requestedSlots:5,requestedStart:'09:00',requestedEnd:'13:00'}]}});
+ const w=await render();expect(w.text()).toContain('REQ-117');expect(w.text()).toContain('Pending approval');expect(w.text()).toContain('4 client spots');expect(api.post).not.toHaveBeenCalled();
 });
 it('does not let an on-behalf read-only schedule submit a change',async()=>{
  const w=await render({readonly:true});

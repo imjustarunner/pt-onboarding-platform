@@ -35,7 +35,7 @@ import {
 } from '../outboundEmailQuality.service.js';
 import { buildFallbackSenderMetadata } from '../../constants/automatedEmailCatalog.js';
 import { resolveSenderIdentityForSend } from '../emailSenderIdentityResolver.service.js';
-import { rewriteHogwartsOutboundRecipient, buildTestInboxRedirectMetadata } from '../../utils/hogwartsTestEmail.js';
+import { rewriteHogwartsOutboundRecipient, buildTestInboxRedirectMetadata, extractEmailAddresses } from '../../utils/hogwartsTestEmail.js';
 import { notifyTestingInboxOfHeldEmail } from '../automationEmailOpsNotify.service.js';
 import {
   appendComplianceFooter,
@@ -994,6 +994,7 @@ export async function sendNotificationEmail({
     senderIdentityId: identity.id,
     communicationId: comm?.id || null,
     redirected: !!redirected.redirected,
+    testInboxRedirect: redirected.redirected ? { agencyId: Number(identity.agency_id), deliveredTo: extractEmailAddresses(redirected.to) } : null,
     originalTo: redirected.originalTo || null
   };
 }
@@ -1490,6 +1491,7 @@ export async function sendEmailFromIdentity({
     threadId: finalThreadId,
     communicationId: comm?.id || null,
     redirected: !!redirected.redirected,
+    testInboxRedirect: redirected.redirected ? { agencyId: Number(identity.agency_id), deliveredTo: extractEmailAddresses(redirected.to) } : null,
     originalTo: redirected.originalTo || null,
     bodyText: signedContent.text,
     bodyHtml: signedContent.html

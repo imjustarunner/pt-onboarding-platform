@@ -1,3 +1,4 @@
+import { notificationTransportReceipt } from '../utils/notificationTransportReceipt.js';
 import pool from '../config/database.js';
 import { reviewedEmail, reviewedMessage } from './cancellationRecipients.service.js';
 import { escapeNoticeHtml } from './scheduleNoticeMessage.service.js';
@@ -37,9 +38,8 @@ export function createCancellationSchoolNoticeService(overrides = {}) {
           const result = await d.sendEmail({ agencyId: item.agencyId, to, subject: item.message.subject, text: item.message.text,
             html: `<p>${escapeNoticeHtml(item.message.text).replaceAll('\n', '<br>')}</p>`, triggerKey: 'session_cancellation',
             templateType: 'school_day_cancellation', generatedByUserId: actorUserId, source: 'manual' });
-          const accepted = result?.id || result?.messageId || result?.messageUuid;
           communicationId = result?.communicationId || null;
-          status = accepted && !result?.skipped && !result?.blocked && !result?.pendingApproval && !result?.queued && !result?.redirected ? 'sent' : 'held';
+          status = notificationTransportReceipt(result, item.agencyId).accepted ? 'sent' : 'held';
           error = status === 'sent' ? null : result?.reason || 'Delivery was held. Review before sending again.';
         } catch (e) { error = String(e.message || 'School email delivery is uncertain; check communications before resending.').slice(0, 500); }
         await d.database.execute(`UPDATE cancellation_school_deliveries SET status=?,error_message=?,communication_id=?,sent_at=IF(?='sent',UTC_TIMESTAMP(),NULL)

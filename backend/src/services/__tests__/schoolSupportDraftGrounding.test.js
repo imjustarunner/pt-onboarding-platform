@@ -37,7 +37,7 @@ describe('current school administrative evidence for support drafts', () => {
     expect(f.calls.every(([sql]) => /^SELECT/.test(sql.trim()))).toBe(true);
     expect(f.calls.map(([sql]) => sql).join('\n')).not.toMatch(/clinical_notes|client_notes|progress_notes|full_name|email_ciphertext/i);
     expect(schoolSupportRecordReply(g)).toContain('SAGQAS is assigned to Avery Morgan QA on Thursdays');
-    expect(schoolSupportRecordReply(g)).toContain('No upcoming booked school appointment');
+    expect(schoolSupportRecordReply(g)).toContain('No upcoming booked appointment');
     expect(schoolSupportRecordReply(g)).not.toMatch(/304920|2274|what.*SAGQAS.*refer/i);
   });
   it('never resolves from a historical answer, internal note, or model extraction', () => {
@@ -95,12 +95,12 @@ describe('current school administrative evidence for support drafts', () => {
     expect(reply).toMatch(/Monday, Nov 2.*9:00 AM MST/);
     expect(reply).not.toContain('confirmed school appointment');
     const [, params] = f.calls.find(([sql]) => sql.includes('FROM appointments ap'));
-    expect(params.slice(0, 3)).toEqual([2274, 451, 450]);
+    expect(params.slice(0, 2)).toEqual([2274, 450]);
   });
   it('recognizes a client-confirmed appointment without confusing it with a mere assignment', async () => {
     const f = fixture({ appointments: [{ id: 89, start_at: '2026-11-02 16:00:00', status: 'client_confirmed', first_name: 'Avery', last_name: 'Morgan QA' }] });
     const g = await load(f); const reply = schoolSupportRecordReply(g);
-    expect(reply).toContain('next confirmed school appointment');
+    expect(reply).toContain('next confirmed appointment');
     expect(validateSchoolSupportReply(reply, g)).toEqual([]);
     expect(f.calls.find(([sql]) => sql.includes('FROM appointments ap'))[0]).toContain("'client_confirmed'");
   });
@@ -126,12 +126,42 @@ describe('current school administrative evidence for support drafts', () => {
     expect(reply).toContain('appointment schedule could not be verified');
     expect(reply).not.toContain('has no active provider assignment');
   });
+  it('finds the booked intake even when its school service location is missing, and labels the location honestly', async () => {
+    const f = fixture({ appointments: [{ id: 102, start_at: '2026-11-05 16:00:00', status: 'confirmed', modality: 'TELEHEALTH',
+      service_location_name: null, school_organization_id: null, first_name: 'Avery', last_name: 'Morgan QA' }] });
+    f.state.clients[0].initials = 'BLAQAS';
+    const g = await load(f, { ticket: { ...ticket, question: "Can BLAQAS's session time be moved to after lunch?" } });
+    const reply = schoolSupportRecordReply(g);
+    expect(reply).toMatch(/Thursday, Nov 5.*9:00 AM MST/);
+    expect(reply).toContain('telehealth; location needs review');
+    expect(reply).not.toContain('No upcoming');
+    const sql = f.calls.find(([q]) => q.includes('FROM appointments ap'))[0];
+    expect(sql).toContain('LEFT JOIN agency_service_locations');
+    expect(sql).not.toContain('sl.school_organization_id=?');
+  });
+  it('answers a room-change call request with the provider’s actual statement, without claiming completion or repeating a schedule answer', async () => {
+    const f = fixture(); f.state.clients[0].initials = 'BLAQAS';
+    const messages = [{ id: 72, author_user_id: 1433, author_role: 'provider', body: 'QA reply re BQ: WILL CALL.' }];
+    const g = await load(f, { ticket: { ...ticket, client_id: 2274, question: 'QA message to provider re BQ: please call the office about the room change.' }, messages });
+    const reply = schoolSupportRecordReply(g);
+    expect(reply).toContain('Avery Morgan QA wrote in this conversation that they will call the office');
+    expect(reply).toContain('does not establish that the call has happened');
+    expect(reply).not.toMatch(/No upcoming|weekly assignment|Moving the session/);
+    expect(validateSchoolSupportReply(reply, g, messages)).toEqual([]);
+    expect(validateSchoolSupportReply('Avery will move the appointment.', g, messages)).toContain('unsupported_provider_or_staff_commitment');
+  });
+  it('does not include an assignment disclaimer when the client is unassigned', async () => {
+    const f = fixture({ assignments: [] }); f.state.clients[0].provider_id = null;
+    const reply = schoolSupportRecordReply(await load(f, { ticket: { ...ticket, question: 'Is SAGQAS assigned to a provider?' } }));
+    expect(reply).toContain('no active provider assignment');
+    expect(reply).not.toContain('weekly assignment alone');
+  });
   it('uses completed school attendance records for a past-seen question instead of treating a past booking as attendance', async () => {
     const f = fixture({ pastAppointments: [{ id: 88, start_at: '2026-10-29 16:00:00', status: 'completed', first_name: 'Avery', last_name: 'Morgan QA' }] });
     const g = await load(f, { ticket: { ...ticket, question: 'When was SAGQAS last seen, and by whom?' } });
-    expect(schoolSupportRecordReply(g)).toMatch(/last recorded completed school session.*Thursday, Oct 29.*10:00 AM MDT.*Avery/);
+    expect(schoolSupportRecordReply(g)).toMatch(/last recorded completed appointment.*Thursday, Oct 29.*10:00 AM MDT.*Avery/);
     const [, params] = f.calls.find(([sql]) => sql.includes("ap.status='completed'"));
-    expect(params.slice(0, 3)).toEqual([2274, 451, 450]);
+    expect(params.slice(0, 2)).toEqual([2274, 450]);
     const empty = fixture();
     expect(schoolSupportRecordReply(await load(empty, { ticket: { ...ticket, question: 'When was SAGQAS last seen?' } }))).toContain('past calendar entry alone does not establish');
   });
@@ -140,7 +170,7 @@ describe('current school administrative evidence for support drafts', () => {
     const g = await load(f, { ticket: { ...ticket, client_id: 2274, question: 'Can we confirm Thu session time?' }, messages });
     const reply = schoolSupportRecordReply(g);
     expect(reply).toContain('Avery Morgan QA confirmed the Thu session for SAGQAS in this conversation');
-    expect(reply).toContain('No upcoming booked school appointment');
+    expect(reply).toContain('No upcoming booked appointment');
     expect(reply).toContain('separate evidence');
     expect(validateSchoolSupportReply(reply, g, messages)).toEqual([]);
   });

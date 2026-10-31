@@ -48,9 +48,11 @@ export function useAppointmentChange() {
   const draftLoaded = ref(false);
   const replacements = ref([]);
   const replacementOptions = ref(null);
+  const replacementBase = ref(null);
+  const inlineReplacement = reactive({ localStart: '', busy: false, error: '', createdId: null, uncertain: false, source: '', partial: false });
   const optionsLoading = ref(false);
   const customOffer = reactive({localStart:'',modality:'',roomId:null,rooms:[],busy:false,error:'',requiresOfficeRequest:false});
-  const retrospective = computed(() => replacementOptions.value?.retrospective === true);
+  const retrospective = computed(() => replacementOptions.value?.retrospective === true && facts.eventType !== 'no_show');
 
   const localNarrative = computed(() => {
     if (workflow.value?.status === 'completed') return workflow.value.narrative;
@@ -79,6 +81,7 @@ export function useAppointmentChange() {
     facts.followUpAction = 'client_contact_support';
     facts.followUpMessage = '';
     facts.notificationMode = 'send'; facts.suppressionReason = ''; facts.offeredSlots = []; facts.pendingOfficeRequests = []; facts.offerDays = 2;
+    replacementBase.value = null; Object.assign(inlineReplacement, { localStart: '', busy: false, error: '', createdId: null, uncertain: false, source: '', partial: false });
     replacementOptions.value = null; Object.assign(customOffer,{localStart:'',modality:'',roomId:null,rooms:[],busy:false,error:'',requiresOfficeRequest:false});
     facts.outreach = [];
     facts.reasonKnown = null;
@@ -131,6 +134,7 @@ export function useAppointmentChange() {
   }
 
   function closeWizard() {
+    if (inlineReplacement.busy) return;
     open.value = false;
     resetFacts();
     appointmentId.value = null;
@@ -168,11 +172,11 @@ export function useAppointmentChange() {
       reasons: [...facts.reasons],
       reasonOther: facts.reasonOther || null,
       clientFacingReason: facts.clientFacingReason || null,
-      followUpAction: retrospective.value ? 'none' : facts.followUpAction || 'client_contact_support',
+      followUpAction: retrospective.value || facts.eventType === 'no_show' ? 'none' : facts.followUpAction || 'client_contact_support',
       followUpMessage: facts.followUpMessage || null,
       notificationMode: retrospective.value ? 'none' : facts.notificationMode,
       suppressionReason: retrospective.value ? 'Retrospective record correction.' : facts.notificationMode === 'none' ? facts.suppressionReason : null,
-      offeredSlots: facts.followUpAction === 'private_slots' ? facts.offeredSlots : [],
+      offeredSlots: facts.eventType === 'canceled' && facts.followUpAction === 'private_slots' ? facts.offeredSlots : [],
       offerDays: facts.offerDays, pendingOfficeRequests: facts.pendingOfficeRequests,
       outreach: [...facts.outreach],
       reasonKnown: facts.reasonKnown,
@@ -253,6 +257,7 @@ export function useAppointmentChange() {
     if (!draftLoaded.value) return false;
     if (n === 1) return !!facts.eventType;
     if (n === 2) {
+      if (inlineReplacement.busy || inlineReplacement.partial || inlineReplacement.uncertain) return false;
       if (facts.eventType === 'void') return !!String(facts.reasonOther || '').trim();
       if (facts.eventType === 'rescheduled' && !Number(facts.replacementAppointmentId)) return false;
       if (!retrospective.value && ['canceled', 'rescheduled'].includes(facts.eventType) && !String(facts.clientFacingReason || '').trim()) return false;
@@ -297,7 +302,7 @@ export function useAppointmentChange() {
       return;
     }
     if (step.value < 4) step.value += 1;
-    if (step.value === 2) { await loadReplacements(); await loadReplacementOptions(false); }
+    if (step.value === 2) { await loadReplacements(); await loadReplacementOptions(false); if (facts.eventType === 'rescheduled') await loadInlineReplacement(); }
   }
 
   function goBack() {
@@ -335,6 +340,95 @@ export function useAppointmentChange() {
     } finally {
       saving.value = false;
     }
+  }
+
+  async function loadInlineReplacement() {
+    const id = appointmentId.value;
+    try {
+      const { data } = await api.get(`/appointments/${id}`, { skipGlobalLoading: true });
+      if (id === appointmentId.value && open.value) replacementBase.value = data?.appointment || null;
+    } catch (e) { inlineReplacement.error = e.response?.data?.error?.message || 'Could not load this session. Retry before booking a new time.'; }
+  }
+
+  function selectInlineReplacement(appointment) {
+    const id = Number(appointment?.id || 0);
+    if (!id) return false;
+    inlineReplacement.createdId = id;
+    facts.replacementAppointmentId = id;
+    facts.followUpAction = 'replacement_booked';
+    inlineReplacement.uncertain = false;
+    inlineReplacement.partial = !appointment.providerScheduleEventId && !appointment.officeEventId;
+    if (!replacements.value.some(a => Number(a.id) === id)) replacements.value.push({ id, label: `New session #${id} — ${inlineReplacement.localStart.replace('T', ' ')}` });
+    return true;
+  }
+
+  async function recoverInlineReplacement(base) {
+    const day = inlineReplacement.localStart.slice(0, 10);
+    const { data } = await api.get('/appointments', { params: { agencyId: base.agencyId, clientId: context.clientId, windowStart: day, windowEnd: new Date(new Date(`${day}T00:00:00Z`).getTime() + 2 * 86400000).toISOString().slice(0, 10) }, skipGlobalLoading: true });
+    const found = (data?.appointments || []).find(a => a.source === inlineReplacement.source && Number(a.id) !== appointmentId.value);
+    if (!found) return false;
+    const detail = await api.get(`/appointments/${found.id}`, { skipGlobalLoading: true });
+    if (!selectInlineReplacement(detail.data?.appointment || found)) return false;
+    if (inlineReplacement.partial) inlineReplacement.error = `Session #${found.id} was saved, but its calendar link is incomplete. Keep this draft and ask support to repair that session; do not book it again.`;
+    await saveDraft();
+    return true;
+  }
+
+  async function bookInlineReplacement() {
+    if (inlineReplacement.busy || !appointmentId.value || facts.eventType !== 'rescheduled') return;
+    inlineReplacement.busy = true; inlineReplacement.error = '';
+    const id = appointmentId.value;
+    try {
+      if (!replacementBase.value) await loadInlineReplacement();
+      const base = replacementBase.value;
+      if (!base || !context.clientId || !inlineReplacement.localStart) throw new Error('Choose a date and time after the original session loads.');
+      if (inlineReplacement.createdId) {
+        const { data } = await api.get(`/appointments/${inlineReplacement.createdId}`, { skipGlobalLoading: true });
+        selectInlineReplacement(data?.appointment);
+        await saveDraft();
+        return;
+      }
+      inlineReplacement.source = inlineReplacement.uncertain ? inlineReplacement.source : `change:${id}:${inlineReplacement.localStart.replace(/[-:T]/g, '')}`;
+      // The stored source makes an already-created session recoverable after a lost
+      // response or reopening the workflow. Never blindly repeat an uncertain POST.
+      if (await recoverInlineReplacement(base)) return;
+      if (inlineReplacement.uncertain) throw new Error('No completed booking is visible yet. Check the schedule or ask support before booking again; the earlier request may still finish.');
+      const start = new Date(`${inlineReplacement.localStart}:00Z`);
+      const parseUtc = value => new Date(/(?:Z|[+-]\d{2}:?\d{2})$/.test(String(value)) ? value : String(value).replace(' ', 'T') + 'Z');
+      const duration = (parseUtc(base.endAt) - parseUtc(base.startAt)) / 60000;
+      if (!Number.isFinite(start.getTime()) || !(duration > 0)) throw new Error('The original session needs valid start and end times before it can be rescheduled.');
+      const endAt = new Date(start.getTime() + duration * 60000).toISOString().slice(0, 19);
+      if (base.roomId) {
+        const { data } = await api.post(`/appointments/${id}/change/replacement-options/check`, {
+          localStart: inlineReplacement.localStart, modality: 'IN_PERSON', roomId: base.roomId
+        }, { skipGlobalLoading: true });
+        if (!data?.slot || data.requiresOfficeRequest) throw new Error('This room is not secured for the new time. Request it through scheduling or select an existing replacement after room approval.');
+      }
+      let response;
+      try {
+        response = await api.post('/appointments', {
+          agencyId: base.agencyId, parentAgencyId: base.parentAgencyId || null,
+          providerUserId: base.providerUserId, tenantServiceId: base.tenantServiceId || null,
+          serviceCode: base.serviceCode || null, addonServiceCodes: base.addonServiceCodes || [],
+          participants: (base.participants || []).map(p => ({ clientId: p.clientId, userId: p.userId, role: p.role || 'client', displayName: p.displayName, isBillingResponsible: p.isBillingResponsible, receivesReminders: p.receivesReminders, sortOrder: p.sortOrder })),
+          packageEntitlementId: base.packageEntitlementId || null, othersPresentNames: base.othersPresentNames || null,
+          startAt: `${inlineReplacement.localStart}:00`, endAt, timeZone: base.sourceTimezone || 'America/Denver',
+          modality: base.modality, officeLocationId: base.officeLocationId || null,
+          roomId: base.roomId || null, serviceLocationId: base.serviceLocationId || null,
+          title: base.title || 'Session', source: inlineReplacement.source, createProviderScheduleEvent: true
+        }, { skipGlobalLoading: true });
+      } catch (e) {
+        inlineReplacement.uncertain = !e.response || Number(e.response.status) >= 500 || !!e.response?.data?.createdAppointmentIds?.length;
+        if (inlineReplacement.uncertain && await recoverInlineReplacement(base)) return;
+        throw e;
+      }
+      if (id !== appointmentId.value || !open.value) return;
+      if (!selectInlineReplacement(response.data?.appointment)) { inlineReplacement.uncertain = true; throw new Error('Booking returned no session ID. Check booking status before trying again.'); }
+      if (inlineReplacement.partial) inlineReplacement.error = `Session #${inlineReplacement.createdId} saved without a calendar link. Ask support to repair it before completing this change.`;
+      await saveDraft();
+    } catch (e) {
+      inlineReplacement.error = e.response?.data?.error?.message || e.message || 'Could not book the new time.';
+    } finally { inlineReplacement.busy = false; }
   }
 
   async function loadReplacements() {
@@ -429,6 +523,7 @@ export function useAppointmentChange() {
     schoolSupport, schoolSupportLoading, schoolSupportError, refreshSchoolSupport,
     workflow,
     replacements,
+    replacementBase, inlineReplacement, loadInlineReplacement, bookInlineReplacement,
     replacementOptions, retrospective, customOffer, toggleOfferSlot, addCustomOffer, requestOfferOffice,
     optionsLoading,
     loadReplacementOptions,

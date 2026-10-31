@@ -1,4 +1,5 @@
 import { futureAppointment } from './scheduleNoticeMessage.service.js';
+import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 /**
  * Appointment Change Workflow — preview consequence + assemble narrative + complete.
  * Provider reports facts; system classifies late/miss, consequence, and writes the note.
@@ -121,7 +122,7 @@ async function resolveBillingClientId(appointmentId) {
 
 async function loadClientPayerHint(clientId, agencyId) {
   const cid = safeInt(clientId);
-  if (!cid) return { insuranceType: null, isMedicaid: false, coverageUnknown: true };
+  if (!cid) return { insuranceType: null, isMedicaid: false, coverageUnknown: true, billingMode: 'unknown' };
   try {
     const [rows] = await pool.execute(
       `SELECT c.primary_insurer_name, it.label AS insurance_type
@@ -130,10 +131,13 @@ async function loadClientPayerHint(clientId, agencyId) {
     );
     const r = rows?.[0] || {};
     const insurance = await readClientInsurance(cid,agencyId);
-    const insuranceType = insurance?.primary?.insurerName || r.insurance_type || r.primary_insurer_name || null;
-    return { insuranceType, isMedicaid: hasMedicaidCoverage(insurance) || isMedicaidPayer(insuranceType), coverageUnknown: !insuranceType };
+    const catalogType = /^(?:none|unknown|not (?:on file|recorded)|n\/a)$/i.test(String(r.insurance_type || '').trim()) ? null : r.insurance_type;
+    const insuranceType = insurance?.primary?.insurerName || catalogType || r.primary_insurer_name || null;
+    const isMedicaid = hasMedicaidCoverage(insurance) || isMedicaidPayer(insuranceType);
+    const selfPay = /^(?:self[ _-]?pay|cash|private[ _-]?pay|cash\s*\/\s*self[ _-]?pay)$/i.test(String(insuranceType || '').trim());
+    return { insuranceType, isMedicaid, coverageUnknown: !insuranceType, billingMode: isMedicaid ? 'medicaid' : selfPay ? 'self_pay' : insuranceType ? 'insurance' : 'unknown' };
   } catch {
-    return { insuranceType: null, isMedicaid: false, coverageUnknown: true };
+    return { insuranceType: null, isMedicaid: false, coverageUnknown: true, billingMode: 'unknown' };
   }
 }
 
@@ -595,7 +599,7 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
   const bundle = await getAppointmentBundle(appointmentId, { includeTimeline: false });
   if (!bundle) throw Object.assign(new Error('Appointment not found'), { status: 404 });
 
-  if (!futureAppointment(bundle)) facts = { ...facts, notificationMode: 'none', suppressionReason: 'Retrospective record correction.', followUpAction: 'none', offeredSlots: [], followUpMessage: '' };
+  if (!futureAppointment(bundle) && facts.eventType !== 'no_show') facts = { ...facts, notificationMode: 'none', suppressionReason: 'Retrospective record correction.', followUpAction: 'none', offeredSlots: [], followUpMessage: '' };
   const participants = await Appointment.listParticipants(appointmentId);
   const clientId = safeInt(facts.clientId) || (await resolveBillingClientId(appointmentId));
   if (!clientId || !participants.some((p) => Number(p.clientId) === clientId)) {
@@ -633,6 +637,7 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
       evaluation.recommendedFeeCents = fullEval.policy?.noShowFeeCents ?? fullEval.recommendedFeeCents;
       evaluation.recommendedPackageAction = fullEval.policy?.noShowPackageAction || 'forfeit';
       evaluation.policy = fullEval.policy;
+      evaluation.policySource = fullEval.policySource;
       evaluation.cancelDeadlineAt = fullEval.cancelDeadlineAt;
       evaluation.noticeHours = fullEval.policy?.noticeHours;
     }
@@ -666,7 +671,8 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
     initiator: facts.initiator
   });
   if (bundle.clinicalSessionId && payer.coverageUnknown && isMissed) {
-    consequence = { model: 'none', label: 'Coverage needs billing review — no missed-appointment fee assessed', feeCents: 0, packageAction: 'release' };
+    consequence = { model: 'none', label: 'Billing status needs review — no missed-appointment fee assessed', feeCents: 0, packageAction: 'release',
+      reasonCode: 'payer_unverified', summary: 'This client is not explicitly recorded as self-pay and current insurance eligibility could not be confirmed. The configured policy fee is held for billing review; the appointment price is not proof of a self-pay agreement.' };
   }
 
   let strikePreview = null;
@@ -778,7 +784,12 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
       noticeHours: evaluation.policy?.noticeHours ?? evaluation.noticeHours ?? null,
       recommendedFeeCents: Number(evaluation.recommendedFeeCents || 0),
       recommendedPackageAction: evaluation.recommendedPackageAction || null,
-      policyName: evaluation.policy?.name || null
+      policyName: evaluation.policy?.name || null,
+      policyId: evaluation.policy?.id || null,
+      policySource: evaluation.policySource || (evaluation.policy ? 'configured_policy' : 'none'),
+      lateFeeCents: Number(evaluation.policy?.lateFeeCents || 0),
+      noShowFeeCents: Number(evaluation.policy?.noShowFeeCents || 0),
+      agreementStatus: 'not_verified'
     },
     payer,
     packageBalance,
@@ -944,7 +955,13 @@ async function applyAppointmentChange(
 
 export async function completeAppointmentChange(appointmentId, facts = {}, actor = {}) {
   const original = await Appointment.findById(appointmentId);
-  if (original && !futureAppointment(original)) facts = { ...facts, notificationMode: 'none', suppressionReason: 'Retrospective record correction.', followUpAction: 'none', offeredSlots: [], followUpMessage: '', clientFacingReason: facts.clientFacingReason || 'Schedule record corrected.' };
+  // A newly signed no-show is an attendance outcome, not a historical schedule correction.
+  // This server-only marker is persisted with the new signed decision; old suppressed
+  // decisions keep their original facts on retry and are never retroactively released.
+  const newNoShow = facts.eventType === 'no_show' && ['draft','scheduled','confirmed','client_confirmed','checked_in'].includes(original?.status);
+  facts = { ...facts, reviewedAttendanceOutcome: newNoShow };
+  if (newNoShow) facts = { ...facts, clientFacingReason: 'This appointment was recorded as missed. Contact your care team if this needs to be corrected.', followUpAction: 'none', followUpMessage: '', offeredSlots: [] };
+  if (original && !futureAppointment(original) && facts.eventType !== 'no_show') facts = { ...facts, notificationMode: 'none', suppressionReason: 'Retrospective record correction.', followUpAction: 'none', offeredSlots: [], followUpMessage: '', clientFacingReason: facts.clientFacingReason || 'Schedule record corrected.' };
   if (!['canceled', 'rescheduled', 'no_show', 'void'].includes(facts.eventType)) {
     throw Object.assign(new Error('Choose an appointment change event'), { status: 400 });
   }
@@ -983,9 +1000,9 @@ export async function completeAppointmentChange(appointmentId, facts = {}, actor
         throw Object.assign(new Error('There is no fee or package consequence to send for waiver review'), { status: 400 });
       }
       if (facts.eventType === 'no_show') {
-        const start = preview.appointment.startAt;
-        const instant = start instanceof Date ? start : new Date(String(start).replace(' ', 'T').replace(/Z?$/, 'Z'));
-        if (instant > new Date()) throw Object.assign(new Error('A future appointment cannot be marked no-show'), { status: 400 });
+        const end = parseUtcDate(preview.appointment.endAt);
+        if (!end || +end > Date.now()) throw Object.assign(new Error('An appointment cannot be marked no-show before its scheduled end'), { status: 400 });
+        cancellationClientDetails(facts, { requireReason: false });
       }
       if (preview.appointment.packageEntitlementId && preview.evaluation.recommendedPackageAction === 'review'
         && preview.isLate && !preview.providerCaused && !['waive', 'waived'].includes(facts.waiver?.action)) {

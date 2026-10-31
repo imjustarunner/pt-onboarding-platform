@@ -74,11 +74,13 @@ export async function loadSchoolSupportDraftGrounding({ ticket, messages = [] },
         AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0`, [agencyId, clientId, schoolId]],
     ['planningSlots', `SELECT s.provider_user_id,s.weekday,s.start_time,s.end_time,u.first_name,u.last_name FROM soft_schedule_slots s
       JOIN users u ON u.id=s.provider_user_id WHERE s.client_id=? AND s.school_organization_id=? ORDER BY s.weekday,s.start_time LIMIT 12`, [clientId, schoolId]],
-    ['appointments', `SELECT DISTINCT ap.id,ap.start_at,ap.end_at,ap.status,u.first_name,u.last_name FROM appointments ap
+    ['appointments', `SELECT DISTINCT ap.id,ap.start_at,ap.end_at,ap.status,ap.modality,sl.name AS service_location_name,
+      sl.school_organization_id,school.name AS school_name,u.first_name,u.last_name FROM appointments ap
       JOIN appointment_participants p ON p.appointment_id=ap.id AND p.client_id=?
-      JOIN agency_service_locations sl ON sl.id=ap.service_location_id AND sl.agency_id=ap.agency_id AND sl.school_organization_id=?
+      LEFT JOIN agency_service_locations sl ON sl.id=ap.service_location_id AND sl.agency_id=ap.agency_id
+      LEFT JOIN agencies school ON school.id=sl.school_organization_id
       JOIN users u ON u.id=ap.provider_user_id WHERE ap.agency_id=? AND ap.business_type='clinical'
-        AND ap.status IN ('scheduled','confirmed','client_confirmed') AND ap.start_at>=? ORDER BY ap.start_at LIMIT 1`, [clientId, schoolId, agencyId, now]],
+        AND ap.status IN ('scheduled','confirmed','client_confirmed') AND ap.start_at>=? ORDER BY ap.start_at LIMIT 1`, [clientId, agencyId, now]],
     ['recipient', `SELECT u.id,u.role,sc.is_school_admin,sc.is_primary FROM users u
       JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1
       LEFT JOIN school_contacts sc ON sc.school_organization_id=ua.agency_id
@@ -88,11 +90,13 @@ export async function loadSchoolSupportDraftGrounding({ ticket, messages = [] },
       WHERE client_id=? AND school_organization_id=? AND school_staff_user_id=? LIMIT 1`, [clientId, schoolId, Number(ticket.created_by_user_id) || 0]]
   ];
   const asksPastAttendance = /\b(?:last|previous)\s+(?:seen|session|appointment|visit)\b|\b(?:was|were|has)\b[^?\n]{0,80}\bseen\b|\bwhen did\b/i.test(result.request);
-  if (asksPastAttendance) queries.push(['lastAppointment', `SELECT DISTINCT ap.id,ap.start_at,ap.end_at,ap.status,u.first_name,u.last_name FROM appointments ap
+  if (asksPastAttendance) queries.push(['lastAppointment', `SELECT DISTINCT ap.id,ap.start_at,ap.end_at,ap.status,ap.modality,sl.name AS service_location_name,
+      sl.school_organization_id,school.name AS school_name,u.first_name,u.last_name FROM appointments ap
     JOIN appointment_participants p ON p.appointment_id=ap.id AND p.client_id=?
-    JOIN agency_service_locations sl ON sl.id=ap.service_location_id AND sl.agency_id=ap.agency_id AND sl.school_organization_id=?
+    LEFT JOIN agency_service_locations sl ON sl.id=ap.service_location_id AND sl.agency_id=ap.agency_id
+      LEFT JOIN agencies school ON school.id=sl.school_organization_id
     JOIN users u ON u.id=ap.provider_user_id WHERE ap.agency_id=? AND ap.business_type='clinical'
-      AND ap.status='completed' AND ap.end_at<=? ORDER BY ap.start_at DESC LIMIT 1`, [clientId, schoolId, agencyId, now]]);
+      AND ap.status='completed' AND ap.end_at<=? ORDER BY ap.start_at DESC LIMIT 1`, [clientId, agencyId, now]]);
   const settled = await Promise.allSettled(queries.map(([, sql, params]) => database.execute(sql, params)));
   const rows = {};
   settled.forEach((r, index) => {
@@ -113,7 +117,9 @@ export async function loadSchoolSupportDraftGrounding({ ticket, messages = [] },
   result.planningSlots = (rows.planningSlots || []).map(s => ({ provider: name(s), providerId: Number(s.provider_user_id), day: s.weekday,
     start: String(s.start_time || '').slice(0, 5), end: String(s.end_time || '').slice(0, 5) }));
   result.nextAppointment = rows.appointments?.[0] ? { provider: name(rows.appointments[0]), start: rows.appointments[0].start_at,
-    end: rows.appointments[0].end_at, status: rows.appointments[0].status } : null;
+    end: rows.appointments[0].end_at, status: rows.appointments[0].status, modality: rows.appointments[0].modality || null,
+    location: rows.appointments[0].school_name || rows.appointments[0].service_location_name || null,
+    schoolId: Number(rows.appointments[0].school_organization_id) || null } : null;
   if (asksPastAttendance) result.lastAppointment = rows.lastAppointment?.[0]
     ? { provider: name(rows.lastAppointment[0]), start: rows.lastAppointment[0].start_at, status: rows.lastAppointment[0].status } : null;
   const recipient = rows.recipient?.[0];
@@ -137,7 +143,7 @@ export async function loadSchoolSupportDraftGrounding({ ticket, messages = [] },
   if (result.roi && recipient) result.sources.push({ type: 'release_status', id: clientId, label: 'Current release of information (ROI) record',
     detail: `Expiration: ${expiration || 'not on file'}; requester access: ${staffState}` });
   if (result.planningSlots.length) result.sources.push({ type: 'school_plan', id: clientId, label: 'Saved weekly school plan', detail: 'Planning times are separate from booked appointments' });
-  if (result.nextAppointment) result.sources.push({ type: 'appointment', id: clientId, label: 'Next booked school appointment', detail: result.nextAppointment.status });
+  if (result.nextAppointment) result.sources.push({ type: 'appointment', id: clientId, label: 'Next booked client appointment', detail: result.nextAppointment.status });
   const confirmation = publicMessages(messages).filter(m => result.assignments.some(p => p.providerId === Number(m.author_user_id))
     && ['provider','provider_plus','supervisor','intern','intern_plus'].includes(String(m.author_role || '').toLowerCase())
     && /\bconfirmed\b/i.test(m.body || '')).at(-1);
@@ -145,6 +151,13 @@ export async function loadSchoolSupportDraftGrounding({ ticket, messages = [] },
     const day = words(confirmation.body).match(/\b(?:Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?)\b/i)?.[0];
     if (day) result.threadConfirmation = { provider: result.assignments.find(p => p.providerId === Number(confirmation.author_user_id)).provider,
       day, messageId: Number(confirmation.id) };
+  }
+  const call = publicMessages(messages).filter(m => result.assignments.some(p => p.providerId === Number(m.author_user_id))
+    && ['provider','provider_plus','supervisor','intern','intern_plus'].includes(String(m.author_role || '').toLowerCase())
+    && /\b(?:(?:i|we)(?:['’]ll| will)|will)\s+call\b/i.test(m.body || '')).at(-1);
+  if (call) {
+    result.threadCallCommitment = { provider: result.assignments.find(p => p.providerId === Number(call.author_user_id)).provider, messageId: Number(call.id) };
+    result.sources.push({ type: 'ticket_message', id: Number(call.id), label: 'Provider statement in this conversation', detail: 'Provider said they will call; not evidence the call was completed' });
   }
   return result;
 }
@@ -161,8 +174,9 @@ export function schoolSupportRecordReply(grounding) {
   if (grounding?.status !== 'matched' || !grounding.client?.initials) return null;
   const q = words(grounding.request), code = words(grounding.client.initials);
   const roiQuestion = /\broi\b|release of information/i.test(q);
-  const scheduleQuestion = /\b(?:seen|session|appointment|schedule|assigned|assignment|provider|therapist|counselor)\b/i.test(q);
-  if (!roiQuestion && !scheduleQuestion) return null;
+  const callQuestion = /\b(?:call|phone|ring)\b/i.test(q) && /\b(?:office|room|school)\b/i.test(q);
+  const scheduleQuestion = /\b(?:seen|session|appointment|schedule|assigned|assignment)\b|\bwho\b.{0,60}\b(?:provider|therapist|counselor)\b/i.test(q);
+  if (!roiQuestion && !scheduleQuestion && !callQuestion) return null;
   // A school administrator may inspect assignment status; that does not grant
   // clinical-document or other family access. Every fact here is administrative.
   if (!grounding.canShareScheduling) return grounding.warnings.includes('recipient_unavailable')
@@ -182,26 +196,31 @@ export function schoolSupportRecordReply(grounding) {
       unknown: 'The individual release grant for your account could not be verified.' }[roi.staffState];
     return [state, access, roi.state === 'current' && /expir|no roi/i.test(q) ? 'The expired/no-ROI display in your message does not match that current expiration date; the display needs review rather than another explanation from you.' : ''].filter(Boolean).join(' ');
   }
+  if (callQuestion) {
+    const recorded = grounding.threadCallCommitment;
+    return recorded ? `${recorded.provider} wrote in this conversation that they will call the office about the room change. That statement does not establish that the call has happened.`
+      : `The request is for ${grounding.assignments.map(p => p.provider).filter(Boolean).join(' and ') || 'the provider'} to call the office about the room change. The conversation checked does not record an agreement to make the call or that it has happened.`;
+  }
   const assignment = grounding.assignments.length ? `${code} is assigned to ${grounding.assignments.map(p => `${p.provider}${p.day ? ` on ${p.day}s` : ''}`).join(' and ')}.`
     : grounding.warnings.includes('assignments_unavailable') ? `The current provider assignment for ${code} could not be verified.` : `${code} has no active provider assignment recorded for this school.`;
   const plan = grounding.planningSlots[0];
   const planning = plan ? `The saved weekly school plan lists ${plan.day}, ${plan.start}–${plan.end}; this is a planning time, separate from a booked appointment.` : '';
   const appointment = grounding.nextAppointment;
   const when = appointment && dayTime(appointment.start, grounding.timezone);
-  const booked = when ? `The next ${['confirmed','client_confirmed'].includes(appointment.status) ? 'confirmed' : 'booked'} school appointment is ${when} with ${appointment.provider}.`
+  const booked = when ? `The next ${['confirmed','client_confirmed'].includes(appointment.status) ? 'confirmed' : 'booked'} appointment is ${when} with ${appointment.provider}${appointment.location ? ` at ${appointment.location}` : appointment.modality ? ` (${String(appointment.modality).toLowerCase().replaceAll('_', ' ')}; location needs review)` : '; location needs review'}.`
     : grounding.warnings.includes('appointments_unavailable') ? 'The appointment schedule could not be verified.'
-      : appointment ? 'A future school appointment is recorded, but its local timezone needs verification.' : 'No upcoming booked school appointment was found in the schedule checked; the weekly assignment alone does not confirm a session date or time.';
+      : appointment ? 'A future school appointment is recorded, but its local timezone needs verification.' : `No upcoming booked appointment was found in the schedule checked.${grounding.assignments.length || grounding.planningSlots.length ? ' The weekly assignment alone does not confirm a session date or time.' : ''}`;
   if (Object.hasOwn(grounding, 'lastAppointment')) {
     const past = grounding.lastAppointment, whenSeen = past && dayTime(past.start, grounding.timezone);
-    return whenSeen ? `${code}'s last recorded completed school session was ${whenSeen} with ${past.provider}.`
+    return whenSeen ? `${code}'s last recorded completed appointment was ${whenSeen} with ${past.provider}.`
       : grounding.warnings.includes('lastAppointment_unavailable') ? `The completed-session records for ${code} could not be verified.`
-        : `No completed school session for ${code} was found in the attendance records checked. A past calendar entry alone does not establish that the student was seen.`;
+        : `No completed appointment for ${code} was found in the attendance records checked. A past calendar entry alone does not establish that the student was seen.`;
   }
   if (/\bconfirm/i.test(q) && grounding.threadConfirmation) return [
     `${grounding.threadConfirmation.provider} confirmed the ${grounding.threadConfirmation.day} session for ${code} in this conversation.`,
     booked, 'The conversation reply and the calendar appointment status are separate evidence.'
   ].join(' ');
-  if (/\b(?:move|change|after lunch|reschedul)/i.test(q)) return [assignment, planning, booked,
+  if (/\b(?:move|reschedul)|\bafter lunch\b|\b(?:time|day|session|appointment|schedule)\b.{0,40}\bchange\b|\bchange\b.{0,40}\b(?:time|day|session|appointment|schedule)\b/i.test(q)) return [assignment, planning, booked,
     'Moving the session requires an approved scheduling change; drafting this reply has not moved or approved a session.'].filter(Boolean).join(' ');
   return [assignment, planning, booked].filter(Boolean).join(' ');
 }
@@ -213,7 +232,9 @@ export function validateSchoolSupportReply(text, grounding, messages = []) {
   }
   if (/\b(?:what|clarify|explain|specify)\b[^.!?\n]{0,70}\bROI\b[^.!?\n]{0,35}\b(?:means?|refers?|stands?)\b|\bwhat\s+(?:does|is)\s+(?:an?\s+)?ROI\b/i.test(body)) issues.push('asks_known_roi_definition');
   if (grounding?.status === 'matched' && /\b(?:what|which|clarify|specify)\b[^.!?\n]{0,100}\b(?:refers? to|client|student|child)\b[^.!?\n]*\?/i.test(body)) issues.push('asks_known_client_identity');
-  if (/\b(?:will|would|shall|is going to|has agreed to|has promised to)\s+(?:personally |also |then )*(?:call|contact|email|text|notify|move|reschedule|cancel|change|update|book|arrange|send|forward|reach out)\b|\b(?:i|we|they|he|she)['’]ll\s+(?:call|contact|email|text|notify|move|reschedule|cancel|book|send|forward)\b/i.test(body)) issues.push('unsupported_provider_or_staff_commitment');
+  const attributedCall = grounding?.threadCallCommitment ? `${grounding.threadCallCommitment.provider} wrote in this conversation that they will call the office about the room change.` : '';
+  const commitmentText = attributedCall ? body.replace(attributedCall, '') : body;
+  if (/\b(?:will|would|shall|is going to|has agreed to|has promised to)\s+(?:personally |also |then )*(?:call|contact|email|text|notify|move|reschedule|cancel|change|update|book|arrange|send|forward|reach out)\b|\b(?:i|we|they|he|she)['’]ll\s+(?:call|contact|email|text|notify|move|reschedule|cancel|book|send|forward)\b/i.test(commitmentText)) issues.push('unsupported_provider_or_staff_commitment');
   const providerConfirmed = publicMessages(messages).some(m => ['provider','provider_plus','supervisor','intern','intern_plus'].includes(String(m.author_role || '').toLowerCase()) && /\bconfirmed\b/i.test(m.body || ''));
   if (/\b(?:confirmed|has been (?:moved|rescheduled|canceled|cancelled|updated))\b/i.test(body)
     && !providerConfirmed && !['confirmed','client_confirmed'].includes(grounding?.nextAppointment?.status)) issues.push('unverified_appointment_change');

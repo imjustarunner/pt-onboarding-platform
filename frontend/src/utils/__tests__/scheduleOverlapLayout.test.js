@@ -24,6 +24,11 @@ describe('calendar overlap layout',()=>{
   const lanes=layoutScheduleDayBlocks([{hour:13,minute:15,blocks:[{key:'a',timedSlice:{topPct:0,heightPct:200}}]},{hour:13,minute:30,blocks:[{key:'b'}]},{hour:13,minute:45,blocks:[{key:'c'}]}],15);
   expect(lanes.get('13:15:a').cols).toBe(2);expect(lanes.get('13:30:b').col).toBe(1);expect(lanes.get('13:45:c').cols).toBe(1);
  });
+ it('keeps a canceled clinical session in front of its school assignment without removing the rest of the school day',()=>{
+  const lanes=layoutScheduleDayBlocks([{hour:9,blocks:[{key:'school',kind:'school',timedSlice:{topPct:0,heightPct:400}},{key:'session',kind:'sevt',isClientSession:true,isCancelled:true,timedSlice:{topPct:0,heightPct:100}}]}]);
+  expect(lanes.get('9:0:school')).toEqual({col:0,cols:1,background:true});expect(lanes.get('9:0:session')).toEqual({col:0,cols:1});
+  const schoolOnly=layoutScheduleDayBlocks([{hour:11,blocks:[{key:'school',kind:'school'}]}]);expect(schoolOnly.get('11:0:school')).toEqual({col:0,cols:1});
+ });
  it('gives intersecting intervals different lanes regardless of source order',()=>{
   const rows=Array.from({length:70},(_,i)=>({key:`item-${i}`,startMs:i*17%180,endMs:i*17%180+13+i%60}));
   const lanes=assignOverlapLanes(rows.reverse());

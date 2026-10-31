@@ -138,3 +138,23 @@ it('defaults to the next appointment with a portal update instruction, without a
   expect(noNext.text).toContain('No next appointment is currently scheduled');
   expect(noNext.text).not.toContain('arrange');
 });
+
+
+describe('actual outcome fee disclosure', () => {
+  it('describes a missed visit and only the fee saved on the appointment, without exposing reasons or invented insurance totals', async () => {
+    const message = buildCancellationNotification({ ...(await appointments.findById()), status: 'no_show', cancellationFeeCents: 10000 },
+      { eventType: 'no_show', followUpAction: 'none', reviewedAttendanceOutcome: true, additionalComments: 'PRIVATE explanation', assessedFeeCents: 99999 });
+    expect(message.subject).toBe('Your missed appointment'); expect(message.text).toContain('was missed');
+    expect(message.text).toContain('$100.00'); expect(message.text).not.toContain('$999.99');
+    expect(message.text).not.toContain('has been canceled'); expect(message.text).not.toContain('PRIVATE');
+  });
+  it('includes an actually recorded late fee, and does not infer one from signed facts or policy defaults', async () => {
+    expect(buildCancellationNotification({ ...(await appointments.findById()), cancellationFeeCents: 8000 }, facts).text).toContain('$80.00');
+    expect(buildCancellationNotification(await appointments.findById(), { ...facts, assessedFeeCents: 8000 }).text).not.toContain('$80.00');
+  });
+  it('accepts a verified demo-only QA redirect but does not relax production redirect holds', async () => {
+    const a = await appointments.findById(); appointments.findById.mockResolvedValue({ ...a, agencyId: 450 });
+    sendEmail.mockResolvedValue({ id: 'gmail-accepted', redirected: true, testInboxRedirect: { agencyId: 450, deliveredTo: ['testing@itsco.health'] } });
+    expect(await service.notify(1, facts)).toMatchObject({ sent: 2, held: 0 });
+  });
+});

@@ -5,12 +5,16 @@ import { resolveRegisteredSmsSender } from './smsCompliance.service.js';
 import VonageService from './vonage.service.js';
 import MessageLog from '../models/MessageLog.model.js';
 import Notification from '../models/Notification.model.js';
+import { DEFAULT_SECOND_CONTACT_TEMPLATE, DEFAULT_FINAL_CONTACT_TEMPLATE, DEFAULT_CONTACT_SMS_TEMPLATE, SCHOOL_CONTACT_SUBJECTS,preferredSchoolContactTemplate } from './schoolContactTemplates.js';
+import { renderSchoolContactTemplate } from './schoolContactPlan.service.js';
+import { sendSchoolContactProviderNotice } from './schoolContactProviderNotice.service.js';
 import ClientNotes from '../models/ClientNotes.model.js';
+import ClinicalNote from '../models/clinical/ClinicalNote.model.js';
 import { resolveMessagesSendMailbox } from './tenantMessageMailboxes.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 
 const parse = value => { try { return typeof value === 'string' ? JSON.parse(value) : value || {}; } catch { return {}; } };
-const millis = value => value ? new Date(value).getTime() : 0;
+const millis = value => value ? new Date(typeof value === 'string' && /^\d{4}-\d\d-\d\d \d\d:/.test(value) ? value.replace(' ','T')+'Z' : value).getTime() : 0;
 const DAY = 86400000;
 const HOUR = 3600000;
 const safeError = e => String(e?.code || 'send_requires_review').slice(0, 200);
@@ -26,13 +30,19 @@ export function schoolContactDemoSmsRecipient(flags, { clientId, providerUserId,
 }
 
 export function nextSchoolContactStep(workflow, plan, now = new Date()) {
-  if (plan?.status !== 'enabled' || !workflow.assignment_active || workflow.client_terminal || workflow.first_service_at) return 'cancel';
+  if (plan?.status !== 'enabled' || !workflow.assignment_active || workflow.client_terminal) return 'cancel';
   if (workflow.plan_decided_at && plan.decided_at && millis(workflow.plan_decided_at) !== millis(plan.decided_at)) return 'cancel';
-  if (workflow.external_reply_recorded_at || workflow.provider_replied_at) return 'complete';
-  if (workflow.parent_reply_at) return !workflow.stale_notified_at && millis(now) >= millis(workflow.parent_reply_at) + Number(plan.stale_after_hours) * HOUR ? 'stale' : 'await_provider';
+  if (workflow.intake_completed) return 'complete';
+  // Once the day-six notice is issued, only a completed, documented intake ends
+  // documentation reminders. A scheduled visit or draft is not completion.
+  if (workflow.provider_notified_at) return millis(now) >= millis(workflow.last_intake_reminder_at || workflow.provider_notified_at) + 48*HOUR ? 'intake_reminder' : 'await_intake';
+  if (workflow.parent_reply_at && !workflow.provider_replied_at && !workflow.external_reply_recorded_at)
+    return !workflow.stale_notified_at && millis(now) >= millis(workflow.parent_reply_at) + 48*HOUR ? 'stale' : 'await_provider';
+  if (workflow.external_reply_recorded_at || workflow.provider_replied_at || workflow.intake_scheduled || workflow.intake_arranged_at) return 'await_intake';
   if (!workflow.initial_sent_at) return 'initial_email';
-  if (!workflow.sms_completed_at && millis(now) >= millis(workflow.initial_sent_at) + Number(plan.sms_after_days) * DAY) return 'followup_sms';
-  if (workflow.sms_completed_at && !workflow.followup_sent_at && millis(now) >= millis(workflow.initial_sent_at) + Number(plan.email_after_days) * DAY) return 'followup_email';
+  if (!workflow.second_contact_at && millis(now) >= millis(workflow.initial_sent_at) + 48*HOUR) return 'second_contact';
+  if (workflow.second_contact_at && !workflow.final_contact_at && millis(now) >= millis(workflow.second_contact_at) + 48*HOUR) return 'final_contact';
+  if (workflow.final_contact_at && millis(now) >= millis(workflow.final_contact_at) + 48*HOUR) return 'provider_notice';
   return 'await_parent';
 }
 
@@ -104,8 +114,8 @@ async function runStep(workflow, key, send) {
     const result = await send();
     if (result.recordPending) throw Object.assign(new Error('Accepted send needs local receipt reconciliation'), { code: 'accepted_send_record_pending' });
     const completedAt = new Date();
-    await pool.execute('UPDATE school_contact_workflow_steps SET status=?,message_id=?,detail=?,completed_at=? WHERE workflow_id=? AND step_key=?',
-      [result.skipped ? 'skipped' : 'sent', result.messageId || null, result.reason || null, completedAt, workflow.id, key]);
+    await pool.execute('UPDATE school_contact_workflow_steps SET status=?,message_id=?,detail=?,completed_at=?,channel=?,conversation_id=? WHERE workflow_id=? AND step_key=?',
+      [result.skipped ? 'skipped' : 'sent', result.messageId || null, result.reason || null, completedAt, result.channel || (key==='support_alert'?'in_app':key==='provider_sms'?'sms':'email'), result.conversationId || null, workflow.id, key]);
     return { ...result, completedAt };
   } catch (e) {
     await pool.execute("UPDATE school_contact_workflow_steps SET status='needs_review',detail=? WHERE workflow_id=? AND step_key=?", [safeError(e), workflow.id, key]);
@@ -117,7 +127,10 @@ async function runStep(workflow, key, send) {
 async function stillEnabled(workflow) {
   const [[plan]] = await pool.execute(`SELECT p.status,p.decided_at FROM school_provider_contact_plans p JOIN school_contact_workflows w
     ON w.agency_id=p.agency_id AND w.provider_user_id=p.provider_user_id
-    WHERE w.id=? AND p.agency_id=? AND p.provider_user_id=? AND w.status NOT IN ('cancelled','complete') AND w.external_reply_recorded_at IS NULL`, [workflow.id,workflow.agency_id,workflow.provider_user_id]);
+    JOIN organization_affiliations oa ON oa.organization_id=w.school_id AND oa.agency_id=w.agency_id AND oa.is_active=1
+    JOIN agencies school ON school.id=w.school_id AND school.is_active=1 AND COALESCE(school.is_archived,0)=0
+    WHERE w.id=? AND p.agency_id=? AND p.provider_user_id=? AND w.status NOT IN ('cancelled','complete') AND w.external_reply_recorded_at IS NULL
+      AND EXISTS(SELECT 1 FROM client_provider_assignments cp WHERE cp.client_id=w.client_id AND cp.organization_id=w.school_id AND cp.provider_user_id=w.provider_user_id AND cp.is_active=1)`, [workflow.id,workflow.agency_id,workflow.provider_user_id]);
   return plan?.status === 'enabled' && millis(plan.decided_at) === millis(workflow.plan_decided_at);
 }
 
@@ -125,8 +138,9 @@ async function guardianFor(workflow) {
   const [[guardian]] = await pool.execute(`SELECT u.id,u.first_name,u.last_name,COALESCE(NULLIF(u.personal_email,''),u.email) AS email,
       COALESCE(NULLIF(u.personal_phone,''),NULLIF(u.phone_number,''),u.work_phone) AS phone
     FROM client_guardians cg JOIN users u ON u.id=cg.guardian_user_id
-    WHERE cg.client_id=? AND cg.relationship_type='guardian' AND cg.access_enabled=1 AND COALESCE(u.is_archived,0)=0
-    ORDER BY cg.created_at,u.id LIMIT 1`, [workflow.client_id]);
+    WHERE cg.client_id=? AND cg.relationship_type='guardian' AND cg.access_enabled=1 AND COALESCE(u.is_archived,0)=0 AND u.is_active=1
+      AND EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1)
+    ORDER BY cg.created_at,u.id LIMIT 1`, [workflow.client_id,workflow.agency_id]);
   return guardian;
 }
 
@@ -137,8 +151,9 @@ async function sendFollowupSms(workflow, ctx, guardian) {
   if (!to) return { skipped: true, reason: 'No matching client-bound demo text fixture is configured.' };
   const resolved = await resolveOutboundNumber({ userId: workflow.provider_user_id, clientId: workflow.client_id });
   if (!resolved?.number || Number(resolved.number.agency_id) !== Number(workflow.agency_id)) return { skipped: true, reason: 'A demo clinical text sender is required.' };
-  const body = `Hi ${guardian.first_name || 'there'}, this is ${ctx.provider.first_name || 'your provider'}. I emailed about arranging an intake for school therapy. Please reply with days and times you can meet virtually. Thank you!`;
-  const metadata = { schoolContactWorkflowId: workflow.id, schoolContactStep: 'followup_sms', automated: true, startsParentContactConversation: true };
+  const values={parent_name:guardian.first_name || 'there',provider_name:[ctx.provider.first_name,ctx.provider.last_name].filter(Boolean).join(' '),agency_name:ctx.agency.name,school_name:workflow.school_name,service_day:workflow.service_day || 'a day we will confirm together'};
+  const body=String(workflow.sms_template || DEFAULT_CONTACT_SMS_TEMPLATE).replace(/{{(\w+)}}/g,(_,key)=>values[key] || '');
+  const metadata = { schoolContactWorkflowId: workflow.id, schoolContactStep: 'second_contact', automated: true, startsParentContactConversation: true };
   const log = await MessageLog.createOutbound({ agencyId: workflow.agency_id, userId: workflow.provider_user_id, assignedUserId: workflow.provider_user_id,
     numberId: resolved.number.id, ownerType: resolved.ownerType || 'agency', clientId: workflow.client_id, body,
     fromNumber: resolved.number.phone_number, toNumber: to, metadata });
@@ -146,7 +161,7 @@ async function sendFollowupSms(workflow, ctx, guardian) {
     const receipt = await VonageService.sendSms({ purpose: 'care', agencyId: workflow.agency_id, from: resolved.number.phone_number, to, body, senderFirstName: ctx.provider.first_name });
     if (!receipt?.sid) throw Object.assign(new Error('Missing SMS receipt'), { code: 'sms_receipt_missing' });
     await MessageLog.markSent(log.id, receipt.sid, metadata);
-    return { sent: true, messageId: log.id };
+    return { sent: true, messageId: log.id, channel:'sms' };
   } catch (e) {
     await MessageLog.markFailed(log.id, safeError(e));
     if (smsPolicySkipped(e)) return { skipped: true, reason: `Text not sent: ${e.code}` };
@@ -193,7 +208,7 @@ async function remindProviderSms(workflow, ctx) {
     const receipt = await VonageService.sendSms({ purpose: 'workforce', agencyId: workflow.agency_id, staffNotificationKind: 'messageAlerts', from, to, body });
     if (!receipt?.sid) throw Object.assign(new Error('Missing SMS receipt'), { code: 'sms_receipt_missing' });
     await MessageLog.markSent(log.id, receipt.sid, metadata);
-    return { sent: true, messageId: log.id };
+    return { sent: true, messageId: log.id, channel:'sms' };
   } catch (e) {
     await MessageLog.markFailed(log.id, safeError(e));
     if (smsPolicySkipped(e)) return { skipped: true, reason: `Provider text not sent: ${e.code}` };
@@ -210,11 +225,31 @@ async function processWorkflow(workflow, now) {
     if ([403,404].includes(e.status)) { await pool.execute("UPDATE school_contact_workflows SET status='cancelled',last_error='Current provider or school access is required.' WHERE id=?", [workflow.id]); return; }
     throw e;
   }
+  if (!ctx.schools?.some(s=>Number(s.id)===Number(workflow.school_id))) {
+    await pool.execute("UPDATE school_contact_workflows SET status='cancelled',last_error='The original school assignment or affiliation is no longer active.' WHERE id=?",[workflow.id]);
+    return;
+  }
   workflow = await observeReplies(workflow);
+  // Scheduled intake stops guardian outreach; finalized intake alone ends documentation reminders.
+  const [[care]] = await pool.execute(`SELECT EXISTS(SELECT 1 FROM client_intake_note_drafts d WHERE d.agency_id=? AND d.client_id=? AND d.status='final' AND d.finalized_at IS NOT NULL) AS intake_completed,
+    EXISTS(SELECT 1 FROM appointments ap JOIN appointment_participants pt ON pt.appointment_id=ap.id AND pt.client_id=?
+      WHERE ap.agency_id=? AND ap.provider_user_id=? AND ap.business_type IN ('clinical','mental_health','healthcare') AND ap.service_code IN ('90791','H0031')
+        AND ap.status IN ('scheduled','confirmed','client_confirmed') AND ap.end_at>=UTC_TIMESTAMP()) AS intake_scheduled`,
+    [workflow.agency_id,workflow.client_id,workflow.client_id,workflow.agency_id,workflow.provider_user_id]);
+  // Note Workspace signs into the clinical DB, independently of imported intake
+  // drafts in the main DB. Use the same metadata-only predicate as plan activation.
+  if (!Number(care.intake_completed)) care.intake_completed = await ClinicalNote.hasSignedIntakeForClient({
+    agencyId: Number(workflow.agency_id), clientId: Number(workflow.client_id)
+  });
+  workflow={...workflow,...care};
+  if (workflow.intake_scheduled && !workflow.intake_arranged_at) {
+    await pool.execute('UPDATE school_contact_workflows SET intake_arranged_at=COALESCE(intake_arranged_at,?) WHERE id=?',[now,workflow.id]);
+    workflow.intake_arranged_at=now;
+  }
   const action = nextSchoolContactStep(workflow, { status: workflow.plan_status, stale_after_hours: workflow.stale_after_hours,
     sms_after_days: workflow.sms_after_days, email_after_days: workflow.email_after_days, decided_at: workflow.current_plan_decided_at }, now);
-  if (['cancel','complete','await_provider','await_parent'].includes(action)) {
-    const status = { cancel: 'cancelled', complete: 'complete', await_provider: 'awaiting_provider', await_parent: 'waiting_parent' }[action];
+  if (['cancel','complete','await_provider','await_parent','await_intake'].includes(action)) {
+    const status = { cancel: 'cancelled', complete: 'complete', await_provider: 'awaiting_provider', await_parent: 'waiting_parent', await_intake:workflow.provider_notified_at?'intake_followup_required':'intake_arranged' }[action];
     await pool.execute('UPDATE school_contact_workflows SET status=? WHERE id=?', [status, workflow.id]);
     return;
   }
@@ -225,28 +260,39 @@ async function processWorkflow(workflow, now) {
     if (![support,email,sms].some(r => r.needsReview)) await pool.execute("UPDATE school_contact_workflows SET stale_notified_at=?,status='awaiting_provider' WHERE id=?", [now, workflow.id]);
     return;
   }
+  if (['provider_notice','intake_reminder'].includes(action)) {
+    const key=action==='provider_notice'?'provider_notice':`intake_reminder_${Math.floor(millis(workflow.last_intake_reminder_at || workflow.provider_notified_at)/1000)}`;
+    const result=await runStep(workflow,key,()=>sendSchoolContactProviderNotice(workflow,ctx,{reminder:action==='intake_reminder',stepKey:key}));
+    if (result.needsReview) return;
+    await pool.execute("UPDATE school_contact_workflows SET provider_notified_at=COALESCE(provider_notified_at,?),last_intake_reminder_at=?,status='intake_followup_required',last_error=NULL WHERE id=?",[result.completedAt,result.completedAt,workflow.id]);
+    return;
+  }
   const guardian = await guardianFor(workflow);
   if (!guardian?.email) { await pool.execute("UPDATE school_contact_workflows SET status='blocked',last_error='Link an authorized guardian with an email address to begin.' WHERE id=?", [workflow.id]); return; }
-  const result = await runStep(workflow, action, () => action === 'followup_sms' ? sendFollowupSms(workflow, ctx, guardian) : sendSchoolContactEmail({
-    agencyId: workflow.agency_id, providerUserId: workflow.provider_user_id, clientId: workflow.client_id, schoolId: workflow.school_id,
-    to: guardian.email, parentName: [guardian.first_name,guardian.last_name].filter(Boolean).join(' ') || 'Parent', schoolName: workflow.school_name,
-    serviceDay: workflow.service_day || 'a day we will confirm together', template: workflow.template,
-    conversationId: workflow.conversation_id, workflowId: workflow.id, stepKey: action,
-    ...(action === 'followup_email' ? { subject: 'Following up on your school therapy intake', body: `Hi ${guardian.first_name || 'there'},\n\nI am following up on my earlier email about beginning school therapy. Please reply with some days and times you can meet virtually so we can schedule an intake and establish our goals together. If you have questions, please hit reply.\n\n${[ctx.provider.first_name,ctx.provider.last_name].filter(Boolean).join(' ')}` } : {})
-  }));
-  if (result.needsReview) return;
-  if (action === 'initial_email') await pool.execute("UPDATE school_contact_workflows SET initial_sent_at=?,conversation_id=?,status='waiting_parent',last_error=NULL WHERE id=?", [result.completedAt, result.conversationId || workflow.conversation_id, workflow.id]);
-  if (action === 'followup_sms') await pool.execute("UPDATE school_contact_workflows SET sms_completed_at=?,status='waiting_parent',last_error=? WHERE id=?", [result.completedAt, result.reason || null, workflow.id]);
-  if (action === 'followup_email') {
-    // The normal counter records the first email conversation. This additional
-    // outreach is a second attempt within that same threaded conversation.
-    await pool.execute(`INSERT IGNORE INTO client_parent_contact_attempts (client_id,agency_id,source_type,conversation_key,first_source_id,occurred_at)
-      VALUES (?,?,'email',?,?,?)`, [workflow.client_id, workflow.agency_id, `${workflow.conversation_id}:school-followup:${workflow.id}`, result.messageId, result.completedAt]);
-    await pool.execute("UPDATE school_contact_workflows SET followup_sent_at=?,status='waiting_parent',last_error=NULL WHERE id=?", [result.completedAt, workflow.id]);
-  }
+  const values={parent_name:[guardian.first_name,guardian.last_name].filter(Boolean).join(' ') || 'Parent',provider_name:[ctx.provider.first_name,ctx.provider.last_name].filter(Boolean).join(' '),school_name:workflow.school_name,service_day:workflow.service_day || 'a day we will confirm together'};
+  const sendEmail=()=>sendSchoolContactEmail({agencyId:workflow.agency_id,providerUserId:workflow.provider_user_id,clientId:workflow.client_id,schoolId:workflow.school_id,
+    to:guardian.email,parentName:values.parent_name,schoolName:values.school_name,serviceDay:values.service_day,
+    template:action==='initial_email'?preferredSchoolContactTemplate(workflow.template):action==='second_contact'?(workflow.second_template || DEFAULT_SECOND_CONTACT_TEMPLATE):(workflow.final_template || DEFAULT_FINAL_CONTACT_TEMPLATE),
+    subject:SCHOOL_CONTACT_SUBJECTS[action],conversationId:workflow.conversation_id,workflowId:workflow.id,stepKey:action});
+  const result=await runStep(workflow,action,async()=>{
+    if(action==='second_contact'){
+      const sms=await sendFollowupSms(workflow,ctx,guardian);
+      if(sms.sent || sms.needsReview) return sms;
+      // No opted-in, active clinical route: use the requested second email.
+      // An ambiguous carrier send throws and never falls back to a duplicate.
+    }
+    return sendEmail();
+  });
+  if(result.needsReview) return;
+  if(action==='initial_email') await pool.execute("UPDATE school_contact_workflows SET initial_sent_at=?,conversation_id=?,status='waiting_parent',last_error=NULL WHERE id=?",[result.completedAt,result.conversationId || workflow.conversation_id,workflow.id]);
+  if(action==='second_contact') await pool.execute("UPDATE school_contact_workflows SET second_contact_at=?,status='waiting_parent',last_error=NULL WHERE id=?",[result.completedAt,workflow.id]);
+  if(action==='final_contact') await pool.execute("UPDATE school_contact_workflows SET final_contact_at=?,status='waiting_parent',last_error=NULL WHERE id=?",[result.completedAt,workflow.id]);
+  if(action!=='initial_email' && result.channel!=='sms') await pool.execute(`INSERT IGNORE INTO client_parent_contact_attempts (client_id,agency_id,source_type,conversation_key,first_source_id,occurred_at)
+    VALUES (?,?,'email',?,?,?)`,[workflow.client_id,workflow.agency_id,`${workflow.conversation_id}:school-${action}:${workflow.id}`,result.messageId,result.completedAt]);
+
 }
 
-const workflowSelect = `SELECT w.*,p.status AS plan_status,p.template,p.sms_after_days,p.email_after_days,p.stale_after_hours,p.decided_at AS current_plan_decided_at,s.name AS school_name,
+const workflowSelect = `SELECT w.*,p.status AS plan_status,p.template,p.sms_after_days,p.email_after_days,p.stale_after_hours,p.second_template,p.final_template,p.sms_template,p.decided_at AS current_plan_decided_at,s.name AS school_name,
       c.session_sms_opt_in,c.first_service_at,COALESCE(a.service_day,c.service_day) AS service_day,
       EXISTS(SELECT 1 FROM client_provider_assignments active WHERE active.client_id=w.client_id AND active.organization_id=w.school_id AND active.provider_user_id=w.provider_user_id AND active.is_active=1) AS assignment_active,
       (c.status='ARCHIVED' OR LOWER(COALESCE(cs.status_key,'')) IN ('terminated','discharged','closed','dead','archived') OR LOWER(COALESCE(cs.label,'')) LIKE '%terminated%') AS client_terminal
@@ -277,11 +323,17 @@ export async function processSchoolContactAutomation({ now = new Date(), limit =
 export async function listSchoolContactWorkflows({ agencyId, providerUserId, clientId = null }) {
   await getContactPlanContext({ agencyId, userId: providerUserId });
   const [rows] = await pool.execute(`SELECT w.id,w.client_id AS clientId,c.initials,w.status,w.initial_sent_at AS initialSentAt,
-    w.parent_reply_at AS parentReplyAt,w.external_reply_recorded_at AS externalReplyRecordedAt,w.stale_notified_at AS staleNotifiedAt,
+    w.parent_reply_at AS parentReplyAt,w.external_reply_recorded_at AS externalReplyRecordedAt,w.stale_notified_at AS staleNotifiedAt,w.second_contact_at AS secondContactAt,w.final_contact_at AS finalContactAt,w.provider_notified_at AS providerNotifiedAt,w.last_intake_reminder_at AS lastIntakeReminderAt,
     w.last_error AS note,w.conversation_id AS conversationId FROM school_contact_workflows w JOIN clients c ON c.id=w.client_id AND c.agency_id=w.agency_id
     WHERE w.agency_id=? AND w.provider_user_id=? ${clientId ? 'AND w.client_id=?' : ''}
       AND EXISTS(SELECT 1 FROM client_provider_assignments a WHERE a.client_id=w.client_id AND a.organization_id=w.school_id AND a.provider_user_id=w.provider_user_id AND a.is_active=1)
     ORDER BY w.created_at DESC LIMIT 100`, [Number(agencyId),Number(providerUserId),...(clientId ? [Number(clientId)] : [])]);
+  if(rows.length) {
+    const [steps]=await pool.execute(`SELECT st.id,st.workflow_id,st.step_key,st.status,st.completed_at,st.detail,st.channel,st.conversation_id
+      FROM school_contact_workflow_steps st JOIN school_contact_workflows w ON w.id=st.workflow_id
+      WHERE w.agency_id=? AND w.provider_user_id=? AND w.id IN (${rows.map(()=>'?').join(',')}) ORDER BY st.id`,[Number(agencyId),Number(providerUserId),...rows.map(r=>r.id)]);
+    for(const row of rows) row.steps=steps.filter(s=>Number(s.workflow_id)===Number(row.id));
+  }
   return rows;
 }
 
@@ -293,7 +345,7 @@ export async function markSchoolContactWorkflowReplied({ agencyId, providerUserI
   [Number(workflowId),Number(agencyId),Number(providerUserId)]);
   if (!workflow) throw Object.assign(new Error('Contact workflow not found.'), { status: 404 });
   if (workflow.external_reply_recorded_at) return { stopped: true };
-  const [result] = await pool.execute(`UPDATE school_contact_workflows SET external_reply_recorded_at=NOW(),status='complete',last_error='Provider recorded a reply received outside the app; automated follow-ups stopped.'
+  const [result] = await pool.execute(`UPDATE school_contact_workflows SET external_reply_recorded_at=NOW(),status=IF(provider_notified_at IS NULL,'intake_arranged','intake_followup_required'),last_error='Provider recorded a reply received outside the app; automated follow-ups stopped.'
     WHERE id=? AND agency_id=? AND provider_user_id=? AND initial_sent_at IS NOT NULL AND external_reply_recorded_at IS NULL`, [Number(workflowId),Number(agencyId),Number(providerUserId)]);
   if (!result.affectedRows) return { stopped: true };
   await ClientNotes.create({ client_id: workflow.client_id, author_id: Number(providerUserId), category: 'contact', urgency: 'low',

@@ -38,6 +38,7 @@
         <span class="toolbar-divider" aria-hidden="true" />
 
         <div class="toolbar-group">
+          <router-link v-if="canManageContactPlans" class="btn btn-secondary btn-sm" :to="orgSlug ? `/${orgSlug}/admin/school-contact-plans` : '/admin/school-contact-plans'">School contact plans</router-link>
           <button
             v-if="canManageYearUpdate"
             type="button"
@@ -1009,6 +1010,7 @@ function onCardLogoError(schoolId) {
 }
 
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
+const canManageContactPlans = computed(() => Number(selectedAgencyId.value) === 450 && orgType.value === 'school' && ['admin','super_admin'].includes(String(authStore.user?.role || '').toLowerCase()));
 const canManageMarketingCampaigns = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
   return ['admin', 'support', 'super_admin'].includes(r);

@@ -7,13 +7,8 @@ import { managedDomain } from './managedWorkspaceGroupPolicy.js';
 
 export const SCHOOL_CONTACT_DEMO_AGENCY_ID = 450;
 export const SCHOOL_CONTACT_TEST_INBOX = 'testing@itsco.health';
-export const DEFAULT_SCHOOL_CONTACT_TEMPLATE = `{{parent_name}},
-
-My name is {{provider_name}}, and I was recently assigned to your child at {{school_name}}. I will see them on {{service_day}}.
-
-The next steps are for me to work with you to identify a time to touch base, schedule an intake, and establish the goals and direction of therapy. Please send me some days and times you may be available to meet virtually before I begin working with your child.
-
-If you have any questions, please do not hesitate to reach out by hitting "reply".`;
+export { DEFAULT_SCHOOL_CONTACT_TEMPLATE } from './schoolContactTemplates.js';
+import { DEFAULT_SCHOOL_CONTACT_TEMPLATE, DEFAULT_SECOND_CONTACT_TEMPLATE, DEFAULT_FINAL_CONTACT_TEMPLATE, DEFAULT_CONTACT_SMS_TEMPLATE, SCHOOL_CONTACT_SUBJECTS,preferredSchoolContactTemplate } from './schoolContactTemplates.js';
 const TOKENS = ['parent_name', 'provider_name', 'school_name', 'service_day'];
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const parse = value => { try { return typeof value === 'string' ? JSON.parse(value) : value || {}; } catch { return {}; } };
@@ -92,12 +87,14 @@ export async function getContactPlanContext({ agencyId, userId, requireEligible 
 }
 
 function planDto(ctx, plan = {}, from) {
-  const template = plan.template || DEFAULT_SCHOOL_CONTACT_TEMPLATE;
+  const template = preferredSchoolContactTemplate(plan.template);
   const providerName = [ctx.provider.first_name, ctx.provider.last_name].filter(Boolean).join(' ') || 'Provider name';
-  return { eligible: ctx.eligible, agencyId: ctx.agencyId, demoOnly: true, mandatory: ctx.mandatory, status: plan.status || 'unconfigured',
-    template, smsAfterDays: plan.sms_after_days ?? 3, emailAfterDays: plan.email_after_days ?? 7, staleAfterHours: plan.stale_after_hours ?? 72,
+  return { eligible: ctx.eligible, agencyId: ctx.agencyId, demoOnly: true, mandatory: ctx.mandatory || flag(plan.required_by_admin), status: plan.status || 'unconfigured',
+    recommendedTemplates:{template:DEFAULT_SCHOOL_CONTACT_TEMPLATE,secondTemplate:DEFAULT_SECOND_CONTACT_TEMPLATE,finalTemplate:DEFAULT_FINAL_CONTACT_TEMPLATE,smsTemplate:DEFAULT_CONTACT_SMS_TEMPLATE},
+    template, secondTemplate:plan.second_template || DEFAULT_SECOND_CONTACT_TEMPLATE, finalTemplate:plan.final_template || DEFAULT_FINAL_CONTACT_TEMPLATE, smsTemplate:plan.sms_template || DEFAULT_CONTACT_SMS_TEMPLATE,
+    smsAfterDays:2, emailAfterDays:4, staleAfterHours:48, providerNoticeAfterDays:6, reminderEveryHours:48,
     routing: schoolContactRouting(ctx.provider, from, ctx.agency), schools: ctx.schools, providerName,
-    preview: { subject: 'Getting started with school therapy', body: renderSchoolContactTemplate(template, { parent_name: 'Parent name', provider_name: providerName, school_name: 'Example Middle School', service_day: 'Example Day' }) },
+    preview: { subject: SCHOOL_CONTACT_SUBJECTS.initial_email, body: renderSchoolContactTemplate(template, { parent_name: 'Parent name', provider_name: providerName, school_name: 'Example Middle School', service_day: 'Example Day' }) },
     testDestination: SCHOOL_CONTACT_TEST_INBOX };
 }
 
@@ -114,27 +111,27 @@ export async function saveSchoolContactPlan(input, body = {}) {
   const [[existing]] = await pool.execute('SELECT * FROM school_provider_contact_plans WHERE agency_id=? AND provider_user_id=?', [ctx.agencyId, ctx.userId]);
   const status = body.status ?? existing?.status ?? 'unconfigured';
   if (!['declined', 'enabled'].includes(status)) throw fail('Choose whether to enable help with initial contact.');
-  if (ctx.mandatory && status !== 'enabled') throw fail('Your organization requires an initial contact plan.', 409);
+  if ((ctx.mandatory || flag(existing?.required_by_admin)) && status !== 'enabled') throw fail('Your organization requires an initial contact plan.', 409);
   const template = validateSchoolContactTemplate(body.template ?? existing?.template);
-  const timings = [['smsAfterDays', 'sms_after_days', 3, 1, 30], ['emailAfterDays', 'email_after_days', 7, 2, 60], ['staleAfterHours', 'stale_after_hours', 72, 1, 336]].map(([key, col, fallback, min, max]) => {
-    const value = Number(body[key] ?? existing?.[col] ?? fallback);
-    if (!Number.isSafeInteger(value) || value < min || value > max) throw fail(`${key} must be a whole number between ${min} and ${max}.`);
-    return value;
-  });
-  if (timings[1] <= timings[0]) throw fail('The email follow-up must be later than the text follow-up.');
+  const second = validateSchoolContactTemplate(body.secondTemplate ?? existing?.second_template ?? DEFAULT_SECOND_CONTACT_TEMPLATE);
+  const final = validateSchoolContactTemplate(body.finalTemplate ?? existing?.final_template ?? DEFAULT_FINAL_CONTACT_TEMPLATE);
+  const sms = String(body.smsTemplate ?? existing?.sms_template ?? DEFAULT_CONTACT_SMS_TEMPLATE).trim();
+  if (sms.length < 40 || sms.length > 1000 || /<[^>]*>/.test(sms) || !sms.includes('{{parent_name}}') || !sms.includes('{{provider_name}}')) throw fail('Keep your text between 40 and 1,000 characters and retain the parent and provider fields.');
+  if ([...sms.matchAll(/{{\s*([^}]+)\s*}}/g)].some(m => ![...TOKENS,'agency_name'].includes(m[1]))) throw fail('Use only the supported text fields.');
+  const timings = [2,4,48];
   // Editing an enabled plan never moves the assignment cutoff. Re-enabling starts
   // a new opt-in window, so old assignments are not unexpectedly contacted.
   const decidedAt = existing?.status === 'enabled' && status === 'enabled' ? existing.decided_at : new Date();
   await pool.execute(`INSERT INTO school_provider_contact_plans
-    (agency_id,provider_user_id,status,template,sms_after_days,email_after_days,stale_after_hours,decided_at)
-    VALUES (?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE status=VALUES(status),template=VALUES(template),sms_after_days=VALUES(sms_after_days),
+    (agency_id,provider_user_id,status,template,second_template,final_template,sms_template,sms_after_days,email_after_days,stale_after_hours,decided_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE status=VALUES(status),template=VALUES(template),second_template=VALUES(second_template),final_template=VALUES(final_template),sms_template=VALUES(sms_template),sms_after_days=VALUES(sms_after_days),
     email_after_days=VALUES(email_after_days),stale_after_hours=VALUES(stale_after_hours),decided_at=VALUES(decided_at)`,
-  [ctx.agencyId, ctx.userId, status, template, ...timings, decidedAt]);
+  [ctx.agencyId, ctx.userId, status, template, second, final, sms, ...timings, decidedAt]);
   return getSchoolContactPlan(input);
 }
 
 export async function sendSchoolContactEmail({ agencyId, providerUserId, clientId = null, schoolId = null, to, parentName, schoolName, serviceDay,
-  template = DEFAULT_SCHOOL_CONTACT_TEMPLATE, subject = 'Getting started with school therapy', body, example = false, conversationId = null, workflowId = null, stepKey = null } = {}) {
+  template = DEFAULT_SCHOOL_CONTACT_TEMPLATE, subject = SCHOOL_CONTACT_SUBJECTS.initial_email, body, example = false, conversationId = null, workflowId = null, stepKey = null } = {}) {
   const ctx = await getContactPlanContext({ agencyId, userId: providerUserId });
   const mailbox = await resolveMessagesSendMailbox(ctx.agencyId);
   const from = email(mailbox.fromEmail || mailbox.identity?.from_email);
@@ -219,5 +216,6 @@ export async function sendSchoolContactEmail({ agencyId, providerUserId, clientI
 }
 
 export async function sendSchoolContactExample(input, body = {}) {
-  return sendSchoolContactEmail({ agencyId: input.agencyId, providerUserId: input.userId, template: validateSchoolContactTemplate(body.template), example: true });
+  const stepKey=['initial_email','second_contact','final_contact'].includes(body.stepKey)?body.stepKey:'initial_email';
+  return sendSchoolContactEmail({agencyId:input.agencyId,providerUserId:input.userId,template:validateSchoolContactTemplate(body.template),subject:SCHOOL_CONTACT_SUBJECTS[stepKey],example:true});
 }

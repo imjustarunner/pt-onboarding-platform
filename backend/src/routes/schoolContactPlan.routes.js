@@ -6,6 +6,8 @@ import { getSchoolContactPlan, saveSchoolContactPlan, sendSchoolContactExample }
 const router = express.Router();
 router.use(authenticate);
 const input = req => ({ agencyId: req.query.agencyId || req.headers['x-agency-id'], userId: req.user.id });
+router.get('/providers', async(req,res,next)=>{try{const {listSchoolContactPlanProviders}=await import('../services/schoolContactPlanAdmin.service.js');res.json(await listSchoolContactPlanProviders(input(req)));}catch(e){next(e);}});
+router.put('/providers/:id/required', async(req,res,next)=>{try{const {requireSchoolContactPlan}=await import('../services/schoolContactPlanAdmin.service.js');res.json(await requireSchoolContactPlan(input(req),req.params.id,req.body.required));}catch(e){next(e);}});
 router.get('/', async (req, res, next) => { try { res.json(await getSchoolContactPlan(input(req))); } catch (error) { next(error); } });
 router.put('/', async (req, res, next) => { try { res.json(await saveSchoolContactPlan(input(req), req.body)); } catch (error) { next(error); } });
 router.get('/workflows', async (req, res, next) => {

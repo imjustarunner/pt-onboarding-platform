@@ -149,16 +149,25 @@
                   <option :value="null">Select a booked appointment</option>
                   <option v-for="appointment in change.replacements.value" :key="appointment.id" :value="appointment.id">{{ appointment.label }}</option>
                 </select>
-                <span class="muted">Choose the replacement session for this client. If it is not booked yet, save this draft and book it in the schedule.</span>
+                <span class="muted">Choose an existing replacement, or book a new time below. Only this occurrence changes.</span>
               </label>
+              <fieldset v-if="change.facts.eventType === 'rescheduled'" class="acw-client-notice" data-inline-reschedule>
+                <legend>Choose the new session time</legend>
+                <p>This books and reserves a new appointment now, using the same client, provider, service, location, and length. The original session changes only after you review and sign this workflow. If you leave before signing, the new booking remains on the schedule.</p>
+                <p v-if="change.replacementBase?.value">Times are in <strong>{{ change.replacementBase.value.sourceTimezone || 'America/Denver' }}</strong>. A new booking uses the current service quote; the original quote is preserved.</p>
+                <label class="acw-field"><span>New date and start time</span><input v-model="change.inlineReplacement.localStart" type="datetime-local" class="acw-input" :disabled="change.inlineReplacement.busy || !!change.inlineReplacement.createdId || change.inlineReplacement.uncertain" /></label>
+                <button type="button" class="acw-btn" :disabled="change.inlineReplacement.busy || !change.inlineReplacement.localStart" @click="change.bookInlineReplacement()">{{ change.inlineReplacement.busy ? 'Checking booking…' : change.inlineReplacement.createdId || change.inlineReplacement.uncertain ? 'Check saved booking' : 'Book replacement session' }}</button>
+                <p v-if="change.inlineReplacement.createdId && !change.inlineReplacement.partial" role="status">Replacement #{{ change.inlineReplacement.createdId }} is booked and selected. Continue to review and sign the original session change.</p>
+                <p v-if="change.inlineReplacement.error" role="alert">{{ change.inlineReplacement.error }}</p>
+              </fieldset>
               <label v-if="change.facts.reasons.includes('other')" class="acw-field">
                 <span>Please specify (required)</span>
                 <input v-model="change.facts.reasonOther" type="text" class="acw-input" />
               </label>
               <p v-if="change.retrospective?.value" class="acw-info">This appointment has already started. This change updates its record only; no cancellation notices, rescheduling invitations, or replacement offers will be sent.</p>
-              <fieldset v-if="!change.retrospective?.value && ['canceled', 'rescheduled'].includes(change.facts.eventType)" class="acw-client-notice">
+              <fieldset v-if="!change.retrospective?.value && ['canceled', 'rescheduled', 'no_show'].includes(change.facts.eventType)" class="acw-client-notice">
                 <legend>Client notification</legend>
-                <label class="acw-field"><span>Send a cancellation notification?</span>
+                <label class="acw-field"><span>{{ change.facts.eventType === 'no_show' ? 'Send a missed-appointment notification?' : 'Send a cancellation notification?' }}</span>
                   <select v-model="change.facts.notificationMode" class="acw-input" @change="onNotificationModeChange">
                     <option value="send">Send email and any permitted text notification</option>
                     <option value="none">Do not send email or text</option>
@@ -166,14 +175,14 @@
                 </label>
                 <label v-if="change.facts.notificationMode === 'none'" class="acw-field"><span>Why no notification? (internal record)</span>
                   <textarea v-model="change.facts.suppressionReason" class="acw-textarea" rows="2" maxlength="500" placeholder="For example: I already spoke with the client." />
-                  <span class="muted">The cancellation still appears in the client portal and session history. No cancellation email or text will be sent.</span>
+                  <span class="muted">The outcome still appears in the client portal and session history. No outcome email or text will be sent.</span>
                 </label>
                 <p class="muted">Keep personal or clinical details in the internal note. The reason below is saved with the cancellation and can be seen by the client.</p>
                 <label class="acw-field">
-                  <span>Reason to share with the client (required)</span>
+                  <span>{{ change.facts.eventType === 'no_show' ? 'Message to share with the client' : 'Reason to share with the client (required)' }}</span>
                   <textarea v-model="change.facts.clientFacingReason" class="acw-textarea" rows="3" maxlength="500" placeholder="Your provider is unavailable due to illness." />
                 </label>
-                <label class="acw-field">
+                <label v-if="change.facts.eventType !== 'no_show'" class="acw-field">
                   <span>Next step</span>
                   <select v-model="change.facts.followUpAction" class="acw-input">
                     <option value="keep_next_or_support">Keep the next appointment; contact support only if none is scheduled</option>
@@ -278,6 +287,11 @@
                 <p>{{ change.preview.value?.consequence?.summary || 'No financial or attendance consequence applies.' }}</p>
               </div>
 
+              <div v-if="change.preview.value?.evaluation?.policyName" class="acw-info" data-attendance-policy>
+                <strong>{{ change.preview.value.evaluation.policyName }}</strong>
+                <p>Notice: {{ change.preview.value.evaluation.noticeHours }} hours · Late cancellation: {{ money(change.preview.value.evaluation.lateFeeCents) }} · No-show: {{ money(change.preview.value.evaluation.noShowFeeCents) }}.</p>
+                <p>Recorded policy terms; the signed agreement is not verified here.</p>
+              </div>
               <div class="acw-info" style="margin-top:0;">
                 <strong>Insurance claim:</strong>
                 {{ change.preview.value?.insuranceClaim?.reason || 'Not-occurring appointments do not create insurance claims by default.' }}
@@ -477,6 +491,7 @@
 </template>
 
 <script setup>
+const money = cents => cents == null ? 'Not set' : new Intl.NumberFormat('en-US', {style:'currency',currency:'USD'}).format(Number(cents) / 100);
 import { computed, watch } from 'vue';
 import ReplacementOpeningBuilder from './ReplacementOpeningBuilder.vue';
 import SchoolSupportCancellationBenefit from './SchoolSupportCancellationBenefit.vue';
@@ -567,6 +582,10 @@ const showWaiverUi = computed(() => {
 watch(
   () => props.change.facts.eventType,
   async (v) => {
+    if (v === 'no_show') {
+      props.change.facts.followUpAction = 'none'; props.change.facts.offeredSlots = [];
+      if (!props.change.facts.clientFacingReason) props.change.facts.clientFacingReason = 'This appointment was recorded as missed. Contact your care team if this needs to be corrected.';
+    }
     if (v && props.change.step.value >= 2) await props.change.refreshPreview();
   }
 );
@@ -576,6 +595,7 @@ async function onCommentsChange() {
 }
 
 function onClose() {
+  if (props.change.inlineReplacement?.busy) return;
   props.change.closeWizard();
   emit('closed');
 }

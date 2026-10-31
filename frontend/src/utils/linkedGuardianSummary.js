@@ -11,5 +11,7 @@ export function linkedGuardianSummary(guardians, { canView = false } = {}) {
   const displayName = [first.first_name, first.last_name].filter(Boolean).join(' ').trim()
     || String(first.email || '').trim();
   if (!displayName) return null;
-  return { displayName, contact: String(first.email || first.phone || '').trim(), additionalCount: linked.length - 1 };
+  const email=String(first.email||'').trim(),phone=String(first.phone||first.phone_number||'').trim();
+  return { displayName, contact: email||phone, email, phone,
+    relationship:String(first.relationship_title||first.relationship_type||'Guardian').trim(),additionalCount: linked.length - 1 };
 }

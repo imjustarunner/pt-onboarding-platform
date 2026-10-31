@@ -194,6 +194,18 @@
           </div>
         </header>
 
+        <div v-if="pendingDurationChange" role="alertdialog" aria-modal="true" aria-labelledby="duration-code-title" class="na-duration-confirm">
+          <h3 id="duration-code-title">Review the service code</h3>
+          <p>{{ pendingDurationChange.minutes }} minutes is outside the range for {{ pendingDurationChange.currentCode }}.</p>
+          <p v-if="pendingDurationChange.proposedCode">Change the note's service code to {{ pendingDurationChange.proposedLabel }} and keep this duration?</p>
+          <p v-else>This duration has no supported psychotherapy code. Restore the previous duration to continue.</p>
+          <button v-if="pendingDurationChange.proposedCode" type="button" class="btn btn-primary" @click="decideDurationCodeChange(true)">Yes, update code</button>
+          <button type="button" class="btn btn-secondary" @click="decideDurationCodeChange(false)">{{ pendingDurationChange.previousMinutes ? `No, restore ${pendingDurationChange.previousMinutes} minutes` : 'Keep code; edit duration' }}</button>
+          <p>The appointment's price and booked time are unchanged.</p>
+        </div>
+
+        <p v-if="!pendingDurationChange && durationCodeMismatch && !chartNoteReadOnly" role="alert" class="na-duration-mismatch">{{ durationCodeMismatch.minutes }} minutes does not match {{ durationCodeMismatch.currentCode }}. Correct the duration or choose the matching service code before saving, generating, or signing. Your existing note text remains intact.</p>
+
         <NoteAidQuickSessionBar
           v-if="!showAidPicker"
           :client-label="noteSubjectLabel"
@@ -217,7 +229,7 @@
           :setup-complete="clientSetupComplete"
           :participants-flag="sessionParticipantsFlag"
           :attendees-required="familyAttendeesRequired"
-          :editable="!chartNoteReadOnly"
+          :editable="!chartNoteReadOnly && !pendingDurationChange"
           :finalized="!!signedNoteViewerId"
           :duration-hint="sessionDurationHint"
           :billing-addons="billingAddons"
@@ -2260,6 +2272,18 @@ async function seedManualEmptySections() {
 const sessionOfficeEventId = ref(null);
 const sessionClinicalSessionId = ref(null);
 const sessionDurationMinutes = ref(null);
+const pendingDurationChange = ref(null);
+let durationDecisionInProgress = false;
+const durationCodeMismatch = computed(() => {
+  const code = String(actualServiceCode.value || '').toUpperCase();
+  const minutes = Number(sessionDurationMinutes.value);
+  if (!['90832','90834','90837'].includes(code) || !(minutes > 0)) return null;
+  const proposedCode = suggestPsychotherapyCodeForDuration(minutes);
+  const extended = code === '90834' && Number(billingPrimaryUnits.value) >= 2;
+  return !proposedCode || normalizePsychotherapyServiceCode(proposedCode) !== code || isExtendedEncounterCode(proposedCode) !== extended
+    ? {minutes,currentCode:extended ? '90834 × 2' : code,proposedCode,proposedLabel:isExtendedEncounterCode(proposedCode) ? '90834 × 2' : proposedCode} : null;
+});
+
 const sessionLocationLabel = ref('');
 const sessionLocationChoices = ref([]);
 const sessionParticipants = ref('Client Only');
@@ -3588,7 +3612,7 @@ function applyBillingRulesForCurrentSession({ announce = false } = {}) {
     })
   );
   billingPrimaryUnits.value = resolved.primaryUnits || 1;
-  if (resolved.switchedFrom && resolved.primaryCode !== primary) {
+  if (primary === '90839' && resolved.switchedFrom && resolved.primaryCode !== primary) {
     selectedServiceCode.value = resolved.primaryCode;
     otherServiceCode.value = '';
   }
@@ -3896,34 +3920,18 @@ function isoToLocalTime(iso) {
 }
 
 function applySessionTimingDefaults({ force = false } = {}) {
-  const hasCalendar =
-    !!(sessionScheduledStart.value || sessionScheduledEnd.value || showSessionContextStrip.value);
-  if (sessionScheduledStart.value) {
+  // Calendar times are defaults for a new note. An authored draft's documented
+  // duration and local times remain its own metadata when it is reopened.
+  if (sessionScheduledStart.value && (force || !sessionStartTimeLocal.value)) {
     sessionStartTimeLocal.value = isoToLocalTime(sessionScheduledStart.value);
   }
-  if (sessionScheduledEnd.value) {
-    sessionEndTimeLocal.value = isoToLocalTime(sessionScheduledEnd.value);
-  }
-  if (sessionScheduledStart.value && sessionScheduledEnd.value) {
-    try {
-      const a = new Date(sessionScheduledStart.value);
-      const b = new Date(sessionScheduledEnd.value);
-      const mins = Math.round((b.getTime() - a.getTime()) / 60000);
-      if (Number.isFinite(mins) && mins > 0) {
-        sessionDurationMinutes.value = mins;
-        return;
-      }
-    } catch {
-      // fall through to code default
-    }
-  }
   if (force || sessionDurationMinutes.value == null || sessionDurationMinutes.value === '') {
-    sessionDurationMinutes.value = defaultDurationMinutesForServiceCode(actualServiceCode.value);
+    const a = new Date(sessionScheduledStart.value || '');
+    const b = new Date(sessionScheduledEnd.value || '');
+    const minutes = Math.round((b.getTime() - a.getTime()) / 60000);
+    sessionDurationMinutes.value = Number.isFinite(minutes) && minutes > 0
+      ? minutes : defaultDurationMinutesForServiceCode(actualServiceCode.value);
   }
-  if (!hasCalendar && force) {
-    // Keep start/end optional for queue/todo notes without appointment times.
-  }
-  // Duration is sticky: with start + duration, always derive end.
   ensureSessionEndFromDuration();
 }
 
@@ -4083,11 +4091,7 @@ const resolveNoteTypeSelection = (raw) => {
   const upper = v.toUpperCase();
   const byId = NOTE_TYPE_GROUPS.find((g) => g.id === v);
   if (byId) return byId.id;
-  const byCode = NOTE_TYPE_GROUPS.find((g) => g.codes.includes(upper));
-  if (byCode) {
-    const available = new Set(rawEligibleServiceCodes.value);
-    if (byCode.codes.some((c) => available.has(c))) return byCode.id;
-  }
+  // A concrete booked CPT must stay concrete; the group's primary may differ.
   return upper;
 };
 
@@ -4396,6 +4400,7 @@ const eligibleCodesLabel = computed(() => {
 });
 
 const generateDisabled = computed(() => {
+  if (pendingDurationChange.value || durationCodeMismatch.value) return true;
   if (skipAiAid.value) return true;
   if (generating.value) return true;
   if (recording.value || recordingBusy.value) return true;
@@ -5035,7 +5040,7 @@ const programLabel = (programId) => {
 };
 
 const autosave = async () => {
-  if (!canUseTool.value || autosaveBusy || isWorkspaceHydrating()) return;
+  if (!canUseTool.value || chartNoteReadOnly.value || pendingDurationChange.value || durationCodeMismatch.value || autosaveBusy || isWorkspaceHydrating()) return;
   const seq = workQueueActivateSeq;
   const targetDraftId = draftId.value;
 
@@ -5761,6 +5766,7 @@ const stopTranscription = () => {
 };
 
 const generateNote = async () => {
+  if (pendingDurationChange.value || durationCodeMismatch.value) return;
   if (progressPlanBlocksWriting.value) {
     generateError.value = planOnFile.value
       ? `Update the treatment plan (older than ${treatmentPlanMaxAgeDays.value} days) before writing this progress note.`
@@ -6227,6 +6233,7 @@ const ensureClinicalSessionForApproval = async () => {
 };
 
 const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) => {
+  if (pendingDurationChange.value || durationCodeMismatch.value) { approvalError.value = 'Review the duration and service code before signing.'; return; }
   if (silent) return;
   if (!mergedSectionEntries.value.length) return;
   if (approvingNote.value) return;
@@ -8576,6 +8583,34 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   outputObj.value = null;
   beginWorkspaceHydration();
   try {
+  try {
+    const raw = typeof d.output_json === 'object' ? d.output_json : (unwrapDraftText(d.output_json) || d.output_json);
+    if (!raw) {
+      outputObj.value = null;
+    } else if (typeof raw === 'object') {
+      outputObj.value = raw;
+    } else if (looksEncryptedEnvelope(raw)) {
+      outputObj.value = null;
+    } else {
+      outputObj.value = JSON.parse(raw);
+    }
+  } catch {
+    outputObj.value = null;
+  }
+  const savedMeta = outputObj.value?.meta || {};
+  pendingDurationChange.value = null;
+  sessionDurationMinutes.value = null;
+  sessionStartTimeLocal.value = '';
+  sessionEndTimeLocal.value = '';
+  billingPrimaryUnits.value = Number(savedMeta.billingPrimaryUnits) >= 2 ? 2 : 1;
+  const persistedSession = savedMeta.sessionContext || {};
+  if (Number(persistedSession.durationMinutes) > 0) sessionDurationMinutes.value = Number(persistedSession.durationMinutes);
+  sessionStartTimeLocal.value = String(persistedSession.startTimeLocal || '');
+  sessionEndTimeLocal.value = String(persistedSession.endTimeLocal || '');
+  if (!preserveWorkQueue) {
+    sessionScheduledStart.value = null;
+    sessionScheduledEnd.value = null;
+  }
   resetClientClinicalContext();
   viewingChartNote.value = null;
   clearSignedNoteViewer();
@@ -8592,12 +8627,12 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   currentDraftArchivedAt.value = d.archived_at || null;
   currentDraftCreatedAt.value = d.created_at || null;
   const draftCode = singleServiceCodeLabel(
-    options.preferredServiceCode || d.service_code || d.serviceCode || ''
+    persistedSession.serviceCode || d.service_code || d.serviceCode || options.preferredServiceCode || ''
   );
   otherServiceCode.value = '';
   if (isExtendedEncounterCode(draftCode)) {
     selectedServiceCode.value = '90834';
-    sessionDurationMinutes.value = 75;
+    if (sessionDurationMinutes.value == null) sessionDurationMinutes.value = 75;
     billingPrimaryUnits.value = 2;
   } else if (!draftCode) {
     selectedServiceCode.value = '';
@@ -8679,21 +8714,6 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   }
 
   inputText.value = unwrapDraftText(d.input_text);
-  try {
-    const raw = typeof d.output_json === 'object' ? d.output_json : (unwrapDraftText(d.output_json) || d.output_json);
-    if (!raw) {
-      outputObj.value = null;
-    } else if (typeof raw === 'object') {
-      outputObj.value = raw;
-    } else if (looksEncryptedEnvelope(raw)) {
-      outputObj.value = null;
-    } else {
-      outputObj.value = JSON.parse(raw);
-    }
-  } catch {
-    outputObj.value = null;
-  }
-  const savedMeta = outputObj.value?.meta || {};
   terminationReason.value = savedMeta.termination?.reason || '';
   terminationDetails.value = savedMeta.termination?.details || '';
   terminationRecommendation.value = savedMeta.termination?.recommendation || '';
@@ -8787,7 +8807,12 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
     await nextTick();
     endWorkspaceHydration();
   }
-  if (isCurrentLoad()) await openRequiredRenewal();
+  if (isCurrentLoad()) {
+    if (durationCodeMismatch.value && !chartNoteReadOnly.value) {
+      pendingDurationChange.value = { ...durationCodeMismatch.value, previousMinutes: null, loaded: true };
+    }
+    await openRequiredRenewal();
+  }
 };
 
 const loadClinicalNoteIntoWorkspace = async (
@@ -9162,39 +9187,45 @@ onMounted(async () => {
   }, 12_000);
 });
 
-watch(sessionDurationMinutes, (mins) => {
-  if (!sessionTimingSyncLock && !isWorkspaceHydrating()) {
-    if (sessionStartTimeLocal.value) syncEndFromStartAndDuration();
+function decideDurationCodeChange(accept) {
+  const pending = pendingDurationChange.value;
+  if (!pending) return;
+  durationDecisionInProgress = true;
+  if (accept && pending.proposedCode) {
+    selectedServiceCode.value = normalizePsychotherapyServiceCode(pending.proposedCode);
+    otherServiceCode.value = '';
+    billingPrimaryUnits.value = isExtendedEncounterCode(pending.proposedCode) ? 2 : 1;
+    sessionCodeSwitchBanner.value = `Duration ${pending.minutes} min: service code updated to ${pending.proposedLabel}.`;
+  } else if (pending.previousMinutes) {
+    sessionDurationMinutes.value = pending.previousMinutes;
   }
-  if (isWorkspaceHydrating()) return;
+  pendingDurationChange.value = null;
+  syncEndFromStartAndDuration();
+  applyBillingRulesForCurrentSession({ announce: true });
+  nextTick(() => { durationDecisionInProgress = false; });
+  scheduleAutosave(600);
+}
+
+watch(sessionDurationMinutes, (mins, previousMinutes) => {
+  if (isWorkspaceHydrating() || chartNoteReadOnly.value || durationDecisionInProgress) return;
   const current = String(actualServiceCode.value || '').toUpperCase();
-  // Crisis 90839 keeps its own duration/add-on rules — never remap via psychotherapy bands.
-  if (current === '90839') {
-    applyBillingRulesForCurrentSession({ announce: true });
-    scheduleAutosave(600);
-    return;
-  }
-  const psychCodes = ['90832', '90834', '90837'];
-  if (psychCodes.includes(current) || !current) {
-    const suggested = suggestPsychotherapyCodeForDuration(mins);
-    if (suggested) {
-      const suggestedBillable = normalizePsychotherapyServiceCode(suggested);
-      const wantExtended = isExtendedEncounterCode(suggested);
-      const alreadyExtended = current === '90834' && Number(billingPrimaryUnits.value) >= 2;
-      if (wantExtended && !alreadyExtended) {
-        selectedServiceCode.value = '90834';
-        billingPrimaryUnits.value = 2;
-        sessionCodeSwitchBanner.value =
-          `Duration ${mins} min is an EXTENDED ENCOUNTER — switched to 90834 × 2.`;
-      } else if (!wantExtended && suggestedBillable !== current) {
-        selectedServiceCode.value = suggestedBillable;
-        billingPrimaryUnits.value = 1;
-        sessionCodeSwitchBanner.value =
-          `Duration ${mins} min is outside ${current || 'prior'} band — switched service code to ${suggestedBillable}.`;
-      }
+  if (['90832', '90834', '90837'].includes(current)) {
+    const proposedCode = suggestPsychotherapyCodeForDuration(mins);
+    const currentExtended = current === '90834' && Number(billingPrimaryUnits.value) >= 2;
+    const changesCode = !proposedCode || normalizePsychotherapyServiceCode(proposedCode) !== current
+      || isExtendedEncounterCode(proposedCode) !== currentExtended;
+    if (changesCode && Number(previousMinutes) > 0) {
+      cancelPendingAutosave();
+      pendingDurationChange.value = {
+        minutes: Number(mins), previousMinutes: pendingDurationChange.value?.previousMinutes ?? Number(previousMinutes),
+        currentCode: currentExtended ? '90834 × 2' : current, proposedCode,
+        proposedLabel: isExtendedEncounterCode(proposedCode) ? '90834 × 2' : proposedCode
+      };
+      return;
     }
-    applyBillingRulesForCurrentSession({ announce: true });
   }
+  if (!sessionTimingSyncLock && sessionStartTimeLocal.value) syncEndFromStartAndDuration();
+  applyBillingRulesForCurrentSession({ announce: true });
   scheduleAutosave(600);
 });
 
@@ -9458,6 +9489,9 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.na-duration-confirm { position: fixed; z-index: 35000; inset: 25% max(16px, calc((100vw - 560px) / 2)) auto; padding: 24px; background: white; color: #17314b; border: 2px solid #315b79; border-radius: 14px; box-shadow: 0 0 0 100vmax #0008; }
+.na-duration-confirm button { margin: 8px 8px 8px 0; }
+
 .na-nav-link { text-decoration: none; }
 .na-app {
   --na-teal: #0f766e;

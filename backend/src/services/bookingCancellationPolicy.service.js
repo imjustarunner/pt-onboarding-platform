@@ -158,7 +158,8 @@ export async function evaluateCancel({
     cancellationPolicyId: appt.cancellationPolicyId
   });
 
-  const effective = await qaAttendancePolicy(appt) || policy || {
+  const retained = await qaAttendancePolicy(appt);
+  const effective = retained || policy || {
     id: null,
     name: 'Default (no policy configured)',
     noticeHours: 24,
@@ -182,6 +183,7 @@ export async function evaluateCancel({
     return {
       appointmentId: appt.id,
       policy: effective,
+    policySource: retained ? 'booking_snapshot' : policy ? 'configured_policy' : 'none',
       cancelDeadlineAt: deadline ? deadline.toISOString() : null,
       withinNotice,
       isLate: !withinNotice,
@@ -221,6 +223,7 @@ export async function evaluateCancel({
   return {
     appointmentId: appt.id,
     policy: effective,
+    policySource: retained ? 'booking_snapshot' : policy ? 'configured_policy' : 'none',
     cancelDeadlineAt: deadline ? deadline.toISOString() : null,
     startAt: start ? start.toISOString() : null,
     withinNotice,

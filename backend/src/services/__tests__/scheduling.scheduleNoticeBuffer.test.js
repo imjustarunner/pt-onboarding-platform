@@ -18,7 +18,7 @@ function harness() {
     }
     if (sql.startsWith('SELECT DISTINCT d.id')) return [deliveries.filter(d=>notices.some(n=>n.appointment_id===p[0] && n.batch_id===d.batch_id))];
     if (sql.startsWith('SELECT * FROM appointment_schedule_notices WHERE id=')) return [[notices.find(n=>n.id===p[0])].filter(Boolean)];
-    if (sql.startsWith('SELECT') && sql.includes('event_type IN')) return [notices.filter(n=>n.appointment_id===p[0] && n.client_id===p[1] && ['canceled','rescheduled'].includes(n.event_type))];
+    if (sql.startsWith('SELECT') && sql.includes('event_type IN')) return [notices.filter(n=>n.appointment_id===p[0] && n.client_id===p[1] && ['canceled','rescheduled','no_show'].includes(n.event_type))];
     if (sql.startsWith('SELECT') && sql.includes("event_type='created'")) return [notices.filter(n=>n.appointment_id===p[0] && n.client_id===p[1] && n.event_type==='created')];
     if (sql.startsWith('SELECT') && sql.includes('WHERE agency_id=')) return [notices.filter(n=>group(n,p))];
     if (sql.startsWith('SELECT') && sql.includes('WHERE appointment_id=')) return [notices.filter(n=>n.appointment_id===p[0] && (!sql.includes("status='pending'") || n.status==='pending'))];
@@ -192,4 +192,35 @@ it('preserves a linked replacement notice rather than describing it as an ordina
  const text='Your appointment has moved to the replacement time.';
  const result=buildScheduleNoticeMessage([{appointment:{id:1,status:'canceled_by_provider'},payload:{facts:{}},cancellation:{replacementAppointmentId:2,text,html:'<p>'+text+'</p>',subject:'Your appointment has moved'}}],'https://portal.example.test');
  expect(result.text).toContain(text);expect(result.text).not.toContain('canceled by');
+});
+
+
+describe('reviewed no-show outcome and QA transport acceptance', () => {
+  it('sends a newly signed ended no-show once without treating it as a canceled visit', async () => {
+    const h = harness();
+    Object.assign(h.appointments.get(1), { status: 'no_show', startAt: '2030-01-01T08:00:00Z', endAt: '2030-01-01T09:00:00Z' });
+    const facts = { eventType: 'no_show', reviewedAttendanceOutcome: true, followUpAction: 'none', notificationMode: 'send' };
+    await h.service.queue(1, { eventType: 'no_show', facts });
+    await h.service.queue(1, { eventType: 'no_show', facts });
+    expect(h.notices).toHaveLength(1); expect(h.notices[0].status).toBe('pending');
+    await h.service.process(1); await h.service.process(1);
+    expect(h.deps.sendEmail).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    { status: 'no_show', startAt: '2030-01-01T08:00:00Z', endAt: '2030-01-01T09:00:00Z', reviewed: false },
+    { status: 'no_show', startAt: '2030-01-01T09:00:00Z', endAt: '2030-01-01T11:00:00Z', reviewed: true },
+    { status: 'scheduled', startAt: '2030-01-01T08:00:00Z', endAt: '2030-01-01T09:00:00Z', reviewed: true }
+  ])('keeps old/unreviewed or unfinished no-show sends suppressed: %j', async ({ reviewed, ...appointment }) => {
+    const h = harness(); Object.assign(h.appointments.get(1), appointment);
+    await h.service.queue(1, { eventType: 'no_show', facts: { reviewedAttendanceOutcome: reviewed } });
+    h.advance(20); await h.service.process(1);
+    expect(h.deps.sendEmail).not.toHaveBeenCalled(); expect(h.notices[0].status).toBe('suppressed');
+  });
+  it('records accepted demo-only QA redirection at its physical inbox, without claiming inbox delivery', async () => {
+    const h = harness(); h.appointments.get(1).agencyId = 450;
+    h.deps.sendEmail.mockResolvedValue({ id: 'gmail-accepted', redirected: true, testInboxRedirect: { agencyId: 450, deliveredTo: ['testing@itsco.health'] } });
+    await h.service.queue(1, { eventType: 'canceled', channels: ['email'] }); h.advance(15); await h.service.process(1);
+    expect(h.deliveries[0]).toMatchObject({ status: 'sent', external_message_id: 'gmail-accepted', recipient_address: 'testing@itsco.health' });
+    expect(h.deliveries[0].delivered_at).toBeUndefined();
+  });
 });

@@ -18,7 +18,16 @@ it('shows the client’s contact record and records an outside reply to stop fol
   expect(wrapper.find('a').text()).toContain('View email conversation');
   await wrapper.find('button').trigger('click'); await flushPromises();
   expect(api.post).toHaveBeenCalledWith('/school-contact-plan/workflows/12/parent-replied', {}, expect.objectContaining({ params: { agencyId: 450 } }));
-  expect(wrapper.text()).toContain('Outside reply recorded');
+  expect(wrapper.text()).toContain('Intake coordination in progress');
+  expect(wrapper.text()).not.toContain('Intake documented');
+  expect(wrapper.find('button').exists()).toBe(false);
+});
+it('keeps outstanding documentation visible after a reply following the day-six notice',async()=>{
+  api.get.mockResolvedValue({data:[{...workflow,status:'intake_followup_required',providerNotifiedAt:'2026-11-06T18:00:00Z'}]});
+  wrapper=mount(Card,options);await flushPromises();
+  await wrapper.find('button').trigger('click');await flushPromises();
+  expect(wrapper.text()).toContain('Intake Follow-Up Required');
+  expect(wrapper.text()).not.toContain('Intake documented');
   expect(wrapper.find('button').exists()).toBe(false);
 });
 it('preserves the stop action when recording a reply fails', async () => {

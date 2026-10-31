@@ -4391,15 +4391,9 @@ export const providerAvailabilityDashboard = async (req, res, next) => {
        FROM provider_school_assignments psa
        JOIN agencies s ON s.id = psa.school_organization_id
        JOIN users u ON u.id = psa.provider_user_id
-       JOIN user_agencies ua ON ua.user_id = psa.provider_user_id AND ua.agency_id = ?
+       JOIN user_agencies ua ON ua.user_id = psa.provider_user_id AND ua.agency_id = ? AND COALESCE(ua.is_active, 1) = 1
        JOIN organization_affiliations oa ON oa.organization_id = psa.school_organization_id AND oa.is_active = TRUE
        WHERE ${schoolWhere.join(' AND ')}
-         AND EXISTS (
-           SELECT 1
-           FROM user_agencies ua_school
-           WHERE ua_school.user_id = psa.provider_user_id
-             AND ua_school.agency_id = psa.school_organization_id
-         )
          AND (u.is_archived IS NULL OR u.is_archived = FALSE)
          AND (u.is_active IS NULL OR u.is_active = TRUE)
          AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))

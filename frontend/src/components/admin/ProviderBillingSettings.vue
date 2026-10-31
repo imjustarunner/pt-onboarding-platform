@@ -22,11 +22,11 @@
       <div class="billing-card">
         <h3>Self-Pay Rates <span class="currency">USD</span></h3>
         <p v-if="scope === 'provider'">Only this provider’s assigned practice categories and services appear. Blank overrides use the agency rate; $0 is an explicit free service.</p>
-        <p v-else>Agency rates apply to all providers unless they have a service override. A blank rate uses the existing service catalog price.</p>
+        <p v-else>Set a separate self-pay amount for each service code, such as 90832, 90834 and 90837. Agency rates apply unless a provider has a service override. A blank rate uses the catalog price; these changes do not edit insurance fees or existing appointment quotes.</p>
         <div class="table-scroll" v-if="rows.length"><table>
           <thead><tr><th>Service</th><th>{{ scope === 'provider' ? 'Agency default' : 'Catalog price' }}</th><th>{{ scope === 'provider' ? 'Provider rate' : 'Agency rate' }}</th><th>Rate basis</th><th v-if="scope === 'provider'">Use default</th></tr></thead>
           <tbody><tr v-for="row in rows" :key="row.serviceId">
-            <td><strong>{{ row.name }}</strong><small>{{ row.durationMinutes }} min · {{ row.businessType.replaceAll('_', ' ') }}</small></td>
+            <td><strong><span v-if="row.serviceCode">{{ row.serviceCode }} · </span>{{ row.name }}</strong><small>{{ row.durationMinutes }} min · {{ row.businessType.replaceAll('_', ' ') }}</small></td>
             <td>{{ money(scope === 'provider' ? row.agencyRate?.rateCents ?? row.catalogRateCents : row.catalogRateCents) }}<small>{{ scope === 'provider' && row.agencyRate?.rateUnit === 'hour' ? 'per hour' : 'per session' }}</small></td>
             <td><input v-model="row.dollars" :aria-label="`${row.name} rate in USD`" type="number" min="0" max="1000000" step="0.01" placeholder="Use default" :disabled="saving || (scope === 'provider' && row.useDefault)" /></td>
             <td><select v-model="row.unit" :aria-label="`${row.name} rate basis`" :disabled="saving || (scope === 'provider' && row.useDefault)"><option value="session">Per session</option><option value="hour">Per hour</option></select></td>

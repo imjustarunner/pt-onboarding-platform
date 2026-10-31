@@ -1,3 +1,4 @@
+import { validSchoolGroupEmail, requireSchoolGroupEmail } from '../utils/schoolGroupEmail.js';
 import { fictionalSchool, fictionalDemoGet } from './fictionalSchoolDemo.service.js';
 import { queueSchoolOnboardingWelcome } from './schoolOnboardingWelcome.service.js';
 import { deliverOnboardingEmail } from './schoolOnboardingReminder.service.js';
@@ -1175,7 +1176,7 @@ function isStepEffectivelyComplete(stepKey, progress, payload) {
       if (!body || typeof body !== 'object' || !hasExplicitStepCompletion(body)) return false;
       const schoolName = String(body.schoolName || '').trim();
       const itscoEmail = String(body.itscoEmail || '').trim();
-      return !!schoolName && !!itscoEmail && itscoEmail.includes('@');
+      return !!schoolName && validSchoolGroupEmail(itscoEmail);
     }
     case 'school_staff': {
       if (!body || typeof body !== 'object' || !hasExplicitStepCompletion(body)) return false;
@@ -1784,6 +1785,9 @@ export async function submitOnboarding(token) {
   if (missing.length) {
     throw Object.assign(new Error(`Please complete: ${missing.join(', ').replace(/_/g, ' ')}`), { status: 400 });
   }
+
+  const schoolProfile = await getSchoolProfile(invite.school_organization_id);
+  requireSchoolGroupEmail(schoolProfile?.itsco_email);
 
   await queueSchoolOnboardingWelcome({ agencyId: invite.agency_id, schoolOrganizationId: invite.school_organization_id, sourceType: 'onboarding', sourceId: invite.id });
 

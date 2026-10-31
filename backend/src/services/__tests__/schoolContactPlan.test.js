@@ -54,7 +54,7 @@ it('resolves a demo school through its verified pilot affiliation without granti
 });
 it('returns a rendered preview, persisted choices and actual SSO mailbox copy address', async () => {
   const state = await getSchoolContactPlan(input);
-  expect(state).toMatchObject({ eligible: true, demoOnly: true, status: 'unconfigured', smsAfterDays: 3, emailAfterDays: 7, staleAfterHours: 72,
+  expect(state).toMatchObject({ eligible: true, demoOnly: true, status: 'unconfigured', smsAfterDays: 2, emailAfterDays: 4, staleAfterHours: 48,
     routing: { isSso: true, providerEmail: 'qaproviderauricwell@itsco.health', replyTo: 'messages@itsco.health' } });
   expect(state.preview.body).toContain('Avery Demo'); expect(state.preview.body).toContain('Example Middle School');
 });
@@ -63,18 +63,21 @@ it('constrains editable text and renders no arbitrary placeholders or HTML', () 
   expect(() => validateSchoolContactTemplate(template.replace('{{school_name}}', 'School'))).toThrow('school_name');
   expect(() => validateSchoolContactTemplate(`${template}\n{{secret}}`)).toThrow('four supported');
   expect(() => validateSchoolContactTemplate(`${template}<script>alert(1)</script>`)).toThrow('plain text');
-  expect(renderSchoolContactTemplate(template, { parent_name: 'Alex', provider_name: 'Avery', school_name: 'Cedar', service_day: 'Monday' })).toContain('Alex,');
+  expect(renderSchoolContactTemplate(template, { parent_name: 'Alex', provider_name: 'Avery', school_name: 'Cedar', service_day: 'Monday' })).toContain('Hello Alex,');
 });
 it('persists decline and preserves the opt-in cutoff when editing an enabled plan', async () => {
   await saveSchoolContactPlan(input, { status: 'declined' });
-  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO school_provider_contact_plans'), [450, 1433, 'declined', template, 3, 7, 72, expect.any(Date)]);
+  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO school_provider_contact_plans'), [450,1433,'declined',template,expect.any(String),expect.any(String),expect.any(String),2,4,48,expect.any(Date)]);
   const cutoff = new Date('2026-10-30T15:00:00Z'); plan = { status: 'enabled', template, decided_at: cutoff };
   await saveSchoolContactPlan(input, { status: 'enabled', smsAfterDays: 4 });
   const insert = m.execute.mock.calls.filter(([sql]) => sql.startsWith('INSERT INTO school_provider_contact_plans')).at(-1);
-  expect(insert[1]).toEqual([450, 1433, 'enabled', template, 4, 7, 72, cutoff]);
+  expect(insert[1]).toEqual([450,1433,'enabled',template,expect.any(String),expect.any(String),expect.any(String),2,4,48,cutoff]);
 });
-it('validates follow-up order and whole-number timing', async () => {
-  for (const body of [{ smsAfterDays: 7, emailAfterDays: 5 }, { staleAfterHours: 0 }, { smsAfterDays: 1.5 }]) await expect(saveSchoolContactPlan(input, { status: 'enabled', ...body })).rejects.toMatchObject({ status: 400 });
+it('uses the required48hour cadence and rejects unsafe later-contact templates',async()=>{
+  await saveSchoolContactPlan(input,{status:'enabled',smsAfterDays:7,emailAfterDays:8,staleAfterHours:72});
+  const insert=m.execute.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO school_provider_contact_plans')).at(-1);
+  expect(insert[1].slice(-4,-1)).toEqual([2,4,48]);
+  await expect(saveSchoolContactPlan(input,{status:'enabled',secondTemplate:'<script>unsafe</script>'})).rejects.toMatchObject({status:400});
 });
 it('supports future mandated providers without enabling other tenants', async () => {
   m.execute.mockImplementation(async sql => sql.startsWith('SELECT id,name,slug') ? [[{ ...agency, feature_flags: { schoolContactPlanRequiredProviderIds: [1433] } }]] : sql.startsWith('SELECT u.id') ? [[provider]] : sql.startsWith('SELECT DISTINCT s.id') ? [[{ id: 451 }]] : [[]]);

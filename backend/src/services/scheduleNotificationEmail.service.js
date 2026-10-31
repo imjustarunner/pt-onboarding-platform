@@ -7,6 +7,14 @@ import { resolveAppointmentServiceSetting } from './appointmentServiceSetting.se
 import { buildScheduleNoticeMessage } from './scheduleNoticeMessage.service.js';
 import { createSchoolSessionEmailOptOutLink, isSchoolSessionEmailOptedOut, schoolSessionEmailOptOutContent, SCHOOL_EMAIL_TEMPLATE } from './schoolSessionEmailPreferences.service.js';
 
+async function scheduleMailboxes(agencyId) {
+  try { return await resolveWaitlistMailboxes(pool, agencyId); }
+  catch (error) {
+    if (error?.code !== 'WAITLIST_MAILBOX_NOT_CONFIGURED') throw error;
+    throw Object.assign(new Error('Configure this agency’s notifications sender and support Reply-To before sending appointment updates.'), { code: 'SCHEDULE_MAILBOX_NOT_CONFIGURED' });
+  }
+}
+
 /** Require the tenant's configured notifications sender and staffed support reply mailbox. */
 export async function sendScheduleNotificationEmail({ agencyId, appointment = null, entries = null, ...message }) {
   if(message.clientId) {
@@ -30,7 +38,7 @@ export async function sendScheduleNotificationEmail({ agencyId, appointment = nu
       }
     }
     if (items.some(item => item.payload?.facts?.reasonCategory)) {
-      const mailboxes = await resolveWaitlistMailboxes(pool, agencyId);
+      const mailboxes = await scheduleMailboxes(agencyId);
       const brand = { ...context.brand, replyTo: mailboxes.support, displayName: `${context.tenant.name} Notifications` };
       return sendEmailFromIdentity({ ...message, agencyId, senderIdentityId: mailboxes.senderIdentityId,
         replyToOverride: mailboxes.support, fromDisplayNameOverride: brand.displayName, portalEmailBrand: brand,
@@ -38,7 +46,7 @@ export async function sendScheduleNotificationEmail({ agencyId, appointment = nu
     }
     return sendClientPortalEmail({...message,agencyId,context});
   }
-  const mailboxes = await resolveWaitlistMailboxes(pool, agencyId);
+  const mailboxes = await scheduleMailboxes(agencyId);
   const send = message.existingCommunicationId ? sendEmailFromIdentity : sendNotificationEmail;
   return send({ ...message, agencyId, senderIdentityId: mailboxes.senderIdentityId,
     replyToOverride: mailboxes.support });

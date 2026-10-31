@@ -66,6 +66,8 @@
       </button>
     </div>
 
+    <ProviderSchoolsPrograms v-if="!previewMode && !isClubContext && isOnboardingComplete && ['provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant'].includes(authStore.user?.role)" compact :agency-id="currentAgencyId" :user-id="authStore.user?.id" @open="router.push({query:{...route.query,tab:'schools_programs'}})" />
+
     <ProviderOpeningNotice v-if="!previewMode && !isClubContext && isOnboardingComplete && activeTab !== 'my' && (['provider','provider_plus','intern','intern_plus','facilitator','supervisor'].includes(authStore.user?.role) || authStore.user?.has_provider_access)" :provider-id="authStore.user?.id" :agency-id="currentAgencyId" @open="setMyTab('availability')" />
 
     <ProfileContentSearch data-tour="dash-search" v-if="!previewMode && !(isOnboardingComplete && !isClubContext && activeTab === 'overview')" :targets="dashboardContentIndex.targets.value" :loading="dashboardContentIndex.loading.value"
@@ -576,6 +578,10 @@
               @close="closeInlineProgramHub"
               @open-skill-builder-availability="openSkillBuilderAvailabilityFromHub"
             />
+          </div>
+
+          <div v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && activeTab === 'schools_programs'" class="my-panel">
+            <ProviderSchoolsPrograms :agency-id="currentAgencyId" :user-id="authStore.user?.id" :programs="providerAssignedProgramOrgs" @open-program="openProviderProgramPortal" />
           </div>
 
           <!-- Provider: Program Portals overview — list of programs they are assigned to -->
@@ -1424,6 +1430,7 @@ import MyLearningView from './MyLearningView.vue';
 import MyMeetingsView from './MyMeetingsView.vue';
 import ChallengesTab from '../components/dashboard/ChallengesTab.vue';
 import ProviderClientsTab from '../components/dashboard/ProviderClientsTab.vue';
+import ProviderSchoolsPrograms from '../components/dashboard/ProviderSchoolsPrograms.vue';
 import ProviderYearUpdateDashboard from '../components/provider/ProviderYearUpdateDashboard.vue';
 import ClubAddSeasonModal from '../components/club/ClubAddSeasonModal.vue';
 import SupervisionModal from '../components/supervision/SupervisionModal.vue';
@@ -4109,6 +4116,10 @@ const dashboardCards = computed(() => {
         description: 'Attended meetings, participants, chat, transcripts, and personal notes.'
       });
       if (!isClubContext.value && portalsNestCard.value) cards.push(portalsNestCard.value);
+      if (!isClubContext.value && ['provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant'].includes(String(authStore.user?.role||''))) cards.push({
+        id:'schools_programs',label:'Schools & Programs',kind:'content',badgeCount:0,
+        iconUrl:brandingStore.getDashboardCardIconUrl('clients',iconOrg),description:'Your assigned school portals, programs, and school hours requests.'
+      });
 
       // Provider-only surfaces: hide these for limited-access non-provider users and club context.
       if (!isLimitedAccessNonProvider && !isClubContext.value) {
@@ -4434,6 +4445,7 @@ const defaultRailCards = computed(() => {
       documents: 1,
       training: 2,
       my_schedule: 3,
+      schools_programs: 3.2,
       meetings: 3.5,
       skill_builders_provider_hub: 3.7,
       provider_program_portals: 3.8,

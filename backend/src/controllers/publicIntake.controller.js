@@ -2017,6 +2017,14 @@ export const persistChildIntakeData = async ({
         const typeId = await resolveInsuranceTypeIdForAgency(agencyId, coverage.primary.insurerName);
         if (typeId) await pool.execute('UPDATE clients SET insurance_type_id = COALESCE(insurance_type_id, ?) WHERE id = ?', [typeId, cid]);
       }
+    } else if (agencyId && insuranceInfo?.isSelfPay === true) {
+      const { recordIntakeSelfPaySelection } = await import('../services/intakeSelfPaySelection.service.js');
+      const choice = await recordIntakeSelfPaySelection({ clientId: cid, agencyId, isSelfPay: true });
+      result.selfPayRecorded = choice.applied;
+      if (!choice.applied) {
+        const { queueInsuranceVerificationSafely } = await import('../services/insuranceVerificationTask.service.js');
+        await queueInsuranceVerificationSafely({ agencyId, clientId: cid, reason: 'missing_identity' });
+      }
     } else if (agencyId && insuranceInfo?.useInsuranceOnFile) {
       const { enqueueIntakeEligibility } = await import('../services/intakeEligibility.service.js');
       await enqueueIntakeEligibility({agencyId,clientId:cid,submissionId});

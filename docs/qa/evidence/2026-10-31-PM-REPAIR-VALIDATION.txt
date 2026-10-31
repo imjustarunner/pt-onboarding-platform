@@ -1,0 +1,58 @@
+ENGINEERING VALIDATION — OCTOBER 31, 2026 PM
+
+Source baseline: c09bdee9726bf4f7e2a20b88328e4bd0ac6af17c.
+The external PM brief remains FAIL; this file records engineering validation,
+not an external browser, inbox or timed-outreach delivery pass.
+
+VALIDATION
+- Combined changed-backend suite:226 passed,7 MySQL-only cases skipped.
+- Additional administrator authorization/requirement suite:7 passed.
+- Combined frontend suite:178 passed and one outdated status-text expectation
+  failed. Updated that assertion to the new intake-documentation semantics and
+  added the post-day-six reply case; all5 affected card tests then passed.
+  Final unique frontend checks:180 passed across19 files.
+- Full production frontend build passed with an8GiB Node heap. Existing Vite
+  chunk/import warnings remained; no build errors. No dependency install or
+  Docker invocation was used. Task build outputs are reproducible and removed
+  after validation; the generated program-guide PDF is excluded from the commit.
+- Narrow source syntax/Vue compilation and git diff whitespace checks passed.
+- New tests include actual calendar/editor paths, retained-invalid draft gates,
+  yes/no code correction, replacement booking conflict/uncertain-retry handling,
+  Denver projection across DST, individual ROI/tenant/provider boundaries,
+  delayed-send ROI revocation, actual three-contact phase counts, exact48-hour
+  boundaries, SMS-to-email fallback, no duplicate fallback after uncertain SMS,
+  durable arranged-intake stopping, canonical finalized-intake completion,
+  receipt reuse, no-show fee isolation and admin-only requirement controls.
+
+LIVE READS AND GUARDED DEMO CONFIGURATION
+- Exact active synthetic client roster verified at23 IDs, all in agency450.
+- Reviewed dry run classified all23 as unknown billing mode. Applied the
+  allowlisted repair to mark Self Pay; a follow-up dry run reported all23
+  Self Pay and no further updates.
+- Existing notifications identity1119's Reply-To corrected to the existing
+  support@itsco.health address; follow-up dry run found no further mailbox change.
+- The repair created no messages, signatures, charges, enrollments or clearance.
+  Ari2297 and Sky2298 remain un-enrolled/un-cleared contact fixtures.
+- REQ-117 remains pending. Drafts293/294/295, signed cancellation decisions,
+  historical Pro Bono prices and existing appointment UTC times were preserved.
+- Retained294/295 both had service_code90837 at inspection. Their original
+  writing was not modified; the explicit provider reconciliation UI is required.
+
+DIAGNOSED, WITHOUT RETRYING OLD MESSAGES
+- Schedule queue rows were processed; the issue was not an idle worker.
+- Batch57 had a missing notification/support-mailbox review error; batch56
+  had no permitted contact channel. Batch47's email was held after transport
+  redirection. New receipt handling accepts only an internally verified demo450
+  redirect to testing@ with a positive transport ID. Other/uncertain cases stay
+  held. Actual arrival of a new retest email remains an external QA check.
+- Avery's stored timezone is America/Denver. New105–110 bookings had stored
+  source_timezone America/New_York. Grid rendering also used the browser zone.
+  Display/creation fixes preserve all retained instants; intended legacy times
+  require explicit provider review. No historical time migration was performed.
+
+LIMITS
+- No new timed workflow was aged or fast-forwarded, no Day6 notice was forced,
+  and no historical held delivery was released. No real family received test mail.
+- Clinical Notifyre activation and actual48-hour outreach delivery remain open.
+- The startup schema migration adds contact-plan fields but seeds no clients,
+  opt-ins, messages, signatures or senders.

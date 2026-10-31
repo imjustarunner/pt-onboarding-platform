@@ -958,7 +958,7 @@
             </section>
 
             <!-- Guardian (latest intake) -->
-            <section class="ov-card ov-card--guardian">
+            <section v-if="canViewGuardians" class="ov-card ov-card--guardian">
               <header class="ov-card-header">
                 <h3>Guardian contact</h3>
                 <button
@@ -973,19 +973,19 @@
               <div class="ov-card-body">
                 <div class="ov-row">
                   <div class="ov-row-label">Name</div>
-                  <div class="ov-row-value">{{ guardianIntakeName || '-' }}</div>
+                  <div class="ov-row-value">{{ overviewGuardianName || '-' }}</div>
                 </div>
                 <div class="ov-row">
                   <div class="ov-row-label">Email</div>
-                  <div class="ov-row-value">{{ guardianIntakeEmail || '-' }}</div>
+                  <div class="ov-row-value">{{ guardianIntakeEmail || overviewLinkedGuardian?.email || '-' }}</div>
                 </div>
                 <div class="ov-row">
                   <div class="ov-row-label">Phone</div>
-                  <div class="ov-row-value">{{ guardianIntakePhone || '-' }}</div>
+                  <div class="ov-row-value">{{ guardianIntakePhone || overviewLinkedGuardian?.phone || '-' }}</div>
                 </div>
                 <div class="ov-row">
                   <div class="ov-row-label">Relationship</div>
-                  <div class="ov-row-value">{{ guardianIntakeRelationship || '-' }}</div>
+                  <div class="ov-row-value">{{ guardianIntakeRelationship || overviewLinkedGuardian?.relationship || '-' }}</div>
                 </div>
                 <div class="ov-row">
                   <div class="ov-row-label">Date of birth</div>
@@ -1626,19 +1626,19 @@
                 <div class="intake-guardian-details">
                   <div class="intake-guardian-field">
                     <span class="intake-guardian-label">Name</span>
-                    <span>{{ guardianIntakeName || '-' }}</span>
+                    <span>{{ overviewGuardianName || '-' }}</span>
                   </div>
                   <div class="intake-guardian-field">
                     <span class="intake-guardian-label">Email</span>
-                    <span>{{ guardianIntakeEmail || '-' }}</span>
+                    <span>{{ guardianIntakeEmail || overviewLinkedGuardian?.email || '-' }}</span>
                   </div>
                   <div class="intake-guardian-field">
                     <span class="intake-guardian-label">Phone</span>
-                    <span>{{ guardianIntakePhone || '-' }}</span>
+                    <span>{{ guardianIntakePhone || overviewLinkedGuardian?.phone || '-' }}</span>
                   </div>
                   <div class="intake-guardian-field">
                     <span class="intake-guardian-label">Relationship</span>
-                    <span>{{ guardianIntakeRelationship || '-' }}</span>
+                    <span>{{ guardianIntakeRelationship || overviewLinkedGuardian?.relationship || '-' }}</span>
                   </div>
                 </div>
                 <div class="intake-guardian-actions">
@@ -2855,6 +2855,7 @@ import ClientTreatmentPlansPanel from './clientChart/ClientTreatmentPlansPanel.v
 import ClientLearningOsPanel from './clientChart/ClientLearningOsPanel.vue';
 import ClientAuthorizationsPanel from './clientChart/ClientAuthorizationsPanel.vue';
 import { linkedGuardianSummary } from '../../utils/linkedGuardianSummary.js';
+import {useLinkedGuardianContact} from '../../composables/useLinkedGuardianContact.js';
 
 const props = defineProps({
   client: {
@@ -4624,6 +4625,7 @@ const canViewGuardians = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
   return ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant', 'supervisor'].includes(r);
 });
+const guardianContactLoader=useLinkedGuardianContact({clientId:computed(()=>props.client?.id),canView:canViewGuardians,guardians,loading:guardiansLoading,error:guardiansError,api});
 const overviewLinkedGuardian = computed(() => linkedGuardianSummary(guardians.value, { canView: canViewGuardians.value }));
 const overviewGuardianName = computed(() => guardianIntakeName.value || overviewLinkedGuardian.value?.displayName || null);
 const overviewGuardianMeta = computed(() => guardianIntakeEmail.value || guardianIntakePhone.value
@@ -5311,24 +5313,7 @@ const fetchHistory = async () => {
   }
 };
 
-const fetchGuardians = async () => {
-  if (!canViewGuardians.value) return;
-  const clientId = Number(props.client?.id);
-  if (!clientId) return;
-  try {
-    guardiansLoading.value = true;
-    guardiansError.value = '';
-    const resp = await api.get(`/clients/${clientId}/guardians`);
-    if (Number(props.client?.id) !== clientId) return;
-    guardians.value = resp.data || [];
-  } catch (err) {
-    if (Number(props.client?.id) !== clientId) return;
-    guardiansError.value = err.response?.data?.error?.message || 'Failed to load guardians';
-    guardians.value = [];
-  } finally {
-    if (Number(props.client?.id) === clientId) guardiansLoading.value = false;
-  }
-};
+const fetchGuardians = () => guardianContactLoader.load();
 
 const openAddGuardian = () => {
   lastInviteLink.value = '';
@@ -6292,12 +6277,6 @@ watch(chartHub, (hub) => {
   }
 });
 
-watch(() => props.client?.id, () => {
-  guardians.value = [];
-  guardiansError.value = '';
-  guardiansLoading.value = false;
-  if (!guardianIntakeName.value && canViewGuardians.value) fetchGuardians();
-});
 
 watch(() => props.client, async () => {
   // Reset editing states when client changes
@@ -6754,7 +6733,6 @@ onMounted(async () => {
   fetchAccess().catch(() => {});
   await refreshOverviewProviders();
   await fetchAdminNote();
-  if (!guardianIntakeName.value && canViewGuardians.value) fetchGuardians();
   if (isClinicalLikeClientType.value) {
     fetchBillingDiagnoses();
   }

@@ -5340,7 +5340,7 @@
                 class="stack-details-cancelled-badge"
                 style="margin-top: 8px;"
               >
-                Cancelled — still shown on everyone’s schedule
+                {{calendarSessionState(item) || 'Cancelled'}} — retained in schedule history
               </div>
               <div
                 v-if="isEditableScheduleStackItem(item) && scheduleEventEditId !== Number(item.eventId || 0)"
@@ -5824,6 +5824,7 @@ import SupervisionRsvpSummary from './SupervisionRsvpSummary.vue';
 import { supervisionProgress } from '../../utils/supervisionProgress.js';
 import { getScheduleSummary, getScheduleSummaryStale, setScheduleSummary, invalidateScheduleSummaryCacheForUser } from '../../utils/scheduleSummaryCache';
 import { timezoneLabelFor, isoToZonedDatetimeLocal, zonedDatetimeLocalToIso, timezoneAbbrevAt } from '../../utils/timezones.js';
+import {calendarWallDate,calendarSessionState} from '../../utils/calendarWallClock.js';
 import {
   parseScheduleUtcInstant as parseScheduleInstant,
   toSummaryInstantIso,
@@ -9971,7 +9972,7 @@ const tryOpenFocusScheduleEvent = () => {
   if (props.focusEventKind === 'SUPERVISION') {
     const session=(summary.value?.supervisionSessions || []).find(e=>Number(e.id)===eid);
     if(!session)return;
-    const start=parseLocalDateTime(session.startAt);if(!start)return;
+    const start=parseGridEventDate(session.startAt);if(!start)return;
     lastOpenedFocusEventId=eid;
     openSupervisionEditInScheduleModal(dayNameForDateYmd(localYmd(start)), start.getHours(), eid);
     return;
@@ -9980,7 +9981,7 @@ const tryOpenFocusScheduleEvent = () => {
   const ev = rows.find((e) => Number(e?.id || 0) === eid);
   if (!ev) return;
   lastOpenedFocusEventId = eid;
-  const st = parseLocalDateTime(ev?.startAt);
+  const st = parseGridEventDate(ev?.startAt);
   const dayName = dayNameForDateYmd(st ? localYmd(st) : String(ev?.startAt || '').slice(0, 10))
     || orderedDays.value?.[0]
     || 'Monday';
@@ -10673,13 +10674,15 @@ const scheduleEventsInCell = (dayName, hour, minute = 0) => {
     const stRaw = String(ev?.startAt || '').trim();
     const enRaw = String(ev?.endAt || '').trim();
     if (!stRaw || !enRaw) continue;
-    const st = new Date(stRaw.includes('T') ? stRaw : stRaw.replace(' ', 'T'));
-    const en = new Date(enRaw.includes('T') ? enRaw : enRaw.replace(' ', 'T'));
-    if (Number.isNaN(st.getTime()) || Number.isNaN(en.getTime())) continue;
+    const st = parseGridEventDate(stRaw);
+    const en = parseGridEventDate(enRaw);
+    if (!st || !en) continue;
     if (en > cellStart && st < cellEnd) hits.push(ev);
   }
   return hits;
 };
+
+const parseGridEventDate = raw => calendarWallDate(raw, bookingTimezoneIana.value);
 
 const parseLocalDateTime = (raw) => {
   const s = String(raw || '').trim();
@@ -10689,7 +10692,7 @@ const parseLocalDateTime = (raw) => {
 };
 
 const roundDateToNearestQuarter = (raw) => {
-  const d = raw instanceof Date ? new Date(raw.getTime()) : parseLocalDateTime(raw);
+  const d = parseGridEventDate(raw);
   if (!d) return null;
   let quarter = Math.round(d.getMinutes() / 15) * 15;
   if (quarter >= 60) {
@@ -10724,9 +10727,10 @@ const quarterTimingFromRange = (startRaw, endRaw) => {
 };
 
 /** Actual start–end clock range for appointment hovers (not the hour bucket). */
-const clockRangeLabel = (startRaw, endRaw) => {
-  const s = parseLocalDateTime(startRaw);
-  const e = parseLocalDateTime(endRaw);
+const clockRangeLabel = (startRaw, endRaw, wallInput = false) => {
+  const parse=wallInput?parseLocalDateTime:parseGridEventDate;
+  const s = parse(startRaw);
+  const e = parse(endRaw);
   if (!s || !e) return '';
   const sLabel = s.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   const eLabel = e.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -10737,9 +10741,10 @@ const clockRangeLabel = (startRaw, endRaw) => {
  * One continuous block from the start cell: top/height are % of that cell and may exceed 100%
  * so a 2h appointment paints as a single piece across rows (middle/end cells omit the block).
  */
-const appointmentSpanSlice = (startRaw, endRaw, dayName, hour, minute = 0) => {
-  const s = parseLocalDateTime(startRaw);
-  const e = parseLocalDateTime(endRaw);
+const appointmentSpanSlice = (startRaw, endRaw, dayName, hour, minute = 0, wallInput = false) => {
+  const parse = wallInput ? parseLocalDateTime : parseGridEventDate;
+  const s = parse(startRaw);
+  const e = parse(endRaw);
   if (!s || !e || !(e > s)) return null;
   const ws = summary.value?.weekStart || weekStart.value;
   if (ALL_DAYS.indexOf(String(dayName)) < 0) return null;
@@ -10754,8 +10759,8 @@ const appointmentSpanSlice = (startRaw, endRaw, dayName, hour, minute = 0) => {
   return { topPct, heightPct };
 };
 const quarterSegmentForRange = (dayName, hour, minute, startRaw, endRaw) => {
-  const s = parseLocalDateTime(startRaw);
-  const e = parseLocalDateTime(endRaw);
+  const s = parseGridEventDate(startRaw);
+  const e = parseGridEventDate(endRaw);
   if (!s || !e) return 'single';
   if (ALL_DAYS.indexOf(String(dayName)) < 0) return 'single';
   const ws = summary.value?.weekStart || weekStart.value;
@@ -10801,7 +10806,8 @@ const isScheduleEventCancelled = (ev) => (
 );
 
 const isScheduleEventMissed = (ev) => !!ev?.isMissed || ['MISSED','NO_SHOW','NO-SHOW'].includes(String(ev?.appointmentStatus || ev?.status || '').toUpperCase());
-const isScheduleEventTerminal = (ev) => isScheduleEventCancelled(ev) || isScheduleEventMissed(ev);
+const isScheduleEventVoided = ev => calendarSessionState(ev)==='Voided';
+const isScheduleEventTerminal = (ev) => isScheduleEventCancelled(ev) || isScheduleEventMissed(ev) || isScheduleEventVoided(ev);
 
 const isScheduleMeetingCompleted = (ev) => (
   !!ev?.meetingCompleted
@@ -11000,7 +11006,8 @@ const scheduleEventShortLabel = (ev, segmentClass = 'single', { multiline = fals
   else if (eventKind === 'PERSONAL_EVENT' && isClientSessionScheduleEvent(ev)) typePrefix = 'Session';
   else if (eventKind === 'PERSONAL_EVENT') typePrefix = 'Personal';
   else if (/virtual|session/i.test(raw)) typePrefix = 'Session';
-  const canceledPrefix = isScheduleEventMissed(ev) ? 'Missed · ' : isScheduleEventCancelled(ev) ? 'Cancelled · ' : '';
+  const stateLabel=calendarSessionState(ev);
+  const canceledPrefix = stateLabel ? `${stateLabel} · ` : '';
   const typeLabel = `${canceledPrefix}${typePrefix}`.trim();
   const whoLabel = (eventKind === 'HUDDLE' || eventKind === 'TEAM_MEETING')
     ? meetingWhoLabelForGrid(ev, typePrefix)
@@ -11019,7 +11026,7 @@ const scheduleEventShortLabel = (ev, segmentClass = 'single', { multiline = fals
 const scheduleEventBlockTitle = (ev, dayName, hour) => {
   const raw = String(ev?.title || '').trim() || 'Schedule event';
   const privateTag = ev?.isPrivate ? ' • Private' : '';
-  const cancelledTag = isScheduleEventCancelled(ev) ? ' • Cancelled' : '';
+  const cancelledTag = calendarSessionState(ev) ? ` • ${calendarSessionState(ev)}` : '';
   const conf = sessionConfirmationState(ev);
   const confTag = conf === 'confirmed' ? ' • Confirmed' : (conf === 'unconfirmed' ? ' • Unconfirmed' : '');
   const note = sessionSchedulingNoteSnippet(ev);
@@ -11080,7 +11087,7 @@ const officeState = (dayName, hour) => {
   for (const e of s.officeEvents || []) {
     const startRaw = String(e.startAt || '').trim();
     if (!startRaw) continue;
-    const startLocal = parseScheduleInstant(startRaw);
+    const startLocal = parseGridEventDate(startRaw);
     if (!startLocal) continue;
     // Align office-event day matching to the visible grid anchor (Monday-first weekStart).
     const idx = dayIndexForDateLocal(localYmd(startLocal), weekStart.value);
@@ -11098,8 +11105,8 @@ const officeState = (dayName, hour) => {
 
 const hasBusyIntervals = (busyList, dayName, hour, ws, minute = 0) => {
   for (const b of busyList || []) {
-    const start = parseScheduleInstant(b.startAt);
-    const end = parseScheduleInstant(b.endAt);
+    const start = parseGridEventDate(b.startAt);
+    const end = parseGridEventDate(b.endAt);
     if (!start || !end) continue;
     const idx = dayIndexForDateLocal(localYmd(start), ws);
     const dn = ALL_DAYS[idx] || null;
@@ -11123,16 +11130,18 @@ const busyRangeForCell = (busyList, dayName, hour, ws, minute = 0) => {
   const cellEnd = new Date(cellStart.getTime() + ((showQuarterDetail.value ? 15 : 60) * 60 * 1000));
   let minStart = null;
   let maxEnd = null;
+  let minStartInstant = null;
+  let maxEndInstant = null;
   for (const b of busyList || []) {
-    const start = parseScheduleInstant(b.startAt);
-    const end = parseScheduleInstant(b.endAt);
+    const start = parseGridEventDate(b.startAt);
+    const end = parseGridEventDate(b.endAt);
     if (!start || !end) continue;
     if (!(end > cellStart && start < cellEnd)) continue;
-    if (!minStart || start < minStart) minStart = start;
-    if (!maxEnd || end > maxEnd) maxEnd = end;
+    if (!minStart || start < minStart) { minStart = start; minStartInstant = b.startAt; }
+    if (!maxEnd || end > maxEnd) { maxEnd = end; maxEndInstant = b.endAt; }
   }
   if (!minStart || !maxEnd) return null;
-  return { startAt: minStart.toISOString(), endAt: maxEnd.toISOString() };
+  return { startAt: minStartInstant, endAt: maxEndInstant };
 };
 
 const hasGoogleBusy = (dayName, hour, minute = 0) => {
@@ -11157,8 +11166,8 @@ const googleEventsInCell = (dayName, hour, minute = 0) => {
     // Hide Google copies of app-native events — open those in the app editor instead.
     if (gid && knownAppIds.has(gid)) continue;
     if (isAllDayScheduleItem(ev)) continue;
-    const st = parseScheduleInstant(ev.startAt);
-    const en = parseScheduleInstant(ev.endAt);
+    const st = parseGridEventDate(ev.startAt);
+    const en = parseGridEventDate(ev.endAt);
     if (!st || !en) continue;
     if (en > cellStart && st < cellEnd) hits.push(ev);
   }
@@ -11230,7 +11239,7 @@ const agenciesInCell = (kind, dayName, hour) => {
     for (const e of s.officeEvents || []) {
       const startRaw = String(e.startAt || '').trim();
       if (!startRaw) continue;
-      const startLocal = parseScheduleInstant(startRaw);
+      const startLocal = parseGridEventDate(startRaw);
       if (!startLocal) continue;
       const idx = dayIndexForDateLocal(localYmd(startLocal), ws);
       const dn = ALL_DAYS[idx] || null;
@@ -11275,11 +11284,11 @@ const officeEventsInCell = (dayName, hour, minute = 0) => {
   const hits = (s?.officeEvents || []).filter((e) => {
     const startRaw = String(e.startAt || '').trim();
     if (!startRaw) return false;
-    const startLocal = parseScheduleInstant(startRaw);
+    const startLocal = parseGridEventDate(startRaw);
     if (!startLocal) return false;
     const endRaw = String(e.endAt || '').trim();
     const endLocal = endRaw
-      ? parseScheduleInstant(endRaw)
+      ? parseGridEventDate(endRaw)
       : new Date(startLocal.getTime() + (60 * 60 * 1000));
     if (!endLocal || Number.isNaN(endLocal.getTime())) return false;
     return endLocal > cellStart && startLocal < cellEnd;
@@ -11360,8 +11369,8 @@ const supervisionSessionsInCell = (dayName, hour, minute = 0) => {
     const startRaw = String(ev.startAt || '').trim();
     const endRaw = String(ev.endAt || '').trim();
     if (!startRaw || !endRaw) continue;
-    const startLocal = parseScheduleInstant(startRaw);
-    const endLocal = parseScheduleInstant(endRaw);
+    const startLocal = parseGridEventDate(startRaw);
+    const endLocal = parseGridEventDate(endRaw);
     if (!startLocal || !endLocal) continue;
     // Match overlay: time overlap against the cell wall-clock. Do not gate on UTC startDateYmd
     // (evening Mountain sessions can land on the next UTC calendar day).
@@ -11686,7 +11695,7 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
     blocks.push({
       key: `portal-${vwhId || agencyId || 'x'}-${st}`,
       kind: 'portal',
-      shortLabel: `Virtual · ${clockRangeLabel(startAt, endAt)}`,
+      shortLabel: `Virtual · ${clockRangeLabel(startAt, endAt, true)}`,
       virtualSlice: virtualAvailabilityCellSlice(st, et, hour, minute, showQuarterDetail.value ? 15 : 60),
       title: `Saved virtual availability${agencySuffix(agencyId ? [agencyId] : [])} — ${dayName} ${st}–${et}. The public directory can show openings while online booking is off. Publishing a new-client opening switches Virtual from Waitlist to Open. Appointments, school assignments, and app schedule blocks exclude occupied times. A room reservation alone does not block virtual booking.`,
       agencyId,
@@ -14521,10 +14530,10 @@ const editorInfoWhenTimeLabel = computed(() => {
   return range ? (tz ? `${range} · ${tz}` : range) : (tz || '—');
 });
 const editorDisplayTimezoneLabel = computed(() => {
-  if (isScheduleEventEditMode.value && isMeetingStackItem(editingScheduleStackItem.value)) {
-    // Show the zone actually driving the open edit form (the meeting's own persisted zone
-    // when known), not a fresh ambient guess that could differ from what gets saved.
-    return timezoneLabelFor(scheduleEventEditTimeZone.value || teamMeetingTimeZone());
+  if (isScheduleEventEditMode.value && scheduleEventEditTimeZone.value) {
+    // A legacy appointment may have been saved in a different zone. Label the
+    // captured edit fields honestly; opening it must not rewrite its saved instant.
+    return timezoneLabelFor(scheduleEventEditTimeZone.value);
   }
   if (editorIsMeeting.value) {
     return timezoneLabelFor(teamMeetingTimeZone());
@@ -19560,7 +19569,7 @@ const bookingTimezoneIana = computed(() => {
     : null;
   const fromOffice = String(selected?.timezone || offices[0]?.timezone || '').trim();
   const fromGrid = String(officeGrid.value?.location?.timezone || '').trim();
-  return fromOffice || fromGrid || 'America/Denver';
+  return fromOffice || fromGrid || String(agencyStore.currentAgency?.timezone || '').trim() || 'America/Denver';
 });
 const bookingTimezoneLabel = computed(() => timezoneLabelFor(bookingTimezoneIana.value));
 
@@ -20283,7 +20292,7 @@ const cellBlockStyle = (b) => {
     style.minHeight = '18px';
     // Draggable event types (supv/sevt) float above non-draggable office/peer blocks
     // so users can always grab them even when they overlap.
-    if (['supv', 'sevt'].includes(kind) && !b?.isCancelled && Number(b?.eventId || 0) > 0) {
+    if (['supv', 'sevt'].includes(kind) && Number(b?.eventId || 0) > 0) {
       style.zIndex = (Number(style.zIndex) || 3) + 5;
     }
     style.alignItems = 'flex-start';
@@ -23650,13 +23659,8 @@ const startTrackedSupvMeet = async () => {
 };
 
 const parseMaybeDate = (raw) => parseScheduleInstant(raw);
-/** IANA zone for non-meeting schedule items' wall-clock (My Schedule = browser; admin views = office TZ). */
-const scheduleMeetingTimeZone = () => {
-  if (props.mode === 'self') {
-    return String(browserIanaTimeZone() || bookingTimezoneIana.value || 'America/Denver').trim();
-  }
-  return String(bookingTimezoneIana.value || browserIanaTimeZone() || 'America/Denver').trim();
-};
+/** Calendar inputs and new appointments use the displayed office/agency timezone, never the browser's. */
+const scheduleMeetingTimeZone = () => String(bookingTimezoneIana.value || 'America/Denver').trim();
 /**
  * IANA zone for TEAM_MEETING / HUDDLE wall-clock. Always anchors to the selected
  * tenant/office timezone (the one shown right next to the time fields) rather than
@@ -24625,7 +24629,7 @@ const schedDragGhostInfo = computed(() => {
       x: pos.x,
       y: pos.y,
       label: rs.label || 'Appointment',
-      subLabel: clockRangeLabel(rs.newStartAt, rs.newEndAt) || null,
+      subLabel: clockRangeLabel(rs.newStartAt, rs.newEndAt, true) || null,
       hint: null,
     };
   }
@@ -24722,7 +24726,7 @@ const schedResizeOverrideStyle = (b, dayName, hour, minute) => {
     return {};
   }
   if (String(dayName) !== rs.dayName || Number(hour) !== rs.hour) return {};
-  const slice = appointmentSpanSlice(rs.newStartAt, rs.newEndAt, rs.dayName, rs.hour, rs.minute);
+  const slice = appointmentSpanSlice(rs.newStartAt, rs.newEndAt, rs.dayName, rs.hour, rs.minute, rs.active);
   if (!slice) return {};
   return { top: `${slice.topPct}%`, height: `${slice.heightPct}%` };
 };
@@ -24801,8 +24805,8 @@ const onCellBlockResizePointerMove = (e) => {
     if (!zoned) return '';
     return zoned.length === 16 ? `${zoned}:00` : `${zoned.slice(0, 19)}`;
   };
-  let newStartAt = rs.origStartAt;
-  let newEndAt = rs.origEndAt;
+  let newStartAt = toWall(origStart.getTime());
+  let newEndAt = toWall(origEnd.getTime());
   if (rs.edge === 'top') {
     const newMs = Math.min(origEnd.getTime() - 15 * 60000, origStart.getTime() + deltaMin * 60000);
     newStartAt = toWall(newMs);
@@ -24845,7 +24849,7 @@ const onCellBlockResizePointerUp = () => {
     newStartAt: rs.newStartAt,
     newEndAt: rs.newEndAt,
     targetDayName: String(rs.dayName || ''),
-    targetLabel: clockRangeLabel(rs.newStartAt, rs.newEndAt) || '',
+    targetLabel: clockRangeLabel(rs.newStartAt, rs.newEndAt, true) || '',
     fromLabel: clockRangeLabel(rs.origStartAt, rs.origEndAt) || '',
   };
   showAppointmentMoveModal.value = true;
@@ -24854,8 +24858,8 @@ const onCellBlockResizePointerUp = () => {
 const onAppointmentPointerDown = (e, block, dayName, hour, minute = 0) => {
   if (!isAppointmentBlockDraggable(block)) return;
   if (e?.button != null && e.button !== 0) return;
-  const start = parseLocalDateTime(block.startAt);
-  const end = parseLocalDateTime(block.endAt);
+  const start = parseScheduleInstant(block.startAt);
+  const end = parseScheduleInstant(block.endAt);
   if (!start || !end || !(end > start)) return;
   e?.stopPropagation?.();
   appointmentDragState.value = {
@@ -24954,7 +24958,7 @@ const openAppointmentMoveConfirm = (st, target) => {
   const oldNorm = String(st.startAt || '').replace(' ', 'T').slice(0, 16);
   if (oldNorm === newStartAt.slice(0, 16)) return;
   const oldRange = clockRangeLabel(st.startAt, st.endAt);
-  const newRange = clockRangeLabel(newStartAt, newEndAt);
+  const newRange = clockRangeLabel(newStartAt, newEndAt, true);
   appointmentMoveError.value = '';
   appointmentMoveDraft.value = {
     notifyChanges: true,
@@ -25147,7 +25151,7 @@ const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
   if (kind === 'sevt') {
     const bid = Number(block?.eventId || 0);
     const bKind = String(block?.eventKind || '').trim().toUpperCase();
-    const events = scheduleEventsInCell(dayName, hour, minute);
+    const events = (summary.value?.scheduleEvents || []);
     let targetEvent = null;
     if (bid > 0 && bKind) {
       targetEvent = events.find(
@@ -26609,7 +26613,7 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
     id: `sevt-${targetKind || 'evt'}-${String(ev?.id || ev?.googleEventId || Date.now())}`,
     label: String(ev?.title || '').trim() || 'Schedule event',
     subLabel: ev?.allDay ? 'All day' : formatRangeFromRaw(ev?.startAt, ev?.endAt, ['TEAM_MEETING', 'HUDDLE'].includes(targetKind)),
-    kindLabel: cancelled ? `${baseKindLabel} · Cancelled` : baseKindLabel,
+    kindLabel: calendarSessionState(ev) ? `${baseKindLabel} · ${calendarSessionState(ev)}` : baseKindLabel,
     detailText: buildScheduleEventDetailText(ev),
     description: String(ev?.description || '').trim() || '',
     agencyId: Number(ev?.agencyId || ev?._agencyId || 0) || null,

@@ -15769,8 +15769,8 @@ export const listMyAssignedSchoolsForPayroll = async (req, res, next) => {
     // Providers with only in-school clients or only user_agencies school membership
     // may have no slot assignments but should still see their schools.
     const [schools] = await pool.execute(
-      `SELECT DISTINCT schoolOrganizationId, name FROM (
-         SELECT psa.school_organization_id AS schoolOrganizationId, s.name AS name
+      `SELECT DISTINCT schoolOrganizationId, name, schoolSlug FROM (
+         SELECT psa.school_organization_id AS schoolOrganizationId, s.name AS name, s.slug AS schoolSlug
          FROM provider_school_assignments psa
          JOIN agencies s ON s.id = psa.school_organization_id
          JOIN organization_affiliations oa
@@ -15780,7 +15780,7 @@ export const listMyAssignedSchoolsForPayroll = async (req, res, next) => {
          WHERE psa.provider_user_id = ?
            AND psa.is_active = TRUE
          UNION
-         SELECT cpa.organization_id AS schoolOrganizationId, s.name AS name
+         SELECT cpa.organization_id AS schoolOrganizationId, s.name AS name, s.slug AS schoolSlug
          FROM client_provider_assignments cpa
          JOIN agencies s ON s.id = cpa.organization_id
          JOIN organization_affiliations oa
@@ -15791,7 +15791,7 @@ export const listMyAssignedSchoolsForPayroll = async (req, res, next) => {
            AND cpa.is_active = TRUE
            AND s.organization_type = 'school'
          UNION
-         SELECT ua.agency_id AS schoolOrganizationId, s.name AS name
+         SELECT ua.agency_id AS schoolOrganizationId, s.name AS name, s.slug AS schoolSlug
          FROM user_agencies ua
          JOIN agencies s ON s.id = ua.agency_id
          WHERE ua.user_id = ?

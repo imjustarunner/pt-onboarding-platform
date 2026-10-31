@@ -39,4 +39,20 @@ describe('provider billing rates', () => {
     api.get.mockRejectedValue(new Error('Offline')); const w = await open();
     expect(w.text()).toContain('Unable to load'); expect(button(w, 'Save Changes').attributes('disabled')).toBeDefined(); expect(api.put).not.toHaveBeenCalled(); w.unmount();
   });
+  it('lets the agency set different self-pay prices per clinical code without changing insurance prices', async () => {
+    api.get.mockResolvedValue({ data: { selfPayOnly: true, services: [
+      { serviceId: 32, serviceCode: '90832', name: 'Psychotherapy, 30 minutes', businessType: 'clinical', durationMinutes: 30, catalogRateCents: 12000, agencyRate: null },
+      { serviceId: 34, serviceCode: '90834', name: 'Psychotherapy, 45 minutes', businessType: 'clinical', durationMinutes: 45, catalogRateCents: 12000, agencyRate: null },
+      { serviceId: 37, serviceCode: '90837', name: 'Psychotherapy, 60 minutes', businessType: 'clinical', durationMinutes: 60, catalogRateCents: 12000, agencyRate: null }
+    ] } });
+    const w = await open({ providerId: 0 });
+    expect(w.text()).toContain('90832'); expect(w.text()).toContain('90834'); expect(w.text()).toContain('90837');
+    const inputs = w.findAll('input[type=number]');
+    await inputs[0].setValue('60'); await inputs[1].setValue('90'); await inputs[2].setValue('120');
+    await button(w, 'Save Changes').trigger('click'); await flushPromises();
+    expect(api.put).toHaveBeenCalledWith('/tenant-booking/agencies/1/self-pay-rates', { selfPayOnly: true, rates: [
+      { serviceId: 32, rateCents: 6000, rateUnit: 'session' }, { serviceId: 34, rateCents: 9000, rateUnit: 'session' }, { serviceId: 37, rateCents: 12000, rateUnit: 'session' }
+    ] });
+    w.unmount();
+  });
 });

@@ -1,3 +1,4 @@
+vi.mock('../../models/clinical/ClinicalNote.model.js',()=>({default:{hasSignedIntakeForClient:async()=>false}}));
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import mysql from 'mysql2/promise';
 import { readFile } from 'node:fs/promises';

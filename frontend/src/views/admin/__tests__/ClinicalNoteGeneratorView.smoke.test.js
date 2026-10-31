@@ -432,6 +432,83 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     wrapper.unmount();
   });
 
+  it('keeps booked CPT and authored duration across draft reloads', async () => {
+    const { wrapper, state } = await workspace();
+    try {
+      expect(state.resolveNoteTypeSelection('90834')).toBe('90834');
+      await state.loadDraftIntoWorkspace({ id: 294, agency_id: 7, service_code: '90834', input_text: 'Taylor source is retained.' }, {
+        preferredServiceCode: '90834', preferredScheduledStart: '2026-11-02T15:15:00Z', preferredScheduledEnd: '2026-11-02T16:00:00Z'
+      });
+      expect(state.actualServiceCode).toBe('90834');
+      expect(state.sessionDurationMinutes).toBe(45);
+      await state.loadDraftIntoWorkspace({ id: 295, agency_id: 7, service_code: '90834', input_text: 'Second authored source.', output_json: {
+        sections: { Subjective: 'Authored narrative stays intact.' }, meta: { toolId: 'clinical_psychotherapy_note', sessionContext: {
+          serviceCode: '90834', durationMinutes: 52, startTimeLocal: '12:00', endTimeLocal: '12:52'
+        } }
+      } }, { preferredServiceCode: '90837', preferredScheduledStart: '2026-11-05T19:00:00Z', preferredScheduledEnd: '2026-11-05T20:00:00Z' });
+      await nextTick();
+      expect(state.actualServiceCode).toBe('90834');
+      expect(state.sessionDurationMinutes).toBe(52);
+      expect(state.sessionEndTimeLocal).toBe('12:52');
+      expect(state.inputText).toBe('Second authored source.');
+      expect(state.outputObj.sections.Subjective).toBe('Authored narrative stays intact.');
+      await state.autosave();
+      const saved = api.patch.mock.calls.find(([url]) => url === '/clinical-notes/drafts/295')[1];
+      expect(saved).toMatchObject({ serviceCode: '90834', outputJson: { meta: { sessionContext: { serviceCode: '90834', durationMinutes: 52, startTimeLocal: '12:00', endTimeLocal: '12:52' } } } });
+    } finally { wrapper.unmount(); }
+  });
+
+  it('asks before crossing a CPT band; No restores timing and Yes persists the chosen code', async () => {
+    const { wrapper, state } = await workspace();
+    try {
+      await state.loadDraftIntoWorkspace({ id: 295, agency_id: 7, service_code: '90837', input_text: 'Preserve source.', output_json: { meta: { sessionContext: { serviceCode: '90837', durationMinutes: 60, startTimeLocal: '12:00', endTimeLocal: '13:00' } } } });
+      state.sessionDurationMinutes = 55;
+      await nextTick();
+      expect(state.pendingDurationChange).toBeNull();
+      expect(state.actualServiceCode).toBe('90837');
+      state.sessionDurationMinutes = 52;
+      await nextTick();
+      expect(wrapper.find('[role="alertdialog"]').text()).toContain('90834');
+      expect(state.actualServiceCode).toBe('90837');
+      api.patch.mockClear();
+      await state.autosave();
+      expect(api.patch).not.toHaveBeenCalled();
+      state.decideDurationCodeChange(false);
+      await nextTick();
+      expect(state.sessionDurationMinutes).toBe(55);
+      expect(state.sessionEndTimeLocal).toBe('12:55');
+      expect(state.actualServiceCode).toBe('90837');
+      state.sessionDurationMinutes = 52;
+      await nextTick();
+      state.decideDurationCodeChange(true);
+      await nextTick();
+      expect(state.actualServiceCode).toBe('90834');
+      expect(state.sessionDurationMinutes).toBe(52);
+      expect(state.sessionEndTimeLocal).toBe('12:52');
+      await state.autosave();
+      expect(api.patch).toHaveBeenCalledWith('/clinical-notes/drafts/295', expect.objectContaining({ serviceCode: '90834', inputText: 'Preserve source.', outputJson: expect.objectContaining({ meta: expect.objectContaining({ sessionContext: expect.objectContaining({ durationMinutes: 52, serviceCode: '90834' }) }) }) }), expect.anything());
+    } finally { wrapper.unmount(); }
+  });
+
+  it('requires explicit reconciliation of a retained 90837/45-minute draft without inventing a prior valid duration', async () => {
+    const {wrapper,state}=await workspace();
+    try {
+      await state.loadDraftIntoWorkspace({id:294,agency_id:7,service_code:'90837',clinical_session_id:170,input_text:'Keep this retained source.'},{preferredServiceCode:'90834',preferredScheduledStart:'2026-11-02T15:15:00Z',preferredScheduledEnd:'2026-11-02T16:00:00Z'});
+      await nextTick();
+      expect(state.actualServiceCode).toBe('90837');expect(state.sessionDurationMinutes).toBe(45);
+      expect(state.pendingDurationChange).toMatchObject({previousMinutes:null,proposedCode:'90834'});expect(state.generateDisabled).toBe(true);
+      api.patch.mockClear();await state.autosave();expect(api.patch).not.toHaveBeenCalled();
+      state.decideDurationCodeChange(false);await nextTick();
+      expect(state.sessionDurationMinutes).toBe(45);expect(state.actualServiceCode).toBe('90837');expect(state.generateDisabled).toBe(true);
+      expect(wrapper.find('[role="alert"]').text()).toContain('Correct the duration');
+      await state.approveNoteOutput();expect(state.approvalError).toContain('Review the duration');
+      // Reopen and explicitly accept the matching code. Authored text and session link survive.
+      await state.loadDraftIntoWorkspace({id:294,agency_id:7,service_code:'90837',clinical_session_id:170,input_text:'Keep this retained source.'},{preferredScheduledStart:'2026-11-02T15:15:00Z',preferredScheduledEnd:'2026-11-02T16:00:00Z'});
+      state.decideDurationCodeChange(true);await nextTick();await state.autosave();
+      expect(api.patch).toHaveBeenCalledWith('/clinical-notes/drafts/294',expect.objectContaining({serviceCode:'90834',clinicalSessionId:170,inputText:'Keep this retained source.',outputJson:expect.objectContaining({meta:expect.objectContaining({sessionContext:expect.objectContaining({durationMinutes:45,serviceCode:'90834'})})})}),expect.anything());
+    } finally {wrapper.unmount();}
+  });
+
   it('restores extended encounter units and deferred termination choices from a draft', async () => {
     const { wrapper, state } = await workspace();
     await state.loadDraftIntoWorkspace({

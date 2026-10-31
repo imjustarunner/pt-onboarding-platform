@@ -547,7 +547,8 @@ async function deliverOutboundEmail({
   attachments,
   inReplyTo,
   referencesHeader = null,
-  personalReminderId = null
+  personalReminderId = null,
+  schoolContactDraft = null
 }) {
   if (conv.support_ticket_id) throw supportEmailError('Send this reply from the linked support ticket so its shared sender and history are preserved.', 409);
   let mailbox = await resolveEmailSendMailbox({ agencyId: conv.agency_id || inbox?.agency_id, userId, inbox });
@@ -567,6 +568,10 @@ async function deliverOutboundEmail({
     /* keep mailbox name */
   }
   const bodyHtml = html || (text ? plainTextToHtml(text) : null);
+  if (schoolContactDraft) {
+    const {validateSchoolContactStaffDraft}=await import('./schoolContactStaffEmail.service.js');
+    await validateSchoolContactStaffDraft({agencyId:conv.agency_id,userId,draft:schoolContactDraft});
+  }
   return assertOutboundEmailDelivered(
     await sendEmailFromIdentity({
       senderIdentityId: mailbox.identity.id,
@@ -665,6 +670,15 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
       // work email based on recipient availability or personal notification settings.
 
       const attachments = await loadScheduledAttachments(row.id);
+      const storedFrom=typeof row.from_json==='string'?JSON.parse(row.from_json||'{}'):row.from_json||{};
+      // Keep only server-generated workflow/staff/client IDs in the queued
+      // envelope. Current assignment and individual ROI are checked at delivery,
+      // including when they changed during the sender's undo window.
+      const schoolContactDraft=storedFrom.schoolContact?{
+        _schoolContact:{workflowId:Number(storedFrom.schoolContact.workflowId),staffUserId:Number(storedFrom.schoolContact.staffUserId)},
+        clientIds:storedFrom.schoolContactClientIds,
+        to:to.map(x=>x.email).join(', '),cc:cc.map(x=>x.email).join(', '),bcc:bcc.map(x=>x.email).join(', ')
+      }:null;
       const sendResult = await deliverOutboundEmail({
         conv,
         inbox,
@@ -679,7 +693,8 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
         attachments,
         inReplyTo: row.in_reply_to,
         referencesHeader: row.references_header,
-        personalReminderId: row.personal_reply_reminder_id
+        personalReminderId: row.personal_reply_reminder_id,
+        schoolContactDraft
       });
       if (sendResult?.threadId) await CommunicationConversation.update(conv.id, { externalThreadId: sendResult.threadId });
       await CommunicationConversation.updateMessage(row.id, {
@@ -814,6 +829,10 @@ function escapeHtml(s) {
 const plainTextToHtml = plainEmailHtml;
 
 export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
+  if(payload._schoolContact){
+    const {validateSchoolContactStaffDraft}=await import('./schoolContactStaffEmail.service.js');
+    await validateSchoolContactStaffDraft({agencyId,userId,draft:payload});
+  }
   if (payload.clientId) {
     const { resolveClientRecordAccess } = await import('./clientRecordAccess.service.js');
     const [actors] = await pool.execute('SELECT role FROM users WHERE id = ?', [userId]);
@@ -866,6 +885,10 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
   const fromEmail = mailbox.fromEmail;
   const replyTo = mailbox.replyTo;
   let fromDisplayName = mailbox.displayName;
+  const schoolContactEnvelope=payload._schoolContact?{
+    schoolContact:{workflowId:Number(payload._schoolContact.workflowId),staffUserId:Number(payload._schoolContact.staffUserId)},
+    schoolContactClientIds:clientFiling.clientIds
+  }:{};
   try {
     const [senderRows] = await pool.execute(
       `SELECT first_name, last_name FROM users WHERE id = ? LIMIT 1`,
@@ -911,7 +934,7 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
       channel: 'email',
       direction: 'outbound',
       authorUserId: userId,
-      from: { email: fromEmail, name: fromDisplayName, replyTo },
+      from: { email: fromEmail, name: fromDisplayName, replyTo, ...schoolContactEnvelope },
       to,
       cc,
       bcc,
@@ -942,7 +965,7 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
     channel: 'email',
     direction: 'outbound',
     authorUserId: userId,
-    from: { email: fromEmail, name: fromDisplayName, replyTo },
+    from: { email: fromEmail, name: fromDisplayName, replyTo, ...schoolContactEnvelope },
     to,
     cc,
     bcc,
@@ -955,7 +978,12 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
 
   await prepareMessageAttachments(msgId, payload.attachments);
   await recordEmailDeliveryChoice(msgId, userId, deliveryPlan);
-  const sendResult = await deliverPreparedMessage(msgId, () => sendEmailFromIdentity({
+  const sendResult = await deliverPreparedMessage(msgId, async () => {
+    if(payload._schoolContact){
+      const {validateSchoolContactStaffDraft}=await import('./schoolContactStaffEmail.service.js');
+      await validateSchoolContactStaffDraft({agencyId,userId,draft:payload});
+    }
+    return sendEmailFromIdentity({
     senderIdentityId: mailbox.identity.id,
     to: to.map((t) => t.email).join(', '),
     cc: cc.length ? cc.map((c) => c.email).join(', ') : null,
@@ -973,7 +1001,8 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
     // a sibling's message through the originating client's record.
     clientId: clientFiling.clientIds.length === 1 ? clientFiling.clientIds[0] : null,
     templateType: payload.templateType || 'hub_email'
-  }));
+    });
+  });
   assertOutboundEmailDelivered(sendResult);
   if (sendResult?.threadId) await CommunicationConversation.update(conv.id, { externalThreadId: sendResult.threadId });
 

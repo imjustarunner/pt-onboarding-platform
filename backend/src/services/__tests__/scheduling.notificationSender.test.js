@@ -32,3 +32,10 @@ it('uses notifications and support for reviewed day-cancellation family messages
  await sendScheduleNotificationEmail({agencyId:2,clientId:8,to:'parent@example.test',text:'Weather conditions',entries:[{appointment:{id:1},payload:{facts:{reasonCategory:'weather'}}}]});
  expect(m.identity).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:7,replyToOverride:'support@itsco.health',portalEmailBrand:expect.objectContaining({displayName:'Test organization Notifications'})}));
 });
+
+
+it('explains missing appointment mailboxes without calling the failure a waitlist update', async () => {
+  vi.clearAllMocks(); m.mailboxes.mockRejectedValue(Object.assign(new Error('waitlist configuration missing'), { code: 'WAITLIST_MAILBOX_NOT_CONFIGURED' }));
+  await expect(sendScheduleNotificationEmail({ agencyId: 450 })).rejects.toMatchObject({ code: 'SCHEDULE_MAILBOX_NOT_CONFIGURED', message: expect.stringContaining('appointment updates') });
+  expect(m.trigger).not.toHaveBeenCalled(); expect(m.identity).not.toHaveBeenCalled();
+});

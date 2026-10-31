@@ -10,6 +10,37 @@ async function setup(workflow = null) {
   return { change, wrapper: mount(AppointmentChangeWizard, { props: { change }, global: { stubs: { teleport: true } } }) };
 }
 describe('appointment change wizard controls', () => {
+  it('books a replacement from the change form and then requires normal review and signature', async () => {
+    const { wrapper, change } = await setup();
+    change.step.value = 2; change.facts.eventType = 'rescheduled'; change.context.clientId = 8;
+    change.replacementBase.value = { id:4,agencyId:450,providerUserId:1433,tenantServiceId:291,serviceCode:'90834',sourceTimezone:'America/Denver',startAt:'2026-11-06 16:00:00',endAt:'2026-11-06 16:45:00',modality:'VIRTUAL',participants:[{clientId:8,role:'client'}] };
+    api.get.mockResolvedValue({data:{appointments:[]}});api.put.mockResolvedValue({data:{ok:true}});api.post.mockResolvedValue({data:{appointment:{id:99,providerScheduleEventId:999}}});
+    await flushPromises();
+    const chooser=wrapper.find('[data-inline-reschedule]');
+    expect(chooser.text()).toContain('original session changes only after you review and sign');
+    expect(chooser.text()).toContain('America/Denver');
+    await chooser.find('input[type="datetime-local"]').setValue('2026-11-06T14:15');
+    expect(change.inlineReplacement.localStart).toBe('2026-11-06T14:15');
+    await flushPromises();
+    expect(wrapper.find('[data-inline-reschedule] button').attributes('disabled')).toBeUndefined();
+    await wrapper.find('[data-inline-reschedule] button').trigger('click'); await flushPromises();
+    expect(change.inlineReplacement.error).toBe('');
+    expect(api.post).toHaveBeenCalledWith('/appointments',expect.objectContaining({startAt:'2026-11-06T14:15:00',endAt:'2026-11-06T15:00:00',serviceCode:'90834'}),expect.anything());
+    expect(change.facts.replacementAppointmentId).toBe(99);
+    expect(wrapper.text()).toContain('Replacement #99 is booked and selected');
+    expect(change.signatureConfirmed.value).toBe(false);
+    wrapper.unmount();
+  });
+  it('shows the actual attendance policy without claiming its agreement was signed', async () => {
+    const {wrapper,change}=await setup();change.step.value=3;change.preview.value={evaluation:{policyName:'Demo attendance policy',noticeHours:24,lateFeeCents:8000,noShowFeeCents:10000},consequence:{summary:'Self-pay fee applies.'}};
+    await flushPromises();const policy=wrapper.find('[data-attendance-policy]').text();
+    expect(policy).toContain('24 hours');expect(policy).toContain('$80.00');expect(policy).toContain('$100.00');expect(policy).toContain('signed agreement is not verified');wrapper.unmount();
+  });
+  it('offers reviewed no-show notification and suppression controls without replacement booking',async()=>{
+    const {wrapper,change}=await setup();change.facts.eventType='no_show';change.step.value=2;await flushPromises();
+    expect(wrapper.text()).toContain('Send a missed-appointment notification?');expect(change.facts.clientFacingReason).toContain('recorded as missed');
+    expect(wrapper.find('[data-inline-reschedule]').exists()).toBe(false);expect(wrapper.text()).not.toContain('Choose the new session time');wrapper.unmount();
+  });
   it('shows the client message separately from the internal note before signing', async () => {
     const { wrapper, change } = await setup();
     change.step.value = 4; change.facts.eventType = 'canceled'; change.facts.clientFacingReason = 'Your provider is unavailable.';

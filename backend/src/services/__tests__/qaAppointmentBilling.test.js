@@ -19,8 +19,9 @@ it('records the assessed cancellation fee under a stable source and mandatory re
  expect(await syncQaAppointmentBalance(appointment,1440)).toEqual({id:9});
  expect(createReceivable).toHaveBeenCalledWith(expect.objectContaining({agencyId:450,clientId:2271,amountCents:8000,sourceType:'qa_appointment',sourceKey:'72',reviewRequired:true,payload:expect.objectContaining({syntheticOnly:true,noCollection:true})}));
 });
-it('uses the settled no-show amount',async()=>{
- await syncQaAppointmentBalance({...appointment,status:'no_show'},1433);expect(createReceivable).toHaveBeenCalledWith(expect.objectContaining({amountCents:10000,serviceLabel:'Missed appointment'}));
+it('uses the assessed no-show fee rather than the booked session price',async()=>{
+ Appointment.getBilling.mockResolvedValue({settlementMode:'self_pay_only',amountCents:12000});
+ await syncQaAppointmentBalance({...appointment,status:'no_show',cancellationFeeCents:10000},1433);expect(createReceivable).toHaveBeenCalledWith(expect.objectContaining({amountCents:10000,serviceLabel:'Missed appointment'}));
 });
 it.each([2,451,452])('does not touch billing outside isolated agency 450 (%s)',async agencyId=>{
  expect(await syncQaAppointmentBalance({...appointment,agencyId},1433)).toBeNull();expect(pool.execute).not.toHaveBeenCalled();expect(createReceivable).not.toHaveBeenCalled();
@@ -40,4 +41,9 @@ it('does not overwrite previously recorded policy terms',async()=>{
 it('rejects a future outcome before its status can change',async()=>{
  await expect(requireQaOutcomeElapsed({...appointment,endAt:new Date(Date.now()+3600000).toISOString()},'no_show')).rejects.toMatchObject({status:409});
  await expect(requireQaOutcomeElapsed(appointment,'no_show')).resolves.toBeUndefined();
+});
+
+it.each([0,null,undefined])('does not post the full booked price when a no-show fee is absent or held (%s)',async cancellationFeeCents=>{
+ Appointment.getBilling.mockResolvedValue({settlementMode:'self_pay_only',amountCents:12000});
+ await syncQaAppointmentBalance({...appointment,status:'no_show',cancellationFeeCents},1433);expect(createReceivable).not.toHaveBeenCalled();
 });

@@ -3,6 +3,7 @@
     <header><span class="school-contact-mark" aria-hidden="true">✉</span><div><h4>Family contact plan</h4><p>Your introductions and follow-ups are recorded with this client.</p></div></header>
     <article v-for="workflow in workflows" :key="workflow.id">
       <div class="school-contact-workflow-heading"><strong>{{ statusLabel(workflow) }}</strong><small v-if="workflow.initialSentAt">First email · {{ formatDate(workflow.initialSentAt) }}</small></div>
+      <ol v-if="workflow.steps?.length" class="school-contact-workflow-note"><li v-for="step in workflow.steps" :key="step.id">{{ step.step_key.replaceAll('_',' ') }} · {{ step.status }}<span v-if="step.completed_at"> · {{ formatDate(step.completed_at) }}</span><RouterLink v-if="step.conversation_id" :to="{path:messagesPath,query:{conversationId:step.conversation_id}}"> · View email</RouterLink></li></ol>
       <p v-if="workflow.note" class="school-contact-workflow-note">{{ workflow.note }}</p>
       <div class="school-contact-workflow-actions"><RouterLink v-if="workflow.conversationId" :to="{ path: messagesPath, query: { conversationId: workflow.conversationId } }">View email conversation ↗</RouterLink><button v-if="canRecordReply(workflow)" type="button" :disabled="busyId !== null" @click="recordReply(workflow)">{{ busyId === workflow.id ? 'Recording…' : 'Record parent reply · Stop follow-ups' }}</button></div>
       <p v-if="canRecordReply(workflow)" class="school-contact-workflow-hint">Received a reply outside the app? Record it here to stop automated messages to this family.</p>
@@ -26,7 +27,7 @@ const messagesPath = computed(() => {
 });
 const workflows = ref([]), busyId = ref(null), error = ref(''), notice = ref('');
 let version = 0, disposed = false;
-const statusLabel = workflow => workflow.externalReplyRecordedAt ? 'Outside reply recorded · Follow-ups stopped' : ({ queued: 'Introduction queued', waiting_parent: 'Waiting for the family', awaiting_provider: 'Your response is needed', complete: 'Conversation connected', cancelled: 'Contact plan stopped', blocked: 'Contact needs attention', needs_review: 'Delivery needs review' })[workflow.status] || 'Contact in progress';
+const statusLabel = workflow => workflow.status==='intake_followup_required' ? 'Intake Follow-Up Required' : workflow.status==='intake_arranged' ? 'Intake coordination in progress' : workflow.externalReplyRecordedAt ? 'Outside reply recorded · Follow-ups stopped' : ({ queued: 'Introduction queued', waiting_parent: 'Waiting for the family', awaiting_provider: 'Your response is needed', complete: 'Intake documented', cancelled: 'Contact plan stopped', blocked: 'Contact needs attention', needs_review: 'Delivery needs review' })[workflow.status] || 'Contact in progress';
 const canRecordReply = workflow => !!workflow.initialSentAt && !workflow.parentReplyAt && !workflow.externalReplyRecordedAt && !['complete', 'cancelled'].includes(workflow.status);
 const formatDate = formatDateTimeShort;
 async function load() {
@@ -45,7 +46,7 @@ async function recordReply(workflow) {
     const { data } = await api.post(`/school-contact-plan/workflows/${workflow.id}/parent-replied`, {}, { params: { agencyId: props.agencyId }, skipGlobalLoading: true });
     if (disposed || request !== version) return;
     if (!data.stopped) throw new Error('Reply was not recorded');
-    workflow.externalReplyRecordedAt = new Date().toISOString(); workflow.status = 'complete'; workflow.note = 'Provider recorded a reply received outside the app; automated follow-ups stopped.';
+    workflow.externalReplyRecordedAt = new Date().toISOString(); workflow.status = workflow.providerNotifiedAt ? 'intake_followup_required' : 'intake_arranged'; workflow.note = 'Provider recorded a reply received outside the app; automated follow-ups stopped.';
     notice.value = 'Parent reply recorded. Automated follow-ups to this family have stopped.';
   } catch (e) { if (request === version) error.value = e.response?.data?.error?.message || 'The reply could not be recorded. Please try again.'; }
   finally { if (request === version) busyId.value = null; }

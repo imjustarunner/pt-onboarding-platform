@@ -61,7 +61,7 @@ export async function getSelfPayRates(agencyId, providerId = 0) {
   return { agencyId: Number(agencyId), providerId: Number(providerId), selfPayOnly, services: services.map(s => {
     const agencyRate = rate(rates.find(r => Number(r.tenant_service_id) === s.id && Number(r.provider_user_id) === 0));
     const providerRate = providerId ? rate(rates.find(r => Number(r.tenant_service_id) === s.id && Number(r.provider_user_id) === Number(providerId))) : null;
-    return { serviceId: s.id, name: s.name, businessType: s.businessType, durationMinutes: s.defaultDurationMinutes,
+    return { serviceId: s.id, serviceCode: s.serviceCode || null, name: s.name, businessType: s.businessType, durationMinutes: s.defaultDurationMinutes,
       agencyRate, providerRate, effectiveRate: providerRate || agencyRate || (s.priceCents == null ? null : { rateCents: s.priceCents, rateUnit: 'session' }),
       catalogRateCents: s.priceCents };
   }) };
