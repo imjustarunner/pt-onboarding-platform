@@ -5,13 +5,13 @@ The external PM brief remains FAIL; this file records engineering validation,
 not an external browser, inbox or timed-outreach delivery pass.
 
 VALIDATION
-- Combined changed-backend suite:226 passed,7 MySQL-only cases skipped.
-- Additional administrator authorization/requirement suite:7 passed.
-- Combined frontend suite:178 passed and one outdated status-text expectation
+- Combined changed-backend suite: 226 passed, 7 MySQL-only cases skipped.
+- Additional administrator authorization/requirement suite: 7 passed.
+- Combined frontend suite: 178 passed and one outdated status-text expectation
   failed. Updated that assertion to the new intake-documentation semantics and
-  added the post-day-six reply case; all5 affected card tests then passed.
-  Final unique frontend checks:180 passed across19 files.
-- Full production frontend build passed with an8GiB Node heap. Existing Vite
+  added the post-day-six reply case; all 5 affected card tests then passed.
+  Final unique frontend checks: 180 passed across 19 files.
+- Full production frontend build passed with an 8 GiB Node heap. Existing Vite
   chunk/import warnings remained; no build errors. No dependency install or
   Docker invocation was used. Task build outputs are reproducible and removed
   after validation; the generated program-guide PDF is excluded from the commit.
@@ -19,41 +19,41 @@ VALIDATION
 - New tests include actual calendar/editor paths, retained-invalid draft gates,
   yes/no code correction, replacement booking conflict/uncertain-retry handling,
   Denver projection across DST, individual ROI/tenant/provider boundaries,
-  delayed-send ROI revocation, actual three-contact phase counts, exact48-hour
+  delayed-send ROI revocation, actual three-contact phase counts, exact 48-hour
   boundaries, SMS-to-email fallback, no duplicate fallback after uncertain SMS,
   durable arranged-intake stopping, canonical finalized-intake completion,
   receipt reuse, no-show fee isolation and admin-only requirement controls.
 
 LIVE READS AND GUARDED DEMO CONFIGURATION
-- Exact active synthetic client roster verified at23 IDs, all in agency450.
-- Reviewed dry run classified all23 as unknown billing mode. Applied the
-  allowlisted repair to mark Self Pay; a follow-up dry run reported all23
+- Exact active synthetic client roster verified at 23 IDs, all in agency 450.
+- Reviewed dry run classified all 23 as unknown billing mode. Applied the
+  allowlisted repair to mark Self Pay; a follow-up dry run reported all 23
   Self Pay and no further updates.
-- Existing notifications identity1119's Reply-To corrected to the existing
+- Existing notifications identity 1119's Reply-To corrected to the existing
   support@itsco.health address; follow-up dry run found no further mailbox change.
 - The repair created no messages, signatures, charges, enrollments or clearance.
-  Ari2297 and Sky2298 remain un-enrolled/un-cleared contact fixtures.
-- REQ-117 remains pending. Drafts293/294/295, signed cancellation decisions,
+  Ari 2297 and Sky 2298 remain un-enrolled/un-cleared contact fixtures.
+- REQ-117 remains pending. Drafts 293/294/295, signed cancellation decisions,
   historical Pro Bono prices and existing appointment UTC times were preserved.
-- Retained294/295 both had service_code90837 at inspection. Their original
+- Retained 294/295 both had service_code 90837 at inspection. Their original
   writing was not modified; the explicit provider reconciliation UI is required.
 
 DIAGNOSED, WITHOUT RETRYING OLD MESSAGES
 - Schedule queue rows were processed; the issue was not an idle worker.
-- Batch57 had a missing notification/support-mailbox review error; batch56
-  had no permitted contact channel. Batch47's email was held after transport
-  redirection. New receipt handling accepts only an internally verified demo450
+- Batch 57 had a missing notification/support-mailbox review error; batch 56
+  had no permitted contact channel. Batch 47's email was held after transport
+  redirection. New receipt handling accepts only an internally verified demo 450
   redirect to testing@ with a positive transport ID. Other/uncertain cases stay
   held. Actual arrival of a new retest email remains an external QA check.
-- Avery's stored timezone is America/Denver. New105–110 bookings had stored
+- Avery's stored timezone is America/Denver. New 105–110 bookings had stored
   source_timezone America/New_York. Grid rendering also used the browser zone.
   Display/creation fixes preserve all retained instants; intended legacy times
   require explicit provider review. No historical time migration was performed.
 
 LIMITS
-- No new timed workflow was aged or fast-forwarded, no Day6 notice was forced,
+- No new timed workflow was aged or fast-forwarded, no Day 6 notice was forced,
   and no historical held delivery was released. No real family received test mail.
-- Clinical Notifyre activation and actual48-hour outreach delivery remain open.
+- Clinical Notifyre activation and actual 48-hour outreach delivery remain open.
 - The startup schema migration adds contact-plan fields but seeds no clients,
   opt-ins, messages, signatures or senders.
 
@@ -61,18 +61,27 @@ FINAL EXPANDED VALIDATION
 - Expanded scheduling CI exposed three browser-dependent test fixtures under
   UTC. Their API timestamps now explicitly represent the intended Mountain
   wall times; real grid-cell and cancel-click assertions remain intact.
-- Full school-calendar suite:101 passed in UTC and101 in America/Denver.
-- Full PM frontend suite:180 passed in UTC and180 in America/Denver.
-- Both MySQL integration fixtures now load migration1722 and current schema.
-  All12 integration cases passed against isolated native MySQL9.5 with
-  networking disabled and mocked transports. The190MiB temporary database was
+- Full school-calendar suite: 101 passed in UTC and 101 in America/Denver.
+- Full PM frontend suite: 180 passed in UTC and 180 in America/Denver.
+- Both MySQL integration fixtures now load migration 1722 and current schema.
+  All 12 integration cases passed against isolated native MySQL 9.5 with
+  networking disabled and mocked transports. The 190 MiB temporary database was
   stopped and removed. No Docker or production database was used for them.
-- Running backend6780ba8bcd3c44d60778fd5d6df50e8b18ab2acb reported ready.
-  The new schema migration reports success. Retained workflows1/5 remain
+- Running backend 6780ba8bcd3c44d60778fd5d6df50e8b18ab2acb reported ready.
+  The new schema migration reports success. Retained workflows 1/5 remain
   waiting_parent; second/final/provider-notice timestamps are still null.
 - No timed phase or historic send was forced to produce that verification.
-- Cedar Grove451 had no school_profiles row, explaining the missing school
+- Cedar Grove 451 had no school_profiles row, explaining the missing school
   recipient. Created its communication profile with testing@itsco.health as
   the shared school email, guarded by exact demo/school slugs, synthetic-only
-  agency450 and active affiliation. No existing address was overwritten and
+  agency 450 and active affiliation. No existing address was overwritten and
   no old notice was resent. Fresh preview/delivery remains a browser QA check.
+
+FINAL FULL CI FRONTEND SELECTION
+- The exact 47-file scheduling/display selection passed 353/353 checks in UTC
+  and 353/353 in America/Denver after making overlap and supervision fixtures
+  use explicit Mountain instants. Existing hover/lane/cancel/recurrence/RSVP
+  assertions remain. These final edits changed test fixtures, not app behavior.
+- Both deployed manifests reported 5f9bbd25d9a2c30197d91180fe65c154c5aa38b0,
+  with the backend ready. Final follow-up commit contains only fixtures and
+  this handoff evidence; external browser/timed-delivery QA remains pending.

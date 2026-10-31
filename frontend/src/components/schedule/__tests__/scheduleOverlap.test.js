@@ -6,14 +6,17 @@ const m = vi.hoisted(() => ({get:vi.fn(),put:vi.fn(),route:null,prefs:{},colors:
 vi.mock('../../../services/api', () => ({default:{get:m.get,put:m.put,post:vi.fn(),delete:vi.fn(),patch:vi.fn()},isApiRateLimited:()=>false}));
 vi.mock('vue-router', () => ({useRoute:()=>m.route,useRouter:()=>({push:vi.fn(),replace:vi.fn(),resolve:()=>({href:'/dashboard'})})}));
 vi.mock('../../../store/auth', () => ({useAuthStore:()=>({user:{id:7,role:'admin'},isAuthenticated:true})}));
-vi.mock('../../../store/agency', () => ({useAgencyStore:()=>({currentAgency:{id:2,name:'Test agency',slug:'test',organization_type:'agency'},agencies:[],userAgencies:[]})}));
+vi.mock('../../../store/agency', () => ({useAgencyStore:()=>({currentAgency:{id:2,name:'Test agency',slug:'test',organization_type:'agency',timezone:'America/Denver'},agencies:[],userAgencies:[]})}));
 import Grid from '../ScheduleAvailabilityGrid.vue';
 let wrapper;
-const event=(id,start,end)=>({id,kind:'SCHEDULE_HOLD',title:`Block ${id}`,startAt:`2026-10-13T${start}:00`,endAt:`2026-10-13T${end}:00`,agencyId:2,providerId:7});
+// These fixtures describe Mountain wall times on October 13 (MDT, UTC−6).
+// API timestamps are instants, independent of the browser/test runner's timezone.
+const event=(id,start,end)=>({id,kind:'SCHEDULE_HOLD',title:`Block ${id}`,startAt:`2026-10-13T${start}:00-06:00`,endAt:`2026-10-13T${end}:00-06:00`,agencyId:2,providerId:7});
 async function mount(props={}) {
   wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2,weekStartYmd:'2026-10-12',...props},global:{stubs:{Teleport:false,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});
   await flushPromises();
   const s=wrapper.vm.$.setupState;
+  expect(s.bookingTimezoneIana).toBe('America/Denver');
   s.summary=m.summary;
   await nextTick();
   return s;

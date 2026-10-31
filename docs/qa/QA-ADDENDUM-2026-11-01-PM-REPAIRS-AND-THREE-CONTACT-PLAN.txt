@@ -12,15 +12,15 @@ SCOPE AND RETAINED RECORDS
 - Jordan 1434 is support; Jamie 1465 is School Admin for school 451 only.
 - Avery 1433, Cameron 1438 and Alex 1439 are the clinical providers. Quality
   Tester 1490 remains the Google SSO/contact fixture, without clinical signing.
-- Engineering verified23 retained clients;4 provider-role accounts were last
-  observed. Recount first. Maximum30 clients /10 providers; reuse records.
+- Engineering verified 23 retained clients; 4 provider-role accounts were last
+  observed. Recount first. Maximum 30 clients / 10 providers; reuse records.
 - No real-client tests, card charges, insurance submissions, destructive purge,
   password publishing, or external delivery outside the approved QA controls.
 - Clinical SMS remains BLOCKED until the approved Notifyre route and consent
   are active in the app. Do not substitute Vonage clinical messaging.
 
 APPLIED DEMO CONFIGURATION
-- The23 allowlisted synthetic clients are explicitly Self Pay. A repeat dry run
+- The 23 allowlisted synthetic clients are explicitly Self Pay. A repeat dry run
   found no further changes. Ari 2297 and Sky 2298 still have no completed
   enrollment/clearance; Self Pay does not supply missing consent or paperwork.
 - The existing demo notification identity now replies to its already-configured
@@ -34,9 +34,9 @@ APPLIED DEMO CONFIGURATION
 
 A newly assigned school client, after the provider enables the plan:
 1) Immediately: Introduction & Next Steps for Counseling Services email.
-2)48 elapsed hours after the first contact: provider text if permitted and a
+2) 48 elapsed hours after the first contact: provider text if permitted and a
    working approved clinical route is available; otherwise the second email.
-3)48 elapsed hours after the second contact: final email, always.
+3) 48 elapsed hours after the second contact: final email, always.
 
 A queued/ambiguous failed text must not be followed by a duplicate fallback
 email. Review delivery evidence. Only an accepted contact completes its phase.
@@ -47,7 +47,7 @@ arranged-intake marker persists after that appointment time has elapsed.
 If a guardian replies but the provider is silent for 48 hours, alert support
 and remind the provider by email and any permitted staff text.
 
-If three contacts remain unanswered48 hours after contact3 (normally day 6),
+If three contacts remain unanswered 48 hours after contact 3 (normally day 6),
 email the provider, copying the support team and assigned supervisor where
 present. Show Intake Follow-Up Required on the client's contact-plan card.
 Repeat documentation reminders every 48 hours until a finalized intake is
@@ -79,7 +79,7 @@ Jordan must be denied the administrative requirement endpoint/screen. Do not
 change a provider's requirement merely to inspect the list; use the authorized
 setup admin for a separately planned requirement/decline check.
 
-2. DAY6 NOTICE — CLIENT-SPECIFIC ROI CONTACTS AND EMAIL COMPOSER
+2. DAY 6 NOTICE — CLIENT-SPECIFIC ROI CONTACTS AND EMAIL COMPOSER
 
 The provider notice must list the name and email of each CURRENT individually
 approved school staff member for THAT client. A school-admin badge, school-wide
@@ -119,7 +119,7 @@ school addresses for test sends. Record accepted-versus-delivered separately.
 
 For in-app guardian reply detection, reply from testing@ through the QA inbox's
 accepted Send As address, preserving the original Reply-To/thread. qa-inbox@
-identifies provider1490, not guardian 1437. Avery's non-SSO external replies
+identifies provider 1490, not guardian 1437. Avery's non-SSO external replies
 still require the normal Record parent reply action if not visible in the app;
 label that manual recording honestly rather than calling it auto-detection.
 
@@ -165,10 +165,10 @@ previous valid duration. A retained already-invalid draft instead keeps its
 recorded text and asks the provider to reconcile code/duration before saving,
 generating or signing. It must not silently choose a code.
 
-Draft 294/session170 and draft 295/session175 still contain retained authored
-content. Their table code was90837 at inspection. Use the explicit reconciliation
+Draft 294/session 170 and draft 295/session 175 still contain retained authored
+content. Their table code was 90837 at inspection. Use the explicit reconciliation
 UI, verify the intended booking and never overwrite source text. Retained
-293/session167 remains an unrelated orphan; do not link it by date alone.
+293/session 167 remains an unrelated orphan; do not link it by date alone.
 Complete the normal finalized intake/treatment-plan/signature gates and
 Cameron's retained 286 cosign lane. No gate was waived by these repairs.
 
@@ -186,9 +186,9 @@ workflow narrative, request time and actual email. A browser using Eastern
 must not draw a Denver 9 AM session at 11 AM. Check both sides of Nov 1 DST.
 New bookings use the displayed calendar zone. Existing UTC instants were not
 shifted: appointments 105–110 were saved with America/New_York. For example
-105 is Nov 5 14:00UTC, which is7 AM MST. Have the authorized provider review
+105 is Nov 5 14:00 UTC, which is 7 AM MST. Have the authorized provider review
 and explicitly correct intended times before relying on them for reminders;
-do not call the old9 AM expectation verified merely because rendering changed.
+do not call the old 9 AM expectation verified merely because rendering changed.
 Voided 110 should say Voided; canceled clinical sessions should open the session
 rather than the overlapping school-hours panel. Keep their audit history.
 

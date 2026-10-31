@@ -6,9 +6,10 @@ const m=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),patch:vi.fn(),route:null,repla
 vi.mock('../../../services/api',()=>({default:{get:m.get,post:m.post,patch:m.patch},isApiRateLimited:()=>false}));
 vi.mock('vue-router',()=>({useRoute:()=>m.route,useRouter:()=>({push:vi.fn(),replace:m.replace,resolve:()=>({href:'/dashboard'})})}));
 vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:{id:7,role:'provider',has_supervisor_privileges:true},isAuthenticated:true})}));
-vi.mock('../../../store/agency',()=>({useAgencyStore:()=>({currentAgency:{id:2,name:'Test agency',slug:'test',organization_type:'agency',feature_flags:{hasClinicalOrg:true}},agencies:[],userAgencies:[]})}));
+vi.mock('../../../store/agency',()=>({useAgencyStore:()=>({currentAgency:{id:2,name:'Test agency',slug:'test',organization_type:'agency',timezone:'America/Denver',feature_flags:{hasClinicalOrg:true}},agencies:[],userAgencies:[]})}));
 import Grid from '../ScheduleAvailabilityGrid.vue';
 import { invalidateScheduleSummaryCacheForUser } from '../../../utils/scheduleSummaryCache';
+// Supervision fixtures are 10–11 AM Mountain (MDT), regardless of the host timezone.
 let wrapper;
 beforeEach(()=>{vi.clearAllMocks();invalidateScheduleSummaryCacheForUser(7);setActivePinia(createPinia());localStorage.clear();sessionStorage.clear();m.route=reactive({path:'/dashboard',params:{},query:{}});m.get.mockImplementation(async url=>({data:url.includes('supervision/providers')?{providers:[{id:8,firstName:'Supervisee'}],facilitators:[{id:7,firstName:'Supervisor'}]}:url.includes('agencies')?[]:{}}));m.post.mockResolvedValue({data:{session:{id:10}}});m.patch.mockResolvedValue({data:{ok:true}});});
 afterEach(async()=>{wrapper?.unmount();await flushPromises();invalidateScheduleSummaryCacheForUser(7);});
@@ -40,7 +41,7 @@ describe('My Schedule supervision controls',()=>{
   expect(bookings.every(b=>b.supervisorUserId===7&&b.superviseeUserId===8&&b.reminderOffsets.join(',')==='30,5')).toBe(true);
  });
  it('defaults recurring meetings to ongoing and submits explicit single versus future cancellation',async()=>{
-  const fixture={weekStart:'2026-10-05',supervisionSessions:[{id:10,supervisorUserId:7,recurrenceSeriesId:'series',startAt:new Date(2026,9,5,10).toISOString(),endAt:new Date(2026,9,5,11).toISOString()}]};
+  const fixture={weekStart:'2026-10-05',supervisionSessions:[{id:10,supervisorUserId:7,recurrenceSeriesId:'series',startAt:'2026-10-05T16:00:00Z',endAt:'2026-10-05T17:00:00Z'}]};
   // Cancellation refreshes in the background. Every summary read must return
   // the fixture, including a slower refresh arriving during the second scope.
   const defaultGet=m.get.getMockImplementation();
@@ -76,7 +77,7 @@ it('ignores Google-only overlaps but keeps simultaneous app conflicts',async()=>
 });
 
 for(const series of [false,'single','future']) it(series?`reloads the repeat label and saves the explicit ${series} edit scope`:'saves the repeat selection when converting an existing one-time session',async()=>{
- const fixture={weekStart:'2026-10-05',supervisionSessions:[{id:10,supervisorUserId:7,superviseeUserId:8,sessionType:'individual',recurrenceSeriesId:series?'weekly':null,recurrenceFrequency:series?'WEEKLY':null,recurrencePolicy:'INDEFINITE',startAt:new Date(2026,9,5,10).toISOString(),endAt:new Date(2026,9,5,11).toISOString()}]};
+ const fixture={weekStart:'2026-10-05',supervisionSessions:[{id:10,supervisorUserId:7,superviseeUserId:8,sessionType:'individual',recurrenceSeriesId:series?'weekly':null,recurrenceFrequency:series?'WEEKLY':null,recurrencePolicy:'INDEFINITE',startAt:'2026-10-05T16:00:00Z',endAt:'2026-10-05T17:00:00Z'}]};
  const defaultGet=m.get.getMockImplementation();
  m.get.mockImplementation(async(url,...args)=>url.includes('schedule-summary')?{data:fixture}:defaultGet(url,...args));
  const confirm=vi.spyOn(window,'confirm').mockReturnValue(true);
@@ -96,7 +97,7 @@ for(const series of [false,'single','future']) it(series?`reloads the repeat lab
 });
 
 it('shows recurrence and outcome controls on Info, hides Join/status in Edit, and asks for a reason only after changing the time',async()=>{
- const fixture={weekStart:'2026-10-05',supervisionSessions:[{id:10,supervisorUserId:7,superviseeUserId:8,status:'SCHEDULED',role:'supervisor',modality:'virtual',sessionType:'individual',recurrenceSeriesId:'series',recurrenceFrequency:'WEEKLY',joinUrl:'/join/test',startAt:new Date(2026,9,5,10).toISOString(),endAt:new Date(2026,9,5,11).toISOString()}]};
+ const fixture={weekStart:'2026-10-05',supervisionSessions:[{id:10,supervisorUserId:7,superviseeUserId:8,status:'SCHEDULED',role:'supervisor',modality:'virtual',sessionType:'individual',recurrenceSeriesId:'series',recurrenceFrequency:'WEEKLY',joinUrl:'/join/test',startAt:'2026-10-05T16:00:00Z',endAt:'2026-10-05T17:00:00Z'}]};
  const defaultGet=m.get.getMockImplementation();m.get.mockImplementation(async(url,...args)=>url.includes('schedule-summary')?{data:fixture}:defaultGet(url,...args));
  vi.spyOn(window,'confirm').mockReturnValue(true);
  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:false,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
@@ -117,7 +118,7 @@ it('shows recurrence and outcome controls on Info, hides Join/status in Edit, an
 it('opens a group attendee’s RSVP first and lets them continue to details', async () => {
  const clock=vi.spyOn(Date,'now').mockReturnValue(new Date('2026-10-04T00:00:00Z').getTime());
  try {
-  const fixture={weekStart:'2026-10-05',supervisionSessions:[{id:10,supervisorUserId:9,sessionType:'group',status:'SCHEDULED',startAt:new Date(2026,9,5,10).toISOString(),endAt:new Date(2026,9,5,11).toISOString()}]};
+  const fixture={weekStart:'2026-10-05',supervisionSessions:[{id:10,supervisorUserId:9,sessionType:'group',status:'SCHEDULED',startAt:'2026-10-05T16:00:00Z',endAt:'2026-10-05T17:00:00Z'}]};
   const defaultGet=m.get.getMockImplementation();m.get.mockImplementation(async(url,...args)=>url.includes('schedule-summary')?{data:fixture}:defaultGet(url,...args));
   wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{Teleport:false,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
   const s=wrapper.vm.$.setupState;
@@ -128,7 +129,7 @@ it('opens a group attendee’s RSVP first and lets them continue to details', as
   const dialog=wrapper.findComponent({name:'SupervisionRsvpDialog'});
   expect(dialog.exists()).toBe(true);expect(dialog.props('session').id).toBe(10);expect(s.showRequestModal).toBe(false);
   dialog.vm.$emit('details');await flushPromises();expect(s.personalSupervisionRsvp).toBeNull();expect(s.showRequestModal).toBe(true);
-  clock.mockReturnValue(new Date(2026,9,5,10,15).getTime());
+  clock.mockReturnValue(new Date('2026-10-05T16:15:00Z').getTime());
   Object.assign(fixture.supervisionSessions[0],{enrollmentMode:'invited',viewerRsvpStatus:'DECLINED'});s.summary={...fixture};
   s.openSupervisionEditInScheduleModal('Monday',10,10);await flushPromises();
   expect(wrapper.findComponent({name:'SupervisionRsvpDialog'}).exists()).toBe(true);
