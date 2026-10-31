@@ -255,14 +255,29 @@ function requireSchoolReviewSection(recipient) {
   requireSection(recipient,'office_schedule');
  }
 }
+// Signed-in providers manage their own school requests throughout the year.
+// Only emailed update links inherit campaign/section restrictions.
+async function schoolReviewContext(req) {
+ if(req.params.token){const r=await reviewRecipient(req);requireSchoolReviewSection(r);return r;}
+ const providerId=Number(req.user?.id),agencyId=Number(req.body?.agencyId||req.query?.agencyId);
+ if(!Number.isSafeInteger(providerId)||providerId<=0)throw fail('Sign in to review your school schedule.',401);
+ if(!Number.isSafeInteger(agencyId)||agencyId<=0)throw fail('Choose the agency that manages your school assignment.');
+ const user=await User.findById(providerId);
+ const providerRoles=['provider','provider_plus','clinical_practice_assistant','supervisor','intern','intern_plus'];
+ if(!user||!providerRoles.includes(String(user.role||'').toLowerCase())||Number(user.is_active)===0||Number(user.is_archived)===1)throw fail('Provider access required.',403);
+ const [memberships]=await pool.execute(`SELECT 1 FROM user_agencies ua JOIN agencies a ON a.id=ua.agency_id
+  WHERE ua.user_id=? AND ua.agency_id=? AND ua.is_active=1 AND a.is_active=1 AND COALESCE(a.is_archived,0)=0 LIMIT 1`,[providerId,agencyId]);
+ if(!memberships.length)throw fail('You do not have active access to this agency.',403);
+ return {provider_user_id:providerId,agency_id:agencyId,user};
+}
 export async function schoolReview(req,res,next){
- try{const r=await reviewRecipient(req);requireSchoolReviewSection(r);
+ try{const r=await schoolReviewContext(req);
   const {loadProviderSchoolSchedule,loadProviderPendingScheduleAdjustments}=await import('../services/providerYearUpdate.service.js');
   res.json({schools:await loadProviderSchoolSchedule(r.provider_user_id,r.agency_id),pending:await loadProviderPendingScheduleAdjustments(r.provider_user_id,r.agency_id)});
  }catch(e){next(e);}
 }
 export async function schoolAdjustment(req,res,next){
- try{const r=await reviewRecipient(req);requireSchoolReviewSection(r);if(r.previewOnly)throw fail('This preview is read-only.',403);
+ try{const r=await schoolReviewContext(req);if(r.previewOnly)throw fail('This preview is read-only.',403);
   const {loadProviderSchoolSchedule}=await import('../services/providerYearUpdate.service.js');
   const schools=await loadProviderSchoolSchedule(r.provider_user_id,r.agency_id);
   const school=schools.find(s=>s.days.some(d=>Number(d.assignmentId)===Number(req.params.assignmentId)));
@@ -271,7 +286,7 @@ export async function schoolAdjustment(req,res,next){
   if(!Number.isInteger(slotsTotal)||slotsTotal<0||slotsTotal>40||moveToDay&&!['Monday','Tuesday','Wednesday','Thursday','Friday'].includes(moveToDay))throw fail('Choose valid weekday hours and 0–40 client spots.');
   const clean=v=>String(v||'').replace(/[|\r\n]/g,' ').slice(0,600);
   const note=[`Schedule adjustment request for ${clean(school.schoolName)}`,`Day: ${day.dayOfWeek}`,moveToDay&&moveToDay!==day.dayOfWeek?`Requested day: ${moveToDay} | Change type: day_move`:null,`Current slots: ${day.clientCount||0} assigned / ${day.slotsTotal||0} total`,`Requested slots total: ${slotsTotal}`,`Current hours: ${String(day.startTime||'').slice(0,5)}–${String(day.endTime||'').slice(0,5)}`,`Requested hours: ${clean(startTime)}–${clean(endTime)}`,`Note: ${clean(notes)}`].filter(Boolean).join(' | ');
-  const user=await User.findById(r.provider_user_id);
+  const user=r.user||await User.findById(r.provider_user_id);
   const scoped={...req,user:{...user,id:r.provider_user_id},query:{agencyId:r.agency_id},body:{agencyId:r.agency_id,requestKind:'schedule_adjustment',preferredSchoolOrgIds:[school.schoolOrganizationId],notes:note,blocks:[{dayOfWeek:day.dayOfWeek,startTime,endTime,schoolOrganizationId:school.schoolOrganizationId}]}};
   const {createMySchoolAvailabilityRequest}=await import('./availability.controller.js');return createMySchoolAvailabilityRequest(scoped,res,next);
  }catch(e){next(e);}

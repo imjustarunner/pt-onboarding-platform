@@ -86,3 +86,47 @@ it.each(['Thanks, [Your Name/Support Team]', 'Your message appears to be empty.'
   expect(res.status).toHaveBeenCalledWith(422);
   expect(pool.execute.mock.calls.some(([sql]) => sql.includes('SET ai_draft_response'))).toBe(false);
 });
+
+function addScopedClientEvidence(question, extra = {}) {
+  const encrypted = prepareEncryptedTicketText(question);
+  Object.assign(ticket, { created_by_user_id: 1465, ...extra, question: encrypted.plain, question_ciphertext: encrypted.ciphertext,
+    question_iv: encrypted.iv, question_auth_tag: encrypted.authTag, question_encryption_key_id: encrypted.keyId });
+  messages = [];
+  const original = pool.execute.getMockImplementation();
+  pool.execute.mockImplementation(async (sql, params) => {
+    if (sql.includes('FROM clients c')) return [[{ id: 2274, agency_id: 450, organization_id: 451, initials: 'SAGQAS', identifier_code: '304920',
+      status: 'ACTIVE', document_status: 'UPLOADED', provider_id: 1433, service_day: 'Thursday', roi_expires_at: '2027-10-26', timezone: 'America/Denver' }]];
+    if (sql.includes('FROM client_provider_assignments')) return [[{ id: 1433, first_name: 'Avery', last_name: 'Morgan QA', service_day: 'Thursday' }]];
+    if (sql.includes('FROM users u\n      JOIN user_agencies')) return [[{ id: 1465, role: 'school_staff', is_school_admin: 1 }]];
+    if (sql.includes('FROM client_school_staff_roi_access')) return [[{ access_level: 'roi', is_active: 1 }]];
+    return original(sql, params);
+  });
+}
+
+it('answers a matched school code from current records without asking the school to explain its own code or linking the ticket', async () => {
+  addScopedClientEvidence('When will SAGQAS be seen next, and by whom?');
+  const res = response(), next = vi.fn();
+  await generateSupportTicketResponse(request(), res, next);
+  expect(next).not.toHaveBeenCalled();
+  expect(callGeminiText).not.toHaveBeenCalled();
+  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+    suggestedAnswer: expect.stringContaining('SAGQAS is assigned to Avery Morgan QA on Thursdays'),
+    provider: 'records', draftSources: expect.arrayContaining([expect.objectContaining({ type: 'provider_assignment' })])
+  }));
+  expect(pool.execute.mock.calls.some(([sql]) => /UPDATE support_tickets.*client_id/s.test(sql))).toBe(false);
+  expect(pool.execute.mock.calls.some(([sql]) => /FROM client_notes|FROM clinical_notes|FROM progress_notes/.test(sql))).toBe(false);
+});
+
+it('rejects invented provider commitments before saving, even when the requested room-change details are clear', async () => {
+  addScopedClientEvidence('Please review the room change for SAGQAS.');
+  callGeminiText.mockResolvedValue({ text: 'Avery Morgan QA will call the office about the room change.', modelName: 'test', provider: 'vertex' });
+  const res = response(), next = vi.fn();
+  await generateSupportTicketResponse(request(), res, next);
+  expect(next).not.toHaveBeenCalled();
+  expect(callGeminiText).toHaveBeenCalledTimes(2);
+  expect(res.status).toHaveBeenCalledWith(422);
+  expect(pool.execute.mock.calls.some(([sql]) => sql.includes('SET ai_draft_response'))).toBe(false);
+  const prompt = callGeminiText.mock.calls[0][0].prompt;
+  expect(prompt).toContain('CURRENT SCHOOL-SCOPED ADMINISTRATIVE EVIDENCE');
+  expect(prompt).not.toContain('304920');
+});

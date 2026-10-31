@@ -23,6 +23,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   m.put.mockReset().mockResolvedValue({ data: {} });
   m.patch.mockReset().mockResolvedValue({data:{}});
+  m.post.mockReset().mockResolvedValue({data:{}});
   m.failSchedule = false;
   m.route = reactive({ path: '/dashboard', params: {}, query: {} });
   m.get.mockImplementation(async (url) => {
@@ -39,10 +40,10 @@ afterEach(() => {
   clearScheduleSummaryCache();
   vi.useRealTimers();
 });
-async function mount() {
+async function mount({ realChangeWizard = false } = {}) {
   wrapper = shallowMount(Grid, {
     props: { userId: 7, mode: 'self', weekStartYmd: '2026-10-12' },
-    global: { stubs: { Teleport: false, RouterLink: true, ClinicalWorkspaceFrame: { template: '<div><slot /></div>' } } }
+    global: { stubs: { Teleport: false, RouterLink: true, AppointmentChangeWizard: !realChangeWizard, ClinicalWorkspaceFrame: { template: '<div><slot /></div>' } } }
   });
   await flushPromises();
   return wrapper.vm.$.setupState;
@@ -521,4 +522,89 @@ it('saves explicitly changed clinical fields to the canonical appointment before
  await state.saveScheduleStackItem(item,{pastConfirmed:true});
  expect(m.patch).toHaveBeenCalledWith('/appointments/20',{serviceCode:'90791',tenantServiceId:11,serviceLocationId:13},{skipGlobalLoading:true});
  expect(m.patch.mock.calls.findIndex(([url])=>url==='/appointments/20')).toBeLessThan(m.patch.mock.calls.findIndex(([url])=>url==='/users/7/schedule-events/80'));
+});
+
+
+it('keeps the linked appointment context through a real calendar cell and cancel button', async () => {
+ const state = await mount({realChangeWizard:true});
+ const raw = {id:442,appointmentId:104,clinicalSessionId:166,officeEventId:null,clientId:2273,tenantServiceId:34,serviceCode:'90834',serviceLocationId:125,modality:'TELEHEALTH',agencyId:450,kind:'PERSONAL_EVENT',title:'Virtual session · Blake QA-SchoolEN-1027',description:'Client id: 2273',startAt:new Date('2026-10-12T09:15:00').toISOString(),endAt:new Date('2026-10-12T10:00:00').toISOString()};
+ state.summary={...summary,scheduleEvents:[raw]};
+ const fallback=m.get.getMockImplementation();
+ m.get.mockImplementation(async(url,...args)=>url==='/appointments/104'?{data:{appointment:{id:104,status:'scheduled',clinicalSessionId:166,tenantServiceId:34,serviceCode:'90834',serviceLocationId:125,modality:'TELEHEALTH'}}}:fallback(url,...args));
+ const item=state.cellBlocks('Monday',9,15,true).find(block=>block.kind==='sevt');
+ expect(item).toMatchObject({appointmentId:104,clinicalSessionId:166,officeEventId:null,clientId:2273,serviceCode:'90834',tenantServiceId:34,serviceLocationId:125,modality:'TELEHEALTH'});
+ await flushPromises();
+ const cell=wrapper.findAll('.cell-block-sevt').find(cell=>cell.attributes('aria-label')?.includes('Virtual session'));
+ expect(cell).toBeTruthy();await cell.trigger('click');await flushPromises();
+ expect(state.scheduleEventEditForm.clientId).toBe(2273);
+ expect(state.editorOfficeEventId).toBe(0);
+ expect(state.editorAppointmentId).toBe(104);expect(state.editorClinicalSessionId).toBe(166);
+ expect(state.editorSessionServiceCode).toBe('90834');
+ expect(state.editorServiceLocationId).toBe(125);
+ m.post.mockResolvedValue({data:{appointment:{id:104},sessions:[{id:166,clientId:2273}]}});
+ const sessionTab=wrapper.findAll('button').find(button=>button.text().includes('Session note'));
+ expect(sessionTab).toBeTruthy();await sessionTab.trigger('click');await flushPromises();
+ expect(m.post).toHaveBeenCalledWith('/appointments/104/context');
+ expect(wrapper.findComponent({name:'OfficeEventSessionNotePanel'}).props()).toMatchObject({clinicalSessionId:166,officeEventId:0,clientId:2273,serviceCode:'90834'});
+ const button=wrapper.findAll('button').find(button=>button.text()==='Cancel / Missed session');
+ expect(button).toBeTruthy();
+ await button.trigger('click');await flushPromises();
+ expect(state.appointmentChange.open.value).toBe(true);
+ expect(m.get).toHaveBeenCalledWith('/appointments/104/change',{skipGlobalLoading:true});
+ expect(state.appointmentChange.facts.eventType).toBe('canceled');
+ expect(document.body.querySelector('[aria-labelledby="acw-title"]')?.textContent).toContain('What happened to this appointment?');
+});
+
+it('keeps quarter-hour clinical starts and a 45-minute service instead of replacing it during billing preview', async () => {
+ const state=await mount();state.selfScheduleAgencyOptions=[{id:450,organization_type:'agency',name:'Synthetic agency',feature_flags:{medicalBillingEnabled:true}}];state.selectedActionAgencyId=450;state.requestType='individual_session';state.showRequestModal=true;await flushPromises();
+ state.modalDay='Monday';state.modalHour=9;state.modalStartHour=9;state.modalStartMinute=0;state.modalEndHour=10;state.modalEndMinute=0;
+ state.editorPracticeCategory='mental_health';state.editorTenantServices=[{id:34,serviceCode:'90834',businessType:'mental_health',defaultDurationMinutes:45},{id:37,serviceCode:'90837',businessType:'mental_health',defaultDurationMinutes:60}];
+ state.onEditorStartTime('09:15');await flushPromises();
+ state.onEditorPrimaryServiceCode('90834');await flushPromises();
+ expect(state.editorStartTime).toBe('09:15');expect(state.editorEndTime).toBe('10:00');expect(state.bookingServiceCode).toBe('90834');
+ state.onEditorEndTime('10:15');await flushPromises();
+ m.post.mockResolvedValue({data:{overflowApplied:true,effectiveServiceCode:'90837',units:1}});
+ await state.refreshBookingUnitPreview();expect(state.bookingServiceCode).toBe('90834');expect(state.bookingUnitPreview).toContain('90837');
+ state.onEditorEndTime('09:45');await flushPromises();
+ expect(state.editorEndTime).toBe('09:45');expect(state.bookingServiceCode).toBe('90834');
+ state.onEditorStartTime('10:15');await flushPromises();
+ expect(state.editorStartTime).toBe('10:15');expect(state.editorEndTime).toBe('10:45');
+});
+
+it('loads the exact linked clinical session before permitting session-source entry', async () => {
+ const state=await mount();state.requestType='edit_schedule_event';state.scheduleEventEditId=80;state.editorAppointmentId=20;
+ state.scheduleEventEditForm={clientId:2273,startAt:'2026-10-12T09:15',endAt:'2026-10-12T10:00',agencyId:450,id:80};state.modalContext={officeEventId:999};
+ m.post.mockResolvedValue({data:{appointment:{id:20},sessions:[{id:167,clientId:2273},{id:168,clientId:2274}]}});
+ expect(state.editorOfficeEventId).toBe(0);
+ expect(await state.ensureEditorClinicalContext()).toBe(true);
+ expect(state.editorClinicalSessionId).toBe(167);expect(state.editorClinicalContextReady).toBe(true);
+ state.scheduleEventEditForm={...state.scheduleEventEditForm,clientId:2274};
+ expect(state.editorClinicalContextReady).toBe(false);
+ expect(await state.ensureEditorClinicalContext()).toBe(true);expect(state.editorClinicalSessionId).toBe(168);
+});
+
+it('does not create an unlinked source or select another group client when context linking fails',async()=>{
+ const state=await mount();state.requestType='edit_schedule_event';state.scheduleEventEditId=80;state.editorAppointmentId=20;
+ state.scheduleEventEditForm={clientId:2273,startAt:'2026-10-12T09:15',endAt:'2026-10-12T10:00',agencyId:450};
+ m.post.mockResolvedValue({data:{appointment:{id:20,clinicalSessionId:168},sessions:[{id:168,clientId:2274}]}});
+ expect(await state.ensureEditorClinicalContext()).toBe(false);expect(state.editorClinicalContextReady).toBe(false);
+ expect(state.editorClinicalContextError).toContain('for this client');
+ expect(m.post.mock.calls.some(([url])=>url==='/clinical-notes/drafts')).toBe(false);
+});
+
+
+it('preserves edits when a delayed appointment hydration finishes after the user selected another service',async()=>{
+ const state=await mount();state.editorAppointmentId=20;state.editorStatus='scheduled';state.editorStatusBaseline='scheduled';
+ state.editorAppointmentBaseline={id:20,serviceCode:'90837',tenantServiceId:37,serviceLocationId:125,modality:'IN_PERSON'};
+ state.editorTenantServiceId=34;state.bookingServiceCode='90834';state.editorServiceLocationId=125;state.editorModality='IN_PERSON';await flushPromises();
+ const fallback=m.get.getMockImplementation();m.get.mockImplementation(async(url,...args)=>url==='/appointments/20'?{data:{appointment:{id:20,status:'scheduled',serviceCode:'90837',tenantServiceId:37,serviceLocationId:125,modality:'IN_PERSON'}}}:fallback(url,...args));
+ await state.loadEditorReminders();expect(state.bookingServiceCode).toBe('90834');expect(state.editorTenantServiceId).toBe(34);expect(state.editorServiceLocationId).toBe(125);
+ expect(state.editorAppointmentBaseline.serviceCode).toBe('90837');
+});
+
+it('keeps the appointment open if its pending session source cannot be saved before opening the full note',async()=>{
+ const state=await mount();state.editorClinicalSessionId=167;
+ const savePendingDraft=vi.fn().mockRejectedValue(new Error('Keep the unsaved source'));
+ state.editorSessionNotePanel={savePendingDraft};
+ await state.openEditorClinicalNote();expect(savePendingDraft).toHaveBeenCalledOnce();expect(state.scheduleEventEditError).toBe('Keep the unsaved source');
 });

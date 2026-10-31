@@ -191,8 +191,8 @@
             :session-count-label="sessionCountLabel"
             :last-session-label="lastSessionLabel"
             :alerts="overviewAlertItems"
-            :guardian-name="guardianIntakeName"
-            :guardian-meta="guardianIntakeEmail || guardianIntakePhone || ''"
+            :guardian-name="overviewGuardianName"
+            :guardian-meta="overviewGuardianMeta"
             :organization-name="client.organization_name || schoolGlanceLabel"
             @edit="startEditOverview(true)"
             @navigate="goChartSub"
@@ -401,8 +401,8 @@
             <div class="cdp-contacts-grid">
               <article class="cdp-contact-card">
                 <div class="cdp-contact-card__role">Guardian</div>
-                <div class="cdp-contact-card__name">{{ guardianIntakeName || 'No contact on file' }}</div>
-                <div class="cdp-glance-meta">{{ guardianIntakeEmail || guardianIntakePhone || '—' }}</div>
+                <div class="cdp-contact-card__name">{{ overviewGuardianName || (guardiansLoading ? 'Loading contact…' : 'No contact on file') }}</div>
+                <div class="cdp-glance-meta">{{ overviewGuardianMeta || '—' }}</div>
               </article>
               <article class="cdp-contact-card">
                 <div class="cdp-contact-card__role">Primary clinician</div>
@@ -2854,6 +2854,7 @@ import ClientExchangeSummary from '../clientExchange/ClientExchangeSummary.vue';
 import ClientTreatmentPlansPanel from './clientChart/ClientTreatmentPlansPanel.vue';
 import ClientLearningOsPanel from './clientChart/ClientLearningOsPanel.vue';
 import ClientAuthorizationsPanel from './clientChart/ClientAuthorizationsPanel.vue';
+import { linkedGuardianSummary } from '../../utils/linkedGuardianSummary.js';
 
 const props = defineProps({
   client: {
@@ -4623,6 +4624,11 @@ const canViewGuardians = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
   return ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant', 'supervisor'].includes(r);
 });
+const overviewLinkedGuardian = computed(() => linkedGuardianSummary(guardians.value, { canView: canViewGuardians.value }));
+const overviewGuardianName = computed(() => guardianIntakeName.value || overviewLinkedGuardian.value?.displayName || null);
+const overviewGuardianMeta = computed(() => guardianIntakeEmail.value || guardianIntakePhone.value
+  || [overviewLinkedGuardian.value?.contact, overviewLinkedGuardian.value?.additionalCount
+    ? `${overviewLinkedGuardian.value.additionalCount} other linked guardian(s)` : ''].filter(Boolean).join(' · '));
 
 const canEditPaperwork = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
@@ -5307,16 +5313,20 @@ const fetchHistory = async () => {
 
 const fetchGuardians = async () => {
   if (!canViewGuardians.value) return;
+  const clientId = Number(props.client?.id);
+  if (!clientId) return;
   try {
     guardiansLoading.value = true;
     guardiansError.value = '';
-    const resp = await api.get(`/clients/${props.client.id}/guardians`);
+    const resp = await api.get(`/clients/${clientId}/guardians`);
+    if (Number(props.client?.id) !== clientId) return;
     guardians.value = resp.data || [];
   } catch (err) {
+    if (Number(props.client?.id) !== clientId) return;
     guardiansError.value = err.response?.data?.error?.message || 'Failed to load guardians';
     guardians.value = [];
   } finally {
-    guardiansLoading.value = false;
+    if (Number(props.client?.id) === clientId) guardiansLoading.value = false;
   }
 };
 
@@ -6282,6 +6292,13 @@ watch(chartHub, (hub) => {
   }
 });
 
+watch(() => props.client?.id, () => {
+  guardians.value = [];
+  guardiansError.value = '';
+  guardiansLoading.value = false;
+  if (!guardianIntakeName.value && canViewGuardians.value) fetchGuardians();
+});
+
 watch(() => props.client, async () => {
   // Reset editing states when client changes
   editingStatus.value = false;
@@ -6737,6 +6754,7 @@ onMounted(async () => {
   fetchAccess().catch(() => {});
   await refreshOverviewProviders();
   await fetchAdminNote();
+  if (!guardianIntakeName.value && canViewGuardians.value) fetchGuardians();
   if (isClinicalLikeClientType.value) {
     fetchBillingDiagnoses();
   }

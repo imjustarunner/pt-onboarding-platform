@@ -5869,7 +5869,14 @@ export const getUserScheduleSummary = async (req, res, next) => {
           return {
             ...e,
             appointmentId,
-            ...(typeof meta==='object'?{modality:meta.modality,officeLocationId:meta.officeLocationId,roomId:meta.roomId,serviceLocationId:meta.serviceLocationId,schoolOrganizationId:meta.schoolOrganizationId,schoolName:meta.schoolName,locationLabel:meta.locationLabel}:{}),
+            ...(typeof meta==='object'?{
+              modality:meta.modality,officeLocationId:meta.officeLocationId,roomId:meta.roomId,
+              serviceLocationId:meta.serviceLocationId,schoolOrganizationId:meta.schoolOrganizationId,
+              schoolName:meta.schoolName,locationLabel:meta.locationLabel,
+              clinicalSessionId:meta.clinicalSessionId,serviceCode:meta.serviceCode,
+              tenantServiceId:meta.tenantServiceId,officeEventId:meta.officeEventId,
+              clientId:meta.clientId,sourceTimezone:meta.sourceTimezone
+            }:{}),
             appointmentStatus: typeof meta === 'object'
               ? String(meta.status || 'scheduled').toLowerCase()
               : null,

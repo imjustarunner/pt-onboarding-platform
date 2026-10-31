@@ -113,6 +113,7 @@ vi.mock('../providerUpdateContactHours.service.js',()=>({getContactHours:vi.fn(a
 vi.mock('../providerYearUpdate.service.js',()=>({loadProviderSchoolSchedule:vi.fn(),loadProviderPendingScheduleAdjustments:vi.fn(async()=>[])}));
 vi.mock('../../controllers/availability.controller.js',()=>({createMySchoolAvailabilityRequest:vi.fn(async(req,res)=>res.json({ok:true}))}));
 import {schoolReview,schoolAdjustment,contactHours,reviewAsset} from '../../controllers/providerUpdateReview.controller.js';
+import {getMyOpenRecipient} from '../providerUpdate.service.js';
 import {loadProviderSchoolSchedule} from '../providerYearUpdate.service.js';
 import {createMySchoolAvailabilityRequest} from '../../controllers/availability.controller.js';
 import {saveContactHours} from '../providerUpdateContactHours.service.js';
@@ -219,4 +220,34 @@ it('rejects SSO deferral for password accounts and incomplete section saves', as
  getProviderUpdateSignIn.mockResolvedValue({method:'password'});
  await expect(persistReviewSection(recipient,'pin',{ssoSetupDeferred:true},true)).rejects.toThrow('Google sign-in');
  await expect(persistReviewSection(recipient,'pin',{ssoSetupDeferred:true},false)).rejects.toThrow();
+});
+
+function authenticatedSchoolRequest(){
+ req.params={assignmentId:'10'};req.user={id:9,role:'provider'};req.body={agencyId:6,providerId:999,startTime:'10:00',endTime:'14:00',slotsTotal:4};
+ User.findById.mockResolvedValue({id:9,role:'provider',is_active:1,is_archived:0});
+ pool.execute.mockResolvedValue([[{allowed:1}]]);
+ loadProviderSchoolSchedule.mockResolvedValue([{schoolOrganizationId:7,schoolName:'School',days:[{assignmentId:10,dayOfWeek:'Monday',startTime:'09:00',endTime:'15:00',slotsTotal:5,clientCount:3}]}]);
+ getMyOpenRecipient.mockRejectedValue(new Error('No open Provider Update was found.'));
+}
+it('lets a signed-in provider review school assignments with no open campaign and request their own pending change',async()=>{
+ authenticatedSchoolRequest();
+ await schoolReview(req,res,next);await schoolAdjustment(req,res,next);
+ expect(next).not.toHaveBeenCalled();expect(getMyOpenRecipient).not.toHaveBeenCalled();expect(getRecipientByToken).not.toHaveBeenCalled();
+ expect(loadProviderSchoolSchedule).toHaveBeenCalledWith(9,6);
+ expect(createMySchoolAvailabilityRequest).toHaveBeenCalledWith(expect.objectContaining({user:expect.objectContaining({id:9}),body:expect.objectContaining({agencyId:6,requestKind:'schedule_adjustment',preferredSchoolOrgIds:[7]})}),res,next);
+ expect(pool.execute.mock.calls.every(([sql])=>sql.trim().startsWith('SELECT'))).toBe(true);
+});
+it('does not grant authenticated school changes to a school administrator, inactive provider or foreign agency member',async()=>{
+ for(const change of ['school_staff','inactive','membership']){
+  authenticatedSchoolRequest();next.mockClear();loadProviderSchoolSchedule.mockClear();createMySchoolAvailabilityRequest.mockClear();
+  if(change==='school_staff')User.findById.mockResolvedValue({id:9,role:'school_staff',is_active:1});
+  if(change==='inactive')User.findById.mockResolvedValue({id:9,role:'provider',is_active:0});
+  if(change==='membership')pool.execute.mockResolvedValue([[]]);
+  await schoolAdjustment(req,res,next);
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(loadProviderSchoolSchedule).not.toHaveBeenCalled();expect(createMySchoolAvailabilityRequest).not.toHaveBeenCalled();
+ }
+});
+it('rejects another assignment even when an authenticated caller supplies its provider ID',async()=>{
+ authenticatedSchoolRequest();req.params.assignmentId='987';req.body.providerId=987;
+ await schoolAdjustment(req,res,next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:404}));expect(createMySchoolAvailabilityRequest).not.toHaveBeenCalled();
 });

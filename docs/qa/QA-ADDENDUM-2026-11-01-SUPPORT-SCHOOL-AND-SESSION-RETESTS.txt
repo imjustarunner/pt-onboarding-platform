@@ -1,0 +1,151 @@
+ADDITIONAL QA PLAN — NOVEMBER 1, 2026
+Support answers, SchoolCareBridge, school requests and clinical sessions
+
+Append this to the plans already supplied. Earlier briefs remain evidence.
+Use only the app, approved school portal, controlled QA inbox and vault.
+No repository, database, cloud console or engineering tools are required.
+
+SCOPE
+- ITSCOLLC demo agency 450, Cedar Grove school 451, clinic 452 only.
+- Jordan 1434 remains support. Jamie 1465 is School Admin for school 451 only.
+- Avery 1433, Cameron 1438 and Alex 1439 are the clinical QA providers.
+  Quality Tester 1490 remains the Google SSO/contact-plan fixture.
+- Recount first; last observed 23 clients and 4 provider-role accounts.
+  Caps remain 30 clients / 10 providers. Reuse retained synthetic records.
+- No real-client data, card collection or insurance transmission. Do not send
+  the retained support answers merely to inspect a regenerated draft.
+- Denver changes to MST on November 1. Compare local dates/times explicitly;
+  the current changes do not claim to fix every historical timestamp defect.
+
+1. SUPPORT DRAFTS: USE EXISTING RECORDS
+
+As Jordan, open the retained tickets and regenerate their official answers.
+Previously saved drafts are not automatically replaced by a deployment.
+
+- #551: SAGQAS means Sage, client 2274. The answer should identify the current
+  provider/day, inspect school planning and booked appointments, and say what
+  is actually recorded. It must not ask what SAGQAS means. A weekly assignment
+  alone is not a confirmed appointment or proof of attendance.
+- #552: DANQAO means Dana, client 2263. ROI means release of information.
+  Inspect the current expiration and Jamie's individual release permissions.
+  At engineering's read-only check the expiration was October 31, 2029 and
+  Jamie had permission to speak. The draft should explain those facts and any
+  discrepancy with the reported No ROI/expired screen. It must not ask Jamie
+  to define ROI or claim every staff member has permission to view documents.
+- #553: BLAQAS means Blake, client 2273. Use the current provider/day and actual
+  schedule for the after-lunch request. Drafting a reply must not move a visit
+  or promise an unapproved time. Ask only for genuinely missing information.
+- #503: Avery's earlier message says “confirmed Thu”. The draft should name
+  SAGQAS and attribute that statement to Avery's conversation reply. This is
+  separate from the calendar's confirmation status; do not invent an exact
+  start time or claim a confirmation action was performed by the draft.
+- #504: Do not invent “Avery will call the office” or another commitment.
+- #505: Use KAIQAS, client 2279, in the answer instead of numeric code 209702.
+  Show current assignment status where Jamie's school-admin access permits it.
+
+Check “Draft based on” for the matched client, current administrative facts,
+and clear source distinctions. The unlinked #551–#553 can resolve unique
+references within this school without silently altering the ticket's link.
+Ambiguous or inaccessible records must remain unresolved; never pick a client
+from another school or organization. Model suggestions are not instructions
+to change records, promise actions or expose clinical note bodies.
+
+Regeneration must leave ticket ownership and the actual schedule unchanged.
+Record the regenerated text and fresh screenshots. No sending is necessary
+for these checks. Use an approved synthetic thread for any separate delivery
+test and inspect actual receipt rather than only the Sent label.
+
+2. SCHOOLCAREBRIDGE BRANDING AND CONTACTS
+
+Open an existing provider contact-plan card without turning it off/on merely
+to redisplay the welcome. Check the actual SchoolCareBridge logo and product
+identity, readable colors, mobile layout and keyboard controls. Preserve the
+current templates, chosen delays, opt-in and existing assignments.
+
+For Ari 2297 and Sky 2298, compare the linked guardian account in the chart
+with the email greeting. Engineering found guardian 1437 currently named Dana
+QA-OfficeES-1025; its email remains testing@itsco.health. No guardian names,
+credentials or links were changed by this release. The chart's overview can
+now display an authorized linked guardian when no enrollment profile exists.
+Do not treat that display repair as a pass of the earlier ROI identity bug.
+School staff must not gain private guardian profile or document access.
+
+3. SCHOOL HOURS AND CLIENT CAPACITY: REQUEST ANY TIME
+
+As Avery, use both entry points: click an own school assignment block in My
+Schedule, and open the provider availability control in the school portal.
+An open annual Provider Update campaign must not be required. Request a small
+hours or capacity change within this demo; record the current approved values
+and proposed values before submitting.
+
+Both paths should save a request for approval. Approved hours/capacity must
+remain unchanged while pending, including after refresh and sign-in. The
+school portal should say request/pending rather than applying a change.
+Inspect the normal request queue as authorized scheduling staff. A provider
+must not change another provider's assignment or bypass approval by using the
+older availability form. Do not approve a change just to make the test pass;
+record its request ID and leave it for the normal review decision.
+
+Emailed annual-update links retain their section, expiry and preview rules.
+Do not use a failed/expired emailed update link as the only entry point for
+the ordinary signed-in school request feature.
+
+4. APPOINTMENT CLINICAL TAB AND ONE NOTE SOURCE
+
+Open a correctly booked synthetic clinical appointment from the calendar
+itself, not only a direct editor URL. Clinical should show chart context,
+diagnoses and treatment-plan access. Session note is the single place to type
+or dictate the appointment's quick source text. Clinical must not offer a
+second source-text composer or another service selector.
+
+In Session note, wait for appointment context to load, enter synthetic text
+and wait for Draft saved. Open Note Workspace and confirm the exact client,
+appointment/session, source text, date and service. Opening the full note
+must wait for a pending source save. A second same-day appointment must not
+reuse the first one's source. Do not overwrite signed notes or waive intake
+and supervision requirements.
+
+Retest 90834 at a quarter-hour start with its configured 45-minute duration.
+The selected code must remain selected; a billing preview must not silently
+replace it with 90837. Reload and verify service, duration, client, modality
+and location. For an existing booking, an explicit service edit does not
+silently reprice its original financial quote; review billing separately.
+
+Retained Draft #293/session 167 remains unchanged. Engineering found it is
+unlinked, while appointment 104 has clinical session 166. Do not relink them
+by date alone, sign the wrong session or discard the existing draft text.
+Start the signing retest from a correctly linked appointment. Keep the old
+draft-link issue open until explicitly repaired and freshly verified.
+
+5. CANCELLATION THROUGH THE ACTUAL CALENDAR CLICK PATH
+
+Click a real calendar session, then “Cancel / Missed session”. The complete
+change workflow should appear, with initiator, reason, consequence/fee review
+and notification handling. A missing appointment link must show an actionable
+error rather than a silent button. Confirm the workflow opens before saving
+any cancellation or no-show.
+
+Continue the previously authorized synthetic advance-cancel, late-cancel and
+past no-show cases. Verify the signed policy and proposed $80 late-cancel /
+$100 no-show consequence where applicable, resulting balance, persistent
+calendar status, recipient attribution and actual QA inbox receipt. Do not
+mark a future appointment no-show. No card charge or insurance submission.
+
+Taylor's retained appointments remain available for the agreed cleanup and
+cancellation retest; this release did not silently delete them or send notices.
+Keep Blake's future intake appointment for the intake test unless the owner
+chooses otherwise. No existing appointment was moved by the source-code fix.
+
+STILL OPEN / NOT CLAIMED FIXED
+- Clinical SMS/Notifyre activation and real 3-day / 7-day / 72-hour delivery.
+- School weekly-plan feature discoverability and day/provider inconsistencies.
+- School staff invite email failure and new-invitee ROI Active display.
+- Dana ROI guardian-versus-client identity, DOB/contact fields and signed email.
+- General Messages/Communications navigation and historical timestamp defects.
+- Other carried-forward enrollment, family privacy, Exchange, intake, treatment
+  plan and cosign checks, including Cameron's retained #286.
+
+REPORT
+Record visible build if available, role/entry path, exact IDs, local timezone,
+fresh screenshots, what changed, actual delivery and PASS/FAIL/BLOCKED/NOT RUN.
+Engineering tests and read-only previews are not a live browser QA pass.

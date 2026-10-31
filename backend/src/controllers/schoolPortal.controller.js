@@ -2560,213 +2560,40 @@ export const confirmProviderSchoolAvailability = async (req, res, next) => {
 };
 
 /**
- * Provider applies an availability update directly to provider_school_assignments
- * for a single existing school day assignment.
+ * Compatibility entry for a provider's existing school availability form.
+ * Save a request for approval; never alter the approved school assignment here.
  * POST /api/school-portal/:organizationId/provider-availability/apply
  */
 export const applyProviderSchoolAvailability = async (req, res, next) => {
   try {
-    const { organizationId } = req.params;
-    const orgId = parseInt(String(organizationId), 10);
-    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
-
-    const userId = Number(req.user?.id || 0);
-    const role = String(req.user?.role || '').toLowerCase();
-    const providerRoles = ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'];
-    if (!providerRoles.includes(role)) {
+    const orgId = Number(req.params.organizationId);
+    const userId = Number(req.user?.id);
+    if (!Number.isSafeInteger(orgId) || orgId <= 0) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (!['provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant'].includes(String(req.user?.role || '').toLowerCase())) {
       return res.status(403).json({ error: { message: 'Provider access required' } });
     }
-    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
-
     const dayOfWeek = String(req.body?.dayOfWeek || '').trim();
-    const validDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-    if (!validDays.includes(dayOfWeek)) {
-      return res.status(400).json({ error: { message: 'A valid weekday is required' } });
+    if (!['Monday','Tuesday','Wednesday','Thursday','Friday'].includes(dayOfWeek)) return res.status(400).json({ error: { message: 'A valid weekday is required' } });
+    const [rows] = await pool.execute(`SELECT id, slots_total, start_time, end_time FROM provider_school_assignments
+      WHERE school_organization_id=? AND provider_user_id=? AND day_of_week=? AND is_active=1 LIMIT 1`, [orgId,userId,dayOfWeek]);
+    const assignment = rows?.[0];
+    if (!assignment) return res.status(403).json({ error: { message: 'You are not assigned to this school day' } });
+    if (Number(req.body?.fromSlotsTotal) !== Number(assignment.slots_total)
+      || String(req.body?.fromStartTime || '').slice(0,5) !== String(assignment.start_time || '').slice(0,5)
+      || String(req.body?.fromEndTime || '').slice(0,5) !== String(assignment.end_time || '').slice(0,5)) {
+      return res.status(409).json({ error: { message: 'Availability changed since you opened this form. Review the current values and try again.' } });
     }
-
-    const slotsTotal = Number(req.body?.slotsTotal);
-    if (!Number.isInteger(slotsTotal) || slotsTotal < 0) {
-      return res.status(400).json({ error: { message: 'slotsTotal must be a non-negative integer' } });
-    }
-
-    const fromSlotsTotal = Number(req.body?.fromSlotsTotal);
-    const fromStartTime = String(req.body?.fromStartTime || '').trim().slice(0, 5);
-    const fromEndTime = String(req.body?.fromEndTime || '').trim().slice(0, 5);
-    if (!Number.isInteger(fromSlotsTotal) || !fromStartTime || !fromEndTime) {
-      return res.status(400).json({
-        error: { message: 'fromSlotsTotal, fromStartTime, and fromEndTime are required for confirm/apply' }
-      });
-    }
-
-    const requestedStartTime = String(req.body?.startTime || '').trim().slice(0, 5);
-    const requestedEndTime = String(req.body?.endTime || '').trim().slice(0, 5);
-    if (!requestedStartTime || !requestedEndTime || requestedEndTime <= requestedStartTime) {
-      return res.status(400).json({ error: { message: 'Valid startTime and endTime are required' } });
-    }
-
-    const allowOverAssigned = req.body?.allowOverAssigned === true;
-
-    const [providerRows] = await pool.execute(
-      `SELECT DISTINCT psa.provider_user_id
-       FROM provider_school_assignments psa
-       WHERE psa.school_organization_id = ? AND psa.provider_user_id = ? AND psa.is_active = TRUE
-       LIMIT 1`,
-      [orgId, userId]
-    );
-    if (!providerRows?.[0]) {
-      return res.status(403).json({ error: { message: 'You are not assigned to this school schedule' } });
-    }
-
-    const activeAgencyId = await resolveActiveAgencyIdForOrg(orgId);
-    if (!activeAgencyId) {
-      return res.status(400).json({ error: { message: 'No active agency affiliation found for this school' } });
-    }
-
-    const [assignmentRows] = await pool.execute(
-      `SELECT id, slots_total, slots_available, start_time, end_time
-       FROM provider_school_assignments
-       WHERE school_organization_id = ? AND provider_user_id = ? AND day_of_week = ?
-       LIMIT 1`,
-      [orgId, userId, dayOfWeek]
-    );
-    const assignment = assignmentRows?.[0] || null;
-    if (!assignment) {
-      return res.status(404).json({ error: { message: 'No existing assignment found for this day' } });
-    }
-
-    const currentSlots = Number(assignment.slots_total || 0);
-    const currentStart = String(assignment.start_time || '').slice(0, 5);
-    const currentEnd = String(assignment.end_time || '').slice(0, 5);
-    if (fromSlotsTotal !== currentSlots || fromStartTime !== currentStart || fromEndTime !== currentEnd) {
-      return res.status(409).json({
-        error: { message: 'Availability changed since you opened this form. Please review current values and try again.' },
-        current: {
-          dayOfWeek,
-          slotsTotal: currentSlots,
-          startTime: currentStart,
-          endTime: currentEnd
-        }
-      });
-    }
-
-    const [assignedRows] = await pool.execute(
-      `SELECT COUNT(DISTINCT c.id) AS assigned_count
-       FROM clients c
-       JOIN client_organization_assignments coa
-         ON coa.client_id = c.id
-        AND coa.organization_id = ?
-        AND coa.is_active = TRUE
-       JOIN client_provider_assignments cpa
-         ON cpa.client_id = c.id
-        AND cpa.organization_id = coa.organization_id
-        AND cpa.provider_user_id = ?
-        AND cpa.is_active = TRUE
-       LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
-       WHERE (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
-         AND (cs.status_key IS NULL OR LOWER(cs.status_key) <> 'archived')
-         AND FIND_IN_SET(?, REPLACE(COALESCE(cpa.service_day, ''), ' ', '')) > 0`,
-      [orgId, userId, dayOfWeek]
-    );
-    const assignedCount = Number(assignedRows?.[0]?.assigned_count || 0);
-
-    if (slotsTotal < assignedCount && !allowOverAssigned) {
-      return res.status(409).json({
-        error: {
-          message: `Requested slots (${slotsTotal}) are below assigned clients (${assignedCount}) for ${dayOfWeek}. Confirm override if you still want to apply.`
-        },
-        requiresOverride: true,
-        assignedClients: assignedCount,
-        requestedSlots: slotsTotal
-      });
-    }
-
-    const nextSlotsAvailable = Math.max(0, slotsTotal - assignedCount);
-    await pool.execute(
-      `UPDATE provider_school_assignments
-       SET slots_total = ?,
-           slots_available = ?,
-           start_time = ?,
-           end_time = ?,
-           is_active = TRUE
-       WHERE id = ?`,
-      [slotsTotal, nextSlotsAvailable, `${requestedStartTime}:00`, `${requestedEndTime}:00`, Number(assignment.id)]
-    );
-
-    const actor = await User.findById(userId);
-    const actorName =
-      `${actor?.first_name || ''} ${actor?.last_name || ''}`.trim() ||
-      actor?.email ||
-      `Provider #${userId}`;
-    const school = await Agency.findById(orgId);
-    const schoolName = school?.name || school?.official_name || `School #${orgId}`;
-
-    logAuditEvent(req, {
-      actionType: 'school_provider_availability_updated_by_provider',
-      agencyId: activeAgencyId || undefined,
-      metadata: {
-        schoolOrganizationId: orgId,
-        dayOfWeek,
-        before: { slotsTotal: currentSlots, startTime: currentStart, endTime: currentEnd },
-        after: { slotsTotal, startTime: requestedStartTime, endTime: requestedEndTime },
-        assignedClients: assignedCount,
-        allowOverAssigned
-      }
-    }).catch(() => {});
-
-    const Notification = (await import('../models/Notification.model.js')).default;
-    const recipients = await getAgencyAdminOnlyUserIds(activeAgencyId);
-    const uniqueRecipients = Array.from(new Set(recipients));
-    await Promise.all(uniqueRecipients.map(async (adminUserId) => {
-      await Notification.create({
-        type: 'school_provider_availability_updated',
-        severity: slotsTotal < assignedCount ? 'warning' : 'info',
-        title: 'Provider school availability updated',
-        message: `${actorName} updated ${schoolName} (${dayOfWeek}) availability: slots ${currentSlots} -> ${slotsTotal}, hours ${currentStart}-${currentEnd} -> ${requestedStartTime}-${requestedEndTime}. Assigned clients: ${assignedCount}.`,
-        userId: adminUserId,
-        agencyId: activeAgencyId,
-        relatedEntityType: 'school_organization',
-        relatedEntityId: orgId,
-        actorUserId: userId,
-        actorSource: 'School Portal'
-      });
-    }));
-
-    const summary = `Updated ${dayOfWeek} availability: slots ${currentSlots} → ${slotsTotal}, hours ${currentStart}-${currentEnd} → ${requestedStartTime}-${requestedEndTime}.`;
-    const closedRequests = await closePendingSlotVerificationRequests({
-      schoolOrganizationId: orgId,
-      providerUserId: userId,
-      agencyId: activeAgencyId,
-      responseKind: 'changes_requested',
-      responseSummary: summary,
-      actorUserId: userId,
-      actorName,
-      schoolName
-    }).catch(() => 0);
-
-    res.json({
-      ok: true,
-      notifiedCount: uniqueRecipients.length,
-      closedVerificationRequests: Number(closedRequests || 0),
-      warning: slotsTotal < assignedCount
-        ? {
-            overAssigned: true,
-            dayOfWeek,
-            assignedClients: assignedCount,
-            slotsTotal
-          }
-        : null,
-      assignment: {
-        dayOfWeek,
-        slotsTotal,
-        slotsAvailable: nextSlotsAvailable,
-        startTime: requestedStartTime,
-        endTime: requestedEndTime,
-        assignedClients: assignedCount
-      }
-    });
-  } catch (e) {
-    next(e);
-  }
+    const agencyId = await resolveActiveAgencyIdForOrg(orgId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'No active agency affiliation found for this school' } });
+    const {schoolAdjustment} = await import('./providerUpdateReview.controller.js');
+    return schoolAdjustment({...req,
+      params: {assignmentId:String(assignment.id)},
+      query: {agencyId},
+      body: {agencyId,slotsTotal:Number(req.body?.slotsTotal),startTime:req.body?.startTime,endTime:req.body?.endTime,
+        moveToDay:dayOfWeek,notes:req.body?.note || ''}
+    },res,next);
+  } catch (e) { next(e); }
 };
 
 /**

@@ -179,6 +179,14 @@ describe('evidence-grounded support drafts', () => {
     assert.ok(validateSupportEmailDraft('We have not yet received the referral packets.', context).includes('unsupported_document_receipt_status'));
   });
 
+  it('knows ROI means release of information and rejects invented third-party commitments', () => {
+    const context = buildSupportEmailDraftContext(input({ ticket: { ...ticket, question: "Has DANQAO's ROI been renewed?" } }));
+    assert.ok(validateSupportEmailDraft("Could you clarify what ROI refers to?", context).includes('asks_known_roi_definition'));
+    assert.ok(validateSupportEmailDraft('What does ROI mean?', context).includes('asks_known_roi_definition'));
+    assert.ok(validateSupportEmailDraft('Avery Morgan QA will call the office about the room change.', context).includes('unsupported_third_party_commitment'));
+    assert.deepEqual(validateSupportEmailDraft('ROI means release of information. The individual release status needs an internal check before renewal can be confirmed.', context), []);
+  });
+
   it('corrects a rejected draft once before offering it to staff', async () => {
     let calls = 0;
     const result = await generateSupportEmailDraft(input(), { generateText: async (args) => {

@@ -186,6 +186,9 @@ class Appointment {
     const placeholders = ids.map(() => '?').join(',');
     const [rows] = await pool.execute(
       `SELECT ap.id, ap.provider_schedule_event_id, ap.status, ap.notes, ap.modality,
+              ap.clinical_session_id, ap.service_code, ap.tenant_service_id, ap.office_event_id, ap.source_timezone,
+              (SELECT CASE WHEN COUNT(DISTINCT p.client_id)=1 THEN MIN(p.client_id) ELSE NULL END
+               FROM appointment_participants p WHERE p.appointment_id=ap.id) AS client_id,
               ap.office_location_id, ap.room_id, ap.service_location_id,
               sl.school_organization_id, COALESCE(s.name, sl.name) AS service_location_name
        FROM appointments ap
@@ -202,6 +205,12 @@ class Appointment {
           id: Number(r.id),
           status: String(r.status || 'scheduled').toLowerCase(),
           notes: r.notes != null ? String(r.notes) : null,
+          clinicalSessionId:Number(r.clinical_session_id || 0) || null,
+          serviceCode:r.service_code ? String(r.service_code) : null,
+          tenantServiceId:Number(r.tenant_service_id || 0) || null,
+          officeEventId:Number(r.office_event_id || 0) || null,
+          clientId:Number(r.client_id || 0) || null,
+          sourceTimezone:r.source_timezone || 'America/Denver',
           modality:r.modality || null, officeLocationId:Number(r.office_location_id || 0) || null,
           roomId:Number(r.room_id || 0) || null, serviceLocationId:Number(r.service_location_id || 0) || null,
           schoolOrganizationId:Number(r.school_organization_id || 0) || null,

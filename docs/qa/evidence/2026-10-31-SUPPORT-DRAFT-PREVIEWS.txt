@@ -1,0 +1,54 @@
+READ-ONLY ENGINEERING PREVIEW — OCTOBER 31, 2026
+Demo agency 450 / school 451. These are synthetic QA records.
+
+The new resolver was run against the six retained tickets and current records.
+All six client matches succeeded with no missing-query warnings. No draft was
+saved, no ticket claimed, no message sent and no client record changed.
+
+#551 / SAGQAS
+SAGQAS is assigned to Avery Morgan QA on Thursdays. No upcoming booked school
+appointment was found in the schedule checked; the weekly assignment alone
+does not confirm a session date or time.
+
+#552 / DANQAO
+The current release of information (ROI) record for DANQAO is dated through
+October 31, 2029. Your account has permission to speak about this client. The
+expired/no-ROI display in your message does not match that current expiration
+date; the display needs review rather than another explanation from you.
+
+#553 / BLAQAS
+BLAQAS is assigned to Avery Morgan QA on Thursdays. No upcoming booked school
+appointment was found in the schedule checked; the weekly assignment alone
+does not confirm a session date or time. Moving the session requires an
+approved scheduling change; drafting this reply has not moved or approved a
+session.
+
+#503 / SAGQAS
+Avery Morgan QA confirmed the Thu session for SAGQAS in this conversation.
+No upcoming booked school appointment was found in the schedule checked; the
+weekly assignment alone does not confirm a session date or time. The
+conversation reply and the calendar appointment status are separate evidence.
+
+#504 / BLAQAS
+BLAQAS is assigned to Avery Morgan QA on Thursdays. No upcoming booked school
+appointment was found in the schedule checked; the weekly assignment alone
+does not confirm a session date or time. Moving the session requires an
+approved scheduling change; drafting this reply has not moved or approved a
+session.
+
+#505 / KAIQAS
+KAIQAS has no active provider assignment recorded for this school. No upcoming
+booked school appointment was found in the schedule checked; the weekly
+assignment alone does not confirm a session date or time.
+
+Interpretation limits
+- School appointments are matched through their recorded school service
+  location. Appointment105 exists for Blake but currently has no such location
+  and is recorded as telehealth; that is not proof of a booked school visit.
+- The preview does not prove browser rendering, actual delivery, staffing
+  changes, appointment confirmation actions or clinical signing.
+- Retained Draft293 refers to unlinked clinical session167. Appointment104
+  points to session166. Both records and authored text were left unchanged.
+- Guardian1437 currently has the account name Dana QA-OfficeES-1025. The
+  overview display now uses authorized linked contact data when no enrollment
+  profile exists; no guardian identity was renamed or legal records edited.

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ client: vi.fn(), access: vi.fn(), documents: vi.fn(), notes: vi.fn(), user: vi.fn() }));
-vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), query: vi.fn(), pool: {} } }));
+const m = vi.hoisted(() => ({ client: vi.fn(), access: vi.fn(), documents: vi.fn(), notes: vi.fn(), user: vi.fn(), execute: vi.fn() }));
+vi.mock('../../config/database.js', () => ({ default: { execute: m.execute, query: vi.fn(), pool: {} } }));
 vi.mock('../../models/Client.model.js', () => ({ default: { findById: m.client } }));
 vi.mock('../../models/ClientPhiDocument.model.js', () => ({ default: { findByClientId: m.documents } }));
 vi.mock('../../models/User.model.js', () => ({ default: { findById: m.user, getAgencies: vi.fn() } }));
@@ -14,6 +14,7 @@ import { listClientPhiDocuments, listClientPhiDocumentAudit, listClientIntakeRes
 
 beforeEach(() => {
   vi.clearAllMocks();
+  m.execute.mockImplementation(async sql => sql.includes('FROM client_parent_contact_attempts') ? [[]] : undefined);
   m.client.mockResolvedValue({ id: 1, organization_id: 2, agency_id: 3, roi_expires_at: '2020-01-01' });
 });
 
@@ -59,5 +60,6 @@ describe('school staff overview and notes boundaries', () => {
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ id: 1, initials: 'AB' }));
     expect(res.json.mock.calls[0][0]).not.toHaveProperty('ssn');
     expect(res.json.mock.calls[0][0]).not.toHaveProperty('guardian_intake_profile');
+    expect(res.json.mock.calls[0][0]).toHaveProperty('parent_contact_attempt_count', 0);
   });
 });

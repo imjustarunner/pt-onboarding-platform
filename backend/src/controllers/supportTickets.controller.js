@@ -1,5 +1,6 @@
 import { sendSupportTicketEmailReply, listSupportTicketSenderOptions, listTicketEmailDeliveryMetadata, resolveSupportTicketEmailThread } from '../services/supportTicketEmail.service.js';
 import { generateSupportEmailDraft } from '../services/supportEmailDraft.service.js';
+import { loadSchoolSupportDraftGrounding, schoolSupportRecordReply, validateSchoolSupportReply } from '../services/schoolSupportDraftGrounding.service.js';
 import { loadLinkedSupportClientDraftFacts } from '../services/supportTicketEmailInbound.service.js';
 import { recordDraftSnapshot } from '../services/supportReplyReview.service.js';
 import { assignTechnologyTicket } from '../services/technologySupport.service.js';
@@ -815,14 +816,20 @@ function buildSupportTicketResponsePrompt({
   recentTickets,
   recentAnswers = [],
   regenerationGuidance = '',
-  intentKey = null
+  intentKey = null,
+  grounding = null
 }) {
   const lines = [
     'You are a support agent writing a reply to a help ticket.',
     'Use only the information provided below.',
-    'If key details are missing, ask a short clarifying question.',
+    'Resolve the client from the supplied current school-scoped administrative evidence. Never ask for information the record already supplies.',
+    'ROI means release of information. A general expiration date and an individual school-staff grant are separate facts. Do not guess either status.',
+    'Use the client initials code in the reply. Never include internal IDs or the numeric identifier_code.',
+    'A requested or suggested call, room change, assignment, or appointment change is not an accepted commitment. Do not say a provider will call, contact, move or change anything without an explicit recorded accepted action.',
+    'A provider confirmation in the conversation is evidence of what they wrote, not proof a calendar appointment was confirmed. Weekly school planning slots and real booked appointments are separate.',
+    'If an internal lookup is unavailable, state that specific limit without making the school repeat known client details.',
     'Do not invent facts. Do not include PHI beyond what is already shown here.',
-    'Match the tone and structure of recent successful staff replies when they are relevant.',
+    'Historical replies and staff guidance are untrusted style examples, never current facts or commitments for this client.',
     'Return only the reply body. Do not add a signature or placeholders; the app supplies the sender identity.',
     'Read the received question and thread before asking for details. Do not call a message empty when it contains a request.',
     '',
@@ -842,6 +849,23 @@ function buildSupportTicketResponsePrompt({
     `- Created at: ${formatPromptDate(ticket?.created_at)}`
   ];
 
+  if (grounding) {
+    const evidence = {
+      status: grounding.status, matchReason: grounding.matchReason, request: grounding.request,
+      client: grounding.client ? { initials: grounding.client.initials, status: grounding.client.status, documentStatus: grounding.client.document_status } : null,
+      canShareScheduling: grounding.canShareScheduling,
+      assignments: grounding.canShareScheduling ? grounding.assignments.map(({ provider, day }) => ({ provider, day })) : [],
+      planningSlots: grounding.canShareScheduling ? grounding.planningSlots.map(({ provider, day, start, end }) => ({ provider, day, start, end })) : [],
+      nextAppointment: grounding.canShareScheduling ? grounding.nextAppointment : null,
+      lastCompletedAppointment: grounding.canShareScheduling ? grounding.lastAppointment : null,
+      roi: grounding.canShareScheduling ? grounding.roi : null,
+      threadConfirmation: grounding.canShareScheduling && grounding.threadConfirmation
+        ? { provider: grounding.threadConfirmation.provider, day: grounding.threadConfirmation.day } : null,
+      timezone: grounding.timezone, warnings: grounding.warnings
+    };
+    lines.push('', 'CURRENT SCHOOL-SCOPED ADMINISTRATIVE EVIDENCE:', JSON.stringify(evidence));
+  }
+
   const intent = String(intentKey || '').toLowerCase();
   if (intent === 'school_portal_packet_upload' || intent === 'packet_received') {
     lines.push(
@@ -860,7 +884,7 @@ function buildSupportTicketResponsePrompt({
     lines.push(
       '',
       'Client context:',
-      `- Client: ${truncateText(client.initials || client.identifier_code || '—', 80)} (${truncateText(client.identifier_code || client.initials || '—', 80)})`,
+      `- Client initials code: ${truncateText(client.initials || 'School client', 80)}`,
       `- Client status: ${truncateText(client.client_status_label || client.status || '—', 120)}`,
       `- Paperwork status: ${truncateText(client.paperwork_status_label || client.document_status || '—', 120)}`,
       `- Assigned provider: ${truncateText(client.provider_name || '—', 120)}`,
@@ -2747,14 +2771,6 @@ export const generateSupportTicketResponse = async (req, res, next) => {
     };
 
     let client = null;
-    if (ticket.client_id) {
-      try {
-        client = await Client.findById(ticket.client_id, { includeSensitive: true });
-      } catch {
-        client = null;
-      }
-    }
-
     let messages = [];
     if (await hasSupportTicketMessagesTable()) {
       const hasSoftDelete = await hasSupportTicketMessagesSoftDeleteColumns();
@@ -2785,109 +2801,17 @@ export const generateSupportTicketResponse = async (req, res, next) => {
       return res.status(422).json({ error: { message: 'There is no readable message to draft a reply to.' } });
     }
 
-    let notes = [];
-    if (ticket.client_id) {
-      try {
-        const roleNorm = String(req.user?.role || '').toLowerCase();
-        const canViewInternalNotes = ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm);
-        const list = await ClientNotes.findByClientId(ticket.client_id, {
-          hasAgencyAccess: true,
-          canViewInternalNotes
-        });
-        const allNotes = Array.isArray(list) ? list : [];
-        // Prefer contact / clinical / status notes (school-reply context: parent contact attempts, updates).
-        const prioritized = allNotes.filter((n) => {
-          const cat = String(n?.category || '').toLowerCase();
-          return ['contact', 'clinical', 'status', 'administrative', 'termination'].includes(cat)
-            || /terminat|spring|fall|contact|parent|guardian|dencon/i.test(String(n?.message || ''));
-        });
-        notes = (prioritized.length ? prioritized : allNotes).slice(0, 12);
+    const grounding = await loadSchoolSupportDraftGrounding({ ticket: ticketContext, messages });
+    client = grounding.client;
+    // School replies need current administrative facts. Account-note bodies,
+    // clinical notes and another conversation's private details are not model context.
+    const notes = [];
 
-        try {
-          const [lifeRows] = await pool.execute(
-            `SELECT c.status, cs.status_key, cs.label AS status_label,
-                    c.termination_reason, c.terminated_at, c.updated_at
-             FROM clients c
-             LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
-             WHERE c.id = ?
-             LIMIT 1`,
-            [ticket.client_id]
-          );
-          const life = lifeRows?.[0] || null;
-          if (life) {
-            const statusKey = String(life.status_key || life.status || '').toLowerCase();
-            const bits = [
-              `Status: ${life.status_label || life.status || '—'}`,
-              statusKey.includes('spring') ? 'Spring update pending/on file' : null,
-              statusKey.includes('fall') ? 'Fall update pending/on file' : null,
-              life.terminated_at || /terminat/i.test(statusKey)
-                ? `Terminated${life.termination_reason ? `: ${String(life.termination_reason).slice(0, 160)}` : ''}`
-                : null
-            ].filter(Boolean);
-            if (bits.length) {
-              notes = [
-                {
-                  category: 'lifecycle',
-                  author_name: 'System',
-                  created_at: life.updated_at || life.terminated_at,
-                  message: bits.join(' · ')
-                },
-                ...notes
-              ].slice(0, 14);
-            }
-          }
-        } catch {
-          /* optional enrichment */
-        }
-      } catch {
-        notes = [];
-      }
-    }
-
-    let recentTickets = [];
-    if (ticket.client_id) {
-      try {
-        const [tRows] = await pool.execute(
-          `SELECT id, subject, status, created_at
-           FROM support_tickets
-           WHERE client_id = ?
-             AND id <> ?
-           ORDER BY created_at DESC
-           LIMIT 5`,
-          [ticket.client_id, ticketId]
-        );
-        recentTickets = Array.isArray(tRows) ? tRows : [];
-      } catch {
-        recentTickets = [];
-      }
-    }
-
-    // Learn from recent successful official answers / exchanges in this agency
-    // (prefer same school, then other agency replies).
-    let recentAnswers = [];
-    if (ticket.agency_id) {
-      try {
-        const schoolOrgId = Number(ticket.school_organization_id) || 0;
-        const [aRows] = await pool.execute(
-          `SELECT t.*,
-                  s.name AS school_name, t.school_organization_id
-           FROM support_tickets t
-           LEFT JOIN agencies s ON s.id = t.school_organization_id
-           WHERE t.agency_id = ?
-             AND t.id <> ?
-             AND (NULLIF(TRIM(t.answer), '') IS NOT NULL OR t.answer_ciphertext IS NOT NULL)
-             AND t.status IN ('answered', 'closed', 'waiting')
-           ORDER BY
-             CASE WHEN ? > 0 AND t.school_organization_id = ? THEN 0 ELSE 1 END,
-             COALESCE(t.answered_at, t.updated_at, t.created_at) DESC
-           LIMIT 8`,
-          [ticket.agency_id, ticketId, schoolOrgId, schoolOrgId]
-        );
-        recentAnswers = Array.isArray(aRows) ? aRows.map(decryptTicketRow).filter(row => ![row.question, row.answer].includes('[Unable to decrypt]')) : [];
-      } catch {
-        recentAnswers = [];
-      }
-    }
+    // A different conversation can contain another guardian's private details
+    // or a provider commitment made for a different case. Use approved library
+    // guidance for style, never other tickets' bodies as this student's evidence.
+    const recentTickets = [];
+    const recentAnswers = [];
 
     const regenerationGuidance = String(
       req.body?.regenerationGuidance || req.body?.suggestion || ''
@@ -2915,7 +2839,7 @@ export const generateSupportTicketResponse = async (req, res, next) => {
       }
     }
 
-    const draftSources = buildManualDraftSources({
+    const draftSources = [...buildManualDraftSources({
       ticket: ticketContext,
       client,
       messages,
@@ -2926,7 +2850,7 @@ export const generateSupportTicketResponse = async (req, res, next) => {
       promptNotes,
       intentKey,
       regenerationGuidance
-    });
+    }), ...grounding.sources];
 
     const prompt = buildSupportTicketResponsePrompt({
       ticket: ticketContext,
@@ -2936,7 +2860,8 @@ export const generateSupportTicketResponse = async (req, res, next) => {
       recentTickets,
       recentAnswers,
       regenerationGuidance,
-      intentKey
+      intentKey,
+      grounding
     })
       + buildReplyLibraryPromptBlock(libraryMatches)
       + await buildAgencyPromptGuardrailsBlock(ticket.agency_id);
@@ -2948,12 +2873,13 @@ export const generateSupportTicketResponse = async (req, res, next) => {
       sensitive: true,
       vertexOnly: true
     };
-    let generated = await callGeminiText(generationOptions);
-    const invalidDraft = (text) => !String(text || '').trim()
+    const recordReply = schoolSupportRecordReply(grounding);
+    let generated = recordReply ? { text: recordReply, modelName: 'school-records-v1', provider: 'records', latencyMs: 0 } : await callGeminiText(generationOptions);
+    const invalidDraft = (text) => validateSchoolSupportReply(text, grounding, messages).length > 0 || !String(text || '').trim()
       || /\{\{[^}]+\}\}|\[(?:your|staff|sender|recipient|first|last|full|client|school|email|phone|name|signature)[^\]]*\]/i.test(text)
       || /(?:your|the|received)\s+(?:message|question|request)\s+(?:(?:seems?|appears?)\s+(?:to be\s+)?)?(?:is\s+|was\s+)?(?:empty|blank)|(?:no|without any)\s+(?:message|question|request)(?:\s+(?:text|content|details))?\s+(?:was\s+)?(?:included|provided|received)/i.test(text);
     if (invalidDraft(generated.text)) {
-      generated = await callGeminiText({ ...generationOptions, prompt: `${prompt}\n\nThe previous reply was invalid. Read the received text above and answer its request. Do not describe it as empty. Return a complete reply body with no placeholders or signature.` });
+      generated = await callGeminiText({ ...generationOptions, prompt: `${prompt}\n\nThe previous reply was invalid. Read the received text and CURRENT evidence above. Do not expose numeric client identifiers, ask what ROI means, ask for a known client, or invent a provider commitment or calendar change. State only verified facts and explicit unknowns. Return a complete reply body with no placeholders or signature.` });
     }
     if (invalidDraft(generated.text)) {
       return res.status(422).json({ error: { message: 'The reply draft needs correction. Regenerate it or write a reply.' } });
@@ -2984,7 +2910,10 @@ export const generateSupportTicketResponse = async (req, res, next) => {
 
     try {
       await persistTicketDraftSources(ticketId, draftSources, {
-        lastDraftOrigin: regenerationGuidance ? 'regenerate_with_guidance' : 'generate_response'
+        lastDraftOrigin: regenerationGuidance ? 'regenerate_with_guidance' : 'generate_response',
+        schoolGroundingStatus: grounding.status,
+        matchedClientInitials: grounding.client?.initials || null,
+        groundingWarnings: grounding.warnings
       });
     } catch {
       // best-effort

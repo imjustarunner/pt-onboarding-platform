@@ -1,6 +1,6 @@
 <template>
  <div class="school-review">
-  <p>Review your current school hours and client spots. Adjust a row to request a change through the existing school scheduling process. Your current assignment remains in place until approval.</p>
+  <p>You can request changes to your school hours and client spots at any time. Adjust a row below; your current assignment remains in place until staff approve the change.</p>
   <p v-if="loading">Loading school assignments…</p><p v-if="error" role="alert">{{error}}</p><p v-if="notice" role="status">{{notice}}</p>
   <article v-for="school in visibleSchools" :key="school.schoolOrganizationId"><h3>{{school.schoolName}}</h3>
    <section v-for="day in school.days" :key="day.assignmentId"><strong>{{day.dayOfWeek}} · {{format(day.startTime)}}–{{format(day.endTime)}}</strong><p>{{day.slotsTotal??'—'}} client spots · {{day.clientCount??'—'}} clients assigned</p>

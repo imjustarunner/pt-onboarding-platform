@@ -2231,7 +2231,7 @@
             >
               {{ availabilitySubmitting
                 ? 'Saving…'
-                : (availabilityMoveToDay ? 'Send day-change request' : 'Apply slots / hours') }}
+                : 'Submit change for approval' }}
             </button>
             <div v-if="!availabilityHasScheduleChanges" class="muted" style="font-size: 13px;">
               Change hours, slot count, or the school day. If your schedule is correct, use Confirm current availability.
@@ -4416,7 +4416,7 @@ const markWeeklyAvailabilityPromptSeen = () => {
 
 const isProviderRoleForAvailability = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
-  return ['provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'].includes(role);
+  return ['provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'clinical_practice_assistant'].includes(role);
 });
 
 const slotVerification = useSlotVerification(() => organizationId.value);
@@ -4731,7 +4731,7 @@ const submitAvailabilityRequest = async () => {
 
     const moveTo = String(availabilityMoveToDay.value || '').trim();
 
-    // Slots/hours on an existing day: apply live + admin acknowledgement (not blocking approval).
+    // The existing portal form saves a request; approved hours and slots remain unchanged.
     if (!moveTo || moveTo === weekday) {
       await api.post(`/school-portal/${organizationId.value}/provider-availability/apply`, {
         dayOfWeek: weekday,
@@ -4749,7 +4749,7 @@ const submitAvailabilityRequest = async () => {
         try {
           await slotVerification.respondPending({
             kind: 'changes_requested',
-            summary: `Applied availability update for ${weekday}: ${requestedSlots} slot(s) (${formatSchoolPortalTimeRange(toStart, toEnd)}).`
+            summary: `Requested availability change for ${weekday}: ${requestedSlots} slot(s) (${formatSchoolPortalTimeRange(toStart, toEnd)}).`
           });
           slotVerificationPending.value = null;
           wasOpenedByPendingVerification.value = false;
@@ -4758,7 +4758,7 @@ const submitAvailabilityRequest = async () => {
         }
       }
 
-      availabilityConfirmSuccess.value = `Updated ${weekday} immediately. Admins were notified to acknowledge.`;
+      availabilityConfirmSuccess.value = `Change requested for ${weekday}. Your approved hours and client spots remain unchanged until staff approve it.`;
       closeAvailabilityRequest();
       await ensureAvailabilityContext({ force: true }).catch(() => {});
       return;

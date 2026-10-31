@@ -2018,7 +2018,7 @@
           @update:preferredRoomIds="editorPreferredRoomIds = $event"
           @update:roomPreferenceAcknowledged="editorRoomPreferenceAcknowledged = $event"
           @update:tenantServiceId="onEditorTenantServiceId"
-          @update:primaryServiceCode="bookingServiceCode = $event"
+          @update:primaryServiceCode="onEditorPrimaryServiceCode"
           @update:addonServiceCodes="editorAddonServiceCodes = $event"
           @update:modality="editorModality = $event"
           @update:selectedClientIds="virtualSessionSelectedClientIds = $event"
@@ -2460,7 +2460,7 @@
             <OfficeEventSessionNotePanel
               ref="editorSessionNotePanel"
               :practice-category="editorPracticeCategory || 'mental_health'"
-              v-if="editorIsClinical"
+              v-if="editorIsClinical && editorClinicalContextReady"
               :agency-id="Number(editorAgencyId || selectedActionAgencyId || 0)"
               :client-id="editorInfoClientId"
               :client-name="editorInfoClientName"
@@ -2472,16 +2472,14 @@
               :initials="editorInfoClientName.split(/\s+/).filter(Boolean).map(part=>part[0]).join('').slice(0,16)"
               v-model:input-text="editorQuickNote"
             />
+            <p v-else-if="editorClinicalContextLoading" class="muted" role="status">Loading this appointment’s linked note context…</p>
+            <p v-else-if="editorIsClinical" class="error" role="alert">{{ editorClinicalContextError || 'This session needs a linked appointment before a note can be started. Refresh the schedule and reopen the session.' }}</p>
             <p v-else class="muted">Session notes are available for booked client sessions.</p>
           </div>
 
           <div v-show="editorWorkspaceTab === 'clinical'" class="appt-workspace-panel appt-workspace-panel--flush">
             <AppointmentClinicalPanel
               v-if="editorIsClinical"
-              v-model:quick-note="editorQuickNote"
-              v-model:tenant-service-id="editorTenantServiceId"
-              :services="editorTenantServices"
-              :loading-services="editorServicesLoading"
               :diagnoses="editorChartDiagnoses"
               :latest-plan="editorChartLatestPlan"
               :chart-loading="editorChartLoading"
@@ -2489,7 +2487,8 @@
               :clinical-note-id="editorClinicalNoteId"
               :disabled="submitting"
               @open-note="openEditorClinicalNote"
-              @open-billing="openEditorClinicalClaim"
+              @open-session-note="openEditorQuickNote"
+              @open-treatment-plan="openEditorTreatmentPlan"
             />
             <p v-else class="muted">Clinical notes are available for client sessions on this tenant.</p>
           </div>
@@ -4652,7 +4651,7 @@
             :disabled="scheduleEventSaving || cancellingScheduleEventId === Number(editingScheduleStackItem.eventId || 0)"
             @click="openCancelMeetingConfirm(editingScheduleStackItem)"
           >
-            {{ isMeetingStackItem(editingScheduleStackItem) ? 'Cancel meeting' : 'Cancel event' }}
+            {{ cancelScheduleItemLabel(editingScheduleStackItem) }}
           </button>
           <div class="nr-footer__actions">
             <button v-if="!isMeetingStackItem(editingScheduleStackItem)&&scheduleEventEditForm.clientId" type="button" class="btn btn-secondary" @click="openAttendanceVerification('provider',editingScheduleStackItem.eventId)">Appointment attendance letter</button>
@@ -5376,7 +5375,7 @@
                   :disabled="cancellingScheduleEventId === item.eventId"
                   @click.stop="openCancelMeetingConfirm(item)"
                 >
-                  {{ isMeetingStackItem(item) ? 'Cancel meeting' : 'Cancel event' }}
+                  {{ cancelScheduleItemLabel(item) }}
                 </button>
               </div>
             </div>
@@ -5842,7 +5841,8 @@ import { useBrandingStore } from '../../store/branding';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { useUserPreferencesStore } from '../../store/userPreferences';
 import { isMedicalBillingEnabled } from '../../config/medicalBillingAccess.js';
-import { buildNoteAidQuery, navigateToNoteAid, toDateOfService } from '../../utils/noteAidLaunch.js';
+import { buildNoteAidQuery, navigateToNoteAid, toDateOfService, treatmentPlanUpdaterQuery } from '../../utils/noteAidLaunch.js';
+import { scheduleAppointmentContext } from '../../utils/scheduleAppointmentContext.js';
 import {
   PRACTICE_CATEGORY_LABELS,
   businessTypesForPracticeCategory,
@@ -11830,7 +11830,10 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
       mapsUrl: String(ev?.mapsUrl || '').trim() || null,
       isCancelled: isScheduleEventCancelled(ev),
       isMissed: isScheduleEventMissed(ev),
-      appointmentId: Number(ev?.appointmentId || 0) || null,
+      ...scheduleAppointmentContext(ev),
+      description: String(ev?.description || ''),
+      clientName: String(ev?.clientName || ''),
+      timeZone: String(ev?.timeZone || ev?.sourceTimezone || ''),
       isClientSession: isClientSessionScheduleEvent(ev),
       appointmentStatus: String(ev?.appointmentStatus || '').trim().toLowerCase() || null,
       confirmationState: sessionConfirmationState(ev),
@@ -12614,7 +12617,7 @@ const isQuarterHourRequestType = computed(() => {
   const t = String(requestType.value || '');
   // office_request_only uses AppointmentHeaderFields type=time; without this, a watch
   // in ensureModalEndTimeValid zeros minutes on blur (e.g. 6:30 PM → 6:00 PM).
-  return ['supervision', 'agency_meeting', 'huddle', 'personal_event', 'schedule_hold', 'schedule_hold_all_day', 'indirect_services', 'school', 'office_request_only', 'portal_intake', 'attach_open_for_booking'].includes(t);
+  return ['supervision', 'agency_meeting', 'huddle', 'personal_event', 'schedule_hold', 'schedule_hold_all_day', 'indirect_services', 'school', 'office_request_only', 'portal_intake', 'attach_open_for_booking', 'individual_session', 'group_session'].includes(t);
 });
 const canUseQuarterHourInput = computed(
   () => isQuarterHourRequestType.value && !isScheduleEventAllDayUi.value
@@ -13839,6 +13842,10 @@ const editorAddonServiceCodes = ref([]);
 const editorPackageEntitlementId = ref(0);
 const editorPackageEntitlements = ref([]);
 const editorQuickNote = ref('');
+const editorClinicalContextLoading = ref(false);
+const editorClinicalContextError = ref('');
+const editorClinicalContextKey = ref('');
+let editorClinicalContextRequest = 0;
 const editorSessionNotePanel = ref(null);
 
 const editorLocationAddress = ref('');
@@ -14421,6 +14428,13 @@ function onEditorTenantServiceId(id) {
   editorTenantServiceId.value = Number(id || 0);
 }
 
+function onEditorPrimaryServiceCode(value) {
+  const code = normalizeCodeValue(value);
+  bookingServiceCode.value = code;
+  const service = (editorTenantServices.value || []).find(row => normalizeCodeValue(row.serviceCode || row.service_code) === code);
+  if (service) editorTenantServiceId.value = Number(service.id || 0);
+}
+
 const editorPreferredOpenRoomOptions = computed(() => {
   const open = Array.isArray(editorOpenRooms.value) ? editorOpenRooms.value : [];
   let rows;
@@ -14548,22 +14562,13 @@ const editorInfoClientId = computed(() => {
   if (set?.size === 1) return Number([...set][0] || 0);
   return 0;
 });
-const editorOfficeEventId = computed(() => Number(
-  scheduleEventEditForm.value?.officeEventId
-  || scheduleEventEditForm.value?.id
-  || modalContext.value?.officeEventId
-  || 0
-));
+const editorClinicalContextReady = computed(() => Number(editorClinicalSessionId.value || 0) > 0
+  && editorClinicalContextKey.value === `${Number(editorAppointmentId.value || 0)}:${Number(editorInfoClientId.value || 0)}`);
+const editorOfficeEventId = computed(() => Number(isScheduleEventEditMode.value
+  ? scheduleEventEditForm.value?.officeEventId || 0
+  : modalContext.value?.officeEventId || 0));
 const editorSessionServiceCode = computed(() => {
-  const sid = Number(editorTenantServiceId.value || 0);
-  const svc = (editorTenantServices.value || []).find((s) => Number(s.id) === sid);
-  const fromSvc = String(svc?.serviceCode || svc?.service_code || '').trim();
-  if (fromSvc) return fromSvc;
-  return String(
-    scheduleEventEditForm.value?.serviceCode
-    || editorAddonServiceCodes.value?.[0]
-    || ''
-  ).trim();
+  return String(bookingServiceCode.value || scheduleEventEditForm.value?.serviceCode || '').trim();
 });
 const editorInfoClientName = computed(() => {
   const id = editorInfoClientId.value;
@@ -15536,13 +15541,22 @@ async function loadEditorReminders() {
       const appointment = appointmentRes?.data?.appointment;
       if (appointment) {
         editorHydratingAppointment.value=true;
-        editorStatus.value=String(appointment.status || 'scheduled');
-        editorStatusBaseline.value=editorStatus.value;
+        const previous = editorAppointmentBaseline.value;
+        const edited = previous?.id === apptId && (
+          String(bookingServiceCode.value || '') !== previous.serviceCode
+          || Number(editorTenantServiceId.value || 0) !== previous.tenantServiceId
+          || Number(editorServiceLocationId.value || 0) !== previous.serviceLocationId
+          || String(editorModality.value || '') !== previous.modality
+        );
+        if (editorStatus.value === editorStatusBaseline.value) editorStatus.value=String(appointment.status || 'scheduled');
+        editorStatusBaseline.value=String(appointment.status || 'scheduled');
         editorAppointmentBaseline.value={id:apptId,serviceCode:String(appointment.serviceCode || appointment.billing?.serviceCode || ''),tenantServiceId:Number(appointment.tenantServiceId || 0),serviceLocationId:Number(appointment.serviceLocationId || 0),modality:String(appointment.modality || '')};
-        if (appointment.modality) {editorModality.value=String(appointment.modality);bookingModality.value=String(appointment.modality);}
-        if (appointment.serviceCode || appointment.billing?.serviceCode) bookingServiceCode.value=String(appointment.serviceCode || appointment.billing.serviceCode);
-        if (appointment.serviceLocationId) {editorServiceLocationId.value=Number(appointment.serviceLocationId);bookingServiceLocationId.value=Number(appointment.serviceLocationId);}
-        if (appointment.tenantServiceId) editorTenantServiceId.value=Number(appointment.tenantServiceId);
+        if (!edited) {
+          if (appointment.modality) {editorModality.value=String(appointment.modality);bookingModality.value=String(appointment.modality);}
+          if (appointment.serviceCode || appointment.billing?.serviceCode) bookingServiceCode.value=String(appointment.serviceCode || appointment.billing.serviceCode);
+          if (appointment.serviceLocationId) {editorServiceLocationId.value=Number(appointment.serviceLocationId);bookingServiceLocationId.value=Number(appointment.serviceLocationId);}
+          if (appointment.tenantServiceId) editorTenantServiceId.value=Number(appointment.tenantServiceId);
+        }
         editorClinicalSessionId.value = Number(appointment.clinicalSessionId || 0);
         editorPackageEntitlementId.value = Number(appointment.packageEntitlementId || 0);
         editorBillingPaymentStatus.value = String(appointment.billing?.paymentStatus || '');
@@ -15648,23 +15662,51 @@ function openPushSessionUpdateFromEditor() {
   showPushSessionUpdatePanel.value = true;
 }
 
-async function openEditorClinicalNote() {
+async function ensureEditorClinicalContext() {
   const appointmentId = Number(editorAppointmentId.value || 0);
-  if (appointmentId) {
-    try {
-      const { data } = await api.post(`/appointments/${appointmentId}/context`);
-      const clientId = Number(editorInfoClientId.value || 0);
-      const session = (data.sessions || []).find((item) => Number(item.clientId) === clientId);
-      editorClinicalSessionId.value = Number(session?.id || data.appointment?.clinicalSessionId || 0);
-    } catch (error) {
-      modalError.value = error?.response?.data?.error?.message || 'Unable to link this session to its clinical note.';
-      return;
+  const clientId = Number(editorInfoClientId.value || 0);
+  const key = `${appointmentId}:${clientId}`;
+  if (editorClinicalContextKey.value === key && Number(editorClinicalSessionId.value) > 0) return true;
+  if (!appointmentId || !clientId) {
+    editorClinicalContextError.value = 'This session needs its linked appointment before a note can be started. Refresh the schedule and reopen the session.';
+    return false;
+  }
+  const version = ++editorClinicalContextRequest;
+  editorClinicalContextLoading.value = true;
+  editorClinicalContextError.value = '';
+  try {
+    const { data } = await api.post(`/appointments/${appointmentId}/context`);
+    if (version !== editorClinicalContextRequest || appointmentId !== Number(editorAppointmentId.value) || clientId !== Number(editorInfoClientId.value)) return false;
+    const session = (data.sessions || []).find(item => Number(item.clientId || item.client_id) === clientId);
+    const sessionId = Number(session?.id || 0);
+    if (!sessionId) throw new Error('The appointment did not return a clinical session for this client. Keep this appointment open and retry.');
+    editorClinicalSessionId.value = sessionId;
+    editorClinicalContextKey.value = key;
+    return true;
+  } catch (error) {
+    if (version === editorClinicalContextRequest) {
+      editorClinicalContextError.value = error?.response?.data?.error?.message || error?.message || 'Unable to link this appointment to its clinical note.';
+      modalError.value = editorClinicalContextError.value;
     }
+    return false;
+  } finally {
+    if (version === editorClinicalContextRequest) editorClinicalContextLoading.value = false;
+  }
+}
+
+async function openEditorClinicalNote() {
+  if (Number(editorAppointmentId.value || 0) > 0 && !await ensureEditorClinicalContext()) return;
+  try {
+    await editorSessionNotePanel.value?.savePendingDraft?.();
+  } catch (error) {
+    modalError.value = error?.response?.data?.error?.message || error?.message || 'Your session note could not be saved. Keep this appointment open and retry.';
+    scheduleEventEditError.value = modalError.value;
+    return;
   }
   const noteId = Number(editorClinicalNoteId.value || 0);
   const sessionId = Number(editorClinicalSessionId.value || 0);
   const clientId = Number(editorInfoClientId.value || 0);
-  const officeEventId = Number(modalContext.value?.officeEventId || scheduleEventEditForm.value?.officeEventId || 0);
+  const officeEventId = Number(editorOfficeEventId.value || 0);
   const query = buildNoteAidQuery({
     practiceCategory: editorPracticeCategory.value,
     clientId: clientId || undefined,
@@ -15707,10 +15749,20 @@ function openEditorClinicalClaim(linkedClaimId = null) {
   });
 }
 
+function openEditorTreatmentPlan() {
+  const clientId = Number(editorInfoClientId.value || 0);
+  const planId = Number(editorChartLatestPlan.value?.id || 0);
+  const agencyId = Number(editorAgencyId.value || selectedActionAgencyId.value || 0);
+  if (!clientId || !planId || !agencyId) return;
+  const query = treatmentPlanUpdaterQuery(clientId, { planId, agencyId, practiceCategory: editorPracticeCategory.value });
+  const slug = String(route.params?.organizationSlug || '').trim();
+  router.push(slug ? { name: 'OrganizationNoteAid', params: { organizationSlug: slug }, query } : { name: 'NoteAid', query }).catch(() => {});
+}
+
 function openEditorQuickNote() {
   editorWorkspaceTab.value = editorIsClinical.value ? 'session' : 'clinical';
   nextTick(() => {
-    const el = document.querySelector('[data-testid="office-event-session-note"] textarea, [data-testid="appointment-clinical-panel"] .acp-textarea');
+    const el = document.querySelector('[data-testid="office-event-session-note"] textarea');
     if (el && typeof el.focus === 'function') el.focus();
   });
 }
@@ -15757,6 +15809,7 @@ function onAppointmentChangeCompleted(result) {
 function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = {} } = {}) {
   const k = String(kind || '').trim();
   if (mode === 'create' && CLIENT_SESSION_CREATE_ACTIONS.has(k) && !clientSessionBookingEnabled.value) return;
+  editorHydratingAppointment.value = true;
   // Never treat a schedule-event / supervision id as an appointment id.
   editorAppointmentId.value = Number(defaults.appointmentId || 0) || 0;
   editorClinicalSessionId.value = Number(defaults.clinicalSessionId || 0) || 0;
@@ -15764,6 +15817,11 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
   editorClaimId.value = Number(defaults.claimId || 0) || 0;
   editorBillingPaymentStatus.value = String(defaults.paymentStatus || defaults.billingPaymentStatus || '');
   editorQuickNote.value = String(defaults.quickNote || '');
+  editorClinicalContextRequest += 1;
+  editorClinicalContextLoading.value = false;
+  editorClinicalContextError.value = '';
+  editorClinicalContextKey.value = '';
+  bookingServiceCode.value = String(defaults.serviceCode || '');
   editorLocationAddress.value = String(defaults.locationAddress || '');
   editorRoomId.value = Number(defaults.roomId || 0) || 0;
   editorBookedUntil.value = String(defaults.bookedUntil || '');
@@ -15785,6 +15843,13 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
     ? defaults.addonServiceCodes.map((c) => String(c || '').toUpperCase()).filter(Boolean)
     : [];
   editorServiceLocationId.value = Number(defaults.serviceLocationId || bookingServiceLocationId.value || 0) || 0;
+  if (editorAppointmentId.value) editorAppointmentBaseline.value = {
+    id: editorAppointmentId.value,
+    serviceCode: String(defaults.serviceCode || ''),
+    tenantServiceId: Number(defaults.tenantServiceId || 0),
+    serviceLocationId: Number(defaults.serviceLocationId || 0),
+    modality: editorModality.value
+  };
   editorAttachOfficeRequest.value = !!defaults.attachOfficeRequest;
   editorCareTypes.value=defaults.careTypes||['INDIVIDUAL','COUPLES','FAMILY'];
   editorOpenPurpose.value=defaults.purpose==='MEETING'?'MEETING':'INTAKE';
@@ -15847,6 +15912,7 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
     editorShowReminders.value = true;
     void loadEditorReminders();
   }
+  void nextTick(() => { editorHydratingAppointment.value = false; });
   void loadEditorOfficeLocations();
   if (k === 'portal_intake') {
     void syncEditorOfficeBookingLink();
@@ -15854,6 +15920,7 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
 }
 
 watch(editorWorkspaceTab, (tab) => {
+  if (tab === 'session' && editorIsClinical.value) void ensureEditorClinicalContext();
   if (tab !== 'notifications') return;
   if (Number(editorAppointmentId.value || 0) > 0 || Number(editorNotificationsScheduleEventId.value || 0) > 0) {
     void loadEditorReminders();
@@ -15910,6 +15977,14 @@ watch(editorModality, (v) => {
   bookingModality.value = String(v || 'TELEHEALTH');
   // Match Place of Service to modality (telehealth ↔ in-person) when the user toggles.
   preferDefaultServiceLocation({ force: true });
+});
+
+watch(editorTenantServices, services => {
+  if (editorHydratingAppointment.value || isAppointmentEditMode.value || !editorIsClinical.value) return;
+  const code = normalizeCodeValue(bookingServiceCode.value);
+  if (!code) return;
+  const selected = (services || []).find(service => normalizeCodeValue(service.serviceCode || service.service_code) === code);
+  if (selected) editorTenantServiceId.value = Number(selected.id || 0);
 });
 
 watch(editorTenantServiceId, (id) => {
@@ -16293,7 +16368,7 @@ const preferDefaultServiceLocation = ({ force = false } = {}) => {
     ? editorServiceLocationOptions.value
     : bookingServiceLocationOptions.value) || [];
   const currentId = Number(editorServiceLocationId.value || bookingServiceLocationId.value || 0);
-  if (!force && currentId > 0 && locs.some(location => Number(location.id) === currentId)) return;
+  if (!force && currentId > 0 && (isAppointmentEditMode.value || locs.some(location => Number(location.id) === currentId))) return;
   const modality = String(editorModality.value || bookingModality.value || '').toUpperCase();
   const hit=defaultAppointmentServiceLocation(locs,modality,appointmentOfficeId(editorOfficeLocationId.value,selectedOfficeLocationId.value));
   bookingServiceLocationId.value=Number(hit?.id || 0);
@@ -16308,7 +16383,8 @@ const refreshBookingUnitPreview = async () => {
   if (!agencyId || !code) return;
   const minutes = modalSessionDurationMinutes.value;
 
-  // Soft psychotherapy band switch (90832 ↔ 90834 ↔ 90837) before unit preview.
+  let durationHint = '';
+  // Review duration guidance without changing the selected service or historical encounter.
   const psychCodes = new Set(['90832', '90834', '90837']);
   if (psychCodes.has(code)) {
     try {
@@ -16318,9 +16394,7 @@ const refreshBookingUnitPreview = async () => {
       const suggestedRaw = suggestPsychotherapyCodeForDuration(minutes);
       const suggested = normalizePsychotherapyServiceCode(suggestedRaw);
       if (suggested && psychCodes.has(suggested) && suggested !== code) {
-        bookingServiceCode.value = suggested;
-        code = suggested;
-        bookingUnitPreview.value = `Duration ${minutes} min → switched service code to ${suggested}.`;
+        durationHint = `For ${minutes} minutes, review whether ${suggested} is the appropriate service.`;
       }
     } catch {
       // optional helper
@@ -16340,22 +16414,20 @@ const refreshBookingUnitPreview = async () => {
       && String(d.effectiveServiceCode).toUpperCase() !== code
     ) {
       const next = String(d.effectiveServiceCode).toUpperCase();
-      bookingServiceCode.value = next;
-      code = next;
-      bookingUnitPreview.value = `Duration ${minutes} min → overflow switched to ${next} (${d.units || 1} unit).`;
+      bookingUnitPreview.value = `At ${minutes} minutes, billing guidance suggests ${next} (${d.units || 1} unit). Review the service before saving.`;
       return;
     }
     if (d.claimable === false) {
       bookingUnitPreview.value = d.reason || `Not claimable at ${minutes} min for ${code}.`;
       return;
     }
-    const parts = [`~${minutes} min → ${d.units || 0} unit(s)`];
+    const parts = [durationHint, `~${minutes} min → ${d.units || 0} unit(s)`].filter(Boolean);
     if (d.effectiveServiceCode && d.effectiveServiceCode !== code) parts.push(`bills as ${d.effectiveServiceCode}`);
     if (d.overflowApplied) parts.push('overflow code applied');
     if (Number(d.maxUnitsPerDay || 0) > 0) parts.push(`max ${d.maxUnitsPerDay}/day`);
     bookingUnitPreview.value = parts.join(' · ');
   } catch {
-    bookingUnitPreview.value = '';
+    bookingUnitPreview.value = durationHint;
   }
 };
 
@@ -25341,6 +25413,10 @@ const MEETING_SCHEDULE_EVENT_KINDS = new Set(['TEAM_MEETING', 'HUDDLE']);
 
 const isMeetingStackItem = (item) => MEETING_SCHEDULE_EVENT_KINDS.has(String(item?.eventKind || '').trim().toUpperCase());
 const cancelMeetingIsMeeting = computed(() => isMeetingStackItem(cancelMeetingItem.value));
+function cancelScheduleItemLabel(item) {
+  if (isMeetingStackItem(item)) return 'Cancel meeting';
+  return item?.isClientSession || parseClientIdFromScheduleEvent(item) > 0 ? 'Cancel / Missed session' : 'Cancel event';
+}
 
 function parseClientIdFromScheduleEvent(evOrItem) {
   const fromField = Number(evOrItem?.clientId || 0);
@@ -25474,6 +25550,8 @@ const beginEditScheduleStackItem = async (item) => {
     endAt: toZonedDatetimeLocalValue(item?.endAt, scheduleEventEditTimeZone.value),
     agencyId,
     clientId,
+    officeEventId: Number(item?.officeEventId || 0) || null,
+    serviceCode: String(item?.serviceCode || ''),
     isPrivate: !!item?.isPrivate
   };
   meetingIsTrainingPayEligible.value = !!item?.isTrainingPayEligible;
@@ -25932,12 +26010,11 @@ const openAppointmentEditInScheduleModal = async ({
     kind: String(target?.eventKind || 'PERSONAL_EVENT'),
     id: Number(target?.eventId || 0),
     defaults: {
-      appointmentId: Number(target?.appointmentId || 0),
-      clinicalSessionId: Number(target?.clinicalSessionId || 0),
+      ...scheduleAppointmentContext(target),
       modality: inferModalityFromEvent(target),
       locationAddress: String(target?.locationAddress || target?.address || ''),
       roomId: Number(target?.roomId || 0),
-      status: String(target?.status || 'confirmed'),
+      status: String(target?.appointmentStatus || target?.status || 'scheduled'),
       tenantServiceId: Number(target?.tenantServiceId || 0),
       workspaceTab: 'info'
     }
@@ -26134,7 +26211,7 @@ const closeCancelMeetingConfirm = () => {
 const openCancelMeetingConfirm = (item) => {
   if (item?.isClientSession || parseClientIdFromScheduleEvent(item)>0) {
     const appointmentId=Number(item?.appointmentId || (Number(item?.eventId)===Number(scheduleEventEditId.value)?editorAppointmentId.value:0));
-    if (!appointmentId) {modalError.value='This session needs its appointment link before a cancellation can be recorded. Reopen the session after refreshing the schedule.';return;}
+    if (!appointmentId) {scheduleEventEditError.value='This session needs its appointment link before a cancellation can be recorded. Reopen the session after refreshing the schedule.';modalError.value=scheduleEventEditError.value;return;}
     void appointmentChange.openWizard({appointmentId,context:{clientId:parseClientIdFromScheduleEvent(item)||editorInfoClientId.value,clientName:String(item?.clientName || item?.label || editorInfoClientName.value),whenLabel:clockRangeLabel(item.startAt,item.endAt),providerName:bookingTargetUserLabel.value}}).then(()=>{if(!appointmentChange.facts.eventType){appointmentChange.facts.eventType='canceled';appointmentChange.facts.initiator='provider';}});
     return;
   }
@@ -26536,7 +26613,12 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
     detailText: buildScheduleEventDetailText(ev),
     description: String(ev?.description || '').trim() || '',
     agencyId: Number(ev?.agencyId || ev?._agencyId || 0) || null,
+    ...scheduleAppointmentContext(ev),
     clientId: clientId || null,
+    isClientSession: isClientSessionScheduleEvent(ev),
+    locationAddress: String(ev?.locationAddress || ''),
+    roomId: Number(ev?.roomId || 0) || null,
+    officeLocationId: Number(ev?.officeLocationId || 0) || null,
     providerId: Number(ev?.providerId || ev?.provider_id || props.userId || 0) || null,
     createdByUserId: Number(ev?.createdByUserId || ev?.created_by_user_id || 0) || null,
     isHost: ev?.isHost !== undefined ? !!ev.isHost : null,
@@ -26571,7 +26653,7 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
     endAt: ev?.endAt || null,
     // Zone this event's wall-clock was authored in — re-editing must anchor to this, not to
     // whichever office/tenant happens to be selected in the schedule UI right now.
-    timeZone: String(ev?.timeZone || '').trim() || null,
+    timeZone: String(ev?.timeZone || ev?.sourceTimezone || '').trim() || null,
     link: String(ev?.htmlLink || '').trim() || '',
     appJoinUrl: isScheduleMeetingJoinable(ev) ? (String(ev?.appJoinUrl || '').trim() || '') : '',
     hostJoinUrl: isScheduleMeetingJoinable(ev) ? (String(ev?.hostJoinUrl || '').trim() || '') : '',
