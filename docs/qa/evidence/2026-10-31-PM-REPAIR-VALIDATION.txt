@@ -56,3 +56,23 @@ LIMITS
 - Clinical Notifyre activation and actual48-hour outreach delivery remain open.
 - The startup schema migration adds contact-plan fields but seeds no clients,
   opt-ins, messages, signatures or senders.
+
+FINAL EXPANDED VALIDATION
+- Expanded scheduling CI exposed three browser-dependent test fixtures under
+  UTC. Their API timestamps now explicitly represent the intended Mountain
+  wall times; real grid-cell and cancel-click assertions remain intact.
+- Full school-calendar suite:101 passed in UTC and101 in America/Denver.
+- Full PM frontend suite:180 passed in UTC and180 in America/Denver.
+- Both MySQL integration fixtures now load migration1722 and current schema.
+  All12 integration cases passed against isolated native MySQL9.5 with
+  networking disabled and mocked transports. The190MiB temporary database was
+  stopped and removed. No Docker or production database was used for them.
+- Running backend6780ba8bcd3c44d60778fd5d6df50e8b18ab2acb reported ready.
+  The new schema migration reports success. Retained workflows1/5 remain
+  waiting_parent; second/final/provider-notice timestamps are still null.
+- No timed phase or historic send was forced to produce that verification.
+- Cedar Grove451 had no school_profiles row, explaining the missing school
+  recipient. Created its communication profile with testing@itsco.health as
+  the shared school email, guarded by exact demo/school slugs, synthetic-only
+  agency450 and active affiliation. No existing address was overwritten and
+  no old notice was resent. Fresh preview/delivery remains a browser QA check.

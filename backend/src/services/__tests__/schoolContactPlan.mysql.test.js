@@ -27,7 +27,10 @@ describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET)('school contact plan MySQL 
       `CREATE TABLE client_provider_assignments (client_id INT,provider_user_id INT,organization_id INT,is_active BOOLEAN DEFAULT TRUE)`,
       `CREATE TABLE email_sender_identities (agency_id INT,from_email VARCHAR(160),identity_key VARCHAR(48),is_active BOOLEAN DEFAULT TRUE)`
     ]) await connection.query(sql);
-    await connection.query(await readFile(new URL('../../../../database/migrations/1719_school_provider_contact_plans.sql', import.meta.url), 'utf8'));
+    for (const file of ['1719_school_provider_contact_plans.sql','1720_school_contact_automation.sql','1722_school_contact_three_attempts.sql']) {
+      const source=await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8');
+      for(const statement of source.replace(/^\s*--.*$/gm,'').split(';').map(s=>s.trim()).filter(Boolean)) await connection.query(statement);
+    }
     await connection.execute(`INSERT INTO agencies(id,name,slug,feature_flags,organization_type) VALUES
       (450,'ITSCOLLC','auricwell-qa-demo',JSON_OBJECT(),'agency'),
       (451,'Cedar Grove K-8','auricwell-qa-demo-school',JSON_OBJECT(),'school'),
@@ -44,7 +47,7 @@ describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET)('school contact plan MySQL 
   afterAll(async () => {
     if (connection) { await connection.query(`DROP DATABASE IF EXISTS \`${databaseName}\``); await connection.end(); }
   });
-  it('executes migration and persists optional choices, edited text and ordered timing against real MySQL', async () => {
+  it('executes all migrations and persists authored templates while enforcing the fixed48/96hour timeline', async () => {
     const input = { agencyId: 450, userId: 1433 };
     const state = await getSchoolContactPlan(input);
     expect(state).toMatchObject({ eligible: true, status: 'unconfigured', routing: { isSso: false, replyTo: 'testing@itsco.health' } });
@@ -52,12 +55,21 @@ describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET)('school contact plan MySQL 
     expect(await getSchoolContactPlan({ agencyId: 451, userId: 1433 })).toMatchObject({ eligible: true, agencyId: 450 });
     expect(await saveSchoolContactPlan(input, { status: 'declined' })).toMatchObject({ status: 'declined' });
     const edited = `${DEFAULT_SCHOOL_CONTACT_TEMPLATE}\n\nI look forward to meeting you.`;
-    expect(await saveSchoolContactPlan(input, { status: 'enabled', template: edited, smsAfterDays: 2, emailAfterDays: 5, staleAfterHours: 72 })).toMatchObject({ status: 'enabled', template: edited, smsAfterDays: 2, emailAfterDays: 5 });
+    const second=state.secondTemplate+'\nMy second email edit.',final=state.finalTemplate+'\nMy final email edit.',sms=state.smsTemplate+' Please let me know.';
+    expect(await saveSchoolContactPlan(input,{status:'enabled',template:edited,secondTemplate:second,finalTemplate:final,smsTemplate:sms,smsAfterDays:9,emailAfterDays:20,staleAfterHours:72})).toMatchObject({status:'enabled',template:edited,secondTemplate:second,finalTemplate:final,smsTemplate:sms,smsAfterDays:2,emailAfterDays:4,staleAfterHours:48});
+    const [[saved]]=await connection.execute('SELECT second_template,final_template,sms_template,sms_after_days,email_after_days,stale_after_hours FROM school_provider_contact_plans WHERE agency_id=450 AND provider_user_id=1433');
+    expect(saved).toMatchObject({second_template:second,final_template:final,sms_template:sms,sms_after_days:2,email_after_days:4,stale_after_hours:48});
     const [[before]] = await connection.execute('SELECT decided_at FROM school_provider_contact_plans WHERE agency_id=450 AND provider_user_id=1433');
     await saveSchoolContactPlan(input, { staleAfterHours: 48 });
     const [[after]] = await connection.execute('SELECT decided_at FROM school_provider_contact_plans WHERE agency_id=450 AND provider_user_id=1433');
     expect(after.decided_at).toEqual(before.decided_at);
     expect(await getSchoolContactPlan({ agencyId: 450, userId: 1438 })).toMatchObject({ status: 'unconfigured' });
+  });
+  it('retains an administrator requirement without treating it as provider opt-in or replacing authored wording',async()=>{
+    await connection.execute('UPDATE school_provider_contact_plans SET required_by_admin=1 WHERE agency_id=450 AND provider_user_id=1433');
+    const before=await getSchoolContactPlan({agencyId:450,userId:1433});expect(before.mandatory).toBe(true);
+    await expect(saveSchoolContactPlan({agencyId:450,userId:1433},{status:'declined'})).rejects.toMatchObject({status:409});
+    const after=await getSchoolContactPlan({agencyId:450,userId:1433});expect(after.status).toBe('enabled');expect(after.template).toBe(before.template);expect(after.secondTemplate).toBe(before.secondTemplate);
   });
   it('blocks production tenants and revoked school access before preference mutation', async () => {
     await expect(saveSchoolContactPlan({ agencyId: 2, userId: 1433 }, { status: 'enabled' })).rejects.toMatchObject({ status: 403 });

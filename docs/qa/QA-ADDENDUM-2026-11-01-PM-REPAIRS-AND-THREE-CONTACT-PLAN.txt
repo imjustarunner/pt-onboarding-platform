@@ -151,8 +151,9 @@ show Avery's Mon–Fri 9–1 assignment despite no separate school membership.
 Request submitted timestamps should honor the displayed timezone. Do not use
 the old admin-only School Management queue as a provider's request form.
 New school onboarding requires a group email saved through its normal setup.
-Cedar Grove's one-off cancel-day recipient did not persist that school field;
-enter testing@ only through the approved synthetic-school setup if authorized.
+Cedar Grove's missing school communication profile now has testing@itsco.health
+saved as its shared email. Verify a fresh cancel-day preview discovers that
+recipient without typing a one-off override. No old notice was resent.
 
 5. CPT, DURATION AND INLINE RESCHEDULING
 

@@ -230,13 +230,15 @@ it('toggles personal reservations independently of available-room counts and rem
   const get = m.get.getMockImplementation();
   m.get.mockImplementation((url, options) => {
     if (url.includes('/schedule-summary')) return Promise.resolve({ data: { ...summary, officeEvents: [
-      { id: 1, buildingId: 1, roomId: 10, assignedProviderId: 7, slotState: 'ASSIGNED_AVAILABLE', startAt: new Date('2026-10-12T10:00:00').toISOString(), endAt: new Date('2026-10-12T11:00:00').toISOString() },
-      { id: 2, buildingId: 2, roomId: 20, assignedProviderId: 7, bookedProviderId: 7, slotState: 'ASSIGNED_BOOKED', startAt: new Date('2026-10-12T10:00:00').toISOString(), endAt: new Date('2026-10-12T11:00:00').toISOString() }
+      // API instants for 10–11 AM Mountain, independent of the test runner's timezone.
+      { id: 1, buildingId: 1, roomId: 10, assignedProviderId: 7, slotState: 'ASSIGNED_AVAILABLE', startAt: '2026-10-12T16:00:00Z', endAt: '2026-10-12T17:00:00Z' },
+      { id: 2, buildingId: 2, roomId: 20, assignedProviderId: 7, bookedProviderId: 7, slotState: 'ASSIGNED_BOOKED', startAt: '2026-10-12T16:00:00Z', endAt: '2026-10-12T17:00:00Z' }
     ] } });
     return get(url, options);
   });
   const state = await mount();
   await vi.advanceTimersByTimeAsync(500); await flushPromises();
+  expect(state.bookingTimezoneIana).toBe('America/Denver');
   expect(state.cellBlocks('Monday', 10).map(b => b.kind)).toEqual(expect.arrayContaining(['oa','ob']));
   expect(state.showOfficeOverlay).toBe(false);
   await wrapper.find('[data-testid="my-schedule-room-toggle"]').trigger('click');
@@ -465,8 +467,10 @@ it('starts each visit with a whole week while preserving a deliberate current-ve
 
 it('renders a school session once in occupied hours and retains its complete assignment overview',async()=>{
  const state=await mount();
- state.summary={...summary,schoolAssignments:[{assignmentId:10,schoolOrgId:451,agencyId:450,schoolName:'Cedar Grove',dayOfWeek:'Monday',startTime:'08:00',endTime:'15:00'}],scheduleEvents:[{id:80,appointmentId:20,clientId:5,agencyId:450,kind:'PERSONAL_EVENT',schoolOrganizationId:451,title:'School session',startAt:new Date('2026-10-12T08:30:00').toISOString(),endAt:new Date('2026-10-12T09:15:00').toISOString()}]};
+ // This saved appointment is 8:30–9:15 AM Mountain; school hours are local wall times.
+ state.summary={...summary,schoolAssignments:[{assignmentId:10,schoolOrgId:451,agencyId:450,schoolName:'Cedar Grove',dayOfWeek:'Monday',startTime:'08:00',endTime:'15:00'}],scheduleEvents:[{id:80,appointmentId:20,clientId:5,agencyId:450,kind:'PERSONAL_EVENT',schoolOrganizationId:451,title:'School session',startAt:'2026-10-12T14:30:00Z',endAt:'2026-10-12T15:15:00Z'}]};
  await flushPromises();
+ expect(state.bookingTimezoneIana).toBe('America/Denver');
  const occupied=state.cellBlocks('Monday',8,0,true);
  expect(occupied.filter(b=>b.kind==='sevt')).toHaveLength(1);
  expect(occupied.some(b=>b.kind==='school')).toBe(false);
@@ -527,8 +531,10 @@ it('saves explicitly changed clinical fields to the canonical appointment before
 
 it('keeps the linked appointment context through a real calendar cell and cancel button', async () => {
  const state = await mount({realChangeWizard:true});
- const raw = {id:442,appointmentId:104,clinicalSessionId:166,officeEventId:null,clientId:2273,tenantServiceId:34,serviceCode:'90834',serviceLocationId:125,modality:'TELEHEALTH',agencyId:450,kind:'PERSONAL_EVENT',title:'Virtual session · Blake QA-SchoolEN-1027',description:'Client id: 2273',startAt:new Date('2026-10-12T09:15:00').toISOString(),endAt:new Date('2026-10-12T10:00:00').toISOString()};
+ // Keep the real 9:15 AM Mountain calendar-cell click, including on UTC CI hosts.
+ const raw = {id:442,appointmentId:104,clinicalSessionId:166,officeEventId:null,clientId:2273,tenantServiceId:34,serviceCode:'90834',serviceLocationId:125,modality:'TELEHEALTH',agencyId:450,kind:'PERSONAL_EVENT',title:'Virtual session · Blake QA-SchoolEN-1027',description:'Client id: 2273',startAt:'2026-10-12T15:15:00Z',endAt:'2026-10-12T16:00:00Z'};
  state.summary={...summary,scheduleEvents:[raw]};
+ expect(state.bookingTimezoneIana).toBe('America/Denver');
  const fallback=m.get.getMockImplementation();
  m.get.mockImplementation(async(url,...args)=>url==='/appointments/104'?{data:{appointment:{id:104,status:'scheduled',clinicalSessionId:166,tenantServiceId:34,serviceCode:'90834',serviceLocationId:125,modality:'TELEHEALTH'}}}:fallback(url,...args));
  const item=state.cellBlocks('Monday',9,15,true).find(block=>block.kind==='sevt');
