@@ -12,11 +12,12 @@ let wrapper;
 // These fixtures describe Mountain wall times on October 13 (MDT, UTC−6).
 // API timestamps are instants, independent of the browser/test runner's timezone.
 const event=(id,start,end)=>({id,kind:'SCHEDULE_HOLD',title:`Block ${id}`,startAt:`2026-10-13T${start}:00-06:00`,endAt:`2026-10-13T${end}:00-06:00`,agencyId:2,providerId:7});
-async function mount(props={}) {
+async function mount(props={}, {focusedDay=null}={}) {
   wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2,weekStartYmd:'2026-10-12',...props},global:{stubs:{Teleport:false,RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});
   await flushPromises();
   const s=wrapper.vm.$.setupState;
   expect(s.bookingTimezoneIana).toBe('America/Denver');
+  if(focusedDay){s.scheduleSpanMode='day';s.focusedDays=[focusedDay];}
   s.summary=m.summary;
   await nextTick();
   return s;
@@ -166,22 +167,27 @@ it('closes on calendar scroll and resize but allows scrolling within the preview
 });
 
 it('lets the pointer cross into the side preview and dismisses after leaving', async () => {
+  // Settle asynchronous startup before controlling the hover-dismiss clock.
+  // This interaction needs only Tuesday, not repeated full-week rerenders.
+  await mount({}, {focusedDay:'Tuesday'});
   vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
-  await mount();
   const owner = wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="11"] .cell-blocks');
   await owner.trigger('mouseenter');
   await owner.trigger('mouseleave');
-  await vi.advanceTimersByTimeAsync(80);
+  vi.advanceTimersByTime(80);await nextTick();
+  expect(wrapper.find('.cell-expanded-list').exists()).toBe(true);
   await wrapper.find('.cell-expanded-list').trigger('mouseenter');
-  await vi.advanceTimersByTimeAsync(200);
+  vi.advanceTimersByTime(200);await nextTick();
   expect(wrapper.find('.cell-expanded-list').exists()).toBe(true);
   await owner.trigger('mouseleave');
-  await vi.advanceTimersByTimeAsync(200);
+  vi.advanceTimersByTime(159);await nextTick();
+  expect(wrapper.find('.cell-expanded-list').exists()).toBe(true);
+  vi.advanceTimersByTime(1);await nextTick();
   expect(wrapper.find('.cell-expanded-list').exists()).toBe(false);
 });
 
 it('keeps narrow days clear on hover while retaining explicit preview access', async () => {
-  await mount();
+  await mount({}, {focusedDay:'Tuesday'});
   const cell = wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="11"]');
   vi.spyOn(cell.element, 'getBoundingClientRect').mockReturnValue({ left: 12, right: window.innerWidth - 12, top: 200, bottom: 280 });
   await cell.find('.cell-blocks').trigger('mouseenter');
