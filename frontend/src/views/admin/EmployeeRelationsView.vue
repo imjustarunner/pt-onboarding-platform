@@ -153,7 +153,7 @@ const selectedAgency = computed(() => agencyChoices.value.find(a => String(a.id)
 const isDemoAgency = computed(() => isLikelyDemoTenant(selectedAgency.value));
 const milestones = ref([]), definitions = ref([]), giftDrafts = ref([]), dinners = ref([]), missingDates = ref([]);
 const loading = ref(false), busy = ref(false), message = ref(''), error = ref(''), today = ref('');
-const q = ref(''), statusFilter = ref(route.query.status || ''), yearsFilter = ref('2'), includeInactive = ref(false);
+const q = ref(''), statusFilter = ref(route.query.status || ''), yearsFilter = ref(route.query.status ? '' : '2'), includeInactive = ref(false);
 const eligibilityFilter = ref(route.query.status === 'upcoming' ? 'all' : 'eligible');
 const eligibleFrom=ref(''),eligibleThrough=ref('');
 const selectedIds = ref([]), sortKey = ref('milestone_date'), sortAsc = ref(true);

@@ -24,6 +24,13 @@ beforeEach(()=>{vi.resetAllMocks();context.agency=reactive({currentAgencyId:7,us
 afterEach(()=>wrapper?.unmount());
 async function open({allAwards=true}={}){wrapper=mount(EmployeeRelationsView);await flushPromises();if(allAwards){await wrapper.get('[aria-label="Milestone year"]').setValue('');await wrapper.get('[aria-label="Eligibility"]').setValue('all');}}
 describe('Year Awards',()=>{
+ it('keeps existing gift-owed notification links scoped to all award years',async()=>{
+  context.route.query.status='owed';await open({allAwards:false});
+  expect(findRow('Alex')).toBeDefined();expect(findRow('Drew')).toBeDefined();
+  expect(findRow('Casey')).toBeUndefined();
+  await button('All eligible two-year dinners').trigger('click');
+  expect(findRow('Alex')).toBeUndefined();expect(findRow('Drew')).toBeDefined();
+ });
  it('opens to every reached two-year anniversary, including received and still-owed dinners',async()=>{
   rows=Array.from({length:49},(_,i)=>({id:i+1,first_name:`Employee ${i+1}`,milestone_years:2,milestone_date:i<24?'2026-01-01':'2027-01-01',status:i<10?'gift_sent':i<24?'owed':'upcoming',active_employee:1}));
   await open({allAwards:false});
