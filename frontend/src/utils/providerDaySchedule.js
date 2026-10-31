@@ -1,3 +1,4 @@
+import {decorateSessionLocations,officeCoveredBySession} from './scheduleLocationProjection.js';
 import {zonedDatetimeLocalToIso} from './timezones.js';
 import {parseScheduleUtcInstant} from './scheduleEventInstants.js';
 const labels={SESSION:'Session',INDIVIDUAL_SESSION:'Individual session',GROUP_SESSION:'Group session',INTAKE:'Intake',TEAM_MEETING:'Team meeting',HUDDLE:'Huddle',SUPERVISION:'Supervision',INDIRECT_SERVICES:'Indirect service',DOCUMENTATION:'Documentation',HOLD:'Hold',SCHEDULE_HOLD:'Hold',COMPANY_EVENT_BOOKING:'Program event',COMPANY_EVENT_OPEN:'Open program event',SKILL_BUILDERS_PROGRAM:'Program session',AGENCY_MEETING:'Agency meeting'};
@@ -20,13 +21,14 @@ export function dayScheduleEntries(summary={},date,timeZone='America/Denver',det
     (summary.busyBlocks || []).forEach((event,i)=>add(event,detailLevel==='busy'?'Busy':({session:'Session',hold:'Hold',opening:'Opening',school:'School',supervision:'Supervision',team_meeting:'Meeting',huddle:'Huddle',indirect:'Indirect service'})[event.activityType] || 'Busy','availability',i));
     return entries.sort((a,b)=>a.start-b.start);
   }
-  (summary.scheduleEvents || []).forEach((event,i)=>add(event,labels[String(event.kind || event.appointmentType || '').toUpperCase()] || (event.clientId || event.serviceCode || event.appointmentId ? 'Session':'Personal event'),'App appointment',i));
+  const sessions=decorateSessionLocations(summary.scheduleEvents,summary.schoolAssignments,summary.officeEvents,timeZone);
+  sessions.forEach((event,i)=>add({...event,title:[event.title,event.locationLabel].filter(Boolean).join(' · ')},labels[String(event.kind || event.appointmentType || '').toUpperCase()] || (event.clientId || event.serviceCode || event.appointmentId ? 'Session':'Personal event'),'App appointment',i));
   const weekday=new Date(`${date}T12:00:00`).toLocaleDateString('en-US',{weekday:'long'});
   (summary.schoolAssignments || []).filter(e=>e.dayOfWeek===weekday).forEach((e,i)=>{
     if(!e.startTime || !e.endTime)return;
     add({...e,title:e.schoolName || 'School',startAt:zonedDatetimeLocalToIso(`${date}T${e.startTime}`,timeZone),endAt:zonedDatetimeLocalToIso(`${date}T${e.endTime}`,timeZone)},'School','School assignment',i);
   });
-  (summary.officeEvents || []).forEach((event,i)=>add(event,({ASSIGNED_BOOKED:'Office session',ASSIGNED_TEMPORARY:'Room hold',ASSIGNED_AVAILABLE:'Office opening',COMPANY_HOLD:'Company hold'})[String(event.slotState || '').toUpperCase()] || 'Office reservation','Office schedule',i));
+  (summary.officeEvents || []).filter(event=>!officeCoveredBySession(event,sessions)).forEach((event,i)=>add(event,({ASSIGNED_BOOKED:'Office session',ASSIGNED_TEMPORARY:'Room hold',ASSIGNED_AVAILABLE:'Office opening',COMPANY_HOLD:'Company hold'})[String(event.slotState || '').toUpperCase()] || 'Office reservation','Office schedule',i));
   (summary.supervisionSessions || []).forEach((event,i)=>add({...event,title:event.counterpartyName || 'Supervision'},'Supervision','Supervision',i));
   (summary.googleEvents || []).forEach((event,i)=>add(event,'Google event','Google Calendar',i));
   (summary.externalBusy || []).forEach((event,i)=>add({...event,title:'Busy'},'External calendar','External calendar',i));

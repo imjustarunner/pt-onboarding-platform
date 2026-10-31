@@ -102,8 +102,9 @@ export async function addUpdateVirtualOpening(ids, input) {
   const opening = virtualOpening(input,timeZone);
   const calendar = await Availability.computeWeekAvailability({...ids,weekStartYmd:opening.date,intakeOnly:true,includePrivateCalendar:true,materializeOfficeEvents:false});
   if (calendar.calendarWarnings?.length) throw fail('A connected calendar could not be checked. Refresh the calendar before publishing this opening.',409);
-  if ((calendar.schoolAssignments||[]).some(b=>overlaps(opening,b))) throw fail('These hours are reserved for school clients, including virtual school visits. Request a school-hours adjustment before publishing a public opening. The current hours remain reserved until approval.',409);
-  if ((calendar.busyBlocks||[]).some(b=>overlaps(opening,b))) throw fail('That hour overlaps a booked appointment, hold, or calendar event. Choose another hour.',409);
+  const schoolConflicts=(calendar.schoolAssignments||[]).filter(b=>overlaps(opening,b));
+  if(schoolConflicts.length && input.acknowledgeSchoolOverlap!==true) throw fail('These virtual hours overlap assigned school time. Acknowledge the school commitment before saving; school hours remain reserved from public booking until an hours adjustment is approved.',409);
+  if ((calendar.busyBlocks||[]).some(b=>b.sourceType!=='SCHOOL_ASSIGNMENT' && b.label!=='School commitment' && overlaps(opening,b))) throw fail('That hour overlaps a booked appointment, hold, or calendar event. Choose another hour.',409);
   if ((calendar.officeReservations||[]).some(b=>overlaps(opening,b))) throw fail('Use the reserved office hour in your weekly calendar to open this time virtually or in both formats.',409);
   const db = await pool.getConnection();
   try {
@@ -123,7 +124,7 @@ export async function addUpdateVirtualOpening(ids, input) {
     await openWaitlistedPublication(db,{...ids,formats:['VIRTUAL']});
     await invalidateAvailabilityReminders(db,ids.providerId);
     await db.commit();
-    return {ok:true,id:result.insertId};
+    return {ok:true,id:result.insertId,...(schoolConflicts.length?{warning:'Virtual hours saved. Assigned school hours remain reserved from public booking until an hours adjustment is approved.'}:{})};
   } catch(e) {await db.rollback();throw e;} finally {db.release();}
 }
 export async function closeUpdateVirtualOpening(ids, {id,date,scope}) {

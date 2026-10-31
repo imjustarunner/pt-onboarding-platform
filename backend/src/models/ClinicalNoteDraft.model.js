@@ -44,6 +44,7 @@ class ClinicalNoteDraft {
 
     const reusable = allowReuse ? await this.findReusableOpen({
       userId: uid,
+      agencyId: aid,
       clientId: cid,
       officeEventId: oeid,
       clinicalSessionId: csid,
@@ -96,6 +97,7 @@ class ClinicalNoteDraft {
    */
   static async findReusableOpen({
     userId,
+    agencyId = null,
     clientId = null,
     officeEventId = null,
     clinicalSessionId = null,
@@ -110,15 +112,18 @@ class ClinicalNoteDraft {
     const dos = dateOfService ? String(dateOfService).slice(0, 10) : null;
     const svc = serviceCode ? clampText(serviceCode, 32).toUpperCase() : null;
     const psychotherapyFamily = svc && /^9083[24789]$/.test(svc);
+    const aid = safeInt(agencyId);
+    const scopeSql = `${aid ? ' AND agency_id = ?' : ''}${cid ? ' AND client_id = ?' : ''}`;
+    const scopeValues = [...(aid ? [aid] : []), ...(cid ? [cid] : [])];
 
     if (oeid) {
       const [rows] = await pool.execute(
         `SELECT *
          FROM clinical_note_drafts
-         WHERE user_id = ? AND archived_at IS NULL AND office_event_id = ?
+         WHERE user_id = ? AND archived_at IS NULL AND office_event_id = ?${scopeSql}
          ORDER BY updated_at DESC, id DESC
          LIMIT 1`,
-        [uid, oeid]
+        [uid, oeid, ...scopeValues]
       );
       if (rows?.[0]) return rows[0];
     }
@@ -126,15 +131,15 @@ class ClinicalNoteDraft {
       const [rows] = await pool.execute(
         `SELECT *
          FROM clinical_note_drafts
-         WHERE user_id = ? AND archived_at IS NULL AND clinical_session_id = ?
+         WHERE user_id = ? AND archived_at IS NULL AND clinical_session_id = ?${scopeSql}
          ORDER BY updated_at DESC, id DESC
          LIMIT 1`,
-        [uid, csid]
+        [uid, csid, ...scopeValues]
       );
       if (rows?.[0]) return rows[0];
     }
     if (cid && dos) {
-      const params = [uid, cid, dos];
+      const params = [uid, cid, dos, ...(aid ? [aid] : [])];
       let codeSql = '';
       if (psychotherapyFamily) {
         codeSql = ` AND (service_code IN ('90832','90834','90837','90838','90839')
@@ -147,6 +152,8 @@ class ClinicalNoteDraft {
         `SELECT *
          FROM clinical_note_drafts
          WHERE user_id = ? AND archived_at IS NULL AND client_id = ? AND date_of_service = ?
+           ${aid ? ' AND agency_id = ?' : ''}
+           ${(oeid || csid) ? ' AND office_event_id IS NULL AND clinical_session_id IS NULL' : ''}
            ${codeSql}
          ORDER BY updated_at DESC, id DESC
          LIMIT 1`,

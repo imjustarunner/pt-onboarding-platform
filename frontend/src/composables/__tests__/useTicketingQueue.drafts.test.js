@@ -1,0 +1,28 @@
+import { beforeEach, afterEach, it, expect, vi } from 'vitest';
+import { defineComponent } from 'vue';
+import { mount } from '@vue/test-utils';
+vi.mock('vue-router', () => ({ useRoute: () => ({ query: {} }), useRouter: () => ({ replace: vi.fn() }) }));
+vi.mock('../../services/api', () => ({ default: { get: vi.fn(async () => ({ data: { messages: [] } })), post: vi.fn() } }));
+vi.mock('../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 1434, role: 'support' } }) }));
+vi.mock('../../store/agency', () => ({ useAgencyStore: () => ({ agencies: [], fetchUserAgencies: vi.fn(async () => {}) }) }));
+import api from '../../services/api';
+import { useTicketingQueue } from '../useTicketingQueue';
+beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers(); });
+afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
+it('opening and generating a reply draft preserves an unclaimed ticket until explicit Claim', async () => {
+  let queue;
+  const wrapper = mount(defineComponent({ setup() { queue = useTicketingQueue(); return () => null; } }));
+  const ticket = { id: 551, question: 'When was the student seen?', claimed_by_user_id: null };
+  queue.tickets.value = [ticket];
+  await queue.toggleAnswer(551);
+  expect(api.get).toHaveBeenCalledWith('/support-tickets/551/messages');
+  expect(api.post).not.toHaveBeenCalled();
+  api.post.mockResolvedValue({ data: { suggestedAnswer: 'We will check the schedule with the provider.' } });
+  await queue.generateDraftResponse(ticket);
+  expect(api.post).toHaveBeenCalledTimes(1);
+  expect(api.post).toHaveBeenCalledWith('/support-tickets/551/generate-response');
+  expect(queue.answerText.value).toContain('We will check the schedule');
+  await queue.toggleAnswer(551);
+  expect(api.post).toHaveBeenCalledTimes(1);
+  wrapper.unmount();
+});

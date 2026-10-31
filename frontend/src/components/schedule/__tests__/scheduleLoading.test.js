@@ -3,8 +3,8 @@ import { flushPromises, shallowMount, mount as mountComponent } from '@vue/test-
 import { createPinia, setActivePinia } from 'pinia';
 import { reactive } from 'vue';
 
-const m = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn(), post: vi.fn(), hydrate: vi.fn(), route: null, failSchedule: false }));
-vi.mock('../../../services/api', () => ({ default: { get: m.get, put: m.put, post: m.post }, isApiRateLimited: () => false, apiRateLimitRetryAt: () => 0 }));
+const m = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn(), post: vi.fn(), patch:vi.fn(), hydrate: vi.fn(), route: null, failSchedule: false }));
+vi.mock('../../../services/api', () => ({ default: { get: m.get, put: m.put, post: m.post, patch:m.patch }, isApiRateLimited: () => false, apiRateLimitRetryAt: () => 0 }));
 vi.mock('vue-router', () => ({ useRoute: () => m.route, useRouter: () => ({ push: vi.fn(), replace: vi.fn(), resolve: () => ({ href: '/dashboard' }) }) }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 7, role: 'provider', has_supervisor_privileges: true }, isAuthenticated: true }) }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: null, agencies: [], userAgencies: [], hydrateAgencyById: m.hydrate }) }));
@@ -22,6 +22,7 @@ beforeEach(() => {
   clearScheduleSummaryCache();
   vi.clearAllMocks();
   m.put.mockReset().mockResolvedValue({ data: {} });
+  m.patch.mockReset().mockResolvedValue({data:{}});
   m.failSchedule = false;
   m.route = reactive({ path: '/dashboard', params: {}, query: {} });
   m.get.mockImplementation(async (url) => {
@@ -459,4 +460,65 @@ it('starts each visit with a whole week while preserving a deliberate current-ve
   // Ordinary schedule refreshes do not revert choices made during this visit.
   state.scheduleSpanMode='day';await state.load({forceRefresh:true});await flushPromises();
   expect(state.scheduleSpanMode).toBe('day');
+});
+
+it('renders a school session once in occupied hours and retains its complete assignment overview',async()=>{
+ const state=await mount();
+ state.summary={...summary,schoolAssignments:[{assignmentId:10,schoolOrgId:451,agencyId:450,schoolName:'Cedar Grove',dayOfWeek:'Monday',startTime:'08:00',endTime:'15:00'}],scheduleEvents:[{id:80,appointmentId:20,clientId:5,agencyId:450,kind:'PERSONAL_EVENT',schoolOrganizationId:451,title:'School session',startAt:new Date('2026-10-12T08:30:00').toISOString(),endAt:new Date('2026-10-12T09:15:00').toISOString()}]};
+ await flushPromises();
+ const occupied=state.cellBlocks('Monday',8,0,true);
+ expect(occupied.filter(b=>b.kind==='sevt')).toHaveLength(1);
+ expect(occupied.some(b=>b.kind==='school')).toBe(false);
+ expect(occupied.find(b=>b.kind==='sevt').shortLabel).toContain('Cedar Grove');
+ expect(state.cellBlocks('Monday',10,0,true).some(b=>b.kind==='school')).toBe(true);
+ expect(wrapper.get('[aria-label="Assigned school hours"]').text()).toContain('08:00–15:00');
+ await wrapper.get('[aria-label="Assigned school hours"] button').trigger('click');
+ expect(state.schoolAssignmentReview).toMatchObject({agencyId:450,schoolId:451,assignmentId:10});
+ state.summary={...state.summary,scheduleEvents:state.summary.scheduleEvents.map(event=>({...event,appointmentStatus:'canceled_by_provider'}))};
+ expect(state.cellBlocks('Monday',8,0,true).some(b=>b.kind==='school')).toBe(true);
+});
+it('keeps saved event insertion idempotent without a post-save wall-time error',async()=>{
+ const state=await mount();state.summary={...summary,scheduleEvents:[{id:9,agencyId:450,kind:'PERSONAL_EVENT',title:'Session',startAt:'2026-10-12T15:00:00.000Z',endAt:'2026-10-12T16:00:00.000Z'}]};
+ expect(()=>state.patchScheduleSummaryWithBookedEvent({eventId:9,agencyId:450,title:'Session',startAt:'2026-10-12T15:00:00Z',endAt:'2026-10-12T16:00:00Z',wallTimeZone:'UTC'})).not.toThrow();
+ expect(state.summary.scheduleEvents).toHaveLength(1);
+});
+it('hydrates the canonical service and status when opening a saved appointment',async()=>{
+ const state=await mount();const fallback=m.get.getMockImplementation();
+ m.get.mockImplementation(async(url,...args)=>url==='/appointments/20'?{data:{appointment:{id:20,status:'client_confirmed',clinicalSessionId:159,tenantServiceId:287,serviceLocationId:19,billing:{serviceCode:'PRO_BONO_SERVICE'}}}}:fallback(url,...args));
+ state.editorAppointmentId=20;await state.loadEditorReminders();
+ expect(state.editorStatus).toBe('client_confirmed');expect(state.bookingServiceCode).toBe('PRO_BONO_SERVICE');expect(state.editorServiceLocationId).toBe(19);expect(state.editorClinicalSessionId).toBe(159);
+ state.bookingServiceCodeOptions=[{code:'90837'}];await flushPromises();expect(state.bookingServiceCode).toBe('PRO_BONO_SERVICE');
+});
+it.each(['no_show','canceled_by_provider'])('opens the full outcome workflow for %s rather than silently saving calendar-only state',async status=>{
+ const state=await mount();state.requestType='individual_session';state.editorAppointmentId=20;
+ const open=vi.spyOn(state.appointmentChange,'openWizard').mockResolvedValue();
+ state.onEditorStatus(status);await flushPromises();
+ expect(open).toHaveBeenCalledWith(expect.objectContaining({appointmentId:20}));
+ expect(state.appointmentChange.facts.eventType).toBe(status==='no_show'?'no_show':'canceled');
+ open.mockRestore();
+});
+it('routes clinical Cancel event through reason, fee, and notification review',async()=>{
+ const state=await mount();const open=vi.spyOn(state.appointmentChange,'openWizard').mockResolvedValue();
+ state.openCancelMeetingConfirm({eventId:80,appointmentId:20,clientId:5,isClientSession:true,startAt:'2026-10-12T15:00:00Z',endAt:'2026-10-12T16:00:00Z'});await flushPromises();
+ expect(open).toHaveBeenCalledWith(expect.objectContaining({appointmentId:20}));expect(state.showCancelMeetingModal).toBe(false);expect(state.appointmentChange.facts.eventType).toBe('canceled');open.mockRestore();
+});
+
+it('does not use another open appointment as a fallback when canceling an unlinked client event',async()=>{
+ const state=await mount();state.editorAppointmentId=99;state.scheduleEventEditId=90;
+ const open=vi.spyOn(state.appointmentChange,'openWizard').mockResolvedValue();
+ state.openCancelMeetingConfirm({eventId:80,clientId:5,isClientSession:true});
+ expect(open).not.toHaveBeenCalled();expect(state.modalError).toContain('appointment link');expect(state.showCancelMeetingModal).toBe(false);open.mockRestore();
+});
+
+it('saves explicitly changed clinical fields to the canonical appointment before refreshing its calendar',async()=>{
+ const state=await mount();
+ const item={eventId:80,eventKind:'PERSONAL_EVENT',appointmentId:20,clientId:5,agencyId:450,canEdit:true,startAt:'2026-10-12T15:00:00Z',endAt:'2026-10-12T16:00:00Z'};
+ state.requestType='edit_schedule_event';state.scheduleEventEditId=80;state.stackDetailsItems=[item];state.editorAppointmentId=20;
+ state.scheduleEventEditForm={title:'School session',description:'Client id: 5',startAt:'2026-10-12T09:00',endAt:'2026-10-12T10:00',agencyId:450,clientId:5,isPrivate:false};
+ state.editorStatus='scheduled';state.editorStatusBaseline='scheduled';
+ state.editorAppointmentBaseline={id:20,serviceCode:'PRO_BONO_SERVICE',tenantServiceId:10,serviceLocationId:12,modality:'IN_PERSON'};
+ state.editorTenantServiceId=11;state.editorModality='IN_PERSON';await flushPromises();state.editorServiceLocationId=13;state.bookingServiceCode='90791';
+ await state.saveScheduleStackItem(item,{pastConfirmed:true});
+ expect(m.patch).toHaveBeenCalledWith('/appointments/20',{serviceCode:'90791',tenantServiceId:11,serviceLocationId:13},{skipGlobalLoading:true});
+ expect(m.patch.mock.calls.findIndex(([url])=>url==='/appointments/20')).toBeLessThan(m.patch.mock.calls.findIndex(([url])=>url==='/users/7/schedule-events/80'));
 });

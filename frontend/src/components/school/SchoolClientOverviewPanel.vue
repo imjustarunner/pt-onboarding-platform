@@ -88,10 +88,6 @@
       </div>
     </div>
 
-    <p v-if="isSchoolStaff" class="sco-phi muted">
-      Reminder: Use initials only. Do not include PHI. Keep clinical documentation in the authorized clinical workspace.
-    </p>
-
     <div class="sco-grid">
       <div class="sco-card">
         <div class="sco-k">Status</div>

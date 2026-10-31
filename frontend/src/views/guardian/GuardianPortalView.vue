@@ -414,7 +414,7 @@
                 </div>
                 <div v-if="!clinicalGuardianContext && !standardsLearningVisible" class="guardian-daily-notes">
                   <h4 style="margin: 16px 0 8px;">Daily Notes</h4>
-                  <p class="hint" style="margin-bottom: 10px;">Staff notes for {{ selectedChild.initials }}. Use initials only.</p>
+                  <p class="hint" style="margin-bottom: 10px;">Staff updates for {{ selectedChild.initials }}.</p>
                   <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 10px;">
                     <label>Date</label>
                     <input v-model="guardianNoteDate" type="date" class="input" style="max-width: 160px;" @change="loadGuardianDailyNotes" />

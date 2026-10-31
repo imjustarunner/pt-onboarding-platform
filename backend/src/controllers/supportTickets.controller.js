@@ -823,6 +823,8 @@ function buildSupportTicketResponsePrompt({
     'If key details are missing, ask a short clarifying question.',
     'Do not invent facts. Do not include PHI beyond what is already shown here.',
     'Match the tone and structure of recent successful staff replies when they are relevant.',
+    'Return only the reply body. Do not add a signature or placeholders; the app supplies the sender identity.',
+    'Read the received question and thread before asking for details. Do not call a message empty when it contains a request.',
     '',
     'Ticket:',
     `- Subject: ${truncateText(ticket?.subject || 'Support ticket', 240)}`,
@@ -2731,9 +2733,13 @@ export const generateSupportTicketResponse = async (req, res, next) => {
         suppressed: generated.suppressed, suppressionReason: generated.suppressionReason });
     }
 
+    const readableTicket = decryptTicketRow(ticket);
+    if (readableTicket.question === '[Unable to decrypt]') {
+      return res.status(503).json({ error: { message: 'The received message could not be read. Retry before generating a reply.' } });
+    }
     const createdByName = [ticket.created_by_first_name, ticket.created_by_last_name].filter(Boolean).join(' ').trim();
     const ticketContext = {
-      ...ticket,
+      ...readableTicket,
       created_by_name:
         createdByName ||
         ticket?.created_by_email ||
@@ -2768,9 +2774,15 @@ export const generateSupportTicketResponse = async (req, res, next) => {
         ? raw.filter((m) => !(m?.is_deleted === 1 || m?.is_deleted === true))
         : raw;
       messages = filtered.reverse().map((m) => ({
-        ...m,
+        ...decryptTicketMessageRow(m),
         author_name: [m.author_first_name, m.author_last_name].filter(Boolean).join(' ').trim()
       }));
+    }
+    if (messages.some((message) => message.body === '[Unable to decrypt]')) {
+      return res.status(503).json({ error: { message: 'The conversation could not be read. Retry before generating a reply.' } });
+    }
+    if (!String(ticketContext.question || '').trim() && !messages.some((message) => String(message.body || '').trim())) {
+      return res.status(422).json({ error: { message: 'There is no readable message to draft a reply to.' } });
     }
 
     let notes = [];
@@ -2857,14 +2869,13 @@ export const generateSupportTicketResponse = async (req, res, next) => {
       try {
         const schoolOrgId = Number(ticket.school_organization_id) || 0;
         const [aRows] = await pool.execute(
-          `SELECT t.id, t.subject, t.question, t.answer, t.answered_at, t.created_at,
+          `SELECT t.*,
                   s.name AS school_name, t.school_organization_id
            FROM support_tickets t
            LEFT JOIN agencies s ON s.id = t.school_organization_id
            WHERE t.agency_id = ?
              AND t.id <> ?
-             AND t.answer IS NOT NULL
-             AND TRIM(t.answer) <> ''
+             AND (NULLIF(TRIM(t.answer), '') IS NOT NULL OR t.answer_ciphertext IS NOT NULL)
              AND t.status IN ('answered', 'closed', 'waiting')
            ORDER BY
              CASE WHEN ? > 0 AND t.school_organization_id = ? THEN 0 ELSE 1 END,
@@ -2872,7 +2883,7 @@ export const generateSupportTicketResponse = async (req, res, next) => {
            LIMIT 8`,
           [ticket.agency_id, ticketId, schoolOrgId, schoolOrgId]
         );
-        recentAnswers = Array.isArray(aRows) ? aRows : [];
+        recentAnswers = Array.isArray(aRows) ? aRows.map(decryptTicketRow).filter(row => ![row.question, row.answer].includes('[Unable to decrypt]')) : [];
       } catch {
         recentAnswers = [];
       }
@@ -2882,7 +2893,7 @@ export const generateSupportTicketResponse = async (req, res, next) => {
       req.body?.regenerationGuidance || req.body?.suggestion || ''
     ).trim().slice(0, 2000);
 
-    const intentKey = inferIntentFromTicket(ticket);
+    const intentKey = inferIntentFromTicket(ticketContext);
     let libraryMatches = [];
     let promptNotes = [];
     if (ticket.agency_id) {
@@ -2891,7 +2902,7 @@ export const generateSupportTicketResponse = async (req, res, next) => {
           agencyId: ticket.agency_id,
           schoolOrganizationId: ticket.school_organization_id,
           subject: ticket.subject || ticket.source_email_subject,
-          question: ticket.question,
+          question: ticketContext.question,
           intentKey
         });
       } catch {
@@ -2930,11 +2941,24 @@ export const generateSupportTicketResponse = async (req, res, next) => {
       + buildReplyLibraryPromptBlock(libraryMatches)
       + await buildAgencyPromptGuardrailsBlock(ticket.agency_id);
 
-    const { text, modelName, provider, latencyMs } = await callGeminiText({
+    const generationOptions = {
       prompt,
       temperature: regenerationGuidance ? 0.35 : 0.2,
-      maxOutputTokens: 2800
-    });
+      maxOutputTokens: 2800,
+      sensitive: true,
+      vertexOnly: true
+    };
+    let generated = await callGeminiText(generationOptions);
+    const invalidDraft = (text) => !String(text || '').trim()
+      || /\{\{[^}]+\}\}|\[(?:your|staff|sender|recipient|first|last|full|client|school|email|phone|name|signature)[^\]]*\]/i.test(text)
+      || /(?:your|the|received)\s+(?:message|question|request)\s+(?:(?:seems?|appears?)\s+(?:to be\s+)?)?(?:is\s+|was\s+)?(?:empty|blank)|(?:no|without any)\s+(?:message|question|request)(?:\s+(?:text|content|details))?\s+(?:was\s+)?(?:included|provided|received)/i.test(text);
+    if (invalidDraft(generated.text)) {
+      generated = await callGeminiText({ ...generationOptions, prompt: `${prompt}\n\nThe previous reply was invalid. Read the received text above and answer its request. Do not describe it as empty. Return a complete reply body with no placeholders or signature.` });
+    }
+    if (invalidDraft(generated.text)) {
+      return res.status(422).json({ error: { message: 'The reply draft needs correction. Regenerate it or write a reply.' } });
+    }
+    const { text, modelName, provider, latencyMs } = generated;
 
     if (libraryMatches.length) {
       recordReplyLibraryUsage(libraryMatches.map((m) => m.id)).catch(() => {});

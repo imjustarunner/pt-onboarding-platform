@@ -185,8 +185,13 @@ class Appointment {
     if (!ids.length) return new Map();
     const placeholders = ids.map(() => '?').join(',');
     const [rows] = await pool.execute(
-      `SELECT id, provider_schedule_event_id, status, notes FROM appointments
-       WHERE provider_schedule_event_id IN (${placeholders})`,
+      `SELECT ap.id, ap.provider_schedule_event_id, ap.status, ap.notes, ap.modality,
+              ap.office_location_id, ap.room_id, ap.service_location_id,
+              sl.school_organization_id, COALESCE(s.name, sl.name) AS service_location_name
+       FROM appointments ap
+       LEFT JOIN agency_service_locations sl ON sl.id=ap.service_location_id AND sl.agency_id=ap.agency_id
+       LEFT JOIN agencies s ON s.id=sl.school_organization_id
+       WHERE ap.provider_schedule_event_id IN (${placeholders})`,
       ids
     );
     const map = new Map();
@@ -196,7 +201,12 @@ class Appointment {
         map.set(pid, {
           id: Number(r.id),
           status: String(r.status || 'scheduled').toLowerCase(),
-          notes: r.notes != null ? String(r.notes) : null
+          notes: r.notes != null ? String(r.notes) : null,
+          modality:r.modality || null, officeLocationId:Number(r.office_location_id || 0) || null,
+          roomId:Number(r.room_id || 0) || null, serviceLocationId:Number(r.service_location_id || 0) || null,
+          schoolOrganizationId:Number(r.school_organization_id || 0) || null,
+          schoolName:r.school_organization_id ? r.service_location_name : null,
+          locationLabel:r.service_location_name || null
         });
       }
     }

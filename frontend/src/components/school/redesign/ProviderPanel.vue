@@ -100,6 +100,7 @@
         :error="error"
         @save="$emit('save-slots', $event)"
       />
+      <SchoolWeeklyBooking v-if="canBookWeekly && !hideSoftSchedule" :school-organization-id="schoolOrganizationId" :provider-user-id="provider.provider_user_id" :weekday="weekday" :revision="slots" />
     </div>
   </div>
 </template>
@@ -108,6 +109,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import ClientInitialsList from './ClientInitialsList.vue';
 import SoftScheduleEditor from './SoftScheduleEditor.vue';
+import SchoolWeeklyBooking from './SchoolWeeklyBooking.vue';
 import { toUploadsUrl } from '../../../utils/uploadsUrl';
 import {
   useSlotVerification,
@@ -192,6 +194,7 @@ const canRequestAvailability = computed(() => {
   const pid = Number(props.provider?.provider_user_id);
   return Number.isFinite(me) && Number.isFinite(pid) && me === pid;
 });
+const canBookWeekly = computed(() => ['provider','provider_plus','intern','intern_plus','clinical_practice_assistant'].includes(String(props.currentUserRole || '').toLowerCase()) && Number(props.currentUserId) === Number(props.provider?.provider_user_id) && !!props.schoolOrganizationId && !!props.weekday);
 
 const requestAvailability = () => {
   emit('request-availability', {
@@ -402,6 +405,7 @@ watch(() => props.schoolOrganizationId, () => {
   flex-direction: column;
   gap: 10px;
 }
+.content :deep(.weekly-booking) { grid-column: 1 / -1; }
 .caseload {
   border: 1px solid var(--border);
   border-radius: 12px;

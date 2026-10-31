@@ -1,13 +1,14 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
+import { requireAccountAdministrator } from '../middleware/supportContentAccess.middleware.js';
 import { rebuildProviderSearchIndex, searchProviders, compileProviderSearch, getClinicalFacetsBatch } from '../controllers/providerSearch.controller.js';
 
 const router = express.Router();
 
 router.use(authenticate, requireBackofficeAdmin);
 
-router.post('/rebuild', [body('agencyId').isInt({ min: 1 })], rebuildProviderSearchIndex);
+router.post('/rebuild', requireAccountAdministrator, [body('agencyId').isInt({ min: 1 })], rebuildProviderSearchIndex);
 
 router.get('/clinical-facets', getClinicalFacetsBatch);
 

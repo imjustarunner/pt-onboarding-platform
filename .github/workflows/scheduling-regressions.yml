@@ -40,6 +40,16 @@ jobs:
         run: |
           npm ci --prefix backend
           npm ci --prefix frontend --ignore-scripts
+      - name: School weekly booking, scheduling requests, and support drafts
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.school-weekly.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.qa-communications.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.qa-clinical-fixtures.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.draft-session-context.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.scheduling.config.js backend/src/services/__tests__/scheduling.clinicalEdit.test.js backend/src/services/__tests__/scheduling.calendarLocationMetadata.test.js backend/src/services/__tests__/scheduling.providerUpdateAvailability.test.js
+          (cd frontend && node node_modules/vitest/vitest.mjs run --config vitest.school-weekly.config.js)
+          (cd frontend && node node_modules/vitest/vitest.mjs run --config vitest.school-calendar.config.js)
+          (cd frontend && node node_modules/vitest/vitest.mjs run --config vitest.qa-communications.config.js)
       - name: Outreach trips, school history and huddle compensation
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.submit-on-behalf.config.js

@@ -8,6 +8,12 @@ import {
 } from '../clientChartHubs.js';
 
 describe('clientChartHubs Record Center', () => {
+  it('opens Messages on Communications and retains explicit access to past contact documentation', () => {
+    expect(chartNavTarget('messages', '')).toEqual({ activeTab: 'communications', hubSub: 'communications' });
+    expect(panelVisible('communications', 'messages', '')).toBe(true);
+    expect(panelVisible('messages', 'messages', '')).toBe(false);
+    expect(chartNavTarget('messages', 'messages')).toEqual({ activeTab: 'messages', hubSub: 'messages' });
+  });
   it('defaults Records to overview landing', () => {
     expect(resolveChartTab('records')).toEqual({ hub: 'records', sub: 'overview' });
     expect(chartNavTarget('records', '')).toEqual({ activeTab: 'records', hubSub: 'overview' });

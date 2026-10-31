@@ -13,7 +13,7 @@ test('H0002 and another service remain separate, and signed or claimed encounter
   // A minimal projection in the runner's private temporary database; never a project database.
   await pool.query(`CREATE TABLE IF NOT EXISTS clinical_sessions (
     id INT PRIMARY KEY, agency_id INT, client_id INT, provider_user_id INT,
-    office_event_id INT NULL, billing_encounter_id INT NULL, scheduled_start_at DATETIME,
+    office_event_id INT NULL, billing_encounter_id INT NULL, appointment_id INT NULL, scheduled_start_at DATETIME,
     service_code VARCHAR(32), encounter_status VARCHAR(32))`);
   await pool.query('CREATE TABLE IF NOT EXISTS clinical_claims (id INT PRIMARY KEY, clinical_session_id INT)');
   await pool.query('CREATE TABLE IF NOT EXISTS clinical_notes (id INT PRIMARY KEY, clinical_session_id INT, provider_signed_at DATETIME NULL)');

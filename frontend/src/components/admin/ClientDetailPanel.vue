@@ -1065,7 +1065,7 @@
                   >
                     Edit client
                   </button>
-                  <button type="button" class="cdp-btn-soft" @click="goChartSub('messages')">
+                  <button type="button" class="cdp-btn-soft" @click="goChartSub('communications')">
                     Send secure message
                   </button>
                   <button
@@ -2970,8 +2970,8 @@ const chartSubnav = computed(() => {
   }
   if (hub === 'messages') {
     return [
-      { id: 'messages', label: 'Messages / Notes' },
-      { id: 'communications', label: 'Communications' }
+      { id: 'communications', label: 'Communications' },
+      { id: 'messages', label: 'Contact documentation' }
     ];
   }
   if (hub === 'overview' && isSchoolClientType.value && isSkillsClientFlag(props.client?.skills)) {
@@ -3001,7 +3001,7 @@ const effectiveHubSub = computed(() => {
   if (hub === 'account') return 'profile';
   if (hub === 'lifecycle') return 'timeline';
   if (hub === 'records') return 'overview';
-  if (hub === 'messages') return 'messages';
+  if (hub === 'messages') return 'communications';
   return '';
 });
 function showPanel(legacyId) {

@@ -4283,6 +4283,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
         const placeholders = schoolAgencyIds.map(() => '?').join(',');
         const [rows] = await pool.execute(
           `SELECT
+             psa.id AS assignment_id,
+             psa.slots_total,
              psa.school_organization_id,
              oa.agency_id,
              a.name AS school_name,
@@ -4301,6 +4303,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
           [...schoolAgencyIds, providerId]
         );
         schoolAssignments = (rows || []).map((r) => ({
+          assignmentId:Number(r.assignment_id || 0) || null,
+          slotsTotal:Number(r.slots_total || 0),
           schoolOrgId: r.school_organization_id,
           agencyId: Number(r.agency_id || 0) || null,
           schoolName: r.school_name,
@@ -5865,6 +5869,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           return {
             ...e,
             appointmentId,
+            ...(typeof meta==='object'?{modality:meta.modality,officeLocationId:meta.officeLocationId,roomId:meta.roomId,serviceLocationId:meta.serviceLocationId,schoolOrganizationId:meta.schoolOrganizationId,schoolName:meta.schoolName,locationLabel:meta.locationLabel}:{}),
             appointmentStatus: typeof meta === 'object'
               ? String(meta.status || 'scheduled').toLowerCase()
               : null,

@@ -2,10 +2,10 @@
   <div class="editor" data-tour="school-soft-schedule">
     <div class="header">
       <div>
-        <div class="title">Soft schedule</div>
+        <div class="title">Regular school planning times</div>
         <div class="subtitle">
-          Optional — not mandatory. Use at your discretion to aid communication with providers.
-          Order, times, and pickup/location notes (no PHI).
+          Shared weekly times and pickup/location notes. One-time appointment changes do not change this plan.
+          Save the plan before booking weekly appointments.
         </div>
       </div>
       <button class="btn btn-primary btn-sm" type="button" :disabled="saving" @click="save">

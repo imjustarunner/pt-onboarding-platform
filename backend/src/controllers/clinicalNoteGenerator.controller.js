@@ -1,3 +1,4 @@
+import { resolveClinicalDraftSessionContext } from '../services/clinicalDraftSessionContext.service.js';
 import { readStaffCareEligibility, requireStaffCareEligibility } from '../services/staffCareEligibility.service.js';
 import { maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
 import { hasAuthoredDraftChange } from '../services/clinicalDraftAttendanceIntent.js';
@@ -731,6 +732,15 @@ export const createClinicalNoteDraft = async (req, res, next) => {
       }
     }
 
+    if (!isTerminationDraft) {
+      const session = await resolveClinicalDraftSessionContext({ agencyId, clientId, providerUserId: req.user.id,
+        clinicalSessionId, officeEventId, dateOfService, serviceCode });
+      if (session) {
+        clinicalSessionId = Number(session.id);
+        officeEventId = Number(session.office_event_id || 0) || null;
+      }
+    }
+
     // Past / chart-initiated notes: ensure a clinical_sessions row so Medical Record can list the DOS.
     if (clientId && dateOfService && !clinicalSessionId && !isTerminationDraft) {
       try {
@@ -753,7 +763,7 @@ export const createClinicalNoteDraft = async (req, res, next) => {
           const [existingRows] = await clinicalPool.execute(
             `SELECT s.* FROM clinical_sessions s
              WHERE s.agency_id = ? AND s.client_id = ? AND s.provider_user_id = ? AND DATE(s.scheduled_start_at) = ?
-               AND s.office_event_id IS NULL AND s.billing_encounter_id IS NULL
+               AND s.office_event_id IS NULL AND s.billing_encounter_id IS NULL AND s.appointment_id IS NULL
                AND TRIM(COALESCE(s.service_code, '')) = ''
                AND NOT EXISTS (SELECT 1 FROM clinical_claims c WHERE c.clinical_session_id = s.id)
                AND NOT EXISTS (SELECT 1 FROM clinical_notes n WHERE n.clinical_session_id = s.id AND n.provider_signed_at IS NOT NULL)
@@ -796,7 +806,8 @@ export const createClinicalNoteDraft = async (req, res, next) => {
         }
         if (session?.id) clinicalSessionId = Number(session.id);
       } catch (sessErr) {
-        console.warn('[createClinicalNoteDraft] ensure clinical session failed', sessErr?.message || sessErr);
+        throw Object.assign(new Error('The clinical session could not be prepared. Your entered text remains in the workspace; reopen the appointment and retry saving.'),
+          { status: Number(sessErr?.status) || 503, code: 'NOTE_SESSION_CONTEXT_UNAVAILABLE', cause: sessErr });
       }
     }
 

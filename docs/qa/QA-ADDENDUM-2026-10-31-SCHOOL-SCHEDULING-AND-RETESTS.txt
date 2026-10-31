@@ -1,0 +1,198 @@
+ADDITIONAL QA PLAN — SATURDAY, OCTOBER 31, 2026
+School scheduling, clinical appointments, communications, and retained blockers
+
+Append this to the plan already supplied. Earlier briefs remain evidence.
+This is for the external testing team: use the app, approved school portal,
+QA inbox, and existing vault entries. No repository, database, cloud console,
+or internal engineering tools are required or expected.
+
+SCOPE AND RECORDS
+- Demo agency 450, ITSCOLLC / auricwell-qa-demo; school 451, Cedar Grove K–8;
+  school portal https://schoolcarebridge.org/app/auricwell-qa-demo-school.
+- Avery 1433 (LPC); Cameron 1438 (LPC, supervisor); Alex 1439 (LPCC,
+  supervisee); Jordan 1434 (support); Jamie 1465 (school staff, not School Admin).
+- Recount first. Last observed: 21 active clients and 3 clinical providers.
+  Maximum 30 clients and 10 providers. Reuse retained synthetic clients wherever
+  possible; second guardians do not require another client record.
+- Keep all testing inside this organization. No real-client tests, card charges,
+  insurance transmissions, destructive purge, or changes to other organizations.
+- Account passwords remain in the tester's vault. Do not publish passwords,
+  private enrollment/reset/ROI links, cookies, addresses, or non-QA phone numbers.
+- Record exact app-visible results, timestamps, IDs, and fresh screenshots.
+  Distinguish PASS, FAIL, BLOCKED, and NOT RUN; a sent status is not delivery.
+
+WHAT ENGINEERING CHANGED
+- School planning times remain a stable weekly plan. Providers can use “Book
+  weekly sessions” to turn a saved client/time slot into actual appointments.
+  This is the explicitly chosen planning-plus-booking approach; school plans
+  are not automatically synchronized with appointment series changes.
+- School and office sessions carry their saved service location. A session and
+  its linked room booking should not render as two competing appointment cards.
+  The full school assignment remains visible in the full schedule/agenda.
+- Clicking a school assignment opens the existing request workflow for hours
+  and client capacity. The approved assignment remains until staff approval.
+- Overlapping virtual hours can be saved after a warning/acknowledgment.
+  Important limit: school commitments still block public availability; saving
+  overlapping hours does not release school time for unrelated public bookings.
+- Booking should no longer show “normalizeWall is not defined” after saving.
+  Reopening a clinical appointment should restore its service and status.
+  Explicit service edits now save to the clinical appointment. They preserve
+  the original financial quote; changing a code does not silently reprice a
+  previous Pro Bono visit or alter a signed encounter.
+- Clinical Cancel event and canceled/no-show choices open the full change
+  workflow for reason, consequence/fee review, and notification handling.
+- Scheduled quick notes now send initials rather than a full name into the
+  initials field. New chart drafts can resolve one matching booked encounter;
+  ambiguous encounters require choosing the exact appointment. Existing text
+  must remain intact if the context cannot be resolved.
+- Messages opens Communications. The obsolete client-facing note composer and
+  its initials-only / “not Therapy Notes” reminders are removed. Contact
+  documentation and previous account-note history remain available.
+- Support reply generation reads the encrypted received message/thread.
+  Invalid placeholder/false-empty drafts are not saved. Opening or generating
+  a draft should not silently claim the ticket.
+- Provider import, creation, purge, and search-index rebuild are administrator
+  actions. Support retains provider search. Support is not being made admin.
+- The internal “intern_plus” eligibility label is removed from the note header.
+  Avery remains LPC; Alex remains LPCC. This did not change license verification
+  or supervision requirements, and support does not gain credential editing.
+
+DEMO CONFIGURATION APPLIED BEFORE THIS RUN
+- The three QA providers now have these self-pay clinical services assigned:
+  90791, H0031, 90832, 90834, 90837, 90846, 90847, 90853, H0032.
+  This does not promise that every catalog code is assigned or is a primary code.
+- School service location 125 links Cedar Grove to the demo billing office 9,
+  with school place of service 03. Self-pay-only mode remains enabled.
+- Missing rates and policy references on those clinical services are filled
+  from the existing synthetic $120/session rate and demo attendance policy.
+  Existing explicit prices/overrides are preserved. Review the quoted amount
+  on each new booking; historical Pro Bono visits are not retroactively priced.
+- No sessions, charges, signatures, or messages were created by that repair.
+- Retained Avery draft #285 is still untouched: its service is 90837 but its
+  Oct 19 appointment #84 is PRO_BONO_SERVICE. Do not overwrite either record
+  or claim it is repaired. Record this as provider review needed. Start the
+  signing retest from a correctly configured synthetic clinical appointment.
+- Alex's signed note #286 remains for Cameron's cosign. Do not recreate it.
+
+RUN ORDER
+
+1. ACCESS GATE AND COUNTS
+   Sign in as Jordan. Verify normal support access to clients, communications,
+   schedules, and school requests. /admin/users must remain denied. Provider
+   Directory must not show import, bulk-create, purge, or rebuild controls.
+   Do not invoke destructive actions. Confirm school staff cannot book clinical
+   sessions or read clinical note bodies. Stop the affected lane for a privacy
+   or cross-organization access failure; continue independent safe lanes.
+
+2. SCHOOL WEEKLY PLAN → REAL APPOINTMENTS
+   Use Avery's existing school/day and an assigned synthetic student. Save a
+   planning slot, for example 8:30–9:15 only if inside approved school hours.
+   In the provider's school schedule, find “Weekly appointments from this
+   school schedule,” select the saved client/time and an assigned service.
+   Test next week with 2–3 occurrences, then another saved slot with a custom
+   date. Exercise “This week” where the selected weekday has not passed; a
+   passed weekday should request a future start instead of silently backdating.
+   Inspect each actual appointment for client, provider, school, service,
+   recurring weekday, timezone, and clinical link. Confirm the school sees the
+   original weekly planning time and that the new appointments are on the
+   provider's regular calendar. Refresh and sign back in to prove persistence.
+   Do not submit the same series repeatedly. If a partial-save error supplies
+   existing appointment IDs, inspect those before retrying.
+
+3. DISPLAY, ONE-OFF CHANGES, AND SCHOOL REQUESTS
+   During an 8–3 school assignment, a genuine 8:30–9:15 school session should
+   show the school name/color and appear once in its occupied calendar cells.
+   The full schedule/agenda must still show the 8–3 school commitment.
+   An office session with its own linked room reservation should likewise
+   appear as one appointment; an unrelated room reservation must remain.
+   Move one occurrence to a different time. Verify the actual appointment
+   changes while Jamie's regular weekly student plan stays unchanged.
+   For a permanent weekly change, edit the school planning slot AND review/
+   move the remaining calendar series. Do not book a replacement series over
+   existing future appointments or assume the plan edits move appointments.
+   Click a school assignment and request changed hours and/or client spots.
+   Confirm current approved hours/capacity remain while the request is pending,
+   then verify an authorized scheduling staff member can see the request.
+   Try saving virtual hours overlapping the school assignment: first decline
+   the warning, then acknowledge it. Confirm actual booked sessions still block
+   conflicts and that public availability continues to reserve school time.
+
+4. CLINICAL NOTES AND COSIGN
+   Book synthetic 90791 or H0031 visits and a 90834/90837 visit using assigned
+   services. Respect durations and any normal warnings; do not substitute
+   Pro Bono to conceal a clinical-service failure. Test a past appointment
+   using synthetic session details under the previously authorized QA scope.
+   From that appointment, enter a short quick note, wait for Draft saved,
+   open Note Workspace, and confirm the exact same draft/source/client/session.
+   Refresh the appointment: service and status must remain saved. Confirm a
+   same-day second appointment does not reuse the first appointment's draft.
+   Sign as Avery and verify the recorded signature/status in the chart.
+   Sign as Alex and inspect the supervisor queue; Cameron should cosign the
+   retained #286 and verify both signatures and the displayed status.
+   The finalized-intake requirement for an active treatment plan remains in
+   place. It was not removed in this release. Complete the synthetic intake
+   workflow before the plan retest; record any remaining gate as observed.
+   Keep CSNoteBuild visibility, My Work task counts, duplicated LPCC signature,
+   and signature timezone defects open until freshly verified.
+
+5. CANCELLATIONS, NO-SHOWS, FEES, AND DELIVERY
+   Use distinct synthetic appointments. Test provider cancellation (no client
+   fault), a client-requested advance cancellation, a late client cancellation,
+   and a no-show after the appointment has ended. Review the initiator, reason,
+   $80 under-24-hour late-cancel / $100 no-show policy consequences where that
+   signed policy applies, and the proposed notifications before completing.
+   Reload the calendar and account balance to prove the resulting status and
+   fee persist. Verify a canceled/no-show appointment does not hide the school's
+   remaining assignment. Inspect family and provider email/in-app copies and
+   actual QA inbox delivery; record recipients and attribution. No insurance
+   submission or card collection. Do not treat a future visit as a no-show.
+   Clinical SMS remains BLOCKED until the application shows the approved
+   Notifyre routes active. Do not use Vonage clinical messages as a substitute.
+
+6. COMMUNICATIONS AND SUPPORT DRAFTS
+   In a client chart, Messages should open real Communications. Verify secure
+   messages, email/reminder history, and contact documentation remain reachable.
+   The obsolete client-facing composer and reminder banner should be absent.
+   Existing historical notes must remain, without exposing another guardian's
+   private documents or clinical note bodies to support/school staff.
+   As Jordan, regenerate drafts for Jamie's retained #551–#553 and #503–#505.
+   A draft must address the actual visible question, avoid [Your Name/Support
+   Team] placeholders, and not call a populated request empty. Check that
+   opening/generating leaves ownership unchanged; explicit Claim still works.
+   Review before sending any synthetic reply. Then sign in as Jamie to verify
+   the reply is visible; keep the earlier reply-visibility defect open if not.
+
+7. DANA ROI AND OTHER RETAINED BLOCKERS
+   Dana 2263 renewal: preserve the unsigned state. The last screen requires
+   “Acknowledge & Continue” before displaying release details. Do not record
+   that acknowledgment merely to pass a read-only check. Report the staff list
+   as BLOCKED until the owner authorizes the acknowledgment or the details are
+   available for review beforehand. Renewal branding, link hosts, staff-list
+   content, and mixed title/footers are still open; this release does not claim
+   they are fixed. Jamie remains school staff, so school-admin-only invitations
+   need an authorized School Admin fixture; don't elevate Jamie yourself.
+
+8. CARRY FORWARD THE PREVIOUS ADDENDA
+   Resume the missed password-setup checks: a new family without a password
+   should use the enrollment email's direct setup link without another email.
+   Use the next necessary school recovery request/designated fixture to verify
+   one SchoolCareBridge reset link and the correct school portal branding.
+   Do not reset a working account solely to inspect design during another lane.
+   Run the missed adult-self/adult-representative rotation and remaining
+   enrollment lanes within the population cap. Retest Office ES provider/time
+   choice, Wren's preferences reaching support, duplicate school disclosures,
+   guardian multi-child linking/isolation, Exchange, Blake's measures, and
+   signed-copy translations. Prior fixes are not assumed passed without evidence.
+
+TIMEZONE CHECK
+- Oct 31 is MDT. Denver changes to MST on Nov 1. Nov 2 appointments must retain
+  their chosen local time and show MST where an abbreviation is displayed.
+- Compare provider, school, family, notification, and signature times. Keep any
+  one-hour or unlabeled-UTC signature issue open; this release is not a blanket
+  timestamp fix.
+
+REPORT AT THE END
+- App build/version if visible; role + entry path; counts; retained/created IDs;
+  fresh evidence for each check; sent-versus-received delivery; skipped lanes.
+- State whether the exact reported failure was retested, and list remaining
+  blockers explicitly. A passing booking or saved draft alone is not a full pass.

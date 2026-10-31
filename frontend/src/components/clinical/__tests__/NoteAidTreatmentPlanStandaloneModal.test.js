@@ -59,7 +59,7 @@ it('reviews the real generation response without selecting a client, then saves 
   const [, parseBody] = api.post.mock.calls.find(([url]) => url.endsWith('/parse'));
   expect(parseBody.agencyId).toBe(7);
   expect(parseBody).not.toHaveProperty('clientId');
-  await click('Save to library (initials only)');
+  await click('Save to library');
   const [, patch] = api.patch.mock.calls[0];
   const saved = JSON.parse(patch.outputJson).meta.structuredPlan;
   expect(saved.goals).toHaveLength(2);

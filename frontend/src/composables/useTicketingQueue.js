@@ -74,7 +74,6 @@ export function useTicketingQueue() {
   const adminClientLoading = ref(false);
   const clientLabelMode = ref('codes');
   const showAssignByTicketId = ref({});
-  const autoClaimedTicketId = ref(null);
 
   const confirmWord = computed(() => {
     if (confirmAction.value === 'assign') return 'ASSIGN';
@@ -575,13 +574,6 @@ export function useTicketingQueue() {
       openAnswerId.value = null;
       answerText.value = '';
       answerError.value = '';
-      if (Number(autoClaimedTicketId.value) === Number(ticketId)) {
-        const t = (tickets.value || []).find((row) => Number(row?.id) === Number(ticketId));
-        if (t && Number(t.claimed_by_user_id) === Number(myUserId)) {
-          await unclaimTicket(t);
-        }
-        autoClaimedTicketId.value = null;
-      }
       return;
     }
     openAnswerId.value = ticketId;
@@ -592,18 +584,7 @@ export function useTicketingQueue() {
       expandedThreadByTicketId.value = { ...(expandedThreadByTicketId.value || {}), [t.id]: true };
       await loadInlineThread(t);
     }
-    if (t && !t.claimed_by_user_id) {
-      claimingId.value = t.id;
-      try {
-        await api.post(`/support-tickets/${t.id}/claim`);
-        await load();
-        autoClaimedTicketId.value = t.id;
-      } catch (e) {
-        error.value = e.response?.data?.error?.message || 'Failed to claim ticket';
-      } finally {
-        claimingId.value = null;
-      }
-    }
+
   };
 
   const submitAnswer = async (t, mode = 'answered') => {
@@ -625,7 +606,6 @@ export function useTicketingQueue() {
         closeOnRead,
         aiDraftDecision
       });
-      autoClaimedTicketId.value = null;
       openAnswerId.value = null;
       answerText.value = '';
       await load();

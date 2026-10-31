@@ -1,5 +1,6 @@
 import rateLimit from 'express-rate-limit';
 import express from 'express';
+import { getSchoolWeeklyBooking, bookSchoolWeeklySessions } from '../controllers/schoolWeeklyBooking.controller.js';
 import {getSchoolAdminRequests,createSchoolAdminRequest,decideSchoolAdminRequest} from '../controllers/schoolAdminAccessRequest.controller.js';
 import {
   getSchoolClients,
@@ -270,6 +271,8 @@ router.post('/:schoolId/days/:weekday/providers', authenticate, addProviderToDay
 router.get('/:schoolId/days/:weekday/providers/:providerId/soft-slots', authenticate, getSoftScheduleSlots);
 router.put('/:schoolId/days/:weekday/providers/:providerId/soft-slots', authenticate, putSoftScheduleSlots);
 router.post('/:schoolId/days/:weekday/providers/:providerId/soft-slots/:slotId/move', authenticate, moveSoftScheduleSlot);
+router.get('/:schoolId/days/:weekday/providers/:providerId/weekly-booking', authenticate, getSchoolWeeklyBooking);
+router.post('/:schoolId/days/:weekday/providers/:providerId/weekly-booking', authenticate, bookSchoolWeeklySessions);
 
 // Provider scheduling (school-entered schedule)
 router.get('/:schoolId/providers/scheduling', authenticate, listSchoolProvidersForScheduling);

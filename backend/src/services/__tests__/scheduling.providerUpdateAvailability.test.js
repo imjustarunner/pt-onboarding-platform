@@ -32,10 +32,17 @@ it('adds a virtual window without replacing other openings, appointments, or mee
  expect(db.execute.mock.invocationCallOrder[invalidation]).toBeLessThan(db.commit.mock.invocationCallOrder[0]);
 });
 it.each(['busyBlocks','officeReservations'])('refuses a conflicting %s hour',async key=>{m.compute.mockResolvedValue({[key]:[{startAt:'2026-10-12T15:00:00Z',endAt:'2026-10-12T16:00:00Z'}]});await expect(addUpdateVirtualOpening(ids,{date:'2026-10-12',startTime:'09:00',frequency:'WEEKLY'})).rejects.toMatchObject({status:409});expect(m.connection).not.toHaveBeenCalled();});
-it('asks for school-hours approval before publishing and does not change availability or assignments',async()=>{
+it('requires acknowledgment before saving overlapping virtual hours and does not change school assignments',async()=>{
  m.compute.mockResolvedValue({schoolAssignments:[{startAt:'2026-10-12T15:00:00Z',endAt:'2026-10-12T19:00:00Z'}],busyBlocks:[],officeReservations:[]});
- await expect(addUpdateVirtualOpening(ids,{date:'2026-10-12',startTime:'09:00',frequency:'WEEKLY',enableVirtualOpen:true})).rejects.toMatchObject({status:409,message:expect.stringContaining('reserved for school clients')});
+ await expect(addUpdateVirtualOpening(ids,{date:'2026-10-12',startTime:'09:00',frequency:'WEEKLY',enableVirtualOpen:true})).rejects.toMatchObject({status:409,message:expect.stringContaining('Acknowledge the school commitment')});
  expect(m.connection).not.toHaveBeenCalled();expect(m.save).not.toHaveBeenCalled();
+});
+it('allows acknowledged virtual hours while retaining school reservations',async()=>{
+ const school={sourceType:'SCHOOL_ASSIGNMENT',startAt:'2026-10-12T15:00:00Z',endAt:'2026-10-12T19:00:00Z'};
+ m.compute.mockResolvedValue({schoolAssignments:[school],busyBlocks:[school],officeReservations:[]});
+ const result=await addUpdateVirtualOpening(ids,{date:'2026-10-12',startTime:'09:00',frequency:'WEEKLY',enableVirtualOpen:true,acknowledgeSchoolOverlap:true});
+ expect(result.warning).toContain('school hours remain reserved');expect(db.commit).toHaveBeenCalledOnce();
+ expect(db.execute.mock.calls.some(([sql])=>/UPDATE provider_school_assignments|DELETE FROM provider_school_assignments/.test(sql))).toBe(false);
 });
 it('does not guess availability when an external calendar cannot be checked',async()=>{m.compute.mockResolvedValue({calendarWarnings:['unavailable']});await expect(addUpdateVirtualOpening(ids,{date:'2026-10-12',startTime:'09:00',frequency:'WEEKLY'})).rejects.toMatchObject({status:409});expect(m.connection).not.toHaveBeenCalled();});
 it('serializes additions and rolls back duplicates without touching saved windows',async()=>{db.execute.mockImplementation(async sql=>[sql.includes('FROM provider_virtual_working_hours')?[{day_of_week:'Monday',start_time:'09:00:00',end_time:'10:00:00',frequency:'WEEKLY'}]:[]]);await expect(addUpdateVirtualOpening(ids,{date:'2026-10-12',startTime:'09:00',frequency:'WEEKLY'})).rejects.toMatchObject({status:409});expect(db.rollback).toHaveBeenCalledOnce();expect(db.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT'))).toBe(false);});

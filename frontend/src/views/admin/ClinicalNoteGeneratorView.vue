@@ -140,7 +140,6 @@
 
         <div v-if="hasOpenNote" class="na-context-strip na-context-strip--soft">
           <span><strong>Credential:</strong> {{ loadingContext ? 'Loading…' : (providerCredentialText || 'Not set') }}</span>
-          <span><strong>Tier:</strong> {{ derivedTier }}</span>
           <span v-if="dateOfService"><strong>DOS:</strong> {{ dateOfService }}</span>
           <span v-if="currentDraftCreatedAt"><strong>Created:</strong> {{ formatCreatedDisplay(currentDraftCreatedAt) }}</span>
           <span v-if="lastSavedAt"><strong>Saved:</strong> {{ lastSavedAt }}</span>
@@ -579,7 +578,7 @@
                   @create-request="openCreateClientModal"
                 />
                 <p v-if="progressEntryMode === 'unlinked'" class="na-field-hint">
-                  Unlinked note — date and initials only (not attached to a chart session).
+                  Library note — open a scheduled session to attach documentation to its chart.
                 </p>
                 <NoteAidClientContextPanel
                   v-if="effectiveClientId"

@@ -109,10 +109,6 @@
         <span v-if="skillsYesError" class="error">{{ skillsYesError }}</span>
       </div>
 
-      <div class="phi-warning">
-        <strong>Reminder:</strong> Use initials only. Do not include PHI. Keep clinical documentation in the authorized clinical workspace.
-      </div>
-
       <div class="status-bar">
         <div class="pill">
           <div class="k">Status</div>

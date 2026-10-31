@@ -143,7 +143,7 @@
               {{ saving ? 'Saving…' : 'Apply to selected client' }}
             </button>
             <button type="button" class="na-tp-outline" :disabled="busy" @click="saveLibraryDraft">
-              {{ saving ? 'Saving…' : 'Save to library (initials only)' }}
+              {{ saving ? 'Saving…' : 'Save to library' }}
             </button>
           </div>
         </div>

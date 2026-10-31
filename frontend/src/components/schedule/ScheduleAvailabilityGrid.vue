@@ -880,6 +880,11 @@
       </details>
     </div>
 
+    <div v-if="summary?.schoolAssignments?.length" class="school-commitment-summary" aria-label="Assigned school hours" style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">
+      <button v-for="assignment in summary.schoolAssignments" :key="`${assignment.agencyId}-${assignment.schoolOrgId}-${assignment.dayOfWeek}`" class="btn btn-secondary btn-sm" type="button" @click="schoolAssignmentReview={agencyId:Number(assignment.agencyId || assignment._agencyId || effectiveAgencyId),schoolId:Number(assignment.schoolOrgId || assignment.schoolOrganizationId),assignmentId:Number(assignment.assignmentId || 0)}">
+        {{assignment.schoolName}} · {{assignment.dayOfWeek}} {{assignment.startTime}}–{{assignment.endTime}} · Hours / client spots
+      </button>
+    </div>
     <div v-if="showAvailabilityEditor && Number(props.userId || 0)" class="sched-availability-panel" data-tour="my-schedule-availability-panel">
       <div class="sched-availability-panel__head">
         <strong>Availability Hours &amp; Planned Out</strong>
@@ -1891,6 +1896,7 @@
             </aside>
           </div>
 
+        <p v-if="editorSchoolOverlapNames.length" role="alert" class="nr-warn">These virtual hours overlap your assignment at {{editorSchoolOverlapNames.join(', ')}}. You can save them; assigned school hours remain reserved, and existing sessions stay protected. Request an hours change if you intend to see other clients then.</p>
         <AppointmentEditorShell
           v-show="editorWorkspaceTab === 'edit'"
           :title="modalEditorTitle"
@@ -2463,7 +2469,7 @@
               :date-of-service="editorDateYmd"
               :service-code="editorSessionServiceCode"
               :latest-plan="editorChartLatestPlan"
-              :initials="editorInfoClientName"
+              :initials="editorInfoClientName.split(/\s+/).filter(Boolean).map(part=>part[0]).join('').slice(0,16)"
               v-model:input-text="editorQuickNote"
             />
             <p v-else class="muted">Session notes are available for booked client sessions.</p>
@@ -5726,6 +5732,12 @@
       @completed="onAppointmentChangeCompleted"
     />
 
+    <div v-if="schoolAssignmentReview" class="modal-backdrop modal-backdrop--request" @click.self="schoolAssignmentReview=null">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="School assignment change request">
+        <div class="modal-head"><h3>School hours and client spots</h3><button class="btn btn-secondary" type="button" @click="schoolAssignmentReview=null">Close</button></div>
+        <ProviderUpdateSchoolSchedule base="/provider-update/me" :agency-id="schoolAssignmentReview.agencyId" :school-id="schoolAssignmentReview.schoolId" :initial-assignment-id="schoolAssignmentReview.assignmentId" :request-change="true" :readonly="Number(scheduleActorUserId)!==Number(authStore.user?.id)" hide-complete @requested="load({forceRefresh:true})" />
+      </div>
+    </div>
     <div
       v-if="peerActivityModal"
       class="modal-backdrop modal-backdrop--request"
@@ -5784,6 +5796,8 @@
 
 <script setup>
 import ScheduledTrainingEditor from './ScheduledTrainingEditor.vue';
+import ProviderUpdateSchoolSchedule from '../provider/ProviderUpdateSchoolSchedule.vue';
+import {decorateSessionLocations, officeCoveredBySession, virtualSchoolOverlap, scheduleEventSignature} from '../../utils/scheduleLocationProjection.js';
 import ScheduledTrainingPanel from '../meetings/ScheduledTrainingPanel.vue';
 import { canScheduleTraining } from '../../utils/scheduledTraining';
 import { officeRequestWindows } from '../../utils/officeRequestWindows.js';
@@ -6289,7 +6303,8 @@ const familyScheduleEnabled = computed(() => {
 });
 const summary = computed({
   get: () => {
-    const data = rawSummary.value;
+    const raw = rawSummary.value;
+    const data = raw ? {...raw, scheduleEvents:decorateSessionLocations(raw.scheduleEvents, raw.schoolAssignments, raw.officeEvents, String(agencyStore.currentAgency?.timezone || 'America/Denver'))} : raw;
     if (!data || !familyScheduleEnabled.value || Number(props.userId) !== Number(authStore.user?.id)) return data;
     return { ...data, scheduleEvents: familyScheduleProjection(data.scheduleEvents, familyPersonalMode.value, familyScheduleDetails.value) };
   },
@@ -11531,6 +11546,7 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
       : officeEventsInCell(dayName, hour, minute).filter((e) => Number(e?.buildingId || 0) === selectedOfficeId);
   const officeByKey = new Map();
   for (const e of officeHits) {
+    if (officeCoveredBySession(e, scheduleEventsInCell(dayName,hour,minute))) continue;
     const aid = Number(e?._agencyId || 0) || null;
     const bid = Number(e?.buildingId || 0) || 0;
     const rid = Number(e?.roomId || 0) || 0;
@@ -11703,6 +11719,7 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
   const schoolByAgency = new Map();
   for (const a of schoolHits) {
     if (supvHits.some((ev) => supervisionReplacesSchoolAssignment(ev, a))) continue;
+    if (scheduleEventsInCell(dayName,hour,minute).some(ev => !isScheduleEventTerminal(ev) && ev.calendarLocationKind==='school' && Number(ev.schoolOrganizationId)===Number(a.schoolOrgId || a.schoolOrganizationId))) continue;
     const aid = Number(a?._agencyId || a?.agencyId || 0) || null;
     const key = aid || 'none';
     if (!schoolByAgency.has(key)) schoolByAgency.set(key, []);
@@ -11719,6 +11736,10 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
     blocks.push({
       key: `school-${agencyId || 'x'}`,
       kind: 'school',
+      assignments,
+      schoolOrganizationId:Number(assignments[0]?.schoolOrgId || assignments[0]?.schoolOrganizationId || 0),
+      assignmentId:Number(assignments[0]?.assignmentId || 0),
+      startTime:assignments[0]?.startTime, endTime:assignments[0]?.endTime,
       shortLabel,
       title: `School assigned${agencySuffix(ids)} — ${dayName} ${hourLabel(hour)}`,
       agencyId,
@@ -11795,7 +11816,9 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
       meetingSubtype: normalizeMeetingSubtype(ev?.meetingSubtype),
       meetingSettings: ev?.meetingSettings || null,
       allDay: !!ev?.allDay,
-      shortLabel: scheduleEventShortLabel(ev, 'start', { multiline: true }),
+      shortLabel: [scheduleEventShortLabel(ev, 'start', { multiline: true }),ev.locationLabel].filter(Boolean).join('\n'),
+      calendarLocationKind:ev.calendarLocationKind,
+      locationLabel:ev.locationLabel,
       title: scheduleEventBlockTitle(ev, dayName, hour),
       link: String(ev?.htmlLink || '').trim() || null,
       appJoinUrl: isScheduleMeetingJoinable(ev) ? (String(ev?.appJoinUrl || '').trim() || null) : null,
@@ -13822,6 +13845,14 @@ const editorLocationAddress = ref('');
 const editorRoomId = ref(0);
 const editorBookedUntil = ref('');
 const editorStatus = ref('scheduled');
+const editorStatusBaseline = ref('scheduled');
+const editorAppointmentBaseline=ref(null);
+const editorHydratingAppointment=ref(false);
+const schoolAssignmentReview=ref(null);
+const editorSchoolOverlapNames=computed(() => {
+  if (!['portal_intake','attach_open_for_booking'].includes(requestType.value) || !editorOpenVirtual.value) return [];
+  return [...new Set(virtualSchoolOverlap(summary.value?.schoolAssignments,{dayOfWeek:modalDay.value,startTime:editorStartTime.value,endTime:editorEndTime.value,agencyId:editorAgencyId.value || effectiveAgencyId.value}).map(a=>a.schoolName || 'school'))];
+});
 const editorVideoRoomMode = ref('unique_session');
 const editorNotificationMode = ref('default');
 watch(editorClinicalParticipantsMode, (mode) => {
@@ -15037,7 +15068,12 @@ function onEditorAppointmentType(value) {
   }
 }
 function onEditorStatus(value) {
-  editorStatus.value = String(value || '');
+  const status=String(value || '');
+  if (editorIsClinical.value && Number(editorAppointmentId.value)>0 && (status==='no_show' || /cancel/.test(status))) {
+    void appointmentChange.openWizard({appointmentId:Number(editorAppointmentId.value),context:{clientId:editorInfoClientId.value,clientName:editorInfoClientName.value,whenLabel:editorInfoWhenLabel.value,providerName:bookingTargetUserLabel.value}}).then(()=>{appointmentChange.facts.eventType=status==='no_show'?'no_show':'canceled';appointmentChange.facts.initiator='provider';});
+    return;
+  }
+  editorStatus.value = status;
   if (canEditBookingStrip.value) bookingStripStatus.value = String(value || '');
 }
 function onEditorRoomId(id) {
@@ -15499,10 +15535,19 @@ async function loadEditorReminders() {
       if (Number(editorAppointmentId.value || 0) !== apptId) return;
       const appointment = appointmentRes?.data?.appointment;
       if (appointment) {
+        editorHydratingAppointment.value=true;
+        editorStatus.value=String(appointment.status || 'scheduled');
+        editorStatusBaseline.value=editorStatus.value;
+        editorAppointmentBaseline.value={id:apptId,serviceCode:String(appointment.serviceCode || appointment.billing?.serviceCode || ''),tenantServiceId:Number(appointment.tenantServiceId || 0),serviceLocationId:Number(appointment.serviceLocationId || 0),modality:String(appointment.modality || '')};
+        if (appointment.modality) {editorModality.value=String(appointment.modality);bookingModality.value=String(appointment.modality);}
+        if (appointment.serviceCode || appointment.billing?.serviceCode) bookingServiceCode.value=String(appointment.serviceCode || appointment.billing.serviceCode);
+        if (appointment.serviceLocationId) {editorServiceLocationId.value=Number(appointment.serviceLocationId);bookingServiceLocationId.value=Number(appointment.serviceLocationId);}
+        if (appointment.tenantServiceId) editorTenantServiceId.value=Number(appointment.tenantServiceId);
         editorClinicalSessionId.value = Number(appointment.clinicalSessionId || 0);
         editorPackageEntitlementId.value = Number(appointment.packageEntitlementId || 0);
         editorBillingPaymentStatus.value = String(appointment.billing?.paymentStatus || '');
         if (appointment.businessType) editorPracticeCategory.value = practiceCategoryForBusinessType(appointment.businessType) || editorPracticeCategory.value;
+        await nextTick();editorHydratingAppointment.value=false;
       }
       const plan = planRes?.data?.plan || planRes?.data || {};
       editorReminderPlan.value = Array.isArray(plan?.items)
@@ -15723,6 +15768,8 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
   editorRoomId.value = Number(defaults.roomId || 0) || 0;
   editorBookedUntil.value = String(defaults.bookedUntil || '');
   editorStatus.value = String(defaults.status || 'scheduled');
+  editorStatusBaseline.value=editorStatus.value;
+  editorAppointmentBaseline.value=null;
   editorVideoRoomMode.value = String(defaults.videoRoomMode || 'unique_session');
   editorNotificationMode.value = String(defaults.notificationMode || 'default');
   editorOthersPresentNames.value = String(defaults.othersPresentNames || '');
@@ -15859,13 +15906,14 @@ async function loadEditorOfficeLocations() {
 // (those computeds touch late refs — early registration causes TDZ remount storms).
 
 watch(editorModality, (v) => {
-  if (!editorIsClinical.value) return;
+  if (!editorIsClinical.value || editorHydratingAppointment.value) return;
   bookingModality.value = String(v || 'TELEHEALTH');
   // Match Place of Service to modality (telehealth ↔ in-person) when the user toggles.
   preferDefaultServiceLocation({ force: true });
 });
 
 watch(editorTenantServiceId, (id) => {
+  if(editorHydratingAppointment.value)return;
   const svc = (editorTenantServices.value || []).find((s) => Number(s.id) === Number(id));
   if (!svc) return;
   const mins = Number(svc.defaultDurationMinutes || svc.default_duration_minutes || 0);
@@ -17868,6 +17916,7 @@ const bookingPrimaryServiceCodeOptions = computed(() => {
   });
 });
 watch(bookingPrimaryServiceCodeOptions, (opts) => {
+  if (Number(editorAppointmentId.value || 0)>0) return; // Saved appointments retain their historical service during asynchronous catalog refreshes.
   const code = String(bookingServiceCode.value || '').trim().toUpperCase();
   if (!code) return;
   if (!(opts || []).some((o) => String(o.code || '').toUpperCase() === code)) {
@@ -18101,7 +18150,7 @@ const patchScheduleSummaryWithBookedEvent = ({
   const list = Array.isArray(base.scheduleEvents) ? [...base.scheduleEvents] : [];
   const sig = `${ev.kind}|${ev.startAt}|${ev.endAt}|${ev.title}|${ev.id || ''}`;
   const exists = list.some((row) => {
-    const rowSig = `${String(row?.kind || '').toUpperCase()}|${normalizeWall(row?.startAt)}|${normalizeWall(row?.endAt)}|${String(row?.title || '').trim()}|${Number(row?.id || 0) || ''}`;
+    const rowSig = scheduleEventSignature(row, value => toSummaryInstantIso(value, {storesUtcInstant:true,wallTimeZone:tz}));
     return rowSig === sig;
   });
   if (!exists) list.push(ev);
@@ -20108,6 +20157,11 @@ const cellBlockStyle = (b) => {
     style['--blockTypeStripe'] = officeKindFillMap[kind]?.border
       || (kind === 'school' ? (dark ? 'rgba(147, 197, 253, 0.92)' : 'rgba(37, 99, 235, 0.85)')
         : (dark ? 'rgba(203, 213, 225, 0.85)' : 'rgba(100, 116, 139, 0.75)'));
+  }
+  if (b?.calendarLocationKind === 'school') {
+    style['--blockFill']='var(--sched-school-bg, rgba(37,99,235,.20))';
+    style['--blockBorder']='var(--sched-school-border, rgba(37,99,235,.70))';
+    style['--blockTypeStripe']='var(--sched-school-border, rgba(37,99,235,.85))';
   }
   // Continuous appointment: top/height % of the start cell (height may exceed 100%).
   if (b?.timedSlice && Number.isFinite(b.timedSlice.topPct) && Number.isFinite(b.timedSlice.heightPct)) {
@@ -25106,13 +25160,7 @@ const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
     return;
   }
   if (kind === 'school') {
-    openSlotActionModal({
-      dayName,
-      hour,
-      preserveSelectionRange: false,
-      initialRequestType: 'school',
-      actionSource: 'other_block'
-    });
+    schoolAssignmentReview.value={agencyId:Number(block.agencyId || effectiveAgencyId.value || 0),schoolId:Number(block.schoolOrganizationId || 0),assignmentId:Number(block.assignmentId || 0)};
     return;
   }
   if (kind === 'request') {
@@ -25626,6 +25674,20 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
               }
             : {})
         };
+    if (!isMeeting && Number(editorAppointmentId.value)>0) {
+      const clinicalPatch={};
+      if(editorStatus.value!==editorStatusBaseline.value)clinicalPatch.status=editorStatus.value;
+      const baseline=editorAppointmentBaseline.value;
+      if(baseline && baseline.id===Number(editorAppointmentId.value)){
+        const next={serviceCode:String(bookingServiceCode.value || ''),tenantServiceId:Number(editorTenantServiceId.value || 0),serviceLocationId:Number(editorServiceLocationId.value || 0),modality:String(editorModality.value || '')};
+        for(const key of Object.keys(next))if(next[key] && next[key]!==baseline[key])clinicalPatch[key]=next[key];
+      }
+      if(Object.keys(clinicalPatch).length){
+        await api.patch(`/appointments/${Number(editorAppointmentId.value)}`,clinicalPatch,{skipGlobalLoading:true});
+        editorStatusBaseline.value=editorStatus.value;
+        if(baseline)editorAppointmentBaseline.value={...baseline,...clinicalPatch};
+      }
+    }
     const patchResp = await api.patch(`/users/${uid}/schedule-events/${eid}`, patchBody, { skipGlobalLoading: true });
     const savedEvent = patchResp?.data?.event || {};
     patchScheduleEventInSummary({
@@ -26070,6 +26132,12 @@ const closeCancelMeetingConfirm = () => {
 };
 
 const openCancelMeetingConfirm = (item) => {
+  if (item?.isClientSession || parseClientIdFromScheduleEvent(item)>0) {
+    const appointmentId=Number(item?.appointmentId || (Number(item?.eventId)===Number(scheduleEventEditId.value)?editorAppointmentId.value:0));
+    if (!appointmentId) {modalError.value='This session needs its appointment link before a cancellation can be recorded. Reopen the session after refreshing the schedule.';return;}
+    void appointmentChange.openWizard({appointmentId,context:{clientId:parseClientIdFromScheduleEvent(item)||editorInfoClientId.value,clientName:String(item?.clientName || item?.label || editorInfoClientName.value),whenLabel:clockRangeLabel(item.startAt,item.endAt),providerName:bookingTargetUserLabel.value}}).then(()=>{if(!appointmentChange.facts.eventType){appointmentChange.facts.eventType='canceled';appointmentChange.facts.initiator='provider';}});
+    return;
+  }
   const eventId = Number(item?.eventId || 0);
   if (!eventId || item?.isCancelled) return;
   cancelMeetingItem.value = item;

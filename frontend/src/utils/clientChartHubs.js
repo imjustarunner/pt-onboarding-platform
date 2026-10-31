@@ -163,7 +163,7 @@ export function panelVisible(legacyId, hub, sub) {
     if (hub === 'account') return resolved.sub === 'profile';
     if (hub === 'lifecycle') return resolved.sub === 'timeline';
     if (hub === 'records') return resolved.sub === 'overview';
-    if (hub === 'messages') return resolved.sub === 'messages';
+    if (hub === 'messages') return resolved.sub === 'communications';
   }
   if (hub === 'overview' && (subNorm === 'overview' || resolved.sub === 'overview')) {
     return !resolved.sub;
@@ -225,8 +225,8 @@ export function chartNavTarget(hubId, subId = '') {
   }
   if (hub === 'messages') {
     return {
-      activeTab: sub === 'communications' ? 'communications' : 'messages',
-      hubSub: sub === 'communications' ? 'communications' : 'messages'
+      activeTab: sub === 'messages' ? 'messages' : 'communications',
+      hubSub: sub === 'messages' ? 'messages' : 'communications'
     };
   }
   return { activeTab: 'overview', hubSub: '' };

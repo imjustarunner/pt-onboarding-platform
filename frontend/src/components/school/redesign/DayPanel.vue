@@ -39,19 +39,16 @@
       </div>
 
       <div v-if="providers.length > 0 && showScheduleDisclaimer" class="schedule-disclaimer schedule-disclaimer-left">
-        <div class="schedule-disclaimer-title">Schedule Disclaimer</div>
+        <div class="schedule-disclaimer-title">Regular school planning times</div>
         <div class="schedule-disclaimer-text">
-          The schedules shown on this page are intended as a soft schedule for planning and communication purposes only. They do not update,
-          override, or form part of the provider’s official health record system.
+          This grid shows each client’s regular school time. A one-time absence, cancellation, or rescheduled appointment does not change it.
         </div>
         <div class="schedule-disclaimer-text">
-          This page is intended for school staff responsible for scheduling, if such scheduling is required. Schools may use this space to
-          document a provider’s expected schedule and include relevant notes (e.g., pick-up details or special instructions) to support clarity
-          and coordination.
+          Providers whose practice has enabled session booking can save these times and use “Book weekly sessions” to create calendar appointments.
+          Saving the planning grid by itself does not book or change appointments.
         </div>
         <div class="schedule-disclaimer-text">
-          Providers are not required to set or maintain a schedule here unless requested by the school. If a school chooses to set a provider
-          schedule, it should be done on this page for shared visibility and communication.
+          When a regular time changes, update this grid for the school and review the future appointment series on the provider’s calendar.
         </div>
       </div>
 

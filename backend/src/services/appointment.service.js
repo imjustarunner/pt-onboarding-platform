@@ -442,6 +442,19 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     }
   }
   await requireQaOutcomeElapsed({ ...existing, endAt: patch.endAt || existing.endAt }, patch.status);
+  const clinicalContextChanged=['serviceCode','tenantServiceId','serviceLocationId','modality','providerUserId','roomId'].some(key=>patch[key]!==undefined && String(patch[key]??'')!==String(existing[key]??''))
+    || (patch.addonServiceCodes!==undefined && JSON.stringify(patch.addonServiceCodes)!==JSON.stringify(existing.addonServiceCodes||[]));
+  if(clinicalContextChanged){
+    const {assertAppointmentCanMove}=await import('./appointmentScheduleSync.service.js');
+    await assertAppointmentCanMove(existing);
+  }
+  if(patch.tenantServiceId!==undefined && Number(patch.tenantServiceId)!==Number(existing.tenantServiceId)){
+    const service=await TenantService.findById(patch.tenantServiceId,existing.agencyId);
+    if(!service?.isActive)throw Object.assign(new Error('tenantServiceId not found'),{status:400});
+    const allowed=await StaffServiceAssignment.listServiceIdsForUser(existing.agencyId,patch.providerUserId||existing.providerUserId);
+    if(allowed.length && !allowed.includes(Number(patch.tenantServiceId)))throw Object.assign(new Error('Provider is not assigned to this service'),{status:400});
+    patch.businessType=service.businessType;
+  }
   let moved = false;
 
   if (patch.packageEntitlementId !== undefined && Number(patch.packageEntitlementId || 0) !== Number(existing.packageEntitlementId || 0)) {
@@ -533,6 +546,14 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
       addonServiceCodes: patch.addonServiceCodes ?? existing.addonServiceCodes
     });
   }
+
+  if(clinicalContextChanged && existing.officeEventId){
+    const fields=[],values=[];
+    for(const [key,column] of [['serviceCode','service_code'],['serviceLocationId','service_location_id'],['modality','modality']])if(patch[key]!==undefined){fields.push(`${column} = ?`);values.push(patch[key]);}
+    if(patch.tenantServiceId!==undefined){fields.push("session_context_json = JSON_SET(COALESCE(session_context_json, JSON_OBJECT()), '$.tenantServiceId', ?)");values.push(patch.tenantServiceId);}
+    if(fields.length)await pool.execute(`UPDATE office_events SET ${fields.join(', ')} WHERE id = ? AND EXISTS (SELECT 1 FROM appointments ap WHERE ap.id = ? AND ap.agency_id = ? AND ap.office_event_id = office_events.id)`,[...values,existing.officeEventId,appointmentId,existing.agencyId]);
+  }
+  if(clinicalContextChanged && !moved)await ensureAppointmentClinicalLink(appointmentId,actorUserId);
 
   let settlement = null;
   const nextStatus = updatePatch.status != null

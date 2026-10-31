@@ -346,7 +346,7 @@
       <div v-else-if="tab === 'noteaid'" class="qv-pane">
         <div class="qv-pad" style="padding-bottom:8px;">
           <p class="muted" style="margin:0 0 10px;">
-            Same Note Workspace tools as the full app. Use initials only here — attaching clients is saved for the main app.
+            Use Note Workspace tools here. Open the main app to attach a note to a client’s chart.
           </p>
           <div class="qv-na-row">
             <div class="qv-na-field">

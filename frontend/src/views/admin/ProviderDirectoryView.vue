@@ -9,7 +9,7 @@
         </div>
       </div>
       <div class="header-actions" style="display: flex; gap: 10px; align-items: center;" data-tour="provdir-actions">
-        <button class="btn btn-secondary" type="button" @click="rebuildIndex" :disabled="rebuilding">
+        <button v-if="canAdministerProfiles" class="btn btn-secondary" type="button" @click="rebuildIndex" :disabled="rebuilding">
           {{ rebuilding ? 'Rebuilding…' : 'Rebuild Index' }}
         </button>
         <button class="btn btn-primary" type="button" @click="runSearch" :disabled="loading">
@@ -121,7 +121,7 @@
               <td>{{ u.email }}</td>
               <td>{{ u.role }}</td>
               <td class="right">
-                <router-link class="btn btn-secondary btn-sm" :to="userProfileLink(u.id)">Open</router-link>
+                <router-link v-if="canAdministerProfiles" class="btn btn-secondary btn-sm" :to="userProfileLink(u.id)">Open</router-link>
               </td>
             </tr>
           </tbody>
@@ -129,6 +129,7 @@
       </div>
     </div>
 
+    <template v-if="canAdministerProfiles">
     <div class="card" style="margin-top: 14px;">
       <h3 class="card-title" style="margin: 0 0 10px 0;">Import legacy answers (CSV/XLSX)</h3>
       <div class="muted">Uploads a spreadsheet and writes into canonical profile fields by <code>field_key</code>. You can match rows to users by email or by first/last name (recommended: also include DOB).</div>
@@ -368,6 +369,7 @@
         </div>
       </div>
     </div>
+    </template>
   </div>
 </template>
 
@@ -376,9 +378,12 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import { useAuthStore } from '../../store/auth';
 
 const route = useRoute();
 const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
+const canAdministerProfiles = computed(() => ['admin','super_admin'].includes(String(authStore.user?.role || '').toLowerCase()));
 
 const userAgencies = computed(() => agencyStore.userAgencies || []);
 const agencyId = ref(null);

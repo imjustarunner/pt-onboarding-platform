@@ -84,3 +84,10 @@ it('searches and submits the full 4–6 PM room range and invalidates stale room
  await w.get('[aria-label="Room request end time"]').setValue('20:00');await flushPromises();
  expect(w.find('[aria-label="Available room"]').exists()).toBe(false);w.unmount();
 });
+it('warns before saving virtual hours that overlap school time and allows an explicit acknowledgment',async()=>{
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
+ api.get.mockResolvedValue({data:{...calendar,officeReservations:[],schoolAssignments:[{sourceType:'SCHOOL_ASSIGNMENT',schoolName:'Example School',startAt:'2026-10-12T14:00:00Z',endAt:'2026-10-12T21:00:00Z'}]}});
+ const w=render();await flushPromises();await w.findAll('.day-add')[0].trigger('click');await flushPromises();await button(w,'Open virtual appointments').trigger('click');await flushPromises();
+ await button(w,'Publish virtual opening').trigger('click');expect(confirm).toHaveBeenCalled();expect(api.post).not.toHaveBeenCalled();
+ confirm.mockReturnValue(true);await button(w,'Publish virtual opening').trigger('click');await flushPromises();expect(api.post).toHaveBeenCalledWith(expect.stringContaining('/virtual'),expect.objectContaining({acknowledgeSchoolOverlap:true}),expect.anything());confirm.mockRestore();w.unmount();
+});

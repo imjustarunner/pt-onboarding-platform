@@ -1,11 +1,12 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
+import { requireAccountAdministrator } from '../middleware/supportContentAccess.middleware.js';
 import { previewProviderImport, applyProviderImport, bulkCreateProvidersFromSchoolList, bulkUpdateProviderEmails, importEmployeeInfo, importKvPaste, purgeProviderProfileValues } from '../controllers/providerImport.controller.js';
 
 const router = express.Router();
 
-router.use(authenticate, requireBackofficeAdmin);
+router.use(authenticate, requireBackofficeAdmin, requireAccountAdministrator);
 
 router.post('/preview', previewProviderImport);
 // NOTE: This endpoint is multipart/form-data. Multer runs inside the controller middleware,
