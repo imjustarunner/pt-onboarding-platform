@@ -40,15 +40,28 @@ Best regards,
 {{provider_name}}`;
 export const DEFAULT_FINAL_CONTACT_TEMPLATE = `Hello {{parent_name}},
 
-I'm following up one final time to arrange a brief intake meeting before counseling services at {{school_name}}, where {{service_day}} is the anticipated counseling day. I'd like to learn more about your child's needs and your goals for counseling.
+I hope you're doing well!
 
-Please reply with a few days and times when we could meet virtually. If you're unable to meet, please let me know how we can best connect. We will continue exploring appropriate ways to gather information and support your child while respecting the required consents and permissions.
+I wanted to reach out one final time regarding the opportunity to connect before beginning counseling services with your child at {{school_name}}, with {{service_day}} being our anticipated counseling day.
 
-Thank you for your time.
+While I would welcome the opportunity to speak with you directly, I also understand that coordinating schedules can sometimes be difficult.
+
+If we're unable to arrange an introductory meeting, I'll do my best to gather the necessary information through other appropriate means so we can continue preparing to support your child.
+
+This may include:
+• Reviewing the enrollment information: Using the information you've already provided to better understand your child's background, needs, and any identified concerns or goals.
+• Coordinating with school staff: When an appropriate Release of Information (ROI) is on file and permits communication, connecting with relevant school staff to gather additional information that may help support your child's counseling experience.
+• Connecting directly with your child: As clinically appropriate, discussing their experiences, needs, concerns, and goals during the initial counseling process to help complete the clinical intake and assessment.
+
+If additional information, consent, or documentation is required before services can begin or continue, I'll work with our support team to identify the appropriate next steps.
+
+You're always welcome to connect with me. Your perspective is valuable, and I would be happy to arrange a conversation whenever your schedule allows.
+
+Thank you for the opportunity to support your child. I look forward to working together to make their counseling experience meaningful and beneficial.
 
 Best regards,
 {{provider_name}}`;
-export const DEFAULT_CONTACT_SMS_TEMPLATE = `Hi {{parent_name}}! This is {{provider_name}} with {{agency_name}}. I emailed about counseling at {{school_name}}. Could you reply with a few times for a brief virtual intake meeting? Thank you!`;
+export const DEFAULT_CONTACT_SMS_TEMPLATE = `Hi {{parent_name}}! This is {{provider_name}} with {{agency_name}}. I wanted to follow up on an email I recently sent about scheduling a brief introductory meeting. When you have a moment, please reply to my email with a convenient day and time. Thank you! I look forward to connecting with you.`;
 
 export const preferredSchoolContactTemplate = value => !value || String(value).trim() === LEGACY_INTRO ? DEFAULT_SCHOOL_CONTACT_TEMPLATE : value;
 
