@@ -7,6 +7,9 @@ const make = () => shallowMount(Modal, { props: { agencyId: 2 } });
 beforeEach(() => { vi.clearAllMocks(); mocks.post.mockImplementation(async url => ({ data: url === '/client-exchange/referrals' ? { clientId: 15, taskId: 30 } : { listing: { id: 20 } } })); });
 it('posts a minimal client referral without requiring demographic or clinical pastes', async () => {
   const wrapper = make(); const state = wrapper.vm.$.setupState;
+  const licenseChoices=wrapper.findAll('select').flatMap(select=>select.findAll('option')).filter(option=>['licensed_or_provisional','independent'].includes(option.attributes('value')));
+  expect(licenseChoices.map(option=>option.attributes('value'))).toEqual(['licensed_or_provisional','independent']);
+  expect(licenseChoices[0].text()).toContain('includes provisional licenses');
   Object.assign(state.form, { initials: 'AB', age: '9', gender: 'female', diagnoses: 'F41.1', providerGender: 'female', providerQualification:'independent' });
   await wrapper.find('form').trigger('submit'); await flushPromises();
   expect(mocks.post).toHaveBeenCalledWith('/client-exchange/referrals', expect.objectContaining({ initials: 'AB', age: '9', providerGender: 'female', providerQualification:'independent', requestId: expect.any(String) }));

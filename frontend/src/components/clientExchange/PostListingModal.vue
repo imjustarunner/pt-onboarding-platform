@@ -102,7 +102,7 @@
           <select v-model="providerGender" class="select"><option value="">No preference</option><option value="female">Female / woman</option><option value="male">Male / man</option><option value="nonbinary">Nonbinary</option></select>
         </label>
         <label class="field"><span class="label">Provider license requirement</span>
-          <select v-model="providerQualification" class="select"><option value="">No requirement specified</option><option value="independent">Independently licensed clinician</option><option value="licensed_or_provisional">Licensed or provisionally licensed clinician</option></select>
+          <select v-model="providerQualification" class="select"><option value="">No requirement specified</option><option value="licensed_or_provisional">Licensed clinician (includes provisional licenses)</option><option value="independent">Independently licensed clinician — specifically requested</option></select>
         </label>
         <label v-if="modality !== 'virtual'" class="field"><span class="label">Requested in-person service location</span>
           <select v-model="serviceLocation" class="select"><option value="">Select a location…</option><option v-for="location in exchangeLocations" :key="location">{{ location }}</option></select>

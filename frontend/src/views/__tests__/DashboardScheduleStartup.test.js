@@ -42,10 +42,20 @@ it('lets an ordinary provider view a coworker without mounting schedule editing 
   wrapper = shallowMount(DashboardView, { global: { plugins: [pinia, router], renderStubDefaultSlot: true } });
   await flushPromises();
   const state = wrapper.vm.$.setupState;
-  expect(m.get).toHaveBeenCalledWith('/staff/directory', expect.objectContaining({ params: { agencyId: 2 } }));
+  expect(m.get).toHaveBeenCalledWith('/staff/directory', expect.objectContaining({ params: { agencyId: 2, activeOnly:true } }));
   state.onScheduleModalChangeUser(8); await flushPromises();
   expect(wrapper.find('team-availability-calendar-stub').exists()).toBe(true);
   expect(wrapper.find('schedule-availability-grid-stub').exists()).toBe(false);
   state.clearMyScheduleViewAs(); await flushPromises();
   expect(wrapper.find('schedule-availability-grid-stub').exists()).toBe(true);
+});
+it('uses the active agency staff directory for administrator employee calendar choices too',async()=>{
+  m.get.mockImplementation(async url=>({data:url==='/staff/directory'?{staff:[{id:8,displayName:'Active Employee',workEmail:'staff@example.test'}]}:[]}));
+  const pinia=createPinia();setActivePinia(pinia);useAuthStore().user={id:7,role:'super_admin',status:'ACTIVE_EMPLOYEE'};
+  const agency={id:2,name:'Agency',organization_type:'agency'};useAgencyStore().currentAgency=agency;useAgencyStore().userAgencies=[agency];useAgencyStore().agencies=[agency];
+  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/dashboard',component:DashboardView}]});await router.push('/dashboard?tab=my_schedule');await router.isReady();
+  wrapper=shallowMount(DashboardView,{global:{plugins:[pinia,router],renderStubDefaultSlot:true}});await flushPromises();
+  expect(m.get).toHaveBeenCalledWith('/staff/directory',expect.objectContaining({params:{agencyId:2,activeOnly:true}}));
+  expect(m.get.mock.calls.some(([url])=>url==='/users')).toBe(false);
+  expect(wrapper.vm.$.setupState.employeeSchedulePickerOptions.map(person=>person.id)).toEqual([8]);
 });

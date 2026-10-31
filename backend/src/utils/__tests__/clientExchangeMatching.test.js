@@ -28,7 +28,8 @@ test('independent and provisional qualification requirements distinguish candida
   assert.equal(fit.canRequest,false,credential);assert.equal(fit.checks.find(c=>c.field==='qualification').canWaive,false);
  }
  for(const credential of ['MA, LPC','MSW, LCSW','LMFT'])assert.equal(evaluateExchangeListing({...base,user:{...base.user,credential},listing}).matched,true);
- assert.equal(evaluateExchangeListing({...base,user:{...base.user,credential:'LPCC'},listing:{...listing,preferences:{providerQualification:'licensed_or_provisional'}}}).matched,true);
+ for(const credential of ['LPCC','MSW, LSW'])for(const requirement of ['licensed_or_provisional','licensed'])assert.equal(evaluateExchangeListing({...base,user:{...base.user,credential},listing:{...listing,preferences:{providerQualification:requirement}}}).matched,true);
+ assert.equal(evaluateExchangeListing({...base,user:{...base.user,credential:'BA'},listing:{...listing,preferences:{providerQualification:'licensed'}}}).canRequest,false);
 });
 test('insurance failures stay below eligible providers regardless of preference score',()=>{
  const blocked={matched:false,canRequest:false,matchScore:99},eligible={matched:false,canRequest:true,matchScore:20};

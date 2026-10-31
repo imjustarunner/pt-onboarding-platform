@@ -30,6 +30,7 @@ it('retains an explicit provider license requirement in the client matching reco
  await createExchangeReferral({...args,input:{...args.input,providerQualification:'independent'}});
  const update=mocks.execute.mock.calls.find(([sql])=>sql.startsWith('UPDATE clients SET intake_preferences_json'));
  expect(JSON.parse(update[1][0]).providerQualification).toBe('independent');
+ expect(validateExchangeReferral({...args.input,providerQualification:'licensed'}).providerQualification).toBe('licensed_or_provisional');
  expect(()=>validateExchangeReferral({...args.input,providerQualification:'any text'})).toThrow('license requirement');
 });
 it('reuses the chart on retry without creating another chart, task, or notification', async () => {

@@ -21,7 +21,7 @@
             <select v-model="form.serviceLocation" :required="['in_person', 'either'].includes(form.modality)"><option value="">Select a location…</option><option v-for="location in exchangeLocations" :key="location">{{ location }}</option></select>
           </label>
           <label>Insurance (if known)<input v-model="form.insurance" maxlength="200" placeholder="e.g. Tricare" /></label>
-          <label>Provider license requirement<select v-model="form.providerQualification"><option value="">No requirement specified</option><option value="independent">Independently licensed clinician</option><option value="licensed_or_provisional">Licensed or provisionally licensed clinician</option></select></label>
+          <label>Provider license requirement<select v-model="form.providerQualification"><option value="">No requirement specified</option><option value="licensed_or_provisional">Licensed clinician (includes provisional licenses)</option><option value="independent">Independently licensed clinician — specifically requested</option></select></label>
           <ClientMatchingPreferences v-model="form.matchingPreferences" :max-selections="0" expanded />
           <ClientSchedulePreferences v-model="form.schedule" />
           <details>

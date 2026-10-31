@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { exchangeCheckCanBeWaived, exchangeCheckLabel, exchangeFitScore } from '../../../frontend/src/navigation/clientExchangePolicy.js';
+import { exchangeCheckCanBeWaived, exchangeCheckLabel, exchangeFitScore, normalizeExchangeQualification } from '../../../frontend/src/navigation/clientExchangePolicy.js';
 import { eligibleExchangeProvider } from './clientExchangeProvider.js';
 import { canonicalAge, normalizeClinicalFacets } from './providerFacetNormalization.js';
 import { providerAvailabilityPreferences } from './providerAvailabilityReminders.js';
@@ -82,7 +82,7 @@ export function evaluateExchangeMatch({ user, profile, facets = {}, listing, cli
   check('provider_gender', noGenderPreference || preferredGender === providerGender,
     noGenderPreference ? 'No therapist gender preference specified; any provider gender passes.' : genderKnown ? 'Preferred provider gender matches.' : `Client prefers a ${preferredGender} therapist; provider gender is not recorded or cannot be verified.`,
     `Client prefers a ${preferredGender} therapist; provider lists ${providerGender}.`, noGenderPreference || genderKnown);
-  const qualification=listing.preferences?.providerQualification;
+  const qualification=normalizeExchangeQualification(listing.preferences?.providerQualification);
   if(qualification) {
     const credential=String(user?.credential || profile?.insuranceCredential?.credential || '').trim();
     const independent=/\b(?:LPC|LCSW|LMFT|LMHC|LP|LAC)\b/i.test(credential) || /\blicensed psychologist\b/i.test(user?.title || '');

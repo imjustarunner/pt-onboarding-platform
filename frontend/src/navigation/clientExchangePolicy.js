@@ -19,6 +19,7 @@ export const exchangeCheckCanBeWaived = field => Boolean(labels[field] || ['spec
 
 export function normalizeExchangeQualification(value) {
   if (value == null || value === '') return '';
+  if (value === 'licensed') return 'licensed_or_provisional';
   if (!['independent','licensed_or_provisional'].includes(value)) throw Object.assign(new Error('Choose a valid provider license requirement.'), {status:400});
   return value;
 }
