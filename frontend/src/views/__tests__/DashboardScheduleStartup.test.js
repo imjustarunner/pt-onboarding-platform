@@ -58,4 +58,5 @@ it('uses the active agency staff directory for administrator employee calendar c
   expect(m.get).toHaveBeenCalledWith('/staff/directory',expect.objectContaining({params:{agencyId:2,activeOnly:true}}));
   expect(m.get.mock.calls.some(([url])=>url==='/users')).toBe(false);
   expect(wrapper.vm.$.setupState.employeeSchedulePickerOptions.map(person=>person.id)).toEqual([8]);
+  expect(wrapper.vm.$.setupState.employeesDirectoryRows[0].agencyName).toBe('Agency');
 });

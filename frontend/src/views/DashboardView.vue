@@ -3104,7 +3104,7 @@ const employeesDirectoryRows = computed(() => {
       id: Number(u.id),
       firstName: String(u.first_name || '').trim(),
       lastName: String(u.last_name || '').trim(),
-      agencyName: String(u.agencies || u.agency_name || '').trim() || '—',
+      agencyName: String(u.agencies || u.agency_name || '').trim() || agencyStore.currentAgency?.name || '—',
       label: ''
     }))
     .map((s) => ({ ...s, label: employeeDirectoryLabel(s) }));
