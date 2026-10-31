@@ -12102,8 +12102,8 @@ export const getProfileOverview = async (req, res, next) => {
     const acceptedInsurancesPromise = (async () => {
       if (!agencyId) return [];
       try {
-        const { listProviderAcceptedInsurances } = await import('../services/providerAcceptedInsurance.service.js');
-        return await listProviderAcceptedInsurances({ userId: targetId, agencyId });
+        const { listProviderAcceptedInsurancesForDisplay } = await import('../services/providerAcceptedInsurance.service.js');
+        return await listProviderAcceptedInsurancesForDisplay({ userId: targetId, agencyId });
       } catch {
         return [];
       }

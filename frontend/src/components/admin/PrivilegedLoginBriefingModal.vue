@@ -769,7 +769,7 @@ async function loadBriefing() {
         ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)
       }),
       api.get('/tasks', {
-        params: { ...ticketParams, ...(primaryAgencyId ? { tenantId: primaryAgencyId } : {}) },
+        params: { ...ticketParams, ...(primaryAgencyId ? { tenantId: primaryAgencyId } : {}), view: 'personal' },
         ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)
       }),
       api.get('/support-tickets', {

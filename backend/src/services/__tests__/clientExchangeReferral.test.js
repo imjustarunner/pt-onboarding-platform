@@ -26,6 +26,12 @@ it('creates a provider-owned minimum chart and an unassigned support task in one
   expect(mocks.commit).toHaveBeenCalledOnce();
   expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({ task: expect.objectContaining({ id: 30 }), listId: 20 }));
 });
+it('retains an explicit provider license requirement in the client matching record',async()=>{
+ await createExchangeReferral({...args,input:{...args.input,providerQualification:'independent'}});
+ const update=mocks.execute.mock.calls.find(([sql])=>sql.startsWith('UPDATE clients SET intake_preferences_json'));
+ expect(JSON.parse(update[1][0]).providerQualification).toBe('independent');
+ expect(()=>validateExchangeReferral({...args.input,providerQualification:'any text'})).toThrow('license requirement');
+});
 it('reuses the chart on retry without creating another chart, task, or notification', async () => {
   existing = [{ id: 15 }]; expect(await createExchangeReferral(args)).toEqual({ clientId: 15, reused: true });
   expect(mocks.create).not.toHaveBeenCalled(); expect(mocks.notify).not.toHaveBeenCalled();

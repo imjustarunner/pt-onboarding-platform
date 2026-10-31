@@ -25,7 +25,7 @@ async function load() {
   if (!props.agencyId || !canBrowseTeamSchedules(authStore.user)) { loading.value = false; return; }
   loading.value = true;
   try {
-    const { data } = await api.get('/staff/directory', { params: { agencyId: props.agencyId }, skipGlobalLoading: true });
+    const { data } = await api.get('/staff/directory', { params: { agencyId: props.agencyId, activeOnly: true }, skipGlobalLoading: true });
     if (run !== generation) return;
     people.value = directoryScheduleOptions(data.staff, props.agencyId);
     if (props.modelValue && !options.value.some(p => p.id === props.modelValue)) emit('update:modelValue', 0);

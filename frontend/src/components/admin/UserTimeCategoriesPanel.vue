@@ -6,6 +6,7 @@
         <p class="utcp__hint">
           Configure which additional time-submission cards appear on this provider's dashboard.
           Each enabled category shows as its own card in the <em>Time &amp; attendance</em> section.
+          To add an activity under <strong>Log Time</strong>, use <strong>Log Time duties</strong> above and select an agency activity there.
         </p>
       </div>
     </div>

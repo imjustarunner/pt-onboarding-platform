@@ -21,7 +21,7 @@ it('shows per-parameter counts with the names of every passing provider',async()
   mocks.get.mockResolvedValue({data:auditFixture()});const wrapper=mount(ClientExchangeAuditPanel,{props:{listingId:9}});await flushPromises();
   const count=wrapper.find('button[aria-label="Client age: 1 pass"]');expect(count.exists()).toBe(true);await count.trigger('click');
   expect(count.element.parentElement.textContent).toContain('Provider Two');expect(count.element.parentElement.textContent).not.toContain('Provider One');
-  const insurance=wrapper.find('button[aria-label="Insurance acceptance: 2 pass"]');await insurance.trigger('click');
+  const insurance=wrapper.find('button[aria-label="Insurance: 2 pass"]');await insurance.trigger('click');
   expect(insurance.element.parentElement.textContent).toContain('Provider One');expect(insurance.element.parentElement.textContent).toContain('Provider Two');
 });
 it('saves a scoped waiver with a required reason and refreshes the audit',async()=>{

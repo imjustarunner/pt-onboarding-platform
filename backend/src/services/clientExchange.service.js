@@ -1,5 +1,5 @@
 import { loadExchangeWaivers } from './clientExchangeWaivers.service.js';
-import { exchangeStaffRole } from '../../../frontend/src/navigation/clientExchangePolicy.js';
+import { exchangeStaffRole, normalizeExchangeQualification } from '../../../frontend/src/navigation/clientExchangePolicy.js';
 import Agency from '../models/Agency.model.js';
 import { eligibleExchangeProvider, exchangeProviderSql } from '../utils/clientExchangeProvider.js';
 import { loadExchangeProvider, loadExchangeOpenings, evaluateCurrentExchangeFit, exchangeProviderAudit, exchangeListingForEvaluation } from './clientExchangeEligibility.service.js';
@@ -312,6 +312,7 @@ export async function createListing({
     if (Number(targetProviderUserId) === Number(client.provider_id)) throw Object.assign(new Error('Select a different provider'), { status: 400 });
   }
   preferences = safeJson(preferences);
+  if (preferences?.providerQualification != null) preferences = {...preferences,providerQualification:normalizeExchangeQualification(preferences.providerQualification)};
   if (preferences?.schedule != null) preferences = { ...preferences, schedule: normalizeExchangeSchedule(preferences.schedule) };
   if (preferences?.matchingPreferences != null) preferences = { ...preferences, matchingPreferences: validateMatchingPreferences(preferences.matchingPreferences,{maxSelections:0}) };
   const savedSummary = await loadClientExchangeSummary({ client });

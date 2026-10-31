@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { ACTIVE_EMPLOYEE_SQL } from '../utils/staffEligibility.js';
 import { createNotificationAndDispatch } from './notificationDispatcher.service.js';
 
 const DEFAULT_BIRTHDAY_TEMPLATE = 'Happy Birthday, {fullName}';
@@ -91,7 +92,7 @@ const getEnabledAgencyRows = async () => {
   return rows || [];
 };
 
-const ACTIVE_EMPLOYEE_CLAUSE = `(u.status = 'ACTIVE_EMPLOYEE' OR LOWER(u.status) = 'active' OR LOWER(u.status) = 'active_employee')`;
+const ACTIVE_EMPLOYEE_CLAUSE = ACTIVE_EMPLOYEE_SQL;
 
 /** Shared month-day match for "all day today" celebrations (server CURDATE()). */
 const TODAY_MMDD_CLAUSE = `SUBSTRING(uiv.value, 6, 5) = DATE_FORMAT(CURDATE(), '%m-%d')`;

@@ -134,7 +134,8 @@ export const getStaffDirectory = async (req, res, next) => {
       u.work_email,u.work_phone,u.work_phone_extension,u.work_location,u.profile_photo_path
       FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1
       WHERE COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND (COALESCE(u.is_demo,0)=0 OR ?=1)
-      AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE','ACTIVE_EMPLOYEE','ONBOARDING')
+      AND COALESCE(u.created_via_dev_fill,0)=0
+      AND UPPER(COALESCE(u.status,'')) IN (${req.query.activeOnly === 'true' ? "'ACTIVE','ACTIVE_EMPLOYEE','COMPLETED'" : "'ACTIVE','ACTIVE_EMPLOYEE','COMPLETED','ONBOARDING'"})
       AND u.role IN (${roles.map(() => '?').join(',')}) ORDER BY u.last_name,u.first_name`, [agencyId,isAuricwellQaAgency(agency) ? 1 : 0,...roles]);
     const [locations] = await pool.execute(`SELECT ul.user_id,l.name,ul.is_primary FROM user_office_locations ul
       JOIN office_locations l ON l.id=ul.office_location_id AND l.is_active=1

@@ -3033,7 +3033,8 @@ const headerAcceptedInsurances = computed(() => {
 });
 const fmtHeaderDate = (raw) => {
   if (!raw) return '—';
-  const d = new Date(raw);
+  const ymd = String(raw).match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+  const d = new Date(ymd ? `${ymd}T12:00:00` : raw);
   if (Number.isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };

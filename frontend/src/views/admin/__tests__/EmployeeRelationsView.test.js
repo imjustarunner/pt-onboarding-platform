@@ -42,4 +42,11 @@ describe('Year Awards',()=>{
  it('filters dinner follow-up and shows accurate empty results',async()=>{
   await open();await button('Two-year dinner follow-up').trigger('click');expect(wrapper.findAll('tbody tr')).toHaveLength(1);expect(findRow('Drew')).toBeDefined();await wrapper.get('[aria-label="Search awards"]').setValue('nobody');expect(wrapper.get('tbody').text()).toContain('No awards match these filters.');
  });
+ it('compares an anniversary date range without hiding or completing older award history',async()=>{
+  await open();const dates=wrapper.findAll('.er-controls input[type="date"]');
+  await dates[0].setValue('2026-10-01');await dates[1].setValue('2026-10-31');
+  expect(wrapper.findAll('tbody tr')).toHaveLength(1);expect(wrapper.get('tbody').text()).toContain('Alex');
+  expect(api.patch).not.toHaveBeenCalled();await button('All eligibility dates').trigger('click');
+  expect(wrapper.findAll('tbody tr').length).toBeGreaterThan(1);
+ });
 });

@@ -1,5 +1,6 @@
 import { fictionalSchool, fictionalDemoGet } from './fictionalSchoolDemo.service.js';
 import { queueSchoolOnboardingWelcome } from './schoolOnboardingWelcome.service.js';
+import { deliverOnboardingEmail } from './schoolOnboardingReminder.service.js';
 import crypto from 'crypto';
 import pool from '../config/database.js';
 import config from '../config/config.js';
@@ -644,21 +645,25 @@ export async function sendInviteEmail(invite, { agency, invitedByName } = {}) {
   }
 
   try {
-    const identity = await resolvePreferredSenderIdentityForAgency({
+    const delivery = await deliverOnboardingEmail({invite,send:async()=>{
+      const identity = await resolvePreferredSenderIdentityForAgency({
       agencyId: invite.agency_id,
-      preferredKeys: ['system', 'default', 'notifications', 'login_recovery']
+      preferredKeys: ['school_onboarding', 'system', 'default', 'notifications', 'login_recovery']
     });
     if (identity?.id) {
-      await sendEmailFromIdentity({
+      return sendEmailFromIdentity({
         senderIdentityId: identity.id,
         to,
         subject,
         text: body,
         html: null,
-        source: 'auto'
+        source: 'auto',
+        agencyId: invite.agency_id,
+        userId: invite.primary_user_id,
+        templateType: 'school_onboarding_invite'
       });
     } else {
-      await EmailService.sendEmail({
+      return EmailService.sendEmail({
         to,
         subject,
         text: body,
@@ -667,13 +672,13 @@ export async function sendInviteEmail(invite, { agency, invitedByName } = {}) {
         fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
         replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
         source: 'auto',
-        agencyId: invite.agency_id
+        agencyId: invite.agency_id,
+        userId: invite.primary_user_id,
+        templateType: 'school_onboarding_invite'
       });
     }
-    if (invite?.id) {
-      await SchoolOnboardingInvite.update(invite.id, { inviteEmailSentAt: new Date() });
-    }
-    return { sent: true, link };
+    }});
+    return { ...delivery, link };
   } catch (e) {
     console.error('[schoolOnboarding] email send failed:', e);
     return { sent: false, reason: e?.message || 'send_failed', link };
@@ -1099,6 +1104,16 @@ function buildInviteActivity(invite, progress, payload) {
     `${invite?.invited_by_first_name || ''} ${invite?.invited_by_last_name || ''}`.trim() || null;
   add(invite?.created_at, 'Invite created', invitedBy ? `By ${invitedBy}` : null);
   add(invite?.invite_email_sent_at, 'Invite email sent', invite?.contact_email || null);
+  const deliveryHistory = invite?.email_delivery_history || [];
+  if (deliveryHistory.some(d=>d.kind==='invite' && d.delivery_status==='sent')) {
+    const index=events.findIndex(e=>e.label==='Invite email sent');
+    if(index>=0)events.splice(index,1);
+  }
+  for(const delivery of deliveryHistory) {
+    const label=delivery.kind==='reminder'?'Onboarding reminder email':'Invite email';
+    const state={sent:'sent',queued:'queued',sending:'sending',failed:'not sent',review:'needs delivery review',redirected:'redirected to test recipient'}[delivery.delivery_status] || 'needs delivery review';
+    add(delivery.sent_at || delivery.created_at,`${label} ${state}`,delivery.recipient);
+  }
 
   const started = hasRecipientStartedOnboarding(invite, progress);
   if (invite?.last_viewed_at) {
@@ -1254,6 +1269,8 @@ export function serializeInvite(invite, { admin = false, publicView = false } = 
       agencyName: invite.agency_name || null,
       materialsRequest: summarizeWelcomeMaterials(payload),
       activity: buildInviteActivity(invite, progress, payload),
+      reminderPolicy: 'One reminder is emailed to the school contact 10 days after a recorded invitation email if onboarding is still incomplete.',
+      reminderPendingOriginalEmail: !invite.invite_email_sent_at,
       // Full submission details for admin receipt / review (not just materials)
       stepPayload: payload && typeof payload === 'object' ? payload : {}
     };

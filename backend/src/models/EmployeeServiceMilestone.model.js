@@ -1,14 +1,15 @@
 import pool from '../config/database.js';
+import { ACTIVE_EMPLOYEE_SQL, EMPLOYEE_ROSTER_SQL } from '../utils/staffEligibility.js';
 import { AWARD_YEARS, DEFAULT_GIFTS, COMPLETED_AWARD_STATUSES, anniversary, awardStatus, agencyToday, dateOnly, awardError, dinnerInput, serviceDates } from '../utils/employeeAwards.js';
 
-const ACTIVE = `COALESCE(u.is_archived, 0) = 0 AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE_EMPLOYEE','ACTIVE','COMPLETED') AND COALESCE(ua.is_active,1) = 1`;
-const STAFF = `LOWER(u.role) IN ('provider','provider_plus','intern','intern_plus','admin','super_admin','support','staff','supervisor','clinical_practice_assistant','facilitator','tutor','clinician')`;
+const ACTIVE = ACTIVE_EMPLOYEE_SQL;
+const STAFF = EMPLOYEE_ROSTER_SQL;
 
 const DATE_FIELDS = `u.provider_start_date,
   (SELECT v.value FROM user_info_values v JOIN user_info_field_definitions f ON f.id=v.field_definition_id
-    WHERE v.user_id=u.id AND f.field_key='start_date' ORDER BY (f.agency_id IS NULL) DESC,v.updated_at DESC LIMIT 1) lifecycle_start_date,
+    WHERE v.user_id=u.id AND f.field_key='start_date' AND (f.agency_id IS NULL OR f.agency_id=ua.agency_id) ORDER BY (f.agency_id IS NULL) DESC,v.updated_at DESC LIMIT 1) lifecycle_start_date,
   (SELECT v.value FROM user_info_values v JOIN user_info_field_definitions f ON f.id=v.field_definition_id
-    WHERE v.user_id=u.id AND f.field_key='first_client_date' ORDER BY (f.agency_id IS NULL) DESC,v.updated_at DESC LIMIT 1) first_client_date`;
+    WHERE v.user_id=u.id AND f.field_key='first_client_date' AND (f.agency_id IS NULL OR f.agency_id=ua.agency_id) ORDER BY (f.agency_id IS NULL) DESC,v.updated_at DESC LIMIT 1) first_client_date`;
 
 async function transaction(work) {
   const db = await pool.getConnection();
@@ -44,8 +45,9 @@ class EmployeeServiceMilestone {
       (SELECT note FROM employee_award_notes n WHERE n.milestone_id=m.id ORDER BY n.id DESC LIMIT 1) latest_note,
       EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=m.agency_id AND ${ACTIVE}) AS active_employee
       FROM employee_service_milestones m JOIN users u ON u.id=m.user_id
+      JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=m.agency_id
       LEFT JOIN users a ON a.id=m.assigned_to_user_id
-      WHERE m.agency_id=? ORDER BY m.milestone_date,u.last_name,u.first_name`, [agencyId]);
+      WHERE m.agency_id=? AND ${STAFF} ORDER BY m.milestone_date,u.last_name,u.first_name`, [agencyId]);
     const today = await this.today(agencyId);
     return rows.map(row => ({ ...row, ...serviceDates(row), status: awardStatus(row, today) })).filter(row => !status || row.status === status);
   }

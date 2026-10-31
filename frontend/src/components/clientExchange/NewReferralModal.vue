@@ -21,6 +21,7 @@
             <select v-model="form.serviceLocation" :required="['in_person', 'either'].includes(form.modality)"><option value="">Select a location…</option><option v-for="location in exchangeLocations" :key="location">{{ location }}</option></select>
           </label>
           <label>Insurance (if known)<input v-model="form.insurance" maxlength="200" placeholder="e.g. Tricare" /></label>
+          <label>Provider license requirement<select v-model="form.providerQualification"><option value="">No requirement specified</option><option value="independent">Independently licensed clinician</option><option value="licensed_or_provisional">Licensed or provisionally licensed clinician</option></select></label>
           <ClientMatchingPreferences v-model="form.matchingPreferences" :max-selections="0" expanded />
           <ClientSchedulePreferences v-model="form.schedule" />
           <details>
@@ -53,7 +54,7 @@ import ClientEhrBringUpToDatePanel from '../admin/clientChart/ClientEhrBringUpTo
 import { normalizeExchangeSchedule } from '../../utils/clientExchangeSchedule.js';
 const props = defineProps({ agencyId: { type: Number, required: true } });
 const emit = defineEmits(['close', 'posted']);
-const form = reactive({ initials: '', age: '', gender: '', fullName: '', ehrReference: '', diagnoses: '', presentingProblem: '', providerGender: '', modality: '', serviceLocation: '', insurance: '', matchingPreferences: {}, schedule: {} });
+const form = reactive({ initials: '', age: '', gender: '', fullName: '', ehrReference: '', diagnoses: '', presentingProblem: '', providerGender: '', providerQualification: '', modality: '', serviceLocation: '', insurance: '', matchingPreferences: {}, schedule: {} });
 const records = reactive({ demographics: '', intake: '', plan: '' });
 const requestId = crypto.randomUUID();
 const clientId = ref(null);

@@ -28,6 +28,8 @@ const legacyInvite = (overrides = {}) => ({
 
 beforeEach(() => {
   vi.resetAllMocks();
+  execute.mockResolvedValue([{affectedRows:1,insertId:50}]);
+  sendEmail.mockResolvedValue({id:'confirmed-gmail-receipt'});
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2126-09-29T00:00:00Z'));
 });
@@ -72,6 +74,17 @@ test('public access to a revoked link is still blocked', async () => {
   execute.mockResolvedValue([[legacyInvite({ status: 'revoked' })]]);
   await expect(getPublicInvite('original-school-link')).rejects.toMatchObject({ status: 403, code: 'revoked' });
   expect(execute).toHaveBeenCalledTimes(1);
+});
+test('the admin timeline distinguishes actual reminder delivery from queued or uncertain attempts',()=>{
+ const invite=legacyInvite({email_delivery_history:[
+  {kind:'reminder',delivery_status:'sent',sent_at:'2026-10-11T16:00:00Z',recipient:'contact@example.test'},
+  {kind:'invite',delivery_status:'queued',created_at:'2026-10-01T16:00:00Z',recipient:'contact@example.test'}
+ ]});
+ const result=serializeInvite(invite,{admin:true});
+ expect(result.activity.map(e=>e.label)).toContain('Onboarding reminder email sent');
+ expect(result.activity.map(e=>e.label)).toContain('Invite email queued');
+ expect(result.activity.map(e=>e.label)).not.toContain('Invite email sent');
+ expect(result.reminderPendingOriginalEmail).toBe(true);
 });
 
 test('new invites persist no expiration even if an old caller provides one', async () => {

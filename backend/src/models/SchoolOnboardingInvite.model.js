@@ -21,6 +21,15 @@ function parseJson(value, fallback) {
 }
 
 export default class SchoolOnboardingInvite {
+  static async withEmailHistory(rows) {
+    if (!rows?.length) return [];
+    let history=[];
+    try {
+      [history]=await pool.execute(`SELECT invite_id,kind,recipient,delivery_status,sent_at,created_at
+        FROM school_onboarding_email_deliveries WHERE invite_id IN (${rows.map(()=>'?').join(',')}) ORDER BY id`,rows.map(row=>row.id));
+    } catch(error) { if(error.code!=='ER_NO_SUCH_TABLE')throw error; }
+    return rows.map(row=>this.normalizeRow({...row,email_delivery_history:(history || []).filter(event=>Number(event.invite_id)===Number(row.id))}));
+  }
   static defaultStepProgress() {
     return { ...DEFAULT_STEP_PROGRESS };
   }
@@ -101,7 +110,7 @@ export default class SchoolOnboardingInvite {
        LIMIT 1`,
       [id]
     );
-    return this.normalizeRow(rows[0] || null);
+    return (await this.withEmailHistory(rows))[0] || null;
   }
 
   static async findByToken(token) {
@@ -147,7 +156,7 @@ export default class SchoolOnboardingInvite {
        ORDER BY i.created_at DESC`,
       [agencyId]
     );
-    return (rows || []).map((r) => this.normalizeRow(r));
+    return this.withEmailHistory(rows);
   }
 
   /**

@@ -9,6 +9,7 @@
       </div>
     </header>
     <p class="er-help">Each agency tracks its own gifts. Eligibility uses the earlier of the app’s start date and first-client date. Both dates stay separate. Missing dates need review; highlights here mean eligible with no gift completion recorded.</p>
+    <p class="er-help">The full tracker includes older awards until completion is recorded. Use the eligibility dates below to compare a specific anniversary email or dinner group.</p>
     <p v-if="message" class="er-success" role="status">{{ message }}</p>
     <p v-if="error" class="er-error" role="alert">{{ error }}</p>
     <details class="er-settings">
@@ -33,6 +34,9 @@
       <select v-model="statusFilter" aria-label="Award status"><option value="">All statuses</option><option value="owed">Eligible · gift owed</option><option value="upcoming">Upcoming</option><option value="gift_sent">Gift sent / dinner attended</option><option value="acknowledged">Acknowledged</option><option value="invited">Dinner invited</option></select>
       <select v-model="yearsFilter" aria-label="Milestone year"><option value="">All years</option><option v-for="gift in definitions" :key="gift.milestone_years" :value="String(gift.milestone_years)">{{ gift.milestone_years }} years</option></select>
       <label class="er-check"><input v-model="includeInactive" type="checkbox" /> Include former employees</label>
+      <label>Eligible from <input v-model="eligibleFrom" type="date" /></label>
+      <label>Eligible through <input v-model="eligibleThrough" type="date" :min="eligibleFrom || undefined" /></label>
+      <button v-if="eligibleFrom || eligibleThrough" @click="eligibleFrom='';eligibleThrough=''">All eligibility dates</button>
       <button @click="showDinnerOwed">Two-year dinner follow-up</button>
     </div>
     <div class="er-stats" aria-label="Awards in this view">
@@ -139,6 +143,7 @@ const selectedAgencyId = ref(String(route.query.agencyId || agencyStore.currentA
 const milestones = ref([]), definitions = ref([]), giftDrafts = ref([]), dinners = ref([]), missingDates = ref([]);
 const loading = ref(false), busy = ref(false), message = ref(''), error = ref(''), today = ref('');
 const q = ref(''), statusFilter = ref(route.query.status || ''), yearsFilter = ref(''), includeInactive = ref(false);
+const eligibleFrom=ref(''),eligibleThrough=ref('');
 const selectedIds = ref([]), sortKey = ref('milestone_date'), sortAsc = ref(true);
 const activeAward = ref(null), awardDraft = ref({}), notes = ref([]), noteDraft = ref(''), notesLoading = ref(false), awardDialog = ref(null);
 const dinnerOpen = ref(false), dinnerDraft = ref({ title: 'Two-year dinner', scheduledOn: '', scheduledTime: '', location: '', notes: '' });
@@ -164,6 +169,8 @@ const columns = [{key:'name',label:'Employee'},{key:'start_date',label:'Start da
 const filtered = computed(() => {
   const search = q.value.trim().toLowerCase();
   return milestones.value.filter(row => (includeInactive.value || row.active_employee)
+    && (!eligibleFrom.value || row.milestone_date?.slice(0,10)>=eligibleFrom.value)
+    && (!eligibleThrough.value || row.milestone_date?.slice(0,10)<=eligibleThrough.value)
     && (!yearsFilter.value || String(row.milestone_years) === yearsFilter.value)
     && (!statusFilter.value || (statusFilter.value === 'invited' ? invitation(row)?.attendance === 'invited' : row.status === statusFilter.value))
     && (!search || [fullName(row),row.work_email,row.email,row.gift_notes,row.latest_note,awardName(row.milestone_years)].filter(Boolean).join(' ').toLowerCase().includes(search)))

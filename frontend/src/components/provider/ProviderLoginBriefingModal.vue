@@ -602,7 +602,7 @@ async function loadBriefing() {
       payrollSummary,
       tierData
     ] = await Promise.all([
-      safeRequest(api.get('/tasks', { params: agencyId ? { agencyId } : {}, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), []),
+      safeRequest(api.get('/tasks', { params: { ...(agencyId ? { agencyId, tenantId: agencyId } : {}), view: 'personal' }, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), []),
       safeRequest(getScheduleSummaryResponse(`/users/${userId.value}/schedule-summary`, { params: scheduleParams, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), {}),
       safeRequest(api.get('/me/notes-to-sign/count', apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)), { count: 0 }),
       safeRequest(api.get('/support-tickets/mine', apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)), []),

@@ -279,7 +279,13 @@ class Task {
     let q = query;
     const p = params;
 
-    if (view === 'assigned' && userId) {
+    if (view === 'personal' && userId) {
+      q += ` AND (t.assigned_to_user_id = ?
+        OR EXISTS (SELECT 1 FROM task_collaborators tc WHERE tc.task_id=t.id AND tc.user_id=?)
+        OR (t.assigned_to_user_id IS NULL AND t.assigned_to_role IS NOT NULL
+          AND t.assigned_to_role=(SELECT role FROM users WHERE id=?)))`;
+      p.push(userId,userId,userId);
+    } else if (view === 'assigned' && userId) {
       q += ' AND t.assigned_to_user_id = ?';
       p.push(userId);
     } else if (view === 'mine' && userId) {

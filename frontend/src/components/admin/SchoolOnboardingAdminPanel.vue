@@ -415,6 +415,8 @@
 
               <section class="so-receipt__block">
                 <h4>Activity timeline</h4>
+                <p class="muted tiny">{{ selectedInvite.reminderPolicy }}</p>
+                <p v-if="selectedInvite.reminderPendingOriginalEmail" class="muted tiny">No original invitation email is recorded. Send the invitation to start the 10-day reminder timer.</p>
                 <p v-if="!selectedInvite.activity?.length" class="muted tiny">
                   No activity yet — the contact has not opened the link or saved any steps.
                 </p>

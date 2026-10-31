@@ -2340,6 +2340,15 @@ if (!isBootstrap) {
   scheduleIncompleteOnboardingDigests();
   setInterval(scheduleIncompleteOnboardingDigests, 5 * 60 * 1000);
 
+  const scheduleSchoolOnboardingReminders = async () => {
+    try {
+      const {runSchoolOnboardingReminders}=await import('./services/schoolOnboardingReminder.service.js');
+      await runSchoolOnboardingReminders();
+    } catch(error) { console.warn('[school-onboarding-reminders]',error.code || 'worker_failed'); }
+  };
+  scheduleSchoolOnboardingReminders();
+  setInterval(scheduleSchoolOnboardingReminders,60 * 60 * 1000).unref();
+
   // Daily digest emails (runs every 15 minutes; respects per-user time + opt-in)
   const scheduleDailyDigest = async () => {
     try {

@@ -2581,13 +2581,8 @@ const fetchUsersForEmployeeSchedulePicker = async () => {
   if (!agencyId) { employeeSchedulePickerLoading.value = false; return; }
   try {
     employeeSchedulePickerLoading.value = true;
-    if (canPickEmployeeSchedule.value) {
-      const resp = await api.get('/users', { params: { _t: Date.now() }, skipGlobalLoading: true });
-      if (run === schedulePickerRequest) employeeSchedulePickerUsersRaw.value = Array.isArray(resp.data) ? resp.data : [];
-    } else {
-      const { data } = await api.get('/staff/directory', { params: { agencyId }, skipGlobalLoading: true });
-      if (run === schedulePickerRequest) employeeSchedulePickerUsersRaw.value = directoryScheduleOptions(data.staff, agencyId);
-    }
+    const { data } = await api.get('/staff/directory', { params: { agencyId, activeOnly: true }, skipGlobalLoading: true });
+    if (run === schedulePickerRequest) employeeSchedulePickerUsersRaw.value = directoryScheduleOptions(data.staff, agencyId);
   } catch {
     if (run === schedulePickerRequest) employeeSchedulePickerUsersRaw.value = [];
   } finally {

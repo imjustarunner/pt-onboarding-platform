@@ -77,6 +77,6 @@ export async function loadClientExchangeSummary({ client, agencyId = client.agen
     demographics: { ...(age == null ? (referral.age == null ? {} : { ageBand: String(referral.age) }) : { ageBand: String(age) }), ...(client.gender ? { gender: client.gender } : {}) },
     diagnoses: summaryItems(diagnoses.length ? diagnoses : billing.length ? billing : referral.diagnoses),
     ...problem,
-    preferences: { insurance: exchangeInsuranceLabel(client.insurance_type_label, intake.insurance), matchingPreferences: intake.matchingPreferences || null, modality: intake.preferredModality ? String(intake.preferredModality).toLowerCase() : null, serviceLocation: intake.serviceLocation || intake.preferred_service_location || referral.serviceLocation || null, schedule: scheduleFromIntake(intake, client.timezone), providerGender: intake.preferredProviderGender || null }
+    preferences: { insurance: exchangeInsuranceLabel(client.insurance_type_label, intake.insurance), matchingPreferences: intake.matchingPreferences || null, modality: intake.preferredModality ? String(intake.preferredModality).toLowerCase() : null, serviceLocation: intake.serviceLocation || intake.preferred_service_location || referral.serviceLocation || null, schedule: scheduleFromIntake(intake, client.timezone), providerGender: intake.preferredProviderGender || null, providerQualification: intake.providerQualification || referral.providerQualification || null }
   };
 }

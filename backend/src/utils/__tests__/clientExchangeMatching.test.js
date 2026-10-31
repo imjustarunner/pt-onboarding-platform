@@ -1,12 +1,48 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateExchangeListing, exchangeSlotMatches, matchesExchangeListing, ageRange, clientAge } from '../clientExchangeMatching.js';
+import { compareExchangeFit, exchangeFitScore, groupedExchangeParameters } from '../../../../frontend/src/navigation/clientExchangePolicy.js';
 const base = {
   user: { sees_clients: 1, provider_accepting_new_clients: 1, in_office_available: 1 },
   profile: { details: {}, insurances: ['Aetna'] },
   facets: { ageGroups: ['Children (6-10)'], specialties: ['Anxiety'] },
   listing: { demographics: { ageBand: '8-10' }, presentingProblems: ['anxiety'], preferences: { modality: 'in_person' } }
 };
+test('missing optional referral details do not reduce fit or block an otherwise eligible provider',()=>{
+ const fit=evaluateExchangeListing({...base,listing:{preferences:{},demographics:{},presentingProblems:[]}});
+ assert.equal(fit.matched,true);
+ assert.equal(fit.checks.find(c=>c.field==='diagnoses').applicable,false);
+ assert.equal(fit.checks.find(c=>c.field==='schedule').applicable,false);
+ assert.equal(fit.matchScore,null);
+});
+test('requested availability must be verified before advertising or assigning a match',()=>{
+ const listing={...base.listing,preferences:{schedule:{days:['Tuesday']}}};
+ const fit=evaluateExchangeListing({...base,listing});
+ assert.equal(fit.canRequest,true);assert.equal(fit.matched,false);assert.equal(fit.canNotify,false);assert.equal(fit.canAssign,false);
+ assert.ok(fit.assignmentBlockers.some(c=>c.code==='schedule'));
+});
+test('independent and provisional qualification requirements distinguish candidates and bachelor-level providers',()=>{
+ const listing={...base.listing,preferences:{providerQualification:'independent'}};
+ for(const credential of ['BA','LPCC','MSW, LSW','PhD','']){
+  const fit=evaluateExchangeListing({...base,user:{...base.user,credential},listing});
+  assert.equal(fit.canRequest,false,credential);assert.equal(fit.checks.find(c=>c.field==='qualification').canWaive,false);
+ }
+ for(const credential of ['MA, LPC','MSW, LCSW','LMFT'])assert.equal(evaluateExchangeListing({...base,user:{...base.user,credential},listing}).matched,true);
+ assert.equal(evaluateExchangeListing({...base,user:{...base.user,credential:'LPCC'},listing:{...listing,preferences:{providerQualification:'licensed_or_provisional'}}}).matched,true);
+});
+test('insurance failures stay below eligible providers regardless of preference score',()=>{
+ const blocked={matched:false,canRequest:false,matchScore:99},eligible={matched:false,canRequest:true,matchScore:20};
+ assert.ok(compareExchangeFit(eligible,blocked)<0);
+ const score=checks=>exchangeFitScore(checks).matchScore;
+ assert.ok(score([{field:'schedule',status:'pass'},{field:'modalities',status:'fail'}])>score([{field:'schedule',status:'fail'},{field:'modalities',status:'pass'}]));
+ assert.equal(score([{field:'insurance',status:'pass'},{field:'diagnoses',status:'unknown',applicable:false}]),100);
+});
+test('the condensed parameter view preserves exclusions and distinguishes missing referral details',()=>{
+ const rows=groupedExchangeParameters([{userId:1,name:'Example',checks:[{field:'account',status:'pass'},{field:'insurance',status:'pass'},{field:'insurance_exclusions',status:'fail'},{field:'diagnoses',status:'unknown',applicable:false}]}]);
+ assert.equal(rows.some(r=>r.field==='eligibility'),false);
+ assert.deepEqual(rows.find(r=>r.field==='insurance').fail.map(p=>p.userId),[1]);
+ assert.deepEqual(rows.find(r=>r.field==='diagnoses').unspecified.map(p=>p.userId),[1]);
+});
 test('no therapist gender preference passes for every provider gender, including unrecorded', () => {
   for (const gender of ['male', 'female', 'nonbinary', null]) for (const preference of [null, '', 'No preference', 'any']) {
     const fit = evaluateExchangeListing({ ...base, profile: { ...base.profile, details: { gender } }, listing: { ...base.listing, preferences: { providerGender: preference } } });
@@ -100,7 +136,8 @@ test('honors an explicitly requested provider gender', () => {
   const listing = { ...base.listing, preferences: { ...base.listing.preferences, providerGender: 'female' } };
   assert.equal(matchesExchangeListing({ ...base, listing, profile: { ...base.profile, details: { gender: 'Woman (she/her)' } } }), true);
   assert.equal(matchesExchangeListing({ ...base, listing, profile: { ...base.profile, details: { gender: 'male' } } }), false);
-  assert.equal(matchesExchangeListing({ ...base, listing }), true);
+  assert.equal(matchesExchangeListing({ ...base, listing }), false);
+  assert.equal(evaluateExchangeListing({...base,listing}).canRequest,true);
 });
 
 test('unknown age and gender allow review, but specified coverage must be verified', () => {
@@ -150,7 +187,9 @@ test('commercial category is unverified coverage, not a literal payer mismatch; 
   const {evaluateExchangeMatch}=await import('../clientExchangeMatching.js');
   const input={user:{sees_clients:1,provider_accepting_new_clients:1},profile:{details:{virtualEnabled:true},insurances:['Aetna'],insuranceCredential:{credential:'LPC'}},listing:{preferences:{modality:'virtual',insurance:'Commercial / Other'}}};
   const result=evaluateExchangeMatch(input);
-  assert.equal(result.matched,true);
+  assert.equal(result.matched,false);
+  assert.equal(result.canRequest,true);
+  assert.equal(result.canAssign,false);
   assert.equal(result.checks.find(c=>c.field==='insurance').status,'unknown');
   assert.equal(evaluateExchangeMatch({...input,profile:{...input.profile,insuranceCredential:{credential:'BA'}}}).matched,false);
   assert.equal(evaluateExchangeMatch({...input,listing:{preferences:{modality:'virtual',insurance:'Cigna'}}}).matched,false);

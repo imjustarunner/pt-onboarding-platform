@@ -19,6 +19,7 @@
     <section v-if="fitGroups.length" class="summary-section"><strong>Provider fit preferences</strong><p v-for="group in fitGroups" :key="group.key">{{group.label}}: {{group.values.join('; ')}}</p></section>
     <p v-if="suggestedSpecialties.length">Clinical matching topics: {{suggestedSpecialties.join('; ')}}. Matched from the recorded concerns and diagnoses.</p>
     <p v-if="listing.preferences?.providerGender">Preferred provider gender: {{ listing.preferences.providerGender }}</p>
+    <p v-if="listing.preferences?.providerQualification">Provider license requirement: {{ listing.preferences.providerQualification === 'independent' ? 'Independently licensed clinician' : 'Licensed or provisionally licensed clinician' }}</p>
     <section v-if="scheduleLines.length">
       <strong>When the client needs a provider</strong>
       <ul><li v-for="line in scheduleLines" :key="line">{{ line }}</li></ul>

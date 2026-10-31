@@ -101,6 +101,9 @@
         <label class="field"><span class="label">Preferred provider gender</span>
           <select v-model="providerGender" class="select"><option value="">No preference</option><option value="female">Female / woman</option><option value="male">Male / man</option><option value="nonbinary">Nonbinary</option></select>
         </label>
+        <label class="field"><span class="label">Provider license requirement</span>
+          <select v-model="providerQualification" class="select"><option value="">No requirement specified</option><option value="independent">Independently licensed clinician</option><option value="licensed_or_provisional">Licensed or provisionally licensed clinician</option></select>
+        </label>
         <label v-if="modality !== 'virtual'" class="field"><span class="label">Requested in-person service location</span>
           <select v-model="serviceLocation" class="select"><option value="">Select a location…</option><option v-for="location in exchangeLocations" :key="location">{{ location }}</option></select>
         </label>
@@ -161,6 +164,7 @@ const presentingProblemsRaw = ref('');
 const modality = ref('');
 const serviceLocation = ref('');
 const providerGender = ref('');
+const providerQualification = ref('');
 const insurance = ref('');
 const schedule = ref({});
 const matchingPreferences = ref({});
@@ -177,7 +181,7 @@ watch(selectedClientId, async clientId => {
   const version = ++summaryVersion;
   sharedSummary.value = {};
   matchingPreferences.value = {};
-  schedule.value = {}; providerGender.value = ''; serviceLocation.value = '';
+  schedule.value = {}; providerGender.value = ''; providerQualification.value = ''; serviceLocation.value = '';
   ageBand.value = ''; gender.value = ''; presentingProblemsRaw.value = ''; modality.value = ''; insurance.value = ''; notes.value = '';
   summaryError.value = '';
   summaryLoading.value = false;
@@ -190,6 +194,7 @@ watch(selectedClientId, async clientId => {
       schedule.value = sharedSummary.value.preferences?.schedule || {};
       matchingPreferences.value = sharedSummary.value.preferences?.matchingPreferences || {};
       providerGender.value = sharedSummary.value.preferences?.providerGender || '';
+      providerQualification.value = sharedSummary.value.preferences?.providerQualification || '';
       modality.value = sharedSummary.value.preferences?.modality || '';
       serviceLocation.value = sharedSummary.value.preferences?.serviceLocation || '';
     }
@@ -256,6 +261,7 @@ async function submit() {
         modality: modality.value || undefined,
         insurance: insurance.value || undefined,
         providerGender: providerGender.value || null,
+        providerQualification: providerQualification.value || null,
         schedule: normalizeExchangeSchedule(schedule.value)
       },
       notes: notes.value || null

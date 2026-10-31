@@ -5,7 +5,7 @@
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-if="receipt" role="status">{{ receipt }}</p>
     <template v-if="audit">
-      <p>{{ matched.length }} {{ audit.matchesEvaluatedAt ? 'currently matched' : 'matched at last evaluation' }} · {{ unmatched.length }} not matched or needing review</p>
+      <p>{{ matched.length }} {{ audit.matchesEvaluatedAt ? 'currently matched' : 'matched at last evaluation' }} · {{ adjustments.length }} can request with adjustments or availability review · {{ blocked.length }} blocked by eligibility or insurance</p>
       <p>{{ audit.views?.total || 0 }} detail views · {{ audit.views?.unique_viewers || 0 }} unique viewers since {{ audit.trackingStartedAt ? new Date(audit.trackingStartedAt).toLocaleString() : 'tracking began' }}. Earlier views were not tracked.</p>
       <p v-if="audit.matchesEvaluatedAt">Matching checked {{ new Date(audit.matchesEvaluatedAt).toLocaleString() }}. Refresh checks current settings and does not send notifications.</p>
       <p v-if="!audit.run">No delivery evaluation has been recorded yet.</p>
@@ -14,13 +14,15 @@
       <p>Sent means accepted by the sending service, not proof of reading. Delivery receipts describe the original notification attempts; current matches can differ. Unverified availability needs confirmation before care begins.</p>
       <ExchangeParameterSummary :providers="audit.providers" />
       <p v-if="audit.canReview">Staff can waive fit differences for this client and provider. Insurance and account requirements cannot be waived. Waivers do not send notifications.</p>
-      <details v-for="group in [{title:'Matched providers',rows:matched},{title:'Providers not matched / needing review',rows:unmatched}]" :key="group.title">
+      <p>Providers are ordered by verified fit. Insurance, requested licensing, days and times carry the most weight. A high score cannot override an insurance or eligibility block.</p>
+      <details v-for="group in [{title:'Matched providers',rows:matched},{title:'Can request · adjustments or availability review needed',rows:adjustments},{title:'Blocked providers',rows:blocked}]" :key="group.title">
         <summary>{{ group.title }} ({{ group.rows.length }})</summary>
         <article v-for="provider in group.rows" :key="provider.userId">
           <strong>{{ provider.name }}</strong>
+          <span v-if="provider.matchScore != null"> · {{ provider.matchScore }}% of requested fit verified</span>
           <ExchangeMatchStatus v-if="provider.canRequest !== undefined" :fit="provider" compact />
           <div v-for="check in provider.checks" :key="check.field" class="match-check" :class="check.status">
-            <p><strong>{{ check.label || exchangeCheckLabel(check.field) }} · {{ check.waiver ? 'Pass (staff waiver)' : check.status === 'unknown' ? 'Needs review' : check.status }}</strong></p>
+            <p><strong>{{ check.label || exchangeCheckLabel(check.field) }} · {{ check.applicable === false ? 'Not specified' : check.waiver ? 'Pass (staff waiver)' : check.status === 'unknown' ? 'Needs review' : check.status }}</strong></p>
             <p>{{ check.reason }}</p>
             <p v-if="check.waiver">Waived by {{ check.waiver.waivedByName }} on {{ date(check.waiver.createdAt) }}: {{ check.waiver.reason }}</p>
             <button v-if="audit.canReview && check.canWaive" type="button" :disabled="saving" @click="startWaiver(provider, check)">Waive this {{ check.status === 'fail' ? 'failure' : 'review item' }}</button>
@@ -57,15 +59,17 @@
 </template>
 <script setup>
 import ExchangeParameterSummary from './ExchangeParameterSummary.vue';
-import { exchangeCheckLabel } from '../../navigation/clientExchangePolicy.js';
+import { exchangeCheckLabel, compareExchangeFit } from '../../navigation/clientExchangePolicy.js';
 import ExchangeMatchStatus from './ExchangeMatchStatus.vue';
 import {ref,computed,watch} from 'vue';
 import api from '../../services/api';
 const props=defineProps({listingId:{type:Number,required:true}});
 const emit = defineEmits(['changed']);
 const audit=ref(null),error=ref(''),loading=ref(false),saving=ref(false),receipt=ref(''),waiver=ref(null),share=ref(null);
-const matched=computed(()=>(audit.value?.providers||[]).filter(p=>p.matched));
-const unmatched=computed(()=>(audit.value?.providers||[]).filter(p=>!p.matched));
+const ranked=computed(()=>[...(audit.value?.providers || [])].sort(compareExchangeFit));
+const matched=computed(()=>ranked.value.filter(p=>p.matched));
+const adjustments=computed(()=>ranked.value.filter(p=>!p.matched && p.canRequest));
+const blocked=computed(()=>ranked.value.filter(p=>!p.matched && !p.canRequest));
 const delivery=value=>value?`${value.status}${value.reason?` — ${value.reason}`:''}`:'Not attempted / no historical receipt';
 let version=0, actionVersion=0;
 async function load(){const token=++version;loading.value=true;error.value='';try{const {data}=await api.get(`/client-exchange/listings/${props.listingId}/audit`);if(token===version)audit.value=data;}catch(e){if(token===version)error.value=e?.response?.data?.error?.message||'Could not load audit';}finally{if(token===version)loading.value=false;}}

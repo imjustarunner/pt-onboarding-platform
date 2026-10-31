@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { exchangeCheckCanBeWaived, exchangeCheckLabel } from '../../../frontend/src/navigation/clientExchangePolicy.js';
+import { exchangeCheckCanBeWaived, exchangeCheckLabel, exchangeFitScore } from '../../../frontend/src/navigation/clientExchangePolicy.js';
 import { eligibleExchangeProvider } from './clientExchangeProvider.js';
 import { canonicalAge, normalizeClinicalFacets } from './providerFacetNormalization.js';
 import { providerAvailabilityPreferences } from './providerAvailabilityReminders.js';
@@ -82,6 +82,15 @@ export function evaluateExchangeMatch({ user, profile, facets = {}, listing, cli
   check('provider_gender', noGenderPreference || preferredGender === providerGender,
     noGenderPreference ? 'No therapist gender preference specified; any provider gender passes.' : genderKnown ? 'Preferred provider gender matches.' : `Client prefers a ${preferredGender} therapist; provider gender is not recorded or cannot be verified.`,
     `Client prefers a ${preferredGender} therapist; provider lists ${providerGender}.`, noGenderPreference || genderKnown);
+  const qualification=listing.preferences?.providerQualification;
+  if(qualification) {
+    const credential=String(user?.credential || profile?.insuranceCredential?.credential || '').trim();
+    const independent=/\b(?:LPC|LCSW|LMFT|LMHC|LP|LAC)\b/i.test(credential) || /\blicensed psychologist\b/i.test(user?.title || '');
+    const provisional=/\b(?:LPCC|LSW|SWC|MFTC)\b/i.test(credential);
+    const allowed=independent || qualification==='licensed_or_provisional' && provisional;
+    check('qualification',allowed,'Recorded credentials meet the requested provider license requirement.',
+      `Client requests ${qualification==='independent'?'an independently licensed clinician':'a licensed or provisionally licensed clinician'}. Provider credentials: ${credential || 'not recorded'}. Verify qualifying credentials before requesting or assigning this client.`);
+  }
   const focus = profile?.details?.clinicalFocus;
   const known = (group, fallback) => focus?.reviewed
     ? FOCUS_GROUPS.find(g=>g.key===group).options.filter(v=>!(focus.excluded?.[group]||[]).includes(v))
@@ -148,14 +157,22 @@ export function evaluateExchangeMatch({ user, profile, facets = {}, listing, cli
   if (modality !== 'virtual' && (!listing.preferences?.serviceLocation || ['Other location','Not yet decided'].includes(listing.preferences.serviceLocation))) {
     checks.push({field:'location',status:'unknown',reason:'Confirm the in-person service location with the referring team.'});
   }
+  const applicable={format:['virtual','in_person'].includes(modality),provider_gender:!noGenderPreference,
+    age:!!requestedAge,clinical_exclusions:concerns.length>0,diagnoses:diagnosticConcerns.length>0,concerns:concerns.length>0,
+    service:!!population,insurance:insuranceKnown,insurance_credential:insuranceKnown,insurance_exclusions:insuranceKnown,
+    schedule:!!hasSchedule,location:modality!=='virtual' && !!listing.preferences?.serviceLocation};
+  for(const item of checks) {
+    item.applicable=applicable[item.field] ?? true;
+    if(!item.applicable && item.status==='unknown')item.reason='Not specified on this referral; this does not lower the match score or block a match.';
+  }
   // A waiver is valid only for the same recorded matching inputs. Changes require a fresh review.
   const snapshot = JSON.stringify(stableSnapshot({ requestedAge, serviceType: listing.serviceType || '', concerns, diagnosticConcerns,
-    preferences: { modality, providerGender: preferredGender, matchingPreferences: requested, schedule: { days: schedule.days || [], periods: schedule.periods || [], windows: schedule.windows || [], timezone: schedule.timezone || '' }, serviceLocation: listing.preferences?.serviceLocation || '' },
+    preferences: { modality, providerGender: preferredGender, providerQualification:qualification || '', matchingPreferences: requested, schedule: { days: schedule.days || [], periods: schedule.periods || [], windows: schedule.windows || [], timezone: schedule.timezone || '' }, serviceLocation: listing.preferences?.serviceLocation || '' },
     availability, gender: providerGender, focus: focus || {}, facets }));
   for (const item of checks) {
     item.label = exchangeCheckLabel(item.field);
     item.fingerprint = createHash('sha256').update(`${snapshot}:${item.field}:${item.status}:${item.reason}`).digest('hex');
-    item.canWaive = exchangeCheckCanBeWaived(item.field) && item.status !== 'pass';
+    item.canWaive = item.applicable !== false && exchangeCheckCanBeWaived(item.field) && item.status !== 'pass';
     const waiver = waivers.find(w => w.field === item.field && w.fingerprint === item.fingerprint);
     if (item.canWaive && waiver) {
       item.originalStatus = item.status;
@@ -165,16 +182,17 @@ export function evaluateExchangeMatch({ user, profile, facets = {}, listing, cli
       item.canWaive = false;
     }
   }
-  const hardFields = new Set(['account','assigned','direct_referral','clinical_exclusions','diagnoses','concerns','service','insurance','insurance_credential','insurance_exclusions']);
+  const hardFields = new Set(['account','assigned','direct_referral','clinical_exclusions','diagnoses','concerns','service','insurance','insurance_credential','insurance_exclusions','qualification']);
   const code = field => ({account:'provider_account',assigned:'current_provider',accepting:'intake_closed',format:'format_availability',clinical_exclusions:'excluded_specialty',diagnoses:'diagnosis',concerns:'specialty'}[field] || field);
   const reason = check => ({ code: code(check.field), message: check.reason, fingerprint: check.fingerprint });
   const hard = check => hardFields.has(check.field) || (check.field.endsWith('_exclusions') && check.field !== 'ageGroups_exclusions');
   const blockers = checks.filter(c => c.status === 'fail' && hard(c)).map(reason);
   const adjustments = checks.filter(c => c.status === 'fail' && !hard(c)).map(reason);
-  const review = checks.filter(c => c.status === 'unknown').map(reason);
-  const canRequest = blockers.length === 0, matched = canRequest && adjustments.length === 0;
+  const review = checks.filter(c => c.status === 'unknown' && c.applicable !== false).map(reason);
+  const requiredReview=checks.filter(c=>c.applicable && c.status==='unknown' && ['schedule','provider_gender','location','insurance'].includes(c.field)).map(reason);
+  const canRequest = blockers.length === 0, matched = canRequest && adjustments.length === 0 && requiredReview.length===0;
   const canNotify = matched && checks.filter(c => ['accepting', 'format'].includes(c.field)).every(c => (c.originalStatus || c.status) === 'pass');
-  return { matched, checks, canAssign: matched, assignmentBlockers: [...blockers, ...adjustments], status: matched ? 'match' : 'not_match', canRequest, canNotify, blockers, adjustments, review };
+  return { matched, checks, ...exchangeFitScore(checks), canAssign: matched, assignmentBlockers: [...blockers, ...adjustments,...requiredReview], status: matched ? 'match' : 'not_match', canRequest, canNotify, blockers, adjustments, review };
 }
 
 export function evaluateExchangeListing(input) { return evaluateExchangeMatch(input); }

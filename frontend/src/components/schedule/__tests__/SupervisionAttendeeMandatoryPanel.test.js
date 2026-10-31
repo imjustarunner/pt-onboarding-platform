@@ -13,6 +13,7 @@ describe('supervision attendee choices',()=>{
   expect(isWorkplaceSchedulePerson({role:'provider',email:'family-id@members.invalid'})).toBe(false);
   expect(isWorkplaceSchedulePerson({role:null,email:'family-id@members.invalid'})).toBe(false);
   expect(isWorkplaceSchedulePerson({role:'client_guardian'})).toBe(false);
-  expect(isWorkplaceSchedulePerson({role:'super_admin',email:'parent@example.com'})).toBe(true);
+  expect(isWorkplaceSchedulePerson({role:'super_admin',email:'parent@example.com',status:'ACTIVE_EMPLOYEE'})).toBe(true);
+  for(const patch of [{is_demo:1},{created_via_dev_fill:1},{is_active:0},{is_archived:1},{status:'INACTIVE_EMPLOYEE'},{status:'ONBOARDING'},{membership_active:0}])expect(isWorkplaceSchedulePerson({role:'provider',status:'ACTIVE_EMPLOYEE',...patch})).toBe(false);
  });
 });

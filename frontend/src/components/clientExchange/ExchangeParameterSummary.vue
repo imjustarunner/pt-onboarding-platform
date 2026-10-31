@@ -1,7 +1,8 @@
 <template>
   <section class="parameters" aria-label="Providers by matching parameter">
     <h4>Providers by matching parameter</h4>
-    <p>Each count checks this parameter on its own. Hover, focus or select a count to see providers. Pass counts include staff waivers.</p>
+    <p>Related checks are combined. Missing referral details are shown as “Not specified” and do not lower a provider’s score. Select a count to see providers. Pass counts include staff waivers.</p>
+    <label><input v-model="showEligibility" type="checkbox" /> Show account eligibility checks</label>
     <table>
       <thead><tr><th scope="col">Parameter</th><th v-for="state in states" :key="state.key" scope="col">{{ state.label }}</th></tr></thead>
       <tbody><tr v-for="criterion in criteria" :key="criterion.field">
@@ -23,18 +24,13 @@
 </template>
 <script setup>
 import { computed, ref } from 'vue';
-import { exchangeCheckLabel } from '../../navigation/clientExchangePolicy.js';
+import { groupedExchangeParameters } from '../../navigation/clientExchangePolicy.js';
 const props = defineProps({ providers: { type: Array, default: () => [] } });
 const open = ref(null);
-const states = [{ key: 'pass', label: 'Pass' }, { key: 'fail', label: 'Fail' }, { key: 'unknown', label: 'Needs review' }];
+const showEligibility=ref(false);
+const states = [{ key: 'pass', label: 'Pass' }, { key: 'fail', label: 'Does not meet' }, { key: 'unknown', label: 'Needs review' }, {key:'unspecified',label:'Not specified'}];
 const criteria = computed(() => {
-  const rows = new Map();
-  for (const provider of props.providers) for (const check of provider.checks || []) {
-    if (!rows.has(check.field)) rows.set(check.field, { field: check.field, label: check.label || exchangeCheckLabel(check.field), pass: [], fail: [], unknown: [] });
-    const state = ['pass', 'fail'].includes(check.status) ? check.status : 'unknown';
-    rows.get(check.field)[state].push({ userId: provider.userId, name: provider.name, waived: Boolean(check.waiver) });
-  }
-  return [...rows.values()];
+  return groupedExchangeParameters(props.providers,showEligibility.value);
 });
 </script>
 <style scoped>

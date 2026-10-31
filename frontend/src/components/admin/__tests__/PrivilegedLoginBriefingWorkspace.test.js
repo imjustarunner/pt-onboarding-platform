@@ -93,7 +93,7 @@ describe('superadmin welcome briefing follows the workspace', () => {
     expect(document.querySelector('.briefing-modal--platform')).toBeNull();
     await flushPromises();
     expect(document.querySelector('.card-count strong').textContent).toBe('4');
-    expect(api.get).toHaveBeenCalledWith('/tasks', expect.objectContaining({ params: { agencyId: 1, tenantId: 1 } }));
+    expect(api.get).toHaveBeenCalledWith('/tasks', expect.objectContaining({ params: { agencyId: 1, tenantId: 1, view:'personal' } }));
     expect(document.querySelector('[aria-label="At a glance"]').textContent).toContain('ITSCOScope');
     expect(document.querySelector('.tenant-launchers').textContent).toContain('TISI');
   });
@@ -117,7 +117,7 @@ describe('superadmin welcome briefing follows the workspace', () => {
     await flushPromises();
     expect(document.querySelector('.briefing-eyebrow').textContent).toBe('Platform command center');
     expect(document.querySelector('.card-count strong').textContent).toBe('34');
-    expect(api.get).toHaveBeenCalledWith('/tasks', expect.objectContaining({ params: {} }));
+    expect(api.get).toHaveBeenCalledWith('/tasks', expect.objectContaining({ params: {view:'personal'} }));
   });
 
   it('retains the tenant prefix on HQ tenant briefing actions', async () => {

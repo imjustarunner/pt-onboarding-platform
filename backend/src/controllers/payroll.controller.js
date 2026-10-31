@@ -69,6 +69,7 @@ import { persistEventTravelClaim } from '../services/companyEventParticipation.s
 import { getEventTravelReport, reviewEventTravelReport, assertEventTravelReviewed } from '../services/eventTravelReport.service.js';
 import PayrollIndirectServiceType from '../models/PayrollIndirectServiceType.model.js';
 import PayrollUserIndirectServiceAssignment from '../models/PayrollUserIndirectServiceAssignment.model.js';
+import { ACTIVE_EMPLOYEE_SQL, EMPLOYEE_ROSTER_SQL } from '../utils/staffEligibility.js';
 import PayrollHolidayBonusClaim from '../models/PayrollHolidayBonusClaim.model.js';
 import {
   isDualRateContractPilotUser,
@@ -9130,21 +9131,15 @@ export const listPayrollAgencyUsers = async (req, res, next) => {
     const activeField = hasIsActiveCol ? ', u.is_active' : '';
     const medcancelField = hasMedcancelScheduleCol ? ', u.medcancel_rate_schedule' : '';
     const includeInactive = String(req.query?.includeInactive || '').toLowerCase() === 'true' || String(req.query?.includeInactive || '') === '1';
-    const activeFilter = (hasIsActiveCol && !includeInactive) ? ' AND u.is_active = TRUE' : '';
-    const payrollEligibleFilter = " AND (u.status IS NULL OR u.status NOT IN ('pending', 'ready_for_review')) AND (u.is_archived = FALSE OR u.is_archived IS NULL)";
+    const payrollEligibleFilter = includeInactive
+      ? EMPLOYEE_ROSTER_SQL
+      : ACTIVE_EMPLOYEE_SQL;
     const [rows] = await pool.execute(
       `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role${supField}${activeField}${medcancelField}
        FROM users u
        JOIN user_agencies ua ON u.id = ua.user_id
        WHERE ua.agency_id = ?
-       ${activeFilter}
-       ${payrollEligibleFilter}
-       UNION
-       SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role${supField}${activeField}${medcancelField}
-       FROM users u
-       WHERE u.role = 'super_admin'
-         ${activeFilter}
-         ${payrollEligibleFilter}
+       AND ${payrollEligibleFilter}
        ORDER BY last_name ASC, first_name ASC`,
       [resolvedAgencyId]
     );
