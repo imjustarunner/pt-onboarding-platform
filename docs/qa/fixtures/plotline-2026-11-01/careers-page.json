@@ -1,0 +1,73 @@
+{
+  "heroHeadline": "ITSCO careers - SYNTHETIC QA",
+  "heroSubheadline": "Practice the journey from application to welcome.",
+  "accentColor": "#16457c",
+  "eyebrow": "DEMO CAREERS / NO REAL VACANCIES",
+  "lead": "This ITSCOLLC demonstration page tests Plotline recruiting and onboarding. All roles and applicants are fictional. Do not submit real personal information or use this page to seek employment.",
+  "navItems": [
+    {
+      "label": "About this demo",
+      "action": "why",
+      "style": "link",
+      "icon": "none"
+    },
+    {
+      "label": "QA openings",
+      "action": "jobs",
+      "style": "button",
+      "icon": "none"
+    }
+  ],
+  "heroImageUrl": "",
+  "heroImageAlt": "Use the existing ITSCO careers hero preset in the app.",
+  "heroImagePosition": "center",
+  "heroFrameStyle": "rounded",
+  "showLeafAccent": true,
+  "secureTitle": "A practice application",
+  "secureSubtitle": "Use only the supplied fictional QA identities and documents.",
+  "startHeading": "Explore the QA roles",
+  "startSubtitle": "Choose a fictional role to test its complete application.",
+  "startButtonText": "Start QA application",
+  "startTimeNote": "Allow about 10 minutes for the synthetic application.",
+  "bannerText": "SYNTHETIC QA ONLY. These are not real vacancies or offers of employment.",
+  "bannerBullets": [
+    "No real applicant information",
+    "No paid background checks",
+    "Controlled QA inbox only"
+  ],
+  "bannerLinkText": "See QA openings",
+  "bannerLinkAction": "jobs",
+  "featureCards": [
+    {
+      "icon": "none",
+      "title": "Clear next steps",
+      "body": "Apply, meet the team and complete a fictional hiring journey."
+    },
+    {
+      "icon": "none",
+      "title": "One candidate record",
+      "body": "Keep application history and onboarding linked to the correct person."
+    }
+  ],
+  "trustItems": [
+    {
+      "icon": "none",
+      "title": "Training environment",
+      "body": "No real hiring decisions are made on this demo page."
+    }
+  ],
+  "whyModal": {
+    "enabled": true,
+    "title": "About the ITSCO QA careers page",
+    "subtitle": "Practice the real Plotline workflow with fictional people.",
+    "cards": [
+      {
+        "icon": "none",
+        "title": "What we are checking",
+        "body": "Public applications, staff review, documents, training and the welcome into the app."
+      }
+    ],
+    "ctaText": "View QA openings",
+    "ctaAction": "jobs"
+  }
+}

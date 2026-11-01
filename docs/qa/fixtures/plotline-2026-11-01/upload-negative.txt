@@ -1,0 +1,2 @@
+Harmless QA text file. Use only to test a field that disallows TXT.
+If TXT is allowed, this file is not an invalid-type test. No executable payload.

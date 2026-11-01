@@ -1,0 +1,287 @@
+{
+  "preparedOn": "2026-11-01",
+  "status": "READY_FOR_APP_ENTRY",
+  "liveSetup": "NOT RUN",
+  "sourceReviewedBuild": "70c79816a65072f8e75fab8fae8fe6213689c7ec",
+  "agency": {
+    "id": 450,
+    "slug": "auricwell-qa-demo",
+    "name": "ITSCOLLC"
+  },
+  "unchangedAffiliates": [
+    451,
+    452
+  ],
+  "timezone": "America/Denver",
+  "physicalEmailDestination": "testing@itsco.health",
+  "caps": {
+    "clients": 30,
+    "providerRoleAccounts": 10,
+    "newClients": 0,
+    "newPeopleOpsAccounts": 1,
+    "newUniqueApplicantsMaximum": 4,
+    "publicApplicantRoleSlotsToReserve": 4
+  },
+  "peopleOps": {
+    "firstName": "Marlow",
+    "lastName": "QA PeopleOps-1101",
+    "email": "qa.peopleops.plotline@example.com",
+    "liveUserId": null,
+    "role": "staff",
+    "hasHiringAccess": true,
+    "agencyMemberships": [
+      450
+    ],
+    "providerAccess": false,
+    "supervisorPrivileges": false,
+    "adminRole": false,
+    "payrollBillingCredentialingGrants": false,
+    "credentialLocation": "Create a new QA vault entry; no credentials in this packet."
+  },
+  "careersPage": {
+    "heroHeadline": "ITSCO careers - SYNTHETIC QA",
+    "heroSubheadline": "Practice the journey from application to welcome.",
+    "accentColor": "#16457c",
+    "eyebrow": "DEMO CAREERS / NO REAL VACANCIES",
+    "lead": "This ITSCOLLC demonstration page tests Plotline recruiting and onboarding. All roles and applicants are fictional. Do not submit real personal information or use this page to seek employment.",
+    "navItems": [
+      {
+        "label": "About this demo",
+        "action": "why",
+        "style": "link",
+        "icon": "none"
+      },
+      {
+        "label": "QA openings",
+        "action": "jobs",
+        "style": "button",
+        "icon": "none"
+      }
+    ],
+    "heroImageUrl": "",
+    "heroImageAlt": "Use the existing ITSCO careers hero preset in the app.",
+    "heroImagePosition": "center",
+    "heroFrameStyle": "rounded",
+    "showLeafAccent": true,
+    "secureTitle": "A practice application",
+    "secureSubtitle": "Use only the supplied fictional QA identities and documents.",
+    "startHeading": "Explore the QA roles",
+    "startSubtitle": "Choose a fictional role to test its complete application.",
+    "startButtonText": "Start QA application",
+    "startTimeNote": "Allow about 10 minutes for the synthetic application.",
+    "bannerText": "SYNTHETIC QA ONLY. These are not real vacancies or offers of employment.",
+    "bannerBullets": [
+      "No real applicant information",
+      "No paid background checks",
+      "Controlled QA inbox only"
+    ],
+    "bannerLinkText": "See QA openings",
+    "bannerLinkAction": "jobs",
+    "featureCards": [
+      {
+        "icon": "none",
+        "title": "Clear next steps",
+        "body": "Apply, meet the team and complete a fictional hiring journey."
+      },
+      {
+        "icon": "none",
+        "title": "One candidate record",
+        "body": "Keep application history and onboarding linked to the correct person."
+      }
+    ],
+    "trustItems": [
+      {
+        "icon": "none",
+        "title": "Training environment",
+        "body": "No real hiring decisions are made on this demo page."
+      }
+    ],
+    "whyModal": {
+      "enabled": true,
+      "title": "About the ITSCO QA careers page",
+      "subtitle": "Practice the real Plotline workflow with fictional people.",
+      "cards": [
+        {
+          "icon": "none",
+          "title": "What we are checking",
+          "body": "Public applications, staff review, documents, training and the welcome into the app."
+        }
+      ],
+      "ctaText": "View QA openings",
+      "ctaAction": "jobs"
+    }
+  },
+  "jobs": [
+    {
+      "marker": "QA-PL1101-OPS",
+      "liveJobId": null,
+      "title": "Operations Coordinator - SYNTHETIC QA",
+      "city": "Colorado Springs",
+      "state": "CO",
+      "roleType": "Operations / nonclinical",
+      "intendedEmployeeRole": "staff",
+      "credentialMode": "none",
+      "educationLevel": "High school diploma or equivalent (fictional example)",
+      "scheduleText": "Monday-Thursday, 9:00 AM-1:00 PM America/Denver; sample only.",
+      "sampleCompensation": "$22/hour - fictional description only; not a payroll rate change.",
+      "descriptionFile": "job-operations.txt",
+      "isFeatured": true,
+      "tagsJson": [
+        "SYNTHETIC QA",
+        "QA-PL1101-OPS",
+        "Nonclinical"
+      ],
+      "suggestedApplicationDeadline": "2026-11-16",
+      "prehirePackageId": null,
+      "onboardingPackageId": null
+    },
+    {
+      "marker": "QA-PL1101-CLIN",
+      "liveJobId": null,
+      "title": "School-Based Counseling Associate - SYNTHETIC QA",
+      "city": "Colorado Springs",
+      "state": "CO",
+      "roleType": "Clinical / supervised",
+      "intendedEmployeeRole": "provider",
+      "credentialMode": "expected",
+      "educationLevel": "Master's-level counseling training (fictional narrative; unverified)",
+      "scheduleText": "Proposed Tuesday/Thursday school hours; no approved school assignment.",
+      "sampleCompensation": "Discuss sample terms during QA; no rate or contract is established.",
+      "descriptionFile": "job-provider.txt",
+      "isFeatured": false,
+      "tagsJson": [
+        "SYNTHETIC QA",
+        "QA-PL1101-CLIN",
+        "Prerequisites pending"
+      ],
+      "suggestedApplicationDeadline": "2026-11-16",
+      "prehirePackageId": null,
+      "onboardingPackageId": null
+    }
+  ],
+  "applicants": [
+    {
+      "key": "A",
+      "firstName": "Jules",
+      "lastName": "QA-Plotline-1101",
+      "email": "qa.plotline.jules@example.com",
+      "jobMarker": "QA-PL1101-OPS",
+      "prefix": "applicant-a-jules",
+      "entry": "public application",
+      "target": "active nonclinical staff after all normal requirements",
+      "role": "staff",
+      "workEmailProposal": "qa.plotline.jules.work@example.com",
+      "languages": [
+        "English"
+      ],
+      "availability": "Monday-Thursday, 9 AM-1 PM America/Denver.",
+      "experience": "Coordinated appointment requests and maintained task lists at fictional Cedar Desk Services, 2023-2026. Trained two colleagues on checklists and documented handoffs.",
+      "education": "Associate-level office administration coursework at fictional Summit Practice College, 2022.",
+      "skills": "Scheduling, clear written follow-up, spreadsheets and confidential administrative records.",
+      "cover": "I am interested in the fictional Operations Coordinator role. In the synthetic work history attached, I organized scheduling requests, tracked follow-up and explained the next step clearly. I would bring those habits to a small team and ask for guidance when a request falls outside my authority.",
+      "liveUserId": null,
+      "liveApplicationIds": [],
+      "liveJourneyId": null,
+      "communicationChoice": "email",
+      "phone": null,
+      "isSynthetic": true
+    },
+    {
+      "key": "B",
+      "firstName": "Remy",
+      "lastName": "QA-Plotline-1101",
+      "email": "qa.plotline.remy@example.com",
+      "jobMarker": "QA-PL1101-CLIN",
+      "prefix": "applicant-b-remy",
+      "entry": "public application",
+      "target": "pre-hire pending one required item; no clinical clearance",
+      "role": "provider",
+      "workEmailProposal": null,
+      "languages": [
+        "English"
+      ],
+      "availability": "Tuesday and Thursday, 9 AM-1 PM America/Denver; preference only.",
+      "experience": "Completed fictional supervised practicum exercises in school transitions and caregiver communication at Practice Grove Training Center, 2025-2026. Presented case formulations to a training supervisor.",
+      "education": "Fictional master's-level counseling coursework at Summit Practice College, 2026. No verified degree or professional license is asserted.",
+      "skills": "Reflective listening, structured notes, supervision preparation and role boundaries.",
+      "cover": "I am applying for the fictional supervised counseling role. My attached narrative describes simulated practicum learning and use of supervision. I understand that an application does not verify credentials or authorize clinical care. For this test I will intentionally leave one required pre-hire item unfinished so the app must keep my access pending.",
+      "liveUserId": null,
+      "liveApplicationIds": [],
+      "liveJourneyId": null,
+      "communicationChoice": "email",
+      "phone": null,
+      "isSynthetic": true
+    },
+    {
+      "key": "C",
+      "firstName": "Noel",
+      "lastName": "QA-Plotline-1101",
+      "email": "qa.plotline.noel@example.com",
+      "jobMarker": "QA-PL1101-OPS",
+      "prefix": "applicant-c-noel",
+      "entry": "public save/resume then one deliberate reapplication",
+      "target": "second active nonclinical staff; application history retained",
+      "role": "staff",
+      "workEmailProposal": "qa.plotline.noel.work@example.com",
+      "languages": [
+        "English",
+        "Spanish"
+      ],
+      "availability": "Monday-Wednesday, 10 AM-2 PM America/Denver.",
+      "experience": "Maintained a bilingual reception checklist and routed questions to the correct team at fictional North Window Desk, 2022-2026. Kept a weekly list of unresolved requests.",
+      "education": "Fictional high school equivalency and office skills training, 2021.",
+      "skills": "English/Spanish administrative communication, intake routing and careful follow-through.",
+      "cover": "I am interested in this fictional coordination role because I enjoy helping people understand what happens next. The attached synthetic history describes front-desk organization and bilingual administrative work. I would confirm the intended recipient before sharing information and keep unresolved requests visible for the team.",
+      "liveUserId": null,
+      "liveApplicationIds": [],
+      "liveJourneyId": null,
+      "communicationChoice": "email",
+      "phone": null,
+      "isSynthetic": true
+    },
+    {
+      "key": "D",
+      "firstName": "Sasha",
+      "lastName": "QA-Plotline-1101",
+      "email": "qa.plotline.sasha@example.com",
+      "jobMarker": "QA-PL1101-OPS",
+      "prefix": "applicant-d-sasha",
+      "entry": "staff manual candidate, pasted/uploaded resume",
+      "target": "not hired; no employee activation",
+      "role": "staff",
+      "workEmailProposal": null,
+      "languages": [
+        "English"
+      ],
+      "availability": "Saturday only, 9 AM-noon America/Denver; intentionally differs from QA role.",
+      "experience": "Organized event check-in and supply lists at fictional Weekend Practice Collective, 2024-2026. Communicated changes to a small volunteer team.",
+      "education": "Fictional office skills course, 2024.",
+      "skills": "Event checklists, polite communication and inventory tracking.",
+      "cover": "This is a manual-entry applicant test for the fictional coordinator role. My synthetic availability is Saturdays only, which differs from the example weekday schedule. Staff should record that mismatch fairly without inventing a credential or moving me into onboarding.",
+      "liveUserId": null,
+      "liveApplicationIds": [],
+      "liveJourneyId": null,
+      "communicationChoice": "email",
+      "phone": null,
+      "isSynthetic": true
+    }
+  ],
+  "references": [
+    {
+      "name": "Auden QA Reference-1101",
+      "email": "qa.plotline.reference.auden@example.com",
+      "relationship": "Fictional administrative training supervisor",
+      "candidateKey": "A",
+      "exercise": "complete via delivered public reference form"
+    },
+    {
+      "name": "Tobin QA Reference-1101",
+      "email": "qa.plotline.reference.tobin@example.com",
+      "relationship": "Fictional project colleague",
+      "candidateKey": "A",
+      "exercise": "leave pending for real due reminders"
+    }
+  ],
+  "liveMutationsPerformed": [],
+  "externalDirectoryProvisioningAuthorizedByThisPacket": false
+}

@@ -1,0 +1,43 @@
+PLOTLINE DEMO CAREERS PAGE - COPY INTO THE EXISTING APP
+
+SYNTHETIC QA ONLY - NOT A REAL PERSON, VACANCY OR EMPLOYMENT RECORD.
+
+heroHeadline: ITSCO careers - SYNTHETIC QA
+
+heroSubheadline: Practice the journey from application to welcome.
+
+accentColor: #16457c
+
+eyebrow: DEMO CAREERS / NO REAL VACANCIES
+
+lead: This ITSCOLLC demonstration page tests Plotline recruiting and onboarding. All roles and applicants are fictional. Do not submit real personal information or use this page to seek employment.
+
+heroImageUrl:
+
+heroImageAlt: Use the existing ITSCO careers hero preset in the app.
+
+heroImagePosition: center
+
+heroFrameStyle: rounded
+
+secureTitle: A practice application
+
+secureSubtitle: Use only the supplied fictional QA identities and documents.
+
+startHeading: Explore the QA roles
+
+startSubtitle: Choose a fictional role to test its complete application.
+
+startButtonText: Start QA application
+
+startTimeNote: Allow about 10 minutes for the synthetic application.
+
+bannerText: SYNTHETIC QA ONLY. These are not real vacancies or offers of employment.
+
+bannerLinkText: See QA openings
+
+bannerLinkAction: jobs
+
+Use the existing ITSCO logo/hero preset and Plotline credit. The JSON gives
+modal, navigation and card fields; enter those through the normal editor.
+This is source copy, not a published page.

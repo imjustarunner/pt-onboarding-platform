@@ -1,0 +1,23 @@
+Operations Coordinator - SYNTHETIC QA
+
+SYNTHETIC QA ONLY - NOT A REAL PERSON, VACANCY OR EMPLOYMENT RECORD.
+
+Fixture marker: QA-PL1101-OPS
+
+Purpose: exercise careers, application, review and onboarding in demo agency 450 only.
+
+Location: Colorado Springs, CO
+
+Schedule: Monday-Thursday, 9:00 AM-1:00 PM America/Denver; sample only.
+
+Sample terms: $22/hour - fictional description only; not a payroll rate change.
+
+Responsibilities: organize requests, maintain a follow-up list, communicate next steps and protect confidential administrative information. Route clinical questions to an authorized clinician.
+
+Qualifications in this fictional role: clear writing, organized task tracking and comfort asking for help. This job does not authorize patient care, medical billing or supervisor actions.
+
+Application materials: matching synthetic resume, cover letter, availability, short role question and controlled reference contacts. Email notifications only.
+
+Required acknowledgement: I understand this is a synthetic QA job and that applying does not create employment or authorize access to clients.
+
+Pre-hire and onboarding use separately configured QA packages. All prerequisites still apply; no paid background, banking, tax or external credential check is included.

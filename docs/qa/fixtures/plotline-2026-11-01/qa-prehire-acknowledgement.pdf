@@ -1,0 +1,81 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 1 /Kids [4 0 R] >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 952 >>
+stream
+BT
+/F1 10 Tf
+14 TL
+40 750 Td
+(QA pre-hire acknowledgement) Tj
+T*
+() Tj
+T*
+(SYNTHETIC QA ONLY - NOT A REAL PERSON, VACANCY OR EMPLOYMENT RECORD.) Tj
+T*
+() Tj
+T*
+() Tj
+T*
+() Tj
+T*
+(This document exercises the demo application's signing and retention workflow only. It is) Tj
+T*
+(not an employment contract, consent to a background check, clinical agreement or verified) Tj
+T*
+(qualification.) Tj
+T*
+() Tj
+T*
+(I understand I am using a fictional QA identity and will keep real personal, financial and) Tj
+T*
+(clinical information out of this exercise.) Tj
+T*
+() Tj
+T*
+(I will review the displayed task and ask a QA operator if I cannot complete it through the) Tj
+T*
+(normal permitted workflow.) Tj
+T*
+() Tj
+T*
+(Candidate signature and date are collected by the app as this fictional persona. A) Tj
+T*
+(separate staff countersigner, if configured, signs only their own QA acknowledgement. No) Tj
+T*
+(signature is prefilled in this file.) Tj
+T*
+() Tj
+T*
+ET
+endstream
+endobj
+6 0 obj
+<< /Title (QA pre-hire acknowledgement) /Creator (Plotline synthetic QA fixtures) >>
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000191 00000 n 
+0000000317 00000 n 
+0000001320 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R /Info 6 0 R >>
+startxref
+1420
+%%EOF

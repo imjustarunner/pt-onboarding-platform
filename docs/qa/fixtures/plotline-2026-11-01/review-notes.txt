@@ -1,0 +1,22 @@
+PRIVATE PEOPLE OPS QA EXAMPLES
+
+SYNTHETIC QA ONLY - NOT A REAL PERSON, VACANCY OR EMPLOYMENT RECORD.
+
+Jules review: The supplied synthetic resume includes scheduling and follow-up
+examples. Ask for a short task-prioritization example in the interview. No
+external employer, education or credential verification has been completed.
+
+Task: Confirm Jules can describe an appropriate handoff for a clinical
+question without attempting to answer outside a nonclinical role.
+
+Remy review: Supervision and credential prerequisites remain unverified. Keep
+the required QA upload incomplete for the blocked-advancement case.
+
+Sasha not-hired reason: For this fictional role, the supplied Saturday-only
+availability does not match the sample weekday hours. No judgment about a
+real person or protected characteristic is being made.
+
+Noel portal question: Where can I return to see my completed QA documents
+after I finish onboarding?
+Staff reply: Your completed QA package should remain in My Submissions.
+Please use your own portal link and tell us if the document is missing.

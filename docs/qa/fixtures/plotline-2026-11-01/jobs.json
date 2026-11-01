@@ -1,0 +1,48 @@
+[
+  {
+    "marker": "QA-PL1101-OPS",
+    "liveJobId": null,
+    "title": "Operations Coordinator - SYNTHETIC QA",
+    "city": "Colorado Springs",
+    "state": "CO",
+    "roleType": "Operations / nonclinical",
+    "intendedEmployeeRole": "staff",
+    "credentialMode": "none",
+    "educationLevel": "High school diploma or equivalent (fictional example)",
+    "scheduleText": "Monday-Thursday, 9:00 AM-1:00 PM America/Denver; sample only.",
+    "sampleCompensation": "$22/hour - fictional description only; not a payroll rate change.",
+    "descriptionFile": "job-operations.txt",
+    "isFeatured": true,
+    "tagsJson": [
+      "SYNTHETIC QA",
+      "QA-PL1101-OPS",
+      "Nonclinical"
+    ],
+    "suggestedApplicationDeadline": "2026-11-16",
+    "prehirePackageId": null,
+    "onboardingPackageId": null
+  },
+  {
+    "marker": "QA-PL1101-CLIN",
+    "liveJobId": null,
+    "title": "School-Based Counseling Associate - SYNTHETIC QA",
+    "city": "Colorado Springs",
+    "state": "CO",
+    "roleType": "Clinical / supervised",
+    "intendedEmployeeRole": "provider",
+    "credentialMode": "expected",
+    "educationLevel": "Master's-level counseling training (fictional narrative; unverified)",
+    "scheduleText": "Proposed Tuesday/Thursday school hours; no approved school assignment.",
+    "sampleCompensation": "Discuss sample terms during QA; no rate or contract is established.",
+    "descriptionFile": "job-provider.txt",
+    "isFeatured": false,
+    "tagsJson": [
+      "SYNTHETIC QA",
+      "QA-PL1101-CLIN",
+      "Prerequisites pending"
+    ],
+    "suggestedApplicationDeadline": "2026-11-16",
+    "prehirePackageId": null,
+    "onboardingPackageId": null
+  }
+]

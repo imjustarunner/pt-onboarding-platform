@@ -1,0 +1,25 @@
+QA PACKAGE SETUP
+
+SYNTHETIC QA ONLY - NOT A REAL PERSON, VACANCY OR EMPLOYMENT RECORD.
+
+Create agency-450 QA packages only; do not overwrite all-jobs defaults.
+
+PRE-HIRE: QA-PL1101-PREHIRE
+- Exact saved QA job description acknowledgement.
+- qa-prehire-acknowledgement.pdf: required candidate QA signature, separate
+  assigned staff QA countersignature where supported. Use .txt for builder copy.
+- Required upload: qa-upload-practice.pdf, with an accurate QA-only title.
+- Staff review through the normal phase control.
+
+ONBOARDING: QA-PL1101-ONBOARDING
+- qa-handbook.pdf: required QA resource/acknowledgement; .txt gives builder copy.
+- qa-orientation-training.json: create a small module with the source paragraphs,
+  three quiz items and reflection. Correct answer indexes are ZERO-BASED.
+- Use normal user setup and account/password readiness steps for the chosen
+  nonclinical role. No fake tax, SSN, bank, license or background fields.
+- Candidate submits; authorized People Ops reviewer approves activation.
+
+Attach these through each new QA job's package editor. Review effective defaults
+and per-person preview. Record IDs without storing a token/password. Required
+real company/security steps remain required; if they cannot be completed safely
+in a synthetic run, report BLOCKED. Do not use this packet to certify readiness.

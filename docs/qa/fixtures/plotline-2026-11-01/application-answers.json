@@ -1,0 +1,94 @@
+{
+  "A": {
+    "name": "Jules QA-Plotline-1101",
+    "logicalEmail": "qa.plotline.jules@example.com",
+    "jobMarker": "QA-PL1101-OPS",
+    "phone": null,
+    "communicationChoice": "email",
+    "availability": "Monday-Thursday, 9 AM-1 PM America/Denver.",
+    "languages": [
+      "English"
+    ],
+    "whyThisRole": "I am interested in the fictional Operations Coordinator role. In the synthetic work history attached, I organized scheduling requests, tracked follow-up and explained the next step clearly. I would bring those habits to a small team and ask for guidance when a request falls outside my authority.",
+    "organizationExample": "I would write the next action, its owner and due date in the shared task list. I would confirm the handoff before marking it complete.",
+    "privacyExample": "I would verify the recipient and my authority before sharing information. I would ask the responsible staff member when unsure.",
+    "credentials": "No verified credential supplied - synthetic QA narrative only.",
+    "references": [
+      {
+        "name": "Auden QA Reference-1101",
+        "email": "qa.plotline.reference.auden@example.com",
+        "relationship": "Fictional administrative training supervisor",
+        "candidateKey": "A",
+        "exercise": "complete via delivered public reference form"
+      },
+      {
+        "name": "Tobin QA Reference-1101",
+        "email": "qa.plotline.reference.tobin@example.com",
+        "relationship": "Fictional project colleague",
+        "candidateKey": "A",
+        "exercise": "leave pending for real due reminders"
+      }
+    ],
+    "acknowledgementText": "I understand this is a synthetic QA job and does not create employment or authorize client access.",
+    "signatureInstruction": "Only a tester acting as this fictional persona signs QA-labeled test forms; never a real person's signature or clinical attestation.",
+    "reapplyChangeForC": null
+  },
+  "B": {
+    "name": "Remy QA-Plotline-1101",
+    "logicalEmail": "qa.plotline.remy@example.com",
+    "jobMarker": "QA-PL1101-CLIN",
+    "phone": null,
+    "communicationChoice": "email",
+    "availability": "Tuesday and Thursday, 9 AM-1 PM America/Denver; preference only.",
+    "languages": [
+      "English"
+    ],
+    "whyThisRole": "I am applying for the fictional supervised counseling role. My attached narrative describes simulated practicum learning and use of supervision. I understand that an application does not verify credentials or authorize clinical care. For this test I will intentionally leave one required pre-hire item unfinished so the app must keep my access pending.",
+    "organizationExample": "I would write the next action, its owner and due date in the shared task list. I would confirm the handoff before marking it complete.",
+    "privacyExample": "I would verify the recipient and my authority before sharing information. I would ask the responsible staff member when unsure.",
+    "credentials": "No verified credential supplied - synthetic QA narrative only.",
+    "references": [],
+    "acknowledgementText": "I understand this is a synthetic QA job and does not create employment or authorize client access.",
+    "signatureInstruction": "Only a tester acting as this fictional persona signs QA-labeled test forms; never a real person's signature or clinical attestation.",
+    "reapplyChangeForC": null
+  },
+  "C": {
+    "name": "Noel QA-Plotline-1101",
+    "logicalEmail": "qa.plotline.noel@example.com",
+    "jobMarker": "QA-PL1101-OPS",
+    "phone": null,
+    "communicationChoice": "email",
+    "availability": "Monday-Wednesday, 10 AM-2 PM America/Denver.",
+    "languages": [
+      "English",
+      "Spanish"
+    ],
+    "whyThisRole": "I am interested in this fictional coordination role because I enjoy helping people understand what happens next. The attached synthetic history describes front-desk organization and bilingual administrative work. I would confirm the intended recipient before sharing information and keep unresolved requests visible for the team.",
+    "organizationExample": "I would write the next action, its owner and due date in the shared task list. I would confirm the handoff before marking it complete.",
+    "privacyExample": "I would verify the recipient and my authority before sharing information. I would ask the responsible staff member when unsure.",
+    "credentials": "No verified credential supplied - synthetic QA narrative only.",
+    "references": [],
+    "acknowledgementText": "I understand this is a synthetic QA job and does not create employment or authorize client access.",
+    "signatureInstruction": "Only a tester acting as this fictional persona signs QA-labeled test forms; never a real person's signature or clinical attestation.",
+    "reapplyChangeForC": "For C's one deliberate new application, add Friday 10 AM-noon as a new availability preference; retain the original application snapshot."
+  },
+  "D": {
+    "name": "Sasha QA-Plotline-1101",
+    "logicalEmail": "qa.plotline.sasha@example.com",
+    "jobMarker": "QA-PL1101-OPS",
+    "phone": null,
+    "communicationChoice": "email",
+    "availability": "Saturday only, 9 AM-noon America/Denver; intentionally differs from QA role.",
+    "languages": [
+      "English"
+    ],
+    "whyThisRole": "This is a manual-entry applicant test for the fictional coordinator role. My synthetic availability is Saturdays only, which differs from the example weekday schedule. Staff should record that mismatch fairly without inventing a credential or moving me into onboarding.",
+    "organizationExample": "I would write the next action, its owner and due date in the shared task list. I would confirm the handoff before marking it complete.",
+    "privacyExample": "I would verify the recipient and my authority before sharing information. I would ask the responsible staff member when unsure.",
+    "credentials": "No verified credential supplied - synthetic QA narrative only.",
+    "references": [],
+    "acknowledgementText": "I understand this is a synthetic QA job and does not create employment or authorize client access.",
+    "signatureInstruction": "Only a tester acting as this fictional persona signs QA-labeled test forms; never a real person's signature or clinical attestation.",
+    "reapplyChangeForC": null
+  }
+}

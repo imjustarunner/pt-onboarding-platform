@@ -1,0 +1,58 @@
+PLOTLINE QA PREPARATION — NOVEMBER 1, 2026
+
+Prepared the next live-app setup and QA assignment in:
+docs/qa/QA-ADDENDUM-2026-11-01-PLOTLINE-HIRING-AND-ONBOARDING.txt
+
+Inputs: docs/qa/fixtures/plotline-2026-11-01/
+Rebuild tool: docs/qa/tools/buildPlotlineQaFixtures.py
+Portable handoff: deliverables/plotline-qa-2026-11-01/PLOTLINE-QA-PACKET.zip
+
+The assignment preserves demo agency 450, school 451, clinic 452, existing
+users/clinical records, testing@itsco.health and the current client/provider
+caps. It defines one additional People Operations Staff account, two demo job
+postings, four distinct applicants and their normal application-to-employee
+paths. Two applicants target active nonclinical Staff; one provider applicant
+stays pending; one applicant is not hired. These are planned end states.
+
+Material preparation: COMPLETE
+- 35 small fixture/ledger files, 77,498 bytes total before ZIP compression.
+- Four distinct selectable-text resume PDFs and matching plain-text sources,
+  four cover letters, application answers and two controlled reference inputs.
+- ITSCO demo careers-page copy/config and two QA job descriptions in TXT/PDF.
+- Unsigned synthetic pre-hire acknowledgement, upload sheet, QA handbook,
+  orientation/quiz/reflection source and example internal review text.
+- 49 case rows and 32 initial real-action email inventory rows, all NOT RUN.
+  The runner must split meaningful recipient variants and reconcile with the
+  current catalog rather than treating that inventory as exhaustive.
+
+Validation performed
+- Careers-page fields, navigation and modal survive the released sanitizer.
+- All nine PDFs opened and their selectable source text extracted with the
+  installed pdfjs-dist legacy Node build. All retain the visible QA warning.
+- All five JSON files parse; identities are unique; scope is agency 450;
+  live IDs remain null and no live mutations are claimed.
+- CSV shape, case references and all 34 listed file SHA-256 hashes verified.
+- Generator requires only Python's standard library and refuses to overwrite
+  altered results/materials. No dependencies installed, no app build or extra
+  checkout created. No production source or configuration was changed.
+
+Released source inspected: 70c79816a65072f8e75fab8fae8fe6213689c7ec.
+Important cases based on source inspection, still requiring live verification:
+- Public applications default to provider; nonclinical roles must be reviewed
+  and saved through normal account setup before activation. Recount all roles.
+- Added-items batch uses two minutes while older comments say fifteen. Record
+  actual displayed timing, due time and receipt; do not infer a 15-minute pass.
+- Hire account mode can require real Google Group/account/sender readiness.
+  Example addresses are logical app QA identities, not work mailboxes. Do not
+  provision real accounts/groups or relax the gate to make the run pass.
+- Password preparation does not authorize employee login before staff approval.
+- Reference reminder source uses a 48-hour follow-up and a T-24-hour expiry
+  reminder. Only real elapsed-time worker/inbox evidence can pass these cases.
+
+Live execution status: NOT RUN
+No new People Operations account, careers page, job, package or applicant was
+created in the live app by preparing this packet. No live email, reference
+request, signature, external background check, Google Directory write, payroll
+approval or clinical action was performed. Creation is the first part of the
+next app-only run, and exact generated IDs go into its private evidence ledger.
+This is a prepared test assignment and input packet, not a live Plotline pass.

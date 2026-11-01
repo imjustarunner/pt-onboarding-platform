@@ -1,0 +1,46 @@
+{
+  "title": "QA orientation: task handoffs and privacy",
+  "warning": "SYNTHETIC QA ONLY - NOT A REAL PERSON, VACANCY OR EMPLOYMENT RECORD.",
+  "body": [
+    "WELCOME TO THE QA WORKPLACE",
+    "In this fictional workplace, the staff member keeps a task list with a clear next action and owner. A task is complete only after the expected handoff is confirmed.",
+    "PRIVACY AND ROLE BOUNDARIES",
+    "Use only your own app identity. Review the recipient and your authority before sharing a document or message. Nonclinical staff route clinical questions to an authorized clinician.",
+    "ASKING FOR HELP",
+    "When a record is missing or a deadline conflicts, ask People Operations through the intended message path. Do not change another person's work or mark prerequisites complete to clear a checklist.",
+    "ACCOUNT READINESS",
+    "Setting a password is a setup step. Employee access starts after the required onboarding and staff approval. Keep passwords and personal portal links in the QA vault.",
+    "This is a short QA resource, not ITSCO's actual employee handbook or a legal policy. Reading this file alone does not pass required company training."
+  ],
+  "questions": [
+    {
+      "question": "A clinical question reaches a nonclinical coordinator. What should they do?",
+      "options": [
+        "Guess an answer",
+        "Route it to an authorized clinician",
+        "Mark the request complete without a handoff"
+      ],
+      "correctIndex": 1
+    },
+    {
+      "question": "A new candidate has set a password but is waiting for approval. Are they active?",
+      "options": [
+        "Yes, password save activates them",
+        "No, normal onboarding and staff approval still apply"
+      ],
+      "correctIndex": 1
+    },
+    {
+      "question": "Where should a private candidate token be stored?",
+      "options": [
+        "A public screenshot",
+        "An ordinary shared result CSV",
+        "The controlled QA vault"
+      ],
+      "correctIndex": 2
+    }
+  ],
+  "reflectionPrompt": "Write one sentence about confirming the owner of the next action.",
+  "syntheticReflectionExample": "I would confirm who owns the next step before closing the handoff.",
+  "completionInstruction": "Use the app's real reading, quiz and retry rules. Do not invent completed time, another person's answer or a real training credential."
+}

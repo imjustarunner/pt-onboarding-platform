@@ -1,0 +1,24 @@
+SYNTHETIC REFERENCE INPUTS
+
+SYNTHETIC QA ONLY - NOT A REAL PERSON, VACANCY OR EMPLOYMENT RECORD.
+
+Auden QA Reference-1101
+qa.plotline.reference.auden@example.com
+Fictional administrative training supervisor
+complete via delivered public reference form
+
+Tobin QA Reference-1101
+qa.plotline.reference.tobin@example.com
+Fictional project colleague
+leave pending for real due reminders
+
+Auden form example:
+I worked with Jules in the fictional administrative training scenario. Jules
+kept an orderly task list and checked ownership before closing a request.
+A useful development area was asking for help earlier when priorities changed.
+I would practice working with Jules again in this simulated setting.
+These are QA answers, not a real reference or a verified employment claim.
+
+Complete only Auden initially. Leave Tobin unanswered for real due reminders.
+Both requests physically go to testing@; use their separate delivered tokens.
+Do not send real email replies as an example.com identity.

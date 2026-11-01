@@ -1,0 +1,9 @@
+SYNTHETIC QA ONLY - NOT A REAL PERSON, VACANCY OR EMPLOYMENT RECORD.
+
+This document exercises the demo application's signing and retention workflow only. It is not an employment contract, consent to a background check, clinical agreement or verified qualification.
+
+I understand I am using a fictional QA identity and will keep real personal, financial and clinical information out of this exercise.
+
+I will review the displayed task and ask a QA operator if I cannot complete it through the normal permitted workflow.
+
+Candidate signature and date are collected by the app as this fictional persona. A separate staff countersigner, if configured, signs only their own QA acknowledgement. No signature is prefilled in this file.
