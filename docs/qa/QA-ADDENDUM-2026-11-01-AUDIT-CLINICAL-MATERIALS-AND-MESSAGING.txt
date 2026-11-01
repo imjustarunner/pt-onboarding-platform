@@ -14,6 +14,13 @@ SCOPE AND EVIDENCE
 - Jordan 1434 is support. Jamie 1465 remains School Admin for school 451 only.
 - Alex 1439 is the master's-level clinical provider; Cameron 1438 is the
   clinical supervisor. Avery 1433 is the independently licensed QA provider.
+- Avery 1433 uses password login. Its personal-email QA alias is
+  qa.avery.personal@example.com; physical delivery is testing@itsco.health.
+  The owner authorized seeded QA email workflows on November 1. Demo-only
+  email exclusions are removed for agencies 450 / 451 / 452; all To/Cc/Bcc
+  are forced to the testing inbox, including normally exempt real addresses.
+  Keep the intended alias and physical inbox distinct in evidence. Normal
+  roles, authorization, communication preferences and due times still apply.
 - Quality Tester 1490 is the Google SSO/contact-plan fixture. Do not grant
   clinical credentials or use that account to sign a 90791 for this test.
 - Guardian 1437 uses testing@itsco.health. Existing saved identity/links remain
@@ -311,9 +318,13 @@ review the client's own rating at the next session."
 - For non-SSO verify the saved 24-hour/unread delivery choice, timezone/business
   hours labeling, and actual elapsed-time behavior. Read in app before due time:
   no notice. Leave unread until due: one notice, with correct correspondent.
-- Select Immediate in personal EMAIL delivery settings, using a verified
-  controlled personal destination. Send to the provider's work identity, verify
-  immediate forwarding, then reply from that verified personal inbox.
+- As Avery select Immediate and one-to-one forwarding in personal EMAIL
+  delivery settings. Use the saved qa.avery.personal@example.com alias;
+  physical mail goes to testing@itsco.health. Send to Avery's work identity,
+  verify receipt, then reply from testing@ using that exact reminder token.
+  The authenticated testing-inbox sender can represent this seeded alias only
+  for its sent private reminder in the QA agency. An unrelated token, another
+  account/agency or unauthenticated sender must not authorize a reply.
 - The app routes the reply to the correct conversation as the validated work
   identity. Recipient headers, body/footer, history, reply-to, attachments and
   quoted content must not reveal the provider's personal address. Wrong personal
@@ -345,9 +356,11 @@ review the client's own rating at the next session."
 - Record exact recipient variant, trigger/action, due time, actual From/Reply-To,
   provider message ID, QA inbox receipt/time, screenshot and PASS/FAIL/BLOCKED.
   Include privacy negatives, duplicate prevention and actual action-link result.
-- Record worker/demo exclusions, unavailable clinical SMS, private malware scan
-  setup, delegated SSO mailbox readiness, and any unseeded trend history as
-  explicit blockers. Do not silently turn off a production/demo gate to pass.
+- Demo-only email exclusions for the scoped QA organizations are owner-
+  authorized for removal. Verify the deployed build before treating that
+  restriction as cleared. Do not disable unrelated production controls.
+  Record unavailable clinical SMS, private malware scan setup, delegated SSO
+  mailbox readiness, and any unseeded trend history as explicit blockers.
 - Keep the master action-to-audit ledger, missing-event list, audit search/export
   evidence, clinical signatures/amendments and per-recipient share checks with
   the report. Open defects stay open until freshly verified in the live app.

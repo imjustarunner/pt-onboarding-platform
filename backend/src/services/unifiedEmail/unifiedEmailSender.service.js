@@ -636,7 +636,7 @@ export async function sendNotificationEmail({
   if (templateType === 'client_ooo_auto_reply' && (!afterHoursReplyContext || !await eligibleClientAfterHoursReply({ ...afterHoursReplyContext, ownerUserId: generatedByUserId, fromEmail: to }))) return { skipped: true, reason: 'after_hours_reply_not_allowed' };
   const eventDelivery = await priorityEventEmailRecipient({agencyId,userId,templateType:templateType || triggerKey,to,subject});
   to=eventDelivery.to; subject=eventDelivery.subject;
-  await assertMessageReminderRecipient({ templateType, userId, to });
+  await assertMessageReminderRecipient({ templateType, userId, agencyId, to });
   await managedGroupEnvelope({ to, actorUserId: generatedByUserId });
   const emailGate = await canSendEmail({ source, agencyId });
   const gate = emailGate.allowed ? await routineParentEmailGate({source,agencyId,to,templateType:templateType || triggerKey,clientId}) : emailGate;
@@ -1046,10 +1046,10 @@ export async function sendEmailFromIdentity({
   if (templateType === 'vacation_auto_reply' && (!afterHoursReplyContext || !await eligibleVacationReply({...afterHoursReplyContext,ownerUserId:generatedByUserId,fromEmail:to}))) return {skipped:true,reason:'vacation_reply_not_allowed'};
   if (templateType === 'client_ooo_auto_reply' && (!afterHoursReplyContext || !await eligibleClientAfterHoursReply({ ...afterHoursReplyContext, ownerUserId: generatedByUserId, fromEmail: to }))) return { skipped: true, reason: 'after_hours_reply_not_allowed' };
   assertFreshCardEmail({ templateType, existingCommunicationId });
-  await assertMessageReminderRecipient({ templateType, userId, to, cc, bcc });
   await managedGroupEnvelope({ to, cc, bcc, actorUserId: generatedByUserId });
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
+  await assertMessageReminderRecipient({ templateType, userId, agencyId: identity.agency_id, to, cc, bcc });
   if (templateType === 'treatment_goal_progress' && existingCommunicationId) {
     if (cc || bcc) throw new Error('Plan progress emails require an individual authorized recipient.');
     const { assertQueuedTreatmentGoalProgressRecipient } = await import('../treatmentGoalProgress.service.js');

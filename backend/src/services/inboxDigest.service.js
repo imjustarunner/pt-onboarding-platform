@@ -1,3 +1,5 @@
+import { notificationTransportReceipt } from '../utils/notificationTransportReceipt.js';
+import { emailWorkerAccountSql } from '../utils/qaEmailPolicy.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import { personalMessagePreferences, validatePersonalMessagePatch } from '../utils/personalMessagePreferences.js';
 import pool from '../config/database.js';
@@ -221,7 +223,7 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
      LEFT JOIN user_communication_prefs p ON p.user_id = u.id
      WHERE UPPER(u.status) IN ('ACTIVE','ACTIVE_EMPLOYEE','ONBOARDING')
        AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
-       AND COALESCE(u.is_demo,0)=0
+       AND ${emailWorkerAccountSql('u', 'ua.agency_id')}
        AND u.role NOT IN ('client','client_guardian','guardian','kiosk')
        AND (
          (u.personal_email IS NOT NULL AND TRIM(u.personal_email) <> '')
@@ -352,7 +354,7 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
           source: 'auto'
         });
       }
-      const delivered=result?.id && !result.blocked && !result.skipped && !result.pendingApproval && !result.queued;
+      const delivered=notificationTransportReceipt(result,agencyId).accepted;
       for(const thread of claimed)await pool.execute('UPDATE user_chat_email_reminders SET delivery_status=? WHERE user_id=? AND message_id=?',[delivered?'sent':'held',row.user_id,thread.message_id]);
       if(delivered)sent++;
     } catch (e) {

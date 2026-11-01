@@ -1,3 +1,4 @@
+import { isQaEmailAgency } from '../../utils/qaEmailPolicy.js';
 import { sendClientPortalEmail } from '../clientPortalEmail.service.js';
 import { clientPortalAppUrl } from '../clientPortalContext.service.js';
 import { portalActionHtml } from '../clientPortalEmailContent.js';
@@ -17,7 +18,7 @@ import { requireReadySender } from '../familyLedger/senders.js';
 
 const uncertainStatuses = ['sending', 'unknown', 'held'];
 const activeEmail = profile => profile.email && ![0,false,'0'].includes(profile.user_is_active) && ![1,true,'1'].includes(profile.user_is_archived) && ['ACTIVE','ACTIVE_EMPLOYEE'].includes(String(profile.user_status).toUpperCase());
-const isDemo = profile => [1,true,'1'].includes(profile.user_is_demo);
+const isDemo = profile => [1,true,'1'].includes(profile.user_is_demo) && !isQaEmailAgency(profile.agency_id);
 const depsFor = overrides => ({ reviewer: isCardReviewer, db: pool, agencies: billingWorkspaceAgencies, authorize: requireBillingStaff,
   activeAgency: isActiveBillingAgency, context: cardContext, refresh: refreshCardFollowup,
   choices: latestIntakeCommunicationChoices, preferences: guardianReminderPreferences, sender: requireReadySender, send: sendClientPortalEmail,

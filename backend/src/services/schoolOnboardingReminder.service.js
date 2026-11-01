@@ -1,3 +1,4 @@
+import { emailWorkerAccountSql } from '../utils/qaEmailPolicy.js';
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
 import EmailService from './email.service.js';
@@ -37,7 +38,7 @@ export async function runSchoolOnboardingReminders({ now = new Date(), dryRun = 
   const [invites] = await database.execute(`SELECT i.*,a.name agency_name,a.slug agency_slug FROM school_onboarding_invites i
     JOIN agencies a ON a.id=i.agency_id AND a.is_active=1
     JOIN agencies s ON s.id=i.school_organization_id AND s.is_active=1
-    JOIN users u ON u.id=i.primary_user_id AND COALESCE(u.is_demo,0)=0
+    JOIN users u ON u.id=i.primary_user_id AND ${emailWorkerAccountSql('u', 'i.agency_id')}
     WHERE i.status IN ('invited','in_progress','expired') AND i.submitted_at IS NULL
       AND i.invite_email_sent_at<=DATE_SUB(?,INTERVAL 10 DAY)
       AND NOT EXISTS (SELECT 1 FROM school_onboarding_email_deliveries d WHERE d.invite_id=i.id AND d.kind='reminder')

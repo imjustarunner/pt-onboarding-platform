@@ -86,3 +86,12 @@ it.each([1,true,'1'])('keeps demo accounts out of staff reminders and rechecks d
  await expect(snoozeCardEmail(user,{...input,hours:24},deps)).rejects.toMatchObject({status:409});
  expect(deps.send).not.toHaveBeenCalled();
 });
+
+it('permits reviewed insurance-card email for seeded QA families while preserving preferences and review',async()=>{
+ const context=await deps.context();
+ deps.context.mockResolvedValue({...context,profile:{...context.profile,agency_id:450,user_is_demo:1}});
+ const qaInput={...input,agencyId:450};
+ const preview=await previewCardEmail(user,qaInput,deps);expect(preview.canSend).toBe(true);
+ expect(await sendReviewedCardEmail(user,{...qaInput,reviewHash:preview.reviewHash},deps)).toEqual({status:'sent'});
+ expect(deps.send).toHaveBeenCalledWith(expect.objectContaining({agencyId:450,source:'manual'}));
+});

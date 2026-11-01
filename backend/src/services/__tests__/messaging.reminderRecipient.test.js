@@ -1,9 +1,11 @@
 import { beforeEach, expect, it, vi } from 'vitest';
+vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(async()=>[[]]) } }));
 vi.mock('../googleWorkspaceDirectory.service.js', () => ({ default: { isConfigured: vi.fn(() => true), getUser: vi.fn(async () => null), getGroup: vi.fn(async () => ({ id: 'group' })) } }));
 vi.mock('../../models/User.model.js', () => ({ default: { findById: vi.fn() } }));
 vi.mock('../inboxDigest.service.js', () => ({ getCommunicationPrefs: vi.fn() }));
 import { getCommunicationPrefs } from '../inboxDigest.service.js';
 import User from '../../models/User.model.js';
+import pool from '../../config/database.js';
 import Directory from '../googleWorkspaceDirectory.service.js';
 import { messageReminderRecipient, assertMessageReminderRecipient } from '../messageReminderRecipient.service.js';
 const user = { email: 'provider@itsco.health', work_email: 'provider@itsco.health', personal_email: 'private@example.org', role: 'provider', sso_password_override: 0, login_is_group_email: 0 };
@@ -83,4 +85,25 @@ it('rechecks notification opt-out and forwarding opt-in at the send boundary', a
   for (const templateType of ['personal_thread_reminder', 'personal_thread_forward', 'hub_secure_unread_digest']) {
     await expect(assertMessageReminderRecipient({ ...delivery, templateType })).rejects.toMatchObject({ code: 'REMINDER_RECIPIENT_POLICY' });
   }
+});
+
+const seeded = { ...user, id:1433, is_demo:1, sso_password_override:1, login_is_group_email:0,
+  email:'qa.provider.auricwell@example.com', personal_email:'qa.avery.personal@example.com' };
+it('enables seeded QA forwarding without inventing a Workspace account',async()=>{
+  pool.execute.mockResolvedValue([[{id:1433}]]);
+  expect(await messageReminderRecipient(seeded,{agencyId:450})).toBe(seeded.personal_email);
+  expect(Directory.getUser).not.toHaveBeenCalled();
+  expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining("root.slug='auricwell-qa-demo'"),[1433,450,450]);
+  expect(await messageReminderRecipient(seeded,{agencyId:2})).toBeNull();
+  expect(await messageReminderRecipient(seeded,{agencyId:450,allowPersonal:false})).toBeNull();
+  expect(await messageReminderRecipient({...seeded,is_active:0},{agencyId:450})).toBeNull();
+});
+it('retains QA membership checks and SSO/work routing',async()=>{
+  pool.execute.mockResolvedValue([[]]);
+  expect(await messageReminderRecipient(seeded,{agencyId:450})).toBeNull();
+  pool.execute.mockResolvedValue([[{id:1490}]]);
+  const sso={...seeded,id:1490,email:'qa-inbox@itsco.health',work_email:'qa-inbox@itsco.health',sso_password_override:0};
+  expect(await messageReminderRecipient(sso,{agencyId:450})).toBeNull();
+  expect(await messageReminderRecipient(sso,{agencyId:450,channel:'secure'})).toBe(sso.work_email);
+  expect(await messageReminderRecipient({...seeded,role:'client_guardian'},{agencyId:450})).toBeNull();
 });

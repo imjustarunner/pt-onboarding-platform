@@ -1,10 +1,11 @@
+import { isQaEmailAgency } from './qaEmailPolicy.js';
 /**
  * Demo / fake people keep character or playground emails on their accounts
  * (e.g. sirius.black@hogwarts.edu, provider.itsco-training@example.demo)
  * but outbound mail is delivered to the ITSCO testing inbox.
  *
  * Real Hogwarts-assigned people (Williams, Chuckie, Piper Finch, Loriana)
- * are never redirected.
+ * retain their normal delivery outside the dedicated QA organizations.
  *
  * Also redirects:
  * - @example.com / sibling RFC reserved domains
@@ -176,6 +177,7 @@ async function loadDemoAgencyIds() {
  */
 export async function shouldRedirectForDemoAttachment({ agencyId = null, userId = null, clientId = null } = {}) {
   const aid = Number(agencyId || 0);
+  if (isQaEmailAgency(aid)) return true;
   if (aid > 0) {
     const demoIds = await loadDemoAgencyIds();
     if (demoIds.has(aid)) return true;
@@ -270,7 +272,7 @@ export async function rewriteHogwartsOutboundRecipient({
     const redirect = [];
     const next = [];
     for (const email of emails) {
-      if (isKeepRealHogwartsEmail(email)) {
+      if (!isQaEmailAgency(agencyId) && isKeepRealHogwartsEmail(email)) {
         next.push(email);
         continue;
       }

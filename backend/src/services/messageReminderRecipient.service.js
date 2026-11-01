@@ -1,4 +1,5 @@
 import Directory from './googleWorkspaceDirectory.service.js';
+import { seededQaEmailAccount } from './qaSeededEmail.service.js';
 
 const enabled = value => value === true || value === 1 || value === '1';
 const email = value => String(value || '').trim().toLowerCase();
@@ -9,15 +10,25 @@ export function isAppOnlyProvider(user) {
 
 const staffRoles = new Set(['admin','super_admin','support','staff','provider','provider_plus','clinical_practice_assistant','intern','intern_plus','supervisor','schedule_manager','facilitator','tutor']);
 export function activeMessageStaff(user) {
-  return (staffRoles.has(String(user.role || '').toLowerCase()) || enabled(user.has_provider_access)) && !enabled(user.is_demo)
+  return (staffRoles.has(String(user.role || '').toLowerCase()) || enabled(user.has_provider_access))
     && !enabled(user.is_archived) && (user.is_active == null || enabled(user.is_active))
     && (!user.status || ['ACTIVE','ACTIVE_EMPLOYEE','ONBOARDING'].includes(String(user.status).toUpperCase()));
 }
 /** An enabled Workspace account never receives personal fallback. A suspended
  * Workspace account may use it only while its app staff account remains active
  * and password login has explicitly been enabled. Directory failures fail closed. */
-export async function messageReminderRecipient(user, { channel = 'email', allowPersonal = true } = {}) {
+export async function messageReminderRecipient(user, { channel = 'email', allowPersonal = true, agencyId = null } = {}) {
   if (!activeMessageStaff(user)) return null;
+  if (enabled(user.is_demo)) {
+    if (!await seededQaEmailAccount(user, { agencyId: agencyId ?? user.agency_id ?? null })) return null;
+    // A seeded password identity has no real Workspace user/group. Preserve its
+    // intended alias; the shared transport forces all QA agency mail to testing.
+    if (enabled(user.sso_password_override)) {
+      const personal = email(user.personal_email);
+      return allowPersonal && personal && personal !== email(user.email) ? personal : null;
+    }
+    return channel !== 'email' ? email(user.work_email || user.email) || null : null;
+  }
   if (enabled(user.sso_password_override)) {
     if (!Directory.isConfigured()) return null;
     const login = email(user.email);
@@ -49,12 +60,12 @@ export async function personalMessageSettingsEligibility(userId) {
   } catch { return { eligible:false, reason:'verification_unavailable', personalEmail:null }; }
 }
 
-export async function assertMessageReminderRecipient({ templateType, userId, to, cc, bcc }) {
+export async function assertMessageReminderRecipient({ templateType, userId, agencyId = null, to, cc, bcc }) {
   const channel = { personal_thread_reminder: 'email', personal_thread_forward: 'email', hub_secure_unread_digest: 'secure', hub_sms_unread_digest: 'sms' }[templateType];
   if (!channel) return;
   const User = (await import('../models/User.model.js')).default;
   const user = userId ? await User.findById(userId) : null;
-  let allowed = user ? await messageReminderRecipient(user, { channel }) : null;
+  let allowed = user ? await messageReminderRecipient(user, { channel, agencyId }) : null;
   if(allowed && allowed===email(user.personal_email)) {
     const prefs=await (await import('./inboxDigest.service.js')).getCommunicationPrefs(userId);
     if(!prefs.personalEmailNotify || (templateType==='personal_thread_forward' && prefs.personalEmailDeliveryMode!=='forward_one_to_one'))allowed=null;

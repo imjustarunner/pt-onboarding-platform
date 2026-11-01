@@ -1,3 +1,4 @@
+import { emailWorkerAccountSql, isQaEmailAgency } from '../utils/qaEmailPolicy.js';
 import pool from '../config/database.js';
 import crypto from 'node:crypto';
 import {readClientInsurance} from './clientInsurance.service.js';
@@ -15,7 +16,7 @@ export function benefitNoticeFingerprint({insuranceFingerprint,facts}){
 }
 
 export async function activeBillingBenefitRecipient({agencyId,clientId,guardianUserId,expectedEmail},db=pool){
- const [[recipient]]=await db.execute(`SELECT u.id,u.email,u.first_name FROM client_guardians cg JOIN clients c ON c.id=cg.client_id JOIN users u ON u.id=cg.guardian_user_id WHERE c.agency_id=? AND c.id=? AND u.id=? AND cg.access_enabled=1 AND u.is_active=1 AND COALESCE(u.is_demo,0)=0 AND COALESCE(u.is_archived,0)=0 AND u.terminated_at IS NULL AND (u.status_expires_at IS NULL OR u.status_expires_at>UTC_TIMESTAMP()) AND UPPER(COALESCE(u.status,'')) NOT IN ('ARCHIVED','INACTIVE','INACTIVE_EMPLOYEE','TERMINATED','SUSPENDED')`,[agencyId,clientId,guardianUserId]);
+ const [[recipient]]=await db.execute(`SELECT u.id,u.email,u.first_name FROM client_guardians cg JOIN clients c ON c.id=cg.client_id JOIN users u ON u.id=cg.guardian_user_id WHERE c.agency_id=? AND c.id=? AND u.id=? AND cg.access_enabled=1 AND u.is_active=1 AND ${emailWorkerAccountSql('u','c.agency_id')} AND COALESCE(u.is_archived,0)=0 AND u.terminated_at IS NULL AND (u.status_expires_at IS NULL OR u.status_expires_at>UTC_TIMESTAMP()) AND UPPER(COALESCE(u.status,'')) NOT IN ('ARCHIVED','INACTIVE','INACTIVE_EMPLOYEE','TERMINATED','SUSPENDED')`,[agencyId,clientId,guardianUserId]);
  if(!recipient||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient.email||'')||(expectedEmail&&recipient.email.toLowerCase()!==expectedEmail.toLowerCase()))throw billingError(409,'The recipient account or email changed before delivery');
  await requireBillingLink(guardianUserId,clientId,agencyId,db);
  return recipient;
@@ -30,7 +31,7 @@ export async function billingBenefitNoticeContext({agencyId,clientId,coverageChe
  const [[latest]]=await db.execute('SELECT MAX(id) id FROM client_coverage_checks WHERE agency_id=? AND client_id=?',[agencyId,clientId]);
  if(Number(latest.id)!==Number(check.id)){result.ready=false;result.reasons.push('Newer eligibility evidence exists');}
  const [[client]]=await db.execute(`SELECT c.*,u.email AS provider_email FROM clients c LEFT JOIN users u ON u.id=c.provider_id AND u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=c.agency_id AND ua.is_active=1) WHERE c.id=? AND c.agency_id=?`,[clientId,agencyId]);
- if(!client||client.is_demo||client.terminated_at||client.status!=='ACTIVE'){result.ready=false;result.reasons.push('Client is not an active non-demo account');}
+ if(!client||(client.is_demo&&!isQaEmailAgency(agencyId))||client.terminated_at||client.status!=='ACTIVE'){result.ready=false;result.reasons.push('Client is not an active eligible account');}
  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(client?.provider_email||'')){result.ready=false;result.reasons.push('Assigned provider email is unavailable');}
  return {...result,client,check};
 }
@@ -41,7 +42,7 @@ export async function sendAutomaticBillingBenefits(input){
  if(process.env.AUTOMATIC_BENEFIT_EMAILS_ENABLED!=='true')return {status:'staged'};
  const {agencyId,clientId,coverageCheckId}=input,context=await billingBenefitNoticeContext(input);
  const fingerprint=benefitNoticeFingerprint({insuranceFingerprint:context.check.insurance_fingerprint,facts:context.facts});
- const [guardians]=await pool.execute("SELECT u.id,u.email,u.first_name FROM client_guardians cg JOIN users u ON u.id=cg.guardian_user_id WHERE cg.client_id=? AND cg.access_enabled=1 AND u.is_active=1 AND COALESCE(u.is_demo,0)=0 AND COALESCE(u.is_archived,0)=0 AND u.terminated_at IS NULL AND (u.status_expires_at IS NULL OR u.status_expires_at>UTC_TIMESTAMP()) AND UPPER(COALESCE(u.status,'')) NOT IN ('ARCHIVED','INACTIVE','INACTIVE_EMPLOYEE','TERMINATED','SUSPENDED')",[clientId]);
+ const [guardians]=await pool.execute(`SELECT u.id,u.email,u.first_name FROM client_guardians cg JOIN users u ON u.id=cg.guardian_user_id WHERE cg.client_id=? AND cg.access_enabled=1 AND u.is_active=1 AND ${emailWorkerAccountSql('u',String(Number(agencyId)))} AND COALESCE(u.is_archived,0)=0 AND u.terminated_at IS NULL AND (u.status_expires_at IS NULL OR u.status_expires_at>UTC_TIMESTAMP()) AND UPPER(COALESCE(u.status,'')) NOT IN ('ARCHIVED','INACTIVE','INACTIVE_EMPLOYEE','TERMINATED','SUSPENDED')`,[clientId]);
  const results=[];
  for(const g of guardians){
   try{await requireBillingLink(g.id,clientId,agencyId);}catch(e){if(e.status===403)continue;throw e;}
