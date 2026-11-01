@@ -1,3 +1,4 @@
+import { logNoteAidChartEvent } from '../services/noteAidChartAudit.service.js';
 import { assertLiveClearinghouseAgency } from '../services/syntheticClearinghouseGuard.service.js';
 import { validateScreeningSignature, completeH0002Screening, H0002_SOURCE } from '../services/h0002ScreeningWorkflow.service.js';
 import { providerBillingNpi } from '../services/providerBillingNpi.service.js';
@@ -18,6 +19,7 @@ import { encryptFamilyBilling } from '../services/familyBillingEncryption.servic
 import { auditBilling } from '../services/familyBillingPolicy.service.js';
 import crypto from 'crypto';
 import { validationResult } from 'express-validator';
+import { logAuditEvent } from '../services/auditEvent.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import ClinicalSession from '../models/clinical/ClinicalSession.model.js';
 import ClinicalNote from '../models/clinical/ClinicalNote.model.js';
@@ -291,6 +293,7 @@ export const getTreatmentPlanById = async (req, res, next) => {
     if (!plan || Number(plan.agency_id) !== agencyId || Number(plan.client_id) !== clientId) {
       return res.status(404).json({ error: { message: 'Treatment plan not found' } });
     }
+    await logNoteAidChartEvent(req, { clientId, agencyId, action: 'clinical_treatment_plan_viewed', metadata: { treatmentPlanId: plan.id } });
     return res.json({ plan });
   } catch (e) {
     next(e);
@@ -925,6 +928,7 @@ export const listClientChart = async (req, res, next) => {
       contactNotes = [];
     }
 
+    await logNoteAidChartEvent(req, { clientId, agencyId, action: 'clinical_record_viewed' });
     return res.json(await schedulingResponseForUser(req.user, agencyId, {
       notes: notesOut,
       plans: (plans || []).filter((p) => !isIntakeAutoTreatmentPlan(p)),
@@ -1541,6 +1545,7 @@ export const getClinicalNoteById = async (req, res, next) => {
       if (insurance) clientPayer = { name: insurance.primary?.insurerName || null, memberId: insurance.primary?.memberId || null };
     }
 
+    await logNoteAidChartEvent(req, { clientId: note.client_id, agencyId: note.agency_id, action: 'clinical_note_viewed', metadata: { noteId: note.id, clinicalSessionId: note.clinical_session_id || null } });
     return res.json(await schedulingResponseForUser(req.user, note.agency_id, {
       note: {
         id: note.id,
@@ -3619,12 +3624,9 @@ export const createClinicalNoteAddendum = async (req, res, next) => {
         VALUES (?,?,?,?,?,'awaiting_supervisor') ON DUPLICATE KEY UPDATE status='awaiting_supervisor',supervisor_signed_at=NULL`,
         [note.agency_id,noteId,note.provider_signed_by_user_id || note.created_by_user_id,policy.supervisorUserId,note.provider_signed_at]);
     } });
-    ActivityLogService.logActivity({
-      userId: req.user.id,
-      agencyId: note.agency_id,
-      actionType: 'clinical_note_addendum_added',
-      metadata: { noteId, clientId: note.client_id, entryKind: req.body.entryKind }
-    }, req);
+    await logAuditEvent(req, { agencyId: note.agency_id, actionType: 'clinical_note_addendum_added',
+      targetType: 'clinical_note', targetId: noteId,
+      metadata: { noteId, clientId: Number(note.client_id), clinicalSessionId: Number(note.clinical_session_id) || null } });
     return res.status(201).json({ addenda: await listNoteAddenda(noteId), supervisorSignoffRequired: true, supervisorAssignmentRequired: !policy.supervisorUserId,serviceChangePending:req.body.serviceLines!==undefined,claimTransmitted:false });
   } catch (e) {
     next(e);

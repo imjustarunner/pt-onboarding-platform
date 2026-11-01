@@ -15,6 +15,20 @@ function getReferralKmsKeyName() {
 }
 
 class DocumentEncryptionService {
+  static sessionMaterialAad({ agencyId, clientId, originalName }) {
+    return JSON.stringify({ purpose: 'session_supporting_material', agencyId: Number(agencyId), clientId: Number(clientId), filename: String(originalName) });
+  }
+
+  static async decryptPhiDocumentBuffer(doc, encryptedBuffer, sanitizeFilename = value => value) {
+    const encryption = { encryptedBuffer, encryptionKeyId: doc.encryption_key_id,
+      encryptionWrappedKeyB64: doc.encryption_wrapped_key, encryptionIvB64: doc.encryption_iv,
+      encryptionAuthTagB64: doc.encryption_auth_tag };
+    if (doc.document_type === 'session_supporting_material') {
+      return this.decryptBuffer({ ...encryption, aad: this.sessionMaterialAad({ agencyId: doc.agency_id, clientId: doc.client_id, originalName: doc.original_name }) });
+    }
+    return this.decryptReferralPacketBuffer({ ...encryption, organizationId: doc.school_organization_id, originalName: doc.original_name || '', sanitizeFilename });
+  }
+
   static isConfigured() {
     return !!getReferralKmsKeyName();
   }

@@ -22,10 +22,10 @@ describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET)('school contact plan MySQL 
       `CREATE TABLE users (id INT PRIMARY KEY,first_name VARCHAR(80),last_name VARCHAR(80),role VARCHAR(40),has_provider_access BOOLEAN DEFAULT FALSE,email VARCHAR(160),work_email VARCHAR(160),personal_email VARCHAR(160),sso_password_override BOOLEAN DEFAULT FALSE,login_is_group_email BOOLEAN DEFAULT FALSE,is_active BOOLEAN DEFAULT TRUE,is_archived BOOLEAN DEFAULT FALSE)`,
       `CREATE TABLE user_agencies (agency_id INT,user_id INT,is_active BOOLEAN DEFAULT TRUE)`,
       `CREATE TABLE organization_affiliations (agency_id INT,organization_id INT,is_active BOOLEAN DEFAULT TRUE)`,
-      `CREATE TABLE communication_inboxes (id INT PRIMARY KEY,agency_id INT,owner_user_id INT,kind VARCHAR(32),from_email VARCHAR(160),is_active BOOLEAN DEFAULT TRUE)`,
+      `CREATE TABLE communication_inboxes (id INT PRIMARY KEY,agency_id INT,sender_identity_id INT,owner_user_id INT,kind VARCHAR(32),from_email VARCHAR(160),is_active BOOLEAN DEFAULT TRUE)`,
       `CREATE TABLE provider_school_assignments (school_organization_id INT,provider_user_id INT,is_active BOOLEAN DEFAULT TRUE)`,
       `CREATE TABLE client_provider_assignments (client_id INT,provider_user_id INT,organization_id INT,is_active BOOLEAN DEFAULT TRUE)`,
-      `CREATE TABLE email_sender_identities (agency_id INT,from_email VARCHAR(160),identity_key VARCHAR(48),is_active BOOLEAN DEFAULT TRUE)`
+      `CREATE TABLE email_sender_identities (id INT PRIMARY KEY,agency_id INT,from_email VARCHAR(160),identity_key VARCHAR(48),is_active BOOLEAN DEFAULT TRUE)`
     ]) await connection.query(sql);
     for (const file of ['1719_school_provider_contact_plans.sql','1720_school_contact_automation.sql','1722_school_contact_three_attempts.sql']) {
       const source=await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8');
@@ -41,8 +41,8 @@ describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET)('school contact plan MySQL 
     await connection.execute('INSERT INTO user_agencies(agency_id,user_id) VALUES(450,1433),(450,1438),(2,1433)');
     await connection.execute('INSERT INTO organization_affiliations(agency_id,organization_id) VALUES(450,451)');
     await connection.execute('INSERT INTO provider_school_assignments(school_organization_id,provider_user_id) VALUES(451,1433),(451,1438)');
-    await connection.execute("INSERT INTO communication_inboxes(id,agency_id,owner_user_id,kind,from_email) VALUES(10,450,1433,'personal','qaproviderauricwell@itsco.health')");
-    await connection.execute("INSERT INTO email_sender_identities(agency_id,from_email,identity_key) VALUES(450,'messages@itsco.health','messages')");
+    await connection.execute("INSERT INTO communication_inboxes(id,agency_id,sender_identity_id,owner_user_id,kind,from_email) VALUES(10,450,41,1433,'personal','qaproviderauricwell@itsco.health')");
+    await connection.execute("INSERT INTO email_sender_identities(id,agency_id,from_email,identity_key) VALUES(41,450,'qaproviderauricwell@itsco.health','personal_1433'),(42,450,'messages@itsco.health','messages')");
   });
   afterAll(async () => {
     if (connection) { await connection.query(`DROP DATABASE IF EXISTS \`${databaseName}\``); await connection.end(); }
@@ -80,7 +80,7 @@ describe.skipIf(!process.env.HUB_SCOPE_MYSQL_SOCKET)('school contact plan MySQL 
   });
   it('resolves policy-driven SSO with mailbox copy while honoring per-provider password override', async () => {
     await connection.execute("UPDATE agencies SET feature_flags=JSON_OBJECT('googleSsoEnabled',true) WHERE id=450");
-    expect(await getSchoolContactPlan({ agencyId: 450, userId: 1433 })).toMatchObject({ routing: { isSso: true, providerEmail: 'qaproviderauricwell@itsco.health', replyTo: 'messages@itsco.health' } });
+    expect(await getSchoolContactPlan({ agencyId: 450, userId: 1433 })).toMatchObject({ routing: { isSso: true, providerEmail: 'qaproviderauricwell@itsco.health', replyTo: 'qaproviderauricwell@itsco.health' } });
     await connection.execute('UPDATE users SET sso_password_override=1 WHERE id=1433');
     expect(await getSchoolContactPlan({ agencyId: 450, userId: 1433 })).toMatchObject({ routing: { isSso: false, providerEmail: 'testing@itsco.health', replyTo: 'testing@itsco.health' } });
   });

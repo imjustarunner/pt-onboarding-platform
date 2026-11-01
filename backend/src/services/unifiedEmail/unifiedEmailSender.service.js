@@ -1050,6 +1050,11 @@ export async function sendEmailFromIdentity({
   await managedGroupEnvelope({ to, cc, bcc, actorUserId: generatedByUserId });
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
+  if (templateType === 'treatment_goal_progress' && existingCommunicationId) {
+    if (cc || bcc) throw new Error('Plan progress emails require an individual authorized recipient.');
+    const { assertQueuedTreatmentGoalProgressRecipient } = await import('../treatmentGoalProgress.service.js');
+    await assertQueuedTreatmentGoalProgressRecipient({ communicationId: existingCommunicationId, agencyId: identity.agency_id, clientId, userId, to });
+  }
   const { enrollmentReminderDeliveryGate } = await import('../enrollmentReminderDelivery.service.js');
   const enrollmentGate = await enrollmentReminderDeliveryGate({ templateType, intakeSubmissionId, existingCommunicationId, agencyId: identity.agency_id });
   if (!enrollmentGate.allowed) {
@@ -1386,6 +1391,10 @@ export async function sendEmailFromIdentity({
     };
   }
 
+  if (templateType === 'treatment_goal_progress' && existingCommunicationId) {
+    const { assertQueuedTreatmentGoalProgressRecipient } = await import('../treatmentGoalProgress.service.js');
+    await assertQueuedTreatmentGoalProgressRecipient({ communicationId: existingCommunicationId, agencyId: identity.agency_id, clientId, userId, to, claim: true });
+  }
   const gmail = await getGmailClient();
   if (internetMessageIdOverride && !/^<[^<>\s]+@[^<>\s]+>$/.test(internetMessageIdOverride)) throw new Error('Invalid RFC Message-ID');
   let internetMessageId = internetMessageIdOverride || `<${randomUUID()}@${String(identity.from_email).split('@').pop()}>`;

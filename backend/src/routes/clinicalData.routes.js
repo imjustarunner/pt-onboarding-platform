@@ -2,6 +2,7 @@ import express from 'express';
 import { excludeSupportClinicalContent } from '../middleware/supportContentAccess.middleware.js';
 import { body, param, query } from 'express-validator';
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
+import sessionSupportingMaterials from './sessionSupportingMaterials.routes.js';
 import {
   bootstrapClinicalSession,
   listSessionArtifacts,
@@ -18,6 +19,7 @@ import {
 const router = express.Router();
 
 router.use(authenticate, requireActiveStatus, excludeSupportClinicalContent);
+router.use('/sessions/:sessionId/materials', sessionSupportingMaterials);
 
 router.get(
   '/documentation-queue',

@@ -10,10 +10,10 @@ export function notificationDestination(notification, { organizationSlug = null,
     if (typeof audience === 'string') { try { audience = JSON.parse(audience); } catch { audience = {}; } }
     return audience.live === true ? `${base}/join/team-meeting/${entityId}` : `${base}/my-schedule?eventId=${entityId}&eventKind=TEAM_MEETING`;
   }
-  if (n.type === 'guardian_plan_review' && ['client_guardian', 'client'].includes(String(role || '').toLowerCase())) {
+  if (['guardian_plan_review', 'treatment_goal_progress'].includes(n.type) && ['client_guardian', 'client'].includes(String(role || '').toLowerCase())) {
     let audience = n.audience_json || {};
     if (typeof audience === 'string') { try { audience = JSON.parse(audience); } catch { audience = {}; } }
-    return { path: `${base}/guardian`, query: { panel: 'plan', ...(Number(audience.clientId) ? { clientId: String(Number(audience.clientId)) } : {}) } };
+    return { path: `${base}/guardian`, query: { panel: 'plan', ...(Number(audience.clientId) ? { clientId: String(Number(audience.clientId)) } : {}), ...(Number(audience.serviceId) ? { serviceId: String(Number(audience.serviceId)) } : {}) } };
   }
   if (n.type === 'company_event_message') {
     let audience = n.audience_json || n.audienceJson || {};
@@ -109,6 +109,7 @@ export function notificationPrimaryLabel(notification) {
   if (!notification) return null;
   if (notification.related_entity_type === 'meeting_reservation_invitation') return 'Choose a meeting time';
   if (notification.type === 'guardian_plan_review') return 'Review and sign plan';
+  if (notification.type === 'treatment_goal_progress') return 'View plan progress';
   if (notification.type === 'provider_waitlist_reminder') return 'Review waitlist';
   if(notification.related_entity_type==='provider_availability')return 'Review availability';
   if (notification.type === 'company_event_message') return 'View event and RSVP';

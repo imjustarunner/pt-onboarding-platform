@@ -1,3 +1,4 @@
+import { logNoteAidChartEvent } from '../services/noteAidChartAudit.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
@@ -778,6 +779,7 @@ export const getClientIntakeNote = async (req, res, next) => {
       treatmentPlanId: h.treatment_plan_id || null,
       isCurrent: row ? Number(h.id) === Number(row.id) : false
     }));
+    if (row) await logNoteAidChartEvent(req, { clientId, agencyId, action: 'client_intake_note_viewed', metadata: { intakeNoteId: row.id, treatmentPlanId: row.treatment_plan_id || null } });
     res.json({ draft: formatDraftResponse(row), treatmentPlan, history });
   } catch (e) {
     next(e);

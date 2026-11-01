@@ -19,6 +19,8 @@ import { TreatmentPlanAckLink as Link } from '../../models/TreatmentPlanAckLink.
 import Notification from '../../models/Notification.model.js';
 import { requireClinicalScope } from '../guardianClinicalAccess.service.js';
 import { signAcknowledgment, createDashboardShare } from '../treatmentPlanAck.service.js';
+vi.mock('../clientServiceEnrollment.service.js', () => ({ guardianServiceContext: vi.fn(async ({ userId, clientId, agencyId }) => (await ClientGuardian.listClientsForGuardian({ guardianUserId: userId })).find(row => Number(row.client_id) === Number(clientId) && Number(row.agency_id) === Number(agencyId))), listClientServices: vi.fn(async () => []) }));
+vi.mock('../guardianLearningPlan.service.js', () => ({ guardianLearningPlanProgress: vi.fn(async () => null) }));
 import { guardianPlanRevision, guardianPlanProgress, recordGuardianPlanRating, signGuardianPlan, shareGuardianPlanRevision } from '../guardianPlanProgress.service.js';
 
 const context = { userId: 10, clientId: 5, agencyId: 2 };
@@ -117,4 +119,10 @@ it('does not duplicate current requests or create new ones for revoked guardians
   requireClinicalScope.mockImplementation(async ({ userId }) => { if (userId === 11) throw Object.assign(new Error('Revoked'), { status: 403 }); });
   expect(await shareGuardianPlanRevision({ plan: current, actorUserId: 4 })).toEqual({ shared: 0, eligible: 1 });
   expect(createDashboardShare).not.toHaveBeenCalled();
+});
+
+it('publishes explicit provider progress without invalidating the signed content revision', async () => {
+  const revision = guardianPlanRevision(current); current.goals[0].status = 'achieved';
+  expect(guardianPlanRevision(current)).toBe(revision);
+  expect((await guardianPlanProgress(context)).goals[0].progressStatus).toBe('achieved');
 });

@@ -1,3 +1,4 @@
+import { appendAuditSearch, auditIdSearchExpressions } from '../services/auditReviewAccess.service.js';
 import pool from '../config/database.js';
 
 class UserActivityLog {
@@ -85,7 +86,9 @@ class UserActivityLog {
                u.first_name as user_first_name,
                u.last_name as user_last_name,
                a.name as agency_name,
-               m.title as module_title
+               c.initials AS client_initials,
+              c.id AS client_id,
+              m.title as module_title
         FROM user_activity_log ual
         LEFT JOIN users u ON ual.user_id = u.id
         LEFT JOIN agencies a ON ual.agency_id = a.id
@@ -256,18 +259,11 @@ class UserActivityLog {
       where.push('ual.created_at <= ?');
       params.push(endDateTime);
     }
-    if (search) {
-      const like = `%${String(search).trim().toLowerCase()}%`;
-      where.push(`(
-        LOWER(COALESCE(u.email, '')) LIKE ? OR
-        LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ? OR
-        LOWER(COALESCE(ual.action_type, '')) LIKE ? OR
-        LOWER(COALESCE(CAST(ual.metadata AS CHAR), '')) LIKE ? OR
-        LOWER(COALESCE(ual.ip_address, '')) LIKE ? OR
-        LOWER(COALESCE(ual.session_id, '')) LIKE ?
-      )`);
-      params.push(like, like, like, like, like, like);
+    if (filters.clientId) {
+      where.push("JSON_UNQUOTE(JSON_EXTRACT(ual.metadata, '$.clientId')) = ?");
+      params.push(String(filters.clientId));
     }
+    appendAuditSearch(where, params, search, [...[`ual.id`, `ual.user_id`, `ual.action_type`, `CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))`], ...auditIdSearchExpressions('ual.metadata'), ...(!filters.supportView ? [`u.email`, `CAST(ual.metadata AS CHAR)`, `ual.ip_address`, `ual.session_id`] : [])]);
 
     return { where: where.join(' AND '), params };
   }
@@ -280,7 +276,7 @@ class UserActivityLog {
       sortBy = 'createdAt',
       sortOrder = 'DESC'
     } = filters;
-    const limitValue = Math.max(1, Math.min(parseInt(limit, 10) || 50, 500));
+    const limitValue = Math.max(1, Math.min(parseInt(limit, 10) || 50, filters.expandedReview ? 10001 : 500));
     const offsetValue = Math.max(0, parseInt(offset, 10) || 0);
     const { field, order } = this.normalizeSort(sortBy, sortOrder);
     const { where, params } = this.buildAgencyActivityWhere(filters);
@@ -303,6 +299,7 @@ class UserActivityLog {
               a.name as agency_name,
               m.title as module_title
        FROM user_activity_log ual
+       LEFT JOIN clients c ON c.id = JSON_UNQUOTE(JSON_EXTRACT(ual.metadata, '$.clientId')) AND c.agency_id = ual.agency_id
        LEFT JOIN users u ON ual.user_id = u.id
        LEFT JOIN agencies a ON ual.agency_id = a.id
        LEFT JOIN modules m ON ual.module_id = m.id
@@ -324,6 +321,7 @@ class UserActivityLog {
     const [rows] = await pool.execute(
       `SELECT COUNT(*) AS total
        FROM user_activity_log ual
+       LEFT JOIN clients c ON c.id = JSON_UNQUOTE(JSON_EXTRACT(ual.metadata, '$.clientId')) AND c.agency_id = ual.agency_id
        LEFT JOIN users u ON ual.user_id = u.id
        WHERE ${where}`,
       params

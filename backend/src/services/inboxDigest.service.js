@@ -210,17 +210,14 @@ export { runPersonalThreadReminders as runInboxDigestTick } from './personalThre
  */
 export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
   const [users] = await pool.execute(
-    `SELECT u.id AS user_id, u.email, u.work_email, u.personal_email, u.first_name, u.role, u.has_provider_access,
+    `SELECT DISTINCT u.id AS user_id, u.email, u.work_email, u.personal_email, u.first_name, u.role, u.has_provider_access,
             u.sso_password_override, u.login_is_group_email, u.is_demo, p.personal_email_notify,
             COALESCE(p.digest_hours, ?) AS digest_hours,
             p.digest_business_hours, p.personal_email_delivery_mode, p.personal_email_delay_mode, p.personal_email_delay_hours,
-            p.last_inbox_digest_at,
-            (
-              SELECT ua.agency_id FROM user_agencies ua
-              WHERE ua.user_id = u.id AND (ua.is_active = 1 OR ua.is_active IS NULL)
-              ORDER BY ua.agency_id ASC LIMIT 1
-            ) AS agency_id
+            p.last_inbox_digest_at, ua.agency_id
      FROM users u
+     JOIN user_agencies ua ON ua.user_id=u.id AND (ua.is_active=1 OR ua.is_active IS NULL)
+     JOIN agencies a ON a.id=ua.agency_id AND a.is_active=1 AND COALESCE(a.is_archived,0)=0
      LEFT JOIN user_communication_prefs p ON p.user_id = u.id
      WHERE UPPER(u.status) IN ('ACTIVE','ACTIVE_EMPLOYEE','ONBOARDING')
        AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
@@ -256,10 +253,12 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
     const isPersonalDelivery = String(to).toLowerCase() === String(row.personal_email || '').toLowerCase();
     // Unread chat messages in threads the user belongs to
     const [unread] = await pool.execute(
-      `SELECT t.id AS thread_id, MIN(m.created_at) AS oldest_unread_at, MAX(m.id) AS message_id, COUNT(*) AS unread_count
+      `SELECT t.id AS thread_id, MIN(m.created_at) AS oldest_unread_at, MAX(m.id) AS message_id, COUNT(*) AS unread_count,
+              GROUP_CONCAT(DISTINCT NULLIF(TRIM(CONCAT_WS(' ',sender.first_name,sender.last_name)),'') SEPARATOR ', ') AS sender_names
        FROM chat_thread_participants p
        JOIN chat_threads t ON t.id = p.thread_id
        JOIN chat_messages m ON m.thread_id = t.id
+       LEFT JOIN users sender ON sender.id=m.sender_user_id
        LEFT JOIN chat_thread_reads r ON r.thread_id = t.id AND r.user_id = ?
        WHERE p.user_id = ?
          AND t.agency_id = ?
@@ -299,11 +298,16 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
     const messagesUrl = buildPublicAppUrl(agency, `messages?folder=unread&channel=all&agencyId=${Number(agencyId)}`);
 
     const count = claimed.reduce((n, x) => n + Number(x.unread_count || 0), 0);
+    // Names come only from authors of this recipient's unread messages. Do not
+    // expose message bodies, thread titles, or personal email addresses.
+    const correspondents = [...new Set(claimed.map(thread => String(thread.sender_names || '').trim()).filter(Boolean))];
+    const senderSummary = correspondents.length ? `From: ${correspondents.join('; ')}.\n\n` : '';
+    const bodyText = `${senderSummary}You have ${count} unread app message${count === 1 ? '' : 's'} waiting in Messages. These are internal or secure conversations, not unread emails in your work mailbox. Open the app to read and reply. Message content is not included in this email.`;
     const { buildBrandedMessageEmailHtml } = await import('./hubBrandedEmail.service.js');
     const html = buildBrandedMessageEmailHtml({
       agencyName: tenantName,
       senderDisplayName: tenantName,
-      bodyText: `You have ${count} unread app message${count === 1 ? '' : 's'} waiting in Messages. These are internal or secure conversations, not unread emails in your work mailbox. Open the app to read and reply. Message content is not included in this email.`,
+      bodyText,
       history: [],
       appUrl: messagesUrl,
       footerNote:
@@ -328,7 +332,7 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
           to,
           subject: `${tenantName}: ${count} unread app message${count === 1 ? '' : 's'}`,
           html,
-          text: `You have ${count} unread app message(s) in internal or secure conversations, not unread emails in your work mailbox.\n\nOpen: ${messagesUrl}`,
+          text: `${bodyText}\n\nOpen: ${messagesUrl}`,
           linkUrl: messagesUrl,
           replyToOverride: mailboxes.messages.from_email,
           source: 'auto',
@@ -340,7 +344,7 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
           to,
           subject: `${tenantName}: ${count} unread app message${count === 1 ? '' : 's'}`,
           html,
-          text: `You have ${count} unread app message(s) in internal or secure conversations, not unread emails in your work mailbox.\n\nOpen: ${messagesUrl}`,
+          text: `${bodyText}\n\nOpen: ${messagesUrl}`,
           linkUrl: messagesUrl,
           agencyId,
           userId: row.user_id,

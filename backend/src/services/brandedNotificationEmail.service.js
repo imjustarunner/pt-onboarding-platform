@@ -41,16 +41,20 @@ export function buildContactAssignedReminderEmail(opts = {}) {
   const assignerName = String(opts.assignerName || 'A team member').trim();
   const contactName = String(opts.contactName || '').trim();
   const greet = contactName ? `Hello ${contactName.split(/\s+/)[0]},` : 'Hello,';
-  const initials = clientInitials(opts.clientFirstName, opts.clientLastName, opts.clientPreferredName);
+  const initials = String(opts.clientInitials || '').trim() || clientInitials(opts.clientFirstName, opts.clientLastName, opts.clientPreferredName);
+  const smsActive = !!opts.smsOptIn;
+  const smsStatus = opts.smsRemindersEnabled ? (smsActive ? 'ON' : 'PENDING — reply START to the text invitation') : 'OFF';
   const emailOn = !!opts.emailRemindersEnabled;
   const smsOn = !!opts.smsRemindersEnabled;
   const notificationsEmail = String(opts.notificationsEmail || 'notifications@itsco.health').trim();
   const links = opts.links || {};
 
   const statusBits = [];
-  if (emailOn && smsOn) statusBits.push('email and text');
+  if (emailOn && smsOn && smsActive) statusBits.push('email and text');
+  else if (emailOn && smsOn) statusBits.push('email (text is awaiting your START reply)');
   else if (emailOn) statusBits.push('email');
-  else if (smsOn) statusBits.push('text');
+  else if (smsOn && smsActive) statusBits.push('text');
+  else if (smsOn) statusBits.push('pending text opt-in');
   const statusPhrase = statusBits.length
     ? `on for ${statusBits.join(' and ')} appointment reminders`
     : 'not currently receiving appointment reminders';
@@ -112,14 +116,14 @@ export function buildContactAssignedReminderEmail(opts = {}) {
         <td style="padding:18px 16px;vertical-align:middle;">
           <div style="font-size:11px;font-weight:800;letter-spacing:0.06em;color:#64748b;margin:0 0 8px;">YOUR CURRENT APPOINTMENT REMINDER SETTINGS</div>
           <div style="font-size:14px;color:#0f172a;margin:0 0 6px;">Email reminders: <strong style="color:${emailOn ? '#15803d' : '#94a3b8'};">${emailOn ? 'ON' : 'OFF'}</strong></div>
-          <div style="font-size:14px;color:#0f172a;">Text reminders: <strong style="color:${smsOn ? '#15803d' : '#94a3b8'};">${smsOn ? 'ON' : 'OFF'}</strong></div>
+          <div style="font-size:14px;color:#0f172a;">Text reminders: <strong style="color:${smsOn ? '#15803d' : '#94a3b8'};">${escapeHtml(smsStatus)}</strong></div>
         </td>
       </tr>
     </table>
   </td></tr>
   <tr><td style="padding:4px 28px 8px;">
     <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#1f6b4a;">Would you like to change this?</p>
-    <p style="margin:0 0 16px;font-size:14px;line-height:1.5;color:#64748b;">If you'd like to update your notification preferences, choose an option below. Your selection will be saved automatically.</p>
+    <p style="margin:0 0 16px;font-size:14px;line-height:1.5;color:#64748b;">If you'd like to update your notification preferences, choose an option below. Email preferences are saved from these links. Text reminders begin only after you reply START to the text invitation. These contacts do not receive portal access.</p>
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0">${buttonRows}</table>
   </td></tr>
   <tr><td style="padding:18px 28px 28px;">
@@ -150,7 +154,7 @@ ${headline}
 ${assignerName} added you as a contact for ${initials} through the ${agencyName} portal. You are ${statusPhrase} for ${initials}.
 
 Email reminders: ${emailOn ? 'ON' : 'OFF'}
-Text reminders: ${smsOn ? 'ON' : 'OFF'}
+Text reminders: ${smsStatus}
 
 Update preferences:
 ${actionButtons.map((b) => `- ${String(b.label).replace(/&amp;/g, '&')}: ${b.href}`).join('\n')}

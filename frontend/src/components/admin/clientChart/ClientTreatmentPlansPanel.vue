@@ -154,6 +154,14 @@
             </button>
           </div>
 
+          <p v-if="goalProgressNotice" role="status">{{ goalProgressNotice }}</p>
+          <details v-if="canMarkGoalProgress" class="ctp-goal">
+            <summary @click="loadGoalProgressHistory">Recent family progress notifications</summary>
+            <p v-if="goalProgressHistoryError" class="error">{{ goalProgressHistoryError }}</p>
+            <p v-else-if="!goalProgressHistory.length" class="muted tiny">No progress notifications recorded for this plan.</p>
+            <ul><li v-for="event in goalProgressHistory" :key="event.id">{{ formatWhen(event.createdAt) }} · Goal #{{ event.goalId }} · {{ goalProgressLabel(event.status) }} · {{ goalDeliverySummary(event.delivery) }}</li></ul>
+            <p class="muted tiny">Accepted for delivery records the email transport receipt. Inbox receipt is verified separately. Notices held for review are not automatically resent.</p>
+          </details>
           <div v-if="structuredGoals.length" class="ctp-goals">
             <article
               v-for="g in structuredGoals"
@@ -164,10 +172,19 @@
               <header @click="toggleGoal(g.id)">
                 <span class="ctp-pill">G{{ g.goal_index }}</span>
                 <strong>{{ stripPlanHeadingPrefix(g.goal_text) || g.goal_text }}</strong>
-                <span class="ctp-badge ctp-badge--ok">Active</span>
+                <span class="ctp-badge ctp-badge--ok">{{ goalProgressLabel(g.status) }}</span>
                 <span class="ctp-chevron">{{ isGoalOpen(g.id) ? '▾' : '▸' }}</span>
               </header>
               <template v-if="isGoalOpen(g.id)">
+                <form v-if="canMarkGoalProgress" class="ctp-progress-controls" @submit.prevent="saveGoalProgress(g)">
+                  <label :for="`goal-progress-${g.id}`">Provider assessment
+                    <select :id="`goal-progress-${g.id}`" :value="goalProgressChoices[g.id] || g.status || 'active'" @change="goalProgressChoices[g.id] = $event.target.value">
+                      <option value="active">In progress</option><option value="improved">Improved</option><option value="achieved">Achieved</option>
+                    </select>
+                  </label>
+                  <button type="submit" class="cdp-btn-soft" :disabled="goalProgressBusy || !goalProgressChoices[g.id] || goalProgressChoices[g.id] === (g.status || 'active')">{{ goalProgressBusy === g.id ? 'Saving…' : 'Save progress' }}</button>
+                  <p class="muted tiny">A new improved or achieved assessment notifies the client or guardians who currently have plan access. Signed plan content stays intact.</p>
+                </form>
                 <p v-if="g.projected_completion" class="muted tiny">Timeframe: {{ g.projected_completion }}</p>
                 <div
                   v-for="o in g.objectives || []"
@@ -307,6 +324,7 @@ import { useRouter } from 'vue-router';
 import api from '../../../services/api';
 import { activePlanGoals, stripPlanHeadingPrefix } from '../../../utils/noteAidTreatmentHelpers.js';
 import { treatmentPlanUpdaterQuery, noteAidPath } from '../../../utils/noteAidLaunch.js';
+import { useAuthStore } from '../../../store/auth';
 import { useAgencyStore } from '../../../store/agency';
 import ClientChartAvatar from './ClientChartAvatar.vue';
 import TreatmentPlanAckPanel from './TreatmentPlanAckPanel.vue';
@@ -321,6 +339,13 @@ defineEmits(['navigate']);
 
 const router = useRouter();
 const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
+const goalProgressBusy = ref(null);
+const goalProgressChoices = reactive({});
+const goalProgressNotice = ref('');
+const goalProgressHistory = ref([]);
+const goalProgressHistoryError = ref('');
+const canMarkGoalProgress = computed(() => !isLearning.value && ['provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'admin', 'super_admin'].includes(String(authStore.user?.role || '').toLowerCase()) && ['active', 'final', 'finalized'].includes(String(detailPlan.value?.status || '').toLowerCase()));
 
 const isLearning = computed(() => String(props.clientType || '').toLowerCase() === 'learning');
 
@@ -546,6 +571,35 @@ function formatWhen(v) {
   }
 }
 
+const goalHistoryContext = () => [props.agencyId, props.clientId, detailPlan.value?.id].join(':');
+async function loadGoalProgressHistory() {
+  const context = goalHistoryContext();
+  goalProgressHistoryError.value = '';
+  try {
+    const response = await api.get(`/medical-billing/treatment-plans/${detailPlan.value.id}/goal-progress`, { params: { agencyId: Number(props.agencyId), clientId: Number(props.clientId) }, skipGlobalLoading: true });
+    if (context === goalHistoryContext()) goalProgressHistory.value = response.data.events || [];
+  } catch (error) { if (context === goalHistoryContext()) goalProgressHistoryError.value = error.response?.data?.error?.message || 'Notification delivery history is unavailable.'; }
+}
+function goalDeliverySummary(delivery) {
+  const labels = { sent: 'accepted for delivery', queued: 'awaiting email approval', pending: 'pending', sending: 'sending', needs_review: 'needs receipt review', skipped: 'not sent under current permissions or settings' };
+  return Object.entries(delivery || {}).map(([status, count]) => `${count} ${labels[status] || status}`).join('; ') || 'No eligible family recipients';
+}
+function goalProgressLabel(status) { return ({ improved: 'Improved', achieved: 'Achieved', active: 'In progress' })[status] || String(status || 'In progress').replace(/_/g, ' '); }
+async function saveGoalProgress(goal) {
+  if (goalProgressBusy.value || !canMarkGoalProgress.value) return;
+  const status = goalProgressChoices[goal.id];
+  if (!status || status === (goal.status || 'active')) return;
+  goalProgressBusy.value = goal.id; goalProgressNotice.value = ''; error.value = '';
+  try {
+    const response = await api.patch(`/medical-billing/treatment-plans/${detailPlan.value.id}/goals/${goal.id}/progress`, { agencyId: Number(props.agencyId), clientId: Number(props.clientId), status, expectedStatus: goal.status || 'active' });
+    goal.status = response.data.status;
+    const delivery = response.data.notifications || {};
+    const followUp = Number(delivery.pending || 0) + Number(delivery.queued || 0) + Number(delivery.needs_review || 0);
+    goalProgressNotice.value = `Goal marked ${goalProgressLabel(status).toLowerCase()}. ${delivery.sent ? `${delivery.sent} email(s) accepted for delivery. ` : ''}${followUp || delivery.followUpRequired ? 'Family notification needs delivery follow-up.' : delivery.skipped ? 'Some family notices were skipped because current permissions or delivery settings did not allow them.' : response.data.changed ? 'Current family access was checked for notifications.' : 'No new notification was created.'}`;
+  } catch (e) { error.value = e.response?.data?.error?.message || 'Could not save goal progress.'; }
+  finally { goalProgressBusy.value = null; }
+}
+
 async function selectPlan(id) {
   selectedId.value = id;
   const planId = Number(id || 0);
@@ -763,10 +817,13 @@ async function load() {
 }
 
 onMounted(load);
-watch(() => [props.clientId, props.agencyId], load);
+watch(() => [props.clientId, props.agencyId], () => { goalProgressHistory.value = []; goalProgressHistoryError.value = ''; goalProgressNotice.value = ''; Object.keys(goalProgressChoices).forEach((key) => delete goalProgressChoices[key]); load(); });
+watch(selectedId, () => { goalProgressHistory.value = []; goalProgressHistoryError.value = ''; });
 </script>
 
 <style scoped>
+.ctp-progress-controls{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:10px 0}.ctp-progress-controls label{display:flex;align-items:center;gap:8px}.ctp-progress-controls select{padding:8px;border:1px solid #cbd5e1;border-radius:6px}.ctp-progress-controls p{flex-basis:100%;margin:0}
+
 .ctp-plan-section { padding:14px; margin:12px 0; }
 .ctp-plan-section p { white-space:pre-wrap; margin:8px 0; }
 .ctp-renewal { border:2px solid #b45309; background:#fffbeb; padding:16px; margin:12px 0; }

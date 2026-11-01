@@ -3,6 +3,7 @@ import { NOTIFICATION_TYPES } from '../services/notificationCatalog.service.js';
 
 const PRIVATE_CROSS_USER_TYPES = new Set([
   'chat_message',
+  'treatment_goal_progress',
   'inbound_client_message',
   'support_safety_net_alert'
 ]);

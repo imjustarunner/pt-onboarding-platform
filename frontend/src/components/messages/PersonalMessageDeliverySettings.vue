@@ -30,7 +30,7 @@
               <option value="forward_one_to_one">Both — reply to one-to-one emails here or in the app</option>
             </select>
           </label>
-          <p v-if="form.personalEmailDeliveryMode === 'forward_one_to_one'">Ordinary one-to-one email content will be sent to your personal inbox. Reply to that email to send your answer through your organization’s Messages email address. Your personal address is not added to the work conversation. You can always read and reply in the app too.</p>
+          <p v-if="form.personalEmailDeliveryMode === 'forward_one_to_one'">Ordinary one-to-one email content will be sent to your personal inbox. Reply to that email to send your answer through your configured work email address. Your personal address is not added to the work conversation. You can always read and reply in the app too.</p>
           <p>Group conversations and secure messages always send a notification only. Open the app to reply or reply all. Attachments stay in the app.</p>
         </fieldset>
         <button type="button" :disabled="saving || invalid" @click="save">{{ saving ? 'Saving…' : 'Save message delivery' }}</button>

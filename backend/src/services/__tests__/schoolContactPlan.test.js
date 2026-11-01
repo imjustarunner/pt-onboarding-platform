@@ -1,10 +1,12 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({ execute: vi.fn(), mailbox: vi.fn(), send: vi.fn(), create: vi.fn(), add: vi.fn(), updateMessage: vi.fn(), update: vi.fn(), link: vi.fn(), participant: vi.fn(), find: vi.fn() }));
+vi.mock('../schoolContactReplyRouting.service.js',()=>({schoolContactWorkMailboxAvailable:vi.fn(async()=>true)}));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.execute } }));
 vi.mock('../tenantMessageMailboxes.service.js', () => ({ resolveMessagesSendMailbox: m.mailbox }));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: m.send }));
 vi.mock('../../models/CommunicationConversation.model.js', () => ({ default: { create: m.create, addMessage: m.add, updateMessage: m.updateMessage, update: m.update, upsertLink: m.link, upsertParticipant: m.participant, findById: m.find } }));
 import { DEFAULT_SCHOOL_CONTACT_TEMPLATE as template, getSchoolContactPlan, saveSchoolContactPlan, sendSchoolContactEmail, sendSchoolContactExample, isSchoolContactDemoAgency, renderSchoolContactTemplate, validateSchoolContactTemplate, schoolContactRouting } from '../schoolContactPlan.service.js';
+import {schoolContactWorkMailboxAvailable} from '../schoolContactReplyRouting.service.js';
 const agency = { id: 450, name: 'ITSCOLLC', slug: 'auricwell-qa-demo', is_active: 1, is_archived: 0, feature_flags: { googleSsoEnabled: true } };
 const provider = { id: 1433, first_name: 'Avery', last_name: 'Demo', role: 'provider', email: 'avery@example.com', work_mailbox_email: 'qaproviderauricwell@itsco.health', personal_email: 'private@example.com', sso_password_override: 0, login_is_group_email: 0 };
 const input = { agencyId: 450, userId: 1433 };
@@ -55,7 +57,7 @@ it('resolves a demo school through its verified pilot affiliation without granti
 it('returns a rendered preview, persisted choices and actual SSO mailbox copy address', async () => {
   const state = await getSchoolContactPlan(input);
   expect(state).toMatchObject({ eligible: true, demoOnly: true, status: 'unconfigured', smsAfterDays: 2, emailAfterDays: 4, staleAfterHours: 48,
-    routing: { isSso: true, providerEmail: 'qaproviderauricwell@itsco.health', replyTo: 'messages@itsco.health' } });
+    routing: { isSso: true, providerEmail: 'qaproviderauricwell@itsco.health', replyTo: 'qaproviderauricwell@itsco.health' } });
   expect(state.preview.body).toContain('Avery Demo'); expect(state.preview.body).toContain('Example Middle School');
 });
 it('constrains editable text and renders no arbitrary placeholders or HTML', () => {
@@ -86,7 +88,7 @@ it('supports future mandated providers without enabling other tenants', async ()
 it('sends an example through messages with all physical recipients restricted and no client links', async () => {
   expect(await sendSchoolContactExample(input, { template })).toMatchObject({ sent: true, example: true, deliveredTo: 'testing@itsco.health', conversationId: 800 });
   expect(m.send).toHaveBeenCalledWith(expect.objectContaining({ senderIdentityId: 1116, to: 'testing@itsco.health', cc: 'testing@itsco.health', bcc: 'testing@itsco.health', source: 'auto', clientId: null,
-    fromDisplayNameOverride: 'Avery Demo', replyToOverride: expect.stringMatching(/^messages\+[a-f0-9]{36}@itsco.health$/) }));
+    fromDisplayNameOverride: 'Avery Demo', replyToOverride: 'qaproviderauricwell@itsco.health' }));
   expect(m.add).toHaveBeenCalledWith(expect.objectContaining({ isAutoReply: true, autoReplyKind: 'school_contact_example', to: [{ email: 'testing@itsco.health' }], cc: [{ email: 'qaproviderauricwell@itsco.health' }] }));
   expect(m.link).not.toHaveBeenCalled();
 });
@@ -96,9 +98,18 @@ it('records logical guardian contact and provider BCC while sandboxing the real 
   expect(m.link).toHaveBeenCalledWith(800, 'client', 999, 'Automated school contact plan');
   expect(m.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'testing@itsco.health', cc: null, bcc: 'testing@itsco.health', internetMessageIdOverride: '<school-contact-3-initial_email@itsco.health>' }));
 });
+it('keeps the working app reply-token route when delegated access to the SSO work mailbox is unavailable',async()=>{
+ schoolContactWorkMailboxAvailable.mockResolvedValueOnce(false);
+ await sendSchoolContactExample(input,{template});
+ expect(m.send).toHaveBeenCalledWith(expect.objectContaining({replyToOverride:expect.stringMatching(/^messages\+[a-f0-9]{36}@itsco.health$/)}));
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO hub_email_reply_tokens'),expect.arrayContaining([450,800,1433]));
+});
 it('routes nonSSO replies to their email and discloses external reply tracking limits', () => {
   expect(schoolContactRouting({ ...provider, sso_password_override: 1 }, undefined, agency)).toMatchObject({ isSso: false, replyTo: 'private@example.com', replyTracking: 'external_email' });
   expect(schoolContactRouting(provider, undefined, { ...agency, feature_flags: {} })).toMatchObject({ isSso: false, replyTo: 'private@example.com', replyTracking: 'external_email' });
+});
+it('never guesses an SSO reply address from login or personal fields without a configured work mailbox',()=>{
+ expect(schoolContactRouting({...provider,work_mailbox_email:null},undefined,agency)).toMatchObject({isSso:true,providerEmail:'',replyTo:''});
 });
 it('does not mark queued or failed delivery as contact', async () => {
   m.send.mockResolvedValue({ queued: true });

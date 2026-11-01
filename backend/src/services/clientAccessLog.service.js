@@ -42,8 +42,9 @@ export async function logClientAccess(req, clientId, action) {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [cid, uid, role, String(action).slice(0, 64), route, method, ip, ua]
     );
-  } catch {
-    // Best-effort only (table may not exist yet).
+  } catch (error) {
+    // Keep the clinical action available, but make an audit-write gap operationally visible.
+    console.warn('[ClientAccessAudit] Write failed', { code: error?.code || 'unknown', action: String(action || '').slice(0, 64) });
   }
 }
 

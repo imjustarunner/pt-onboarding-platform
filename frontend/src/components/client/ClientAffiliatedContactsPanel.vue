@@ -5,7 +5,7 @@
         <h3 class="cca-title">{{ title }}</h3>
         <p class="cca-sub">
           Add people who can receive appointment reminders for this client without portal access.
-          Either account guardian can authorize minimal session reminders. These contacts cannot read messages or access the record. Both guardians can see the notification history.
+          An authorized account holder can enable minimal appointment reminders. These contacts cannot read messages or access the record. Selecting texts requests an invitation; the recipient must reply START before text reminders begin.
         </p>
       </div>
       <button type="button" class="btn btn-primary btn-sm" @click="showForm = !showForm">
@@ -26,6 +26,7 @@
           Relationship
           <select v-model="form.relationshipType">
             <option value="parent">Parent / guardian</option>
+            <option value="grandparent">Grandparent</option>
             <option value="school_staff">School staff</option>
             <option value="case_manager">Case manager</option>
             <option value="referral_source">Referral source</option>
@@ -56,8 +57,12 @@
         <span>
           I approve an email sent on my behalf notifying this person they were added as a contact for
           <strong>{{ clientInitialsLabel }}</strong>
-          and subscribed to the selected appointment reminders.
+          and enabled for email reminders, if selected. Texts remain pending until they reply START.
         </span>
+      </label>
+      <label v-if="form.smsRemindersEnabled" class="cca-ack">
+        <input v-model="form.recipientPermissionToInvite" type="checkbox" />
+        <span>This person agreed to receive one text invitation. I will let them know to reply START to opt in. Without this permission, save the contact and ask them before sending an invitation.</span>
       </label>
       <div class="cca-actions">
         <button type="submit" class="btn btn-primary" :disabled="saving || (needsAck && !form.acknowledgeNotify)">
@@ -83,8 +88,13 @@
             </strong>
             · Text reminders:
             <strong :class="item.smsRemindersEnabled ? 'on' : 'off'">
-              {{ item.smsRemindersEnabled ? 'ON' : 'OFF' }}
+              {{ smsLabel(item) }}
             </strong>
+          </p>
+          <p v-if="item.smsRemindersEnabled && item.smsConsentStatus !== 'opted_in'" class="cca-choice">
+            {{ item.smsConsentStatus === 'stopped' ? 'This contact selected STOP. Invitations cannot be resent. They must restart texting themselves.' : 'Tell this person you added them and ask them to reply START to the invitation. They do not need a portal account.' }}
+            <span v-if="item.smsInvitationStatus === 'blocked'"> Text invitation is blocked until the messaging service and recipient are ready.</span>
+            <span v-if="['sending', 'uncertain'].includes(item.smsInvitationStatus)"> Delivery needs review. Refresh before sending again.</span>
           </p>
           <p v-if="item.contactLastChoice" class="cca-choice">
             Contact chose:
@@ -100,6 +110,10 @@
             @click="togglePrefs(item)"
           >
             Edit reminders
+          </button>
+          <button v-if="mode === 'guardian' && item.smsRemindersEnabled && item.smsConsentStatus !== 'opted_in'" type="button" class="btn btn-ghost btn-sm"
+            :disabled="saving || item.smsConsentStatus === 'stopped' || ['sending', 'uncertain'].includes(item.smsInvitationStatus)" @click="invite(item)">
+            {{ item.smsInvitationSentAt ? 'Resend opt-in invitation' : 'Send opt-in invitation' }}
           </button>
           <button type="button" class="btn btn-ghost btn-sm" :disabled="saving" @click="remove(item)">
             Remove
@@ -129,6 +143,10 @@
             I approve an email sent on my behalf notifying this person of their reminder subscription for
             <strong>{{ clientInitialsLabel }}</strong>.
           </span>
+        </label>
+        <label v-if="mode === 'guardian' && editForm.smsRemindersEnabled && editing.smsConsentStatus !== 'stopped' && editing.smsConsentStatus !== 'opted_in'" class="cca-ack">
+          <input v-model="editForm.recipientPermissionToInvite" type="checkbox" />
+          <span>This person agreed to receive a text invitation. I will let them know to reply START.</span>
         </label>
         <div class="cca-actions">
           <button type="button" class="btn btn-secondary" @click="editing = null">Cancel</button>
@@ -173,13 +191,15 @@ const form = reactive({
   relationshipType: 'parent',
   emailRemindersEnabled: props.mode === 'guardian',
   smsRemindersEnabled: false,
-  acknowledgeNotify: false
+  acknowledgeNotify: false,
+  recipientPermissionToInvite: false
 });
 
 const editForm = reactive({
   emailRemindersEnabled: false,
   smsRemindersEnabled: false,
-  acknowledgeNotify: false
+  acknowledgeNotify: false,
+  recipientPermissionToInvite: false
 });
 
 const basePath = computed(() => {
@@ -202,6 +222,34 @@ const editNeedsAck = computed(() => {
 });
 
 const clientInitialsLabel = computed(() => props.clientInitials || 'this client');
+
+
+function smsLabel(item) {
+  if (item.smsConsentStatus === 'stopped') return 'STOPPED';
+  if (!item.smsRemindersEnabled) return 'OFF';
+  return item.smsOptIn && item.smsConsentStatus === 'opted_in' ? 'ON — opted in' : 'PENDING — not opted in';
+}
+function resultMessage(data, prefix) {
+  const sms = data?.smsInvitationResult || data;
+  if (sms?.status === 'blocked') return `${prefix} Text invitation was not sent; messaging setup or recipient approval is still required.`;
+  if (sms?.status === 'uncertain') return `${prefix} Text delivery needs review before resending.`;
+  if (sms?.sent) return `${prefix} Invitation accepted for sending. Text reminders await their START reply.`;
+  const receipt = data?.notifyResult;
+  if (receipt?.blocked || receipt?.skipped || receipt?.pendingApproval || receipt?.queued) return `${prefix} Notification email needs delivery review.`;
+  return prefix;
+}
+async function invite(item) {
+  if (!confirm('Has this person agreed to receive a text invitation? Let them know to reply START. A STOP choice cannot be overridden.')) return;
+  saving.value = true;
+  error.value = '';
+  try {
+    const { data } = await api.post(`${basePath.value}/${item.id}/sms-invitation`, { recipientPermissionToInvite: true });
+    success.value = resultMessage(data, 'Contact saved.');
+    await load();
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Could not send invitation';
+  } finally { saving.value = false; }
+}
 
 function choiceLabel(c) {
   const map = {
@@ -242,21 +290,23 @@ async function submit() {
   error.value = '';
   success.value = '';
   try {
-    await api.post(basePath.value, {
+    const { data } = await api.post(basePath.value, {
       fullName: form.fullName,
       email: form.email || undefined,
       phone: form.phone || undefined,
       relationshipType: form.relationshipType,
       emailRemindersEnabled: form.emailRemindersEnabled,
       smsRemindersEnabled: form.smsRemindersEnabled,
+      recipientPermissionToInvite: form.recipientPermissionToInvite,
       acknowledgeNotify: form.acknowledgeNotify
     });
-    success.value = 'Contact saved. If reminders were enabled, a notification email was sent.';
+    success.value = resultMessage(data, 'Contact saved.');
     showForm.value = false;
     form.fullName = '';
     form.email = '';
     form.phone = '';
     form.acknowledgeNotify = false;
+    form.recipientPermissionToInvite = false;
     await load();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Could not save contact';
@@ -270,6 +320,7 @@ function togglePrefs(item) {
   editForm.emailRemindersEnabled = !!item.emailRemindersEnabled;
   editForm.smsRemindersEnabled = !!item.smsRemindersEnabled;
   editForm.acknowledgeNotify = false;
+  editForm.recipientPermissionToInvite = false;
 }
 
 async function saveEdit() {
@@ -277,12 +328,13 @@ async function saveEdit() {
   saving.value = true;
   error.value = '';
   try {
-    await api.patch(`${basePath.value}/${editing.value.id}`, {
+    const { data } = await api.patch(`${basePath.value}/${editing.value.id}`, {
       emailRemindersEnabled: editForm.emailRemindersEnabled,
       smsRemindersEnabled: editForm.smsRemindersEnabled,
+      recipientPermissionToInvite: editForm.recipientPermissionToInvite,
       acknowledgeNotify: editForm.acknowledgeNotify
     });
-    success.value = 'Reminder settings updated.';
+    success.value = resultMessage(data, 'Reminder settings updated.');
     editing.value = null;
     await load();
   } catch (e) {

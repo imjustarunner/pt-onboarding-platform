@@ -379,6 +379,9 @@ export const listClientPhiDocuments = async (req, res, next) => {
     } else if (limitedScope) {
       docs = (docs || []).filter((doc) => Number(doc?.uploaded_by_user_id || 0) === Number(req.user?.id || 0));
     }
+    // Supporting materials stay grouped beneath their clinical session. Explicit
+    // recipient shares remain available through the separate family Documents API.
+    docs = (docs || []).filter(doc => doc.document_type !== 'session_supporting_material');
     res.json(docs);
   } catch (e) {
     next(e);
@@ -724,6 +727,9 @@ export const viewPhiDocument = async (req, res, next) => {
       throw e;
     }
     if (!doc) return res.status(404).json({ error: { message: 'PHI document not found' } });
+    if (doc.document_type === 'session_supporting_material') {
+      return res.status(403).json({ error: { message: 'Open supporting materials from the clinical session, or the recipient’s shared Documents.' } });
+    }
     if (doc.removed_at) {
       return res.status(410).json({ error: { message: 'Document has been removed from the system.' } });
     }
@@ -798,16 +804,7 @@ export const viewPhiDocument = async (req, res, next) => {
 
     if (doc.is_encrypted) {
       const encryptedBuffer = await StorageService.readObject(doc.storage_path);
-      const decryptedBuffer = await DocumentEncryptionService.decryptReferralPacketBuffer({
-        encryptedBuffer,
-        encryptionKeyId: doc.encryption_key_id,
-        encryptionWrappedKeyB64: doc.encryption_wrapped_key,
-        encryptionIvB64: doc.encryption_iv,
-        encryptionAuthTagB64: doc.encryption_auth_tag,
-        organizationId: doc.school_organization_id,
-        originalName: doc.original_name || '',
-        sanitizeFilename: (name) => StorageService.sanitizeFilename(name)
-      });
+      const decryptedBuffer = await DocumentEncryptionService.decryptPhiDocumentBuffer(doc, encryptedBuffer, name => StorageService.sanitizeFilename(name));
 
       const safeName = StorageService.sanitizeFilename(doc.original_name || `document-${doc.id}`);
       res.setHeader('Content-Type', doc.mime_type || 'application/octet-stream');

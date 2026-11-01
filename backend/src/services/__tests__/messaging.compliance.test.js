@@ -21,6 +21,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   permissions = [];
   connection = { beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(), execute: vi.fn(async (sql, values) => {
+    if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
     if (sql.includes('INSERT INTO sms_recipient_permissions')) {
       const [scope, phone, purpose, status, evidence, expires] = values;
       permissions = permissions.filter((p) => !(p.scope === scope && p.phone === phone && p.purpose === purpose));

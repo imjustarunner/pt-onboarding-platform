@@ -4,6 +4,8 @@ import User from '../models/User.model.js';
 import pool from '../config/database.js';
 import auditActionRegistry from '../config/auditActionRegistry.js';
 import { isSupervisorOnlyActor } from '../utils/supervisorSchoolAccess.js';
+import { logAuditEvent } from '../services/auditEvent.service.js';
+import { auditCsvEscape as csvEscape, appendAuditSearch, auditIdSearchExpressions, clinicalAuditTarget, projectAuditRowForSupport, positiveAuditId } from '../services/auditReviewAccess.service.js';
 
 const clamp = (value, min, max, fallback) => {
   const n = parseInt(value, 10);
@@ -56,28 +58,15 @@ const isUnionCollationError = (error) => {
   return msg.includes('illegal mix of collations') && msg.includes('union');
 };
 
-const csvEscape = (value) => {
-  const s = value == null ? '' : String(value);
-  if (s.includes('"') || s.includes(',') || s.includes('\n')) {
-    return `"${s.replace(/"/g, '""')}"`;
+const assertAgencyAuditAccess = async (req, agencyId, { allowSupport = false } = {}) => {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (!['admin', 'super_admin', ...(allowSupport ? ['support'] : [])].includes(role)) {
+    return { ok: false, status: 403, message: allowSupport ? 'Audit reviewer access required' : 'Admin access required' };
   }
-  return s;
-};
-
-const isAuditCenterRole = (role) => {
-  const r = String(role || '').toLowerCase();
-  return r === 'admin' || r === 'super_admin';
-};
-
-const assertAgencyAuditAccess = async (req, agencyId) => {
-  const roleNorm = String(req.user?.role || '').toLowerCase();
-  if (!isAuditCenterRole(roleNorm)) return { ok: false, status: 403, message: 'Admin access required' };
-  if (roleNorm === 'super_admin') return { ok: true };
-
-  const userAgencies = await User.getAgencies(req.user.id);
-  const hasAccess = (userAgencies || []).some((a) => Number(a.id) === Number(agencyId));
-  if (!hasAccess) return { ok: false, status: 403, message: 'You do not have access to this agency' };
-  return { ok: true };
+  if (role === 'super_admin') return { ok: true };
+  const agencies = await User.getAgencies(req.user.id);
+  return (agencies || []).some((agency) => Number(agency.id) === agencyId)
+    ? { ok: true } : { ok: false, status: 403, message: 'You do not have access to this agency' };
 };
 
 const parseJsonSafe = (raw) => {
@@ -116,17 +105,6 @@ const resolveActionTypes = (category, actionType) => {
   return null;
 };
 
-const addClientSearchWhere = (where, params, search, tableAlias = 'c') => {
-  if (!search) return;
-  const like = asLike(search);
-  where.push(`(
-    LOWER(COALESCE(${tableAlias}.initials, '')) LIKE ?
-    OR LOWER(COALESCE(${tableAlias}.full_name, '')) LIKE ?
-    OR LOWER(COALESCE(${tableAlias}.identifier_code, '')) LIKE ?
-  )`);
-  params.push(like, like, like);
-};
-
 const normalizeAuditRow = (row) => {
   const metadata = parseJsonSafe(row.metadata);
   const metaClientId = metadata?.clientId ? Number(metadata.clientId) : null;
@@ -157,11 +135,20 @@ const normalizeAuditRow = (row) => {
       link_path = `/admin/users/${row.target_user_id ?? row.actor_user_id ?? row.user_id}?tab=training`;
     }
   }
-  const user_id = row.user_id ?? row.actor_user_id ?? row.target_user_id;
+  const target = clinicalAuditTarget({ ...row, client_id: clientId, metadata });
+  if (target?.path) link_path = target.path;
+  if (link_path && !String(link_path).startsWith('/admin/')) link_path = null;
+  const user_id = row.user_id ?? row.actor_user_id;
   return {
     ...row,
+    user_id,
+    user_first_name: row.user_first_name ?? row.actor_first_name,
+    user_last_name: row.user_last_name ?? row.actor_last_name,
+    user_email: row.user_email ?? row.actor_email,
     source_label: sourceLabel[row.log_type] || row.log_type || 'Audit',
     link_path: link_path || null,
+    target_label: target?.label || null,
+    link_access: target ? 'existing_clinical_authorization' : 'existing_authorization',
     user_link: user_id ? `/admin/users/${user_id}` : null,
     client_link: clientId ? `/admin/clients?clientId=${clientId}` : null,
     client_id: clientId ?? row.client_id,
@@ -191,21 +178,10 @@ const getClientAccessRows = async (filters = {}, diagnostics = null) => {
   addActionTypeWhere(where, params, actionTypes);
   if (start) { where.push('l.created_at >= ?'); params.push(start); }
   if (end) { where.push('l.created_at <= ?'); params.push(end); }
-  addClientSearchWhere(where, params, search, 'c');
-  if (search) {
-    const like = asLike(search);
-    where.push(`(
-      LOWER(COALESCE(u.email, '')) LIKE ?
-      OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
-      OR LOWER(COALESCE(l.action, '')) LIKE ?
-      OR LOWER(COALESCE(l.route, '')) LIKE ?
-      OR LOWER(COALESCE(l.method, '')) LIKE ?
-      OR LOWER(COALESCE(l.ip_address, '')) LIKE ?
-    )`);
-    params.push(like, like, like, like, like, like);
-  }
+  if (filters.clientId) { where.push('c.id = ?'); params.push(filters.clientId); }
+  appendAuditSearch(where, params, search, [...[`CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))`, `l.action`, `c.id`, `c.initials`], ...(!filters.supportView ? [`u.email`, `c.full_name`, `c.identifier_code`, `l.route`, `l.method`, `l.ip_address`] : [])]);
   const order = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-  const qLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 5000));
+  const qLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 10001));
   const qOffset = Math.max(0, parseInt(offset, 10) || 0);
   try {
     const [rows] = await pool.execute(
@@ -246,19 +222,8 @@ const countClientAccessRows = async (filters = {}, diagnostics = null) => {
   addActionTypeWhere(where, params, actionTypes);
   if (start) { where.push('l.created_at >= ?'); params.push(start); }
   if (end) { where.push('l.created_at <= ?'); params.push(end); }
-  addClientSearchWhere(where, params, search, 'c');
-  if (search) {
-    const like = asLike(search);
-    where.push(`(
-      LOWER(COALESCE(u.email, '')) LIKE ?
-      OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
-      OR LOWER(COALESCE(l.action, '')) LIKE ?
-      OR LOWER(COALESCE(l.route, '')) LIKE ?
-      OR LOWER(COALESCE(l.method, '')) LIKE ?
-      OR LOWER(COALESCE(l.ip_address, '')) LIKE ?
-    )`);
-    params.push(like, like, like, like, like, like);
-  }
+  if (filters.clientId) { where.push('c.id = ?'); params.push(filters.clientId); }
+  appendAuditSearch(where, params, search, [...[`CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))`, `l.action`, `c.id`, `c.initials`], ...(!filters.supportView ? [`u.email`, `c.full_name`, `c.identifier_code`, `l.route`, `l.method`, `l.ip_address`] : [])]);
   try {
     const [rows] = await pool.execute(
       `SELECT COUNT(*) AS total
@@ -284,14 +249,14 @@ const getSupportTicketRows = async (filters = {}, diagnostics = null) => {
   const supportActions = ['support_ticket_created', 'support_ticket_message'];
   if (at && at.length > 0 && !at.some((a) => supportActions.includes(String(a)))) return [];
   const order = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-  const qLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 5000));
+  const qLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 10001));
   const qOffset = Math.max(0, parseInt(offset, 10) || 0);
 
   const includeCreated = !at || at.length === 0 || at.includes('support_ticket_created');
   const includeMessages = !at || at.length === 0 || at.includes('support_ticket_message');
 
   // To preserve correct ordering across both sources, fetch an expanded slice and merge/sort in JS.
-  const expanded = Math.min(qOffset + qLimit, 5000);
+  const expanded = Math.min(qOffset + qLimit, 10001);
 
   const { start, end } = toDateRange(startDate, endDate);
 
@@ -303,17 +268,8 @@ const getSupportTicketRows = async (filters = {}, diagnostics = null) => {
     if (userId) { whereT.push('t.created_by_user_id = ?'); paramsT.push(userId); }
     if (start) { whereT.push('t.created_at >= ?'); paramsT.push(start); }
     if (end) { whereT.push('t.created_at <= ?'); paramsT.push(end); }
-    addClientSearchWhere(whereT, paramsT, search, 'c');
-    if (search) {
-      const like = asLike(search);
-      whereT.push(`(
-        LOWER(COALESCE(t.subject, '')) LIKE ?
-        OR LOWER(COALESCE(t.question, '')) LIKE ?
-        OR LOWER(COALESCE(u.email, '')) LIKE ?
-        OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
-      )`);
-      paramsT.push(like, like, like, like);
-    }
+    if (filters.clientId) { whereT.push('c.id = ?'); paramsT.push(filters.clientId); }
+    appendAuditSearch(whereT, paramsT, search, [...[`CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))`, `'support_ticket_created'`, `c.id`, `c.initials`, `t.id`], ...(!filters.supportView ? [`u.email`, `c.full_name`, `c.identifier_code`, `t.subject`, `t.question`] : [])]);
     try {
       const [rowsT] = await pool.execute(
         `SELECT t.id AS id, t.created_at, 'support_ticket_created' AS action_type, t.created_by_user_id AS user_id,
@@ -351,17 +307,8 @@ const getSupportTicketRows = async (filters = {}, diagnostics = null) => {
     if (userId) { whereM.push('m.author_user_id = ?'); paramsM.push(userId); }
     if (start) { whereM.push('m.created_at >= ?'); paramsM.push(start); }
     if (end) { whereM.push('m.created_at <= ?'); paramsM.push(end); }
-    addClientSearchWhere(whereM, paramsM, search, 'c');
-    if (search) {
-      const like = asLike(search);
-      whereM.push(`(
-        LOWER(COALESCE(t.subject, '')) LIKE ?
-        OR LOWER(COALESCE(m.body, '')) LIKE ?
-        OR LOWER(COALESCE(u.email, '')) LIKE ?
-        OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
-      )`);
-      paramsM.push(like, like, like, like);
-    }
+    if (filters.clientId) { whereM.push('c.id = ?'); paramsM.push(filters.clientId); }
+    appendAuditSearch(whereM, paramsM, search, [...[`CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))`, `'support_ticket_message'`, `c.id`, `c.initials`, `t.id`], ...(!filters.supportView ? [`u.email`, `c.full_name`, `c.identifier_code`, `t.subject`, `m.body`] : [])]);
     try {
       const [rowsM] = await pool.execute(
         `SELECT (m.id + 1000000000) AS id, m.created_at, 'support_ticket_message' AS action_type, m.author_user_id AS user_id,
@@ -426,17 +373,8 @@ const countSupportTicketRows = async (filters = {}, diagnostics = null) => {
     if (userId) { whereT.push('t.created_by_user_id = ?'); paramsT.push(userId); }
     if (start) { whereT.push('t.created_at >= ?'); paramsT.push(start); }
     if (end) { whereT.push('t.created_at <= ?'); paramsT.push(end); }
-    addClientSearchWhere(whereT, paramsT, search, 'c');
-    if (search) {
-      const like = asLike(search);
-      whereT.push(`(
-        LOWER(COALESCE(t.subject, '')) LIKE ?
-        OR LOWER(COALESCE(t.question, '')) LIKE ?
-        OR LOWER(COALESCE(u.email, '')) LIKE ?
-        OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
-      )`);
-      paramsT.push(like, like, like, like);
-    }
+    if (filters.clientId) { whereT.push('c.id = ?'); paramsT.push(filters.clientId); }
+    appendAuditSearch(whereT, paramsT, search, [...[`CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))`, `'support_ticket_created'`, `c.id`, `c.initials`, `t.id`], ...(!filters.supportView ? [`u.email`, `c.full_name`, `c.identifier_code`, `t.subject`, `t.question`] : [])]);
     try {
       const [rowsT] = await pool.execute(
         `SELECT COUNT(*) AS total
@@ -463,17 +401,8 @@ const countSupportTicketRows = async (filters = {}, diagnostics = null) => {
     if (userId) { whereM.push('m.author_user_id = ?'); paramsM.push(userId); }
     if (start) { whereM.push('m.created_at >= ?'); paramsM.push(start); }
     if (end) { whereM.push('m.created_at <= ?'); paramsM.push(end); }
-    addClientSearchWhere(whereM, paramsM, search, 'c');
-    if (search) {
-      const like = asLike(search);
-      whereM.push(`(
-        LOWER(COALESCE(t.subject, '')) LIKE ?
-        OR LOWER(COALESCE(m.body, '')) LIKE ?
-        OR LOWER(COALESCE(u.email, '')) LIKE ?
-        OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
-      )`);
-      paramsM.push(like, like, like, like);
-    }
+    if (filters.clientId) { whereM.push('c.id = ?'); paramsM.push(filters.clientId); }
+    appendAuditSearch(whereM, paramsM, search, [...[`CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))`, `'support_ticket_message'`, `c.id`, `c.initials`, `t.id`], ...(!filters.supportView ? [`u.email`, `c.full_name`, `c.identifier_code`, `t.subject`, `m.body`] : [])]);
     try {
       const [rowsM] = await pool.execute(
         `SELECT COUNT(*) AS total
@@ -507,21 +436,10 @@ const getPhiDocumentRows = async (filters = {}, diagnostics = null) => {
   addActionTypeWhere(where, params, actionTypes, 'p.action');
   if (start) { where.push('p.created_at >= ?'); params.push(start); }
   if (end) { where.push('p.created_at <= ?'); params.push(end); }
-  addClientSearchWhere(where, params, search, 'c');
-  if (search) {
-    const like = asLike(search);
-    where.push(`(
-      LOWER(COALESCE(u.email, '')) LIKE ?
-      OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
-      OR LOWER(COALESCE(p.action, '')) LIKE ?
-      OR LOWER(COALESCE(CAST(p.metadata AS CHAR), '')) LIKE ?
-      OR LOWER(COALESCE(d.document_title, '')) LIKE ?
-      OR LOWER(COALESCE(d.original_name, '')) LIKE ?
-    )`);
-    params.push(like, like, like, like, like, like);
-  }
+  if (filters.clientId) { where.push('c.id = ?'); params.push(filters.clientId); }
+  appendAuditSearch(where, params, search, [...[`CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))`, `p.action`, `c.id`, `c.initials`], ...auditIdSearchExpressions('p.metadata'), ...(!filters.supportView ? [`u.email`, `c.full_name`, `c.identifier_code`, `d.document_title`, `d.original_name`, `CAST(p.metadata AS CHAR)`] : [])]);
   const order = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-  const qLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 5000));
+  const qLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 10001));
   const qOffset = Math.max(0, parseInt(offset, 10) || 0);
   try {
     const [rows] = await pool.execute(
@@ -564,19 +482,8 @@ const countPhiDocumentRows = async (filters = {}, diagnostics = null) => {
   addActionTypeWhere(where, params, actionTypes, 'p.action');
   if (start) { where.push('p.created_at >= ?'); params.push(start); }
   if (end) { where.push('p.created_at <= ?'); params.push(end); }
-  addClientSearchWhere(where, params, search, 'c');
-  if (search) {
-    const like = asLike(search);
-    where.push(`(
-      LOWER(COALESCE(u.email, '')) LIKE ?
-      OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
-      OR LOWER(COALESCE(p.action, '')) LIKE ?
-      OR LOWER(COALESCE(CAST(p.metadata AS CHAR), '')) LIKE ?
-      OR LOWER(COALESCE(d.document_title, '')) LIKE ?
-      OR LOWER(COALESCE(d.original_name, '')) LIKE ?
-    )`);
-    params.push(like, like, like, like, like, like);
-  }
+  if (filters.clientId) { where.push('c.id = ?'); params.push(filters.clientId); }
+  appendAuditSearch(where, params, search, [...[`CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))`, `p.action`, `c.id`, `c.initials`], ...auditIdSearchExpressions('p.metadata'), ...(!filters.supportView ? [`u.email`, `c.full_name`, `c.identifier_code`, `d.document_title`, `d.original_name`, `CAST(p.metadata AS CHAR)`] : [])]);
   try {
     const [rows] = await pool.execute(
       `SELECT COUNT(*) AS total
@@ -609,20 +516,10 @@ const getTaskAuditRows = async (filters = {}, diagnostics = null) => {
   addActionTypeWhere(where, params, actionTypes, 'tal.action_type');
   if (start) { where.push('tal.created_at >= ?'); params.push(start); }
   if (end) { where.push('tal.created_at <= ?'); params.push(end); }
-  if (search) {
-    const like = asLike(search);
-    where.push(`(
-      LOWER(COALESCE(u1.email, '')) LIKE ?
-      OR LOWER(CONCAT(COALESCE(u1.first_name, ''), ' ', COALESCE(u1.last_name, ''))) LIKE ?
-      OR LOWER(COALESCE(u2.email, '')) LIKE ?
-      OR LOWER(CONCAT(COALESCE(u2.first_name, ''), ' ', COALESCE(u2.last_name, ''))) LIKE ?
-      OR LOWER(COALESCE(t.title, '')) LIKE ?
-      OR LOWER(COALESCE(CAST(tal.metadata AS CHAR), '')) LIKE ?
-    )`);
-    params.push(like, like, like, like, like, like);
-  }
+  if (filters.clientId) { where.push("JSON_UNQUOTE(JSON_EXTRACT(tal.metadata, '$.clientId')) = ?"); params.push(String(filters.clientId)); }
+  appendAuditSearch(where, params, search, [...[`CONCAT(COALESCE(u1.first_name, ''), ' ', COALESCE(u1.last_name, ''))`, `tal.action_type`], ...auditIdSearchExpressions('tal.metadata'), ...(!filters.supportView ? [`u1.email`, `u2.email`, `t.title`, `CAST(tal.metadata AS CHAR)`] : [])]);
   const order = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-  const qLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 5000));
+  const qLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 10001));
   const qOffset = Math.max(0, parseInt(offset, 10) || 0);
   try {
     const [rows] = await pool.execute(
@@ -669,18 +566,8 @@ const countTaskAuditRows = async (filters = {}, diagnostics = null) => {
   addActionTypeWhere(where, params, actionTypes, 'tal.action_type');
   if (start) { where.push('tal.created_at >= ?'); params.push(start); }
   if (end) { where.push('tal.created_at <= ?'); params.push(end); }
-  if (search) {
-    const like = asLike(search);
-    where.push(`(
-      LOWER(COALESCE(u1.email, '')) LIKE ?
-      OR LOWER(CONCAT(COALESCE(u1.first_name, ''), ' ', COALESCE(u1.last_name, ''))) LIKE ?
-      OR LOWER(COALESCE(u2.email, '')) LIKE ?
-      OR LOWER(CONCAT(COALESCE(u2.first_name, ''), ' ', COALESCE(u2.last_name, ''))) LIKE ?
-      OR LOWER(COALESCE(t.title, '')) LIKE ?
-      OR LOWER(COALESCE(CAST(tal.metadata AS CHAR), '')) LIKE ?
-    )`);
-    params.push(like, like, like, like, like, like);
-  }
+  if (filters.clientId) { where.push("JSON_UNQUOTE(JSON_EXTRACT(tal.metadata, '$.clientId')) = ?"); params.push(String(filters.clientId)); }
+  appendAuditSearch(where, params, search, [...[`CONCAT(COALESCE(u1.first_name, ''), ' ', COALESCE(u1.last_name, ''))`, `tal.action_type`], ...auditIdSearchExpressions('tal.metadata'), ...(!filters.supportView ? [`u1.email`, `u2.email`, `t.title`, `CAST(tal.metadata AS CHAR)`] : [])]);
   try {
     const [rows] = await pool.execute(
       `SELECT COUNT(*) AS total
@@ -711,18 +598,10 @@ const getTaskDeletionRows = async (filters = {}, diagnostics = null) => {
   if (actionTypes && actionTypes.length > 0 && !actionTypes.includes('deleted')) return [];
   if (start) { where.push('tdl.deleted_at >= ?'); params.push(start); }
   if (end) { where.push('tdl.deleted_at <= ?'); params.push(end); }
-  if (search) {
-    const like = asLike(search);
-    where.push(`(
-      LOWER(COALESCE(u.email, '')) LIKE ?
-      OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
-      OR LOWER(COALESCE(tdl.task_title, '')) LIKE ?
-      OR LOWER(COALESCE(CAST(tdl.metadata AS CHAR), '')) LIKE ?
-    )`);
-    params.push(like, like, like, like);
-  }
+  if (filters.clientId) { where.push("JSON_UNQUOTE(JSON_EXTRACT(tdl.metadata, '$.clientId')) = ?"); params.push(String(filters.clientId)); }
+  appendAuditSearch(where, params, search, [...[`CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))`, `'deleted'`], ...auditIdSearchExpressions('tdl.metadata'), ...(!filters.supportView ? [`u.email`, `tdl.task_title`, `CAST(tdl.metadata AS CHAR)`] : [])]);
   const order = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-  const qLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 5000));
+  const qLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 10001));
   const qOffset = Math.max(0, parseInt(offset, 10) || 0);
   try {
     const [rows] = await pool.execute(
@@ -762,16 +641,8 @@ const countTaskDeletionRows = async (filters = {}, diagnostics = null) => {
   if (actionTypes && actionTypes.length > 0 && !actionTypes.includes('deleted')) return 0;
   if (start) { where.push('tdl.deleted_at >= ?'); params.push(start); }
   if (end) { where.push('tdl.deleted_at <= ?'); params.push(end); }
-  if (search) {
-    const like = asLike(search);
-    where.push(`(
-      LOWER(COALESCE(u.email, '')) LIKE ?
-      OR LOWER(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))) LIKE ?
-      OR LOWER(COALESCE(tdl.task_title, '')) LIKE ?
-      OR LOWER(COALESCE(CAST(tdl.metadata AS CHAR), '')) LIKE ?
-    )`);
-    params.push(like, like, like, like);
-  }
+  if (filters.clientId) { where.push("JSON_UNQUOTE(JSON_EXTRACT(tdl.metadata, '$.clientId')) = ?"); params.push(String(filters.clientId)); }
+  appendAuditSearch(where, params, search, [...[`CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))`, `'deleted'`], ...auditIdSearchExpressions('tdl.metadata'), ...(!filters.supportView ? [`u.email`, `tdl.task_title`, `CAST(tdl.metadata AS CHAR)`] : [])]);
   try {
     const [rows] = await pool.execute(
       `SELECT COUNT(*) AS total
@@ -933,6 +804,16 @@ export const getUserActivityLog = async (req, res, next) => {
       return res.status(400).json({ 
         error: { message: 'Invalid user ID' } 
       });
+    }
+
+    if (String(req.user.role).toLowerCase() === 'support') {
+      const agencyId = positiveAuditId(req.query.agencyId);
+      if (!agencyId) return res.status(400).json({ error: { message: 'Choose an agency in Audit Center to review activity.' } });
+      const access = await assertAgencyAuditAccess(req, agencyId, { allowSupport: true });
+      if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+      const events = await UserActivityLog.getAgencyActivityLog({ agencyId, userId: userIdInt, actionType, startDate, endDate, limit: clamp(limit, 1, 500, 100), supportView: true });
+      res.setHeader('Cache-Control', 'no-store');
+      return res.json(events.map((row) => projectAuditRowForSupport(normalizeAuditRow({ ...row, log_type: 'user_activity' }))));
     }
 
     console.log(`[getUserActivityLog] Requesting user: ${req.user.id} (${req.user.role}), Target user: ${userIdInt}`);
@@ -1111,11 +992,12 @@ export const getAgencyActivityLog = async (req, res, next) => {
     const agencyId = parseInt(req.params.agencyId, 10);
     if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agencyId' } });
 
-    const access = await assertAgencyAuditAccess(req, agencyId);
+    const access = await assertAgencyAuditAccess(req, agencyId, { allowSupport: true });
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     const limit = clamp(req.query.limit, 1, 500, 50);
     const offset = clamp(req.query.offset, 0, 200000, 0);
+    res.setHeader('Cache-Control', 'no-store');
     const userId = req.query.userId ? parseInt(req.query.userId, 10) : null;
     const source = String(req.query.source || 'all').toLowerCase();
     const diagnostics = { disabled_sources: [] };
@@ -1125,6 +1007,8 @@ export const getAgencyActivityLog = async (req, res, next) => {
     );
     const filters = {
       agencyId,
+      supportView: String(req.user.role).toLowerCase() === 'support',
+      clientId: positiveAuditId(req.query.clientId),
       userId: Number.isFinite(userId) ? userId : null,
       actionType: actionTypes?.length === 1 ? actionTypes[0] : null,
       actionTypes: actionTypes,
@@ -1176,8 +1060,9 @@ export const getAgencyActivityLog = async (req, res, next) => {
         countTaskDeletionRows(filters, diagnostics)
       ]);
     } else {
-      const expandedLimit = Math.min(offset + limit, 5000);
-      const scoped = { ...filters, limit: expandedLimit, offset: 0, sortBy: 'createdAt' };
+      if (offset + limit > 10000) return res.status(400).json({ error: { message: 'Narrow the date range or choose one source to review more than 10,000 combined events.' } });
+      const expandedLimit = offset + limit;
+      const scoped = { ...filters, limit: expandedLimit, offset: 0, sortBy: 'createdAt', expandedReview: true };
       const [activityRows, adminRows, supportRows, clientAccessRows, phiRows, taskRows, deletionRows, activityTotal, adminTotal, supportTotal, clientAccessTotal, phiTotal, taskTotal, deletionTotal] = await Promise.all([
         UserActivityLog.getAgencyActivityLog(scoped),
         AdminAuditLog.getAgencyAuditLogPaged(scoped),
@@ -1204,12 +1089,16 @@ export const getAgencyActivityLog = async (req, res, next) => {
         ...taskRows,
         ...deletionRows
       ]
-        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        .sort((a, b) => (String(filters.sortOrder).toUpperCase() === 'ASC' ? 1 : -1) * (new Date(a.created_at) - new Date(b.created_at)))
         .slice(offset, offset + limit);
     }
 
+    items = items.map((row) => normalizeAuditRow(row));
+    if (filters.supportView) items = items.map(projectAuditRowForSupport);
+    await logAuditEvent(req, { actionType: 'audit_log_viewed', agencyId, metadata: { source, clientId: filters.clientId, resultCount: items.length, reviewerScope: filters.supportView ? 'support' : 'administrator' } });
     return res.json({
       items,
+      reviewerScope: filters.supportView ? 'support_metadata' : 'administrator',
       pagination: {
         total,
         limit,
@@ -1230,9 +1119,10 @@ export const exportAgencyActivityLogCsv = async (req, res, next) => {
     const agencyId = parseInt(req.params.agencyId, 10);
     if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agencyId' } });
 
-    const access = await assertAgencyAuditAccess(req, agencyId);
+    const access = await assertAgencyAuditAccess(req, agencyId, { allowSupport: true });
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
+    res.setHeader('Cache-Control', 'no-store');
     const userId = req.query.userId ? parseInt(req.query.userId, 10) : null;
     const source = String(req.query.source || 'all').toLowerCase();
     const actionTypes = resolveActionTypes(
@@ -1241,6 +1131,8 @@ export const exportAgencyActivityLogCsv = async (req, res, next) => {
     );
     const filters = {
       agencyId,
+      supportView: String(req.user.role).toLowerCase() === 'support',
+      clientId: positiveAuditId(req.query.clientId),
       userId: Number.isFinite(userId) ? userId : null,
       actionType: actionTypes?.length === 1 ? actionTypes[0] : null,
       actionTypes,
@@ -1249,33 +1141,35 @@ export const exportAgencyActivityLogCsv = async (req, res, next) => {
       search: String(req.query.search || '').trim() || null,
       sortBy: String(req.query.sortBy || '').trim() || 'createdAt',
       sortOrder: String(req.query.sortOrder || '').trim() || 'DESC',
-      limit: 10000,
+      expandedReview: true,
+      limit: 10001,
       offset: 0
     };
+    const diagnostics = { disabled_sources: [] };
     let rows = [];
     if (source === 'user_activity') {
       rows = (await UserActivityLog.getAgencyActivityLog(filters)).map((r) => normalizeAuditRow({ ...r, log_type: 'user_activity' }));
     } else if (source === 'admin_action') {
       rows = (await AdminAuditLog.getAgencyAuditLogPaged(filters)).map((r) => normalizeAuditRow({ ...r, log_type: 'admin_action' }));
     } else if (source === 'support_ticket') {
-      rows = await getSupportTicketRows(filters);
+      rows = await getSupportTicketRows(filters, diagnostics);
     } else if (source === 'client_access') {
-      rows = await getClientAccessRows(filters);
+      rows = await getClientAccessRows(filters, diagnostics);
     } else if (source === 'phi_document') {
-      rows = await getPhiDocumentRows(filters);
+      rows = await getPhiDocumentRows(filters, diagnostics);
     } else if (source === 'task_audit') {
-      rows = await getTaskAuditRows(filters);
+      rows = await getTaskAuditRows(filters, diagnostics);
     } else if (source === 'task_deletion') {
-      rows = await getTaskDeletionRows(filters);
+      rows = await getTaskDeletionRows(filters, diagnostics);
     } else {
       const [activityRows, adminRows, supportRows, clientAccessRows, phiRows, taskRows, deletionRows] = await Promise.all([
         UserActivityLog.getAgencyActivityLog(filters),
         AdminAuditLog.getAgencyAuditLogPaged(filters),
-        getSupportTicketRows(filters),
-        getClientAccessRows(filters),
-        getPhiDocumentRows(filters),
-        getTaskAuditRows(filters),
-        getTaskDeletionRows(filters)
+        getSupportTicketRows(filters, diagnostics),
+        getClientAccessRows(filters, diagnostics),
+        getPhiDocumentRows(filters, diagnostics),
+        getTaskAuditRows(filters, diagnostics),
+        getTaskDeletionRows(filters, diagnostics)
       ]);
       rows = [
         ...activityRows.map((r) => normalizeAuditRow({ ...r, log_type: 'user_activity' })),
@@ -1285,9 +1179,17 @@ export const exportAgencyActivityLogCsv = async (req, res, next) => {
         ...phiRows,
         ...taskRows,
         ...deletionRows
-      ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      ].sort((a, b) => (String(filters.sortOrder).toUpperCase() === 'ASC' ? 1 : -1) * (new Date(a.created_at) - new Date(b.created_at)));
     }
 
+    if (diagnostics.disabled_sources.length) return res.status(503).json({ error: { message: 'Audit export is incomplete because a log source is unavailable. Review source diagnostics before retrying.' }, diagnostics });
+    const truncated = rows.length > 10000;
+    rows = rows.slice(0, 10000).map((row) => normalizeAuditRow(row));
+    if (filters.supportView) rows = rows.map(projectAuditRowForSupport);
+    res.setHeader('Access-Control-Expose-Headers', 'X-Audit-Export-Truncated, X-Audit-Reviewer-Scope');
+    res.setHeader('X-Audit-Export-Truncated', String(truncated));
+    res.setHeader('X-Audit-Reviewer-Scope', filters.supportView ? 'support_metadata' : 'administrator');
+    await logAuditEvent(req, { actionType: 'audit_log_exported', agencyId, metadata: { source, clientId: filters.clientId, resultCount: rows.length, truncated, reviewerScope: filters.supportView ? 'support' : 'administrator' } });
     const headers = [
       'log_type',
       'timestamp_utc',
@@ -1310,6 +1212,8 @@ export const exportAgencyActivityLogCsv = async (req, res, next) => {
       'session_id',
       'source_label',
       'link_path',
+      'target',
+      'access',
       'metadata'
     ];
 
@@ -1340,6 +1244,8 @@ export const exportAgencyActivityLogCsv = async (req, res, next) => {
         csvEscape(row.session_id),
         csvEscape(row.source_label || sourceLabel[row.log_type] || ''),
         csvEscape(row.link_path || ''),
+        csvEscape(row.target_label || ''),
+        csvEscape(row.link_access || ''),
         csvEscape(row.metadata ? JSON.stringify(row.metadata) : '')
       ].join(','));
     }

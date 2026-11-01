@@ -147,7 +147,8 @@ import {
   listClientAffiliatedContacts,
   createClientAffiliatedContact,
   patchClientAffiliatedContact,
-  deleteClientAffiliatedContact
+  deleteClientAffiliatedContact,
+  inviteClientAffiliatedContactSms
 } from '../controllers/clientContactAffiliation.controller.js';
 
 import * as guardianDemographics from '../controllers/guardianDemographics.controller.js';
@@ -390,6 +391,7 @@ router.get('/:id/contacts', listClientAffiliatedContacts);
 router.post('/:id/contacts', createClientAffiliatedContact);
 router.patch('/:id/contacts/:affiliationId', patchClientAffiliatedContact);
 router.delete('/:id/contacts/:affiliationId', deleteClientAffiliatedContact);
+router.post('/:id/contacts/:affiliationId/sms-invitation', inviteClientAffiliatedContactSms);
 
 router.post('/bulk/delete-preview', requireBackofficeAdmin, getBulkClientsDeletePreviewHandler);
 router.post('/bulk/delete-dev-fill', requireBackofficeAdmin, bulkDeleteDevFillClients);

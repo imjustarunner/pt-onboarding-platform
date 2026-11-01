@@ -75,6 +75,7 @@
     <p v-if="attendanceNotice" class="oesn-hint" role="status">{{ attendanceNotice }}</p>
     <p v-if="statusMsg" class="oesn-status">{{ statusMsg }}</p>
     <p v-if="errorMsg" class="oesn-error">{{ errorMsg }}</p>
+    <SessionSupportingMaterials v-if="clinicalSessionId" :key="clinicalSessionId" :clinical-session-id="clinicalSessionId" />
 
     <NoteAidObjectiveRatings
       :goals="activeGoals"
@@ -91,6 +92,7 @@
 
 <script setup>
 import ClinicalWorkspaceFrame from '../clinicalWorkspace/ClinicalWorkspaceFrame.vue';
+import SessionSupportingMaterials from '../clinical/SessionSupportingMaterials.vue';
 import { noteDraftAttendanceNotice } from '../../utils/noteDraftAttendance.js';
 import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';

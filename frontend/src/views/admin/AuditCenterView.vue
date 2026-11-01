@@ -30,7 +30,7 @@
         <input
           v-model="filters.search"
           type="text"
-          :placeholder="viewMode === 'activity' ? 'User name, email, username, or ID' : 'User, client, action, metadata, IP, session'"
+          :placeholder="isSupportReviewer ? 'Colleague name, client/record ID, action' : viewMode === 'activity' ? 'User name, email, username, or ID' : 'User, client, action, metadata, IP, session'"
           @keyup.enter="reload"
         />
       </div>
@@ -65,12 +65,16 @@
         <label>User ID</label>
         <input v-model="filters.userId" type="number" min="1" placeholder="Optional user id" @keyup.enter="reload" />
       </div>
+      <div v-if="viewMode === 'table' || viewMode === 'grouped'" class="field">
+        <label>Client ID</label>
+        <input v-model="filters.clientId" type="number" min="1" placeholder="Optional client ID" @keyup.enter="resetAndReload" />
+      </div>
       <div class="field">
-        <label>Start date</label>
+        <label>Start date (UTC)</label>
         <input v-model="filters.startDate" type="date" @change="reload" />
       </div>
       <div class="field">
-        <label>End date</label>
+        <label>End date (UTC)</label>
         <input v-model="filters.endDate" type="date" @change="reload" />
       </div>
       <div class="field">
@@ -91,7 +95,7 @@
     </div>
 
     <div class="view-toggle">
-      <button
+      <button v-if="!isSupportReviewer"
         :class="['btn', 'btn-sm', viewMode === 'activity' ? 'btn-primary' : 'btn-secondary']"
         @click="setViewMode('activity')"
       >
@@ -109,7 +113,7 @@
       >
         Grouped by category
       </button>
-      <button
+      <button v-if="!isSupportReviewer"
         :class="['btn', 'btn-sm', viewMode === 'sessions' ? 'btn-primary' : 'btn-secondary']"
         @click="setViewMode('sessions')"
       >
@@ -117,6 +121,9 @@
       </button>
     </div>
 
+    <p v-if="isSupportReviewer" class="sessions-banner">Support review shows agency event times, actors and record IDs, including administrator actions. Clinical content, private profiles and administrative payloads require their existing permissions.</p>
+    <p v-if="auditNotice" class="sessions-banner" role="status">{{ auditNotice }}</p>
+    <p class="hint">Dates filter UTC days. Event times show {{ localTimezone }}. CSV timestamps use UTC; exports include up to 10,000 matching events.</p>
     <div v-if="viewMode === 'activity'" class="sessions-banner">
       <strong>Daily user activity report.</strong>
       Time in app is server-tracked active plus Timedown time. Meaningful active time requires recent clicks, keys, or scrolling.
@@ -228,33 +235,33 @@
       <table class="table">
         <thead>
           <tr>
-            <th class="sortable" @click="toggleSort('createdAt')">Timestamp</th>
+            <th class="sortable" @click="toggleSort('createdAt')">Timestamp ({{ localTimezone }})</th>
             <th>Source</th>
             <th class="sortable" @click="toggleSort('userName')">User</th>
-            <th class="sortable" @click="toggleSort('userEmail')">Email</th>
+            <th v-if="!isSupportReviewer" class="sortable" @click="toggleSort('userEmail')">Email</th>
             <th class="sortable" @click="toggleSort('actionType')">Action</th>
             <th>Client</th>
             <th>Details</th>
-            <th class="sortable" @click="toggleSort('ipAddress')">IP</th>
-            <th>Session</th>
+            <th v-if="!isSupportReviewer" class="sortable" @click="toggleSort('ipAddress')">IP</th>
+            <th v-if="!isSupportReviewer">Session</th>
             <th>Link</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="loading">
-            <td colspan="10" class="empty">Loading…</td>
+            <td :colspan="isSupportReviewer ? 7 : 10" class="empty">Loading…</td>
           </tr>
           <tr v-else-if="rows.length === 0">
-            <td colspan="10" class="empty">No activity found for current filters.</td>
+            <td :colspan="isSupportReviewer ? 7 : 10" class="empty">No activity found for current filters.</td>
           </tr>
-          <tr v-for="row in rows" :key="row.id">
+          <tr v-for="row in rows" :key="`${row.log_type}:${row.id}`">
             <td>{{ formatDate(row.created_at) }}</td>
             <td>{{ row.source_label || sourceLabel(row) }}</td>
             <td>
               <router-link v-if="buildRowLink(row.user_link)" :to="buildRowLink(row.user_link)" class="audit-link">{{ formatUser(row) }}</router-link>
               <span v-else>{{ formatUser(row) }}</span>
             </td>
-            <td>{{ formatUserEmail(row) }}</td>
+            <td v-if="!isSupportReviewer">{{ formatUserEmail(row) }}</td>
             <td><span class="badge">{{ getActionLabel(row.action_type) }}</span></td>
             <td>
               <template v-if="buildRowLink(row.client_link)">
@@ -269,10 +276,12 @@
               </template>
             </td>
             <td>{{ formatDetails(row) }}</td>
-            <td>{{ row.ip_address || '-' }}</td>
-            <td>{{ shortenSession(row.session_id) }}</td>
+            <td v-if="!isSupportReviewer">{{ row.ip_address || '-' }}</td>
+            <td v-if="!isSupportReviewer">{{ shortenSession(row.session_id) }}</td>
             <td>
-              <router-link v-if="buildRowLink(row.link_path)" :to="buildRowLink(row.link_path)" class="audit-link">Open</router-link>
+              <router-link v-if="buildRowLink(row.link_path)" :to="buildRowLink(row.link_path)" class="audit-link">{{ row.target_label || 'Open' }}</router-link>
+              <span v-else-if="row.link_access === 'clinical_access_required'">{{ row.target_label }} · Clinical access required</span>
+              <span v-else-if="row.details_restricted">Details restricted</span>
               <span v-else>-</span>
             </td>
           </tr>
@@ -310,6 +319,8 @@
                   <template v-else>{{ formatClientInitials(row) }}</template>
                 </template>
               </span>
+              <span class="action-meta" v-if="row.link_access === 'clinical_access_required'"> · {{ row.target_label }} · Clinical access required</span>
+              <router-link v-else-if="buildRowLink(row.link_path)" :to="buildRowLink(row.link_path)" class="audit-link"> · {{ row.target_label || 'Open' }}</router-link>
             </li>
           </ul>
         </section>
@@ -332,7 +343,7 @@
             <th>Timedowns</th>
             <th>End reason</th>
             <th>Suspicion</th>
-            <th>Session</th>
+            <th v-if="!isSupportReviewer">Session</th>
           </tr>
         </thead>
         <tbody>
@@ -392,6 +403,9 @@ import {
 } from '../../utils/auditActionRegistry.js';
 
 const authStore = useAuthStore();
+const isSupportReviewer = computed(() => String(authStore.user?.role || '').toLowerCase() === 'support');
+const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'local time';
+const auditNotice = ref('');
 const securityMode = ref(authStore.user?.role === 'super_admin');
 const agencyStore = useAgencyStore();
 const route = useRoute();
@@ -411,7 +425,7 @@ const activityNotice = ref('');
 const loading = ref(false);
 const exporting = ref(false);
 const error = ref('');
-const viewMode = ref('activity');
+const viewMode = ref(isSupportReviewer.value ? 'table' : 'activity');
 
 const emptyActivitySummary = () => ({
   userCount: 0,
@@ -429,6 +443,7 @@ const filters = reactive({
   source: 'all',
   search: '',
   userId: '',
+  clientId: '',
   category: '',
   actionType: '',
   startDate: '',
@@ -529,6 +544,7 @@ const hydrateDefaultAgencySelection = () => {
 const currentParams = () => ({
   search: filters.search || undefined,
   source: filters.source || undefined,
+  clientId: filters.clientId || undefined,
   userId: filters.userId || undefined,
   category: filters.category || undefined,
   actionType: filters.actionType || undefined,
@@ -554,6 +570,7 @@ const reload = async () => {
   error.value = '';
   sessionsNotice.value = '';
   activityNotice.value = '';
+  auditNotice.value = '';
   try {
     if (viewMode.value === 'activity') {
       const resp = await api.get(`/activity-log/agency/${agencyId.value}/activity-data`, {
@@ -594,6 +611,8 @@ const reload = async () => {
     } else {
       const resp = await api.get(`/activity-log/agency/${agencyId.value}`, { params: currentParams() });
       rows.value = Array.isArray(resp.data?.items) ? resp.data.items : [];
+      const unavailable = resp.data?.diagnostics?.disabled_sources || [];
+      if (unavailable.length) auditNotice.value = `Incomplete coverage: ${[...new Set(unavailable.map((item) => item.source))].join(', ')} is unavailable. An empty result does not establish a complete audit trail.`;
       const pg = resp.data?.pagination || {};
       pagination.total = Number(pg.total || 0);
       pagination.hasNextPage = !!pg.hasNextPage;
@@ -615,6 +634,7 @@ const reload = async () => {
 };
 
 const setViewMode = async (mode) => {
+  if (isSupportReviewer.value && !['table', 'grouped'].includes(mode)) return;
   viewMode.value = mode;
   pagination.offset = 0;
   await reload();
@@ -700,6 +720,7 @@ const exportCsv = async () => {
       params: currentParams(),
       responseType: 'blob'
     });
+    if (String(response.headers?.['x-audit-export-truncated']) === 'true') auditNotice.value = 'Export contains the first 10,000 matching events. Narrow the date range or choose a source to export the remainder.';
     downloadCsvBlob(response.data, `audit-center-${agencyId.value}.csv`);
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to export CSV.';
@@ -759,7 +780,7 @@ const suspicionClass = (score) => {
 };
 
 const formatUser = (row) => {
-  if (row.log_type === 'admin_action') {
+  if (row.log_type === 'admin_action' && !row.details_restricted) {
     const actorName = `${row.actor_first_name || ''} ${row.actor_last_name || ''}`.trim();
     const targetName = `${row.target_first_name || ''} ${row.target_last_name || ''}`.trim();
     if (actorName && targetName && actorName !== targetName) return `${actorName} -> ${targetName}`;
@@ -778,6 +799,7 @@ const formatUserEmail = (row) => {
 };
 
 const formatDetails = (row) => {
+  if (row.details_restricted) return Object.entries(row.metadata || {}).map(([key, value]) => `${key}: ${value}`).join(' · ') || 'Details restricted';
   if (isPasswordRecoveryAudit(row.action_type)) return formatPasswordRecoveryAudit(row.metadata);
   const base = row.module_title ? `Module: ${row.module_title}` : (row.track_name ? `Track: ${row.track_name}` : '');
   const meta = row.metadata ? JSON.stringify(row.metadata) : '';
@@ -804,7 +826,7 @@ const formatClientName = (row) => {
 
 const buildRowLink = (pathOrRow) => {
   const path = typeof pathOrRow === 'string' ? pathOrRow : String(pathOrRow?.link_path || '').trim();
-  if (!path) return '';
+  if (!path || !path.startsWith('/admin/')) return '';
   const slug = String(route.params.organizationSlug || '').trim();
   if (slug && path.startsWith('/admin/')) return `/${slug}${path}`;
   return path;

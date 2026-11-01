@@ -2440,6 +2440,8 @@ if (!isBootstrap) {
     if (schoolContactAutomationBusy) return;
     schoolContactAutomationBusy = true;
     try {
+      const {syncSchoolContactWorkReplies}=await import('./services/schoolContactReplyRouting.service.js');
+      await syncSchoolContactWorkReplies();
       const { processSchoolContactAutomation } = await import('./services/schoolContactAutomation.service.js');
       await processSchoolContactAutomation();
     } catch (error) {
@@ -2759,6 +2761,16 @@ if (!isBootstrap) {
   };
   checkProviderOpenings();
   setInterval(checkProviderOpenings, 15 * 60 * 1000);
+  let goalProgressRunning = false;
+  const checkGoalProgress = async () => {
+    if (goalProgressRunning) return;
+    goalProgressRunning = true;
+    try { await (await import('./services/treatmentGoalProgress.service.js')).runTreatmentGoalProgressNotifications(); }
+    catch (error) { console.warn('[goal-progress-notifications] Delivery worker unavailable', error.code || 'job_failed'); }
+    finally { goalProgressRunning = false; }
+  };
+  setTimeout(checkGoalProgress, 30 * 1000).unref();
+  setInterval(checkGoalProgress, 60 * 1000).unref();
   let providerWaitlistRunning = false;
   const checkProviderWaitlists = async () => {
     if (providerWaitlistRunning || process.env.PROVIDER_WAITLIST_REMINDERS_ENABLED === 'false') return;

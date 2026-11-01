@@ -41,10 +41,10 @@ export function renderSchoolContactTemplate(template, values) {
 export function schoolContactRouting(provider, from = 'messages@itsco.health', agency = {}) {
   const policyRequiresSso = parse(agency.feature_flags).googleSsoEnabled === true || !!managedDomain(agency);
   const isSso = policyRequiresSso && !flag(provider.sso_password_override) && !flag(provider.login_is_group_email);
-  const providerEmail = email(isSso ? provider.work_mailbox_email || provider.work_email || provider.email : provider.personal_email || provider.email || provider.work_email);
-  return { isSso, from, providerEmail, replyTo: isSso ? from : providerEmail,
+  const providerEmail = email(isSso ? provider.work_mailbox_email : provider.personal_email || provider.email || provider.work_email);
+  return { isSso, from, providerEmail, replyTo: providerEmail,
     replyTracking: isSso ? 'in_app' : 'external_email',
-    replyTrackingNote: isSso ? 'Replies stay in your app inbox.' : 'Replies go to your email. Replies sent outside the app may not be visible here; record them in the client contact history to stop follow-ups.' };
+    replyTrackingNote: isSso ? 'Replies go to your configured work email. Replies to this contact email are also linked to the client’s app conversation.' : 'Replies go to your email. Replies sent outside the app may not be visible here; record them in the client contact history to stop follow-ups.' };
 }
 
 export async function getContactPlanContext({ agencyId, userId, requireEligible = true }) {
@@ -66,7 +66,8 @@ export async function getContactPlanContext({ agencyId, userId, requireEligible 
     return { eligible: false, agency };
   }
   const [[provider]] = await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.role,u.has_provider_access,u.email,u.work_email,u.personal_email,u.sso_password_override,u.login_is_group_email,
-      (SELECT i.from_email FROM communication_inboxes i WHERE i.agency_id=ua.agency_id AND i.owner_user_id=u.id AND i.kind='personal' AND i.is_active=1 ORDER BY i.id LIMIT 1) AS work_mailbox_email
+      (SELECT i.from_email FROM communication_inboxes i JOIN email_sender_identities esi ON esi.id=i.sender_identity_id AND esi.agency_id=i.agency_id AND esi.is_active=1 AND esi.identity_key=CONCAT('personal_',u.id) AND LOWER(esi.from_email)=LOWER(i.from_email)
+        WHERE i.agency_id=ua.agency_id AND i.owner_user_id=u.id AND i.kind='personal' AND i.is_active=1 ORDER BY i.id LIMIT 1) AS work_mailbox_email
     FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1
     WHERE u.id=? AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_active,1)=1`, [aid, uid]);
   const careRole = ['provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'clinical_practice_assistant'].includes(provider?.role) || flag(provider?.has_provider_access);
@@ -164,11 +165,16 @@ export async function sendSchoolContactEmail({ agencyId, providerUserId, clientI
     await Conversation.upsertParticipant(conversation.id, { kind: 'email', email: recipient, isPrimary: true });
   }
   let replyTo = routing.replyTo;
-  if (routing.isSso) {
-    const token = randomBytes(18).toString('hex');
-    replyTo = from.replace('@', `+${token}@`);
-    await pool.execute(`INSERT INTO hub_email_reply_tokens (token_hash,agency_id,conversation_id,person_key,created_by_user_id,expires_at)
-      VALUES (?,?,?,?,?,DATE_ADD(NOW(),INTERVAL 180 DAY))`, [createHash('sha256').update(token).digest('hex'), ctx.agencyId, conversation.id, null, ctx.userId]);
+  if(routing.isSso) {
+    const {schoolContactWorkMailboxAvailable}=await import('./schoolContactReplyRouting.service.js');
+    if(!await schoolContactWorkMailboxAvailable(routing.providerEmail)) {
+      // Keep replies in the app when delegated access to the SSO work mailbox
+      // is unavailable. This token route remains valid for historical sends.
+      const token=randomBytes(18).toString('hex');
+      replyTo=from.replace('@',`+${token}@`);
+      await pool.execute(`INSERT INTO hub_email_reply_tokens (token_hash,agency_id,conversation_id,person_key,created_by_user_id,expires_at)
+        VALUES (?,?,?,?,?,DATE_ADD(NOW(),INTERVAL 180 DAY))`,[createHash('sha256').update(token).digest('hex'),ctx.agencyId,conversation.id,null,ctx.userId]);
+    }
   }
   const html = `<div style="font:16px/1.65 Arial,sans-serif;color:#203847">${escapeHtml(text).replaceAll('\n', '<br>')}</div>`;
   const stableMessageId = workflowId && stepKey && /^[a-z0-9_]+$/i.test(String(stepKey))

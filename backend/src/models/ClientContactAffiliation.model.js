@@ -1,3 +1,4 @@
+import { contactReminderPhoneHash } from '../utils/contactReminderConsent.js';
 import pool from '../config/database.js';
 
 const CHOICES = new Set(['unchanged', 'email_only', 'sms_only', 'both', 'off']);
@@ -51,6 +52,8 @@ class ClientContactAffiliation {
               a.email_reminders_enabled,
               a.sms_reminders_enabled,
               a.sms_opt_in,
+              a.sms_consent_status,
+              a.sms_consent_phone_hash,
               c.full_name AS contact_full_name,
               c.email AS contact_email,
               c.phone AS contact_phone
@@ -60,10 +63,12 @@ class ClientContactAffiliation {
          AND a.is_active = 1
          AND c.is_active = 1
          AND a.notify_ack_at IS NOT NULL
-         AND EXISTS (SELECT 1 FROM client_guardians cg WHERE cg.client_id = a.client_id
+         AND (EXISTS (SELECT 1 FROM client_guardians cg WHERE cg.client_id = a.client_id
            AND cg.guardian_user_id = a.notify_ack_by_user_id AND cg.access_enabled = 1
            AND COALESCE(JSON_EXTRACT(cg.permissions_json, '$.noView'), false) = false
            AND COALESCE(JSON_EXTRACT(cg.permissions_json, '$.noViewOtherGuardian'), false) = false)
+           OR EXISTS (SELECT 1 FROM clients self_client JOIN users self_user ON self_user.id=self_client.user_id
+             WHERE self_client.id=a.client_id AND self_client.user_id=a.notify_ack_by_user_id AND self_user.role='client' AND self_user.is_active=1))
          AND (a.email_reminders_enabled = 1 OR a.sms_reminders_enabled = 1)`,
       [clientId]
     );
@@ -78,6 +83,11 @@ class ClientContactAffiliation {
       [clientId, agencyContactId]
     );
     return rows[0] || null;
+  }
+
+  static async isSharedAcrossClients(agencyContactId, clientId) {
+    const [rows] = await pool.execute('SELECT id FROM client_contact_affiliations WHERE agency_contact_id=? AND client_id<>? LIMIT 1', [agencyContactId, clientId]);
+    return rows.length > 0;
   }
 
   static async create(data) {
@@ -107,7 +117,7 @@ class ClientContactAffiliation {
         relationshipType ? String(relationshipType).trim().slice(0, 64) : null,
         emailRemindersEnabled ? 1 : 0,
         smsRemindersEnabled ? 1 : 0,
-        smsOptIn || smsRemindersEnabled ? 1 : 0,
+        smsOptIn ? 1 : 0,
         notifyAckByUserId || null,
         notifyAckAt || null,
         createdByUserId || null
@@ -124,6 +134,17 @@ class ClientContactAffiliation {
       emailRemindersEnabled: 'email_reminders_enabled',
       smsRemindersEnabled: 'sms_reminders_enabled',
       smsOptIn: 'sms_opt_in',
+      smsConsentPhoneHash: 'sms_consent_phone_hash',
+      smsConsentStatus: 'sms_consent_status',
+      smsSenderNumberId: 'sms_sender_number_id',
+      smsInvitationPermissionAt: 'sms_invitation_permission_at',
+      smsInvitationPermissionByUserId: 'sms_invitation_permission_by_user_id',
+      smsInvitationAttemptedAt: 'sms_invitation_attempted_at',
+      smsInvitationSentAt: 'sms_invitation_sent_at',
+      smsInvitationStatus: 'sms_invitation_status',
+      smsInvitationError: 'sms_invitation_error',
+      smsConsentEventAt: 'sms_consent_event_at',
+      smsConsentMessageId: 'sms_consent_message_id',
       isActive: 'is_active',
       notifyAckByUserId: 'notify_ack_by_user_id',
       notifyAckAt: 'notify_ack_at',
@@ -177,7 +198,11 @@ class ClientContactAffiliation {
       relationshipType: row.relationship_type || null,
       emailRemindersEnabled: !!row.email_reminders_enabled,
       smsRemindersEnabled: !!row.sms_reminders_enabled,
-      smsOptIn: !!row.sms_opt_in,
+      smsOptIn: !!row.sms_opt_in && row.sms_consent_status === 'opted_in' && row.sms_consent_phone_hash === contactReminderPhoneHash(row.contact_phone),
+      smsConsentStatus: row.sms_consent_status || 'pending',
+      smsInvitationStatus: row.sms_invitation_status || null,
+      smsInvitationSentAt: row.sms_invitation_sent_at || null,
+      smsInvitationError: row.sms_invitation_error || null,
       isActive: row.is_active !== 0 && row.is_active !== false,
       notifyAckByUserId: row.notify_ack_by_user_id ? Number(row.notify_ack_by_user_id) : null,
       notifyAckAt: row.notify_ack_at || null,

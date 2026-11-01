@@ -103,6 +103,7 @@ export async function guardianPlanProgress(context) {
       diagnoses: (full.planDiagnoses || []).map(d => ({ description: d.description, justification: d.justification })),
       updatedAt: full.updated_at, revision },
     goals: full.goals.map(g => ({ id: g.id, goalIndex: g.goal_index, goalText: g.goal_text,
+      progressStatus: ['improved', 'achieved'].includes(g.status) ? g.status : 'active', progressUpdatedAt: g.updated_at || null,
       objectives: g.objectives.map(o => {
         const previous = own.find(r => Number(r.objective_id) === Number(o.id));
         return { id: o.id, objectiveIndex: o.objective_index, objectiveText: o.objective_text,

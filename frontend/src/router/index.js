@@ -6286,11 +6286,7 @@ router.beforeEach(async (to, from, next) => {
       }
     }
 
-    // Audit Center is limited to admin/super_admin only.
-    if (String(to.path || '').includes('/admin/audit-center') && userRoleNorm === 'support') {
-      next(getDashboardRoute());
-      return;
-    }
+    // Support uses the agency-scoped metadata review supplied by Audit Center.
     
     // School staff should not use the employee "Office Schedule" or "Payroll" surfaces.
     // They should stay within their school portal dashboard.

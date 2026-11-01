@@ -1,3 +1,4 @@
+import { setTreatmentGoalProgress, getTreatmentGoalProgressHistory } from '../controllers/treatmentGoalProgress.controller.js';
 import { excludeSupportClinicalContent } from '../middleware/supportContentAccess.middleware.js';
 import { getH0002SourceDocuments, closeH0002RoiTask, getH0002ScreeningReview, signH0002ScreeningReview, saveH0002ScreeningDraft, forwardH0002Screening, translateH0002Screening } from '../controllers/h0002Screening.controller.js';
 import { getServiceBillingSupervisors, putServiceBillingSupervisor } from '../controllers/serviceBillingSupervisor.controller.js';
@@ -287,6 +288,9 @@ router.get(
   ],
   listClientChart
 );
+
+router.get('/treatment-plans/:planId/goal-progress', excludeSupportClinicalContent, requireClinicalChart, getTreatmentGoalProgressHistory);
+router.patch('/treatment-plans/:planId/goals/:goalId/progress', excludeSupportClinicalContent, requireClinicalChart, setTreatmentGoalProgress);
 
 router.post(
   '/objectives/:objectiveId/ratings',

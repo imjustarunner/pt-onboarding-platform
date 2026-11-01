@@ -11,6 +11,8 @@ import {
 } from '../services/brandedNotificationEmail.service.js';
 import { verifyContactReminderToken } from '../services/contactReminderToken.service.js';
 import Agency from '../models/Agency.model.js';
+import { logAuditEvent } from '../services/auditEvent.service.js';
+import { requestContactSmsInvitation } from '../services/contactReminderSmsConsent.service.js';
 
 function parseId(v) {
   const n = parseInt(v, 10);
@@ -93,8 +95,10 @@ export async function createClientAffiliatedContact(req, res, next) {
       emailRemindersEnabled: !!req.body?.emailRemindersEnabled,
       smsRemindersEnabled: !!req.body?.smsRemindersEnabled,
       acknowledgeNotify: !!req.body?.acknowledgeNotify,
+      recipientPermissionToInvite: req.body?.recipientPermissionToInvite === true,
       existingContactId: req.body?.existingContactId || req.body?.agencyContactId || null
     });
+    await logAuditEvent(req, { actionType: 'client_reminder_contact_added', agencyId: out.affiliation.agencyId, targetType: 'client_reminder_contact', targetId: out.affiliation.id, metadata: { clientId } });
     res.status(201).json(out);
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
@@ -119,9 +123,11 @@ export async function patchClientAffiliatedContact(req, res, next) {
         emailRemindersEnabled: req.body?.emailRemindersEnabled,
         smsRemindersEnabled: req.body?.smsRemindersEnabled,
         isActive: req.body?.isActive,
+        recipientPermissionToInvite: req.body?.recipientPermissionToInvite === true,
         acknowledgeNotify: !!req.body?.acknowledgeNotify
       }
     });
+    await logAuditEvent(req, { actionType: 'client_reminder_contact_updated', agencyId: out.affiliation.agencyId, targetType: 'client_reminder_contact', targetId: affiliationId, metadata: { clientId } });
     res.json(out);
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
@@ -142,6 +148,7 @@ export async function deleteClientAffiliatedContact(req, res, next) {
       return res.status(404).json({ error: { message: 'Affiliation not found' } });
     }
     const updated = await ClientContactAffiliation.softDeactivate(affiliationId);
+    await logAuditEvent(req, { actionType: 'client_reminder_contact_removed', agencyId: row.agency_id, targetType: 'client_reminder_contact', targetId: affiliationId, metadata: { clientId } });
     res.json({ ok: true, affiliation: ClientContactAffiliation.toApi(updated) });
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
@@ -163,8 +170,8 @@ export async function getPublicContactReminderAction(req, res, next) {
     if (result.applied) {
       if (choice === 'off') message = 'Appointment reminders have been turned off for this client.';
       else if (choice === 'email_only') message = 'You will receive email appointment reminders only.';
-      else if (choice === 'sms_only') message = 'You will receive text appointment reminders only.';
-      else if (choice === 'both') message = 'You will receive both email and text appointment reminders.';
+      else if (choice === 'sms_only') message = 'Text reminders are requested. Reply START to the opt-in invitation before texts begin.';
+      else if (choice === 'both') message = 'Email reminders are enabled. Text reminders require your START reply to the opt-in invitation.';
     }
     const html = buildContactReminderPrefResultHtml({
       agencyName: agency?.name,
@@ -181,6 +188,22 @@ export async function getPublicContactReminderAction(req, res, next) {
       res.status(e.status).setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.send(html);
     }
+    next(e);
+  }
+}
+
+export async function inviteClientAffiliatedContactSms(req, res, next) {
+  try {
+    const clientId = parseId(req.params.id || req.params.clientId);
+    const affiliationId = parseId(req.params.affiliationId);
+    if (!clientId || !affiliationId) return res.status(400).json({ error: { message: 'Invalid ids' } });
+    await assertCanManageClientContacts(req, clientId);
+    const result = await requestContactSmsInvitation({ affiliationId, clientId, userId: req.user.id, recipientPermissionToInvite: req.body?.recipientPermissionToInvite === true });
+    const row = await ClientContactAffiliation.findById(affiliationId);
+    await logAuditEvent(req, { actionType: 'client_reminder_contact_sms_invitation', agencyId: row.agency_id, targetType: 'client_reminder_contact', targetId: affiliationId, metadata: { clientId, status: result.status } });
+    res.json(result);
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);
   }
 }

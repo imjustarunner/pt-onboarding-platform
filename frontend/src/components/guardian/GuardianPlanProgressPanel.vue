@@ -44,6 +44,7 @@
         <header>
           <span class="gpp-pill">Goal {{ g.goalIndex }}</span>
           <strong>{{ g.goalText }}</strong>
+          <span v-if="g.progressStatus && g.progressStatus !== 'active'" class="gpp-pill">{{ g.progressStatus === 'achieved' ? 'Achieved' : 'Improved' }}</span>
         </header>
         <div v-for="o in g.objectives || []" :key="o.id" class="gpp-obj">
           <div class="gpp-obj__text">

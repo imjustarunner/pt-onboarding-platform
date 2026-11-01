@@ -4,7 +4,7 @@ vi.mock('../inboundEmailPersistence.service.js',()=>({persistInboundEmail:vi.fn(
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), getConnection: vi.fn() } }));
 vi.mock('../../models/Agency.model.js', () => ({ default: { findById: vi.fn(async () => ({ id: 2, slug: 'itsco', name: 'ITSCO' })) } }));
-vi.mock('../emailSendMailbox.service.js', () => ({ resolveEmailSendMailbox: vi.fn(async () => ({ identity: { id: 4 }, displayName: 'Staff' })) }));
+vi.mock('../emailSendMailbox.service.js', () => ({ resolveEmailSendMailbox: vi.fn(async () => ({ identity: { id: 4 }, fromEmail:'staff@itsco.health', replyTo:'staff@itsco.health', displayName: 'Staff' })) }));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: vi.fn(async () => ({ id: 'gmail-id' })) }));
 vi.mock('../availabilityWindow.service.js', () => ({ resolveAvailabilitySchedule: vi.fn(async () => ({ timezone: 'America/Denver' })) }));
 vi.mock('../googleWorkspaceDirectory.service.js', () => ({ default: { isConfigured: () => true, getUser: vi.fn(async () => null), getGroup: vi.fn(async () => ({ id: 'group' })) } }));
@@ -13,6 +13,7 @@ vi.mock('../unifiedInbox.service.js', () => ({ isAddressBlocked: vi.fn(async () 
 import pool from '../../config/database.js';
 import { sendEmailFromIdentity } from '../unifiedEmail/unifiedEmailSender.service.js';
 import { getAgencyEmailSettings } from '../emailSettings.service.js';
+import { resolveEmailSendMailbox } from '../emailSendMailbox.service.js';
 import { runPersonalThreadReminders, queuePersonalReminderReply, resolvePersonalReminderMailbox, personalReplySendMailbox } from '../personalThreadReminder.service.js';
 import { personalReminderReplyText, personalReminderBody } from '../../utils/personalReminderReply.js';
 import { validateOutboundEmailQuality } from '../outboundEmailQuality.service.js';
@@ -41,7 +42,7 @@ it('queues the reply and receipt together using the original external RFC parent
   const result = await queuePersonalReminderReply(reply);
   expect(result).toMatchObject({ conversationId: 10, messageId: 80, queuedPersonalReply: true });
   const insert = db.execute.mock.calls.find(([sql]) => sql.startsWith('INSERT INTO communication_messages'));
-  expect(insert[1]).toEqual([10, 5, JSON.stringify({ email: 'messages@itsco.health' }), JSON.stringify([{ email: 'client@example.org' }]), '[]', '[]', 'Re: Meeting', 'Confirmed.', '<external@example.org>', '<root@example.org> <external@example.org>', 1]);
+  expect(insert[1]).toEqual([10, 5, JSON.stringify({ email: 'staff@itsco.health' }), JSON.stringify([{ email: 'client@example.org' }]), '[]', '[]', 'Re: Meeting', 'Confirmed.', '<external@example.org>', '<root@example.org> <external@example.org>', 1]);
   expect(db.commit).toHaveBeenCalledOnce();
   expect(sendEmailFromIdentity).not.toHaveBeenCalled();
 });
@@ -129,7 +130,24 @@ it('rechecks preferences before a scheduled personal reply is actually sent',asy
  pool.execute.mockResolvedValue([[{...reminder,personal_email_notify:0}]]);
  await expect(personalReplySendMailbox({reminderId:1,conversationId:10,inbox,userId:5,to:[{email:'client@example.org'}]})).rejects.toThrow('permissions changed');
  pool.execute.mockResolvedValue([[reminder]]);
- expect(await personalReplySendMailbox({reminderId:1,conversationId:10,inbox,userId:5,to:[{email:'client@example.org'}]})).toMatchObject({fromEmail:'messages@itsco.health'});
+ expect(await personalReplySendMailbox({reminderId:1,conversationId:10,inbox,userId:5,to:[{email:'client@example.org'}]})).toMatchObject({fromEmail:'staff@itsco.health',replyTo:'staff@itsco.health'});
+ expect(resolveEmailSendMailbox).toHaveBeenCalledWith({agencyId:2,userId:5,inbox});
+});
+
+it('uses the configured work sender for immediate forwarding while retaining the private authenticated reply token',async()=>{
+ const row={...provider,conversation_id:10,message_id:20,agency_id:2,inbox_id:3,user_id:5,sender_identity_id:4,from_email:inbox.from_email,
+   received_at:'2026-09-30T02:00:00Z',personal_email_delay_mode:'immediate',personal_email_delivery_mode:'forward_one_to_one',body_text:'Can we coordinate a time?',from_json:{email:'client@example.org'}};
+ pool.execute.mockImplementation(async sql=>sql.startsWith('SELECT c.id')?[[row]]:[{affectedRows:1}]);
+ expect(await runPersonalThreadReminders({now:new Date('2026-09-30T02:00:01Z')})).toMatchObject({sent:1});
+ expect(resolveEmailSendMailbox).toHaveBeenCalledWith({agencyId:2,userId:5,inbox:expect.objectContaining({sender_identity_id:4,from_email:'staff@itsco.health',kind:'personal'})});
+ expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:4,to:'private@example.org',templateType:'personal_thread_forward',text:expect.stringContaining('Can we coordinate a time?'),replyToOverride:expect.stringMatching(/^messages\+p-[a-f0-9]{48}@itsco.health$/)}));
+});
+
+it('never falls back to a guessed address when a work sender becomes unavailable',async()=>{
+ pool.execute.mockResolvedValue([[reminder]]);
+ resolveEmailSendMailbox.mockRejectedValueOnce(new Error('Work mailbox sender identity is unavailable'));
+ await expect(personalReplySendMailbox({reminderId:1,conversationId:10,inbox,userId:5,to:[{email:'client@example.org'}]})).rejects.toThrow('Work mailbox');
+ expect(sendEmailFromIdentity).not.toHaveBeenCalled();
 });
 
 it('delivers opted-in immediate notifications after hours without changing default or off behavior',async()=>{

@@ -54,9 +54,10 @@ export async function runPersonalThreadReminders({ now = new Date() } = {}) {
       if (!isPersonalMessageReminderDue(row.received_at, { now, schedule, timeZone:agency?.timezone, preferences })) continue;
       const recipient = await messageReminderRecipient(row);
       if (!recipient) continue;
-      const inbox = {id:row.inbox_id, agency_id:row.agency_id, owner_user_id:row.user_id, from_email:row.from_email};
+      const inbox = {id:row.inbox_id, agency_id:row.agency_id, owner_user_id:row.user_id, from_email:row.from_email, sender_identity_id:row.sender_identity_id, kind:'personal', is_active:1};
       const allowReply = preferences.personalEmailDeliveryMode === 'forward_one_to_one' && await personalThreadCanReply({conversationId:row.conversation_id,inbox});
       const mailbox = await resolveMessagesSendMailbox(row.agency_id);
+      const senderMailbox = allowReply ? await resolveEmailSendMailbox({agencyId:row.agency_id,userId:row.user_id,inbox}) : mailbox;
       const token = randomBytes(24).toString('hex');
       const [local, domain] = mailbox.fromEmail.split('@');
       const replyTo = `${local}+p-${token}@${domain}`;
@@ -64,13 +65,13 @@ export async function runPersonalThreadReminders({ now = new Date() } = {}) {
       const appUrl = buildPublicAppUrl(agency, `messages?conversationId=${row.conversation_id}&agencyId=${row.agency_id}`);
       let bodyText = 'You have messages waiting in your work inbox. Sign in to read and reply.';
       const sender=typeof row.from_json==='string'?JSON.parse(row.from_json):row.from_json;
-      if (allowReply) bodyText = `A one-to-one email is waiting in your work inbox. Reply to this email to answer through Messages; your personal address is not shared.\n\nFrom: ${sender?.name || sender?.email || 'Your correspondent'}\nSubject: ${row.subject || '(no subject)'}\n\n${row.body_text || '(Open the app to view this email.)'}`;
+      if (allowReply) bodyText = `A one-to-one email is waiting in your work inbox. Reply to this email to answer through your configured work email address; your personal address is not shared.\n\nFrom: ${sender?.name || sender?.email || 'Your correspondent'}\nSubject: ${row.subject || '(no subject)'}\n\n${row.body_text || '(Open the app to view this email.)'}`;
       const footerNote = allowReply ? 'Only your new reply text is sent. Files stay in the app. Group replies and Reply all require the app.' : 'This is a notification only. Open the app to reply or reply all. Message content is not included.';
-      const html = buildBrandedMessageEmailHtml({agencyName:agency?.name,senderDisplayName:mailbox.displayName,title:'You have messages waiting',bodyText,appUrl,history:[],footerNote});
+      const html = buildBrandedMessageEmailHtml({agencyName:agency?.name,senderDisplayName:senderMailbox.displayName,title:'You have messages waiting',bodyText,appUrl,history:[],footerNote});
       const [claim] = await pool.execute(`INSERT IGNORE INTO communication_thread_reminders (conversation_id,message_id,user_id,inbox_id,internet_message_id,reply_token_hash,reply_allowed) VALUES (?,?,?,?,?,?,?)`, [row.conversation_id,row.message_id,row.user_id,row.inbox_id,messageId,hashToken(token),allowReply ? 1 : 0]);
       if (!claim.affectedRows) continue;
       claimed = true;
-      const result = await sendEmailFromIdentity({senderIdentityId:mailbox.identity.id,to:recipient,subject:'You have messages waiting',text:`${bodyText}\n\nOpen in Messages: ${appUrl}\n\n${footerNote}`,html,replyToOverride:replyTo,internetMessageIdOverride:messageId,source:'auto',userId:row.user_id,linkUrl:appUrl,templateType:allowReply?'personal_thread_forward':'personal_thread_reminder'});
+      const result = await sendEmailFromIdentity({senderIdentityId:senderMailbox.identity.id,to:recipient,subject:'You have messages waiting',text:`${bodyText}\n\nOpen in Messages: ${appUrl}\n\n${footerNote}`,html,replyToOverride:replyTo,internetMessageIdOverride:messageId,source:'auto',userId:row.user_id,linkUrl:appUrl,templateType:allowReply?'personal_thread_forward':'personal_thread_reminder'});
       const delivered = result?.id && !result.blocked && !result.skipped && !result.pendingApproval && !result.queued && !result.redirected;
       await pool.execute('UPDATE communication_thread_reminders SET delivery_status=?, sent_at=?, internet_message_id=? WHERE internet_message_id=?', [delivered?'sent':'held',delivered?now:null,result?.internetMessageId||messageId,messageId]);
       if (delivered) sent++;
@@ -144,7 +145,10 @@ export async function queuePersonalReminderReply({ inbox, fromEmail, deliveryId,
       to:[{email:inbox.from_email}],internalNote:true,attachments});
     return {...stored,personalReplyHeld:true};
   }
-  await resolveEmailSendMailbox({ agencyId: inbox.agency_id, userId: reminder.user_id, inbox });
+  // Messages receives the private reply token, but the public reply uses the
+  // owner's validated work mailbox, never their personal address or a guess
+  // based on their login. Resolve it again after the undo window at delivery.
+  const workMailbox = await resolveEmailSendMailbox({ agencyId: inbox.agency_id, userId: reminder.user_id, inbox });
   const sender = typeof reminder.from_json === 'string' ? JSON.parse(reminder.from_json) : reminder.from_json;
   const to = String(sender?.replyTo || sender?.email || '').trim();
   if (!to || [fromEmail, inbox.from_email].some((a) => normalize(a) === normalize(to))) throw new Error('Reminder has no external reply recipient');
@@ -160,7 +164,7 @@ export async function queuePersonalReminderReply({ inbox, fromEmail, deliveryId,
     const [prior] = await db.execute('SELECT message_id FROM communication_email_receipts WHERE inbox_id=? AND delivery_hash=?', [inbox.id, hash]);
     if (prior.length) { await db.commit(); return { ingested: true, duplicate: true, conversationId: reminder.conversation_id, messageId: prior[0].message_id }; }
     const [result] = await db.execute(`INSERT INTO communication_messages (conversation_id,channel,direction,author_user_id,from_json,to_json,cc_json,bcc_json,subject,body_text,in_reply_to,references_header,personal_reply_reminder_id,send_status,scheduled_send_at,undo_expires_at)
-      VALUES (?,'email','outbound',?,?,?,?,?,?,?, ?,?,?,'scheduled',DATE_ADD(NOW(),INTERVAL 20 SECOND),DATE_ADD(NOW(),INTERVAL 20 SECOND))`, [reminder.conversation_id, reminder.user_id, JSON.stringify({ email: mailbox.fromEmail }), JSON.stringify([{ email: to }]), '[]', '[]', reminder.subject?.match(/^re:/i) ? reminder.subject : `Re: ${reminder.subject || ''}`, text, parentId, refs, reminder.id]);
+      VALUES (?,'email','outbound',?,?,?,?,?,?,?, ?,?,?,'scheduled',DATE_ADD(NOW(),INTERVAL 20 SECOND),DATE_ADD(NOW(),INTERVAL 20 SECOND))`, [reminder.conversation_id, reminder.user_id, JSON.stringify({ email: workMailbox.fromEmail }), JSON.stringify([{ email: to }]), '[]', '[]', reminder.subject?.match(/^re:/i) ? reminder.subject : `Re: ${reminder.subject || ''}`, text, parentId, refs, reminder.id]);
     for (const a of attachments) await db.execute('INSERT INTO communication_attachments (message_id,filename,content_type,size_bytes,storage_key) VALUES (?,?,?,?,?)', [result.insertId, a.filename, a.contentType, a.sizeBytes, a.storageKey]);
     await db.execute('INSERT INTO communication_email_receipts (inbox_id,delivery_hash,message_id) VALUES (?,?,?)', [inbox.id, hash, result.insertId]);
     await db.execute("UPDATE communication_conversations SET archived_at=NULL, status='waiting_on_them', last_message_at=NOW(), last_message_preview=? WHERE id=?", [text.slice(0,240), reminder.conversation_id]);
@@ -184,5 +188,5 @@ export async function personalReplySendMailbox({reminderId,conversationId,inbox,
     || !await messageReminderRecipient(row) || to.length!==1 || cc.length || bcc.length
     || normalize(to[0]?.email)!==normalize(original?.replyTo || original?.email)
     || !await personalThreadCanReply({conversationId,inbox})) throw new Error('Personal reply permissions changed. Review this reply in the app.');
-  return resolveMessagesSendMailbox(inbox.agency_id);
+  return resolveEmailSendMailbox({agencyId:inbox.agency_id,userId,inbox});
 }

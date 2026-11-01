@@ -21,6 +21,7 @@ export async function logNoteAidChartEvent(req, {
     agencyId: agencyId || null,
     metadata: {
       clientId: clientId ? Number(clientId) : null,
+      actorRole: String(req.user?.role || 'unknown'),
       ...(metadata && typeof metadata === 'object' ? metadata : {})
     }
   });

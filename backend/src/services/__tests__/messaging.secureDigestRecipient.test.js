@@ -11,11 +11,26 @@ import { sendEmailFromIdentity } from '../unifiedEmail/unifiedEmailSender.servic
 import { runHubSecureUnreadDigestTick } from '../inboxDigest.service.js';
 const user = { user_id: 5, agency_id: 2, role: 'provider', email: 'provider@itsco.health', personal_email: 'private@example.org', personal_email_notify: 0, sso_password_override: 0, login_is_group_email: 0, digest_hours: 24 };
 beforeEach(() => { vi.clearAllMocks(); });
-function rows(person) { pool.execute.mockImplementation(async sql => sql.includes('SELECT u.id AS user_id') ? [[person]] : sql.includes('SELECT t.id AS thread_id') ? [[{ thread_id: 1, message_id:9, oldest_unread_at: '2026-09-01T00:00:00Z', unread_count: 2 }]] : [{ affectedRows: 1 }]); }
+function rows(person) { pool.execute.mockImplementation(async sql => sql.includes('SELECT DISTINCT u.id AS user_id') ? [[person]] : sql.includes('SELECT t.id AS thread_id') ? [[{ thread_id: 1, message_id:9, oldest_unread_at: '2026-09-01T00:00:00Z', unread_count: 2, sender_names:'Alex Rivera' }]] : [{ affectedRows: 1 }]); }
 it('delivers an SSO secure-message digest to the work login even with personal reminders disabled', async () => {
   rows(user); await runHubSecureUnreadDigestTick({ now: new Date('2026-09-03T18:00:00Z') });
   expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({ to: user.email, templateType: 'hub_secure_unread_digest' }));
   expect(JSON.stringify(sendEmailFromIdentity.mock.calls)).not.toContain(user.personal_email);
+  expect(sendEmailFromIdentity.mock.calls[0][0].text).toContain('From: Alex Rivera.');
+  expect(sendEmailFromIdentity.mock.calls[0][0].html).toContain('Alex Rivera');
+});
+
+it('checks unread messages separately for every active agency membership instead of only the lowest agency ID',async()=>{
+ pool.execute.mockImplementation(async (sql,args)=>sql.includes('SELECT DISTINCT u.id AS user_id')?[[user,{...user,agency_id:8}]]:
+   sql.includes('SELECT t.id AS thread_id')?[[{thread_id:args[2],message_id:args[2]+10,oldest_unread_at:'2026-09-03T17:59:59Z',unread_count:1,sender_names:args[2]===2?'Alex Rivera':'Jamie Chen'}]]:[{affectedRows:1}]);
+ expect(await runHubSecureUnreadDigestTick({now:new Date('2026-09-03T18:00:00Z')})).toMatchObject({sent:2});
+ const queries=pool.execute.mock.calls.filter(([sql])=>sql.includes('SELECT t.id AS thread_id'));
+ expect(queries.map(([,args])=>args[2])).toEqual([2,8]);
+ const notices=sendEmailFromIdentity.mock.calls.map(([mail])=>mail);
+ expect(notices[0].text).toContain('Alex Rivera');expect(notices[0].text).not.toContain('Jamie Chen');
+ expect(notices[1].text).toContain('Jamie Chen');expect(notices[1].text).not.toContain('Alex Rivera');
+ expect(notices[1].linkUrl).toContain('agencyId=8');
+ const candidateSql=pool.execute.mock.calls[0][0];expect(candidateSql).toContain('JOIN user_agencies ua');expect(candidateSql).not.toContain('ORDER BY ua.agency_id');
 });
 it('respects personal-email opt-out for a verified app-only provider', async () => {
   rows({ ...user, sso_password_override: 1, login_is_group_email: 1 });

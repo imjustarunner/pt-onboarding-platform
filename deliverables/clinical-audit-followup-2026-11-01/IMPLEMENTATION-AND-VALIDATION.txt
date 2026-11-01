@@ -1,0 +1,105 @@
+CLINICAL / AUDIT / COMMUNICATIONS FOLLOW-UP — NOVEMBER 1, 2026
+Source implementation and validation; live browser QA remains outstanding.
+Base: fb491b592 (the separately approved repair commit, now published to main).
+Branch: codex/clinical-audit-followup-20261101
+
+IMPLEMENTED
+1. Support audit review: own-agency access, safe metadata projection, all agency
+   administrator action rows preserved, exact client filter and search, CSV
+   formula escaping, coverage diagnostics and restricted clinical references.
+   Authorized clinicians get exact note targets; links do not confer access.
+   Added IDs-only chart, note, plan and intake read events. Audit review/export
+   are audited. Missing audit sources block an apparently complete export.
+2. Signed-note additions: simpler freeform default, original signed payload
+   preserved, optional correction types separate, author/supervisor attestations
+   retained. Inspected the existing append-only flow before assigning its QA.
+3. Supporting materials: collapsed calendar / draft / signed-note panels,
+   PDF/JPEG/PNG validation, envelope encryption before storage, host-local ClamAV
+   only, encrypted pending quarantine if unavailable, private scan retry, explicit
+   individual portal sharing and removal. Files stay with the clinical session
+   and are omitted from the general chart document list by default. Quarantined
+   files cannot download/share; existing grants can still be removed.
+4. Goal progress: explicit In progress / Improved / Achieved, transactional
+   clinical history + per-recipient outbox, current family/service authorization,
+   generic English/Spanish portal emails and in-app notices, exact client/service
+   link, delivery history and no automatic replay of uncertain sends. Existing
+   plan content signatures are preserved. Guardian/clinician ratings stay separate.
+5. Additional reminder contacts: no portal account required; guardian or adult
+   self-client authorization, minimal independent email/reminder delivery and
+   honest pending/opted-in/stopped SMS state. A permission-backed fixed text
+   invitation requests START. Parent/staff/email toggles cannot grant SMS consent
+   or clear STOP. Phone-bound consent, shared STOP/invitation locks, one-hour
+   resend limit, held uncertain sends, independent delivery rows and legacy-child
+   uniqueness protect against wrong-number consent and duplicate notifications.
+   Cross-client contact guesses cannot reveal or edit another client's details.
+6. Work-email messaging: internal notices identify unread correspondents and
+   cover each active agency. Non-SSO Immediate/custom personal EMAIL delivery
+   and authenticated private replies use the validated work identity. SSO school
+   replies use a work Reply-To only after authenticated delegated-mailbox access
+   is verified, with a narrow known-RFC-thread worker and Google DMARC checks.
+   Unavailable delegation retains the working token route; that requested work
+   Reply-To case remains blocked until delegation is actually available.
+7. New QA addendum: enrollment -> day -> provider -> linked 90791 -> separate
+   Alex/Cameron review/signature -> audit ledger; realistic fictional note and
+   worksheet examples; append-only addition; encryption/share/revocation checks;
+   plan signatures/trends/status notices; grandparent START/STOP; actual school
+   contact/reply/intake states; SSO and non-SSO receipt/timing/privacy checks.
+
+VALIDATION — 772 TESTS PASSED
+Backend: 49 files / 565 tests.
+Frontend: 24 files / 207 tests.
+79 changed/new JavaScript files passed node --check.
+10 changed/new Vue scripts and templates compiled.
+git diff --check passed.
+No install, dependency copy, full frontend build, database migration, live
+Gmail/SMS/email send, clinical record mutation or external publication was
+performed for this follow-up. Existing dependencies were linked temporarily.
+
+Reproducible test commands from repository root:
+NODE_OPTIONS=--experimental-sqlite node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.clinical-audit-regression.config.js
+node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.clinical-audit-regression.config.js
+
+The Node22 SQLite fixture requires NODE_OPTIONS so Vitest workers receive the
+flag. MySQL integration fixtures were updated where relevant but not executed;
+SQL migrations and real integration/deployment behavior need a migrated test
+instance. Test results above are source-level checks, not live delivery proof.
+
+DEPLOYMENT PREREQUISITES / LIMITS
+- Apply main migration1723_contact_reminder_sms_consent.sql before this code
+  uses the new contact consent and independent reminder recipient fields.
+- Apply clinical migration026_treatment_goal_progress_notifications.sql before
+  enabling the goal-progress UI/worker. Main and clinical schemas are separate.
+- Existing guardian-enabled legacy SMS flags are not promoted to recipient
+  consent; the new state starts pending. No live consent records were changed.
+- Materials require existing document KMS configuration. Without a configured
+  private local ClamAV socket (CLAMAV_SOCKET_PATH), uploads stay encrypted and
+  pending, with download/share blocked. No PHI is sent to a public scanner.
+- Clinical Notifyre activation/BAA/campaign and exact approved QA recipient gates
+  remain enforced. No workforce-carrier fallback or personal SMS relay was added.
+- The existing normal internal-reminder workers exclude demo accounts. This
+  exclusion was preserved. Live QA must record a blocker when no approved scoped
+  app action exists; do not change is_demo or silently enable broad delivery.
+- SSO work-email Reply-To needs actual delegated Gmail access to that exact work
+  mailbox. Header preflight is not proof that a guardian reply arrived.
+- No trend history was seeded in live records; the addendum gives a supported
+  synthetic setup path and requires BLOCKED if that history cannot be created.
+- Audit writes remain best effort; failures are surfaced, but passing unit tests
+  cannot prove every live action is recorded. The action-to-audit reconciliation
+  ledger must pass before signing off on audit coverage or clinical readiness.
+- Existing orphan Draft293, Note286, old service/quote/timestamp defects and
+  all earlier unresolved findings remain evidence until explicitly retested.
+- No new full clinical/privacy compliance certification is claimed.
+
+ROLE / AUDIT REFERENCES
+HHS: role-appropriate authorization, audit controls and activity review:
+https://www.hhs.gov/hipaa/for-professionals/security/laws-regulations/index.html
+https://www.hhs.gov/hipaa/for-professionals/compliance-enforcement/audit/protocol/index.html
+https://www.hhs.gov/hipaa/for-professionals/privacy/guidance/minimum-necessary-requirement/index.html
+HHS: appointment reminder disclosures should be limited appropriately:
+https://www.hhs.gov/hipaa/for-professionals/faq/may-health-care-providers-leave-messages/index.html
+Notifyre: campaign opt-in evidence is separate from an account-holder setting:
+https://support.notifyre.com/how-to-register-your-10dlc-campaign
+
+PUBLISH STATUS
+This follow-up is not deployed. The user's exact approval to publish fb491b592
+was already carried out separately; it does not describe this later change set.

@@ -1,3 +1,4 @@
+import { appendAuditSearch, auditIdSearchExpressions } from '../services/auditReviewAccess.service.js';
 import pool from '../config/database.js';
 
 class AdminAuditLog {
@@ -132,18 +133,12 @@ class AdminAuditLog {
       where.push('aal.created_at <= ?');
       params.push(endDateTime);
     }
-    if (search) {
-      const like = `%${String(search).trim().toLowerCase()}%`;
-      where.push(`(
-        LOWER(COALESCE(aal.action_type, '')) LIKE ? OR
-        LOWER(COALESCE(actor.email, '')) LIKE ? OR
-        LOWER(COALESCE(target.email, '')) LIKE ? OR
-        LOWER(CONCAT(COALESCE(actor.first_name, ''), ' ', COALESCE(actor.last_name, ''))) LIKE ? OR
-        LOWER(CONCAT(COALESCE(target.first_name, ''), ' ', COALESCE(target.last_name, ''))) LIKE ? OR
-        LOWER(COALESCE(CAST(aal.metadata AS CHAR), '')) LIKE ?
-      )`);
-      params.push(like, like, like, like, like, like);
+    if (filters.clientId) {
+      where.push("JSON_UNQUOTE(JSON_EXTRACT(aal.metadata, '$.clientId')) = ?");
+      params.push(String(filters.clientId));
     }
+    appendAuditSearch(where, params, search, [...[`aal.id`, `aal.actor_user_id`, `aal.action_type`, `CONCAT(COALESCE(actor.first_name, ''), ' ', COALESCE(actor.last_name, ''))`], ...auditIdSearchExpressions('aal.metadata'), ...(!filters.supportView ? [`actor.email`, `target.email`, `CONCAT(COALESCE(target.first_name, ''), ' ', COALESCE(target.last_name, ''))`, `CAST(aal.metadata AS CHAR)`] : [])]);
+
     return { where: where.join(' AND '), params };
   }
 
@@ -154,13 +149,15 @@ class AdminAuditLog {
       sortBy = 'createdAt',
       sortOrder = 'DESC'
     } = filters;
-    const limitValue = Math.max(1, Math.min(parseInt(limit, 10) || 50, 500));
+    const limitValue = Math.max(1, Math.min(parseInt(limit, 10) || 50, filters.expandedReview ? 10001 : 500));
     const offsetValue = Math.max(0, parseInt(offset, 10) || 0);
     const { field, order } = this.normalizeSort(sortBy, sortOrder);
     const { where, params } = this.buildWhere(filters);
 
     const [rows] = await pool.execute(
       `SELECT aal.*,
+              c.initials AS client_initials,
+              c.id AS client_id,
               actor.first_name as actor_first_name,
               actor.last_name as actor_last_name,
               actor.email as actor_email,
@@ -170,6 +167,7 @@ class AdminAuditLog {
               m.title as module_title,
               t.name as track_name
        FROM admin_audit_log aal
+       LEFT JOIN clients c ON c.id = JSON_UNQUOTE(JSON_EXTRACT(aal.metadata, '$.clientId')) AND c.agency_id = aal.agency_id
        LEFT JOIN users actor ON aal.actor_user_id = actor.id
        LEFT JOIN users target ON aal.target_user_id = target.id
        LEFT JOIN modules m ON aal.module_id = m.id
@@ -192,6 +190,7 @@ class AdminAuditLog {
     const [rows] = await pool.execute(
       `SELECT COUNT(*) AS total
        FROM admin_audit_log aal
+       LEFT JOIN clients c ON c.id = JSON_UNQUOTE(JSON_EXTRACT(aal.metadata, '$.clientId')) AND c.agency_id = aal.agency_id
        LEFT JOIN users actor ON aal.actor_user_id = actor.id
        LEFT JOIN users target ON aal.target_user_id = target.id
        WHERE ${where}`,

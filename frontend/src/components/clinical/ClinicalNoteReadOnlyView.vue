@@ -313,8 +313,8 @@
     </section>
 
     <section v-if="!compact" :id="`post-signature-entries-${note.id}`" class="ccn-block" aria-label="Addenda and amendments">
-      <h4 class="ccn-block-title">Addenda and amendments</h4>
-      <p class="ccn-field-hint">The original completed note stays unchanged. Each new entry is signed and dated separately and requires fresh supervisor approval, even when review for this note type is off.</p>
+      <h4 class="ccn-block-title">Add to this signed note</h4>
+      <p class="ccn-field-hint">This note is complete. Add missing or newly available information below in your own words. The original signed note remains intact; your addition receives its own date, signature and supervisor review.</p>
       <article v-for="item in addenda" :key="item.id" class="ccn-addendum">
         <strong>{{ entryLabel(item.entryKind) }}</strong>
         <p>{{ item.body }}</p>
@@ -323,6 +323,9 @@
         <small v-if="item.authorSignedAt"> · Author signed {{ formatTimestamp(item.authorSignedAt) }}</small>
       </article>
       <p v-if="!addenda.length" class="ccn-muted">No post-signature entries yet.</p>
+      <label>Additional information <textarea v-model="addendumDraft" class="ccn-addendum-input" rows="6" maxlength="20000" :placeholder="entryKind === 'correction' ? 'Identify the original error and document the corrected information…' : 'Add the information that was missing from this session note…'" /></label>
+      <label>Reason for adding this information <input v-model="entryReason" data-testid="entry-reason" class="ccn-addendum-input" maxlength="2000" placeholder="For example, worksheet reviewed after the session" /></label>
+      <details class="ccn-entry-options"><summary>Correction or late entry options</summary>
       <label>Entry type
         <select v-model="entryKind" data-testid="entry-kind">
           <option value="addendum">Addendum — additional information</option>
@@ -331,8 +334,7 @@
         </select>
       </label>
       <p class="ccn-field-hint">{{ entryHint }}</p>
-      <label>Reason for this entry <input v-model="entryReason" data-testid="entry-reason" class="ccn-addendum-input" maxlength="2000" /></label>
-      <label>Entry text <textarea v-model="addendumDraft" class="ccn-addendum-input" rows="3" maxlength="20000" :placeholder="entryKind === 'correction' ? 'Identify the original error and document the corrected information…' : 'Document the additional information…'" /></label>
+      </details>
       <p class="ccn-field-hint">Saving an entry does not create or resend a claim. Use an amendment/correction for changes to documented codes or units.</p>
       <label v-if="entryKind === 'correction'"><input v-model="serviceCorrection" data-testid="service-correction" type="checkbox" /> Correct service codes / units</label>
       <div v-if="serviceCorrection">
@@ -346,11 +348,13 @@
       </div>
       <label><input v-model="authorAttested" data-testid="author-attestation" type="checkbox" /> I authored and reviewed this entry and electronically sign it as accurate. It will be dated now and sent for supervisor approval.</label>
       <button type="button" data-testid="sign-entry" class="ccn-copy-btn ccn-copy-btn--primary" :disabled="savingAddendum || !addendumDraft.trim() || !entryReason.trim() || !authorAttested || (serviceCorrection && !serviceChangeAttested)" @click="saveAddendum">
-        {{ savingAddendum ? 'Saving…' : 'Sign and send for approval' }}
+        {{ savingAddendum ? 'Saving…' : 'Sign addition and send for review' }}
       </button>
       <p v-if="amendmentPending" role="status">Entry signed; supervisor approval is required. No claim was created or transmitted. Service corrections await a separate billing decision.</p>
       <p v-if="addendumError" class="ccn-error">{{ addendumError }}</p>
     </section>
+
+    <SessionSupportingMaterials v-if="!compact && note.clinicalSessionId" :key="note.clinicalSessionId" :clinical-session-id="note.clinicalSessionId" />
 
     <section v-if="!compact && canAmendBilling && note.clinicalSessionId" class="ccn-block" aria-label="Billing amendment">
       <h4 class="ccn-block-title">Claim corrections</h4>
@@ -361,6 +365,7 @@
 
 <script setup>
 import { canAccessMedicalBilling } from '../../config/medicalBillingAccess.js';
+import SessionSupportingMaterials from './SessionSupportingMaterials.vue';
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api.js';
 import { MSE_DOMAINS } from '../../utils/noteAidSessionQueue.js';

@@ -1,0 +1,353 @@
+ADDITIONAL QA PLAN — NOVEMBER 1, 2026
+Audit access, first clinical intake, signed additions, supporting materials,
+family progress and reminder / work-email routing
+
+Append this plan to the earlier briefs. Preserve their unresolved findings.
+This is a live-app retest specification, not a completed browser QA report or
+HIPAA compliance certification. Engineering validation is reported separately.
+Use the app, approved school portal, controlled QA inbox and vault only.
+
+SCOPE AND EVIDENCE
+- ITSCOLLC demo agency 450, Cedar Grove school 451 and clinic 452 only.
+- Recount before creating anything. Last observed 23 clients / 4 provider-role
+  accounts; caps remain 30 / 10. Prefer retained, unsigned synthetic fixtures.
+- Jordan 1434 is support. Jamie 1465 remains School Admin for school 451 only.
+- Alex 1439 is the master's-level clinical provider; Cameron 1438 is the
+  clinical supervisor. Avery 1433 is the independently licensed QA provider.
+- Quality Tester 1490 is the Google SSO/contact-plan fixture. Do not grant
+  clinical credentials or use that account to sign a 90791 for this test.
+- Guardian 1437 uses testing@itsco.health. Existing saved identity/links remain
+  evidence; do not rename guardians to make a greeting or ROI test pass.
+- Reuse Harper 2272 / Rowan 2271 for a clinically eligible Alex/Cameron path
+  only where their assignment and prerequisites permit. Ari 2297 / Sky 2298
+  are contact fixtures and do not become clinically ready by being synthetic.
+- Draft 293 / session 167 is the retained orphan; appointment 104 is session
+  166. No date-only relink. Note 286 retains its existing supervisor-review
+  state. Do not overwrite, discard, backdate or sign those records for this run.
+- No real-client data, real card collection, card charges, insurance submission,
+  fabricated signatures, changed reminder clocks or bypassed intake/supervision.
+- Record visible build, role, exact client/appointment/session/note/event IDs,
+  actual click path, screenshot, and local date/time with America/Denver offset.
+  November 1 changes MDT to MST; use the appointment's date to select its zone.
+- For each case use PASS / FAIL / BLOCKED / NOT RUN. Record what actually
+  happened. Provider acceptance or a Sent label is not proof of inbox receipt.
+
+1. SUPPORT AUDIT ACCESS AND THE FIRST 90791
+
+Complete prerequisites with ordinary app actions before starting the session.
+If a retained client lacks a required prerequisite, finish it through the
+normal workflow or record the blocker. Do not waive the requirement.
+
+Create a contemporaneous action ledger. At every numbered step record actor,
+wall-clock time, exact object IDs, expected audit action and actual audit row ID.
+Include denied reads and exported audit files where applicable. A page render
+alone is insufficient evidence that the corresponding access was recorded.
+
+1A. Enrollment / assignment / chart access
+- Add or reuse one synthetic client, complete enrollment and permitted guardian
+  relationships, and confirm the intake/document prerequisites on the chart.
+- For a school client save its DAY first; then assign Alex as its provider.
+  Capture both before/after values. Verify the exact day in the initial contact.
+- As Alex open the client's medical record from My Clients and then the booked
+  appointment from My Schedule. Open the chart overview, intake, diagnoses and
+  treatment plan, and the permitted clinical note/document views individually.
+- As Cameron use the ordinary supervision/client entry path to open the same
+  chart and its permitted content. A supervisor's access must be authorized
+  for this client, not inferred only from being a provider at this agency.
+- As Jamie confirm that school administrative information does not expose
+  clinical note bodies, private guardian profiles or private documents.
+
+1B. First appointment and signed clinical record
+- Book a correctly linked synthetic 90791 with Alex using the configured
+  service, duration, modality and location. Capture exact appointment/session
+  IDs and Denver local time. Do not use an editor URL as the only entry path.
+- Open Session note from the calendar. Wait for context; type the fictional
+  example below, edit it to fit the synthetic fixture, and wait for Draft saved.
+- Open Note Workspace. Confirm exact client, appointment/session, 90791, source
+  text, date, modality/location and duration. A pending source save must finish
+  before navigation. A second same-day appointment must have its own source.
+- Generate/review the note as permitted; inspect the actual displayed output.
+  Alex reviews and signs using the normal individual attestation. Cameron
+  opens that exact note from the supervision queue, reviews the clinical
+  content and performs the required separate supervisor action. Never have a
+  bot affirm a person's attestation or substitute one clinician for another.
+- Verify signature identities/times, immutable signed note, clinical record
+  visibility and correct session link after reload and sign-in. Preserve any
+  required cosign state rather than treating provider signature as final.
+- Recheck 90834 at a quarter-hour start and its configured 45-minute duration
+  on a separate correctly linked appointment. Selected code, quote, duration,
+  time, modality and location must persist; duration alone must not reprice an
+  existing booking or silently substitute 90837. Review billing separately.
+
+1C. Audit completeness and support boundaries
+- As Jordan open Audit Center through normal settings/navigation. Select agency
+  450, restrict to the exact client ID and test time window, and reconcile the
+  action ledger row by row. Repeat note/intake/plan views and compare fresh rows.
+- Expect attribution to Alex, Cameron, guardian and Jordan as appropriate,
+  precise action/time, agency/client/object IDs and source distinctions.
+- Administrator actions that affect this agency/client remain represented.
+  Support sees permitted audit metadata; privileged settings, account security,
+  sessions, network evidence and clinical bodies remain restricted. An actor's
+  administrator role must not cause its agency audit event to disappear.
+- Open an audit row for the signed note as an authorized clinician: its link
+  must identify/open that exact note. Test session, client and document targets
+  where offered. Inspect amendment history to see what was added and by whom.
+- As Jordan follow the same note reference. The audit metadata may be visible;
+  the note body must still require clinical access. A link must never elevate
+  support, a school administrator or another agency's account.
+- Search by note number, action, actor and exact client ID. Verify grouped and
+  chronological views agree, date bounds use the displayed zone, filters can
+  be cleared, empty results are clear, and pagination does not silently truncate.
+- Download a filtered CSV and check headings, date/time, row count, escaping,
+  readable IDs and target references. Search/export/review activity must itself
+  be audited. A failed source must show incomplete coverage; do not label an
+  incomplete export complete or approve this audit test with missing events.
+- Audit failures are defects, even if the clinical action succeeded. Preserve
+  the expected/actual ledger and report missing rows or unavailable sources.
+
+Role-based audit access is appropriate; a support employee's reporting duties
+are not a reason to remove the underlying record. Reference: HHS Security Rule
+summary and audit protocol, linked in the engineering validation handoff.
+
+2. SIGNED-NOTE AMENDMENT — INSPECTED BEFORE THIS QA ASSIGNMENT
+
+Engineering inspected the existing append-only flow before writing this test:
+it already accepts freeform additional text and preserves the signed payload.
+The default interface has been simplified around an addition. Correction and
+late-entry options remain separately available where supported.
+
+- Start from the newly and correctly signed note in section 1, not Draft 293.
+- Choose Addendum / Add missing information on the signed note. The original
+  complete note should stay visible. Enter the fictional addition below as
+  freeflow text; do not replace or erase any original sentence.
+- Review the separate addition and normal author attestation. Confirm author,
+  creation/signature time and link to the original note are retained.
+- Reload: original signed text and signatures must be unchanged; the addition
+  appears separately, with any renewed supervisor review clearly shown.
+- Cameron reviews/signs the addition where required. Verify its audit history
+  and audit link, and that an unsigned addition cannot masquerade as signed.
+- Test empty text, canceled editing, a stale page, unauthorized actor and a
+  second addition. Existing original/amendment text must survive each case.
+
+Fictional addition example (adapt to the performed synthetic exercise):
+"Additional information from this synthetic session: the guardian described
+that transitions after lunch are the most difficult part of the school day.
+The client identified drawing as a helpful way to settle before returning to
+class. This information supplements the original note. The original note,
+assessment and documented service are unchanged."
+
+3. SUPPORTING MATERIALS — CALENDAR AND NOTE ENTRY PATHS
+
+Use the label Supporting materials / Add session materials. These are files
+attached to a specific session, distinct from an addition to the signed text.
+
+- Make a small synthetic CBT worksheet PDF or image; include no real identity.
+  From the calendar appointment's Session note, expand Supporting materials,
+  add a clear title, and upload. Repeat via Note Workspace on another material.
+- Confirm the exact client/session association and collapsed listing under the
+  note. The file should not become a full-page note or clutter the general
+  medical-record document list by default. Signed/completed session attachments
+  must not change attendance, service, source text, signatures or note contents.
+- Verify encrypted storage is reported by the supported app path. Engineering
+  separately checks ciphertext/KMS; a browser label alone cannot prove encryption.
+- If private/local malware scanning is unavailable, the file remains pending
+  and cannot open, download or be shared. Retry security scan after the scanner
+  is available; do not send PHI to a public file-analysis service for this test.
+- Open/download a clean file and confirm its title/content, permissions and
+  corresponding audit events. Invalid type, disguised executable, oversized
+  file and failed upload must leave an actionable error with no exposed file.
+- Leave Include in client documents unchecked: neither guardian sees it.
+- Select Include in client documents, then choose one eligible named guardian.
+  Sign in independently as each guardian: only the selected recipient sees it
+  in Documents. Test direct navigation as the unselected guardian too.
+- Select all eligible parents/guardians explicitly for a second clean file.
+  Both authorized recipients should see that file. Restricted/revoked/adult-
+  client-protected relationships must never appear as shareable recipients.
+- Remove a share and recheck list + direct download. Recheck after revoked
+  document access. Removal must not delete the clinical session attachment.
+- Uploading or sharing a document must not create a portal account for a
+  reminder-only contact or grant school staff clinical/document permissions.
+
+Synthetic worksheet content:
+Title: "QA practice worksheet — thoughts, feelings and actions"
+Situation: "A difficult transition after lunch."
+Thought: "I will get the next activity wrong."
+Feeling: "Worried, 6 out of 10."
+Helpful response: "Ask for one instruction and take three slow breaths."
+Practice goal: "Try the response during two transitions before the next visit."
+
+4. FICTIONAL CLINICAL SOURCE EXAMPLES AND TREATMENT-PLAN TRENDS
+
+Use these only for the retained fake clients and actions actually performed in
+this synthetic exercise. Providers must review generated text. Do not present
+these examples as evidence of real care or paste them into a real chart.
+
+90791 intake example:
+"SYNTHETIC QA INTAKE. Client attended with guardian for an initial assessment.
+Guardian described difficulty with school transitions and worry before new
+activities over the last two months. Client said, 'I get stuck when I do not
+know what comes next.' Sleep is reported as generally consistent; appetite
+is unchanged. Guardian described supportive relationships at home and one
+close friend at school. Client was alert, engaged with drawing prompts and
+able to identify feeling worried and frustrated. Speech was clear and thought
+process was organized. In this fictional interview, client and guardian denied
+current suicidal thoughts, self-injury, intent to harm others and current
+abuse concerns. Clinician reviewed confidentiality, limits, guardian
+participation and next steps. Assessment information will be reviewed with the
+supervisor before finalizing formulation and the treatment plan. No diagnosis
+or appointment confirmation should be inferred from this source text alone."
+
+90834 progress example, 45-minute synthetic appointment:
+"SYNTHETIC QA FOLLOW-UP. Client described worry before a classroom transition
+and rated confidence in using a coping strategy as 4 of 10. Practiced naming
+an automatic thought, identifying a more balanced response and using paced
+breathing. Client needed one prompt initially and completed a second practice
+independently. Guardian reported the client tried the strategy once since the
+last fictional exercise. Client was attentive, cooperative and able to connect
+thoughts, feelings and actions. No new safety concerns were reported in this
+synthetic exercise. Plan: practice the strategy during two transitions and
+review the client's own rating at the next session."
+
+- Open Treatment plan from both chart and appointment Clinical tab. Confirm
+  correct client, diagnoses/context, goals/objectives and the required signed
+  intake prerequisite. Clinical must not offer a second source-text composer.
+- After the intake/supervision requirements are complete, use the normal plan
+  author/reviewer flow. Share only with individually eligible adult client or
+  guardian signers. Each person signs their own displayed revision; one person's
+  signature must not silently stand for another. Test denied/revoked sign access.
+- Check existing objective trends first. If the synthetic fixture lacks trends,
+  use the supported app fixture/rating workflow to record explicitly synthetic
+  observations across three distinct permitted dates/sessions. Suggested data:
+  goal 'Use a coping strategy during a school transition', 1–10 confidence
+  measure, target 8, clinician ratings 3 then 4 then 6. Add one distinct guardian
+  observation, e.g. 5, through that guardian's own account. Do not fabricate
+  historical attendance, signed notes, or another person's rating/signature.
+  If the app cannot create a valid history, record trend setup BLOCKED; do not
+  replace dates in a live record or claim a seeded trend that was not created.
+- Verify dates, scale, target, direction, goal text and trend labels in the
+  provider and permitted portal views. Guardian observations must stay separate
+  from clinician ratings and from the other guardian's private observations.
+- Provider explicitly marks a goal Improved, then Achieved through the plan's
+  progress control. Confirm current state, history, actor/time and audit row.
+- Each eligible recipient gets a generic notice to sign in and view the update.
+  Email must not include goal text, diagnosis, note content or another parent's
+  identity. Open the link as each permitted person and confirm the exact client.
+- Saving/reloading the same state must not resend. A failed/uncertain send must
+  remain reviewable; loss of authorization before dispatch must stop disclosure.
+  Verify the original plan signature/content remains intact for progress-only
+  updates; an actual content revision uses the normal revision/signature flow.
+
+5. GRANDPARENT / OTHER REMINDER CONTACT — NO PORTAL ACCOUNT
+
+- As an authorized guardian, or an adult self-client, add an approved synthetic
+  grandparent contact by name/email/phone. Confirm no portal account, password,
+  medical record access or secure conversation membership is created.
+- Enable email appointment reminders and acknowledge the assignment notice.
+  Email does not require enrolling that person in a portal. Verify a real
+  minimal reminder receipt, correct agency/time/zone and contact attribution.
+  Turn the parent's own email reminders off in the synthetic fixture: this
+  additional contact's authorized email must still be scheduled independently.
+- For texts, confirm the recipient agreed to receive the one opt-in invitation.
+  Tell the assigner to contact that person and ask them to reply START when it
+  arrives. A guardian's checkbox requests an invitation; it is not SMS consent.
+- Expected invitation identifies the assigner, agency, and whether it concerns
+  their dependent's appointments or their own appointments, then requests START.
+  It includes frequency / rates / STOP / HELP text and minimal clinical detail.
+- Before START: display Pending / not opted in, and send no appointment texts.
+  After the verified recipient replies START: refresh as the assigner and
+  confirm Opted in; then test an actually due minimal appointment reminder.
+- Pending invitations can be resent after the displayed rate limit. Recheck
+  actual receipt. An uncertain transport result requires review before resend.
+- Reply STOP: show Stopped, suppress reminders and disable invitation resend.
+  Parent/staff toggles, email preference links and re-saving must not clear STOP.
+  A recipient's registered START/restart flow is required to resume.
+- Change the contact phone: old consent must not follow the replacement number.
+  A cross-client contact ID or email/phone edit must not alter another client's
+  shared contact or move their consent. Test revoked authorizing guardian access.
+- Test a same-day refresh/retry and old pending reminder rows: one contact gets
+  one intended reminder, with separate bookkeeping from the parent's delivery.
+- Live SMS remains BLOCKED until clinical Notifyre campaign/BAA/activation and
+  the exact QA recipient are approved. Do not use the workforce Vonage route,
+  real family/grandparent numbers or a client fixture's number as a substitute.
+  A blocker is not a successful invitation or opt-in test.
+
+6. SCHOOL CONTACT STATUS AND WORK / PERSONAL EMAIL ROUTING
+
+6A. DAY then PROVIDER and family reply
+- Preserve contact-plan opt-in, templates, delays and assignments. Prefer an
+  uncontacted retained synthetic fixture; do not restart a completed plan merely
+  to redisplay a welcome or generate another message.
+- Save the client's day first, then provider. Confirm one real initial email,
+  the saved day/provider and correct guardian greeting. A weekly assignment is
+  not a booked/confirmed appointment or attendance evidence.
+- For SSO: verify messages@ITSCO sender and work-email Reply-To from the actual
+  headers. The authenticated work mailbox must be reachable for known workflow
+  replies. If delegation is unavailable, retain the working token reply route
+  and record the requested work Reply-To case BLOCKED; do not call it a pass.
+- For non-SSO: verify configured agency sender and the provider's selected reply
+  address. Reply from the authorized controlled guardian; inspect actual receipt
+  in the app and provider work destination, not merely Gmail's Sent folder.
+- As Jamie view the client's permitted administrative contact status: parent
+  contacted 1 time / no reply before a response; successful after a real linked
+  guardian reply. Automated acknowledgments/open tracking must not count as reply.
+- Verify intake pending (not yet booked), scheduled after a real 90791 booking,
+  and completed only after the required clinical completion. Capture exact IDs.
+- Repeat meaningful SSO/non-SSO variants without granting clinical capabilities
+  to the contact-only SSO fixture. Never duplicate three attempts for inspection.
+- Real 48-hour contact steps and post-third-attempt waits require elapsed-time
+  evidence. After three attempts/no response, inspect the provider escalation:
+  list only this client's currently ROI-approved discuss contacts, their email
+  addresses and an app composer link seeded for that exact client/recipient.
+  Missing/expired/revoked permission must withhold the recipient. The suggested
+  outreach should use initials and say: 'Hi [name], I've reached out three times
+  and haven't heard back. Do you have time this or next week to help me fill in
+  some gaps for [initials]? Thanks!' Opening the composer must not auto-send.
+
+6B. Internal message waiting notices
+- Send a synthetic internal message to an SSO provider. Their work email gets
+  a prompt notice identifying the correspondent and an app link; confirm correct
+  conversation and sign-in/access checks. Do not place clinical message bodies
+  in a generic external waiting notice. Already-read messages stop reminders.
+- For non-SSO verify the saved 24-hour/unread delivery choice, timezone/business
+  hours labeling, and actual elapsed-time behavior. Read in app before due time:
+  no notice. Leave unread until due: one notice, with correct correspondent.
+- Select Immediate in personal EMAIL delivery settings, using a verified
+  controlled personal destination. Send to the provider's work identity, verify
+  immediate forwarding, then reply from that verified personal inbox.
+- The app routes the reply to the correct conversation as the validated work
+  identity. Recipient headers, body/footer, history, reply-to, attachments and
+  quoted content must not reveal the provider's personal address. Wrong personal
+  sender, wrong token/thread, deactivated provider and duplicate inbound events
+  must not post a message. Changing preferences must persist after sign-in.
+- Personal-phone/SMS forwarding is a separate feature and remains blocked where
+  not configured. Passing personal-email forwarding does not activate SMS relay.
+
+7. EMAIL COVERAGE AND FINAL REPORT
+
+- The review catalog already contains one sample per meaningful design variant;
+  previously received 157 copies are design evidence, not action/worker passes.
+- Keep one real-workflow row per email type and meaningful recipient variant:
+  enrollment/password setup and recovery; school staff setup; assignment contact
+  attempts/reply escalation; provider message notices; appointment confirmation,
+  timed reminder, change/cancel/no-show; intake and signed-plan notifications;
+  plan progress; billing statement/notice where reachable; supervision/cosign;
+  additional-contact assignment, opt-in invitation and appointment reminders.
+  Reconcile against the current email/contact catalog, including provider types,
+  rather than claiming this short list exhausts every configured template.
+- Trigger the real scoped app action or due worker for each. Keep the normal
+  branded template. Review copies include a compact blurb: normally From,
+  typical recipient, trigger/purpose, timing and normal Reply-To; identify QA
+  redirection separately. Use ITSCO billing@ / schools@ where their actual
+  workflow selects those validated identities. Never substitute a preview's
+  headers as evidence of the workflow sender.
+- A cancellation already received must not be sent again merely because a chart
+  once labeled it Failed/Skipped. Verify receipt evidence and true final status.
+- Record exact recipient variant, trigger/action, due time, actual From/Reply-To,
+  provider message ID, QA inbox receipt/time, screenshot and PASS/FAIL/BLOCKED.
+  Include privacy negatives, duplicate prevention and actual action-link result.
+- Record worker/demo exclusions, unavailable clinical SMS, private malware scan
+  setup, delegated SSO mailbox readiness, and any unseeded trend history as
+  explicit blockers. Do not silently turn off a production/demo gate to pass.
+- Keep the master action-to-audit ledger, missing-event list, audit search/export
+  evidence, clinical signatures/amendments and per-recipient share checks with
+  the report. Open defects stay open until freshly verified in the live app.

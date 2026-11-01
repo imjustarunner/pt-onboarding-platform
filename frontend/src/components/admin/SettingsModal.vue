@@ -916,8 +916,8 @@ const allCategories = [
         label: 'Audit Center',
         icon: '🛡️',
         component: 'AuditCenterSettingsLink',
-        roles: ['super_admin', 'admin'],
-        excludeRoles: ['support', 'clinical_practice_assistant'],
+        roles: ['super_admin', 'admin', 'support'],
+        excludeRoles: ['clinical_practice_assistant'],
         excludeSupervisor: true
       },
       {

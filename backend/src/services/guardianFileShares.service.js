@@ -8,6 +8,7 @@ import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import PhiDocumentAuditLog from '../models/PhiDocumentAuditLog.model.js';
 import StorageService from './storage.service.js';
 import DocumentEncryptionService from './documentEncryption.service.js';
+import { isSupervisorActor, supervisorCanAccessClient } from '../utils/supervisorSchoolAccess.js';
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};
 const roles=['super_admin','admin','agency_admin','support','staff','provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant'];
 export const fileKeyHash=doc=>crypto.createHash('sha256').update(String(doc.storage_path)).digest('hex');
@@ -16,7 +17,12 @@ export function shareableFile(doc) {
   && (!doc.scan_status||doc.scan_status==='clean')&&!doc.quarantine_path
   && ['application/pdf','image/jpeg','image/png','text/plain'].includes(doc.mime_type);
 }
-async function staffAccess(user,clientId){if(!roles.includes(user.role))fail(403,'Care-team document access required.');const access=await resolveClientRecordAccess({userId:user.id,role:user.role,clientId});if(!access.ok)fail(access.status||403,'Client access denied.');return access.client;}
+async function staffAccess(user,clientId){
+ if(!roles.includes(user.role))fail(403,'Care-team document access required.');
+ const access=await resolveClientRecordAccess({userId:user.id,role:user.role,clientId});
+ const supervised=!access.ok&&access.client&&await isSupervisorActor({userId:user.id,role:user.role,user})&&await supervisorCanAccessClient({supervisorUserId:user.id,client:access.client});
+ if(!access.ok&&!supervised)fail(access.status||403,'Client access denied.');return access.client;
+}
 export async function recipientFileAccess(userId,clientId,careContext={}){
  const client=await authorizedClient(userId,clientId,'clinical_documents',careContext);
  if(client.permissions_json?.canViewDocs===false)fail(403,'Documents are not shared with this account.');
@@ -52,7 +58,7 @@ export async function sharedFile(userId,clientId,shareId,careContext={}){
  const [[doc]]=await pool.execute(`SELECT d.*,s.file_key_hash FROM family_portal_file_shares s JOIN client_phi_documents d ON d.id=s.document_id AND d.client_id=s.client_id AND d.agency_id=s.agency_id WHERE s.id=? AND s.recipient_user_id=? AND s.client_id=? AND s.agency_id=? AND s.revoked_at IS NULL`,[shareId,userId,clientId,client.agency_id]);
  if(!shareableFile(doc)||doc.file_key_hash!==fileKeyHash(doc))fail(404,'Shared file is no longer available.');
  const stored=await StorageService.readObject(doc.storage_path);
- const body=doc.is_encrypted?await DocumentEncryptionService.decryptReferralPacketBuffer({encryptedBuffer:stored,encryptionKeyId:doc.encryption_key_id,encryptionWrappedKeyB64:doc.encryption_wrapped_key,encryptionIvB64:doc.encryption_iv,encryptionAuthTagB64:doc.encryption_auth_tag,organizationId:doc.school_organization_id,originalName:doc.original_name||'',sanitizeFilename:n=>StorageService.sanitizeFilename(n)}):stored;
+ const body=doc.is_encrypted?await DocumentEncryptionService.decryptPhiDocumentBuffer(doc,stored,n=>StorageService.sanitizeFilename(n)):stored;
  await PhiDocumentAuditLog.create({documentId:doc.id,clientId,action:'portal_downloaded',actorUserId:userId});
  return {body,type:doc.mime_type,name:StorageService.sanitizeFilename(doc.original_name||`document-${doc.id}`)};
 }

@@ -241,6 +241,7 @@
           @toggle-addon-code="toggleManualAddonCode"
         />
         <DraftAppointmentRepair v-if="draftId && !signedNoteViewerId && !isClientChartAid && !isReviewOnlyAid" :draft-id="draftId" :before-link="prepareDraftAppointmentRepair" @linked="onDraftAppointmentRepaired" />
+        <SessionSupportingMaterials v-if="sessionClinicalSessionId && !signedNoteViewerId && !isClientChartAid && !isReviewOnlyAid" :key="sessionClinicalSessionId" :clinical-session-id="sessionClinicalSessionId" />
         <details v-if="sessionClinicalSessionId && Number(noteAidAgencyId || currentAgencyId) === 377" :open="noteBillingExpanded" @toggle="noteBillingExpanded = $event.target.open">
           <summary>Insurance &amp; claim progress</summary>
           <AppointmentBillingPanel v-if="noteBillingExpanded" :key="`${sessionClinicalSessionId}-${signedNoteViewerId || ''}`"
@@ -1598,6 +1599,7 @@ import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
 import { noteAidWorkspaceLabel } from '../../config/noteAidAccess.js';
 import ClinicalWorkspaceFrame from '../../components/clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import DraftAppointmentRepair from '../../components/clinical/DraftAppointmentRepair.vue';
+import SessionSupportingMaterials from '../../components/clinical/SessionSupportingMaterials.vue';
 import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
 import { DURATION_PRESETS, durationLabel, projectedDurationMonths, setObjectiveCompletionTime } from '../../utils/treatmentPlanDuration';
 import { intakeSection, intakeDiagnoses, intakeAssessments, mergeGeneratedAssessment, generatedTreatmentPlan, intakeSectionsForRecord } from '../../utils/noteAidIntakeIntegration';

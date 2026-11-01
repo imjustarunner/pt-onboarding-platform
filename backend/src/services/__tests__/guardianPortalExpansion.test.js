@@ -1,13 +1,14 @@
 import {beforeEach,expect,it,vi} from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn(),authorize:vi.fn(),clinical:vi.fn(),staff:vi.fn(),doc:vi.fn(),read:vi.fn(),decrypt:vi.fn(),audit:vi.fn(),ocr:vi.fn()}));
-vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.execute},onTableWrite:vi.fn()}));
+vi.mock('../../utils/supervisorSchoolAccess.js',()=>({isSupervisorActor:vi.fn(async()=>false),supervisorCanAccessClient:vi.fn(async()=>false)}));
 vi.mock('../guardianAppointments.service.js',()=>({authorizedClient:m.authorize}));
 vi.mock('../guardianClinicalAccess.service.js',()=>({requireClinicalScope:m.clinical}));
 vi.mock('../clientRecordAccess.service.js',()=>({resolveClientRecordAccess:m.staff}));
 vi.mock('../../models/ClientPhiDocument.model.js',()=>({default:{findById:m.doc}}));
 vi.mock('../../models/PhiDocumentAuditLog.model.js',()=>({default:{create:m.audit}}));
 vi.mock('../storage.service.js',()=>({default:{readObject:m.read,sanitizeFilename:s=>s}}));
-vi.mock('../documentEncryption.service.js',()=>({default:{decryptReferralPacketBuffer:m.decrypt}}));
+vi.mock('../documentEncryption.service.js',()=>({default:{decryptPhiDocumentBuffer:m.decrypt}}));
 vi.mock('../referralOcr.service.js',()=>({default:{extractText:m.ocr}}));
 import {guardianVirtualJoin,guardianAppointmentJoin} from '../guardianVirtualJoin.js';
 import {parseInsuranceCardText,extractInsuranceCardFieldsBestEffort} from '../insuranceCardReading.service.js';
@@ -26,3 +27,21 @@ it('decrypts and audits only the named account’s shared copy',async()=>{m.exec
 it.each([{removed_at:new Date()},{scan_status:'pending'},{quarantine_path:'quarantine/file'},{mime_type:'text/html'},{expires_at:'2020-01-01'}])('does not share an unavailable file %j',change=>{expect(shareableFile({...doc,...change})).toBe(false);});
 it('requires staff review and recipient authorization before a new share',async()=>{await expect(setFileShare({id:4,role:'provider'},3,{recipientId:9,shared:true,reviewed:false})).rejects.toHaveProperty('status',400);expect(m.execute).not.toHaveBeenCalled();m.execute.mockResolvedValue([[{id:8,user_id:4}]]);m.clinical.mockRejectedValue(Object.assign(new Error('Denied'),{status:403}));await expect(setFileShare({id:4,role:'provider'},3,{recipientId:9,shared:true,reviewed:true})).rejects.toHaveProperty('status',403);expect(m.execute.mock.calls.some(([q])=>q.startsWith('INSERT'))).toBe(false);});
 it('does not permit guardians to share chart files themselves',async()=>{await expect(setFileShare({id:9,role:'client_guardian'},3,{recipientId:10,shared:true,reviewed:true})).rejects.toHaveProperty('status',403);expect(m.staff).not.toHaveBeenCalled();});
+it('revocation blocks the recipient’s old direct download URL and can be explicitly restored without deleting the file',async()=>{
+  let revoked=false;
+  m.execute.mockImplementation(async(query,params)=>{
+    if(query.startsWith('SELECT c.id FROM clients')||query.startsWith('SELECT user_id FROM user_agencies'))return [[{id:8,user_id:4}]];
+    if(query.startsWith('UPDATE family_portal_file_shares SET revoked_at')){expect(params).toEqual([3,9]);revoked=true;return [{affectedRows:1}];}
+    if(query.startsWith('INSERT INTO family_portal_file_shares')){expect(params.slice(0,5)).toEqual([3,8,2,9,4]);revoked=false;return [{affectedRows:1}];}
+    if(query.includes('WHERE s.id=? AND s.recipient_user_id=?'))return [revoked&&Number(params[1])===9?[]:[{...doc,file_key_hash:fileKeyHash(doc)}]];
+    return [[]];
+  });
+  expect((await sharedFile(9,8,4)).body.toString()).toBe('%PDF-private');
+  await setFileShare({id:4,role:'provider'},3,{recipientId:9,shared:false});
+  await expect(sharedFile(9,8,4)).rejects.toHaveProperty('status',404);
+  expect(m.read).toHaveBeenCalledTimes(1);
+  expect(m.audit).toHaveBeenCalledWith(expect.objectContaining({action:'portal_share_revoked',documentId:3,metadata:{recipientUserId:9}}));
+  expect((await sharedFile(10,8,5)).body.toString()).toBe('%PDF-private');
+  await setFileShare({id:4,role:'provider'},3,{recipientId:9,shared:true,reviewed:true});
+  expect((await sharedFile(9,8,4)).body.toString()).toBe('%PDF-private');
+});

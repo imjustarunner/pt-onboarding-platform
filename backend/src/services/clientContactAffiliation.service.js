@@ -11,10 +11,17 @@ import { buildContactAssignedReminderEmailForAgency } from './brandedNotificatio
 import { buildContactReminderLinks } from './contactReminderToken.service.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import { inferAgencyMailDomain } from './tenantMessageMailboxes.service.js';
+import { contactReminderPhoneHash } from '../utils/contactReminderConsent.js';
+import { notificationTransportReceipt } from '../utils/notificationTransportReceipt.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
 
 export async function requireReminderGuardian(clientId, userId) {
   const link = await ClientGuardian.getLink({ clientId, guardianUserId: userId });
+  if (!link) {
+    const client = await Client.findById(clientId);
+    const user = await User.findById(userId);
+    if (user?.role === 'client' && Number(client?.user_id) === Number(userId)) return;
+  }
   if (!link || Number(link.access_enabled) !== 1 || ClientGuardian.isNoView(link.permissions_json)) {
     throw Object.assign(new Error('An account guardian must authorize reminders for an additional contact'), { status: 403 });
   }
@@ -87,6 +94,8 @@ export async function sendContactAssignedNotifyEmail({
     clientPreferredName: '',
     emailRemindersEnabled: !!row.email_reminders_enabled,
     smsRemindersEnabled: !!row.sms_reminders_enabled,
+    smsOptIn: !!row.sms_opt_in && row.sms_consent_status === 'opted_in' && row.sms_consent_phone_hash === contactReminderPhoneHash(row.contact_phone),
+    clientInitials: row.client_initials,
     notificationsEmail,
     links,
     unsubscribeUrl: links.off,
@@ -109,7 +118,7 @@ export async function sendContactAssignedNotifyEmail({
     source: 'auto'
   });
 
-  if (!result?.skipped) {
+  if (notificationTransportReceipt(result, agencyId || row.agency_id).accepted) {
     await ClientContactAffiliation.update(row.id, {
       notifyEmailSentAt: new Date(),
       notifyEmailMessageId: result?.messageId || result?.id || null
@@ -132,7 +141,8 @@ export async function upsertClientAffiliatedContact({
   emailRemindersEnabled = false,
   smsRemindersEnabled = false,
   acknowledgeNotify = false,
-  existingContactId = null
+  existingContactId = null,
+  recipientPermissionToInvite = false
 } = {}) {
   const client = await Client.findById(clientId, { includeSensitive: true });
   if (!client) {
@@ -146,6 +156,8 @@ export async function upsertClientAffiliatedContact({
     err.status = 400;
     throw err;
   }
+
+  if (Number(client.agency_id || client.agencyId) !== resolvedAgencyId) throw Object.assign(new Error('Client does not belong to this agency'), { status: 403 });
 
   const wantsReminders = !!(emailRemindersEnabled || smsRemindersEnabled);
   if (wantsReminders) await requireReminderGuardian(clientId, userId);
@@ -174,12 +186,30 @@ export async function upsertClientAffiliatedContact({
     throw err;
   }
 
+  if (contact && Number(contact.agency_id) !== resolvedAgencyId) {
+    throw Object.assign(new Error('Contact not found in this agency'), { status: 404 });
+  }
+
   const normEmail = normalizeEmail(email);
+  if (!existingContactId) {
+    const ownContacts = await ClientContactAffiliation.listForClient(clientId, { includeInactive: true });
+    const own = ownContacts.find(row => (normEmail && normalizeEmail(row.contact_email) === normEmail)
+      || (phone && contactReminderPhoneHash(row.contact_phone) === contactReminderPhoneHash(phone)));
+    if (own) contact = await AgencyContact.findById(own.agency_contact_id);
+  }
   if (!contact && normEmail) {
     contact = await AgencyContact.findByEmail(normEmail, resolvedAgencyId);
   }
   if (!contact && phone) {
     contact = await AgencyContact.findByPhone(phone, resolvedAgencyId);
+  }
+
+  if (contact && Number(contact.client_id) !== Number(clientId)
+      && !await ClientContactAffiliation.findByClientAndContact(clientId, contact.id)) {
+    if (existingContactId) throw Object.assign(new Error('Contact not found for this client'), { status: 404 });
+    // An email/phone guess is not permission to reveal another client's contact.
+    // Create this client's contact from the supplied fields only.
+    contact = null;
   }
 
   if (!contact) {
@@ -199,11 +229,16 @@ export async function upsertClientAffiliatedContact({
       relationshipType
     });
   } else {
+    const changesIdentity = (phone && contactReminderPhoneHash(phone) !== contactReminderPhoneHash(contact.phone))
+      || (normEmail && normEmail !== contact.email) || (fullName && fullName !== contact.full_name);
+    if (changesIdentity && ((contact.client_id && Number(contact.client_id) !== Number(clientId))
+        || await ClientContactAffiliation.isSharedAcrossClients(contact.id, clientId))) {
+      throw Object.assign(new Error('This contact is shared with another record. Use their existing details or add a separate contact.'), { status: 409 });
+    }
     const patch = {};
     if (fullName) patch.full_name = fullName;
     if (normEmail) patch.email = normEmail;
     if (phone) patch.phone = phone;
-    if (relationshipType) patch.relationship_type = relationshipType;
     if (!contact.client_id) patch.client_id = clientId;
     if (Object.keys(patch).length) {
       contact = await AgencyContact.update(contact.id, patch);
@@ -223,7 +258,7 @@ export async function upsertClientAffiliatedContact({
       relationshipType: relationshipType || contact.relationship_type || null,
       emailRemindersEnabled,
       smsRemindersEnabled,
-      smsOptIn: !!smsRemindersEnabled,
+      smsOptIn: false,
       notifyAckByUserId: ackAt ? userId : null,
       notifyAckAt: ackAt,
       createdByUserId: userId
@@ -235,7 +270,7 @@ export async function upsertClientAffiliatedContact({
       relationshipType: relationshipType || affiliation.relationship_type,
       emailRemindersEnabled,
       smsRemindersEnabled,
-      smsOptIn: smsRemindersEnabled ? true : affiliation.sms_opt_in,
+
       isActive: true,
       ...(enabling && acknowledgeNotify
         ? { notifyAckByUserId: userId, notifyAckAt: new Date() }
@@ -259,8 +294,14 @@ export async function upsertClientAffiliatedContact({
     });
   }
 
+  let smsInvitationResult = null;
+  if (smsRemindersEnabled && recipientPermissionToInvite) {
+    const { requestContactSmsInvitation } = await import('./contactReminderSmsConsent.service.js');
+    smsInvitationResult = await requestContactSmsInvitation({ affiliationId: full.id, clientId, userId, recipientPermissionToInvite });
+  }
   return {
-    affiliation: ClientContactAffiliation.toApi(full),
+    smsInvitationResult,
+    affiliation: ClientContactAffiliation.toApi(await ClientContactAffiliation.findById(full.id)),
     notifyResult,
     clientInitials: clientInitials(client)
   };
@@ -304,7 +345,7 @@ export async function updateClientAffiliatedContact({
     relationshipType: patch.relationshipType,
     emailRemindersEnabled: nextEmail,
     smsRemindersEnabled: nextSms,
-    smsOptIn: nextSms ? true : row.sms_opt_in,
+
     isActive: patch.isActive,
     ...(enabling
       ? { notifyAckByUserId: userId, notifyAckAt: new Date() }
@@ -320,8 +361,14 @@ export async function updateClientAffiliatedContact({
     });
   }
 
+  let smsInvitationResult = null;
+  if (nextSms && patch.recipientPermissionToInvite) {
+    const { requestContactSmsInvitation } = await import('./contactReminderSmsConsent.service.js');
+    smsInvitationResult = await requestContactSmsInvitation({ affiliationId, clientId, userId, recipientPermissionToInvite: true });
+  }
   return {
-    affiliation: ClientContactAffiliation.toApi(updated),
+    smsInvitationResult,
+    affiliation: ClientContactAffiliation.toApi(await ClientContactAffiliation.findById(updated.id)),
     notifyResult
   };
 }
@@ -366,7 +413,7 @@ export async function applyContactReminderChoice({ affiliationId, action }) {
   const updated = await ClientContactAffiliation.update(affiliationId, {
     emailRemindersEnabled: emailOn,
     smsRemindersEnabled: smsOn,
-    smsOptIn: smsOn ? true : row.sms_opt_in,
+
     contactLastChoice: choice,
     contactChoiceAt: new Date()
   });

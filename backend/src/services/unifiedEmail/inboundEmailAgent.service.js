@@ -973,6 +973,15 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     }
     const automated = isAutoReply(hdrs);
     if (!automated && routed.senderIdentityId && !routed.technology) {
+      const {ingestSchoolContactWorkReply}=await import('../schoolContactReplyRouting.service.js');
+      const schoolContactReply=await ingestSchoolContactWorkReply({identityId:routed.senderIdentityId,fromEmail,
+        toAddresses:[...routed.to,...routed.deliveredTo,...extractEmails(hdrs.get('x-original-to')),...extractEmails(hdrs.get('envelope-to'))],ccAddresses:routed.cc,
+        inReplyTo:hdrs.get('in-reply-to'),referencesHeader:hdrs.get('references'),messageIdHeader:hdrs.get('message-id'),
+        subject,bodyText:pickBodyText(payload),gmail,gmailMessageId:id,gmailPayload:payload,receivedAt:new Date(Number(full.data?.internalDate)||Date.now())});
+      if(schoolContactReply.ingested){
+        await gmail.users.messages.modify({userId:'me',id,requestBody:{removeLabelIds:['UNREAD'],addLabelIds:[processedLabelId]}});
+        results.inboxDeliveries++;continue;
+      }
       const {resolvePersonalReminderMailbox}=await import('../personalThreadReminder.service.js');
       const reminderMailbox=await resolvePersonalReminderMailbox({identityId:routed.senderIdentityId,fromEmail,
         addresses:[...routed.to,...routed.cc,...routed.deliveredTo,...extractEmails(hdrs.get('x-original-to')),...extractEmails(hdrs.get('envelope-to'))],

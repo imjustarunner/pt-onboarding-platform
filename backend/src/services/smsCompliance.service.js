@@ -1,3 +1,4 @@
+import { contactReminderConsentLock } from '../utils/contactReminderConsent.js';
 import {ITSCO_STAFF_ASSISTANT_NUMBER} from '../utils/staffSmsAssistant.js';
 import { staffCommunicationKey, phoneFingerprint, STAFF_COMMUNICATION_CHOICES } from '../utils/staffCommunicationChoices.js';
 import pool from '../config/database.js';
@@ -251,9 +252,21 @@ export async function processSmsKeyword({ from, to, body, messageId, sendReply }
   const brand = registration?.brandName || sender.agency_name || 'AuricWell';
   const contact = registration?.supportContact || sender.support_phone;
   const evidence = { source: `inbound_${keyword.toLowerCase()}`, messageId: messageId || null, numberId: sender.id };
+  let consentDb;
+  let locked = false;
+  const lockName = contactReminderConsentLock(sender, phone);
+  if (registration?.provider === 'notifyre' && ['START', 'STOP'].includes(keyword)) {
+    consentDb = await pool.getConnection();
+    const [[lock]] = await consentDb.execute('SELECT GET_LOCK(?, 5) AS acquired', [lockName]);
+    locked = Number(lock?.acquired) === 1;
+    if (!locked) { consentDb.release(); throw smsPolicyError('sms_consent_busy', 'Retry the text consent event.'); }
+  }
+  try {
   let reply;
   if (keyword === 'STOP') {
     const changed = await recordSmsPermission({ scope: sender.scope, phone, purpose: 'suppression', status: 'opted_out', evidence });
+    const { applyContactReminderSmsKeyword } = await import('./contactReminderSmsConsent.service.js');
+    await applyContactReminderSmsKeyword({ sender, phone, keyword, messageId });
     if (!changed) return true;
     reply = `${brand}: You are unsubscribed and will receive no further messages from this program. Reply HELP for help.`;
   } else if (keyword === 'START') {
@@ -263,6 +276,8 @@ export async function processSmsKeyword({ from, to, body, messageId, sendReply }
       const changed = await recordSmsPermission({ scope: sender.scope, phone, purpose: 'suppression', status: 'opted_in', evidence });
       if (!changed) return true;
       await recordSmsPermission({ scope: `number:${sender.id}`, phone, purpose: 'suppression', status: 'opted_in', evidence });
+      const { applyContactReminderSmsKeyword } = await import('./contactReminderSmsConsent.service.js');
+      await applyContactReminderSmsKeyword({ sender, phone, keyword, messageId });
       reply = `${brand}: Texting is re-enabled for your existing subscriptions. Message frequency varies. Message and data rates may apply. Reply HELP for help, STOP to opt out.`;
     } else {
       reply = `${brand}: To subscribe, contact ${contact || 'your practice through its website'}. Reply STOP to opt out.`;
@@ -276,4 +291,7 @@ export async function processSmsKeyword({ from, to, body, messageId, sendReply }
     await sendReply({ ...capability, complianceReply: capability });
   }
   return true;
+  } finally {
+    if (consentDb) { try { if (locked) await consentDb.execute('SELECT RELEASE_LOCK(?)', [lockName]); } finally { consentDb.release(); } }
+  }
 }
