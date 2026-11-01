@@ -1,4 +1,4 @@
-import {beforeEach,it,expect,vi} from 'vitest';
+import {afterEach,beforeEach,it,expect,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(),getConnection:vi.fn()}}));
 vi.mock('../clientAccountSupportAccess.service.js',()=>({requireClientAccountSupport:vi.fn()}));
 vi.mock('../guardianAppointments.service.js',()=>({authorizedAppointmentClient:vi.fn()}));
@@ -18,6 +18,7 @@ const sender={id:3,agency_id:2,scope:'campaign:campaign',phone_number:'+13035550
 let db,events,permission,sends,input,recipientRows;
 beforeEach(()=>{
  vi.clearAllMocks();vi.stubEnv('NOTIFYRE_CLIENT_CAMPAIGNS_JSON',JSON.stringify({'2':{brandId:'brand',campaignId:'campaign'}}));
+ for(const [key,value] of Object.entries({NOTIFYRE_ENABLED:'true',NOTIFYRE_API_TOKEN:'test-only',NOTIFYRE_WEBHOOK_SECRET:'test-only',NOTIFYRE_BAA_REFERENCE:'test-only'}))vi.stubEnv(key,value);
  requireClientAccountSupport.mockResolvedValue(client);authorizedAppointmentClient.mockResolvedValue(client);resolveRegisteredSmsSender.mockResolvedValue(sender.phone_number);getSmsSender.mockResolvedValue(sender);isSmsSuppressed.mockResolvedValue(false);latestIntakeCommunicationChoices.mockResolvedValue(null);
  events=[];permission=null;recipientRows=[guardian];sends=vi.fn(async()=>({sid:'carrier-id'}));
  input={recipientId:55,phone:guardian.phone,method:'phone',collectedAt:new Date(Date.now()-60000).toISOString(),attested:true,authorityConfirmed:true,phoneConfirmed:true,version:VERBAL_REMINDER_CONSENT_VERSION,disclosure:verbalReminderDisclosure(agency,registration),requestKey:'9c80eaa0-9019-4882-8a76-0e5561640905'};
@@ -38,6 +39,7 @@ beforeEach(()=>{
  });
  db={execute,beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()};pool.execute.mockImplementation(execute);pool.getConnection.mockResolvedValue(db);
 });
+afterEach(()=>vi.unstubAllEnvs());
 const save=()=>recordStaffVerbalReminderConsent({user,clientId:101,input,sendConfirmation:sends});
 it('records the named staff attestation and enables only the selected recipient, preserving email choices',async()=>{
  const result=await save();expect(result).toMatchObject({recorded:true,activated:true,confirmation:'accepted'});expect(db.commit).toHaveBeenCalledOnce();
@@ -55,6 +57,24 @@ it('records pending evidence without enabling preferences or sending when the ca
 it('keeps consent pending until the registered verbal script is approved',async()=>{
  getSmsSender.mockResolvedValue({...sender,registration:{...registration,verbalReminderConsentApproved:false}});
  expect(await save()).toMatchObject({activated:false,pendingReason:expect.stringContaining('carrier approved')});expect(permission).toBeNull();
+});
+it.each(['NOTIFYRE_ENABLED','NOTIFYRE_API_TOKEN','NOTIFYRE_WEBHOOK_SECRET','NOTIFYRE_BAA_REFERENCE'])('keeps recorded consent and displayed reminders pending when %s is unavailable',async key=>{
+ vi.stubEnv(key,'');
+ expect(await save()).toMatchObject({recorded:true,activated:false,pendingReason:expect.stringContaining('awaiting activation')});
+ expect(permission).toBeNull();expect(sends).not.toHaveBeenCalled();
+ expect(db.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO client_session_notification_preferences'))).toBe(false);
+ expect(await staffReminderConsentContext(user,101)).toMatchObject({activationBlocked:expect.stringContaining('awaiting activation'),recipients:[expect.objectContaining({enabled:false})]});
+});
+it('shows existing consent as unavailable when transport is disabled without deleting its evidence',async()=>{
+ await save();const existingPermission=structuredClone(permission),eventCount=events.length;
+ vi.stubEnv('NOTIFYRE_ENABLED','false');
+ expect(await staffReminderConsentContext(user,101)).toMatchObject({activationBlocked:expect.any(String),recipients:[expect.objectContaining({enabled:false,lastConsent:expect.any(Object)})]});
+ expect(permission).toEqual(existingPermission);expect(events).toHaveLength(eventCount);expect(sends).toHaveBeenCalledOnce();
+});
+it('records pending evidence rather than a false activation when the configured agency campaign changes',async()=>{
+ vi.stubEnv('NOTIFYRE_CLIENT_CAMPAIGNS_JSON',JSON.stringify({'2':{brandId:'different-brand',campaignId:'different-campaign'}}));
+ expect(await save()).toMatchObject({recorded:true,activated:false,pendingReason:expect.any(String)});
+ expect(permission).toBeNull();expect(sends).not.toHaveBeenCalled();
 });
 it('never clears STOP or creates grants after a STOP',async()=>{
  isSmsSuppressed.mockResolvedValue(true);await expect(save()).rejects.toThrow('STOP');expect(events).toHaveLength(0);expect(permission).toBeNull();expect(sends).not.toHaveBeenCalled();

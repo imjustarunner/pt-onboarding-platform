@@ -8,7 +8,7 @@ import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import { contactReminderConsentLock, contactReminderPhoneHash } from '../utils/contactReminderConsent.js';
 import { VERBAL_REMINDER_CONSENT_VERSION, verbalReminderProgramReady, verbalReminderDisclosure } from '../utils/staffVerbalReminderConsent.js';
 import { validateSmsRegistration } from '../utils/smsCompliancePolicy.js';
-import { assertNotifyreAgencyCampaign } from '../utils/smsCarrierPolicy.js';
+import { smsTransport } from './notifyre.service.js';
 import { latestIntakeCommunicationChoices } from './intakeCommunicationChoices.service.js';
 
 const parse = value => typeof value === 'string' ? JSON.parse(value) : value || {};
@@ -43,7 +43,13 @@ async function program(agencyId){
   let reason=null;
   if(!sender || validateSmsRegistration(registration).length)reason='The agency’s appointment-text sender is not ready. Consent can be recorded; texts remain off.';
   else if(!verbalReminderProgramReady(registration))reason='An administrator must confirm that the carrier approved this verbal reminder opt-in script before activation.';
-  if(sender)assertNotifyreAgencyCampaign(registration,agencyId);
+  if(!reason){
+    try { smsTransport({registration,agencyId,purpose:'reminders'}); }
+    catch(error){
+      if(!['notifyre_not_ready','notifyre_agency_campaign_mismatch','notifyre_campaign_configuration_invalid'].includes(error.code))throw error;
+      reason='The agency’s clinical texting service is awaiting activation. An administrator must finish texting setup; consent can be recorded, but texts remain off.';
+    }
+  }
   return {sender,reason,disclosure:verbalReminderDisclosure(agency,registration),version:VERBAL_REMINDER_CONSENT_VERSION};
 }
 export async function staffReminderConsentContext(user,clientId){

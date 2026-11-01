@@ -1,0 +1,214 @@
+SHARED CLINICAL REPAIRS — UPDATED RETEST PLAN
+Prepared November 1, 2026 / America/Denver
+
+Purpose and release gate
+Test the shared mental-health/clinical application repairs in 3eb6f5389 and
+the mobile-email/support verbal-consent changes in 5395bcdab. These are shared
+product changes; the retained synthetic tenant supplies the test evidence.
+Include this follow-up's support consent readiness fix: consent remains pending
+when the clinical transport is disabled or its required configuration is absent.
+This document is a test assignment, not a completed browser or delivery pass.
+Preserve the earlier overall FAIL and all open findings until verified again.
+
+Before starting
+- Confirm the deployed FRONTEND and BACKEND include these commits. Record the
+  actual build/revision, actor, event time and America/Denver UTC offset.
+- Use existing QA agency 450 / auricwell-qa-demo and its retained people.
+  Recount first: last observed 23 clients and 4 provider-role identities.
+  Create zero people for this retest; preserve the combined 30/10 caps.
+- Use the existing vault and separate support, clinician, supervisor and family
+  sessions. Keep credentials and bearer links out of the result ledger.
+- Use ordinary navigation/forms. Do not edit SQL, signed content, history,
+  clocks, consent, roles or payer eligibility merely to make a case pass.
+- Results: PASS / FAIL / BLOCKED / NOT RUN, with the exact object IDs, actor,
+  expected/actual behavior, screenshot and audit event or missing-event finding.
+
+Run these checks first (read-only against retained evidence)
+
+RT01 — Counts and Audit Center
+As Jordan 1434, compare client count cards with the same list and filters.
+Pending/Packet records must not count as Completed from paperwork alone.
+Open Quick Nav -> Audit Center, then Settings -> System & communications ->
+Audit Center. Expected scoped destination:
+/auricwell-qa-demo/admin/audit-center?agencyId=450
+Search a known retained event and inspect its actor, time, agency and object.
+Check filters, another page and a scoped export where offered. A blank screen
+is a failure. Support sees authorized audit metadata; clinical/personnel bodies
+still require their own access. Provider, guardian, Jamie/school staff and a
+different agency must not gain global audit or clinical access from this link.
+
+RT02 — Harper's intake appointment context
+As Alex 1439, open Harper 2272 from the calendar: appointment 114, clinical
+session 192, signed note 91. Expected appointment: Nov 1, 10–11 AM MST, 90791.
+Open Note Workspace through that exact appointment. Verify all three IDs,
+source timezone, time/location and existing signed content after refresh.
+The note already has this association: report correct display, not a new link.
+Do not sign it again. Do not overwrite documented duration or times.
+For Blake draft 293/session 167, confirm appointment 104/session 166 is not
+silently attached because its date matches. Preserve the unresolved association.
+
+RT03 — Prior-intake advisory and correct intake tool
+On Harper's normal new-assessment launch, verify 90791/H0031 opens the intake
+tool and warns about existing signed intake/assessment history (including 74).
+Cancel before creating another draft. A legitimate reassessment remains possible;
+the warning does not declare a duplicate claim or change a previous assessment.
+
+RT04 — Original cosign and addendum history
+Open retained note 91 and its two existing addenda as Alex and Cameron 1438.
+Verify the original provider signature and original supervisor cosign remain
+visible, along with the later cosign and the versions each covers. Refresh and
+inspect copied note text. New attestation text must identify UTC explicitly;
+retained signed statements remain unchanged. No additional addendum is needed.
+
+RT05 — Supervisor review
+As Cameron, open Harper's retained document from the review queue. Verify
+client and author identifiers, readable sections and both addenda, with no raw
+JSON substituted for the document. An already-current cosign must not be labeled
+as still needing amendment sign-off. Clinical review and cosign remain distinct.
+Inspect existing outcomes; do not create another review/signature for evidence.
+
+RT06 — Personal unread-message preferences
+As Avery 1433, open My Account -> Messages at your personal email. Save the
+intended current settings without changing their timing, then reload/sign in.
+Expected: no Access denied from the old draft-edit route. Preserve the existing
+Monday November 2 unread-message notice; do not move it earlier or resend it.
+
+RT07 — Session material labels and scan locks
+On Jules 2277's retained worksheets A/B, check Note Workspace and chart Documents.
+Expected label: Session material. Pending/quarantined/removed/expired files have
+no usable View/download/share action. A pending scan is not a successful scan.
+If the worker naturally completes scanning, verify only the approved recipient
+can open that exact file. Casey must not receive Morgan-only sharing. Keep the
+scan-worker blocker if the files remain pending; do not replace or bypass them.
+
+RT08 — Mail evidence and mobile layout
+Inspect Ari appointment 111's existing cancellation history: the skipped attempt
+must say Recorded, not Sent. Preserve the failed-label/actual-receipt conflict
+for message 1a1955f41bad2ae1; do not send another copy. The timestamp fix alone
+does not resolve the underlying delivery-status disagreement.
+Use existing received caseload, appointment, guardian, hiring and billing copies
+to check 320/390/430-pixel phone widths and desktop. Check header/logo proportions,
+body width, side padding, readable text, wrapping and tappable actions. No
+horizontal clipping or nested narrow content column. Include branded variants
+actually available; previews do not count as delivered workflow mail.
+
+Fees: run a new controlled case only after prerequisites are confirmed
+
+RT09 — Late cancel and staff-recorded no-show
+First inspect current attendance policy: last live read showed $80 late-cancel
+and $100 no-show. Older screenshots said Not set. Record the CURRENT values.
+Retained Taylor 2262 appointment 112 has an $80 REVIEW balance, uncollected;
+appointment 113 had no collected no-show fee. Preserve both historical outcomes.
+Use new clearly synthetic appointments for the two new classification checks,
+with normal future/elapsed timing. Never relabel or retroactively charge 112/113.
+When staff record that the client did not attend, the recorder's Provider role
+must not produce a provider-caused exemption. A genuinely provider-caused
+cancellation/reschedule must retain its exemption. Compare the policy result,
+signed nonbillable change note and one review item; refresh must not duplicate it.
+If agreement/payer/review prerequisites are missing, leave collection BLOCKED.
+Do not collect a real payment, approve payroll, fabricate a signed fee agreement
+or treat a review balance as a charged card. Preserve source appointment timezone.
+
+Texting: service activation first, then individual recipient consent
+
+RT10 — Operator locations and boundaries
+Administrator/platform administrator: Settings -> System & communications ->
+Texting numbers (item sms-numbers). This controls agency number/settings and
+carrier registration; carrier registration saves require platform administrator.
+Authorized support: client -> Account -> Profile -> Appointment text reminders.
+This records the actual guardian/adult client's verbal permission. Support does
+not need an administrator role to attest; ordinary family users cannot attest
+as staff. Carrier setup and recipient consent are separate results.
+
+RT11 — Confirm actual Notifyre service readiness
+The November 1 read-only provider check authenticated successfully and listed:
+- ITSCO customer-care campaign ddecec71-a968-46f5-b5d7-0aa8f3131efa, ACTIVE;
+  brand bfc8b67f-62cf-4c31-81a9-81091a2f0e55; linked numbers end 1970 and 5413.
+- TISI customer-care campaign d1fe7259-267c-448c-a8d8-f9fb8dbbaa5e, ACTIVE;
+  brand e271131e-6f79-4a29-b1c9-b22048714340; linked number ends 9523.
+Their provider message-flow records include verbal opt-in. This is inventory
+evidence, not an end-to-end delivery pass or proof of the app's live configuration.
+The API's separate campaignID field was all zeros on both campaign records;
+confirm which identifier the provider uses for app routing and carrier approval
+before treating ACTIVE as proof of every registration prerequisite.
+Do not use numbers merely proposed in an older packet: match the live inventory.
+Do not map TISI's approval to ITSCO or an independent clinical agency.
+
+Fresh read-only app checks on November 1:
+- Agency 450 has one active Vonage workforce registration (number ends 3661),
+  not a Notifyre clinical reminder registration. Its SMS feature flags are unset.
+- Agency 2 has an unregistered number and a legacy Vonage workforce/polling
+  registration. No Notifyre sender registrations exist in the inspected scopes.
+- The separate AuricWell integration has smsProvider disabled, zero practice
+  routes and no verification timestamps. A BAA reference is stored there; its
+  presence does not verify the agreement or configure the reminder transport.
+- The reminder Notifyre webhook receipt table has zero receipts.
+- An existing workforce STOP remains recorded. Preserve it during setup.
+- The actual provider campaign describes account-wide STOP. The older reminder
+  path currently records suppression per campaign/number, while the separate
+  AuricWell path uses its own phone-state store. Reconcile these boundaries and
+  verify suppression before enabling traffic through the shared provider account.
+- Google Cloud's interactive operator login requires reauthentication. The
+  service account used for the read-only checks cannot update Cloud Run. Live
+  backend environment/secret bindings remain unverified until operator sign-in.
+These are setup blockers, not evidence of a failed delivery attempt. No text was
+sent and no recipient consent or live sender configuration was changed here.
+
+Deployment operator must reconcile, without exposing values:
+1. The running backend's actual secret bindings AND mounted runtime environment.
+   Existing AURICWELL_NOTIFYRE_* secrets belong to a separate integration path;
+   the appointment-reminder path checks NOTIFYRE_* runtime settings.
+2. Exact agency-to-brand/campaign mapping in NOTIFYRE_CLIENT_CAMPAIGNS_JSON,
+   NOTIFYRE_API_TOKEN, NOTIFYRE_WEBHOOK_SECRET and executed BAA reference.
+   No global/wildcard campaign fallback. Confirm the QA tenant is legitimately
+   within its agency's campaign scope before explicitly mapping it.
+3. App sender record: correct agency, actual linked number, provider notifyre,
+   approved purpose, approval evidence, keyword ownership and verbal script
+   approval/version 2026-11-01.1. A workforce registration does not satisfy the
+   clinical sender prerequisite; record a fresh result.
+4. Opt-out scope/migration: existing STOP remains effective across the configured
+   program. Verify old and replacement-number behavior before enabling traffic.
+5. Signed inbound and delivery webhooks reach the correct endpoint once, reject
+   invalid signatures and tolerate duplicate/out-of-order delivery events.
+6. Enable the configured clinical transport only after those prerequisites pass.
+   Workforce/Vonage settings do not authorize clinical reminder delivery.
+Do not infer missing credentials from an empty direct-env listing when a mounted
+runtime file exists. Do not declare BAA, campaign approval or webhook verification
+complete from a checkbox. Report the exact missing gate and responsible actor.
+
+RT12 — Support verbal opt-in and one real receipt
+Use the owner-approved QA receiving phone only, after actual verbal agreement.
+For Rowan 2271, distinguish the saved guardian and separate pending reminder
+contact; do not create duplicate contacts. A pending entry is not consent.
+As Jordan, select the exact eligible guardian/adult client and saved number,
+read the current disclosure, record the real call/in-person time (within seven
+days), verify authority/phone control and attest in Jordan's own session.
+When service is ready: one activation, durable actor/time/disclosure evidence,
+one subscription confirmation and the requested appointment preferences only.
+When service is blocked: evidence may be saved, but the UI must say pending/off
+and identify the gate. Reload/retry must not create duplicate confirmation texts.
+Inspect actual phone receipt and provider delivery ID; API acceptance is not
+delivery. Never mark the number ending 7000 opted in merely from this plan.
+
+RT13 — Reminder delivery, STOP and isolation
+Use one future synthetic appointment for the approved recipient. Inspect the
+scheduled due time and wait normally. Verify one minimal reminder, correct
+agency/sender, recipient, timezone and permitted destination. Reply through the
+registered route; verify actual inbound handling. A designated test recipient
+then tests STOP: support cannot override it, and later reminders stay suppressed.
+Test HELP/START only under the actual registered behavior, preserving category
+choices. Check another client/guardian/agency cannot inherit that permission.
+Do not enroll billing/marketing or another person's phone from reminder consent.
+
+Timed follow-up and handoff
+- Avery's notice: Monday November 2. Jules's reminders: November 4. Preserve
+  actual due times; report NOT RUN until due and physically received.
+- Keep school requests 117/118 pending and existing recovery/invitation evidence.
+- Keep Spanish Guardian-label translation, explicit denied-link feedback, the
+  unseen idle warning, chart-rating entry discovery, identity discrepancies,
+  billing-sender readiness and unverified AI drafts on the existing open list.
+- Record each case independently. Engineering tests/build success are not live
+  browser passes. Missing scan/transport infrastructure remains a named blocker.
+- Final handoff: build/revision, result table, exact new appointment IDs if any,
+  screenshots, audit reconciliation and actual email/phone receipt evidence.
+  Retain all people and signed evidence for the owner.
