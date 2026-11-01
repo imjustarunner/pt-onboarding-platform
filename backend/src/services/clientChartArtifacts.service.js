@@ -43,6 +43,7 @@ export const ARTIFACT_KIND_LABELS = Object.freeze({
   policy_services: 'Policy & services',
   clinical_summary: 'Clinical summary',
   intake_responses: 'Intake responses',
+  session_material: 'Session material',
   signed_form: 'Signed form'
 });
 
@@ -74,6 +75,7 @@ function looksLikeRoiBlob(blob) {
 }
 
 export function classifyChartArtifact({ documentType, title, originalName, templateName } = {}) {
+  if (documentType === 'session_supporting_material') return 'session_material';
   const blob = `${documentType || ''} ${title || ''} ${originalName || ''} ${templateName || ''}`.toLowerCase();
   if ((blob.includes('clinical') && blob.includes('summary')) || blob.includes('clinician summary')) {
     return 'clinical_summary';
@@ -431,6 +433,14 @@ function sessionSignature(submissions = [], signedDocuments = []) {
   return null;
 }
 
+export function sessionMaterialArtifactAvailable(doc, now = Date.now()) {
+  const rawExpiry = doc?.expires_at ? String(doc.expires_at).replace(' ', 'T') : '';
+  const expiry = doc?.expires_at instanceof Date ? doc.expires_at : rawExpiry
+    ? new Date(/(?:Z|[+-]\d\d:\d\d)$/.test(rawExpiry) ? rawExpiry : `${rawExpiry}Z`) : null;
+  return doc?.scan_status === 'clean' && Number(doc.is_encrypted) === 1 && !doc.quarantine_path
+    && !doc.removed_at && (!expiry || +expiry > now);
+}
+
 export async function assembleClientChartArtifacts({ clientId, client }) {
   const cid = Number(clientId || client?.id || 0);
   const [phiDocs, packets, sectionAcks, signedTemplates, disclosureAck, submissions] = await Promise.all([
@@ -470,6 +480,13 @@ export async function assembleClientChartArtifacts({ clientId, client }) {
       hasSignature: Boolean(d.signed_at || d.signature_at || d.has_signature),
       source: 'phi'
     });
+    if (kind === 'session_material') {
+      artifact.scanStatus = d.scan_status || 'pending';
+      artifact.available = sessionMaterialArtifactAvailable(d);
+      extra.push(artifact);
+      usedPhiIds.add(Number(d.id));
+      continue;
+    }
     usedPhiIds.add(Number(d.id));
     if (kind === 'disclosure') {
       extra.push({

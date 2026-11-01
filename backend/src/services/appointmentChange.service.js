@@ -355,7 +355,9 @@ function determineConsequenceModel({
       strike: null
     };
   }
-  if (isProviderCausedInitiator(initiator)) {
+  // A staff member recording a client's absence did not cause the no-show.
+  // Provider-caused exemptions apply only to cancellations and reschedules.
+  if (classification !== 'no_show' && isProviderCausedInitiator(initiator)) {
     return {
       model: 'none',
       label: 'Provider/agency-caused — no client consequence',

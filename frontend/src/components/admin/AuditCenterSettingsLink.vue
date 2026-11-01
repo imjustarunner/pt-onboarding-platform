@@ -12,19 +12,20 @@
 </template>
 
 <script setup>
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 
 const router = useRouter();
+const route = useRoute();
 const agencyStore = useAgencyStore();
 
 const goAuditCenter = () => {
   const id = agencyStore.currentAgency?.id;
-  if (id) {
-    router.push({ path: '/admin/audit-center', query: { agencyId: String(id) } });
-    return;
-  }
-  router.push('/admin/audit-center');
+  const slug = route.params.organizationSlug;
+  router.push({
+    ...(slug ? { name: 'OrganizationAuditCenter', params: { organizationSlug: slug } } : { name: 'AuditCenter' }),
+    query: id ? { agencyId: String(id) } : {}
+  });
 };
 </script>
 

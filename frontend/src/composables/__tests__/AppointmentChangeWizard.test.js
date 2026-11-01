@@ -38,7 +38,7 @@ describe('appointment change wizard controls', () => {
   });
   it('offers reviewed no-show notification and suppression controls without replacement booking',async()=>{
     const {wrapper,change}=await setup();change.facts.eventType='no_show';change.step.value=2;await flushPromises();
-    expect(wrapper.text()).toContain('Send a missed-appointment notification?');expect(change.facts.clientFacingReason).toContain('recorded as missed');
+    expect(change.facts.initiator).toBe('client');expect(wrapper.text()).toContain('Send a missed-appointment notification?');expect(change.facts.clientFacingReason).toContain('recorded as missed');
     expect(wrapper.find('[data-inline-reschedule]').exists()).toBe(false);expect(wrapper.text()).not.toContain('Choose the new session time');wrapper.unmount();
   });
   it('shows the client message separately from the internal note before signing', async () => {

@@ -85,7 +85,7 @@ export function canDiscoverQuickNavRoute(route, { user, agency = {}, platformBra
     if (agency.organization_type === 'affiliation' && ['staff','clients','meetings','supervision','my_supervision','submit','my_schedule'].includes(tab)) return false;
   }
   if ((role === 'club_manager' || rawRole === 'club_manager') && /\/admin\/(audit-center|payroll|expenses)(\/|$)/.test(path)) return false;
-  if (role === 'support' && path.includes('/admin/audit-center')) return false;
+  if (role === 'support' && /\/admin\/(audit-center|settings)(\/|$)/.test(path) && !list(meta.requiresRole).includes('support')) return false;
   if (['clinical_practice_assistant', 'provider_plus', 'supervisor'].includes(rawRole) && /\/admin\/(modules|documents|settings|checklist-items)(\/|$)/.test(path)) return false;
   if (role === 'school_staff' && /^\/(schedule|workforce-operations|school-operations|people-operations|dashboard|payroll)(\/|$)/.test(path)) return false;
   const owner = meta.allowIndependentPracticeOwner && Number(agency.account_owner_user_id) === Number(user?.id)

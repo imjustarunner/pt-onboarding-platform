@@ -1,7 +1,7 @@
 <template>
   <div class="cdg">
     <div class="cdg-head">
-      <h4 class="cdg-title">Signed documents</h4>
+      <h4 class="cdg-title">Documents &amp; session materials</h4>
       <p class="hint">
         Smart ROI, Smart Disclosure, HIPAA and other master-packet sections, the branded full packet, clinical summary, and intake answers.
       </p>
@@ -31,13 +31,14 @@
           <span v-else-if="card.uploadedAt">Uploaded {{ formatWhen(card.uploadedAt) }}</span>
           <span v-else-if="card.missing">Not on file</span>
           <span v-if="card.hasSignature" class="cdg-sig">Signature on file</span>
+          <span v-if="card.kind === 'session_material' && card.available === false">Opening is unavailable. Open the session’s Supporting materials for security scan and retention status and recovery.</span>
         </div>
         <div class="cdg-card__actions">
           <button
             v-if="card.viewKey"
             type="button"
             class="btn btn-primary btn-sm"
-            :disabled="opening"
+            :disabled="opening || card.available === false"
             @click="openViewKey(card.viewKey)"
           >
             View

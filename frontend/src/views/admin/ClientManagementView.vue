@@ -125,7 +125,7 @@
         <div class="cm-summary-icon">✓</div>
         <div>
           <div class="cm-summary-value">{{ clientSummary.completed }}</div>
-          <div class="cm-summary-label">Completed</div>
+          <div class="cm-summary-label">Current / complete</div>
           <div class="cm-summary-meta">{{ clientSummary.completedPct }}% of total</div>
         </div>
       </div>

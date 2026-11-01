@@ -2,20 +2,27 @@
 import {ref,watch} from 'vue';
 import api from '../../services/api';
 const props=defineProps({draftId:[Number,String],beforeLink:Function});
-const emit=defineEmits(['linked']);
+const emit=defineEmits(['linked','context']);
 const state=ref(null),selected=ref(''),confirmed=ref(false),busy=ref(false),error=ref('');
 let generation=0;
 async function load(){const run=++generation;state.value=null;selected.value='';confirmed.value=false;error.value='';
- if(!props.draftId)return;try{const {data}=await api.get(`/clinical-notes/drafts/${props.draftId}/appointment`,{skipGlobalLoading:true});if(run===generation)state.value={...data,options:data?.options||[]};}catch{if(run===generation)error.value='Appointment linkage could not be checked.';}}
+ if(!props.draftId)return;try{const {data}=await api.get(`/clinical-notes/drafts/${props.draftId}/appointment`,{skipGlobalLoading:true});if(run===generation){state.value={...data,options:data?.options||[]};if(data?.context)emit('context',data.context);}}catch{if(run===generation)error.value='Appointment linkage could not be checked.';}}
 watch(()=>props.draftId,load,{immediate:true});
-function label(row){const raw=String(row.startAt).replace(' ','T');const date=new Date(/(?:Z|[+-]\d\d:\d\d)$/.test(raw)?raw:`${raw}Z`);
- return `Appointment #${row.appointmentId||row.officeEventId} · ${new Intl.DateTimeFormat('en-US',{dateStyle:'medium',timeStyle:'short',timeZone:row.sourceTimezone}).format(date)} (${row.sourceTimezone}) · ${row.serviceCode}`;}
+function label(row){
+ const identity = row.appointmentId ? `Appointment #${row.appointmentId}` : row.officeEventId ? `Calendar event #${row.officeEventId}` : row.billingEncounterId ? `Billing encounter #${row.billingEncounterId}` : 'Linked encounter';
+ const raw=String(row.startAt || '').replace(' ','T');const date=new Date(/(?:Z|[+-]\d\d:\d\d)$/.test(raw)?raw:`${raw}Z`);
+ let when='Time not recorded';
+ try {if(!Number.isNaN(+date))when=`${new Intl.DateTimeFormat('en-US',{dateStyle:'medium',timeStyle:'short',timeZone:row.sourceTimezone || 'UTC'}).format(date)} (${row.sourceTimezone || 'UTC'})`;}catch{}
+ return `${identity} · ${when} · ${row.serviceCode || 'Service not recorded'}`;
+}
 async function link(){if(busy.value||!confirmed.value||!selected.value)return;const run=generation,id=props.draftId;busy.value=true;error.value='';
  try{await props.beforeLink?.();if(run!==generation)return;const {data}=await api.post(`/clinical-notes/drafts/${id}/appointment`,{clinicalSessionId:Number(selected.value),confirmed:true});
- if(run===generation){state.value={linked:true,options:[]};emit('linked',data.draft);}}
+ if(run===generation){emit('linked',data.draft);await load();}}
  catch(e){if(run===generation)error.value=e.response?.data?.error?.message||e.message||'The draft could not be linked. Your text is preserved.';}finally{busy.value=false;}}
 </script>
-<template><section v-if="state && !state.linked || error" class="draft-appointment-repair">
+<template><section v-if="state?.linked && state.context" class="draft-appointment-repair" aria-label="Linked appointment">
+ <strong>{{label(state.context)}}</strong><p>Clinical session #{{state.context.clinicalSessionId}} · Linked appointment. Confirm documented times and duration before signing.</p>
+</section><section v-if="state && !state.linked || error" class="draft-appointment-repair">
  <h3>Link this draft to its appointment</h3><p>This draft has no booked encounter. Choose its matching appointment explicitly. Its client, provider, local service date and code must agree. Existing notes and text are preserved.</p>
  <p v-if="state && !state.options.length">{{state.message || 'No unsigned matching appointment was found. Review the client, date and service code, or open the correct appointment from the schedule.'}}</p>
  <template v-if="state?.options.length"><label>Appointment<select v-model="selected" :disabled="busy"><option value="">Choose an appointment</option><option v-for="row in state.options" :key="row.clinicalSessionId" :value="row.clinicalSessionId">{{label(row)}}</option></select></label>

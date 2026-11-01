@@ -95,6 +95,14 @@ describe('Quick Nav access filtering', () => {
     expect(canDiscoverQuickNavRoute(resolved({ requiresRole: 'admin' }, '/tisi/admin/audit-center'), { user: { role: 'support' } })).toBe(false);
     expect(canDiscoverQuickNavRoute(resolved({ requiresRole: 'clinical_practice_assistant' }, '/tisi/admin/settings'), { user: { role: 'provider_plus' } })).toBe(false);
   });
+  it('discovers the scoped Audit Center for support without granting general settings access', () => {
+    const audit = resolved({ requiresRole: ['admin','support'] }, '/example/admin/audit-center');
+    expect(canDiscoverQuickNavRoute(audit, { user: { role: 'support' } })).toBe(true);
+    for (const role of ['provider','client_guardian','school_staff']) {
+      expect(canDiscoverQuickNavRoute(audit, { user: { role } })).toBe(false);
+    }
+    expect(canDiscoverQuickNavRoute(resolved({requiresRole:'admin'}, '/example/admin/settings'), {user:{role:'support'}})).toBe(false);
+  });
   it('allows coordinator exceptions without widening access to other pages', () => {
     const user = { role: 'provider', has_skill_builder_coordinator_access: true };
     expect(canDiscoverQuickNavRoute(resolved({ requiresRole: 'admin', allowSubCoordinator: true }), { user })).toBe(true);

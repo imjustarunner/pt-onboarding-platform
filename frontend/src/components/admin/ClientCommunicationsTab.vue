@@ -165,7 +165,7 @@
                 {{ formatPhone(item.toNumber) }}
               </span>
               <span v-if="item.sentAt" class="meta-item">
-                <strong>{{ item.direction === 'inbound' ? 'Received:' : 'Sent:' }}</strong>
+                <strong>{{ communicationTimestampLabel(item) }}</strong>
                 {{ formatDate(item.sentAt) }}
               </span>
               <span v-if="item.deliveredAt" class="meta-item delivered-chip" title="Provider confirmed delivery to recipient mailbox">
@@ -254,12 +254,12 @@
             <div class="delivery-timeline">
               <div
                 class="timeline-step"
-                :class="{ 'is-done': !!viewingEmail.sentAt, 'is-current': !viewingEmail.sentAt && viewingEmail.deliveryStatus === 'pending' }"
+                :class="{ 'is-done': hasCommunicationSendEvidence(viewingEmail), 'is-current': !hasCommunicationSendEvidence(viewingEmail) && viewingEmail.deliveryStatus === 'pending' }"
               >
                 <span class="timeline-dot" />
                 <div>
                   <div class="timeline-label">{{ sentTimelineLabel(viewingEmail) }}</div>
-                  <div class="timeline-time">{{ viewingEmail.sentAt ? formatDate(viewingEmail.sentAt) : 'Not yet sent' }}</div>
+                  <div class="timeline-time">{{ viewingEmail.sentAt ? `${communicationTimestampLabel(viewingEmail)} ${formatDate(viewingEmail.sentAt)}` : 'No send time confirmed' }}</div>
                 </div>
               </div>
               <div
@@ -273,7 +273,7 @@
                     {{
                       viewingEmail.deliveredAt
                         ? formatDate(viewingEmail.deliveredAt)
-                        : (viewingEmail.sentAt ? 'No delivery webhook received yet' : '—')
+                        : (hasCommunicationSendEvidence(viewingEmail) ? 'No delivery webhook received yet' : '—')
                     }}
                   </div>
                 </div>
@@ -355,7 +355,7 @@ import ClientNotificationHistory from '../conversa/ClientNotificationHistory.vue
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import api from '../../services/api';
-import {communicationDeliveryStatus} from '../../utils/communicationDeliveryStatus';
+import {communicationDeliveryStatus, communicationTimestampLabel, hasCommunicationSendEvidence} from '../../utils/communicationDeliveryStatus';
 import EmailThreadReader from '../messages/EmailThreadReader.vue';
 import {openCommunicationPrint} from '../../utils/communicationPrint';
 
@@ -610,6 +610,11 @@ const onIframeLoad = async () => {
 };
 
 const sentTimelineLabel = (email) => {
+  if (!hasCommunicationSendEvidence(email)) {
+    if (email?.deliveryStatus === 'skipped') return 'Not sent';
+    if (email?.deliveryStatus === 'pending') return 'Waiting to send';
+    return 'Send attempt recorded — acceptance unconfirmed';
+  }
   if (email?.recipientIsGuardian) return 'Sent to guardian / signer';
   const template = String(email?.templateType || '').toLowerCase();
   const subject = String(email?.subject || '').toLowerCase();

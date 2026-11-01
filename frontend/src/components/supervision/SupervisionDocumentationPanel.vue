@@ -27,13 +27,13 @@
         <button :disabled="busy" @click="loadDocuments">Refresh documents</button>
         <p>Each page shows up to 100 signed notes and 100 active/final treatment plans. Clinical review and cosign are recorded separately.</p>
         <div class="table-scroll"><table><thead><tr><th>Document</th><th>Review</th><th>Latest outcome</th><th></th></tr></thead><tbody>
-          <tr v-for="doc in documents" :key="`${doc.type}-${doc.id}`"><td>{{ doc.title }}<small>{{ label(doc.noteType) }} · #{{ doc.id }}</small></td><td>{{ doc.amendmentSignoffRequired ? 'Amendment · supervisor sign-off required' : doc.mandatoryReview ? 'Mandatory' : doc.reviewRequested ? 'Requested' : 'Discretionary review off' }}</td><td>{{ doc.latestReview ? label(doc.latestReview.outcome) : 'Not reviewed' }}<small v-if="doc.latestReview?.stale">Document changed since review</small><small v-if="doc.reviewRequested && doc.signedAt && !doc.cosignedAt">Cosign due {{ date(doc.cosignDueAt) }}</small><small v-if="doc.cosignedAt">Cosigned {{ date(doc.cosignedAt) }}</small></td><td><button :disabled="busy" @click="openDocument(doc)">Open</button></td></tr>
+          <tr v-for="doc in documents" :key="`${doc.type}-${doc.id}`"><td>{{ doc.title }}<small>{{ label(doc.noteType) }} · #{{ doc.id }}</small><small>Client #{{ doc.clientId }} · Author #{{ doc.authorUserId || providerId }}</small></td><td>{{ doc.amendmentSignoffRequired ? 'Amendment · supervisor sign-off required' : doc.mandatoryReview ? 'Mandatory' : doc.reviewRequested ? 'Requested' : 'Discretionary review off' }}</td><td>{{ doc.latestReview ? label(doc.latestReview.outcome) : doc.cosignedAt ? 'Cosigned; separate clinical review not recorded' : 'Not reviewed' }}<small v-if="doc.latestReview?.stale">Document changed since review</small><small v-if="doc.reviewRequested && doc.signedAt && !doc.cosignedAt">Cosign due {{ date(doc.cosignDueAt) }}</small><small v-if="doc.cosignedAt">Cosigned {{ date(doc.cosignedAt) }}</small></td><td><button :disabled="busy" @click="openDocument(doc)">Open</button></td></tr>
         </tbody></table></div>
         <p v-if="documentClientId">Showing client #{{ documentClientId }} <button :disabled="busy" @click="viewCaseNotes(null)">All clients</button></p>
         <button :disabled="busy || documentPage === 1" @click="changeDocumentPage(-1)">Previous documents</button><span>Page {{ documentPage }}</span><button :disabled="busy || !hasMoreDocuments" @click="changeDocumentPage(1)">More documents</button>
         <p v-if="!documents.length">No documents loaded.</p>
         <section v-if="opened" class="document-review">
-          <h4>{{ opened.title }}</h4><CosignReviewTimer v-if="opened.type === 'note' && opened.canTrackCosignTime" :key="`${opened.id}-${opened.contentHash}`" :agency-id="agencyId" :provider-id="providerId" :note-id="opened.id" :content-hash="opened.contentHash" /><pre>{{ opened.content }}</pre>
+          <h4>{{ opened.title }}</h4><CosignReviewTimer v-if="opened.type === 'note' && opened.canTrackCosignTime" :key="`${opened.id}-${opened.contentHash}`" :agency-id="agencyId" :provider-id="providerId" :note-id="opened.id" :content-hash="opened.contentHash" /><ClinicalReviewContent :content="opened.content" />
           <p v-if="opened.latestReview?.feedback">Last review: {{ opened.latestReview.feedback }}</p>
           <form v-if="canReview" @submit.prevent="recordReview">
             <label>Outcome<select v-model="outcome"><option value="approved">Reviewed and approved</option><option value="changes_requested">Changes requested</option></select></label>
@@ -66,6 +66,7 @@ import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
 import { employeeTimeStatusLabel } from '../../utils/employeeTimeStatus';
 import CosignReviewTimer from '../clinical/CosignReviewTimer.vue';
+import ClinicalReviewContent from '../clinical/ClinicalReviewContent.vue';
 const trackedTimes=ref([]);
 import ServiceBillingSupervisors from './ServiceBillingSupervisors.vue';
 import SupervisionCaseOverview from './SupervisionCaseOverview.vue';

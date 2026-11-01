@@ -5093,6 +5093,7 @@
                   </span>
                   <span class="stack-details-label">{{ item.label }}</span>
                   <span v-if="item.subLabel" class="stack-details-sub">{{ item.subLabel }}</span>
+                  <span v-if="item.appointmentId" class="stack-details-sub">Appointment #{{ item.appointmentId }}<template v-if="item.clinicalSessionId"> · Clinical session #{{ item.clinicalSessionId }}</template></span>
                 </span>
                 <span class="stack-details-pick-cta">{{ item.googleEvent && !item.eventId ? 'Open' : 'Open in app' }} →</span>
               </button>
@@ -5100,6 +5101,7 @@
                 <div v-if="item.kindLabel" class="stack-details-kind">{{ item.kindLabel }}</div>
                 <div class="stack-details-label">{{ item.label }}</div>
                 <div v-if="item.subLabel" class="stack-details-sub">{{ item.subLabel }}</div>
+                <div v-if="item.appointmentId" class="stack-details-sub">Appointment #{{ item.appointmentId }}<template v-if="item.clinicalSessionId"> · Clinical session #{{ item.clinicalSessionId }}</template></div>
                 <div v-if="item.detailText && scheduleEventEditId !== Number(item.eventId || 0)" class="stack-details-detail">{{ item.detailText }}</div>
 
                 <div

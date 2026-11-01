@@ -5,7 +5,8 @@ import {
   isdLooksLikeDisclosure,
   isdLooksLikeSmartSchoolRoi,
   clinicalSignalScore,
-  pickBestClinicalSubmission
+  pickBestClinicalSubmission,
+  sessionMaterialArtifactAvailable
 } from '../clientChartArtifacts.service.js';
 
 test('classifyChartArtifact maps ROI titles including Release of Information', () => {
@@ -42,6 +43,20 @@ test('classifyChartArtifact maps clinical summary and leftover signed forms', ()
     'clinical_summary'
   );
   assert.equal(classifyChartArtifact({ originalName: 'Consent to Treat (Signed)' }), 'signed_form');
+});
+
+test('session materials retain their type even when the title resembles a signed form', () => {
+  assert.equal(classifyChartArtifact({ documentType: 'session_supporting_material', title: 'Consent practice worksheet' }), 'session_material');
+});
+
+test('session materials remain unavailable during scan, quarantine, removal or expiry', () => {
+  const now = Date.parse('2026-11-01T18:00:00Z');
+  const clean = { scan_status: 'clean', is_encrypted: 1 };
+  assert.equal(sessionMaterialArtifactAvailable(clean, now), true);
+  for (const patch of [{ scan_status: 'pending' }, { scan_status: 'infected' }, { is_encrypted: '0' }, { quarantine_path: 'quarantine' }, { removed_at: '2026-11-01' }, { expires_at: '2026-11-01 17:00:00' }, { expires_at: 'invalid' }]) {
+    assert.equal(sessionMaterialArtifactAvailable({ ...clean, ...patch }, now), false);
+  }
+  assert.equal(sessionMaterialArtifactAvailable({ ...clean, expires_at: '2026-11-02T00:00:00+00:00' }, now), true);
 });
 
 test('isdLooksLikeDisclosure ignores ROI stamped onto a Disclosure Agreement template', () => {

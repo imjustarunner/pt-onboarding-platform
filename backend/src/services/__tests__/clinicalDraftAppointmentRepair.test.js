@@ -11,6 +11,17 @@ it('offers only exact scope, code and local date matches and never links automat
   expect((await draftAppointmentOptions(draft,deps)).options.map(r=>r.clinicalSessionId)).toEqual([166]);
   expect(deps.drafts.updateForUser).not.toHaveBeenCalled();
 });
+it('returns the exact existing appointment context without changing the draft',async()=>{
+  deps.sessions.findById.mockResolvedValue({...target,id:167,scheduled_end_at:'2026-11-02 18:00:00',duration_minutes:45});
+  const result=await draftAppointmentOptions(draft,deps);
+  expect(result).toMatchObject({linked:true,options:[],context:{draftId:293,clinicalSessionId:167,appointmentId:104,sourceTimezone:'America/Denver',startAt:'2026-11-02 17:15:00',durationMinutes:45}});
+  expect(deps.drafts.updateForUser).not.toHaveBeenCalled();
+});
+it.each([{agency_id:999},{client_id:999},{provider_user_id:999}])('withholds a linked encounter that does not match the draft: %j',async mismatch=>{
+  deps.sessions.findById.mockResolvedValue({...target,...mismatch});
+  await expect(draftAppointmentOptions(draft,deps)).rejects.toMatchObject({status:403});
+  expect(deps.drafts.updateForUser).not.toHaveBeenCalled();
+});
 it('changes only link IDs after explicit confirmation; no source, pricing or attendance mutation',async()=>{
   await linkDraftAppointment(draft,166,true,deps);
   expect(deps.drafts.updateForUser).toHaveBeenCalledWith({draftId:293,userId:1433,patch:{clinicalSessionId:166,officeEventId:null}});

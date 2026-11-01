@@ -717,6 +717,15 @@ export function formatChartClinicalNoteCopy({
     lines.push('');
   }
 
+  const cosignHistory = note.supervisorCosignHistory || note.metadata?.supervisorCosignHistory || [];
+  for (const signature of cosignHistory) {
+    lines.push('Earlier signed version · supervisor cosign');
+    if (signature.statement) lines.push(String(signature.statement));
+    lines.push(`Signed: ${signature.cosignedAt || 'Not recorded'} · user #${signature.cosignedByUserId || 'Not recorded'}`);
+    lines.push('Applies to the earlier version; later additions require their own review.');
+    lines.push('');
+  }
+
   for (const entry of note.addenda || []) {
     const kind = entry.entryKind || entry.entry_kind;
     lines.push(({addendum:'Addendum',correction:'Amendment / correction',late_entry:'Late entry'})[kind] || 'Historical entry');

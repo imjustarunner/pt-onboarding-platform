@@ -1,3 +1,14 @@
+// Older rows can carry an attempt timestamp even when delivery was skipped.
+export function hasCommunicationSendEvidence(item) {
+  return Boolean(item?.direction === 'inbound' || item?.externalMessageId || item?.openedAt || item?.deliveredAt
+    || ['sent', 'delivered'].includes(String(item?.deliveryStatus || '').toLowerCase()));
+}
+
+export function communicationTimestampLabel(item) {
+  if (item?.direction === 'inbound') return 'Received:';
+  return hasCommunicationSendEvidence(item) ? 'Sent:' : 'Recorded:';
+}
+
 export function communicationDeliveryStatus(item) {
   const status=String(item?.deliveryStatus || '').toLowerCase();
   if(item?.direction==='inbound')return {key:'received',label:'Received',tooltip:'Inbound message received'};

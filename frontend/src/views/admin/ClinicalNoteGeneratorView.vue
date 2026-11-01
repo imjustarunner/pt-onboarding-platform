@@ -240,7 +240,8 @@
           @toggle-setup="showClientSetupDrawer = true"
           @toggle-addon-code="toggleManualAddonCode"
         />
-        <DraftAppointmentRepair v-if="draftId && !signedNoteViewerId && !isClientChartAid && !isReviewOnlyAid" :draft-id="draftId" :before-link="prepareDraftAppointmentRepair" @linked="onDraftAppointmentRepaired" />
+        <PriorIntakeNotice v-if="!signedNoteViewerId && ['90791', '90792', 'H0031'].includes(actualServiceCode)" :sessions="signedNoteSessions" :client-id="effectiveClientId" :clinical-session-id="sessionClinicalSessionId" />
+        <DraftAppointmentRepair v-if="draftId && !signedNoteViewerId && !isClientChartAid && !isReviewOnlyAid" :draft-id="draftId" :before-link="prepareDraftAppointmentRepair" @linked="onDraftAppointmentRepaired" @context="onDraftAppointmentContext" />
         <SessionSupportingMaterials v-if="sessionClinicalSessionId && !signedNoteViewerId && !isClientChartAid && !isReviewOnlyAid" :key="sessionClinicalSessionId" :clinical-session-id="sessionClinicalSessionId" />
         <details v-if="sessionClinicalSessionId && Number(noteAidAgencyId || currentAgencyId) === 377" :open="noteBillingExpanded" @toggle="noteBillingExpanded = $event.target.open">
           <summary>Insurance &amp; claim progress</summary>
@@ -1598,6 +1599,7 @@ import { noteDraftAttendanceNotice } from '../../utils/noteDraftAttendance.js';
 import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
 import { noteAidWorkspaceLabel } from '../../config/noteAidAccess.js';
 import ClinicalWorkspaceFrame from '../../components/clinicalWorkspace/ClinicalWorkspaceFrame.vue';
+import PriorIntakeNotice from '../../components/clinical/PriorIntakeNotice.vue';
 import DraftAppointmentRepair from '../../components/clinical/DraftAppointmentRepair.vue';
 import SessionSupportingMaterials from '../../components/clinical/SessionSupportingMaterials.vue';
 import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
@@ -2409,6 +2411,8 @@ function applyParticipantsDefaultForServiceCode(code) {
 const sessionPatientDob = ref('');
 const sessionScheduledStart = ref(null);
 const sessionScheduledEnd = ref(null);
+const sessionSourceTimezone = ref('');
+const sessionAppointmentId = ref(null);
 const sessionCodeSwitchBanner = ref('');
 const chartDiagnosticJustification = ref('');
 const chartMentalStatus = ref(defaultMentalStatusExam());
@@ -2868,11 +2872,11 @@ const sessionDateTimeLabel = computed(() => {
   try {
     const s = new Date(start);
     const e = end ? new Date(end) : null;
-    const datePart = s.toLocaleDateString();
+    const datePart = s.toLocaleDateString([], { timeZone: sessionSourceTimezone.value || undefined });
     const timePart = e
-      ? `${s.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}–${e.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
-      : s.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    return `${datePart} · ${timePart}`;
+      ? `${s.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: sessionSourceTimezone.value || undefined })}–${e.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: sessionSourceTimezone.value || undefined })}`
+      : s.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: sessionSourceTimezone.value || undefined });
+    return `${datePart} · ${timePart}${sessionSourceTimezone.value ? ` (${sessionSourceTimezone.value})` : ''}`;
   } catch {
     return String(start);
   }
@@ -3917,7 +3921,7 @@ function isoToLocalTime(iso) {
   try {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return '';
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    return new Intl.DateTimeFormat('en-GB', { timeZone: sessionSourceTimezone.value || undefined, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d);
   } catch {
     return '';
   }
@@ -5057,6 +5061,7 @@ const autosave = async () => {
 
   const linkedClientId = resolveDraftClientIdForSave();
   const sessionContext = {
+    sourceTimezone: sessionSourceTimezone.value || null,
     locationLabel: sessionLocationLabel.value || null,
     ...sessionLocationMetadata(),
     durationMinutes: sessionDurationMinutes.value != null ? Number(sessionDurationMinutes.value) : null,
@@ -5231,6 +5236,21 @@ async function prepareDraftAppointmentRepair(){
   if(autosaveBusy)throw new Error('The source text is still saving. Wait for Draft saved and try again.');
   await autosave();
   if(!lastSavedAt.value)throw new Error(approvalError.value || 'Save the draft before linking its appointment.');
+}
+function onDraftAppointmentContext(context) {
+  if (Number(context.draftId) !== Number(draftId.value) || Number(context.clinicalSessionId) !== Number(sessionClinicalSessionId.value)) return;
+  const instant = value => {
+    if (!value) return null;
+    const text = String(value).replace(' ', 'T');
+    return /(?:Z|[+-]\d\d:\d\d)$/.test(text) ? text : `${text}Z`;
+  };
+  sessionSourceTimezone.value = context.sourceTimezone || 'UTC';
+  sessionAppointmentId.value = Number(context.appointmentId) || null;
+  sessionScheduledStart.value = instant(context.startAt);
+  sessionScheduledEnd.value = instant(context.endAt);
+  if (!sessionLocationLabel.value && context.locationLabel) sessionLocationLabel.value = context.locationLabel;
+  // Existing documented times and duration take precedence over calendar defaults.
+  applySessionTimingDefaults();
 }
 async function onDraftAppointmentRepaired(draft){
   sessionClinicalSessionId.value=Number(draft.clinical_session_id)||null;
@@ -6236,7 +6256,7 @@ const ensureClinicalSessionForApproval = async () => {
         : (isTreatmentSummaryAid.value
           ? 'TREATMENT_SUMMARY'
           : (bookingContext.value?.noteType || 'PROGRESS_NOTE')),
-      sourceTimezone: 'America/New_York'
+      sourceTimezone: sessionSourceTimezone.value || agencyStore.currentAgency?.timezone || authStore.user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
     });
     const sessionId = Number(res?.data?.session?.id || 0) || null;
     if (!sessionId) throw new Error('Could not create a chart session for this note.');
@@ -6248,7 +6268,7 @@ const ensureClinicalSessionForApproval = async () => {
     agencyId,
     clientId,
     officeEventId,
-    sourceTimezone: 'America/New_York'
+    sourceTimezone: sessionSourceTimezone.value || agencyStore.currentAgency?.timezone || authStore.user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
   });
   const sessionId = Number(res?.data?.session?.id || 0) || null;
   if (!sessionId) throw new Error('Could not resolve clinical session context.');
@@ -6395,7 +6415,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
           ? null
           : (bookingContext.value?.officeEventId || sessionOfficeEventId.value || null),
         missingCalendarAttachment: isClientChartAid.value
-          || !(bookingContext.value?.officeEventId || sessionOfficeEventId.value),
+          || !(bookingContext.value?.officeEventId || sessionOfficeEventId.value || sessionAppointmentId.value),
         documentationFlow: isReviewOnlyAid.value
           ? 'review'
           : (isTreatmentSummaryAid.value ? 'provider_supervisor_sign' : undefined),
@@ -7958,6 +7978,8 @@ async function activateWorkQueueItem(item) {
   if (!scheduledStart && item.timeLabel) {
     scheduledStart = scheduledStartFromQueueDateAndTime(dosIso, item.timeLabel);
   }
+  sessionSourceTimezone.value = item.sourceTimezone || '';
+  sessionAppointmentId.value = null;
   sessionScheduledStart.value = scheduledStart;
   sessionScheduledEnd.value = scheduledEnd;
   sessionCodeSwitchBanner.value = '';
@@ -8197,7 +8219,7 @@ async function activateWorkQueueItem(item) {
         agencyId: Number(item.agencyId || noteAidAgencyId.value || currentAgencyId.value || 0),
         clientId: Number(item.clientId || selectedClientId.value || 0) || undefined,
         officeEventId: Number(item.officeEventId || 0) || undefined,
-        sourceTimezone: 'America/New_York'
+        sourceTimezone: sessionSourceTimezone.value || agencyStore.currentAgency?.timezone || authStore.user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
       }, { skipGlobalLoading: true });
       if (seq !== workQueueActivateSeq) return;
       if (Array.isArray(boot?.data?.addonServiceCodes) && boot.data.addonServiceCodes.length) {
@@ -8628,6 +8650,9 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   sessionEndTimeLocal.value = '';
   billingPrimaryUnits.value = Number(savedMeta.billingPrimaryUnits) >= 2 ? 2 : 1;
   const persistedSession = savedMeta.sessionContext || {};
+  sessionSourceTimezone.value = persistedSession.sourceTimezone || '';
+  sessionAppointmentId.value = null;
+  sessionLocationLabel.value = '';
   if (Number(persistedSession.durationMinutes) > 0) sessionDurationMinutes.value = Number(persistedSession.durationMinutes);
   sessionStartTimeLocal.value = String(persistedSession.startTimeLocal || '');
   sessionEndTimeLocal.value = String(persistedSession.endTimeLocal || '');

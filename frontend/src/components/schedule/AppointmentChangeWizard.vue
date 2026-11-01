@@ -536,6 +536,7 @@ const eventLabel = computed(() => {
 });
 
 const initiatorLabel = computed(() => {
+  if (props.change.facts.eventType === 'no_show') return 'Client did not attend';
   const hit = CANCEL_INITIATORS.find((i) => i.id === props.change.facts.initiator);
   return hit?.label || '';
 });
@@ -583,6 +584,7 @@ watch(
   () => props.change.facts.eventType,
   async (v) => {
     if (v === 'no_show') {
+      props.change.facts.initiator = 'client';
       props.change.facts.followUpAction = 'none'; props.change.facts.offeredSlots = [];
       if (!props.change.facts.clientFacingReason) props.change.facts.clientFacingReason = 'This appointment was recorded as missed. Contact your care team if this needs to be corrected.';
     }

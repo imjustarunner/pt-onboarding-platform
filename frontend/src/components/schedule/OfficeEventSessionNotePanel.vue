@@ -340,8 +340,8 @@ async function openInNoteAid() {
       draftId: draftId.value || undefined,
       dateOfService: String(props.dateOfService || '').slice(0, 10) || undefined,
       serviceCode: String(props.serviceCode || '').trim() || undefined,
-      launchIntent: 'progress_note',
-      noteType: 'PROGRESS_NOTE',
+      launchIntent: ['90791', 'H0031'].includes(String(props.serviceCode || '').toUpperCase()) ? 'intake' : 'progress_note',
+      noteType: ['90791', 'H0031'].includes(String(props.serviceCode || '').toUpperCase()) ? 'INTAKE' : 'PROGRESS_NOTE',
       templateVersion: 'v1'
     };
     emit('open-note-aid', ctx);

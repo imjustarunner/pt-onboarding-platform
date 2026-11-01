@@ -19,6 +19,11 @@ beforeEach(() => {
 });
 afterEach(async () => { wrappers.splice(0).forEach(w => w.unmount()); await flushPromises(); vi.useRealTimers(); });
 describe('scheduled quick notes and Note Workspace handoff', () => {
+  it('opens an intake from its exact saved appointment and draft', async () => {
+    const w=await open({serviceCode:'90791'});
+    await w.find('.oesn-open-aid').trigger('click');await flushPromises();
+    expect(mocks.push).toHaveBeenCalledWith(expect.objectContaining({query:expect.objectContaining({draftId:'55',clinicalSessionId:'101',officeEventId:'201',launchIntent:'intake',noteType:'INTAKE',serviceCode:'90791'})}));
+  });
   it('does not create a draft or confirm attendance just by opening', async () => {
     const w = await open(); await vi.advanceTimersByTimeAsync(1000);
     expect(mocks.post).not.toHaveBeenCalled(); expect(w.text()).toContain('Opening this panel alone does not confirm attendance');

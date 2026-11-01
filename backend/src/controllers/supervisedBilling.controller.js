@@ -151,7 +151,7 @@ export async function getSuperviseeReviewDocument(req,res,next) {
     const d=await loadReviewDocument(s,req.params.type,Number(req.params.documentId));
     const cosignCurrent=hasCurrentSupervisorCosign(d.row,s.policy.supervisorUserId,d.hash);
     await pool.execute(`INSERT INTO supervision_case_review_events (agency_id,provider_user_id,reviewer_user_id,client_id,event_type,content_hash) VALUES (?,?,?,?,'view',?)`,[s.agencyId,s.providerUserId,req.user.id,d.row.client_id,d.hash]);
-    res.json({canCosign:s.canAttest,canTrackCosignTime:req.params.type==='note'&&s.canAttest&&Number(req.user.id)!==s.providerUserId&&Number(d.row.provider_signed_by_user_id)!==Number(req.user.id)&&!!d.row.provider_signed_at&&!cosignCurrent,content:clinicalReviewContent(d.content),contentHash:d.hash,cosignedAt:cosignCurrent?d.row.supervisor_cosigned_at:null,amendmentSignoffRequired:Number(d.row.addendum_count || 0)>0});
+    res.json({canCosign:s.canAttest,canTrackCosignTime:req.params.type==='note'&&s.canAttest&&Number(req.user.id)!==s.providerUserId&&Number(d.row.provider_signed_by_user_id)!==Number(req.user.id)&&!!d.row.provider_signed_at&&!cosignCurrent,content:clinicalReviewContent(d.content),contentHash:d.hash,cosignedAt:cosignCurrent?d.row.supervisor_cosigned_at:null,amendmentSignoffRequired:!cosignCurrent && Number(d.row.addendum_count || 0)>0});
   }catch(e){next(e);}
 }
 export async function listSuperviseeDocumentReviews(req,res,next) {
@@ -160,7 +160,7 @@ export async function listSuperviseeDocumentReviews(req,res,next) {
     if(!Number.isSafeInteger(page)||page<1||page>10000||!Number.isSafeInteger(clientId)||clientId<0)throw policyError(400,'Invalid document page or client');
     const values=[s.agencyId,s.providerUserId,...(clientId?[clientId]:[])], offset=(page-1)*100;
     const [notes]=await clinicalPool.execute(`SELECT n.*, (SELECT COUNT(*) FROM clinical_note_addenda a WHERE a.clinical_note_id=n.id AND a.agency_id=n.agency_id) AS addendum_count FROM clinical_notes n WHERE n.agency_id = ? AND n.created_by_user_id = ? AND n.is_deleted = 0 AND n.provider_signed_at IS NOT NULL AND ${sharedNotePredicate('n')} ${clientId?'AND n.client_id=?':''} ORDER BY n.updated_at DESC, n.id DESC LIMIT 100 OFFSET ${offset}`,values);
-    const [plans]=await clinicalPool.execute(`SELECT p.id,p.client_id,p.title,p.status,p.created_at FROM clinical_treatment_plans p WHERE p.agency_id = ? AND (p.created_by_user_id = ? OR EXISTS (SELECT 1 FROM clinical_notes n WHERE n.agency_id=p.agency_id AND n.client_id=p.client_id AND n.created_by_user_id=? AND n.is_deleted=0 AND n.provider_signed_at IS NOT NULL AND ${sharedNotePredicate('n')})) AND p.status IN ('active','final') ${clientId?'AND p.client_id=?':''} ORDER BY p.id DESC LIMIT 100 OFFSET ${offset}`,[s.agencyId,s.providerUserId,s.providerUserId,...(clientId?[clientId]:[])]);
+    const [plans]=await clinicalPool.execute(`SELECT p.id,p.client_id,p.created_by_user_id,p.title,p.status,p.created_at FROM clinical_treatment_plans p WHERE p.agency_id = ? AND (p.created_by_user_id = ? OR EXISTS (SELECT 1 FROM clinical_notes n WHERE n.agency_id=p.agency_id AND n.client_id=p.client_id AND n.created_by_user_id=? AND n.is_deleted=0 AND n.provider_signed_at IS NOT NULL AND ${sharedNotePredicate('n')})) AND p.status IN ('active','final') ${clientId?'AND p.client_id=?':''} ORDER BY p.id DESC LIMIT 100 OFFSET ${offset}`,[s.agencyId,s.providerUserId,s.providerUserId,...(clientId?[clientId]:[])]);
     const reviewFilters=[], reviewIds=[];
     for(const [type,rows] of [['note',notes],['treatment_plan',plans]]) if(rows.length) {
       reviewFilters.push(`(r.document_type=? AND r.document_id IN (${rows.map(()=>'?').join(',')}))`);
@@ -169,7 +169,7 @@ export async function listSuperviseeDocumentReviews(req,res,next) {
     const [reviews]=reviewFilters.length ? await pool.execute(`SELECT r.id,r.document_type,r.document_id,r.outcome,r.created_at,r.content_hash,r.feedback_encrypted FROM clinical_document_reviews r
       WHERE r.agency_id=? AND r.provider_user_id=? AND (${reviewFilters.join(' OR ')})
       AND NOT EXISTS (SELECT 1 FROM clinical_document_reviews newer WHERE newer.agency_id=r.agency_id AND newer.provider_user_id=r.provider_user_id AND newer.document_type=r.document_type AND newer.document_id=r.document_id AND newer.id>r.id)`,[s.agencyId,s.providerUserId,...reviewIds]) : [[]];
-    const documents=[...notes.map(n=>({id:n.id,nonBillable:isNonBillableDocument(n),clientId:n.client_id,createdAt:n.created_at,type:'note',noteType:normalizeNoteType(n.note_type || parseObject(n.metadata_json).noteType),title:n.title,signedAt:n.provider_signed_at,cosignedAt:null,amendmentSignoffRequired:Number(n.addendum_count || 0)>0,cosignDueAt:n.provider_signed_at ? new Date(new Date(n.provider_signed_at).getTime()+Number(parseObject(n.metadata_json).supervisionPolicyAtSignature?.cosignDueDays || s.policy.cosignDueDays)*86400000).toISOString():null})),...plans.map(p=>({id:p.id,nonBillable:true,clientId:p.client_id,createdAt:p.created_at,type:'treatment_plan',noteType:'TREATMENT_PLAN',title:p.title}))];
+    const documents=[...notes.map(n=>({id:n.id,nonBillable:isNonBillableDocument(n),clientId:n.client_id,authorUserId:n.created_by_user_id,createdAt:n.created_at,type:'note',noteType:normalizeNoteType(n.note_type || parseObject(n.metadata_json).noteType),title:n.title,signedAt:n.provider_signed_at,cosignedAt:null,amendmentSignoffRequired:Number(n.addendum_count || 0)>0,cosignDueAt:n.provider_signed_at ? new Date(new Date(n.provider_signed_at).getTime()+Number(parseObject(n.metadata_json).supervisionPolicyAtSignature?.cosignDueDays || s.policy.cosignDueDays)*86400000).toISOString():null})),...plans.map(p=>({id:p.id,nonBillable:true,clientId:p.client_id,authorUserId:p.created_by_user_id,createdAt:p.created_at,type:'treatment_plan',noteType:'TREATMENT_PLAN',title:p.title}))];
     const cache=new Map();
     for(const d of documents) {
       const key=`${d.clientId}:${String(d.createdAt).slice(0,10)}`;
@@ -179,7 +179,7 @@ export async function listSuperviseeDocumentReviews(req,res,next) {
       const row=d.type==='note'?notes.find(n=>Number(n.id)===Number(d.id)):null;
       if(d.latestReview || row?.supervisor_cosigned_at) {
         const current=await loadReviewDocument(s,d.type,d.id);
-        if(row && hasCurrentSupervisorCosign(current.row,(await resolveNoteDocumentationPolicy(current.row)).supervisorUserId,current.hash))d.cosignedAt=current.row.supervisor_cosigned_at;
+        if(row && hasCurrentSupervisorCosign(current.row,(await resolveNoteDocumentationPolicy(current.row)).supervisorUserId,current.hash)){ d.cosignedAt=current.row.supervisor_cosigned_at; d.amendmentSignoffRequired=false; }
         if(d.latestReview)d.latestReview={id:d.latestReview.id,outcome:d.latestReview.outcome,created_at:d.latestReview.created_at,stale:d.latestReview.content_hash!==current.hash,
           feedback:decryptFamilyBilling(d.latestReview.feedback_encrypted,`document-review:${s.agencyId}:${d.type}:${d.id}`)?.feedback || ''};
       }

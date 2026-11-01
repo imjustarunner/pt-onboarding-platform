@@ -53,12 +53,12 @@ describe('appointment change consequences and completion', () => {
     const result=await previewAppointmentChange(1,{...canceled,eventType:'no_show'},actor);
     expect(result.consequence).toMatchObject({model:'none',feeCents:0});
   });
-  it.each([['canceled',8000],['no_show',10000]])('uses the retained policy fee for an explicitly self-pay %s, without creating a claim', async(eventType, feeCents)=>{
+  it.each([['canceled',8000,'client'],['no_show',10000,'client'],['no_show',10000,'provider'],['no_show',10000,'agency']])('uses the retained policy fee for an explicitly self-pay %s, without creating a claim', async(eventType, feeCents, initiator)=>{
     const old=pool.execute.getMockImplementation();
     pool.execute.mockImplementation((sql,args)=>sql.includes('FROM clients')?Promise.resolve([[{insurance_type:'Self-Pay'}]]):old(sql,args));
     evaluateCancel.mockResolvedValue({allowed:true,isLate:true,withinNotice:false,recommendedFeeCents:8000,
       recommendedPackageAction:'release',policySource:'booking_snapshot',policy:{id:3,name:'Retained attendance policy',noticeHours:24,lateFeeCents:8000,noShowFeeCents:10000}});
-    const result=await previewAppointmentChange(1,{...canceled,eventType},actor);
+    const result=await previewAppointmentChange(1,{...canceled,eventType,initiator},actor);
     expect(result.payer).toMatchObject({billingMode:'self_pay',coverageUnknown:false,isMedicaid:false});
     expect(result.consequence).toMatchObject({model:'fee',feeCents});
     expect(result.evaluation).toMatchObject({policyId:3,policySource:'booking_snapshot',lateFeeCents:8000,noShowFeeCents:10000,agreementStatus:'not_verified'});

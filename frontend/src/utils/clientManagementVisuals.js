@@ -1,3 +1,4 @@
+import { clientSummaryTone } from '../../../backend/src/utils/clientSummaryTone.js';
 /** Stable hue 0–359 from any string (for tenant / provider color bands). */
 export function hashHue(input) {
   const s = String(input || '');
@@ -89,33 +90,7 @@ export function initialsStyle(client, { platformMode = false } = {}) {
 }
 
 /** Classify a client row for summary cards and status pill tone. */
-export function clientStatusTone(client) {
-  const workflow = String(client?.status || '').toUpperCase();
-  const statusKey = String(client?.client_status_key || '').toLowerCase();
-  const paperworkKey = String(client?.paperwork_status_key || '').toLowerCase();
-  const needed = Number(client?.paperwork_needed_count);
-
-  if (paperworkKey === 'completed' || (Number.isFinite(needed) && needed <= 0)) {
-    return 'completed';
-  }
-  if (
-    ['pending', 'packet', 'prospective', 'waitlist', 'screener'].includes(statusKey) ||
-    ['PACKET', 'SCREENER', 'PENDING_REVIEW', 'RETURNING'].includes(workflow)
-  ) {
-    return 'pending';
-  }
-  if (
-    (Number.isFinite(needed) && needed > 1) ||
-    workflow === 'ON_HOLD' ||
-    paperworkKey === 'all_needed'
-  ) {
-    return 'attention';
-  }
-  if (statusKey === 'current' || workflow === 'ACTIVE') {
-    return 'completed';
-  }
-  return 'neutral';
-}
+export const clientStatusTone = clientSummaryTone;
 
 const STATUS_PILL_STYLES = {
   completed: { bg: '#ecfdf3', color: '#027a48', border: '#abefc6' },
@@ -136,7 +111,8 @@ export function statusPillStyle(client) {
 
 export function documentStatusTone(client) {
   const summary = String(client?.paperwork_status_label || '').toLowerCase();
-  const needed = Number(client?.paperwork_needed_count);
+  const rawNeeded = client?.paperwork_needed_count;
+  const needed = rawNeeded == null || rawNeeded === '' ? NaN : Number(rawNeeded);
   if (summary.includes('completed') || (Number.isFinite(needed) && needed <= 0)) return 'completed';
   if (Number.isFinite(needed) && needed > 1) return 'attention';
   if (summary.includes('needed') || summary.includes('packet') || summary.includes('new')) return 'pending';

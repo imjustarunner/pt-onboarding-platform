@@ -4,7 +4,7 @@
     <p v-if="error" role="alert">{{ error }}</p>
     <section v-if="document" aria-label="Review note and amendments before signing">
       <CosignReviewTimer v-if="document.canTrackCosignTime && reviewProviderId" :key="`${noteId}-${document.contentHash}`" :agency-id="agencyId" :provider-id="reviewProviderId" :note-id="noteId" :content-hash="document.contentHash" />
-      <pre>{{ document.content }}</pre>
+      <ClinicalReviewContent :content="document.content" />
       <p>Sign-off covers this note and every attached amendment/addendum.</p>
       <label><input v-model="attested" type="checkbox" :disabled="busy" /> I reviewed and approve this version and all amendments.</label>
       <button type="button" :disabled="busy || !attested" @click="sign">Sign off</button>
@@ -16,6 +16,7 @@
 import { ref, watch, onBeforeUnmount } from 'vue';
 import api from '../../services/api.js';
 import CosignReviewTimer from './CosignReviewTimer.vue';
+import ClinicalReviewContent from './ClinicalReviewContent.vue';
 const reviewProviderId=ref(null);
 const props=defineProps({noteId:{type:[Number,String],required:true},agencyId:{type:[Number,String],required:true},providerId:{type:[Number,String],default:null}});
 const emit=defineEmits(['signed']);

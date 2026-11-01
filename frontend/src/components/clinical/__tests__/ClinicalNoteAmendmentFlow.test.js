@@ -14,6 +14,22 @@ async function prepare(w,kind='addendum'){
 }
 beforeEach(()=>{vi.resetAllMocks();api.post.mockResolvedValue({data:{addenda:[{id:6,body:'Amended',created_by_user_id:5,entry_kind:'addendum',entry_reason:'Explains the entry',author_signed_at:'2026-09-24T12:00:00Z',created_at:'2026-09-24T12:00:00Z'}]}});});
 describe('signed-note amendment flow',()=>{
+  it('shows appointment and session IDs with saved UTC timing in the appointment timezone',()=>{
+    const w=mount(ClinicalNoteReadOnlyView,{props:{note:{...props.note,clinicalSessionId:192,sessionTiming:{appointmentId:114,startAt:'2026-11-01 17:00:00',endAt:'2026-11-01 18:00:00',sourceTimezone:'America/Denver',durationMinutes:60,locationLabel:'Telehealth'}}}});
+    expect(w.text()).toContain('#114');expect(w.text()).toContain('#192');expect(w.text()).toContain('10:00 AM');expect(w.text()).toContain('11:00 AM');expect(w.text()).toContain('America/Denver');expect(w.text()).toContain('60 min');w.unmount();
+  });
+  it('retains an earlier supervisor signature while a new addition awaits review and after reload',async()=>{
+    const cosign={statement:'Original supervisor signed statement',cosignedAt:'2026-11-01T19:15:00Z',cosignedByUserId:8,contentHash:'original'};
+    const w=mount(ClinicalNoteReadOnlyView,{props:{note:{...props.note,supervisorCosign:cosign,supervisorCosignedAt:cosign.cosignedAt}}});
+    await prepare(w);await field(w,'author-attestation').setValue(true);await field(w,'sign-entry').trigger('click');await flushPromises();
+    expect(w.text()).toContain('Earlier signed version');expect(w.text()).toContain(cosign.statement);expect(w.text()).toContain('Later additions');
+    const reloaded={...props.note,addenda:[{id:6,body:'Amended'}],needsSupervisorCosign:true,metadata:{supervisorCosignHistory:[cosign]}};
+    await w.setProps({note:reloaded});expect(w.text()).toContain(cosign.statement);
+    const copy=formatChartClinicalNoteCopy({note:reloaded});expect(copy).toContain(cosign.statement);expect(copy).toContain('Supervisor approval pending');
+    await w.setProps({note:{...reloaded,supervisorCosignedAt:'2026-11-01T19:25:00Z',needsSupervisorCosign:false,supervisorCosign:{statement:'Current supervisor signed statement'}}});
+    expect(w.text()).toContain(cosign.statement);expect(w.text()).toContain('Current supervisor signed statement');w.unmount();
+  });
+
   it.each(['addendum','late_entry'])('signs a %s without any code-change or claim-creation request',async kind=>{
     const w=mount(ClinicalNoteReadOnlyView,{props});await prepare(w,kind);
     expect(field(w,'sign-entry').attributes('disabled')).toBeDefined();

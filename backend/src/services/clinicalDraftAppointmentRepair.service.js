@@ -10,7 +10,14 @@ const backed=s=>s&&(s.appointment_id||s.office_event_id||s.billing_encounter_id)
 export async function draftAppointmentOptions(draft, deps={}) {
   const db=deps.clinicalDatabase||clinicalPool, sessions=deps.sessions||ClinicalSession;
   const old=draft.clinical_session_id?await sessions.findById(draft.clinical_session_id):null;
-  if(backed(old))return {linked:true,options:[]};
+  if(backed(old)){
+    if(Number(old.agency_id)!==Number(draft.agency_id)||Number(old.client_id)!==Number(draft.client_id)||Number(old.provider_user_id)!==Number(draft.user_id)) {
+      throw Object.assign(new Error('The linked session does not match this draft. Ask the care team to review its appointment.'),{status:403});
+    }
+    return {linked:true,options:[],context:{draftId:draft.id,clinicalSessionId:old.id,appointmentId:old.appointment_id||null,
+      officeEventId:old.office_event_id||null,billingEncounterId:old.billing_encounter_id||null,startAt:old.scheduled_start_at,endAt:old.scheduled_end_at,
+      durationMinutes:old.duration_minutes,sourceTimezone:old.source_timezone||'UTC',serviceCode:old.service_code,locationLabel:old.location_label||''}};
+  }
   if(!draft.client_id||!draft.date_of_service||!draft.service_code)return {linked:false,options:[],message:'Save the client, service date and service code first.'};
   const [rows]=await db.execute(`SELECT s.* FROM clinical_sessions s WHERE s.agency_id=? AND s.client_id=? AND s.provider_user_id=?
     AND (s.appointment_id IS NOT NULL OR s.office_event_id IS NOT NULL)

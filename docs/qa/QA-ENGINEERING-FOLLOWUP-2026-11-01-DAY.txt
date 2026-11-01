@@ -1,0 +1,97 @@
+NOVEMBER 1, 2026 DAY QA — ENGINEERING FOLLOW-UP
+
+Scope
+These are shared application repairs for clinical / mental-health agencies.
+They contain no demo tenant IDs or synthetic-person exceptions. The screenshots
+and brief are evidence; the tutoring brief is not an instruction to run tutoring.
+Existing QA findings remain open until a new deployed browser run verifies them.
+No retained signed notes, fees, roles, contacts, invitations or scheduled notices
+were changed by this patch. No new email or text was sent for evidence.
+
+Repairs in this change
+- A staff-recorded client no-show no longer gets a provider-caused exemption.
+  Genuine provider-caused cancellations and reschedules retain their exemption.
+  The current configured policy still controls fee calculation and review.
+- Note Workspace receives its existing verified appointment/session context,
+  shows the actual IDs and source timezone, and fills only missing documented
+  time/location values. Existing documented duration and times take precedence.
+  Canceled calendar details also show existing appointment/session IDs.
+- Appointment 90791/H0031 launches use the intake tool. An existing signed
+  intake/assessment produces an advisory before another assessment is written;
+  legitimate reassessments remain possible. It is not a billing determination.
+- Earlier supervisor cosigns remain visible and included in copied note text
+  after addenda. Each signature's version scope stays distinct. New signatures
+  name UTC explicitly; retained signed statements are not rewritten.
+- Supervision review displays structured, escaped sections instead of raw JSON,
+  identifies the client and author by ID, and stops claiming an already-current
+  addendum cosign is still pending. Clinical review and cosign remain separate.
+- Audit Center is discoverable by authorized support in Quick Nav and available
+  from Settings -> System & communications. Organization context is retained.
+- Personal message preferences reach the self-service preferences handler;
+  the legacy draft-edit route no longer intercepts PATCH /communications/prefs.
+- Client count cards use the same classifier as the list. Pending/Packet status
+  takes precedence over a paperwork checklist; missing counts do not mean zero.
+- Session worksheets are labeled Session material, and their gallery View action
+  stays unavailable during scan, quarantine, removal or expiry.
+- A skipped/failed mail attempt timestamp is labeled Recorded, not Sent.
+  Transport receipts, delivery and open evidence remain distinct from failures.
+
+Audit Center location and authorization
+Use Quick Nav -> Audit Center, or Settings -> System & communications -> Audit
+Center. Agency route: /:organizationSlug/admin/audit-center?agencyId=<agencyId>.
+For the retained QA agency: /auricwell-qa-demo/admin/audit-center?agencyId=450.
+Administrators, superadministrators and agency-authorized support can inspect
+scoped audit metadata. Provider/guardian/school roles do not gain global audit
+access. Links to clinical/personnel bodies retain their own authorization.
+
+Evidence reconciliation and prerequisites still open
+- Harper's signed note 91 already has clinical session 192, appointment 114.
+  The context/display repair does not create a new link or rewrite that note.
+  Original and later cosign evidence already exists in retained metadata.
+- Blake draft 293/session 167 remains unlinked. Appointment 104/session 166 is
+  distinct; matching dates alone do not authorize an automatic association.
+- Taylor appointment 112 has an $80 review balance, uncollected. Appointment 113
+  has no collected no-show fee. Current policy values are $80/$100; the older
+  screenshot showing Not set must not be treated as current configuration.
+  Signed agreement, payer eligibility, review and collection gates remain.
+  This patch does not retroactively assess, release or collect either fee.
+- Taylor's older Eastern-time session context and the Denver calendar refer to
+  the same UTC instant. Existing source timezones were not silently changed.
+- Support verbal reminder consent and mobile email spacing were previously
+  pushed in 5395bcdab. Consent requires the existing attestation and registered
+  program checks; it does not provision a sender or override a recipient STOP.
+- Text delivery is still BLOCKED: no approved clinical SMS sender registration
+  exists for the inspected agency scope. An administrator must configure the
+  approved clinical sender/campaign and matching consent program through the
+  supported setup. Workforce SMS configuration is not a clinical substitute.
+  Rowan's reminder contact remains pending; the phone ending 7000 was not sent
+  a new invitation by this engineering follow-up. No consent is inferred.
+- Ari's received/opened cancellation email conflicts with its failed label.
+  The timeline repair preserves that conflict; it is not permission to resend.
+  The grandparent email remains subject to its existing delivery review.
+- Avery's unread-message notice remains due Monday November 2; Jules's timed
+  reminders remain due November 4. Actual inbox receipts require follow-up.
+- Pending material scans remain pending. The label change does not prove that
+  the deployed scan worker is ready or that a download/share has passed QA.
+- Preserve school requests 117/118 and the delivered school-staff recovery link.
+  No repeated recovery/invitation send is needed just to collect evidence.
+- Retained identity discrepancies, Spanish guardian-label translation, explicit
+  denied-link feedback, the unseen idle warning, chart rating entry discovery,
+  billing sender readiness and any unverified AI draft remain open observations.
+  Synthetic providers' missing NPIs must stay missing.
+
+Engineering validation (not a completed live QA run)
+- Frontend focused suite: 15 files, 144 tests passed, including preferences,
+  audit access/navigation, prior intake advisory, note linkage/time preservation,
+  cosign history, readable review, count cards, material locks and mail evidence.
+- Backend focused suite: 4 files, 34 tests passed for router dispatch, no-show
+  calculation, exact appointment context and supervision readiness.
+- Chart artifact node tests: 6 passed, including pending/quarantine/expiry gates.
+- Production application bundle and all frontend packaging stages passed. The
+  app build required an 8192 MiB Node heap; completed stages were not rebuilt.
+  Existing chunk-size and Plotline font runtime-resolution warnings remain.
+- Changed backend files passed syntax checks; git diff --check passed.
+
+Deploy the committed change, then retest the retained records through normal
+app actions. Keep today's overall FAIL and pending timed cases truthful until
+actual browser behavior, audit rows and physical inbox receipts are verified.

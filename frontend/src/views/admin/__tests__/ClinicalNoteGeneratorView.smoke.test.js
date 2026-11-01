@@ -124,6 +124,31 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     wrapper.unmount();
   });
 
+  it('loads exact appointment timing in its saved timezone and preserves documented times', async () => {
+    const { wrapper, state } = await workspace('90791_intake_plan');
+    try {
+      state.selectedServiceCode = '90791';
+      state.sessionDurationMinutes = 60;
+      state.draftId = 296;
+      state.sessionClinicalSessionId = 192;
+      state.sessionStartTimeLocal = '';
+      state.sessionEndTimeLocal = '';
+      state.onDraftAppointmentContext({ draftId: 296, clinicalSessionId: 192, appointmentId: 114,
+        startAt: '2026-11-01 17:00:00', endAt: '2026-11-01 18:00:00', sourceTimezone: 'America/Denver', locationLabel: 'Telehealth' });
+      expect(state.sessionAppointmentId).toBe(114);
+      expect(state.sessionSourceTimezone).toBe('America/Denver');
+      expect(state.sessionStartTimeLocal).toBe('10:00');
+      expect(state.sessionEndTimeLocal).toBe('11:00');
+      state.sessionStartTimeLocal = '10:05';
+      state.onDraftAppointmentContext({ draftId: 296, clinicalSessionId: 192, appointmentId: 114,
+        startAt: '2026-11-01T17:00:00Z', endAt: '2026-11-01T18:00:00Z', sourceTimezone: 'America/Denver' });
+      expect(state.sessionStartTimeLocal).toBe('10:05');
+      state.onDraftAppointmentContext({ draftId: 999, clinicalSessionId: 999, appointmentId: 777, sourceTimezone: 'America/New_York' });
+      expect(state.sessionAppointmentId).toBe(114);
+      expect(state.sessionSourceTimezone).toBe('America/Denver');
+    } finally { wrapper.unmount(); }
+  });
+
   it('edits projected time with a dropdown and synchronizes only that goal’s objective deadlines', async () => {
     const { wrapper, state } = await workspace('90791_intake_plan');
     state.initials = 'TEST';

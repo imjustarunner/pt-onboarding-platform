@@ -37,6 +37,12 @@
     <section v-if="hasSessionFacts" class="ccn-block ccn-facts" aria-label="Session details">
       <h4 class="ccn-block-title">Session details</h4>
       <dl class="ccn-facts-grid">
+        <div v-if="note.sessionTiming?.appointmentId">
+          <dt>Appointment</dt><dd>#{{ note.sessionTiming.appointmentId }}</dd>
+        </div>
+        <div v-if="note.clinicalSessionId">
+          <dt>Clinical session</dt><dd>#{{ note.clinicalSessionId }}</dd>
+        </div>
         <div v-if="note.clientPayer?.name">
           <dt>Payer</dt>
           <dd>{{ note.clientPayer.name }}</dd>
@@ -238,7 +244,7 @@
       </template>
     </section>
 
-    <section v-if="!compact && (providerAttestationStatement || supervisorCosignStatement)" class="ccn-block ccn-esign" aria-label="Electronic signatures">
+    <section v-if="!compact && (providerAttestationStatement || supervisorCosignStatement || pastCosigns.length)" class="ccn-block ccn-esign" aria-label="Electronic signatures">
       <h4 class="ccn-block-title">Electronic signature</h4>
       <button
         v-if="providerAttestationStatement"
@@ -268,6 +274,13 @@
         <div v-if="note.supervisorCosign.ipAddress"><dt>IP address</dt><dd>{{ note.supervisorCosign.ipAddress }}</dd></div>
         <div v-if="note.supervisorCosign.userAgent"><dt>Device</dt><dd class="ccn-esign-ua">{{ note.supervisorCosign.userAgent }}</dd></div>
       </dl>
+      <article v-for="signature in pastCosigns" :key="`${signature.cosignedAt}-${signature.contentHash}`" class="ccn-addendum" aria-label="Earlier supervisor signature">
+        <strong>Earlier signed version · supervisor cosign</strong>
+        <p>{{ signature.statement || `${signature.signerLabel || 'Supervisor'} approved the earlier version.` }}</p>
+        <small>Signed {{ formatTimestamp(signature.cosignedAt) }} · user #{{ signature.cosignedByUserId }}</small>
+        <p class="ccn-field-hint">This signature applies to the version reviewed at that time. Later additions require their own sign-off.</p>
+      </article>
+      <p v-if="amendmentPending" role="status">New additions are awaiting supervisor sign-off. Earlier signatures remain on record.</p>
     </section>
 
     <section v-if="!compact && canOpenClaim" class="ccn-block ccn-audit" aria-label="Signature and claim audit">
@@ -414,7 +427,13 @@ watch(()=>props.note?.id,()=>{
 const savingAddendum = ref(false);
 const addendumError = ref('');
 const amendedNoteId = ref(null);
-const amendmentPending = computed(() => amendedNoteId.value === Number(props.note?.id));
+const amendmentPending = computed(() => amendedNoteId.value === Number(props.note?.id)
+  || (!!props.note?.addenda?.length && !!props.note?.needsSupervisorCosign && !props.note?.supervisorCosignedAt));
+const pastCosigns = computed(() => {
+  const history = props.note?.supervisorCosignHistory || props.note?.metadata?.supervisorCosignHistory || [];
+  const entries = [...history, ...(amendmentPending.value && props.note?.supervisorCosign ? [props.note.supervisorCosign] : [])];
+  return entries.filter((entry, index) => entries.findIndex(other => other.cosignedAt === entry.cosignedAt && other.contentHash === entry.contentHash) === index);
+});
 const localAddenda = ref([]);
 watch(() => props.note?.id, () => { localAddenda.value = []; amendedNoteId.value = null; });
 watch(() => props.note?.supervisorCosignedAt, value => { if (value) amendedNoteId.value = null; });
@@ -491,7 +510,7 @@ const supervisorCosignStatement = computed(() => {
 const providerNpi = computed(() => props.note?.providerSigner?.npi || null);
 
 const durationDisplay = computed(() => {
-  const d = props.note?.durationMinutes ?? structuredChart.value?.durationMinutes;
+  const d = props.note?.durationMinutes ?? structuredChart.value?.durationMinutes ?? props.note?.sessionTiming?.durationMinutes;
   if (d == null || d === '') return '';
   return `${d} min`;
 });
@@ -499,15 +518,21 @@ const durationDisplay = computed(() => {
 const startEndDisplay = computed(() => {
   const start = props.note?.startTime || structuredChart.value?.startTime;
   const end = props.note?.endTime || structuredChart.value?.endTime;
-  if (start && end) return `${start} – ${end}`;
+  const zone = props.note?.sessionTiming?.sourceTimezone;
+  if (start && end) return `${start} – ${end}${zone ? ` (${zone})` : ''}`;
   if (props.note?.sessionTiming?.startAt) {
     try {
-      const s = new Date(props.note.sessionTiming.startAt);
-      const e = props.note.sessionTiming.endAt ? new Date(props.note.sessionTiming.endAt) : null;
-      const opts = { hour: 'numeric', minute: '2-digit' };
-      return e
+      const utcDate = value => {
+        const raw = String(value).replace(' ', 'T');
+        return new Date(/(?:Z|[+-]\d\d:\d\d)$/.test(raw) ? raw : `${raw}Z`);
+      };
+      const s = utcDate(props.note.sessionTiming.startAt);
+      const e = props.note.sessionTiming.endAt ? utcDate(props.note.sessionTiming.endAt) : null;
+      const opts = { hour: 'numeric', minute: '2-digit', timeZone: zone || 'UTC' };
+      const times = e
         ? `${s.toLocaleTimeString([], opts)} – ${e.toLocaleTimeString([], opts)}`
         : s.toLocaleTimeString([], opts);
+      return `${times} (${zone || 'UTC'})`;
     } catch {
       return '';
     }
@@ -516,7 +541,7 @@ const startEndDisplay = computed(() => {
 });
 
 const locationDisplay = computed(
-  () => props.note?.locationLabel || structuredChart.value?.locationLabel || ''
+  () => props.note?.locationLabel || structuredChart.value?.locationLabel || props.note?.sessionTiming?.locationLabel || ''
 );
 
 const panels = computed(() => {
@@ -541,7 +566,7 @@ const primaryDxLabel = computed(() => {
 });
 
 const hasSessionFacts = computed(() =>
-  !!(structuredChart.value?.participants
+  !!(props.note?.clinicalSessionId || props.note?.sessionTiming?.appointmentId || structuredChart.value?.participants
     || durationDisplay.value
     || startEndDisplay.value
     || locationDisplay.value
@@ -746,7 +771,7 @@ async function copyText(text, key) {
 
 async function copyFullNote() {
   const text = formatChartClinicalNoteCopy({
-    note: { ...props.note, addenda: addenda.value, ...(amendmentPending.value ? { supervisorCosign: null, needsSupervisorCosign: true } : {}) },
+    note: { ...props.note, addenda: addenda.value, supervisorCosignHistory: pastCosigns.value, ...(amendmentPending.value ? { supervisorCosign: null, needsSupervisorCosign: true } : {}) },
     panels: panels.value,
     mseDomains: MSE_DOMAINS
   });

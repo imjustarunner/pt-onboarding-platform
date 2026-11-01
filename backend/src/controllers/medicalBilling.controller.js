@@ -110,9 +110,9 @@ function formatAttestationClock(iso) {
   try {
     const d = new Date(iso);
     if (!Number.isFinite(d.getTime())) return String(iso || '');
-    const date = d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
-    const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-    return `${date} at ${time}`;
+    const date = d.toLocaleDateString('en-US', { timeZone: 'UTC', month: 'numeric', day: 'numeric', year: 'numeric' });
+    const time = d.toLocaleTimeString('en-US', { timeZone: 'UTC', hour: 'numeric', minute: '2-digit' });
+    return `${date} at ${time} UTC`;
   } catch {
     return String(iso || '');
   }
@@ -1465,13 +1465,15 @@ export const getClinicalNoteById = async (req, res, next) => {
     if (clinicalSessionId) {
       try {
         const [sessRows] = await clinicalPool.execute(
-          `SELECT id, scheduled_start_at, scheduled_end_at, duration_minutes, service_code, location_label, provider_user_id
-           FROM clinical_sessions WHERE id = ? LIMIT 1`,
-          [clinicalSessionId]
+          `SELECT id, appointment_id, source_timezone, scheduled_start_at, scheduled_end_at, duration_minutes, service_code, location_label, provider_user_id
+           FROM clinical_sessions WHERE id = ? AND agency_id = ? AND client_id = ? LIMIT 1`,
+          [clinicalSessionId, note.agency_id, note.client_id]
         );
         const s = sessRows?.[0];
         if (s) {
           sessionTiming = {
+            appointmentId: s.appointment_id || null,
+            sourceTimezone: s.source_timezone || 'UTC',
             startAt: s.scheduled_start_at || null,
             endAt: s.scheduled_end_at || null,
             durationMinutes: s.duration_minutes ?? structuredChart?.durationMinutes ?? null,
@@ -1567,6 +1569,7 @@ export const getClinicalNoteById = async (req, res, next) => {
         needsSupervisorCosign,
         attestation: metadata?.attestation || null,
         supervisorCosign: metadata?.supervisorCosign || null,
+        supervisorCosignHistory: metadata?.supervisorCosignHistory || [],
         dateOfService: metadata?.dateOfService || null,
         createdAt: note.created_at,
         updatedAt: note.updated_at,

@@ -38,7 +38,9 @@ router.get('/communications/pending', listPendingCommunications);
 router.post('/communications/resolve-quality-bulk', resolveCommunicationsQualityBulk);
 router.post('/communications/remove-failed', removeFailedCommunications);
 router.get('/communications/:id/detail', getCommunicationDetail);
-router.patch('/communications/:id', updateCommunicationDraft);
+// This router mounts before the unified inbox. Static paths such as /prefs
+// must reach their own handlers instead of being mistaken for a draft ID.
+router.patch('/communications/:id(\\d+)', updateCommunicationDraft);
 router.post('/communications/:id/approve', approveCommunication);
 router.post('/communications/:id/cancel', cancelCommunication);
 router.post('/communications/:id/resolve-quality', resolveCommunicationQuality);

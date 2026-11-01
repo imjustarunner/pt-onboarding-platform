@@ -1318,9 +1318,9 @@ const platformHubSecondaryBlocks = computed(() => {
   pushBlock('AI tools', 'Options appear when platform and tenant flags allow Note Workspace and related features.', 'ai');
   pushBlock(
     'System & communications',
-    'Email, texting, integrations, and archive. Audit and viewport live under Platform home.',
+    'Email, texting, integrations, archive, and agency-scoped audit history.',
     'system',
-    ['audit-center', 'viewport-preview']
+    ['viewport-preview']
   );
   return blocks;
 });
