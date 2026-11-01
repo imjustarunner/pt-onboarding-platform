@@ -48,7 +48,7 @@ it('renders every event rather than capping crowded slots',async()=>{
   expect(new Set(blocks.map(b=>b.sideBySideLane.col)).size).toBe(6);
 });
 it('offers the saved side-by-side toggle on hover and zooms a single item when enabled',async()=>{
-  const s=await mount();s.scheduleSideBySide=false;await nextTick();
+  const s=await mount({}, {focusedDay:'Tuesday'});s.scheduleSideBySide=false;await nextTick();
   const overlap=wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="11"] .cell-blocks');
   await overlap.trigger('mouseenter');
   expect(wrapper.findAll('.cell-expanded-item')).toHaveLength(2);
@@ -64,11 +64,11 @@ it('offers the saved side-by-side toggle on hover and zooms a single item when e
 });
 it('uses the viewer preference when displaying someone else and preserves their other settings',async()=>{
   m.prefs={scheduleSideBySide:true,rowHeightMode:'large',holdReasons:[{code:'CUSTOM',label:'Custom'}]};
-  const s=await mount({mode:'admin',userId:91});expect(s.scheduleSideBySide).toBe(true);
+  const s=await mount({mode:'admin',userId:91}, {focusedDay:'Tuesday'});expect(s.scheduleSideBySide).toBe(true);
   s.scheduleSideBySide=false;await flushPromises();
   expect(m.put).toHaveBeenLastCalledWith('/users/7/preferences',{schedule_display_prefs:{...m.prefs,layoutDefaultsVersion:2,scheduleSideBySide:false}},expect.anything());
   expect(m.put.mock.calls.some(([url])=>url.includes('/91/'))).toBe(false);
-  wrapper.unmount();m.prefs={scheduleSideBySide:true};await mount();
+  wrapper.unmount();m.prefs={scheduleSideBySide:true};await mount({}, {focusedDay:'Tuesday'});
   expect(wrapper.vm.$.setupState.scheduleSideBySide).toBe(true);
 });
 it('hovering a later part of a long event shows the events at that time',async()=>{
@@ -154,7 +154,7 @@ it.each([
 });
 
 it('closes on calendar scroll and resize but allows scrolling within the preview', async () => {
-  await mount();
+  await mount({}, {focusedDay:'Tuesday'});
   const owner = wrapper.find('.sched-cell[data-day="Tuesday"][data-hour="11"] .cell-blocks');
   await owner.trigger('mouseenter');
   await wrapper.find('.cell-expanded-list').trigger('scroll');
