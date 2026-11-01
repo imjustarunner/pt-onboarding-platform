@@ -1,0 +1,75 @@
+EMAIL DESIGN APPROVAL — ONE EXAMPLE OF EACH TYPE
+
+Owner clarification: the immediate request is to receive one example of every
+email type, review how it looks/reads, and approve or request edits. The larger
+action-and-delivery sweep is a separate QA plan, not a prerequisite to approving
+the wording/design and not evidence that these examples triggered automation.
+
+DESTINATION AND PRESENTATION
+- Send only to testing@itsco.health. No real-family or school distribution.
+- One stable ER review ID per distinct email body/type. Expand EN/ES or family/
+  provider variants when wording/branding meaningfully differs. Do not send the
+  same design repeatedly just because its recipient or client changes.
+- Preserve the app's real template, branding, CTA layout, signature and footer.
+  Use synthetic sample values and safe non-mutating links; no real reset,
+  enrollment, cancellation, payment, ROI or signature tokens in review copies.
+- Subject prefix: [Email review ER001], followed by the normal subject.
+- Add a discreet About this sample box at the bottom of the body:
+    Normally from: the configured sender/display name and address.
+    Typically sent to: guardian/client/provider/supervisor/support/school role.
+    Why it is sent: the actual triggering event or reminder condition.
+    Replies go to: exact Reply-To mailbox, support team, provider conversation,
+                   or the required in-app reply route.
+- The box belongs only to review copies. Normal outgoing messages are unchanged.
+- A prototype of this box is EMAIL-REVIEW-BLURB-PROTOTYPE.html. It is a local
+  preview, not a sent email. Unknown sender/reply details must be verified from
+  current settings rather than guessed for the approval batch.
+
+REVIEW CATALOG
+The initial source-based list has 132 named outbound template types. It
+is not a claim of 132 distinct designs or a complete runtime template audit;
+merge true aliases and add enabled custom/email-rule variants after inspection.
+Use QA-EMAIL-REVIEW-CATALOG-2026-11-01.csv to track review IDs, template source,
+typical recipients, triggering cases and approval. Source-only keys are not a
+complete runtime template list: reconcile active custom templates and enabled
+email notification rules through the authorized app/settings audit. In-app-only,
+SMS-only, document-format and transport fallback labels are not distinct email
+designs. Account for them in the source register without inventing a sample.
+
+Record actual sender, Reply-To and delivery receipt for each sent copy. Distinguish
+SENT/RECEIVED from APPROVED/CHANGES REQUESTED. Leave unrendered or blocked types
+explicitly listed. A generic replacement written just for this review cannot be
+passed off as the app's current email.
+
+REMINDERS
+Examples may be sent now without waiting days and without advancing a live
+workflow. Label them as examples. Actual timing, suppression, recipients and
+bot actions are checked separately using the action sweep/reminder register.
+Do not backdate or pretend three contacts happened just to show a design.
+
+INITIAL ACCESS LIMIT (RESOLVED; see the delivery handoff)
+At initial planning, the example batch had not been sent. Automatic approval review rejected a
+shared Cloud SQL tunnel because the connection exposes a database surface wider
+than the demo. A normal demo-app browser tab was opened as the safer alternative,
+but it is signed out. No database tunnel, queue change or email send occurred.
+
+Proposed next step requiring that access:
+1. Read only agency450's sender identities, active email templates/rules and
+   synthetic fixture metadata needed to render accurate samples.
+2. Render one copy per type/meaningful variant with the four-field review box.
+3. Send exclusively to testing@ through the verified configured sending path,
+   recording ordinary send/traffic bookkeeping. Do not change any contact phase,
+   cadence, appointment, signature, guardian permission or other organization's
+   records. Do not bulk-release held mail or bypass an uncertain delivery.
+4. Report the review IDs and actual receipts, plus any type still blocked.
+
+The owner has already requested the review emails. The outstanding approval is
+for the shared connection needed to use the actual configured app templates and
+sending path, not another request for permission to email the QA inbox.
+
+DELIVERY UPDATE
+The owner approved the scoped connection and review-only sends. The batch now
+has verified department aliases billing@itsco.health and schools@itsco.health
+in demo450. See QA-EMAIL-REVIEW-DELIVERY-2026-11-01.txt and the updated catalog
+for actual receipts, replacement review IDs and remaining coverage limitations.
+The initial access rejection above is historical; it is no longer a blocker.

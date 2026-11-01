@@ -1,0 +1,95 @@
+EMAIL REVIEW DELIVERY AND NEXT QA HANDOFF — NOVEMBER 1, 2026
+ITSCO / ITSCOLLC demo 450 only
+
+This is a NEW handoff. Append it to instructions already sent; earlier briefs
+and failures remain evidence. External testers use only the app, school portal,
+controlled QA inbox and existing vault. No engineering access is expected.
+
+OWNER DESIGN REVIEW
+- 157 review copies accepted by the normal sender; 157 verified in qa-inbox.
+- 148 current examples, including ER001. Nine earlier sender examples were
+  replaced after the owner chose ITSCO department addresses.
+- Find subjects beginning [Email review ER...]. Review by ID and record
+  APPROVED or CHANGES REQUESTED in QA-EMAIL-REVIEW-CATALOG-2026-11-01.csv.
+- EMAIL-DESIGN-REVIEW-2026-11-01.html is a searchable local design index.
+  It shows source-rendered content; the actual delivery may add the app's
+  normal signature/compliance footer. It is not a live workflow test.
+- Every copy has Normally from, Typically sent to, Why it is sent, Replies go to.
+  All physical review delivery AND actual review-copy replies use testing@.
+  The blurb describes the normal business reply route separately.
+- Examples use synthetic values and harmless sign-in links. They cannot set a
+  password, sign an ROI, cancel an appointment or collect payment. Supervision
+  examples include a fictional publish-only ICS without attendees/organizer.
+- The original ER180 was held for its omitted calendar attachment. It was not
+  retried blindly; ER195 is its corrected, delivered example.
+
+ITSCO DEPARTMENT SENDERS
+The aliases billing@itsco.health and schools@itsco.health were already verified
+in Gmail. Their missing outbound sender identities were added ONLY in demo 450:
+Billing 1127 and Schools 1128, each with its matching department Reply-To.
+No Workspace group membership, ownership, production inbound route, billing
+provisioning state, reminder timer or worker schedule was changed.
+
+Updated billing examples: ER187 balance, ER188 payment setup, ER189 statement,
+ER191 benefits. Updated school examples: ER190 portal welcome, ER192 ordinary
+staff welcome, ER193 new School Admin, ER194 promoted School Admin. These
+replace ER036/039/038/037 and ER102/115/175/113 respectively. ER203 replaces
+ER151 with the Schools sender. The old demo App/Portal display labels were
+also updated to ITSCOLLC / ITSCOLLC Portal in demo 450 only. Later school
+samples already use schools@. Keep AuricWell and SchoolCareBridge product
+identity where appropriate; the agency remains ITSCOLLC.
+
+Normal financial delivery STILL requires the app's billing sender/group
+readiness checks. Creating an outbound identity and sending a design example
+does not mark those checks ready. Likewise the current school welcome workflow
+explicitly selects Notifications/Support: QA must verify its final sender and
+reply route; the review override is not proof that workflow routing changed.
+Do not enable another organization's mail or adopt its group to pass a demo.
+
+COVERAGE AND LIMITS
+All 38 selected current platform fallback templates were rendered and sent;
+demo 450 had no local custom templates, email-settings row or trigger overrides
+at the initial audit. Source-built examples cover enrollment EN/ES, new/existing
+accounts, guardians, secure messages, billing, ROI/disclosures, appointments,
+cancellation/no-show/replacement notices, provider notices, school outreach,
+contact-plan no-response/stale/documentation reminders, updates, meetings,
+supervision, training, arrivals, waitlists, digests, security and event reminders.
+Stored fallback designs can be superseded by workflow-specific code. Some AuricWell messages forwarded through the Testing Google Group display
+via Testing in the received From header; the ledger keeps both the normal
+sender and actual received header. The body
+and date wording are preserved for review, including any legacy wording that
+needs changes; a delivery receipt is not an approval of the copy.
+
+The initial 132-key source catalog is broader than this concrete design batch.
+45 candidate rows remain NOT RENDERED/NOT SENT, including grouped/test
+labels, operator-authored/configurable messages, other-product emails and
+workflow variants requiring further classification/fixtures. They are explicit
+in the catalog; do NOT call this every possible platform email or a full PASS.
+The source register and dynamic-reference appendix retain the broader inventory.
+
+NEXT EXTERNAL RUN
+1. Compare actual From/Reply-To/subject, desktop/mobile layout and landing host
+   against each approved review ID. Report unexpected sender fallback.
+2. Run QA-EMAIL-ACTION-CASES-2026-11-01.csv through real app actions. Expand each
+   recipient/language variant. Confirm actual QA inbox arrival and the correct
+   person's in-app copy. Do not treat a preview or Sent label as delivery.
+3. Check both guardians independently: invite/reminders, first password, own
+   signed copies, shared-message notices, cancellations and other-parent
+   attribution. Preserve private answers, signatures and documents.
+4. Check provider/supervisor/support email after assignment, family replies,
+   cancellations, school requests, notes/cosign and the applicable reminders.
+   Required work-account notices are separate from optional personal copies.
+5. Verify billing@ and schools@ are selected by each ACTUAL workflow, not just
+   these review copies. Record missing billing provisioning or hardcoded
+   Notifications/Support routing as BLOCKED/FAIL, not passed from an example.
+6. Timed samples were sent now without aging records or advancing contact counts.
+   Keep real due-time/suppression/duplicate tests in the 48-row reminder register.
+   No 3-day/7-day/72-hour/default timing PASS from this batch. Keep clinical SMS
+   blocked until approved Notifyre routing is active in the running app.
+7. Preserve all prior retained blockers, privacy gates,23-client/4-provider
+   baseline subject to recount, 30/10 caps, self-pay-only scope, and the ban on
+   real card collection/insurance submissions. Do not expand anyone's role.
+
+Report PASS/FAIL/BLOCKED/NOT RUN with role, exact app-visible IDs, local timezone,
+fresh evidence, intended recipients and actual receipt. Review examples use
+NO working passwords or private enrollment/reset/signature tokens.

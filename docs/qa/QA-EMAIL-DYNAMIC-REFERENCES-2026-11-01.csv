@@ -1,0 +1,197 @@
+field,source,expression,required_case,status
+templateType,backend/src/constants/automatedEmailCatalog.js:92,templateType = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/constants/automatedEmailCatalog.js:92,triggerKey = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/controllers/agencyNotificationTriggers.controller.js:56,t.triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/controllers/agencyNotificationTriggers.controller.js:109,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/controllers/agencyNotificationTriggers.controller.js:120,trigger.triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/clientCommunications.controller.js:101,row.template_type || null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/clientCommunications.controller.js:196,r.notification_type ? `notification:${r.notification_type}` : null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/clientCommunications.controller.js:392,row.template_type || null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/counselingRecordingConsent.controller.js:30,document.templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/counselingRecordingConsent.controller.js:46,template.template_type,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/emailTemplate.controller.js:14,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/intakeFieldTemplates.controller.js:32,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/letterheadTemplate.controller.js:21,source.template_type,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/letterheadTemplate.controller.js:122,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/letterheadTemplate.controller.js:239,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/letterheadTemplate.controller.js:319,tType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/messagesDashboard.controller.js:434,r.template_type || null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/controllers/psychotherapyCompliance.controller.js:387,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/publicIntake.controller.js:2706,selectedTemplate?.type || selectedTemplateType || null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/publicIntake.controller.js:2714,templateType = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/publicIntake.controller.js:2921,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/publicIntake.controller.js:2969,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/publicIntake.controller.js:3012,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/publicIntake.controller.js:3036,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/controllers/supportTickets.controller.js:2566,categoryKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/userCommunication.controller.js:162,comm.template_type || null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/userCommunication.controller.js:576,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/userCommunication.controller.js:607,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/userCommunication.controller.js:983,comm.template_type || null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/userCommunication.controller.js:1301,comm.template_type,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/controllers/userSpecificDocument.controller.js:106,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/models/AgencyNotificationTriggerSetting.model.js:20,r.trigger_key,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/models/AgencyNotificationTriggerSetting.model.js:47,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/models/DocumentTemplate.model.js:15,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/models/DocumentTemplate.model.js:605,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/models/EmailTemplate.model.js:134,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/models/LetterheadTemplate.model.js:9,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/models/NotificationEvent.model.js:9,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/models/NotificationEvent.model.js:32,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/models/NotificationTrigger.model.js:23,r.trigger_key,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/models/NotificationTrigger.model.js:46,r.trigger_key,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/models/UserCommunication.model.js:28,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/models/UserCommunication.model.js:200,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/models/UserCommunication.model.js:241,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/models/UserSpecificDocument.model.js:10,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/adminUpdate.service.js:985,ADMIN_UPDATE_TEMPLATE_TYPE,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/adminUpdate.service.js:1018,ADMIN_UPDATE_TEMPLATE_TYPE,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/adminUpdate.service.js:1130,ADMIN_UPDATE_TEMPLATE_TYPE,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/appointmentEmailActions.service.js:104,SCHOOL_EMAIL_TEMPLATE,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/appointmentReplyEmail.service.js:29,null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/appointmentReplyEmail.service.js:43,message.templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/auricwell/auth.js:301,`auricwell_account_${purpose}`,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/automationEmailOpsNotify.service.js:97,templateType = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/cancellationSchoolRoster.service.js:26,SCHOOL_EMAIL_TEMPLATE,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/clientEmailContactNote.service.js:29,templateType = '',Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/clientExchangeNotifications.service.js:122,type,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/communicationLogging.service.js:37,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/communicationLogging.service.js:52,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/communicationLogging.service.js:77,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/email.service.js:91,templateType = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/email.service.js:117,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/email.service.js:200,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/email.service.js:201,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/email.service.js:367,resolvedTemplateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/email.service.js:377,resolvedTemplateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/email.service.js:427,resolvedTemplateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/emailAliasFallbackTask.service.js:44,templateType = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/emailAliasFallbackTask.service.js:45,triggerKey = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/emailSenderIdentityResolver.service.js:47,templateType = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/emailSenderIdentityResolver.service.js:48,triggerKey = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/emailSenderIdentityResolver.service.js:72,templateType = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/emailSenderIdentityResolver.service.js:73,triggerKey = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/emailSenderIdentityResolver.service.js:79,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/emailSenderIdentityResolver.service.js:79,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/emailSenderIdentityResolver.service.js:109,templateType = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/emailSenderIdentityResolver.service.js:110,triggerKey = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/emailSenderIdentityResolver.service.js:118,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/emailSenderIdentityResolver.service.js:119,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/emailSenderIdentityResolver.service.js:149,templateType = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/emailSenderIdentityResolver.service.js:150,triggerKey = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/emailSenderIdentityResolver.service.js:158,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/emailSenderIdentityResolver.service.js:158,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/emailSenderIdentityResolver.service.js:162,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/emailSenderIdentityResolver.service.js:163,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/emailSettings.service.js:81,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/emailSettings.service.js:82,triggerKey = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/enrollmentConfirmation.service.js:42,message.templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/enrollmentConfirmation.service.js:67,content.templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/enrollmentReminderDelivery.service.js:4,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/expiringBackgroundCompliance.service.js:341,TEMPLATE_TYPE,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/familyNotificationChoices.service.js:118,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/insuranceCards/scope.js:41,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/intakeSummaryPdfEmail.service.js:53,INTAKE_SUMMARY_PDF_EMAIL_TYPE,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/intakeSummaryPdfEmail.service.js:158,INTAKE_SUMMARY_PDF_EMAIL_TYPE,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/intakeSummaryPdfEmail.service.js:170,INTAKE_SUMMARY_PDF_EMAIL_TYPE,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/intakeUnfinishedReminder.service.js:288,`enrollment_unfinished_reminder_${slotKey}`,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/loginHelp.service.js:221,TEMPLATE,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/messageReminderRecipient.service.js:52,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/notificationTriggerSettings.service.js:61,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/officeRequestEmails.service.js:357,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/officeRequestEmails.service.js:358,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/outboundEmailQuality.service.js:56,templateType = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/outboundEmailQuality.service.js:155,row?.template_type,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/payrollCompliance.service.js:776,`compliance_digest_send|period:${payrollPeriodId}|user:${userId}|at:${stamp}`,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/payrollCompliance.service.js:825,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/payrollHolidayBonusApprovalAlert.service.js:75,TRIGGER_KEY,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/payrollNotesAging.service.js:132,TRIGGER_KEY,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/payrollNotesAging.service.js:206,TRIGGER_KEY,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/payrollNotesAging.service.js:277,MISSING_NOTES_TRIGGER_KEY,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/prehireInviteEmail.service.js:237,PREHIRE_PORTAL_ACCESS_TRIGGER,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/prehireInviteEmail.service.js:244,PREHIRE_PORTAL_ACCESS_TRIGGER,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/priorityEventEmail.service.js:12,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/priorityEventEmail.service.js:33,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/priorityEventEmail.service.js:39,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/providerUpdateCompletionEmail.service.js:71,completionEmailTemplate,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/providerUpdateReminderGuard.service.js:6,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/requiredProviderWorkEmail.service.js:4,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/routineParentEmailPause.service.js:23,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/schoolCareBridgeEmail.service.js:7,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/schoolCommunicationContext.service.js:5,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/schoolOnboardingIncompleteDigest.service.js:451,TEMPLATE_TYPE,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/schoolOnboardingWelcome.service.js:70,WELCOME_TEMPLATE,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/schoolSessionEmailPreferences.service.js:66,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/schoolStaffAccountAccessEmail.service.js:190,emailType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/schoolStaffAccountAccessEmail.service.js:430,emailType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/schoolStaffAccountAccessEmail.service.js:774,send.email_type,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/schoolStaffAccountAccessEmail.service.js:793,send.email_type,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/schoolStaffAccountAccessEmail.service.js:1081,ONBOARDING_PORTAL_ACCESS_EMAIL_TYPE,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/schoolStaffAccountAccessEmail.service.js:1101,ONBOARDING_PORTAL_ACCESS_EMAIL_TYPE,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/schoolStaffAccountAccessEmail.service.js:1205,ONBOARDING_LOGIN_RECOVERY_NUDGE_TYPE,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/schoolStaffAccountAccessEmail.service.js:1241,ONBOARDING_LOGIN_RECOVERY_NUDGE_TYPE,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/schoolStaffAccountAccessEmail.service.js:1261,ONBOARDING_LOGIN_RECOVERY_NUDGE_TYPE,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:202,templateType = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:207,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:208,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:350,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:394,templateType = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:450,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:495,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:516,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:558,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:558,templateType = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:581,templateType || key,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:582,key,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:592,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:593,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:619,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:628,templateType = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:637,templateType || triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:639,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:642,templateType || triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:654,templateType || `trigger:${triggerKey}`,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:659,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:666,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:676,templateType || `trigger:${triggerKey}`,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:681,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:689,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:690,templateType || triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:702,templateType || triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:703,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:714,templateType || `trigger:${triggerKey}`,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:721,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:735,templateType || triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:746,templateType || `trigger:${triggerKey}`,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:751,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:756,templateType || triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:763,templateType || triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:764,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:776,templateType || `trigger:${triggerKey}`,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:782,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:809,templateType || `trigger:${triggerKey}`,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:818,templateType || `trigger:${triggerKey}`,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:831,templateType || `trigger:${triggerKey}`,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:834,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:870,templateType || `trigger:${triggerKey}`,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:879,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:899,templateType || `trigger:${triggerKey}`,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:901,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:952,templateType || `trigger:${triggerKey}`,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+triggerKey,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:954,triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:976,templateType || triggerKey,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:1027,templateType = null,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:1048,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:1049,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:1054,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:1059,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:1064,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:1065,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:1068,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:1110,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:1147,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:1206,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:1364,resolvedTemplateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:1374,resolvedTemplateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:1434,resolvedTemplateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email
+templateType,backend/src/services/unifiedEmail/unifiedEmailSender.service.js:1473,templateType,Z06,Runtime/configuration inventory needed; not assumed a distinct email

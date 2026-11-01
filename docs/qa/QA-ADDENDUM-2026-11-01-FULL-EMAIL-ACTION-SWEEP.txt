@@ -1,0 +1,184 @@
+ADDITIONAL QA PLAN — NOVEMBER 1, 2026
+Full email action sweep: families, providers, supervisors, support and school
+
+Send this with the action cases, source register and blank results CSVs. Append
+it to the plans already sent. Earlier failures stay open until the exact action is freshly retested.
+This is an execution plan, not a claim that every email has already arrived.
+
+WHAT “EVERY EMAIL” MEANS
+Engineering source inventory: 266 keys and 130 action cases before recipient
+expansion. Four keys are document/form selectors; other entries require their
+configured channel to be checked. The engineering dynamic-reference appendix
+contains 196 expressions to reconcile with actual app template/rule settings.
+Run every action case in QA-EMAIL-ACTION-CASES-2026-11-01.csv, including its
+recipient, language, setting and reminder variants. Account for every row in
+QA-EMAIL-SOURCE-REGISTER-2026-11-01.csv. That register includes direct outbound
+types, configured sender types and notification catalog entries. Some entries
+are in-app only, SMS only, document formats or conditionally emailed; verify
+their actual configured channels before expecting an email. A catalog entry
+by itself is not proof that an email exists or should be sent.
+
+Dynamic templates, administrator-authored templates and agency trigger rules
+must also be inventoried through the app's Email Settings / notification rules
+by the existing authorized setup administrator. Add one result row for EACH
+enabled template/trigger/recipient variant found there, even if absent from the
+source register. Source references are engineering traceability only; the
+external team does not need repository, database or cloud access. Do not ask
+the external team to manipulate a clock or execute a worker.
+
+One example email is not a substitute for the triggering action. A generated
+preview, an app Sent label, a carrier/mail receipt and arrival in the QA inbox
+are separate observations. No whole-suite PASS while expected delivery is
+missing, a required recipient is untested, or a timed lane remains unverified.
+
+SCOPE AND DELIVERY
+- Demo agency 450 ITSCOLLC / auricwell-qa-demo, school 451 Cedar Grove, clinic
+  452 only. Agency app: https://app.itsco.health/auricwell-qa-demo/login
+  School: https://schoolcarebridge.org/app/auricwell-qa-demo-school
+- Avery 1433; Cameron 1438 supervisor; Alex 1439 supervisee; Jordan 1434 support;
+  Jamie 1465 School Admin for 451 only; Quality Tester 1490 Google SSO/contact
+  fixture. Use the existing setup-admin and biller vault entries when required.
+  A missing biller/admin fixture is BLOCKED, not permission to promote support.
+- Recount first. Last engineering count was 23 clients / 4 provider-role users.
+  Caps: 30 clients / 10 providers. Reuse retained records. Coordinate any new
+  enrollment cases with the daily rotation; do not create more than the cap.
+- All physical pilot email goes to testing@itsco.health. Keep the intended
+  recipient visible in the app evidence so redirection does not conceal errors.
+  A QA inbox copy is not evidence that the intended provider has an in-app copy.
+- Use separate browser profiles for staff, school and each family. Vault-only
+  passwords; never publish reset/enrollment/ROI tokens, cookies or private files.
+- Self Pay only. No insurance transmission, card collection, real patient data,
+  bank/payroll payouts, real school mail, public recruitment or emergency blasts.
+- Clinical SMS remains BLOCKED until Notifyre routing is active in the app.
+  An email PASS does not clear that SMS blocker. Do not substitute Vonage care
+  messages. Preserve Rowan/Harper's separate phone bindings and consent.
+
+RESULTS: ONE ROW PER ACTION × RECIPIENT × VARIANT
+Use QA-EMAIL-RESULTS-2026-11-01.csv as the blank results ledger. Expand recipient
+variants; do not collapse “both parents” or “all providers” into one check.
+Record: case/type, actor, action time with timezone, client/appointment/invite/
+ticket/note IDs, intended To/CC/BCC role, app message/notification IDs, queued
+time, transport status/ID where visible, received time and actual headers,
+subject, From/Reply-To, landing host, privacy, screenshot and PASS/FAIL/BLOCKED/
+NOT RUN. A deliberate suppression needs its precise expected reason and proof.
+
+Every delivered email must have the right agency/product, EN/ES language,
+greeting, signature, client initials, local date/time/zone, CTA and support link.
+Clinical actions use the approved app.itsco.health/AuricWell routes; school
+account recovery uses the school portal consistently. No plottwisthq.com CTA,
+wrong tenant, duplicate reset links, stale username or another family's data.
+Check desktop and mobile layout. Do not expose BCC or one guardian's private
+documents, answers, address or signatures to another guardian.
+
+RUN ORDER
+1. Verify counts, role access and correct browser identity. Admin inventories
+   templates/rules through the app and records which channels are enabled.
+2. Run account/access and enrollment actions, including first-password setup
+   directly from the enrollment email, office/school EN/ES, two guardians,
+   multiple children, an existing guardian adding a child or themselves, and
+   the duplicate-client support merge. Preserve unfinished forms for reminders.
+3. Run provider assignment/Exchange/ROI/document actions. For every assignment,
+   acceptance, rejection, reply and signature, inspect the provider's OWN app
+   account as well as the controlled inbox and family/school views.
+4. Book properly configured clinical visits, run all confirmation/change/
+   cancellation/no-show/reschedule actions, and inspect every guardian,
+   provider, support and school recipient. Use separate synthetic appointments
+   for incompatible outcomes. Preserve retained unsigned drafts and signed
+   historical no-fee outcomes; do not overwrite them to manufacture a pass.
+5. Run external email/contact creation, internal messages, secure dependent
+   group messages and school/support replies in both directions. Verify the
+   non-sending guardian is notified without receiving private message bodies.
+6. Complete correctly linked intake/progress/treatment-plan notes; test Alex
+   signing and Cameron's cosign queue, return/correction and final completion.
+   Verify required provider/supervisor task notifications and any configured
+   emails. No clinical narrative in ordinary reminder email.
+7. Run self-pay balances, split/rotation, payment plans and policy fees through
+   actual app actions. No live payment or Claim.MD submission. Compare the
+   biller's view, each guardian's assigned balance and relevant provider notice.
+8. Run the school request/approval and provider/workforce reminder cases. Broader
+   catalog cases require a suitable synthetic fixture and the proper role;
+   explicitly list missing fixtures rather than omitting their email types.
+
+REMINDERS: ENGINEERING TRIGGERS, BOT ACTIONS AND REAL TIME
+Use QA-EMAIL-REMINDER-TRIGGERS-2026-11-01.csv to track each required timed
+variant. No entry is considered triggered yet. Expand configured cadence and
+recipient variants during the app rule inventory.
+The owner clarified that the immediate batch is one design-review example per
+email type/meaningful variant. That separate batch uses synthetic input and
+inert links; it does not advance the real reminders in this register. The scoped
+connection was approved and sender/template metadata were inspected. See
+QA-EMAIL-REVIEW-DELIVERY-2026-11-01.txt for actual review-copy delivery and
+remaining coverage limitations. Do not mark timed automation PASS from a sample.
+
+For each reminder register entry, engineering must report one of:
+A) ACTUAL DUE SEND: designated synthetic fixture is genuinely due; use its
+   existing delivery path, preserve due/attempt times and report exact IDs.
+B) MANUAL ADDITIONAL SEND: normal app action intentionally sends an additional
+   reminder for a designated synthetic fixture. Label manual, preserve the
+   normal cadence, and verify it does not suppress the future standard reminder.
+C) EXAMPLE ONLY: existing renderer/preview sends an identified example to the
+   controlled inbox without advancing live workflow/attempt counts. This checks
+   content and transport, not elapsed-time automation or recipient eligibility.
+D) BLOCKED: missing valid fixture, sender, approval, authorization or capability.
+
+The external bots must still create the underlying conditions through the app
+and inspect actual automatic sends when due. They do not fake signatures,
+rewrite dates, backdate contact attempts, use future now values, change global
+timing, drain other organizations' queues or blindly resend ambiguous sends.
+If no bounded trigger exists, request an engineering fixture/trigger with the
+case ID. Do not leave the reminder unlisted or silently pass it on a preview.
+
+Required reminder families include unfinished enrollment 24h/72h/7d; second
+guardian invitation follow-ups; portal onboarding; appointment confirmation,
+standard and additional reminders; school absence notices; school contact
+second/final contact, provider reply overdue, day-six ROI staff notice and
+repeated intake-documentation reminder; ROI renewal/provider reminders;
+provider updates/waitlists/availability; documents/tasks; supervisor/cosign and
+unsigned/missing notes; meeting/supervision/training reminders; unread secure/
+personal-thread digests; balance/payment-plan notices; and every other enabled
+reminder/digest discovered in the source/configuration registers.
+
+CONTACT PLAN EXACT SEQUENCE (supersedes old 3d/7d/72h wording)
+- Initial email on eligible new assignment after plan enablement.
+- Second contact 48 elapsed hours after the accepted first contact: approved
+  clinical SMS if permitted/active, otherwise second email. An uncertain SMS
+  must not cause a duplicate fallback email.
+- Final email 48 elapsed hours after accepted second contact.
+- Guardian reply or durable intake arrangement stops remaining guardian outreach.
+- If guardian replied and provider remains silent 48h, provider reminder and
+  support alert. Verify whether support alert's configured channel is email
+  or in-app; missing email capability is reported, never assumed.
+- 48h after unanswered third contact (normally day six), provider notice with
+  intended support/supervisor copies. Repeat documentation reminders every 48h
+  until finalized intake; a draft/appointment alone is insufficient.
+- The provider notice lists each currently individually ROI-approved school
+  staff member and email for THAT client, with a Start an email link. Open it
+  and review the seeded draft. Check revoked/expired ROI and revocation during
+  send delay. No approved staff means explicit support review, not a guessed
+  school roster. Preserve Dana's unsigned renewal unless separately authorized.
+- Ari 2297/workflow 1 and Sky 2298/workflow 5 retain their real history. Do not
+  reassign or backdate them to force emails. Non-SSO external replies require
+  honest manual recording if not visible in the app. For SSO reply detection,
+  reply from testing@ Send As, not provider 1490's qa-inbox@ identity.
+
+STOP/SUPPRESSION/NO-DUPLICATE CHECKS
+For each applicable family, perform the positive trigger and a negative case:
+completed/replied/arranged/canceled/expired/revoked/disabled or wrong recipient.
+Re-saving, refreshing, double-clicking, a worker retry or Undo must not duplicate
+delivery or advance contact counts without an accepted send. Respect optional
+personal email preferences; verify required work notifications use the work
+destination. Recovery remains available when optional mail is disabled.
+
+DAYLIGHT SAVING CHECK
+Nov 1 changes Denver to MST. Compare future appointments with stored instants
+and current displayed zone. 48 elapsed hours over the transition may change the
+displayed hour. Do not move retained New_York-source appointments by guessing.
+
+END-OF-RUN HANDOFF
+Supply the completed case/recipient ledger, actual inbox evidence, app IDs,
+exact missing types/recipients, pending due times, each engineering-trigger
+result and fresh screenshots. Distinguish a content defect, wrong/missing
+recipient, held sender, missing rule, missing worker, timeout, expected
+suppression, future-due lane and actual delivery failure. Report the exact
+outstanding cases to the owner. “All emails tested” is only justified once the
+action matrix and configuration/source register are reconciled with evidence.
