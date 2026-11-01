@@ -118,7 +118,7 @@ it('keeps notification-only, opt-out, group, extra-recipient, and unauthenticate
 it('uses a scoped token when the reply has no RFC references',async()=>{
  pool.execute.mockResolvedValueOnce([[{agency_id:2,from_email:'messages@itsco.health'}]]).mockResolvedValueOnce([[{id:4,reminder_id:11,owner_user_id:5}]]);
  const result=await resolvePersonalReminderMailbox({identityId:44,fromEmail:'private@example.org',addresses:[`messages+p-${'a'.repeat(48)}@itsco.health`]});
- expect(result.reminder_id).toBe(11);const query=pool.execute.mock.calls[1];expect(query[0]).toContain('i.agency_id=?');expect(query[0]).toContain('i.owner_user_id=n.user_id');expect(query[1].slice(0,2)).toEqual([2,'private@example.org']);expect(query[1][2]).toHaveLength(64);
+ expect(result.reminder_id).toBe(11);const query=pool.execute.mock.calls[1];expect(query[0]).toContain('i.agency_id=?');expect(query[0]).toContain('i.owner_user_id=n.user_id');expect(query[1].slice(0,2)).toEqual([2,'private@example.org']);expect(query[1][3]).toHaveLength(64);
 });
 it('rejects wrong-tenant tokens and ambiguous reminder references',async()=>{
  pool.execute.mockResolvedValueOnce([[{agency_id:2,from_email:'messages@itsco.health'}]]);
@@ -175,4 +175,24 @@ it.each(['http://localhost:5173/itsco/messages','http://127.0.0.1:5173/messages'
 });
 it('does not mistake quoted local URLs for the app link in an opted-in personal forward',()=>{
  expect(validateOutboundEmailQuality({templateType:'personal_thread_forward',text:'Original: http://localhost:5173',linkUrl:'https://app.itsco.health/messages'})).toEqual({ok:true,flags:[]});
+});
+
+it('records a confirmed testing-inbox redirect for seeded forwarding as sent, without changing its intended alias',async()=>{
+ const row={...provider,user_id:1433,is_demo:1,login_is_group_email:0,personal_email:'qa.avery.personal@example.com',conversation_id:10,message_id:20,agency_id:450,inbox_id:3,from_email:inbox.from_email,received_at:'2026-09-01T16:00:00Z',personal_email_delivery_mode:'forward_one_to_one',personal_email_delay_mode:'immediate'};
+ pool.execute.mockImplementation(async sql=>sql.startsWith('SELECT c.id')?[[row]]:sql.includes('JOIN agencies root')?[[{id:1433}]]:[{affectedRows:1}]);
+ sendEmailFromIdentity.mockResolvedValueOnce({id:'gmail-qa',redirected:true,testInboxRedirect:{agencyId:450,deliveredTo:['testing@itsco.health']}});
+ expect(await runPersonalThreadReminders({now:new Date('2026-09-02T16:00:00Z')})).toMatchObject({sent:1});
+ expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({to:row.personal_email,templateType:'personal_thread_forward'}));
+ expect(pool.execute.mock.calls.find(([sql])=>sql.startsWith('SELECT c.id'))[0]).toContain('c.agency_id IN (450,451,452)');
+ expect(pool.execute.mock.calls.find(([sql])=>sql.startsWith('UPDATE communication_thread_reminders SET delivery_status=?'))[1][0]).toBe('sent');
+});
+it('routes a token-bound authenticated QA inbox reply as Avery, including a correspondent also redirected to testing',async()=>{
+ const qaInbox={...inbox,agency_id:450,owner_user_id:1433};
+ const record={...reminder,user_id:1433,is_demo:1,login_is_group_email:0,personal_email:'qa.avery.personal@example.com',from_json:{email:'testing@itsco.health'}};
+ pool.execute.mockImplementation(async sql=>sql.includes('JOIN agencies root')?[[{id:1433}]]:[[record]]);
+ const db={beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),execute:vi.fn(async sql=>sql.startsWith('INSERT INTO communication_messages')?[{insertId:80}]:[[]])};pool.getConnection.mockResolvedValue(db);
+ const result=await queuePersonalReminderReply({...reply,inbox:qaInbox,fromEmail:'testing@itsco.health',gmailPayload:{headers:[{name:'Authentication-Results',value:'mx.google.com; dmarc=pass header.from=itsco.health'}]},bodyText:'QA reply. Contact qa.avery.personal@example.com'});
+ expect(result).toMatchObject({queuedPersonalReply:true,messageId:80});
+ const args=db.execute.mock.calls.find(([sql])=>sql.startsWith('INSERT INTO communication_messages'))[1];
+ expect(args[1]).toBe(1433);expect(args[2]).toBe(JSON.stringify({email:inbox.from_email}));expect(args[3]).toBe(JSON.stringify([{email:'testing@itsco.health'}]));expect(args[7]).not.toContain('qa.avery.personal@example.com');
 });

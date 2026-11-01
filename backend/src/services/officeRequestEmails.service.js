@@ -1,3 +1,4 @@
+import { emailWorkerAccountSql, isQaEmailAgency } from '../utils/qaEmailPolicy.js';
 import pool from "../config/database.js";
 import User from "../models/User.model.js";
 import OfficeLocationAgency from "../models/OfficeLocationAgency.model.js";
@@ -106,7 +107,7 @@ export async function queueOfficeRequestReview({
   const [reviewers] = await pool.query(
     `SELECT DISTINCT u.id,u.role,u.status,u.is_active,u.is_archived,u.is_demo,ua.agency_id
     FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.is_active=1
-    WHERE u.role='clinical_practice_assistant' AND u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_demo,0)=0
+    WHERE u.role='clinical_practice_assistant' AND u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND ${emailWorkerAccountSql('u','ua.agency_id')}
       AND ua.agency_id IN (?) ${officeId ? "AND EXISTS (SELECT 1 FROM office_location_agencies ola WHERE ola.agency_id=ua.agency_id AND ola.office_location_id=?)" : ""}`,
     officeId ? [agencyIds, officeId] : [agencyIds],
   );
@@ -116,7 +117,7 @@ export async function queueOfficeRequestReview({
       seen.has(Number(user.id)) ||
       !active(user) ||
       user.role !== "clinical_practice_assistant" ||
-      Number(user.is_demo || 0) === 1
+      (Number(user.is_demo || 0) === 1 && !isQaEmailAgency(user.agency_id || agencyId))
     )
       continue;
     seen.add(Number(user.id));
@@ -275,7 +276,7 @@ async function currentItems(rows, user) {
       const request = await findOfficeApproval(user, row.request_key);
       if (
         user.role !== "clinical_practice_assistant" ||
-        Number(user.is_demo || 0) === 1 ||
+        (Number(user.is_demo || 0) === 1 && !isQaEmailAgency(row.agency_id)) ||
         !active(user)
       )
         continue;

@@ -1,3 +1,4 @@
+import { emailWorkerAccountSql } from '../utils/qaEmailPolicy.js';
 import pool from '../config/database.js';
 import {portalMigrationOverview} from './portalMigration.service.js';
 import {familyNotificationDeliveryGate} from './familyNotificationChoices.service.js';
@@ -16,7 +17,7 @@ export async function sendDueOnboardingReminder(userId,db=pool) {
   const [profiles]=await connection.execute(`SELECT e.agency_id,e.client_id,u.id,u.role,u.email,a.slug FROM family_portal_migration_enrollments e
    JOIN users u ON u.id=e.guardian_user_id JOIN clients c ON c.id=e.client_id AND c.agency_id=e.agency_id
    JOIN agencies a ON a.id=e.agency_id JOIN client_guardians cg ON cg.guardian_user_id=u.id AND cg.client_id=c.id
-   WHERE u.id=? AND u.is_active=1 AND COALESCE(u.is_demo,0)=0 AND u.terminated_at IS NULL AND COALESCE(u.is_archived,0)=0
+   WHERE u.id=? AND u.is_active=1 AND ${emailWorkerAccountSql('u', 'e.agency_id')} AND u.terminated_at IS NULL AND COALESCE(u.is_archived,0)=0
    AND u.role IN ('client','client_guardian') AND cg.access_enabled=1 AND c.status='ACTIVE' AND a.is_active=1
    AND (u.status_expires_at IS NULL OR u.status_expires_at>UTC_TIMESTAMP())
    AND e.created_at<=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 48 HOUR)

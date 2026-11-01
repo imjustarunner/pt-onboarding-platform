@@ -1,3 +1,6 @@
+import { notificationTransportReceipt } from '../utils/notificationTransportReceipt.js';
+import { personalReminderSenderMatches } from './qaSeededEmail.service.js';
+import { emailWorkerAccountSql } from '../utils/qaEmailPolicy.js';
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
@@ -32,7 +35,7 @@ export async function runPersonalThreadReminders({ now = new Date() } = {}) {
     LEFT JOIN user_communication_prefs p ON p.user_id=u.id
     LEFT JOIN communication_conversation_reads r ON r.conversation_id=c.id AND r.user_id=u.id
     WHERE COALESCE(p.personal_email_notify,1)=1 AND NULLIF(TRIM(u.personal_email),'') IS NOT NULL
-      AND u.sso_password_override=1 AND COALESCE(u.is_demo,0)=0
+      AND u.sso_password_override=1 AND ${emailWorkerAccountSql('u', 'c.agency_id')}
       AND LOWER(u.personal_email) COLLATE utf8mb4_unicode_ci <> LOWER(i.from_email) COLLATE utf8mb4_unicode_ci
       AND EXISTS (SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=c.agency_id AND ua.is_active=1)
       AND c.archived_at IS NULL AND COALESCE(c.is_spam,0)=0 AND COALESCE(c.is_unknown_sender,0)=0
@@ -72,7 +75,7 @@ export async function runPersonalThreadReminders({ now = new Date() } = {}) {
       if (!claim.affectedRows) continue;
       claimed = true;
       const result = await sendEmailFromIdentity({senderIdentityId:senderMailbox.identity.id,to:recipient,subject:'You have messages waiting',text:`${bodyText}\n\nOpen in Messages: ${appUrl}\n\n${footerNote}`,html,replyToOverride:replyTo,internetMessageIdOverride:messageId,source:'auto',userId:row.user_id,linkUrl:appUrl,templateType:allowReply?'personal_thread_forward':'personal_thread_reminder'});
-      const delivered = result?.id && !result.blocked && !result.skipped && !result.pendingApproval && !result.queued && !result.redirected;
+      const delivered = notificationTransportReceipt(result, row.agency_id).accepted;
       await pool.execute('UPDATE communication_thread_reminders SET delivery_status=?, sent_at=?, internet_message_id=? WHERE internet_message_id=?', [delivered?'sent':'held',delivered?now:null,result?.internetMessageId||messageId,messageId]);
       if (delivered) sent++;
     } catch (e) {
@@ -91,18 +94,18 @@ export async function resolvePersonalReminderMailbox({identityId,fromEmail,addre
   const tokens=addresses.map(normalize).filter(a=>a.replace(/\+[^@]+(?=@)/,'')===normalize(identity.from_email)).map(a=>/\+p-([a-f0-9]{48})@/.exec(a)?.[1]).filter(Boolean);
   const parents=replyMessageIds(inReplyTo,referencesHeader);
   if(!tokens.length&&!parents.length)return null;
-  const clauses=[],params=[identity.agency_id,normalize(fromEmail)];
+  const clauses=[],params=[identity.agency_id,normalize(fromEmail),normalize(fromEmail)];
   if(tokens.length){clauses.push(`n.reply_token_hash IN (${tokens.map(()=>'?').join(',')})`);params.push(...tokens.map(hashToken));}
   if(parents.length){clauses.push(`n.internet_message_id IN (${parents.map(()=>'?').join(',')})`);params.push(...parents);}
-  const [rows]=await pool.execute(`SELECT DISTINCT esi.*,i.id AS inbox_id,i.owner_user_id,n.id AS reminder_id
+  const [rows]=await pool.execute(`SELECT DISTINCT esi.*,i.id AS inbox_id,i.owner_user_id,n.id AS reminder_id,u.id AS user_id,u.personal_email,u.is_demo
     FROM communication_thread_reminders n JOIN communication_inboxes i ON i.id=n.inbox_id
     JOIN email_sender_identities esi ON esi.id=i.sender_identity_id JOIN users u ON u.id=n.user_id
     JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=i.agency_id AND ua.is_active=1
-    WHERE i.agency_id=? AND LOWER(u.personal_email)=? AND i.kind='personal' AND i.is_active=1
+    WHERE i.agency_id=? AND (LOWER(u.personal_email)=? OR (i.agency_id IN (450,451,452) AND u.is_demo=1 AND ?='testing@itsco.health')) AND i.kind='personal' AND i.is_active=1
       AND esi.is_active=1 AND u.is_active=1 AND COALESCE(u.is_archived,0)=0
       AND UPPER(u.status) IN ('ACTIVE','ACTIVE_EMPLOYEE','ONBOARDING') AND i.owner_user_id=n.user_id
       AND n.delivery_status='sent' AND (${clauses.join(' OR ')}) LIMIT 2`,params);
-  return rows.length===1?rows[0]:null;
+  return rows.length===1 && (normalize(fromEmail) !== 'testing@itsco.health' || await personalReminderSenderMatches(rows[0],fromEmail,identity.agency_id)) ? rows[0] : null;
 }
 
 export function authenticatedPersonalReply(payload,fromEmail) {
@@ -128,14 +131,14 @@ export async function queuePersonalReminderReply({ inbox, fromEmail, deliveryId,
   const reminder = matches[0];
   if (!reminder) return null;
   // Knowledge of a thread reference alone never authorizes acting as its owner.
-  if (String(fromEmail || '').trim().toLowerCase() !== String(reminder.personal_email || '').trim().toLowerCase() || !['ACTIVE','ACTIVE_EMPLOYEE','ONBOARDING'].includes(String(reminder.user_status).toUpperCase()) || Number(reminder.user_active) === 0 || Number(reminder.is_archived) === 1 || Number(reminder.user_id) !== Number(inbox.owner_user_id)) throw new Error('Personal reminder reply does not match its mailbox owner');
-  const text = personalReminderReplyText(await personalReminderBody(gmailPayload, bodyText), fromEmail, inbox.from_email);
+  if (!await personalReminderSenderMatches(reminder,fromEmail,inbox.agency_id) || !['ACTIVE','ACTIVE_EMPLOYEE','ONBOARDING'].includes(String(reminder.user_status).toUpperCase()) || Number(reminder.user_active) === 0 || Number(reminder.is_archived) === 1 || Number(reminder.user_id) !== Number(inbox.owner_user_id)) throw new Error('Personal reminder reply does not match its mailbox owner');
+  const text = personalReminderReplyText(personalReminderReplyText(await personalReminderBody(gmailPayload, bodyText), fromEmail, inbox.from_email), reminder.personal_email, inbox.from_email);
   const preferences=personalMessagePreferences(reminder);
-  const recipient=await messageReminderRecipient({...reminder,status:reminder.user_status,is_active:reminder.user_active},{allowPersonal:preferences.personalEmailNotify});
+  const recipient=await messageReminderRecipient({...reminder,status:reminder.user_status,is_active:reminder.user_active},{allowPersonal:preferences.personalEmailNotify,agencyId:inbox.agency_id});
   const mailbox=await resolveMessagesSendMailbox(inbox.agency_id);
   const privateRecipients=[...replyTo,...replyCc].map(normalize).filter(a=>a && a.replace(/\+[^@]+(?=@)/,'')!==normalize(inbox.from_email) && a.replace(/\+[^@]+(?=@)/,'')!==normalize(mailbox.fromEmail));
   const permitted=Number(reminder.reply_allowed)===1 && preferences.personalEmailDeliveryMode==='forward_one_to_one'
-    && normalize(recipient)===normalize(fromEmail) && authenticatedPersonalReply(gmailPayload,fromEmail)
+    && normalize(recipient)===normalize(reminder.personal_email) && authenticatedPersonalReply(gmailPayload,fromEmail)
     && !privateRecipients.length && !attachments.length && await personalThreadCanReply({conversationId:reminder.conversation_id,inbox});
   if(!permitted || !text){
     const {persistInboundEmail}=await import('./inboundEmailPersistence.service.js');
@@ -151,7 +154,7 @@ export async function queuePersonalReminderReply({ inbox, fromEmail, deliveryId,
   const workMailbox = await resolveEmailSendMailbox({ agencyId: inbox.agency_id, userId: reminder.user_id, inbox });
   const sender = typeof reminder.from_json === 'string' ? JSON.parse(reminder.from_json) : reminder.from_json;
   const to = String(sender?.replyTo || sender?.email || '').trim();
-  if (!to || [fromEmail, inbox.from_email].some((a) => normalize(a) === normalize(to))) throw new Error('Reminder has no external reply recipient');
+  if (!to || [reminder.personal_email, inbox.from_email].some((a) => normalize(a) === normalize(to))) throw new Error('Reminder has no external reply recipient');
   const { isAddressBlocked } = await import('./unifiedInbox.service.js');
   if (await isAddressBlocked(inbox.agency_id, to, { ownerUserId: reminder.user_id })) throw new Error('Reply recipient is blocked');
   const parentId = replyMessageIds(reminder.parent_id)[0] || null;
@@ -185,7 +188,7 @@ export async function personalReplySendMailbox({reminderId,conversationId,inbox,
   const prefs=personalMessagePreferences(row || {});
   const original=typeof row?.from_json==='string'?JSON.parse(row.from_json):row?.from_json;
   if(!row || !prefs.personalEmailNotify || prefs.personalEmailDeliveryMode!=='forward_one_to_one'
-    || !await messageReminderRecipient(row) || to.length!==1 || cc.length || bcc.length
+    || !await messageReminderRecipient(row,{agencyId:inbox.agency_id}) || to.length!==1 || cc.length || bcc.length
     || normalize(to[0]?.email)!==normalize(original?.replyTo || original?.email)
     || !await personalThreadCanReply({conversationId,inbox})) throw new Error('Personal reply permissions changed. Review this reply in the app.');
   return resolveEmailSendMailbox({agencyId:inbox.agency_id,userId,inbox});

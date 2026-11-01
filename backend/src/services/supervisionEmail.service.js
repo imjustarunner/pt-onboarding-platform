@@ -1,3 +1,5 @@
+import { notificationTransportReceipt } from '../utils/notificationTransportReceipt.js';
+import { emailWorkerAccountSql } from '../utils/qaEmailPolicy.js';
 import { sendSupervisionRsvpSms } from './supervisionRsvpSms.service.js';
 import { isStudentIntern } from '../utils/studentIntern.js';
 import { sharedCalendarJoinUrl } from '../utils/meetingCalendarLink.js';
@@ -120,7 +122,7 @@ export async function sendSupervisionEmail({session,user,joinUrl,kind='invitatio
  let result;
  try { result=await sendEmailFromIdentity(email); }
  catch(error){await db.execute(`UPDATE ${table} SET delivery_status='review' WHERE session_id=? AND user_id=? AND delivery_kind=? AND start_at=?`,key);throw error;}
- await db.execute(`UPDATE ${table} SET delivery_status=?,internet_message_id=?,gmail_thread_id=?,communication_id=? WHERE session_id=? AND user_id=? AND delivery_kind=? AND start_at=?`,[result?.id&&!result.redirected?'sent':result?.pendingApproval?'approval':'held',result.internetMessageId||null,result.threadId||null,result.communicationId||null,...key]);
+ await db.execute(`UPDATE ${table} SET delivery_status=?,internet_message_id=?,gmail_thread_id=?,communication_id=? WHERE session_id=? AND user_id=? AND delivery_kind=? AND start_at=?`,[notificationTransportReceipt(result,session.agency_id).accepted?'sent':result?.pendingApproval?'approval':'held',result.internetMessageId||null,result.threadId||null,result.communicationId||null,...key]);
  if(result?.id&&!result.redirected&&!result.pendingApproval)await sendSupervisionRsvpSms({session,user,kind});
  return result;
  }finally{if(acquired)await db.execute('SELECT RELEASE_LOCK(?)',[lock]);db.release();}
@@ -134,7 +136,7 @@ export async function sendSupervisionDayAheadReminders(now=new Date()) {
     const [candidates] = await pool.execute(`SELECT u.id,u.email,u.work_email,COALESCE(NULLIF(TRIM(u.preferred_name), SPACE(0)), u.first_name) AS first_name,u.last_name,u.role,u.credential,u.title,u.employment_type FROM users u
       JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1
       JOIN agencies org ON org.id=ua.agency_id AND org.is_active=1
-      WHERE COALESCE(u.is_demo,0)=0 AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
+      WHERE ${emailWorkerAccountSql('u', 'ua.agency_id')} AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
         AND LOWER(u.role) IN ('provider','provider_plus','clinician','supervisor','admin','super_admin','support','staff','clinical_practice_assistant')
         AND UPPER(COALESCE(u.status,'')) NOT IN ('ARCHIVED','INACTIVE','INACTIVE_EMPLOYEE','TERMINATED','DELETED','PROSPECTIVE')`, [session.agency_id]);
     for (const user of candidates) {
