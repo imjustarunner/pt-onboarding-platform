@@ -264,6 +264,13 @@ export function getDashboardRoute() {
       user.role === 'support' || supervisorPrimaryRole) {
     const adminOrgs = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? user.agencies ?? [];
     const orgs = Array.isArray(adminOrgs) ? adminOrgs : [];
+    const selected = orgs.find(org => Number(org?.id) > 0 && Number(org.id) === Number(currentAgency?.id));
+    if (selected && pickOrgSlug(selected)) {
+      if (['school', 'program', 'learning'].includes(String(selected.organization_type || selected.organizationType || '').toLowerCase())) {
+        return `/${pickOrgSlug(selected)}/dashboard`;
+      }
+      return adminHomePathForSlug(pickOrgSlug(selected));
+    }
     if (orgs.length === 1) {
       const org = orgs[0];
       const orgType = String(org?.organization_type || org?.organizationType || '').toLowerCase();

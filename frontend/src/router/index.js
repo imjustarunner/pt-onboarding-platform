@@ -5497,6 +5497,19 @@ router.beforeEach(async (to, from, next) => {
     }
   }
 
+  // Signing in on another tenant's host does not give this account access to
+  // that tenant. Scope a flat authenticated route to an actual membership
+  // before the host-branding fallback can select the host's live agency.
+  if (hostPortalEarly && authStore.isAuthenticated && !isSuperadminRole(authStore.user?.role)
+      && to.meta.requiresAuth && !to.meta.organizationSlug && !to.meta.fundthred
+      && !userHasSlugAccess(hostPortalEarly, agencyStore, authStore)) {
+    const ownSlug = getDefaultOrganizationSlug();
+    if (ownSlug && ownSlug !== hostPortalEarly) {
+      next({ path: `/${ownSlug}${to.path}`, query: to.query, hash: to.hash, replace: true });
+      return;
+    }
+  }
+
   // Dedicated tenant hosts own flat authenticated routes. If a superadmin previously
   // selected another tenant, flat pages like app.itsco.health/note-aid must not keep
   // sending X-Agency-Id for that old tenant or rendering its shell.
