@@ -25,7 +25,7 @@ beforeEach(() => {
       return [{ affectedRows: row ? 1 : 0 }];
     }
     if (sql.startsWith("UPDATE appointment_cancellation_deliveries SET delivery_status='pending'")) {
-      const row = rows.find(r => r.id === args[0] && r.appointment_id === args[1] && ['failed', 'skipped'].includes(r.delivery_status));
+      const row = rows.find(r => r.id === args[0] && r.appointment_id === args[1] && ['failed', 'skipped'].includes(r.delivery_status) && !r.external_message_id);
       if (row) row.delivery_status = 'pending';
       return [{ affectedRows: row ? 1 : 0 }];
     }

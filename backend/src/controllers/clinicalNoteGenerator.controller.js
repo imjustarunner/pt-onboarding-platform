@@ -8,6 +8,7 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import ClinicalNoteDraft from '../models/ClinicalNoteDraft.model.js';
+import {draftAppointmentOptions,linkDraftAppointment} from '../services/clinicalDraftAppointmentRepair.service.js';
 import { deriveCredentialTier, eligibleServiceCodesForTier, assertServiceCodeAllowed, isServiceCodeDeniedForTier } from '../utils/clinicalServiceCodeEligibility.js';
 import { classifyHcbsCategory } from '../utils/credentialNormalization.js';
 import { getNoteAidToolById } from '../config/noteAidTools.js';
@@ -924,6 +925,27 @@ export const patchClinicalNoteDraft = async (req, res, next) => {
       }
     }
 
+    if(patch.clientId!==undefined && Number(patch.clientId||0)!==Number(existing.client_id||0) && (existing.clinical_session_id||existing.office_event_id)){
+      throw Object.assign(new Error('Start a separate draft for a different client. This draft’s encounter and text remain linked to its original client.'),{status:409});
+    }
+    if(patch.clinicalSessionId!==undefined && Number(patch.clinicalSessionId||0)!==Number(existing.clinical_session_id||0)){
+      if(existing.clinical_session_id)throw Object.assign(new Error('Use Link appointment to review and confirm a change to this draft’s encounter.'),{status:409});
+      if(patch.clinicalSessionId){
+        const session=await resolveClinicalDraftSessionContext({agencyId,clientId:patch.clientId||existing.client_id,providerUserId:req.user.id,
+          clinicalSessionId:patch.clinicalSessionId,officeEventId:patch.officeEventId||existing.office_event_id,
+          dateOfService:patch.dateOfService||existing.date_of_service,serviceCode:patch.serviceCode||existing.service_code});
+        patch.officeEventId=Number(session.office_event_id||0)||null;
+      }
+    }
+    if(patch.officeEventId!==undefined && Number(existing.office_event_id||0) && Number(patch.officeEventId||0)!==Number(existing.office_event_id)){
+      throw Object.assign(new Error('The saved appointment link changed. Reopen the correct appointment from the schedule.'),{status:409});
+    }
+    if(patch.officeEventId && Number(patch.officeEventId)!==Number(existing.office_event_id||0)){
+      const session=await resolveClinicalDraftSessionContext({agencyId,clientId:patch.clientId||existing.client_id,providerUserId:req.user.id,
+        clinicalSessionId:patch.clinicalSessionId||existing.clinical_session_id,officeEventId:patch.officeEventId,
+        dateOfService:patch.dateOfService||existing.date_of_service,serviceCode:patch.serviceCode||existing.service_code});
+      patch.clinicalSessionId=Number(session.id);
+    }
     const updated = await ClinicalNoteDraft.updateForUser({
       draftId,
       userId: req.user.id,
@@ -935,6 +957,22 @@ export const patchClinicalNoteDraft = async (req, res, next) => {
     next(e);
   }
 };
+
+export async function repairClinicalDraftAppointment(req,res,next){
+  try{
+    if(!requireNotSchoolStaff(req,res))return;
+    const draft=await ClinicalNoteDraft.findByIdForUser({draftId:Number(req.params.draftId),userId:req.user.id});
+    if(!draft)return res.status(404).json({error:{message:'Draft not found'}});
+    if(!(await requireUserHasAgencyAccess(req,res,draft.agency_id)))return;
+    if(!(await requireClinicalNoteGeneratorEnabled(req,res,draft.agency_id)))return;
+    if(req.method==='GET')return res.json(await draftAppointmentOptions(draft));
+    const updated=await linkDraftAppointment(draft,Number(req.body.clinicalSessionId),req.body.confirmed);
+    res.json({draft:sanitizeDraftRow(updated)});
+    await logNoteAidChartEvent(req,{clientId:draft.client_id,agencyId:draft.agency_id,action:'note_aid_draft_appointment_linked',
+      metadata:{draftId:draft.id,previousClinicalSessionId:draft.clinical_session_id||null,clinicalSessionId:updated.clinical_session_id,officeEventId:updated.office_event_id||null}})
+      .catch(e=>console.warn('[note aid] Draft link audit needs review:',e.code||'audit_failed'));
+  }catch(e){next(e);}
+}
 
 export const listRecentClinicalNoteDrafts = async (req, res, next) => {
   try {

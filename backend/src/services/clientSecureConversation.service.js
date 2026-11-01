@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { guardianContactRows, sharedGuardianContact } from './guardianContactSharing.service.js';
 import {clientAgencyMembership,listClientServices} from './clientServiceEnrollment.service.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { clinicalAccess } from './guardianClinicalAccess.service.js';
@@ -98,7 +99,12 @@ export async function ensureClientSecureConversation({ clientId, actorUserId, ag
     // Return the complete current roster, including authorized support staff
     // retained above, so the family can see who shares this conversation.
     const [roster] = await db.execute(`SELECT p.user_id AS id,u.first_name,u.last_name,u.role FROM chat_thread_participants p JOIN users u ON u.id=p.user_id WHERE p.thread_id=? ORDER BY u.first_name,u.last_name`, [threadId]);
-    const participants = roster.map(p => ({id:Number(p.id),name:[p.first_name,p.last_name].filter(Boolean).join(' '),role:audience.participants.find(a=>a.id===Number(p.id))?.role || 'care_team'}));
+    const contactRows = await guardianContactRows(clientId, db);
+    const familyActor = contactRows.find(row => Number(row.id) === Number(actorUserId));
+    const participants = roster.map(p => {
+      const contact = familyActor && contactRows.find(row => Number(row.id) === Number(p.id));
+      return {id:Number(p.id),name:contact ? sharedGuardianContact(contact,actorUserId,familyActor.permissions_json).name : [p.first_name,p.last_name].filter(Boolean).join(' '),role:audience.participants.find(a=>a.id===Number(p.id))?.role || 'care_team'};
+    });
     await db.commit();
     if (!actorAllowed) throw Object.assign(new Error('Your access to this shared secure conversation has changed'), { status: 403 });
     return { threadId: Number(threadId), clientId: Number(clientId), agencyId: Number(audience.client.agency_id), audienceUserIds: audience.userIds, participants };

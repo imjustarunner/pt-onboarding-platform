@@ -24,6 +24,8 @@
           <option value="sent">Sent (no delivery confirmation)</option>
           <option value="pending">Pending (not yet sent)</option>
           <option value="failed">Failed / Bounced</option>
+          <option value="review">Needs review</option>
+          <option value="skipped">Not sent</option>
         </select>
       </div>
     </div>
@@ -181,7 +183,7 @@
                 title="No open detected yet — recipient may have images blocked, may not have opened it, or the email may have been sent without an open-tracking pixel (fallback path)"
               >Open not yet detected</span>
               <span
-                v-if="isFailureStatus(item.deliveryStatus)"
+                v-if="statusInfo(item).key === 'failed'"
                 class="meta-item failed-chip"
                 :title="item.errorMessage || ''"
               >
@@ -234,8 +236,9 @@
                 :title="statusInfo(viewingEmail).tooltip"
               >{{ statusInfo(viewingEmail).label }}</span>
               <span v-if="viewingEmail.deliveryStatus" class="muted small">
-                provider status: {{ viewingEmail.deliveryStatus }}
+                Recorded status: {{ viewingEmail.deliveryStatus }}
               </span>
+              <span v-if="statusInfo(viewingEmail).key === 'review'" class="muted small">{{ statusInfo(viewingEmail).tooltip }}</span>
             </div>
             <p><strong>To:</strong>
               <template v-if="viewingEmail.recipientIsGuardian">
@@ -306,7 +309,7 @@
                 </div>
               </div>
               <div
-                v-if="isFailureStatus(viewingEmail.deliveryStatus)"
+                v-if="statusInfo(viewingEmail).key === 'failed'"
                 class="timeline-step is-error"
               >
                 <span class="timeline-dot" />
@@ -352,6 +355,7 @@ import ClientNotificationHistory from '../conversa/ClientNotificationHistory.vue
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import api from '../../services/api';
+import {communicationDeliveryStatus} from '../../utils/communicationDeliveryStatus';
 import EmailThreadReader from '../messages/EmailThreadReader.vue';
 import {openCommunicationPrint} from '../../utils/communicationPrint';
 
@@ -404,38 +408,7 @@ const isFailureStatus = (status) => /failed|bounced|undelivered|skipped/i.test(S
  *   sent     → sent (provider accepted, no delivery confirmation yet)
  *   pending  → pending (not yet sent)
  */
-const statusInfo = (item) => {
-  if (item?.direction === 'inbound') {
-    return { key: 'received', label: 'Received', tooltip: 'Inbound message received from the recipient' };
-  }
-  if (isFailureStatus(item?.deliveryStatus)) {
-    const label = String(item.deliveryStatus || 'failed').toUpperCase();
-    return {
-      key: 'failed',
-      label,
-      tooltip: item?.errorMessage
-        ? `${label}: ${item.errorMessage}`
-        : `${label} — provider rejected delivery`
-    };
-  }
-  if (item?.openedAt) {
-    return { key: 'opened', label: 'Opened', tooltip: 'Tracking pixel was loaded by the recipient' };
-  }
-  if (item?.deliveredAt) {
-    return { key: 'delivered', label: 'Delivered', tooltip: 'Provider confirmed delivery, but no open detected yet' };
-  }
-  const ds = String(item?.deliveryStatus || '').toLowerCase();
-  if (ds === 'sent') {
-    return { key: 'sent', label: 'Sent', tooltip: 'Provider accepted the message; no delivery/open confirmation yet' };
-  }
-  if (ds === 'pending') {
-    return { key: 'pending', label: 'Pending', tooltip: 'Message generated but not yet handed off to the provider' };
-  }
-  if (ds) {
-    return { key: 'other', label: ds.charAt(0).toUpperCase() + ds.slice(1), tooltip: `Status: ${ds}` };
-  }
-  return { key: 'unknown', label: 'Unknown', tooltip: 'No status information was recorded for this message' };
-};
+const statusInfo = communicationDeliveryStatus;
 
 const truncate = (s, n) => {
   const str = String(s || '');
@@ -1155,3 +1128,5 @@ defineExpose({
 .muted { color: var(--text-secondary, #6b7280); }
 .small { font-size: 12px; }
 </style>
+
+<style scoped>.status-review{background:#fff4d6;color:#805500;border-color:#e8cd85}.status-skipped{background:#f3f4f6;color:#4b5563}</style>

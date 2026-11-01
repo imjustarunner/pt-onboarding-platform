@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {providerBillingNpi} from '../services/providerBillingNpi.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
 import { hasSchedulingBillingAccess } from '../services/schedulingBillingAccess.service.js';
@@ -75,8 +76,14 @@ export async function listSupervisedPayerPolicies(req,res,next) {
 export async function supervisedProviderReadiness(req,res,next) {
   try {
     const agencyId=await billingScope(req);
-    const [rows]=await pool.execute(`SELECT DISTINCT u.id,u.first_name,u.last_name,u.npi FROM users u JOIN user_agencies ua ON ua.user_id=u.id WHERE ua.agency_id=? AND (u.role IN ('provider','provider_plus','supervisor') OR u.npi IS NOT NULL) ORDER BY u.last_name,u.first_name`,[agencyId]);
-    res.json({providers:rows.map(u=>({id:u.id,name:[u.first_name,u.last_name].filter(Boolean).join(' '),npi:u.npi||null,npiValid:validNpi(u.npi)}))});
+    const [rows]=await pool.execute(`SELECT DISTINCT u.id,u.first_name,u.last_name FROM users u JOIN user_agencies ua ON ua.user_id=u.id
+      WHERE ua.agency_id=? AND ua.is_active=1 AND (u.role IN ('provider','provider_plus','supervisor') OR EXISTS (
+        SELECT 1 FROM user_info_values v JOIN user_info_field_definitions d ON d.id=v.field_definition_id
+        WHERE v.user_id=u.id AND (d.agency_id=ua.agency_id OR d.agency_id IS NULL)
+          AND d.field_key IN ('provider_identity_npi_number','npi_number','provider_npi_number','provider_npi','npi')
+          AND NULLIF(TRIM(v.value),'') IS NOT NULL)) ORDER BY u.last_name,u.first_name`,[agencyId]);
+    res.json({providers:await Promise.all(rows.map(async u=>{const npi=await providerBillingNpi({agencyId,userId:u.id});
+      return {id:u.id,name:[u.first_name,u.last_name].filter(Boolean).join(' '),npi,npiValid:validNpi(npi)};}))});
   }catch(e){next(e);}
 }
 export async function saveSupervisedPayerPolicy(req,res,next) {

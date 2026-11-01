@@ -1,0 +1,136 @@
+ADDITIONAL QA PLAN — NOVEMBER 1, 2026
+Guardian contact sharing, draft recovery, billing readiness and email evidence
+
+Append to the earlier plans. Use the app, approved school portal, controlled QA
+inbox and vault. Earlier reports remain evidence; this is a source-code repair
+and retest handoff, not a live-browser or inbox PASS.
+
+Keep demo agency 450, school 451 and clinic 452 scope; existing role boundaries,
+30-client / 10-provider caps and synthetic-only rules still apply. Recount before
+creating records. No real card charge, insurance submission or clinical SMS test.
+
+1. GUARDIAN CONTACT SHARING — OWNER CLARIFICATION
+
+Guardians may share their name, email and phone with each other by default.
+Each guardian can independently uncheck Share my name, Share my email address
+and Share my phone number in Settings -> Contact information for the selected
+dependent, then Save sharing choices. The preferences are specific to that
+guardian and dependent. They do not change staff contact information, clinical
+access, account access, consent, notification opt-in or the other guardian's
+preferences. Mandatory access restrictions take precedence over these choices.
+
+Using two retained authorized synthetic guardian accounts on one dependent:
+- Verify all three choices initially checked unless that guardian saved choices.
+- Uncheck email only. Save, refresh and sign out/in. The other guardian must see
+  the permitted name and phone, with the email hidden in guardian contact details
+  and shared communication-history recipient labels. The owner can still see
+  their own information. Support/provider views retain authorized contact data.
+- Test phone and name independently, then combinations. A hidden name must show
+  Guardian in the shared conversation participant/author labels after reload.
+- Change dependents while data is loading: the previous dependent's contacts
+  must disappear immediately. Check English and Spanish settings.
+- The requester can change only their own preferences on an active relationship;
+  unrelated accounts, revoked access and portal preview must be denied.
+- Existing no-view restrictions must not be relaxed by checking sharing boxes.
+
+These controls redact structured portal information; they do not erase names or
+addresses a person already wrote in a message, copied into a document, or sent
+in an email. Previously delivered email cannot be recalled by these controls.
+Restore chosen test preferences to the owner's intended values when finished.
+
+2. DRAFT APPOINTMENT RECOVERY — EXPLICIT REVIEW
+
+The Note Workspace offers Link this draft to its appointment for an orphan
+draft. It lists only matching client/provider/agency, service code and local
+service date, with appointment ID, time and timezone. Select the exact record
+and confirm the draft describes it. Source text must finish saving first.
+The repair changes link IDs only. It does not move an appointment, change its
+financial quote, mark attendance, replace authored text, or remove intake,
+treatment-plan, credential or supervision requirements.
+
+Use retained Blake draft 293 / session 167. Earlier inspection found appointment
+104 linked to clinical session 166; do not assume a match from the date alone.
+Check the actual client, service, appointment and source before confirming.
+If there is no exact choice, record BLOCKED for clinical review. Existing notes
+on either encounter or another draft on the target prevent this repair. Existing
+clinical records are not automatically migrated or overwritten.
+
+Retest draft 294 and 295 using the explicit code/duration reconciliation already
+implemented. For Taylor's 45-minute 90834 booking, verify 90834 on save/reload.
+For the 90837 duration change to 52 minutes, accept or decline the proposed code
+explicitly and confirm the resulting saved code/duration/source. Keep Taylor's
+missing treatment-plan requirement; complete the normal intake first. Harper
+note 286 remains pending Cameron's supervisor review; no signature was added.
+
+3. FINAL APPOINTMENT OUTCOMES AND FEES
+
+An ordinary stale editor cannot restore a canceled, no-show, voided, rescheduled
+or completed appointment to a different status. A conflicting save must return
+an actionable refresh/review error. The calendar editor now displays the
+appointment ID and clinical session ID when available.
+
+Retest prospective synthetic late cancellation and an ended no-show using the
+normal reviewed workflow. Check applicable signed policy, explicit self-pay,
+$80 / $100 proposed assessment, saved outcome and ledger balance after refresh.
+No card charge is authorized. Provider-initiated cancellation must not assess a
+family missed-session fee. Existing signed no-fee outcomes are not retrocharged.
+This patch adds outcome protection; it does not retroactively assess old fees.
+
+Continue comparing calendar grid, editor, note and email in America/Denver,
+including both sides of the Nov 1 DST transition. Earlier saved Eastern-zone
+appointments retain their UTC instant and require explicit review of intended
+times. No historical appointment was shifted by this repair.
+
+4. EMAIL DELIVERY EVIDENCE AND RETRY PROTECTION
+
+Ari appointment 111 already produced a received cancellation email in the prior
+QA run. Do not resend it as an inspection test. A send receipt or tracking event
+combined with Failed/Skipped is now shown as Delivery status needs review in
+the chart. A pixel open is evidence of an image load, not proof of a human read.
+Held/uncertain cancellation sends are flagged for review rather than Failed.
+Accepted email records cannot be downgraded to unsent states by a later wrapper;
+actual bounce/undelivered results remain distinct. Automatic approval/retry is
+blocked when a receipt or tracking event already exists, preventing duplicates.
+Historical database statuses were not rewritten by this task.
+
+For a separate authorized synthetic delivery, verify one logical send, physical
+QA inbox receipt, actual From/Reply-To, chart state and no automatic duplicate.
+Wait for the real schedule-notice quiet window. Reuse the full email action
+sweep plan; source tests are not timed-worker or delivered-inbox evidence.
+
+School welcome mail now prefers the configured Schools identity and its reply
+mailbox, without requiring an additional Support sender identity. As Jamie,
+test the normal school account setup/recovery action on a retained approved
+fixture. Verify receipt and schools@itsco.health headers; do not create another
+account merely to inspect a sample. No invitation was sent by engineering here.
+
+5. BILLING SETTINGS AND REMAINING WORK
+
+The supervised-billing readiness query no longer selects nonexistent users.npi.
+It reads each active agency provider's NPI from credentialing fields using the
+existing resolver and still requires billing access. Check the actual panel
+that reported "Unknown column 'u.npi' in 'field list'" and missing/conflicting
+NPI behavior. The same direct lookup was removed from note signer display.
+
+Billing sender activation and statement delivery remain unverified. The existing
+billing@ outbound review identity does not prove the financial group ownership,
+authorized staff membership, provisioning readiness or actual statement workflow.
+No real group was adopted and no statement was sent by this task. Open-time
+discoverability and a comprehensive contact catalog remain separate open items.
+
+The 61 requested wording changes remain open: the numbered change list was not
+available to engineering in this session. Do not infer approval of the 87 other
+designs. Prior 157 received review copies / 148 current examples remain design
+evidence only. No new review batch was sent.
+
+ENGINEERING VALIDATION / LIVE LIMIT
+
+Targeted backend checks: 228 passed. Frontend checks: 202 passed, including the
+180-test calendar/note/school regression suite and sharing/recovery tests.
+Live cloud verification was blocked by expired gcloud authentication requiring
+interactive reauthentication. No shared database changes, record relinking,
+signatures, financial actions or test emails were executed in this task.
+
+Report visible build, exact role/record IDs, local time and timezone, source vs
+browser result, fresh screenshots and actual inbox headers. Use PASS / FAIL /
+BLOCKED / NOT RUN by lane. Keep historical defects open until freshly verified.

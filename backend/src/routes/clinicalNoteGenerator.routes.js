@@ -13,6 +13,7 @@ import {
   createConsentTask,
   createClinicalNoteDraft,
   patchClinicalNoteDraft,
+  repairClinicalDraftAppointment,
   listRecentClinicalNoteDrafts,
   archiveClinicalNoteDraft,
   deleteClinicalNoteDrafts,
@@ -58,6 +59,8 @@ router.post('/contact-documentation/:type/:id', apiLimiter, contactDocumentation
 // Operational contact notes stay available above this clinical-content boundary.
 router.use(excludeSupportClinicalContent);
 router.get('/context', apiLimiter, [query('agencyId').isInt({ min: 1 })], getClinicalNotesContext);
+router.get('/drafts/:draftId/appointment',apiLimiter,repairClinicalDraftAppointment);
+router.post('/drafts/:draftId/appointment',apiLimiter,repairClinicalDraftAppointment);
 router.get('/termination-outcomes', apiLimiter, getTerminationOutcomeStats);
 router.post('/interactive-complexity', apiLimiter, generateInteractiveComplexitySentence);
 

@@ -1438,7 +1438,7 @@ export const getClinicalNoteById = async (req, res, next) => {
       try {
         const pool = (await import('../config/database.js')).default;
         const [userRows] = await pool.execute(
-          `SELECT id, first_name, last_name, credentials, license_type, npi, email
+          `SELECT id, first_name, last_name, credential, email
            FROM users WHERE id = ? LIMIT 1`,
           [Number(signerId)]
         );
@@ -1447,8 +1447,8 @@ export const getClinicalNoteById = async (req, res, next) => {
           providerSigner = {
             id: u.id,
             name: [u.first_name, u.last_name].filter(Boolean).join(' ').trim() || null,
-            credentials: u.credentials || u.license_type || null,
-            npi: u.npi || null,
+            credentials: u.credential || null,
+            npi: await providerBillingNpi({agencyId:note.agency_id,userId:u.id}),
             email: u.email || null
           };
         }
@@ -1479,7 +1479,7 @@ export const getClinicalNoteById = async (req, res, next) => {
             try {
               const pool = (await import('../config/database.js')).default;
               const [userRows] = await pool.execute(
-                `SELECT id, first_name, last_name, credentials, license_type, npi, email
+                `SELECT id, first_name, last_name, credential, email
                  FROM users WHERE id = ? LIMIT 1`,
                 [Number(s.provider_user_id)]
               );
@@ -1488,8 +1488,8 @@ export const getClinicalNoteById = async (req, res, next) => {
                 providerSigner = {
                   id: u.id,
                   name: [u.first_name, u.last_name].filter(Boolean).join(' ').trim() || null,
-                  credentials: u.credentials || u.license_type || null,
-                  npi: u.npi || null,
+                  credentials: u.credential || null,
+                  npi: await providerBillingNpi({agencyId:note.agency_id,userId:u.id}),
                   email: u.email || null
                 };
               }

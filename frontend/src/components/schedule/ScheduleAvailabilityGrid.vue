@@ -1697,6 +1697,7 @@
             <div class="nr-head-copy">
               <div id="nr-title" class="nr-title">{{ modalEditorTitle }}</div>
               <div class="nr-subtitle">{{ modalScheduleSubtitle }}</div>
+              <div v-if="editorAppointmentId" class="nr-subtitle">Appointment #{{ editorAppointmentId }}<span v-if="editorClinicalSessionId"> · Clinical session #{{ editorClinicalSessionId }}</span></div>
             </div>
           </div>
           <div class="nr-head-context" data-testid="schedule-modal-context">

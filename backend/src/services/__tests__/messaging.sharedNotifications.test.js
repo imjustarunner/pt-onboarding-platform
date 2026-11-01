@@ -13,7 +13,7 @@ import publicClaim from '../../routes/publicSecureMessage.routes.js';
 const response = () => ({ status: vi.fn().mockReturnThis(), set: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() });
 beforeEach(() => { vi.clearAllMocks(); pool.execute.mockResolvedValue([[]]); ClientGuardian.getLink.mockResolvedValue({ access_enabled: 1 }); });
 it('returns identical shared history for both guardians without bodies or recipient login links', async () => {
-  pool.execute.mockImplementation(async sql => sql.includes('UNION ALL') ? [[{ id: 'email-1', channel: 'email', notification_type: 'session_reminder', recipient_address: 'contact@example.org', organization_name: 'Tutoring', delivery_status: 'sent', occurred_at: '2026-10-07', body: 'secret token', subject: 'clinical info' }]] : [[]]);
+  pool.execute.mockImplementation(async sql => sql.includes('UNION ALL') ? [[{ id: 'email-1', channel: 'email', notification_type: 'session_reminder', recipient_address: 'contact@example.org', organization_name: 'Tutoring', delivery_status: 'sent', occurred_at: '2026-10-07', body: 'secret token', subject: 'clinical info' }]] : sql.includes('FROM client_guardians cg') ? [[{id:9,access_enabled:1},{id:10,access_enabled:1}]] : [[]]);
   const first = response(), second = response(), next = vi.fn();
   for (const [id, res] of [[9, first], [10, second]]) await listClientNotificationHistory({ user: { id, role: 'client_guardian' }, params: { clientId: 4 }, query: {} }, res, next);
   expect(next).not.toHaveBeenCalled(); expect(first.json.mock.calls).toEqual(second.json.mock.calls);

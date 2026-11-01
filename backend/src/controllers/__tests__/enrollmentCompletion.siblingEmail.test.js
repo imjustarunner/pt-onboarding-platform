@@ -13,3 +13,9 @@ it('prevents a sibling history copy from sending the same family email again',as
  await retryCommunicationSend({user:{id:1,role:'super_admin'},params:{id:'8'}},res,next);
  expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));expect(sendEmailFromIdentity).not.toHaveBeenCalled();expect(EmailService.sendEmail).not.toHaveBeenCalled();
 });
+it.each(['external_message_id','sent_at','delivered_at','opened_at'])('blocks retries of a falsely failed email carrying %s',async field=>{
+ vi.clearAllMocks();UserCommunication.findById.mockResolvedValue({id:111,agency_id:450,channel:'email',delivery_status:'failed',[field]:'receipt',body:'Cancellation notice',recipient_address:'testing@itsco.health'});
+ const res={status:vi.fn().mockReturnThis(),json:vi.fn()};await retryCommunicationSend({user:{id:1,role:'super_admin'},params:{id:'111'}},res,vi.fn());
+ expect(res.status).toHaveBeenCalledWith(409);expect(JSON.stringify(res.json.mock.calls)).toContain('duplicate');
+ expect(sendEmailFromIdentity).not.toHaveBeenCalled();expect(EmailService.sendEmail).not.toHaveBeenCalled();
+});

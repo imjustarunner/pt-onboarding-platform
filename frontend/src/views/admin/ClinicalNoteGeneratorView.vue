@@ -240,6 +240,7 @@
           @toggle-setup="showClientSetupDrawer = true"
           @toggle-addon-code="toggleManualAddonCode"
         />
+        <DraftAppointmentRepair v-if="draftId && !signedNoteViewerId && !isClientChartAid && !isReviewOnlyAid" :draft-id="draftId" :before-link="prepareDraftAppointmentRepair" @linked="onDraftAppointmentRepaired" />
         <details v-if="sessionClinicalSessionId && Number(noteAidAgencyId || currentAgencyId) === 377" :open="noteBillingExpanded" @toggle="noteBillingExpanded = $event.target.open">
           <summary>Insurance &amp; claim progress</summary>
           <AppointmentBillingPanel v-if="noteBillingExpanded" :key="`${sessionClinicalSessionId}-${signedNoteViewerId || ''}`"
@@ -1596,6 +1597,7 @@ import { noteDraftAttendanceNotice } from '../../utils/noteDraftAttendance.js';
 import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
 import { noteAidWorkspaceLabel } from '../../config/noteAidAccess.js';
 import ClinicalWorkspaceFrame from '../../components/clinicalWorkspace/ClinicalWorkspaceFrame.vue';
+import DraftAppointmentRepair from '../../components/clinical/DraftAppointmentRepair.vue';
 import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
 import { DURATION_PRESETS, durationLabel, projectedDurationMonths, setObjectiveCompletionTime } from '../../utils/treatmentPlanDuration';
 import { intakeSection, intakeDiagnoses, intakeAssessments, mergeGeneratedAssessment, generatedTreatmentPlan, intakeSectionsForRecord } from '../../utils/noteAidIntakeIntegration';
@@ -5217,6 +5219,26 @@ async function saveDraftNow() {
   } finally {
     savingDraftManual.value = false;
   }
+}
+
+async function prepareDraftAppointmentRepair(){
+  if(pendingDurationChange.value || durationCodeMismatch.value || isWorkspaceHydrating())throw new Error('Finish reviewing the service code and duration before linking this draft.');
+  cancelPendingAutosave();
+  const deadline=Date.now()+10000;
+  while(autosaveBusy && Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,50));
+  if(autosaveBusy)throw new Error('The source text is still saving. Wait for Draft saved and try again.');
+  await autosave();
+  if(!lastSavedAt.value)throw new Error(approvalError.value || 'Save the draft before linking its appointment.');
+}
+async function onDraftAppointmentRepaired(draft){
+  sessionClinicalSessionId.value=Number(draft.clinical_session_id)||null;
+  sessionOfficeEventId.value=Number(draft.office_event_id)||null;
+  recentDrafts.value=recentDrafts.value.map(row=>Number(row.id)===Number(draft.id)?draft:row);
+  const query={...route.query,clinicalSessionId:String(draft.clinical_session_id)};
+  delete query.clinical_session_id;delete query.office_event_id;
+  if(draft.office_event_id)query.officeEventId=String(draft.office_event_id);else delete query.officeEventId;
+  await router.replace({query});
+  approvalMessage.value='Draft linked to the selected appointment. Review the normal intake, treatment-plan and signing requirements.';
 }
 
 function onDateOfServiceChanged() {

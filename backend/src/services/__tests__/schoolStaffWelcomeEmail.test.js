@@ -23,7 +23,12 @@ it('uses Notifications, overrides Reply-To with Support, and associates the scho
 });
 it('fails visibly instead of choosing an unrelated sender or reply mailbox',async()=>{
  Identity.list.mockResolvedValue([{id:1,identity_key:'default',from_email:'other@example.test'}]);
- await expect(sendSchoolStaffWelcomeEmail({agencyId:2})).rejects.toThrow('Configure Notifications');expect(sendEmailFromIdentity).not.toHaveBeenCalled();
+ await expect(sendSchoolStaffWelcomeEmail({agencyId:2})).rejects.toThrow('Configure a Schools or Notifications');expect(sendEmailFromIdentity).not.toHaveBeenCalled();
+});
+it('uses the configured Schools sender without requiring a separate Support identity',async()=>{
+ Identity.list.mockResolvedValue([{id:1128,identity_key:'schools',from_email:'schools@itsco.health',reply_to:'schools@itsco.health'}]);
+ await sendSchoolStaffWelcomeEmail({agencyId:450,to:'testing@itsco.health',schoolName:'Cedar Grove',accessUrl:'https://schoolcarebridge.org/app/demo'});
+ expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:1128,replyToOverride:'schools@itsco.health'}));
 });
 it('rejects unsafe links and does not offer setup when access already exists',()=>{
  expect(()=>schoolStaffWelcomeContent({accessUrl:'javascript:alert(1)'})).toThrow();

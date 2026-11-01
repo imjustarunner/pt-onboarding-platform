@@ -3,6 +3,7 @@ const mocks = vi.hoisted(() => ({ execute: vi.fn(), link: vi.fn(), access: vi.fn
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.execute } }));
 vi.mock('../../models/ClientGuardian.model.js', () => ({ default: { getLink: mocks.link } }));
 vi.mock('../../services/clientRecordAccess.service.js', () => ({ resolveClientRecordAccess: mocks.access }));
+vi.mock('../../services/guardianContactSharing.service.js',()=>({guardianContactRows:vi.fn(async()=>[]),sharedHistoryRecipient:vi.fn(value=>value)}));
 import { listClientNotificationHistory } from '../clientNotificationHistory.controller.js';
 
 const response = () => ({ status: vi.fn().mockReturnThis(), set: vi.fn().mockReturnThis(), json: vi.fn() });

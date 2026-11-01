@@ -1379,7 +1379,10 @@ export const listMessages = async (req, res, next) => {
     const messageChannel = await recordSecureThreadOpen({ threadId, userId: req.user.id, messageIds, req });
     res.set?.('X-Message-Channel', messageChannel);
     res.set?.('Cache-Control', 'no-store');
-    res.json(enriched.map((message) => ({ ...message, message_channel: messageChannel })));
+    const visible = ['client','client_guardian'].includes(req.user?.role)
+      ? await (await import('../services/guardianContactSharing.service.js')).redactGuardianThreadAuthors(threadId,req.user.id,enriched)
+      : enriched;
+    res.json(visible.map((message) => ({ ...message, message_channel: messageChannel })));
   } catch (e) {
     next(e);
   }

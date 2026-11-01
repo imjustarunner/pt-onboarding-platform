@@ -445,7 +445,7 @@
               </template>
             </template>
             <template v-else-if="activePanel === 'account'">
-              <FamilyAccountSettings :agency-id="selectedChildAgencyId" @notifications="navigatePortal('notifications')" />
+              <FamilyAccountSettings :agency-id="selectedChildAgencyId" :client-id="selectedChildId" @notifications="navigatePortal('notifications')" />
             </template>
 
             <FamilyPayments v-else-if="activePanel === 'family_billing' && !isSuperadminPreview" :agencies="familyAgencies" :guardian-user-id="authStore.user?.id" />

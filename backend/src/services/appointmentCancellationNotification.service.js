@@ -107,7 +107,7 @@ export function createCancellationNotificationService({ database = pool, appoint
     async function finish(status, error = null, externalId = null) {
       await database.execute('UPDATE appointment_cancellation_deliveries SET delivery_status=?,error_message=?,external_message_id=?,recipient_address=?,communication_id=? WHERE id=?',
         [status, error, externalId, recipient, audit?.id || null, id]);
-      if (audit?.id) await communications.updateDeliveryStatus(audit.id, status === 'suppressed' ? 'skipped' : status === 'review' || status === 'held' ? 'failed' : status,
+      if (audit?.id) await communications.updateDeliveryStatus(audit.id, status === 'suppressed' ? 'skipped' : status === 'review' || status === 'held' ? 'flagged' : status,
         externalId, null, error);
       await log({ appointmentId: row.appointment_id, agencyId: row.agency_id, kind: 'cancellation', channel: row.channel,
         bodyPreview: message.text, createdByUserId: row.created_by_user_id,
@@ -200,7 +200,7 @@ export function createCancellationNotificationService({ database = pool, appoint
     return { processed: rows.length };
   }
   async function retry(appointmentId, deliveryId) {
-    const [updated] = await database.execute("UPDATE appointment_cancellation_deliveries SET delivery_status='pending' WHERE id=? AND appointment_id=? AND delivery_status IN ('failed','skipped')", [deliveryId, appointmentId]);
+    const [updated] = await database.execute("UPDATE appointment_cancellation_deliveries SET delivery_status='pending' WHERE id=? AND appointment_id=? AND delivery_status IN ('failed','skipped') AND NULLIF(TRIM(external_message_id),'') IS NULL", [deliveryId, appointmentId]);
     if (updated.affectedRows !== 1) throw Object.assign(new Error('This notification was sent, is processing, or has an uncertain delivery. Check the communication record before contacting the client again.'), { status: 409 });
     await process(deliveryId);
     return summary(appointmentId);

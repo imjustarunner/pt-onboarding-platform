@@ -422,6 +422,8 @@ export async function updateAppointment(appointmentId, patch = {}, options = {})
 async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true, guardianCancellationClientId = null } = {}) {
   const existing = await Appointment.findById(appointmentId);
   if (!existing) return null;
+  const {assertAppointmentOutcomePreserved}=await import('../utils/appointmentOutcomeGuard.js');
+  assertAppointmentOutcomePreserved(existing,patch);
   if (patch.providerUserId != null && Number(patch.providerUserId) !== Number(existing.providerUserId)) {
     await requireClientSessionBooking(existing.agencyId, patch.providerUserId);
   }

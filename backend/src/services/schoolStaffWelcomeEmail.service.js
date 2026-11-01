@@ -28,10 +28,12 @@ export function schoolStaffWelcomeContent({ firstName, schoolName, isSchoolAdmin
 export async function schoolNotificationIdentities(agencyId, replyKey = 'support') {
   const identities = await EmailSenderIdentity.list({ agencyId, includePlatformDefaults: false, onlyActive: true });
   const find = key => identities.find(row => String(row.identity_key || '').toLowerCase() === key && String(row.from_email || '').toLowerCase().startsWith(`${key}@`));
-  const sender = find('notifications');
-  const reply = find(replyKey);
-  if (!sender?.id || !reply?.from_email) throw new Error(`Configure Notifications and ${replyKey} sender identities before sending school account mail.`);
-  return { senderIdentityId: sender.id, replyToOverride: reply.from_email };
+  // Prefer the school's configured correspondence identity. A separate Support
+  // identity is optional when the selected sender already has a Reply-To.
+  const sender = find('schools') || find('notifications');
+  const reply = find(replyKey)?.from_email || sender?.reply_to || (sender?.identity_key === 'schools' ? sender.from_email : null);
+  if (!sender?.id || !reply) throw new Error(`Configure a Schools or Notifications sender and a reply mailbox before sending school account mail.`);
+  return { senderIdentityId: sender.id, replyToOverride: reply };
 }
 
 export async function sendSchoolStaffWelcomeEmail({ agencyId, schoolOrganizationId, userId, actorUserId, to, source = 'auto', ...content }) {

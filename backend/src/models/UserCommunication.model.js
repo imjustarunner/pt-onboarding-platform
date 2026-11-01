@@ -142,8 +142,13 @@ class UserCommunication {
     const updates = [];
     const values = [];
 
-    updates.push('delivery_status = ?');
-    values.push(status);
+    // A later wrapper/gate must not relabel an accepted email as unsent. Actual
+    // bounce/undelivered receipts remain writable; pixel opens alone prove no
+    // human read. Keep the durable transport receipt authoritative.
+    updates.push(`delivery_status = CASE WHEN channel='email' AND NULLIF(TRIM(external_message_id),'') IS NOT NULL
+      AND delivery_status IN ('sent','delivered') AND ? IN ('pending','skipped','flagged','failed')
+      THEN delivery_status ELSE ? END`);
+    values.push(status, status);
 
     if (externalMessageId !== null) {
       updates.push('external_message_id = ?');

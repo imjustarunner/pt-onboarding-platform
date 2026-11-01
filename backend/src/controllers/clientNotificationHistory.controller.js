@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { resolveClientRecordAccess } from '../services/clientRecordAccess.service.js';
+import {guardianContactRows,sharedHistoryRecipient} from '../services/guardianContactSharing.service.js';
 
 // Historical tables use both unicode_ci and 0900_ai_ci; JSON text uses bin.
 // Normalize every text projection before UNION, without altering stored data.
@@ -60,8 +61,11 @@ export async function listClientNotificationHistory(req, res, next) {
          OR (n.related_entity_type = 'support_ticket' AND EXISTS (SELECT 1 FROM support_tickets st WHERE st.id = n.related_entity_id AND st.client_id = ?))
        ORDER BY occurred_at DESC, id DESC LIMIT 50 OFFSET ${offset}`, [clientId, clientId, clientId, clientId, clientId, clientId, clientId]);
     // Shared delivery history never discloses another recipient's login/setup links or tokens.
+    const familyViewer = ['client', 'client_guardian'].includes(req.user.role);
+    const contacts = familyViewer ? await guardianContactRows(clientId) : [];
     const notifications = rows.map((r) => ({ id: r.id, channel: r.channel, type: r.notification_type,
-      recipient: r.recipient_address, status: r.delivery_status, occurredAt: r.occurred_at, organization: r.organization_name }));
+      recipient: familyViewer ? sharedHistoryRecipient(r.recipient_address,r.channel,contacts,req.user.id) : r.recipient_address,
+      status: r.delivery_status, occurredAt: r.occurred_at, organization: r.organization_name }));
     res.set('Cache-Control', 'no-store');
     res.json({ notifications, hasMore: rows.length === 50, nextOffset: offset + rows.length });
   } catch (e) { next(e); }

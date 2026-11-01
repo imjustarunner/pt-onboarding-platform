@@ -263,7 +263,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
         const sentAt = status === 'sent' ? sqlDate(d.now()) : null;
         await db.execute('UPDATE appointment_schedule_notice_deliveries SET status=?,recipient_address=?,communication_id=?,external_message_id=?,error_message=?,sent_at=? WHERE id=?',
           [status,recipient,communication?.id || null,externalId,reason,sentAt,delivery.insertId]);
-        if (communication?.id) await d.updateCommunication(communication.id,['review','held'].includes(status)?'failed':status,externalId,null,reason);
+        if (communication?.id) await d.updateCommunication(communication.id,['review','held'].includes(status)?'flagged':status,externalId,null,reason);
         for (const e of entries) await audit(e.row,status,body,{channel,subject:recipientMessage.subject,recipient,reason,sentAt,
           scheduleNoticeDeliveryId:delivery.insertId,communicationId:communication?.id || null,externalMessageId:externalId});
       }

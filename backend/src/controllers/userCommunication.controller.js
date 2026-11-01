@@ -104,6 +104,7 @@ function enrichCommunicationRow(row) {
     quality_resolved_note: meta.qualityResolvedNote || meta.quality_resolved_note || null,
     quality_blocked_before_send: blockedBeforeSend,
     can_edit_and_resend: ['pending', 'failed'].includes(deliveryStatus)
+      && !row?.external_message_id && !row?.sent_at && !row?.delivered_at && !row?.opened_at
       && String(row?.channel || 'email').toLowerCase() === 'email'
       && (activeFlags.length > 0 || blockedBeforeSend),
     link_url: meta.linkUrl || meta.link_url || null,
@@ -954,6 +955,10 @@ export const approveCommunication = async (req, res, next) => {
       return res.status(409).json({ error: { message: 'Only email approvals are supported right now' } });
     }
 
+    if (comm.external_message_id || comm.sent_at || comm.delivered_at || comm.opened_at) {
+      return res.status(409).json({ error: { message: 'This email already has a send receipt or tracking event. Review its delivery before approving another send.' } });
+    }
+
     const status = String(comm.delivery_status || '').toLowerCase();
     if (status !== 'pending') {
       return res.status(409).json({ error: { message: `Communication is ${status || 'unknown'}, not pending approval` } });
@@ -1150,6 +1155,9 @@ export const updateCommunicationDraft = async (req, res, next) => {
     }
 
     const status = String(comm.delivery_status || '').toLowerCase();
+    if (comm.external_message_id || comm.sent_at || comm.delivered_at || comm.opened_at) {
+      return res.status(409).json({ error: { message: 'This email has a send receipt or tracking event. Verify its delivery before sending another message; automatic retry could create a duplicate.' } });
+    }
     if (!['pending', 'failed'].includes(status)) {
       return res.status(409).json({ error: { message: 'Only pending or failed messages can be edited' } });
     }
@@ -1273,6 +1281,10 @@ export const retryCommunicationSend = async (req, res, next) => {
 
     if (String(comm.channel || '').toLowerCase() !== 'email') {
       return res.status(409).json({ error: { message: 'Only email retries are supported right now' } });
+    }
+
+    if (comm.external_message_id || comm.sent_at || comm.delivered_at || comm.opened_at) {
+      return res.status(409).json({ error: { message: 'This email has a send receipt or tracking event. Verify its delivery before sending another message; automatic retry could create a duplicate.' } });
     }
 
     const status = String(comm.delivery_status || '').toLowerCase();
