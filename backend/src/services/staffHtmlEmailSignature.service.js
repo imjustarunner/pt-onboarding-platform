@@ -747,12 +747,12 @@ export function buildStaffSignatureHtml(ctx) {
   // and leave a large empty band in Hub / Gmail previews.
   return `
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;width:100%;max-width:600px;background:#ffffff;margin:12px 0 0;">
-  <tr>
-    <td style="padding:0;vertical-align:top;width:${photoSize + 6}px;">
+  <tr class="email-signature-row">
+    <td class="email-signature-photo" style="padding:0;vertical-align:top;width:${photoSize + 6}px;">
       <img src="${photo}" width="${photoSize}" height="${photoSize}" alt="${name}"
         style="${photoImgStyle}" />
     </td>
-    <td style="padding:0 2px 0 6px;vertical-align:top;overflow-wrap:anywhere;word-break:break-word;">
+    <td class="email-signature-details" style="padding:0 2px 0 6px;vertical-align:top;overflow-wrap:anywhere;word-break:break-word;">
       <div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.2;font-weight:700;color:${c.navy};">
         ${name}
       </div>
@@ -768,7 +768,7 @@ export function buildStaffSignatureHtml(ctx) {
         ${contactRow(iconWeb, 'Website', webLink)}
       </table>
     </td>
-    <td width="${rightRailWidth}" style="width:${rightRailWidth}px;${rightRailPad}vertical-align:top;border-left:1px solid ${c.divider};text-align:center;overflow:visible;">
+    <td class="email-signature-brand" width="${rightRailWidth}" style="width:${rightRailWidth}px;${rightRailPad}vertical-align:top;border-left:1px solid ${c.divider};text-align:center;overflow:visible;">
       ${rightRailHtml}
     </td>
   </tr>

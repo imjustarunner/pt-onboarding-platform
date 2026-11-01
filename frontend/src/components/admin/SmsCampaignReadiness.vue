@@ -1,7 +1,7 @@
 <template>
   <section class="card sms-readiness">
     <h3>Campaign registration and consent</h3>
-    <p>Each independent business needs its own Vonage brand. Record approved, linked campaigns here before enabling delivery. Saving these details does not submit a registration to Vonage.</p>
+    <p>Each independent business needs its own approved carrier brand and linked campaign. Client appointment texts use Notifyre; workforce texts use the separate staff program. Saving these details does not submit a registration to either carrier.</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-if="notice" role="status">{{ notice }}</p>
     <label>Sending number
@@ -70,10 +70,14 @@
           <label v-for="purpose in purposes" :key="purpose.value"><input v-model="registration.purposes" type="checkbox" :value="purpose.value" /> {{ purpose.label }}</label>
         </fieldset>
         <label>Who sends STOP / START / HELP responses?
-          <select v-model="registration.keywordOwner"><option value="application">AuricWell</option><option value="vonage">Vonage Opt-Out Assist (verified enabled)</option></select>
+          <select v-model="registration.keywordOwner"><option value="application">AuricWell</option><option value="vonage">Vonage Opt-Out Assist (verified enabled)</option><option value="notifyre">Notifyre-managed keywords (verified enabled)</option></select>
         </label>
+        <template v-if="registration.provider === 'notifyre' && registration.purposes?.includes('reminders')">
+          <label><input v-model="registration.verbalReminderConsentApproved" type="checkbox" /> I verified carrier approval of the verbal appointment-reminder opt-in script (version {{ VERBAL_REMINDER_CONSENT_VERSION }})</label>
+          <p>This records an existing carrier approval. It does not submit a campaign or grant recipient consent. Support can record verbal consent from the client’s contact screen; STOP remains in force.</p>
+        </template>
         <label><input v-model="registration.allowRestart" type="checkbox" /> START / UNSTOP reactivation is documented in the registered message flow</label>
-        <label><input v-model="registration.approved" type="checkbox" /> I verified carrier approval in Vonage</label>
+        <label><input v-model="registration.approved" type="checkbox" /> I verified carrier approval for this program</label>
         <label><input v-model="registration.numberLinked" type="checkbox" /> I verified this number is linked and active on this campaign</label>
         <button :disabled="busy">Save registration status</button>
       </form>
@@ -127,6 +131,7 @@ function usePublishedProfile(profile) {
   registration.value = JSON.parse(JSON.stringify(profile));
   notice.value = 'Details copied. Enter the real campaign ID after approval; approval and number linkage remain unchecked.';
 }
+const VERBAL_REMINDER_CONSENT_VERSION = '2026-11-01.1';
 const consent = ref({ phone: '', purpose: 'reminders', status: 'opted_in', evidence: { source: 'paper_form', reference: '', signatureReference: '', signerVerified: false, disclosure: '', separateMarketingConsent: false } });
 const failure = (e) => { error.value = e.response?.data?.error?.message || e.message || 'Could not save'; };
 async function load() {
@@ -196,7 +201,7 @@ function selectNumber() {
 async function saveRegistration() {
   busy.value = true; error.value = ''; notice.value = '';
   try {
-    await api.put(`/sms-numbers/agency/${props.agencyId}/registrations`, { numberId: Number(numberId.value), registration: registration.value });
+    await api.put(`/sms-numbers/agency/${props.agencyId}/registrations`, { numberId: Number(numberId.value), registration: { ...registration.value, verbalReminderConsentVersion: registration.value.verbalReminderConsentApproved ? VERBAL_REMINDER_CONSENT_VERSION : null } });
     await load(); notice.value = registration.value.approved && registration.value.numberLinked ? 'Registration recorded. Recipient consent is still required before delivery.' : 'Registration saved with delivery disabled.';
   } catch (e) { failure(e); } finally { busy.value = false; }
 }

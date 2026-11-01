@@ -96,3 +96,8 @@ it.each([['different workspace',451,'BRC2ZW3'],['different brand',450,'OTHER']])
  await expect(saveSmsRegistration({numberId:2,registration:{...registration,provider:'vonage',purposes:['workforce'],brandId,campaignId:'VCV2DNM4'},actorUserId:1435}))
   .rejects.toMatchObject({code:'sms_cross_tenant_campaign'});
 });
+
+it('rejects a stale or wrong-carrier declaration of an approved verbal reminder script',async()=>{
+ await expect(saveSmsRegistration({numberId:3,actorUserId:7,registration:{...registration,verbalReminderConsentApproved:true,verbalReminderConsentVersion:'old'}})).rejects.toMatchObject({code:'sms_verbal_program_invalid'});
+ await expect(saveSmsRegistration({numberId:3,actorUserId:7,registration:{...registration,provider:'vonage',verbalReminderConsentApproved:true,verbalReminderConsentVersion:'2026-11-01.1'}})).rejects.toMatchObject({code:'sms_verbal_program_invalid'});
+});

@@ -1,3 +1,4 @@
+import { verbalReminderProgramReady } from '../utils/staffVerbalReminderConsent.js';
 import { contactReminderConsentLock } from '../utils/contactReminderConsent.js';
 import {ITSCO_STAFF_ASSISTANT_NUMBER} from '../utils/staffSmsAssistant.js';
 import { staffCommunicationKey, phoneFingerprint, STAFF_COMMUNICATION_CHOICES } from '../utils/staffCommunicationChoices.js';
@@ -178,6 +179,11 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
   );
   if (!permissions.length) throw smsPolicyError('sms_consent_required', 'Recorded recipient consent for this SMS purpose is required');
   const evidence = permissions[0].evidence_json ? json(permissions[0].evidence_json) : null;
+  if (purpose==='reminders' && evidence?.source==='staff_verbal') {
+    if(!verbalReminderProgramReady(registration))throw smsPolicyError('sms_verbal_program_not_ready','This campaign has not enabled its approved verbal reminder script.');
+    const {reviewedVerbalReminderGrant}=await import('./staffVerbalReminderConsent.service.js');
+    if(!await reviewedVerbalReminderGrant({evidence,agencyId:sender.agency_id,clientId,phone:recipient}))throw smsPolicyError('sms_verbal_recipient_changed','The recorded reminder consent no longer matches this client and phone.');
+  }
   if (evidence?.staffCommunicationReference && staffStates.some(state => state.reference !== evidence.staffCommunicationReference)) {
     throw smsPolicyError('sms_consent_review_required', 'Updated signed choices are awaiting administrator review');
   }
@@ -215,7 +221,7 @@ export async function resolveRegisteredSmsSender({ agencyId, purpose, numberId =
 
 // Preference readers may recognize a later signed enrollment, but this lookup
 // never authorizes delivery. sendSms still rechecks registration and STOP.
-export async function recordedReminderConsent(agencyId, phone) {
+export async function recordedReminderConsent(agencyId, phone, context = {}) {
   const normalized = normalizeSmsPhone(phone);
   if (!normalized) return null;
   const from = await resolveRegisteredSmsSender({ agencyId, purpose: 'reminders' });
@@ -225,6 +231,11 @@ export async function recordedReminderConsent(agencyId, phone) {
     WHERE scope_key = ? AND phone = ? AND purpose = 'reminders' AND status = 'opted_in'
       AND (expires_at IS NULL OR expires_at > UTC_TIMESTAMP()) LIMIT 1`, [sender.scope, normalized]);
   const evidence = rows[0]?.evidence_json ? json(rows[0].evidence_json) : null;
+  if(evidence?.source==='staff_verbal'){
+    if(!verbalReminderProgramReady(sender.registration))return null;
+    const {reviewedVerbalReminderGrant}=await import('./staffVerbalReminderConsent.service.js');
+    return reviewedVerbalReminderGrant({evidence,agencyId,phone:normalized,...context});
+  }
   return evidence?.signerVerified === true && evidence?.signatureReference && evidence?.collectedAt ? evidence : null;
 }
 

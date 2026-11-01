@@ -1,3 +1,4 @@
+import { VERBAL_REMINDER_CONSENT_VERSION } from '../utils/staffVerbalReminderConsent.js';
 import pool from '../config/database.js';
 import { getSmsSender, recordSmsPermission, isSmsSuppressed } from './smsCompliance.service.js';
 import { smsPolicyError, validateSmsRegistration, validateSmsConsentEvidence } from '../utils/smsCompliancePolicy.js';
@@ -98,6 +99,7 @@ export async function enrollSmsRecipient({ purpose, status, evidence, ...options
 export async function saveSmsRegistration({ numberId, registration, actorUserId }) {
   // Saving a disabled registration is how an operator immediately stops traffic
   // after a carrier suspension. Delivery still requires both flags to be true.
+  if(registration.verbalReminderConsentApproved===true && (registration.provider!=='notifyre'||!registration.purposes?.includes('reminders')||registration.verbalReminderConsentVersion!==VERBAL_REMINDER_CONSENT_VERSION))throw smsPolicyError('sms_verbal_program_invalid','Verify the current verbal appointment-reminder script for a Notifyre reminder campaign.');
   const errors = validateSmsRegistration(registration).filter((error) => error !== 'Carrier approval and number linking must be verified');
   if (errors.length) throw smsPolicyError('sms_registration_invalid', errors.join('; '));
   const [numbers] = await pool.execute('SELECT id, agency_id FROM twilio_numbers WHERE id = ? AND is_active = TRUE', [numberId]);
@@ -127,7 +129,7 @@ export async function saveSmsRegistration({ numberId, registration, actorUserId 
   const [peers] = await pool.execute('SELECT registration_json FROM sms_sender_registrations WHERE campaign_id = ? AND number_id <> ?', [registration.campaignId, numberId]);
   const program = (value) => JSON.stringify([
     ...['provider', 'brandId', 'brandName', 'legalName', 'resellerId', 'website', 'privacyUrl', 'termsUrl', 'supportContact', 'keywordOwner'].map((key) => value[key]),
-    value.allowRestart === true, [...value.purposes].sort()
+    value.allowRestart === true, value.verbalReminderConsentApproved === true, value.verbalReminderConsentVersion || null, [...value.purposes].sort()
   ]);
   if (peers.some((peer) => program(typeof peer.registration_json === 'string' ? JSON.parse(peer.registration_json) : peer.registration_json) !== program(registration))) {
     throw smsPolicyError('sms_campaign_inconsistent', 'All numbers on a campaign must use the same identity, purposes, policies and keyword behavior');

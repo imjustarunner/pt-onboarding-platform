@@ -26,7 +26,7 @@ export async function guardianNotificationSetup({ userId, clientId, agencyId: se
   if (!phone) smsStatus = 'needs_phone';
   else if (!sender) smsStatus = 'unavailable';
   else if (await isSmsSuppressed(sender, phone)) smsStatus = 'stopped';
-  else if (await recordedReminderConsent(agencyId, phone)) smsStatus = 'enrolled';
+  else if (await recordedReminderConsent(agencyId, phone, {clientId,recipientUserId:userId})) smsStatus = 'enrolled';
   else {
     const [rows] = await pool.execute(`SELECT id FROM sms_consent_requests
       WHERE agency_id = ? AND number_id = ? AND phone = ? AND created_by_user_id = ?

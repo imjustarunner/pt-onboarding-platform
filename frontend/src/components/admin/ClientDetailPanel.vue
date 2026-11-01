@@ -212,6 +212,7 @@
             </template>
           </ClientOverviewHub>
           <ClientOperationalStatus v-if="roleNorm === 'support' && clientChartClientId" :client-id="clientChartClientId" />
+          <ClientReminderTextConsent v-if="['support','admin','super_admin'].includes(roleNorm) && clientChartClientId" :key="clientChartClientId" :client-id="Number(clientChartClientId)" />
           <ClientPendingTasks v-if="clientChartClientId && !route.meta?.auricwellPreview" :agency-id="clientAgencyId" :client-id="clientChartClientId" :billing-enabled="canViewClientBillingImport" :clinical-notes="canViewMedicalRecord ? clientTaskEncounters : []" @open-note="goChartSub('medical-record')" />
         </div>
 
@@ -2797,6 +2798,7 @@ import ClientCommunicationsTab from './ClientCommunicationsTab.vue';
 import GuardianBillingTab from '../guardian/GuardianBillingTab.vue';
 import GuardianDemographicReview from './GuardianDemographicReview.vue';
 import ClientGuardianContactEditor from './ClientGuardianContactEditor.vue';
+import ClientReminderTextConsent from './ClientReminderTextConsent.vue';
 import ClientPortalInviteDialog from '../clients/ClientPortalInviteDialog.vue';
 import PractitionerClientPackagesTab from './PractitionerClientPackagesTab.vue';
 import ClientAssessmentsTab from './ClientAssessmentsTab.vue';

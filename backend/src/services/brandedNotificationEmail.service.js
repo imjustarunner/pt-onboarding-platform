@@ -97,15 +97,15 @@ export function buildContactAssignedReminderEmail(opts = {}) {
 
   let html = `
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
-  <tr><td style="padding:28px 28px 8px;">
+  <tr><td class="email-content-cell" style="padding:28px 28px 8px;">
     <p style="margin:0 0 10px;font-size:18px;font-weight:700;color:#1f6b4a;">${escapeHtml(greet)}</p>
     <h1 style="margin:0 0 14px;font-size:26px;line-height:1.25;font-weight:800;color:#0e7490;">${escapeHtml(headline)}</h1>
     <p style="margin:0 0 22px;font-size:15px;line-height:1.55;color:#334155;">${explainer}</p>
   </td></tr>
-  <tr><td style="padding:0 28px 22px;">
+  <tr><td class="email-content-cell" style="padding:0 28px 22px;">
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#e8eef5;border-radius:14px;">
       <tr>
-        <td style="padding:18px 16px;width:42%;vertical-align:middle;">
+        <td class="email-stack" style="padding:18px 16px;width:42%;vertical-align:middle;">
           <table role="presentation" cellspacing="0" cellpadding="0">
             <tr>
               <td style="width:48px;height:48px;border-radius:24px;background:#0e7490;color:#fff;text-align:center;font-weight:800;font-size:16px;line-height:48px;">${escapeHtml(initials)}</td>
@@ -113,7 +113,7 @@ export function buildContactAssignedReminderEmail(opts = {}) {
             </tr>
           </table>
         </td>
-        <td style="padding:18px 16px;vertical-align:middle;">
+        <td class="email-stack" style="padding:18px 16px;vertical-align:middle;">
           <div style="font-size:11px;font-weight:800;letter-spacing:0.06em;color:#64748b;margin:0 0 8px;">YOUR CURRENT APPOINTMENT REMINDER SETTINGS</div>
           <div style="font-size:14px;color:#0f172a;margin:0 0 6px;">Email reminders: <strong style="color:${emailOn ? '#15803d' : '#94a3b8'};">${emailOn ? 'ON' : 'OFF'}</strong></div>
           <div style="font-size:14px;color:#0f172a;">Text reminders: <strong style="color:${smsOn ? '#15803d' : '#94a3b8'};">${escapeHtml(smsStatus)}</strong></div>
@@ -121,12 +121,12 @@ export function buildContactAssignedReminderEmail(opts = {}) {
       </tr>
     </table>
   </td></tr>
-  <tr><td style="padding:4px 28px 8px;">
+  <tr><td class="email-content-cell" style="padding:4px 28px 8px;">
     <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#1f6b4a;">Would you like to change this?</p>
     <p style="margin:0 0 16px;font-size:14px;line-height:1.5;color:#64748b;">If you'd like to update your notification preferences, choose an option below. Email preferences are saved from these links. Text reminders begin only after you reply START to the text invitation. These contacts do not receive portal access.</p>
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0">${buttonRows}</table>
   </td></tr>
-  <tr><td style="padding:18px 28px 28px;">
+  <tr><td class="email-content-cell" style="padding:18px 28px 28px;">
     <p style="margin:0 0 16px;font-size:14px;line-height:1.55;color:#64748b;">You can update these preferences at any time through the links in our emails or by contacting our support team.</p>
     <p style="margin:0;font-size:15px;color:#1f6b4a;">Thank you,<br/><strong>The ${escapeHtml(agencyName)} Team</strong></p>
   </td></tr>
@@ -219,7 +219,7 @@ export function buildClientAssignedEmailHtml(opts = {}) {
 
   return `
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
-  <tr><td style="padding:28px 28px 8px;">
+  <tr><td class="email-content-cell" style="padding:28px 28px 8px;">
     <p style="margin:0 0 10px;font-size:18px;font-weight:700;color:${escapeHtml(primary)};">Hello,</p>
     <h1 style="margin:0 0 14px;font-size:22px;line-height:1.25;font-weight:800;color:#0f172a;">New client on your caseload</h1>
     <p style="margin:0 0 14px;font-size:15px;line-height:1.55;color:#334155;">
@@ -232,7 +232,7 @@ export function buildClientAssignedEmailHtml(opts = {}) {
     </p>
     ${cta}
   </td></tr>
-  <tr><td style="padding:8px 28px 28px;">
+  <tr><td class="email-content-cell" style="padding:8px 28px 28px;">
     <p style="margin:0;font-size:13px;color:#94a3b8;">This is an automated message. Replies are not monitored.</p>
   </td></tr>
 </table>`;

@@ -64,7 +64,7 @@ export function createCancellationRecipientService(overrides = {}) {
     if (channel === 'sms') {
       // An older consent record must not override a newer intake decline for this phone.
       if (d.normalizePhone(consent.phoneNumber) === d.normalizePhone(address) && consent.sms !== true) return false;
-      return !!await d.smsConsent(agencyId, address);
+      return !!await d.smsConsent(agencyId, address, {clientId,recipientUserId:recipient.userId || undefined});
     }
     return consent.email !== false;
   }

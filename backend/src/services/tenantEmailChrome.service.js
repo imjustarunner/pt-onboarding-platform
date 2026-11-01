@@ -1,3 +1,4 @@
+import { EMAIL_RESPONSIVE_STYLES } from '../utils/emailResponsiveLayout.js';
 /**
  * Tenant HTML email header/footer chrome.
  * Preferred: uploaded assets stored on agency_email_settings as /uploads/...
@@ -223,6 +224,7 @@ export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
     .replace(/<\/?head[^>]*>[\s\S]*?<\/head>/gi, '')
     .replace(/<\/?body[^>]*>/gi, '');
 
+  const ownLayout = officeLayout || /^\s*<table\b/i.test(raw);
   const agencyName = escapeHtml(opts.agencyName || chrome.agencyName || '');
   const supportUrl = escapeHtml(
     opts.supportUrl || chrome.supportUrl || `${publicAppBaseUrl()}/support`
@@ -261,43 +263,23 @@ export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
     ? `<img src="${escapeHtml(headerUrl)}" alt="${agencyName}" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;margin:0 auto;padding:0;line-height:0;" />`
     : '';
 
-  // Photoshop-style overlay: zero-height layer first (Gmail honors
-  // max-height:0 + opacity:0.999 as a stacking context), then the same
-  // full-width <img> as v4 so art keeps its natural aspect ratio.
-  const footerEsc = escapeHtml(footerUrl);
-  const footerBlock = footerUrl
-    ? `<td style="padding:0;margin:0;background:#ffffff;" align="center" data-tenant-email-footer="1">
-        <div style="max-height:0;position:relative;opacity:0.999;overflow:visible;">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;width:100%;max-width:600px;margin:0 auto;">
-            <tr>
-              <td width="28%" style="width:28%;font-size:0;line-height:0;">&nbsp;</td>
-              <td width="44%" align="center" valign="top" style="width:44%;padding:78px 4px 0;text-align:center;vertical-align:top;">
-                ${footerLinks}
-              </td>
-              <td width="28%" style="width:28%;font-size:0;line-height:0;">&nbsp;</td>
-            </tr>
-          </table>
-        </div>
-        <img src="${footerEsc}" alt="" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;margin:0 auto;padding:0;line-height:0;" />
-      </td>`
-    : `<td style="padding:18px 24px;background:#ffffff;text-align:center;">${footerLinks}
-        ${
-          website || agencyName || phone
-            ? `<div style="padding:6px 12px 0;color:#334155;font-size:11px;font-family:Arial,Helvetica,sans-serif;">${website || agencyName}${phone ? ` · ${phone}` : ''}</div>`
-            : ''
-        }
-      </td>`;
+  // Links follow the artwork in normal flow. A fixed-height overlay collides
+  // with scaled footer art on phones and when the user enlarges text.
+  const footerBlock = `<td style="padding:0;margin:0;background:#ffffff;" align="center" data-tenant-email-footer="1">
+    ${footerUrl ? `<img src="${escapeHtml(footerUrl)}" alt="" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;margin:0;padding:0;" />` : ''}
+    <div style="padding:18px 16px">${footerLinks}${website || agencyName || phone ? `<div style="padding-top:8px;color:#334155;font:12px/1.6 Arial,Helvetica,sans-serif;overflow-wrap:anywhere">${website || agencyName}${phone ? ` · ${phone}` : ''}</div>` : ''}</div>
+  </td>`;
 
   return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>${officeLayout ? '<style>@media only screen and (max-width:600px){.office-email-frame{padding:0 0 16px!important}.office-email-body{padding:12px!important}}</style>' : ''}</head>
-<body style="margin:0;padding:0;background:#eef2f6;" data-tenant-email-chrome="1">
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>${EMAIL_RESPONSIVE_STYLES}</head>
+<body style="margin:0;padding:0;background:#eef2f6;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.6;" data-tenant-email-chrome="1">
   <!-- tenant-email-chrome -->
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;background:#eef2f6;margin:0;padding:0;">
     <tr>
-      <td align="center"${officeLayout ? ' class="office-email-frame"' : ''} style="padding:${officeLayout ? '8px 4px 20px' : '8px 12px 20px'};">
-        <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;width:100%;max-width:600px;background:#ffffff;margin:0 auto;padding:0;">
+      <td align="center" class="email-frame" style="padding:8px 8px 20px;">
+        <table role="presentation" class="email-card" width="600" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;width:100%;max-width:600px;background:#ffffff;margin:0 auto;padding:0;">
           ${headerBlock ? `<tr><td style="padding:0;margin:0;line-height:0;font-size:0;">${headerBlock}</td></tr>` : ''}
-          <tr><td${officeLayout ? ' class="office-email-body"' : ''} style="padding:${officeLayout ? '6px 12px 10px' : '6px 24px 10px'};margin:0;background:#ffffff;vertical-align:top;">${raw}</td></tr>
+          <tr><td class="email-body${ownLayout ? ' email-body-owned' : ''}" style="padding:${ownLayout ? '0' : '20px 24px'};margin:0;background:#ffffff;vertical-align:top;overflow-wrap:anywhere;">${raw}</td></tr>
           <tr>${footerBlock}</tr>
         </table>
       </td>

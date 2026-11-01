@@ -37,7 +37,7 @@ describe('reviewed cancellation recipients', () => {
     expect(await h.service.permitted(8, 2, recipient, 'sms')).toBe(false);
     h.d.smsConsent.mockResolvedValue({ collectedAt: '2030-01-01' });
     expect(await h.service.permitted(8, 2, recipient, 'sms')).toBe(true);
-    expect(h.d.smsConsent).toHaveBeenLastCalledWith(2, '+15555550112');
+    expect(h.d.smsConsent).toHaveBeenLastCalledWith(2, '+15555550112', {clientId:8,recipientUserId:12});
     h.d.consent.mockResolvedValueOnce({ email:true, emailAddress:'parent@example.test', phoneNumber:recipient.phone, sms:false });
     expect(await h.service.permitted(8, 2, recipient, 'sms')).toBe(false);
     h.d.preferences.mockResolvedValue({ schedulingChangesEnabled: false });

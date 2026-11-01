@@ -1,0 +1,73 @@
+ADDITIONAL QA PLAN — NOVEMBER 1, 2026
+Shared mobile email spacing and support-recorded verbal appointment-text consent
+
+Applies to shared application workflows, not only to the demo tenant. Use the
+existing scoped synthetic fixtures and controlled inbox/approved phones for QA.
+This plan is not a claim of completed live delivery or consent from any person.
+
+EMAIL LAYOUT
+- Trigger one actual caseload email matching the reported phone screenshot.
+  Inspect its real receipt on a phone. Header art uses the available column;
+  the message has a single readable gutter rather than nested narrow padding.
+- Check portal enrollment, school, billing, guardian/contact and secure-message
+  variants using their current permitted workflow. Preserve sender, Reply-To,
+  language, recipient, branding and action. Do not resend already received mail.
+- At 320, 390 and 430 CSS pixels: no horizontal scrolling, clipped buttons or
+  compressed brand/agency names. Clinical portal headers stack their two brands.
+  Check long names/addresses, enlarged text, images blocked and desktop width.
+- Signature details remain readable; the secondary brand moves below on phones.
+  Footer links follow the art in normal flow and must not overlap it.
+- Engineering rendered shared caseload, portal and contact examples at these
+  phone widths and 800px desktop. Real Gmail/Outlook receipt remains a separate
+  check. Existing already-sent emails will not change.
+
+SUPPORT VERBAL-CONSENT WORKFLOW
+- In a client's Overview, support/admin can open Appointment text reminders.
+  No clinical-note access or role promotion is needed. School staff, providers,
+  guardians and another agency's support account cannot use this staff action.
+- Choose one eligible saved guardian/client phone, verify recipient identity,
+  appointment authority and control of that exact phone. Adult clients may use
+  their own saved contact phone without creating a portal account. A minor's
+  unrelated/unverified contact must not be treated as an authorized guardian.
+- Staff read the displayed disclosure, record phone call/in-person and actual
+  consent time, and attest that the recipient verbally agreed. This creates a
+  named staff attestation, never a substitute recipient signature. The entry
+  window is seven days; older consent evidence needs review.
+- For synthetic testing use an explicitly simulated conversation; do not claim
+  any real parent gave consent. Do not manufacture consent in live family data.
+- When the reminder program is ready, saving enables this recipient's appointment
+  text preference and creates phone/client/recipient-bound permission evidence.
+  Other guardians, email selections, billing, marketing and secure care-message
+  permissions must not change. Shared-phone sibling grants remain distinct.
+- Activation requires the agency's actual approved/linked Notifyre reminder
+  sender and approval of verbal reminder script version2026-11-01.1. An existing
+  agency administrator records carrier verification in Campaign registration
+  and consent; support cannot declare carrier approval. Saving that flag is
+  not a carrier submission. Do not check it simply to pass this test.
+- If setup is unavailable, save the attestation as pending and explicitly show
+  that texts remain off. Do not use a workforce sender as a substitute.
+- After activation inspect the one subscription confirmation in actual receipt
+  evidence. Accepted/queued is not delivered. A failed/uncertain confirmation
+  requires delivery review; an HTTP retry must not send it a second time.
+- STOP always blocks activation. Staff editing/attestation cannot clear STOP.
+  Only the registered recipient restart flow can clear campaign suppression.
+- Change/revoke the selected recipient or phone and test an old due reminder.
+  Old verbal permission must not follow a replacement phone or another client.
+  A newer recipient decline must not be overridden by older verbal evidence.
+- Recheck actual due reminder and cancellation paths, including parent-specific
+  choices. No phone reminder is sent simply because a checkbox was saved.
+- Reconcile immutable SMS consent events and staff audit rows: actor, client,
+  recipient, phone suffix, disclosure/version, time, activation and confirmation
+  result. An audit-write failure must roll back consent/preference activation.
+
+CURRENT ENGINEERING OBSERVATION
+Read-only check found no reminder-purpose SMS sender registration for agencies
+2,450,451,452. This does not certify readiness of any other agency. No live
+consent, preference, carrier configuration or recipient was changed in this work.
+No schema migration is required; existing SMS evidence and preference tables are
+used. Keep carrier/BAA/environment readiness as an explicit live-test prerequisite.
+
+REFERENCE
+Notifyre's registration guidance includes verbal opt-in and requires the script
+and opt-in disclosures as campaign evidence:
+https://support.notifyre.com/how-to-register-your-10dlc-campaign

@@ -391,10 +391,10 @@ export async function loadClientConsent(clientId, agencyId, recipientGuardianUse
     if (recipientGuardianUserId && !recipientGuardian) return { email:false, sms:false, phone:false };
     const cp = await latestIntakeCommunicationChoices(clientId, agencyId, recipientGuardianUserId);
     const signed = cp?.version === INTAKE_COMMUNICATION_VERSION && cp?.signatureAccepted && cp?.signedAt;
-    const phoneNumber = (signed ? cp.recipientPhone : null) || (recipientGuardianUserId ? recipientGuardian.phone : c.phone || c.guardian_phone) || null;
-    const recorded = await recordedReminderConsent(agencyId, phoneNumber);
+    const phoneNumber = (recipientGuardianUserId ? recipientGuardian.phone : c.phone || c.guardian_phone) || (signed ? cp.recipientPhone : null) || null;
+    const recorded = await recordedReminderConsent(agencyId, phoneNumber, {clientId,recipientUserId:recipientGuardianUserId || undefined});
     const declinedAt = cp?.signedAt || cp?.submittedAt;
-    const laterSignedConsent = recorded && declinedAt && Date.parse(recorded.collectedAt) > new Date(declinedAt).getTime();
+    const laterReviewedConsent = recorded && declinedAt && Date.parse(recorded.collectedAt) > new Date(declinedAt).getTime();
     const matchingGuardians = guardians.filter(g => Number(g.access_enabled) === 1 && PhoneNumber.normalizePhone(g.phone)
       && PhoneNumber.normalizePhone(g.phone) === PhoneNumber.normalizePhone(phoneNumber));
     const emailAddress = signed && cp.recipientEmail ? cp.recipientEmail : recipientGuardianUserId ? recipientGuardian.email : c.email || c.guardian_email || null;
@@ -405,7 +405,7 @@ export async function loadClientConsent(clientId, agencyId, recipientGuardianUse
       guardianUserId,
       intakeChoice: cp?.smsPreference || null,
       email: emailChoice ? emailChoice.email : cp?.emailPreference === 'no' ? false : recipientGuardianUserId && cp?.emailPreference ? true : c.session_email_opt_in == null ? true : Number(c.session_email_opt_in) === 1,
-      sms: cp?.smsPreference === 'no' ? !!laterSignedConsent : !!recorded || (signed ? cp.smsPreference === 'scheduling_only' : Number(c.session_sms_opt_in) === 1),
+      sms: cp?.smsPreference === 'no' ? !!laterReviewedConsent : !!recorded || (signed ? cp.smsPreference === 'scheduling_only' : Number(c.session_sms_opt_in) === 1),
       phone: Number(c.session_phone_opt_in) === 1,
       emailAddress,
       phoneNumber

@@ -1,3 +1,4 @@
+import { EMAIL_RESPONSIVE_STYLES } from '../utils/emailResponsiveLayout.js';
 /**
  * Email HTML helpers for Messages Hub.
  * Outbound hub Email uses a content fragment (no outer card) so tenant chrome
@@ -294,17 +295,17 @@ export function buildBrandedMessageEmailHtml(opts = {}) {
     : '';
 
   return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>${EMAIL_RESPONSIVE_STYLES}</head>
 <body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f8fafc;padding:24px 12px;">
-    <tr><td align="center">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f8fafc;">
+    <tr><td align="center" class="email-frame" style="padding:12px 8px;">
       <table role="presentation" width="100%" style="max-width:640px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e2e8f0;">
         <tr><td style="background:${primary};color:#fff;padding:18px 22px;">
           ${logo}
           <div style="font-size:18px;font-weight:800;letter-spacing:-0.02em;">${agencyName}</div>
           ${location ? `<div style="opacity:0.9;font-size:13px;margin-top:4px;">${location}</div>` : ''}
         </td></tr>
-        <tr><td style="padding:22px;">
+        <tr><td class="email-content-cell" style="padding:24px;">
           <div style="font-weight:700;color:#0f172a;font-size:15px;margin-bottom:4px;">${sender}${agencyName ? ` @ ${agencyName}` : ''}${location ? `, ${location}` : ''}</div>
           ${title ? `<div style="color:#64748b;font-size:13px;margin-bottom:14px;">${title}</div>` : '<div style="height:10px"></div>'}
           <div style="color:#1e293b;font-size:15px;line-height:1.55;margin-bottom:18px;">${body}</div>

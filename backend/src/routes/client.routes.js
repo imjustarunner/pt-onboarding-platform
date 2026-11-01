@@ -1,3 +1,4 @@
+import {getStaffReminderConsent,saveStaffReminderConsent} from '../controllers/staffVerbalReminderConsent.controller.js';
 import * as clientPortalInvites from '../controllers/clientPortalInvites.controller.js';
 import { listClientNotificationHistory } from '../controllers/clientNotificationHistory.controller.js';
 import { listClientSecureMessages, getClientSecureMessage } from '../controllers/clientSecureMessages.controller.js';
@@ -258,6 +259,8 @@ router.put('/:id/clinical-responses', excludeSupportClinicalContent, updateClien
 
 // Insurance card images from intake (provider/admin) — streamed (decrypts if encrypted)
 router.get('/:id/care-billing-summary', getClientCareBillingSummary);
+router.get('/:id/reminder-text-consent', requireActiveStatus, getStaffReminderConsent);
+router.post('/:id/reminder-text-consent', requireActiveStatus, saveStaffReminderConsent);
 router.get('/:id/account-support', requireActiveStatus, getClientAccountSupport);
 router.get('/:id/operational-status', requireActiveStatus, getClientOperationalStatus);
 router.get('/:id/account-support/insurance', requireActiveStatus, getSupportClientInsurance);
