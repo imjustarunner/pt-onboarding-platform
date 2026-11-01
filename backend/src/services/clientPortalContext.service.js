@@ -75,8 +75,8 @@ export async function resolveClientPortalSender(tenantId) {
 /** Public enrollment has client types before a guardian session exists. */
 export function intakeClientPortal(agency, {clients=[],channel,school=false}={}) {
   const type=String(clients.find(c=>c?.client_type)?.client_type||'').toLowerCase();
-  const clinical=type?['clinical','mental_health','school'].includes(type):
-    ['tutoring','learning','coaching','consulting'].includes(channel)?false:
+  const clinical=['tutoring','learning','coaching','consulting'].includes(channel)?false:
+    type?['clinical','mental_health','school'].includes(type):
       school||['counseling','clinical','office'].includes(channel)||getMedicalBillingFlags(agency?.feature_flags||{}).clinicalChartEnabled;
   return {...agency,clinical_portal:!!clinical};
 }

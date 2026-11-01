@@ -113,15 +113,19 @@ export async function buildPublicFormBranding(ctx = {}) {
   const organizationLogoUrl = resolveOrgLogoUrl(organization, { baseUrl });
   const brandingLogoUrl = resolveOrgLogoUrl(brandingOrg, { baseUrl });
 
+  const learningSurface = ['tutoring','learning'].includes(ctx.enrollmentChannel)
+    || (!ctx.enrollmentChannel && String(portalOrg?.organization_type||'').toLowerCase()==='learning');
+  const clinicalOffice = !learningSurface && getMedicalBillingFlags(portalOrg?.feature_flags || {}).clinicalChartEnabled;
   return {
     // School coordination and clinical records are separate product roles.
-    schoolCareBridge: ['school', 'program', 'learning'].includes(String(organization?.organization_type || '').toLowerCase()),
-    enrollmentProduct: ['tutoring','coaching','consulting'].includes(ctx.enrollmentChannel) ? 'tenant' : ['school', 'program', 'learning'].includes(String(organization?.organization_type || '').toLowerCase())
+    schoolCareBridge: !learningSurface && ['school', 'program'].includes(String(organization?.organization_type || '').toLowerCase()),
+    enrollmentProduct: (learningSurface || ['coaching','consulting'].includes(ctx.enrollmentChannel)) ? 'tenant' : ['school', 'program', 'learning'].includes(String(organization?.organization_type || '').toLowerCase())
       ? 'auricwell'
       : (getMedicalBillingFlags(portalOrg?.feature_flags || {}).clinicalChartEnabled ? 'auricwell' : 'tenant'),
     // Use the office owner's EHR entitlement, never an inherited parent theme.
-    officeProduct: getMedicalBillingFlags(portalOrg?.feature_flags || {}).clinicalChartEnabled ? 'auricwell' : 'tenant',
-    officeOrigin: getMedicalBillingFlags(portalOrg?.feature_flags || {}).clinicalChartEnabled
+    officeProduct: clinicalOffice ? 'auricwell' : 'tenant',
+    tenantOfficeOrigin: new URL(buildPublicPortalBaseUrl(portalOrg)).origin,
+    officeOrigin: clinicalOffice
       ? 'https://auricwell.com' : new URL(buildPublicPortalBaseUrl(portalOrg)).origin,
     brandingAgencyId: brandingOrg?.id || null,
     legalOrganizationSlug: agency?.slug || agency?.portal_url || portalOrg?.slug || portalOrg?.portal_url || null,
@@ -168,7 +172,7 @@ export async function buildPublicFormBrandingForAgencyId(agencyId, opts = {}) {
   const id = Number(agencyId || 0);
   if (!id) return buildPublicFormBranding({ baseUrl: opts.baseUrl });
   const agency = await Agency.findById(id);
-  return buildPublicFormBranding({ organization: agency, agency, baseUrl: opts.baseUrl });
+  return buildPublicFormBranding({ organization: agency, agency, baseUrl: opts.baseUrl, enrollmentChannel: opts.enrollmentChannel });
 }
 
 export function requestBaseUrl(req) {

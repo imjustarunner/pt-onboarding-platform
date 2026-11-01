@@ -1,4 +1,5 @@
 import Agency from '../models/Agency.model.js';
+import {isNluTutoringQaAgency,allowNluQaTutor} from '../utils/nluTutoringQaPolicy.js';
 import { isAuricwellQaAgency, allowQaExchangeRecipient } from '../utils/auricwellQaPolicy.js';
 import { readPublicSnapshot } from '../services/publicReadSnapshot.service.js';
 import {slotAllowsCare} from '../utils/availabilityCareTypes.js';
@@ -486,9 +487,10 @@ async function getEnrolledProviderIds(agencyId, serviceType) {
 }
 
 export async function listEnrolledProviders(agencyId, serviceType, {includeDirectory=false}={}) {
-  const qaAgency = Number(agencyId) === 450 ? await Agency.findById(agencyId) : null;
-  const includeDemo = isAuricwellQaAgency(qaAgency);
-  const visible = row => includeDemo ? allowQaExchangeRecipient(qaAgency, row) : Number(row.is_demo) !== 1;
+  const qaAgency = [450,453,454].includes(Number(agencyId)) ? await Agency.findById(agencyId) : null;
+  const tutoringQa=isNluTutoringQaAgency(qaAgency) && serviceType==='tutoring';
+  const includeDemo = isAuricwellQaAgency(qaAgency)||tutoringQa;
+  const visible = row => tutoringQa ? allowNluQaTutor(qaAgency,row) : includeDemo ? allowQaExchangeRecipient(qaAgency, row) : Number(row.is_demo) !== 1;
   const serviceEnabled=(await getAgencyServiceTypes(agencyId)).some(s=>s.service_type===serviceType);
   // A clinical directory and school schedule remain public when online booking is not configured.
   if(!serviceEnabled && !(includeDirectory && serviceType==='counseling')) return [];

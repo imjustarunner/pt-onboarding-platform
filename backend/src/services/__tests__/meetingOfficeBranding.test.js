@@ -21,3 +21,9 @@ it('does not inherit EHR branding from an affiliated agency with a shared theme'
  const branding=await buildPublicFormBranding({agency:{...agency,feature_flags:{medicalBillingEnabled:true}},organization:{id:3,name:'Learning',slug:'learning',organization_type:'learning',custom_domain:'learn.example',feature_flags:{}}});
  expect(branding.officeProduct).toBe('tenant');expect(branding.officeOrigin).toBe('https://learn.example');
 });
+
+it('keeps a tutoring visit with NLU even when the tenant also offers clinical services',async()=>{
+ const branding=await buildPublicFormBranding({agency:{...agency,slug:'nlu',custom_domain:'app.nextleveluplcc.com',feature_flags:{medicalBillingEnabled:true}},enrollmentChannel:'tutoring'});
+ expect(branding.officeProduct).toBe('tenant');expect(branding.enrollmentProduct).toBe('tenant');expect(branding.schoolCareBridge).toBe(false);
+ expect(branding.officeOrigin).toBe('https://app.nextleveluplcc.com');
+});

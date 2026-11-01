@@ -17,7 +17,7 @@ it('welcomes two dependents into one portal without exposing their full names',(
 });
 it('adds tutoring to an existing account without asking for another password',()=>{
  const message=buildClientEnrollmentEmail({agencyName:'Next Level Up',clients:[{full_name:'Jordan Bennett'}],learning:true,existingAccount:true,url});
- expect(message.text).toContain('tutoring information');expect(message.text).toContain('same account you use for AuricWell');expect(message.text).not.toContain('Set your password');
+ expect(message.text).toContain('tutoring information');expect(message.text).toContain('Next Level Up tutoring portal');expect(message.text).not.toContain('AuricWell');expect(message.text).not.toContain('Set your password');
  const brand=enrollmentMailBrand({agency:{name:'Next Level Up',slug:'nlu'},domain:'nextleveluplcc.com',channel:'tutoring'});
  const html=renderPortalEmail({brand,...message});expect(html).toContain('assets/nlu/logo.png');expect(html).not.toContain('Michael Mendez');
 });
@@ -38,4 +38,14 @@ it.each(['ITSCO · Billing','Next Level Up · Billing','Méndez, Michael','Suppo
  const message=buildMimeMessage({from:`${name} <billing@example.test>`,to:'parent@example.test',subject:'Billing',text:'Test'});
  const parsed=await simpleParser(message);
  expect(parsed.from.value[0]).toEqual({name,address:'billing@example.test'});
+});
+
+it('keeps tutoring message notices and their footer with the tutoring portal',()=>{
+ const message=buildSecureMessageEmail({agencyName:'Next Level Up',clinical:false,url:'https://app.nextleveluplcc.com/guardian'});
+ expect(message.subject).toContain('Next Level Up');expect(JSON.stringify(message)).not.toContain('AuricWell');
+});
+it('does not inherit a mixed tenant clinical email frame for an explicit learning channel',()=>{
+ const brand=enrollmentMailBrand({agency:{name:'Next Level Up',slug:'nlu',feature_flags:{medicalBillingEnabled:true}},domain:'nextleveluplcc.com',channel:'learning'});
+ expect(brand.clinical).toBe(false);expect(brand.displayName).toBe('Next Level Up Portal');
+ expect(renderPortalEmail({brand,text:'Review your learning progress.'})).not.toContain('AuricWell');
 });

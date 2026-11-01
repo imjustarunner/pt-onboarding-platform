@@ -20,3 +20,10 @@ it('clears draft screenshots and ignores another profile’s late response after
 it('blocks over-limit screenshots before a submission',async()=>{
  const w=create();await w.get('textarea').setValue('The download failed.');const input=w.get('input[type=file]');Object.defineProperty(input.element,'files',{value:[1,2,3,4].map(()=>new File(['image'],'screen.png',{type:'image/png'}))});await input.trigger('change');await w.get('form').trigger('submit');await flushPromises();expect(mocks.post).not.toHaveBeenCalled();expect(w.text()).toContain('Choose up to three');w.unmount();
 });
+
+it('uses the tutoring tenant identity and learning wording without clinical product branding',()=>{
+ const w=mount(Guide,{props:{agencyId:6,clientId:8,brandName:'Next Level Up',learning:true},global:{stubs:{RouterLink:{template:'<a><slot /></a>'}}}});
+ expect(w.attributes('aria-label')).toBe('About your Next Level Up portal');
+ expect(w.text()).toContain('Next Level Up');expect(w.text()).toContain('learning plans');
+ expect(w.text()).not.toMatch(/AuricWell|care record|Beta/);expect(w.find('#learning-portal-guide').exists()).toBe(true);w.unmount();
+});

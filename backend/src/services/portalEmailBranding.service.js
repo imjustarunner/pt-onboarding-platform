@@ -10,7 +10,7 @@ const publicUrl = value => {
 };
 
 export function enrollmentMailBrand({ agency, domain, school = false, channel = null, clinicalOverride }) {
-  const clinical = clinicalOverride ?? (!['tutoring', 'coaching', 'consulting'].includes(channel)
+  const clinical = clinicalOverride ?? (!['tutoring', 'learning', 'coaching', 'consulting'].includes(channel)
     && (school || getMedicalBillingFlags(agency?.feature_flags || {}).clinicalChartEnabled));
   const name = agency.official_name || agency.name;
   const rawLogo = agency.logo_url || agency.logo_path || agency.icon_file_path;

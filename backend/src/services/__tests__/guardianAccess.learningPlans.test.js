@@ -18,7 +18,7 @@ beforeEach(() => {
     goals: [{ id: 8, title: 'Reading fluency', status: 'developing', metadata_json: { guardianRatingQuestion: 'How confident is your child/dependent with reading, from 1 (not at all) to 10 (very)?', guardianRatingQuestionVerifiedBy: 4, guardianRatingQuestionVerifiedAt: '2026-10-01' } }], objectives: [] };
   Plan.getPlanBundle.mockImplementation(async () => bundle);
   pool.execute.mockImplementation(async sql => {
-    if (sql.includes('SELECT id,title FROM student_learning_plans')) return [[{ id: 3, title: 'Reading' }]];
+    if (sql.includes('FROM student_learning_plans p')) return [[{ id: 3, title: 'Reading' }]];
     if (sql.includes('FROM guardian_learning_plan_ratings')) return [[{ id: 5, plan_goal_id: 8, scale_value: 4, rated_at: '2026-10-03' }]];
     if (sql.includes('SELECT * FROM guardian_learning_plan_reviews')) return [[{ id: 20 }]];
     if (sql.includes('FROM guardian_learning_plan_reviews')) return [[{ id: 20, signed_at: null }]];

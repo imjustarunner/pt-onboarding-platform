@@ -22,7 +22,7 @@ describe('NLU pilot forms',()=>{
   await w.get('[data-question=attempted] input').setValue('0');expect(w.emitted('update:modelValue').at(-1)[0].attempted).toBe('0');w.unmount();
  });
  it('requests the client-scoped catalog and submits caregiver identity without changing the answers',async()=>{
-  const w=mount(Panel,{props:{clientId:41}});await flushPromises();
+  const w=mount(Panel,{props:{clientId:41},global:{stubs:{ClinicalScreenerLink:true}}});await flushPromises();
   expect(api.get).toHaveBeenCalledWith('/outcome-measures/catalog',{params:{clientId:41}});
   await w.findAll('.measure-cards button')[1].trigger('click');
   expect(w.get('.record-controls select').element.value).toBe('caregiver');

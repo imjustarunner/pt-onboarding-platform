@@ -1,16 +1,16 @@
 import {beforeEach,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),settings:vi.fn(),context:vi.fn(),send:vi.fn(),user:vi.fn(),setup:vi.fn(),event:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),settings:vi.fn(),context:vi.fn(),send:vi.fn(),user:vi.fn(),setup:vi.fn(),event:vi.fn(),agency:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
 vi.mock('../emailSettings.service.js',()=>({getAgencyEmailSettings:m.settings}));
 vi.mock('../clientPortalEmail.service.js',()=>({clientEmailContext:m.context,sendClientPortalEmail:m.send}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:vi.fn(),sendNotificationEmail:vi.fn()}));
 vi.mock('../../models/User.model.js',()=>({default:{findById:m.user,generatePasswordlessToken:m.setup}}));
-vi.mock('../../models/Agency.model.js',()=>({default:{findById:async()=>({id:2,name:'ITSCO',slug:'itsco'})}}));
+vi.mock('../../models/Agency.model.js',()=>({default:{findById:m.agency}}));
 vi.mock('../secureMessageBoundary.service.js',()=>({recordSecureMessageEvent:m.event}));
-import {sendSecureMessageNotification,buildSecureClaimRedirect,resolveClientContextForMessageNotify} from '../secureMessageNotify.service.js';
+import {sendSecureMessageNotification,buildSecureClaimRedirect,resolveClientContextForMessageNotify,sendLearningClientMessageEmail} from '../secureMessageNotify.service.js';
 const input={agencyId:2,senderUserId:1001,recipientUserId:1411,recipientEmail:'guardian@example.com',clientId:2240,chatThreadId:44,messageId:77};
 beforeEach(()=>{
- vi.resetAllMocks();m.settings.mockResolvedValue({secureClientMessageEmailEnabled:true});
+ vi.resetAllMocks();m.agency.mockResolvedValue({id:2,name:'ITSCO',slug:'itsco'});m.settings.mockResolvedValue({secureClientMessageEmailEnabled:true});
  m.execute.mockImplementation(async sql=>sql.includes('SELECT id, LOWER')?[[{id:2240,client_type:'clinical'}]]:[{insertId:12,affectedRows:1}]);
  m.context.mockResolvedValue({clinical:true,domain:'itsco.health',brand:{replyTo:'support@itsco.health'},url:path=>'https://auricwell.com/itsco/'+path});
  m.user.mockResolvedValue({id:1411,first_name:'Demo',password_hash:'set'});m.send.mockResolvedValue({id:'gmail-id',communicationId:8});
@@ -56,4 +56,15 @@ it('does not call an adult self account a dependent',async()=>{
  await sendSecureMessageNotification(input);
  expect(m.send.mock.calls[0][0].text).toContain('your secure conversation');
  expect(m.send.mock.calls[0][0].text).not.toContain("your dependent's account");
+});
+
+it('keeps ordinary tutoring message links in the NLU parent portal and does not report a held send as sent',async()=>{
+ const {sendNotificationEmail}=await import('../unifiedEmail/unifiedEmailSender.service.js');
+ m.agency.mockResolvedValue({id:6,slug:'nlu',name:'Next Level Up'});
+ sendNotificationEmail.mockResolvedValue({id:'accepted'});
+ expect(await sendLearningClientMessageEmail({...input,messageBody:'Synthetic tutoring practice is ready.'})).toMatchObject({sent:true});
+ const mail=sendNotificationEmail.mock.calls[0][0];
+ expect(mail.text).toContain('https://app.nextleveluplcc.com/guardian?panel=messages');expect(mail.text).toContain('threadId=44');expect(mail.text).not.toContain('auricwell');
+ sendNotificationEmail.mockResolvedValue({id:'held',pendingApproval:true});
+ expect(await sendLearningClientMessageEmail(input)).toMatchObject({sent:false});
 });

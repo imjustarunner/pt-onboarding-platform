@@ -399,3 +399,10 @@ PL41–PL46 — One real workflow example per meaningful type/recipient variant
 - For every row use PASS / FAIL / BLOCKED / NOT RUN with a concrete finding.
   Setup material generation is not a live application, real-worker delivery,
   legal employment, verified clinical credential or complete Plotline QA pass.
+
+RELATED FOLLOW-ON TEST
+- Tutoring has a separate complete assignment and synthetic materials:
+  QA-ADDENDUM-2026-11-01-NLU-TUTORING-END-TO-END.txt and
+  fixtures/tutoring-2026-11-01/README.txt. It uses NLU QA453/454 and NLU
+  parent/tutoring branding, not this AuricWell/ITSCOLLC QA tenant. Coordinate
+  the combined client/provider caps; preserve these Plotline applicants.

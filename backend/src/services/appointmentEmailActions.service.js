@@ -32,7 +32,7 @@ export async function createAppointmentEmailLink({appointment,clientId,to,contex
   await pool.execute(`INSERT INTO appointment_email_actions(token_hash,appointment_id,agency_id,client_id,guardian_user_id,recipient_hash,appointment_start,appointment_end,expires_at)
     VALUES(?,?,?,?,?,?,?,?,?)`,[hash(token),appointment.id,appointment.agencyId,clientId,guardian.id,emailHash(to),dateToMysqlUtcDateTime(start),dateToMysqlUtcDateTime(end),dateToMysqlUtcDateTime(expires)]);
   // Backend-rendered form: no login and no changes on GET/link prefetch.
-  context ||= await clientEmailContext({agencyId:appointment.agencyId,clientId});
+  context ||= await clientEmailContext({agencyId:appointment.agencyId,clientId,...(['learning','tutoring'].includes(String(appointment.businessType||appointment.business_type||'').toLowerCase())?{learning:true}: {})});
   return appointmentResponseUrl(token,context);
 }
 
@@ -53,7 +53,7 @@ export async function appointmentEmailActionContext(token,db=pool) {
   const [[participant]]=await db.execute('SELECT id FROM appointment_participants WHERE appointment_id=? AND client_id=?',[appt.id,row.client_id]);
   if(!participant) throw fail('This appointment link is no longer available.');
   const setting=await resolveAppointmentServiceSetting(appt);
-  const context=await clientEmailContext({agencyId:row.agency_id,clientId:row.client_id});
+  const context=await clientEmailContext({agencyId:row.agency_id,clientId:row.client_id,...(['learning','tutoring'].includes(String(appt.businessType||appt.business_type||'').toLowerCase())?{learning:true}: {})});
   return {row,appt,setting,context};
 }
 
@@ -89,7 +89,7 @@ export async function submitAppointmentEmailAction(token,action) {
 }
 
 export async function buildAppointmentEmail({appointment,clientId,to,kind='reminder',actionUrl,schoolOptOut}) {
-  const context=await clientEmailContext({agencyId:appointment.agencyId,clientId});
+  const context=await clientEmailContext({agencyId:appointment.agencyId,clientId,...(['learning','tutoring'].includes(String(appointment.businessType||appointment.business_type||'').toLowerCase())?{learning:true}: {})});
   const setting=await resolveAppointmentServiceSetting(appointment);
   if(setting.isSchool && schoolOptOut===undefined) schoolOptOut=await createSchoolSessionEmailOptOutLink({agencyId:appointment.agencyId,clientId,to});
   const optOut=setting.isSchool && schoolOptOut ? schoolSessionEmailOptOutContent(schoolOptOut.url) : {text:'',html:''};

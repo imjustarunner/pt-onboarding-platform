@@ -6,9 +6,13 @@ import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 // Only call after resolving and authorizing an active office. Reuse the provider's
 // public biography, never account details, internal notes, or clinical records.
 export async function virtualOfficePresentation(room, req) {
+  const [[tutoring]] = room.id ? await pool.execute(`SELECT 1 AS active_tutoring FROM tutoring_office_encounters t
+    JOIN private_virtual_office_sessions s ON s.room_id=t.room_id AND s.generation=t.generation
+    WHERE t.room_id=? AND t.agency_id=? LIMIT 1`,[room.id,room.agencyId]) : [[null]];
   const [branding, profile, [people]] = await Promise.all([
     buildPublicFormBrandingForAgencyId(room.agencyId, {
-      baseUrl: process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL || requestBaseUrl(req)
+      baseUrl: process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_URL || requestBaseUrl(req),
+      ...(tutoring?.active_tutoring ? {enrollmentChannel:'tutoring'} : {})
     }),
     ProviderPublicProfile.getForProvider({ providerUserId: room.userId, agencyId: room.agencyId }),
     pool.execute('SELECT first_name,last_name,profile_photo_path,credential,title FROM users WHERE id=? LIMIT 1', [room.userId])

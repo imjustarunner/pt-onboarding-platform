@@ -101,7 +101,7 @@ export async function resolvePersonalReminderMailbox({identityId,fromEmail,addre
     FROM communication_thread_reminders n JOIN communication_inboxes i ON i.id=n.inbox_id
     JOIN email_sender_identities esi ON esi.id=i.sender_identity_id JOIN users u ON u.id=n.user_id
     JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=i.agency_id AND ua.is_active=1
-    WHERE i.agency_id=? AND (LOWER(u.personal_email)=? OR (i.agency_id IN (450,451,452) AND u.is_demo=1 AND ?='testing@itsco.health')) AND i.kind='personal' AND i.is_active=1
+    WHERE i.agency_id=? AND (LOWER(u.personal_email)=? OR (i.agency_id IN (450,451,452,453,454) AND u.is_demo=1 AND ?='testing@itsco.health')) AND i.kind='personal' AND i.is_active=1
       AND esi.is_active=1 AND u.is_active=1 AND COALESCE(u.is_archived,0)=0
       AND UPPER(u.status) IN ('ACTIVE','ACTIVE_EMPLOYEE','ONBOARDING') AND i.owner_user_id=n.user_id
       AND n.delivery_status='sent' AND (${clauses.join(' OR ')}) LIMIT 2`,params);

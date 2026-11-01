@@ -18,7 +18,7 @@ it('uses the same tutoring rate for reviewed hours',async()=>{
 });
 it('blocks approval before activation and without a rate',async()=>{
  await expect(tutoringClaimAmount({...claim,claim_date:'2026-10-13'})).rejects.toThrow('not effective');
- mocks.context.mockResolvedValue({enabled:false});await expect(tutoringClaimAmount(claim)).rejects.toThrow('active tutoring rate');
+ mocks.context.mockResolvedValue({enabled:false});await expect(tutoringClaimAmount(claim)).rejects.toThrow('active program service rate');
 });
 it('preserves omitted supplemental columns when another settings client saves a profile',async()=>{
  mocks.execute.mockResolvedValue([[]]);

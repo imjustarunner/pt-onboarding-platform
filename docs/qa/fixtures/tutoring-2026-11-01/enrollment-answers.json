@@ -1,0 +1,26 @@
+{
+  "primaryContact": "Morgan QA NLU-1101",
+  "preferredLanguage": "English",
+  "phone": "Leave blank unless required; no unapproved SMS or random number.",
+  "studentA": {
+    "program": "tutoring",
+    "grade": "5",
+    "subject": "Math",
+    "format": "virtual",
+    "goals": "Explain why denominators must match, then add fractions independently.",
+    "strengths": "Enjoys drawing models and explaining a strategy aloud.",
+    "schoolSupports": "Synthetic classroom uses fraction strips; no real IEP or diagnosis asserted.",
+    "accessNeeds": "Use clear written instructions and one problem at a time."
+  },
+  "studentB": {
+    "program": "tutoring",
+    "grade": "3",
+    "subject": "Reading",
+    "format": "in-person",
+    "goals": "Find a main idea and cite two details.",
+    "strengths": "Enjoys short nature stories and oral explanation.",
+    "schoolSupports": "Synthetic classroom practice only.",
+    "accessNeeds": "Allow a quiet minute to reread."
+  },
+  "consent": "Each persona makes their own selections in the actual form; no copied signatures, prechecked consent or automatic SMS enrollment."
+}

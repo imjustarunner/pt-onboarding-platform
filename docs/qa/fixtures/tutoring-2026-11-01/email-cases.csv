@@ -1,0 +1,13 @@
+email_case_id,case_id,type_to_verify,recipient_variant,status,actual_type,logical_to,physical_to,actual_from,actual_reply_to,action_ids,due_at,received_at_denver,utc_offset,transport_id,inbox_id,screenshot,finding
+TE01,TU06,Enrollment receipt/password setup,Parent; existing-account variant,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE02,TU09,Co-guardian invitation,Each permitted guardian separately,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE03,TU10,Password recovery,Exact tutoring identity,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE04,TU13,Appointment confirmation,Parent and assigned tutor,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE05,TU40,Actually due appointment reminder,Each authorized reminder recipient,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE06,TU15,Reschedule/change,Original recipients; suppress old reminder,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE07,TU36,Cancel/no-show,Each meaningful status and recipient,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE08,TU18,Learning-plan review notice,Each eligible parent own revision,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE09,TU39,Secure message waiting,Parent; tutor; app-only personal-forward variant,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE10,TU30,Homework/report shared,Only if a real worker/type exists,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE11,TU33,Statement/balance/payment receipt,Authorized payer only; sandbox where needed,NOT RUN,,,testing@itsco.health,,,,,,,,,,
+TE12,TU28,Completion/progress notice,Only if implemented; inspect catalog,NOT RUN,,,testing@itsco.health,,,,,,,,,,

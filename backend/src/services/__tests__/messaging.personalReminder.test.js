@@ -183,7 +183,7 @@ it('records a confirmed testing-inbox redirect for seeded forwarding as sent, wi
  sendEmailFromIdentity.mockResolvedValueOnce({id:'gmail-qa',redirected:true,testInboxRedirect:{agencyId:450,deliveredTo:['testing@itsco.health']}});
  expect(await runPersonalThreadReminders({now:new Date('2026-09-02T16:00:00Z')})).toMatchObject({sent:1});
  expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({to:row.personal_email,templateType:'personal_thread_forward'}));
- expect(pool.execute.mock.calls.find(([sql])=>sql.startsWith('SELECT c.id'))[0]).toContain('c.agency_id IN (450,451,452)');
+ expect(pool.execute.mock.calls.find(([sql])=>sql.startsWith('SELECT c.id'))[0]).toContain('c.agency_id IN (450,451,452,453,454)');
  expect(pool.execute.mock.calls.find(([sql])=>sql.startsWith('UPDATE communication_thread_reminders SET delivery_status=?'))[1][0]).toBe('sent');
 });
 it('routes a token-bound authenticated QA inbox reply as Avery, including a correspondent also redirected to testing',async()=>{

@@ -30,3 +30,11 @@ it('does not treat an unverified agency or malformed roster as permission to exp
   expect(await listDisclosureProviders({agencyId:450})).toEqual([]);
   expect(await listEnrolledProviders(450,'counseling')).toEqual([]);
 });
+
+it('includes only the exact synthetic NLU tutor for the NLU QA tutoring directory',async()=>{
+ Agency.findById.mockResolvedValue({id:453,slug:'nlu-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring'}}});
+ const tutor={...approved,id:1500,email:'qa.nlu.tutor@example.com'};
+ pool.execute.mockImplementation(async sql=>sql.includes('FROM agency_public_service_types')?[[{service_type:'tutoring',is_enabled:1}]]:sql.includes('FROM users u')?[[tutor,...roster]]:[[]]);
+ expect((await listEnrolledProviders(453,'tutoring')).map(p=>p.id)).toEqual([1500]);
+ expect(await listEnrolledProviders(453,'counseling')).toEqual([]);
+});

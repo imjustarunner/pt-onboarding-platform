@@ -14,3 +14,11 @@ it('only returns public provider fields and resolves uploaded tenant branding fo
  expect(m.branding).toHaveBeenCalledWith(2,{baseUrl:expect.any(String)});
  expect(JSON.stringify(room)).not.toMatch(/private@example|password|availabilityByAgency|selfPay/);
 });
+
+it('selects tutoring branding only from the authorized room current-generation link',async()=>{
+ m.execute.mockImplementation(async sql=>sql.includes('active_tutoring')?[[{active_tutoring:1}]]:[[{first_name:'QA',last_name:'Tutor'}]]);
+ m.profile.mockResolvedValue({details:{}});m.branding.mockResolvedValue({officeProduct:'tenant'});
+ expect((await virtualOfficePresentation({id:20,slug:'synthetic',userId:5,agencyId:6},{})).branding.officeProduct).toBe('tenant');
+ expect(m.branding).toHaveBeenCalledWith(6,expect.objectContaining({enrollmentChannel:'tutoring'}));
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('s.generation=t.generation'),[20,6]);
+});

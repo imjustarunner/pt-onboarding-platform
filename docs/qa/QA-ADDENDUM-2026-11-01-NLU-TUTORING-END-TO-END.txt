@@ -1,0 +1,274 @@
+ADDITIONAL QA PLAN — NOVEMBER 1, 2026
+NLU tutoring: enrollment to learning, family portal, completion and billing
+
+Append to the prior plans; preserve their open findings. This assignment covers
+THE tutoring flow, including its parent experience. Tutoring uses NLU/tenant
+branding and URLs, not an AuricWell enrollment, EHR or clinical parent portal.
+Shared implementation is acceptable; clinical identity or clinical authority
+must not follow a tutoring student into the learning experience.
+
+This is an app-based setup/test assignment. Engineering configuration exists;
+that is not a completed browser run, delivered email, paid session or validated
+assessment. Use PASS / FAIL / BLOCKED / NOT RUN with actual evidence.
+
+ENTRY, MATERIALS AND ALREADY-CREATED CONFIGURATION
+- Packet: docs/qa/fixtures/tutoring-2026-11-01/README.txt. It includes two small
+  PDF worksheets, private tutor answers, fictional intake/notes, plan/trend
+  examples, catalog/profile inputs, 47 cases and email/audit ledgers.
+- Dedicated NLU QA agency453: nlu-qa-demo, Next Level Up - SYNTHETIC QA.
+  Learning program454: nlu-qa-learning, affiliated only to that QA agency.
+- Intended sign-in: https://app.nextleveluplcc.com/nlu-qa-demo/login
+  Parent portal: https://app.nextleveluplcc.com/nlu-qa-demo/guardian
+  Public tutoring entry: /nlu-qa-demo/join/tutoring and /nlu-qa-demo/find-tutor
+  on app.nextleveluplcc.com. Use the actual app-generated links and record
+  redirects. Program454 uses /nlu-qa-learning when its program context applies.
+- Setup administrator1435 and support Jordan1434 have new active membership
+  in453/454; their existing roles, passwords and default agencies are unchanged.
+  Use the existing vault. Do not promote Jordan to admin or clinical provider.
+- NLU live agency6 supplied ONLY reusable configuration. Five pricing tiers
+  were copied; its empty packages list was supplemented with two synthetic
+  four-visit packages. No NLU users, students, learning records, credentials,
+  merchant accounts, cards, messages or signed material were copied.
+- Exact new service IDs318–321; form definitions349–351. Catalogs exist in453
+  and454. Audit row77611 records owner-authorized configuration creation, with
+  no impersonated clinician/staff actor. These records are setup evidence only.
+- Tutor, guardians, students, appointments and learning plans are NOT seeded.
+  fixtures.json intentionally has null live IDs for those actual app journeys.
+- The current tutor preset at NLU6 had no subjects/grades and no flat session
+  fee. Supply the explicit synthetic profile below; copying that incomplete
+  preset alone would not make matching or pricing testable.
+- Mail is physically testing@itsco.health only. Keep logical @example.com
+  identities separate in evidence. Verify the deployed NLU QA redirect/branding
+  fixes before sending; the existence of an agency row does not deploy code.
+- No edits to NLU6 or AuricWell QA450, school451 or clinic452. Existing clinical
+  notes, supervision, guardian identities and calendars remain evidence.
+
+0. BASELINE AND TUTOR READINESS — TU00–TU04
+
+- Record visible build, each actor and local America/Denver time with offset.
+  November1 crosses MDT/MST; do not label every event with the current offset.
+- Recount across the retained QA fixtures. Last check:450 had23 clients and4
+  provider-role users.453/454 began with0 clients/providers. Combined caps stay
+  30 unique QA clients and10 unique provider-role identities, including pending
+  applicants. Reserve the four Plotline applicant identities already planned.
+  This packet allows at most2 new students and1 new tutoring provider identity.
+- Search exact names/emails/marker QA-NLU1101 first. Reuse only an exact retained
+  synthetic identity without resetting it, changing its stage or repeating mail.
+- As1435 verify agency453/program454, learning/tutoring business types, feature
+  flags, catalog, form definitions and services through normal admin screens.
+  Medical billing, clinical chart/signing and medical claims are off. Do not
+  turn them on to obtain a tutoring screen. Record actual links and menu labels.
+- Create Finley QA NLU Tutor-1101, qa.nlu.tutor@example.com through normal user
+  setup/activation. The deployed user-role enum uses Provider for this surface;
+  it has no Tutor enum. Limit memberships to453/454 and assigned learning work.
+  No clinical credentials, clinical caseload, supervisor, medical-billing,
+  payroll-review or administrator rights. Never invent a license/NPI.
+- Complete required ordinary setup; use the delivered QA setup link, a new
+  password in the vault, and a separate tutor browser. Password save must not
+  bypass an incomplete/disabled staff account. Record the actual new user ID.
+- Add Math and Reading; grades3 and5; learning program tutoring. Use the
+  synthetic L4/master pricing inputs in catalog-and-tutor.json, clearly labeled
+  QA inputs rather than verified education/employment. Enable only the intended
+  formats and tutor availability, and enroll this tutor in tutoring discovery.
+- Verify learning-only entry/navigation and denied clinical records/security/
+  another agency access. A provider role alone is not clinical clearance.
+- Virtual office readiness: verify the normal plan includes a private office
+  and any required fictional-office access grant is bound to this exact tutor,
+  room and QA agency and unexpired. Use a supported admin/engineering fixture
+  path; the browser runner must not buy a real plan or edit SQL to bypass it.
+  If that setup is unavailable, report the exact blocker and continue in-person.
+- Verify notifications/support sender setup and actual Reply-To readiness.
+  Do not copy NLU's private shared inbox, invent a working Google mailbox, reuse
+  another person's SSO account, or turn on SMS/recording by implication.
+- Compare catalog quote, selected service price and flat provider rate. L4
+  catalog fees are $50/hour virtual and$55/hour in-person; four visits with10%
+  discount quote $180/$198. Staff pay is separate ($25/$27 per source tier).
+  A legacy flat fee cannot silently substitute for a different-format quote.
+  Review discrepancies before booking/collection; do not edit evidence to match.
+- Inspect349 Tutoring Intake before public use; inspect350/351 assessment/
+  evaluation definitions separately. They are form definitions, not completed
+  evaluations. Use only349 for the two new enrollments unless an explicitly
+  client-bound supplemental form is offered. Do not create duplicate students
+  by submitting an assessment as another new-client intake.
+
+1. PUBLIC ENROLLMENT AND THE NLU PARENT PORTAL — TU05–TU11
+
+- Open the NLU QA public page/finder in a private browser. No real opening or
+  recruiting campaign is advertised. Filter subject, grade and format, inspect
+  tutor profile/rate, and compare bookable times with actual availability.
+- The exact active QA tutor may appear only in453 tutoring. Real NLU providers,
+  clinical-only providers, another demo user or inactive tutor must not appear
+  as that QA tutor. Test no-match, closed format, stale rate and invalid selection.
+- Morgan QA NLU-1101, qa.nlu.parent@example.com, enrolls Parker QA NLU-1101
+  (2016-04-12, grade5 Math) and Quinn QA NLU-1101 (2018-09-16, grade3 Reading).
+  Use enrollment-answers.json. They are fictional practice students, not former
+  NLU clients. Do not enter real phone numbers, school documents or PHI.
+- Exercise required blank fields, malformed email, unsupported upload, save/
+  resume, refresh and a retried submit. Valid answers survive; the same submit
+  must not create duplicate people. A package inquiry is not a purchase and a
+  preferred time is not a confirmed booking. Do not collect a real payment.
+- Confirm correct learning client type, exact guardian links, agency453 service
+  context and tutor assignment. Academic enrollment must not require a90791,
+  mental-health treatment plan, medical diagnosis, insurance or clinical consent
+  merely to begin tutoring. Do not discard a legitimately required tutoring form.
+- From Morgan's permitted parent flow invite Rene QA NLU-1101,
+  qa.nlu.coparent@example.com. Each uses their own account/setup link and their
+  own choices/signatures. Do not rename a retained clinical guardian.
+- Confirm actual setup/receipt at testing@. Example addresses are logical
+  identities, not SSO mailboxes or verified external From senders.
+- Parent signs in through NLU and sees the correct children, tutor, upcoming
+  tutoring, learning plan, progress, homework, documents, messages and billing.
+  Check sign-out/recovery/return links, help, Spanish presentation if selected,
+  desktop390px layout, keyboard navigation and loading/empty/error states.
+- No AuricWell logo/name/footer, treatment-plan labels or clinical guide on the
+  tutoring surface. Recheck a dual-service parent switching to tutoring and
+  back: context selects the actual service without erasing clinical history.
+  No brand switch may grant access to a different service, guardian or agency.
+
+2. BOOKING, BASELINE AND LEARNING PLAN — TU12–TU20
+
+- Create real available QA slots without moving retained clinical appointments.
+  Book one virtual and one in-person tutoring visit through normal scheduling.
+  Preserve exact code TUTORING, tutor, child, location, modality, 60-minute
+  duration, agreed quote, payment mode, and Denver offset after reload/sign-in.
+- Start one visit at a quarter-hour time. Check calendar, confirmation, parent
+  portal and tutor view against the same UTC instant. A session on Nov2 at
+  10:15AM MST is17:15UTC; select a future date appropriate to actual execution.
+- Record appointment ID, learning session ID, roster and service enrollment ID.
+  Open from calendar, not just an editor URL. A time match is not a valid link.
+  A second same-day visit keeps its own note/materials and cannot reuse a peer.
+- Reschedule once; check one current event, conflicts, released old slot and no
+  stale reminder. Canceled, no-show and ended visits retain their actual state.
+- Perform the supplied baseline in the academic evaluation/player workflow.
+  Record actual answers, attempted count, prompts, independence and score; the
+  private tutor key never appears to the student. Baseline text is an example,
+  not a completed assessment to import as historical data.
+- Create a Math subject and a reviewed learning plan using session-examples.txt.
+  Choose a real stored standard/version where supported. If standards/item-bank
+  content is unavailable, report it; do not invent a CDE ID or label generated
+  items validated, READ-approved or CDE-endorsed.
+- Review/approve an AI draft before applying it. Test edit/reject/regenerate,
+  unavailable AI and source retention. AI must not silently change goals,
+  diagnosis, official scores, mastery or completed evidence.
+- Share the approved plan with individually eligible parents. Each sees and
+  acknowledges/signs their own current revision. Test stale/revoked/other-parent
+  links and revision changes. A guardian rating is not a tutor mastery score.
+- Add the small PDF worksheet through the real session builder. Record its
+  session/student association, private answer-key boundary, share setting,
+  ordering, reload and storage/download permissions. Test canceled/failed upload,
+  harmless unsupported type and direct-link access after a share is removed.
+
+3. IN-PERSON AND VIRTUAL SESSIONS — TU21–TU28
+
+- In person: tutor opens the booked visit's Learning workspace. Add the session
+  outline, worksheet, annotation, learner answer, whiteboard and quick check.
+  Save, leave and return. Verify exact subject/student and document/download
+  content. Opening a workspace alone must not complete attendance or bill it.
+- Virtual: schedule relative to actual run time so the30-minute pre-start and
+ 30-minute post-end windows can be observed. At45 minutes early show the actual
+  opening time; create no admitted visit/video token. Wait genuinely; no DB aging
+  or clock changes. Recheck canceled/rescheduled/closed windows with stale links.
+- The tutor opens that exact scheduled session and its NLU office. Parent joins
+  from the NLU portal/email in another browser/device. Record the real lobby,
+  check-in identity confirmation, admission, audio/video in both directions,
+  mute/camera/share controls, reconnect and network/error recovery.
+  Two tabs with no media exchange do not pass real video. A guest link or photo
+  does not verify identity and must not reveal the learning binder before access.
+- Use whiteboard, materials, responses, chat, tools and learning binder. Tutor
+  guide is private; permitted student-facing material appears only as shared.
+  Reopening or reconnecting preserves this visit instead of creating duplicates.
+- Admit the permitted additional guardian deliberately. A new unrelated student
+  requires ending/clearing the prior visit or an explicit valid group workflow.
+  Test stale credentials and wrong student/session/agency links independently.
+- End once through the normal control. Confirm completed/ended state, elapsed
+  session evidence, saved note, reviewed summary, parent update and payroll draft
+  after reload. Refresh/retry/reconnect must not create a second completion,
+  duplicate token debit, customer fee, payroll claim or post-session email.
+- Leave the office ready for the next student without showing old materials,
+  transcript, names, whiteboard, messages or stale authenticated guest access.
+  Do not claim a missing payment or private-office prerequisite was bypassed.
+
+4. PROGRESS, PRACTICE AND FAMILY ACCESS — TU29–TU32
+
+- Use the tutor's own factual note from the performed synthetic session. Retain
+  original source and inspect any generated summary; no clinical attestation.
+- Across real distinct checks/sessions, use equivalent new tasks and record the
+  actual results. Suggested progression2/5,3/5,4/5 is input guidance only. Do not
+  backdate attendance or relabel three same-day retries as a longitudinal trend.
+- Verify dates, denominator, rubric, independence, baseline, target, standard
+  version and improvement direction. Two independent4/5 checks meet the stated
+  threshold; one success or a parent10/10 alone must not mark mastery.
+- Parent observations remain separate by respondent and from tutor evidence.
+  Each parent sees only their own private rating/acknowledgment history.
+- Tutor reviews and publishes home practice and a progress report. Parent opens
+  correct learner/version, submits practice through the intended player, and
+  sees feedback. Check a wrong answer, retry, unassigned practice and score zero.
+  Draft reports, tutor key, raw private transcript and unshared notes stay private.
+- Mark improved/mastered only through actual supported controls; inspect history
+  and notices if implemented. A missing update email is not assumed to exist.
+
+5. BILLING, ATTENDANCE, COMPENSATION — TU33–TU38
+
+- First determine the active billing path. Individual tutoring may use the family
+  ledger; the legacy Learning Billing desk requires a learning organization and
+  its feature flag. Program454 provides that separate test context. Neither path
+  is a clinical claim or a reason to turn on medical billing at453/454.
+- Compare original quote, immutable package snapshot, service/modality/duration,
+  actual completed roster, agreed responsibility and new ledger entry. Current
+  catalog/provider changes must not silently reprice an existing commitment.
+- Verify purchase/token credit/debit, remaining visits, duplicate completion,
+  expired/no-balance behavior and renewal semantics where reachable. Mere catalog
+  selection is not a purchase; no card is present in the copied configuration.
+- Exercise payment only with a confirmed isolated TEST merchant and its test
+  instrument. Check success/decline/pending/retry, payer ownership, amount and
+  one intent/receipt. If the only available merchant is live, mark this branch
+  BLOCKED and continue invoice/token inspection without collecting anything.
+  No real card, live charge, invoice dispatch to a real family or QuickBooks post.
+- Cancel/no-show separate QA events via normal controls. Persist state/reason,
+  policy calculation and pending/waived fee; never bill a canceled visit as a
+  completed tutoring service. A failed delivery label must not trigger a resend
+  when the testing inbox already received it.
+- Homework Help is a separate service; H2014 is not an academic customer fee.
+  Test the supported Homework Help path without inheriting TUTORING prices,
+  medical service authority or claim submission. Do not create a clinical event.
+- Inspect the tutor's direct/indirect time and compensation draft, applicable
+  configured rate/date, source session and duplicate protection. Catalog staff
+  pay is not permission to approve/export payroll. Leave drafts for inspection.
+
+6. EMAIL, AUDIT, GROUPS AND HANDOFF — TU39–TU46
+
+- Reconcile email-cases.csv with the actual in-app catalog/workers: enrollment,
+  setup/recovery, co-guardian, booking, actual timed reminder, change/cancel,
+  learning-plan review, secure message, published work/report, billing receipt.
+  Exercise meaningful parent/tutor/recipient variants through real app actions.
+- Record logical To, physical testing@ receipt, actual From/Reply-To, type,
+  object IDs, due/send/receipt times with offset, transport ID and screenshot.
+  No AuricWell or Conversa-by-AuricWell footer on tutoring mail. Open each real
+  action link and verify NLU host, correct student, sign-in and authorization.
+- Demo-only email restrictions are owner-authorized for removal, including these
+  NLU QA scopes in the tested change. Keep roles, current preferences, exact
+  recipient/token checks, true elapsed times and SMS consent. Do not remove
+  is_demo or globally reduce approval/authorization controls to get a PASS.
+- Testing@ can stand in for a seeded personal alias only in the implemented,
+  authenticated, exact-token private-forwarding route. It is not a generic right
+  to impersonate any example@ parent/applicant/reference or access another thread.
+- Create the action-to-audit ledger as actions occur: enrollment/access, academic
+  baseline, plan revision/approval/share/signature, uploads/downloads, admission,
+  note/evidence, completion, charge/token, practice/report, denied reads/exports.
+  As Jordan reconcile scoped metadata and exact record links; private learning
+  content must still enforce its own access. Test filters, pagination, CSV row
+  count/escaping/timezone and self-auditing. Missing rows remain defects.
+- Optional group lane: create a clearly synthetic class under454, enroll the
+  exact permitted students/tutor and run its actual session/roster flow. Do not
+  call an individual visit group-ready. Group families see no private peer notes,
+  ratings, payer information, unshared files or individual evaluations.
+- Test transfer to another legitimately authorized tutor only if one exists;
+  otherwise leave that case NOT RUN. Preserve prior author/source and revoke
+  the old tutor as required. Do not repurpose Alex/Cameron clinical credentials.
+- Reassess and close a completed QA program using normal controls; verify useful
+  history/downloads remain for authorized parents and future visits stop as
+  configured. Preserve all new QA evidence and pending reminders for the owner.
+- Final report: exact personas/IDs, start/end states, all47 cases, receipt ledger,
+  screenshots, price/attendance audit reconciliation and blockers. Unknown AI,
+  media, private-office grants, unverified senders, test merchant or insufficient
+  historical data must be stated, never converted into a completed PASS.

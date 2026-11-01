@@ -1,0 +1,24 @@
+SYNTHETIC NLU TUTORING QA ONLY - no real student or clinical record.
+
+BASELINE - record only when performed in the QA exercise:
+Parker attempted five fraction tasks and answered two independently. On one item Parker added denominators; a fraction-strip model helped explain equal parts. Parker rated confidence 4/10. Prioritize common denominators and explaining the model before adding a new topic.
+
+LEARNING PLAN - proposed for tutor review:
+Goal: Add fractions with unlike denominators and explain the common unit.
+Baseline: 2 of 5 tasks correct independently in this performed synthetic check.
+Target: At least 4 of 5 correct independently on two separate checks.
+Strategy: Model equal wholes, name equivalent fractions, guided practice, then exit ticket.
+Link the actual standard and its stored version selected in the app. Do not invent a standard ID.
+Family question: How confident does Parker seem explaining this week's fraction strategy, from 1 (not yet) to 10 (very confident)? The tutor reviews this wording before enabling a parent rating.
+
+FOLLOW-UP NOTE - use only for work actually performed:
+SYNTHETIC TUTORING QA. Reviewed equal wholes and equivalent fractions. Parker solved three of five new items independently and corrected one after a visual prompt. Strength: explained why the whole must stay the same size. Challenge: common denominator when neither denominator divides the other. Next visit: compare two strategies and use a five-item independent exit ticket. No diagnosis, clinical risk assessment or medical service is asserted.
+
+READING NOTE:
+SYNTHETIC TUTORING QA. Quinn read the original garden passage, stated its main idea and identified one supporting detail independently. After a reread, Quinn located a second detail and distinguished an observation from a guess. Next: practice citing the sentence supporting an answer. Record the actual rubric score rather than inferring a percentage from this narrative.
+
+TREND EXERCISE:
+Across three legitimately recorded distinct sessions/checks, use new equivalent tasks. Suggested synthetic results: 2/5, 3/5, 4/5; independence and prompts stay separate. A fourth independent 4/5 can satisfy the stated two-check threshold. Do not relabel three same-day attempts as historical sessions or set mastery merely from one high score. Keep parent observations separate from tutor evidence.
+
+HOME PRACTICE:
+Try two fraction models, explain one addition problem aloud, and bring a question to the next visit. Publish only reviewed student-facing material, not tutor keys, raw transcripts or another student's work.

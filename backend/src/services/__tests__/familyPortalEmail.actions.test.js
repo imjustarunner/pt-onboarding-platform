@@ -79,3 +79,12 @@ it('routes virtual tutoring email joins through the appointment check, retaining
  const message=await buildAppointmentEmail({appointment:{...appt,businessType:'learning',modality:'VIRTUAL'},clientId:22,to:email,actionUrl:null});
  expect(message.text).toContain('Join tutoring session');expect(message.text).toContain('/tutoring-session/appointment/44?clientId=22&agencyId=2');expect(message.text).not.toContain('/join/my-room/');
 });
+
+it('uses the tutoring context and NLU session link even for a previously clinical client',async()=>{
+ m.context.mockResolvedValue({tenant:{name:'Next Level Up'},learning:true,brand:{},url:path=>'https://app.nextleveluplcc.com/'+path});
+ const appointment={...appt,businessType:'tutoring',modality:'VIRTUAL'};
+ const message=await buildAppointmentEmail({appointment,clientId:22,to:email,actionUrl:null});
+ expect(m.context).toHaveBeenCalledWith({agencyId:2,clientId:22,learning:true});
+ expect(message.text).toContain('tutoring session');expect(message.text).toContain('https://app.nextleveluplcc.com/tutoring-session/appointment/44');
+ expect(JSON.stringify(message)).not.toContain('auricwell.com');
+});

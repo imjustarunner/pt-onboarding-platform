@@ -19,7 +19,7 @@ export function buildClientEnrollmentEmail({ firstName, agencyName, clients = []
   const introduction = `${who}${labels ? ` (${labels})` : ''} ${count === 1 ? 'has' : 'have'} been enrolled in ${service} with ${agencyName}.`;
   const details = existingAccount
     ? learning
-      ? `Their ${agencyName} profile and tutoring information have been added to your existing account. Sign in with the same account you use for AuricWell, then select ${agencyName} or your dependent to view their tutoring dashboard, learning information, and appointments. Your other dependents remain available in the same account.`
+      ? `Their ${agencyName} profile and tutoring information have been added to your existing account. Sign in to your ${agencyName} tutoring portal with your existing email and password, then select your dependent to view their tutoring dashboard, learning information, and appointments. Your other dependents remain available in the same account.`
       : `Their information and care profile have been added to your AuricWell portal. Sign in with your existing account and select your dependent to see their ${agencyName} care team, appointments, documents, and shared treatment plan. You do not need a new account or password.`
     : `Use one ${learning ? 'family' : 'AuricWell'} portal account for ${count === 2 ? 'both dependents' : count > 2 ? 'all your dependents' : 'your dependent'}. ${agencyName} is your ${learning ? 'tutoring' : 'care'} agency. You can view appointments, complete forms, manage billing, and review information shared by your team. Set your password below to get started.`;
   const greeting = `Hi ${firstName || 'there'},`, action = existingAccount ? 'View your dependents' : 'Set up your portal';
@@ -54,6 +54,6 @@ export function buildSecureMessageEmail({agencyName,clinical=true,url,forDepende
     ? `A new message has been posted to your dependent's account. Please sign in to ${portal} to read this message and reply.`
     : `A new message has been posted in your secure conversation. Please sign in to ${portal} to read this message and reply.`;
   const note='Your message stays inside your secure portal. This email does not include its contents. Please reply in the portal.';
-  return {subject,text:`${intro}\n\nRead secure message:\n${url}\n\n${note}\n\n${conversaEmailNote}`,
-    html:`<h2>You have a secure message</h2><p>${e(intro)}</p>${portalActionHtml('Read secure message',url)}<p>${e(note)}</p>${conversaEmailBlock()}`};
+  return {subject,text:`${intro}\n\nRead secure message:\n${url}\n\n${note}${clinical ? `\n\n${conversaEmailNote}` : ''}`,
+    html:`<h2>You have a secure message</h2><p>${e(intro)}</p>${portalActionHtml('Read secure message',url)}<p>${e(note)}</p>${clinical ? conversaEmailBlock() : ''}`};
 }

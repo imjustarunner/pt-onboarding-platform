@@ -18,9 +18,10 @@ async function scheduleMailboxes(agencyId) {
 /** Require the tenant's configured notifications sender and staffed support reply mailbox. */
 export async function sendScheduleNotificationEmail({ agencyId, appointment = null, entries = null, ...message }) {
   if(message.clientId) {
-    const context=await clientEmailContext({agencyId,clientId:message.clientId});
-    const scope={agencyId,clientId:message.clientId,to:message.to};
     const items=entries || (appointment ? [{appointment}] : []);
+    const learning=items.length>0 && items.every(item=>['learning','tutoring'].includes(String(item.appointment?.businessType||item.appointment?.business_type||'').toLowerCase()));
+    const context=await clientEmailContext({agencyId,clientId:message.clientId,...(learning?{learning:true}: {})});
+    const scope={agencyId,clientId:message.clientId,to:message.to};
     const settings=await Promise.all(items.map(item=>resolveAppointmentServiceSetting(item.appointment)));
     const hasSchool=settings.some(setting=>setting.isSchool);
     if(hasSchool) {

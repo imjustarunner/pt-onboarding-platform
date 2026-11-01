@@ -9,10 +9,11 @@ export async function seededQaEmailAccount(user, { agencyId = null } = {}) {
   const [[account]] = await pool.execute(`SELECT u.id FROM users u
     JOIN user_agencies ua ON ua.user_id=u.id AND ua.is_active=1
     JOIN agencies a ON a.id=ua.agency_id AND a.is_active=1 AND COALESCE(a.is_archived,0)=0
-    JOIN agencies root ON root.id=450 AND root.slug='auricwell-qa-demo' AND root.is_active=1
+    JOIN agencies root ON ((a.id IN (450,451,452) AND root.id=450 AND root.slug='auricwell-qa-demo')
+      OR (a.id IN (453,454) AND root.id=453 AND root.slug='nlu-qa-demo')) AND root.is_active=1
       AND JSON_EXTRACT(root.feature_flags,'$.qaSandbox.syntheticOnly')=true
     WHERE u.id=? AND u.is_demo=1 AND u.is_active=1 AND COALESCE(u.is_archived,0)=0
-      AND ua.agency_id IN (450,451,452) AND (? IS NULL OR ua.agency_id=?) LIMIT 1`,
+      AND ua.agency_id IN (450,451,452,453,454) AND (? IS NULL OR ua.agency_id=?) LIMIT 1`,
     [user.user_id || user.id, agencyId, agencyId]);
   return !!account;
 }

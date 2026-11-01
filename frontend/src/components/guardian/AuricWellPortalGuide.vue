@@ -1,23 +1,23 @@
 <template>
-  <section id="auricwell-portal-guide" class="portal-guide" aria-label="About your AuricWell portal">
-    <div class="guide-heading"><strong>AuricWell <span class="beta-badge">Beta</span></strong><span>Established 2026 · Built around your care</span></div>
+  <section :id="learning ? 'learning-portal-guide' : 'auricwell-portal-guide'" class="portal-guide" :aria-label="`About your ${brandName} portal`">
+    <div class="guide-heading"><strong>{{ brandName }} <span v-if="!learning" class="beta-badge">Beta</span></strong><span>{{ learning ? 'Your tutoring and learning portal' : 'Established 2026 · Built around your care' }}</span></div>
     <p>A place to keep up with your care and your family’s care. Thank you for helping us make it better.</p>
     <details :open="learnOpen" @toggle="learnOpen = $event.target.open">
       <summary>Learn about your portal and how your information is protected</summary>
       <div class="guide-details">
         <h3>One account, the right information</h3>
-        <p>Switch profiles to see your own care or an authorized dependent’s appointments, shared documents, messages and billing. Your agency, school and provider are shown with the relevant profile. The information available depends on your access and what your care team has shared.</p>
+        <p>{{ learning ? 'Choose a student to see tutoring appointments, learning plans, practice, progress, shared materials and billing. Your tutor reviews what is shared with your account.' : 'Switch profiles to see your own care or an authorized dependent’s appointments, shared documents, messages and billing. Your agency, school and provider are shown with the relevant profile. The information available depends on your access and what your care team has shared.' }}</p>
         <h3>Your information stays connected to your care</h3>
         <ul>
           <li>Sign-in and profile access checks limit which records you can open. Another guardian’s access can differ from yours.</li>
-          <li>Use this portal over its HTTPS connection for sensitive information. Care messages and the text of support reports are encrypted before storage.</li>
+          <li>Use this portal over its HTTPS connection for sensitive information. Messages and the text of support reports are encrypted before storage.</li>
           <li>Documents and support screenshots require authorized access. Screenshots submitted through “Report a portal issue” are encrypted before storage and attached to your ticket, not published on a public page.</li>
           <li>Card details are collected by the payment processor. Saving a card and authorizing payments are separate steps.</li>
           <li>You control available notification choices for each profile. Optional text updates require your choice to enroll.</li>
         </ul>
-        <p>Your care agency manages your care record. You can ask your care team about access, corrections or records requests. <router-link to="/privacy-policy">Read the privacy policy</router-link>.</p>
+        <p>{{ learning ? 'Your tutoring team manages your learning record. Contact your tutor about access, updates or learning questions.' : 'Your care agency manages your care record. You can ask your care team about access, corrections or records requests.' }} <router-link to="/privacy-policy">Read the privacy policy</router-link>.</p>
         <h3>We are still improving</h3>
-        <p>AuricWell is in Beta, so you may occasionally encounter a bug or an unfinished detail. Your reports help us improve the experience. For appointment, care or billing questions, use Messages to reach the appropriate team.</p>
+        <p>{{ learning ? 'Your reports help us improve your tutoring portal. For scheduling, learning or billing questions, use Messages to reach your tutoring team.' : 'AuricWell is in Beta, so you may occasionally encounter a bug or an unfinished detail. Your reports help us improve the experience. For appointment, care or billing questions, use Messages to reach the appropriate team.' }}</p>
       </div>
     </details>
     <details v-if="clientId && agencyId" class="report-details" :open="reportOpen" @toggle="reportOpen = $event.target.open">
@@ -39,7 +39,7 @@
 import {ref,watch} from 'vue';
 import {useRoute} from 'vue-router';
 import api from '../../services/api';
-const props=defineProps({agencyId:[Number,String],clientId:[Number,String]});
+const props=defineProps({agencyId:[Number,String],clientId:[Number,String],brandName:{type:String,default:'AuricWell'},learning:{type:Boolean,default:false}});
 defineEmits(['navigate']);
 const route=useRoute();
 const learnOpen=ref(route.query.welcome==='learn-more'),reportOpen=ref(false),question=ref(''),files=ref([]),fileInput=ref(null),busy=ref(false),error=ref(''),fileError=ref(''),ticketId=ref(null);

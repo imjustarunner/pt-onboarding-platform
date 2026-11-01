@@ -1,4 +1,6 @@
 import { recordSecureMessageEvent } from './secureMessageBoundary.service.js';
+import {buildPublicAppUrl} from '../utils/publicPortalUrl.js';
+import {notificationTransportReceipt} from '../utils/notificationTransportReceipt.js';
 /**
  * Secure client/guardian message notifications.
  * Email from securemessage@tenant with noreply reply-to; deep link to thread after login/setup.
@@ -111,15 +113,10 @@ export async function sendLearningClientMessageEmail({
   const sender = await User.findById(senderUserId);
   const senderName = [sender?.first_name, sender?.last_name].filter(Boolean).join(' ') || 'Your team';
   const tenant = agency?.name || 'your learning team';
-  const slug = agency?.slug || '';
-  const portalPrefix = slug ? `/${slug}` : '';
-  const baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || 'https://plottwisthq.com').replace(
-    /\/$/,
-    ''
-  );
-  const messagesUrl = chatThreadId
-    ? `${baseUrl}/${slug}/messages?view=workspace&threadId=${chatThreadId}`
-    : `${baseUrl}/${slug}/messages`;
+  const query=new URLSearchParams({panel:'messages'});
+  if(clientId)query.set('clientId',String(clientId));
+  if(chatThreadId)query.set('threadId',String(chatThreadId));
+  const messagesUrl=buildPublicAppUrl(agency,`guardian?${query}`);
 
   const plainBody = String(messageBody || '').trim() || '(attachment or empty message)';
   const subject = `New message from ${senderName}`;
@@ -144,7 +141,7 @@ export async function sendLearningClientMessageEmail({
   });
 
   return {
-    sent: true,
+    sent: notificationTransportReceipt(sendResult,agencyId).accepted,
     channel: 'email',
     communicationId: sendResult?.communicationId || null
   };

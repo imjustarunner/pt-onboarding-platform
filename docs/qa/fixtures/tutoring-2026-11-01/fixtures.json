@@ -1,0 +1,80 @@
+{
+  "marker": "QA-NLU1101",
+  "agencyId": 453,
+  "agencySlug": "nlu-qa-demo",
+  "learningOrganizationId": 454,
+  "learningOrganizationSlug": "nlu-qa-learning",
+  "parentPortal": "https://app.nextleveluplcc.com/nlu-qa-demo/guardian",
+  "mailPhysicalTo": "testing@itsco.health",
+  "sourceAgencyReadOnly": 6,
+  "setupAdminId": 1435,
+  "supportUserId": 1434,
+  "liveTutorId": null,
+  "guardian": {
+    "firstName": "Morgan",
+    "lastName": "QA NLU-1101",
+    "email": "qa.nlu.parent@example.com",
+    "liveUserId": null
+  },
+  "coGuardian": {
+    "firstName": "Rene",
+    "lastName": "QA NLU-1101",
+    "email": "qa.nlu.coparent@example.com",
+    "liveUserId": null
+  },
+  "students": [
+    {
+      "key": "A",
+      "firstName": "Parker",
+      "lastName": "QA NLU-1101",
+      "dob": "2016-04-12",
+      "grade": "5",
+      "subject": "Math",
+      "focus": "Add fractions with unlike denominators",
+      "liveClientId": null
+    },
+    {
+      "key": "B",
+      "firstName": "Quinn",
+      "lastName": "QA NLU-1101",
+      "dob": "2018-09-16",
+      "grade": "3",
+      "subject": "Reading",
+      "focus": "Main idea and supporting details",
+      "liveClientId": null
+    }
+  ],
+  "caps": {
+    "allQaClients": 30,
+    "allQaProviderRoles": 10,
+    "newStudentsMaximum": 2,
+    "newTutorAccountsMaximum": 1,
+    "reservePlotlineApplicantSlots": 4
+  },
+  "createdConfiguration": {
+    "catalogTiers": 5,
+    "syntheticPackages": 2,
+    "serviceIds": [
+      318,
+      319,
+      320,
+      321
+    ],
+    "intakeFormIds": [
+      349,
+      350,
+      351
+    ],
+    "auditRowId": 77611
+  },
+  "notCreated": [
+    "tutor",
+    "guardians",
+    "students",
+    "appointments",
+    "learning plans",
+    "signatures",
+    "payment methods",
+    "live email receipts"
+  ]
+}

@@ -1,0 +1,88 @@
+{
+  "sourceAgencyId": 6,
+  "sourceSlug": "nlu",
+  "copiedOn": "2026-11-01",
+  "scope": "Configuration only; no people, learning history, credentials or payment connections",
+  "catalog": {
+    "rates": [],
+    "tiers": [
+      {
+        "id": "L1",
+        "pay": {
+          "virtual": 1800,
+          "in-person": 1900,
+          "small-group": null
+        },
+        "fees": {
+          "virtual": 3200,
+          "in-person": 3700,
+          "small-group": null
+        },
+        "name": "Tutor Assistant",
+        "description": "HS student / new tutor / follows provided plan"
+      },
+      {
+        "id": "L2",
+        "pay": {
+          "virtual": 2000,
+          "in-person": 2100,
+          "small-group": null
+        },
+        "fees": {
+          "virtual": 3700,
+          "in-person": 4200,
+          "small-group": null
+        },
+        "name": "Developing Tutor",
+        "description": "Experienced HS tutor, college student, bachelor\u2019s with little experience"
+      },
+      {
+        "id": "L3",
+        "pay": {
+          "virtual": 2100,
+          "in-person": 2300,
+          "small-group": null
+        },
+        "fees": {
+          "virtual": 4000,
+          "in-person": 4500,
+          "small-group": null
+        },
+        "name": "Professional Tutor",
+        "description": "Bachelor\u2019s + experience; experienced tutor; master\u2019s with little experience"
+      },
+      {
+        "id": "L4",
+        "pay": {
+          "virtual": 2500,
+          "in-person": 2700,
+          "small-group": null
+        },
+        "fees": {
+          "virtual": 5000,
+          "in-person": 5500,
+          "small-group": null
+        },
+        "name": "Advanced Tutor",
+        "description": "Teacher, master\u2019s + experience, experienced interventionist"
+      },
+      {
+        "id": "L5",
+        "pay": {
+          "virtual": 3000,
+          "in-person": 3300,
+          "small-group": null
+        },
+        "fees": {
+          "virtual": 6000,
+          "in-person": 6500,
+          "small-group": null
+        },
+        "name": "Educational Specialist",
+        "description": "Experienced licensed teacher, interventionist, SPED/reading/math specialist"
+      }
+    ],
+    "version": 1,
+    "packages": []
+  }
+}

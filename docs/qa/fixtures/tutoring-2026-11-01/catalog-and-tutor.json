@@ -1,0 +1,159 @@
+{
+  "source": "nlu",
+  "agencyId": 453,
+  "learningOrganizationId": 454,
+  "catalog": {
+    "rates": [],
+    "tiers": [
+      {
+        "id": "L1",
+        "pay": {
+          "virtual": 1800,
+          "in-person": 1900,
+          "small-group": null
+        },
+        "fees": {
+          "virtual": 3200,
+          "in-person": 3700,
+          "small-group": null
+        },
+        "name": "Tutor Assistant",
+        "description": "HS student / new tutor / follows provided plan"
+      },
+      {
+        "id": "L2",
+        "pay": {
+          "virtual": 2000,
+          "in-person": 2100,
+          "small-group": null
+        },
+        "fees": {
+          "virtual": 3700,
+          "in-person": 4200,
+          "small-group": null
+        },
+        "name": "Developing Tutor",
+        "description": "Experienced HS tutor, college student, bachelor\u2019s with little experience"
+      },
+      {
+        "id": "L3",
+        "pay": {
+          "virtual": 2100,
+          "in-person": 2300,
+          "small-group": null
+        },
+        "fees": {
+          "virtual": 4000,
+          "in-person": 4500,
+          "small-group": null
+        },
+        "name": "Professional Tutor",
+        "description": "Bachelor\u2019s + experience; experienced tutor; master\u2019s with little experience"
+      },
+      {
+        "id": "L4",
+        "pay": {
+          "virtual": 2500,
+          "in-person": 2700,
+          "small-group": null
+        },
+        "fees": {
+          "virtual": 5000,
+          "in-person": 5500,
+          "small-group": null
+        },
+        "name": "Advanced Tutor",
+        "description": "Teacher, master\u2019s + experience, experienced interventionist"
+      },
+      {
+        "id": "L5",
+        "pay": {
+          "virtual": 3000,
+          "in-person": 3300,
+          "small-group": null
+        },
+        "fees": {
+          "virtual": 6000,
+          "in-person": 6500,
+          "small-group": null
+        },
+        "name": "Educational Specialist",
+        "description": "Experienced licensed teacher, interventionist, SPED/reading/math specialist"
+      }
+    ],
+    "version": 1,
+    "packages": [
+      {
+        "id": "qa-nlu-1101-virtual-four",
+        "name": "SYNTHETIC QA - four virtual tutoring visits",
+        "program": "tutoring",
+        "published": true,
+        "components": [
+          {
+            "service": "tutoring",
+            "format": "virtual",
+            "pricingMode": "provider-discount",
+            "discountPercent": 10,
+            "sessions": 4,
+            "minutes": 60
+          }
+        ]
+      },
+      {
+        "id": "qa-nlu-1101-in-person-four",
+        "name": "SYNTHETIC QA - four in-person tutoring visits",
+        "program": "tutoring",
+        "published": true,
+        "components": [
+          {
+            "service": "tutoring",
+            "format": "in-person",
+            "pricingMode": "provider-discount",
+            "discountPercent": 10,
+            "sessions": 4,
+            "minutes": 60
+          }
+        ]
+      }
+    ]
+  },
+  "proposedTutor": {
+    "liveUserId": null,
+    "firstName": "Finley",
+    "lastName": "QA NLU Tutor-1101",
+    "email": "qa.nlu.tutor@example.com",
+    "personalEmailAlias": "qa.nlu.tutor.personal@example.com",
+    "role": "provider",
+    "clinicalCredentials": null,
+    "agencyMemberships": [
+      453,
+      454
+    ],
+    "subjectAreas": [
+      "Math",
+      "Reading"
+    ],
+    "gradeLevels": [
+      "3",
+      "5"
+    ],
+    "acceptingNewStudents": true,
+    "paymentPolicy": "POST_SESSION",
+    "learning": {
+      "programs": [
+        "tutoring"
+      ],
+      "educationLevel": "master",
+      "tierId": "L4",
+      "rateOverrides": []
+    },
+    "note": "Tier and education label are synthetic pricing inputs, not verified qualifications. Keep medical/clinical grants off. Do not invent a Tutor user.role: the deployed enum uses provider for this role surface."
+  },
+  "expectedQuotes": {
+    "virtualHourlyCents": 5000,
+    "inPersonHourlyCents": 5500,
+    "fourVirtualDiscountedCents": 18000,
+    "fourInPersonDiscountedCents": 19800,
+    "note": "These are catalog quotes. Compare appointment and collection snapshots; never assume a legacy flat provider session fee correctly prices both formats."
+  }
+}

@@ -1,0 +1,15 @@
+SYNTHETIC NLU TUTORING QA ONLY - no real student or clinical record.
+
+QA Grade 5 - fraction reasoning
+
+1. Draw 1/2 and 1/4 using equal-size wholes. Which is larger? Explain.
+
+2. 1/2 + 1/4 = ____
+
+3. 1/3 + 1/6 = ____
+
+4. 2/3 + 1/4 = ____
+
+5. 3/4 + 1/8 = ____
+
+Show your work. Write one question you would ask your tutor.

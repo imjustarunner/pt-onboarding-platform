@@ -57,7 +57,7 @@ it('uses the counseling or tutoring enrollment context before a session exists',
  const mixed={...tenant,name:'Mixed care and learning',feature_flags:{medicalBillingEnabled:true}};
  expect(intakeClientPortal(mixed,{channel:'counseling'}).clinical_portal).toBe(true);
  expect(intakeClientPortal(mixed,{channel:'tutoring'}).clinical_portal).toBe(false);
- expect(intakeClientPortal(mixed,{channel:'tutoring',clients:[{client_type:'clinical'}]}).clinical_portal).toBe(true);
+ expect(intakeClientPortal(mixed,{channel:'tutoring',clients:[{client_type:'clinical'}]}).clinical_portal).toBe(false);
  expect(intakeClientPortal(mixed,{channel:'office',clients:[{client_type:'learning'}]}).clinical_portal).toBe(false);
 });
 
@@ -66,4 +66,12 @@ it('keeps the ITSCO QA clinical family on the same full-platform tenant host',()
  expect(clientPortalAppUrl(portal,'reset-password/opaque')).toBe('https://app.itsco.health/auricwell-qa-demo/reset-password/opaque');
  expect(clientPortalInviteUrl({portal,existingAccount:true})).toContain('https://app.itsco.health/auricwell-qa-demo/login?');
  expect(clientPortalAppUrl(portal,'billing/complete/opaque')).toBe('https://app.itsco.health/billing/complete/opaque?portal=auricwell-qa-demo');
+});
+
+it('keeps NLU synthetic tutoring setup, recovery, parent and session links on the NLU host',()=>{
+ const portal={id:453,slug:'nlu-qa-demo',clinical_portal:false,feature_flags:{qaSandbox:{syntheticOnly:true,program:'tutoring'}}};
+ for(const path of ['guardian','login','reset-password/opaque','tutoring-session/appointment/12']) {
+  expect(clientPortalAppUrl(portal,path)).toBe(`https://app.nextleveluplcc.com/nlu-qa-demo/${path}`);
+  expect(clientPortalAppUrl(portal,path)).not.toContain('auricwell');
+ }
 });

@@ -13,7 +13,7 @@ it('includes seeded QA accounts in worker selection while retaining the exclusio
  db.exec('CREATE TABLE users (id INTEGER,is_demo INTEGER,agency_id INTEGER); INSERT INTO users VALUES (1433,1,450),(1465,1,451),(12,1,452),(13,1,2),(14,0,2)');
  expect(db.prepare(`SELECT u.id FROM users u WHERE ${emailWorkerAccountSql('u','u.agency_id')} ORDER BY u.id`).all().map(r=>r.id)).toEqual([12,14,1433,1465]);db.close();
 });
-it.each([450,451,452])('forces all To/Cc/Bcc to the testing inbox for QA agency %s, including keep-real addresses',async agencyId=>{
+it.each([450,451,452,453,454])('forces all To/Cc/Bcc to the testing inbox for QA agency %s, including keep-real addresses',async agencyId=>{
  const result=await rewriteHogwartsOutboundRecipient({agencyId,to:'qa.avery.personal@example.com',cc:'williams@itsco.health',bcc:'real.person@gmail.com',subject:'QA workflow'});
  expect(result).toMatchObject({to:'testing@itsco.health',cc:'testing@itsco.health',bcc:'testing@itsco.health',redirected:true});
  expect(result.originalTo).toContain('qa.avery.personal@example.com');expect(result.originalTo).toContain('williams@itsco.health');
