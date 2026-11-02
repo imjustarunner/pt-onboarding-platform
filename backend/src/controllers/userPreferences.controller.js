@@ -1,4 +1,3 @@
-import bcrypt from 'bcrypt';
 import { sanitizeDashboardRailOrder } from '../utils/dashboardRailOrder.js';
 import pool from '../config/database.js';
 import UserPreferences from '../models/UserPreferences.model.js';
@@ -261,6 +260,7 @@ export const getUserPreferences = async (req, res, next) => {
       };
       return res.json({
         ...merged,
+        session_lock_enabled: false,
         session_lock_pin_set: false,
         kiosk_pin_set: false,
         sessionLockMaxMinutes: { platformMax, agencyMax },
@@ -291,7 +291,8 @@ export const getUserPreferences = async (req, res, next) => {
     const { session_lock_pin_hash, kiosk_pin_hash, ...safePrefs } = preferences;
     res.json({
       ...safePrefs,
-      session_lock_pin_set: !!(session_lock_pin_hash && String(session_lock_pin_hash).trim()),
+      session_lock_enabled: false,
+      session_lock_pin_set: false,
       kiosk_pin_set: !!(kiosk_pin_hash && String(kiosk_pin_hash).trim()),
       sessionLockMaxMinutes: { platformMax, agencyMax },
       vapidPublicKey: process.env.VAPID_PUBLIC_KEY || '',
@@ -434,23 +435,10 @@ export const updateUserPreferences = async (req, res, next) => {
       }
     }
 
-    if ('session_lock_enabled' in updates) {
-      updates.session_lock_enabled = updates.session_lock_enabled === true || updates.session_lock_enabled === 1 || updates.session_lock_enabled === '1';
-    }
-
-    if ('session_lock_pin' in updates) {
-      const pin = updates.session_lock_pin;
-      delete updates.session_lock_pin;
-      if (pin === null || pin === undefined || pin === '') {
-        updates.session_lock_pin_hash = null;
-      } else {
-        const pinStr = String(pin).trim();
-        if (!/^\d{4}$/.test(pinStr)) {
-          return res.status(400).json({ error: { message: 'Session lock PIN must be exactly 4 digits' } });
-        }
-        updates.session_lock_pin_hash = await bcrypt.hash(pinStr, 10);
-      }
-    }
+    // Ignore retired session-PIN fields from tabs running an older frontend.
+    delete updates.session_lock_enabled;
+    delete updates.session_lock_pin;
+    delete updates.session_lock_pin_hash;
 
     if ('inactivity_timeout_minutes' in updates) {
       const raw = updates.inactivity_timeout_minutes;

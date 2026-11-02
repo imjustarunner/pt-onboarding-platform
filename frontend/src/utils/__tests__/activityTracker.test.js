@@ -53,12 +53,31 @@ describe('shared activity tracking', () => {
   });
   it('keeps a real lock from the bootstrap response', async () => {
     policy.useLockScreen = true;
+    policy.pinRequired = true;
     serverSession.lockAt = Date.now() - 1000;
     serverSession.phase = 'timedown';
     await startActivityTracking({ bootstrap: { ...serverData(), userId: 7, sessionId: 'login-one' } });
     expect(useSessionLockStore().isLocked).toBe(true);
     expect(useSessionLockStore().warningActive).toBe(true);
     expect(mocks.get).not.toHaveBeenCalled();
+  });
+  it('ignores a retired four-digit lock and resumes without navigating away from the editor', async () => {
+    policy = { ...policy, useLockScreen: true, pinRequired: false, pinLength: 4 };
+    serverSession = { ...serverSession, phase: 'timedown', lockAt: Date.now() - 1000 };
+    const editor = document.createElement('textarea');
+    editor.value = 'Synthetic unsaved email review feedback';
+    document.body.append(editor);
+    try {
+      await startActivityTracking({ bootstrap: { ...serverData(), userId: 7, sessionId: 'login-one' } });
+      expect(useSessionLockStore().isLocked).toBe(false);
+      expect(useSessionLockStore().warningActive).toBe(true);
+      expect(await resumeSession()).toBe(true);
+      expect(mocks.post).toHaveBeenCalledWith('/auth/session-activity', { action: 'resume' }, expect.any(Object));
+      expect(useSessionLockStore().warningActive).toBe(false);
+      expect(editor.isConnected).toBe(true);
+      expect(editor.value).toBe('Synthetic unsaved email review feedback');
+      expect(mocks.logout).not.toHaveBeenCalled();
+    } finally { editor.remove(); }
   });
   it('recovers from a failed initial session check without focus changes or renewing activity', async () => {
     localStorage.setItem(sessionStorageKey(7, 'login-one'), JSON.stringify(serverSession));

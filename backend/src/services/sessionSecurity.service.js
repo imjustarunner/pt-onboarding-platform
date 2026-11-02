@@ -15,7 +15,7 @@ export async function loadSessionPolicy(user) {
   const cached = policyCache.get(cacheKey);
   if (cached && cached.until > Date.now()) return cached.policy;
   const [[preferences], [agencies], [branding], [employees]] = await Promise.all([
-    pool.execute('SELECT session_lock_enabled, inactivity_timeout_minutes, session_lock_pin_hash FROM user_preferences WHERE user_id = ? LIMIT 1', [user.id || null]),
+    pool.execute('SELECT session_lock_enabled, inactivity_timeout_minutes FROM user_preferences WHERE user_id = ? LIMIT 1', [user.id || null]),
     normalizeSessionRole(user.role) === 'super_admin'
       ? pool.execute('SELECT session_settings_json FROM agencies WHERE is_active = 1')
       : user.id ? pool.execute(`SELECT a.session_settings_json FROM agencies a
@@ -128,14 +128,9 @@ export async function changeSessionSecurity(security, userId, action, pin = '') 
       state = sessionSecurityState(row, security.policy);
     } else if (action === 'activity' && state.phase !== 'active') {
       failure = sessionSecurityError('SESSION_LOCKED', 'Unlock your session to continue.', 423, state);
-    } else if (action === 'resume' && security.policy.useLockScreen) {
-      let valid;
+    } else if (action === 'resume' && security.policy.pinRequired) {
       if (Number(row.failed_pin_attempts) >= 3) throw sessionSecurityError('PIN_LOCKED', 'Sign in again to continue.');
-      if (security.policy.pinRequired) valid = await verifyQuickViewPin(connection, userId, String(pin));
-      else {
-        const [prefs] = await connection.execute('SELECT session_lock_pin_hash FROM user_preferences WHERE user_id = ?', [userId]);
-        valid = /^\d{4}$/.test(String(pin)) && !!prefs[0]?.session_lock_pin_hash && await bcrypt.compare(String(pin), prefs[0].session_lock_pin_hash);
-      }
+      const valid = await verifyQuickViewPin(connection, userId, String(pin));
       if (!valid) {
         const attempts = Number(row.failed_pin_attempts || 0) + 1;
         await connection.execute(`UPDATE auth_session_security SET failed_pin_attempts = ?,

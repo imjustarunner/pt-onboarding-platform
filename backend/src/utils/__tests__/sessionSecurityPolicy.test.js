@@ -42,9 +42,13 @@ describe('session security policy', () => {
       expect(resolveSessionPolicy({ role, settings: [{ idleBeforeTimedownSeconds: 3600, timedownSeconds: 3600 }] })).toMatchObject({ idleBeforeTimedownSeconds: 600, timedownSeconds: 600 });
     }
   });
-  it('retains optional legacy four-digit PINs and enforces lower caps', () => {
-    expect(resolveSessionPolicy({ role: 'provider', preferences: { session_lock_enabled: 1, session_lock_pin_hash: 'hash', inactivity_timeout_minutes: 1 } })).toMatchObject({ useLockScreen: true, pinLength: 4, idleBeforeTimedownSeconds: 60 });
+  it('ignores retired four-digit PINs while retaining existing shorter inactivity limits', () => {
+    expect(resolveSessionPolicy({ role: 'provider', preferences: { session_lock_enabled: 1, session_lock_pin_hash: 'hash', inactivity_timeout_minutes: 1 } })).toMatchObject({ sessionLockEnabled: false, useLockScreen: false, pinRequired: false, pinType: null, pinLength: null, idleBeforeTimedownSeconds: 60 });
     expect(resolveSessionPolicy({ role: 'admin', platformMax: 2 }).idleBeforeTimedownSeconds).toBe(120);
+  });
+  it('does not request a code for users who never configured one', () => {
+    expect(resolveSessionPolicy({ role: 'support' })).toMatchObject({ useLockScreen: false, pinRequired: false, pinType: null, pinLength: null });
+    expect(resolveSessionPolicy({ role: 'support', preferences: { session_lock_enabled: 1 } })).toMatchObject({ useLockScreen: false, pinRequired: false });
   });
   it('rejects malformed role settings', () => {
     expect(() => validateSessionSettings({ requireQuickViewPinRoles: 'admin' })).toThrow();

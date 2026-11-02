@@ -9,7 +9,7 @@
       <a v-if="isOwnAccount && (isWorkforceEmployeeRole || ['tutor','clinical_director'].includes(effectiveRoleNorm))" href="#prefs-vacation" @click.prevent="scrollToSection('prefs-vacation')">Vacation email</a>
       <a href="#prefs-communication" @click.prevent="scrollToSection('prefs-communication')">Support assist</a>
       <a href="#prefs-privacy" @click.prevent="scrollToSection('prefs-privacy')">6-digit code & Quick View</a>
-      <a href="#prefs-security" @click.prevent="scrollToSection('prefs-security')">PINs & lock</a>
+      <a href="#prefs-security" @click.prevent="scrollToSection('prefs-security')">Kiosk PIN</a>
       <a href="#my-settings-appearance" @click.prevent="scrollToSection('my-settings-appearance')">Appearance</a>
       <a href="#prefs-account" @click.prevent="scrollToSection('prefs-account')">Account</a>
       <a
@@ -182,7 +182,7 @@
           </div>
 
           <div v-if="!notificationDisabled" class="actions">
-            <button class="btn btn-primary" @click="save" :disabled="viewOnly || saving || sessionLockPinMismatch">
+            <button class="btn btn-primary" @click="save" :disabled="viewOnly || saving">
               {{ saving ? 'Saving...' : 'Save notification options' }}
             </button>
             <div v-if="saved" class="saved">Saved</div>
@@ -320,78 +320,8 @@
       </div>
     </section>
 
-    <!-- Section 4.5: Session Lock (HIPAA-style) - only for users with My Dashboard -->
-    <section v-if="hasMyDashboard" id="prefs-security" class="preferences-section">
-      <div class="section-header">
-        <h2>PINs & session lock</h2>
-        <p class="section-description">Session lock and kiosk PIN (separate from Quick View’s 6-digit passcode).</p>
-      </div>
-      <div class="section-content">
-        <div class="prefs-grid">
-          <div class="card">
-            <h3 class="card-title">Session Lock</h3>
-            <label class="field checkbox">
-              <input v-model="prefs.session_lock_enabled" type="checkbox" :disabled="viewOnly" />
-              Enable session lock on inactivity
-            </label>
-            <div class="field-help">Require your session PIN after inactivity. The screen locks first, then the countdown ends with automatic logout. If your agency requires a Quick View passcode for your role, your existing 6-digit Quick View passcode is required even when this preference is off.</div>
-
-            <div class="field" v-if="prefs.session_lock_enabled">
-              <label>Inactivity timeout</label>
-              <select v-model.number="prefs.inactivity_timeout_minutes" :disabled="viewOnly">
-                <option :value="null">Use default ({{ sessionLockMaxMinutes.agencyMax }} min)</option>
-                <option v-for="m in [5, 15, 30, 60].filter(m => m <= sessionLockMaxMinutes.agencyMax)" :key="m" :value="m">
-                  {{ m }} minutes
-                </option>
-              </select>
-              <div class="field-help">Platform max: {{ sessionLockMaxMinutes.platformMax }} min. Your agency allows up to {{ sessionLockMaxMinutes.agencyMax }} min.</div>
-            </div>
-
-            <div class="field" v-if="prefs.session_lock_enabled">
-              <label>4-digit PIN</label>
-              <p v-if="prefs.session_lock_pin_set" class="field-help">PIN is set. Enter a new PIN below to change it.</p>
-              <p v-else class="field-help">Set a 4-digit PIN to unlock your session.</p>
-              <div class="row" style="gap: 12px;">
-                <input
-                  v-model="sessionLockPinNew"
-                  type="password"
-                  name="sessionLockPinNew"
-                  inputmode="numeric"
-                  pattern="[0-9]*"
-                  maxlength="4"
-                  autocomplete="one-time-code"
-                  autocorrect="off"
-                  spellcheck="false"
-                  placeholder="New PIN"
-                  class="pin-input"
-                  :disabled="viewOnly"
-                  @input="sessionLockPinNew = ($event.target?.value || '').replace(/\D/g, '').slice(0, 4)"
-                />
-                <input
-                  v-model="sessionLockPinConfirm"
-                  type="password"
-                  name="sessionLockPinConfirm"
-                  inputmode="numeric"
-                  pattern="[0-9]*"
-                  maxlength="4"
-                  autocomplete="one-time-code"
-                  autocorrect="off"
-                  spellcheck="false"
-                  placeholder="Confirm PIN"
-                  class="pin-input"
-                  :disabled="viewOnly"
-                  @input="sessionLockPinConfirm = ($event.target?.value || '').replace(/\D/g, '').slice(0, 4)"
-                />
-              </div>
-              <p v-if="sessionLockPinMismatch" class="field-help" style="color: var(--danger, #dc3545);">PINs do not match.</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
     <!-- Section 4.6: Kiosk PIN - for staff who clock in/out at kiosks -->
-    <section v-if="hasMyDashboard" class="preferences-section preferences-section--nested">
+    <section v-if="hasMyDashboard" id="prefs-security" class="preferences-section">
       <div class="section-header">
         <h2>Kiosk PIN</h2>
         <p class="section-description">Optional 4-digit PIN to identify yourself at clock-in/out kiosks. Use your PIN instead of tapping your name.</p>
@@ -648,7 +578,7 @@
           </div>
 
           <div class="actions">
-            <button class="btn btn-primary" @click="save" :disabled="viewOnly || saving || sessionLockPinMismatch">
+            <button class="btn btn-primary" @click="save" :disabled="viewOnly || saving">
               {{ saving ? 'Saving...' : 'Save Preferences' }}
             </button>
             <div v-if="saved" class="saved">Saved</div>
@@ -885,7 +815,6 @@ import api from '../services/api';
 import PersonalMessageDeliverySettings from './messages/PersonalMessageDeliverySettings.vue';
 import NotificationTypeSettingsPanel from './notifications/NotificationTypeSettingsPanel.vue';
 import QuickViewPrivacyPanel from './account/QuickViewPrivacyPanel.vue';
-import { refetchSessionLockConfig } from '../utils/activityTracker';
 import { setThemePreference, getStoredThemePreference, normalizeThemePreference, resolveIsDark } from '../utils/darkMode';
 import {
   applyAccessibilityPrefs,
@@ -936,7 +865,6 @@ const agencyNotificationSettings = ref({
   userEditable: true,
   enforceDefaults: false
 });
-const sessionLockMaxMinutes = ref({ platformMax: 30, agencyMax: 30 });
 const vapidPublicKey = ref('');
 const claimBillingModeMessage = ref('');
 const claimBillingSupervisors = ref([]);
@@ -1021,11 +949,6 @@ const prefs = ref({
   claim_billing_mode: 'self',
   claim_billing_supervisor_user_id: 0,
 
-  // Session Lock (HIPAA-style)
-  session_lock_enabled: false,
-  inactivity_timeout_minutes: null,
-  session_lock_pin_set: false,
-
   // Kiosk PIN (for clock in/out at kiosks)
   kiosk_pin_set: false
 });
@@ -1074,15 +997,6 @@ const isWorkforceEmployeeRole = computed(() =>
     'intern_plus'
   ].includes(effectiveRoleNorm.value)
 );
-
-const sessionLockPinNew = ref('');
-const sessionLockPinConfirm = ref('');
-const sessionLockPinMismatch = computed(() => {
-  const a = sessionLockPinNew.value;
-  const b = sessionLockPinConfirm.value;
-  if (!a && !b) return false;
-  return a.length === 4 && b.length === 4 && a !== b;
-});
 
 const kioskPinNew = ref('');
 const savingKioskPin = ref(false);
@@ -1371,14 +1285,8 @@ const load = async () => {
       agencyNotificationSettings.value = { defaults: null, userEditable: true, enforceDefaults: false };
     }
 
-    if (data?.sessionLockMaxMinutes) {
-      sessionLockMaxMinutes.value = data.sessionLockMaxMinutes;
-    }
     vapidPublicKey.value = data?.vapidPublicKey || '';
 
-    prefs.value.session_lock_enabled = !!data?.session_lock_enabled;
-    prefs.value.inactivity_timeout_minutes = data?.inactivity_timeout_minutes ?? null;
-    prefs.value.session_lock_pin_set = !!data?.session_lock_pin_set;
     prefs.value.kiosk_pin_set = !!data?.kiosk_pin_set;
     // Prefer localStorage over server for toggles that apply instantly (avoids remount race)
     const storedTheme = getStoredThemePreference(props.userId);
@@ -1512,12 +1420,6 @@ const save = async () => {
       default_landing_page: prefs.value.default_landing_page || 'dashboard',
       note_aid_autosign_after_review: !!prefs.value.note_aid_autosign_after_review,
 
-      // Session Lock
-      session_lock_enabled: !!prefs.value.session_lock_enabled,
-      inactivity_timeout_minutes: prefs.value.session_lock_enabled && prefs.value.inactivity_timeout_minutes != null
-        ? prefs.value.inactivity_timeout_minutes
-        : null,
-
       // Toast preferences (per-type)
       toast_preferences: {
         login_logout: {
@@ -1532,10 +1434,6 @@ const save = async () => {
         }
       }
     };
-
-    if (sessionLockPinNew.value && sessionLockPinConfirm.value && sessionLockPinNew.value === sessionLockPinConfirm.value && sessionLockPinNew.value.length === 4) {
-      payload.session_lock_pin = sessionLockPinNew.value;
-    }
 
     if (canEditAdminControlled.value) {
       payload.work_modality = prefs.value.work_modality || null;
@@ -1591,14 +1489,6 @@ const save = async () => {
 
     await api.put(`/users/${props.userId}/preferences`, payload);
     saved.value = true;
-    if (payload.session_lock_pin) {
-      sessionLockPinNew.value = '';
-      sessionLockPinConfirm.value = '';
-      prefs.value.session_lock_pin_set = true;
-    }
-    if (props.userId === authStore.user?.id && (payload.session_lock_enabled !== undefined || payload.inactivity_timeout_minutes !== undefined || payload.session_lock_pin)) {
-      refetchSessionLockConfig();
-    }
     if (props.userId === authStore.user?.id && payload.theme_preference) {
       setThemePreference(props.userId, payload.theme_preference);
     }

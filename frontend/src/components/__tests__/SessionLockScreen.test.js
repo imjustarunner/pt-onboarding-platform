@@ -12,6 +12,29 @@ let wrapper;
 beforeEach(() => { setActivePinia(createPinia()); mocks.resume.mockReset(); mocks.refresh.mockReset(); useSessionLockStore().setLockConfig({ pinRequired: true, pinLength: 6, useLockScreen: true }); });
 afterEach(() => { wrapper?.unmount(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 describe('Quick View unlock screen', () => {
+  it.each([
+    { useLockScreen: false, pinRequired: false },
+    { useLockScreen: true, pinRequired: false, pinLength: 4 }
+  ])('offers server-verified resume without asking for an unconfigured or retired PIN: %j', async (config) => {
+    useSessionLockStore().setLockConfig(config);
+    wrapper = mount(SessionLockScreen, { props: { isLocked: true }, global: { stubs: { teleport: true, BrandingLogo: true } } });
+    expect(wrapper.find('input').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain('4-digit');
+    expect(wrapper.text()).toContain('Stay logged in');
+    expect(wrapper.emitted('unlock')).toBeUndefined();
+    mocks.resume.mockResolvedValue(true);
+    await wrapper.get('form').trigger('submit'); await flushPromises();
+    expect(mocks.resume).toHaveBeenCalledWith();
+    expect(wrapper.emitted('unlock')).toHaveLength(1);
+  });
+  it('keeps the workspace covered and shows recovery feedback when resume fails', async () => {
+    useSessionLockStore().setLockConfig({ useLockScreen: false, pinRequired: false });
+    wrapper = mount(SessionLockScreen, { props: { isLocked: true }, global: { stubs: { teleport: true, BrandingLogo: true } } });
+    mocks.resume.mockResolvedValue(false);
+    await wrapper.get('form').trigger('submit'); await flushPromises();
+    expect(wrapper.emitted('unlock')).toBeUndefined();
+    expect(wrapper.text()).toContain('couldn’t resume your session');
+  });
   it('uses the existing mobile session background while retaining the PIN form', () => {
     vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
     wrapper = mount(SessionLockScreen, { props: { isLocked: true }, global: { stubs: { teleport: true, BrandingLogo: true } } });

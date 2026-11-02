@@ -47,15 +47,15 @@ export function resolveSessionPolicy({ role, isHourlyWorker, settings = [], pref
     if (Array.isArray(s.requireQuickViewPinRoles) && s.requireQuickViewPinRoles.map(normalizeSessionRole).includes(role)) pinRequired = true;
   }
   const sessionLockEnabled = [true, 1, '1'].includes(preferences.session_lock_enabled);
-  const hasLegacyPin = !!preferences.session_lock_pin_hash;
   const timeout = Math.min(agencyMax, Math.max(1, Number(preferences.inactivity_timeout_minutes) || agencyMax));
   idle = Math.min(idle, agencyMax * 60, sessionLockEnabled ? timeout * 60 : Infinity);
   return {
     nonHourlyAdminSession,
     platformMaxMinutes: max, agencyMaxMinutes: agencyMax,
-    sessionLockEnabled, inactivityTimeoutMinutes: timeout, effectiveTimeoutMinutes: timeout,
-    pinRequired, pinType: pinRequired ? 'quick_view' : 'session', pinLength: pinRequired ? 6 : 4,
-    useLockScreen: pinRequired || (sessionLockEnabled && hasLegacyPin),
+    // Retain existing shorter inactivity limits, but retire the four-digit lock.
+    sessionLockEnabled: false, inactivityTimeoutMinutes: timeout, effectiveTimeoutMinutes: timeout,
+    pinRequired, pinType: pinRequired ? 'quick_view' : null, pinLength: pinRequired ? 6 : null,
+    useLockScreen: pinRequired,
     idleBeforeTimedownSeconds: idle, timedownSeconds: timedown
   };
 }

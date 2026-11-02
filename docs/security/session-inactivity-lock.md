@@ -4,7 +4,9 @@
 
 Agency Management → General → Session Timeout (Timedown) → **Require Quick View passcode to unlock**.
 
-Select the roles that must use their existing six-digit Quick View passcode. This overrides the optional four-digit session PIN preference. A user without a Quick View passcode must fully sign in and configure/reset it in My Preferences; a missing code does not disable the requirement.
+Select the roles that must use their existing six-digit Quick View passcode. A user without a Quick View passcode must fully sign in and configure/reset it in My Preferences; a missing code does not disable the requirement.
+
+The legacy four-digit session PIN is retired. It is no longer offered in My Preferences or accepted for session unlock, and retained PIN settings cannot enable it. Without an agency Quick View requirement, the inactivity warning offers server-verified **Stay logged in** without a code. The workspace stays mounted during resume. Existing shorter personal inactivity limits remain in effect; no stored PIN hashes or saved feedback are deleted.
 
 The strictest passcode requirement and explicit maximum inactivity limits across active agency memberships apply to the whole login. Superadmins can access all agencies, so all active agencies participate in their policy. Non-hourly admin/support/superadmin users get ten minutes idle followed by a ten-minute logout countdown, overriding the general agency idle/countdown fields. Eligibility uses the stored `users.is_hourly_worker` flag; missing or unknown employment status does not grant this exception. Hourly staff and other roles retain their existing policy, including shorter agency idle/countdown settings. Platform, agency maximum and personal session-lock limits can still shorten the idle interval.
 

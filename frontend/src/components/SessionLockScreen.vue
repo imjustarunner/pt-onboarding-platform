@@ -44,11 +44,12 @@
           size="large"
           class="session-lock-logo"
         />
-        <h1 id="session-lock-title" class="session-lock-title">Session Locked</h1>
-        <p class="session-lock-message">{{ sessionLockStore.lockConfig.pinRequired ? 'Enter your 6-digit Quick View passcode to continue' : 'Enter your 4-digit session PIN to continue' }}</p>
+        <h1 id="session-lock-title" class="session-lock-title">{{ requiresPasscode ? 'Session Locked' : 'Session paused' }}</h1>
+        <p class="session-lock-message">{{ requiresPasscode ? 'Enter your 6-digit Quick View passcode to continue' : 'Choose Stay logged in to continue your work.' }}</p>
         <p v-if="sessionLockStore.warningActive && sessionLockStore.warningSecondsLeft > 0" class="session-lock-message" role="status">Automatic logout in {{ countdown }}.</p>
-        <form v-if="sessionLockStore.lockConfig?.useLockScreen" @submit.prevent="submitPin" class="session-lock-form">
+        <form @submit.prevent="submitPin" class="session-lock-form">
           <input
+            v-if="requiresPasscode"
             ref="pinInputRef"
             v-model="pinValue"
             type="password"
@@ -65,8 +66,8 @@
             @input="onPinInput"
           />
           <p v-if="error" class="session-lock-error">{{ error }}</p>
-          <button type="submit" class="btn btn-primary session-lock-submit" :disabled="pinValue.length !== pinLength || verifying">
-            {{ verifying ? 'Verifying…' : 'Unlock' }}
+          <button type="submit" class="btn btn-primary session-lock-submit" :disabled="(requiresPasscode && pinValue.length !== pinLength) || verifying">
+            {{ verifying ? 'Verifying…' : requiresPasscode ? 'Unlock' : 'Stay logged in' }}
           </button>
         </form>
         <button type="button" class="session-lock-logout" @click="logoutInstead">
@@ -138,7 +139,8 @@ function onMobileChange(event) { isMobile.value = event.matches; }
 onMounted(() => mobileQuery?.addEventListener('change', onMobileChange));
 onUnmounted(() => mobileQuery?.removeEventListener('change', onMobileChange));
 watch(tenantKey, () => { videoFailed.value = false; });
-const pinLength = computed(() => sessionLockStore.lockConfig?.pinLength || 4);
+const requiresPasscode = computed(() => sessionLockStore.useLockScreen);
+const pinLength = 6;
 const countdown = computed(() => formatCountdownClock(sessionLockStore.warningSecondsLeft));
 
 const pinValue = ref('');
@@ -156,21 +158,25 @@ const cardStyle = computed(() => {
 });
 
 function onPinInput(e) {
-  const v = e.target.value.replace(/\D/g, '').slice(0, pinLength.value);
+  const v = e.target.value.replace(/\D/g, '').slice(0, pinLength);
   pinValue.value = v;
   error.value = '';
 }
 
 async function submitPin() {
-  if (pinValue.value.length !== pinLength.value || verifying.value) return;
+  if ((requiresPasscode.value && pinValue.value.length !== pinLength) || verifying.value) return;
   try {
     verifying.value = true;
     error.value = '';
-    if (!await resumeSession(pinValue.value)) return;
+    const resumed = requiresPasscode.value ? await resumeSession(pinValue.value) : await resumeSession();
+    if (!resumed) {
+      error.value = 'We couldn’t resume your session. Try again or sign in again.';
+      return;
+    }
     pinValue.value = '';
     emit('unlock');
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Invalid PIN';
+    error.value = e.response?.data?.error?.message || 'We couldn’t resume your session. Please try again.';
     pinValue.value = '';
     pinInputRef.value?.focus();
   } finally {
