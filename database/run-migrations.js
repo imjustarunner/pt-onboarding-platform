@@ -20,6 +20,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import pool from '../backend/src/config/database.js';
+import { assertNoRetiredRoleMigrationReplay } from './roleMigrationSafety.mjs';
 import {
   isIgnorableSchemaError,
   splitSqlStatements,
@@ -125,6 +126,10 @@ async function runMigration(migrationFile, dryRun = false) {
   const migrationName = path.basename(migrationFile, '.sql');
   const sql = await fs.readFile(migrationPath, 'utf-8');
   const statements = splitSqlStatements(stripSqlLineComments(sql));
+
+  // Check before executing any SQL or replacing a successful migration-log row.
+  // This also covers --force and missing individual historical log entries.
+  await assertNoRetiredRoleMigrationReplay(pool, migrationFile);
   
   console.log(`\n${dryRun ? '[DRY RUN] ' : ''}Running migration: ${migrationName}`);
   console.log(`  File: ${migrationFile}`);

@@ -1,0 +1,32 @@
+name: Role migration safety
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'database/run-migrations.js'
+      - 'database/roleMigrationSafety*'
+      - 'backend/src/scripts/runMigrations.js'
+      - 'backend/src/scripts/runSpecificMigration*.js'
+      - '.github/workflows/role-migration-safety.yml'
+  pull_request:
+    paths:
+      - 'database/run-migrations.js'
+      - 'database/roleMigrationSafety*'
+      - 'backend/src/scripts/runMigrations.js'
+      - 'backend/src/scripts/runSpecificMigration*.js'
+      - '.github/workflows/role-migration-safety.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  role-migration-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Reject historical role rewrites after retirement
+        run: node --test database/roleMigrationSafety.test.mjs
