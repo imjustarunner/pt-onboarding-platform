@@ -91,6 +91,18 @@ function memoryDb() {
 const input = { agencyId: 2, ticketId: 10, actorUserId: 559, threadRevision: '11' };
 
 describe('immutable support reply review', () => {
+  it('attributes an unsent draft to its exact incoming sender rather than a later email', async () => {
+    const db=memoryDb();
+    const service=createSupportReplyReviewService({db,now:()=>new Date('2026-10-26T17:00:00Z')});
+    const draft=await service.recordDraftSnapshot({...input,body:'Unsent draft'});
+    db.state.mail=[{ticket_id:10,ticket_message_id:11,direction:'inbound',body:'Latest received email',from_email:'original@example.test',from_name:'Original sender',sent_at:'2026-10-26T16:00:00Z'},
+      {ticket_id:10,ticket_message_id:15,direction:'inbound',body:'Later question',from_email:'later@example.test',sent_at:'2026-10-26T18:00:00Z'}];
+    const result=await service.dailyReview({agencyId:2,date:'2026-10-26'});
+    const captured=result.rows[0].draftSnapshots.find(d=>d.id===draft.id);
+    assert.equal(captured.originalReceived.fromEmail,'original@example.test');
+    assert.equal(captured.originalReceived.fromName,'Original sender');
+  });
+
   it('encrypts original/draft evidence and never overwrites a revision on idempotent retry', async () => {
     const db = memoryDb();
     const service = createSupportReplyReviewService({ db });

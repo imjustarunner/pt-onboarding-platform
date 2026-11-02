@@ -328,6 +328,13 @@ export function createSupportReplyReviewService({ db: injectedDb, encrypt = encr
           errorCode: email.error_code, external: !!email.gmail_message_id && !email.communication_id, missingDraft: !email.draft_snapshot_id,
           immutableSnapshotMissing: true });
       }
+      for (const draft of allDrafts) {
+        if (!draft.originalReceived) continue;
+        const original=draft.originalReceived;
+        const inbound=emailRows.filter(e=>Number(e.ticket_id)===Number(ticket.id) && e.direction==='inbound' && new Date(e.sent_at || e.created_at)<=new Date(draft.createdAt));
+        const source=inbound.find(e=>original.sourceMessageId && [e.ticket_message_id,e.internet_message_id,e.gmail_message_id].some(v=>String(v)===String(original.sourceMessageId)));
+        draft.originalReceived={...original,fromEmail:original.fromEmail || source?.from_email || (String(original.sourceMessageId)===String(ticket.source_email_message_id) ? ticket.source_email_from : null),fromName:original.fromName || source?.from_name || null};
+      }
       // Attach the corresponding envelope to every comparison, including historical
       // replies without a captured draft. Never substitute a later incoming email.
       for (const delivery of deliveries) {
