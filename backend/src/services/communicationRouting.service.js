@@ -1,6 +1,5 @@
 import { sharedCareNumberId, getSharedCareNumber } from './sharedCareNumber.service.js';
 import { isCommunicationStaffActive } from '../utils/communicationReceptionPolicy.js';
-import { isUserAvailable } from './availabilityWindow.service.js';
 import VacationScheduleSyncService from './vacationScheduleSync.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
@@ -369,32 +368,32 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
     }
   }
 
-  let coverageReason = null;
-  if (ownerUser?.id && ownerType === 'staff' && agencyId) {
-    const availableCaregivers = [];
-    for (const id of eligibleUserIds.length ? eligibleUserIds : [ownerUser.id]) {
-      const [[choiceRow]]=await pool.execute("SELECT JSON_EXTRACT(notification_categories,?) AS texting FROM user_preferences WHERE user_id=?",[`$.staff_communications_${Number(agencyId)}.accessRequests.inAppTexting`,id]);
-      if([false,0,'false'].includes(choiceRow?.texting)){coverageReason='texting_disabled';continue;}
-      const onVacation = await VacationScheduleSyncService.isUserOnVacation(id, agencyId);
-      const availability = await isUserAvailable(id, new Date(), { agencyId });
-      if (onVacation || !availability.available) {
-        if (onVacation || !coverageReason) coverageReason = onVacation ? 'provider_away' : 'outside_work_hours';
-      } else availableCaregivers.push(id);
-    }
-    // Keep each provider's availability independent. Support receives the message
-    // only after the client accepts the out-of-office forwarding offer.
-    eligibleUserIds = availableCaregivers;
+  const caregiverIds = ownerUser?.id && ownerType === 'staff'
+    ? (eligibleUserIds.length ? eligibleUserIds : [ownerUser.id]) : [];
+  const absences = [];
+  const notifyCaregivers = [];
+  for (const id of caregiverIds) {
+    const absence = await VacationScheduleSyncService.getUserAbsence(id, agencyId);
+    if (absence) absences.push(`${id}:${absence.key}`);
+    const [[choiceRow]] = await pool.execute("SELECT JSON_EXTRACT(notification_categories,?) AS texting FROM user_preferences WHERE user_id=?",
+      [`$.staff_communications_${Number(agencyId)}.accessRequests.inAppTexting`, id]);
+    if (!absence && ![false, 0, 'false'].includes(choiceRow?.texting)) notifyCaregivers.push(id);
   }
-  const allCaregiversAway = ownerType === 'staff' && !!coverageReason && eligibleUserIds.length === 0;
+  // Ordinary availability hours and alert preferences do not mean out of office.
+  const allCaregiversAway = caregiverIds.length > 0 && absences.length === caregiverIds.length;
+  const coverageReason = allCaregiversAway ? 'provider_away' : null;
+  const absenceKey = allCaregiversAway ? absences.sort().join('|') : null;
+  if (caregiverIds.length) eligibleUserIds = notifyCaregivers;
 
   return {
     number,
     assignment,
     ownerUser,
     ownerType,
-    eligibleUserIds: coverageReason ? eligibleUserIds : (eligibleUserIds.length > 0 ? eligibleUserIds : (ownerUser ? [ownerUser.id] : [])),
+    eligibleUserIds,
     coverageReason,
     allCaregiversAway,
+    absenceKey,
     agencyId,
     client,
     clientId: client?.id || null,

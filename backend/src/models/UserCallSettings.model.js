@@ -36,11 +36,11 @@ class UserCallSettings {
         `INSERT INTO user_call_settings (
            user_id, inbound_enabled, outbound_enabled, forward_to_phone, 
            allow_call_recording, wait_music_id, 
-           voicemail_enabled, vacation_mode_enabled,
+           voicemail_enabled, vacation_mode_enabled, vacation_mode_started_at,
            voicemail_message, voicemail_ooo_message, voicemail_vacation_message,
            sms_inbound_enabled, sms_outbound_enabled
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, IF(?, UTC_TIMESTAMP(6), NULL), ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            inbound_enabled = COALESCE(VALUES(inbound_enabled), inbound_enabled),
            outbound_enabled = COALESCE(VALUES(outbound_enabled), outbound_enabled),
@@ -48,7 +48,12 @@ class UserCallSettings {
            allow_call_recording = COALESCE(VALUES(allow_call_recording), allow_call_recording),
            wait_music_id = VALUES(wait_music_id),
            voicemail_enabled = COALESCE(VALUES(voicemail_enabled), voicemail_enabled),
-           vacation_mode_enabled = COALESCE(VALUES(vacation_mode_enabled), vacation_mode_enabled),
+           vacation_mode_started_at = CASE
+             WHEN ? = 0 THEN vacation_mode_started_at
+             WHEN VALUES(vacation_mode_enabled) = 0 THEN NULL
+             WHEN vacation_mode_enabled = 0 THEN UTC_TIMESTAMP(6)
+             ELSE vacation_mode_started_at END,
+           vacation_mode_enabled = IF(?, VALUES(vacation_mode_enabled), vacation_mode_enabled),
            voicemail_message = VALUES(voicemail_message),
            voicemail_ooo_message = VALUES(voicemail_ooo_message),
            voicemail_vacation_message = VALUES(voicemail_vacation_message),
@@ -64,17 +69,20 @@ class UserCallSettings {
           waitMusicId,
           voicemailEnabled ? 1 : 0,
           vacationModeEnabled ? 1 : 0,
+          vacationModeEnabled ? 1 : 0,
           voicemailMessage,
           voicemailOooMessage,
           voicemailVacationMessage,
           smsInboundEnabled ? 1 : 0,
-          smsOutboundEnabled ? 1 : 0
+          smsOutboundEnabled ? 1 : 0,
+          patch.vacation_mode_enabled !== undefined ? 1 : 0,
+          patch.vacation_mode_enabled !== undefined ? 1 : 0
         ]
       );
     } catch (err) {
       // Fallback for missing columns (e.g. if migration hasn't run in some envs)
       const isMissingCol = err?.message?.includes('Unknown column');
-      if (isMissingCol) {
+      if (isMissingCol && !err.message.includes('vacation_mode_started_at')) {
         // Attempt simpler upsert with core fields only
         await pool.execute(
           `INSERT INTO user_call_settings (user_id, inbound_enabled, outbound_enabled, forward_to_phone, allow_call_recording, voicemail_enabled, voicemail_message)

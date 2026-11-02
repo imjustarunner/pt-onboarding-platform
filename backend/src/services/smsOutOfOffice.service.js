@@ -1,5 +1,5 @@
-import Agency from '../models/Agency.model.js';
-import { communicationRulesNotice } from './smsCommunicationNotice.service.js';
+import { sendConversationStartNotice } from './smsCommunicationNotice.service.js';
+export { OUT_OF_OFFICE_SMS } from './smsCommunicationNotice.service.js';
 import pool from '../config/database.js';
 import MessageLog from '../models/MessageLog.model.js';
 import SmsCareThread from '../models/SmsCareThread.model.js';
@@ -9,7 +9,6 @@ import { recordSmsProfileAudit } from './smsProfileAudit.service.js';
 import { alertRequestedSupport } from './smsRequestedSupport.service.js';
 
 export const SMS_CRISIS_NOTICE = 'This texting service is not for crises or emergencies. For suicide or emotional distress, call or text 988. For immediate danger or a medical emergency, call 911.';
-export const OUT_OF_OFFICE_SMS = `Your assigned provider(s) are unavailable and are not monitoring texts right now. Reply SUPPORT to request urgent support review. Your message is saved in their app now; they can respond when available. Support response times depend on staff availability. ${SMS_CRISIS_NOTICE}`;
 
 async function sendLogged({ agencyId, numberId, clientId, userId, from, to, body, metadata }) {
   const log = await MessageLog.createOutbound({ agencyId, numberId, clientId, userId,
@@ -34,24 +33,18 @@ export async function offerOutOfOfficeSupport({ route, from, to, body, messageId
   const inbound = await MessageLog.createInbound({ agencyId, numberId, clientId, userId,
     assignedUserId: userId, ownerType: 'staff', fromNumber: from, toNumber: to,
     providerMessageSid: messageId, body: body || '[Multimedia message]',
-    metadata: { provider: 'vonage', awaitingProviderReturn: true, ...(mediaUrls.length ? { media_urls: mediaUrls } : {}) } });
+    metadata: { directProviderCare: true, awaitingProviderReturn: true, ...(mediaUrls.length ? { media_urls: mediaUrls } : {}) } });
   await SmsCareThread.upsert({ agencyId, clientId, numberId, ownerUserId: userId,
     careState: 'under_care', supportAccess: 'observe', lastInboundAt: new Date() });
   await recordSmsProfileAudit({ agencyId, numberId, clientId, direction: 'INBOUND',
     numberPurpose: route.numberPurpose, fromNumber: from, toNumber: to, body,
     messageLogId: inbound.id });
-  const [recent] = await pool.execute(`SELECT id FROM message_logs WHERE agency_id = ? AND number_id = ?
-    AND client_id = ? AND from_number = ? AND to_number = ? AND direction = 'OUTBOUND'
-    AND delivery_status IN ('sent', 'delivered') AND created_at > DATE_SUB(NOW(), INTERVAL 4 HOUR)
-    AND JSON_EXTRACT(metadata, '$.supportChoiceOffer') = true
-    AND JSON_EXTRACT(metadata, '$.supportChoiceTicketId') IS NULL LIMIT 1`, [agencyId, numberId, clientId, to, from]);
-  if (recent.length) return;
   try {
-    await sendLogged({ agencyId, numberId, clientId, userId, from: to, to: from, body: `${route.coverageReason==='texting_disabled'?`Your assigned provider(s) have client-text alerts turned off. Would you like this message forwarded to support? Reply YES or SUPPORT, or NO to leave it in the app. Support response times depend on staff availability. ${SMS_CRISIS_NOTICE}`:OUT_OF_OFFICE_SMS} ${communicationRulesNotice(await Agency.findById(agencyId) || {})} Reply STOP to opt out.`,
-      metadata: { provider: 'vonage', supportChoiceOffer: true, textingDisabled:route.coverageReason==='texting_disabled', triggerInboundId: inbound.id } });
+    await sendConversationStartNotice({ agencyId, numberId, clientId, userId, from: to, to: from,
+      inboundLogId: inbound.id, absenceKey: route.absenceKey });
   } catch (error) {
-    // Preserve the client's original message even if consent or carrier delivery blocks the offer.
-    console.warn('[smsOOO] Offer not sent:', error.code || 'sms_send_failed');
+    // Preserve the original message even if the notice cannot be sent.
+    console.warn('[smsOOO] Notice not sent:', error.code || 'sms_send_failed');
   }
 }
 

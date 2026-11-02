@@ -9,7 +9,7 @@ vi.mock('../../models/PhoneNumber.model.js',()=>({default:{findByPhoneNumber:vi.
 vi.mock('../../models/PhoneNumberAssignment.model.js',()=>({default:{listByNumberId:vi.fn(),listEligibleUserIdsForNumber:vi.fn()}}));
 vi.mock('../../models/UserPreferences.model.js',()=>({default:{}}));
 vi.mock('../availabilityWindow.service.js',()=>({isUserAvailable:vi.fn()}));
-vi.mock('../vacationScheduleSync.service.js',()=>({default:{isUserOnVacation:vi.fn()}}));
+vi.mock('../vacationScheduleSync.service.js',()=>({default:{getUserAbsence:vi.fn()}}));
 vi.mock('../smsProfileAudit.service.js',()=>({normalizeNumberPurpose:x=>x,skipsClinicalInbox:()=>false,resolveProfilePhoneMatch:vi.fn()}));
 import pool from '../../config/database.js';
 import User from '../../models/User.model.js';
@@ -33,12 +33,12 @@ beforeEach(()=>{
    if(sql.includes("u.role IN ('support'")) return [[{id:20}]];
    return [[]];
  });
- isUserAvailable.mockResolvedValue({available:true});Vacation.isUserOnVacation.mockResolvedValue(false);
+ isUserAvailable.mockResolvedValue({available:true});Vacation.getUserAbsence.mockResolvedValue(null);
 });
 describe('provider communication coverage',()=>{
  it('routes available clinicians to their own client',async()=>{expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({careOwnerUserId:10,eligibleUserIds:[10],coverageReason:null});});
- it('holds after-hours messages for the client choice without changing care ownership',async()=>{isUserAvailable.mockResolvedValue({available:false});expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({careOwnerUserId:10,eligibleUserIds:[],coverageReason:'outside_work_hours',supportAccess:'observe',allCaregiversAway:true});expect(isUserAvailable).toHaveBeenCalledWith(10,expect.any(Date),{agencyId:2});});
- it('holds vacation messages even within work hours',async()=>{Vacation.isUserOnVacation.mockResolvedValue(true);expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({eligibleUserIds:[],coverageReason:'provider_away',allCaregiversAway:true});});
+ it('keeps ordinary after-hours messages in the provider inbox without an away notice',async()=>{isUserAvailable.mockResolvedValue({available:false});expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({careOwnerUserId:10,eligibleUserIds:[10],coverageReason:null,supportAccess:'observe',allCaregiversAway:false});expect(isUserAvailable).not.toHaveBeenCalled();});
+ it('holds vacation messages even within work hours',async()=>{Vacation.getUserAbsence.mockResolvedValue({key:'manual:one'});expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({eligibleUserIds:[],coverageReason:'provider_away',allCaregiversAway:true});});
  it('rejects outbound use by a terminated provider',async()=>{User.findById.mockResolvedValue({id:10,status:'TERMINATED_PENDING'});expect(await resolveOutboundNumber({userId:10})).toEqual({error:'staff_unavailable'});});
 });
 
@@ -70,12 +70,22 @@ it('notifies both assigned providers without unrelated pool members', async () =
 it('keeps the second provider notified when the primary is away without forwarding to support', async () => {
  const original=pool.execute.getMockImplementation();
  pool.execute.mockImplementation(async(sql,args)=>sql.includes('SELECT provider_user_id') ? [[{provider_user_id:10,is_primary:1},{provider_user_id:11,is_primary:0}]] : original(sql,args));
- Vacation.isUserOnVacation.mockImplementation(async id=>id===10);
- expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({careOwnerUserId:10,eligibleUserIds:[11],coverageReason:'provider_away',allCaregiversAway:false});
+ Vacation.getUserAbsence.mockImplementation(async id=>id===10?{key:'manual:one'}:null);
+ expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({careOwnerUserId:10,eligibleUserIds:[11],coverageReason:null,allCaregiversAway:false});
 });
-it('checks the second provider availability separately', async () => {
+it('does not treat the second provider ordinary off-hours as an absence', async () => {
  const original=pool.execute.getMockImplementation();
  pool.execute.mockImplementation(async(sql,args)=>sql.includes('SELECT provider_user_id') ? [[{provider_user_id:10,is_primary:1},{provider_user_id:11,is_primary:0}]] : original(sql,args));
- Vacation.isUserOnVacation.mockResolvedValue(false); isUserAvailable.mockImplementation(async id=>({available:id===10}));
- expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({eligibleUserIds:[10],coverageReason:'outside_work_hours',allCaregiversAway:false});
+ Vacation.getUserAbsence.mockResolvedValue(null); isUserAvailable.mockImplementation(async id=>({available:id===10}));
+ expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({eligibleUserIds:[10,11],coverageReason:null,allCaregiversAway:false});
+});
+
+it('does not tell a client the provider is absent just because alerts are disabled', async()=>{
+ const original=pool.execute.getMockImplementation();
+ pool.execute.mockImplementation(async(sql,args)=>sql.includes('AS texting')?[[{texting:0}]]:original(sql,args));
+ expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({eligibleUserIds:[],allCaregiversAway:false,absenceKey:null});
+});
+it('identifies an actual absence without changing the care owner', async()=>{
+ Vacation.getUserAbsence.mockResolvedValue({key:'schedule:42'});
+ expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({careOwnerUserId:10,eligibleUserIds:[],allCaregiversAway:true,absenceKey:'10:schedule:42'});
 });
