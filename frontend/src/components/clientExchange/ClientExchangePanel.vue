@@ -19,11 +19,13 @@
       </div>
     </div>
 
-    <div class="cep-banner cep-banner--info">
+    <details class="cep-banner cep-banner--info" :open="exchangeHelpOpen" @toggle="onExchangeHelpToggle"><summary>How Client Exchange works</summary><p>
+
       All authorized agency providers can browse general exchange listings and see their own match status, including when closed or waitlisted.
       Direct referrals are limited to their recipient and referring team. Notifications go to matching providers who are open for new clients.
       Clinical means therapy; Learning means tutoring or learning services; Coaching / Consulting is nonclinical.
-    </div>
+      </p><button type="button" class="cep-btn cep-btn--ghost cep-btn--sm" @click="exchangeHelpOpen=false">Got it — collapse</button>
+    </details>
 
     <label v-if="agencies.length > 1 || !agencyId">
       Agency
@@ -491,6 +493,11 @@ async function onExpand(listingId) {
     requestsLoadingId.value = null;
   }
 }
+
+const exchangeHelpOpen=ref(true);
+const exchangeHelpKey=computed(()=>`client-exchange-help-v1:${authStore.user?.id || 'visitor'}:${agencyId.value || 'none'}`);
+watch(exchangeHelpKey,key=>{try{exchangeHelpOpen.value=localStorage.getItem(key)!=='collapsed';}catch{exchangeHelpOpen.value=true;}},{immediate:true});
+function onExchangeHelpToggle(event){exchangeHelpOpen.value=event.target.open;if(!event.target.open)try{localStorage.setItem(exchangeHelpKey.value,'collapsed');}catch{ /* Browser storage is optional. */ }}
 
 const warningAcknowledgements = reactive({});
 function warningsAcknowledged(listing) {

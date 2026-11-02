@@ -1,3 +1,4 @@
+import {missingExchangeEssentials} from '../../../frontend/src/navigation/clientExchangeEssentials.js';
 import { eligibleExchangeProvider } from '../utils/clientExchangeProvider.js';
 import {sendExchangeRequestSupportNotice} from './clientExchangeRequestNotice.service.js';
 import pool from '../config/database.js';
@@ -39,18 +40,20 @@ export async function notifyExchangeMatches({ listing, client, send = true, repo
       const link = `${buildPublicAppUrl(agency, 'client-exchange')}?listingId=${listing.id}&agencyId=${agencyId}`;
       const {users,facets}=await loadExchangeCandidates(agencyId);
       const history=await exchangeDeliveryHistory(listing);
+      const missingEssentials=missingExchangeEssentials(listing);
       for(const user of users) {
         if(!eligibleExchangeProvider(user,agency)){summary.skipped++;continue;}
         const previous=history.get(Number(user.id))||{};
         let decision;
         try { decision=await evaluateExchangeCandidate({user,agency,listing,client,facets:facets.get(Number(user.id))}); }
         catch(error) { decision={matched:false,checks:[{field:'evaluation',status:'error',reason:'Provider data could not be evaluated; retry required.'}]};summary.failed++; }
+        if(missingEssentials.length) decision={...decision,canNotify:false,notificationHold:`Support must complete: ${missingEssentials.map(item=>item.label).join(', ')}.`};
         await saveExchangeDecision(listing.id,user.id,decision);
         await saveExchangeDelivery(listing.id,user.id,previous);
         if(!decision.matched || decision.canNotify === false) {
           await saveExchangeDelivery(listing.id,user.id,{
-            email:previous.email||{status:'not_sent',reason:'Provider did not match this evaluation.'},
-            sms:previous.sms||{status:'not_sent',reason:'Provider did not match this evaluation.'}
+            email:previous.email||{status:'not_sent',reason:decision.notificationHold || 'Provider did not match this evaluation.'},
+            sms:previous.sms||{status:'not_sent',reason:decision.notificationHold || 'Provider did not match this evaluation.'}
           });continue;
         }
         summary.matched++;
@@ -145,7 +148,7 @@ export async function notifyExchangeClaim({ listing, requestingProviderUserId, r
     ...[...recipients].map(userId => exchangeActivityNotification({ listing, userId, type: 'client_exchange_claim',
     title: 'New Client Exchange request', message: 'A provider has requested a referral. Review the request in Client Exchange.', actorUserId: requestingProviderUserId }))]);
   const support=results[0];
-  if(support.status==='fulfilled' && !['sent','queued','unavailable'].includes(support.value?.status)) console.error('[clientExchange] Support request email needs review',{requestId,status:support.value?.status});
+  if(support.status==='fulfilled' && !['sent','queued','unavailable'].includes(support.value?.status)) throw new Error('Support request email needs delivery review.');
   if (results.some(result => result.status === 'rejected')) throw new Error('Some Client Exchange request notifications could not be delivered.');
 }
 

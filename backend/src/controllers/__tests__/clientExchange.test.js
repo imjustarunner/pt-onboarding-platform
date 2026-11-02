@@ -1,17 +1,17 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ client: vi.fn(), access: vi.fn(), create: vi.fn(), recordAccess: vi.fn(), summary: vi.fn(), execute: vi.fn(), referral: vi.fn(), audit: vi.fn(), view: vi.fn(), listing:vi.fn(), requests:vi.fn(), waiver:vi.fn(), sharePreview:vi.fn(), share:vi.fn() }));
+const mocks = vi.hoisted(() => ({ claim:vi.fn(),scope:vi.fn(),client: vi.fn(), access: vi.fn(), create: vi.fn(), recordAccess: vi.fn(), summary: vi.fn(), execute: vi.fn(), referral: vi.fn(), audit: vi.fn(), view: vi.fn(), listing:vi.fn(), requests:vi.fn(), waiver:vi.fn(), sharePreview:vi.fn(), share:vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.execute } }));
 vi.mock('../../models/User.model.js', () => ({ default: {} }));
 vi.mock('../../models/Client.model.js', () => ({ default: { findById: mocks.client } }));
 vi.mock('../../services/clientRecordAccess.service.js', () => ({ providerHasAssignedClientAccess: mocks.access, resolveClientRecordAccess: mocks.recordAccess }));
 vi.mock('../../services/clientExchangeSummary.service.js', () => ({ loadClientExchangeSummary: mocks.summary }));
-vi.mock('../../services/clientExchange.service.js', () => ({ createListing: mocks.create, getMatchingAudit: mocks.audit, getListingById:mocks.listing, listRequestsForListing:mocks.requests }));
+vi.mock('../../services/clientExchange.service.js', () => ({ createRequest:mocks.claim,getExchangeListingScope:mocks.scope,createListing: mocks.create, getMatchingAudit: mocks.audit, getListingById:mocks.listing, listRequestsForListing:mocks.requests }));
 vi.mock('../../services/clientExchangeReferral.service.js', () => ({ createExchangeReferral: mocks.referral }));
 vi.mock('../../services/clientExchangeCurrentAudit.service.js', () => ({ currentExchangeAudit: async audit => audit }));
 vi.mock('../../services/clientExchangeAudit.service.js',()=>({getExchangeAudit:mocks.audit,recordExchangeView:mocks.view}));
 vi.mock('../../services/clientExchangeWaivers.service.js', () => ({ changeExchangeWaiver: mocks.waiver }));
 vi.mock('../../services/clientExchangeSharing.service.js', () => ({ previewExchangeShare: mocks.sharePreview, sendExchangeShare: mocks.share }));
-import { saveMatchingWaiver, previewShare, shareListing, getMatchingAudit, getListingAudit, getListing, createReferral, createListing, previewClientSummary, saveClientSchedule, saveClientMatchingPreferences } from '../clientExchange.controller.js';
+import { createRequest,saveMatchingWaiver, previewShare, shareListing, getMatchingAudit, getListingAudit, getListing, createReferral, createListing, previewClientSummary, saveClientSchedule, saveClientMatchingPreferences } from '../clientExchange.controller.js';
 const response = () => { const res = { status: vi.fn(), json: vi.fn() }; res.status.mockReturnValue(res); return res; };
 const request = () => ({ user: { id: 7, role: 'provider', agencies: [{ id: 2 }] }, body: { agencyId: 2, clientId: 4, currentProviderUserId: 999 } });
 beforeEach(() => { vi.clearAllMocks(); mocks.execute.mockResolvedValue([[{authorized:1}]]); mocks.view.mockResolvedValue(undefined); mocks.client.mockResolvedValue({ id: 4, agency_id: 2, provider_id: 7, status: 'CURRENT' }); mocks.access.mockResolvedValue(true); mocks.create.mockResolvedValue({ id: 12 }); });
@@ -134,4 +134,11 @@ it('takes the sharing actor and tenant from the authenticated request, not submi
   mocks.execute.mockResolvedValueOnce([[{agency_id:2}]]);mocks.share.mockResolvedValue({share:{status:'sent'}});
   const res=response();await shareListing(req,res,vi.fn());
   expect(mocks.share).toHaveBeenCalledWith({listingId:9,providerUserId:10,agencyId:2,actor:req.user,requestKey:'request-key-12345',expectedShareCount:0});
+});
+
+it('authorizes request scope without repeating the full listing and matching audit',async()=>{
+ mocks.scope.mockResolvedValue({id:14,agencyId:2});mocks.claim.mockResolvedValue({id:61,status:'pending'});
+ const res=response(),next=vi.fn();await createRequest({...request(),params:{id:'14'},body:{}},res,next);
+ expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(201);expect(mocks.claim).toHaveBeenCalledWith(expect.objectContaining({listingId:14,requestingProviderUserId:7}));expect(mocks.listing).not.toHaveBeenCalled();
+ mocks.execute.mockResolvedValue([[]]);mocks.claim.mockClear();const denied=response();await createRequest({...request(),params:{id:'14'}},denied,next);expect(denied.status).toHaveBeenCalledWith(403);expect(mocks.claim).not.toHaveBeenCalled();
 });

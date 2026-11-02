@@ -78,3 +78,8 @@ it('does not make optional calendar lookups when typical hours are absent', asyn
   expect(fit.canNotify).toBe(true);
   expect(fit.checks.find(c => c.field === 'schedule').status).toBe('unknown');
 });
+it('does not calculate calendars while checking a request with a typical-hours difference',async()=>{
+ mocks.execute.mockImplementation(async sql=>sql.includes('FROM user_office_locations')?[[{id:1,city:'Colorado Springs'}]]:[[]]);
+ const fit=await evaluateCurrentExchangeFit({context:{user:{id:10,sees_clients:1,provider_accepting_new_clients:1,in_office_available:1},profile:{details:{typicalAvailability:['Tuesday afternoons']}},waivers:[]},listing:{agencyId:2,preferences:{modality:'in_person',serviceLocation:'Colorado Springs',schedule:{days:['Monday'],periods:['afternoon']}}}});
+ expect(fit).toMatchObject({matched:false,canRequest:true});expect(mocks.availability).not.toHaveBeenCalled();
+});

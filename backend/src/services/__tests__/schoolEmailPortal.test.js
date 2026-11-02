@@ -1,5 +1,5 @@
 import {beforeEach,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({find:vi.fn(),send:vi.fn(),execute:vi.fn()}));
+const m=vi.hoisted(()=>({notice:vi.fn(),find:vi.fn(),send:vi.fn(),execute:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:m.find}}));
 vi.mock('../notificationDispatcher.service.js',()=>({createNotificationAndDispatch:async()=>{}}));
@@ -7,6 +7,7 @@ vi.mock('../clientOnboardingTask.service.js',()=>({createClientOnboardingTaskFor
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:m.send}));
 vi.mock('../communicationLogging.service.js',()=>({default:{logGeneratedCommunication:async()=>({id:1})}}));
 vi.mock('../emailSenderIdentityResolver.service.js',()=>({resolvePreferredSenderIdentityForAgency:async()=>({id:1,from_email:'notifications@itsco.health',signature_image_path:'schools.png'})}));
+vi.mock('../clientExchangeEnrollmentNotice.service.js',()=>({sendNewClientSupportNotice:m.notice}));
 import {schoolEmailPortalUrl} from '../schoolEmailPortal.service.js';
 import {notifyNewPacketUploaded} from '../clientNotifications.service.js';
 const school={id:20,slug:'galileo',portal_url:'galileo-school',organization_type:'school'};
@@ -29,4 +30,10 @@ it.each(['paper_upload','digital_submission'])('keeps the packet subject while u
  await notifyNewPacketUploaded({agencyId:2,schoolOrganizationId:20,clientId:10,clientInitials:'ABC',mode});
  expect(m.send).toHaveBeenCalledWith(expect.objectContaining({fromDisplayNameOverride:'Schools',replyToOverride:'schools@itsco.health',to:'galileo@itsco.health',linkUrl:'https://app.itsco.health/galileo-school/dashboard'}));
  const mail=m.send.mock.calls[0][0];expect(mail.subject).toContain('Galileo -');expect(mail.html).toContain('href="https://app.itsco.health/galileo-school/dashboard"');expect(mail.text).toContain('https://app.itsco.health/galileo-school/dashboard');expect(mail.html).not.toContain('https://app.itsco.health/login');
+});
+
+it('routes full office enrollment to the same deduplicated Support notice as a brief inquiry',async()=>{
+ const execute=m.execute.getMockImplementation();m.execute.mockImplementation(async sql=>sql.includes('SELECT client_type,status,provider_id,school_organization_id')?[[{client_type:'clinical',status:'PACKET',provider_id:null,school_organization_id:null}]]:execute(sql));m.notice.mockResolvedValue({status:'sent'});
+ await notifyNewPacketUploaded({agencyId:2,clientId:10,schoolOrganizationId:null,mode:'digital_submission'});
+ expect(m.notice).toHaveBeenCalledWith({agencyId:2,clientId:10});
 });

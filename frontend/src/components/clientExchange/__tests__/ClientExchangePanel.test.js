@@ -111,3 +111,8 @@ it('requires acknowledgement of the specific age/format warnings before submitti
   await wrapper.find('input[type="checkbox"]').setValue(true);expect(request.attributes('disabled')).toBeDefined();await wrapper.find('#exchange-request-note').setValue('I will offer in-person care at my assigned office.');expect(request.attributes('disabled')).toBeUndefined();await request.trigger('click');await flushPromises();
   expect(mocks.post).toHaveBeenCalledWith('/client-exchange/listings/4/requests',{message:'I will offer in-person care at my assigned office.',acknowledgedWarnings:['age-v1','format-v1']});wrapper.unmount();
 });
+it('remembers a collapsed help notice for this user and agency',async()=>{
+ localStorage.clear();mocks.user={id:7,role:'provider'};mocks.store=reactive({currentAgency:{id:2},userAgencies:[],agencies:[],fetchUserAgencies:vi.fn().mockResolvedValue([])});mocks.get.mockResolvedValue({data:{listings:[],requests:[]}});
+ let wrapper=makeWrapper();await flushPromises();let help=wrapper.find('details.cep-banner');expect(help.element.open).toBe(true);help.element.open=false;await help.trigger('toggle');expect(localStorage.getItem('client-exchange-help-v1:7:2')).toBe('collapsed');wrapper.unmount();
+ wrapper=makeWrapper();await flushPromises();expect(wrapper.find('details.cep-banner').element.open).toBe(false);wrapper.unmount();localStorage.clear();
+});

@@ -18,7 +18,7 @@ import { loadClientExchangeSummary } from './clientExchangeSummary.service.js';
 import { supportExchangeSummary } from '../utils/supportExchangeSummary.js';
 import { mergeExchangeSummary, mergeCurrentExchangeSummary, summaryItems } from '../utils/clientExchangeSummary.js';
 import { createExchangeClaim, resolveExchangeClaim, withdrawExchangeListing } from './clientExchangeClaims.service.js';
-import { notifyExchangeClaim, notifyExchangeAssignment } from './clientExchangeNotifications.service.js';
+import { notifyExchangeAssignment } from './clientExchangeNotifications.service.js';
 import Client from '../models/Client.model.js';
 import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
 import { generateUniqueSixDigitClientCode } from '../utils/clientCode.js';
@@ -367,11 +367,13 @@ export async function withdrawListing({ listingId, actingUserId, viewerRole }) {
 }
 
 export async function createRequest({ listingId, requestingProviderUserId, message = null, acknowledgedWarnings = [] }) {
-  const { requestId, listing } = await createExchangeClaim({ listingId, requestingProviderUserId, message, acknowledgedWarnings });
-  await notifyExchangeClaim({ listing, requestingProviderUserId, requestId }).catch(error => {
-    console.error('[clientExchange] Request notification failed', { listingId, error: error?.message });
-  });
+  const { requestId } = await createExchangeClaim({ listingId, requestingProviderUserId, message, acknowledgedWarnings });
   return getRequestById(requestId);
+}
+
+export async function getExchangeListingScope(listingId) {
+  const [[row]]=await pool.execute('SELECT id,agency_id AS agencyId FROM client_exchange_listings WHERE id=?',[listingId]);
+  return row || null;
 }
 
 export async function getRequestById(requestId) {

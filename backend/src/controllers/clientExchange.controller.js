@@ -230,7 +230,7 @@ export async function createRequest(req, res, next) {
   try {
     const listingId = safeInt(req.params.id);
     if (!listingId) return res.status(400).json({ error: { message: 'Invalid listing id' } });
-    const raw = await ClientExchange.getListingById(listingId, { viewerUserId: req.user.id, viewerRole: 'admin' });
+    const raw = await ClientExchange.getExchangeListingScope(listingId);
     if (!raw) return res.status(404).json({ error: { message: 'Listing not found' } });
     if (!(await assertAgencyAccess(req, raw.agencyId))) {
       return res.status(403).json({ error: { message: 'Forbidden' } });

@@ -35,13 +35,15 @@ beforeEach(() => {
     return [{ affectedRows: 1 }];
   });
 });
-it('allows several providers to claim and rejects duplicate pending claims', async () => {
+it('allows several providers to claim and returns the existing claim on retry', async () => {
   await createExchangeClaim({ listingId: 1, requestingProviderUserId: 10 });
   await createExchangeClaim({ listingId: 1, requestingProviderUserId: 11 });
   expect(claims.map(c => c.requesting_provider_user_id)).toEqual([10, 11]);
-  await expect(createExchangeClaim({ listingId: 1, requestingProviderUserId: 10 })).rejects.toMatchObject({ status: 409 });
-  expect(mocks.commit).toHaveBeenCalledTimes(2);
-  expect(mocks.rollback).toHaveBeenCalledOnce();
+  await expect(createExchangeClaim({ listingId: 1, requestingProviderUserId: 10 })).resolves.toMatchObject({requestId:1,duplicate:true});
+  expect(claims).toHaveLength(2);
+  expect(mocks.execute.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO client_exchange_request_notice_queue'))).toHaveLength(2);
+  expect(mocks.commit).toHaveBeenCalledTimes(3);
+  expect(mocks.rollback).not.toHaveBeenCalled();
 });
 it('transfers to the chosen claimant and closes other claims in one transaction', async () => {
   await createExchangeClaim({ listingId: 1, requestingProviderUserId: 10 });

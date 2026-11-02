@@ -2,9 +2,11 @@ import pool from '../config/database.js';
 import Client from '../models/Client.model.js';
 import {getListingForMatching} from './clientExchange.service.js';
 import {notifyExchangeMatches} from './clientExchangeNotifications.service.js';
+import {processExchangeRequestNotices} from './clientExchangeRequestQueue.service.js';
 
 /** Retry interrupted evaluations and refresh pilot audits daily. Only changes are emailed. */
 export async function monitorClientExchange({limit=10}={}) {
+  await processExchangeRequestNotices({limit});
   const batchSize=Math.max(1,Math.min(50,Number.isFinite(Number(limit))?Math.trunc(Number(limit)):10));
   const [rows]=await pool.execute(`SELECT l.id,l.posted_by_user_id,l.client_id FROM client_exchange_listings l
     JOIN agencies a ON a.id=l.agency_id LEFT JOIN client_exchange_delivery_runs r ON r.listing_id=l.id

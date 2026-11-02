@@ -22,7 +22,7 @@ import {exchangeDeliveryHistory,isExchangeListingOpen,saveExchangeDecision,saveE
 import { notifyExchangeMatches as notifyMatches, notifyExchangeClaim, notifyExchangeAssignment } from '../clientExchangeNotifications.service.js';
 import Agency from '../../models/Agency.model.js';
 import {sendExchangeAuditReport} from '../clientExchangeAuditReport.service.js';
-const listing = { id: 44, agencyId: 2, currentProviderUserId: 9, postedByUserId: 9, demographics: { ageBand: '9' }, preferences: { modality: 'virtual' } };
+const listing = { id: 44, agencyId: 2, currentProviderUserId: 9, postedByUserId: 9, demographics: { ageBand: '9' }, preferences: { modality: 'virtual',insurance:'Aetna',schedule:{days:['Monday'],periods:['morning']} },presentingProblems:['Anxiety'] };
 function notifyExchangeMatches(input) {
   mocks.current.mockResolvedValue({ ...input.listing, clientId: 3, status: 'open' });
   mocks.client.mockResolvedValue({ id: 3, agency_id: input.listing.agencyId, ...input.client });
@@ -34,7 +34,7 @@ beforeEach(() => {
   exchangeDeliveryHistory.mockResolvedValue(new Map());
   isExchangeListingOpen.mockResolvedValue(true);
   mocks.execute.mockImplementation(async sql => sql.includes('FROM user_office_locations') ? [[{id:1,city:'Colorado Springs'}]] : sql.includes('AS published') ? [[{published:0}]] : sql.includes('provider_insurance_overrides') ? [[]] : [[9, 10, 11].map(id => ({ id, role: 'provider', email: `user${id}@example.com`, sees_clients: 1, provider_accepting_new_clients: 1 }))]);
-  mocks.accepted.mockResolvedValue({accepted:[],known:false,excluded:[]}); mocks.dispatch.mockResolvedValue({dispatched:false});
+  mocks.accepted.mockResolvedValue({accepted:[{name:'Aetna'}],known:true,excluded:[]}); mocks.dispatch.mockResolvedValue({dispatched:false});
   mocks.profile.mockResolvedValue({ details: { virtualEnabled: true } });
   mocks.facets.mockResolvedValue(new Map([[10, { ageGroups: ['Children (6-10)'] }], [11, { ageGroups: ['Adults (18+)'] }]]));
   mocks.enabled.mockResolvedValue(true);
@@ -83,7 +83,7 @@ it('sends to every matched provider except current provider, with an agency-scop
   const email = mocks.send.mock.calls[0][0];
   expect(email.text).toContain('Update my availability: https://app.itsco.health/dashboard?tab=my&my=availability');
   expect(email.html).toContain('href="https://app.itsco.health/dashboard?tab=my&amp;my=availability"');
-  expect(email.text).toContain('turn off “Accepting new clients,” and select “Save availability.”');
+  expect(email.text).toContain('choose “Waitlisted” or “Closed” under New-client status, and select “Save availability.”');
   expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({ userId: 10, agencyId: 2, relatedEntityId: 44 }));
 });
 it('preserves in-app notification when the recipient opts out of email', async () => {
@@ -147,7 +147,7 @@ it('only notifies providers offering the requested visit format', async () => {
   mocks.profile.mockResolvedValue({agencyAvailability:{seesClients:true, acceptingNewClients:true, virtual:false, inPerson:true}});
   await notifyExchangeMatches({listing});
   expect(mocks.send).not.toHaveBeenCalled();
-  await notifyExchangeMatches({listing:{...listing, preferences:{modality:'in_person',serviceLocation:'Colorado Springs'}}});
+  await notifyExchangeMatches({listing:{...listing, preferences:{...listing.preferences,modality:'in_person',serviceLocation:'Colorado Springs'}}});
   expect(mocks.send).toHaveBeenCalledTimes(1);
 });
 
@@ -196,4 +196,9 @@ it('cannot send a matching notification when the provider does not accept the cl
   mocks.accepted.mockResolvedValue({ accepted: [{ name: 'Aetna' }], known: true, excluded: [] });
   await notifyExchangeMatches({ listing: { ...listing, preferences: { modality: 'virtual', insurance: 'Tricare' } } });
   expect(mocks.notify).not.toHaveBeenCalled(); expect(mocks.send).not.toHaveBeenCalled();
+});
+
+it('holds automated match emails when essential referral information is still missing',async()=>{
+ await notifyExchangeMatches({listing:{...listing,preferences:{...listing.preferences,insurance:null}}});
+ expect(mocks.send).not.toHaveBeenCalled();expect(saveExchangeDecision).toHaveBeenCalledWith(44,10,expect.objectContaining({canNotify:false,notificationHold:expect.stringContaining('insurance')}));
 });

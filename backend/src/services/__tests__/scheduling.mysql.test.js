@@ -70,6 +70,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     mainDdl.push(
       `CREATE TABLE users (id INT PRIMARY KEY, first_name VARCHAR(100), last_name VARCHAR(100), status VARCHAR(40) DEFAULT 'ACTIVE_EMPLOYEE', is_archived BOOLEAN DEFAULT 0, is_active BOOLEAN DEFAULT 1)`,
       `CREATE TABLE clients (id INT PRIMARY KEY, full_name VARCHAR(200), initials VARCHAR(20))`,
+      `CREATE TABLE client_exchange_listings (id INT AUTO_INCREMENT PRIMARY KEY,client_id INT,status VARCHAR(24))`,
       `CREATE TABLE appointment_billing (id INT AUTO_INCREMENT PRIMARY KEY, appointment_id INT UNIQUE, payment_status VARCHAR(30), amount_cents INT)`,
       `CREATE TABLE clinical_record_refs (agency_id INT, client_id INT, office_event_id INT, clinical_session_id INT, record_type VARCHAR(30), clinical_record_id INT, updated_at TIMESTAMP NULL, UNIQUE KEY ref_key (record_type, clinical_record_id))`,
       `CREATE TABLE practitioner_session_packages (id INT PRIMARY KEY, agency_id INT, name VARCHAR(100), missed_session_policy_json JSON)`,
@@ -418,6 +419,14 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     await Client.update(8,{client_status_id:2},9,{hydrate:false});
     const [[retried]]=await pool.query('SELECT slots_available FROM provider_school_assignments');expect(retried.slots_available).toBe(5);
     const [[history]]=await pool.query("SELECT COUNT(*) n FROM client_status_history WHERE client_id=8 AND field_changed='provider_assignment'");expect(history.n).toBe(1);
+  });
+  it('preserves a client and its appointments when an unresolved Exchange listing prevents archival',async()=>{
+    await pool.query("INSERT INTO client_exchange_listings (id,client_id,status) VALUES (90,8,'requested')");
+    try {
+      await expect(Client.update(8,{status:'ARCHIVED'},9,{hydrate:false})).rejects.toMatchObject({status:409});
+      const [[client]]=await pool.query('SELECT status FROM clients WHERE id=8');expect(client.status).toBe('ACTIVE');
+      const [[appointment]]=await pool.query('SELECT status FROM appointments WHERE id=10');expect(appointment.status).toBe('scheduled');
+    }finally{await pool.query('DELETE FROM client_exchange_listings WHERE id=90');}
   });
   it('rolls back the client status when required roster history cannot be recorded',async()=>{
     const conn=await pool.getConnection();

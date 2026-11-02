@@ -37,6 +37,9 @@ export async function createExchangeClaim({ listingId, requestingProviderUserId,
   return withListing(listingId, async (connection, listing) => {
     if (listing.target_provider_user_id && Number(listing.target_provider_user_id) !== Number(requestingProviderUserId)) throw fail('This referral is addressed to a different provider', 403);
     await eligibleProvider(connection, requestingProviderUserId, listing.agency_id);
+    const [existing] = await connection.execute(`SELECT id FROM client_exchange_requests
+      WHERE listing_id = ? AND requesting_provider_user_id = ? AND status = 'pending'`, [listingId, requestingProviderUserId]);
+    if (existing.length) return {requestId:existing[0].id,listing,duplicate:true};
     const fit = await assertExchangeRequestEligible({ listing, userId: requestingProviderUserId, database: connection });
     if (fit.adjustments.some(w => !Array.isArray(acknowledgedWarnings) || !acknowledgedWarnings.includes(w.fingerprint))) {
       throw Object.assign(fail('Review and acknowledge the current fit differences before requesting this client.'), { code: 'EXCHANGE_ACKNOWLEDGEMENT_REQUIRED', fit });
@@ -44,11 +47,9 @@ export async function createExchangeClaim({ listingId, requestingProviderUserId,
     if(message != null && (typeof message !== 'string' || message.length > 2000)) throw fail('Request notes must be 2,000 characters or fewer.',400);
     if(!exchangeRequestPlanValid(fit,message)) throw Object.assign(fail('Explain how you will change your visit format or office availability to meet this client’s needs (at least 20 characters). Support must review your plan before assignment.',400),{code:'EXCHANGE_RESOLUTION_PLAN_REQUIRED',fit});
     if (Number(requestingProviderUserId) === Number(listing.current_provider_user_id)) throw fail('You are already the current provider for this client');
-    const [existing] = await connection.execute(`SELECT id FROM client_exchange_requests
-      WHERE listing_id = ? AND requesting_provider_user_id = ? AND status = 'pending'`, [listingId, requestingProviderUserId]);
-    if (existing.length) throw fail('You already have a pending request for this listing');
     const [result] = await connection.execute(`INSERT INTO client_exchange_requests (listing_id, requesting_provider_user_id, status, message, acknowledged_warnings_json)
       VALUES (?, ?, 'pending', ?, ?)`, [listingId, requestingProviderUserId, message || null, JSON.stringify(fit.adjustments)]);
+    await connection.execute('INSERT INTO client_exchange_request_notice_queue (request_id) VALUES (?)',[result.insertId]);
     await connection.execute("UPDATE client_exchange_listings SET status = 'requested' WHERE id = ?", [listingId]);
     return { requestId: result.insertId, listing };
   });

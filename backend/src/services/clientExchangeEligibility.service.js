@@ -101,15 +101,9 @@ export async function evaluateCurrentExchangeFit({ context, listing, client }) {
     catch { officeCoverage={known:false,cities:[],officeIds:[]}; }
     context={...context,officeCoverage};
   }
-  const initial = evaluateExchangeListing({ ...context, waivers, listing, client });
-  // Typical hours decide schedule fit. Check actual openings only when they
-  // could resolve a typical-hours difference; no calendar is required to match.
-  if (!context.user || !initial.checks.some(check => check.field === 'schedule' && check.status === 'fail')) return initial;
-  let openings;
-  try { openings = await loadExchangeOpenings({ userId: context.user.id, agencyId: listing.agencyId || listing.agency_id,
-    scheduleAgencyId: context.profile?.agencyAvailability?.scheduleAgencyId || listing.agencyId || listing.agency_id }); }
-  catch { return initial; }
-  return evaluateExchangeListing({ ...context, waivers, listing, client, ...openings });
+  // Matching uses typical availability. Requesting an actual opening has its own
+  // scheduling validation; do not run four weeks of calendars on a referral POST.
+  return evaluateExchangeListing({ ...context, waivers, listing, client });
 }
 
 export async function exchangeProviderAudit({ listing, agencyId }) {

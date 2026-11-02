@@ -565,6 +565,15 @@ export async function notifyNewPacketUploaded({
     }).catch(() => null);
   }
 
+  // Full office enrollment reaches this path rather than the brief inquiry path.
+  // Use the same per-client receipt so completing a packet after an interest form
+  // does not send Support another “new client” notice.
+  const [[officeClient]] = await pool.execute(`SELECT client_type,status,provider_id,school_organization_id FROM clients WHERE id=? AND agency_id=?`,[clientId,agencyId]);
+  if(officeClient?.client_type==='clinical' && ['PENDING_REVIEW','PACKET','PENDING','PROSPECTIVE'].includes(officeClient.status) && !officeClient.school_organization_id && !officeClient.provider_id) {
+    const {sendNewClientSupportNotice}=await import('./clientExchangeEnrollmentNotice.service.js');
+    await sendNewClientSupportNotice({agencyId,clientId}).catch(error=>console.error('[clientExchange] Enrollment Support notice needs review',{clientId,code:error?.code||'support_notice_failed'}));
+  }
+
   // School email is independent of in-app notification idempotency so a prior silent
   // failure can still be diagnosed / retried until a successful/pending send exists.
   if (!(await alreadySentSchoolEnrollmentPacketEmail({ agencyId, clientId }))) {
