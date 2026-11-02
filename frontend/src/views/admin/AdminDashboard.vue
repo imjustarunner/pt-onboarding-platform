@@ -53,6 +53,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
 import { isPlatformWorkspaceHost, isLocalWorkspaceHost } from '../../utils/workspaceDestination';
+import { isAuricwellHost } from '../../auricwell/paths';
 import { useSuperadminPlatformPreview } from '../../composables/useSuperadminPlatformPreview';
 import { isSupervisor } from '../../utils/helpers.js';
 import { setRememberedGoogleLogin } from '../../utils/loginRemember';
@@ -67,7 +68,9 @@ const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
 const route = useRoute();
 const router = useRouter();
-const isPlatformHost = isPlatformWorkspaceHost(window.location.hostname) || isLocalWorkspaceHost(window.location.hostname);
+// AuricWell is a shared app origin: /admin is the platform entry, while
+// /:organizationSlug/admin remains the selected tenant's administration.
+const isPlatformHost = isPlatformWorkspaceHost(window.location.hostname) || isLocalWorkspaceHost(window.location.hostname) || isAuricwellHost(window.location.hostname);
 const user = computed(() => authStore.user);
 const { isSuperadminPreview } = useSuperadminPlatformPreview({ route, authStore, agencyStore });
 
