@@ -276,13 +276,19 @@ export function createSupportReplyReviewService({ db: injectedDb, encrypt = encr
     return mapSnapshot(rows[0]);
   }
 
-  async function dailyReview({ agencyId, date, config: suppliedConfig = null }) {
+  async function dailyReview({ agencyId, date, config: suppliedConfig = null, rangeWindow = null, includeAllStaff = false }) {
     const db = await database();
     const config = suppliedConfig || await getConfig(agencyId);
     if (!config) throw reviewError('Support email pilot is not configured for this agency', 404);
-    const window = reviewWindow(date || localParts(now(), config.timeZone).date, config);
+    const window = rangeWindow || reviewWindow(date || localParts(now(), config.timeZone).date, config);
     const staffSlots = config.pilotUserIds.map(() => '?').join(',');
-    const [tickets] = await db.execute(`SELECT t.*, u.first_name AS owner_first_name, u.last_name AS owner_last_name
+    const [tickets] = includeAllStaff ? await db.execute(`SELECT t.*, u.first_name AS owner_first_name, u.last_name AS owner_last_name
+      FROM support_tickets t LEFT JOIN users u ON u.id = t.claimed_by_user_id
+      WHERE t.agency_id = ? AND t.source_channel = 'email' AND (
+        COALESCE(t.source_email_received_at,t.created_at) >= ? AND COALESCE(t.source_email_received_at,t.created_at) < ?
+        OR EXISTS (SELECT 1 FROM support_reply_review_snapshots s WHERE s.agency_id=t.agency_id AND s.ticket_id=t.id AND s.occurred_at>=? AND s.occurred_at<?)
+        OR EXISTS (SELECT 1 FROM support_ticket_email_messages e WHERE e.agency_id=t.agency_id AND e.ticket_id=t.id AND COALESCE(e.sent_at,e.created_at)>=? AND COALESCE(e.sent_at,e.created_at)<?))
+      ORDER BY t.id DESC LIMIT 501`, [config.agencyId,...[1,2,3].flatMap(()=>[sqlDate(window.start),sqlDate(window.end)])]) : await db.execute(`SELECT t.*, u.first_name AS owner_first_name, u.last_name AS owner_last_name
       FROM support_tickets t LEFT JOIN users u ON u.id = t.claimed_by_user_id
       WHERE t.agency_id = ? AND t.source_channel = 'email' AND (
         EXISTS (SELECT 1 FROM support_reply_review_snapshots s WHERE s.ticket_id = t.id
@@ -299,8 +305,9 @@ export function createSupportReplyReviewService({ db: injectedDb, encrypt = encr
     if (ids.length) {
       const slots = ids.map(() => '?').join(',');
       [snapshots] = await db.execute(`SELECT * FROM support_reply_review_snapshots WHERE agency_id = ? AND ticket_id IN (${slots}) AND occurred_at < ? ORDER BY id ASC LIMIT 15001`, [config.agencyId, ...ids, sqlDate(window.end)]);
-      [emailRows] = await db.execute(`SELECT e.*, m.body, m.body_ciphertext, m.body_iv, m.body_auth_tag, m.encryption_key_id, m.author_user_id
+      [emailRows] = await db.execute(`SELECT e.*, m.body, m.body_ciphertext, m.body_iv, m.body_auth_tag, m.encryption_key_id, m.author_user_id, author.first_name AS author_first_name, author.last_name AS author_last_name
         FROM support_ticket_email_messages e JOIN support_ticket_messages m ON m.id = e.ticket_message_id
+        LEFT JOIN users author ON author.id=m.author_user_id
         WHERE e.agency_id = ? AND e.ticket_id IN (${slots}) AND COALESCE(e.sent_at, e.created_at) < ? ORDER BY COALESCE(e.sent_at, e.created_at) ASC, e.id ASC LIMIT 15001`, [config.agencyId, ...ids, sqlDate(window.end)]);
     }
     const totals = { tickets: limitedTickets.length, drafts: 0, sent: 0, failed: 0, queued: 0, sending: 0, unknown: 0, unsentDrafts: 0, externalReplies: 0, missingDraft: 0, unreadableSnapshots: 0 };
@@ -320,6 +327,20 @@ export function createSupportReplyReviewService({ db: injectedDb, encrypt = encr
           actorUserId: id(email.author_user_id), draftSnapshotId: id(email.draft_snapshot_id), transportMessageId: email.gmail_message_id || null,
           errorCode: email.error_code, external: !!email.gmail_message_id && !email.communication_id, missingDraft: !email.draft_snapshot_id,
           immutableSnapshotMissing: true });
+      }
+      // Attach the corresponding envelope to every comparison, including historical
+      // replies without a captured draft. Never substitute a later incoming email.
+      for (const delivery of deliveries) {
+        const envelope=emailRows.find(e=>Number(e.ticket_message_id)===Number(delivery.ticketMessageId));
+        delivery.actorName=[envelope?.author_first_name,envelope?.author_last_name].filter(Boolean).join(' ') || envelope?.from_name || null;
+        delivery.fromEmail=envelope?.from_email || null;
+        const draft=allDrafts.find(d=>d.id===delivery.draftSnapshotId);
+        const original=draft?.originalReceived || delivery.originalReceived;
+        const inbound=emailRows.filter(e=>Number(e.ticket_id)===Number(ticket.id) && e.direction==='inbound' && new Date(e.sent_at || e.created_at)<=new Date(delivery.occurredAt));
+        const source=inbound.find(e=>original?.sourceMessageId && [e.ticket_message_id,e.internet_message_id,e.gmail_message_id].some(v=>String(v)===String(original.sourceMessageId))) || inbound.at(-1);
+        delivery.originalReceived={...(original || (source ? {body:decryptTicketMessageRow(source).body,receivedAt:source.sent_at || source.created_at,sourceMessageId:source.ticket_message_id} : {})),
+          fromEmail:original?.fromEmail || source?.from_email || ticket.source_email_from || null, fromName:original?.fromName || source?.from_name || null};
+        if(draft?.originalReceived) draft.originalReceived={...draft.originalReceived,fromEmail:delivery.originalReceived.fromEmail,fromName:delivery.originalReceived.fromName};
       }
       const relevantDrafts = allDrafts.filter((s) => inWindow(s.createdAt, window) || deliveries.some((d) => d.draftSnapshotId === s.id));
       const latestDraft = relevantDrafts.at(-1) || null;
@@ -351,7 +372,7 @@ export function createSupportReplyReviewService({ db: injectedDb, encrypt = encr
         if (!delivery.draftSnapshotId) totals.missingDraft += 1;
       }
       return { ticketId: Number(ticket.id), subject: ticket.subject, owner: { id: id(ticket.claimed_by_user_id), name: [ticket.owner_first_name, ticket.owner_last_name].filter(Boolean).join(' ') },
-        originalReceived, draftSnapshots: relevantDrafts, deliveries, coverageFlags,
+        originalReceived: { ...originalReceived, fromEmail: originalReceived?.fromEmail || latestInbound?.from_email || ticket.source_email_from || null, fromName: originalReceived?.fromName || latestInbound?.from_name || null }, draftSnapshots: relevantDrafts, deliveries, coverageFlags,
         comparison: { draftId: comparisonDraft?.id || null, generatedDraft: readableComparisonDraft ? comparisonDraft.body : null, sentBody: sent?.body || null,
           composedBody: sent?.composedBody ?? null,
           edited: sent && readableComparisonDraft ? sent.composedBody != null

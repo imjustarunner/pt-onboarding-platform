@@ -1,5 +1,6 @@
 <template>
-  <main class="review-page" :aria-busy="loading">
+  <SupportReplyFeedbackView v-if="route.query.batch" />
+  <main v-else class="review-page" :aria-busy="loading">
     <header class="page-heading">
       <div>
         <p class="eyebrow">Support email · supervised pilot</p>
@@ -143,6 +144,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
+import SupportReplyFeedbackView from './SupportReplyFeedbackView.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -199,6 +201,7 @@ function formatTime(value) {
   return new Intl.DateTimeFormat('en-US', { timeZone: timeZone.value, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(parsed);
 }
 async function loadReview() {
+  if (route.query.batch) return;
   const version = ++requestVersion;
   report.value = null;
   error.value = '';
@@ -219,7 +222,7 @@ function syncDateToRoute() {
   if (validDate(selectedDate.value)) router.replace({ query: { ...route.query, date: selectedDate.value } });
 }
 watch(() => route.query.date, (date) => { if (validDate(date)) selectedDate.value = String(date); });
-watch([agencyId, selectedDate], loadReview, { immediate: true });
+watch([agencyId, selectedDate, () => route.query.batch], loadReview, { immediate: true });
 onBeforeUnmount(() => { requestVersion += 1; });
 </script>
 
