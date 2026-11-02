@@ -1,22 +1,24 @@
 vi.mock('../clientRecordAccess.service.js',()=>({providerHasAssignedClientAccess:vi.fn(async()=>false)}));
 import {beforeEach,describe,expect,it,vi} from 'vitest';
-const mocks=vi.hoisted(()=>({execute:vi.fn(),transaction:vi.fn(),begin:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),client:vi.fn(),update:vi.fn(),history:vi.fn(),acceptance:vi.fn(),announce:vi.fn()}));
+const mocks=vi.hoisted(()=>({execute:vi.fn(),transaction:vi.fn(),begin:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),client:vi.fn(),update:vi.fn(),history:vi.fn(),acceptance:vi.fn(),announce:vi.fn(),summary:vi.fn(),openings:vi.fn()}));
 vi.mock('../../config/database.js',()=>({onTableWrite:vi.fn(),default:{execute:mocks.execute,getConnection:async()=>({execute:mocks.transaction,beginTransaction:mocks.begin,commit:mocks.commit,rollback:mocks.rollback,release:mocks.release})}}));
 vi.mock('../../models/Client.model.js',()=>({default:{findById:mocks.client,update:mocks.update}}));
 vi.mock('../../models/ClientStatusHistory.model.js',()=>({default:{create:mocks.history}}));
 vi.mock('../officeClientAcceptance.service.js',()=>({recordExchangePosted:mocks.acceptance,recordProviderAssignmentChange:vi.fn()}));
 vi.mock('../smartChatGroups.service.js',()=>({announceClientExchangeListing:mocks.announce}));
-vi.mock('../clientExchangeSummary.service.js',()=>({loadClientExchangeSummary:vi.fn(async()=>({demographics:{},preferences:{},presentingProblems:[],diagnoses:[]}))}));
+vi.mock('../clientExchangeSummary.service.js',()=>({loadClientExchangeSummary:mocks.summary}));
 vi.mock('../clientExchangeNotifications.service.js',()=>({notifyExchangeMatches:vi.fn(async()=>({sent:1})),notifyExchangeClaim:vi.fn(async()=>{}),notifyExchangeAssignment:vi.fn(async()=>{})}));
 vi.mock('../clientExchangeEligibility.service.js', () => ({
- loadExchangeProvider: async () => ({ user: { id: 12 }, profile: {}, facets: {} }),
- loadExchangeOpenings: async () => [], assertExchangeRequestEligible: async () => ({ canRequest: true })
+ loadExchangeProvider: async () => ({ user: { id: 12, sees_clients: 1, provider_accepting_new_clients: 1 }, profile: { details: { virtualEnabled: true } }, facets: {} }),
+ loadExchangeOpenings: mocks.openings, assertExchangeRequestEligible: async () => ({ canRequest: true })
 }));
 vi.mock('../../models/Agency.model.js', () => ({ default: { findById: async () => ({ id: 2 }) } }));
 import {createListing,createRequest,getListingById,listListings,resolveRequest} from '../clientExchange.service.js';
 const listing={id:7,agency_id:2,client_id:3,posted_by_user_id:10,current_provider_user_id:10,status:'open',referral_kind:'additional_service',service_type:'family',target_provider_user_id:12};
 beforeEach(()=>{
  vi.clearAllMocks();mocks.client.mockResolvedValue({id:3,agency_id:2,organization_id:2,provider_id:10});
+ mocks.summary.mockResolvedValue({demographics:{},preferences:{},presentingProblems:[],diagnoses:[]});
+ mocks.openings.mockResolvedValue({slots:[],availabilityKnown:false});
  mocks.execute.mockImplementation(async(sql)=>{
   if(sql.includes('SELECT listing_id'))return [[{listing_id:7}]];
   if(sql.includes('SELECT DISTINCT u.*'))return [[{id:12,first_name:'Sam'}]];
@@ -38,6 +40,17 @@ beforeEach(()=>{
  });
 });
 describe('internal service referrals',()=>{
+ it('uses current chart preferences and unpublished availability in provider detail fit', async () => {
+  const schedule = { days: ['Tuesday'] };
+  mocks.client.mockResolvedValue({id:3,agency_id:2,intake_preferences_json:{exchangeSchedule:schedule,preferredProviderGender:null,matchingPreferences:{}}});
+  mocks.summary.mockResolvedValue({preferences:{schedule,providerGender:null,matchingPreferences:{}},demographics:{},diagnoses:[],presentingProblems:[]});
+  const execute = mocks.execute.getMockImplementation();
+  mocks.execute.mockImplementation(async sql => sql.includes('SELECT l.*') ? [[{...listing,preferences_json:{modality:'virtual',providerGender:'female',schedule:{days:['Monday']},matchingPreferences:{specialties:['Anxiety']}}}]] : execute(sql));
+  const result = await getListingById(7,{viewerUserId:12,viewerRole:'provider'});
+  expect(result.preferences).toMatchObject({schedule,providerGender:null,matchingPreferences:{}});
+  expect(result.viewerFit).toMatchObject({matched:true,canAssign:false});
+  expect(result.viewerFit.checks.find(c=>c.field==='schedule').status).toBe('unknown');
+ });
  it('keeps additional services out of decline metrics and direct referrals out of public announcements',async()=>{
   await createListing({agencyId:2,clientId:3,postedByUserId:10,currentProviderUserId:99,referralKind:'additional_service',serviceType:'family',targetProviderUserId:12,viewerRole:'provider'});
   expect(mocks.acceptance).not.toHaveBeenCalled();expect(mocks.announce).not.toHaveBeenCalled();

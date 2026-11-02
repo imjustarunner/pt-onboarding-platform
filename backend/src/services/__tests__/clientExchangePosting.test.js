@@ -58,5 +58,11 @@ it('queues notifications atomically so posting does not wait for a provider-by-p
 
 it('saves the requested service location for later referrals', async () => {
   await insertExchangeListing({ ...args, summary: { ...args.summary, preferences: { serviceLocation: 'Colorado Springs' } } });
-  expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining("'$.serviceLocation'"), ['Colorado Springs', 12, 2]);
+  expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining("'$.serviceLocation'"), ['"Colorado Springs"', 12, 2]);
+});
+it('keeps reviewed gender, format and license choices on the chart, including a cleared preference', async () => {
+  await insertExchangeListing({ ...args, summary: { preferences: { modality: 'virtual', providerGender: null, providerQualification: 'independent' } } });
+  expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining("'$.preferredModality'"), ['"virtual"',12,2]);
+  expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining("'$.preferredProviderGender'"), ['null',12,2]);
+  expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining("'$.providerQualification'"), ['"independent"',12,2]);
 });

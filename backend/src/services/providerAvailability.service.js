@@ -173,6 +173,7 @@ export class ProviderAvailabilityService {
     agencyId,
     providerId,
     weekStartYmd,
+    weekCount = 1,
     includeExternalBusy = true,
     externalCalendarIds = [],
     slotMinutes = 60,
@@ -191,7 +192,10 @@ export class ProviderAvailabilityService {
 
     const weekStart = startOfWeekMondayYmd(wsRaw);
     if (!weekStart) throw new Error('weekStartYmd must be YYYY-MM-DD');
-    const weekEnd = addDaysYmd(weekStart, 7);
+    if (!Number.isInteger(weekCount) || weekCount < 1 || weekCount > 4) throw new Error('weekCount must be between 1 and 4');
+    if (weekCount > 1 && materializeOfficeEvents) throw new Error('Multiweek availability reads cannot materialize office events');
+    const weekStarts = Array.from({ length: weekCount }, (_, index) => addDaysYmd(weekStart, index * 7));
+    const weekEnd = addDaysYmd(weekStart, 7 * weekCount);
 
     // Ensure office_events exist for assigned office slots before availability reads.
     // This keeps intake availability consistent for weeks not yet materialized by the schedule UI/watchdog.
@@ -251,9 +255,9 @@ export class ProviderAvailabilityService {
     // 1) Virtual base from weekly template
     const virtualRows = await ProviderVirtualWorkingHours.listForProvider({ agencyId: scheduleAid, providerId: pid });
     const virtualBase = [];
-    for (const r of virtualRows || []) {
-      const s = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.startTime, timeZone: virtualTimeZone });
-      const e = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.endTime, timeZone: virtualTimeZone });
+    for (const ymd of weekStarts) for (const r of virtualRows || []) {
+      const s = ymdDayTimeToUtc({ ymd, dayOfWeek: r.dayOfWeek, hhmm: r.startTime, timeZone: virtualTimeZone });
+      const e = ymdDayTimeToUtc({ ymd, dayOfWeek: r.dayOfWeek, hhmm: r.endTime, timeZone: virtualTimeZone });
       if (s && e && e > s && availabilityOccursOn(r, new Intl.DateTimeFormat('en-CA',{timeZone:virtualTimeZone,year:'numeric',month:'2-digit',day:'2-digit'}).format(s))) {
         const sessionType = String(r.sessionType || 'REGULAR').toUpperCase();
         const forIntake = r.availableForIntake === true
@@ -305,9 +309,9 @@ export class ProviderAvailabilityService {
       schoolAssignments = [];
     }
     const schoolBusy = [];
-    for (const r of schoolAssignments || []) {
-      const s = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.startTime, timeZone: tz });
-      const e = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.endTime, timeZone: tz });
+    for (const ymd of weekStarts) for (const r of schoolAssignments || []) {
+      const s = ymdDayTimeToUtc({ ymd, dayOfWeek: r.dayOfWeek, hhmm: r.startTime, timeZone: tz });
+      const e = ymdDayTimeToUtc({ ymd, dayOfWeek: r.dayOfWeek, hhmm: r.endTime, timeZone: tz });
       if (s && e && e > s) schoolBusy.push({ start: s, end: e, assignmentId: r.assignmentId, schoolId: r.schoolId, schoolName: r.schoolName });
     }
     const schoolCalendarBlocks = includePrivateCalendar ? schoolBusy.map(({ start, end, assignmentId, schoolId, schoolName }) => ({

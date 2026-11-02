@@ -15,11 +15,28 @@ test('missing optional referral details do not reduce fit or block an otherwise 
  assert.equal(fit.checks.find(c=>c.field==='schedule').applicable,false);
  assert.equal(fit.matchScore,null);
 });
-test('requested availability must be verified before advertising or assigning a match',()=>{
+test('unverified requested availability allows a possible match but needs confirmation before assignment',()=>{
  const listing={...base.listing,preferences:{schedule:{days:['Tuesday']}}};
  const fit=evaluateExchangeListing({...base,listing});
- assert.equal(fit.canRequest,true);assert.equal(fit.matched,false);assert.equal(fit.canNotify,false);assert.equal(fit.canAssign,false);
+ assert.equal(fit.canRequest,true);assert.equal(fit.matched,true);assert.equal(fit.canNotify,true);assert.equal(fit.canAssign,false);
  assert.ok(fit.assignmentBlockers.some(c=>c.code==='schedule'));
+});
+test('age-three Medicaid referral matches known criteria without diagnosis, city or gender exclusions', () => {
+ const args = { user: base.user, profile: { ...base.profile, insurances: ['Medicaid'], details: { clinicalFocus: { reviewed: true, excluded: { ageGroups: [] }, top: { ageGroups: ['Teen (14-18)', 'Adults (18+)'] } } } },
+  listing: { demographics: { ageBand: '3' }, diagnoses: [], preferences: { modality: 'in_person', insurance: 'Medicaid', serviceLocation: '', providerGender: null, schedule: { days: ['Tuesday','Thursday','Friday'], periods: ['afternoon'] } } }, slots: [], availabilityKnown: false };
+ const fit = evaluateExchangeListing(args);
+ assert.equal(fit.matched, true); assert.equal(fit.canAssign, false); assert.equal(fit.canNotify, true);
+ for (const field of ['provider_gender','diagnoses','location']) assert.equal(fit.checks.find(c=>c.field===field).applicable, false);
+ assert.match(fit.checks.find(c=>c.field==='age').reason, /Toddler \(0-5\)/);
+ assert.equal(evaluateExchangeListing({ ...args, profile: { ...args.profile, insurances: ['Aetna'] } }).canRequest, false);
+ assert.equal(evaluateExchangeListing({ ...args, availabilityKnown: true }).matched, false);
+});
+test('undecided location placeholders are not exclusions or score penalties', () => {
+ for (const serviceLocation of ['', 'Not yet decided', 'Other location']) {
+  const fit = evaluateExchangeListing({ ...base, listing: { preferences: { serviceLocation, modality: 'in_person' } } });
+  assert.equal(fit.matched, true); assert.equal(fit.matchScore, 100);
+  assert.equal(fit.checks.find(c=>c.field==='location').applicable, false);
+ }
 });
 test('independent and provisional qualification requirements distinguish candidates and bachelor-level providers',()=>{
  const listing={...base.listing,preferences:{providerQualification:'independent'}};

@@ -27,18 +27,17 @@ export async function insertExchangeListing({ agencyId, clientId, postedByUserId
       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?)`, [agencyId, clientId, postedByUserId, client.provider_id || null,
       JSON.stringify(summary.demographics || {}), JSON.stringify(summary.presentingProblems || []),
       JSON.stringify(summary.diagnoses || []), JSON.stringify(summary.preferences || {}), notes || null, referralKind, serviceType, targetProviderUserId]);
-    if (summary.preferences?.schedule) {
-      await connection.execute(`UPDATE clients SET intake_preferences_json = JSON_SET(COALESCE(intake_preferences_json, JSON_OBJECT()), '$.exchangeSchedule', CAST(? AS JSON)) WHERE id = ? AND agency_id = ?`, [JSON.stringify(summary.preferences.schedule), clientId, agencyId]);
-    }
-    if (summary.preferences?.matchingPreferences) {
-      await connection.execute(`UPDATE clients SET intake_preferences_json = JSON_SET(COALESCE(intake_preferences_json, JSON_OBJECT()), '$.matchingPreferences', CAST(? AS JSON)) WHERE id = ? AND agency_id = ?`, [JSON.stringify(summary.preferences.matchingPreferences), clientId, agencyId]);
+    // The chart is the current source for open listings. Save the choices reviewed
+    // during posting there too, so later chart edits can replace or clear them.
+    for (const [field, chartField] of Object.entries({ schedule: 'exchangeSchedule', matchingPreferences: 'matchingPreferences',
+      modality: 'preferredModality', providerGender: 'preferredProviderGender', providerQualification: 'providerQualification', serviceLocation: 'serviceLocation' })) {
+      if (Object.hasOwn(summary.preferences || {}, field)) {
+        await connection.execute(`UPDATE clients SET intake_preferences_json = JSON_SET(COALESCE(intake_preferences_json, JSON_OBJECT()), '$.${chartField}', CAST(? AS JSON)) WHERE id = ? AND agency_id = ?`, [JSON.stringify(summary.preferences[field] ?? null), clientId, agencyId]);
+      }
     }
     // Persist the alert job in the posting transaction, so a request timeout cannot lose it.
     await connection.execute('INSERT INTO client_exchange_delivery_runs (listing_id,agency_id) VALUES (?,?)',[result.insertId,agencyId]);
 
-    if (summary.preferences?.serviceLocation) {
-      await connection.execute(`UPDATE clients SET intake_preferences_json = JSON_SET(COALESCE(intake_preferences_json, JSON_OBJECT()), '$.serviceLocation', ?) WHERE id = ? AND agency_id = ?`, [summary.preferences.serviceLocation, clientId, agencyId]);
-    }
     await connection.execute(`INSERT INTO client_status_history (client_id, changed_by_user_id, field_changed, from_value, to_value, note)
       VALUES (?, ?, 'client_exchange_listing', NULL, 'open', ?)`, [clientId, postedByUserId, referralKind === 'additional_service' ? `Additional ${serviceType} services requested; primary provider retained` : 'Posted to Client Exchange for reassignment']);
     await connection.commit();

@@ -13,7 +13,7 @@ import { insertExchangeListing } from './clientExchangePosting.service.js';
 import pool from '../config/database.js';
 import { loadClientExchangeSummary } from './clientExchangeSummary.service.js';
 import { supportExchangeSummary } from '../utils/supportExchangeSummary.js';
-import { mergeExchangeSummary, summaryItems } from '../utils/clientExchangeSummary.js';
+import { mergeExchangeSummary, mergeCurrentExchangeSummary, summaryItems } from '../utils/clientExchangeSummary.js';
 import { createExchangeClaim, resolveExchangeClaim, withdrawExchangeListing } from './clientExchangeClaims.service.js';
 import { notifyExchangeClaim, notifyExchangeAssignment } from './clientExchangeNotifications.service.js';
 import Client from '../models/Client.model.js';
@@ -196,11 +196,11 @@ async function hydrateListingSummary(row) {
   }
   const saved = await loadClientExchangeSummary({ client });
   const preferences = parseJsonColumn(row.preferences_json) || {};
-  const summary = mergeExchangeSummary(saved, {
+  const summary = mergeCurrentExchangeSummary(saved, {
     presentingProblems: preferences.additionalPresentingProblems ?? (saved.presentingProblems.length ? [] : parseJsonColumn(row.presenting_problems_json)),
     preferences,
     demographics: parseJsonColumn(row.demographics_json)
-  });
+  }, client);
   summary.preferences.presentingProblemSource = saved.presentingProblemSource;
   summary.preferences.presentingProblemUpdatedAt = saved.presentingProblemUpdatedAt;
   row.diagnoses_json = exchangeSafeValue(summary.diagnoses, client);
@@ -254,15 +254,16 @@ async function attachViewerFit(listings, { viewerUserId, viewerRole, agencyId, s
   const context = await loadExchangeProvider({ userId: viewerUserId, agencyId });
   if (!context.user && ['admin', 'super_admin', 'support', 'staff'].includes(String(viewerRole || '').toLowerCase())) return;
   const needsSchedule = listings.some(exchangeNeedsOpenings);
-  let slots;
+  let openings;
   if (context.user && needsSchedule) {
-    try { slots = await loadExchangeOpenings({ userId: viewerUserId, agencyId }); }
+    try { openings = await loadExchangeOpenings({ userId: viewerUserId, agencyId, scheduleAgencyId: context.profile?.agencyAvailability?.scheduleAgencyId || agencyId }); }
     catch { /* Fit stays explicitly unverified when the scheduling service is unavailable. */ }
   }
   for (const listing of listings) {
     const source = sourceRows.find(row => Number(row.id) === listing.id);
     const waivers = await loadExchangeWaivers({ listingId: listing.id, userId: viewerUserId });
-    listing.viewerFit = evaluateExchangeListing({ ...context, waivers, listing: source ? mapListingRow(source) : listing, slots });
+    listing.viewerFit = evaluateExchangeListing({ ...context, waivers, listing: source ? mapListingRow(source) : listing, ...openings });
+    if (needsSchedule && !openings) listing.viewerFit.canNotify = false;
   }
 }
 

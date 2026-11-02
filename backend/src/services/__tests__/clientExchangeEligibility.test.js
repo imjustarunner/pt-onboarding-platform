@@ -7,7 +7,7 @@ vi.mock('../providerAcceptedInsurance.service.js', () => ({ listProviderAccepted
 vi.mock('../providerClinicalFacets.service.js', () => ({ listClinicalFacetsForUsers: async () => new Map() }));
 vi.mock('../clientExchangeSummary.service.js', () => ({ loadClientExchangeSummary: mocks.summary }));
 vi.mock('../providerAvailability.service.js', () => ({ default: { computeWeekAvailability: mocks.availability } }));
-import { assertExchangeRequestEligible, exchangeProviderAudit, loadExchangeOpenings } from '../clientExchangeEligibility.service.js';
+import { assertExchangeRequestEligible, exchangeProviderAudit, loadExchangeOpenings, evaluateCurrentExchangeFit } from '../clientExchangeEligibility.service.js';
 const listing = { id: 11, agency_id: 2, client_id: 3, preferences_json: { insurance: 'Aetna' } };
 beforeEach(() => {
   vi.clearAllMocks();
@@ -45,7 +45,36 @@ it('checks four weeks of published openings without creating reservations or mat
   mocks.execute.mockResolvedValue([[{ id: 4, city: 'Denver' }]]);
   mocks.availability.mockResolvedValue({ inPersonSlots: [{ buildingId: 4, startAt: '2026-10-28T00:00:00Z' }], virtualSlots: [] });
   const openings = await loadExchangeOpenings({ userId: 10, agencyId: 2, now: new Date('2026-10-26') });
-  expect(openings).toHaveLength(4); expect(openings[0]).toMatchObject({ format: 'IN_PERSON', city: 'Denver' });
-  expect(mocks.availability).toHaveBeenCalledTimes(4);
-  expect(mocks.availability).toHaveBeenCalledWith(expect.objectContaining({ materializeOfficeEvents: false, intakeOnly: true }));
+  expect(openings.slots).toHaveLength(1); expect(openings.slots[0]).toMatchObject({ format: 'IN_PERSON', city: 'Denver' });
+  expect(mocks.availability).toHaveBeenCalledTimes(1);
+  expect(mocks.availability).toHaveBeenCalledWith(expect.objectContaining({ weekCount: 4, materializeOfficeEvents: false, intakeOnly: true }));
+});
+it('does not compute four calendars when no publication exists, and keeps an unverified possible match', async () => {
+  mocks.execute.mockResolvedValue([[{ published: 0 }]]);
+  const fit = await evaluateCurrentExchangeFit({ context: { user: { id: 10, sees_clients: 1, provider_accepting_new_clients: 1 }, profile: { details: { virtualEnabled: true } }, waivers: [] },
+    listing: { agencyId: 2, preferences: { modality: 'virtual', schedule: { days: ['Tuesday'] } } } });
+  expect(fit).toMatchObject({ matched: true, canRequest: true, canAssign: false });
+  expect(fit.checks.find(c => c.field === 'schedule')).toMatchObject({ status: 'unknown' });
+  expect(mocks.availability).not.toHaveBeenCalled();
+});
+it('distinguishes unpublished calendars from published times that are busy', async () => {
+  mocks.execute.mockResolvedValue([[{ published: 1 }]]);
+  mocks.availability.mockResolvedValue({ inPersonSlots: [], virtualSlots: [], diagnostics: [{ endAt: '2026-10-28T18:00:00Z', reasons: ['Client appointment'] }] });
+  expect(await loadExchangeOpenings({ userId: 10, agencyId: 2, now: new Date('2026-10-26') })).toMatchObject({ slots: [], availabilityKnown: true });
+  mocks.availability.mockResolvedValue({ inPersonSlots: [], virtualSlots: [], diagnostics: [] });
+  expect(await loadExchangeOpenings({ userId: 10, agencyId: 2, now: new Date('2026-10-26') })).toMatchObject({ slots: [], availabilityKnown: false });
+});
+it('reads the whole window once, including shared agency schedules', async () => {
+  mocks.execute.mockResolvedValue([[{ published: 1 }]]);
+  mocks.availability.mockResolvedValue({ virtualSlots: [{ startAt: '2026-10-27T18:00:00Z', endAt: '2026-10-27T19:00:00Z' }] });
+  const result = await loadExchangeOpenings({ userId: 10, agencyId: 2, scheduleAgencyId: 3, now: new Date('2026-10-26') });
+  expect(result.availabilityKnown).toBe(true);
+  expect(mocks.availability).toHaveBeenCalledTimes(1);
+  expect(mocks.execute.mock.calls[0][1].slice(0,3)).toEqual([10,2,3]);
+});
+it('does not notify on a calendar lookup failure', async () => {
+  mocks.execute.mockRejectedValue(new Error('Database unavailable'));
+  const fit = await evaluateCurrentExchangeFit({ context: { user: { id: 10 }, profile: {}, waivers: [] }, listing: { agencyId: 2, preferences: { schedule: { days: ['Tuesday'] } } } });
+  expect(fit.canNotify).toBe(false);
+  expect(fit.checks.find(c => c.field === 'schedule').status).toBe('unknown');
 });

@@ -7,7 +7,7 @@ import { listProviderAcceptedInsurancesForDisplay } from './providerAcceptedInsu
 import { eligibleExchangeProvider, exchangeProviderSql } from '../utils/clientExchangeProvider.js';
 import { evaluateExchangeListing, exchangeInsuranceLabel, exchangeNeedsOpenings } from '../utils/clientExchangeMatching.js';
 import { loadClientExchangeSummary } from './clientExchangeSummary.service.js';
-import { mergeExchangeSummary } from '../utils/clientExchangeSummary.js';
+import { mergeCurrentExchangeSummary } from '../utils/clientExchangeSummary.js';
 
 const parse = value => { if (value && typeof value === 'object') return value; try { return JSON.parse(value || '{}'); } catch { return {}; } };
 
@@ -51,41 +51,55 @@ export async function assertExchangeRequestEligible({ listing, userId, database 
   const provider = await loadExchangeProvider({ userId, agencyId: listing.agency_id, database });
   const current = exchangeListingForEvaluation(listing, client);
   const saved = await loadClientExchangeSummary({ client });
-  const summary = mergeExchangeSummary(saved, { demographics: current.demographics, preferences: current.preferences,
-    presentingProblems: current.preferences.additionalPresentingProblems ?? (saved.presentingProblems.length ? [] : current.presentingProblems) });
+  const summary = mergeCurrentExchangeSummary(saved, { demographics: current.demographics, preferences: current.preferences,
+    presentingProblems: current.preferences.additionalPresentingProblems ?? (saved.presentingProblems.length ? [] : current.presentingProblems) }, client);
   const waivers = await loadExchangeWaivers({ listingId: listing.id, userId, database });
   const fit = await evaluateCurrentExchangeFit({ context: { ...provider, waivers }, listing: { ...current, ...summary }, client });
   if (!fit.canRequest) throw Object.assign(new Error(fit.blockers.map(reason => reason.message).join(' ')), { status: 409, fit });
-  if (forAssignment && !fit.canAssign) throw Object.assign(new Error('Resolve or waive the remaining fit differences in the matching audit before assignment. ' + fit.adjustments.map(r => r.message).join(' ')), { status: 409, fit });
+  if (forAssignment && !fit.canAssign) throw Object.assign(new Error('Resolve or waive the remaining fit differences in the matching audit before assignment. ' + fit.assignmentBlockers.map(r => r.message).join(' ')), { status: 409, fit });
   return fit;
 }
 
 /** Read only: reuses the scheduling engine without publishing or reserving times. */
-export async function loadExchangeOpenings({ userId, agencyId, now = new Date() }) {
+export async function loadExchangeOpenings({ userId, agencyId, scheduleAgencyId = agencyId, now = new Date() }) {
+  // Most providers have not published intake times. Avoid four full calendar
+  // computations for them. This conservative probe only skips when ALL sources
+  // are absent; the scheduling engine remains authoritative when any exist.
+  try {
+    const horizon = new Date(+now + 28 * 86400000);
+    const [[source]] = await pool.execute(`SELECT (
+      EXISTS(SELECT 1 FROM provider_virtual_working_hours WHERE provider_id=? AND agency_id IN (?,?)
+        AND (available_for_intake=1 OR session_type IN ('INTAKE','BOTH')) AND (end_date IS NULL OR end_date>=DATE(?)) AND (start_date IS NULL OR start_date<=DATE(?)))
+      OR EXISTS(SELECT 1 FROM provider_virtual_slot_availability WHERE provider_id=? AND agency_id IN (?,?) AND is_active=1 AND end_at>? AND start_at<?
+        AND (available_for_intake=1 OR (available_for_intake IS NULL AND (session_type IS NULL OR session_type IN ('INTAKE','BOTH')))))
+      OR EXISTS(SELECT 1 FROM provider_in_person_slot_availability WHERE provider_id=? AND agency_id IN (?,?) AND is_active=1 AND available_for_intake=1 AND end_at>? AND start_at<?)
+    ) AS published`, [userId, agencyId, scheduleAgencyId, now, horizon, userId, agencyId, scheduleAgencyId, now, horizon, userId, agencyId, scheduleAgencyId, now, horizon]);
+    if (Number(source?.published) === 0) return { slots: [], availabilityKnown: false };
+  } catch (error) {
+    if (!['ER_NO_SUCH_TABLE', 'ER_BAD_FIELD_ERROR'].includes(error.code)) throw error;
+  }
   const { default: Availability } = await import('./providerAvailability.service.js');
   const [offices] = await pool.execute(`SELECT ol.id, ol.city FROM office_locations ol
     JOIN office_location_agencies ola ON ola.office_location_id = ol.id WHERE ola.agency_id = ?`, [agencyId]);
   const cities = new Map(offices.map(office => [Number(office.id), office.city]));
-  const slots = [];
-  for (let week = 0; week < 4; week++) {
-    const date = new Date(+now + week * 7 * 86400000);
-    const result = await Availability.computeWeekAvailability({ agencyId, providerId: userId,
-      weekStartYmd: date.toISOString().slice(0, 10), intakeOnly: true, materializeOfficeEvents: false, includeExternalBusy: false });
-    if (!result) throw new Error('Availability could not be checked');
-    slots.push(...(result.inPersonSlots || []).map(slot => ({ ...slot, format: 'IN_PERSON', city: cities.get(Number(slot.buildingId)) })),
-      ...(result.virtualSlots || []).map(slot => ({ ...slot, format: 'VIRTUAL' })));
-  }
-  return slots;
+  const result = await Availability.computeWeekAvailability({ agencyId, providerId: userId,
+    weekStartYmd: now.toISOString().slice(0, 10), weekCount: 4, intakeOnly: true, materializeOfficeEvents: false, includeExternalBusy: false, includeDiagnostics: true });
+  if (!result) throw new Error('Availability could not be checked');
+  const slots = [...(result.inPersonSlots || []).map(slot => ({ ...slot, format: 'IN_PERSON', city: cities.get(Number(slot.buildingId)) })),
+    ...(result.virtualSlots || []).map(slot => ({ ...slot, format: 'VIRTUAL' }))];
+  const availabilityKnown = slots.some(slot => Date.parse(slot.endAt) > +now) || (result.diagnostics || []).some(row => Date.parse(row.endAt) > +now);
+  return { slots, availabilityKnown };
 }
 
 export async function evaluateCurrentExchangeFit({ context, listing, client }) {
   const waivers = context.waivers || await loadExchangeWaivers({ listingId: listing.id, userId: context.user?.id });
   const initial = evaluateExchangeListing({ ...context, waivers, listing, client });
   if (!context.user || !exchangeNeedsOpenings(listing)) return initial;
-  let slots;
-  try { slots = await loadExchangeOpenings({ userId: context.user.id, agencyId: listing.agencyId || listing.agency_id }); }
-  catch { return initial; }
-  return evaluateExchangeListing({ ...context, waivers, listing, client, slots });
+  let openings;
+  try { openings = await loadExchangeOpenings({ userId: context.user.id, agencyId: listing.agencyId || listing.agency_id,
+    scheduleAgencyId: context.profile?.agencyAvailability?.scheduleAgencyId || listing.agencyId || listing.agency_id }); }
+  catch { return { ...initial, canNotify: false }; }
+  return evaluateExchangeListing({ ...context, waivers, listing, client, ...openings });
 }
 
 export async function exchangeProviderAudit({ listing, agencyId }) {

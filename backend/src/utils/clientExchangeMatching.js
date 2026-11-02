@@ -54,7 +54,7 @@ function stableSnapshot(value) {
 }
 
 /** The decision and its explanation share one implementation, so audits cannot drift. */
-export function evaluateExchangeMatch({ user, profile, facets = {}, listing, client, now, agency, slots, waivers = [] }) {
+export function evaluateExchangeMatch({ user, profile, facets = {}, listing, client, now, agency, slots, availabilityKnown, waivers = [] }) {
   const checks = [];
   const check = (field, ok, pass, fail, known = true) => checks.push({ field, status: !known ? 'unknown' : ok ? 'pass' : 'fail', reason: !known ? pass : ok ? pass : fail });
   check('account', eligibleExchangeProvider(user, agency), 'Provider account is active.', 'An active provider account in this agency is required; inactive and demo accounts cannot request.');
@@ -99,10 +99,11 @@ export function evaluateExchangeMatch({ user, profile, facets = {}, listing, cli
   const requestedAge = age == null ? ageRange(listing.demographics?.ageBand) : [age, age];
   const ages = known('ageGroups', facets.ageGroups);
   const ageKnown = !!requestedAge && !!(ages.length || focus?.reviewed);
-  check('age', ageKnown && ages.some(value => {
-    const supported = ageRange(value);
-    return supported && supported[0] <= requestedAge[0] && supported[1] >= requestedAge[1];
-  }), ageKnown ? 'Provider serves the requested client age range.' : 'Client age or provider age coverage is unknown.', `Client age: ${requestedAge && requestedAge[0] === requestedAge[1] ? requestedAge[0] : listing.demographics?.ageBand}. Provider age ranges: ${ages.join(', ') || 'none selected'}. You may request this client with support review of the age difference.`, ageKnown);
+  const coveringAges = ageKnown ? ages.filter(value => {
+    const range = ageRange(value);
+    return range && range[0] <= requestedAge[0] && range[1] >= requestedAge[1];
+  }) : [];
+  check('age', coveringAges.length > 0, ageKnown ? `Provider has enabled these age ranges for consideration: ${coveringAges.join(', ')}. Top-three highlights do not exclude other enabled ages.` : 'Client age or provider age coverage is unknown.', `Client age: ${requestedAge && requestedAge[0] === requestedAge[1] ? requestedAge[0] : listing.demographics?.ageBand}. Provider age ranges: ${ages.join(', ') || 'none selected'}. You may request this client with support review of the age difference.`, ageKnown);
   const concerns = [...new Set([
     ...normalizeClinicalFacets({specialties:listing.presentingProblems||[]}).specialties,
     ...clinicalMatchingSpecialties(listing)
@@ -149,18 +150,20 @@ export function evaluateExchangeMatch({ user, profile, facets = {}, listing, cli
   } else check('insurance', true, 'Client insurance is unspecified.', '', false);
   const schedule = listing.preferences?.schedule || {};
   const hasSchedule = schedule.days?.length || schedule.periods?.length || schedule.windows?.length;
-  if (exchangeNeedsOpenings(listing) && slots != null) {
+  if (exchangeNeedsOpenings(listing) && slots != null && availabilityKnown !== false) {
     const field = hasSchedule ? 'schedule' : 'location_availability';
     check(field, slots.some(slot => exchangeSlotMatches(slot, listing.preferences, now)), 'A published opening matches the requested location, days, times and format.',
       'No published opening matches the requested location, days, times and format in the next four weeks. A request is allowed, but a suitable opening must be arranged before care begins.');
-  } else checks.push({field:'schedule',status:'unknown',reason:'Availability for the requested location, days and times requires confirmation before care begins.'});
+  } else checks.push({field: hasSchedule ? 'schedule' : exchangeNeedsOpenings(listing) ? 'location_availability' : 'schedule',status:'unknown',reason: availabilityKnown === false
+    ? 'No intake availability is published for this provider in the next four weeks. This is not a confirmed schedule conflict; confirm the requested days, times and location before assignment.'
+    : 'Availability for the requested location, days and times requires confirmation before assignment.'});
   if (modality !== 'virtual' && (!listing.preferences?.serviceLocation || ['Other location','Not yet decided'].includes(listing.preferences.serviceLocation))) {
     checks.push({field:'location',status:'unknown',reason:'Confirm the in-person service location with the referring team.'});
   }
   const applicable={format:['virtual','in_person'].includes(modality),provider_gender:!noGenderPreference,
     age:!!requestedAge,clinical_exclusions:concerns.length>0,diagnoses:diagnosticConcerns.length>0,concerns:concerns.length>0,
     service:!!population,insurance:insuranceKnown,insurance_credential:insuranceKnown,insurance_exclusions:insuranceKnown,
-    schedule:!!hasSchedule,location:modality!=='virtual' && !!listing.preferences?.serviceLocation};
+    schedule:!!hasSchedule,location:modality!=='virtual' && !!listing.preferences?.serviceLocation && !['Other location','Not yet decided'].includes(listing.preferences.serviceLocation)};
   for(const item of checks) {
     item.applicable=applicable[item.field] ?? true;
     if(!item.applicable && item.status==='unknown')item.reason='Not specified on this referral; this does not lower the match score or block a match.';
@@ -186,13 +189,16 @@ export function evaluateExchangeMatch({ user, profile, facets = {}, listing, cli
   const code = field => ({account:'provider_account',assigned:'current_provider',accepting:'intake_closed',format:'format_availability',clinical_exclusions:'excluded_specialty',diagnoses:'diagnosis',concerns:'specialty'}[field] || field);
   const reason = check => ({ code: code(check.field), message: check.reason, fingerprint: check.fingerprint });
   const hard = check => hardFields.has(check.field) || (check.field.endsWith('_exclusions') && check.field !== 'ageGroups_exclusions');
-  const blockers = checks.filter(c => c.status === 'fail' && hard(c)).map(reason);
-  const adjustments = checks.filter(c => c.status === 'fail' && !hard(c)).map(reason);
+  const blockers = checks.filter(c => c.applicable !== false && c.status === 'fail' && hard(c)).map(reason);
+  const adjustments = checks.filter(c => c.applicable !== false && c.status === 'fail' && !hard(c)).map(reason);
   const review = checks.filter(c => c.status === 'unknown' && c.applicable !== false).map(reason);
-  const requiredReview=checks.filter(c=>c.applicable && c.status==='unknown' && ['schedule','provider_gender','location','insurance'].includes(c.field)).map(reason);
-  const canRequest = blockers.length === 0, matched = canRequest && adjustments.length === 0 && requiredReview.length===0;
+  const requiredReview=checks.filter(c=>c.applicable && c.status==='unknown' && ['schedule','location_availability','provider_gender','location','insurance'].includes(c.field)).map(reason);
+  // Missing calendar data is a possible fit, not evidence of a conflict. Staff
+  // still confirm or waive availability before assignment. Insurance stays firm.
+  const matchReview = requiredReview.filter(c => !['schedule','location_availability'].includes(c.code));
+  const canRequest = blockers.length === 0, matched = canRequest && adjustments.length === 0 && matchReview.length===0;
   const canNotify = matched && checks.filter(c => ['accepting', 'format'].includes(c.field)).every(c => (c.originalStatus || c.status) === 'pass');
-  return { matched, checks, ...exchangeFitScore(checks), canAssign: matched, assignmentBlockers: [...blockers, ...adjustments,...requiredReview], status: matched ? 'match' : 'not_match', canRequest, canNotify, blockers, adjustments, review };
+  return { matched, checks, ...exchangeFitScore(checks), canAssign: matched && requiredReview.length===0, assignmentBlockers: [...blockers, ...adjustments,...requiredReview], status: matched ? 'match' : 'not_match', canRequest, canNotify, blockers, adjustments, review };
 }
 
 export function evaluateExchangeListing(input) { return evaluateExchangeMatch(input); }

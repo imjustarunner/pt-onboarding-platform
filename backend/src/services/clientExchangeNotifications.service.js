@@ -15,8 +15,18 @@ export async function notifyExchangeMatches({ listing, client, send = true, repo
     exchangeDeliveryHistory, isExchangeListingOpen, terminalDelivery, enrollExchangeAuditClient, parseAuditJson } = await import('./clientExchangeAudit.service.js');
   const { loadExchangeCandidates, evaluateExchangeCandidate } = await import('./clientExchangeCandidates.service.js');
   return withExchangeLock(listing.id, async () => {
-    await startExchangeRun(listing);
     const summary = { matched: 0, sent: 0, queued: 0, skipped: 0, failed: 0 };
+    // A retry can wait behind another evaluation. Read the current chart and
+    // preferences after acquiring the lock instead of mailing a captured snapshot.
+    const { getListingForMatching } = await import('./clientExchange.service.js');
+    const { default: Client } = await import('../models/Client.model.js');
+    const current = await getListingForMatching(listing.id);
+    if (!current || !['open', 'requested'].includes(current.status)) return summary;
+    if (Number(current.agencyId) !== Number(listing.agencyId)) throw new Error('Exchange listing agency changed');
+    listing = current;
+    client = await Client.findById(listing.clientId);
+    if (!client || Number(client.agency_id) !== Number(listing.agencyId) || ['ARCHIVED','DECLINED'].includes(String(client.status).toUpperCase())) return summary;
+    await startExchangeRun(listing);
     try {
       const agencyId = Number(listing.agencyId);
       const agency = await Agency.findById(agencyId);

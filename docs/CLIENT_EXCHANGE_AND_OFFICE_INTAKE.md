@@ -130,7 +130,33 @@ foundation).
   the Overview quick-nav / Ask Assistant navigation. Deep nav-menu wiring in
   `App.vue` was intentionally skipped for this foundation (see below).
 
-## Shipped vs. stubbed
+## Current matching and notifications
+
+Open listings, requests and matching notifications use current chart preferences.
+An explicit clear removes the preference; a legacy listing answer is only a fallback
+when the chart has never recorded that field. Posting saves the reviewed preferences
+to the chart in the same transaction.
+
+Missing client diagnosis, gender preference and undecided location are neutral.
+No published intake schedule produces a possible match requiring availability
+confirmation before assignment; published but incompatible or busy times remain
+a fit difference. Insurance failures still block requests and cannot be waived.
+Age eligibility uses enabled age ranges, independently of the provider's top-three
+highlights. The audit explains the enabled range that covers the client's age.
+
+Availability is read without writes over one four-week window. Recurring virtual
+hours, school reservations, appointment conflicts, holds and daylight saving time
+use the same scheduling engine as individual weekly reads. Providers with no
+published intake sources skip calendar computation; support audits use bounded
+concurrency and do not cache decisions across preference edits.
+
+The pilot monitor refreshes daily, but support audit emails are deduplicated by
+matching inputs and outcomes rather than the calendar date. View counts and
+evaluation timestamps alone do not trigger another email. Provider alerts retain
+their per-listing delivery receipts, and notification evaluations reload the
+current listing after acquiring its lock. Refreshing the audit sends no messages.
+
+## Foundation scope (historical)
 
 **Shipped (working end-to-end, smoke-tested against a live dev DB/API):**
 - Migrations, full listing/request/approve/deny lifecycle with provider
@@ -148,11 +174,6 @@ foundation).
   multiple physical office locations as distinct entities later, that's a
   follow-up (see `officeSlotSeries.service.js` / office locations for a
   possible integration point).
-- No automated matching/recommendation of which provider should get a
-  listing — purely a request/approve marketplace.
-- No email/SMS notifications when a listing is posted, requested, or
-  resolved (the existing `notificationDispatcher.service.js` would be the
-  integration point).
 - No PII scrub/validation on listing `notes`/`preferences_json` free text —
   posters are trusted not to include identifying details.
 - `App.vue` top-nav menus were not modified (only the quick-nav catalog and an

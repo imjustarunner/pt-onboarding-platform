@@ -38,7 +38,7 @@ export function exchangeScheduleLines(schedule) {
   return lines;
 }
 export function scheduleFromIntake(preferences = {}, timezone = '') {
-  if (preferences.exchangeSchedule) return preferences.exchangeSchedule;
+  if (Object.hasOwn(preferences, 'exchangeSchedule')) return preferences.exchangeSchedule || { days: [], periods: [], windows: [] };
   const rawDays = Array.isArray(preferences.preferredDays) ? preferences.preferredDays : [];
   const days = rawDays.map(day => scheduleDays.find(valid => valid.toLowerCase() === String(day).toLowerCase())).filter(Boolean);
   const timePreferences = preferences.preferredTimes || preferences.preferredTimeOfDay;

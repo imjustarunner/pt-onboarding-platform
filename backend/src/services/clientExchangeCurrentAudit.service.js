@@ -16,17 +16,22 @@ export async function currentExchangeAudit(audit, agencyId) {
   const { users, facets } = await loadExchangeCandidates(agencyId);
   const providers = [];
   const eligible = users.filter(user => eligibleExchangeProvider(user, agency));
-  for (let offset = 0; offset < eligible.length; offset += 4) {
-    const batch = await Promise.all(eligible.slice(offset, offset + 4).map(async user => {
+  // Keep a bounded number of reads moving; one slow calendar must not hold up
+  // the next whole batch of providers. No matching results are cached across edits.
+  let next = 0;
+  async function worker() {
+    while (next < eligible.length) {
+      const index = next++;
+      const user = eligible[index];
       const previous = audit.providers.find(row => Number(row.userId) === Number(user.id));
       let decision;
       try { decision = await evaluateExchangeCandidate({ user, agency, listing, client, facets: facets.get(Number(user.id)) }); }
       catch { decision = { matched: false, canRequest: false, canAssign: false, checks: [{ field: 'evaluation', status: 'unknown', reason: 'Provider matching could not be checked. Refresh to retry.' }], blockers: [{ code: 'evaluation', message: 'Provider matching could not be checked. Refresh to retry.' }] }; }
-      return { ...previous, userId: user.id, name: [user.first_name, user.last_name].filter(Boolean).join(' '),
+      providers[index] = { ...previous, userId: user.id, name: [user.first_name, user.last_name].filter(Boolean).join(' '),
         email: user.work_email || user.email, ...decision, views: previous?.views || 0 };
-    }));
-    providers.push(...batch);
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(6, eligible.length) }, worker));
   const [waivers, shares] = await Promise.all([loadExchangeWaivers({ listingId: listing.id, includeRevoked: true }), listExchangeShares(listing.id)]);
   return { ...audit, providers, waivers, shares, canReview: ['open', 'requested'].includes(listing.status), matchesEvaluatedAt: new Date().toISOString() };
 }

@@ -56,3 +56,10 @@ it('carries enrollment location and scheduling answers into an exchange listing'
   } } });
   expect(summary.preferences).toMatchObject({ serviceLocation: 'Denver', modality: 'in_person', schedule: { days: ['Tuesday'], periods: ['evening'], timezone: 'America/Denver', notes: 'After work' } });
 });
+it('preserves explicit clears instead of falling back to older enrollment or referral answers', async () => {
+  const summary = await loadClientExchangeSummary({ client: { id: 3, agency_id: 2, intake_preferences_json: {
+    preferred_service_location: null, providerQualification: null, exchangeSchedule: null,
+    preferredDays: ['Tuesday'], exchangeReferral: {serviceLocation:'Denver',providerQualification:'independent'}
+  } } });
+  expect(summary.preferences).toMatchObject({ serviceLocation:null, providerQualification:null, schedule:{days:[],periods:[],windows:[]} });
+});

@@ -1,5 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ execute: vi.fn(), profile: vi.fn(), facets: vi.fn(), send: vi.fn(), notify: vi.fn(), enabled: vi.fn(), identities: vi.fn(), dispatch: vi.fn(), accepted: vi.fn() }));
+const mocks = vi.hoisted(() => ({ execute: vi.fn(), profile: vi.fn(), facets: vi.fn(), send: vi.fn(), notify: vi.fn(), enabled: vi.fn(), identities: vi.fn(), dispatch: vi.fn(), accepted: vi.fn(), current: vi.fn(), client: vi.fn() }));
+vi.mock('../clientExchange.service.js', () => ({ getListingForMatching: mocks.current }));
+vi.mock('../../models/Client.model.js', () => ({ default: { findById: mocks.client } }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.execute } }));
 vi.mock('../../models/Agency.model.js', () => ({ default: { findById: vi.fn().mockResolvedValue({ id: 2, slug: 'itsco' }) } }));
 vi.mock('../../models/Notification.model.js', () => ({ default: { create: mocks.notify } }));
@@ -17,10 +19,15 @@ vi.mock('../clientExchangeAudit.service.js',()=>({
 }));
 vi.mock('../clientExchangeAuditReport.service.js',()=>({sendExchangeAuditReport:vi.fn().mockResolvedValue({status:'sent'})}));
 import {exchangeDeliveryHistory,isExchangeListingOpen,saveExchangeDecision,saveExchangeDelivery} from '../clientExchangeAudit.service.js';
-import { notifyExchangeMatches, notifyExchangeClaim, notifyExchangeAssignment } from '../clientExchangeNotifications.service.js';
+import { notifyExchangeMatches as notifyMatches, notifyExchangeClaim, notifyExchangeAssignment } from '../clientExchangeNotifications.service.js';
 import Agency from '../../models/Agency.model.js';
 import {sendExchangeAuditReport} from '../clientExchangeAuditReport.service.js';
 const listing = { id: 44, agencyId: 2, currentProviderUserId: 9, postedByUserId: 9, demographics: { ageBand: '9' }, preferences: { modality: 'virtual' } };
+function notifyExchangeMatches(input) {
+  mocks.current.mockResolvedValue({ ...input.listing, clientId: 3, status: 'open' });
+  mocks.client.mockResolvedValue({ id: 3, agency_id: input.listing.agencyId, ...input.client });
+  return notifyMatches(input);
+}
 beforeEach(() => {
   vi.clearAllMocks();
   Agency.findById.mockResolvedValue({id:2,slug:'itsco'});
@@ -33,6 +40,18 @@ beforeEach(() => {
   mocks.enabled.mockResolvedValue(true);
   mocks.identities.mockResolvedValue([{ id: 77, identity_key: 'notifications', from_email: 'notifications@itsco.health',reply_to:'support@itsco.health' },{id:78,identity_key:'noreply',from_email:'noreply@itsco.health'}]);
   mocks.notify.mockResolvedValue({ id: 1 }); mocks.send.mockResolvedValue({ sent: true });
+});
+it('reloads edited preferences after acquiring the listing lock instead of sending the old match', async () => {
+  mocks.current.mockResolvedValueOnce({ ...listing, clientId: 3, status: 'open', preferences: { modality: 'in_person', insurance: 'Medicaid' } });
+  await notifyExchangeMatches({ listing });
+  expect(mocks.current).toHaveBeenCalledWith(44);
+  expect(saveExchangeDecision).toHaveBeenCalledWith(44,10,expect.objectContaining({ matched: false, canRequest: false }));
+  expect(mocks.send).not.toHaveBeenCalled();
+});
+it('does not evaluate or mail a listing that closed while waiting for its lock', async () => {
+  mocks.current.mockResolvedValueOnce({ ...listing, status: 'assigned' });
+  await notifyExchangeMatches({ listing });
+  expect(mocks.profile).not.toHaveBeenCalled(); expect(mocks.send).not.toHaveBeenCalled();
 });
 it('QA suppresses all match channels for everyone except the configured synthetic provider', async()=>{
   Agency.findById.mockResolvedValue({id:450,slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,exchangeProviderUserId:10}}});

@@ -27,6 +27,24 @@ export function mergeExchangeSummary(saved, additional = {}) {
   };
 }
 
+/** Open listings follow chart edits, including explicit clears. Legacy referral-only
+ * choices remain a fallback when that field has never been recorded on the chart. */
+export function mergeCurrentExchangeSummary(saved, additional = {}, client = {}) {
+  const summary = mergeExchangeSummary(saved, additional);
+  let intake = client.intake_preferences_json || {};
+  if (typeof intake === 'string') { try { intake = JSON.parse(intake); } catch { intake = {}; } }
+  const sources = {
+    matchingPreferences: ['matchingPreferences'], modality: ['preferredModality'],
+    providerGender: ['preferredProviderGender'], providerQualification: ['providerQualification'],
+    serviceLocation: ['serviceLocation', 'preferred_service_location'],
+    schedule: ['exchangeSchedule', 'preferredDays', 'preferredTimes', 'preferredTimeOfDay', 'preferredTimeZone', 'preferredSchedulingNotes']
+  };
+  for (const [field, keys] of Object.entries(sources)) {
+    if (keys.some(key => Object.hasOwn(intake || {}, key))) summary.preferences[field] = saved.preferences?.[field] ?? null;
+  }
+  return summary;
+}
+
 const escapeHtml = value => String(value || '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 /** Keep notification summaries brief; never include names, initials, dates of birth or raw notes. */
 export function exchangeNotificationSummary({listing,client={}}) {

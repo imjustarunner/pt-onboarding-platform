@@ -1,9 +1,9 @@
 import pool from '../config/database.js';
 import Client from '../models/Client.model.js';
-import {getListingById} from './clientExchange.service.js';
+import {getListingForMatching} from './clientExchange.service.js';
 import {notifyExchangeMatches} from './clientExchangeNotifications.service.js';
 
-/** Retry interrupted evaluations and send daily pilot audits. Listing locks and delivery receipts prevent repeated alerts. */
+/** Retry interrupted evaluations and refresh pilot audits daily. Only changes are emailed. */
 export async function monitorClientExchange({limit=10}={}) {
   const batchSize=Math.max(1,Math.min(50,Number.isFinite(Number(limit))?Math.trunc(Number(limit)):10));
   const [rows]=await pool.execute(`SELECT l.id,l.posted_by_user_id,l.client_id FROM client_exchange_listings l
@@ -16,7 +16,7 @@ export async function monitorClientExchange({limit=10}={}) {
     ORDER BY COALESCE(r.completed_at,l.created_at),l.id LIMIT ${batchSize}`);
   for(const row of rows) {
     try {
-      const listing=await getListingById(row.id,{viewerUserId:row.posted_by_user_id,viewerRole:'admin'});
+      const listing=await getListingForMatching(row.id);
       if(!listing||!['open','requested'].includes(listing.status))continue;
       const client=await Client.findById(row.client_id);
       if(!client||['ARCHIVED','DECLINED'].includes(String(client.status).toUpperCase()))continue;

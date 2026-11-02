@@ -6,6 +6,7 @@
     <p v-if="receipt" role="status">{{ receipt }}</p>
     <template v-if="audit">
       <p>{{ matched.length }} {{ audit.matchesEvaluatedAt ? 'currently matched' : 'matched at last evaluation' }} · {{ adjustments.length }} can request with adjustments or availability review · {{ blocked.length }} blocked by eligibility or insurance</p>
+      <p>Matching uses the client’s specified preferences. Missing diagnosis, location or gender preferences do not exclude providers. A possible match with unpublished availability still needs scheduling confirmation before assignment.</p>
       <p>{{ audit.views?.total || 0 }} detail views · {{ audit.views?.unique_viewers || 0 }} unique viewers since {{ audit.trackingStartedAt ? new Date(audit.trackingStartedAt).toLocaleString() : 'tracking began' }}. Earlier views were not tracked.</p>
       <p v-if="audit.matchesEvaluatedAt">Matching checked {{ new Date(audit.matchesEvaluatedAt).toLocaleString() }}. Refresh checks current settings and does not send notifications.</p>
       <p v-if="!audit.run">No delivery evaluation has been recorded yet.</p>

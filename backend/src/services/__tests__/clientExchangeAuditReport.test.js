@@ -6,7 +6,7 @@ vi.mock('../clientExchangeAuditPdf.service.js', () => ({renderExchangeAuditPdf:m
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({sendEmailFromIdentity:mocks.send}));
 vi.mock('../../utils/publicPortalUrl.js', () => ({buildPublicAppUrl:()=> 'https://example.test/client-exchange'}));
 import {sendExchangeAuditReport} from '../clientExchangeAuditReport.service.js';
-import {buildExchangeAuditReport} from '../../utils/clientExchangeAuditReport.js';
+import {buildExchangeAuditReport,exchangeAuditReportKey} from '../../utils/clientExchangeAuditReport.js';
 const input = {listing:{id:9,clientId:50,agencyId:2},agency:{name:'Agency',feature_flags:{clientExchangeAudit:{enabled:true,copyEmail:'owner@example.test'}}},identities:[{identity_key:'support',from_email:'support@example.test'},{identity_key:'notifications',id:4}]};
 beforeEach(() => {
   vi.resetAllMocks();
@@ -32,10 +32,36 @@ it('does not send an email or mark it sent if PDF generation fails', async()=>{
   expect(mocks.send).not.toHaveBeenCalled();
   expect(mocks.execute.mock.calls.some(([sql])=>/INSERT|UPDATE/.test(sql))).toBe(false);
 });
-it('preserves daily deduplication without regenerating or resending reports', async()=>{
+it('does not regenerate or resend previously attempted matching content', async()=>{
   mocks.execute.mockImplementation(async sql=>sql.includes('SELECT ordinal')?[[{ordinal:1}]]:sql.includes('SELECT status')?[[{status:'sent'}]]:[[]]);
   await expect(sendExchangeAuditReport(input)).resolves.toMatchObject({skipped:true,reason:'already_attempted'});
   expect(mocks.render).not.toHaveBeenCalled();expect(mocks.send).not.toHaveBeenCalled();
+});
+it('deduplicates unchanged results across days and view counts but emails changed criteria and outcomes', async () => {
+  const sent = new Set();
+  mocks.execute.mockImplementation(async (sql, args) => {
+    if (sql.includes('SELECT ordinal')) return [[{ordinal:1}]];
+    if (sql.includes('SELECT status')) return [sent.has(args[1]) ? [{status:'sent'}] : []];
+    if (sql.startsWith('INSERT INTO client_exchange_audit_reports')) sent.add(args[1]);
+    return [[]];
+  });
+  const provider = {userId: 5, matched: true, checks: [{field:'age',status:'pass',reason:'Age fits'}]};
+  mocks.audit.mockResolvedValue({providers:[provider],run:{evaluated_at:'2026-11-01'},views:{total:1}});
+  await sendExchangeAuditReport(input);
+  mocks.audit.mockResolvedValue({providers:[provider],run:{evaluated_at:'2026-11-02'},views:{total:20}});
+  expect(await sendExchangeAuditReport(input)).toMatchObject({skipped:true});
+  expect(mocks.send).toHaveBeenCalledTimes(1);
+  await sendExchangeAuditReport({...input, listing:{...input.listing, preferences:{providerGender:'female'}}});
+  expect(mocks.send).toHaveBeenCalledTimes(2);
+  mocks.audit.mockResolvedValue({providers:[{...provider,matched:false,checks:[{field:'age',status:'fail',reason:'Age differs'}]}]});
+  await sendExchangeAuditReport(input);
+  expect(mocks.send).toHaveBeenCalledTimes(3);
+});
+it('report keys ignore ordering and unspecified details are not called confirmation failures', () => {
+  const providers = [{userId:1,matched:true,checks:[{field:'diagnoses',status:'unknown',applicable:false,reason:'No diagnosis supplied'}]}, {userId:2,matched:false,checks:[]}];
+  expect(exchangeAuditReportKey({listing:input.listing,audit:{providers}})).toBe(exchangeAuditReportKey({listing:input.listing,audit:{providers:[...providers].reverse()}}));
+  const report = buildExchangeAuditReport({audit:{providers},listing:input.listing,agencyName:'Test',ordinal:1,link:'https://example.test'});
+  expect(report.reportHtml).not.toContain('No diagnosis supplied');
 });
 it('keeps distinct unknown fields and delivery reasons beside the correct providers', ()=>{
   const providers=[{userId:1,name:'One',matched:true,checks:[{status:'pass',reason:'Age fits'},{status:'unknown',reason:'Schedule needs review'}],emailDelivery:{status:'failed',reason:'Mailbox unavailable'},views:1},

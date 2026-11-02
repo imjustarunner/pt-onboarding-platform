@@ -28,8 +28,10 @@ export async function evaluateExchangeCandidate({user,listing,client,facets,agen
   agency ||= await Agency.findById(listing.agencyId);
   const exclusions=exchangeCandidateExclusions(user,listing,agency);
   if(exclusions.length)return {matched:false,checks:exclusions,status:'not_match',canRequest:false,canNotify:false,blockers:exclusions.map(c=>({code:c.field,message:c.reason})),adjustments:[],review:[]};
-  const profile=await Profile.getForProvider({providerUserId:user.id,agencyId:listing.agencyId});
-  const coverage=await listProviderAcceptedInsurancesForDisplay({userId:user.id,agencyId:listing.agencyId,forMatching:true});
+  const [profile, coverage] = await Promise.all([
+    Profile.getForProvider({providerUserId:user.id,agencyId:listing.agencyId}),
+    listProviderAcceptedInsurancesForDisplay({userId:user.id,agencyId:listing.agencyId,forMatching:true})
+  ]);
   return evaluateCurrentExchangeFit({context:{user,agency,profile:{...profile,
     insurances:coverage.accepted.flatMap(i=>[i.name,...(i.aliases||[])]),
     insuranceEligibilityKnown:coverage.accepted.length>0,insuranceCredential:coverage.credential,excludedInsurances:coverage.excluded

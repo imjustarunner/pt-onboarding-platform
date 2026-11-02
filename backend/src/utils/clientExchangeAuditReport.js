@@ -1,3 +1,22 @@
+import { createHash } from 'node:crypto';
+
+// Date, views and evaluation timestamps must not turn an unchanged evaluation
+// into another email. New client criteria or changed outcomes do produce a report.
+export function exchangeAuditReportKey({ listing, audit }) {
+  const stable = value => Array.isArray(value) ? value.map(stable).sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+    : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])])) : value;
+  const preferences = listing.preferences || {};
+  const input = { demographics: listing.demographics, diagnoses: listing.diagnoses, serviceType: listing.serviceType,
+    preferences: Object.fromEntries(['insurance','modality','serviceLocation','providerGender','providerQualification','matchingPreferences'].map(key => [key, preferences[key] ?? null])),
+    schedule: Object.fromEntries(['days','periods','windows','timezone'].map(key => [key, preferences.schedule?.[key] ?? null])),
+    providers: (audit.providers || []).map(provider => ({ userId: provider.userId, matched: provider.matched,
+      checks: (provider.checks || []).map(({field,status,reason,applicable,originalStatus}) => ({field,status,reason,applicable,originalStatus})),
+      email: { status: provider.emailDelivery?.status, reason: provider.emailDelivery?.reason },
+      sms: { status: provider.smsDelivery?.status, reason: provider.smsDelivery?.reason }
+    })) };
+  return createHash('sha256').update(JSON.stringify(stable(input))).digest('hex').slice(0,40);
+}
+
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const date = value => {
   if (!value) return 'Not recorded';
@@ -11,7 +30,7 @@ const outcome = value => {
   return `<strong>${escape(status.charAt(0).toUpperCase() + status.slice(1))}</strong>${value.reason ? `<div>${escape(value.reason)}</div>` : ''}${value.sentAt ? `<div class="muted">${escape(date(value.sentAt))}</div>` : ''}`;
 };
 const reasons = provider => (provider.checks || []).filter(check => provider.matched ? check.status === 'pass' : ['fail', 'error'].includes(check.status)).map(check => check.reason);
-const unknowns = provider => (provider.checks || []).filter(check => check.status === 'unknown').map(check => check.reason);
+const unknowns = provider => (provider.checks || []).filter(check => check.status === 'unknown' && check.applicable !== false).map(check => check.reason);
 const paragraphs = values => values.map(value => `<p>${escape(value)}</p>`).join('');
 
 // Only the listing ID is used. Client names, initials and clinical narratives
@@ -31,7 +50,7 @@ export function buildExchangeAuditReport({audit, listing, agencyName, ordinal, l
   const notes = [
     `Tracking began: ${date(audit.trackingStartedAt)}. Earlier listing views were not tracked. View counts exclude list-card impressions and email opens.`,
     'Sent means accepted by the sending service, not proof the recipient read it. Current matching may differ from matching at the original posting.',
-    'Unknown fields are not verified matches. Days, times and exact office availability still require manual review.'
+    'Unspecified client preferences do not exclude providers. Possible matches use the information available; unpublished availability requires confirmation before assignment.'
   ];
   const text = [title, `Audit client ${ordinal} of 50.`, '', ...summary,
     pending.length ? `${pending.length} provider${pending.length === 1 ? ' has' : 's have'} failed, pending or uncertain deliveries; see the PDF for details.` : '',
