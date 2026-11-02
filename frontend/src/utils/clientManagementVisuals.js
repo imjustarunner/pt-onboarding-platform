@@ -1,4 +1,4 @@
-import { clientSummaryTone } from '../../../backend/src/utils/clientSummaryTone.js';
+import { clientSummaryTone } from '../navigation/clientSummaryTone.js';
 /** Stable hue 0–359 from any string (for tenant / provider color bands). */
 export function hashHue(input) {
   const s = String(input || '');
