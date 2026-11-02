@@ -30,7 +30,7 @@ export function isItscoQaWorkspace(agency, hostname) {
     && flags?.qaSandbox?.syntheticOnly === true;
 }
 
-/** The URL owns workspace identity; selecting an agency alone never changes it. */
+/** Tenant identity lives in the route; a custom domain is optional for sign-in. */
 export function tenantWorkspaceDestination({ agency, role, hostname, hostPortalSlug, path = '/admin', query = {}, hash = '' }) {
   const slug = workspaceSlug(agency);
   if (!slug) throw new Error('This tenant has no portal address.');
@@ -39,13 +39,17 @@ export function tenantWorkspaceDestination({ agency, role, hostname, hostPortalS
   const sharedQa = isItscoQaWorkspace(agency, here);
   const sameTenantHost = String(hostPortalSlug || '').toLowerCase() === slug && !isPlatformWorkspaceHost(here);
   const superadmin = isSuperadminRole(role);
-  const targetHost = local || sameTenantHost || sharedQa
+  // Keep an ordinary user's authenticated session on the app origin where they
+  // signed in. A tenant prefix supplies workspace identity and branding when
+  // this host belongs to a different tenant (or the tenant has no own domain).
+  // Membership and role checks remain the authority for access.
+  const targetHost = local || !superadmin || sameTenantHost || sharedQa
     ? here
-    : superadmin ? getPlatformAppHostname() : getAgencyAppHostname(agency);
-  if (!targetHost) throw new Error('This tenant has no configured app domain.');
-  const scoped = local || sharedQa || (superadmin && isPlatformWorkspaceHost(targetHost));
+    : getPlatformAppHostname();
+  const resolvedHost = targetHost || getAgencyAppHostname(agency) || getPlatformAppHostname();
+  const scoped = local || sharedQa || !sameTenantHost || isPlatformWorkspaceHost(resolvedHost);
   const suffix = path === '/' ? '/admin' : path;
-  return { hostname: targetHost, path: `${scoped ? `/${slug}` : ''}${suffix}`, query, hash };
+  return { hostname: resolvedHost, path: `${scoped ? `/${slug}` : ''}${suffix}`, query, hash };
 }
 
 export function platformWorkspaceDestination(hostname) {

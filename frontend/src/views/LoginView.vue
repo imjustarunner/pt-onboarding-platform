@@ -715,6 +715,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
 import { useAgencyStore } from '../store/agency';
+import { useOrganizationStore } from '../store/organization';
 import {
   isNativePlatform,
   checkBiometricAvailability,
@@ -753,6 +754,7 @@ import { Eye, EyeOff } from '@lucide/vue';
 import api from '../services/api';
 import { getBackendBaseUrl } from '../utils/uploadsUrl';
 import { getDashboardRoute } from '../utils/router';
+import { authenticatedLoginOrganization } from '../utils/loginWorkspace';
 import { auricWellAccountDestination } from '../utils/familyPortalContext.js';
 import {
   getRememberedLogin,
@@ -796,6 +798,7 @@ useFundThredBranding('Sign in | FundThred', isFundThredLogin);
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
+const organizationStore = useOrganizationStore();
 const APP_PREVIEW_STORAGE_KEY = '__pt_local_app_preview__';
 const showAppPreviewToggle = import.meta.env.DEV;
 
@@ -2296,6 +2299,18 @@ const handleLogin = async (passkeyResult = null) => {
       } else if (Array.isArray(result.agencies) && result.agencies.length) {
         // Super-admin: seed membership list without blocking on the full /agencies catalog.
         agencyStore.applyLoginAgencies(result.agencies);
+      }
+
+      // A public login page may belong to a different tenant than this account.
+      // Replace its provisional organization context with an actual membership
+      // before dashboard selection; school staff retain their school branding.
+      const loginOrganization = authenticatedLoginOrganization({
+        agencies: agencyStore.userAgencies, role: roleNorm,
+        requestedSlug: currentOrgSlug, currentAgency: agencyStore.currentAgency
+      });
+      if (loginOrganization) {
+        agencyStore.setCurrentAgency(loginOrganization);
+        organizationStore.setCurrentOrganization(loginOrganization);
       }
 
       const auricWellDestination = !authStore.user?.requiresPasswordChange && auricWellAccountDestination({

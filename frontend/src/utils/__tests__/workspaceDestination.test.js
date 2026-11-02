@@ -4,8 +4,29 @@ import { tenantWorkspaceDestination, platformWorkspaceDestination, isFamilyPorta
 const itsco = { id: 1, slug: 'itsco', custom_domain: 'app.itsco.health' };
 const tisi = { id: 2, slug: 'tisi', custom_domain: 'app.theinnerstrengthinstitute.com' };
 const qa = { id: 450, slug: 'auricwell-qa-demo', feature_flags: { qaSandbox: { syntheticOnly: true } } };
+const nluQa = { id: 453, slug: 'nlu-qa-demo', feature_flags: { qaSandbox: { syntheticOnly: true, program: 'tutoring', appHostname: 'app.nextleveluplcc.com' } } };
 
 describe('workspace addresses', () => {
+  it.each(['provider', 'support', 'admin', 'staff', 'school_staff', 'client_guardian'])('keeps an authenticated %s on their sign-in origin with tenant identity in the path', role => {
+    for (const hostname of ['app.nextleveluplcc.com', 'app.itsco.health', 'plottwisthq.com', 'custom.example.com']) {
+      for (const agency of [nluQa, { id: 454, slug: 'nlu-qa-learning' }, { id: 999, slug: 'new-school' }, tisi]) {
+        expect(tenantWorkspaceDestination({ agency, role, hostname, hostPortalSlug: 'unrelated-live-tenant', path: '/dashboard', query: { tab: 'my' }, hash: '#overview' }))
+          .toEqual({ hostname, path: `/${agency.slug}/dashboard`, query: { tab: 'my' }, hash: '#overview' });
+      }
+    }
+  });
+  it('uses flat paths only when the current host identifies that exact tenant', () => {
+    expect(tenantWorkspaceDestination({ agency: { id: 6, slug: 'nlu' }, role: 'provider', hostname: 'app.nextleveluplcc.com', hostPortalSlug: 'nlu', path: '/dashboard' }))
+      .toMatchObject({ hostname: 'app.nextleveluplcc.com', path: '/dashboard' });
+    expect(tenantWorkspaceDestination({ agency: nluQa, role: 'provider', hostname: 'app.nextleveluplcc.com', hostPortalSlug: 'nlu', path: '/dashboard' }))
+      .toMatchObject({ hostname: 'app.nextleveluplcc.com', path: '/nlu-qa-demo/dashboard' });
+    expect(tenantWorkspaceDestination({ agency: nluQa, role: 'provider', hostname: 'localhost', path: '/dashboard' }))
+      .toMatchObject({ hostname: 'localhost', path: '/nlu-qa-demo/dashboard' });
+  });
+  it('still requires an organization address', () => {
+    expect(() => tenantWorkspaceDestination({ agency: { id: 999 }, role: 'provider', hostname: 'app.itsco.health' }))
+      .toThrow('no portal address');
+  });
   it.each(['provider', 'support', 'admin'])('keeps the isolated QA %s in its full-platform agency path', role => {
     expect(tenantWorkspaceDestination({ agency: qa, role, hostname: 'app.itsco.health', hostPortalSlug: 'itsco', path: '/dashboard', query: { tab: 'my', my: 'payroll' } }))
       .toEqual({ hostname: 'app.itsco.health', path: '/auricwell-qa-demo/dashboard', query: { tab: 'my', my: 'payroll' }, hash: '' });
@@ -14,15 +35,9 @@ describe('workspace addresses', () => {
     expect(tenantWorkspaceDestination({ agency: { ...qa, feature_flags: JSON.stringify(qa.feature_flags) }, role: 'provider', hostname: 'app.itsco.health', path: '/my-schedule' }))
       .toMatchObject({ hostname: 'app.itsco.health', path: '/auricwell-qa-demo/my-schedule' });
   });
-  it.each([
-    { ...qa, id: 451 }, { ...qa, slug: 'other-demo' },
-    { ...qa, feature_flags: {} }, { ...qa, feature_flags: '{invalid' },
-    { ...qa, feature_flags: { qaSandbox: { syntheticOnly: false } } }
-  ])('does not extend the shared-host exception to a different or unmarked tenant', agency => {
-    expect(() => tenantWorkspaceDestination({ agency, role: 'provider', hostname: 'app.itsco.health', path: '/dashboard' })).toThrow('no configured app domain');
-  });
-  it('does not host the QA agency on an unrelated domain', () => {
-    expect(() => tenantWorkspaceDestination({ agency: qa, role: 'provider', hostname: 'app.theinnerstrengthinstitute.com', path: '/dashboard' })).toThrow('no configured app domain');
+  it('supports a tenant without a custom domain from another app host', () => {
+    expect(tenantWorkspaceDestination({ agency: { id: 999, slug: 'new-agency' }, role: 'provider', hostname: 'app.theinnerstrengthinstitute.com', path: '/dashboard' }))
+      .toMatchObject({ hostname: 'app.theinnerstrengthinstitute.com', path: '/new-agency/dashboard' });
   });
   it.each(['client_guardian', 'client'])('preserves the signed-in origin for %s family profile switches', role => {
     for (const path of ['/guardian', '/nlu/guardian', '/tisi/guardian', '/itsco/guardian/waivers']) {
@@ -49,9 +64,9 @@ describe('workspace addresses', () => {
       .toMatchObject({ hostname: 'plottwisthq.com', path: '/itsco/note-aid' });
   });
 
-  it.each(['provider', 'admin', 'staff'])('sends %s to the tenant domain, never HQ', (role) => {
+  it.each(['provider', 'admin', 'staff'])('keeps %s signed in on HQ with an explicit tenant route', (role) => {
     expect(tenantWorkspaceDestination({ agency: tisi, role, hostname: 'plottwisthq.com', path: '/dashboard' }))
-      .toMatchObject({ hostname: 'app.theinnerstrengthinstitute.com', path: '/dashboard' });
+      .toMatchObject({ hostname: 'plottwisthq.com', path: '/tisi/dashboard' });
   });
 
   it('uses slug navigation for local development', () => {
