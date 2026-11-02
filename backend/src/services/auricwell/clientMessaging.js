@@ -461,6 +461,11 @@ async function applyCommand(ctx, event, command, db) {
 export async function acceptNotifyreWebhook(raw, header) {
   const { settings } = await platformIntegrations();
   const parsed = verifyNotifyreSignature(raw, header, settings.notifyre.webhookSecret);
+  return acceptAuthenticatedNotifyreEvent(settings, parsed);
+}
+// Internal only: the shared account ingress authenticates the complete callback
+// before choosing its registered owner. No HTTP route accepts parsed/unsigned data.
+export async function acceptAuthenticatedNotifyreEvent(settings, parsed) {
   if (['fax_received', 'fax_sent'].includes(parsed.Event ?? parsed.event)) {
     const { acceptFaxEvent } = await import('./faxMessaging.js');
     return acceptFaxEvent(settings, parsed);

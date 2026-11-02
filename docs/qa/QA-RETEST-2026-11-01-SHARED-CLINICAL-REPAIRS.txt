@@ -20,8 +20,18 @@ Release verification — November 1, 2026, 6:40 PM MST (UTC-07:00)
 - Frontend onboarding-frontend-03199-29g serves this image at 100% traffic.
 - Both deployment workflows, SMS carrier/campaign boundaries and scheduling
   regressions passed. This clears the build/deployment prerequisite only.
-- The additional reminder webhook/signing secret and approved app sender
-  configuration remain pending. No actual recipient delivery is claimed.
+- At this checkpoint, the additional webhook/signing secret and approved app
+  sender configuration were pending. No actual recipient delivery was claimed.
+
+Account-wide webhook follow-up — November 1, 2026
+The owner created https://app.itsco.health/api/notifyre/webhook with SMS, fax
+and MMS subscriptions. Its signing secret is stored in Google Secret Manager
+as notifyre-reminders-webhook-secret, enabled version 1. The historical name
+does not limit this endpoint to reminders or ITSCO. Do not copy its value here.
+The shared receiver routes both URL aliases by saved number ownership, rejects
+unknown/conflicting owners, and uses the existing durable duplicate protection.
+This follow-up must be deployed and its new secret bound before testing it live.
+No recipient permission, app number assignment or carrier receipt is implied.
 
 Before starting
 - Confirm the deployed FRONTEND and BACKEND include these commits. Record the
@@ -160,28 +170,33 @@ Fresh read-only app checks on November 1:
 - The provider campaign describes account-wide STOP. This follow-up uses the
   shared phone-state store at both Notifyre send boundaries. Verify the deployed
   behavior across numbers before enabling traffic through the shared account.
-- Google Cloud operator authentication now works. The running backend inspected
-  here was still image 5395bcdab (onboarding-backend-g41345711540a1). Newer builds
-  failed because the frontend imported a backend file outside its Docker context;
-  this follow-up repairs that import. Record the actual successful deployment.
+- Google Cloud operator authentication now works. The initial inspection found
+  image 5395bcdab and a frontend build failure; the release checkpoint above
+  records the subsequent successful deployment. Record the actual current build.
 - The backend has AURICWELL_NOTIFYRE_* secret bindings, but no NOTIFYRE_* settings
   and no mounted runtime environment. The reminder transport is unconfigured.
 - Existing Notifyre webhook supplied by the owner:
   https://auricwell-65v3jdyqba-wm.a.run.app/api/auricwell-sms/webhook
   Its Cloud Run proxy forwards that route to the current onboarding backend.
-  Preserve it for the separate AuricWell messaging/fax integration.
-- A separate reminder webhook is requested at:
+  Preserve it during migration. Both URLs now use the same number-owner router;
+  each URL must still verify its own original signing secret.
+- The new account-wide webhook is:
   https://app.itsco.health/api/notifyre/webhook
-  Select sms_received and sms_sent. Bind its actual signing secret securely;
-  do not use the existing webhook's secret by assumption. Provider-side creation,
-  signed receipt and recipient delivery are still pending verification.
+  Subscribe to sms_received, sms_sent, mms_received, fax_received and fax_sent
+  for the channels used by this account. Its host does not identify a tenant.
+  Do not create another webhook for each agency, provider or number. Each new
+  agency instead needs its actual number/campaign and internal inbox assignment.
+  The owner reports provider-side creation; the secret's enabled version exists.
+  Runtime binding, a real signed callback and recipient delivery are separate
+  checks. Never use the existing webhook's secret by assumption.
 These are setup blockers, not evidence of a failed delivery attempt. No text was
 sent and no recipient consent or live sender configuration was changed here.
 
 Deployment operator must reconcile, without exposing values:
 1. The running backend's actual secret bindings AND mounted runtime environment.
-   Existing AURICWELL_NOTIFYRE_* secrets belong to a separate integration path;
-   the appointment-reminder path checks NOTIFYRE_* runtime settings.
+   Existing AURICWELL_NOTIFYRE_* bindings must be preserved during migration;
+   the new URL checks NOTIFYRE_WEBHOOK_SECRET. Other transport readiness gates
+   still apply independently of a valid webhook signature.
 2. Exact agency-to-brand/campaign mapping in NOTIFYRE_CLIENT_CAMPAIGNS_JSON,
    NOTIFYRE_API_TOKEN, NOTIFYRE_WEBHOOK_SECRET and executed BAA reference.
    No global/wildcard campaign fallback. Confirm the QA tenant is legitimately
@@ -192,8 +207,21 @@ Deployment operator must reconcile, without exposing values:
    clinical sender prerequisite; record a fresh result.
 4. Opt-out scope/migration: existing STOP remains effective across the configured
    program. Verify old and replacement-number behavior before enabling traffic.
-5. Signed inbound and delivery webhooks reach the correct endpoint once, reject
-   invalid signatures and tolerate duplicate/out-of-order delivery events.
+5. Signed inbound and delivery callbacks for two different approved agencies
+   enter the same endpoint and reach only their saved receiving/sending number's
+   agency. A forged payload agency ID must have no effect. Unknown numbers and
+   conflicting owners require review; never broadcast to all tenants.
+   Deliver the same scoped carrier event through both configured URL aliases:
+   one durable message/status update, no repeated command response. Reject wrong
+   signatures and tolerate duplicate/out-of-order delivery events.
+   Fax callbacks route only to a primary-line fax inbox after actual fax-number
+   capability/ownership verification. A provider SMS number is not proof it
+   receives fax. Check one real scoped fax receipt when authorized.
+   MMS requires an MMS-capable purchased number. Test text-plus-picture and
+   picture-only: retain text and media receipt privately in the correct inbox or
+   Support review queue. The current implementation uses authorized Notifyre
+   Receive Activity for media review; in-app media download/outbound MMS remain
+   unsupported. An accepted callback does not pass attachment viewing.
 6. Enable the configured clinical transport only after those prerequisites pass.
    Workforce/Vonage settings do not authorize clinical reminder delivery.
 Do not infer missing credentials from an empty direct-env listing when a mounted
@@ -220,9 +248,10 @@ scheduled due time and wait normally. Verify one minimal reminder, correct
 agency/sender, recipient, timezone and permitted destination. Reply through the
 registered route; verify actual inbound handling. The implemented category
 commands are NOREMIND (appointment reminders), NOLINK (session links) and NOFORM
-(form texts). The separate AuricWell messaging workspace supports all three;
-the appointment-reminder endpoint supports NOREMIND. Do not claim the latter
-implements link/form messages merely because the commands exist elsewhere.
+(form texts). The AuricWell conversation handler supports all three; the legacy
+appointment-reminder handler supports NOREMIND. Both URL aliases select the
+same internal handler by saved number ownership, not by hostname. Do not claim
+the legacy handler implements link/form messages merely from the shared URL.
 Verify NOREMIND stops appointment reminders while provider texts remain at the
 recipient's prior choice. Turn provider texting off through its separate
 preference control; reminders must retain their own choice. A recent incoming

@@ -19,6 +19,15 @@ test('Notifyre signature authenticates full payload, rejects future/stale timest
  const normalized=normalizeNotifyreEvent(event);assert.equal(normalized.from,'+17195550123');assert.equal(normalized.body,'TEST');
  assert.equal(normalized.key,normalizeNotifyreEvent({...event,Timestamp:event.Timestamp+1}).key);
 });
+test('picture-only MMS retains its private media receipt and delivery reads the documented status field',()=>{
+ const incoming={Event:'mms_received',Timestamp:Math.floor(Date.now()/1000),Payload:{ReplyID:'mms-1',SenderNumber:'+17195550123',RecipientNumber:'+17195550999'}};
+ const event=normalizeNotifyreEvent(incoming);
+ assert.equal(event.id,'mms-1');assert.equal(event.body,'');assert.equal(event.attachment,true);
+ assert.equal(event.key,normalizeNotifyreEvent({...incoming,Timestamp:incoming.Timestamp+1}).key);
+ assert.throws(()=>normalizeNotifyreEvent({...incoming,Payload:{...incoming.Payload,Message:{unsafe:'object'}}}),{status:400});
+ const delivery=normalizeNotifyreEvent({Event:'sms_sent',Payload:{ID:'sent-1',Recipient:{DeliveryStatus:'Delivered'}}});
+ assert.equal(delivery.status,'delivered');
+});
 test('campaign approval, owned numbers, matching carrier and signed webhook are separate sending gates',()=>{
  const defaults=integrationDefaults();const route={practiceId:'p',brand:'Test',enabled:true,approval:'approved',campaignId:'C1',mainNumber:'+17195550123',verifiedAt:'today',verifiedProvider:'notifyre'};
  const ready={...defaults,smsProvider:'notifyre',notifyre:{apiToken:'secret',baaReference:'signed',webhookSecret:'secret',webhookVerifiedAt:'today'},clientMessaging:{routes:[route]}};

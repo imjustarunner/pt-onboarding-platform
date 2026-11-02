@@ -2,7 +2,7 @@ import {phoneFingerprint} from '../../utils/staffCommunicationChoices.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), getConnection: vi.fn() } }));
 import pool from '../../config/database.js';
-import { prepareSmsDelivery, processSmsKeyword, recordInboundConversation, staffAssistantReplyCapability } from '../smsCompliance.service.js';
+import { getSmsSender, prepareSmsDelivery, processSmsKeyword, recordInboundConversation, staffAssistantReplyCapability } from '../smsCompliance.service.js';
 import { parseSmsKeyword, validateSmsRegistration, validateSmsConsentEvidence } from '../../utils/smsCompliancePolicy.js';
 
 const registration = {
@@ -51,6 +51,10 @@ beforeEach(() => {
 });
 
 describe('campaign-wide SMS delivery gate', () => {
+  it('rejects a number assigned to multiple tenants instead of selecting the first record', async () => {
+    pool.execute.mockResolvedValueOnce([[sender, {...sender,id:8,agency_id:99}]]);
+    await expect(getSmsSender(sender.phone_number)).rejects.toMatchObject({code:'sms_ambiguous_sender'});
+  });
   it('event suppression blocks that event while preserving other consented traffic', async () => {
     const original = pool.execute.getMockImplementation();
     pool.execute.mockImplementation(async (sql, args) => {

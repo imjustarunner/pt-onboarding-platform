@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { smsPolicyError, validateSmsRegistration } from '../utils/smsCompliancePolicy.js';
 import { assertSmsCarrierPurpose, assertNotifyreAgencyCampaign } from '../utils/smsCarrierPolicy.js';
+import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 
 export { CLIENT_SMS_PURPOSES } from '../utils/smsCarrierPolicy.js';
 export function smsTransport(delivery, env = process.env) {
@@ -57,13 +58,15 @@ export function normalizeNotifyreEvent(event) {
   const payload = event?.Payload || event?.payload;
   const type = event?.Event || event?.event;
   if (!payload) return null;
-  if (type === 'sms_received') {
+  if (type === 'sms_received' || type === 'mms_received') {
     const id = payload.ReplyID || payload.replyID;
-    const from = payload.SenderNumber || payload.senderNumber;
-    const to = payload.RecipientNumber || payload.recipientNumber;
+    const from = normalizeSmsPhone(payload.SenderNumber || payload.senderNumber);
+    const to = normalizeSmsPhone(payload.RecipientNumber || payload.recipientNumber);
     const at = Number(payload.ReceivedDateUtc || payload.receivedDateUtc || event.Timestamp) * 1000;
-    if (!id || !from || !to || !Number.isFinite(at) || at <= 0 || at > Date.now() + 300000) throw new Error('Incomplete Notifyre received event.');
-    return { type, id: `notifyre:${id}`, from, to, text: payload.Message ?? payload.message ?? '', at };
+    const text = payload.Message ?? payload.message ?? '';
+    if (!id || !from || !to || typeof text !== 'string' || text.length > 10000 || !Number.isFinite(at) || at <= 0 || at > Date.now() + 300000)
+      throw Object.assign(new Error('Incomplete Notifyre received event.'), {status:400});
+    return { type, id: `notifyre:${id}`, from, to, text, at };
   }
   if (type === 'sms_sent') {
     const recipient = payload.Recipient || payload.recipient || {};

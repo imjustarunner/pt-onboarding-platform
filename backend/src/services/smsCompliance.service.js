@@ -30,8 +30,9 @@ export async function getSmsSender(from) {
             r.campaign_id, r.registration_json
      FROM twilio_numbers n LEFT JOIN agencies a ON a.id = n.agency_id
      LEFT JOIN sms_sender_registrations r ON r.number_id = n.id
-     WHERE n.phone_number = ? LIMIT 1`, [phone]
+     WHERE n.phone_number = ? LIMIT 2`, [phone]
   );
+  if (rows.length > 1) throw smsPolicyError('sms_ambiguous_sender', 'This phone number has conflicting agency assignments');
   const row = rows[0];
   if (!row || !row.is_active || row.status === 'released') throw smsPolicyError('sms_unknown_sender', 'Sending number is not active in AuricWell');
   return { ...row, registration: row.registration_json ? json(row.registration_json) : null,

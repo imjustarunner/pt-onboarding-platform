@@ -61,6 +61,29 @@ it('routes a Notifyre patient reply to appointment handling without invoking sta
  expect(handleInboundSmsAppointmentReply).toHaveBeenCalledWith(expect.objectContaining({agencyId:450,clientId:10,rawBody:'Y'}));
  expect(handleStaffSmsAssistant).not.toHaveBeenCalled();expect(handleCompanyEventCheckinInbound).not.toHaveBeenCalled();expect(VonageService.sendSms).toHaveBeenCalledWith(expect.objectContaining({purpose:'care',body:'Confirmed'}));expect(next).not.toHaveBeenCalled();
 });
+it.each(['', 'Please review this picture'])('holds Notifyre MMS in its receiving agency for private carrier review (%s)',async text=>{
+ getSmsSender.mockResolvedValue({agency_id:99,registration:{provider:'notifyre'}});
+ inspectInboundReception.mockResolvedValue({number:{id:12,agency_id:99},profile:{clientId:31,clients:[{id:31}]},reason:null});
+ const req=request('notifyre',text),res=response(),next=vi.fn();
+ req.notifyreMediaReceipt='notifyre:private-mms-id';
+ await inboundSmsWebhook(req,res,next);
+ expect(enqueueCommunicationReview).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+   agencyId:99,numberId:12,externalId:'test-id',reason:'mms_attachment_pending',
+   body:`${text}${text ? '\n' : ''}[MMS attachment awaiting retrieval in Notifyre Receive Activity; receipt notifyre:private-mms-id]`
+ }));
+ expect(res.json).toHaveBeenCalledWith({ok:true,heldForReview:true});
+ expect(resolveInboundRoute).not.toHaveBeenCalled();expect(handleInboundSmsAppointmentReply).not.toHaveBeenCalled();
+ expect(recordInboundConversation).not.toHaveBeenCalled();expect(handleStaffSmsAssistant).not.toHaveBeenCalled();
+ expect(VonageService.sendSms).not.toHaveBeenCalled();expect(next).not.toHaveBeenCalled();
+});
+it('keeps a blocked MMS sender blocked instead of replacing its review reason',async()=>{
+ getSmsSender.mockResolvedValue({agency_id:450,registration:{provider:'notifyre'}});
+ inspectInboundReception.mockResolvedValue({number:{id:2,agency_id:450},profile:{},reason:'blocked_sender'});
+ const req=request('notifyre',''),next=vi.fn();req.notifyreMediaReceipt='notifyre:blocked-mms-id';
+ await inboundSmsWebhook(req,response(),next);
+ expect(enqueueCommunicationReview).toHaveBeenCalledWith(expect.objectContaining({agencyId:450,reason:'blocked_sender'}));
+ expect(handleInboundSmsAppointmentReply).not.toHaveBeenCalled();expect(VonageService.sendSms).not.toHaveBeenCalled();expect(next).not.toHaveBeenCalled();
+});
 it('preserves existing Vonage staff assistant requests',async()=>{
  handleStaffSmsAssistant.mockResolvedValue(true);await inboundSmsWebhook(request('vonage','Help with my schedule'),response(),vi.fn());
  expect(handleStaffSmsAssistant).toHaveBeenCalledOnce();expect(enqueueCommunicationReview).not.toHaveBeenCalled();expect(handleInboundSmsAppointmentReply).not.toHaveBeenCalled();

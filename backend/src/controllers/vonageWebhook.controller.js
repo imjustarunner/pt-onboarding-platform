@@ -159,7 +159,8 @@ export const inboundSmsWebhook = async (req, res, next) => {
     const holdForReview = async () => {
       await enqueueCommunicationReview({agencyId:reception.number.agency_id,numberId:reception.number.id,
         externalId:messageId,reason:reception.reason,from:fromNorm,to:toNorm,
-        body:body || (mediaUrls.length ? '[Multimedia message: review with support]' : '')});
+        body:req.notifyreMediaReceipt ? `${body}${body ? '\n' : ''}[MMS attachment awaiting retrieval in Notifyre Receive Activity; receipt ${req.notifyreMediaReceipt}]`
+          : body || (mediaUrls.length ? '[Multimedia message: review with support]' : '')});
       if (reception.profile?.clientId && reception.profile.clients?.length === 1) {
         const {recordSmsProfileAudit}=await import('../services/smsProfileAudit.service.js');
         await recordSmsProfileAudit({agencyId:reception.number.agency_id,numberId:reception.number.id,
@@ -169,6 +170,13 @@ export const inboundSmsWebhook = async (req, res, next) => {
       return res.status(200).json({ok:true,heldForReview:true});
     };
     if (['blocked_sender','suspected_advertising'].includes(reception.reason)) return await holdForReview();
+    // Notifyre delivers a media receipt, not a public attachment URL. Retain it
+    // in the exact agency's encrypted review queue until media retrieval exists;
+    // do not silently drop a picture-only message or forward unscanned media.
+    if (incomingCarrier === 'notifyre' && req.notifyreMediaReceipt) {
+      reception.reason = 'mms_attachment_pending';
+      return await holdForReview();
+    }
     // SUPPORT is scoped to a sent offer; appointment and poll Y/N replies remain independent.
     if (incomingCarrier === 'notifyre' && !reception.reason && reception.number?.agency_id && reception.profile?.clientId && await handleOutOfOfficeSupportReply({
       agencyId: reception.number.agency_id, numberId: reception.number.id, clientId: reception.profile.clientId,

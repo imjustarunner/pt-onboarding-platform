@@ -60,15 +60,19 @@ export function normalizeNotifyreEvent(event) {
   if (!p || !['sms_received', 'sms_sent', 'mms_received'].includes(event.Event)) throw fail(400, 'Unsupported Notifyre event.');
   if (event.Event === 'sms_sent') {
     if (!p.ID) throw fail(400, 'Missing delivery ID.');
-    const status = String(p.Recipient?.Status || p.Status || '').toLowerCase();
+    const status = String(p.Recipient?.DeliveryStatus || p.Recipient?.Status || p.Status || '').toLowerCase();
     return { type: 'delivery', id: String(p.ID), status,
       key: hash(JSON.stringify([event.Event, p.ID, p.Recipient?.ID, status, p.LastModifiedDateUtc || event.Timestamp])) };
   }
   const from = normalizeSessionPhone(p.SenderNumber), to = normalizeSessionPhone(p.RecipientNumber);
   const at = Number(p.ReceivedDateUtc || event.Timestamp) * 1000;
-  if (!p.ReplyID || !from || !to || !Number.isFinite(at) || at <= 0 || at > Date.now() + 300000 || typeof p.Message !== 'string' || p.Message.length > 10000)
+  const attachment = event.Event === 'mms_received';
+  // Notifyre's MMS notification contains a ReplyID; the text is optional.
+  // Media must later be retrieved through an authorized server-side download.
+  const body = attachment && p.Message == null ? '' : p.Message;
+  if (!p.ReplyID || !from || !to || !Number.isFinite(at) || at <= 0 || at > Date.now() + 300000 || typeof body !== 'string' || body.length > 10000)
     throw fail(400, 'Invalid incoming message.');
-  return { type: 'inbound', id: String(p.ReplyID), from, to, body: p.Message, at, attachment: event.Event === 'mms_received', key: hash(`notifyre:inbound:${p.ReplyID}`) };
+  return { type: 'inbound', id: String(p.ReplyID), from, to, body, at, attachment, key: hash(`notifyre:inbound:${p.ReplyID}`) };
 }
 export function parseRelayReply(body) {
   const m = /^([a-z0-9]{1,24})\s+([\s\S]+)$/i.exec(String(body || '').trim());
