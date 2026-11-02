@@ -75,7 +75,10 @@ test('an explicit gender preference still reports a mismatch or an unrecorded pr
   const listing = { ...base.listing, preferences: { providerGender: 'female' } };
   assert.equal(evaluateExchangeListing({ ...base, listing }).checks.find(c => c.field === 'provider_gender').status, 'unknown');
   const fit = evaluateExchangeListing({ ...base, listing, profile: { ...base.profile, details: { gender: 'male' } } });
-  assert.equal(fit.matched, false); assert.equal(fit.canRequest, true);
+  assert.equal(fit.matched, false); assert.equal(fit.canRequest, false);
+  assert.equal(fit.checks.find(c=>c.field==='provider_gender').canWaive,false);
+  assert.ok(fit.blockers.some(c=>c.code==='provider_gender'));
+  assert.equal(evaluateExchangeListing({...base,listing}).canRequest,false);
 });
 test('age and virtual-only differences allow requests but require review before assignment', () => {
   const fit = evaluateExchangeListing({ ...base, user: { ...base.user, in_office_available: 0 },
@@ -157,7 +160,7 @@ test('honors an explicitly requested provider gender', () => {
   assert.equal(matchesExchangeListing({ ...base, listing, profile: { ...base.profile, details: { gender: 'Woman (she/her)' } } }), true);
   assert.equal(matchesExchangeListing({ ...base, listing, profile: { ...base.profile, details: { gender: 'male' } } }), false);
   assert.equal(matchesExchangeListing({ ...base, listing }), false);
-  assert.equal(evaluateExchangeListing({...base,listing}).canRequest,true);
+  assert.equal(evaluateExchangeListing({...base,listing}).canRequest,false);
 });
 
 test('unknown age and gender allow review, but specified coverage must be verified', () => {
@@ -289,4 +292,12 @@ test('typical day/time pairs stay together and office hours never exclude virtua
  const args={...base,profile:{...base.profile,details:{typicalAvailability:['Monday mornings','Tuesday afternoons'],virtualEnabled:true}},listing:{...base.listing,preferences:{...base.listing.preferences,schedule:{days:['Monday'],periods:['afternoon']}}}};
  assert.equal(evaluateExchangeListing(args).matched,false);
  assert.equal(evaluateExchangeListing({...args,listing:{...args.listing,preferences:{...args.listing.preferences,modality:'virtual'}}}).matched,true);
+});
+
+test('a recorded gender waiver cannot override the client therapist preference', () => {
+ const input={...base,listing:{...base.listing,preferences:{providerGender:'female'}},profile:{...base.profile,details:{gender:'male'}}};
+ const first=evaluateExchangeListing(input),check=first.checks.find(c=>c.field==='provider_gender');
+ const fit=evaluateExchangeListing({...input,waivers:[{field:'provider_gender',fingerprint:check.fingerprint}]});
+ assert.equal(fit.canRequest,false);assert.equal(fit.canAssign,false);assert.equal(fit.canNotify,false);
+ assert.equal(fit.checks.find(c=>c.field==='provider_gender').waiver,undefined);
 });

@@ -1,3 +1,4 @@
+import { providerGenderMatches } from '../navigation/providerGenderPreference.js';
 import { FOCUS_GROUPS, focusMatch } from '../navigation/providerFocus.js';
 import { clinicalMatchingSpecialties, hasExcludedSpecialty, specialtiesOverlap } from '../navigation/clientMatching.js';
 
@@ -13,11 +14,12 @@ export function enrollmentProviderStatus(provider, format = 'ALL') {
   }
   return provider.waitlist ? 'waitlist' : provider.acceptingNewClients === true ? 'accepting' : 'unavailable';
 }
-export function matchingEnrollmentProviders(providers, { format = 'ALL', preferences = [], presentingProblems = [] } = {}) {
+export function matchingEnrollmentProviders(providers, { format = 'ALL', preferences = [], presentingProblems = [], providerGender = '' } = {}) {
   const needs = clinicalMatchingSpecialties({ presentingProblems });
   const score = p => preferences.reduce((total, choice) => total + focusMatch(p.clinicalFocus, choice).score, 0)
     + Number(specialtiesOverlap(needs, p.clinicalFocus?.top?.specialties || p.specialties || []));
   return providers.filter(p => enrollmentProviderStatus(p, format) !== 'unavailable'
+    && providerGenderMatches(providerGender, p.gender)
     && preferences.every(choice => focusMatch(p.clinicalFocus, choice).eligible)
     && !hasExcludedSpecialty(needs, p.clinicalFocus?.excluded?.specialties || []))
     .map(p => ({ ...p, waitlist: enrollmentProviderStatus(p, format) === 'waitlist', acceptingNewClients: enrollmentProviderStatus(p, format) === 'accepting' }))

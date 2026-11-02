@@ -1,6 +1,6 @@
 <template>
   <div class="modal-backdrop" @click.self="$emit('close')">
-    <div class="modal-card">
+    <div class="modal-card" data-exchange-form>
       <div class="modal-header">
         <h3 style="margin: 0;">Internal referral</h3>
         <button type="button" class="btn-link" @click="$emit('close')">Close</button>
@@ -79,13 +79,13 @@
 
         <label class="field">
           <span class="label">Additional presenting problems (one per line)</span>
-          <textarea v-model="presentingProblemsRaw" rows="2" placeholder="Add any concerns not already recorded above"></textarea>
+          <textarea data-exchange-field="concerns" :aria-invalid="missingKeys.includes('concerns') || undefined" v-model="presentingProblemsRaw" rows="2" placeholder="Add any concerns not already recorded above"></textarea>
         </label>
 
         <div class="field-row">
           <label class="field">
             <span class="label">Visit format *</span>
-            <select v-model="modality" class="select">
+            <select data-exchange-field="modality" :aria-invalid="missingKeys.includes('modality') || undefined" v-model="modality" class="select">
               <option value="">Choose a format</option>
               <option value="in_person">In person</option>
               <option value="virtual">Virtual</option>
@@ -94,27 +94,29 @@
           </label>
           <label class="field">
             <span class="label">Insurance plan or self-pay *</span>
-            <input v-model="insurance" class="input" placeholder="e.g. Aetna" />
+            <input data-exchange-field="insurance" :aria-invalid="missingKeys.includes('insurance') || undefined" v-model="insurance" class="input" placeholder="e.g. Aetna" />
           </label>
         </div>
 
-        <label class="field"><span class="label">Preferred provider gender</span>
+        <label class="field"><span class="label">Therapist gender preference (optional)</span>
           <select v-model="providerGender" class="select"><option value="">No preference</option><option value="female">Female / woman</option><option value="male">Male / man</option><option value="nonbinary">Nonbinary</option></select>
         </label>
+        <p class="muted small">If a therapist gender is selected, providers who do not match it cannot request this client.</p>
         <label class="field"><span class="label">Provider license requirement</span>
           <select v-model="providerQualification" class="select"><option value="">No requirement specified</option><option value="licensed_or_provisional">Licensed clinician (includes provisional licenses)</option><option value="independent">Independently licensed clinician — specifically requested</option></select>
         </label>
-        <label v-if="modality !== 'virtual'" class="field"><span class="label">Requested in-person service location</span>
-          <select v-model="serviceLocation" class="select"><option value="">Select a location…</option><option v-for="location in exchangeLocations" :key="location">{{ location }}</option></select>
+        <label v-if="modality !== 'virtual'" class="field"><span class="label">Requested in-person service location *</span>
+          <select data-exchange-field="location" :aria-invalid="missingKeys.includes('location') || undefined" v-model="serviceLocation" class="select"><option value="">Select a location…</option><option v-for="location in exchangeLocations" :key="location">{{ location }}</option></select>
         </label>
         <ClientMatchingPreferences v-model="matchingPreferences" :max-selections="0" expanded />
-        <p class="muted">Available days, times and clinical concerns are required. Existing concerns above count; a diagnosis is optional.</p><ClientSchedulePreferences required v-model="schedule" />
+        <p class="muted">Available days, times and clinical concerns are required. Existing concerns above count; a diagnosis is optional.</p><ClientSchedulePreferences required :missing-fields="missingKeys" v-model="schedule" />
 
         <label class="field">
           <span class="label">Notes for other providers</span>
           <textarea v-model="notes" rows="3" placeholder="Why is this client being posted? Anything useful for a new provider to know."></textarea>
         </label>
 
+        <ExchangeRequiredFields ref="requiredFields" :missing="missingFields" />
         <div v-if="submitError" class="error">{{ submitError }}</div>
 
         <div class="modal-actions">
@@ -130,8 +132,9 @@
 
 <script setup>
 import { normalizeExchangeLocation } from '../../navigation/clientExchangeLocation.js';
-import { EXCHANGE_CITIES as exchangeLocations, assertExchangeEssentials } from '../../navigation/clientExchangeEssentials.js';
-import { computed, onMounted, ref, watch } from 'vue';
+import { EXCHANGE_CITIES as exchangeLocations, assertExchangeEssentials, missingExchangeEssentials } from '../../navigation/clientExchangeEssentials.js';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import ExchangeRequiredFields from './ExchangeRequiredFields.vue';
 import ClientExchangeSummary from './ClientExchangeSummary.vue';
 import ClientMatchingPreferences from '../public/ClientMatchingPreferences.vue';
 import ClientSchedulePreferences from './ClientSchedulePreferences.vue';
@@ -177,8 +180,15 @@ const submitError = ref('');
 const sharedSummary = ref({});
 const summaryLoading = ref(false);
 const summaryError = ref('');
+const validationAttempted = ref(false), requiredFields = ref(null);
+const missingFields = computed(() => validationAttempted.value ? missingExchangeEssentials({
+  preferences:{modality:modality.value,serviceLocation:serviceLocation.value,insurance:insurance.value,schedule:schedule.value},
+  presentingProblems:[...(sharedSummary.value.presentingProblems || []),sharedSummary.value.hasClinicalConcerns ? 'Recorded' : '',presentingProblemsRaw.value]
+}) : []);
+const missingKeys = computed(() => missingFields.value.map(field => field.key));
 let summaryVersion = 0;
 watch(selectedClientId, async clientId => {
+  validationAttempted.value = false;
   const version = ++summaryVersion;
   sharedSummary.value = {};
   matchingPreferences.value = {};
@@ -239,7 +249,9 @@ async function loadClients() {
 }
 
 async function submit() {
-  if (!selectedClientId.value) return;
+  if (!selectedClientId.value || submitting.value || posted.value) return;
+  submitError.value = ''; validationAttempted.value = true;
+  if (missingFields.value.length) { await nextTick(); requiredFields.value?.focusFirst(); return; }
   submitting.value = true;
   submitError.value = '';
   try {
@@ -332,6 +344,7 @@ onMounted(async () => {
   justify-content: space-between;
   align-items: center;
 }
+[aria-invalid="true"] { outline: 2px solid #dc2626; outline-offset: 2px; }
 .field {
   display: grid;
   gap: 6px;

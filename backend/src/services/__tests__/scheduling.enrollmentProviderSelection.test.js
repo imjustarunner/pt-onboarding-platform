@@ -151,3 +151,18 @@ describe('staff-visible pending provider placement', () => {
     expect(db.connection.release).toHaveBeenCalledTimes(1);
   });
 });
+
+it('rejects an enrollment-selected provider with a different or unknown gender',async()=>{
+ for(const gender of ['male',null])await expect(validate(data({preferred_provider_gender:'female'}),{loadProviders:async()=>[{...providers[0],gender}]})).rejects.toThrow('therapist gender preference');
+ await expect(validate(data({preferred_provider_gender:'female'}),{loadProviders:async()=>[{...providers[0],gender:'Woman (she/her)'}]})).resolves.toMatchObject({providerId:7});
+ await expect(validate(data({preferred_provider_gender:''}))).resolves.toMatchObject({providerId:7});
+});
+it('persists the therapist preference without choosing a provider and can explicitly clear it',async()=>{
+ const db=database();
+ for(const gender of ['female','']) {
+  await recordEnrollmentProviderSelection(db,{agencyId:2,clientIds:[30],submissionId:70,intakeData:{responses:{submission:{preferred_provider_gender:gender}}}});
+  expect(db.preferences().preferredProviderGender).toBe(gender);
+ }
+ expect(db.notifications).toHaveLength(0);
+ expect(enrollmentSchedulingPreferences({gender:'male'}).preferredProviderGender).toBeUndefined();
+});

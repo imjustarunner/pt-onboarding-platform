@@ -40,7 +40,7 @@ export async function changeExchangeWaiver({ listingId, agencyId, providerUserId
       if (!context.user) throw fail('An active provider in this agency is required', 403);
       const fit = await evaluateCurrentExchangeFit({ context, listing });
       const check = fit.checks.find(item => item.field === field);
-      if (!check?.canWaive) throw fail('This check cannot be waived. Insurance and account eligibility remain required.');
+      if (!check?.canWaive) throw fail('This check cannot be waived. Insurance, stated therapist gender preference, office location, and account eligibility remain required.');
       if (check.fingerprint !== fingerprint) throw fail('Matching details changed. Refresh the audit before waiving this check.');
       await connection.execute(`UPDATE client_exchange_match_waivers SET revoked_at = NOW(), revoked_by_user_id = ?
         WHERE listing_id = ? AND provider_user_id = ? AND field = ? AND revoked_at IS NULL`, [actor.id, listingId, providerUserId, field]);

@@ -68,3 +68,13 @@ it('keeps duplicate referral edits visible and clearly says they were not saved'
   expect(mocks.post).toHaveBeenCalledTimes(1);
   wrapper.unmount();
 });
+
+it('links missing times to their controls and keeps a notes-only schedule editable',async()=>{
+ const wrapper=mount(Modal,{attachTo:document.body,props:{agencyId:2,presetClientId:4,lockClient:true}});await flushPromises();
+ wrapper.findComponent({name:'ClientSchedulePreferences'}).vm.$emit('update:modelValue',{days:['Monday'],notes:'After 3pm'});
+ await wrapper.find('.btn-primary').trigger('click');await flushPromises();
+ expect(mocks.post).not.toHaveBeenCalled();expect(wrapper.find('[role="alert"]').text()).toContain('available times');
+ await wrapper.find('[role="alert"] button').trigger('click');
+ expect(document.activeElement).toBe(wrapper.find('[data-exchange-field="times"] input').element);
+ expect(wrapper.find('textarea[placeholder^="For example: after"]').element.value).toBe('After 3pm');wrapper.unmount();
+});

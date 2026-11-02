@@ -63,3 +63,9 @@ describe('full enrollment eligible provider directory', () => {
     expect(result[1]).toMatchObject({ waitlist: true, acceptingNewClients: false });
   });
 });
+
+it('filters the public directory using the recorded therapist gender only when requested',async()=>{
+ const original=mocks.profile.getMockImplementation();mocks.profile.mockImplementation(async args=>{const p=await original(args);p.details.gender=args.providerUserId===1?'Woman (she/her)':'male';return p;});
+ expect((await listOfficeIntakeProviders(2,{programType:'VIRTUAL',providerGender:'female'})).map(p=>p.id)).toEqual([1]);
+ expect((await listOfficeIntakeProviders(2,{programType:'VIRTUAL',providerGender:'male'})).map(p=>p.id)).toEqual([2]);
+});

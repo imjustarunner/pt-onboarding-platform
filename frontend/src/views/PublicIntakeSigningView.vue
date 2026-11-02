@@ -1975,6 +1975,13 @@
                 <option value="">Select a location…</option>
                 <option>Colorado Springs</option><option>Denver</option><option>Either location</option><option>Other location</option><option>Not yet decided</option>
               </select>
+              <template v-if="link?.master_channel !== 'tutoring'">
+                <label for="enrollment-therapist-gender">{{ tx('Therapist gender preference (optional)') }}</label>
+                <select id="enrollment-therapist-gender" v-model="enrollmentTherapistGender">
+                  <option value="">{{ tx('No preference') }}</option><option value="female">{{ tx('Female / woman') }}</option><option value="male">{{ tx('Male / man') }}</option><option value="nonbinary">{{ tx('Nonbinary') }}</option>
+                </select>
+                <p>{{ tx('If selected, only providers matching this preference can be considered. No preference includes all provider genders.') }}</p>
+              </template>
               <p v-if="officeProvidersLoading" role="status">Checking Open and Waitlist providers…</p>
               <p v-if="officeProvidersError" role="alert">{{officeProvidersError}} <button type="button" @click="loadOfficeIntakeProviders">Try again</button></p>
               <fieldset class="enrollment-scheduling-preferences">
@@ -4903,12 +4910,16 @@ watch([enrollmentPreferredDays, enrollmentPreferredTimes, () => intakeResponses.
 const enrollmentModality=computed(()=>enrollmentFormat(intakeResponses.submission?.preferred_service_format
   || intakeResponses.submission?.preferredModality || intakeResponses.submission?.preferred_modality
   || intakeResponses.clients.find(c=>c.preferred_service_format)?.preferred_service_format));
+const enrollmentTherapistGender = computed({
+  get: () => intakeResponses.submission.preferred_provider_gender || '',
+  set: value => { intakeResponses.submission.preferred_provider_gender = value; }
+});
 const enrollmentModalityOptions=computed(()=>['VIRTUAL','IN_PERSON'].filter(f=>officeProviders.value.some(p=>enrollmentProviderStatus(p,f)!=='unavailable')));
 const matchingPreferenceOptions=computed(()=>enrollmentMatchingOptions(officeProviders.value,enrollmentModality.value));
 const presentingProblemsForMatching=computed(()=>[intakeResponses.submission,...intakeResponses.clients].flatMap(b=>
  ['presenting_concerns','main_reason_and_concerns','main_reason_seeking','biggest_concern_now','three_important_help'].flatMap(key=>Array.isArray(b?.[key])?b[key]:b?.[key]?[b[key]]:[])));
 const matchingOfficeProviders=computed(()=>matchingEnrollmentProviders(officeProviders.value,{
- format:enrollmentModality.value,preferences:intakeResponses.clients.map(c=>c.matchingPreferences||{}),presentingProblems:presentingProblemsForMatching.value
+ format:enrollmentModality.value,providerGender:enrollmentTherapistGender.value,preferences:intakeResponses.clients.map(c=>c.matchingPreferences||{}),presentingProblems:presentingProblemsForMatching.value
 }));
 const providerProfileRequest=computed(()=>intakeResponses.submission?.enrollment_source==='provider'&&intakeResponses.submission?.requested_profile_provider_id);
 const selectedEnrollmentProvider=computed(()=>matchingOfficeProviders.value.find(p=>selectedOfficeProviderIds.value.includes(String(p.id))));

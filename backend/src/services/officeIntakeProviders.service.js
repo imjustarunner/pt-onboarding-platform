@@ -1,3 +1,4 @@
+import { providerGenderMatches, validateProviderGenderPreference } from '../../../frontend/src/navigation/providerGenderPreference.js';
 import Profile from '../models/ProviderPublicProfile.model.js';
 import {agencyFormatAllowed,agencyIntakeStatus} from '../utils/providerAgencyAvailability.js';
 import pool from '../config/database.js';
@@ -300,7 +301,8 @@ function providerSupportsServiceMode(populations = [], serviceMode = '') {
  * @param {{ ages?: number[], includeNotAccepting?: boolean, serviceMode?: string }} opts
  * serviceMode: individual | couple | family | child — filters on provider groups/focus when set.
  */
-export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNotAccepting = true, serviceMode = '', programType='ALL', includeWaitlist=false, matchingPreferences=null } = {}) {
+export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNotAccepting = true, serviceMode = '', programType='ALL', includeWaitlist=false, matchingPreferences=null, providerGender='' } = {}) {
+  const genderPreference = validateProviderGenderPreference(providerGender);
   const aid = Number(agencyId || 0);
   if (!aid) return [];
   const [[agency]] = await pool.execute('SELECT id, slug, feature_flags FROM agencies WHERE id = ?', [aid]);
@@ -486,7 +488,8 @@ export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNo
     if (ageYears != null && person.ageSpecialty.length && !person.servesAge) continue;
     const fit = matchingPreferences ? focusMatch(details.clinicalFocus, matchingPreferences) : { eligible: true, score: 0 };
     if (!fit.eligible) continue;
-    scoped.push({ ...person, clinicalFocus: details.clinicalFocus || null,
+    if (!providerGenderMatches(genderPreference, details.gender)) continue;
+    scoped.push({ ...person, gender: details.gender || null, clinicalFocus: details.clinicalFocus || null,
       publicBlurb: profile?.publicBlurb || '', insurances: profile?.insurances || [],
       languages: details.languages || [], sessionFormats: ['IN_PERSON', 'VIRTUAL'].filter(supports),
       intakeStatusByFormat, acceptingNewClients: accepting, waitlist: !accepting && waitlist,

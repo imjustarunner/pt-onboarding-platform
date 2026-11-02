@@ -17,7 +17,7 @@ export function exchangeCheckLabel(field) {
   return labels[field] || field.replace(/_/g, ' ');
 }
 export const exchangeCheckCanBeWaived = field => Boolean(labels[field] || ['specialties_exclusions', 'ageGroups_exclusions', 'populations_exclusions', 'modalities_exclusions'].includes(field))
-  && !['account', 'assigned', 'direct_referral', 'insurance', 'insurance_credential', 'insurance_exclusions', 'qualification', 'location', 'office_location'].includes(field);
+  && !['account', 'assigned', 'direct_referral', 'insurance', 'insurance_credential', 'insurance_exclusions', 'qualification', 'location', 'office_location', 'provider_gender'].includes(field);
 
 export function normalizeExchangeQualification(value) {
   if (value == null || value === '') return '';

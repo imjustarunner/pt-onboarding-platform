@@ -21,3 +21,10 @@ it('records profile origin separately from general full enrollment',()=>{
  expect(providerEnrollmentEntry({enrollmentSource:'provider',providerId:'bad'})).toEqual({});
  expect(enrollmentFormat('in person')).toBe('IN_PERSON');
 });
+
+it('honors a stated therapist gender and applies no gender filter when unspecified',()=>{
+ const rows=[{...provider(1,'accepting'),gender:'Woman (she/her)'},{...provider(2,'accepting'),gender:'male'},provider(3,'accepting')];
+ expect(matchingEnrollmentProviders(rows,{providerGender:'female'}).map(p=>p.id)).toEqual([1]);
+ expect(matchingEnrollmentProviders(rows,{providerGender:'male'}).map(p=>p.id)).toEqual([2]);
+ expect(matchingEnrollmentProviders(rows,{providerGender:''}).map(p=>p.id)).toEqual([1,2,3]);
+});

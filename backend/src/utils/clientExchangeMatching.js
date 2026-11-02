@@ -1,3 +1,4 @@
+import { normalizeProviderGender as normalizedProviderGender, noTherapistGenderPreference } from '../../../frontend/src/navigation/providerGenderPreference.js';
 import { typicalExchangeSchedule } from './clientExchangeTypicalAvailability.js';
 import { createHash } from 'node:crypto';
 import { exchangeCheckCanBeWaived, exchangeCheckLabel, exchangeFitScore, normalizeExchangeQualification } from '../../../frontend/src/navigation/clientExchangePolicy.js';
@@ -29,13 +30,7 @@ export function clientAge(client, now = new Date()) {
   return age >= 0 && age <= 120 ? age : null;
 }
 
-export function normalizedProviderGender(value) {
-  const gender = String(value || '').toLowerCase().trim();
-  if (/^(female|woman|women|she\/her)\b/.test(gender)) return 'female';
-  if (/^(male|man|men|he\/him)\b/.test(gender)) return 'male';
-  if (/^(nonbinary|non-binary|non binary|they\/them)\b/.test(gender)) return 'nonbinary';
-  return gender;
-}
+export { normalizeProviderGender as normalizedProviderGender } from '../../../frontend/src/navigation/providerGenderPreference.js';
 
 export function exchangeInsuranceLabel(...values) {
   return values.find(specificExchangeInsurance) || values.find(value => !['','unknown','notprovided','notspecified','other','unlisted','tbd'].includes(
@@ -79,7 +74,7 @@ export function evaluateExchangeMatch({ user, profile, facets = {}, listing, cli
     formatDescription, `${formatDescription} You may request, but the visit format and availability must be agreed with the client and support team before assignment.`);
   const preferredGender = normalizedProviderGender(listing.preferences?.providerGender);
   const providerGender = normalizedProviderGender(profile?.details?.gender);
-  const noGenderPreference = !preferredGender || /^(any|either|all|none|no preference|no_preference|no-preference|not specified|unspecified|not provided)$/.test(preferredGender);
+  const noGenderPreference = noTherapistGenderPreference(preferredGender);
   const genderKnown = ['male','female','nonbinary'].includes(preferredGender) && ['male','female','nonbinary'].includes(providerGender);
   check('provider_gender', noGenderPreference || preferredGender === providerGender,
     noGenderPreference ? 'No therapist gender preference specified; any provider gender passes.' : genderKnown ? 'Preferred provider gender matches.' : `Client prefers a ${preferredGender} therapist; provider gender is not recorded or cannot be verified.`,
@@ -197,11 +192,11 @@ export function evaluateExchangeMatch({ user, profile, facets = {}, listing, cli
       item.canWaive = false;
     }
   }
-  const hardFields = new Set(['account','assigned','direct_referral','clinical_exclusions','diagnoses','concerns','service','insurance','insurance_credential','insurance_exclusions','qualification']);
+  const hardFields = new Set(['account','assigned','direct_referral','provider_gender','clinical_exclusions','diagnoses','concerns','service','insurance','insurance_credential','insurance_exclusions','qualification']);
   const code = field => ({account:'provider_account',assigned:'current_provider',accepting:'intake_closed',format:'format_availability',clinical_exclusions:'excluded_specialty',diagnoses:'diagnosis',concerns:'specialty'}[field] || field);
   const reason = check => ({ code: code(check.field), message: check.reason, fingerprint: check.fingerprint });
   const hard = check => hardFields.has(check.field) || (check.field.endsWith('_exclusions') && check.field !== 'ageGroups_exclusions');
-  const blockers = checks.filter(c => c.applicable !== false && c.status === 'fail' && hard(c)).map(reason);
+  const blockers = checks.filter(c => c.applicable !== false && (c.status === 'fail' || (c.field === 'provider_gender' && c.status === 'unknown')) && hard(c)).map(reason);
   const adjustments = checks.filter(c => c.applicable !== false && c.status === 'fail' && !hard(c)).map(reason);
   const review = checks.filter(c => !c.informational && c.status === 'unknown' && c.applicable !== false).map(reason);
   const requiredReview=checks.filter(c=>c.applicable && c.status==='unknown' && ['provider_gender','location','office_location','insurance'].includes(c.field)).map(reason);

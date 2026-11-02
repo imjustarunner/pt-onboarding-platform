@@ -11,7 +11,9 @@ const invalid = message => Object.assign(new Error(message), { status: 400 });
 export function validateExchangeReferral(input) {
   const initials = String(input.initials || '').trim();
   if (!/^[\p{L} .'-]{2,10}$/u.test(initials)) throw invalid('Enter client initials (2–10 characters)');
-  const age = input.age === '' || input.age == null ? null : Number(input.age);
+  if (input.age == null || String(input.age).trim() === '') throw invalid('Enter the client age');
+  if (!String(input.gender || '').trim()) throw invalid('Select the client gender, or Unknown / not yet recorded');
+  const age = Number(input.age);
   if (age != null && (!Number.isInteger(age) || age < 0 || age > 120)) throw invalid('Enter a valid age');
   const text = (key, max) => { const value = String(input[key] || '').trim(); if (value.length > max) throw invalid(`${key} is too long`); return value; };
   if (!/^[a-f0-9-]{36}$/i.test(input.requestId || '')) throw invalid('A referral request ID is required');

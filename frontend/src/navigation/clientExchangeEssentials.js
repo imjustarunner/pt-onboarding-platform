@@ -20,3 +20,11 @@ export function assertExchangeEssentials(summary) {
   const missing=missingExchangeEssentials(summary);
   if(missing.length)throw Object.assign(new Error(`Complete the required matching information: ${missing.map(item=>item.label).join(', ')}. Therapist gender and diagnoses are optional.`),{status:400,missingFields:missing.map(item=>item.key)});
 }
+
+export function missingManualReferralFields(input = {}) {
+  const missing = [];
+  if (!String(input.initials || '').trim()) missing.push({key:'initials',label:'client initials'});
+  if (input.age == null || String(input.age).trim() === '') missing.push({key:'age',label:'client age'});
+  if (!String(input.gender || '').trim()) missing.push({key:'gender',label:'client gender (or Unknown / not yet recorded)'});
+  return [...missing, ...missingExchangeEssentials({preferences:input,presentingProblems:[input.presentingProblem]})];
+}

@@ -4,36 +4,39 @@
       <h2>Post a new client referral</h2>
       <p>Use this when the client is in your EHR but not yet in this app. Complete the required matching details; support will receive a shared task to finish the EHR record. Diagnoses and other preferences remain optional.</p>
       <p v-if="clientId">Client saved. Continue to finish posting this same referral.</p>
-      <form @submit.prevent="submit">
+      <form data-exchange-form @submit.prevent="submit" @invalid.capture="validationAttempted = true">
         <fieldset :disabled="busy || !!clientId">
           <div class="row">
-            <label>Client initials *<input v-model="form.initials" required maxlength="10" placeholder="AB" /></label>
-            <label>Age<input v-model="form.age" type="number" min="0" max="120" /></label>
-            <label>Client gender<input v-model="form.gender" maxlength="64" /></label>
+            <label>Client initials *<input data-exchange-field="initials" :aria-invalid="missingKeys.includes('initials') || undefined" v-model="form.initials" required maxlength="10" placeholder="AB" /></label>
+            <label>Age *<input data-exchange-field="age" :aria-invalid="missingKeys.includes('age') || undefined" v-model="form.age" required type="number" min="0" max="120" step="1" /></label>
+            <label>Client gender *<select data-exchange-field="gender" :aria-invalid="missingKeys.includes('gender') || undefined" v-model="form.gender" required><option value="">Choose…</option><option value="female">Female</option><option value="male">Male</option><option value="nonbinary">Nonbinary</option><option value="other">Another identity</option><option value="unknown">Unknown / not yet recorded</option></select></label>
           </div>
+          <label>Full name (optional — chart and support only)<input v-model="form.fullName" maxlength="200" /></label>
+          <p>Full names and contact information are not shown in Exchange listings or matching emails. Client gender does not set a therapist gender preference.</p>
           <label>Diagnosis / diagnoses (if known)<textarea v-model="form.diagnoses" rows="2" maxlength="2000" placeholder="Diagnosis name or code" /></label>
-          <label>Clinical concerns *<textarea v-model="form.presentingProblem" required rows="3" maxlength="4000" placeholder="Describe the concern without names or contact information" /></label>
+          <label>Clinical concerns *<textarea data-exchange-field="concerns" :aria-invalid="missingKeys.includes('concerns') || undefined" v-model="form.presentingProblem" required rows="3" maxlength="4000" placeholder="Describe the concern without names or contact information" /></label>
           <div class="row">
-            <label>Preferred provider gender<select v-model="form.providerGender"><option value="">No preference</option><option value="female">Female / woman</option><option value="male">Male / man</option><option value="nonbinary">Nonbinary</option></select></label>
-            <label>Visit format *<select v-model="form.modality" required><option value="">Choose a format</option><option value="in_person">In person</option><option value="virtual">Virtual</option><option value="either">Either</option></select></label>
+            <label>Therapist gender preference (optional)<select v-model="form.providerGender"><option value="">No preference</option><option value="female">Female / woman</option><option value="male">Male / man</option><option value="nonbinary">Nonbinary</option></select></label>
+            <label>Visit format *<select data-exchange-field="modality" :aria-invalid="missingKeys.includes('modality') || undefined" v-model="form.modality" required><option value="">Choose a format</option><option value="in_person">In person</option><option value="virtual">Virtual</option><option value="either">Either</option></select></label>
           </div>
-          <label v-if="form.modality !== 'virtual'">Requested in-person service location
-            <select v-model="form.serviceLocation" :required="['in_person', 'either'].includes(form.modality)"><option value="">Select a location…</option><option v-for="location in exchangeLocations" :key="location">{{ location }}</option></select>
+          <label v-if="form.modality !== 'virtual'">Requested in-person service location *
+            <select data-exchange-field="location" :aria-invalid="missingKeys.includes('location') || undefined" v-model="form.serviceLocation" :required="['in_person', 'either'].includes(form.modality)"><option value="">Select a location…</option><option v-for="location in exchangeLocations" :key="location">{{ location }}</option></select>
           </label>
-          <label>Insurance plan or self-pay *<input v-model="form.insurance" required maxlength="200" placeholder="e.g. Tricare" /></label>
+          <label>Insurance plan or self-pay *<input data-exchange-field="insurance" :aria-invalid="missingKeys.includes('insurance') || undefined" v-model="form.insurance" required maxlength="200" placeholder="e.g. Medicaid, Tricare, Aetna, or Self-pay" /></label>
+          <p>If a therapist gender is selected, providers who do not match it cannot request this client.</p>
           <label>Provider license requirement<select v-model="form.providerQualification"><option value="">No requirement specified</option><option value="licensed_or_provisional">Licensed clinician (includes provisional licenses)</option><option value="independent">Independently licensed clinician — specifically requested</option></select></label>
           <ClientMatchingPreferences v-model="form.matchingPreferences" :max-selections="0" expanded />
-          <p>Available days and times are required. Select every option if the client is flexible.</p><ClientSchedulePreferences required v-model="form.schedule" />
+          <p>Available days and times are required. Select every option if the client is flexible.</p><ClientSchedulePreferences required :missing-fields="missingKeys" v-model="form.schedule" />
           <details>
             <summary>Optional EHR details and pasted records</summary>
             <p>These records go in the client chart. The exchange shows initials; notification emails omit the name and initials.</p>
-            <label>Full name (chart and support only)<input v-model="form.fullName" maxlength="200" /></label>
             <label>EHR reference (support only)<input v-model="form.ehrReference" maxlength="200" /></label>
             <label>Demographics<textarea v-model="records.demographics" rows="5" @blur="readDemographics" /></label>
             <label>Intake note<textarea v-model="records.intake" rows="5" /></label>
             <label>Most recent treatment plan<textarea v-model="records.plan" rows="5" /></label>
           </details>
         </fieldset>
+        <ExchangeRequiredFields ref="requiredFields" :missing="missingFields" />
         <p v-if="error" role="alert" class="error">{{ error }}</p>
         <div class="actions">
           <button type="submit" class="btn btn-primary" :disabled="busy || parsing || posted">{{ busy ? 'Saving…' : clientId ? 'Continue posting referral' : 'Post referral and notify support' }}</button>
@@ -46,8 +49,9 @@
 </template>
 <script setup>
 import { normalizeExchangeLocation } from '../../navigation/clientExchangeLocation.js';
-import { EXCHANGE_CITIES as exchangeLocations, assertExchangeEssentials } from '../../navigation/clientExchangeEssentials.js';
-import { reactive, ref } from 'vue';
+import { EXCHANGE_CITIES as exchangeLocations, assertExchangeEssentials, missingManualReferralFields } from '../../navigation/clientExchangeEssentials.js';
+import { computed, nextTick, reactive, ref } from 'vue';
+import ExchangeRequiredFields from './ExchangeRequiredFields.vue';
 import api from '../../services/api';
 import ClientMatchingPreferences from '../public/ClientMatchingPreferences.vue';
 import ClientSchedulePreferences from './ClientSchedulePreferences.vue';
@@ -56,6 +60,9 @@ import { normalizeExchangeSchedule } from '../../utils/clientExchangeSchedule.js
 const props = defineProps({ agencyId: { type: Number, required: true } });
 const emit = defineEmits(['close', 'posted']);
 const form = reactive({ initials: '', age: '', gender: '', fullName: '', ehrReference: '', diagnoses: '', presentingProblem: '', providerGender: '', providerQualification: '', modality: '', serviceLocation: '', insurance: '', matchingPreferences: {}, schedule: {} });
+const validationAttempted = ref(false), requiredFields = ref(null);
+const missingFields = computed(() => validationAttempted.value ? missingManualReferralFields(form) : []);
+const missingKeys = computed(() => missingFields.value.map(field => field.key));
 const records = reactive({ demographics: '', intake: '', plan: '' });
 const requestId = crypto.randomUUID();
 const clientId = ref(null);
@@ -80,7 +87,9 @@ async function readDemographics() {
 async function onImported() { imported.value = true; showImport.value = false; await submit(); }
 async function submit() {
   if (busy.value || parsing.value || posted.value) return;
-  busy.value = true; error.value = '';
+  error.value = ''; validationAttempted.value = true;
+  if (missingFields.value.length) { await nextTick(); requiredFields.value?.focusFirst(); return; }
+  busy.value = true;
   try {
     const schedule = normalizeExchangeSchedule(form.schedule);
     normalizeExchangeLocation(form.serviceLocation, { required: ['in_person', 'either'].includes(form.modality) });
@@ -107,6 +116,7 @@ async function submit() {
 .referral-modal { width: min(700px, 100%); background: white; padding: 24px; border-radius: 12px; }
 fieldset { display: grid; gap: 14px; border: 0; padding: 0; min-width: 0; }
 label { display: grid; gap: 5px; font-weight: 600; font-size: 13px; }
+[aria-invalid="true"] { outline: 2px solid #dc2626; outline-offset: 2px; }
 input, textarea, select { border: 1px solid #cbd5e1; border-radius: 6px; padding: 9px; font: inherit; min-width: 0; width: 100%; }
 .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 details label { margin-top: 12px; }

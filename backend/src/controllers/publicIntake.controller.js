@@ -6520,7 +6520,7 @@ export const listPublicOfficeIntakeProviders = async (req, res, next) => {
     }
     const providers = await listOfficeIntakeProviders(Number(agency?.id || link.organization_id || 0), {
       ages,
-      matchingPreferences,
+      matchingPreferences, providerGender:req.query.providerGender,
       serviceMode, programType:req.query.programType, includeNotAccepting:false, includeWaitlist:true
     });
     res.setHeader('Cache-Control', 'no-store');

@@ -13,6 +13,18 @@ beforeEach(()=>{route.query={};sessionStorage.clear();localStorage.clear();windo
 afterEach(()=>wrapper?.unmount());
 async function render(){wrapper=mount(PublicIntakeSigningView,{global:{plugins:[createPinia()],stubs:{DigitalFormShell:{template:'<main><slot/></main>'},SignaturePad:true,PublicProviderSlotPicker:true}}});await flushPromises();}
 async function showProviderStep(){wrapper.vm.intakeForSelf=true;wrapper.vm.serviceSubject='self';wrapper.vm.step=2;wrapper.vm.currentFlowIndex=wrapper.vm.flowSteps.findIndex(s=>s.type==='provider_match');await flushPromises();}
+it('saves therapist gender separately from client gender and removes an incompatible provider selection',async()=>{
+ route.query={enrollmentSource:'provider',providerId:'9',format:'VIRTUAL'};await render();await showProviderStep();
+ wrapper.vm.officeProviders=[{...people[0],gender:'male'},{...people[1],gender:'female'}];
+ await wrapper.find('#enrollment-therapist-gender').setValue('female');await flushPromises();
+ expect(wrapper.vm.intakeResponses.submission.preferred_provider_gender).toBe('female');
+ expect(wrapper.vm.matchingOfficeProviders.map(p=>p.id)).toEqual([10]);
+ expect(wrapper.vm.selectedOfficeProviderIds).toEqual([]);
+ await wrapper.vm.skipEnrollmentProvider();await flushPromises();
+ expect(wrapper.vm.intakeResponses.submission.preferred_provider_gender).toBe('female');
+ wrapper.vm.enrollmentTherapistGender='';await flushPromises();
+ expect(wrapper.vm.matchingOfficeProviders.map(p=>p.id)).toEqual([9,10]);
+});
 it('claims email delivery only after a transport receipt and exposes a packet reference', async()=>{
  await render();wrapper.vm.step=3;wrapper.vm.submissionId=1271;wrapper.vm.guardianEmail='qa.family@example.com';await flushPromises();
  expect(wrapper.vm.intakeSuccessEmailMessage).toContain('has not been confirmed');
