@@ -35,7 +35,7 @@ const run=()=>processPortalActivityWatch(1,{db,send,verify,policy,now:()=>time})
 it('waits for an actual successful login and ignores pre-watch or impersonated events in its query',async()=>{
  login=null;await run();expect(send).not.toHaveBeenCalled();
  const [sql,args]=db.execute.mock.calls.find(([sql])=>sql.includes("action='login'"));
- expect(sql).toContain("phase='completed'");expect(sql).toContain('status_code BETWEEN 200 AND 299');expect(sql).toContain('switchedFromUserId');
+ expect(sql).toContain("phase='completed'");expect(sql).toContain('status_code BETWEEN 200 AND 399');expect(sql).toContain('switchedFromUserId');expect(sql).toContain("<> 'interrupted'");
  expect(args).toEqual([1267,watch.not_before]);expect(watch.status).toBe('armed');
 });
 it('sends one login alert, then one logout report, and stops permanently',async()=>{

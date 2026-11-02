@@ -40,8 +40,8 @@ describe.skipIf(!port)('one-session watch persistence in MySQL',()=>{
  });
  afterAll(async()=>{await db?.end();if(admin){await admin.query(`DROP DATABASE ${database}`);await admin.end();}});
  const create=(overrides={})=>createPortalActivityWatch(actor,{...input,...overrides},{db,now:time});
- const addLogin=async({ref='a'.repeat(64),at='2026-11-02 16:30:00',status=200,details=null}={})=>{
-  await db.execute("INSERT INTO security_evidence (user_id,request_id,session_ref,occurred_at,phase,action,status_code,details,route,method,outcome) VALUES (2,UUID(),?,?,'completed','login',?,?,'/api/auth/login','POST','success')",[ref,at,status,details]);
+ const addLogin=async({ref='a'.repeat(64),at='2026-11-02 16:30:00',status=200,details=null,outcome='succeeded'}={})=>{
+  await db.execute("INSERT INTO security_evidence (user_id,request_id,session_ref,occurred_at,phase,action,status_code,details,route,method,outcome) VALUES (2,UUID(),?,?,'completed','login',?,?,'/api/auth/login','POST',?)",[ref,at,status,details,outcome]);
  };
  it('enforces a single open watch and idempotent creation, without sending at creation',async()=>{
   const first=await create();expect((await create()).id).toBe(first.id);
@@ -53,12 +53,12 @@ describe.skipIf(!port)('one-session watch persistence in MySQL',()=>{
  });
  it('excludes earlier, failed and impersonated logins',async()=>{
   const watch=await create();
-  await addLogin({at:'2026-11-02 15:00:00'});await addLogin({status:401});await addLogin({details:JSON.stringify({switchedFromUserId:1})});
+  await addLogin({at:'2026-11-02 15:00:00'});await addLogin({status:401});await addLogin({details:JSON.stringify({switchedFromUserId:1})});await addLogin({outcome:'interrupted'});
   await run(watch.id);expect(send).not.toHaveBeenCalled();
   const [[saved]]=await db.execute('SELECT status FROM portal_activity_watches WHERE id=?',[watch.id]);expect(saved.status).toBe('armed');
  });
  it('persists exactly one login and end report across workers, and stops after completion',async()=>{
-  const watch=await create();await addLogin();
+  const watch=await create();await addLogin({status:302,outcome:'redirected'});
   await db.execute("INSERT INTO auth_session_security VALUES (2,?,'2026-11-02 17:00:00','2026-11-02 18:00:00',NULL,NULL)",['a'.repeat(64)]);
   await Promise.all([run(watch.id),run(watch.id)]);await run(watch.id);expect(send).toHaveBeenCalledTimes(1);
   await db.query("UPDATE auth_session_security SET revoked_at='2026-11-02 16:59:30',end_reason='Signed out'");

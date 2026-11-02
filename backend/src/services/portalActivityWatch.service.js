@@ -128,7 +128,8 @@ export async function processPortalActivityWatch(id, { db = pool, verify = verif
     const { target } = await verify(watch, db);
     if (watch.status === 'armed') {
       const [[login]] = await db.execute(`SELECT session_ref,occurred_at FROM security_evidence
-        WHERE user_id=? AND phase='completed' AND action='login' AND status_code BETWEEN 200 AND 299
+        WHERE user_id=? AND phase='completed' AND action='login' AND status_code BETWEEN 200 AND 399
+          AND COALESCE(outcome,'') <> 'interrupted'
           AND session_ref IS NOT NULL AND occurred_at>=?
           AND JSON_EXTRACT(details,'$.switchedFromUserId') IS NULL
         ORDER BY occurred_at,id LIMIT 1`, [watch.target_user_id,watch.not_before]);
