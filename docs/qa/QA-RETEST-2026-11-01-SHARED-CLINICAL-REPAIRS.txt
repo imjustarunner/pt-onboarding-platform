@@ -30,8 +30,26 @@ as notifyre-reminders-webhook-secret, enabled version 1. The historical name
 does not limit this endpoint to reminders or ITSCO. Do not copy its value here.
 The shared receiver routes both URL aliases by saved number ownership, rejects
 unknown/conflicting owners, and uses the existing durable duplicate protection.
-This follow-up must be deployed and its new secret bound before testing it live.
-No recipient permission, app number assignment or carrier receipt is implied.
+Deployment verified November 1, 2026, 10:04 PM MST (UTC-07:00):
+- Main commit d8d33c467633878cd0b9d5de1ed0cb9cfec3201f is pushed.
+- Backend onboarding-backend-g41390917024a1 serves that image at 100% traffic;
+  its direct /readyz returns HTTP 200, status ok, phase app.
+- The runtime binds NOTIFYRE_WEBHOOK_SECRET to the new secret's version 1,
+  and NOTIFYRE_API_TOKEN to the existing account token's version 1. Existing
+  AURICWELL_NOTIFYRE_* secret bindings remain intact. No secret values recorded.
+- Backend deployment, SMS carrier/campaign boundaries and scheduling workflows
+  passed. Local carrier regressions and policy/fax/secret checks passed; socket
+  mounting tests passed after rerunning with local loopback access.
+- Both public URL aliases rejected an unsigned empty request with HTTP 403.
+  This verifies the live signature guard only, not signed carrier delivery.
+- All three purchased SMS numbers (ending 1970, 5413 and 9523) are active and
+  isMmsCapable=true in the connected Notifyre account's current inventory.
+  The same account's fax-number inventory returned zero numbers. Confirm the
+  intended fax-capable number/account before calling the main line fax-ready.
+No live signed carrier callback, phone receipt, fax receipt or attachment-viewing
+pass was performed. Recipient permissions and saved app number assignments remain
+separate prerequisites; the inspected AuricWell configuration was disabled with
+zero routes. Do not describe the service as fully activated from this deployment.
 
 Before starting
 - Confirm the deployed FRONTEND and BACKEND include these commits. Record the
@@ -157,7 +175,7 @@ before treating ACTIVE as proof of every registration prerequisite.
 Do not use numbers merely proposed in an older packet: match the live inventory.
 Do not map TISI's approval to ITSCO or an independent clinical agency.
 
-Fresh read-only app checks on November 1:
+Initial read-only app checks on November 1 (before the 10:04 PM deployment):
 - Agency 450 has one active Vonage workforce registration (number ends 3661),
   not a Notifyre clinical reminder registration. Its SMS feature flags are unset.
 - Agency 2 has an unregistered number and a legacy Vonage workforce/polling
@@ -173,8 +191,11 @@ Fresh read-only app checks on November 1:
 - Google Cloud operator authentication now works. The initial inspection found
   image 5395bcdab and a frontend build failure; the release checkpoint above
   records the subsequent successful deployment. Record the actual current build.
-- The backend has AURICWELL_NOTIFYRE_* secret bindings, but no NOTIFYRE_* settings
-  and no mounted runtime environment. The reminder transport is unconfigured.
+- At initial inspection the backend had AURICWELL_NOTIFYRE_* secret bindings,
+  but no NOTIFYRE_* settings or mounted runtime environment. The 10:04 PM release
+  checkpoint above records the new token/signing-secret bindings. Approved
+  campaign mappings, the enabled transport and saved sender routes still require
+  verification; a token/signing secret alone does not activate reminders.
 - Existing Notifyre webhook supplied by the owner:
   https://auricwell-65v3jdyqba-wm.a.run.app/api/auricwell-sms/webhook
   Its Cloud Run proxy forwards that route to the current onboarding backend.
