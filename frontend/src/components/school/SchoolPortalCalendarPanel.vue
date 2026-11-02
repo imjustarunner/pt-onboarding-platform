@@ -129,7 +129,7 @@
 import { schoolCalendarOverlaps, schoolCalendarDayKeys } from '../../utils/schoolCalendarRange';
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
-import { formatSchoolEventWhen } from '../../utils/timezones';
+import { formatViewerEventWhen as formatSchoolEventWhen } from '../../utils/timezones';
 
 const props = defineProps({
   schoolOrganizationId: { type: Number, required: true },

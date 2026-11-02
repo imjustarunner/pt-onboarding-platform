@@ -675,7 +675,14 @@ export const createCompanyEventSessionRequest = async (req, res, next) => {
       [eventId, agencyId, sessionDateId, userId]
     );
     if (existing?.[0]?.id) {
-      const status = String(existing[0].status || 'pending').toLowerCase();
+      let status = String(existing[0].status || 'pending').toLowerCase();
+      if (status === 'approved') {
+        const [assigned] = await pool.execute(
+          `SELECT 1 FROM company_event_session_providers WHERE company_event_id = ? AND agency_id = ? AND session_date_id = ? AND provider_user_id = ? LIMIT 1`,
+          [eventId, agencyId, sessionDateId, userId]
+        );
+        if (!assigned.length) status = 'withdrawn';
+      }
       if (status === 'pending' || status === 'approved') {
         return res.json({ ok: true, id: Number(existing[0].id), status });
       }
@@ -1110,11 +1117,28 @@ export const unassignProviderFromSession = async (req, res, next) => {
       sessionDateId,
       providerUserId
     });
-    await pool.execute(
-      `DELETE FROM company_event_session_providers
-       WHERE company_event_id = ? AND agency_id = ? AND session_date_id = ? AND provider_user_id = ?`,
-      [eventId, agencyId, sessionDateId, providerUserId]
-    );
+    const db = await pool.getConnection();
+    try {
+      await db.beginTransaction();
+      await db.execute(
+        `DELETE FROM company_event_session_providers
+         WHERE company_event_id = ? AND agency_id = ? AND session_date_id = ? AND provider_user_id = ?`,
+        [eventId, agencyId, sessionDateId, providerUserId]
+      );
+      await db.execute(
+        `UPDATE company_event_session_provider_requests
+         SET status = 'withdrawn', decided_by_user_id = ?, decided_at = UTC_TIMESTAMP(),
+             decision_note = 'Assignment removed by staff; a new shift request may be submitted.'
+         WHERE company_event_id = ? AND agency_id = ? AND session_date_id = ? AND provider_user_id = ? AND status = 'approved'`,
+        [req.user.id, eventId, agencyId, sessionDateId, providerUserId]
+      );
+      await db.commit();
+    } catch (error) {
+      await db.rollback();
+      throw error;
+    } finally {
+      db.release();
+    }
     res.json({ ok: true });
   } catch (e) {
     if (String(e?.message || '').includes('company_event_session_providers')) {

@@ -291,7 +291,7 @@ import { fetchHubEvents, fetchSchoolCoverageSummary } from '../../../services/sc
 import PostSchoolEventModal from '../../../components/school/PostSchoolEventModal.vue';
 import { onHubSchoolEventsChanged } from '../../../utils/hubSchoolEventsRefresh';
 import {
-  formatSchoolEventWhen,
+  formatViewerEventWhen as formatSchoolEventWhen,
   schoolEventTimezoneLabel,
   SCHOOL_EVENT_FALLBACK_TIMEZONE
 } from '../../../utils/timezones';

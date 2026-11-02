@@ -1,5 +1,6 @@
 import { ImageAnnotatorClient } from '@google-cloud/vision';
 import { PDFDocument } from 'pdf-lib';
+import { coloradoMedicaidOcrMemberId } from '../utils/coloradoMedicaidMemberId.js';
 import { callGeminiText } from './geminiText.service.js';
 
 export const FAX_FIELDS = {
@@ -83,8 +84,9 @@ export function validateSuggestions(result, pages) {
     const dateGrounded = dateParts && observedDate && dateParts[1] === observedDate[3]
       && Number(dateParts[2]) === Number(observedDate[1]) && Number(dateParts[3]) === Number(observedDate[2]);
     if (!mappedValue || (!sourceValue.includes(mappedValue) && !dateGrounded)) return [];
-    return [{ id: String(i), field, value, evidence, page: page.page,
-      confidence: ['high', 'medium', 'low'].includes(candidate.confidence) ? candidate.confidence : 'low' }];
+    const corrected = field === 'insurance_member_id' ? coloradoMedicaidOcrMemberId(value, page.text) : value;
+    return [{ id: String(i), field, value: corrected, evidence, page: page.page,
+      confidence: corrected !== value ? 'medium' : ['high', 'medium', 'low'].includes(candidate.confidence) ? candidate.confidence : 'low' }];
   });
 }
 

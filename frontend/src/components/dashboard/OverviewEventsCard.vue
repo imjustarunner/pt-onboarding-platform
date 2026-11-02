@@ -13,6 +13,7 @@
         <span class="ov-featured-title">{{ featured.title }}</span>
       </div>
       <div class="ov-featured-meta">{{ fullDate(featured.startMs) }} · {{ featured.subtitle }}</div>
+      <div v-if="featured.eventTimeLabel" class="ov-featured-meta">{{ featured.eventTimeLabel }}</div>
       <div v-if="whereText(featured)" class="ov-featured-where">{{ whereText(featured) }}</div>
       <div class="ov-featured-actions">
         <button
@@ -54,6 +55,7 @@
         <div class="ov-event-body">
           <div class="ov-event-title">{{ ev.title }}</div>
           <div class="ov-event-sub">{{ ev.subtitle }}</div>
+          <div v-if="ev.eventTimeLabel" class="ov-event-sub">{{ ev.eventTimeLabel }}</div>
           <div v-if="whereText(ev)" class="ov-event-where">{{ whereText(ev) }}</div>
           <div v-if="canRequestEvent(ev) || requestStatusLabel(ev)" class="ov-event-actions">
             <button

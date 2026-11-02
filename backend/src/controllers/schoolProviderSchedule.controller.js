@@ -1,5 +1,6 @@
 import { LEGACY_PROVIDER_ASSIGNMENT_FILTER } from '../utils/legacyProviderAssignmentSql.js';
 import pool from '../config/database.js';
+import { fillPublicProviderBlurbs } from '../services/schoolProviderBlurb.service.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import Client from '../models/Client.model.js';
@@ -47,7 +48,7 @@ async function fetchAffiliatedSchoolProviders(schoolOrgId) {
               u.last_name,
               u.email,
               COALESCE(u.provider_accepting_new_clients, TRUE) AS provider_accepting_new_clients,
-              COALESCE(u.provider_school_info_blurb, psp.school_info_blurb) AS school_info_blurb,
+              COALESCE(NULLIF(TRIM(u.provider_school_info_blurb), ''), NULLIF(TRIM(psp.school_info_blurb), '')) AS school_info_blurb,
               u.psychology_today_url
        FROM users u
        JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
@@ -306,7 +307,7 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
                 psa.start_time,
                 psa.end_time,
                 psa.is_active,
-                COALESCE(u.provider_school_info_blurb, psp.school_info_blurb) AS school_info_blurb,
+                COALESCE(NULLIF(TRIM(u.provider_school_info_blurb), ''), NULLIF(TRIM(psp.school_info_blurb), '')) AS school_info_blurb,
                 u.psychology_today_url
          FROM provider_school_assignments psa
          JOIN users u ON u.id = psa.provider_user_id
@@ -637,6 +638,7 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
     }
 
     const providers = Array.from(byProvider.values());
+    await fillPublicProviderBlurbs(providers);
     if (access.supervisorLimited) {
       const superviseeIds = new Set(await getSupervisorSuperviseeIds(req.user?.id, null));
       return res.json(providers.filter((p) => superviseeIds.has(Number(p.provider_user_id))));

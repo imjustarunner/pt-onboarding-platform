@@ -1,5 +1,6 @@
 import { LEGACY_PROVIDER_ASSIGNMENT_FILTER } from '../utils/legacyProviderAssignmentSql.js';
 import pool from '../config/database.js';
+import { fillPublicProviderBlurbs } from '../services/schoolProviderBlurb.service.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import ClientSchoolStaffRoiAccess, {
@@ -342,7 +343,7 @@ export const getProviderSchoolProfile = async (req, res, next) => {
 
     // Provider school info blurb: prefer user-level (shared across all schools), fallback to legacy per-school
     let schoolInfoBlurb = u?.provider_school_info_blurb ?? null;
-    if (schoolInfoBlurb == null || schoolInfoBlurb === '') {
+    if (!String(schoolInfoBlurb || '').trim()) {
       try {
         const [rows] = await pool.execute(
           `SELECT school_info_blurb
@@ -357,6 +358,9 @@ export const getProviderSchoolProfile = async (req, res, next) => {
         schoolInfoBlurb = null;
       }
     }
+
+    const [blurbProfile] = await fillPublicProviderBlurbs([{ provider_user_id: providerUserId, school_info_blurb: schoolInfoBlurb }]);
+    schoolInfoBlurb = blurbProfile.school_info_blurb;
 
     // Optional: provider credential (from profile fields, if present)
     let credential = null;

@@ -110,10 +110,12 @@ class PayrollMileageClaim {
   static async findById(id, db = pool) {
     const [rows] = await db.execute(
       `SELECT c.*,
+              provider.first_name AS provider_first_name, provider.last_name AS provider_last_name,
               sb.first_name AS submitted_by_first_name,
               sb.last_name AS submitted_by_last_name,
               sb.email AS submitted_by_email
        FROM payroll_mileage_claims c
+       LEFT JOIN users provider ON provider.id = c.user_id
        LEFT JOIN users sb ON sb.id = c.submitted_by_user_id
        WHERE c.id = ?
        LIMIT 1`,
@@ -133,10 +135,12 @@ class PayrollMileageClaim {
     }
     const [rows] = await pool.execute(
       `SELECT c.*,
+              provider.first_name AS provider_first_name, provider.last_name AS provider_last_name,
               sb.first_name AS submitted_by_first_name,
               sb.last_name AS submitted_by_last_name,
               sb.email AS submitted_by_email
        FROM payroll_mileage_claims c
+       LEFT JOIN users provider ON provider.id = c.user_id
        LEFT JOIN users sb ON sb.id = c.submitted_by_user_id
        WHERE ${where}
        ORDER BY c.drive_date DESC, c.id DESC
@@ -187,6 +191,7 @@ class PayrollMileageClaim {
 
     const [rows] = await pool.execute(
       `SELECT c.*,
+              provider.first_name AS provider_first_name, provider.last_name AS provider_last_name,
               p.period_start AS approved_period_start,
               p.period_end AS approved_period_end,
               p.status AS target_period_status,
@@ -196,6 +201,7 @@ class PayrollMileageClaim {
               sb.last_name AS submitted_by_last_name,
               sb.email AS submitted_by_email
        FROM payroll_mileage_claims c
+       LEFT JOIN users provider ON provider.id = c.user_id
        LEFT JOIN users sb ON sb.id = c.submitted_by_user_id
        LEFT JOIN payroll_periods p ON p.id = c.target_payroll_period_id AND p.agency_id = c.agency_id
        LEFT JOIN users approver ON approver.id = c.approved_by_user_id

@@ -958,7 +958,7 @@
 import { schoolCalendarOverlaps, schoolCalendarDayKeys } from '../../../utils/schoolCalendarRange';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
-  formatSchoolEventWhen,
+  formatViewerEventWhen as formatSchoolEventWhen,
   formatSchoolEventReportTime,
   schoolEventTimezoneLabel,
   timezoneAbbrevAt,

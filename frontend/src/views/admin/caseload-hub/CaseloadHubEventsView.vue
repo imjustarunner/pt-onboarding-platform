@@ -370,7 +370,7 @@
 import { needsEventPayment, eventPaymentLabel } from '../../../utils/eventOperations';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
-  formatSchoolEventWhen,
+  formatViewerEventWhen as formatSchoolEventWhen,
   formatSchoolEventReportTime,
   schoolEventTimezoneLabel,
   timezoneAbbrevAt,

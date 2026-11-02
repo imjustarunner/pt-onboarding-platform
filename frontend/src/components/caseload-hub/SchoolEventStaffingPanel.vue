@@ -243,9 +243,8 @@ import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { enableSchoolEventStaffing, fetchProviderCoverageSummary } from '../../services/schoolCoverageApi';
 import {
-  formatSchoolEventWhen,
-  formatSchoolEventReportTime,
-  timezoneAbbrevAt
+  formatViewerEventWhen as formatSchoolEventWhen,
+  formatViewerEventReportTime
 } from '../../utils/timezones';
 import PostSchoolEventModal from '../school/PostSchoolEventModal.vue';
 import { notifyHubSchoolEventsChanged } from '../../utils/hubSchoolEventsRefresh';
@@ -449,10 +448,7 @@ const editEventPayload = computed(() => {
 
 const reportByText = computed(() => {
   const e = props.event;
-  const t = formatSchoolEventReportTime(
-    e?.employeeReportTime,
-    timezoneAbbrevAt(e?.startsAt || new Date(), e?.timezone)
-  );
+  const t = formatViewerEventReportTime(e?.employeeReportTime, e?.startsAt, e?.timezone);
   return t ? `Report by ${t}` : '';
 });
 

@@ -4,6 +4,7 @@
     <p v-if="selfPatient" class="self-subscriber">{{ tx('Subscriber is the client. Name, birth date, sex and address use the client identity above; no duplicate entry is needed.') }}</p>
     <label v-for="field in visibleFields" :key="field.key">{{ tx(field.label) }}<input :value="modelValue[field.key] || ''" :type="field.type || 'text'" :required="requireComplete && !!field.required" maxlength="255" @input="update(field.key, $event.target.value)" /></label>
 
+    <p v-if="/health\s*first\s*colorado|colorado\s+(access|medicaid)/i.test(modelValue.insurerName || '')" class="self-subscriber">{{ tx('Health First Colorado member IDs start with a letter, followed by six digits. Check the first character: O is a letter; 0 is zero.') }}</p>
     <label v-if="!selfPatient">{{ tx('Subscriber sex on policy') }}<select :value="modelValue.subscriberSex || ''" @change="update('subscriberSex',$event.target.value)"><option value="">{{ tx('Select') }}</option><option>M</option><option>F</option><option>U</option></select></label>
     <label class="check"><input :checked="modelValue.isMedicaid === true || modelValue.isMedicaid === 1" type="checkbox" @change="update('isMedicaid',$event.target.checked)" /> {{ tx('Medicaid (each client has a separate member ID)') }}</label>
   </div>

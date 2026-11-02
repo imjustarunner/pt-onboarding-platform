@@ -623,17 +623,14 @@ export function msUntilMysqlWallDatetime(closesAtMysql, timeZone = SCHEDULE_WALL
   return closes.getTime() - nowMs;
 }
 
-/** Viewer's local timezone abbreviation (e.g. MST/MDT/EDT) — memoized per session. */
-let cachedViewerTzAbbrev;
-export function viewerTimezoneAbbrev() {
-  if (cachedViewerTzAbbrev !== undefined) return cachedViewerTzAbbrev;
+/** Viewer zone abbreviation at the displayed instant, including seasonal DST. */
+export function viewerTimezoneAbbrev(at = new Date()) {
+  const date = at instanceof Date ? at : new Date(at);
+  if (!Number.isFinite(date.getTime())) return '';
   try {
-    const parts = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' }).formatToParts(new Date());
-    cachedViewerTzAbbrev = String(parts.find((p) => p.type === 'timeZoneName')?.value || '').trim();
-  } catch {
-    cachedViewerTzAbbrev = '';
-  }
-  return cachedViewerTzAbbrev;
+    const parts = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' }).formatToParts(date);
+    return String(parts.find(part => part.type === 'timeZoneName')?.value || '').trim();
+  } catch { return ''; }
 }
 
 /**
@@ -680,7 +677,7 @@ export function formatViewerClockTime(value, { withAbbrev = true } = {}) {
   if (!d) return '';
   const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   if (!withAbbrev) return time;
-  const abbr = viewerTimezoneAbbrev();
+  const abbr = viewerTimezoneAbbrev(d);
   return abbr ? `${time} ${abbr}` : time;
 }
 
@@ -690,10 +687,12 @@ export function formatViewerTimeRangeMs(startMs, endMs, { withAbbrev = true } = 
   const opts = { hour: 'numeric', minute: '2-digit', hour12: true };
   const start = startMs != null ? new Date(startMs).toLocaleTimeString('en-US', opts) : '';
   const end = endMs != null ? new Date(endMs).toLocaleTimeString('en-US', opts) : '';
-  const range = [start, end].filter(Boolean).join(' – ');
+  const startAbbr = startMs != null ? viewerTimezoneAbbrev(new Date(startMs)) : '';
+  const endAbbr = endMs != null ? viewerTimezoneAbbrev(new Date(endMs)) : startAbbr;
+  const range = [withAbbrev && startAbbr !== endAbbr && start ? `${start} ${startAbbr}` : start, end].filter(Boolean).join(' – ');
   if (!range) return '';
   if (!withAbbrev) return range;
-  const abbr = viewerTimezoneAbbrev();
+  const abbr = endAbbr;
   return abbr ? `${range} ${abbr}` : range;
 }
 
@@ -705,3 +704,28 @@ export function formatViewerTimeRange(start, end, opts = {}) {
   return formatViewerTimeRangeMs(a.getTime(), b.getTime(), opts);
 }
 
+
+/** Viewer-local event display, with the event's scheduled zone kept visible. */
+export function formatViewerEventWhen(startsAt, endsAt, eventTimezone) {
+  const zone = schoolEventDisplayTimezone(eventTimezone);
+  const event = formatSchoolEventWhen(startsAt, endsAt, zone);
+  if (event.includes('All day')) return `${event} · Event time zone: ${zone}`;
+  const viewer = detectLocalTimezone();
+  const start = parseUtcInstant(startsAt);
+  const end = parseUtcInstant(endsAt);
+  if (!start) return '—';
+  const day = date => date.toLocaleDateString('en-US', { timeZone: viewer, weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  const clock = date => date.toLocaleTimeString('en-US', { timeZone: viewer, hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' });
+  const dateChanged = end && day(start) !== day(end);
+  const local = `${day(start)} · ${clock(start)}${end ? ` – ${dateChanged ? `${day(end)} · ` : ''}${clock(end)}` : ''}`;
+  return viewer === zone ? `${local} · Event time zone: ${zone}` : `${local} (your time) · Event: ${event} (${zone})`;
+}
+
+export function formatViewerEventReportTime(reportTime, startsAt, eventTimezone) {
+  const zone = schoolEventDisplayTimezone(eventTimezone);
+  const date = isoToZonedDatetimeLocal(startsAt, zone).slice(0, 10);
+  const time = String(reportTime || '').match(/^(\d{2}:\d{2})/);
+  if (!date || !time) return '';
+  const iso = zonedDatetimeLocalToIso(`${date}T${time[1]}`, zone);
+  return iso ? formatViewerEventWhen(iso, null, zone) : '';
+}

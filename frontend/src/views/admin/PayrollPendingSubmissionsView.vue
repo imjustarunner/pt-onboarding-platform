@@ -127,7 +127,7 @@
                 }"
               >
                 <td>{{ nameForUserId(r.user_id) }}</td>
-                <td>{{ String(r.created_at || '').slice(0, 10) }}</td>
+                <td>{{ reportViewerDateTime(r.created_at) }}</td>
                 <td>{{ submitterLabel(r) }}</td>
                 <td>{{ r.request_type==='school_support' ? 'School Support Hours' : String(r.request_type || '').toLowerCase() === 'training' ? 'Training PTO' : 'Sick Leave' }}<div v-if="r.request_type === 'training'" class="muted">{{ r.training_description }}<span v-if="r.training_cost != null"> · Reported cost: ${{ Number(r.training_cost).toFixed(2) }}</span></div></td>
                 <td><span :class="['status-badge', `st-${String(r.status || 'submitted').toLowerCase()}`]">{{ statusLabel(r.status) }}</span></td>
@@ -755,7 +755,7 @@
 
             <div class="pps-detail-grid">
               <div class="field"><label>Submitted by</label><div>{{ submitterLabel(reviewedReimbClaim) }}</div></div>
-              <div class="field"><label>Submitted on</label><div>{{ reviewedReimbClaim.created_at ? String(reviewedReimbClaim.created_at).slice(0, 10) : '—' }}</div></div>
+              <div class="field"><label>Submitted on</label><div>{{ reportViewerDateTime(reviewedReimbClaim.created_at) }}</div></div>
               <div class="field"><label>Suggested pay period</label><div>{{ periodLabelForId(reviewedReimbClaim.suggested_payroll_period_id) }}</div></div>
             </div>
 
@@ -871,6 +871,7 @@ import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import IndirectTimeClaimDetailFields from '../../components/payroll/IndirectTimeClaimDetailFields.vue';
 import { logTimeActivitiesSummary } from '../../utils/logTimeClaimDetails';
+import { reportCalendarDate, reportViewerDateTime } from '../../utils/reportDateTime';
 import {
   formatBusinessDateTime,
   isoToZonedDatetimeLocal,
@@ -1268,7 +1269,7 @@ const fmtNum = (n) => {
   return Number.isFinite(v) ? v.toFixed(2).replace(/\.00$/, '') : '—';
 };
 
-const fmtDate = (d) => (d ? String(d).slice(0, 10) : '—');
+const fmtDate = reportCalendarDate;
 
 const claimHoursValue = (c) => {
   const stored = Number(c?.hours || c?.credits_hours || c?.requested_hours || 0);

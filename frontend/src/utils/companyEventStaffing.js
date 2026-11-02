@@ -117,6 +117,7 @@ export function companyEventRequestStatusLabel(event, session = primaryCompanyEv
   }
   if (session.myRequest) {
     const st = String(session.myRequest.status || 'pending');
+    if (st.toLowerCase() === 'approved') return 'Not assigned — request again';
     return `Request ${st}`;
   }
   if (isSessionStaffingFull(session, event)) return 'Staffing full';
@@ -128,7 +129,7 @@ export function canRequestCompanyEventShift(event, session = primaryCompanyEvent
   if (!isUpcomingCompanyEvent(event, now) || !(new Date(session.endsAt || session.startsAt).getTime() > now)) return false;
   if (session.myAssignment) return false;
   const st = String(session.myRequest?.status || '').toLowerCase();
-  if (st === 'pending' || st === 'approved') return false;
+  if (st === 'pending') return false;
   if (isSessionStaffingFull(session, event)) return false;
   return true;
 }

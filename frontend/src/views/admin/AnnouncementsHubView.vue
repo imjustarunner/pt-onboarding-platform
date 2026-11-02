@@ -283,13 +283,14 @@
               </select>
             </label>
             <label>
-              <span>Start</span>
+              <span>Start (your device time)</span>
               <input v-model="form.startsAt" type="datetime-local" class="filter-input" />
             </label>
             <label>
-              <span>End</span>
+              <span>End (your device time)</span>
               <input v-model="form.endsAt" type="datetime-local" class="filter-input" />
             </label>
+            <p v-if="form.displayType === 'toast'" class="muted">Toasts appear only between Start and End. After End, they will not appear on login. Preview does not deliver a toast.</p>
             <label>
               <span>Priority</span>
               <select v-model="form.priority" class="filter-select">
