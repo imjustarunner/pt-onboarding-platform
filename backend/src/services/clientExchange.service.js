@@ -1,3 +1,6 @@
+import { assertExchangeEssentials } from '../../../frontend/src/navigation/clientExchangeEssentials.js';
+import { resolveExchangeLocation } from '../../../frontend/src/navigation/clientExchangeLocation.js';
+import { scheduleFromIntake } from '../utils/clientExchangeSchedule.js';
 import { loadExchangeWaivers } from './clientExchangeWaivers.service.js';
 import { exchangeStaffRole, normalizeExchangeQualification } from '../../../frontend/src/navigation/clientExchangePolicy.js';
 import Agency from '../models/Agency.model.js';
@@ -617,8 +620,16 @@ export async function createPublicOfficeIntakeClient({ agencySlugOrId, payload =
     preferredLocation: payload.preferredLocation || null,
     presentingConcern: payload.presentingConcern || payload.reasonForVisit || null,
     insuranceOrPayment: payload.insuranceOrPayment || null,
+    insurance: payload.insuranceOrPayment || null,
+    ...(payload.exchangeSchedule ? {exchangeSchedule: normalizeExchangeSchedule(payload.exchangeSchedule)} : {}),
     submittedAt: new Date().toISOString()
   };
+
+  const inferred = resolveExchangeLocation({address_city:payload.addressCity,address_state:payload.addressState}, intakePreferences);
+  const schedule = scheduleFromIntake(intakePreferences);
+  if(payload.preferredTimeOfDay === 'flexible' && !payload.exchangeSchedule) schedule.periods=['morning','afternoon','evening'];
+  intakePreferences.exchangeSchedule=schedule;
+  if(clientType === 'clinical' && ['itsco','auricwell-qa-demo'].includes(String(agency.slug || agency.portal_url || '').toLowerCase())) assertExchangeEssentials({preferences:{modality:intakePreferences.preferredModality,...inferred,insurance:intakePreferences.insurance,schedule},presentingProblems:[intakePreferences.presentingConcern]});
 
   const client = await Client.create({
     organization_id: agencyId,

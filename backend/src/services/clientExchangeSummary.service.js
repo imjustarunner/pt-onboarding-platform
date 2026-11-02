@@ -8,6 +8,7 @@ import { decryptIntakeSubmissionRows } from './intakeResponsesEncryption.service
 import { maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
 import { screeningPresentingProblem } from './h0002ReviewDetails.js';
 import { clientAge, exchangeInsuranceLabel } from '../utils/clientExchangeMatching.js';
+import { resolveExchangeLocation } from '../../../frontend/src/navigation/clientExchangeLocation.js';
 
 async function optionalClinicalQuery(sql, params) {
   try { const [rows] = await clinicalPool.execute(sql, params); return rows; }
@@ -78,11 +79,10 @@ export async function loadClientExchangeSummary({ client, agencyId = client.agen
     diagnoses: summaryItems(diagnoses.length ? diagnoses : billing.length ? billing : referral.diagnoses),
     ...problem,
     preferences: {
-      insurance: exchangeInsuranceLabel(client.insurance_type_label, intake.insurance),
+      insurance: exchangeInsuranceLabel(client.insurance_type_label, intake.insurance, intake.insuranceOrPayment),
       matchingPreferences: intake.matchingPreferences || null,
       modality: intake.preferredModality ? String(intake.preferredModality).toLowerCase() : null,
-      serviceLocation: Object.hasOwn(intake, 'serviceLocation') ? intake.serviceLocation
-        : Object.hasOwn(intake, 'preferred_service_location') ? intake.preferred_service_location : referral.serviceLocation || null,
+      ...resolveExchangeLocation(client, intake),
       schedule: scheduleFromIntake(intake, client.timezone), providerGender: intake.preferredProviderGender || null,
       providerQualification: Object.hasOwn(intake, 'providerQualification') ? intake.providerQualification : referral.providerQualification || null
     }

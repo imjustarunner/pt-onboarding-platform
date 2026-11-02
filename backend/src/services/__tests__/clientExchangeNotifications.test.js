@@ -147,7 +147,7 @@ it('only notifies providers offering the requested visit format', async () => {
   mocks.profile.mockResolvedValue({agencyAvailability:{seesClients:true, acceptingNewClients:true, virtual:false, inPerson:true}});
   await notifyExchangeMatches({listing});
   expect(mocks.send).not.toHaveBeenCalled();
-  await notifyExchangeMatches({listing:{...listing, preferences:{modality:'in_person'}}});
+  await notifyExchangeMatches({listing:{...listing, preferences:{modality:'in_person',serviceLocation:'Colorado Springs'}}});
   expect(mocks.send).toHaveBeenCalledTimes(1);
 });
 

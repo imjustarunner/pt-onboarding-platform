@@ -1,4 +1,5 @@
 import { normalizeExchangeLocation } from '../../../frontend/src/navigation/clientExchangeLocation.js';
+import { assertExchangeEssentials } from '../../../frontend/src/navigation/clientExchangeEssentials.js';
 import { normalizeExchangeQualification } from '../../../frontend/src/navigation/clientExchangePolicy.js';
 import { validateMatchingPreferences } from '../../../frontend/src/navigation/providerFocus.js';
 import pool from '../config/database.js';
@@ -17,6 +18,7 @@ export function validateExchangeReferral(input) {
   const providerGender = text('providerGender', 40);
   if (!['', 'female', 'male', 'nonbinary'].includes(providerGender)) throw invalid('Select a valid provider gender preference');
   const modality = text('modality', 20);
+  assertExchangeEssentials({preferences:{modality,serviceLocation:input.serviceLocation,insurance:input.insurance,schedule:normalizeExchangeSchedule(input.schedule || {})},presentingProblems:[input.presentingProblem]});
   const providerQualification=normalizeExchangeQualification(input.providerQualification);
   if (!['', 'in_person', 'virtual', 'either'].includes(modality)) throw invalid('Select a valid modality');
   return { serviceLocation: normalizeExchangeLocation(input.serviceLocation, { required: ['in_person', 'either'].includes(modality) }), insurance: text('insurance', 200), matchingPreferences: validateMatchingPreferences(input.matchingPreferences,{maxSelections:0}), initials, age, fullName: text('fullName', 200), gender: text('gender', 64), diagnoses: text('diagnoses', 2000), presentingProblem: text('presentingProblem', 4000), providerGender, providerQualification, modality, ehrReference: text('ehrReference', 200), schedule: normalizeExchangeSchedule(input.schedule || {}), requestId: input.requestId };

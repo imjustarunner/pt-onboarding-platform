@@ -42,6 +42,13 @@ export function mergeCurrentExchangeSummary(saved, additional = {}, client = {})
   for (const [field, keys] of Object.entries(sources)) {
     if (keys.some(key => Object.hasOwn(intake || {}, key))) summary.preferences[field] = saved.preferences?.[field] ?? null;
   }
+  if (saved.preferences?.serviceLocationSource === 'home_address') {
+    const currentChoice = sources.serviceLocation.some(key => Object.hasOwn(intake || {}, key));
+    if (currentChoice || !additional.preferences?.serviceLocation) {
+      summary.preferences.serviceLocation = saved.preferences.serviceLocation;
+      summary.preferences.serviceLocationSource = 'home_address';
+    } else summary.preferences.serviceLocationSource = 'preference';
+  }
   return summary;
 }
 

@@ -5,8 +5,10 @@ export function supportExchangeSummary(summary = {}) {
   const schedule = preferences.schedule;
   return {
     demographics: summary.demographics || {}, diagnoses: [], presentingProblems: [],
+    hasClinicalConcerns: Boolean(summary.presentingProblems?.length || summary.hasClinicalConcerns),
     presentingProblemSource: null, presentingProblemUpdatedAt: null,
     preferences: {
+      serviceLocationSource: preferences.serviceLocationSource || null,
       serviceLocation: preferences.serviceLocation || null, insurance: preferences.insurance || null, modality: preferences.modality || null,
       providerGender: preferences.providerGender || null,
       matchingPreferences: preferences.matchingPreferences || null,

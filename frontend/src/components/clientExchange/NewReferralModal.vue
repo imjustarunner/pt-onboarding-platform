@@ -2,7 +2,7 @@
   <div class="referral-backdrop" @click.self="!busy && $emit('close')">
     <div class="referral-modal" role="dialog" aria-label="Post a new client referral">
       <h2>Post a new client referral</h2>
-      <p>Use this when the client is in your EHR but not yet in this app. Enter what you know; support will receive a shared task to finish the record.</p>
+      <p>Use this when the client is in your EHR but not yet in this app. Complete the required matching details; support will receive a shared task to finish the EHR record. Diagnoses and other preferences remain optional.</p>
       <p v-if="clientId">Client saved. Continue to finish posting this same referral.</p>
       <form @submit.prevent="submit">
         <fieldset :disabled="busy || !!clientId">
@@ -12,18 +12,18 @@
             <label>Client gender<input v-model="form.gender" maxlength="64" /></label>
           </div>
           <label>Diagnosis / diagnoses (if known)<textarea v-model="form.diagnoses" rows="2" maxlength="2000" placeholder="Diagnosis name or code" /></label>
-          <label>Presenting problem (if known)<textarea v-model="form.presentingProblem" rows="3" maxlength="4000" placeholder="Describe the concern without names or contact information" /></label>
+          <label>Clinical concerns *<textarea v-model="form.presentingProblem" required rows="3" maxlength="4000" placeholder="Describe the concern without names or contact information" /></label>
           <div class="row">
             <label>Preferred provider gender<select v-model="form.providerGender"><option value="">No preference</option><option value="female">Female / woman</option><option value="male">Male / man</option><option value="nonbinary">Nonbinary</option></select></label>
-            <label>Modality<select v-model="form.modality"><option value="">No preference</option><option value="in_person">In person</option><option value="virtual">Virtual</option><option value="either">Either</option></select></label>
+            <label>Visit format *<select v-model="form.modality" required><option value="">Choose a format</option><option value="in_person">In person</option><option value="virtual">Virtual</option><option value="either">Either</option></select></label>
           </div>
           <label v-if="form.modality !== 'virtual'">Requested in-person service location
             <select v-model="form.serviceLocation" :required="['in_person', 'either'].includes(form.modality)"><option value="">Select a location…</option><option v-for="location in exchangeLocations" :key="location">{{ location }}</option></select>
           </label>
-          <label>Insurance (if known)<input v-model="form.insurance" maxlength="200" placeholder="e.g. Tricare" /></label>
+          <label>Insurance plan or self-pay *<input v-model="form.insurance" required maxlength="200" placeholder="e.g. Tricare" /></label>
           <label>Provider license requirement<select v-model="form.providerQualification"><option value="">No requirement specified</option><option value="licensed_or_provisional">Licensed clinician (includes provisional licenses)</option><option value="independent">Independently licensed clinician — specifically requested</option></select></label>
           <ClientMatchingPreferences v-model="form.matchingPreferences" :max-selections="0" expanded />
-          <ClientSchedulePreferences v-model="form.schedule" />
+          <p>Available days and times are required. Select every option if the client is flexible.</p><ClientSchedulePreferences required v-model="form.schedule" />
           <details>
             <summary>Optional EHR details and pasted records</summary>
             <p>These records go in the client chart. The exchange shows initials; notification emails omit the name and initials.</p>
@@ -45,7 +45,8 @@
   </div>
 </template>
 <script setup>
-import { exchangeLocations, normalizeExchangeLocation } from '../../navigation/clientExchangeLocation.js';
+import { normalizeExchangeLocation } from '../../navigation/clientExchangeLocation.js';
+import { EXCHANGE_CITIES as exchangeLocations, assertExchangeEssentials } from '../../navigation/clientExchangeEssentials.js';
 import { reactive, ref } from 'vue';
 import api from '../../services/api';
 import ClientMatchingPreferences from '../public/ClientMatchingPreferences.vue';
@@ -83,6 +84,7 @@ async function submit() {
   try {
     const schedule = normalizeExchangeSchedule(form.schedule);
     normalizeExchangeLocation(form.serviceLocation, { required: ['in_person', 'either'].includes(form.modality) });
+    assertExchangeEssentials({preferences:{...form,schedule},presentingProblems:[form.presentingProblem]});
     if (!clientId.value) {
       const { data } = await api.post('/client-exchange/referrals', { ...form, schedule, agencyId: props.agencyId, requestId });
       clientId.value = data.clientId;

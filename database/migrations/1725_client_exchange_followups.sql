@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS client_exchange_followups (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  agency_id INT NOT NULL,
+  listing_id INT NOT NULL,
+  client_id INT NOT NULL,
+  recipient_user_id INT NULL,
+  actor_user_id INT NOT NULL,
+  request_key VARCHAR(64) NOT NULL,
+  token_hash CHAR(64) NULL,
+  recipient_hash CHAR(64) NULL,
+  expires_at DATETIME NULL,
+  requested_fields_json JSON NULL,
+  parent_delivery_json JSON NULL,
+  answers_json JSON NULL,
+  completed_at DATETIME NULL,
+  provider_outreach_status VARCHAR(24) NOT NULL DEFAULT 'waiting',
+  provider_outreach_json JSON NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_exchange_followup_request (agency_id,listing_id,request_key),
+  UNIQUE KEY uq_exchange_followup_token (token_hash),
+  KEY idx_exchange_followup_queue (provider_outreach_status,id)
+);

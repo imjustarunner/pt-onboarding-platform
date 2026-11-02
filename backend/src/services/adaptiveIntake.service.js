@@ -405,6 +405,7 @@ export async function getAdaptiveIntakeConfig(agencySlugOrId, req, options = {})
           : 'A full intake packet has not been published yet. Use Quick Prospective or contact the organization.'
       }
     },
+    exchangeEssentialsRequired: vertical === 'clinical' && ['itsco','auricwell-qa-demo'].includes(agencySlugKey(agencyRow)),
     concernOptions,
     selfConcernOptions: vertical === 'clinical' ? SELF_QUICK_CONCERN_OPTIONS : concernOptions,
     dependentConcernOptions: vertical === 'clinical' ? DEPENDENT_QUICK_CONCERN_OPTIONS : concernOptions,
@@ -997,6 +998,7 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
       preferredTimeOfDay: preferences.preferredTimeOfDay || payload.preferredTimeOfDay,
       preferredModality: preferences.preferredModality || payload.preferredModality,
       preferredLocation: preferences.preferredLocation || payload.preferredLocation,
+      exchangeSchedule: preferences.exchangeSchedule || payload.exchangeSchedule,
       insuranceOrPayment: preferences.insuranceOrPayment || payload.insuranceOrPayment,
       clientType
     }
@@ -1144,6 +1146,7 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
         preferredTimeOfDay: preferences.preferredTimeOfDay || payload.preferredTimeOfDay,
         preferredModality: preferences.preferredModality || payload.preferredModality,
         preferredLocation: preferences.preferredLocation || payload.preferredLocation,
+      exchangeSchedule: preferences.exchangeSchedule || payload.exchangeSchedule,
         insuranceOrPayment: preferences.insuranceOrPayment || payload.insuranceOrPayment,
         clientType
       }

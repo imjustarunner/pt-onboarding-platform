@@ -473,7 +473,7 @@
       <!-- Step: preferences -->
       <div v-else-if="quickStep === 2" class="ai-join-form"><LearningEnrollmentQuestions v-if="resolvedServiceType==='tutoring'" v-model="learningForm" :agency-slug="agencySlug" />
         <h1 class="ai-page-title"> {{ tx("Preferences & availability") }} </h1>
-        <p class="ai-page-lead"> {{ tx("Optional — helps us match format and timing.") }} </p>
+        <p class="ai-page-lead"> {{ tx("Please provide the details our team needs to find appropriate care.") }} </p>
         <div class="field-row">
           <DigitalFormField
             v-model="form.preferences.preferredModality"
@@ -483,7 +483,7 @@
             placeholder="No preference"
             :options="modalityOptions"
           />
-          <DigitalFormField
+          <DigitalFormField v-if="!config?.exchangeEssentialsRequired"
             v-model="form.preferences.preferredTimeOfDay"
             type="select"
             label="Preferred time of day"
@@ -492,14 +492,19 @@
             :options="timeOptions"
           />
         </div>
-        <DigitalFormField
+        <template v-if="config?.exchangeEssentialsRequired">
+          <DigitalFormField v-if="form.preferences.preferredModality !== 'virtual'" v-model="form.preferences.preferredLocation" type="select" label="In-person service city" placeholder="Use my home city" :options="EXCHANGE_CITIES.map(city=>({value:city,label:city}))" />
+          <p>When you leave the service city blank, we use Denver or Colorado Springs from your home address. Choose a city above if you prefer another location.</p>
+          <ClientSchedulePreferences v-model="form.preferences.exchangeSchedule" required />
+        </template>
+        <DigitalFormField v-else
           v-model="form.preferences.preferredDaysRaw"
           label="Preferred days (optional)"
           placeholder="e.g. Tuesdays, weekends, Thursday afternoons"
         />
         <DigitalFormField
           v-model="form.preferences.insuranceOrPayment"
-          label="Insurance or payment (optional)"
+          :label="config?.exchangeEssentialsRequired ? 'Insurance plan or self-pay *' : 'Insurance or payment (optional)'"
         />
       </div>
 
@@ -631,6 +636,10 @@
 </template>
 
 <script setup>
+import ClientSchedulePreferences from '../../components/clientExchange/ClientSchedulePreferences.vue';
+import {EXCHANGE_CITIES,assertExchangeEssentials} from '../../navigation/clientExchangeEssentials.js';
+import {resolveExchangeLocation} from '../../navigation/clientExchangeLocation.js';
+
 import { i18n, setPublicLocale } from '../../i18n.js';
 import { translateJoinEnrollment, JOIN_ENROLLMENT_ES } from '../../utils/joinEnrollmentCopy.js';
 import LearningEnrollmentQuestions from '../../components/learning/LearningEnrollmentQuestions.vue';
@@ -869,6 +878,8 @@ const form = reactive({
   accomplishGoal: '',
   notes: '',
   preferences: {
+    preferredLocation: '',
+    exchangeSchedule: {},
     preferredModality: '',
     preferredTimeOfDay: '',
     preferredDaysRaw: '',
@@ -1687,7 +1698,17 @@ async function toggleChooseProvider(event) {
   }
 }
 
+function validateMatchingEssentials() {
+  if(!config.value?.exchangeEssentialsRequired)return true;
+  try {
+    const p=form.preferences;
+    const location=resolveExchangeLocation({address_city:form.address.city,address_state:form.address.state},{preferredLocation:p.preferredLocation});
+    assertExchangeEssentials({preferences:{modality:p.preferredModality,...location,insurance:p.insuranceOrPayment,schedule:p.exchangeSchedule},presentingProblems:[form.accomplishGoal,...form.concerns]});
+    return true;
+  }catch(e){submitError.value=e.message;return false;}
+}
 async function onQuickContinue() {
+  if(quickStep.value===2 && !validateMatchingEssentials())return;
   if (quickStep.value === 0) {
     if (!validateBasicsFields()) return;
     if (isDependentWhoFor.value && !isCoGuardianInvitee.value && !otherGuardianContactOk()) {
@@ -1706,6 +1727,7 @@ async function onQuickContinue() {
 }
 
 async function submitQuick() {
+  if(!validateMatchingEssentials())return;
   submitting.value = true;
   submitError.value = '';
   try {
@@ -1733,7 +1755,9 @@ async function submitQuick() {
           accomplishGoal: form.accomplishGoal.trim() || null,
           notes: form.notes,
           preferences: {
-            preferredModality: form.preferences.preferredModality || null,
+            preferredLocation: form.preferences.preferredLocation || null,
+        exchangeSchedule: config.value?.exchangeEssentialsRequired ? form.preferences.exchangeSchedule : undefined,
+        preferredModality: form.preferences.preferredModality || null,
             preferredTimeOfDay: form.preferences.preferredTimeOfDay || null,
             preferredDays,
             insuranceOrPayment: form.preferences.insuranceOrPayment || null
@@ -1808,6 +1832,8 @@ async function submitQuick() {
       notes: form.notes,
       preferences: {
         learning: resolvedServiceType.value==='tutoring'?learningForm.value:undefined,
+        preferredLocation: form.preferences.preferredLocation || null,
+        exchangeSchedule: config.value?.exchangeEssentialsRequired ? form.preferences.exchangeSchedule : undefined,
         preferredModality: form.preferences.preferredModality || null,
         preferredTimeOfDay: form.preferences.preferredTimeOfDay || null,
         preferredDays,

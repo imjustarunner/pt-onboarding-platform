@@ -24,7 +24,7 @@ export async function listExchangeShares(listingId) {
   return rows.map(mapShare);
 }
 
-async function shareContext({ listingId, agencyId, providerUserId, actor }) {
+async function shareContext({ listingId, agencyId, providerUserId, actor, requireMatched = false }) {
   if (!exchangeStaffRole(actor?.role)) throw fail('Agency staff access is required', 403);
   const [[listing]] = await pool.execute('SELECT * FROM client_exchange_listings WHERE id = ?', [listingId]);
   if (!listing || Number(listing.agency_id) !== Number(agencyId)) throw fail('Listing not found', 404);
@@ -34,6 +34,14 @@ async function shareContext({ listingId, agencyId, providerUserId, actor }) {
   if (!client || Number(client.agency_id) !== Number(agencyId) || ['ARCHIVED', 'DECLINED'].includes(String(client.status || '').toUpperCase())) throw fail('This client is no longer available on the exchange');
   const { user } = await loadExchangeProvider({ userId: providerUserId, agencyId });
   if (!user) throw fail('Choose an active provider in this agency', 403);
+  if (requireMatched) {
+    const {getListingForMatching}=await import('./clientExchange.service.js');
+    const {evaluateExchangeCandidate}=await import('./clientExchangeCandidates.service.js');
+    const {listClinicalFacetsForUsers}=await import('./providerClinicalFacets.service.js');
+    const facets=await listClinicalFacetsForUsers([user.id],{agencyId});
+    const fit=await evaluateExchangeCandidate({user,listing:await getListingForMatching(listingId),client,facets:facets.get(Number(user.id))||{}});
+    if(!fit.matched || !fit.canNotify)throw fail('This provider is not currently eligible for a matching reminder');
+  }
   const to = user.work_email || user.email;
   if (!to) throw fail('This provider has no email address');
   const agency = await Agency.findById(agencyId);
@@ -49,7 +57,7 @@ async function shareContext({ listingId, agencyId, providerUserId, actor }) {
   const closing = 'Open the referral to review the client’s preferences and your match details. If you are interested, you can request the client there. The support team will review any fit differences before assignment. Sharing this referral does not change your match status or insurance requirements.';
   // Keep client details in the authenticated exchange. The recipient and signer are server-resolved.
   const text = `${greeting}\n\n${introduction}\n\nReferral #${listingId}\n\n${closing}\n\nView this client: ${link}\n\nThank you for considering this client!`;
-  const html = `<p>${escape(greeting)}</p><p>${escape(introduction)}</p><p>Referral #${Number(listingId)}</p><p>${escape(closing)}</p><p><a href="${escape(link)}">View this client in Client Exchange</a></p><p>Thank you for considering this client!</p>`;
+  const html = `<p>${escape(greeting)}</p><p>${escape(introduction)}</p><p>Referral #${Number(listingId)}</p><p>${escape(closing)}</p><p><a style="display:inline-block;background:#28684d;color:#fff;padding:14px 22px;border-radius:8px;text-decoration:none;font-weight:bold" href="${escape(link)}">Review and request this client</a></p><p>Thank you for considering this client!</p>`;
   const signed = await appendStaffHtmlSignature({ userId: actor.id, agencyId, text, html, force: true });
   if (!signed.appended) throw fail('Your staff signature could not be loaded. Refresh your profile before sharing.');
   return { listing, agency, user, to, subject, text: signed.text, html: signed.html, link, previousShareCount: previous.length };
@@ -74,14 +82,14 @@ export async function sendExchangeShare(input) {
     const context = await shareContext(input);
     if (expectedShareCount !== context.previousShareCount) throw fail('Sharing history changed. Preview the email again before sending.');
     const identities = await EmailSenderIdentity.list({ agencyId: input.agencyId, includePlatformDefaults: false, onlyActive: true });
-    const sender = identities.find(i => i.identity_key === 'client_exchange') || identities.find(i => i.identity_key === 'notifications');
+    const sender = identities.find(i => i.identity_key === 'support') || identities.find(i => i.identity_key === 'client_exchange') || identities.find(i => i.identity_key === 'notifications');
     if (!sender?.id) throw fail('The Client Exchange email sender is not configured');
     const [insert] = await pool.execute(`INSERT INTO client_exchange_shares (listing_id, provider_user_id, shared_by_user_id, request_key, share_number)
       VALUES (?, ?, ?, ?, ?)`, [listingId, providerUserId, actor.id, requestKey, context.previousShareCount + 1]);
     const shareId = insert.insertId;
     let result;
     try {
-      result = await sendEmailFromIdentity({ senderIdentityId: sender.id, to: context.to, userId: providerUserId, source: 'manual',
+      result = await sendEmailFromIdentity({ senderIdentityId: sender.id, to: context.to, ...(sender.identity_key==='support'?{cc:sender.from_email,replyToOverride:sender.from_email}:{}), userId: providerUserId, source: 'manual',
         generatedByUserId: actor.id, subject: context.subject, text: context.text, html: context.html,
         templateType: 'client_exchange_shared', linkUrl: context.link,
         internetMessageIdOverride: `<client-exchange-share-${shareId}@${String(sender.from_email).split('@')[1]}>` });

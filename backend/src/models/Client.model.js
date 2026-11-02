@@ -501,7 +501,7 @@ class Client {
    * @returns {Promise<Object|null>} Updated client object or null
    */
   static async update(id, clientData, updated_by_user_id = null, { executor = pool, hydrate = true, agencyId = null } = {}) {
-    const schedulingStatusChange = clientData.client_status_id !== undefined || clientData.terminated_at !== undefined;
+    const schedulingStatusChange = clientData.client_status_id !== undefined || clientData.terminated_at !== undefined || String(clientData.status || '').toUpperCase() === 'ARCHIVED';
     if (schedulingStatusChange && executor === pool) {
       const db = await pool.getConnection();
       let saved;
@@ -516,6 +516,11 @@ class Client {
         catch (error) { console.warn('[Client.update] schedule cleanup queued for retry', saved.terminationJobId, error.code || 'CLEANUP_FAILED'); }
       }
       return saved && hydrate ? this.findById(id) : saved;
+    }
+    if (String(clientData.status || '').toUpperCase() === 'ARCHIVED') {
+      await executor.execute('SELECT id FROM clients WHERE id=? FOR UPDATE',[id]);
+      const {assertExchangeResolvedBeforeArchive}=await import('../services/clientExchangeTransfer.service.js');
+      await assertExchangeResolvedBeforeArchive(executor,id);
     }
     let terminationJobId = null;
     const updates = [];

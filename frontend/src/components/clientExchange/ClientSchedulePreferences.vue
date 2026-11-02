@@ -1,7 +1,7 @@
 <template>
   <fieldset class="client-schedule">
     <legend>When does the client need a provider?</legend>
-    <p class="muted">Optional. Select days, general times, or specific day/time options. These details are shared in the exchange and matching emails.</p>
+    <p class="muted">{{ required ? 'Required. Choose available days and times, or specific day/time options.' : 'Optional. Select days, general times, or specific day/time options.' }} These details are shared in the exchange and matching emails.</p>
     <div class="choices" role="group" aria-label="Days that work">
       <label v-for="day in scheduleDays" :key="day"><input type="checkbox" :checked="value.days.includes(day)" @change="toggle('days', day)" />{{ day }}</label>
     </div>
@@ -23,7 +23,7 @@
 <script setup>
 import { computed } from 'vue';
 import { scheduleDays, schedulePeriods } from '../../utils/clientExchangeSchedule.js';
-const props = defineProps({ modelValue: { type: Object, default: () => ({}) } });
+const props = defineProps({ required: { type: Boolean, default: false }, modelValue: { type: Object, default: () => ({}) } });
 const emit = defineEmits(['update:modelValue']);
 const value = computed(() => ({ days: [], periods: [], windows: [], timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '', notes: '', ...props.modelValue, timezone: props.modelValue?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || '' }));
 function set(key, item) { emit('update:modelValue', { ...value.value, [key]: item }); }

@@ -208,6 +208,7 @@
         <section class="cep-detail-section">
           <ExchangeMatchStatus :fit="selectedListing.viewerFit" />
           <ClientExchangeSummary :listing="selectedListing" />
+          <ClientExchangeEssentialsEditor v-if="isBackoffice" :key="selectedListing.id" :listing="selectedListing" @saved="onExpand(selectedListing.id)" />
           <ClientExchangeAuditPanel v-if="selectedListing.canViewAudit ?? isBackoffice" :listing-id="selectedListing.id" @changed="onExpand(selectedListing.id)" />
           <ExchangeMatchingAudit v-if="!(selectedListing.canViewAudit ?? isBackoffice) && selectedListing.canManageClaims" :listing-id="selectedListing.id" />
           <router-link v-if="selectedListing.clientId && (isBackoffice || isCurrentProviderFor(selectedListing))" class="cep-btn cep-btn--ghost cep-btn--sm" :to="clientRecordPath(selectedListing)">Open client record</router-link>
@@ -225,6 +226,10 @@
         </section>
 
         <p>{{ selectedListing.referralKind === 'additional_service' ? 'Additional services · current therapist retained' : 'Transfer' }} · {{ selectedListing.serviceType || 'individual' }} <span v-if="selectedListing.targetProviderUserId">· Direct referral</span></p>
+        <section v-if="selectedListing.referralKind === 'transfer' && ['open','requested'].includes(selectedListing.status) && (isBackoffice || isCurrentProviderFor(selectedListing))" class="cep-detail-section">
+          <p>Ending care with the former therapist while seeking a new one? Keep the client available for reassignment. This ends the former assignment without terminating agency care. Review any future appointments separately.</p>
+          <button class="cep-btn cep-btn--ghost" :disabled="actionPending" @click="keepInExchange(selectedListing.id)">Keep client in Exchange</button>
+        </section>
         <!-- Requests for this listing -->
         <section class="cep-detail-section">
           <div class="cep-detail-section-title">
@@ -316,6 +321,7 @@ import ClientExchangeAuditPanel from './ClientExchangeAuditPanel.vue';
 import { computed, watch, ref, reactive } from 'vue';
 import { useRoute } from 'vue-router';
 import { useClientExchangeAgency } from '../../composables/useClientExchangeAgency';
+import ClientExchangeEssentialsEditor from './ClientExchangeEssentialsEditor.vue';
 import { useAuthStore } from '../../store/auth';
 import {
   buildExchangeListingSearchContext,
@@ -505,6 +511,14 @@ async function submitRequest(listing) {
     }
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to request listing';
   } finally { actionPending.value = false; }
+}
+
+async function keepInExchange(listingId) {
+  if(actionPending.value)return;
+  actionPending.value=true;
+  try { await api.post(`/client-exchange/listings/${listingId}/keep-in-exchange`);await load();await onExpand(listingId); }
+  catch(e){error.value=e?.response?.data?.error?.message || 'Could not keep this client available for transfer';}
+  finally {actionPending.value=false;}
 }
 
 async function onWithdraw(listingId) {

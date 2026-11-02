@@ -84,16 +84,16 @@
 
         <div class="field-row">
           <label class="field">
-            <span class="label">Preferred modality</span>
+            <span class="label">Visit format *</span>
             <select v-model="modality" class="select">
-              <option value="">No preference</option>
+              <option value="">Choose a format</option>
               <option value="in_person">In person</option>
               <option value="virtual">Virtual</option>
               <option value="either">Either</option>
             </select>
           </label>
           <label class="field">
-            <span class="label">Insurance (optional)</span>
+            <span class="label">Insurance plan or self-pay *</span>
             <input v-model="insurance" class="input" placeholder="e.g. Aetna" />
           </label>
         </div>
@@ -108,7 +108,7 @@
           <select v-model="serviceLocation" class="select"><option value="">Select a location…</option><option v-for="location in exchangeLocations" :key="location">{{ location }}</option></select>
         </label>
         <ClientMatchingPreferences v-model="matchingPreferences" :max-selections="0" expanded />
-        <ClientSchedulePreferences v-model="schedule" />
+        <p class="muted">Available days, times and clinical concerns are required. Existing concerns above count; a diagnosis is optional.</p><ClientSchedulePreferences required v-model="schedule" />
 
         <label class="field">
           <span class="label">Notes for other providers</span>
@@ -129,7 +129,8 @@
 </template>
 
 <script setup>
-import { exchangeLocations, normalizeExchangeLocation } from '../../navigation/clientExchangeLocation.js';
+import { normalizeExchangeLocation } from '../../navigation/clientExchangeLocation.js';
+import { EXCHANGE_CITIES as exchangeLocations, assertExchangeEssentials } from '../../navigation/clientExchangeEssentials.js';
 import { computed, onMounted, ref, watch } from 'vue';
 import ClientExchangeSummary from './ClientExchangeSummary.vue';
 import ClientMatchingPreferences from '../public/ClientMatchingPreferences.vue';
@@ -196,6 +197,7 @@ watch(selectedClientId, async clientId => {
       providerGender.value = sharedSummary.value.preferences?.providerGender || '';
       providerQualification.value = sharedSummary.value.preferences?.providerQualification || '';
       modality.value = sharedSummary.value.preferences?.modality || '';
+      insurance.value = sharedSummary.value.preferences?.insurance || '';
       serviceLocation.value = sharedSummary.value.preferences?.serviceLocation || '';
     }
   } catch (error) {
@@ -241,6 +243,7 @@ async function submit() {
   submitting.value = true;
   submitError.value = '';
   try {
+    assertExchangeEssentials({preferences:{modality:modality.value,serviceLocation:serviceLocation.value,insurance:insurance.value,schedule:normalizeExchangeSchedule(schedule.value)},presentingProblems:[...(sharedSummary.value.presentingProblems || []),sharedSummary.value.hasClinicalConcerns ? 'Recorded' : '',presentingProblemsRaw.value]});
     const response = await api.post('/client-exchange/listings', {
       agencyId: props.agencyId,
       clientId: Number(selectedClientId.value),

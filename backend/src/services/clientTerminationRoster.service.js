@@ -16,6 +16,8 @@ export async function closeTerminatedClientRoster(db,{clientId,actorUserId=null}
     s.status_key AS client_status_key,s.label AS client_status_label FROM clients c
     LEFT JOIN client_statuses s ON s.id=c.client_status_id WHERE c.id=? FOR UPDATE`,[clientId]);
   if(!client||!hasTerminalClientStatus(client))return {changed:false,assignmentsClosed:0};
+  const {assertExchangeResolvedBeforeArchive}=await import('./clientExchangeTransfer.service.js');
+  await assertExchangeResolvedBeforeArchive(db,clientId);
   const [assignments]=await db.execute(`SELECT id,organization_id,provider_user_id,service_day FROM client_provider_assignments
     WHERE client_id=? AND is_active=TRUE FOR UPDATE`,[clientId]);
   const history=async(field,from,to,note)=>db.execute(`INSERT INTO client_status_history

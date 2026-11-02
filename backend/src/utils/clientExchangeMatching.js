@@ -7,6 +7,7 @@ import { agencyFormatAllowed } from './providerAgencyAvailability.js';
 import { restrictPublicInsurances } from './publicProviderPresentation.js';
 import { clinicalMatchingSpecialties, specialtiesOverlap, hasExcludedSpecialty } from '../../../frontend/src/navigation/clientMatching.js';
 import { FOCUS_GROUPS } from '../../../frontend/src/navigation/providerFocus.js';
+import { specificExchangeInsurance } from '../../../frontend/src/navigation/clientExchangeEssentials.js';
 
 export function ageRange(value) {
   const raw = String(canonicalAge(value) || value || '').trim().replace(/[–—]/g, '-');
@@ -36,7 +37,7 @@ export function normalizedProviderGender(value) {
 }
 
 export function exchangeInsuranceLabel(...values) {
-  return values.find(value => !['','unknown','notprovided','notspecified','other','unlisted','tbd'].includes(
+  return values.find(specificExchangeInsurance) || values.find(value => !['','unknown','notprovided','notspecified','other','unlisted','tbd'].includes(
     String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '')
   )) || null;
 }
@@ -157,13 +158,14 @@ export function evaluateExchangeMatch({ user, profile, facets = {}, listing, cli
   } else checks.push({field: hasSchedule ? 'schedule' : exchangeNeedsOpenings(listing) ? 'location_availability' : 'schedule',status:'unknown',reason: availabilityKnown === false
     ? 'No intake availability is published for this provider in the next four weeks. This is not a confirmed schedule conflict; confirm the requested days, times and location before assignment.'
     : 'Availability for the requested location, days and times requires confirmation before assignment.'});
-  if (modality !== 'virtual' && (!listing.preferences?.serviceLocation || ['Other location','Not yet decided'].includes(listing.preferences.serviceLocation))) {
-    checks.push({field:'location',status:'unknown',reason:'Confirm the in-person service location with the referring team.'});
+  const needsCity = ['in_person','either'].includes(modality);
+  if (needsCity && !['Denver','Colorado Springs','Either location'].includes(listing.preferences?.serviceLocation)) {
+    checks.push({field:'location',status:'unknown',reason:'In-person care requires a confirmed city: Denver or Colorado Springs. Ask the family or support team to update the location before matching or assignment.'});
   }
   const applicable={format:['virtual','in_person'].includes(modality),provider_gender:!noGenderPreference,
     age:!!requestedAge,clinical_exclusions:concerns.length>0,diagnoses:diagnosticConcerns.length>0,concerns:concerns.length>0,
     service:!!population,insurance:insuranceKnown,insurance_credential:insuranceKnown,insurance_exclusions:insuranceKnown,
-    schedule:!!hasSchedule,location:modality!=='virtual' && !!listing.preferences?.serviceLocation && !['Other location','Not yet decided'].includes(listing.preferences.serviceLocation)};
+    schedule:!!hasSchedule,location:needsCity};
   for(const item of checks) {
     item.applicable=applicable[item.field] ?? true;
     if(!item.applicable && item.status==='unknown')item.reason='Not specified on this referral; this does not lower the match score or block a match.';
@@ -175,7 +177,7 @@ export function evaluateExchangeMatch({ user, profile, facets = {}, listing, cli
   for (const item of checks) {
     item.label = exchangeCheckLabel(item.field);
     item.fingerprint = createHash('sha256').update(`${snapshot}:${item.field}:${item.status}:${item.reason}`).digest('hex');
-    item.canWaive = item.applicable !== false && exchangeCheckCanBeWaived(item.field) && item.status !== 'pass';
+    item.canWaive = item.applicable !== false && item.field !== 'location' && exchangeCheckCanBeWaived(item.field) && item.status !== 'pass';
     const waiver = waivers.find(w => w.field === item.field && w.fingerprint === item.fingerprint);
     if (item.canWaive && waiver) {
       item.originalStatus = item.status;

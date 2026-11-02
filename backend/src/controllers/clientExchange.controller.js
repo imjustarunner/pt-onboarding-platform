@@ -524,3 +524,23 @@ export async function shareListing(req, res, next) {
     res.json(result);
   } catch (error) { if (error.status) return res.status(error.status).json({ error: { message: error.message } }); next(error); }
 }
+
+/** End a former assignment without ending agency care or removing the referral. */
+export async function keepInExchange(req,res,next) {
+  try {
+    const listingId=safeInt(req.params.id);
+    const listing=listingId && await ClientExchange.getListingById(listingId,{viewerUserId:req.user.id,viewerRole:req.user.role});
+    if(!listing || !(await assertAgencyAccess(req,listing.agencyId)))return res.status(403).json({error:{message:'Agency access required'}});
+    const {keepClientInExchange}=await import('../services/clientExchangeTransfer.service.js');
+    res.json(await keepClientInExchange({listingId,agencyId:listing.agencyId,actor:req.user,restoreArchived:req.body?.restoreArchived===true}));
+  } catch(error) { if(error.status)return res.status(error.status).json({error:{message:error.message}});next(error); }
+}
+
+export async function saveServicePreferences(req,res,next) {
+  try {
+    const clientId=safeInt(req.params.clientId),agencyId=safeInt(req.body?.agencyId);
+    if(!clientId||!agencyId||!isBackoffice(req.user.role)||!(await assertAgencyAccess(req,agencyId)))return res.status(403).json({error:{message:'Support agency access required'}});
+    const {saveStaffExchangePreferences}=await import('../services/clientExchangeStaffPreferences.service.js');
+    res.json(await saveStaffExchangePreferences({clientId,agencyId,actor:req.user,input:req.body}));
+  }catch(error){if(error.status)return res.status(error.status).json({error:{message:error.message}});next(error);}
+}

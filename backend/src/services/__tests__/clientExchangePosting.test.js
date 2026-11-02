@@ -3,7 +3,7 @@ const mocks = vi.hoisted(() => ({ execute: vi.fn(), begin: vi.fn(), commit: vi.f
 vi.mock('../../config/database.js', () => ({ default: { getConnection: async () => ({ execute: mocks.execute, beginTransaction: mocks.begin, commit: mocks.commit, rollback: mocks.rollback, release: mocks.release }) } }));
 import { insertExchangeListing } from '../clientExchangePosting.service.js';
 let client, existing, assignments;
-const args = { agencyId: 2, clientId: 12, postedByUserId: 7, onlyUnassigned: true, summary: { diagnoses: ['F41.1'], presentingProblems: ['Concern'] } };
+const args = { agencyId: 2, clientId: 12, postedByUserId: 7, onlyUnassigned: true, summary: { preferences: {modality:'virtual',insurance:'Medicaid',schedule:{days:['Monday'],periods:['morning']}}, diagnoses: ['F41.1'], presentingProblems: ['Concern'] } };
 beforeEach(() => {
   vi.clearAllMocks(); client = { id: 12, agency_id: 2, provider_id: null, status: 'ACTIVE' }; existing = []; assignments = [];
   mocks.execute.mockImplementation(async sql => {
@@ -39,14 +39,14 @@ it('rejects cross-agency or archived clients and rolls back failed audit writes'
 });
 it('preserves scheduling preferences on the client in the same transaction as posting', async () => {
   const schedule = { days: ['Wednesday'], periods: ['after_school'], windows: [], timezone: 'America/Denver' };
-  await insertExchangeListing({ ...args, summary: { ...args.summary, preferences: { schedule } } });
+  await insertExchangeListing({ ...args, summary: { ...args.summary, preferences: { ...args.summary.preferences, schedule } } });
   expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining('JSON_SET'), [JSON.stringify(schedule), 12, 2]);
   expect(mocks.commit).toHaveBeenCalledOnce();
 });
 
 it('saves fit selections for future referrals in the posting transaction',async()=>{
  const matchingPreferences={specialties:['Depression'],modalities:['EMDR']};
- await insertExchangeListing({...args,summary:{...args.summary,preferences:{matchingPreferences}}});
+ await insertExchangeListing({...args,summary:{...args.summary,preferences:{...args.summary.preferences,matchingPreferences}}});
  expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining("'$.matchingPreferences'"),[JSON.stringify(matchingPreferences),12,2]);expect(mocks.commit).toHaveBeenCalledOnce();
 });
 
@@ -57,11 +57,11 @@ it('queues notifications atomically so posting does not wait for a provider-by-p
 });
 
 it('saves the requested service location for later referrals', async () => {
-  await insertExchangeListing({ ...args, summary: { ...args.summary, preferences: { serviceLocation: 'Colorado Springs' } } });
+  await insertExchangeListing({ ...args, summary: { ...args.summary, preferences: { ...args.summary.preferences, serviceLocation: 'Colorado Springs' } } });
   expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining("'$.serviceLocation'"), ['"Colorado Springs"', 12, 2]);
 });
 it('keeps reviewed gender, format and license choices on the chart, including a cleared preference', async () => {
-  await insertExchangeListing({ ...args, summary: { preferences: { modality: 'virtual', providerGender: null, providerQualification: 'independent' } } });
+  await insertExchangeListing({ ...args, summary: { ...args.summary, preferences: { ...args.summary.preferences, modality: 'virtual', providerGender: null, providerQualification: 'independent' } } });
   expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining("'$.preferredModality'"), ['"virtual"',12,2]);
   expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining("'$.preferredProviderGender'"), ['null',12,2]);
   expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining("'$.providerQualification'"), ['"independent"',12,2]);

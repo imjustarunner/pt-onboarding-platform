@@ -8,6 +8,7 @@ router.use(authenticate, requireExchangeAccess);
 router.post('/referrals', ctrl.createReferral);
 
 router.get('/clients/:clientId/summary', ctrl.previewClientSummary);
+router.put('/clients/:clientId/service-preferences', ctrl.saveServicePreferences);
 router.put('/clients/:clientId/schedule', ctrl.saveClientSchedule);
 router.put('/clients/:clientId/matching-preferences', ctrl.saveClientMatchingPreferences);
 router.get('/providers', ctrl.listReferralProviders);
@@ -20,6 +21,7 @@ router.post('/listings/:id/shares', ctrl.shareListing);
 router.get('/listings/:id', ctrl.getListing);
 router.get('/listings/:id/matching-audit', ctrl.getMatchingAudit);
 router.post('/listings/:id/withdraw', ctrl.withdrawListing);
+router.post('/listings/:id/keep-in-exchange', ctrl.keepInExchange);
 router.post('/listings/:id/requests', ctrl.createRequest);
 
 router.get('/my-requests', ctrl.listMyRequests);

@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { assertExchangeEssentials } from '../../../frontend/src/navigation/clientExchangeEssentials.js';
 const fail = message => Object.assign(new Error(message), { status: 409 });
 
 /** Serialize posting with assignment and other posts for this client. */
@@ -17,6 +18,7 @@ export async function insertExchangeListing({ agencyId, clientId, postedByUserId
       await connection.commit();
       return { listingId: existing[0].id, created: false, currentProviderId: client.provider_id };
     }
+    assertExchangeEssentials(summary);
     if (onlyUnassigned) {
       const [assignments] = await connection.execute('SELECT id FROM client_provider_assignments WHERE client_id = ? AND is_active = TRUE LIMIT 1', [clientId]);
       if (client.provider_id || assignments.length) throw fail('This client is already assigned. Open their profile to post a transfer.');

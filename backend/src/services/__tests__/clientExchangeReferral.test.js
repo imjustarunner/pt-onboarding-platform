@@ -5,7 +5,7 @@ vi.mock('../../models/Client.model.js', () => ({ default: { create: mocks.create
 vi.mock('../../utils/clientCode.js', () => ({ generateUniqueSixDigitClientCode: async () => '123456' }));
 vi.mock('../taskNotifications.service.js', () => ({ notifyTaskAddedToList: mocks.notify }));
 import { createExchangeReferral, validateExchangeReferral } from '../clientExchangeReferral.service.js';
-const args = { agencyId: 2, actor: { id: 7, role: 'provider' }, input: { initials: 'AB', age: 9, diagnoses: 'F41.1', presentingProblem: 'Worry', providerGender: 'female', requestId: '11111111-1111-4111-8111-111111111111' } };
+const args = { agencyId: 2, actor: { id: 7, role: 'provider' }, input: {modality:'virtual',insurance:'Medicaid',schedule:{days:['Monday'],periods:['morning']}, initials: 'AB', age: 9, diagnoses: 'F41.1', presentingProblem: 'Worry', providerGender: 'female', requestId: '11111111-1111-4111-8111-111111111111' } };
 let existing, members;
 beforeEach(() => {
   vi.clearAllMocks(); existing = []; members = [{ id: 8 }, { id: 9 }]; mocks.create.mockResolvedValue({ id: 15 }); mocks.notify.mockResolvedValue(undefined);
@@ -54,8 +54,10 @@ it('validates and stores all client fit selections on the created chart',async()
  expect(()=>validateExchangeReferral({...args.input,matchingPreferences:{specialties:['invalid']}})).toThrow('Select valid');
 });
 it('requires a location choice for in-person referrals and persists it with insurance', async () => {
-  expect(() => validateExchangeReferral({ ...args.input, modality: 'in_person' })).toThrow('service location');
+  expect(() => validateExchangeReferral({ ...args.input, modality: 'in_person' })).toThrow('in-person city');
   await createExchangeReferral({ ...args, input: { ...args.input, modality: 'in_person', serviceLocation: 'Denver', insurance: 'Tricare' } });
   const update = mocks.execute.mock.calls.find(([sql]) => sql.startsWith('UPDATE clients SET intake_preferences_json'));
   expect(JSON.parse(update[1][0])).toMatchObject({ serviceLocation: 'Denver', insurance: 'Tricare', preferredModality: 'in_person' });
 });
+
+it('rejects a new referral missing any essential before creating the client',async()=>{for(const [key,value] of [['insurance',''],['presentingProblem',''],['modality',''],['schedule',{}]]){await expect(createExchangeReferral({...args,input:{...args.input,[key]:value}})).rejects.toMatchObject({status:400});}expect(mocks.create).not.toHaveBeenCalled();});

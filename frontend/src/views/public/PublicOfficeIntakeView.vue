@@ -35,12 +35,12 @@
           v-model="form.presentingConcern"
           type="textarea"
           label="What brings you in?"
-          placeholder="A short description is helpful but optional"
+          placeholder="A brief concern is enough; a diagnosis is optional" :required="requiresEssentials"
           :rows="3"
         />
 
         <div class="field-row">
-          <DigitalFormField
+          <DigitalFormField v-if="!requiresEssentials"
             v-model="form.preferredTimeOfDay"
             type="select"
             label="Preferred time of day"
@@ -56,7 +56,11 @@
           />
         </div>
 
-        <DigitalFormField
+        <template v-if="requiresEssentials">
+          <DigitalFormField v-if="form.preferredModality !== 'virtual'" v-model="form.preferredLocation" type="select" label="In-person city" required :options="EXCHANGE_CITIES.map(city=>({value:city,label:city}))" />
+          <ClientSchedulePreferences v-model="form.exchangeSchedule" required />
+        </template>
+        <DigitalFormField v-else
           v-model="preferredDaysRaw"
           type="text"
           label="Preferred days (optional)"
@@ -66,7 +70,7 @@
         <DigitalFormField
           v-model="form.insuranceOrPayment"
           type="text"
-          label="Insurance or payment method (optional)"
+          :label="requiresEssentials ? 'Insurance plan or self-pay *' : 'Insurance or payment method (optional)'" :required="requiresEssentials"
         />
 
         <div v-if="submitError" class="df-banner df-banner--warn">{{ submitError }}</div>
@@ -82,6 +86,8 @@
 </template>
 
 <script setup>
+import ClientSchedulePreferences from '../../components/clientExchange/ClientSchedulePreferences.vue';
+import {EXCHANGE_CITIES} from '../../navigation/clientExchangeEssentials.js';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
@@ -94,6 +100,7 @@ import {
 const route = useRoute();
 const agencySlug = computed(() => String(route.params.organizationSlug || route.params.agencySlug || '').trim());
 
+const requiresEssentials=computed(()=>['itsco','auricwell-qa-demo'].includes(agencySlug.value));
 const loadingAgency = ref(true);
 const agencyError = ref('');
 const agency = ref(null);
@@ -110,6 +117,7 @@ const form = reactive({
   lastName: '',
   contactPhone: '',
   presentingConcern: '',
+  preferredLocation:'',exchangeSchedule:undefined,
   preferredTimeOfDay: '',
   preferredModality: '',
   insuranceOrPayment: ''

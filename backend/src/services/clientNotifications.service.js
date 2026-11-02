@@ -464,6 +464,8 @@ export async function notifyNewProspectiveInquiry({
     message,
     audienceJson: {
       admin: true,
+      support: true,
+      staff: true,
       clinicalPracticeAssistant: true,
       schoolStaff: false,
       supervisor: true,
@@ -475,6 +477,8 @@ export async function notifyNewProspectiveInquiry({
     relatedEntityId: clientId,
     actorSource: 'System'
   }).catch(() => null);
+  const {sendNewClientSupportNotice}=await import('./clientExchangeEnrollmentNotice.service.js');
+  return sendNewClientSupportNotice({agencyId,clientId});
 }
 
 export async function notifyClinicalSafetyAlert({
