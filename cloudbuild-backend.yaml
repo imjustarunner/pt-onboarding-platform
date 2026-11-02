@@ -163,8 +163,11 @@ steps:
       - '300'
       - '--max-instances'
       - '40'
-      - '--min-instances'
+      # Keep production warm at service level; tagged previews may scale to zero.
+      - '--min'
       - '2'
+      - '--min-instances'
+      - '0'
 
 substitutions:
   _CLOUD_SQL_CONNECTION_NAME: 'PROJECT_ID:REGION:INSTANCE_NAME'  # Replace with your actual connection name

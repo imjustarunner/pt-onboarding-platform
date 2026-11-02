@@ -541,6 +541,8 @@ jobs:
             | jq -ce '[.spec.template.spec.containers[0].env[]? | select(.valueFrom.secretKeyRef) | .name]')
           ENV_VARS=$(printf '%s' "$SECRET_NAMES" | DEPLOY_ENV_VARS="$ENV_VARS" node scripts/preserve-deploy-secrets.mjs)
 
+          # Service-level minimums keep production warm without keeping each preview alive.
+          # Revision minimums must stay zero, including deployments with a temporary tag.
           for attempt in 1 2 3; do
             gcloud run deploy $SERVICE_NAME \
               --image $IMAGE_NAME:$GITHUB_SHA \
@@ -561,7 +563,8 @@ jobs:
               --cpu-boost \
               --timeout=300 \
               --max-instances=40 \
-              --min-instances=2 \
+              --min=2 \
+              --min-instances=0 \
               --concurrency=40 \
               --startup-probe=httpGet.path=/readyz,httpGet.port=8080,initialDelaySeconds=0,failureThreshold=24,periodSeconds=10,timeoutSeconds=5 \
             && break
