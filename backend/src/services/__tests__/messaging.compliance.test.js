@@ -16,11 +16,20 @@ const sender = { id: 3, agency_id: 2, phone_number: '+13035550100', is_active: 1
   campaign_id: 'C123', registration_json: registration, agency_name: 'ITSCO' };
 const message = { from: sender.phone_number, to: '+13035550101', body: 'Your appointment is tomorrow.', purpose: 'reminders' };
 let permissions;
+let phoneState;
+let permissionEvents;
 let connection;
 beforeEach(() => {
   vi.resetAllMocks();
-  permissions = [];
+  permissions = [];phoneState={blocked:false,command_at:0};permissionEvents=new Set();
   connection = { beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(), execute: vi.fn(async (sql, values) => {
+    if(sql.includes('SELECT blocked,command_at')) return [[phoneState]];
+    if(sql.startsWith('UPDATE auricwell_sms_phone_state')) {phoneState={blocked:values[0],command_at:values[1]};return [{affectedRows:1}];}
+    if(sql.startsWith('INSERT IGNORE INTO sms_permission_events')) {
+      const key=JSON.stringify([values[0],values[1],values[2],values[4]]);
+      const affectedRows=permissionEvents.has(key)?0:1;permissionEvents.add(key);return [{affectedRows}];
+    }
+    if(sql.includes("VALUES (?,?,?,'opted_out',?)")){const [scope,phone,purpose,evidence]=values;permissions=permissions.filter(p=>!(p.scope===scope&&p.phone===phone&&p.purpose===purpose));permissions.push({scope,phone,purpose,status:'opted_out',evidence});return [{affectedRows:1}];}
     if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
     if (sql.includes('INSERT INTO sms_recipient_permissions')) {
       const [scope, phone, purpose, status, evidence, expires] = values;
@@ -31,6 +40,9 @@ beforeEach(() => {
   }) };
   pool.getConnection.mockResolvedValue(connection);
   pool.execute.mockImplementation(async (sql, args) => {
+    if(sql.includes('SELECT blocked FROM auricwell_sms_phone_state')) return [[phoneState]];
+    if(sql.includes('SELECT status FROM sms_recipient_permissions')) return [permissions.filter(p=>p.scope===args[0]&&p.phone===args[1]&&p.purpose===args[2])];
+    if(sql.includes("SELECT status, expires_at FROM sms_recipient_permissions")) return [permissions.filter(p=>p.scope===args[0]&&p.phone===args[1]&&p.purpose==='care')];
     if (sql.includes('FROM twilio_numbers')) return [[sender]];
     if (sql.includes("purpose = 'suppression'")) return [permissions.filter((p) => [args[0], args[1]].includes(p.scope) && p.phone === args[2] && p.purpose === 'suppression' && p.status === 'opted_out')];
     if (sql.includes('FROM sms_recipient_permissions')) return [permissions.filter((p) => p.scope === args[0] && p.phone === args[1] && p.purpose === (args[2] || 'care') && p.status === 'opted_in')];
@@ -108,7 +120,7 @@ describe('campaign-wide SMS delivery gate', () => {
   it('normalizes phones and brands an authorized reminder', async () => {
     permissions.push({ scope: 'campaign:C123', phone: message.to, purpose: 'reminders', status: 'opted_in' });
     expect(await prepareSmsDelivery({ ...message, to: '(303) 555-0101' })).toMatchObject({
-      to: message.to, body: 'ITSCO: Your appointment is tomorrow. Reply STOP to opt out.'
+      to: message.to, body: 'ITSCO: Your appointment is tomorrow. Reply NOREMIND to stop appointment reminders only. Reply STOP to opt out.'
     });
   });
   it('blocks staff, reminders, and care after STOP from an unknown recipient', async () => {
@@ -139,6 +151,46 @@ describe('campaign-wide SMS delivery gate', () => {
   it('does not grant a new subscription from START', async () => {
     await processSmsKeyword({ from: message.to, to: message.from, body: 'START', sendReply: vi.fn() });
     await expect(prepareSmsDelivery(message)).rejects.toMatchObject({ code: 'sms_consent_required' });
+  });
+  it('NOREMIND stops reminders only, survives START, and confirms once per received message', async () => {
+    permissions.push(...['care','reminders'].map(purpose=>({scope:'campaign:C123',phone:message.to,purpose,status:'opted_in'})));
+    const sendReply=vi.fn(async options=>prepareSmsDelivery(options));
+    const command={from:message.to,to:message.from,body:' noremind ',messageId:'category-1',sendReply};
+    await processSmsKeyword(command);
+    await processSmsKeyword(command);
+    expect(sendReply).toHaveBeenCalledTimes(1);
+    expect(sendReply.mock.calls[0][0].body).toContain('provider texting choice is unchanged');
+    await expect(prepareSmsDelivery(message)).rejects.toMatchObject({code:'sms_consent_required'});
+    await expect(prepareSmsDelivery({...message,purpose:'care'})).resolves.toMatchObject({to:message.to});
+    await processSmsKeyword({...command,body:'START',messageId:'start-category-1'});
+    await expect(prepareSmsDelivery(message)).rejects.toMatchObject({code:'sms_consent_required'});
+    expect(permissions.find(p=>p.purpose==='reminders').status).toBe('opted_out');
+  });
+  it('declining provider texting preserves reminders and an inbound question cannot override that decline', async () => {
+    permissions.push({scope:'campaign:C123',phone:message.to,purpose:'care',status:'opted_out'},
+      {scope:'campaign:C123',phone:message.to,purpose:'reminders',status:'opted_in'});
+    await recordInboundConversation({from:message.to,to:message.from,messageId:'question-after-decline'});
+    await expect(prepareSmsDelivery({...message,purpose:'care'})).rejects.toMatchObject({code:'sms_consent_required'});
+    await expect(prepareSmsDelivery(message)).resolves.toMatchObject({to:message.to});
+  });
+  it('Notifyre STOP crosses campaigns, while a delayed START cannot clear a newer STOP', async () => {
+    const at=Date.now()-2000;
+    await processSmsKeyword({from:message.to,to:message.from,body:'STOP',receivedAt:at,messageId:'dated-stop',sendReply:vi.fn()});
+    await processSmsKeyword({from:message.to,to:message.from,body:'START',receivedAt:at-1000,messageId:'old-start',sendReply:vi.fn()});
+    expect(phoneState.blocked).toBe(true);
+    pool.execute.mockResolvedValueOnce([[{...sender,campaign_id:'OTHER',registration_json:{...registration,campaignId:'OTHER'}}]]);
+    await expect(prepareSmsDelivery(message)).rejects.toMatchObject({code:'sms_opted_out'});
+    pool.execute.mockResolvedValueOnce([[{...sender,campaign_id:'WORK',registration_json:{...registration,provider:'vonage',purposes:['workforce'],campaignId:'WORK'}}]]);
+    permissions.push({scope:'campaign:WORK',phone:message.to,purpose:'workforce',status:'opted_in'});
+    await expect(prepareSmsDelivery({...message,purpose:'workforce'})).resolves.toMatchObject({to:message.to});
+  });
+  it('NOREMIND after STOP records the category decline without sending an extra text', async () => {
+    const sendReply=vi.fn();
+    await processSmsKeyword({from:message.to,to:message.from,body:'STOP',messageId:'stop-before-category',sendReply});
+    sendReply.mockClear();
+    await processSmsKeyword({from:message.to,to:message.from,body:'NOREMIND',messageId:'category-after-stop',sendReply});
+    expect(sendReply).not.toHaveBeenCalled();
+    expect(permissions.find(p=>p.purpose==='reminders').status).toBe('opted_out');
   });
   it('gives HELP a real support contact, without changing subscription state', async () => {
     const sendReply = vi.fn();

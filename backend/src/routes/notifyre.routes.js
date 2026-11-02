@@ -37,7 +37,7 @@ export const notifyreWebhook = async (req, res, next) => {
       let status = 200, response = { ok: true }, failure;
       const proxy = { status(value) { status = value; return this; }, json(value) { response = value; return this; } };
       req.smsProvider = 'notifyre'; req.query = {};
-      req.body = { from: event.from, to: event.to, text: event.text, messageId: event.id };
+      req.body = { from: event.from, to: event.to, text: event.text, messageId: event.id, receivedAt: event.at };
       await inboundSmsWebhook(req, proxy, error => { failure = error; });
       if (failure) throw failure;
       if (status >= 400) return res.status(status).json(response);

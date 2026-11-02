@@ -7,6 +7,7 @@ import { allowQaSmsDelivery } from '../utils/auricwellQaPolicy.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import { parseSmsKeyword, SMS_PURPOSES, smsPolicyError, validateSmsRegistration, formatRegisteredSms } from '../utils/smsCompliancePolicy.js';
 import { CLIENT_SMS_PURPOSES, assertSmsCarrierPurpose, notifyreCampaignForAgency } from '../utils/smsCarrierPolicy.js';
+import { notifyrePhoneStopped, applyNotifyreAccountCommand, notifyrePurposeOptedOut, declineNotifyrePurpose } from './notifyreRecipientState.service.js';
 
 const json = (value) => typeof value === 'string' ? JSON.parse(value) : value;
 // One-use capabilities bind an automated control reply to its exact recipient/body.
@@ -68,6 +69,7 @@ export async function recordSmsPermission({ scope, phone, purpose, status, evide
 }
 
 export async function isSmsSuppressed(sender, phone) {
+  if (sender.registration?.provider === 'notifyre' && await notifyrePhoneStopped(phone)) return true;
   // Number fallback preserves a STOP received before a campaign was configured.
   const [rows] = await pool.execute(
     `SELECT 1 FROM sms_recipient_permissions WHERE scope_key IN (?, ?)
@@ -190,7 +192,9 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
   if (['workforce', 'polling'].includes(purpose) && String(evidence?.reference || '').startsWith('staff_communications:')) {
     throw smsPolicyError('sms_consent_review_required', 'Staff preferences require administrator-reviewed SMS enrollment before delivery');
   }
-  return { to: recipient, from: sender.phone_number, agencyId: sender.agency_id, body: formatRegisteredSms(body, registration.brandName, purpose === 'care' ? senderFirstName : null), registration, purpose };
+  const content = purpose === 'reminders' && !/\bNOREMIND\b/i.test(body)
+    ? `${body} Reply NOREMIND to stop appointment reminders only.` : body;
+  return { to: recipient, from: sender.phone_number, agencyId: sender.agency_id, body: formatRegisteredSms(content, registration.brandName, purpose === 'care' ? senderFirstName : null), registration, purpose };
 }
 
 export async function resolveRegisteredSmsSender({ agencyId, purpose, numberId = null, requiredPurpose = null }) {
@@ -254,19 +258,20 @@ export async function recordInboundConversation({ from, to, messageId }) {
     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) });
 }
 
-export async function processSmsKeyword({ from, to, body, messageId, sendReply }) {
-  const keyword = parseSmsKeyword(body);
+export async function processSmsKeyword({ from, to, body, messageId, receivedAt = Date.now(), sendReply }) {
+  const keyword = String(body || '').trim().toUpperCase() === 'NOREMIND' ? 'NOREMIND' : parseSmsKeyword(body);
   if (!keyword) return false;
   const sender = await getSmsSender(to);
   const phone = normalizeSmsPhone(from);
   const registration = sender.registration;
+  if (keyword === 'NOREMIND' && registration?.provider !== 'notifyre') return false;
   const brand = registration?.brandName || sender.agency_name || 'AuricWell';
   const contact = registration?.supportContact || sender.support_phone;
   const evidence = { source: `inbound_${keyword.toLowerCase()}`, messageId: messageId || null, numberId: sender.id };
   let consentDb;
   let locked = false;
   const lockName = contactReminderConsentLock(sender, phone);
-  if (registration?.provider === 'notifyre' && ['START', 'STOP'].includes(keyword)) {
+  if (registration?.provider === 'notifyre' && ['START', 'STOP', 'NOREMIND'].includes(keyword)) {
     consentDb = await pool.getConnection();
     const [[lock]] = await consentDb.execute('SELECT GET_LOCK(?, 5) AS acquired', [lockName]);
     locked = Number(lock?.acquired) === 1;
@@ -274,7 +279,27 @@ export async function processSmsKeyword({ from, to, body, messageId, sendReply }
   }
   try {
   let reply;
-  if (keyword === 'STOP') {
+  if (consentDb && ['STOP','START'].includes(keyword)
+      && (keyword === 'STOP' || (!validateSmsRegistration(registration).length && registration.allowRestart === true))) {
+    await consentDb.beginTransaction();
+    try {
+      const applied = await applyNotifyreAccountCommand({phone, keyword, at:receivedAt}, consentDb);
+      await consentDb.commit();
+      if (!applied) return true;
+    } catch (error) { await consentDb.rollback(); throw error; }
+  }
+  if (keyword === 'NOREMIND') {
+    await consentDb.beginTransaction();
+    try {
+      const changed = await declineNotifyrePurpose({scope:sender.scope,phone,purpose:'reminders',evidence:{...evidence,collectedAt:new Date(receivedAt).toISOString()}},consentDb);
+      await consentDb.commit();
+      if (!changed) return true;
+    } catch (error) { await consentDb.rollback(); throw error; }
+    // It is a category command, not a conversation for staff to answer.
+    // No confirmation may bypass an account-wide STOP.
+    if (await isSmsSuppressed(sender, phone)) return true;
+    reply = `${brand}: Appointment text reminders are off. Your provider texting choice is unchanged. Use your notification settings or contact support to opt back into reminders. Reply STOP to stop all texts or HELP for help.`;
+  } else if (keyword === 'STOP') {
     const changed = await recordSmsPermission({ scope: sender.scope, phone, purpose: 'suppression', status: 'opted_out', evidence });
     const { applyContactReminderSmsKeyword } = await import('./contactReminderSmsConsent.service.js');
     await applyContactReminderSmsKeyword({ sender, phone, keyword, messageId });
@@ -288,7 +313,7 @@ export async function processSmsKeyword({ from, to, body, messageId, sendReply }
       if (!changed) return true;
       await recordSmsPermission({ scope: `number:${sender.id}`, phone, purpose: 'suppression', status: 'opted_in', evidence });
       const { applyContactReminderSmsKeyword } = await import('./contactReminderSmsConsent.service.js');
-      await applyContactReminderSmsKeyword({ sender, phone, keyword, messageId });
+      if (!await notifyrePurposeOptedOut(sender.scope,phone,'reminders')) await applyContactReminderSmsKeyword({ sender, phone, keyword, messageId });
       reply = `${brand}: Texting is re-enabled for your existing subscriptions. Message frequency varies. Message and data rates may apply. Reply HELP for help, STOP to opt out.`;
     } else {
       reply = `${brand}: To subscribe, contact ${contact || 'your practice through its website'}. Reply STOP to opt out.`;
@@ -296,7 +321,7 @@ export async function processSmsKeyword({ from, to, body, messageId, sendReply }
   } else {
     reply = `${brand}: For help, contact ${contact || 'your practice through its website'}. Message frequency varies. Message and data rates may apply. Reply STOP to opt out.`;
   }
-  if (!['vonage', 'notifyre'].includes(registration?.keywordOwner)) {
+  if (keyword === 'NOREMIND' || !['vonage', 'notifyre'].includes(registration?.keywordOwner)) {
     const capability = { to: phone, from: sender.phone_number, body: reply };
     controlReplies.add(capability);
     await sendReply({ ...capability, complianceReply: capability });

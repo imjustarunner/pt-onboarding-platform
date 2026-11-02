@@ -4,6 +4,7 @@ export default {...regression,test:{...regression.test,include:[...new Set([...r
  'src/services/__tests__/staffVerbalReminderConsent.test.js',
  'src/services/__tests__/emailMobileLayout.test.js',
  'src/services/__tests__/smsConsentVerbalGate.test.js',
+ 'src/services/__tests__/notifyreSharedPreferences.test.js',
  'src/services/__tests__/scheduling.cancellationOutreach.test.js',
  'src/services/__tests__/messaging.outboundSignature.test.js'
 ])]}};

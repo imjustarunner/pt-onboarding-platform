@@ -4,6 +4,7 @@ import { fail, hash, json, has, requirePhi, requirePermission, ledgerBalance } f
 import { patientAccess } from './clinical.js';
 import { platformIntegrations, recordNotifyreWebhookVerified } from './platformIntegrations.js';
 import { normalizeSessionPhone } from './integrationPolicy.js';
+import { notifyrePurposeOptedOut, declineNotifyrePurpose } from '../notifyreRecipientState.service.js';
 import { notifyreRequest, notifyreReceipt } from './sessionTransports.js';
 import { SMS_CATEGORIES, emptyCategories, CATEGORY_COMMANDS, phoneKey, routeFor, assertMessagingReady,
   smsCommand, smsFooter, verifyNotifyreSignature, normalizeNotifyreEvent, parseRelayReply, onRelayShift } from './clientMessagingPolicy.js';
@@ -46,11 +47,17 @@ export async function clientSmsPreferences(ctx, patientId) {
   const route = routeFor(settings, ctx.practiceId);
   let ready = false;
   try { assertMessagingReady(settings, ctx.practiceId); ready = true; } catch { /* Display setup state without preventing consent collection. */ }
+  const categories = valid ? { ...contact.data.categories } : emptyCategories();
+  if (phone && settings.smsProvider === 'notifyre' && route?.campaignId) {
+    for (const [category, purpose] of [['reminders', 'reminders'], ['conversations', 'care']]) {
+      if (await notifyrePurposeOptedOut(`campaign:${route.campaignId}`, phone, purpose)) categories[category] = false;
+    }
+  }
   const state = phone ? await phoneState(phone) : { blocked: false };
   const preferences = await findSource(ctx, 'session_preferences', patientId);
   return { phone: patient.data.phone || '', email: patient.data.email || '', revision: valid ? contact.revision : 0,
-    emailEnabled: preferences?.data.emailEnabled !== false, categories: valid ? contact.data.categories : emptyCategories(),
-    smsEnabled: valid && Object.values(contact.data.categories).some(Boolean), smsAvailable: ready,
+    emailEnabled: preferences?.data.emailEnabled !== false, categories,
+    smsEnabled: valid && Object.values(categories).some(Boolean), smsAvailable: ready,
     smsFrom: route?.mainNumber || '', brand: route?.brand || ctx.practiceName, stopped: !!state.blocked,
     recipientAccountId: valid ? contact.data.accountId || '' : '', consentMethod: valid ? contact.data.consentMethod || '' : '',
     consentAt: valid ? contact.data.consentAt || null : null };
@@ -76,7 +83,16 @@ export async function saveClientSmsPreferences(ctx, patientId, input) {
     const prior = await contactByPhone(ctx, phone, db, true);
     if (prior?.patient_id && prior.patient_id !== patientId) throw fail(409, 'This phone is linked to another chart. Staff must review the shared recipient before changing consent.');
     if ((prior?.revision || 0) !== input.revision) throw fail(409, 'Preferences changed. Reload before saving.');
-    const newlyEnabled = SMS_CATEGORIES.some(k => categories[k] && (!prior?.data.categories?.[k] || (accountId && accountId !== prior?.data.accountId)));
+    const { settings: messagingSettings } = await platformIntegrations(db);
+    const messagingRoute = routeFor(messagingSettings, ctx.practiceId);
+    const declined = {};
+    if (messagingSettings.smsProvider === 'notifyre' && messagingRoute?.campaignId) {
+      for (const [category, purpose] of [['reminders', 'reminders'], ['conversations', 'care']]) {
+        declined[category] = await notifyrePurposeOptedOut(`campaign:${messagingRoute.campaignId}`, phone, purpose, db);
+      }
+    }
+    const enabledCategories = SMS_CATEGORIES.filter(k => categories[k] && (declined[k] || !prior?.data.categories?.[k] || (accountId && accountId !== prior?.data.accountId)));
+    const newlyEnabled = enabledCategories.length > 0;
     if (newlyEnabled && (!accountId || input.consentConfirmed !== true || !String(input.evidence || '').trim() || !['verbal_phone','verbal_in_person','written','portal'].includes(input.consentMethod)))
       throw fail(400, 'Record the recipient’s affirmative permission, method, and consent evidence.');
     const data = { ...prior?.data, phone, categories, accountId: accountId || prior?.data.accountId || null,
@@ -84,6 +100,7 @@ export async function saveClientSmsPreferences(ctx, patientId, input) {
       consentMethod: newlyEnabled ? input.consentMethod : prior?.data.consentMethod,
       consentAt: newlyEnabled ? now() : prior?.data.consentAt || null,
       evidence: newlyEnabled ? String(input.evidence).trim().slice(0, 1000) : prior?.data.evidence || '',
+      conversationsDeclined: categories.conversations ? false : !!prior?.data.conversationsDeclined || prior?.data.categories?.conversations === true,
       consentActor: newlyEnabled ? ctx.accountId : prior?.data.consentActor || null, updatedAt: now() };
     let id = prior?.id || crypto.randomUUID();
     if (prior) {
@@ -96,6 +113,15 @@ export async function saveClientSmsPreferences(ctx, patientId, input) {
     const prefs = await findSource(ctx, 'session_preferences', patientId, db);
     const value = { ...prefs?.data, emailEnabled: input.emailEnabled !== false, updatedAt: now(), updatedBy: ctx.accountId };
     if (prefs) await update(ctx, prefs, value, db); else await create(ctx, 'session_preferences', value, { patientId, sourceKey: patientId }, db);
+    if (messagingSettings.smsProvider === 'notifyre' && messagingRoute?.campaignId) {
+      for (const [category,purpose] of [['reminders','reminders'],['conversations','care']]) {
+        const scope = `campaign:${messagingRoute.campaignId}`;
+        if (!categories[category] && prior?.data.categories?.[category]) await declineNotifyrePurpose({scope,phone,purpose,
+          evidence:{source:'preference_center',actor:ctx.accountId,messageId:`preferences:${id}:${prior.revision}:${category}`}},db);
+        if (enabledCategories.includes(category)) await db.execute(`DELETE FROM sms_recipient_permissions
+          WHERE scope_key=? AND phone=? AND purpose=? AND status='opted_out'`,[scope,phone,purpose]);
+      }
+    }
     if (newlyEnabled) {
       const { settings } = await platformIntegrations(db);
       const route = routeFor(settings, ctx.practiceId);
@@ -211,6 +237,10 @@ export async function dispatchSms(id, deps = {}) {
       if (candidate.category === 'welcome') permitted = Object.values(fresh.data.categories || {}).some(Boolean);
       if (['help','preference'].includes(candidate.category)) permitted = true; // Only queued in response to the recipient's command.
       if (candidate.category === 'conversations' && !permitted) permitted = Date.parse(fresh.data.inquiryAt || '') > Date.now() - 72 * 3600000;
+      // A prior inquiry cannot reopen provider texting after an explicit decline.
+      if (candidate.category === 'conversations' && fresh.data.conversationsDeclined) permitted = false;
+      const purpose = {reminders:'reminders',conversations:'care'}[candidate.category];
+      if (purpose && await notifyrePurposeOptedOut(`campaign:${route.campaignId}`,fresh.data.phone,purpose,db)) permitted = false;
       if (['relay','relay_control'].includes(candidate.category)) {
         permitted = await relayRecipientAllowed(ctx, body.relayAccountId, fresh.data.phone, db);
         if (permitted && candidate.category==='relay') await authorizedThread(await activeStaffContext(ctx, body.relayAccountId, db), body.relayThreadId, db);
@@ -414,6 +444,12 @@ async function applyCommand(ctx, event, command, db) {
     }
     // Carrier handles the standard STOP/START confirmation. No duplicate SMS.
     return;
+  }
+  if (command.type === 'category' && command.category === 'reminders' && event.carrier !== 'vonage') {
+    const { settings } = await platformIntegrations(db);
+    const route = routeFor(settings, ctx.practiceId);
+    if (route?.campaignId) await declineNotifyrePurpose({scope:`campaign:${route.campaignId}`,phone:event.from,purpose:'reminders',
+      evidence:{source:'inbound_noremind',messageId:event.id,collectedAt:new Date(event.at).toISOString()}},db);
   }
   if (command.type === 'category' && contact) {
     const changed = contact.data.commandAt?.[command.category] || 0;

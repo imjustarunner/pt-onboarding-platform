@@ -7,6 +7,10 @@ the mobile-email/support verbal-consent changes in 5395bcdab. These are shared
 product changes; the retained synthetic tenant supplies the test evidence.
 Include this follow-up's support consent readiness fix: consent remains pending
 when the clinical transport is disabled or its required configuration is absent.
+The follow-up also connects Notifyre account-wide STOP across the two messaging
+paths, preserves separate reminder/provider choices, and fixes the frontend build
+so the shared repairs can deploy. Unit checks and a production build have passed;
+the live checks below remain NOT RUN until performed against the deployed release.
 This document is a test assignment, not a completed browser or delivery pass.
 Preserve the earlier overall FAIL and all open findings until verified again.
 
@@ -144,13 +148,24 @@ Fresh read-only app checks on November 1:
   presence does not verify the agreement or configure the reminder transport.
 - The reminder Notifyre webhook receipt table has zero receipts.
 - An existing workforce STOP remains recorded. Preserve it during setup.
-- The actual provider campaign describes account-wide STOP. The older reminder
-  path currently records suppression per campaign/number, while the separate
-  AuricWell path uses its own phone-state store. Reconcile these boundaries and
-  verify suppression before enabling traffic through the shared provider account.
-- Google Cloud's interactive operator login requires reauthentication. The
-  service account used for the read-only checks cannot update Cloud Run. Live
-  backend environment/secret bindings remain unverified until operator sign-in.
+- The provider campaign describes account-wide STOP. This follow-up uses the
+  shared phone-state store at both Notifyre send boundaries. Verify the deployed
+  behavior across numbers before enabling traffic through the shared account.
+- Google Cloud operator authentication now works. The running backend inspected
+  here was still image 5395bcdab (onboarding-backend-g41345711540a1). Newer builds
+  failed because the frontend imported a backend file outside its Docker context;
+  this follow-up repairs that import. Record the actual successful deployment.
+- The backend has AURICWELL_NOTIFYRE_* secret bindings, but no NOTIFYRE_* settings
+  and no mounted runtime environment. The reminder transport is unconfigured.
+- Existing Notifyre webhook supplied by the owner:
+  https://auricwell-65v3jdyqba-wm.a.run.app/api/auricwell-sms/webhook
+  Its Cloud Run proxy forwards that route to the current onboarding backend.
+  Preserve it for the separate AuricWell messaging/fax integration.
+- A separate reminder webhook is requested at:
+  https://app.itsco.health/api/notifyre/webhook
+  Select sms_received and sms_sent. Bind its actual signing secret securely;
+  do not use the existing webhook's secret by assumption. Provider-side creation,
+  signed receipt and recipient delivery are still pending verification.
 These are setup blockers, not evidence of a failed delivery attempt. No text was
 sent and no recipient consent or live sender configuration was changed here.
 
@@ -190,14 +205,27 @@ and identify the gate. Reload/retry must not create duplicate confirmation texts
 Inspect actual phone receipt and provider delivery ID; API acceptance is not
 delivery. Never mark the number ending 7000 opted in merely from this plan.
 
-RT13 — Reminder delivery, STOP and isolation
+RT13 — Reminder delivery, category choices, STOP and isolation
 Use one future synthetic appointment for the approved recipient. Inspect the
 scheduled due time and wait normally. Verify one minimal reminder, correct
 agency/sender, recipient, timezone and permitted destination. Reply through the
-registered route; verify actual inbound handling. A designated test recipient
-then tests STOP: support cannot override it, and later reminders stay suppressed.
-Test HELP/START only under the actual registered behavior, preserving category
-choices. Check another client/guardian/agency cannot inherit that permission.
+registered route; verify actual inbound handling. The implemented category
+commands are NOREMIND (appointment reminders), NOLINK (session links) and NOFORM
+(form texts). The separate AuricWell messaging workspace supports all three;
+the appointment-reminder endpoint supports NOREMIND. Do not claim the latter
+implements link/form messages merely because the commands exist elsewhere.
+Verify NOREMIND stops appointment reminders while provider texts remain at the
+recipient's prior choice. Turn provider texting off through its separate
+preference control; reminders must retain their own choice. A recent incoming
+inquiry must not undo an explicit provider-text decline. No provider-only text
+keyword was found; do not invent one in the instructions.
+A designated test recipient then tests STOP: it blocks all Notifyre texts across
+that account's configured numbers. Support cannot override it. A genuine later
+START/UNSTOP clears the account stop but preserves declined categories. YES,
+HELP and an unrelated inbound message must not clear STOP or re-enroll reminders.
+Reject invalid signatures; duplicate and out-of-order events must not restart
+texts or repeat confirmations. Verify Vonage workforce choices are unchanged.
+Check another client/guardian/agency cannot inherit that permission.
 Do not enroll billing/marketing or another person's phone from reminder consent.
 
 Timed follow-up and handoff

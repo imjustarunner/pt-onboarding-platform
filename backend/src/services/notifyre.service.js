@@ -61,8 +61,9 @@ export function normalizeNotifyreEvent(event) {
     const id = payload.ReplyID || payload.replyID;
     const from = payload.SenderNumber || payload.senderNumber;
     const to = payload.RecipientNumber || payload.recipientNumber;
-    if (!id || !from || !to) throw new Error('Incomplete Notifyre received event.');
-    return { type, id: `notifyre:${id}`, from, to, text: payload.Message ?? payload.message ?? '' };
+    const at = Number(payload.ReceivedDateUtc || payload.receivedDateUtc || event.Timestamp) * 1000;
+    if (!id || !from || !to || !Number.isFinite(at) || at <= 0 || at > Date.now() + 300000) throw new Error('Incomplete Notifyre received event.');
+    return { type, id: `notifyre:${id}`, from, to, text: payload.Message ?? payload.message ?? '', at };
   }
   if (type === 'sms_sent') {
     const recipient = payload.Recipient || payload.recipient || {};

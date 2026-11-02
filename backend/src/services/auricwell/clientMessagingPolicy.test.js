@@ -4,7 +4,7 @@ import {integrationDefaults,cleanPlatformSettings,publicPlatformSettings} from '
 test('category opt-outs are distinct and never equivalent to account STOP',()=>{
  for(const [word,category] of [['NOREMIND','reminders'],['NOLINK','links'],['NOFORM','forms']]) assert.deepEqual(smsCommand(` ${word.toLowerCase()} `),{type:'category',category});
  for(const word of ['STOP','unsubscribe','Please stop texting me.','Do not message me']) assert.equal(smsCommand(word).type,'stop');
- assert.equal(smsCommand('START').type,'start');assert.equal(smsCommand('Y').type,'attendance');assert.equal(smsCommand('I need to change my appointment'),null);
+ assert.equal(smsCommand('START').type,'start');assert.equal(smsCommand('Y').type,'attendance');assert.equal(smsCommand('YES'),null);assert.equal(smsCommand('I need to change my appointment'),null);
  assert.ok(smsFooter('forms').includes('NOFORM'));assert.ok(!smsFooter('conversations').includes('NOFORM'));
 });
 test('Notifyre signature authenticates full payload, rejects future/stale timestamps and wrong secrets',()=>{

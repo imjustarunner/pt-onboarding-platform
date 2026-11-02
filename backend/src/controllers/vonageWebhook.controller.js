@@ -150,7 +150,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
 
     // Control keywords must win over events, appointments, care routing and forwarding.
     // This also handles staff, contacts and unknown clients on notification numbers.
-    if (await processSmsKeyword({ from: fromNorm, to: toNorm, body, messageId,
+    if (await processSmsKeyword({ from: fromNorm, to: toNorm, body, messageId, receivedAt: req.smsProvider === 'notifyre' ? body_payload.receivedAt : undefined,
       sendReply: (options) => VonageService.sendSms(options) })) {
       return res.status(200).json({ ok: true });
     }

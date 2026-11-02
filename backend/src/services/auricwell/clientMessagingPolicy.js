@@ -11,7 +11,7 @@ export function smsCommand(body) {
   if (CATEGORY_COMMANDS[value]) return { type: 'category', category: CATEGORY_COMMANDS[value] };
   if (/^(STOP|STOPALL|UNSUBSCRIBE|CANCEL|END|QUIT|REVOKE|OPT OUT)[.!]?$/.test(value)
     || /^(PLEASE )?(STOP (TEXTING|MESSAGING)( ME)?|DO NOT (TEXT|MESSAGE)( ME)?|DON'T (TEXT|MESSAGE)( ME)?|REMOVE ME( FROM (YOUR|THE) (LIST|TEXTS))?)[.!]?$/.test(value)) return { type: 'stop' };
-  if (['START', 'UNSTOP', 'YES'].includes(value)) return { type: 'start' };
+  if (['START', 'UNSTOP'].includes(value)) return { type: 'start' };
   if (['HELP', 'INFO'].includes(value)) return { type: 'help' };
   if (value === 'Y') return { type: 'attendance' };
   return null;

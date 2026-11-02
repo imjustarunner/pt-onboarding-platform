@@ -126,7 +126,7 @@ export async function recordStaffVerbalReminderConsent({user,clientId,input,send
   finally{if(locked)await db.execute('SELECT RELEASE_LOCK(?)',[lock]);db.release();}
   let confirmation='not_sent';
   if(activated){
-    try{const result=await sendConfirmation({to:person.phone,from:p.sender.phone_number,agencyId:client.agency_id,clientId:Number(client.id),purpose:'reminders',notificationCategory:'appointments',body:`${p.sender.registration.brandName}: You agreed to appointment texts. Frequency varies. Message and data rates may apply. Reply STOP to stop or HELP for help.`});confirmation=result?.sid||result?.id?'accepted':'review';}
+    try{const result=await sendConfirmation({to:person.phone,from:p.sender.phone_number,agencyId:client.agency_id,clientId:Number(client.id),purpose:'reminders',notificationCategory:'appointments',body:`${p.sender.registration.brandName}: You agreed to appointment texts. Frequency varies. Message and data rates may apply. Reply NOREMIND to stop appointment reminders only; STOP to stop all texts or HELP for help.`});confirmation=result?.sid||result?.id?'accepted':'review';}
     catch{confirmation='review';}
     await pool.execute('INSERT INTO user_activity_log (action_type,user_id,agency_id,metadata) VALUES (?,?,?,?)',['staff_verbal_reminder_confirmation',user.id,client.agency_id,JSON.stringify({clientId:Number(client.id),consentEventId:eventId,confirmation})]);
   }
