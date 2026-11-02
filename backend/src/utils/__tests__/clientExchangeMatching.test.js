@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { evaluateExchangeListing, exchangeSlotMatches, matchesExchangeListing, ageRange, clientAge } from '../clientExchangeMatching.js';
 import { compareExchangeFit, exchangeFitScore, groupedExchangeParameters } from '../../../../frontend/src/navigation/clientExchangePolicy.js';
 const base = {
+  officeCoverage:{known:true,cities:['Colorado Springs'],officeIds:[1]},
   user: { sees_clients: 1, provider_accepting_new_clients: 1, in_office_available: 1 },
   profile: { details: {}, insurances: ['Aetna'] },
   facets: { ageGroups: ['Children (6-10)'], specialties: ['Anxiety'] },
-  listing: { demographics: { ageBand: '8-10' }, presentingProblems: ['anxiety'], preferences: { modality: 'in_person' } }
+  listing: { demographics: { ageBand: '8-10' }, presentingProblems: ['anxiety'], preferences: { modality: 'in_person', serviceLocation: 'Colorado Springs' } }
 };
 test('missing optional referral details do not reduce fit or block an otherwise eligible provider',()=>{
  const fit=evaluateExchangeListing({...base,listing:{preferences:{},demographics:{},presentingProblems:[]}});
@@ -15,27 +16,28 @@ test('missing optional referral details do not reduce fit or block an otherwise 
  assert.equal(fit.checks.find(c=>c.field==='schedule').applicable,false);
  assert.equal(fit.matchScore,null);
 });
-test('unverified requested availability allows a possible match but needs confirmation before assignment',()=>{
+test('missing typical availability does not block matching or assignment',()=>{
  const listing={...base.listing,preferences:{schedule:{days:['Tuesday']}}};
  const fit=evaluateExchangeListing({...base,listing});
- assert.equal(fit.canRequest,true);assert.equal(fit.matched,true);assert.equal(fit.canNotify,true);assert.equal(fit.canAssign,false);
- assert.ok(fit.assignmentBlockers.some(c=>c.code==='schedule'));
+ assert.equal(fit.canRequest,true);assert.equal(fit.matched,true);assert.equal(fit.canNotify,true);assert.equal(fit.canAssign,true);
+ assert.ok(!fit.assignmentBlockers.some(c=>c.code==='schedule'));
 });
-test('age-three Medicaid referral matches known criteria without diagnosis, city or gender exclusions', () => {
- const args = { user: base.user, profile: { ...base.profile, insurances: ['Medicaid'], details: { clinicalFocus: { reviewed: true, excluded: { ageGroups: [] }, top: { ageGroups: ['Teen (14-18)', 'Adults (18+)'] } } } },
-  listing: { demographics: { ageBand: '3' }, diagnoses: [], preferences: { modality: 'in_person', insurance: 'Medicaid', serviceLocation: '', providerGender: null, schedule: { days: ['Tuesday','Thursday','Friday'], periods: ['afternoon'] } } }, slots: [], availabilityKnown: false };
+test('age-three Medicaid referral matches its saved city without diagnosis or gender exclusions', () => {
+ const args = { officeCoverage:base.officeCoverage,user: base.user, profile: { ...base.profile, insurances: ['Medicaid'], details: { clinicalFocus: { reviewed: true, excluded: { ageGroups: [] }, top: { ageGroups: ['Teen (14-18)', 'Adults (18+)'] } } } },
+  listing: { demographics: { ageBand: '3' }, diagnoses: [], preferences: { modality: 'in_person', insurance: 'Medicaid', serviceLocation: 'Colorado Springs', providerGender: null, schedule: { days: ['Tuesday','Thursday','Friday'], periods: ['afternoon'] } } }, slots: [], availabilityKnown: false };
  const fit = evaluateExchangeListing(args);
- assert.equal(fit.matched, true); assert.equal(fit.canAssign, false); assert.equal(fit.canNotify, true);
- for (const field of ['provider_gender','diagnoses','location']) assert.equal(fit.checks.find(c=>c.field===field).applicable, false);
+ assert.equal(fit.matched, true); assert.equal(fit.canAssign, true); assert.equal(fit.canNotify, true);
+ for (const field of ['provider_gender','diagnoses']) assert.equal(fit.checks.find(c=>c.field===field).applicable, false);
  assert.match(fit.checks.find(c=>c.field==='age').reason, /Toddler \(0-5\)/);
  assert.equal(evaluateExchangeListing({ ...args, profile: { ...args.profile, insurances: ['Aetna'] } }).canRequest, false);
- assert.equal(evaluateExchangeListing({ ...args, availabilityKnown: true }).matched, false);
+ assert.equal(evaluateExchangeListing({ ...args, availabilityKnown: true }).matched, true);
 });
-test('undecided location placeholders are not exclusions or score penalties', () => {
+test('missing in-person city needs confirmation without blocking a request', () => {
  for (const serviceLocation of ['', 'Not yet decided', 'Other location']) {
   const fit = evaluateExchangeListing({ ...base, listing: { preferences: { serviceLocation, modality: 'in_person' } } });
-  assert.equal(fit.matched, true); assert.equal(fit.matchScore, 100);
-  assert.equal(fit.checks.find(c=>c.field==='location').applicable, false);
+  assert.equal(fit.matched, false); assert.equal(fit.canRequest, true); assert.equal(fit.canNotify, false);
+  assert.equal(fit.checks.find(c=>c.field==='location').applicable, true);
+  assert.equal(fit.checks.find(c=>c.field==='location').canWaive, false);
  }
 });
 test('independent and provisional qualification requirements distinguish candidates and bachelor-level providers',()=>{
@@ -111,7 +113,7 @@ test('age warnings and waivers use the same fingerprint with chart DOB or hydrat
   assert.equal(chart.checks.find(c => c.field === 'age').fingerprint, evaluateExchangeListing(args).checks.find(c => c.field === 'age').fingerprint);
 });
 test('waiving fit differences for a closed provider does not resume automatic notifications', () => {
-  const args = { ...base, user: { ...base.user, provider_accepting_new_clients: 0 } };
+  const args = { ...base, user: { ...base.user, provider_accepting_new_clients: 0 }, slots:[{format:'IN_PERSON',city:'Colorado Springs',startAt:'2099-01-05T17:00:00Z',endAt:'2099-01-05T18:00:00Z'}],availabilityKnown:true };
   const initial = evaluateExchangeListing(args);
   const waivers = initial.checks.filter(c => c.canWaive && c.status === 'fail').map(c => ({ field: c.field, fingerprint: c.fingerprint, reason: 'Support reviewed this referral' }));
   const fit = evaluateExchangeListing({ ...args, waivers });
@@ -136,7 +138,7 @@ test('agency-specific closed intake and does-not-see-clients exclude recipients'
   assert.equal(matchesExchangeListing({ ...base, user: { ...base.user, provider_accepting_new_clients: 0 } }), false);
 });
 test('tenant-specific open virtual intake overrides global closed intake', () => {
-  assert.equal(matchesExchangeListing({ ...base, user: { provider_accepting_new_clients: 0 }, profile: { agencyAvailability: { seesClients: true, acceptingNewClients: true, virtual: true } }, listing: { ...base.listing, preferences: { modality: 'either' } } }), true);
+  assert.equal(matchesExchangeListing({ ...base, user: { provider_accepting_new_clients: 0 }, profile: { agencyAvailability: { seesClients: true, acceptingNewClients: true, virtual: true } }, listing: { ...base.listing, preferences: { modality: 'either',serviceLocation:'Colorado Springs' } } }), true);
 });
 test('uses DOB age when a broad listing band is provided, without copying DOB', () => {
   assert.equal(clientAge({ date_of_birth: '2016-10-01' }, new Date('2026-09-29')), 9);
@@ -237,7 +239,7 @@ test('day/time differences are requestable and a single opening must satisfy all
  const now = new Date('2026-10-26T00:00:00Z');
  const preferences = { modality: 'in_person', insurance: 'Aetna', serviceLocation: 'Denver', schedule: { days: ['Tuesday'], periods: ['evening'], timezone: 'America/Denver' } };
  const slots = [{ startAt: '2026-10-27T16:00:00Z', endAt: '2026-10-27T17:00:00Z', format: 'IN_PERSON', city: 'Denver' }, { startAt: '2026-10-29T00:00:00Z', endAt: '2026-10-29T01:00:00Z', format: 'IN_PERSON', city: 'Denver' }];
- const args = { ...base, listing: { ...base.listing, preferences }, slots, now };
+ const args = { ...base, profile:{...base.profile,details:{typicalAvailability:['Monday mornings']}}, officeCoverage:{known:true,cities:['Denver'],officeIds:[6]}, listing: { ...base.listing, preferences }, slots, now };
  const mismatch = evaluateExchangeListing(args);
  assert.equal(mismatch.canRequest, true); assert.equal(mismatch.status, 'not_match');
  assert.equal(mismatch.adjustments[0].code, 'schedule');
@@ -247,17 +249,44 @@ test('day/time differences are requestable and a single opening must satisfy all
  assert.equal(exchangeSlotMatches({ ...slots[2], format: 'VIRTUAL' }, preferences, now), false);
 });
 test('clinical exclusions and insurance remain firm blocks alongside schedule differences', () => {
- const fit = evaluateExchangeListing({ ...base, profile: { ...base.profile, details: { clinicalFocus: { reviewed: true, excluded: { specialties: ['Anxiety'] } } } }, listing: { ...base.listing, preferences: { insurance: 'Tricare', schedule: { days: ['Tuesday'] } } }, slots: [] });
+ const fit = evaluateExchangeListing({ ...base, profile: { ...base.profile, details: {typicalAvailability:['Monday mornings'], clinicalFocus: { reviewed: true, excluded: { specialties: ['Anxiety'] } } } }, listing: { ...base.listing, preferences: {modality:'in_person',serviceLocation:'Colorado Springs', insurance: 'Tricare', schedule: { days: ['Tuesday'] } } }, slots: [] });
  assert.equal(fit.canRequest, false);
  assert.ok(fit.blockers.some(r => r.code === 'insurance'));
  assert.ok(fit.blockers.some(r => r.code === 'excluded_specialty'));
  assert.ok(fit.adjustments.some(r => r.code === 'schedule'));
 });
 
-test('a location-only referral is not a match for openings in the other city', () => {
+test('a location-only referral uses assigned offices rather than missing openings', () => {
  const args = { ...base, now: new Date('2026-10-26'), listing: { ...base.listing, preferences: { modality: 'in_person', serviceLocation: 'Colorado Springs', insurance: 'Aetna' } },
   slots: [{ startAt: '2026-10-28T00:00:00Z', endAt: '2026-10-28T01:00:00Z', format: 'IN_PERSON', city: 'Denver' }] };
  const fit = evaluateExchangeListing(args);
- assert.equal(fit.status, 'not_match'); assert.equal(fit.canRequest, true); assert.equal(fit.adjustments[0].code, 'location_availability');
+ assert.equal(fit.status, 'match'); assert.equal(fit.canRequest, true); assert.equal(fit.adjustments.length, 0);
  args.slots[0].city = 'Colorado Springs'; assert.equal(evaluateExchangeListing(args).status, 'match');
+});
+
+test('a Denver office never matches a Colorado Springs in-person referral even with no published calendar',()=>{
+ const args={...base,officeCoverage:{known:true,cities:['Denver'],officeIds:[6]},slots:[],availabilityKnown:false};
+ const fit=evaluateExchangeListing(args);assert.equal(fit.matched,false);assert.equal(fit.canNotify,false);assert.equal(fit.canAssign,false);assert.equal(fit.canRequest,true);
+ const check=fit.checks.find(c=>c.field==='office_location');assert.equal(check.status,'fail');assert.equal(check.canWaive,false);assert.match(check.reason,/Colorado Springs.*Denver/);
+ assert.equal(evaluateExchangeListing({...args,waivers:[{field:check.field,fingerprint:check.fingerprint}]}).matched,false);
+ assert.equal(evaluateExchangeListing({...args,officeCoverage:{known:true,cities:['Colorado Springs'],officeIds:[1]},listing:{...base.listing,preferences:{modality:'in_person',serviceLocation:'Denver'}}}).matched,false);
+});
+test('either-city office assignments match either city; virtual visits do not require a local office',()=>{
+ assert.equal(evaluateExchangeListing({...base,officeCoverage:{known:true,cities:['Denver','Colorado Springs'],officeIds:[1,6]}}).matched,true);
+ assert.equal(evaluateExchangeListing({...base,officeCoverage:{known:true,cities:['Denver'],officeIds:[6]},profile:{details:{virtualEnabled:true}},listing:{preferences:{modality:'virtual',serviceLocation:'Colorado Springs'}}}).matched,true);
+ const unknown=evaluateExchangeListing({...base,officeCoverage:{known:true,cities:[],officeIds:[]}});assert.equal(unknown.matched,false);assert.equal(unknown.canRequest,true);assert.equal(unknown.checks.find(c=>c.field==='office_location').status,'unknown');
+});
+
+test('Monday versus Tuesday typical hours is not a match but remains requestable',()=>{
+ const args={...base,profile:{...base.profile,details:{typicalAvailability:['Tuesday afternoons']}},listing:{...base.listing,preferences:{...base.listing.preferences,schedule:{days:['Monday'],periods:['afternoon']}}}};
+ const fit=evaluateExchangeListing(args);assert.equal(fit.matched,false);assert.equal(fit.canRequest,true);assert.equal(fit.canNotify,false);assert.equal(fit.canAssign,false);
+ assert.match(fit.adjustments.find(c=>c.code==='schedule').message,/Monday.*Tuesday afternoons.*may request/);
+ for(const typicalAvailability of [[],['Monday afternoons'],['Weekdays','Afternoons'],['By arrangement']]){
+  const result=evaluateExchangeListing({...args,profile:{...base.profile,details:{typicalAvailability}}});assert.equal(result.matched,true,JSON.stringify(typicalAvailability));assert.equal(result.canAssign,true);assert.equal(result.matchScore,100);
+ }
+});
+test('typical day/time pairs stay together and office hours never exclude virtual care',()=>{
+ const args={...base,profile:{...base.profile,details:{typicalAvailability:['Monday mornings','Tuesday afternoons'],virtualEnabled:true}},listing:{...base.listing,preferences:{...base.listing.preferences,schedule:{days:['Monday'],periods:['afternoon']}}}};
+ assert.equal(evaluateExchangeListing(args).matched,false);
+ assert.equal(evaluateExchangeListing({...args,listing:{...args.listing,preferences:{...args.listing.preferences,modality:'virtual'}}}).matched,true);
 });

@@ -32,7 +32,7 @@ export async function insertExchangeListing({ agencyId, clientId, postedByUserId
     // The chart is the current source for open listings. Save the choices reviewed
     // during posting there too, so later chart edits can replace or clear them.
     for (const [field, chartField] of Object.entries({ schedule: 'exchangeSchedule', matchingPreferences: 'matchingPreferences',
-      modality: 'preferredModality', providerGender: 'preferredProviderGender', providerQualification: 'providerQualification', serviceLocation: 'serviceLocation' })) {
+      modality: 'preferredModality', providerGender: 'preferredProviderGender', providerQualification: 'providerQualification', serviceLocation: 'serviceLocation', serviceLocationSource: 'serviceLocationSource', insurance: 'insurance' })) {
       if (Object.hasOwn(summary.preferences || {}, field)) {
         await connection.execute(`UPDATE clients SET intake_preferences_json = JSON_SET(COALESCE(intake_preferences_json, JSON_OBJECT()), '$.${chartField}', CAST(? AS JSON)) WHERE id = ? AND agency_id = ?`, [JSON.stringify(summary.preferences[field] ?? null), clientId, agencyId]);
       }

@@ -1,11 +1,12 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ execute: vi.fn(), clinical: vi.fn(), billing: vi.fn(), decrypt: vi.fn() }));
+const mocks = vi.hoisted(() => ({ execute: vi.fn(), clinical: vi.fn(), billing: vi.fn(), decrypt: vi.fn(), insurance: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.execute } }));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: mocks.clinical } }));
 vi.mock('../billingReportIngest.service.js', () => ({ listBillingDiagnosesForClient: mocks.billing }));
 vi.mock('../intakeResponsesEncryption.service.js', () => ({ decryptIntakeSubmissionRows: mocks.decrypt }));
+vi.mock('../clientInsurance.service.js',()=>({readClientInsurance:mocks.insurance}));
 import { loadClientExchangeSummary } from '../clientExchangeSummary.service.js';
-beforeEach(() => { vi.clearAllMocks(); mocks.execute.mockResolvedValue([[]]); mocks.clinical.mockResolvedValue([[]]); mocks.billing.mockResolvedValue([]); });
+beforeEach(() => { vi.clearAllMocks(); mocks.insurance.mockResolvedValue(null); mocks.execute.mockResolvedValue([[]]); mocks.clinical.mockResolvedValue([[]]); mocks.billing.mockResolvedValue([]); });
 it('uses active clinical diagnoses and latest plan over older intake', async () => {
   mocks.clinical.mockImplementation(async sql => [sql.includes('clinical_diagnoses') ? [{ icd10_code: 'F41.1', description: 'Anxiety' }] : [{ status: 'active', presenting_problem: 'Plan concern', updated_at: '2026-09-20' }]]);
   const summary = await loadClientExchangeSummary({ client: { id: 3, agency_id: 2, intake_preferences_json: { presentingConcern: 'Intake concern', submittedAt: '2026-08-01' } } });
@@ -63,3 +64,5 @@ it('preserves explicit clears instead of falling back to older enrollment or ref
   } } });
   expect(summary.preferences).toMatchObject({ serviceLocation:null, providerQualification:null, schedule:{days:[],periods:[],windows:[]} });
 });
+
+it('uses the recorded payer instead of treating Commercial / Other as a missing plan',async()=>{mocks.insurance.mockResolvedValue({primary:{insurerName:'Cigna',memberId:'PRIVATE'}});const summary=await loadClientExchangeSummary({client:{id:3,agency_id:2,insurance_type_label:'Commercial / Other'}});expect(summary.preferences.insurance).toBe('Cigna');expect(JSON.stringify(summary)).not.toContain('PRIVATE');});

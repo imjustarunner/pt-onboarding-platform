@@ -62,7 +62,7 @@ export function validateExchangePreferenceAnswers(input,summary,requestedFields)
   if(editService)patch.preferredModality=modality;
   const city=String(input.serviceLocation||summary.preferences?.serviceLocation||'');
   if(modality!=='virtual'&&!EXCHANGE_CITIES.includes(city))throw fail('Choose Denver, Colorado Springs, or either location for in-person care.');
-  if(editService)patch.serviceLocation=modality==='virtual'?'':city;
+  if(editService){patch.serviceLocation=modality==='virtual'?'':city;patch.serviceLocationSource='preference';}
   if(allowed.has('insurance')) {
     const insurance=String(input.insurance||'').trim();
     if(insurance.length>200||!specificExchangeInsurance(insurance))throw fail('Enter the insurance plan name, Medicaid, or self-pay. A general commercial insurance category is not enough to check provider coverage.');

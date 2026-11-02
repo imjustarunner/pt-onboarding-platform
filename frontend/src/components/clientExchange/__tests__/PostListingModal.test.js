@@ -4,7 +4,8 @@ const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
 vi.mock('../../../services/api', () => ({ default: mocks }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 7 } }) }));
 import Modal from '../PostListingModal.vue';
-beforeEach(() => { vi.clearAllMocks(); mocks.get.mockResolvedValue({ data: { summary: { diagnoses: ['F41.1 — Anxiety'], presentingProblems: ['Worry'] } } }); mocks.post.mockResolvedValue({ data: { listing: { id: 1, notifications: { sent: 1 } } } }); });
+const essentials={modality:'virtual',insurance:'Medicaid',schedule:{days:['Monday'],periods:['morning']}};
+beforeEach(() => { vi.clearAllMocks(); mocks.get.mockResolvedValue({ data: { summary: { preferences:essentials, diagnoses: ['F41.1 — Anxiety'], presentingProblems: ['Worry'] } } }); mocks.post.mockResolvedValue({ data: { listing: { id: 1, notifications: { sent: 1 } } } }); });
 it('posts the preset client directly from the profile', async () => {
   const wrapper = mount(Modal, { props: { agencyId: 2, presetClientId: 4, lockClient: true } });
   await flushPromises(); await wrapper.find('.btn-primary').trigger('click'); await flushPromises();
@@ -29,7 +30,7 @@ it('loads school and office clients assigned to a provider, accepting paginated 
   expect(wrapper.text()).toContain('AB');
 });
 it('prefills saved scheduling needs and posts changed days and times with the referral', async () => {
-  mocks.get.mockResolvedValue({ data: { summary: { preferences: { schedule: { days: ['Monday'], periods: ['after_school'], windows: [], timezone: 'America/Denver' } } } } });
+  mocks.get.mockResolvedValue({ data: { summary: { presentingProblems:['Worry'], preferences: { ...essentials, schedule: { days: ['Monday'], periods: ['after_school'], windows: [], timezone: 'America/Denver' } } } } });
   const wrapper = mount(Modal, { props: { agencyId: 2, presetClientId: 4, lockClient: true } }); await flushPromises();
   const editor = wrapper.findComponent({ name: 'ClientSchedulePreferences' });
   expect(editor.props('modelValue').days).toEqual(['Monday']);
@@ -45,7 +46,7 @@ it('keeps invalid time ranges from being posted', async () => {
   expect(mocks.post).not.toHaveBeenCalled(); expect(wrapper.text()).toContain('End time must be later'); wrapper.unmount();
 });
 it('prefills client fit selections and includes edits in the posted referral',async()=>{
- const saved={specialties:['Depression'],populations:['Veterans']};mocks.get.mockResolvedValue({data:{summary:{preferences:{matchingPreferences:saved}}}});
+ const saved={specialties:['Depression'],populations:['Veterans']};mocks.get.mockResolvedValue({data:{summary:{presentingProblems:['Worry'],preferences:{...essentials,matchingPreferences:saved}}}});
  const wrapper=mount(Modal,{props:{agencyId:2,presetClientId:4,lockClient:true}});await flushPromises();
  const editor=wrapper.findComponent({name:'ClientMatchingPreferences'});expect(editor.props('modelValue')).toEqual(saved);expect(editor.props('maxSelections')).toBe(0);
  const edited={...saved,modalities:['EMDR']};editor.vm.$emit('update:modelValue',edited);await wrapper.find('.btn-primary').trigger('click');await flushPromises();

@@ -21,3 +21,5 @@ CREATE TABLE IF NOT EXISTS client_exchange_followups (
   UNIQUE KEY uq_exchange_followup_token (token_hash),
   KEY idx_exchange_followup_queue (provider_outreach_status,id)
 );
+
+ALTER TABLE client_exchange_requests ADD COLUMN support_notice_json JSON NULL;

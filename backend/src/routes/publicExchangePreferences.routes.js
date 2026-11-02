@@ -1,4 +1,6 @@
 import express from 'express';
+import Agency from '../models/Agency.model.js';
+import {buildPublicAppUrl} from '../utils/publicPortalUrl.js';
 import {publicIntakeLimiter} from '../middleware/rateLimiter.middleware.js';
 import {exchangePreferenceContext,saveExchangePreferenceAnswers} from '../services/clientExchangePreferences.service.js';
 import {resolveTenantEmailChrome} from '../services/tenantEmailChrome.service.js';
@@ -37,7 +39,9 @@ router.use((req,res,next)=>{res.set({'Cache-Control':'private, no-store','Referr
 const errorResponse=(res,error)=>res.status(error.status||500).type('html').send(document(`<main><h1>Service preferences</h1><p>${escape(error.status?error.message:'We could not save this update. Please try again or reply to Support.')}</p><p>Return to your email link to review the form.</p></main>`));
 router.get('/:token',async(req,res)=>{try{const context=await exchangePreferenceContext(req.params.token);const chrome=await resolveTenantEmailChrome(context.scope.agency_id);res.type('html').send(exchangePreferencePage({context,chrome,path:`${req.baseUrl}/${req.params.token}`}));}catch(error){errorResponse(res,error);}});
 router.post('/:token',async(req,res)=>{try{
- const origin=req.get('origin');if(origin&&origin!==`https://${req.get('host')}`)throw Object.assign(new Error('Open the link from your email again before saving.'),{status:403});
+ const context=await exchangePreferenceContext(req.params.token);
+ const agency=await Agency.findById(context.scope.agency_id);
+ const origin=req.get('origin');if(origin&&origin!==new URL(buildPublicAppUrl(agency)).origin)throw Object.assign(new Error('Open the link from your email again before saving.'),{status:403});
  await saveExchangePreferenceAnswers({token:req.params.token,input:{...req.body,...(req.body.serviceChoice?serviceChoiceAnswers(req.body.serviceChoice):{})}});
  res.redirect(303,`${req.baseUrl}/${req.params.token}`);
 }catch(error){errorResponse(res,error);}});

@@ -33,7 +33,7 @@ beforeEach(() => {
   Agency.findById.mockResolvedValue({id:2,slug:'itsco'});
   exchangeDeliveryHistory.mockResolvedValue(new Map());
   isExchangeListingOpen.mockResolvedValue(true);
-  mocks.execute.mockImplementation(async sql => sql.includes('provider_insurance_overrides') ? [[]] : [[9, 10, 11].map(id => ({ id, role: 'provider', email: `user${id}@example.com`, sees_clients: 1, provider_accepting_new_clients: 1 }))]);
+  mocks.execute.mockImplementation(async sql => sql.includes('FROM user_office_locations') ? [[{id:1,city:'Colorado Springs'}]] : sql.includes('AS published') ? [[{published:0}]] : sql.includes('provider_insurance_overrides') ? [[]] : [[9, 10, 11].map(id => ({ id, role: 'provider', email: `user${id}@example.com`, sees_clients: 1, provider_accepting_new_clients: 1 }))]);
   mocks.accepted.mockResolvedValue({accepted:[],known:false,excluded:[]}); mocks.dispatch.mockResolvedValue({dispatched:false});
   mocks.profile.mockResolvedValue({ details: { virtualEnabled: true } });
   mocks.facets.mockResolvedValue(new Map([[10, { ageGroups: ['Children (6-10)'] }], [11, { ageGroups: ['Adults (18+)'] }]]));

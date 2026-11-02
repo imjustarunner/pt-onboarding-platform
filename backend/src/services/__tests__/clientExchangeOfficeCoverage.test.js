@@ -1,0 +1,5 @@
+import {expect,it,vi} from 'vitest';
+vi.mock('../../config/database.js',()=>({default:{}}));
+import {loadExchangeOfficeCoverage} from '../clientExchangeOfficeCoverage.service.js';
+it('uses active assignments and active offices in the current agency, including physical office city',async()=>{const execute=vi.fn(async()=>[[{id:1,city:'Colorado Springs'},{id:6,city:'Denver'}]]);expect(await loadExchangeOfficeCoverage({userId:597,agencyId:2,database:{execute},officeIds:[6]})).toEqual({known:true,officeIds:[6],cities:['Denver']});const [sql,args]=execute.mock.calls[0];expect(args).toEqual([597,2]);expect(sql).toContain('uol.is_active');expect(sql).toContain('ol.is_active');expect(sql).toContain('ola.agency_id=?');expect(sql).toContain('COALESCE(physical.city,ol.city)');});
+it('an empty agency-specific office allowlist does not inherit other assigned cities',async()=>{const database={execute:async()=>[[{id:1,city:'Colorado Springs'}]]};expect((await loadExchangeOfficeCoverage({userId:1,agencyId:2,officeIds:[],database})).cities).toEqual([]);});

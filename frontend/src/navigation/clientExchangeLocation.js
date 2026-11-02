@@ -6,7 +6,7 @@ export function resolveExchangeLocation(client = {}, intake = {}) {
   const explicit = Object.hasOwn(intake, 'serviceLocation') ? intake.serviceLocation
     : Object.hasOwn(intake, 'preferred_service_location') ? intake.preferred_service_location
     : intake.preferredLocation || intake.exchangeReferral?.serviceLocation;
-  if (explicit) return { serviceLocation: explicit, serviceLocationSource: 'preference' };
+  if (explicit && intake.serviceLocationSource !== 'home_address') return { serviceLocation: explicit, serviceLocationSource: 'preference' };
   const state = String(client.address_state || '').trim().toLowerCase();
   const city = String(client.address_city || '').trim().replace(/\s+/g, ' ').toLowerCase();
   if (!['co', 'colorado'].includes(state)) return { serviceLocation: null, serviceLocationSource: null };

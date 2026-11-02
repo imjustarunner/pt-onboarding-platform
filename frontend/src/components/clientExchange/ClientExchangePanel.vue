@@ -275,11 +275,16 @@
           <template v-if="canRequest(selectedListing)">
             <div class="cep-detail-section-title">Request this client</div>
             <p class="cep-muted">Multiple providers can request this client. The current provider or support team will select the assignment.</p>
+            <label for="exchange-request-note">{{ exchangeRequestNeedsPlan(selectedListing.viewerFit) ? 'Required: explain how you will offer the requested visit format and office location.' : 'Note for the reviewing team (optional)' }}</label>
             <textarea
+              id="exchange-request-note"
               v-model="requestMessages[selectedListing.id]"
               rows="2"
               class="cep-request-textarea"
-              placeholder="Optional note for the current provider…"
+              :required="exchangeRequestNeedsPlan(selectedListing.viewerFit)"
+              :minlength="exchangeRequestNeedsPlan(selectedListing.viewerFit) ? 20 : undefined"
+              maxlength="2000"
+              :placeholder="exchangeRequestNeedsPlan(selectedListing.viewerFit) ? 'Describe the change you will make before care begins (at least 20 characters)…' : 'Optional note for the reviewing team…'"
             ></textarea>
             <div v-if="selectedListing.viewerFit?.adjustments?.length" class="cep-banner cep-banner--warn">
               <strong>This client does not currently match your profile:</strong>
@@ -287,7 +292,7 @@
               <label><input type="checkbox" :checked="warningsAcknowledged(selectedListing)" @change="acknowledgeWarnings(selectedListing, $event.target.checked)" /> I understand these differences. The support team must review them before this client can be assigned.</label>
             </div>
             <div class="cep-detail-action-row">
-              <button type="button" class="cep-btn cep-btn--primary" :disabled="actionPending || !warningsAcknowledged(selectedListing)" @click="submitRequest(selectedListing)">
+              <button type="button" class="cep-btn cep-btn--primary" :disabled="actionPending || !warningsAcknowledged(selectedListing) || !exchangeRequestPlanValid(selectedListing.viewerFit, requestMessages[selectedListing.id])" @click="submitRequest(selectedListing)">
                 {{ actionPending ? 'Saving…' : 'Request this client' }}
               </button>
             </div>
@@ -316,6 +321,7 @@
 </template>
 
 <script setup>
+import {exchangeRequestNeedsPlan,exchangeRequestPlanValid} from '../../navigation/clientExchangePolicy.js';
 import { exchangeStaffRole } from '../../navigation/clientExchangePolicy.js';
 import ClientExchangeAuditPanel from './ClientExchangeAuditPanel.vue';
 import { computed, watch, ref, reactive } from 'vue';
@@ -495,7 +501,7 @@ function acknowledgeWarnings(listing, acknowledged) {
 }
 
 async function submitRequest(listing) {
-  if (actionPending.value || !warningsAcknowledged(listing)) return;
+  if (actionPending.value || !warningsAcknowledged(listing) || !exchangeRequestPlanValid(listing.viewerFit, requestMessages[listing.id])) return;
   actionPending.value = true;
   const msg = requestMessages[listing.id] || '';
   try {

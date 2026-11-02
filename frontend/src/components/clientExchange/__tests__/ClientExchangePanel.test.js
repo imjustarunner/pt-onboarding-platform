@@ -108,6 +108,6 @@ it('requires acknowledgement of the specific age/format warnings before submitti
   mocks.get.mockImplementation(async url=>({data:url.endsWith('/4')?{listing,requests:[]}:{listings:[listing],requests:[]}}));mocks.post.mockReset().mockResolvedValue({data:{}});
   const wrapper=makeWrapper();await flushPromises();const request=wrapper.findAll('button').find(b=>b.text()==='Request this client');
   expect(request.attributes('disabled')).toBeDefined();expect(wrapper.text()).toContain('Client wants in person; you offer virtual only.');
-  await wrapper.find('input[type="checkbox"]').setValue(true);expect(request.attributes('disabled')).toBeUndefined();await request.trigger('click');await flushPromises();
-  expect(mocks.post).toHaveBeenCalledWith('/client-exchange/listings/4/requests',{message:'',acknowledgedWarnings:['age-v1','format-v1']});wrapper.unmount();
+  await wrapper.find('input[type="checkbox"]').setValue(true);expect(request.attributes('disabled')).toBeDefined();await wrapper.find('#exchange-request-note').setValue('I will offer in-person care at my assigned office.');expect(request.attributes('disabled')).toBeUndefined();await request.trigger('click');await flushPromises();
+  expect(mocks.post).toHaveBeenCalledWith('/client-exchange/listings/4/requests',{message:'I will offer in-person care at my assigned office.',acknowledgedWarnings:['age-v1','format-v1']});wrapper.unmount();
 });

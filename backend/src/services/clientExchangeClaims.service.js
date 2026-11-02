@@ -1,3 +1,4 @@
+import {exchangeRequestPlanValid} from '../../../frontend/src/navigation/clientExchangePolicy.js';
 import { assertExchangeRequestEligible } from './clientExchangeEligibility.service.js';
 import pool from '../config/database.js';
 import { afterLegacyProviderFieldsChanged, ensureClientProviderAssignmentRow } from './clientProviderAssignmentSync.service.js';
@@ -40,6 +41,8 @@ export async function createExchangeClaim({ listingId, requestingProviderUserId,
     if (fit.adjustments.some(w => !Array.isArray(acknowledgedWarnings) || !acknowledgedWarnings.includes(w.fingerprint))) {
       throw Object.assign(fail('Review and acknowledge the current fit differences before requesting this client.'), { code: 'EXCHANGE_ACKNOWLEDGEMENT_REQUIRED', fit });
     }
+    if(message != null && (typeof message !== 'string' || message.length > 2000)) throw fail('Request notes must be 2,000 characters or fewer.',400);
+    if(!exchangeRequestPlanValid(fit,message)) throw Object.assign(fail('Explain how you will change your visit format or office availability to meet this client’s needs (at least 20 characters). Support must review your plan before assignment.',400),{code:'EXCHANGE_RESOLUTION_PLAN_REQUIRED',fit});
     if (Number(requestingProviderUserId) === Number(listing.current_provider_user_id)) throw fail('You are already the current provider for this client');
     const [existing] = await connection.execute(`SELECT id FROM client_exchange_requests
       WHERE listing_id = ? AND requesting_provider_user_id = ? AND status = 'pending'`, [listingId, requestingProviderUserId]);

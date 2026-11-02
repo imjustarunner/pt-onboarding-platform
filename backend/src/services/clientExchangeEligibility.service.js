@@ -1,3 +1,4 @@
+import {loadExchangeOfficeCoverage} from './clientExchangeOfficeCoverage.service.js';
 import { loadExchangeWaivers } from './clientExchangeWaivers.service.js';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
@@ -93,12 +94,21 @@ export async function loadExchangeOpenings({ userId, agencyId, scheduleAgencyId 
 
 export async function evaluateCurrentExchangeFit({ context, listing, client }) {
   const waivers = context.waivers || await loadExchangeWaivers({ listingId: listing.id, userId: context.user?.id });
+  const modality=String(listing.preferences?.modality || listing.preferences?.preferredModality || '').toLowerCase();
+  if(context.user && ['in_person','either'].includes(modality)) {
+    let officeCoverage;
+    try { officeCoverage=await loadExchangeOfficeCoverage({userId:context.user.id,agencyId:listing.agencyId||listing.agency_id,officeIds:context.profile?.agencyAvailability?.officeIds}); }
+    catch { officeCoverage={known:false,cities:[],officeIds:[]}; }
+    context={...context,officeCoverage};
+  }
   const initial = evaluateExchangeListing({ ...context, waivers, listing, client });
-  if (!context.user || !exchangeNeedsOpenings(listing)) return initial;
+  // Typical hours decide schedule fit. Check actual openings only when they
+  // could resolve a typical-hours difference; no calendar is required to match.
+  if (!context.user || !initial.checks.some(check => check.field === 'schedule' && check.status === 'fail')) return initial;
   let openings;
   try { openings = await loadExchangeOpenings({ userId: context.user.id, agencyId: listing.agencyId || listing.agency_id,
     scheduleAgencyId: context.profile?.agencyAvailability?.scheduleAgencyId || listing.agencyId || listing.agency_id }); }
-  catch { return { ...initial, canNotify: false }; }
+  catch { return initial; }
   return evaluateExchangeListing({ ...context, waivers, listing, client, ...openings });
 }
 

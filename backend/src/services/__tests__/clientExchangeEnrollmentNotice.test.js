@@ -1,0 +1,12 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+const m=vi.hoisted(()=>({execute:vi.fn(),send:vi.fn(),agency:vi.fn(),release:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{getConnection:async()=>({execute:m.execute,release:m.release})}}));
+vi.mock('../../models/Agency.model.js',()=>({default:{findById:m.agency}}));
+vi.mock('../../models/EmailSenderIdentity.model.js',()=>({default:{list:async()=>[{id:11,identity_key:'support',from_email:'support@example.test'}]}}));
+vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:m.send}));
+import {sendNewClientSupportNotice} from '../clientExchangeEnrollmentNotice.service.js';
+let preferences;
+beforeEach(()=>{vi.clearAllMocks();preferences={};m.agency.mockResolvedValue({id:2,name:'ITSCO',slug:'itsco'});m.send.mockResolvedValue({id:'mail',communicationId:50});m.execute.mockImplementation(async(sql,args)=>{if(sql.includes('GET_LOCK'))return [[{acquired:1}]];if(sql.startsWith('SELECT id,initials'))return [[{id:20,initials:'QA',intake_preferences_json:preferences}]];if(sql.startsWith('UPDATE clients'))preferences.newClientSupportNotice=JSON.parse(args[0]);return [[]];});});
+it('sends a branded-ready Support notice with a private review link and deduplicates retries',async()=>{expect(await sendNewClientSupportNotice({agencyId:2,clientId:20})).toMatchObject({status:'sent'});expect(m.send).toHaveBeenCalledWith(expect.objectContaining({to:'support@example.test',senderIdentityId:11,source:'auto',html:expect.stringContaining('Review new client'),linkUrl:expect.stringContaining('admin/office-intake-queue?clientId=20')}));expect(await sendNewClientSupportNotice({agencyId:2,clientId:20})).toMatchObject({duplicate:true});expect(m.send).toHaveBeenCalledOnce();});
+it('records uncertain delivery without automatically sending again',async()=>{m.send.mockRejectedValue(new Error('connection lost'));expect(await sendNewClientSupportNotice({agencyId:2,clientId:20})).toMatchObject({status:'unknown'});await sendNewClientSupportNotice({agencyId:2,clientId:20});expect(m.send).toHaveBeenCalledOnce();expect(m.release).toHaveBeenCalledTimes(2);});
+it('retains a held or skipped delivery as that status, not sent',async()=>{m.send.mockResolvedValue({skipped:true,reason:'notifications_disabled'});expect(await sendNewClientSupportNotice({agencyId:2,clientId:20})).toMatchObject({status:'skipped',reason:'notifications_disabled'});});

@@ -14,20 +14,20 @@ describe('provider availability settings',()=>{
   api.get.mockResolvedValue({data:{...state,preferences:{...state.preferences,intakeStatusByFormat:{IN_PERSON:'accepting',VIRTUAL:'accepting'}}}});
   const w=render();await flushPromises();
   expect(api.put).not.toHaveBeenCalled();
-  await w.findAll('label').find(l=>l.text().includes('Accepting new clients')).find('input').setValue(false);
+  await w.find('select[aria-label="New-client status"]').setValue('unavailable');
   expect(api.put).not.toHaveBeenCalled();
   api.put.mockResolvedValue({data:{...state,preferences:{...state.preferences,acceptingNewClients:false}}});
   await w.find('.actions button').trigger('click');await flushPromises();
   expect(api.put.mock.calls[0][1]).toMatchObject({agencyId:2,acceptingNewClients:false,inPerson:true,virtual:true,applyToAll:false});
-  expect(api.put.mock.calls[0][1]).not.toHaveProperty('intakeStatusByFormat');
+  expect(api.put.mock.calls[0][1]).toMatchObject({intakeStatusByFormat:null,waitlistEnabled:false});
   expect(w.find('[role=status]').text()).toBe('Availability saved.');w.unmount();
  });
  it('keeps care assignment read-only for self-service availability',async()=>{
  const w=render();await flushPromises();
  expect(w.findAll('label').find(l=>l.text().includes('Sees clients for this agency')).find('input').element.disabled).toBe(true);
- expect(w.findAll('label').find(l=>l.text().includes('Accepting new clients')).find('input').element.disabled).toBe(false);w.unmount();
+ expect(w.find('select[aria-label="New-client status"]').element.disabled).toBe(false);w.unmount();
  });
- it('keeps a snoozed warning in settings and links to the actual provider schedule',async()=>{const w=render();await flushPromises();api.post.mockResolvedValue({data:{...state,reminders:[{...state.reminders[0],snoozed:true,snoozedUntil:'2026-09-24T16:00:00Z'}]}});await w.find('.warning button').trigger('click');await flushPromises();expect(api.post).toHaveBeenCalledWith('/availability/providers/9/public-settings/snooze',{agencyId:2,format:'VIRTUAL'},expect.any(Object));expect(w.find('.warning').text()).toContain('No bookable virtual');expect(w.find('.warning').text()).toContain('snoozed until');expect(w.find('.actions a').attributes('data-to')).toContain('schedule_availability');w.unmount();});
+ it('keeps a snoozed warning in settings and links to the actual provider schedule',async()=>{const w=render();await flushPromises();api.post.mockResolvedValue({data:{...state,reminders:[{...state.reminders[0],snoozed:true,snoozedUntil:'2026-09-24T16:00:00Z'}]}});await w.find('.warning button').trigger('click');await flushPromises();expect(api.post).toHaveBeenCalledWith('/availability/providers/9/public-settings/snooze',{agencyId:2,format:'VIRTUAL'},expect.any(Object));expect(w.find('.warning').text()).toContain('No posted virtual');expect(w.find('.warning').text()).toContain('snoozed until');expect(w.find('.actions a').attributes('data-to')).toContain('schedule_availability');w.unmount();});
  it('persists independent format choices and preserves errors without false success',async()=>{const w=render();await flushPromises();await w.findAll('label').find(l=>l.text().includes('Offer in-person')).find('input').setValue(false);api.put.mockRejectedValue({response:{data:{error:{message:'Save failed'}}}});await w.find('.actions button').trigger('click');await flushPromises();expect(api.put).toHaveBeenCalledWith('/availability/providers/9/public-settings',{agencyId:2,seesClients:true,acceptingNewClients:true,inPerson:false,virtual:true,school:true,officeIds:null,scheduleAgencyId:2,applyToAll:false},expect.any(Object));expect(w.find('[role=alert]').text()).toBe('Save failed');expect(w.emitted('updated')).toBeUndefined();w.unmount();});
  it('offers shared schedules and saves per-agency participation without altering other agencies by default',async()=>{
  api.get.mockResolvedValue({data:{...state,preferences:{...state.preferences,waitlistEnabled:false},agencyName:'ITSCO',canManageCareAssignment:true,canApplyToAll:true,agencies:[{id:2,name:'ITSCO'},{id:3,name:'Next Level Up'}],offices:[{id:7,name:'Windchime',city:'Colorado Springs'}]}});
@@ -41,3 +41,4 @@ describe('provider availability settings',()=>{
 });
 
 it('links providers to their own schedule without an admin route',async()=>{auth.user={id:9,role:'provider'};const w=render();await flushPromises();expect(w.find('.actions a').attributes('data-to')).toContain('/dashboard');expect(w.find('.actions a').attributes('data-to')).toContain('my_schedule');expect(w.find('.actions a').attributes('data-to')).not.toContain('/admin/');w.unmount();});
+it('saves Closed and Waitlisted as distinct statuses',async()=>{const w=render();await flushPromises();api.put.mockResolvedValue({data:state});for(const [value,acceptingNewClients,waitlistEnabled] of [['waitlist',false,true],['unavailable',false,false],['accepting',true,false]]){await w.find('select[aria-label="New-client status"]').setValue(value);await w.find('.actions button').trigger('click');await flushPromises();expect(api.put.mock.calls.at(-1)[1]).toMatchObject({acceptingNewClients,waitlistEnabled,intakeStatusByFormat:null});}w.unmount();});

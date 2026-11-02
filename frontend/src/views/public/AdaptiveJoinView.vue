@@ -479,7 +479,8 @@
             v-model="form.preferences.preferredModality"
             type="select"
             label="Preferred format"
-            optional-badge
+            :optional-badge="!config?.exchangeEssentialsRequired"
+            :required="config?.exchangeEssentialsRequired"
             placeholder="No preference"
             :options="modalityOptions"
           />

@@ -1,3 +1,4 @@
+import { typicalExchangeSchedule } from './clientExchangeTypicalAvailability.js';
 import { createHash } from 'node:crypto';
 import { exchangeCheckCanBeWaived, exchangeCheckLabel, exchangeFitScore, normalizeExchangeQualification } from '../../../frontend/src/navigation/clientExchangePolicy.js';
 import { eligibleExchangeProvider } from './clientExchangeProvider.js';
@@ -55,7 +56,7 @@ function stableSnapshot(value) {
 }
 
 /** The decision and its explanation share one implementation, so audits cannot drift. */
-export function evaluateExchangeMatch({ user, profile, facets = {}, listing, client, now, agency, slots, availabilityKnown, waivers = [] }) {
+export function evaluateExchangeMatch({ user, profile, facets = {}, listing, client, now, agency, slots, availabilityKnown, officeCoverage, waivers = [] }) {
   const checks = [];
   const check = (field, ok, pass, fail, known = true) => checks.push({ field, status: !known ? 'unknown' : ok ? 'pass' : 'fail', reason: !known ? pass : ok ? pass : fail });
   check('account', eligibleExchangeProvider(user, agency), 'Provider account is active.', 'An active provider account in this agency is required; inactive and demo accounts cannot request.');
@@ -151,16 +152,25 @@ export function evaluateExchangeMatch({ user, profile, facets = {}, listing, cli
   } else check('insurance', true, 'Client insurance is unspecified.', '', false);
   const schedule = listing.preferences?.schedule || {};
   const hasSchedule = schedule.days?.length || schedule.periods?.length || schedule.windows?.length;
-  if (exchangeNeedsOpenings(listing) && slots != null && availabilityKnown !== false) {
-    const field = hasSchedule ? 'schedule' : 'location_availability';
-    check(field, slots.some(slot => exchangeSlotMatches(slot, listing.preferences, now)), 'A published opening matches the requested location, days, times and format.',
-      'No published opening matches the requested location, days, times and format in the next four weeks. A request is allowed, but a suitable opening must be arranged before care begins.');
-  } else checks.push({field: hasSchedule ? 'schedule' : exchangeNeedsOpenings(listing) ? 'location_availability' : 'schedule',status:'unknown',reason: availabilityKnown === false
-    ? 'No intake availability is published for this provider in the next four weeks. This is not a confirmed schedule conflict; confirm the requested days, times and location before assignment.'
-    : 'Availability for the requested location, days and times requires confirmation before assignment.'});
+  const typical = typicalExchangeSchedule(profile?.details, listing.preferences);
+  const matchingOpening = slots?.some(slot => exchangeSlotMatches(slot, listing.preferences, now));
+  checks.push({field:'schedule', status:matchingOpening || typical.matches ? 'pass' : typical.known ? 'fail' : 'unknown',
+    informational: !matchingOpening && !typical.known,
+    reason:matchingOpening ? 'An available appointment opening matches the requested format, location, days and times. The client can request that opening through the scheduling flow.' : typical.reason});
   const needsCity = ['in_person','either'].includes(modality);
   if (needsCity && !['Denver','Colorado Springs','Either location'].includes(listing.preferences?.serviceLocation)) {
     checks.push({field:'location',status:'unknown',reason:'In-person care requires a confirmed city: Denver or Colorado Springs. Ask the family or support team to update the location before matching or assignment.'});
+  }
+  if(needsCity && ['Denver','Colorado Springs','Either location'].includes(listing.preferences?.serviceLocation)) {
+    const city=listing.preferences.serviceLocation,cities=officeCoverage?.cities || [];
+    const compatible=cities.some(value=>city==='Either location' ? ['denver','colorado springs'].includes(value.toLowerCase()) : value.toLowerCase()===city.toLowerCase());
+    const virtualAlternative=modality==='either' && virtual;
+    const known=officeCoverage?.known===true && cities.length>0;
+    check('office_location',compatible || virtualAlternative,
+      virtualAlternative && !compatible ? `This client accepts virtual care. Provider can match virtually; their assigned office cities (${cities.join(', ') || 'not recorded'}) do not establish in-person availability in ${city}.`
+        : compatible ? `Client requests in-person care in ${city}; provider has an active office assignment there.`
+        : `Client requests in-person care in ${city}; provider office assignments are not recorded or could not be verified. Support must confirm an assigned office in that city before matching or assignment.`,
+      `Client requests in-person care in ${city}; provider is assigned to ${cities.join(', ')}. This is not an in-person location match. A request requires Support to resolve the city difference before assignment.`,known || virtualAlternative);
   }
   const applicable={format:['virtual','in_person'].includes(modality),provider_gender:!noGenderPreference,
     age:!!requestedAge,clinical_exclusions:concerns.length>0,diagnoses:diagnosticConcerns.length>0,concerns:concerns.length>0,
@@ -173,11 +183,11 @@ export function evaluateExchangeMatch({ user, profile, facets = {}, listing, cli
   // A waiver is valid only for the same recorded matching inputs. Changes require a fresh review.
   const snapshot = JSON.stringify(stableSnapshot({ requestedAge, serviceType: listing.serviceType || '', concerns, diagnosticConcerns,
     preferences: { modality, providerGender: preferredGender, providerQualification:qualification || '', matchingPreferences: requested, schedule: { days: schedule.days || [], periods: schedule.periods || [], windows: schedule.windows || [], timezone: schedule.timezone || '' }, serviceLocation: listing.preferences?.serviceLocation || '' },
-    availability, gender: providerGender, focus: focus || {}, facets }));
+    availability, typicalAvailability: profile?.details?.typicalAvailability || [], officeCoverage: officeCoverage || null, gender: providerGender, focus: focus || {}, facets }));
   for (const item of checks) {
     item.label = exchangeCheckLabel(item.field);
     item.fingerprint = createHash('sha256').update(`${snapshot}:${item.field}:${item.status}:${item.reason}`).digest('hex');
-    item.canWaive = item.applicable !== false && item.field !== 'location' && exchangeCheckCanBeWaived(item.field) && item.status !== 'pass';
+    item.canWaive = !item.informational && item.applicable !== false && !['location','office_location'].includes(item.field) && exchangeCheckCanBeWaived(item.field) && item.status !== 'pass';
     const waiver = waivers.find(w => w.field === item.field && w.fingerprint === item.fingerprint);
     if (item.canWaive && waiver) {
       item.originalStatus = item.status;
@@ -193,11 +203,10 @@ export function evaluateExchangeMatch({ user, profile, facets = {}, listing, cli
   const hard = check => hardFields.has(check.field) || (check.field.endsWith('_exclusions') && check.field !== 'ageGroups_exclusions');
   const blockers = checks.filter(c => c.applicable !== false && c.status === 'fail' && hard(c)).map(reason);
   const adjustments = checks.filter(c => c.applicable !== false && c.status === 'fail' && !hard(c)).map(reason);
-  const review = checks.filter(c => c.status === 'unknown' && c.applicable !== false).map(reason);
-  const requiredReview=checks.filter(c=>c.applicable && c.status==='unknown' && ['schedule','location_availability','provider_gender','location','insurance'].includes(c.field)).map(reason);
-  // Missing calendar data is a possible fit, not evidence of a conflict. Staff
-  // still confirm or waive availability before assignment. Insurance stays firm.
-  const matchReview = requiredReview.filter(c => !['schedule','location_availability'].includes(c.code));
+  const review = checks.filter(c => !c.informational && c.status === 'unknown' && c.applicable !== false).map(reason);
+  const requiredReview=checks.filter(c=>c.applicable && c.status==='unknown' && ['provider_gender','location','office_location','insurance'].includes(c.field)).map(reason);
+  // Unrecorded typical hours and unposted slots never create a mismatch.
+  const matchReview = requiredReview;
   const canRequest = blockers.length === 0, matched = canRequest && adjustments.length === 0 && matchReview.length===0;
   const canNotify = matched && checks.filter(c => ['accepting', 'format'].includes(c.field)).every(c => (c.originalStatus || c.status) === 'pass');
   return { matched, checks, ...exchangeFitScore(checks), canAssign: matched && requiredReview.length===0, assignmentBlockers: [...blockers, ...adjustments,...requiredReview], status: matched ? 'match' : 'not_match', canRequest, canNotify, blockers, adjustments, review };

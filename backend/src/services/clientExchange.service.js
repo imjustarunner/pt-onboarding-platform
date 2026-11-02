@@ -327,6 +327,7 @@ export async function createListing({
   sharedSummary.preferences.serviceLocation = normalizeExchangeLocation(sharedSummary.preferences.serviceLocation, {
     required: !onlyUnassigned && ['in_person', 'either'].includes(String(safeJson(preferences)?.modality || '').toLowerCase())
   });
+  if(Object.hasOwn(preferences || {},'serviceLocation') && preferences.serviceLocation !== savedSummary.preferences.serviceLocation)sharedSummary.preferences.serviceLocationSource='preference';
   sharedSummary.preferences.additionalPresentingProblems = summaryItems(presentingProblems);
   sharedSummary.preferences.presentingProblemSource = savedSummary.presentingProblemSource;
   sharedSummary.preferences.presentingProblemUpdatedAt = savedSummary.presentingProblemUpdatedAt;
@@ -367,7 +368,7 @@ export async function withdrawListing({ listingId, actingUserId, viewerRole }) {
 
 export async function createRequest({ listingId, requestingProviderUserId, message = null, acknowledgedWarnings = [] }) {
   const { requestId, listing } = await createExchangeClaim({ listingId, requestingProviderUserId, message, acknowledgedWarnings });
-  await notifyExchangeClaim({ listing, requestingProviderUserId }).catch(error => {
+  await notifyExchangeClaim({ listing, requestingProviderUserId, requestId }).catch(error => {
     console.error('[clientExchange] Request notification failed', { listingId, error: error?.message });
   });
   return getRequestById(requestId);

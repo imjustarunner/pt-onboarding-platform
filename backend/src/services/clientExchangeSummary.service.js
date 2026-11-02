@@ -1,3 +1,4 @@
+import {readClientInsurance} from './clientInsurance.service.js';
 import { scheduleFromIntake } from '../utils/clientExchangeSchedule.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
@@ -64,6 +65,7 @@ export async function loadClientExchangeSummary({ client, agencyId = client.agen
   ]);
   const billing = diagnoses.length ? [] : await listBillingDiagnosesForClient({ agencyId, clientId: client.id });
   const intake = parseSummaryJson(client.intake_preferences_json);
+  const insuranceRecord=await readClientInsurance(client.id,agencyId);
   const age = clientAge(client);
   const referral = intake.exchangeReferral || {};
   const screeningProblems = screenings.map(row => {
@@ -79,7 +81,7 @@ export async function loadClientExchangeSummary({ client, agencyId = client.agen
     diagnoses: summaryItems(diagnoses.length ? diagnoses : billing.length ? billing : referral.diagnoses),
     ...problem,
     preferences: {
-      insurance: exchangeInsuranceLabel(client.insurance_type_label, intake.insurance, intake.insuranceOrPayment),
+      insurance: exchangeInsuranceLabel(client.insurance_type_label, intake.insurance, intake.insuranceOrPayment, insuranceRecord?.primary?.insurerName),
       matchingPreferences: intake.matchingPreferences || null,
       modality: intake.preferredModality ? String(intake.preferredModality).toLowerCase() : null,
       ...resolveExchangeLocation(client, intake),

@@ -1,12 +1,14 @@
 // Shared by the exchange UI and API (this directory ships in the backend image).
 export const exchangeStaffRole = role => ['staff', 'support', 'admin', 'super_admin'].includes(String(role || '').trim().toLowerCase());
+export const exchangeRequestNeedsPlan = fit => (fit?.adjustments || []).some(reason => ['format_availability','office_location'].includes(reason.code));
+export const exchangeRequestPlanValid = (fit, message) => !exchangeRequestNeedsPlan(fit) || (typeof message === 'string' && message.trim().length >= 20 && message.trim().length <= 2000);
 
 const labels = {
   account: 'Active provider account', assigned: 'Current assignment', direct_referral: 'Direct referral recipient',
   accepting: 'Accepting new clients', format: 'Visit format', provider_gender: 'Therapist gender preference',
   age: 'Client age', clinical_exclusions: 'Clinical exclusions', diagnoses: 'Diagnosis coverage', concerns: 'Clinical concerns',
   service: 'Service type', insurance: 'Insurance acceptance', insurance_credential: 'Insurance credentials',
-  insurance_exclusions: 'Insurance exclusions', schedule: 'Days and times', location: 'In-person location',
+  insurance_exclusions: 'Insurance exclusions', schedule: 'Days and times', location: 'In-person location', office_location: 'Assigned office city',
   location_availability: 'Location availability', specialties: 'Specialties', ageGroups: 'Age preferences',
   populations: 'Populations', modalities: 'Therapy approaches', qualification: 'Provider license requirement'
 };
@@ -15,7 +17,7 @@ export function exchangeCheckLabel(field) {
   return labels[field] || field.replace(/_/g, ' ');
 }
 export const exchangeCheckCanBeWaived = field => Boolean(labels[field] || ['specialties_exclusions', 'ageGroups_exclusions', 'populations_exclusions', 'modalities_exclusions'].includes(field))
-  && !['account', 'assigned', 'direct_referral', 'insurance', 'insurance_credential', 'insurance_exclusions', 'qualification'].includes(field);
+  && !['account', 'assigned', 'direct_referral', 'insurance', 'insurance_credential', 'insurance_exclusions', 'qualification', 'location', 'office_location'].includes(field);
 
 export function normalizeExchangeQualification(value) {
   if (value == null || value === '') return '';
@@ -25,11 +27,11 @@ export function normalizeExchangeQualification(value) {
 }
 
 export function exchangeFitScore(checks) {
-  const weights={insurance:50,qualification:40,schedule:40,location_availability:35,format:30,provider_gender:25,age:25,service:20,diagnoses:20,concerns:20,specialties:15,ageGroups:15,populations:15,modalities:15,location:20};
+  const weights={insurance:50,qualification:40,schedule:40,location_availability:35,format:30,provider_gender:25,age:25,service:20,diagnoses:20,concerns:20,specialties:15,ageGroups:15,populations:15,modalities:15,location:20,office_location:40};
   let earned=0,possible=0;
   for(const check of checks || []) {
     const weight=weights[check.field] || 0;
-    if(!weight || check.applicable===false)continue;
+    if(!weight || check.applicable===false || check.informational)continue;
     possible+=weight;
     if(check.status==='pass')earned+=weight;
   }
@@ -48,7 +50,7 @@ export const exchangeParameterGroups = [
   {field:'insurance',label:'Insurance',fields:['insurance','insurance_credential','insurance_exclusions']},
   {field:'qualification',label:'Provider license requirement',fields:['qualification']},
   {field:'format',label:'Visit format',fields:['format']},
-  {field:'location',label:'Location',fields:['location','location_availability']},
+  {field:'location',label:'Location',fields:['location','office_location','location_availability']},
   {field:'schedule',label:'Days and times',fields:['schedule']},
   {field:'provider_gender',label:'Therapist gender preference',fields:['provider_gender']},
   {field:'age',label:'Client age',fields:['age','ageGroups','ageGroups_exclusions']},

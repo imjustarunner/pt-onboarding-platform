@@ -96,7 +96,7 @@ it('allows a closed provider with accepted insurance to request after acknowledg
   mocks.profile.mockResolvedValue({ agencyAvailability: { seesClients: true, acceptingNewClients: false, inPerson: true } });
   await expect(createExchangeClaim({ listingId: 1, requestingProviderUserId: 10 })).rejects.toMatchObject({ code: 'EXCHANGE_ACKNOWLEDGEMENT_REQUIRED' });
   const fit = await assertExchangeRequestEligible({ listing, userId: 10, database: { execute: mocks.execute } });
-  await createExchangeClaim({ listingId: 1, requestingProviderUserId: 10, acknowledgedWarnings: fit.adjustments.map(w => w.fingerprint) });
+  await createExchangeClaim({ listingId: 1, requestingProviderUserId: 10, message:'I will reopen my in-person availability before care begins.', acknowledgedWarnings: fit.adjustments.map(w => w.fingerprint) });
   expect(claims).toHaveLength(1);
 });
 it('rechecks insurance at approval and leaves a previously allowed request unassigned', async () => {
@@ -136,4 +136,16 @@ it('does not accept an old warning acknowledgement after the client age changes'
   listing.demographics_json = { ageBand: '7' };
   await expect(createExchangeClaim({ listingId: 1, requestingProviderUserId: 10, acknowledgedWarnings: fit.adjustments.map(w => w.fingerprint) })).rejects.toMatchObject({ code: 'EXCHANGE_ACKNOWLEDGEMENT_REQUIRED' });
   expect(claims).toHaveLength(0);
+});
+
+it('requires a written plan as well as acknowledgement for a visit-format mismatch',async()=>{
+ listing.preferences_json={modality:'in_person',serviceLocation:'Colorado Springs'};
+ mocks.profile.mockResolvedValue({agencyAvailability:{seesClients:true,acceptingNewClients:true,inPerson:false,virtual:true}});
+ const fit=await assertExchangeRequestEligible({listing,userId:10,database:{execute:mocks.execute}});
+ const input={listingId:1,requestingProviderUserId:10,acknowledgedWarnings:fit.adjustments.map(w=>w.fingerprint)};
+ await expect(createExchangeClaim(input)).rejects.toMatchObject({code:'EXCHANGE_RESOLUTION_PLAN_REQUIRED'});
+ await expect(createExchangeClaim({...input,message:'yes'})).rejects.toMatchObject({code:'EXCHANGE_RESOLUTION_PLAN_REQUIRED'});
+ await createExchangeClaim({...input,message:'I will arrange an assigned Colorado Springs office and offer in-person care.'});
+ expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining('acknowledged_warnings_json'),[1,10,'I will arrange an assigned Colorado Springs office and offer in-person care.',expect.stringContaining('in-person')]);
+ await expect(resolveExchangeClaim({requestId:1,action:'approve',actingUserId:8,actingRole:'support'})).rejects.toThrow('Resolve or waive');
 });

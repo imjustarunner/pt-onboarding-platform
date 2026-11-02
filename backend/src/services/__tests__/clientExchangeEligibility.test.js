@@ -53,7 +53,7 @@ it('does not compute four calendars when no publication exists, and keeps an unv
   mocks.execute.mockResolvedValue([[{ published: 0 }]]);
   const fit = await evaluateCurrentExchangeFit({ context: { user: { id: 10, sees_clients: 1, provider_accepting_new_clients: 1 }, profile: { details: { virtualEnabled: true } }, waivers: [] },
     listing: { agencyId: 2, preferences: { modality: 'virtual', schedule: { days: ['Tuesday'] } } } });
-  expect(fit).toMatchObject({ matched: true, canRequest: true, canAssign: false });
+  expect(fit).toMatchObject({ matched: true, canRequest: true, canAssign: true });
   expect(fit.checks.find(c => c.field === 'schedule')).toMatchObject({ status: 'unknown' });
   expect(mocks.availability).not.toHaveBeenCalled();
 });
@@ -72,9 +72,9 @@ it('reads the whole window once, including shared agency schedules', async () =>
   expect(mocks.availability).toHaveBeenCalledTimes(1);
   expect(mocks.execute.mock.calls[0][1].slice(0,3)).toEqual([10,2,3]);
 });
-it('does not notify on a calendar lookup failure', async () => {
+it('does not make optional calendar lookups when typical hours are absent', async () => {
   mocks.execute.mockRejectedValue(new Error('Database unavailable'));
-  const fit = await evaluateCurrentExchangeFit({ context: { user: { id: 10 }, profile: {}, waivers: [] }, listing: { agencyId: 2, preferences: { schedule: { days: ['Tuesday'] } } } });
-  expect(fit.canNotify).toBe(false);
+  const fit = await evaluateCurrentExchangeFit({ context: { user: { id: 10 }, profile: {details:{virtualEnabled:true}}, waivers: [] }, listing: { agencyId: 2, preferences: {modality:'virtual', schedule: { days: ['Tuesday'] } } } });
+  expect(fit.canNotify).toBe(true);
   expect(fit.checks.find(c => c.field === 'schedule').status).toBe('unknown');
 });

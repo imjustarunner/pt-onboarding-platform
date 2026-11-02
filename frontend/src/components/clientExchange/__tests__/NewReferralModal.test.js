@@ -3,7 +3,7 @@ import { shallowMount, flushPromises } from '@vue/test-utils';
 const mocks = vi.hoisted(() => ({ post: vi.fn() }));
 vi.mock('../../../services/api', () => ({ default: mocks }));
 import Modal from '../NewReferralModal.vue';
-const make = () => shallowMount(Modal, { props: { agencyId: 2 } });
+const make = () => {const wrapper=shallowMount(Modal, { props: { agencyId: 2 } });Object.assign(wrapper.vm.$.setupState.form,{modality:'virtual',insurance:'Medicaid',presentingProblem:'Worry',schedule:{days:['Monday'],periods:['morning']}});return wrapper;};
 beforeEach(() => { vi.clearAllMocks(); mocks.post.mockImplementation(async url => ({ data: url === '/client-exchange/referrals' ? { clientId: 15, taskId: 30 } : { listing: { id: 20 } } })); });
 it('posts a minimal client referral without requiring demographic or clinical pastes', async () => {
   const wrapper = make(); const state = wrapper.vm.$.setupState;
@@ -38,3 +38,5 @@ it('sends the same profile taxonomy choices when creating a minimal referral',as
  const wrapper=make(),state=wrapper.vm.$.setupState;state.form.initials='AB';state.form.matchingPreferences={specialties:['Mood Disorders'],populations:['Veterans'],modalities:['EMDR']};await state.submit();await flushPromises();
  expect(mocks.post).toHaveBeenCalledWith('/client-exchange/referrals',expect.objectContaining({matchingPreferences:state.form.matchingPreferences}));wrapper.unmount();
 });
+
+it('requires essentials for a manual referral while diagnoses and gender remain optional',async()=>{const wrapper=make();const state=wrapper.vm.$.setupState;state.form.initials='AB';state.form.insurance='';await state.submit();expect(mocks.post).not.toHaveBeenCalled();expect(wrapper.text()).toContain('insurance plan');state.form.insurance='Medicaid';await state.submit();expect(wrapper.emitted('posted')).toHaveLength(1);wrapper.unmount();});

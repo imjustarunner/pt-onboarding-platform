@@ -6,7 +6,7 @@ vi.mock('../../../services/api',()=>({default:mock}));
 vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:{id:10}})}));
 describe('internal referral choices',()=>{
  it.each(['exchange','provider'])('sends family services to %s with the additional-services purpose',async destination=>{
-  mock.get.mockResolvedValue({data:{summary:{},providers:[{id:12,first_name:'Sam',last_name:'Therapist'}]}});mock.post.mockResolvedValue({data:{}});
+  mock.get.mockResolvedValue({data:{summary:{presentingProblems:['Worry'],preferences:{modality:'virtual',insurance:'Medicaid',schedule:{days:['Monday'],periods:['morning']}}},providers:[{id:12,first_name:'Sam',last_name:'Therapist'}]}});mock.post.mockResolvedValue({data:{}});
   const w=mount(PostListingModal,{props:{agencyId:2,lockClient:true,presetClientId:3}});await flushPromises();
   await w.findAll('select')[0].setValue('additional_service');await w.findAll('select')[1].setValue('family');await w.findAll('select')[2].setValue(destination);
   if(destination==='provider')await w.findAll('select')[3].setValue('12');

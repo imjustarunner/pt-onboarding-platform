@@ -1,4 +1,5 @@
 import { eligibleExchangeProvider } from '../utils/clientExchangeProvider.js';
+import {sendExchangeRequestSupportNotice} from './clientExchangeRequestNotice.service.js';
 import pool from '../config/database.js';
 import { allowQaExchangeRecipient, AURICWELL_QA_SLUG } from '../utils/auricwellQaPolicy.js';
 import { buildExchangeEmail, exchangeNotificationSummary } from '../utils/clientExchangeSummary.js';
@@ -133,14 +134,18 @@ async function exchangeActivityNotification({ listing, userId, type, title, mess
   if (result?.blocked || result?.skipped || result?.failed) throw new Error('Client Exchange email was not delivered.');
 }
 
-export async function notifyExchangeClaim({ listing, requestingProviderUserId }) {
+export async function notifyExchangeClaim({ listing, requestingProviderUserId, requestId }) {
   const [reviewers] = await pool.execute(`SELECT DISTINCT u.id FROM users u JOIN user_agencies ua ON ua.user_id = u.id
     WHERE ua.agency_id = ? AND u.role IN ('admin','super_admin','support','staff')
     AND COALESCE(u.is_active,1) = 1 AND COALESCE(u.is_archived,0) = 0`, [listing.agency_id]);
   const recipients = new Set([listing.current_provider_user_id, listing.posted_by_user_id, ...reviewers.map(user => user.id)].filter(Boolean).map(Number));
   recipients.delete(Number(requestingProviderUserId));
-  const results = await Promise.allSettled([...recipients].map(userId => exchangeActivityNotification({ listing, userId, type: 'client_exchange_claim',
-    title: 'New Client Exchange request', message: 'A provider has requested a referral. Review the request in Client Exchange.', actorUserId: requestingProviderUserId })));
+  const results = await Promise.allSettled([
+    sendExchangeRequestSupportNotice({requestId}),
+    ...[...recipients].map(userId => exchangeActivityNotification({ listing, userId, type: 'client_exchange_claim',
+    title: 'New Client Exchange request', message: 'A provider has requested a referral. Review the request in Client Exchange.', actorUserId: requestingProviderUserId }))]);
+  const support=results[0];
+  if(support.status==='fulfilled' && !['sent','queued','unavailable'].includes(support.value?.status)) console.error('[clientExchange] Support request email needs review',{requestId,status:support.value?.status});
   if (results.some(result => result.status === 'rejected')) throw new Error('Some Client Exchange request notifications could not be delivered.');
 }
 
