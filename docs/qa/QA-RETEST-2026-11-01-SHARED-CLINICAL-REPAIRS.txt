@@ -14,6 +14,15 @@ the live checks below remain NOT RUN until performed against the deployed releas
 This document is a test assignment, not a completed browser or delivery pass.
 Preserve the earlier overall FAIL and all open findings until verified again.
 
+Release verification — November 1, 2026, 6:40 PM MST (UTC-07:00)
+- Main commit dec47b2ee5ae4a82eaf1cbfb10a5899ac86ea2bc is pushed.
+- Backend onboarding-backend-g41372244188a1 serves this image at 100% traffic.
+- Frontend onboarding-frontend-03199-29g serves this image at 100% traffic.
+- Both deployment workflows, SMS carrier/campaign boundaries and scheduling
+  regressions passed. This clears the build/deployment prerequisite only.
+- The additional reminder webhook/signing secret and approved app sender
+  configuration remain pending. No actual recipient delivery is claimed.
+
 Before starting
 - Confirm the deployed FRONTEND and BACKEND include these commits. Record the
   actual build/revision, actor, event time and America/Denver UTC offset.
