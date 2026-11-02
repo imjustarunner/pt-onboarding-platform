@@ -234,9 +234,9 @@ describe('submission and evidence validation', () => {
   });
 });
 
-it('preserves provider identity and brand after the consent check', async () => {
+it('preserves provider identity and brand without repeating opt-out on authored replies', async () => {
  permissions.push({scope:'campaign:C123',phone:message.to,purpose:'care',status:'opted_in'});
- expect(await prepareSmsDelivery({...message,purpose:'care',body:'Michael: Sounds good.',senderFirstName:'Michael'})).toMatchObject({body:'Michael: Sounds good.\nITSCO. Reply STOP to opt out.'});
+ expect(await prepareSmsDelivery({...message,purpose:'care',body:'Michael: Sounds good.',senderFirstName:'Michael'})).toMatchObject({body:'Michael: Sounds good.\nITSCO.'});
 });
 it('a provider name does not bypass consent or STOP', async () => {
  await expect(prepareSmsDelivery({...message,purpose:'care',senderFirstName:'Michael'})).rejects.toMatchObject({code:'sms_consent_required'});

@@ -524,7 +524,7 @@ export const updateUserPreferences = async (req, res, next) => {
     }
 
     if ([true,1,'1','true'].includes(updates.sms_forwarding_enabled)) {
-      return res.status(409).json({error:{message:'Personal-phone conversation forwarding is not available yet. Use the secure app inbox and optional message-waiting alerts.'}});
+      return res.status(409).json({error:{message:'Use Provider text forwarding to choose an app number and record the phone owner’s consent.'}});
     }
     const preferences = await UserPreferences.update(parseInt(userId), updates);
 

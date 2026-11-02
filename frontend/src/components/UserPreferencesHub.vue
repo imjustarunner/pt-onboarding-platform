@@ -60,13 +60,6 @@
             <h3 class="card-title">Text messaging options</h3>
             <div class="field checkbox">
               <label>
-                <input :checked="false" type="checkbox" disabled />
-                Forward inbound texts to my phone
-              </label>
-              <div class="field-help">Not available yet. Client messages stay in the app; use the separate message-waiting text choice below.</div>
-            </div>
-            <div class="field checkbox">
-              <label>
                 <input v-model="prefs.sms_use_own_number_for_reminders" type="checkbox" :disabled="notificationDisabled" />
                 Use my assigned number for reminders when agency allows it
               </label>
@@ -192,6 +185,9 @@
     </section>
 
 
+    <ProviderSmsRelaySettings v-if="!viewOnly && !isClubContext && (isOwnAccount || allowAdminControlledEdits)"
+      :user-id="userId" :agency-id="agencyStore.currentAgency?.id" :is-own-account="isOwnAccount"
+      @updated="prefs.sms_enabled = $event.textsEnabled" />
     <PersonalMessageDeliverySettings v-if="isOwnAccount && !viewOnly" />
     <VacationResponderSettings id="prefs-vacation" v-if="isOwnAccount && !viewOnly && (isWorkforceEmployeeRole || ['tutor','clinical_director'].includes(effectiveRoleNorm))" :agency-id="agencyStore.currentAgency?.id" />
 
@@ -812,6 +808,7 @@ import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { useUserPreferencesStore } from '../store/userPreferences';
 import api from '../services/api';
+import ProviderSmsRelaySettings from './messages/ProviderSmsRelaySettings.vue';
 import PersonalMessageDeliverySettings from './messages/PersonalMessageDeliverySettings.vue';
 import NotificationTypeSettingsPanel from './notifications/NotificationTypeSettingsPanel.vue';
 import QuickViewPrivacyPanel from './account/QuickViewPrivacyPanel.vue';
@@ -1383,7 +1380,6 @@ const save = async () => {
 
     const payload = {
       // Notification extras (channels/quiet hours managed in NotificationTypeSettingsPanel)
-      sms_forwarding_enabled: false,
       sms_use_own_number_for_reminders: !!prefs.value.sms_use_own_number_for_reminders,
       sms_support_mirror_enabled: !!prefs.value.sms_support_mirror_enabled,
       sms_support_thread_mode: prefs.value.sms_support_mirror_enabled

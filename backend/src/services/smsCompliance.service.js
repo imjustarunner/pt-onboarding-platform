@@ -195,7 +195,7 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
   }
   const content = purpose === 'reminders' && !/\bNOREMIND\b/i.test(body)
     ? `${body} Reply NOREMIND to stop appointment reminders only.` : body;
-  return { to: recipient, from: sender.phone_number, agencyId: sender.agency_id, body: formatRegisteredSms(content, registration.brandName, purpose === 'care' ? senderFirstName : null), registration, purpose };
+  return { to: recipient, from: sender.phone_number, agencyId: sender.agency_id, body: formatRegisteredSms(content, registration.brandName, purpose === 'care' ? senderFirstName : null, { includeOptOut: !(purpose === 'care' && senderFirstName) }), registration, purpose };
 }
 
 export async function resolveRegisteredSmsSender({ agencyId, purpose, numberId = null, requiredPurpose = null }) {

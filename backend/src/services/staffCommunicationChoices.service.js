@@ -118,8 +118,7 @@ export async function saveStaffCommunicationChoices({userId,agencyId,input,sourc
       VALUES (?,'kiosk_checkin',1,?) ON DUPLICATE KEY UPDATE in_app_enabled=1,email_enabled=VALUES(email_enabled)`,[userId,input.arrivalEmail?1:0]);
     await connection.execute(`INSERT INTO user_notification_type_preferences (user_id,notification_type,in_app_enabled,email_enabled,sms_enabled)
       VALUES (?,'client_exchange_match',1,?,?) ON DUPLICATE KEY UPDATE in_app_enabled=1,email_enabled=VALUES(email_enabled),sms_enabled=VALUES(sms_enabled)`,[userId,input.exchangeEmail?1:0,input.choices.exchangeMatches?1:0]);
-    // Personal-phone forwarding never becomes enabled as a side effect of consent.
-    await connection.execute('UPDATE user_preferences SET sms_forwarding_enabled=FALSE WHERE user_id=?',[userId]);
+    // Relay enrollment is separate; saving these choices must not reset it.
     if(!database)await connection.commit();
     const old=c.state?.envelope?JSON.parse(decryptChatText(c.state.envelope)):null;
     const oldPhone=normalizeSmsPhone(old?.phone);

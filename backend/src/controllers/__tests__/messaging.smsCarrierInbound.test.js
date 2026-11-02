@@ -1,3 +1,4 @@
+vi.mock('../../services/providerSmsRelay.service.js',()=>({handleProviderSmsReply:vi.fn(),forwardClientSmsToProviders:vi.fn()}));
 import { beforeEach, it, expect, vi } from 'vitest';
 vi.mock('../../services/staffSmsAssistant.service.js',()=>({handleStaffSmsAssistant:vi.fn()}));
 vi.mock('../../services/smsCommunicationNotice.service.js',()=>({sendConversationStartNotice:vi.fn()}));

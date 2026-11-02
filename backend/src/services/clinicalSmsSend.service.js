@@ -1,3 +1,4 @@
+import { resolveRelayFamily } from './providerSmsRelayIdentity.service.js';
 import { assertClinicalSmsRecipient, staffSmsIdentity } from './clinicalSmsAccess.service.js';
 import { parseSmsThreadKey, normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import pool from '../config/database.js';
@@ -58,7 +59,7 @@ export async function sendClinicalSms({
   body,
   numberId = null,
   mediaUrls = null,
-  auditUserId = null, threadKey = null
+  auditUserId = null, threadKey = null, relayRecipient = null
 } = {}) {
   const uid = parseIntOrNull(userId);
   const cid = parseIntOrNull(clientId);
@@ -91,6 +92,14 @@ export async function sendClinicalSms({
     if (!agencyIds.includes(Number(contact.agency_id))) throw Object.assign(new Error('Access denied to this contact'), { status: 403 });
     targetPhone = contact.phone;
     targetAgencyId = contact.agency_id;
+  }
+
+  // Internal relay-only option. Controllers never accept this from request bodies.
+  if (relayRecipient) {
+    const family = await resolveRelayFamily(client, relayRecipient.phone);
+    if (!family || family.guardianUserId !== Number(relayRecipient.guardianUserId))
+      throw Object.assign(new Error('The family recipient is no longer authorized'), { status: 403 });
+    targetPhone = family.phone;
   }
 
   await assertClinicalSmsRecipient({ user, client, contact });

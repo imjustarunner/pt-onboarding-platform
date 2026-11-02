@@ -1,3 +1,4 @@
+import { handleProviderSmsReply, forwardClientSmsToProviders } from '../services/providerSmsRelay.service.js';
 import { handleStaffSmsAssistant } from '../services/staffSmsAssistant.service.js';
 import { sendConversationStartNotice } from '../services/smsCommunicationNotice.service.js';
 import { offerOutOfOfficeSupport, handleOutOfOfficeSupportReply } from '../services/smsOutOfOffice.service.js';
@@ -177,6 +178,9 @@ export const inboundSmsWebhook = async (req, res, next) => {
       reception.reason = 'mms_attachment_pending';
       return await holdForReview();
     }
+    if (incomingCarrier === 'notifyre' && await handleProviderSmsReply({sender,from:fromNorm,to:toNorm,body,messageId}))
+      return res.status(200).json({ok:true,providerRelay:true});
+
     // SUPPORT is scoped to a sent offer; appointment and poll Y/N replies remain independent.
     if (incomingCarrier === 'notifyre' && !reception.reason && reception.number?.agency_id && reception.profile?.clientId && await handleOutOfOfficeSupportReply({
       agencyId: reception.number.agency_id, numberId: reception.number.id, clientId: reception.profile.clientId,
@@ -414,6 +418,10 @@ export const inboundSmsWebhook = async (req, res, next) => {
       clientId: clientId || null,
       userId: route.matchedUserId || null
     });
+
+    if (!keyword && !appointmentReplyContext) {
+      await forwardClientSmsToProviders({route,from:fromNorm,to:toNorm,body,messageId,inboundLogId:inboundLog?.id,mediaUrls});
+    }
 
     if (!disableAwayNotices && !keyword && !appointmentReplyContext?.ackMessage) {
       try {

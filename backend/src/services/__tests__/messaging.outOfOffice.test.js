@@ -1,3 +1,4 @@
+vi.mock('../providerSmsRelay.service.js',()=>({handleProviderSmsReply:vi.fn(),forwardClientSmsToProviders:vi.fn()}));
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:vi.fn(async()=>({name:'ITSCO',portal_url:'itsco'}))}}));
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), getConnection: vi.fn() } }));

@@ -1,3 +1,4 @@
+import { forwardClientSmsToProviders } from './providerSmsRelay.service.js';
 import { sendConversationStartNotice } from './smsCommunicationNotice.service.js';
 export { OUT_OF_OFFICE_SMS } from './smsCommunicationNotice.service.js';
 import pool from '../config/database.js';
@@ -39,6 +40,7 @@ export async function offerOutOfOfficeSupport({ route, from, to, body, messageId
   await recordSmsProfileAudit({ agencyId, numberId, clientId, direction: 'INBOUND',
     numberPurpose: route.numberPurpose, fromNumber: from, toNumber: to, body,
     messageLogId: inbound.id });
+  await forwardClientSmsToProviders({route,from,to,body,messageId,inboundLogId:inbound.id,mediaUrls});
   try {
     await sendConversationStartNotice({ agencyId, numberId, clientId, userId, from: to, to: from,
       inboundLogId: inbound.id, absenceKey: route.absenceKey });
