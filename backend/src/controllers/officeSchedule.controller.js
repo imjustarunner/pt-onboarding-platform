@@ -3351,15 +3351,7 @@ export const getBookingMetadata = async (req, res, next) => {
       providerId: requestedProviderId,
       fallbackActorUserId: req.user.id
     });
-    const metadata = await getSchedulingBookingMetadata({
-      agencyId: policyAgencyId,
-      userRole: requestedProvider.role,
-      providerCredentialText: requestedProvider.credential,
-        providerId: requestedProvider.id
-    });
-
-    let serviceCodes = Array.isArray(metadata.eligibleServiceCodes) ? [...metadata.eligibleServiceCodes] : [];
-    let serviceLocations = [];
+    // Seed missing defaults before resolving the authoritative booking options.
     if (policyAgencyId) {
       try {
         await ensureAgencyMedicalBillingDefaults(policyAgencyId, { actorUserId: req.user.id });
@@ -3371,6 +3363,17 @@ export const getBookingMetadata = async (req, res, next) => {
       } catch {
         // booking suite seed is best-effort
       }
+    }
+    const metadata = await getSchedulingBookingMetadata({
+      agencyId: policyAgencyId,
+      userRole: requestedProvider.role,
+      providerCredentialText: requestedProvider.credential,
+        providerId: requestedProvider.id
+    });
+
+    let serviceCodes = Array.isArray(metadata.eligibleServiceCodes) ? [...metadata.eligibleServiceCodes] : [];
+    let serviceLocations = [];
+    if (policyAgencyId) {
       try {
         let medicalCodes = await AgencyMedicalServiceCode.listByAgency(policyAgencyId);
         medicalCodes = filterCodesForProviderTier(medicalCodes, metadata.credentialTier);
@@ -3475,7 +3478,15 @@ export const getBookingMetadata = async (req, res, next) => {
       }
     }
 
-    if (!metadata.careEligibility.canProvideCare) serviceCodes = [];
+    // Medical/tenant rows enrich labels and billing details; they cannot add
+    // options rejected by the same eligibility check used to save a booking.
+    const approvedCodes = new Map(metadata.eligibleServiceCodes.map(row => [row.code, row]));
+    serviceCodes = metadata.careEligibility.canProvideCare ? serviceCodes
+      .filter(row => approvedCodes.has(row.code))
+      .map(row => ({ ...row,
+        minDurationMinutes: Math.max(Number(row.minDurationMinutes) || 0,
+          Number(approvedCodes.get(row.code).minDurationMinutes) || 0) || null
+      })) : [];
 
     return res.json({
       careEligibility: metadata.careEligibility,
