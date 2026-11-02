@@ -200,7 +200,9 @@ class GoogleWorkspaceDirectoryService {
       await this.applyGroupAccessSettings({ groupEmail, whoCanJoin, whoCanViewMembership, whoCanViewGroup,
         whoCanPostMessage, whoCanModerateMembers, messageModerationLevel, spamModerationLevel,
         allowExternalMembers, includeInGlobalAddressList, isArchived });
-      await ensureAppGroupOwnership({ admin, groupKey: result.data.id });
+      // The address identifies the requested subscription policy; an opaque
+      // Directory ID would hide whether this is an operational mail group.
+      await ensureAppGroupOwnership({ admin, groupKey: result.data.email || groupEmail });
       return result?.data || null;
     } catch (e) {
       logGoogleUnauthorizedHint(e, { context: 'GoogleWorkspaceDirectoryService.createGroup' });
@@ -389,7 +391,7 @@ class GoogleWorkspaceDirectoryService {
   }) {
     const groupKey = String(groupEmail || '').trim().toLowerCase();
     const email = String(memberEmail || '').trim().toLowerCase();
-    const settings = appGroupMemberPolicy(email)?.delivery_settings || String(deliverySettings || '').trim().toUpperCase();
+    const settings = appGroupMemberPolicy(email, groupKey)?.delivery_settings || String(deliverySettings || '').trim().toUpperCase();
     if (!['ALL_MAIL', 'DIGEST', 'DAILY', 'NONE', 'DISABLED'].includes(settings)) {
       throw new Error('An explicit valid deliverySettings value is required');
     }

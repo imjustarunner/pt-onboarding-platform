@@ -21,6 +21,30 @@ it('rejects a successful API call that did not change delivery', async () => {
   get.mockResolvedValue({ data: { role: 'MEMBER', delivery_settings: 'NONE' } });
   await expect(Directory.setGroupMemberDeliverySettings({ groupEmail: 'school@example.org', memberEmail: 'staff@example.org', deliverySettings: 'ALL_MAIL' })).rejects.toThrow('could not be verified');
 });
+it('keeps operational mail enabled when an older reconciliation requests NONE, without changing the existing role', async () => {
+  get.mockResolvedValueOnce({data:{role:'MEMBER',delivery_settings:'NONE'}}).mockResolvedValueOnce({data:{role:'MEMBER',delivery_settings:'ALL_MAIL'}});
+  const result=await Directory.setGroupMemberDeliverySettings({groupEmail:'STAFF@MH4KIDZ.COM',memberEmail:'michael@plottwistco.com',deliverySettings:'NONE'});
+  expect(update).toHaveBeenCalledWith(expect.objectContaining({groupKey:'staff@mh4kidz.com',requestBody:{email:'michael@plottwistco.com',role:'MEMBER',delivery_settings:'ALL_MAIL'}}));
+  expect(result.delivery_settings).toBe('ALL_MAIL');
+});
+it('does not enable unrelated owner group traffic', async () => {
+  get.mockResolvedValue({data:{role:'OWNER',delivery_settings:'NONE'}});
+  await Directory.setGroupMemberDeliverySettings({groupEmail:'portal@itsco.health',memberEmail:'michael@plottwistco.com',deliverySettings:'ALL_MAIL'});
+  expect(update).toHaveBeenCalledWith(expect.objectContaining({requestBody:expect.objectContaining({role:'OWNER',delivery_settings:'NONE'})}));
+});
+it('uses the group address for subscriptions when creation returns an opaque ID', async () => {
+  const state=new Map();
+  const admin={groups:{insert:vi.fn(async()=>({data:{id:'123456789',email:'support@innerstrengthin.com'}}))},members:{
+    get:vi.fn(async({memberKey})=>{if(!state.has(memberKey))throw {code:404};return {data:state.get(memberKey)};}),
+    insert:vi.fn(async({requestBody})=>state.set(requestBody.email,requestBody)),
+    update:vi.fn(async({requestBody})=>state.set(requestBody.email,requestBody))
+  }};
+  Directory.getClient.mockResolvedValue(admin);
+  vi.spyOn(Directory,'applyGroupAccessSettings').mockResolvedValue({});
+  await Directory.createGroup({email:'support@innerstrengthin.com',name:'Support'});
+  expect(state.get('michael@plottwistco.com').delivery_settings).toBe('ALL_MAIL');
+  expect(admin.members.insert).toHaveBeenCalledWith(expect.objectContaining({groupKey:'support@innerstrengthin.com',requestBody:expect.objectContaining({email:'michael@plottwistco.com',delivery_settings:'ALL_MAIL'})}));
+});
 it.each([undefined, '', 'bad'])('does not silently mute when delivery is %s', async deliverySettings => {
   await expect(Directory.setGroupMemberDeliverySettings({ groupEmail: 'school@example.org', memberEmail: 'staff@example.org', deliverySettings })).rejects.toThrow('explicit valid');
   expect(update).not.toHaveBeenCalled();

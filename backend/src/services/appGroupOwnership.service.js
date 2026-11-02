@@ -1,16 +1,20 @@
 export const APP_GROUP_OWNER = 'michael@plottwistco.com';
 export const APP_GROUP_MANAGER = 'ai@plottwistco.com';
-export function appGroupMemberPolicy(address) {
+const OWNER_MAIL_GROUPS = new Set(['admin', 'support', 'payroll', 'clinical', 'staff']);
+
+export function appGroupMemberPolicy(address, groupAddress = '') {
   const email = String(address || '').trim().toLowerCase();
-  if (email === APP_GROUP_OWNER) return { email, role: 'OWNER', delivery_settings: 'NONE' };
+  const group = String(groupAddress || '').trim().toLowerCase();
+  const receivesMail = /^[^@\s]+@[^@\s]+$/.test(group) && OWNER_MAIL_GROUPS.has(group.split('@')[0]);
+  if (email === APP_GROUP_OWNER) return { email, role: 'OWNER', delivery_settings: receivesMail ? 'ALL_MAIL' : 'NONE' };
   if (email === APP_GROUP_MANAGER) return { email, role: 'MANAGER', delivery_settings: 'ALL_MAIL' };
   return null;
 }
 
-// Set subscriptions in the same request as membership: the owner must never
-// briefly receive group messages while provisioning catches up.
+// Set subscriptions with membership so provisioning and later synchronization
+// preserve the owner's requested operational mail across organization domains.
 export async function ensureAppGroupMember({ admin, groupKey, email }) {
-  const policy = appGroupMemberPolicy(email);
+  const policy = appGroupMemberPolicy(email, groupKey);
   if (!policy) throw new Error('This account is not an application group administrator.');
   let current;
   try { current = (await admin.members.get({ groupKey, memberKey: policy.email })).data; }

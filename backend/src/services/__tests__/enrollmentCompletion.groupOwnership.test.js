@@ -14,6 +14,26 @@ it('does not claim an unverified subscription change succeeded',async()=>{
  await expect(ensureAppGroupOwnership({admin,groupKey:'g'})).rejects.toThrow('did not verify');
 });
 it('leaves ordinary members governed by their agency subscriptions',()=>expect(appGroupMemberPolicy('person@agency.test')).toBeNull());
+it.each(['admin','support','payroll','clinical','staff'])('keeps the owner subscribed to %s across organization domains', key => {
+ for(const domain of ['itsco.health','nextleveluplcc.com','innerstrengthin.com','mh4kidz.org','plottwistco.com']) {
+  expect(appGroupMemberPolicy(' MICHAEL@PLOTTWISTCO.COM ',` ${key.toUpperCase()}@${domain} `)).toEqual({email:'michael@plottwistco.com',role:'OWNER',delivery_settings:'ALL_MAIL'});
+ }
+});
+it('keeps other owner subscriptions quiet and does not confuse similar addresses with the requested groups', () => {
+ for(const group of ['school@itsco.health','portal@itsco.health','forms@itsco.health','spanish@itsco.health','admin-updates@itsco.health','supervision-alex@itsco.health','g','staff']) {
+  expect(appGroupMemberPolicy('michael@plottwistco.com',group).delivery_settings).toBe('NONE');
+ }
+ expect(appGroupMemberPolicy('ai@plottwistco.com','support@itsco.health').delivery_settings).toBe('ALL_MAIL');
+});
+it('provisioning and repeat reconciliation restore operational delivery after a stale no-email setting', async () => {
+ const state=new Map([['michael@plottwistco.com',{email:'michael@plottwistco.com',role:'OWNER',delivery_settings:'NONE'}]]);
+ const admin={members:{get:vi.fn(async({memberKey})=>{if(!state.has(memberKey))throw {code:404};return {data:state.get(memberKey)};}),insert:vi.fn(async({requestBody})=>state.set(requestBody.email,requestBody)),update:vi.fn(async({requestBody})=>state.set(requestBody.email,requestBody))}};
+ await ensureAppGroupOwnership({admin,groupKey:'support@itsco.health'});
+ expect(state.get('michael@plottwistco.com').delivery_settings).toBe('ALL_MAIL');
+ admin.members.update.mockClear();
+ await ensureAppGroupOwnership({admin,groupKey:'support@itsco.health'});
+ expect(admin.members.update).not.toHaveBeenCalled();
+});
 it('new app senders are groups, with the owner and manager added',async()=>{
  const directory={getUser:vi.fn(async()=>null),getGroup:vi.fn(async()=>null),createGroup:vi.fn(async()=>({id:'g'})),addGroupMember:vi.fn()};
  await ensureWorkspaceSenderGroup({email:'forms@agency.test',displayName:'Forms',directory});
