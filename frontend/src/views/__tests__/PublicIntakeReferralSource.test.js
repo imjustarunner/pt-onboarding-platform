@@ -31,3 +31,20 @@ it.each(['self', 'dependent', 'couple', 'family'])('shows one optional shared qu
 it.each([['school', 'itsco'], ['agency', 'another-agency']])('does not add the question to %s / %s', async (scope, slug) => {
   await render(scope, slug); expect(wrapper.text()).not.toContain('How did you hear about the agency?');
 });
+
+it('keeps referral and middle-name optional labels in the selected language without remote translations', async () => {
+  await render();
+  wrapper.vm.serviceSubject = 'self'; wrapper.vm.intakeForSelf = true; wrapper.vm.inPageLocale = 'en';
+  await flushPromises();
+  const referral = wrapper.get('#office-referral-source');
+  await referral.setValue('Demo event');
+  expect(wrapper.get('label[for="office-referral-source"]').text()).toBe('How did you hear about the agency? (Optional)');
+  expect(wrapper.get('label[for="guardianMiddleName"]').text()).toContain('(optional)');
+  wrapper.vm.inPageLocale = 'es';
+  await flushPromises();
+  expect(wrapper.get('label[for="office-referral-source"]').text()).toBe('¿Cómo se enteró de la agencia? (Opcional)');
+  expect(wrapper.get('#office-referral-source-help').text()).toContain('Por ejemplo: un evento');
+  expect(wrapper.get('label[for="guardianMiddleName"]').text()).toContain('(opcional)');
+  expect(referral.element.value).toBe('Demo event');
+  expect(referral.attributes('required')).toBeUndefined();
+});

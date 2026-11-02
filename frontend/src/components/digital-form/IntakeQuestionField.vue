@@ -79,6 +79,8 @@ const props = defineProps({
   placeholder: { type: String, default: '' },
   options: { type: Array, default: null },
   required: { type: Boolean, default: false },
+  // Office enrollment supplies its effective requirement rule through `required`.
+  showOptional: { type: Boolean, default: false },
   error: { type: Boolean, default: false },
   namePrefix: { type: String, default: 'q_' }
 });
@@ -97,13 +99,15 @@ const displayHelp = computed(() => {
 const choiceHelp = computed(() => {
   const raw = displayHelp.value;
   if (!raw) return '';
-  if (raw.toLowerCase() === 'optional') return '';
+  if (['optional', 'opcional'].includes(raw.toLowerCase())) return '';
   return raw;
 });
 const fieldHelp = computed(() => choiceHelp.value);
 const showOptionalBadge = computed(() => {
+  if (props.required) return false;
+  if (props.showOptional) return true;
   const help = String(props.help || props.field?.helperText || '').trim().toLowerCase();
-  if (help === 'optional') return true;
+  if (['optional', 'opcional'].includes(help)) return true;
   if (props.field?.optional === true) return true;
   const showIf = props.field?.showIf;
   if (showIf && typeof showIf === 'object' && (showIf.fieldKey || showIf.any || showIf.all)) {

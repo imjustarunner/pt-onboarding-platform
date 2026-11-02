@@ -8,7 +8,7 @@
       <span v-if="required" class="df-field-required">*</span>
       <span v-else-if="optionalBadge" class="df-field-optional">{{ translateEnrollment('optional') }}</span>
     </label>
-    <p v-if="help && type !== 'checkbox' && String(help).trim().toLowerCase() !== 'optional'" class="df-field-help">{{ translateEnrollment(help) }}</p>
+    <p v-if="help && type !== 'checkbox' && !['optional', 'opcional'].includes(String(help).trim().toLowerCase())" class="df-field-help">{{ translateEnrollment(help) }}</p>
 
     <template v-if="type === 'email'">
       <input
@@ -123,7 +123,8 @@
       <span>
         {{ translateEnrollment(label) }}
         <span v-if="required" class="df-field-required">*</span>
-        <span v-if="help" class="df-field-help" style="display:block;">{{ translateEnrollment(help) }}</span>
+        <span v-else-if="optionalBadge" class="df-field-optional">{{ translateEnrollment('optional') }}</span>
+        <span v-if="help && !['optional', 'opcional'].includes(String(help).trim().toLowerCase())" class="df-field-help" style="display:block;">{{ translateEnrollment(help) }}</span>
       </span>
     </label>
 

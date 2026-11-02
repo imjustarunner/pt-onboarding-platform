@@ -148,6 +148,7 @@
           <h1 class="ai-page-title"> {{ tx("Let's get to know you.") }} </h1>
           <p v-if="isCoGuardianInvitee" class="ai-page-lead"> {{ tx("You are completing your own information. You will not see what the other parent submitted. You can edit your name, phone, and email (email is your username).") }} </p>
           <p v-else class="ai-page-lead"> {{ tx("Just the basics so we can reach out—this only takes a few minutes.") }} </p>
+          <p class="ai-page-lead">{{ tx('Fields marked * are required. Fields marked optional can be left blank.') }}</p>
         </header>
 
         <section v-if="!isCoGuardianInvitee" class="ai-join-section">
@@ -181,7 +182,7 @@
               <DigitalFormField v-model="form.respondent.firstName" label="First name" required />
             </div>
             <div class="ai-span-4">
-              <DigitalFormField v-model="form.respondent.middleName" label="Middle name" />
+              <DigitalFormField v-model="form.respondent.middleName" label="Middle name" optional-badge />
             </div>
             <div class="ai-span-4">
               <DigitalFormField v-model="form.respondent.lastName" label="Last name" required />
@@ -240,7 +241,7 @@
               <DigitalFormField v-model="form.partner.firstName" label="First name" required />
             </div>
             <div class="ai-span-4">
-              <DigitalFormField v-model="form.partner.middleName" label="Middle name" />
+              <DigitalFormField v-model="form.partner.middleName" label="Middle name" optional-badge />
             </div>
             <div class="ai-span-4">
               <DigitalFormField v-model="form.partner.lastName" label="Last name" required />
@@ -251,10 +252,10 @@
               <DigitalFormField v-model="form.partner.dateOfBirth" type="date" label="Date of birth" required />
             </div>
             <div class="ai-span-4">
-              <DigitalFormField v-model="form.partner.email" type="email" label="Email" />
+              <DigitalFormField v-model="form.partner.email" type="email" label="Email" optional-badge />
             </div>
             <div class="ai-span-4">
-              <DigitalFormField v-model="form.partner.phone" type="tel" label="Phone" />
+              <DigitalFormField v-model="form.partner.phone" type="tel" label="Phone" optional-badge />
             </div>
           </div>
           <DigitalFormField
@@ -291,7 +292,7 @@
                 <DigitalFormField v-model="member.firstName" label="First name" required />
               </div>
               <div class="ai-span-4">
-                <DigitalFormField v-model="member.middleName" label="Middle name" />
+                <DigitalFormField v-model="member.middleName" label="Middle name" optional-badge />
               </div>
               <div class="ai-span-4">
                 <DigitalFormField v-model="member.lastName" label="Last name" required />
@@ -309,6 +310,7 @@
                   v-model="member.participationStatus"
                   type="select"
                   label="Who do you expect to participate?"
+                  optional-badge
                   :options="participationOptions"
                 />
               </div>
@@ -355,6 +357,7 @@
               v-model="form.householdsInvolved"
               type="select"
               label="How many households are involved?"
+              optional-badge
               :options="[
                 { value: '2', label: '2' },
                 { value: '3plus', label: '3+' }
@@ -368,7 +371,7 @@
               <DigitalFormField v-model="form.address.street" label="Street address" required />
             </div>
             <div class="ai-span-5">
-              <DigitalFormField v-model="form.address.apt" label="Apartment, suite, or unit" />
+              <DigitalFormField v-model="form.address.apt" label="Apartment, suite, or unit" optional-badge />
             </div>
             <div class="ai-span-2">
               <DigitalFormField v-model="form.address.zip" label="ZIP" required />
@@ -387,7 +390,7 @@
                 <DigitalFormField v-model="form.partner.address.street" label="Street address" required />
               </div>
               <div class="ai-span-5">
-                <DigitalFormField v-model="form.partner.address.apt" label="Apartment, suite, or unit" />
+                <DigitalFormField v-model="form.partner.address.apt" label="Apartment, suite, or unit" optional-badge />
               </div>
               <div class="ai-span-2">
                 <DigitalFormField v-model="form.partner.address.zip" label="ZIP" required />
@@ -411,7 +414,7 @@
                 <DigitalFormField v-model="form.client.firstName" label="First name" required />
               </div>
               <div class="ai-span-4">
-                <DigitalFormField v-model="form.client.middleName" label="Middle name" />
+                <DigitalFormField v-model="form.client.middleName" label="Middle name" optional-badge />
               </div>
               <div class="ai-span-4 ai-join-last-with-action">
                 <button
@@ -456,6 +459,7 @@
           v-model="form.accomplishGoal"
           type="textarea"
           :label="accomplishGoalLabel"
+          optional-badge
           :rows="3"
         />
         <DigitalFormField
@@ -475,6 +479,7 @@
             v-model="form.preferences.preferredModality"
             type="select"
             label="Preferred format"
+            optional-badge
             placeholder="No preference"
             :options="modalityOptions"
           />
@@ -482,6 +487,7 @@
             v-model="form.preferences.preferredTimeOfDay"
             type="select"
             label="Preferred time of day"
+            optional-badge
             placeholder="No preference"
             :options="timeOptions"
           />
@@ -582,7 +588,7 @@
             </div>
             <div class="field-row field-row--compact">
               <DigitalFormField v-model="form.additionalDependent.firstName" label="First name" required size="compact" />
-              <DigitalFormField v-model="form.additionalDependent.middleName" label="Middle name" size="compact" />
+              <DigitalFormField v-model="form.additionalDependent.middleName" label="Middle name" optional-badge size="compact" />
               <div>
                 <button
                   v-if="form.client.lastName || form.respondent.lastName"

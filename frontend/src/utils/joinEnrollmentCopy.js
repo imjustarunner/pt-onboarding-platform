@@ -3,6 +3,7 @@ export const JOIN_ENROLLMENT_ES = {
   'The invitation could not be sent. Your enrollment is saved. Sign in to your portal to review the email and resend, or contact your support team.': 'No se pudo enviar la invitación. Su inscripción está guardada. Ingrese a su portal para revisar el correo y reenviar, o contacte al equipo de apoyo.',
   "Let's get to know you.": 'Vamos a conocerte.',
   'Just the basics so we can reach out—this only takes a few minutes.': 'Solo los datos básicos para poder contactarte; esto toma unos minutos.',
+  'Fields marked * are required. Fields marked optional can be left blank.': 'Los campos marcados con * son obligatorios. Los campos marcados como opcionales pueden dejarse en blanco.',
   'Who are you looking for services for?': '¿Para quién buscas servicios?',
   'Myself': 'Para mí', 'My child / dependent': 'Mi hijo/a o dependiente', 'A couple': 'Una pareja', 'A family': 'Una familia',
   'I will be the client receiving services.': 'Yo recibiré los servicios.',

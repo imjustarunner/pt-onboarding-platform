@@ -412,6 +412,7 @@
         </template>
         <template #default>
           <div class="intake-start-meta"><span>{{ t('expectTime') }}</span><span>{{ t('expectSaveReturn') }}</span></div>
+          <p class="df-section-help office-field-guide">{{ t('officeFieldGuide') }}</p>
           <div v-if="!isCoGuardianInvitee && (intakeForSelf !== false || serviceSubject)" class="intake-start-grid">
             <section class="intake-start-col">
               <h2 class="intake-start-col-title">
@@ -1389,6 +1390,7 @@
         <div v-if="isOfficeInDepthIntake" class="ai-pathway-badge">{{ publicPacketBadge }}</div>
         <h1 v-if="isOfficeInDepthIntake" class="ai-page-title">{{ currentInterviewPageTitle }}</h1>
         <h3 v-else>{{ currentInterviewPageTitle }}</h3>
+        <p v-if="isOfficeInDepthIntake && ['questions', 'clinical_questions', 'demographics', 'family_roster'].includes(currentFlowStep?.type)" class="df-section-help office-field-guide">{{ t('officeFieldGuide') }}</p>
         <div v-if="usesSchoolChildDetails" class="school-family-summary" aria-label="Children in this enrollment">
           <div><strong>{{ intakeLocale === 'es' ? 'Niños en esta inscripción' : 'Children in this enrollment' }}</strong>
             <ul><li v-for="(child, i) in sharedSigningRoster" :key="i">{{ child.fullName || `${t('clientN')} ${i + 1}` }} — {{ child.dateOfBirth || (intakeLocale === 'es' ? 'Falta fecha de nacimiento' : 'Date of birth needed') }}</li></ul>
@@ -2023,7 +2025,7 @@
 
         <div v-if="currentFlowStep?.type === 'family_roster'" class="family-roster-step intake-interview-page">
           <p class="df-section-help">
-            Add everyone who may be part of care. Adults and children can both be listed.
+            {{ t('rosterLead') }}
           </p>
           <div
             v-for="(member, idx) in familyRosterMembers"
@@ -2031,63 +2033,63 @@
             class="family-roster-card"
           >
             <div class="family-roster-card-head">
-              <strong>Family member {{ idx + 1 }}</strong>
+              <strong>{{ t('rosterMember') }} {{ idx + 1 }}</strong>
               <button
                 v-if="familyRosterMembers.length > 1"
                 type="button"
                 class="btn btn-outline btn-sm"
                 @click="removeFamilyRosterMember(idx)"
-              >Remove</button>
+              >{{ t('rosterRemove') }}</button>
             </div>
             <div class="demographics-grid">
               <div class="form-group">
-                <label>Legal first name <span class="required-indicator">*</span></label>
+                <label>{{ t('rosterFirst') }} <span class="required-indicator">*</span></label>
                 <input v-model="member.firstName" type="text" />
               </div>
               <div class="form-group">
-                <label>Legal last name <span class="required-indicator">*</span></label>
+                <label>{{ t('rosterLast') }} <span class="required-indicator">*</span></label>
                 <input v-model="member.lastName" type="text" />
               </div>
               <div class="form-group">
-                <label>Preferred name</label>
+                <label>{{ t('rosterPreferred') }} <span class="optional-indicator">{{ t('optional') }}</span></label>
                 <input v-model="member.preferredName" type="text" />
               </div>
               <div class="form-group">
-                <label>Date of birth <span class="required-indicator">*</span></label>
+                <label>{{ t('dateOfBirth') }} <span class="required-indicator">*</span></label>
                 <input v-model="member.dateOfBirth" type="date" />
               </div>
               <div class="form-group">
-                <label>Sex</label>
+                <label>{{ t('rosterSex') }} <span class="optional-indicator">{{ t('optional') }}</span></label>
                 <select v-model="member.sex">
-                  <option value="">Select…</option>
-                  <option value="female">Female</option>
-                  <option value="male">Male</option>
+                  <option value="">{{ t('rosterSelect') }}</option>
+                  <option value="female">{{ t('rosterFemale') }}</option>
+                  <option value="male">{{ t('rosterMale') }}</option>
                 </select>
               </div>
               <div class="form-group">
-                <label>Relationship to primary contact</label>
+                <label>{{ t('rosterRelationship') }} <span class="optional-indicator">{{ t('optional') }}</span></label>
                 <input v-model="member.relationshipToPrimary" type="text" />
               </div>
               <div class="form-group">
-                <label>Lives in household?</label>
+                <label>{{ t('rosterHousehold') }} <span class="optional-indicator">{{ t('optional') }}</span></label>
                 <select v-model="member.livesInHousehold">
-                  <option value="">Select…</option>
-                  <option value="yes">Yes</option>
-                  <option value="no">No</option>
+                  <option value="">{{ t('rosterSelect') }}</option>
+                  <option value="yes">{{ t('rosterYes') }}</option>
+                  <option value="no">{{ t('rosterNo') }}</option>
                 </select>
               </div>
               <div class="form-group">
-                <label>Participating in therapy?</label>
+                <label>{{ t('rosterParticipation') }} <span class="optional-indicator">{{ t('optional') }}</span></label>
                 <select v-model="member.participation">
-                  <option value="expected_regular">Expected to participate regularly</option>
-                  <option value="may_participate">May participate</option>
-                  <option value="not_participating">Not currently participating</option>
+                  <option value="expected_regular">{{ t('rosterRegular') }}</option>
+                  <option value="may_participate">{{ t('rosterMay') }}</option>
+                  <option value="not_participating">{{ t('rosterNot') }}</option>
                 </select>
               </div>
             </div>
           </div>
           <button type="button" class="btn btn-outline" @click="addFamilyRosterMember">
-            + Add family member
+            {{ t('rosterAdd') }}
           </button>
         </div>
 
@@ -2107,7 +2109,7 @@
               <span v-if="demographicsErrors.dob" class="field-error">{{ tx('Required') }}</span>
             </div>
             <div v-if="currentFlowStep.showGender" class="form-group">
-              <label>{{ tx('Sex') }}</label>
+              <label>{{ tx('Sex') }} <span v-if="isOfficeInDepthIntake" class="optional-indicator">{{ t('optional') }}</span></label>
               <div class="intake-sex-row">
                 <select v-model="demographicsData.gender">
                   <option value="">{{ tx('Select…') }}</option>
@@ -2125,7 +2127,7 @@
               />
             </div>
             <div v-if="currentFlowStep.showEthnicity" class="form-group">
-              <label>{{ tx('Race / Ethnicity') }}</label>
+              <label>{{ tx('Race / Ethnicity') }} <span v-if="isOfficeInDepthIntake" class="optional-indicator">{{ t('optional') }}</span></label>
               <select v-model="demographicsData.ethnicity">
                 <option value="">{{ tx('Prefer not to say') }}</option>
                 <option value="american_indian">{{ tx('American Indian or Alaska Native') }}</option>
@@ -2139,7 +2141,7 @@
               </select>
             </div>
             <div v-if="currentFlowStep.showPreferredLanguage" class="form-group">
-              <label>{{ tx('Preferred Language') }}</label>
+              <label>{{ tx('Preferred Language') }} <span v-if="isOfficeInDepthIntake" class="optional-indicator">{{ t('optional') }}</span></label>
               <select v-model="demographicsData.preferredLanguage">
                 <option value="">{{ tx('Select…') }}</option>
                 <option value="english">{{ tx('English') }}</option>
@@ -2153,7 +2155,7 @@
             <template v-if="currentFlowStep.showAddress">
               <div class="form-group" style="grid-column: 1 / -1;">
                 <label>
-                  {{ tx('Street Address') }}
+                  {{ tx('Street Address') }} <span v-if="isOfficeInDepthIntake" class="optional-indicator">{{ t('optional') }}</span>
                   <button
                     v-if="canCopySameAsMe({ key: 'address_street' })"
                     type="button"
@@ -2168,7 +2170,7 @@
                 <input type="text" v-model="demographicsData.addressApt" placeholder="Apt 4B" />
               </div>
               <div class="form-group">
-                <label>{{ tx('Zip Code') }}</label>
+                <label>{{ tx('Zip Code') }} <span v-if="isOfficeInDepthIntake" class="optional-indicator">{{ t('optional') }}</span></label>
                 <input
                   type="text"
                   v-model="demographicsData.addressZip"
@@ -2178,11 +2180,11 @@
                 />
               </div>
               <div class="form-group">
-                <label>{{ tx('City') }}</label>
+                <label>{{ tx('City') }} <span v-if="isOfficeInDepthIntake" class="optional-indicator">{{ t('optional') }}</span></label>
                 <input type="text" v-model="demographicsData.addressCity" placeholder="Colorado Springs" />
               </div>
               <div class="form-group">
-                <label>{{ tx('State') }}</label>
+                <label>{{ tx('State') }} <span v-if="isOfficeInDepthIntake" class="optional-indicator">{{ t('optional') }}</span></label>
                 <input type="text" v-model="demographicsData.addressState" placeholder="CO" maxlength="2" style="max-width: 80px;" />
               </div>
             </template>
@@ -2221,7 +2223,8 @@
                   :help="txField(row.field, 'helperText')"
                   :placeholder="txField(row.field, 'placeholder')"
                   :options="(row.field.options || []).map((opt) => ({ value: opt.value || opt.label, label: txOption(opt) }))"
-                  :required="isOfficeHardRequiredField(row.field) || (!isOfficeInDepthIntake && !!row.field.required)"
+                  :required="isOfficeInDepthIntake ? isOfficeRequiredQuestionField(row.field) : (isOfficeHardRequiredField(row.field) || !!row.field.required)"
+                  :show-optional="isOfficeInDepthIntake"
                   :error="isQuestionFieldMissing(row.field)"
                   name-prefix="q_"
                   @update:model-value="(v) => onInterviewFieldUpdate(row.field, v)"
@@ -2288,7 +2291,8 @@
                 :label="txField(field)"
                 :help="group.sharedHelper ? '' : txField(field, 'helperText')"
                 :options="(field.options || []).map((opt) => ({ value: opt.value || opt.label, label: txOption(opt) }))"
-                :required="false"
+                :required="isOfficeInDepthIntake && isOfficeRequiredQuestionField(field)"
+                :show-optional="isOfficeInDepthIntake"
                 :error="false"
                 name-prefix="cq_"
                 @update:model-value="(v) => { activeClinicalResponses[field.key] = v; }"
@@ -3145,6 +3149,7 @@ import {
   OFFICE_INSTRUMENT_META,
   indicatedOfficeInstruments,
   instrumentIdForField,
+  isOfficeRequiredQuestionField,
   isOfficeHardRequiredField
 } from '../utils/officeQuestionnaireRecommend.js';
 
@@ -3293,6 +3298,27 @@ const INTAKE_TRANSLATIONS = {
     documentPreviewUnavailable: 'Document preview not available.',
     reviewDocumentAbove: 'Please review the document above. You must reach the last page before continuing.',
     requiredFields: 'Required Fields',
+    rosterLead: "Add everyone who may be part of care. Adults and children can both be listed.",
+    rosterMember: "Family member",
+    rosterFirst: "Legal first name",
+    rosterLast: "Legal last name",
+    rosterPreferred: "Preferred name",
+    rosterSex: "Sex",
+    rosterRelationship: "Relationship to primary contact",
+    rosterHousehold: "Lives in household?",
+    rosterParticipation: "Participating in therapy?",
+    rosterRemove: "Remove",
+    rosterSelect: "Select…",
+    rosterFemale: "Female",
+    rosterMale: "Male",
+    rosterYes: "Yes",
+    rosterNo: "No",
+    rosterRegular: "Expected to participate regularly",
+    rosterMay: "May participate",
+    rosterNot: "Not currently participating",
+    rosterAdd: "+ Add family member",
+    rosterMissing: "Please enter first name, last name, and date of birth for each family member.",
+    officeFieldGuide: 'Fields marked * are required. Questions marked Optional can be left blank and discussed with your provider later.',
     signatureReady: 'Signature ready for this document.',
     applySavedSignaturePrompt: "You haven't signed this document yet. Would you like to apply your saved signature?",
     yesApplySignature: 'Yes, apply signature',
@@ -3316,7 +3342,7 @@ const INTAKE_TRANSLATIONS = {
     continueToIntakePacket: 'Continue to Enrollment Packet',
     childDateOfBirth: "Child's date of birth",
     dependentDateOfBirth: 'DOB',
-    middleNameOptional: 'Middle name',
+    middleNameOptional: 'Middle name (optional)',
     dependentN: 'Dependent',
     dependentFirstName: 'First name',
     dependentLastName: 'Last name',
@@ -3693,6 +3719,27 @@ const INTAKE_TRANSLATIONS = {
     documentPreviewUnavailable: 'La vista previa del documento no está disponible.',
     reviewDocumentAbove: 'Revise el documento anterior. Debe llegar a la última página antes de continuar.',
     requiredFields: 'Campos requeridos',
+    rosterLead: "Agregue a todas las personas que podrían participar en la atención. Puede incluir a adultos y niños.",
+    rosterMember: "Miembro de la familia",
+    rosterFirst: "Nombre legal",
+    rosterLast: "Apellido legal",
+    rosterPreferred: "Nombre preferido",
+    rosterSex: "Sexo",
+    rosterRelationship: "Relación con el contacto principal",
+    rosterHousehold: "¿Vive en el hogar?",
+    rosterParticipation: "¿Participa en la terapia?",
+    rosterRemove: "Eliminar",
+    rosterSelect: "Seleccione…",
+    rosterFemale: "Femenino",
+    rosterMale: "Masculino",
+    rosterYes: "Sí",
+    rosterNo: "No",
+    rosterRegular: "Se espera que participe regularmente",
+    rosterMay: "Podría participar",
+    rosterNot: "Actualmente no participa",
+    rosterAdd: "+ Agregar miembro de la familia",
+    rosterMissing: "Ingrese el nombre, el apellido y la fecha de nacimiento de cada miembro de la familia.",
+    officeFieldGuide: 'Los campos marcados con * son obligatorios. Puede dejar en blanco las preguntas marcadas como Opcional y hablar sobre ellas con su profesional más adelante.',
     signatureReady: 'La firma está lista para este documento.',
     applySavedSignaturePrompt: 'Aún no ha firmado este documento. ¿Desea aplicar su firma guardada?',
     yesApplySignature: 'Sí, aplicar firma',
@@ -3716,7 +3763,7 @@ const INTAKE_TRANSLATIONS = {
     aFamily: 'Una familia',
     childDateOfBirth: 'Fecha de nacimiento del niño',
     dependentDateOfBirth: 'Fecha de nacimiento',
-    middleNameOptional: 'Segundo nombre',
+    middleNameOptional: 'Segundo nombre (opcional)',
     dependentN: 'Dependiente',
     dependentFirstName: 'Nombre',
     dependentLastName: 'Apellido',
@@ -6206,15 +6253,14 @@ const flowSteps = computed(() => {
           if (isOfficeInDepthIntake.value) {
             fields = fields.map((f) => ({
               ...f,
-              required: isOfficeHardRequiredField(f)
+              required: isOfficeRequiredQuestionField(f)
             }));
             if (officeEssentialOnlyMode.value) {
               fields = fields.filter(
                 (f) =>
                   !f
                   || f.type === 'info'
-                  || isOfficeHardRequiredField(f)
-                  || isContactOrDemographicField(f)
+                  || isOfficeRequiredQuestionField(f)
               );
             }
           }
@@ -7512,7 +7558,7 @@ async function completeFamilyRosterStep() {
     (m) => !String(m.firstName || '').trim() || !String(m.lastName || '').trim() || !String(m.dateOfBirth || '').trim()
   );
   if (missing && !canBypassIntakeRequired.value) {
-    stepError.value = 'Please enter first name, last name, and date of birth for each family member.';
+    stepError.value = t('rosterMissing');
     return;
   }
   stepError.value = '';
@@ -10776,7 +10822,7 @@ function isBlankQuestionLikeValue(field, valuesBag) {
 
 function officeOptionalFieldsAllBlank(fields, valuesBag) {
   const list = (fields || []).filter((f) => f && f.type !== 'info' && !f.sexPlus);
-  const optional = list.filter((f) => !isOfficeHardRequiredField(f) && !isContactOrDemographicField(f));
+  const optional = list.filter((f) => !isOfficeRequiredQuestionField(f));
   if (!optional.length) return false;
   return optional.every((f) => isBlankQuestionLikeValue(f, valuesBag));
 }
@@ -10793,7 +10839,7 @@ function isOfficeQuestionnaireStep(step) {
 function officeStepHasEssentialFields(step) {
   const fields = Array.isArray(step?.fields) ? step.fields : [];
   return fields.some(
-    (f) => f && f.type !== 'info' && (isOfficeHardRequiredField(f) || isContactOrDemographicField(f))
+    (f) => f && f.type !== 'info' && isOfficeRequiredQuestionField(f)
   );
 }
 
@@ -10929,7 +10975,7 @@ const completeQuestionStep = async () => {
       : visibleQuestionFields.value.filter(
         (f) =>
           !f.sexPlus
-          && (isOfficeHardRequiredField(f) || isContactOrDemographicField(f))
+          && isOfficeRequiredQuestionField(f)
           && isBlankQuestionLikeValue(f, questionValues.value)
       );
     if (missingHard.length) {
@@ -11707,7 +11753,7 @@ const completeClinicalQuestionsStep = async () => {
   if (isOfficeInDepthIntake.value) {
     const missingHard = (visibleClinicalFields.value || []).filter(
       (f) =>
-        (isOfficeHardRequiredField(f) || isContactOrDemographicField(f))
+        isOfficeRequiredQuestionField(f)
         && isBlankQuestionLikeValue(f, activeClinicalResponses.value)
     );
     if (missingHard.length && !canBypassIntakeRequired.value) {
@@ -14500,6 +14546,12 @@ onBeforeUnmount(() => {
   color: #dc3545;
   font-size: 12px;
   margin-top: 4px;
+}
+.optional-indicator {
+  color: var(--text-secondary, #52665d);
+  margin-left: 0.35rem;
+  font-size: 0.8em;
+  font-weight: 400;
 }
 .required-indicator {
   color: #dc3545;

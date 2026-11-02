@@ -1,3 +1,5 @@
+import { isContactOrDemographicField } from './intakeSexField.js';
+
 const LIST_KEYS = ['recent_symptoms', 'diagnoses_given'];
 
 const DEPRESSION_SYMPTOMS = new Set([
@@ -145,6 +147,13 @@ export function isOfficeHardRequiredField(field) {
     'feel_physically_safe',
     'safety_immediate_danger'
   ].includes(key);
+}
+
+// Match the office runner's existing blocking rules, including contact details.
+// A schema's required flag alone does not describe office enrollment validation.
+export function isOfficeRequiredQuestionField(field) {
+  return !!field && !field.sexPlus && field.type !== 'info' && field.type !== 'deny_all'
+    && (isOfficeHardRequiredField(field) || isContactOrDemographicField(field));
 }
 
 export { LIST_KEYS };

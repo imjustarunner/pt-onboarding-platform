@@ -3,7 +3,7 @@
     <div v-if="label" class="df-field-label">
       {{ label }}
       <span v-if="required" class="df-field-required">*</span>
-      <span v-else-if="optionalBadge" class="df-field-optional">optional</span>
+      <span v-else-if="optionalBadge" class="df-field-optional">{{ translateEnrollment('optional') }}</span>
     </div>
     <p v-if="help" class="df-field-help">{{ help }}</p>
     <div
@@ -36,7 +36,9 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, inject } from 'vue';
+
+const translateEnrollment = inject('enrollmentTranslate', text => text);
 
 const props = defineProps({
   modelValue: { type: [String, Number, Boolean, Array], default: '' },

@@ -285,6 +285,9 @@ export const STRUCTURED_INTAKE_STEP_ES = {
   'Group number': 'Número de grupo',
   'Patient suffix': 'Sufijo del paciente',
   Optional: 'Opcional',
+  'How did you hear about the agency? (Optional)': '¿Cómo se enteró de la agencia? (Opcional)',
+  'For example: an event, an online search, social media, a friend, or a referral. If it was an event, please include its name.':
+    'Por ejemplo: un evento, una búsqueda en línea, redes sociales, una amistad o una recomendación. Si fue un evento, incluya su nombre.',
   'Common on private/commercial plans.': 'Común en planes privados/comerciales.',
   'Per-Client Medicaid Member IDs': 'IDs de miembro Medicaid por cliente',
   "Since this intake includes multiple clients, capture each child's Medicaid Member ID so billing is stored correctly per client.":
