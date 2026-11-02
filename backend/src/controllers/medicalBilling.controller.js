@@ -3045,14 +3045,16 @@ export const listMedicalServiceCodes = async (req, res, next) => {
     try {
       const { ensureAgencyMedicalBillingDefaults } = await import('../services/medicalBillingDefaults.service.js');
       await ensureAgencyMedicalBillingDefaults(agencyId, { actorUserId: req.user.id });
-    } catch {
-      // ignore seed failures
+    } catch (cause) {
+      const { catalogSynchronizationError } = await import('../services/agencyServiceCodeCatalog.service.js');
+      throw catalogSynchronizationError(cause);
     }
     try {
       const { reconcileAgencyServiceCodeCatalog } = await import('../services/agencyServiceCodeCatalog.service.js');
       await reconcileAgencyServiceCodeCatalog(agencyId, { actorUserId: req.user.id });
-    } catch {
-      // ignore sync failures
+    } catch (cause) {
+      const { catalogSynchronizationError } = await import('../services/agencyServiceCodeCatalog.service.js');
+      throw catalogSynchronizationError(cause);
     }
     const items = await AgencyMedicalServiceCode.listByAgency(agencyId, {
       includeInactive: String(req.query.includeInactive || '') === '1'
@@ -3094,6 +3096,11 @@ export const upsertMedicalServiceCode = async (req, res, next) => {
         ? req.body.allowedPlaceOfService.split(',').map((t) => t.trim()).filter(Boolean)
         : null);
 
+    const existingCode = await AgencyMedicalServiceCode.findByAgencyAndCode(agencyId, serviceCode);
+    const { isClinicalAddon } = await import('../utils/clinicalServiceCodeCatalog.js');
+    const isAddon = isClinicalAddon(serviceCode) || (req.body.isAddon !== undefined
+      ? [true, 1, '1', 'true'].includes(req.body.isAddon)
+      : !!existingCode?.isAddon);
     const isActive = req.body.isActive !== false;
     const item = await AgencyMedicalServiceCode.upsert({
       agencyId,
@@ -3111,6 +3118,7 @@ export const upsertMedicalServiceCode = async (req, res, next) => {
       defaultPlaceOfService: req.body.defaultPlaceOfService || null,
       allowedPlaceOfService,
       allowedCredentialTiers,
+      isAddon,
       isActive,
       sessionMode: req.body.sessionMode || req.body.session_mode || 'either',
       createdByUserId: req.user.id
@@ -3132,18 +3140,6 @@ export const upsertMedicalServiceCode = async (req, res, next) => {
       }
     }
 
-    // Best-effort: ensure code exists in scheduling dictionary so calendar can select it
-    try {
-      await pool.execute(
-        `INSERT INTO scheduling_service_codes (service_code, description, is_active)
-         VALUES (?, ?, 1)
-         ON DUPLICATE KEY UPDATE description = COALESCE(VALUES(description), description), is_active = 1`,
-        [serviceCode, req.body.description || null]
-      );
-    } catch {
-      // table/columns may differ
-    }
-
     try {
       const {
         syncClinicalCodePresent,
@@ -3157,8 +3153,9 @@ export const upsertMedicalServiceCode = async (req, res, next) => {
       } else {
         await syncClinicalCodePresent(agencyId, serviceCode, { actorUserId: req.user.id });
       }
-    } catch {
-      /* best-effort catalog sync */
+    } catch (cause) {
+      const { catalogSynchronizationError } = await import('../services/agencyServiceCodeCatalog.service.js');
+      throw catalogSynchronizationError(cause);
     }
 
     return res.status(201).json({ item });

@@ -44,6 +44,7 @@ beforeEach(() => {
     if (sql.includes('FROM client_session_notification_preferences')) return [preferences];
     if (sql.includes('FROM family_notification_choices')) return [[]];
     if (sql.includes('FROM appointment_schedule_notices')) return [[]];
+    if (sql.includes('SELECT DISTINCT a.id FROM appointments')) return [[]];
     if (sql.includes('FROM clients c LEFT JOIN client_statuses')) return [[client]];
     if (sql.includes('SELECT r.* FROM appointment_reminders')) return [due];
     if (sql.includes('FROM appointment_change_notification_queue')) return [[]];
@@ -70,24 +71,24 @@ it('does not assume email consent when a preference lookup fails',async()=>{
   expect(await loadClientConsent(4,2)).toMatchObject({email:false,sms:false,phone:false});
 });
 it('rechecks opt-out after scheduling', async () => {
-  due = [{ id: 5, appointment_id: 12, channel: 'sms', kind: 'reminder', is_required: 1 }];
+  due = [{ id: 5, appointment_id: 12, agency_id: 2, channel: 'sms', kind: 'reminder', is_required: 1 }];
   preferences = [{ agency_id: 2, client_id: 4, channels_json: { sms: false } }];
   expect((await processDueSessionNotifications()).skipped).toBe(1);
   expect(Vonage.sendSms).not.toHaveBeenCalled(); expect(lock.release).toHaveBeenCalled();
 });
 it('corrects already queued school messages and uses only the registered reminder sender', async () => {
-  due = [{ id: 5, appointment_id: 12, channel: 'sms', kind: 'confirmation', message_body: 'Reply Y to confirm in our office', requires_confirmation: 1 }];
+  due = [{ id: 5, appointment_id: 12, agency_id: 2, channel: 'sms', kind: 'confirmation', message_body: 'Reply Y to confirm in our office', requires_confirmation: 1 }];
   await processDueSessionNotifications();
   expect(resolveRegisteredSmsSender).toHaveBeenCalledWith({ agencyId: 2, purpose: 'reminders' });
   expect(Vonage.sendSms).toHaveBeenCalledWith(expect.objectContaining({ to: '+17195550100', from: '+17195550199', body: expect.stringContaining('No confirmation') }));
 });
 it('keeps delivery blocked when no approved number is linked', async () => {
-  due = [{ id: 5, appointment_id: 12, channel: 'sms' }]; resolveRegisteredSmsSender.mockResolvedValue(null);
+  due = [{ id: 5, appointment_id: 12, agency_id: 2, channel: 'sms' }]; resolveRegisteredSmsSender.mockResolvedValue(null);
   expect((await processDueSessionNotifications()).skipped).toBe(1);
   expect(Vonage.sendSms).not.toHaveBeenCalled();
 });
 it('cannot bypass the central recipient permission or STOP gate', async () => {
-  due = [{ id: 5, appointment_id: 12, channel: 'sms' }];
+  due = [{ id: 5, appointment_id: 12, agency_id: 2, channel: 'sms' }];
   Vonage.sendSms.mockRejectedValue(new Error('Recorded recipient consent required'));
   expect((await processDueSessionNotifications()).failed).toBe(1);
   expect(pool.execute.mock.calls.some(([sql]) => sql.includes("SET status = 'sent'"))).toBe(false);
@@ -109,7 +110,7 @@ it('guardian preferences cannot overwrite another recipient’s global flags', a
   expect(pool.execute.mock.calls.some(([sql]) => sql.includes('UPDATE clients SET'))).toBe(false);
 });
 it('overlapping reminder workers do not send a row twice', async () => {
-  due = [{ id: 5, appointment_id: 12, channel: 'sms' }];
+  due = [{ id: 5, appointment_id: 12, agency_id: 2, channel: 'sms' }];
   lock.execute.mockResolvedValue([[{ acquired: 0 }]]);
   await processDueSessionNotifications(); expect(Vonage.sendSms).not.toHaveBeenCalled();
 });
@@ -171,6 +172,8 @@ it('does not send a queued guardian reminder after that guardian loses access',a
 
 it('sends a single reminder when two guardians share the same destination',async()=>{
  twoGuardians();const choices=latestIntakeCommunicationChoices.getMockImplementation();
+ // Delivery uses the current saved phone, not a historical intake number.
+ Guardians.listForClient.mockResolvedValue([{guardian_user_id:91,access_enabled:1,email:'shared@example.test',phone:'+15555550101'},{guardian_user_id:92,access_enabled:1,email:'shared@example.test',phone:'+15555550101'}]);
  latestIntakeCommunicationChoices.mockImplementation(async(c,a,id)=>({...await choices(c,a,id),recipientPhone:'+15555550101',recipientEmail:'shared@example.test'}));
  const plan=await buildDeliveryPlan(9);
  const sms=plan.deliveries.filter(d=>d.channel==='sms');

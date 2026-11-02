@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
+vi.mock('../sessionSchedulingLock.service.js', () => ({ withSessionSchedulingLock: async (id, work) => work() }));
 vi.mock('../../models/Appointment.model.js', () => ({ default: { findById: vi.fn() } }));
 vi.mock('../appointmentServiceSetting.service.js', () => ({ resolveAppointmentServiceSetting: vi.fn(), buildSchoolReminder: vi.fn() }));
 import pool from '../../config/database.js';

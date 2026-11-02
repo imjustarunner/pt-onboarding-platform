@@ -7,6 +7,7 @@
  */
 
 import { PAYROLL_SERVICE_CODE_DEFAULTS } from '../services/payrollServiceCodeDefaults.js';
+import { isClinicalAddon } from '../utils/clinicalServiceCodeCatalog.js';
 
 const base = (partial) => ({
   modality: 'EITHER',
@@ -186,9 +187,9 @@ function buildItscoMentalHealthServices() {
       allowsGroup: meta.allowsGroup === true,
       maxParticipants: meta.maxParticipants ?? null,
       packageEligible: meta.packageEligible !== false,
-      isStaffBookable: meta.isStaffBookable !== false,
+      isStaffBookable: !isClinicalAddon(key) && meta.isStaffBookable !== false,
       billingMethod: meta.billingMethod || 'self_pay',
-      // Keep add-ons bookable for staff documentation/time but not publicly.
+      // Add-ons stay in billing/payroll, outside primary appointment booking.
       isPubliclyBookable: false,
       sortOrder: (idx + 1) * 10,
       // Stash for audits / future billing link

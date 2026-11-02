@@ -23,6 +23,8 @@ import {
 } from '../config/tenantServiceSuiteCatalog.js';
 import { DEFAULT_MEDICAL_SERVICE_CODES } from './medicalBillingDefaults.service.js';
 import { buildMedicaid8MinuteBands } from './serviceCodeUnits.service.js';
+import { ensureSchedulingCatalogEntry } from './schedulingCatalogSync.service.js';
+import { isClinicalAddon } from '../utils/clinicalServiceCodeCatalog.js';
 
 const CLINICAL_BOOKABLE = new Set(
   ITSCO_DIRECT_BOOKABLE_CODES.map((c) => String(c).trim().toUpperCase())
@@ -42,8 +44,8 @@ const PAYROLL_ONLY_CATEGORIES = new Set([
   'tutoring'
 ]);
 
-/** In-flight guards to prevent recursive sync loops. */
-const inFlight = new Set();
+/** Coalesce concurrent mirrors and propagate completion/failure to every caller. */
+const inFlight = new Map();
 
 function lockKey(agencyId, code, action) {
   return `${Number(agencyId)}:${String(code || '').toUpperCase()}:${action}`;
@@ -51,11 +53,12 @@ function lockKey(agencyId, code, action) {
 
 function withLock(agencyId, code, action, fn) {
   const key = lockKey(agencyId, code, action);
-  if (inFlight.has(key)) return Promise.resolve(null);
-  inFlight.add(key);
-  return Promise.resolve()
+  if (inFlight.has(key)) return inFlight.get(key);
+  const pending = Promise.resolve()
     .then(fn)
     .finally(() => inFlight.delete(key));
+  inFlight.set(key, pending);
+  return pending;
 }
 
 export function normalizeServiceCode(code) {
@@ -104,9 +107,11 @@ export async function ensureAgencyPayrollDictionary(agencyId) {
 
   const existing = await PayrollServiceCodeRule.listForAgency(aid);
   const have = new Set((existing || []).map((r) => normalizeServiceCode(r.service_code)));
+  const medical = await AgencyMedicalServiceCode.listByAgency(aid, { includeInactive: true });
+  const disabled = new Set((medical || []).filter(row => !row.isActive).map(row => normalizeServiceCode(row.serviceCode || row.service_code)));
   let inserted = 0;
   for (const code of codes) {
-    if (have.has(code)) continue;
+    if (have.has(code) || disabled.has(code)) continue;
     const d = payrollDefaultsForCode(code);
     await PayrollServiceCodeRule.upsert({
       agencyId: aid,
@@ -131,6 +136,10 @@ export async function ensureAgencyPayrollDictionary(agencyId) {
 async function ensureMedicalCode(agencyId, code, { actorUserId = null } = {}) {
   const c = normalizeServiceCode(code);
   if (!c || !isClinicalBookableCode(c)) return null;
+  const existing = await AgencyMedicalServiceCode.findByAgencyAndCode(agencyId, c);
+  // Synchronization fills gaps; it must not reset saved units, rates, credential
+  // restrictions, add-on flags, or deliberately disabled agency services.
+  if (existing) return existing;
   const def = medicalDefForCode(c);
   const meta = tenantMetaForCode(c);
   let ladderBandsJson = null;
@@ -157,6 +166,8 @@ async function ensureMedicalCode(agencyId, code, { actorUserId = null } = {}) {
     overflowAtMinutes: def?.overflowAtMinutes ?? null,
     defaultPlaceOfService: def?.defaultPlaceOfService || null,
     allowedCredentialTiers: def?.allowedCredentialTiers || null,
+    isAddon: isClinicalAddon(c, def || {}),
+    sessionMode: meta.allowsIndividual === false ? 'group' : 'either',
     isActive: true,
     createdByUserId: actorUserId
   });
@@ -175,18 +186,10 @@ async function ensureTenantServiceForCode(agencyId, code, { businessType = 'ment
   const active = sameCode.find((s) => s.isActive);
   if (active) return active;
 
-  // Reactivate an inactive match instead of creating a duplicate.
+  // A read/reconciliation must not reactivate a deliberately disabled service.
   const inactive = sameCode.find((s) => !s.isActive);
   const meta = tenantMetaForCode(c);
-  if (inactive) {
-    return TenantService.update(inactive.id, agencyId, {
-      ...meta,
-      serviceCode: c,
-      businessType: bt,
-      isActive: true,
-      isStaffBookable: true
-    });
-  }
+  if (inactive) return inactive;
 
   // Prefer matching by name from catalog to avoid duplicate names without codes.
   const byName = (existing || []).find(
@@ -240,8 +243,19 @@ export async function syncClinicalCodePresent(agencyId, serviceCode, { actorUser
   if (!aid || !code || !isClinicalBookableCode(code)) return null;
 
   return withLock(aid, code, 'present', async () => {
+    const medical = await ensureMedicalCode(aid, code, { actorUserId });
+    if (medical && !medical.isActive) return { agencyId: aid, serviceCode: code, inactive: true };
     await ensurePayrollRule(aid, code);
-    await ensureMedicalCode(aid, code, { actorUserId });
+    if (isClinicalAddon(code, medical || {})) {
+      const services = await TenantService.listForAgency(aid, { includeInactive: true });
+      for (const service of services.filter(s => normalizeServiceCode(s.serviceCode) === code)) {
+        if (service.isStaffBookable || service.isPubliclyBookable) {
+          await TenantService.update(service.id, aid, { isStaffBookable: false, isPubliclyBookable: false });
+        }
+      }
+      return { agencyId: aid, serviceCode: code, addon: true };
+    }
+    await ensureSchedulingCatalogEntry(code);
     await ensureTenantServiceForCode(aid, code, { businessType: code === 'TUTORING' ? 'tutoring' : businessType });
     return { agencyId: aid, serviceCode: code };
   });
@@ -273,16 +287,11 @@ export async function removeServiceCodeEverywhere(
       await pool.execute(
         `DELETE FROM payroll_rates WHERE agency_id = ? AND service_code = ?`,
         [aid, code]
-      ).catch(() => null);
+      );
     }
 
     if (clinical && !skipMedical) {
-      await AgencyMedicalServiceCode.upsert({
-        agencyId: aid,
-        serviceCode: code,
-        description: code,
-        isActive: false
-      }).catch(() => null);
+      await pool.execute('UPDATE agency_medical_service_codes SET is_active = 0 WHERE agency_id = ? AND service_code = ?', [aid, code]);
     }
 
     if (clinical && !skipTenant) {
@@ -325,12 +334,12 @@ export async function reconcileAgencyServiceCodeCatalog(agencyId, { actorUserId 
   try {
     const medical = await AgencyMedicalServiceCode.listByAgency(aid, { includeInactive: false });
     for (const row of medical || []) {
-      const code = normalizeServiceCode(row.service_code);
+      const code = normalizeServiceCode(row.serviceCode || row.service_code);
       if (!isClinicalBookableCode(code)) continue;
       await syncClinicalCodePresent(aid, code, { actorUserId });
     }
-  } catch {
-    /* optional */
+  } catch (error) {
+    throw catalogSynchronizationError(error);
   }
 
   try {
@@ -343,8 +352,8 @@ export async function reconcileAgencyServiceCodeCatalog(agencyId, { actorUserId 
         businessType: svc.businessType || 'mental_health'
       });
     }
-  } catch {
-    /* optional */
+  } catch (error) {
+    throw catalogSynchronizationError(error);
   }
 
   // Dedupe active tenant services sharing the same business_type + service_code.
@@ -371,9 +380,15 @@ export async function reconcileAgencyServiceCodeCatalog(agencyId, { actorUserId 
       );
       dedupedTenant += Number(result?.affectedRows || 0);
     }
-  } catch {
-    /* service_code column may be missing pre-migration */
+  } catch (error) {
+    throw catalogSynchronizationError(error);
   }
 
   return { payrollInserted, clinicalSynced, dedupedTenant };
+}
+
+export function catalogSynchronizationError(cause) {
+  return Object.assign(new Error('Service catalog synchronization did not complete. Saved settings were retained; retry the operation to finish synchronizing scheduling and billing.'), {
+    code: 'SERVICE_CATALOG_SYNC_FAILED', status: 503, cause
+  });
 }

@@ -1,4 +1,5 @@
 import { isServiceCodeDeniedForTier } from '../utils/clinicalServiceCodeEligibility.js';
+import { isClinicalAddon } from '../utils/clinicalServiceCodeCatalog.js';
 /**
  * Default medical service codes + service locations for agencies with medical billing.
  * Idempotent: only inserts codes/locations that are missing.
@@ -91,6 +92,8 @@ function buildDefaultMedicalServiceCodes() {
       overflowAtMinutes: null,
       defaultPlaceOfService: null,
       allowedCredentialTiers,
+      isAddon: isClinicalAddon(code),
+      sessionMode: meta.allowsIndividual === false ? 'group' : 'either',
       // Hint duration from payroll when useful for UI
       defaultDurationMinutes: Number(payroll?.durationMinutes || 0) || null
     });
@@ -199,7 +202,7 @@ export async function ensureAgencyMedicalBillingDefaults(agencyId, { actorUserId
   let codesCreated = 0;
   let locationsCreated = 0;
 
-  const existingCodes = await AgencyMedicalServiceCode.listByAgency(aid, { includeInactive: true }).catch(() => []);
+  const existingCodes = await AgencyMedicalServiceCode.listByAgency(aid, { includeInactive: true });
   const haveCode = new Set((existingCodes || []).map((r) => String(r.service_code || '').toUpperCase()));
 
   for (const def of DEFAULT_MEDICAL_SERVICE_CODES) {
@@ -232,6 +235,10 @@ export async function ensureAgencyMedicalBillingDefaults(agencyId, { actorUserId
           allowedCredentialTiers: parseAllowedCredentialTiers(existing.allowed_credential_tiers_json)
             || def.allowedCredentialTiers
             || null,
+          allowedPlaceOfService: existing.allowed_place_of_service_json == null ? null
+            : (typeof existing.allowed_place_of_service_json === 'string' ? JSON.parse(existing.allowed_place_of_service_json) : existing.allowed_place_of_service_json),
+          isAddon: isClinicalAddon(code, existing),
+          sessionMode: existing.session_mode || def.sessionMode || 'either',
           isActive: existing.is_active !== 0,
           createdByUserId: actorUserId
         });
@@ -261,6 +268,8 @@ export async function ensureAgencyMedicalBillingDefaults(agencyId, { actorUserId
       overflowAtMinutes: def.overflowAtMinutes ?? null,
       defaultPlaceOfService: def.defaultPlaceOfService || null,
       allowedCredentialTiers: def.allowedCredentialTiers || null,
+      isAddon: def.isAddon === true,
+      sessionMode: def.sessionMode || 'either',
       isActive: true,
       createdByUserId: actorUserId
     });

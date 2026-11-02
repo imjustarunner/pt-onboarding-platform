@@ -3900,19 +3900,8 @@ export async function sendHubPortalInvitation({
     /* ignore */
   }
 
-  const existingAccount = !!guardian.password_hash;
-  let tokenResult = null;
-  if (!existingAccount) {
-    {
-      // Shared accounts can receive invitations from multiple agencies. Reuse a
-      // still-valid setup link so the later email does not invalidate the first.
-      const [tokens] = await pool.execute(`SELECT passwordless_token AS token FROM users
-        WHERE id = ? AND passwordless_token_purpose = 'setup'
-          AND passwordless_token IS NOT NULL AND passwordless_token_expires_at > NOW() LIMIT 1`, [guardian.id]);
-      tokenResult = tokens?.[0] || null;
-    }
-    tokenResult ||= await User.generatePasswordlessToken(guardian.id, 48, 'setup');
-  }
+  const { preparePortalInvitationAccess } = await import('./portalInvitationAccess.service.js');
+  const { existingAccount, tokenResult } = await preparePortalInvitationAccess(guardian);
   const agency = portalContext.tenant;
   const setupUrl = clientPortalInviteUrl({ portal: portalContext.portal, token: tokenResult?.token, existingAccount });
   const setupDisplayUrl = setupUrl;

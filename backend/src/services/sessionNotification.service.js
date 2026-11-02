@@ -10,6 +10,7 @@ import { latestIntakeCommunicationChoices, INTAKE_COMMUNICATION_VERSION } from '
  */
 
 import pool from '../config/database.js';
+import { withSessionSchedulingLock } from './sessionSchedulingLock.service.js';
 import { dateToMysqlUtcDateTime, utcMysqlToIso } from '../utils/zonedWallTime.util.js';
 import Appointment from '../models/Appointment.model.js';
 import VonageService from './vonage.service.js';
@@ -362,15 +363,17 @@ export async function putClientPreferences(agencyId, clientId, body = {}, guardi
          session_email_opt_in = ?,
          session_sms_opt_in = ?,
          session_phone_opt_in = ?
-       WHERE id = ?`,
+       WHERE id = ? AND agency_id = ?`,
       [
         channels.email === false ? 0 : 1,
         channels.sms === true ? 1 : 0,
         channels.phone === true ? 1 : 0,
-        Number(clientId)
+        Number(clientId), Number(agencyId)
       ]
     );
   } catch { /* columns may not exist until migration */ }
+  const { refreshClientSessionNotifications } = await import('./sessionPreferenceSchedule.service.js');
+  await refreshClientSessionNotifications(Number(agencyId), Number(clientId), guardianUserId);
   return getClientPreferences(agencyId, clientId, guardianUserId);
 }
 
@@ -628,6 +631,10 @@ async function buildRecipientDeliveryPlan(appointmentId, recipientGuardianUserId
 }
 
 export async function scheduleSessionNotifications(appointmentId, { replace = true } = {}) {
+  return withSessionSchedulingLock(appointmentId, () => scheduleSessionNotificationsUnlocked(appointmentId, { replace }));
+}
+
+async function scheduleSessionNotificationsUnlocked(appointmentId, { replace = true } = {}) {
   const plan = await buildDeliveryPlan(appointmentId);
   if (!plan.appointment || !plan.start) return [];
   if (replace) await cancelPendingReminders(appointmentId);
@@ -721,7 +728,11 @@ export async function scheduleSessionNotifications(appointmentId, { replace = tr
  * Confirm replies set appointment status to client_confirmed (see applyConfirmReply).
  * SMS remains TBD / unchanged elsewhere.
  */
-export async function scheduleDefaultCadenceReminders(appointmentId, {
+export async function scheduleDefaultCadenceReminders(appointmentId, options = {}) {
+  return withSessionSchedulingLock(appointmentId, () => scheduleDefaultCadenceRemindersUnlocked(appointmentId, options));
+}
+
+async function scheduleDefaultCadenceRemindersUnlocked(appointmentId, {
   replace = false,
   channel = 'email',
   includeFollowUps = null,
@@ -733,7 +744,7 @@ export async function scheduleDefaultCadenceReminders(appointmentId, {
   const serviceSetting = await resolveAppointmentServiceSetting(appt);
   // School visits use the family's normal reminder preferences, without a
   // confirmation-driven escalation cadence.
-  if (serviceSetting.isSchool) return scheduleSessionNotifications(appointmentId, { replace });
+  if (serviceSetting.isSchool) return scheduleSessionNotificationsUnlocked(appointmentId, { replace });
   const start = parseStartAt(appt.startAt);
   if (!start) return [];
 

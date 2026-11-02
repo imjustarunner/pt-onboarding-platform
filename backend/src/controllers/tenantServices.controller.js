@@ -108,8 +108,9 @@ export const listTenantServices = async (req, res, next) => {
       try {
         const { reconcileAgencyServiceCodeCatalog } = await import('../services/agencyServiceCodeCatalog.service.js');
         await reconcileAgencyServiceCodeCatalog(agencyId, { actorUserId: req.user?.id || null });
-      } catch {
-        /* best-effort catalog sync */
+      } catch (cause) {
+        const { catalogSynchronizationError } = await import('../services/agencyServiceCodeCatalog.service.js');
+        throw catalogSynchronizationError(cause);
       }
     }
     const services = await TenantService.listForAgency(agencyId, { includeInactive });
@@ -150,8 +151,9 @@ export const createTenantService = async (req, res, next) => {
           actorUserId: req.user?.id || null,
           businessType: service.businessType
         });
-      } catch {
-        /* best-effort */
+      } catch (cause) {
+        const { catalogSynchronizationError } = await import('../services/agencyServiceCodeCatalog.service.js');
+        throw catalogSynchronizationError(cause);
       }
     }
     res.status(201).json({ ok: true, service });
@@ -193,8 +195,9 @@ export const updateTenantService = async (req, res, next) => {
           businessType: service.businessType
         });
       }
-    } catch {
-      /* best-effort */
+    } catch (cause) {
+      const { catalogSynchronizationError } = await import('../services/agencyServiceCodeCatalog.service.js');
+      throw catalogSynchronizationError(cause);
     }
     res.json({ ok: true, service });
   } catch (e) {
@@ -220,8 +223,9 @@ export const deleteTenantService = async (req, res, next) => {
       try {
         const { removeServiceCodeEverywhere } = await import('../services/agencyServiceCodeCatalog.service.js');
         await removeServiceCodeEverywhere(agencyId, existing.serviceCode, { forceAllSurfaces: true });
-      } catch {
-        await TenantService.softDelete(serviceId, agencyId);
+      } catch (cause) {
+        const { catalogSynchronizationError } = await import('../services/agencyServiceCodeCatalog.service.js');
+        throw catalogSynchronizationError(cause);
       }
     } else {
       const ok = await TenantService.softDelete(serviceId, agencyId);

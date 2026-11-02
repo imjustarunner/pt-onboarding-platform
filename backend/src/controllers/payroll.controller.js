@@ -22708,8 +22708,9 @@ export const upsertServiceCodeRule = async (req, res, next) => {
       if (isClinicalBookableCode(codeTrimmed, { category: cat })) {
         await syncClinicalCodePresent(resolvedAgencyId, codeTrimmed, { actorUserId: req.user?.id || null });
       }
-    } catch {
-      /* best-effort mirror */
+    } catch (cause) {
+      const { catalogSynchronizationError } = await import('../services/agencyServiceCodeCatalog.service.js');
+      throw catalogSynchronizationError(cause);
     }
     res.json({ ok: true });
   } catch (e) {

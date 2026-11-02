@@ -1,4 +1,5 @@
 import { requireClientSessionBooking } from './clientSessionBookingRollout.service.js';
+import { resolveAgencySchedulingCatalog } from './agencySchedulingCatalog.service.js';
 import { readStaffCareEligibility } from './staffCareEligibility.service.js';
 import pool from '../config/database.js';
 import { deriveCredentialTier, eligibleServiceCodesForTier, isServiceCodeDeniedForTier } from '../utils/clinicalServiceCodeEligibility.js';
@@ -253,13 +254,14 @@ export async function getSchedulingBookingMetadata({ userRole, providerCredentia
   ]);
   const eligibleServiceCodes = careEligibility.canProvideCare ? (await listEligibleServiceCodesForTier(credentialTier, agencyId)).filter(row => !isServiceCodeDeniedForTier(credentialTier, row.code)) : [];
 
+  const catalog = await resolveAgencySchedulingCatalog({ agencyId, credentialTier, allServiceCodes, eligibleServiceCodes });
   return {
     credentialTier,
     careEligibility,
     appointmentTypes,
     appointmentSubtypes,
-    allServiceCodes,
-    eligibleServiceCodes
+    allServiceCodes: catalog.allServiceCodes,
+    eligibleServiceCodes: careEligibility.canProvideCare ? catalog.eligibleServiceCodes : []
   };
 }
 

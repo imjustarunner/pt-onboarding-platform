@@ -47,6 +47,17 @@ const ATTACHMENT_RX = /\battach(ed|ment|ments|ing)?\b|included as an attachment|
 const LINK_RX = /private link|secure link|link below|click (here|the link|below)|signing link|release of information/i;
 const DOWNLOAD_RX = /download a copy from/i;
 
+function attachmentPromiseText(content) {
+  return String(content || '')
+    // A negative list can end in attachments: "no client information, links,
+    // or attachments". Remove only that phrase, not a later positive promise.
+    .replace(/\b(?:no|without)\s+(?:[\w-]+(?:\s+[\w-]+){0,3},\s*(?:(?:and|or)\s+)?){0,5}(?:any\s+)?(?:files?\s+or\s+)?attachments?\b/gi, '')
+    .replace(/\bno\s+(?:files?|documents?|materials?)\s+(?:are|were|will be|have been)\s+attached\b/gi, '')
+    .replace(/\b(?:is|are|was|were|will be|has been|have been)\s+not\s+attached\b/gi, '')
+    .replace(/\b(?:do not|don't|does not|doesn't|will not|won't|never)\s+(?:send|include|open|download)\s+(?:any\s+|the\s+)?attachments?\b/gi, '')
+    .replace(/\b(?:do not|don't|did not|didn't|will not|won't)\s+attach\b/gi, '');
+}
+
 export function validateOutboundEmailQuality({
   subject = '',
   text = '',
@@ -73,7 +84,7 @@ export function validateOutboundEmailQuality({
   const linkedMeetingRecap = templateType === 'meeting_summary_ready'
     && /^https?:\/\/[^/]+(?:\/[^?]*)?\/my-meetings\?/i.test(String(linkUrl || ''))
     && combined.includes('Documents stay in the app; no files are attached to this email.');
-  if (ATTACHMENT_RX.test(combined) && !hasAttachments && !linkedInboxCopy && !linkedMeetingRecap) {
+  if (ATTACHMENT_RX.test(attachmentPromiseText(combined)) && !hasAttachments && !linkedInboxCopy && !linkedMeetingRecap) {
     flags.push({
       code: 'missing_attachment',
       message: 'Message says something is attached, but no attachment was included.'

@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import { hasEstablishedPortalPassword } from '../utils/portalAccountCredentials.js';
 import { requestPasswordRecoveryEmail } from './passwordRecovery.service.js';
 import { clientPortalInviteUrl, intakeClientPortal } from './clientPortalContext.service.js';
 
@@ -38,6 +39,6 @@ export async function enrollmentPortalAccess({ submission, agency, schoolOrganiz
     }
   }
   // A session is not proof of email ownership. Never disclose tokens/passwords.
-  return { username:guardian.email,portalLoginUrl:clientPortalInviteUrl({portal:intakeClientPortal(agency,{channel:enrollmentChannel,school:!!schoolOrganizationId}),existingAccount:true}),needsPasswordSetup:!guardian.password_hash,deliveryStatus,
+  return { username:guardian.email,portalLoginUrl:clientPortalInviteUrl({portal:intakeClientPortal(agency,{channel:enrollmentChannel,school:!!schoolOrganizationId}),existingAccount:true}),needsPasswordSetup:!hasEstablishedPortalPassword(guardian),deliveryStatus,
     note:'Open the setup link in your email to choose a password. Existing account passwords remain unchanged.' };
 }
