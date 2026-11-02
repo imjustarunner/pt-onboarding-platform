@@ -72,8 +72,17 @@ export function normalizeNotifyreEvent(event) {
     const recipient = payload.Recipient || payload.recipient || {};
     const id = payload.ID || payload.id;
     const status = String(recipient.DeliveryStatus || recipient.deliveryStatus || recipient.Status || recipient.status || '').toLowerCase();
-    if (!id || !status) throw new Error('Incomplete Notifyre delivery event.');
-    return { type, id: `notifyre:${id}`, from: payload.FromNumber || payload.fromNumber, to: recipient.ToNumber || recipient.toNumber,
+    // Notifyre also supplies the sending number inside the recipient result.
+    // Resolve the saved owner from either shape, but never choose between two
+    // conflicting numbers in an authenticated callback.
+    const payloadFrom = payload.FromNumber || payload.fromNumber;
+    const recipientFrom = recipient.FromNumber || recipient.fromNumber;
+    const from = normalizeSmsPhone(payloadFrom || recipientFrom);
+    if (!id || !status || !from ||
+        (payloadFrom && recipientFrom && normalizeSmsPhone(payloadFrom) !== normalizeSmsPhone(recipientFrom))) {
+      throw Object.assign(new Error('Incomplete or conflicting Notifyre delivery event.'), { status: 400 });
+    }
+    return { type, id: `notifyre:${id}`, from, to: recipient.ToNumber || recipient.toNumber,
       status: status === 'successful' ? 'delivered' : status === 'accepted' ? 'queued' : status };
   }
   return null;

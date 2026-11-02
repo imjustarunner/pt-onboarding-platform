@@ -18,6 +18,19 @@ describe('Notifyre client campaign routing',()=>{
  it('never falls back or retries after timeout or rejection',async()=>{let calls=0;await expect(sendNotifyreSms(delivery,{env,fetchImpl:async()=>{calls++;throw new Error('timeout');}})).rejects.toThrow('Check message activity');expect(calls).toBe(1);await expect(sendNotifyreSms(delivery,{env,fetchImpl:async()=>({ok:true,json:async()=>({success:false})})})).rejects.toThrow('did not accept');});
 });
 describe('Notifyre webhooks',()=>{
+ it.each([
+  {Event:'sms_sent',Payload:{ID:'m1',Recipient:{FromNumber:'+17195550124',ToNumber:'+17195550123',DeliveryStatus:'Sent'}}},
+  {event:'sms_sent',payload:{id:'m1',recipient:{fromNumber:'+17195550124',toNumber:'+17195550123',deliveryStatus:'sent'}}}
+ ])('reads the recipient sender without upgrading sent to delivered',event=>{
+  expect(normalizeNotifyreEvent(event)).toMatchObject({id:'notifyre:m1',from:'+17195550124',to:'+17195550123',status:'sent'});
+ });
+ it.each([
+  {ID:'m1',Recipient:{DeliveryStatus:'sent'}},
+  {ID:'m1',FromNumber:'+17195550124',Recipient:{FromNumber:'+17195550999',DeliveryStatus:'sent'}},
+  {ID:'m1',FromNumber:'invalid',Recipient:{FromNumber:'+17195550124',DeliveryStatus:'sent'}}
+ ])('rejects missing, invalid or conflicting callback sender numbers',payload=>{
+  expect(()=>normalizeNotifyreEvent({Event:'sms_sent',Payload:payload})).toThrow(expect.objectContaining({status:400}));
+ });
  const now=1800000000000, raw=Buffer.from('{"Event":"sms_received"}'),t=String(now/1000);
  const signature=crypto.createHmac('sha256',env.NOTIFYRE_WEBHOOK_SECRET).update(`${t}.`).update(raw).digest('hex');
  it('accepts signed raw JSON; rejects tampering, missing secret, replay and duplicate headers',()=>{const header=`t=${t},v=${signature}`;expect(verifyNotifyreSignature(raw,header,env.NOTIFYRE_WEBHOOK_SECRET,now)).toBe(true);expect(verifyNotifyreSignature(Buffer.from('{}'),header,env.NOTIFYRE_WEBHOOK_SECRET,now)).toBe(false);expect(verifyNotifyreSignature(raw,header,'',now)).toBe(false);expect(verifyNotifyreSignature(raw,header,env.NOTIFYRE_WEBHOOK_SECRET,now+301000)).toBe(false);expect(verifyNotifyreSignature(raw,`${header},t=${t}`,env.NOTIFYRE_WEBHOOK_SECRET,now)).toBe(false);});

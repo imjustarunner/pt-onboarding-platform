@@ -26,12 +26,13 @@
           <div v-if="accountOpen" id="aw-account-menu" class="aw-account-menu">
             <RouterLink :to="`/${slug}/account`" @click="accountOpen=false">My Account</RouterLink>
             <RouterLink :to="`/${slug}/settings`" @click="accountOpen=false">Settings</RouterLink>
-            <a :href="personalToolUrl(slug,'account')">Open full suite ↗</a>
+            <a :href="personalToolUrl(slug === 'innerstrength' ? 'tisi' : slug,'account')">Full-suite account ↗</a>
             <button @click="signOut" :disabled="signingOut">{{ signingOut?'Signing out…':'Sign out' }}</button>
             <p v-if="logoutError" role="alert">{{ logoutError }}</p>
           </div>
         </div>
       </header>
+      <WorkspaceNavigation :actor="actor" :slug="slug" interface-name="auricwell" :demo="demo" />
       <slot name="notice" />
       <main id="aw-main" class="aw-content" tabindex="-1"><slot /></main>
     </div>
@@ -41,6 +42,7 @@
 import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import PortalIcon from '../components/portal/PortalIcon.vue';
+import WorkspaceNavigation from '../components/WorkspaceNavigation.vue';
 import { AURICWELL_MARK_URL } from '../constants/auricwellBrand';
 import { personalToolUrl, initials } from './workspace';
 import { useDashboardCardState } from '../composables/useDashboardCardState.js';
@@ -49,7 +51,7 @@ const router=useRouter(), query=ref(''),mobileOpen=ref(false),accountOpen=ref(fa
 const sidebarState=useDashboardCardState({kind:'auricwell-sidebar',userId:computed(()=>props.actor.id),agencyId:computed(()=>props.slug),cardIds:['navigation'],persist:computed(()=>!props.demo)});
 const collapsed=computed({get:()=>sidebarState.collapsedCards.value.includes('navigation'),set:value=>sidebarState.setCollapsed('navigation',value)});
 const actorName=computed(()=>[props.actor.first_name,props.actor.last_name].filter(Boolean).join(' ')||'My account');
-const roleLabel=computed(()=>({provider:'Provider',support:'Support',admin:'Agency administrator',super_admin:'Administrator'}[props.actor.role]||'Practice member'));
+const roleLabel=computed(()=>({provider:'Provider',support:'Support',admin:'Agency administrator',super_admin:'Superadmin'}[props.actor.role]||'Practice member'));
 function search(){if(query.value.trim())router.push({path:`/${props.slug}/clients`,query:{search:query.value.trim()}});}
 async function signOut(){
   if(props.demo){logoutError.value='This is a fictional demo; no account is signed in.';return;}

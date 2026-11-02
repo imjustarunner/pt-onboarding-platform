@@ -1,6 +1,7 @@
 <template>
   <div class="aw-app">
     <header v-if="!context" class="aw-header"><a class="aw-brand" :href="websiteBase" aria-label="AuricWell website"><img :src="AURICWELL_MARK_URL" alt="" width="48" height="48"><span>AuricWell</span></a><div v-if="context"><strong>{{ context.practice.name }}</strong><small>Practice workspace</small></div><a class="aw-exit" :href="demoContext ? websiteBase : '/admin'">{{ demoContext ? 'AuricWell website ↗' : 'Return to full suite ↗' }}</a></header>
+    <WorkspaceNavigation v-if="actor && !context" :actor="actor" interface-name="auricwell" :demo="!!demoContext" />
     <main v-if="isLogin" class="aw-welcome aw-login"><p class="aw-eyebrow">AURICWELL · PRACTICE ACCESS</p><h1>A clear place for your clinical work.</h1><p>Sign in with the account assigned to your practice workspace.</p><a class="aw-button" :href="loginUrl">Continue to secure sign-in →</a><p>Your account's practice access and permissions apply.</p><a :href="websiteBase">← Back to the AuricWell website</a></main>
     <main v-else-if="error" class="aw-welcome"><h1>Practice access</h1><p role="alert">{{ error }}</p><a class="aw-button" :href="loginUrl">Sign in or unlock your account</a><p>Use your own practice account, then return here.</p></main>
     <main v-else-if="loading" class="aw-welcome" role="status">Opening AuricWell…</main>
@@ -39,6 +40,7 @@ import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
 import Records from './Records.vue';
 import WorkspaceShell from './WorkspaceShell.vue';
+import WorkspaceNavigation from '../components/WorkspaceNavigation.vue';
 import Overview from './Overview.vue';
 import WorkspaceTools from './WorkspaceTools.vue';
 import PortalIcon from '../components/portal/PortalIcon.vue';

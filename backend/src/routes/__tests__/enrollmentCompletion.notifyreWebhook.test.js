@@ -17,6 +17,26 @@ it('rejects a Notifyre event targeting a staff Vonage sender',async()=>{m.sender
 it('does not acknowledge failed routing as completed',async()=>{const error=new Error('database unavailable'),next=vi.fn();m.inbound.mockImplementation(async(req,res,next)=>next(error));await notifyreWebhook(request(event),response(),next);expect(next).toHaveBeenCalledWith(error);expect(m.execute.mock.calls.some(([sql])=>sql.includes('SET completed_at'))).toBe(false);expect(m.release).toHaveBeenCalled();});
 
 it('records delivery against the actual carrier ID and owning agency',async()=>{const next=vi.fn();await notifyreWebhook(request({Event:'sms_sent',Payload:{ID:'m1',FromNumber:'+17195550124',Recipient:{ToNumber:'+17195550123',DeliveryStatus:'Delivered'}}}),response(),next);const update=m.execute.mock.calls.find(([sql])=>sql.includes('UPDATE message_logs'));expect(update[0]).toContain('twilio_message_sid');expect(update[0]).toContain('AND agency_id = ?');expect(update[0]).not.toContain('updated_at');expect(update[1]).toEqual(['delivered','notifyre:m1','notifyre:m1',2]);expect(next).not.toHaveBeenCalled();});
+it('routes a recipient-level sender through both signed aliases with one status update',async()=>{
+ vi.stubEnv('AURICWELL_ENABLED','true');let completed=false;
+ m.execute.mockImplementation(async sql=>{
+  if(sql.includes('GET_LOCK'))return [[{acquired:1}]];
+  if(sql.includes('SELECT completed_at'))return completed?[[{completed_at:'now'}]]:[[]];
+  if(sql.includes('SET completed_at'))completed=true;
+  return [[]];
+ });
+ const payload={Event:'sms_sent',Payload:{ID:'nested-m1',Recipient:{FromNumber:'+17195550124',ToNumber:'+17195550123',DeliveryStatus:'sent'}}};
+ await notifyreWebhook(request(payload),response(),vi.fn());
+ const res=response();await createNotifyreWebhook({auricwellAlias:true})(request(payload,'old-secret'),res,vi.fn());
+ expect(m.sender).toHaveBeenCalledWith('+17195550124');
+ const updates=m.execute.mock.calls.filter(([sql])=>sql.includes('UPDATE message_logs'));
+ expect(updates).toHaveLength(1);expect(updates[0][1]).toEqual(['sent','notifyre:nested-m1','notifyre:nested-m1',2]);
+ expect(res.json).toHaveBeenCalledWith({duplicate:true});
+});
+it('rejects conflicting delivery senders before any ownership lookup or receipt',async()=>{
+ const res=response();await notifyreWebhook(request({Event:'sms_sent',Payload:{ID:'conflict',FromNumber:'+17195550124',Recipient:{FromNumber:'+17195550999',DeliveryStatus:'sent'}}}),res,vi.fn());
+ expect(res.status).toHaveBeenCalledWith(400);expect(m.sender).not.toHaveBeenCalled();expect(m.execute).not.toHaveBeenCalled();
+});
 it.each([{agency_id:99},{agency_id:2,registration:{provider:'notifyre',brandId:'other',campaignId:'c1',purposes:['care']}},{agency_id:2,registration:{provider:'notifyre',brandId:'b1',campaignId:'other',purposes:['care']}}])('rejects a signed event when the organization, brand or campaign does not match: %j',async patch=>{
  m.sender.mockResolvedValue({agency_id:2,registration:{provider:'notifyre',brandId:'b1',campaignId:'c1',purposes:['care']},...patch});
  const res=response();await notifyreWebhook(request(event),res,vi.fn());expect(res.status).toHaveBeenCalledWith(403);expect(m.inbound).not.toHaveBeenCalled();expect(m.execute).not.toHaveBeenCalled();

@@ -1105,6 +1105,7 @@
           </div>
         </div>
       </nav>
+      <WorkspaceNavigation v-if="isAuthenticated && isSuperAdminUser && !hideGlobalNavForSchoolStaff && !isImmersiveJoinRoute" :actor="user" :slug="agencyStore.currentAgency?.slug" interface-name="main" />
       <div
         v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && !isImmersiveJoinRoute && indirectTimeSessionStore.isClockedIn"
         class="itc-hang-wrap"
@@ -2281,6 +2282,7 @@
 </template>
 
 <script setup>
+import WorkspaceNavigation from './components/WorkspaceNavigation.vue';
 import { CONVERSA_ICON_URL } from './constants/conversa';
 import { clinicalWorkspaceActive } from './composables/useClinicalWorkspace';
 import SchoolCareBridgeBrand from './components/schoolcarebridge/SchoolCareBridgeBrand.vue';
