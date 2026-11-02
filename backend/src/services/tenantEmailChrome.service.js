@@ -199,7 +199,8 @@ export async function resolveTenantEmailChrome(agencyId) {
 /**
  * Wrap any HTML email body with tenant header/footer when assets exist.
  * Idempotent when data-tenant-email-chrome is already present.
- * Renders one continuous 600px column: header → body/signature → footer (no gaps).
+ * Uses the available reading pane up to 960px, with independently sized artwork.
+ * Mobile spacing is shared with the other email frames.
  */
 export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
   let raw = String(html || '');
@@ -260,13 +261,13 @@ export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
     </table>`;
 
   const headerBlock = headerUrl
-    ? `<img src="${escapeHtml(headerUrl)}" alt="${agencyName}" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;margin:0 auto;padding:0;line-height:0;" />`
+    ? `<img src="${escapeHtml(headerUrl)}" alt="${agencyName}" width="420" style="display:block;width:420px;max-width:100%;height:auto;border:0;margin:0 auto;padding:0;line-height:0;" />`
     : '';
 
   // Links follow the artwork in normal flow. A fixed-height overlay collides
   // with scaled footer art on phones and when the user enlarges text.
   const footerBlock = `<td style="padding:0;margin:0;background:#ffffff;" align="center" data-tenant-email-footer="1">
-    ${footerUrl ? `<img src="${escapeHtml(footerUrl)}" alt="" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;margin:0;padding:0;" />` : ''}
+    ${footerUrl ? `<img src="${escapeHtml(footerUrl)}" alt="" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;margin:0 auto;padding:0;" />` : ''}
     <div style="padding:18px 16px">${footerLinks}${website || agencyName || phone ? `<div style="padding-top:8px;color:#334155;font:12px/1.6 Arial,Helvetica,sans-serif;overflow-wrap:anywhere">${website || agencyName}${phone ? ` · ${phone}` : ''}</div>` : ''}</div>
   </td>`;
 
@@ -277,8 +278,8 @@ export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;background:#eef2f6;margin:0;padding:0;">
     <tr>
       <td align="center" class="email-frame" style="padding:8px 8px 20px;">
-        <table role="presentation" class="email-card" width="600" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;width:100%;max-width:600px;background:#ffffff;margin:0 auto;padding:0;">
-          ${headerBlock ? `<tr><td style="padding:0;margin:0;line-height:0;font-size:0;">${headerBlock}</td></tr>` : ''}
+        <table role="presentation" class="email-card" width="960" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;width:100%;max-width:960px;background:#ffffff;margin:0 auto;padding:0;">
+          ${headerBlock ? `<tr><td align="center" style="padding:0;margin:0;line-height:0;font-size:0;">${headerBlock}</td></tr>` : ''}
           <tr><td class="email-body${ownLayout ? ' email-body-owned' : ''}" style="padding:${ownLayout ? '0' : '20px 24px'};margin:0;background:#ffffff;vertical-align:top;overflow-wrap:anywhere;">${raw}</td></tr>
           <tr>${footerBlock}</tr>
         </table>
