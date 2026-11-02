@@ -12,6 +12,8 @@ export const FALLBACK_SENDER_FLAG = {
 };
 
 export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
+  portal_activity_login: ['messages', 'notifications'],
+  portal_activity_summary: ['messages', 'notifications'],
   office_request_review: ['notifications'],
   office_request_decision: ['notifications'],
   password_reset: ['technology', 'login_recovery', 'notifications'],

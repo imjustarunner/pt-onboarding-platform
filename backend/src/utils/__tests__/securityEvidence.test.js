@@ -26,6 +26,7 @@ describe('evidence network attribution', () => {
 describe('evidence privacy and semantics', () => {
   it('redacts bearer paths, filenames, emails and all query strings', () => {
     expect(safeRequestPath('/api/documents/123/Smith-medical-record.pdf?token=secret')).toBe('/api/documents/:id/:value');
+    expect(safeRequestPath('/api/guardian-portal/clients/123/private-name?token=secret')).toBe('/api/guardian-portal/clients/:id/:value');
     expect(safeRequestPath('/api/auth/reset-password/secretToken1234?email=rachel@example.com')).not.toContain('secret');
     expect(resourceEvidence({ params: { id: '123', token: 'secret', fileName: 'patient.pdf', clientId: '8' }, body: { password: 'secret' } })).toEqual({ id: 123, clientId: 8 });
   });

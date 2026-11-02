@@ -201,6 +201,7 @@ import agencySchoolsRoutes from './routes/agencySchools.routes.js';
 import agencyDepartmentsRoutes from './routes/agencyDepartments.routes.js';
 import clientRoutes from './routes/client.routes.js';
 import guardianPortalRoutes from './routes/guardianPortal.routes.js';
+import portalActivityWatchesRoutes from './routes/portalActivityWatches.routes.js';
 import providerSelfRoutes from './routes/providerSelf.routes.js';
 import staffRoutes from './routes/staff.routes.js';
 import supportTicketsRoutes from './routes/supportTickets.routes.js';
@@ -1041,6 +1042,7 @@ app.use('/api/clients', clientRoutes); // Client management routes
 app.use('/api/dependent-portal', dependentPortalRoutes);
 app.use('/api/client-support', clientSupportRoutes);
 app.use('/api/guardian-portal', guardianPortalRoutes); // Guardian portal routes
+app.use('/api/portal-activity-watches', portalActivityWatchesRoutes);
 app.use('/api/bulk-import', bulkImportRoutes); // Bulk import routes (legacy migration tool)
 app.use('/api/office-schedule', officeScheduleRoutes);
 app.use('/api/learning-billing', learningBillingRoutes);
@@ -2725,6 +2727,18 @@ if (!isBootstrap) {
   };
   setTimeout(qaSessionNotificationTick, 60000).unref();
   setInterval(qaSessionNotificationTick, 60000).unref();
+
+  // Explicit one-session guardian audit subscriptions; shared DB locks prevent duplicate sends.
+  let portalActivityWatchRunning = false;
+  const portalActivityWatchTick = async () => {
+    if (portalActivityWatchRunning) return;
+    portalActivityWatchRunning = true;
+    try { await (await import('./services/portalActivityWatch.service.js')).runPortalActivityWatches(); }
+    catch (error) { console.warn('[portal activity watches]',error.code || 'WORKER_FAILED'); }
+    finally { portalActivityWatchRunning = false; }
+  };
+  setTimeout(portalActivityWatchTick,15000).unref();
+  setInterval(portalActivityWatchTick,30000).unref();
 
   // Session documentation Notes tasks (~5 min before booked clinical sessions)
   const scheduleSessionDocTasks = async () => {
