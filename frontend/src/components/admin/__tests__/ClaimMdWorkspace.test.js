@@ -25,7 +25,8 @@ describe('Claim.MD billing desk', () => {
     expect(canAccessMedicalBilling({ role: 'provider_plus', billingAgencyIds: [1] }, 1)).toBe(false);
     expect(canAccessMedicalBilling({ role: 'support', billingAgencyIds: [1] }, 1)).toBe(true);
     expect(canAccessMedicalBilling({ role: 'support', billingAgencyIds: [1] }, 2)).toBe(false);
-    expect(canAccessMedicalBilling({ role: 'admin' }, 1)).toBe(true);
+    expect(canAccessMedicalBilling({ role: 'admin' }, 1)).toBe(false);
+    expect(canAccessMedicalBilling({ role: 'admin', billingAgencyIds: [1] }, 1)).toBe(true);
   });
   it('requires explicit approval and submits the reviewed hash and account mode', async () => {
     const w = mount(ClaimMdWorkspace, { props }); await flushPromises();
@@ -115,4 +116,47 @@ it('continues the existing group enrollment across offices and blocks unsupporte
  await w.find('input[type="checkbox"]').setValue(true);
  expect(button(w,'Open enrollment').attributes('disabled')).toBeDefined();
  w.unmount();open.mockRestore();
+});
+
+describe('approved clinical version reconciliation into an existing unsent draft',()=>{
+ const approved=()=>({revisionId:901,revisionNumber:2,contentHash:'DEMO-QA-approved-clinical-hash',dateOfService:'2026-11-01',placeOfService:'10',diagnosisCodes:['F41.1','Z63.0'],lines:[{procedureCode:'90834',units:1},{procedureCode:'90785',units:1}],signatures:[],pendingClinicalApproval:false});
+ const snapshot=(overrides={})=>({claim:{id:11,billing_revision:4,claim_lifecycle:'draft',place_of_service:'11',billing_npi:'1234567890',rendering_npi:'1234567890',taxonomy_code:'101YM0800X'},lines:[{id:31,procedure_code:'90832',units:1,charge_cents:12500,modifiers_json:'[]',diagnosis_pointers:'1'}],approvedClinicalVersion:approved(),clinicalVersionChanged:true,previouslyTransmitted:false,...overrides});
+ async function openDraft(data=snapshot()){
+  api.get.mockImplementation(async url=>({data:url.endsWith('/draft')?data:url.endsWith('/history')?{history:[]}:{items:[]}}));
+  const wrapper=mount(ClaimMdWorkspace,{props:{...props,section:'detail'}});await wrapper.vm.editClaim(11);await flushPromises();return wrapper;
+ }
+ const field=(wrapper,id)=>wrapper.get(`[data-testid="${id}"]`);
+ async function fillReview(wrapper){
+  await field(wrapper,'review-approved-version').trigger('click');
+  await field(wrapper,'reconcile-charge-0').setValue('125.00');await field(wrapper,'reconcile-modifiers-0').setValue('GT');await field(wrapper,'reconcile-pointers-0').setValue('1,2');
+  await field(wrapper,'reconcile-charge-1').setValue('20.00');await field(wrapper,'reconcile-pointers-1').setValue('1');await field(wrapper,'reconcile-reason').setValue('DEMO QA reconcile approved clinical services.');
+  await field(wrapper,'reconcile-attestation').setValue(true);
+ }
+ it('reviews every approved line and updates the same draft with exact billing and clinical versions, without submission',async()=>{
+  api.patch.mockResolvedValue({data:{ok:true,message:'Existing draft reconciled. No claim was transmitted.',clinicalVersion:{revisionId:901,contentHash:'DEMO-QA-approved-clinical-hash'}}});
+  const wrapper=await openDraft();expect(wrapper.text()).toContain('Approved clinical version 2');expect(wrapper.text()).toContain('90834');expect(wrapper.text()).toContain('F41.1');
+  await field(wrapper,'review-approved-version').trigger('click');expect(field(wrapper,'reconcile-charge-0').element.value).toBe('');expect(field(wrapper,'reconcile-pointers-0').element.value).toBe('');expect(field(wrapper,'apply-approved-version').element.disabled).toBe(true);
+  await field(wrapper,'reconcile-charge-0').setValue('125.00');await field(wrapper,'reconcile-modifiers-0').setValue('gt');await field(wrapper,'reconcile-pointers-0').setValue('1,2');await field(wrapper,'reconcile-charge-1').setValue('20');await field(wrapper,'reconcile-pointers-1').setValue('1');await field(wrapper,'reconcile-reason').setValue('DEMO QA reconcile approved clinical services.');await field(wrapper,'reconcile-attestation').setValue(true);
+  await field(wrapper,'clinical-reconciliation-form').trigger('submit');await flushPromises();
+  expect(api.patch).toHaveBeenCalledExactlyOnceWith('/medical-billing/claimmd/claims/11',{agencyId:1,action:'reconcile_approved_version',revision:4,expectedClinicalRevisionId:901,expectedClinicalContentHash:'DEMO-QA-approved-clinical-hash',reason:'DEMO QA reconcile approved clinical services.',attested:true,lines:[{procedureCode:'90834',units:1,chargeCents:12500,modifiers:['GT'],diagnosisPointers:'1,2'},{procedureCode:'90785',units:1,chargeCents:2000,modifiers:[],diagnosisPointers:'1'}]},{skipGlobalLoading:true});
+  expect(api.post).not.toHaveBeenCalled();expect(wrapper.emitted('updated')).toHaveLength(1);expect(wrapper.find('[data-testid="clinical-reconciliation-form"]').exists()).toBe(false);expect(wrapper.text()).toContain('No claim was transmitted');wrapper.unmount();
+ });
+ it('requires valid explicit charges, diagnosis positions, reason and renewed attestation after editing',async()=>{
+  const wrapper=await openDraft();await fillReview(wrapper);expect(field(wrapper,'apply-approved-version').element.disabled).toBe(false);
+  await field(wrapper,'reconcile-pointers-0').setValue('3');expect(field(wrapper,'reconcile-attestation').element.checked).toBe(false);await field(wrapper,'reconcile-attestation').setValue(true);expect(field(wrapper,'apply-approved-version').element.disabled).toBe(true);
+  await field(wrapper,'reconcile-pointers-0').setValue('1');await field(wrapper,'reconcile-charge-1').setValue('0');await field(wrapper,'reconcile-attestation').setValue(true);expect(field(wrapper,'apply-approved-version').element.disabled).toBe(true);
+  await field(wrapper,'reconcile-charge-1').setValue('20');await field(wrapper,'reconcile-reason').setValue('short');await field(wrapper,'reconcile-attestation').setValue(true);expect(field(wrapper,'apply-approved-version').element.disabled).toBe(true);expect(api.patch).not.toHaveBeenCalled();wrapper.unmount();
+ });
+ it.each(['pending','transmitted','queued'])('blocks %s claims from clinical version reconciliation',async state=>{
+  const data=snapshot(state==='pending'?{approvedClinicalVersion:{...approved(),pendingClinicalApproval:true,pendingRevisionId:902}}:state==='transmitted'?{previouslyTransmitted:true}:{claim:{...snapshot().claim,claim_lifecycle:'queued'}});
+  const wrapper=await openDraft(data);expect(field(wrapper,'review-approved-version').element.disabled).toBe(true);await field(wrapper,'review-approved-version').trigger('click');expect(wrapper.find('[data-testid="clinical-reconciliation-form"]').exists()).toBe(false);expect(api.patch).not.toHaveBeenCalled();wrapper.unmount();
+ });
+ it('keeps the draft after a stale version conflict, clears attestation and requires reopening',async()=>{
+  api.patch.mockRejectedValue({response:{status:409,data:{error:{message:'DEMO QA approved clinical version changed. Reopen the draft.'}}}});
+  const wrapper=await openDraft();await fillReview(wrapper);await field(wrapper,'clinical-reconciliation-form').trigger('submit');await flushPromises();
+  expect(wrapper.text()).toContain('clinical version changed');expect(field(wrapper,'reconcile-attestation').element.checked).toBe(false);expect(field(wrapper,'apply-approved-version').element.disabled).toBe(true);expect(wrapper.emitted('updated')).toBeUndefined();expect(Number(field(wrapper,'reconcile-charge-0').element.value)).toBe(125);wrapper.unmount();
+ });
+ it('never reports success without exact server confirmation',async()=>{
+  api.patch.mockResolvedValue({data:{ok:true}});const wrapper=await openDraft();await fillReview(wrapper);await field(wrapper,'clinical-reconciliation-form').trigger('submit');await flushPromises();expect(wrapper.text()).toContain('did not confirm');expect(wrapper.emitted('updated')).toBeUndefined();expect(wrapper.find('[data-testid="clinical-reconciliation-form"]').exists()).toBe(true);wrapper.unmount();
+ });
 });

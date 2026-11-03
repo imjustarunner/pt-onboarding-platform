@@ -3,7 +3,7 @@ import ClinicalEligibilityService from '../services/clinicalEligibility.service.
 import clinicalPool from '../config/clinicalDatabase.js';
 import { hasSchedulingBillingAccess } from '../services/schedulingBillingAccess.service.js';
 import { getApprovedClinicalContext } from '../services/clinicalNoteVersionBilling.service.js';
-import { resolveNoteDocumentationPolicy, parseObject, policyError, validDate } from '../services/supervisedBillingPolicy.service.js';
+import { resolveNoteDocumentationPolicy, parseObject, policyError, validDate, isNonBillableDocument } from '../services/supervisedBillingPolicy.service.js';
 import { normalizeServiceDetails, serviceDetailTimes, verifyServiceAmendmentLocation, serviceLocationSnapshot } from '../services/clinicalSupervisorReview.service.js';
 import { isValidTimeZone } from '../utils/zonedWallTime.util.js';
 import { requireStaffPlanActor } from '../utils/planStaffAccess.js';
@@ -174,10 +174,12 @@ export async function createClinicalNoteVersion(req, res, next) {
     const permitted = { provider: context.capabilities.canCreateProvider, supervisor: context.capabilities.canCreateSupervisor, billing: context.capabilities.canCreateBilling };
     if (!permitted[origin]) throw policyError(403, 'You cannot propose this type of clinical amendment.');
     // Assignment and signature requirements are resolved by the server, never by the proposer.
-    const policy = await resolveNoteDocumentationPolicy(proposedPolicyNote(context, input));
+    const proposedNote = proposedPolicyNote(context, input);
+    const policy = await resolveNoteDocumentationPolicy(proposedNote);
     if (origin === 'supervisor' && Number(policy.supervisorUserId) !== context.actorUserId) throw policyError(403, 'Only the responsible final supervisor may propose this amendment.');
     const revision = await proposeRevision({ ...context, ...input, expectedRevisionId, baseRevisionId: expectedRevisionId, origin,
-      responsibleSupervisorUserId: Number(policy.supervisorUserId) || null, requiresSupervisorCosign: !!policy.supervisorUserId });
+      responsibleSupervisorUserId: Number(policy.supervisorUserId) || null, requiresSupervisorCosign: !!policy.supervisorUserId,
+      isBillable: !isNonBillableDocument(proposedNote) });
     res.status(201).json({ ok: true, revision, ...await summaryResponse(context), claimTransmitted: false });
   } catch (error) { next(error); }
 }
@@ -189,9 +191,11 @@ export async function updateClinicalNoteVersion(req, res, next) {
     const summary = await getRevisionSummary(context), revision = await getRevision({ ...context, revisionId });
     if (!revisionCapabilities(revision, summary, await contextForRevision(revision, context)).canEdit) throw policyError(403, 'Only the proposer or responsible clinician may revise this pending amendment.');
     await validateClinicalInput(context, input, revision);
-    const policy = await resolveNoteDocumentationPolicy(proposedPolicyNote(context, input, revision.snapshot?.metadataJson));
+    const proposedNote = proposedPolicyNote(context, input, revision.snapshot?.metadataJson);
+    const policy = await resolveNoteDocumentationPolicy(proposedNote);
     const updated = await editRevision({ ...context, ...input, revisionId, expectedRevisionId: revisionId,
-      responsibleSupervisorUserId: Number(policy.supervisorUserId) || null, requiresSupervisorCosign: !!policy.supervisorUserId });
+      responsibleSupervisorUserId: Number(policy.supervisorUserId) || null, requiresSupervisorCosign: !!policy.supervisorUserId,
+      isBillable: !isNonBillableDocument(proposedNote) });
     res.json({ ok: true, revision: updated, ...await summaryResponse(context), claimTransmitted: false });
   } catch (error) { next(error); }
 }

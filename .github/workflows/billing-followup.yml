@@ -5,9 +5,12 @@ on:
     paths:
       - 'backend/src/services/familyLedger/**'
       - 'backend/src/services/clinicalNote*.js'
+      - 'backend/src/services/clinicalClaimVersionReconciliation.service.js'
       - 'backend/src/services/__tests__/clinicalNoteVersion.mysql.test.js'
       - 'backend/src/controllers/clinicalNoteVersions.controller.js'
       - 'frontend/src/components/clinical/ClinicalNoteVersionHistory.vue'
+      - 'frontend/src/components/admin/ClaimMdWorkspace.vue'
+      - 'frontend/src/components/admin/__tests__/ClaimMdWorkspace.test.js'
       - 'frontend/src/utils/clinicalNoteVersions.js'
       - 'database/clinical_migrations/027_immutable_note_revisions.sql'
       - 'backend/src/services/coGuardian*.js'
@@ -117,9 +120,12 @@ on:
     paths:
       - 'backend/src/services/familyLedger/**'
       - 'backend/src/services/clinicalNote*.js'
+      - 'backend/src/services/clinicalClaimVersionReconciliation.service.js'
       - 'backend/src/services/__tests__/clinicalNoteVersion.mysql.test.js'
       - 'backend/src/controllers/clinicalNoteVersions.controller.js'
       - 'frontend/src/components/clinical/ClinicalNoteVersionHistory.vue'
+      - 'frontend/src/components/admin/ClaimMdWorkspace.vue'
+      - 'frontend/src/components/admin/__tests__/ClaimMdWorkspace.test.js'
       - 'frontend/src/utils/clinicalNoteVersions.js'
       - 'database/clinical_migrations/027_immutable_note_revisions.sql'
       - 'backend/src/services/coGuardian*.js'
@@ -298,6 +304,9 @@ jobs:
         env:
           CLINICAL_REVIEW_MYSQL_TEST: '1'
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.claimmd.config.js backend/src/controllers/__tests__/claimMdReviewSnapshot.test.js
+      - name: Billing draft reconciliation interface
+        working-directory: frontend
+        run: node node_modules/vitest/vitest.mjs run src/components/admin/__tests__/ClaimMdWorkspace.test.js
       - name: Claim and documentation verification
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.claimmd.config.js
       - name: Immutable clinical versions, exact signatures and audit in MySQL

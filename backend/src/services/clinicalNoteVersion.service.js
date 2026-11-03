@@ -302,6 +302,13 @@ function assertExpected(input, row, expectedId) {
 }
 function revisedSnapshot(base, input) {
   const snapshot = clone(base);
+  // This value is derived by the authenticated controller from document type
+  // and clinical metadata. It changes only the new snapshot; legacy V1 flags
+  // remain frozen even when they represented an old supervisor approval hold.
+  if (input.isBillable !== undefined) {
+    if (typeof input.isBillable !== 'boolean') throw fail(400, 'Revision billability must be resolved by the clinical workflow.');
+    snapshot.isBillable = input.isBillable;
+  }
   if (input.title !== undefined) {
     if (typeof input.title !== 'string' || !input.title.trim() || input.title.length > 255) throw fail(400, 'Enter a title of 1–255 characters.');
     snapshot.title = input.title.trim();

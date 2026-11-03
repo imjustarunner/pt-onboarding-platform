@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ find: vi.fn(), agency: vi.fn(), policy: vi.fn(), billing: vi.fn(), summary: vi.fn(), revision: vi.fn(), propose: vi.fn(), edit: vi.fn(), sign: vi.fn(), approved: vi.fn(), clinical: vi.fn() }));
+const m = vi.hoisted(() => ({ find: vi.fn(), agency: vi.fn(), policy: vi.fn(), billing: vi.fn(), summary: vi.fn(), revision: vi.fn(), propose: vi.fn(), edit: vi.fn(), sign: vi.fn(), approved: vi.fn(), clinical: vi.fn(), nonbillable: vi.fn() }));
 vi.mock('../../models/clinical/ClinicalNote.model.js', () => ({ default: { findById: m.find } }));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: m.clinical } }));
 vi.mock('../../services/clinicalEligibility.service.js', () => ({ default: { ensureAgencyAccess: m.agency } }));
 vi.mock('../../services/schedulingBillingAccess.service.js', () => ({ hasSchedulingBillingAccess: m.billing }));
 vi.mock('../../services/clinicalNoteVersionBilling.service.js', () => ({ getApprovedClinicalContext: m.approved }));
-vi.mock('../../services/supervisedBillingPolicy.service.js', () => ({ resolveNoteDocumentationPolicy: m.policy, parseObject: v => typeof v === 'string' ? JSON.parse(v) : v || {}, policyError: (status, message) => Object.assign(Error(message), { status }), validDate: v => /^\d{4}-\d{2}-\d{2}$/.test(v) }));
+vi.mock('../../services/supervisedBillingPolicy.service.js', () => ({ resolveNoteDocumentationPolicy: m.policy, isNonBillableDocument: m.nonbillable, parseObject: v => typeof v === 'string' ? JSON.parse(v) : v || {}, policyError: (status, message) => Object.assign(Error(message), { status }), validDate: v => /^\d{4}-\d{2}-\d{2}$/.test(v) }));
 vi.mock('../../services/clinicalSupervisorReview.service.js', () => ({ normalizeServiceDetails: vi.fn(), serviceDetailTimes: vi.fn(), verifyServiceAmendmentLocation: vi.fn(), serviceLocationSnapshot: vi.fn() }));
 vi.mock('../../services/clinicalNoteVersion.service.js', () => ({ getRevisionSummary: m.summary, getRevision: m.revision, proposeRevision: m.propose, editRevision: m.edit, signRevision: m.sign }));
 import { listClinicalNoteVersions, createClinicalNoteVersion, updateClinicalNoteVersion, signClinicalNoteVersion, cosignClinicalNoteVersion, acknowledgeClinicalNoteVersion } from '../clinicalNoteVersions.controller.js';
@@ -16,6 +16,7 @@ const response = () => ({ json: vi.fn(), status: vi.fn().mockReturnThis() });
 let pending, state;
 beforeEach(() => {
   vi.clearAllMocks();
+  m.nonbillable.mockReturnValue(false);
   const note = { id: 4, agency_id: 2, client_id: 3, clinical_session_id: 5, created_by_user_id: 7, provider_signed_by_user_id: 7, provider_signed_at: '2026-10-31', metadata_json: { serviceCode: '90834' } };
   pending = { id: 12, revisionNumber: 2, origin: 'provider', reason: 'Clarification', originalAuthorUserId: 7, proposedByUserId: 7, responsibleSupervisorUserId: 9, requiresSupervisorCosign: true, contentHash: hash, signatures: [], snapshot: { metadataJson: {}, encounterContext: {} } };
   state = { originalRevisionId: 10, effectiveRevisionId: 10, pendingRevisionId: 12, effectiveRevision: { ...pending, id: 10, revisionNumber: 1 }, pendingRevision: pending, revisions: [pending] };
@@ -23,6 +24,30 @@ beforeEach(() => {
 });
 
 describe('clinical version HTTP authorization and signatures', () => {
+  it('derives billability for new and edited amendments instead of inheriting a legacy supervisor hold or trusting a client flag', async () => {
+    const legacy = { ...await m.find(), note_type: 'PROGRESS_NOTE', is_billable: 0 };
+    m.find.mockResolvedValue(legacy);
+    pending.snapshot.isBillable = false;
+    const next = vi.fn();
+    await createClinicalNoteVersion(request(undefined, { isBillable: false }), response(), next);
+    await updateClinicalNoteVersion(request(undefined, { isBillable: false }), response(), next);
+    expect(next).not.toHaveBeenCalled();
+    expect(m.propose).toHaveBeenCalledWith(expect.objectContaining({ isBillable: true }));
+    expect(m.edit).toHaveBeenCalledWith(expect.objectContaining({ isBillable: true }));
+    expect(m.nonbillable).toHaveBeenCalledWith(expect.objectContaining({ note_type: 'PROGRESS_NOTE' }));
+    expect(legacy.is_billable).toBe(0); expect(pending.snapshot.isBillable).toBe(false);
+  });
+  it('preserves explicit nonbillable document classification despite a client requesting billability', async () => {
+    const original = { ...await m.find(), note_type: 'TREATMENT_SUMMARY', is_billable: 0 };
+    m.find.mockResolvedValue(original); m.nonbillable.mockReturnValue(true);
+    const next = vi.fn();
+    await createClinicalNoteVersion(request(undefined, { isBillable: true }), response(), next);
+    await updateClinicalNoteVersion(request(undefined, { isBillable: true }), response(), next);
+    expect(next).not.toHaveBeenCalled();
+    expect(m.propose).toHaveBeenCalledWith(expect.objectContaining({ isBillable: false }));
+    expect(m.edit).toHaveBeenCalledWith(expect.objectContaining({ isBillable: false }));
+    expect(original.is_billable).toBe(0);
+  });
   it('exposes only the next assigned clinical signer and version capabilities', async () => {
     const res = response(), next = vi.fn();
     await listClinicalNoteVersions(request(), res, next);

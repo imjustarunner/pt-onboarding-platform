@@ -83,8 +83,38 @@
     <p v-else>No enrollments started from this app yet.</p>
 
     </template>
-    <form v-if="draft" class="review" @submit.prevent="saveCorrection">
+    <section v-if="draft" class="review" aria-label="Edit existing claim draft">
       <h3>Edit billing fields · Claim #{{ draft.claim.id }}</h3>
+      <section v-if="draft.approvedClinicalVersion || draft.approvedClinicalVersionError" class="clinical-reconciliation" aria-label="Approved clinical version for this claim">
+        <template v-if="draft.approvedClinicalVersion">
+          <h4>Approved clinical version {{ draft.approvedClinicalVersion.revisionNumber }}</h4>
+          <p>Date of service: {{ String(draft.approvedClinicalVersion.dateOfService || '').slice(0, 10) }} · Place of service: {{ draft.approvedClinicalVersion.placeOfService }}</p>
+          <ol aria-label="Approved diagnosis positions"><li v-for="(code, index) in draft.approvedClinicalVersion.diagnosisCodes" :key="`${index}-${code}`">{{ code }}</li></ol>
+          <ul aria-label="Approved service lines"><li v-for="(line, index) in draft.approvedClinicalVersion.lines" :key="index">{{ line.procedureCode }} · {{ line.units }} unit(s)</li></ul>
+          <p v-if="draft.clinicalVersionChanged">This claim differs from the approved clinical version. Review every approved service, charge, modifier and diagnosis pointer to update this same unsent draft.</p>
+          <p v-else>The draft matches the approved clinical service context.</p>
+          <p v-if="reconciliationBlocked" class="error" role="status">{{ reconciliationBlocked }}</p>
+          <button v-if="draft.clinicalVersionChanged && !reconciling" type="button" data-testid="review-approved-version" :disabled="busy || !canReconcile" @click="startReconciliation">Review approved version for this draft</button>
+        </template>
+        <p v-else class="error" role="status">{{ draft.approvedClinicalVersionError }}</p>
+        <form v-if="reconciling" data-testid="clinical-reconciliation-form" @submit.prevent="saveClinicalReconciliation">
+          <p>Applying version {{ reconciliationPlan.revisionNumber }} keeps Claim #{{ draft.claim.id }} as a draft. A fresh claim review is required before any later submission.</p>
+          <fieldset :disabled="busy"><legend>Explicit billing review for every approved service</legend>
+            <article v-for="(line, index) in reconciliationLines" :key="index">
+              <strong>{{ line.procedureCode }} · {{ line.units }} unit(s)</strong>
+              <label>Total line charge in dollars<input v-model="line.dollars" :data-testid="`reconcile-charge-${index}`" type="number" min="0.01" max="1000000" step="0.01" required /></label>
+              <label>Modifiers (comma separated; leave blank when none apply)<input v-model="line.modifiers" :data-testid="`reconcile-modifiers-${index}`" maxlength="40" /></label>
+              <label>Diagnosis pointers (positions in the approved diagnosis list above)<input v-model="line.diagnosisPointers" :data-testid="`reconcile-pointers-${index}`" placeholder="1 or 1,2" required pattern="(?:[1-9]|1[0-2])(?:,(?:[1-9]|1[0-2])){0,3}" /></label>
+            </article>
+            <label>Reason for applying the approved version<textarea v-model="reconciliationReason" data-testid="reconcile-reason" minlength="10" maxlength="2000" required /></label>
+            <label><input v-model="reconciliationAttested" data-testid="reconcile-attestation" type="checkbox" :disabled="reconciliationStale" /> I reviewed this approved clinical version, every listed service, charge, modifier and diagnosis pointer. I authorize updating this existing unsent draft for a fresh billing review.</label>
+          </fieldset>
+          <p v-if="reconciliationStale" class="error" role="status">Reload the draft and review its current clinical version before saving again.</p>
+          <div class="actions"><button type="submit" data-testid="apply-approved-version" :disabled="busy || !validReconciliation">Apply approved version to this draft</button><button type="button" :disabled="busy" @click="cancelReconciliation">Cancel version review</button><button v-if="reconciliationStale" type="button" :disabled="busy" @click="editClaim(draft.claim.id)">Reload draft</button></div>
+        </form>
+      </section>
+      <p v-if="!canEditDraft && !reconciliationBlocked" class="error">This claim cannot be edited in its current clearinghouse state. Use the payer correction and follow-up workflow.</p>
+      <form v-if="!reconciling && canEditDraft" @submit.prevent="saveCorrection">
       <p>Service codes and units come from the clinical record. Billing edits leave the signed note unchanged.</p>
       <label>Place of service <input v-model="draft.claim.place_of_service" required pattern="[0-9]{2}" maxlength="2" /></label>
       <label>Billing NPI <input v-model="draft.claim.billing_npi" required pattern="[0-9]{10}" maxlength="10" /></label>
@@ -97,7 +127,9 @@
       </div>
       <label>Reason for correction <textarea v-model="correctionReason" required maxlength="1000"></textarea></label>
       <button :disabled="busy">Save for review</button> <button type="button" @click="draft = null">Cancel</button>
-    </form>
+      </form>
+      <button v-if="!reconciling && !canEditDraft" type="button" :disabled="busy" @click="draft = null">Close draft</button>
+    </section>
 
     <section v-if="review" class="review" aria-label="Claim review">
       <h3>Review claim #{{ review.claimId }}</h3>
@@ -160,7 +192,7 @@
 import ClaimServiceChangesPanel from './ClaimServiceChangesPanel.vue';
 import ClientDocumentationReadiness from '../billing/ClientDocumentationReadiness.vue';
 import ProviderBillingRollout from '../billing/ProviderBillingRollout.vue';
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
+import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
 const props = defineProps({ agencyId: { type: Number, required: true }, connection: { type: Object, required: true }, section: { type: String, default: 'all' } });
 const emit = defineEmits(['updated']);
@@ -201,6 +233,28 @@ function openPayerEnrollment(payer) {
   else enroll(payer.payerid);
 }
 const draft = ref(null), correctionReason = ref('');
+const reconciling = ref(false), reconciliationPlan = ref(null), reconciliationLines = ref([]), reconciliationReason = ref(''), reconciliationAttested = ref(false), reconciliationStale = ref(false);
+const canEditDraft = computed(() => !!draft.value && ['draft','ready','rejected'].includes(draft.value.claim?.claim_lifecycle) && !draft.value.previouslyTransmitted);
+const reconciliationBlocked = computed(() => draft.value?.previouslyTransmitted ? 'This claim has submission history. Preserve the submitted original and use the payer correction and follow-up workflow.' : draft.value?.approvedClinicalVersion?.pendingClinicalApproval ? 'A clinical amendment is awaiting approval. Complete its required signatures before applying a clinical version to billing.' : draft.value && !['draft','ready','rejected'].includes(draft.value.claim?.claim_lifecycle) ? 'This claim is queued or no longer editable. Reconcile its clearinghouse status through the payer correction and follow-up workflow.' : '');
+const canReconcile = computed(() => !!draft.value?.clinicalVersionChanged && !reconciliationBlocked.value && !!draft.value?.approvedClinicalVersion?.revisionId && !!draft.value?.approvedClinicalVersion?.contentHash && !!draft.value?.approvedClinicalVersion?.lines?.length);
+const parsedModifiers = value => String(value || '').split(/[,\s]+/).filter(Boolean).map(value => value.toUpperCase());
+function validReconciliationLine(line) {
+  const amount = Number(line.dollars), modifiers = parsedModifiers(line.modifiers), pointers = String(line.diagnosisPointers || '');
+  return /^\d+(?:\.\d{1,2})?$/.test(String(line.dollars)) && Number.isFinite(amount) && amount >= 0.01 && amount <= 1000000 && modifiers.length <= 4 && modifiers.every(value => /^[A-Z0-9]{2}$/.test(value)) && /^(?:[1-9]|1[0-2])(?:,(?:[1-9]|1[0-2])){0,3}$/.test(pointers) && pointers.split(',').every(value => Number(value) <= (reconciliationPlan.value?.diagnosisCodes?.length || 0));
+}
+const validReconciliation = computed(() => canReconcile.value && !reconciliationStale.value && reconciliationAttested.value && reconciliationReason.value.trim().length >= 10 && reconciliationReason.value.trim().length <= 2000 && reconciliationLines.value.length === reconciliationPlan.value?.lines?.length && reconciliationLines.value.every(validReconciliationLine));
+watch([reconciliationLines, reconciliationReason], () => { reconciliationAttested.value = false; }, { deep: true });
+function cancelReconciliation() { reconciling.value = false; reconciliationPlan.value = null; reconciliationLines.value = []; reconciliationReason.value = ''; reconciliationAttested.value = false; reconciliationStale.value = false; }
+function startReconciliation() { if (busy.value || !canReconcile.value) return; reconciliationPlan.value = JSON.parse(JSON.stringify(draft.value.approvedClinicalVersion)); reconciliationLines.value = reconciliationPlan.value.lines.map(line => ({ procedureCode: line.procedureCode, units: line.units, dollars: '', modifiers: '', diagnosisPointers: '' })); reconciliationReason.value = ''; reconciliationAttested.value = false; reconciliationStale.value = false; reconciling.value = true; approved.value = false; review.value = null; }
+const saveClinicalReconciliation = () => { if (!validReconciliation.value || busy.value) return; return run(async () => {
+  const claim = draft.value.claim, plan = reconciliationPlan.value;
+  try {
+    const { data } = await api.patch(`/medical-billing/claimmd/claims/${claim.id}`, { agencyId: props.agencyId, action: 'reconcile_approved_version', revision: claim.billing_revision, expectedClinicalRevisionId: plan.revisionId, expectedClinicalContentHash: plan.contentHash, reason: reconciliationReason.value.trim(), attested: true, lines: reconciliationLines.value.map(line => ({ procedureCode: line.procedureCode, units: Number(line.units), chargeCents: Math.round(Number(line.dollars) * 100), modifiers: parsedModifiers(line.modifiers), diagnosisPointers: String(line.diagnosisPointers) })) }, { skipGlobalLoading: true });
+    if (!active) return;
+    if (data?.ok !== true || Number(data.clinicalVersion?.revisionId) !== Number(plan.revisionId) || data.clinicalVersion?.contentHash !== plan.contentHash) throw new Error('The server did not confirm the clinical version update. Reload this draft before continuing.');
+    draft.value = null; cancelReconciliation(); review.value = null; approved.value = false; notice.value = data.message; emit('updated'); await fetchHistory(claim.id);
+  } catch (e) { if (active) { reconciliationAttested.value = false; if (e.response?.status === 409 || !e.response) reconciliationStale.value = true; } throw e; }
+}); };
 const undrafted = ref([]);
 const exceptionFinding = ref(null), exceptionReason = ref(''), exceptionReference = ref('');
 const providerLabel = p => p ? `${p.firstName || ''} ${p.lastName || ''} · NPI ${p.npi || 'missing'}` : 'Not configured';
@@ -210,7 +264,7 @@ const canEnroll = computed(() => /^\d{10}$/.test(selectedOffice.value?.practice_
 async function run(task) {
   if (busy.value) return;
   busy.value = true; error.value = ''; notice.value = '';
-  try { await task(); } catch (e) { if (active) error.value = e.response?.data?.error?.message || 'The request could not be completed.'; }
+  try { await task(); } catch (e) { if (active) error.value = e.response?.data?.error?.message || e.message || 'The request could not be completed.'; }
   finally { if (active) busy.value = false; }
 }
 async function fetchEnrollments() {
@@ -264,15 +318,14 @@ const sync = () => run(async () => {
   if (active) { notice.value = `${data.updated} claim updates saved.${data.moreAvailable ? ' More updates are available; sync again.' : ''}`; emit('updated'); if (historyClaimId.value) await fetchHistory(historyClaimId.value); }
 });
 async function fetchHistory(claimId) {
-  const { data } = await api.get(`/medical-billing/claimmd/claims/${claimId}/history`, { params: { agencyId: props.agencyId } });
+  const { data } = await api.get(`/medical-billing/claimmd/claims/${claimId}/history`, { params: { agencyId: props.agencyId }, skipGlobalLoading: true });
   if (active) { historyClaimId.value = claimId; history.value = data.history || []; }
 }
 const showHistory = claimId => run(() => fetchHistory(claimId));
 const editClaim = claimId => run(async () => {
-  review.value = null; approved.value = false; draft.value = null;
-  const { data } = await api.get(`/medical-billing/claimmd/claims/${claimId}/draft`, { params: { agencyId: props.agencyId } });
+  review.value = null; approved.value = false; draft.value = null; cancelReconciliation();
+  const { data } = await api.get(`/medical-billing/claimmd/claims/${claimId}/draft`, { params: { agencyId: props.agencyId }, skipGlobalLoading: true });
   if (!active) return;
-  if (!['draft','ready','rejected'].includes(data.claim.claim_lifecycle)) throw new Error('Claim is not editable');
   draft.value = { ...data, lines: data.lines.map(line => ({ ...line, dollars: (line.charge_cents / 100).toFixed(2), modifiers: (typeof line.modifiers_json === 'string' ? JSON.parse(line.modifiers_json || '[]') : line.modifiers_json || []).join(', ') })) };
   correctionReason.value = '';
 });
@@ -319,5 +372,6 @@ label { display:block; margin:.75rem 0; } input, select, button { padding:.5rem;
 input, select { max-width:100%; box-sizing:border-box; } .actions > label { min-width:0; max-width:100%; }
 table { width:100%; border-collapse:collapse; margin:1rem 0; } th, td { padding:.6rem; border-bottom:1px solid #e2e8f0; text-align:left; }
 .review { margin-top:1.5rem; padding:1rem; border:1px solid #d6dfeb; border-radius:8px; } .error { color:#a32121; } pre { white-space:pre-wrap; overflow-wrap:anywhere; } article { padding:.75rem 0; border-bottom:1px solid #e2e8f0; }
+.clinical-reconciliation{margin:1rem 0;padding:1rem;background:#f5fafb;border:1px solid #bdd3dd;border-radius:8px}.clinical-reconciliation h4{margin:0 0 .75rem}.clinical-reconciliation fieldset{min-width:0;border:1px solid #c8dce5;border-radius:6px}.clinical-reconciliation input:not([type=checkbox]),.clinical-reconciliation textarea{display:block;width:100%;max-width:500px;padding:.5rem;box-sizing:border-box}.clinical-reconciliation .actions button{max-width:100%}@media(max-width:600px){.clinical-reconciliation{padding:.65rem}.clinical-reconciliation .actions{align-items:stretch;flex-direction:column}.clinical-reconciliation .actions button{width:100%;min-height:42px}}
 .payer-catalog{overflow:auto;max-height:480px}.payer-catalog table{min-width:860px}.payer-catalog small{display:block;max-width:300px;margin-top:6px;color:var(--text-secondary,#536579);font-size:.8rem;line-height:1.4}.payer-catalog th{position:sticky;top:0;background:var(--bg-secondary,#eff4fa)}
 </style>

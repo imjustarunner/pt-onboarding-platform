@@ -1,5 +1,6 @@
 import { serviceDetailBillingBlockers } from '../services/clinicalSupervisorReview.service.js';
 import { getApprovedClinicalContext, approvedVersionBillingBlockers, clinicalVersionReference } from '../services/clinicalNoteVersionBilling.service.js';
+import { approvedClinicalClaimPlan, claimDiffersFromApprovedVersion, reconcileApprovedClinicalClaim } from '../services/clinicalClaimVersionReconciliation.service.js';
 import { checkSuperviseePayerEligibility } from '../services/credentialPayerEligibility.service.js';
 import { screeningClaimBlockers } from '../services/h0002ScreeningRules.js';
 import crypto from 'node:crypto';
@@ -242,11 +243,20 @@ export async function listClaimMdOffices(req, res, next) {
 export async function claimDraft(req, res, next) {
   try {
     const agencyId = await agencyFor(req);
-    const [[claim]] = await clinicalPool.execute(`SELECT id, parent_claim_id, payer_sequence, clinical_note_id, clinical_session_id, place_of_service, billing_npi, rendering_npi, taxonomy_code, billing_revision, claim_lifecycle
+    const [[claim]] = await clinicalPool.execute(`SELECT id, parent_claim_id, payer_sequence, client_id, clinical_note_id, clinical_session_id, place_of_service, date_of_service, diagnosis_codes_json, billing_npi, rendering_npi, taxonomy_code, billing_revision, claim_lifecycle, claim_status, claimmd_submitted_at, claimmd_claim_id, claimmd_connection_id
       FROM clinical_claims WHERE id = ? AND agency_id = ? AND is_deleted = 0`, [req.params.claimId, agencyId]);
     if (!claim) throw fail(404, 'Claim not found');
-    const [lines] = await clinicalPool.execute('SELECT id, procedure_code, units, modifiers_json, charge_cents FROM clinical_claim_lines WHERE clinical_claim_id = ? ORDER BY line_number', [claim.id]);
-    res.json({ claim, lines });
+    const [lines] = await clinicalPool.execute('SELECT id, procedure_code, units, modifiers_json, charge_cents, diagnosis_pointers, service_date FROM clinical_claim_lines WHERE clinical_claim_id = ? ORDER BY line_number', [claim.id]);
+    let approvedClinicalVersion = null, approvedClinicalVersionError = null;
+    if (claim.clinical_note_id) {
+      const [[note]] = await clinicalPool.execute('SELECT * FROM clinical_notes WHERE id=? AND agency_id=? AND clinical_session_id=? AND client_id=? AND is_deleted=0', [claim.clinical_note_id, agencyId, claim.clinical_session_id, claim.client_id]);
+      const [[session]] = await clinicalPool.execute('SELECT * FROM clinical_sessions WHERE id=? AND agency_id=? AND client_id=?', [claim.clinical_session_id, agencyId, claim.client_id]);
+      if (note && session) {
+        try { approvedClinicalVersion = await approvedClinicalClaimPlan({ note, session, agencyId, clientId: claim.client_id }); }
+        catch (error) { if (error.status !== 409) throw error; approvedClinicalVersionError = error.message; }
+      }
+    }
+    res.json({ claim, lines, approvedClinicalVersion, approvedClinicalVersionError, clinicalVersionChanged: !!approvedClinicalVersion && claimDiffersFromApprovedVersion(claim, lines, approvedClinicalVersion), previouslyTransmitted: previouslyTransmitted(claim) });
   } catch (e) { next(e); }
 }
 
@@ -274,6 +284,11 @@ export async function correctClaim(req, res, next) {
   try {
     const agencyId = await agencyFor(req);
     const claimId = Number(req.params.claimId);
+    if (req.body.action === 'reconcile_approved_version') {
+      return res.json(await reconcileApprovedClinicalClaim({ agencyId, claimId, actorUserId: Number(req.user.id),
+        revision: req.body.revision, expectedClinicalRevisionId: req.body.expectedClinicalRevisionId, expectedClinicalContentHash: req.body.expectedClinicalContentHash,
+        reason: req.body.reason, attested: req.body.attested, lines: req.body.lines }));
+    }
     const reason = String(req.body.reason || '').trim();
     const pos = String(req.body.placeOfService || '');
     const billingNpi = String(req.body.billingNpi || ''), renderingNpi = String(req.body.renderingNpi || ''), taxonomy = String(req.body.taxonomyCode || '');

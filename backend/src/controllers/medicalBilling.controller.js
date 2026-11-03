@@ -1622,7 +1622,7 @@ export const getClinicalNoteById = async (req, res, next) => {
         supervisorCosignedAt: note.supervisor_cosigned_at || null,
         supervisorCosignedByUserId: note.supervisor_cosigned_by_user_id || null,
         needsSupervisorCosign,
-        attestation: metadata?.attestation || null,
+        attestation: versions ? versions.revisions?.find(version=>Number(version.id)===Number(versions.originalRevisionId))?.snapshot?.metadataJson?.attestation || null : metadata?.attestation || null,
         supervisorCosign: metadata?.supervisorCosign || null,
         supervisorCosignHistory: metadata?.supervisorCosignHistory || [],
         dateOfService: metadata?.dateOfService || null,
@@ -2166,6 +2166,7 @@ export const cosignClinicalNote = async (req, res, next) => {
     if (pendingServiceDetails(meta)) throw Object.assign(new Error('Preserve the pending service corrections in an amended version, then sign that version. The original note cannot be overwritten.'),{status:409});
 
     const nonBillable = isNonBillableDocument(note);
+    if (!nonBillable && Number(note.is_billable)!==1) throw Object.assign(new Error('This historical service note is marked non-billable. Create and sign an amended version for billing review; its original signed classification stays on file.'),{status:409});
     let signerLabel = null;
     try {
       const pool = (await import('../config/database.js')).default;

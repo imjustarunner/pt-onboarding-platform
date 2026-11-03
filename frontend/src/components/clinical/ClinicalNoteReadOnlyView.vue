@@ -247,7 +247,8 @@
     </section>
 
     <section v-if="!compact && (providerAttestationStatement || supervisorCosignStatement || pastCosigns.length)" class="ccn-block ccn-esign" aria-label="Electronic signatures">
-      <h4 class="ccn-block-title">Electronic signature</h4>
+      <h4 class="ccn-block-title">Electronic signatures</h4>
+      <p v-if="Number(note.clinicalVersion?.revisionNumber) > 1" class="ccn-field-hint">The original author signature below belongs to version 1. Note versions above identifies the signatures covering each amended version.</p>
       <button
         v-if="providerAttestationStatement"
         type="button"
@@ -351,7 +352,7 @@
       <p class="ccn-field-hint">{{ entryHint }}</p>
       </details>
       <p class="ccn-field-hint">Use Create amendment in Note versions to revise the signed narrative or service context.</p>
-      <label><input v-model="authorAttested" data-testid="author-attestation" type="checkbox" /> I authored and reviewed this entry and electronically sign it as accurate. It will be dated now and sent for supervisor approval.</label>
+      <label><input v-model="authorAttested" data-testid="author-attestation" type="checkbox" /> I authored and reviewed this independent entry and electronically sign it as accurate. It will retain my signature and the current date.</label>
       <button type="button" data-testid="sign-entry" class="ccn-copy-btn ccn-copy-btn--primary" :disabled="savingAddendum || !addendumDraft.trim() || !entryReason.trim() || !authorAttested || (serviceCorrection && !serviceChangeAttested)" @click="saveAddendum">
         {{ savingAddendum ? 'Saving…' : 'Sign addition and send for review' }}
       </button>
@@ -675,6 +676,7 @@ const ratingsCopyText = computed(() =>
 const signStatusLabel = computed(() => {
   if (amendmentPending.value) return 'Awaiting supervisor amendment sign-off';
   if (props.note?.supervisorCosignedAt) return 'Supervisor signed';
+  if (Number(props.note?.clinicalVersion?.revisionNumber)>1 && !props.note?.versions?.pendingRevisionId) return 'Amended version approved';
   if (props.note?.providerSignedAt && props.note?.needsSupervisorCosign) return 'Awaiting supervisor';
   if (props.note?.providerReview) return 'Review complete — no signature required';
   if (props.note?.providerSignedAt) return 'Provider signed';
