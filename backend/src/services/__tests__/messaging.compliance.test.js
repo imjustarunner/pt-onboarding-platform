@@ -26,8 +26,11 @@ beforeEach(() => {
     if(sql.includes('SELECT blocked,command_at')) return [[phoneState]];
     if(sql.startsWith('UPDATE auricwell_sms_phone_state')) {phoneState={blocked:values[0],command_at:values[1]};return [{affectedRows:1}];}
     if(sql.startsWith('INSERT IGNORE INTO sms_permission_events')) {
-      const key=JSON.stringify([values[0],values[1],values[2],values[4]]);
-      const affectedRows=permissionEvents.has(key)?0:1;permissionEvents.add(key);return [{affectedRows}];
+      // Match the database's unique provider event key, not the evidence JSON.
+      // Some inserts bind status while others put it directly in the SQL.
+      const messageId=values.at(-1);
+      const key=JSON.stringify([values[0],values[1],values[2],messageId]);
+      const affectedRows=messageId!=null&&permissionEvents.has(key)?0:1;permissionEvents.add(key);return [{affectedRows}];
     }
     if(sql.includes("VALUES (?,?,?,'opted_out',?)")){const [scope,phone,purpose,evidence]=values;permissions=permissions.filter(p=>!(p.scope===scope&&p.phone===phone&&p.purpose===purpose));permissions.push({scope,phone,purpose,status:'opted_out',evidence_json:evidence});return [{affectedRows:1}];}
     if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
@@ -274,7 +277,8 @@ function relayEnrollmentQueries() {
 it('NOCLIENTS consumes the command and changes only personal forwarding; repeated delivery does not resend confirmation',async()=>{
  relayEnrollmentQueries();const sendReply=vi.fn();
  const request={from:message.to,to:message.from,body:'NOCLIENTS',messageId:'relay-off',sendReply};
- expect(await processSmsKeyword(request)).toBe(true);await processSmsKeyword(request);
+ expect(await processSmsKeyword(request)).toBe(true);
+ await processSmsKeyword({...request,receivedAt:Date.now()+60000});
  expect(sendReply).toHaveBeenCalledTimes(1);expect(sendReply.mock.calls[0][0].body).toContain('Your in-app messages and other text choices are unchanged');
  expect(permissions).toContainEqual(expect.objectContaining({scope:'agency:2',purpose:'client_forwarding',status:'opted_out'}));
  expect(permissions.some(p=>p.purpose==='suppression')).toBe(false);
