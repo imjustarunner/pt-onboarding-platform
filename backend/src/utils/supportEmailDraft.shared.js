@@ -147,7 +147,7 @@ function normalizeMessage(row) {
 export function buildSupportEmailDraftContext({
   ticket = {}, messages = [], attachments = [], claimant = null, client = null,
   participants = [], verifiedFacts = [], verifiedActions = [], intakeComplete = true,
-  regenerationGuidance = '', headers = {}, agencyName = null, contextUnknowns = [], intakeMessageId = null, enrollmentLookup = null, providerAbsence = null, reviewerLearning = null, correspondence = null
+  regenerationGuidance = '', headers = {}, agencyName = null, contextUnknowns = [], intakeMessageId = null, enrollmentLookup = null, providerAbsence = null, reviewerLearning = null, correspondence = null, enrollmentEntry = null
 } = {}) {
   const meta = parseMetadataJson(ticket.ai_draft_metadata_json) || {};
   const allPublicMessages = array(messages)
@@ -221,7 +221,7 @@ export function buildSupportEmailDraftContext({
     claimant: owner, participants: roles, referralRelationships, verifiedFacts: facts, verifiedActions: actions,
     intentKey: inferIntentFromTicket({ ...ticket, question: latestInbound.body, ai_draft_metadata_json: null }),
     unconfirmedReferences: array(meta.extractedClientReferences).map((r) => text(r, 160)),
-    unresolvedFacts, enrollmentLookup, providerAbsence, reviewerLearning, correspondence, regenerationGuidance: text(regenerationGuidance, 2000),
+    unresolvedFacts, enrollmentLookup, providerAbsence, reviewerLearning, correspondence, enrollmentEntry, regenerationGuidance: text(regenerationGuidance, 2000),
     headers: { autoSubmitted: text(effectiveHeaders.autoSubmitted || effectiveHeaders['auto-submitted'], 100), listId: text(effectiveHeaders.listId || effectiveHeaders['list-id'], 200), listUnsubscribe: !!(effectiveHeaders.listUnsubscribe || effectiveHeaders['list-unsubscribe']) }
   };
   return { ...context, evidenceFingerprint: crypto.createHash('sha256').update(JSON.stringify(context)).digest('hex') };

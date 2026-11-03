@@ -70,3 +70,16 @@ export async function lookupSupportCorrespondence(context,{database:injectedDb}=
   providerCopied:people.some(p=>['provider','provider_plus'].includes(p.role)&&owned(p).some(e=>[...to,...cc].includes(e))),
   to,cc,sourceMessageId:email.ticket_message_id};
 }
+
+/** A fresh, public entry form is different from a person's saved-session link. */
+export async function lookupSupportEnrollmentEntry(context,{database:injectedDb}={}) {
+ const request=currentSupportEmailText(context.latestInbound.body);
+ if(context.schoolOrganizationId || !/\b(?:send|provide|share|need|help)\b[\s\S]{0,140}\blink\b/i.test(request) || !/\b(?:enroll\w*|paperwork|forms?|packet)\b/i.test(request))return null;
+ const database=injectedDb||(await import('../config/database.js')).default;
+ const language=/spanish|español|espanol/i.test(request)?'es':'en';
+ const [links]=await database.execute(`SELECT id,public_key,language_code FROM intake_links WHERE organization_id=? AND scope_type='agency' AND form_type='intake' AND is_active=1 AND inherits_office_master=1 AND is_office_master=0 AND language_code=? AND company_event_id IS NULL AND job_description_id IS NULL LIMIT 2`,[context.agencyId,language]);
+ if(links.length!==1||!links[0].public_key)return null;
+ const [[agency]]=await database.execute('SELECT * FROM agencies WHERE id=?',[context.agencyId]);if(!agency)return null;
+ const {buildPublicPortalBaseUrl}=await import('../utils/publicPortalUrl.js');
+ return {status:'verified_public_entry',id:links[0].id,language:links[0].language_code,url:`${buildPublicPortalBaseUrl(agency).replace(/\/$/,'')}/intake/${encodeURIComponent(links[0].public_key)}`,source:'Current active public agency office enrollment form'};
+}

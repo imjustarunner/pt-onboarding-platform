@@ -5,7 +5,7 @@ import { encryptChatText } from '../chatEncryption.service.js';
 import { buildSupportEmailDraftContext, classifySupportEmailDraft, validateSupportEmailDraft } from '../../utils/supportEmailDraft.shared.js';
 
 // Enrollment lookup is tested separately; these model fixtures never access a live database.
-const generateSupportEmailDraft = (input, dependencies = {}) => generateWithLookup(input, { lookupEnrollment: async () => null, lookupReviewerLearning:async()=>null,lookupCorrespondence:async()=>null, ...dependencies });
+const generateSupportEmailDraft = (input, dependencies = {}) => generateWithLookup(input, { lookupEnrollment: async () => null, lookupReviewerLearning:async()=>null,lookupCorrespondence:async()=>null,lookupEnrollmentEntry:async()=>null, ...dependencies });
 
 const ticket = {
   id: 51, agency_id: 2, school_organization_id: 9, source_channel: 'email',

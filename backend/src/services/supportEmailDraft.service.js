@@ -19,10 +19,10 @@ function currentDraftContext(input) {
 /** Run the enrollment search before either cache reuse or model generation. */
 export async function prepareSupportEmailDraftInput(input, dependencies = {}) {
   let context = currentDraftContext(input);
-  const {lookupSupportReviewerLearning,lookupSupportCorrespondence}=await import('./supportReviewerLearning.service.js');
+  const {lookupSupportReviewerLearning,lookupSupportCorrespondence,lookupSupportEnrollmentEntry}=await import('./supportReviewerLearning.service.js');
   const prepared={...input};
   const warnings=[];
-  for(const [field,lookup] of [['reviewerLearning',dependencies.lookupReviewerLearning || lookupSupportReviewerLearning],['correspondence',dependencies.lookupCorrespondence || lookupSupportCorrespondence]]) {
+  for(const [field,lookup] of [['reviewerLearning',dependencies.lookupReviewerLearning || lookupSupportReviewerLearning],['correspondence',dependencies.lookupCorrespondence || lookupSupportCorrespondence],['enrollmentEntry',dependencies.lookupEnrollmentEntry || lookupSupportEnrollmentEntry]]) {
     if(input[field]!==undefined) continue;
     try{prepared[field]=await lookup(context,dependencies);}catch{prepared[field]=null;warnings.push(`${field}_unavailable`);}
   }
@@ -99,6 +99,14 @@ export async function generateSupportEmailDraft(input, dependencies = {}) {
       proposedFollowUps: ['Review delivery results and separately follow up on missing contacts or held notifications.'],
       draftSources: [...baseMetadata.draftSources, { type: 'provider_assignment', id: context.providerAbsence.providerId,
         label: 'Verified provider and current school-day assignments', detail: context.providerAbsence.date }] } };
+
+  if(context.enrollmentEntry?.status==='verified_public_entry')return {
+    text:`Hello,\n\nFor the enrollment paperwork, please use this form:\n\n${context.enrollmentEntry.url}\n\nPlease let me know if you have any trouble opening it.`,
+    status:'needs_review',suppressed:false,provider:'records',modelName:'verified-enrollment-entry-v1',
+    metadata:{...baseMetadata,knowledgeSources:[],usedEvidenceIds:[context.latestInbound.evidenceId],
+      proposedFollowUps:['Check for the completed enrollment and confirm remaining intake requirements before telling the family or provider they are cleared.'],
+      draftSources:[...baseMetadata.draftSources,{type:'intake_link',id:context.enrollmentEntry.id,label:'Current active public enrollment form',detail:context.enrollmentEntry.language}]}
+  };
 
   // Directory-grounded options for explicit external referral requests. Never
   // manufacture providers, availability, credentials or insurance acceptance.
