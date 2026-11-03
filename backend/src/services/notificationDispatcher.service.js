@@ -1,4 +1,5 @@
 import { resolveRegisteredSmsSender } from './smsCompliance.service.js';
+import { exchangeSmsOptedOut } from './exchangeSmsPreference.service.js';
 import Notification from '../models/Notification.model.js';
 import User from '../models/User.model.js';
 import UserPreferences from '../models/UserPreferences.model.js';
@@ -192,6 +193,9 @@ class NotificationDispatcherService {
       return { dispatched: false, reason: 'missing_phone' };
     }
 
+    if (notification.type === 'client_exchange_match' && await exchangeSmsOptedOut({ agencyId, phone: to })) {
+      return { dispatched: false, reason: 'exchange_sms_opted_out' };
+    }
     const agency = await Agency.findById(agencyId);
     const agencyFlags = parseJsonMaybe(agency?.feature_flags) || {};
     // Staff alerts share the configured notification/polling program. Never

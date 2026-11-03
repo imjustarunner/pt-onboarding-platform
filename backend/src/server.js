@@ -1639,6 +1639,17 @@ if (!isBootstrap) {
   processCredentialNotices();
   setInterval(processCredentialNotices, 60 * 1000).unref();
 
+  let providerStopNoticesBusy = false;
+  const providerStopNoticeTick = async () => {
+    if (providerStopNoticesBusy) return;
+    providerStopNoticesBusy = true;
+    try { await (await import('./services/providerSmsStopNotice.service.js')).processProviderStopNotices(); }
+    catch (error) { console.warn('[provider SMS STOP notices]', error.code || 'processing_failed'); }
+    finally { providerStopNoticesBusy = false; }
+  };
+  void providerStopNoticeTick();
+  setInterval(providerStopNoticeTick, 60000).unref();
+
   const processTrainingNotices = async () => {
     if (trainingNoticesBusy) return;
     trainingNoticesBusy = true;

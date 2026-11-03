@@ -29,8 +29,11 @@ beforeEach(() => {
       const key=JSON.stringify([values[0],values[1],values[2],values[4]]);
       const affectedRows=permissionEvents.has(key)?0:1;permissionEvents.add(key);return [{affectedRows}];
     }
-    if(sql.includes("VALUES (?,?,?,'opted_out',?)")){const [scope,phone,purpose,evidence]=values;permissions=permissions.filter(p=>!(p.scope===scope&&p.phone===phone&&p.purpose===purpose));permissions.push({scope,phone,purpose,status:'opted_out',evidence});return [{affectedRows:1}];}
+    if(sql.includes("VALUES (?,?,?,'opted_out',?)")){const [scope,phone,purpose,evidence]=values;permissions=permissions.filter(p=>!(p.scope===scope&&p.phone===phone&&p.purpose===purpose));permissions.push({scope,phone,purpose,status:'opted_out',evidence_json:evidence});return [{affectedRows:1}];}
     if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
+    if (sql.startsWith('SELECT status,evidence_json,expires_at')) return pool.execute(sql, values);
+    if (sql.startsWith('SELECT evidence_json FROM sms_permission_events')) return [[]];
+    if (sql.startsWith("UPDATE sms_recipient_permissions SET status='opted_in'")) {const [evidence,expires_at,scope,phone,purpose]=values;permissions=permissions.filter(p=>!(p.scope===scope&&p.phone===phone&&p.purpose===purpose));permissions.push({scope,phone,purpose,status:'opted_in',evidence_json:evidence,expires_at});return [{affectedRows:1}];}
     if (sql.includes('INSERT INTO sms_recipient_permissions')) {
       const [scope, phone, purpose, status, evidence, expires] = values;
       permissions = permissions.filter((p) => !(p.scope === scope && p.phone === phone && p.purpose === purpose));
@@ -41,6 +44,7 @@ beforeEach(() => {
   pool.getConnection.mockResolvedValue(connection);
   pool.execute.mockImplementation(async (sql, args) => {
     if(sql.includes('SELECT blocked FROM auricwell_sms_phone_state')) return [[phoneState]];
+    if(sql.startsWith('SELECT status,evidence_json,expires_at')) return [permissions.filter(p=>p.scope===args[0]&&p.phone===args[1]&&p.purpose===args[2])];
     if(sql.includes('SELECT status FROM sms_recipient_permissions')) return [permissions.filter(p=>p.scope===args[0]&&p.phone===args[1]&&p.purpose===args[2])];
     if(sql.includes("SELECT status, expires_at FROM sms_recipient_permissions")) return [permissions.filter(p=>p.scope===args[0]&&p.phone===args[1]&&p.purpose==='care')];
     if (sql.includes('FROM twilio_numbers')) return [[sender]];
@@ -156,8 +160,8 @@ describe('campaign-wide SMS delivery gate', () => {
     await processSmsKeyword({ from: message.to, to: message.from, body: 'START', sendReply: vi.fn() });
     await expect(prepareSmsDelivery(message)).rejects.toMatchObject({ code: 'sms_consent_required' });
   });
-  it('NOREMIND stops reminders only, survives START, and confirms once per received message', async () => {
-    permissions.push(...['care','reminders'].map(purpose=>({scope:'campaign:C123',phone:message.to,purpose,status:'opted_in'})));
+  it('NOREMIND stops reminders only; category-only START restores prior consent and confirms once', async () => {
+    permissions.push(...['care','reminders'].map(purpose=>({scope:'campaign:C123',phone:message.to,purpose,status:'opted_in',evidence_json:{source:'web_form',reference:'original-consent'}})));
     const sendReply=vi.fn(async options=>prepareSmsDelivery(options));
     const command={from:message.to,to:message.from,body:' noremind ',messageId:'category-1',sendReply};
     await processSmsKeyword(command);
@@ -167,8 +171,9 @@ describe('campaign-wide SMS delivery gate', () => {
     await expect(prepareSmsDelivery(message)).rejects.toMatchObject({code:'sms_consent_required'});
     await expect(prepareSmsDelivery({...message,purpose:'care'})).resolves.toMatchObject({to:message.to});
     await processSmsKeyword({...command,body:'START',messageId:'start-category-1'});
-    await expect(prepareSmsDelivery(message)).rejects.toMatchObject({code:'sms_consent_required'});
-    expect(permissions.find(p=>p.purpose==='reminders').status).toBe('opted_out');
+    await expect(prepareSmsDelivery(message)).resolves.toMatchObject({to:message.to});
+    expect(permissions.find(p=>p.purpose==='reminders').status).toBe('opted_in');
+    expect(sendReply.mock.calls.at(-1)[0].body).toContain('NOREMIND (appointment reminders)');
   });
   it('declining provider texting preserves reminders and an inbound question cannot override that decline', async () => {
     permissions.push({scope:'campaign:C123',phone:message.to,purpose:'care',status:'opted_out'},

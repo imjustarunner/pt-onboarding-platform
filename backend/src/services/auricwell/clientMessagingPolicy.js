@@ -3,7 +3,23 @@ import { fail, hash } from './policy.js';
 import { normalizeSessionPhone } from './integrationPolicy.js';
 
 export const SMS_CATEGORIES = Object.freeze(['reminders', 'links', 'forms', 'account', 'conversations']);
-export const CATEGORY_COMMANDS = Object.freeze({ NOREMIND: 'reminders', NOLINK: 'links', NOFORM: 'forms' });
+export const CATEGORY_COMMANDS = Object.freeze({ NOREMIND: 'reminders', NOLINK: 'links', NOFORM: 'forms', NOACCOUNT: 'account', NOPROVIDER: 'conversations' });
+export const categoryLabel = category => ({ reminders:'appointment reminders',links:'session links',forms:'form texts',account:'account notices',conversations:'provider texts' })[category];
+export function consentedSmsCategories(data) {
+  if (!data?.consentAt || !data?.evidence || !data?.accountId) return emptyCategories();
+  return Object.fromEntries(SMS_CATEGORIES.map(k => [k, data.consentedCategories?.[k] === true || data.categories?.[k] === true]));
+}
+export function restartClientSmsCategories(data, at) {
+  const consentedCategories = consentedSmsCategories(data), categories = { ...data.categories }, restored = [];
+  const commandAt = { ...data.commandAt };
+  for (const category of SMS_CATEGORIES) {
+    if (!categories[category] && consentedCategories[category] && at >= Number(commandAt[category] || 0)) {
+      categories[category] = true; commandAt[category] = at; restored.push(category);
+    }
+  }
+  return { data: { ...data, categories, consentedCategories, commandAt,
+    conversationsDeclined: restored.includes('conversations') ? false : data.conversationsDeclined }, restored };
+}
 export const emptyCategories = () => Object.fromEntries(SMS_CATEGORIES.map(k => [k, false]));
 export const phoneKey = phone => hash(`auricwell:sms:phone:${normalizeSessionPhone(phone)}`);
 export function smsCommand(body) {
@@ -35,7 +51,7 @@ export function assertMessagingReady(settings, practiceId, line = 'main') {
 }
 export function smsFooter(category) {
   const keyword = Object.entries(CATEGORY_COMMANDS).find(([, c]) => c === category)?.[0];
-  return `${keyword ? ` Reply ${keyword} to stop ${category === 'links' ? 'session links' : category === 'forms' ? 'form texts' : 'appointment reminders'}.` : ''} Reply STOP to opt out of all SMS; HELP for help.`;
+  return `${keyword ? ` Reply ${keyword} to stop ${categoryLabel(category)}.` : ''} Reply STOP to opt out of all SMS; HELP for help.`;
 }
 // Notifyre's official Node SDK signs timestamp + '.' + JSON.stringify(payload).
 // https://github.com/GoLogic-Group/notifyre-nodejs-sdk/blob/master/src/utilities.ts
