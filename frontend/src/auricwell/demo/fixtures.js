@@ -1,26 +1,44 @@
+import { demoClients, demoProviders, demoStaff } from './people.js';
+import { createDemoNoteFixtures } from './notes.js';
+import { zonedDatetimeLocalToIso } from '../../utils/timezones.js';
 // Fictional fixtures only. This adapter has no network fallback and never accepts writes.
 export const practice = { id: 990101, name: 'Meadowbrook Therapy', slug: 'meadowbrook', organization_type: 'agency', timezone: 'America/Denver', feature_flags: { noteAidEnabled: true, clinicalNoteGeneratorEnabled: true, medicalBillingEnabled: true } };
-export const providers = [
-  { id: 990111, first_name: 'Avery', last_name: 'Lane', credential: 'LPC', is_active: 1, status: 'ACTIVE', profile_photo_url: '/auricwell/examples/avery-lane.jpg', specialties: ['Anxiety', 'Life transitions', 'Individual therapy'], bio: 'Avery helps adults build practical coping skills and make room for meaningful change. Their approach combines collaborative goal setting, reflection and strategies to try between visits.' },
-  { id: 990112, first_name: 'Jordan', last_name: 'Reed', credential: 'LCSW', is_active: 1, status: 'ACTIVE', profile_photo_url: '/auricwell/examples/jordan-reed.jpg', specialties: ['Stress', 'Relationships', 'Individual therapy'], bio: 'Jordan works with adults navigating stress and changing relationships. Sessions balance a welcoming space to talk with practical ways to build confidence and connection.' }
-];
-export const actor = { ...providers[0], role: 'super_admin', email: 'avery@example.invalid', agencyIds: [practice.id], agencies: [practice] };
-export const clients = [
-  { id: 990121, full_name: 'Emerson Cole', initials: 'E.C.', status: 'ACTIVE' },
-  { id: 990122, full_name: 'Morgan Rivera', initials: 'M.R.', status: 'ACTIVE' },
-  { id: 990123, full_name: 'Jamie Stone', initials: 'J.S.', status: 'ACTIVE' }
-].map(c => ({ ...c, agency_id: practice.id, agency_name: practice.name, source:'MANUAL', provider_id: actor.id }));
+export const providers = demoProviders;
+export const staff = demoStaff;
+export const actor = { ...providers[0], role: 'super_admin', email: 'avery@example.invalid', agencyIds: [practice.id], agencies: [practice], demoMode: true };
+export const clients = demoClients;
 const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const monday = new Date(); monday.setDate(monday.getDate() - (monday.getDay() + 6) % 7);
 export const weekStart = ymd(monday);
-export const drafts = clients.slice(0,2).map((c,i) => ({ id: 990131+i, client_id:c.id, client_full_name:c.full_name, initials:c.initials, agency_id:practice.id, client_agency_id:practice.id, note_type:'PROGRESS_NOTE', service_code:'90834', status:'draft', date_of_service:weekStart, created_at:`${weekStart}T16:00:00Z`, updated_at:`${weekStart}T17:00:00Z`, title:'Individual therapy progress note', input_text: 'Fictional session example: We reviewed the client’s coping strategies and practiced a grounding exercise. The client described using a strategy independently twice this week. Continue practicing and review progress at the next visit.' }));
-const historicalNotes = clients.map((c,i)=>({...drafts[0],id:990171+i,client_id:c.id,client_full_name:c.full_name,initials:c.initials,status:'signed',provider_signed_at:`${weekStart}T17:00:00Z`,title:'Progress note · fictional historical record'}));
-const claims = clients.map((c,i)=>({id:990141+i,agency_id:practice.id,client_id:c.id,clinical_note_id:990171+i,claim_number:`DEMO-${101+i}`,payer_name:'Example Health Plan',date_of_service:weekStart,amount_cents:12500,currency_code:'USD',claim_lifecycle:['draft','ready','rejected'][i],payer_sequence:1}));
-function schedule(start) {
+const noteFixtures = createDemoNoteFixtures({ practice, actor, clients, providers, weekStart });
+export const drafts = noteFixtures.drafts;
+const historicalNotes = noteFixtures.historicalNotes;
+const claims = clients.map((c,i)=>({id:990141+i,agency_id:practice.id,client_id:c.id,clinical_note_id:990171+i,claim_number:`DEMO-${101+i}`,payer_name:'Example Health Plan',date_of_service:weekStart,amount_cents:12500,currency_code:'USD',claim_lifecycle:['draft','ready','rejected'][i % 3],payer_sequence:1}));
+// Seed current display versions so shared-calendar migrations do not try to save
+// on first load. View choices already use the demo's memory-only browser storage.
+const preferenceDefaults = () => ({schedule_display_prefs:{layoutDefaultsVersion:2,schedulePaletteVersion:2,scheduleSideBySide:false,rowHeightMode:'large',hideWeekend:true,spanMode:'week'}});
+const providerFor = id => providers.find(provider => provider.id === Number(id));
+function requireProvider(id) {const provider=providerFor(id);if(!provider)throw new Error('That provider is outside this fictional demo.');return provider;}
+function workSchedule(providerId) {
+ requireProvider(providerId);
+ const id=Number(providerId),days=id===990112?[2,3,4,5]:id===990114?[1,2,3,4,5]:[1,2,3,4];
+ const [startTime,endTime]=id===990112?['08:00','16:00']:id===990113?['08:30','17:00']:id===990114?['10:00','18:00']:['09:00','17:00'];
+ return {schedule:[],hasSavedSchedule:true,isActive:true,blocks:days.map(dayOfWeek=>({dayOfWeek,startTime,endTime}))};
+}
+function schedule(start,providerId=actor.id) {
+ const provider=requireProvider(providerId),assigned=clients.filter(client=>client.provider_id===provider.id);
  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(start)) ? new Date(`${start}T12:00:00`) : new Date(`${weekStart}T12:00:00`);
- const events=[];
- for(let day=0;day<5;day++) { const next=new Date(date);next.setDate(date.getDate()+day);for(const [i,hour] of [9,11,14].entries()) events.push({id:990200+day*10+i,userId:actor.id,agencyId:practice.id,kind:'PERSONAL_EVENT',clientId:clients[i].id,appointmentStatus:i===0?'client_confirmed':'scheduled',reasonCode:'CLIENT_SESSION',title:`${clients[i].initials} · Individual therapy`,startAt:`${ymd(next)}T${hour.toString().padStart(2,'0')}:00:00`,endAt:`${ymd(next)}T${hour.toString().padStart(2,'0')}:50:00`,status:'scheduled',modality:day%2?'IN_PERSON':'VIRTUAL'}); }
- return {weekStart:ymd(date),agencyId:practice.id,scheduleAgencyIds:[practice.id],scheduleEvents:events,officeEvents:[],schoolAssignments:[],schoolRequests:[],officeRequests:[],supervisionSessions:[],googleBusy:[],googleEvents:[],externalBusy:[],virtualWorkingHours:[]};
+ if(!Number.isFinite(date.getTime()))throw new Error('That schedule date is outside this fictional demo.');
+ const events=[],workingDays=workSchedule(provider.id).blocks.map(block=>block.dayOfWeek);
+ for(let day=0;day<7;day++) {
+  const next=new Date(date);next.setDate(date.getDate()+day);if(!workingDays.includes(next.getDay()))continue;
+  for(const [index,client] of assigned.entries()) {
+   const time=client.time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/),hour=(Number(time?.[1]||9)%12)+(time?.[3]==='PM'?12:0),minute=Number(time?.[2]||0),duration=client.status==='INTAKE'?60:50;
+   const startMinutes=hour*60+minute,endMinutes=startMinutes+duration,clock=value=>`${String(Math.floor(value/60)).padStart(2,'0')}:${String(value%60).padStart(2,'0')}:00`;
+   events.push({id:990200+providers.indexOf(provider)*1000+day*10+index,userId:provider.id,providerUserId:provider.id,agencyId:practice.id,kind:'PERSONAL_EVENT',clientId:client.id,appointmentStatus:client.reminder.startsWith('Confirmed')?'client_confirmed':'scheduled',reasonCode:'CLIENT_SESSION',title:`${client.initials} · ${client.service}`,startAt:zonedDatetimeLocalToIso(`${ymd(next)}T${clock(startMinutes)}`,practice.timezone),endAt:zonedDatetimeLocalToIso(`${ymd(next)}T${clock(endMinutes)}`,practice.timezone),status:'scheduled',modality:client.format==='In person'?'IN_PERSON':'VIRTUAL'});
+  }
+ }
+ return {weekStart:ymd(date),providerId:provider.id,agencyId:practice.id,scheduleAgencyIds:[practice.id],scheduleEvents:events,officeEvents:[],schoolAssignments:[],schoolRequests:[],officeRequests:[],supervisionSessions:[],googleBusy:[],googleEvents:[],externalBusy:[],virtualWorkingHours:[]};
 }
 const clientFor = id => clients.find(c => c.id === Number(id));
 function chart(id) {const client=clientFor(id);return {client,notes:historicalNotes.filter(d=>d.client_id===client.id),sessions:[],diagnoses:[{id:990160,icd10_code:'F43.23',description:'Adjustment disorder with mixed anxiety and depressed mood · fictional example'}],latestPlan:{id:990161,title:'Build confidence and strengthen coping strategies',status:'active',effective_date:weekStart,prescribed_frequency:'Weekly individual therapy',goals:[{id:990162,goal_text:'Build confidence using coping strategies.',status:'active',objectives:[{id:990163,objective_text:'Use a grounding strategy independently when stress increases.',scale_start:3,scale_current:5,scale_target:8}]}]},objectiveRatings:[],goals:[]};}
@@ -30,22 +48,28 @@ export function demoResponse(url, config={}) {
  const parsed=new URL(url,'https://demo.invalid');const p=parsed.pathname.replace(/^\/api(?=\/)/,'');const q={...Object.fromEntries(parsed.searchParams),...config.params};
  for(const key of ['agencyId','agency_id','organizationId','organization_id']) if(q[key] && Number(q[key])!==practice.id) throw new Error('That practice is outside this fictional demo.');
  const clientMatch=p.match(/\/clients\/(\d+)(?:\/|$)/);if(clientMatch&&!clientFor(clientMatch[1]))throw new Error('That client is outside this fictional demo.');
- const userMatch=p.match(/\/users\/(\d+)(?:\/|$)/);if(userMatch&&!providers.some(u=>u.id===Number(userMatch[1])))throw new Error('That provider is outside this fictional demo.');
- if(p==='/clients') {const search=String(q.search||'').toLowerCase();return {clients:Number(q.page||1)>1?[]:clients.filter(c=>`${c.full_name} ${c.initials}`.toLowerCase().includes(search)),total:clients.length};}
+ const userMatch=p.match(/\/users\/(\d+)(?:\/|$)/);if(userMatch&&!staff.some(u=>u.id===Number(userMatch[1])))throw new Error('That provider is outside this fictional demo.');
+ const noteResponse = noteFixtures.response(p, q);
+ if(noteResponse !== undefined) return noteResponse;
+ if(p==='/clients') {const search=String(q.search||'').toLowerCase(),providerId=q.provider_id||q.providerId;if(providerId)requireProvider(providerId);const selected=clients.filter(c=>(!providerId||c.provider_id===Number(providerId))&&(!q.status||c.status===String(q.status).toUpperCase())&&`${c.full_name} ${c.initials}`.toLowerCase().includes(search));return {clients:Number(q.page||1)>1?[]:selected,total:selected.length};}
  if(p==='/auricwell-preview/providers')return {providers};
  if(p==='/auricwell-preview/workspace-scope')return {actorId:actor.id,scopes:['mine','practice'],providers:providers.map(p=>({...p,name:`${p.first_name} ${p.last_name}`,active:true,canViewSchedule:true}))};
- if(p==='/auricwell-preview/directory'){const search=String(q.search||'').toLowerCase();let rows=clients.filter(c=>`${c.full_name} ${c.initials}`.toLowerCase().includes(search));rows.sort((a,b)=>a.full_name.localeCompare(b.full_name)*(q.order==='desc'?-1:1));return {clients:Number(q.page||1)>1?[]:rows,total:rows.length,page:1,pageSize:50};}
+ if(p==='/auricwell-preview/directory'){const search=String(q.search||'').toLowerCase(),providerId=q.providerId||(q.scope==='mine'?actor.id:null);if(providerId)requireProvider(providerId);let rows=clients.filter(c=>(!providerId||c.provider_id===Number(providerId))&&`${c.full_name} ${c.initials}`.toLowerCase().includes(search));rows.sort((a,b)=>a.full_name.localeCompare(b.full_name)*(q.order==='desc'?-1:1));return {clients:Number(q.page||1)>1?[]:rows,total:rows.length,page:1,pageSize:50};}
  if(p==='/auricwell-preview/agenda'){
-   let items=q.providerId&&Number(q.providerId)!==actor.id?[]:schedule(q.start).scheduleEvents.map(e=>({...e,key:`appointment:${e.id}`,providerId:actor.id,providerName:'Avery Lane',kind:'appointment',clientName:clientFor(e.clientId).full_name,date:e.startAt.slice(0,10),startAt:e.startAt+'Z',endAt:e.endAt+'Z',location:e.modality,readOnly:true,status:e.appointmentStatus}));
+   const selected=q.providerId?[requireProvider(q.providerId)]:q.scope==='practice'?providers:[actor];
+   let items=selected.flatMap(provider=>schedule(q.start,provider.id).scheduleEvents.map(e=>({...e,key:`appointment:${e.id}`,providerId:provider.id,providerName:provider.name,kind:'appointment',clientName:clientFor(e.clientId).full_name,date:e.startAt.slice(0,10),startAt:e.startAt,endAt:e.endAt,location:e.modality,readOnly:true,status:e.appointmentStatus})));
    const search=String(q.search||'').toLowerCase();items=items.filter(r=>(!q.end||r.date<q.end)&&(!search||[r.clientName,r.providerName,r.title,r.location].join(' ').toLowerCase().includes(search))&&(!q.kind||q.kind==='all'||q.kind===r.kind)&&q.status!=='canceled');
    const field={client:'clientName',provider:'providerName',status:'status'}[q.sort]||'startAt';items.sort((a,b)=>String(a[field]).localeCompare(String(b[field]))*(q.order==='desc'?-1:1));
    return {items:items.slice(((Number(q.page)||1)-1)*50,(Number(q.page)||1)*50),total:items.length,timeZone:practice.timezone,page:Number(q.page)||1,pageSize:50};
  }
 
- if(p==='/auricwell-preview/tasks')return {tasks:[],total:0};
- if(p==='/appointments')return {appointments:schedule(q.windowStart).scheduleEvents.map(e=>({...e,title:e.title,providerUserId:actor.id,serviceCode:'90834'}))};
+ if(p==='/auricwell-preview/tasks')return {tasks:[{id:990501,title:'Review treatment goal ratings',task_type:'clinical',status:'pending',due_date:weekStart},{id:990502,title:'Prepare for supervision',task_type:'review',status:'pending',due_date:weekStart}],total:2};
+ if(p==='/appointments')return {appointments:schedule(q.windowStart,q.providerId||q.provider_id||actor.id).scheduleEvents.map(e=>({...e,serviceCode:clientFor(e.clientId)?.status==='INTAKE'?'90791':'90834'}))};
+ if(p==='/appointments/booking-access'){requireProvider(q.providerUserId||actor.id);return {enabled:true};}
+ if(p==='/appointments/staff-alerts'){requireProvider(q.providerId||actor.id);return {alerts:[]};}
+ const waitlist=p.match(/^\/availability\/providers\/(\d+)\/enrollment-waitlist$/);if(waitlist){requireProvider(waitlist[1]);return {requests:[],waitlistEnabled:false,total:0};}
  if(/^\/clients\/\d+$/.test(p))return clientFor(clientMatch[1]);
- if(p.endsWith('/chart')&&clientMatch)return chart(clientMatch[1]);
+ if(p.endsWith('/chart')&&clientMatch)return {...chart(clientMatch[1]),...noteFixtures.chartExtras(Number(clientMatch[1]))};
  if(clientMatch&&p.endsWith('/agency-affiliations'))return [{agency_id:practice.id,agency_name:practice.name}];
  if(clientMatch&&/\/(guardians|affiliations|records-copy-blocks|clinical-responses)$/.test(p))return [];
  if(clientMatch&&p.endsWith('/intake-note'))return {note:null};
@@ -61,23 +85,27 @@ export function demoResponse(url, config={}) {
  if(p==='/me/notes-to-sign/count')return {count:0};
  if(p==='/me/notes-to-sign')return {notes:[]};
  if(p===`/supervisor-assignments/supervisee/${actor.id}`||p==='/tasks')return [];
- if(p===`/users/${actor.id}/preferences`)return {preferences:{}};
- if(p===`/users/${actor.id}/schedule-summary`)return schedule(q.weekStart||q.weekStartYmd);
- if(p===`/users/${actor.id}/work-schedule`)return {schedule:[]};
- if(p===`/users/${actor.id}/virtual-session-clients`)return {clients:clients.map(c=>({...c,displayName:c.full_name})),guardians:[]};
+ if(userMatch&&p===`/users/${userMatch[1]}/preferences`)return preferenceDefaults();
+ if(userMatch&&p===`/users/${userMatch[1]}/schedule-summary`)return schedule(q.weekStart||q.weekStartYmd,userMatch[1]);
+ if(userMatch&&p===`/users/${userMatch[1]}/work-schedule`)return workSchedule(userMatch[1]);
+ if(userMatch&&p===`/users/${userMatch[1]}/virtual-session-clients`){const provider=requireProvider(userMatch[1]);return {clients:clients.filter(c=>c.provider_id===provider.id).map(c=>({...c,displayName:c.full_name})),guardians:[]};}
+ if(userMatch&&p===`/users/${userMatch[1]}/meeting-candidates`){requireProvider(userMatch[1]);return [];}
+ if(userMatch&&p===`/users/${userMatch[1]}/office-assignments`){requireProvider(userMatch[1]);return [];}
+ if(userMatch&&p===`/users/${userMatch[1]}/agencies`)return [practice];
  if(p==='/users/me/agencies'||p==='/agencies')return [practice];
  if(p===`/agencies/${practice.id}`)return practice;
- if(p==='/users'||p==='/providers')return providers;
- if(p===`/users/${actor.id}`)return actor;
+ if(p==='/users')return staff;
+ if(p==='/providers')return providers;
+ if(userMatch&&p===`/users/${userMatch[1]}`)return staff.find(person=>person.id===Number(userMatch[1]));
  if(p==='/users/me')return actor;
  if(p==='/auth/me')return {user:actor,agencies:[practice]};
- if(p===`/users/${actor.id}/agencies/${practice.id}/practice-categories`)return [];
- if(['/offices','/calendar-connections',`/users/${actor.id}/meeting-candidates`,`/agencies/${practice.id}/affiliated-organizations`].includes(p))return [];
+ if(userMatch&&p===`/users/${userMatch[1]}/agencies/${practice.id}/practice-categories`){requireProvider(userMatch[1]);return [];}
+ if(['/offices','/calendar-connections',`/agencies/${practice.id}/affiliated-organizations`].includes(p))return [];
  if(p==='/office-schedule/booking-metadata')return {serviceCodes:[{code:'90834',label:'Individual psychotherapy',durationMinutes:50}],serviceLocations:[{id:990151,name:'Telehealth',placeOfService:'10'}],appointmentTypes:[],appointmentSubtypes:[]};
- if(p==='/medical-billing/workspace') {const selected=claims.filter(c=>(!q.status||q.status==='all'||q.status===c.claim_lifecycle||q.status==='attention'&&c.claim_lifecycle==='rejected')&&(!q.search||`${c.claim_number} ${c.id}`.toLowerCase().includes(String(q.search).toLowerCase())));return {organizations:[{...practice,counts:{draft:1,ready:1,rejected:1},connection:{configured:false},enrollments:[],eft:[],payments:{postingCount:0,paidCents:0}}],claims:selected,total:selected.length,capabilities:{claims:true,enrollments:true},updatedAt:new Date().toISOString()};}
+ if(p==='/medical-billing/workspace') {const selected=claims.filter(c=>(!q.status||q.status==='all'||q.status===c.claim_lifecycle||q.status==='attention'&&c.claim_lifecycle==='rejected')&&(!q.search||`${c.claim_number} ${c.id}`.toLowerCase().includes(String(q.search).toLowerCase())));const counts=claims.reduce((result,claim)=>{result[claim.claim_lifecycle]=(result[claim.claim_lifecycle]||0)+1;return result;},{});return {organizations:[{...practice,counts,connection:{configured:false},enrollments:[],eft:[],payments:{postingCount:0,paidCents:0}}],claims:selected,total:selected.length,capabilities:{claims:true,enrollments:true},updatedAt:new Date().toISOString()};}
  const claimMatch=p.match(/^\/medical-billing\/claimmd\/claims\/(\d+)\/(history|draft|review)$/);
  if(claimMatch) {const claim=claims.find(c=>c.id===Number(claimMatch[1]));if(!claim)throw new Error('That claim is outside this fictional demo.');const history=[{id:990170,type:'draft_created',status:'draft',createdAt:`${weekStart}T17:00:00Z`,messages:[{message:'Fictional claim prepared for review. Nothing has been transmitted.'}]}];if(claimMatch[2]==='history')return {history};if(claimMatch[2]==='draft')return {claim:{...claim,billing_revision:1,place_of_service:'10'},lines:[{id:990180,procedure_code:'90834',units:1,charge_cents:12500,modifiers_json:[]}]};return {claimId:claim.id,lifecycle:claim.claim_lifecycle,readiness:{ready:false,blockers:['Demo only: clearinghouse and payer enrollment are not connected.'],warnings:[]},history,payload:{charge:[{from_date:weekStart,proc_code:'90834',units:1,place_of_service:'10',charge:'125.00'}],total_charge:'125.00'},reviewHash:'demo-only'};}
- if(/^\/medical-billing\/claimmd\/claims\/99014[1-3]\/service-changes$/.test(p))return {changes:[],previouslyTransmitted:false,revision:1};
+ const serviceChanges=p.match(/^\/medical-billing\/claimmd\/claims\/(\d+)\/service-changes$/);if(serviceChanges){if(!claims.some(claim=>claim.id===Number(serviceChanges[1])))throw new Error('That claim is outside this fictional demo.');return {changes:[],previouslyTransmitted:false,revision:1};}
  if([`/tenant-booking/agencies/${practice.id}/booking-options`,`/tenant-booking/agencies/${practice.id}/services`].includes(p))return {services:[]};
  if(p==='/supervision/providers')return {providers};
  if(p==='/medical-billing/claimmd/enrollments')return {enrollments:[]};

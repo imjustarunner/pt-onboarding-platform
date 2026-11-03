@@ -6,6 +6,7 @@ import api from '../../services/api';
 import {i18n} from '../../i18n';
 import {practice,actor,demoResponse} from './fixtures';
 import Demo from './Demo.vue';
+import { initializeAuricwellAnalytics } from '../website/analytics.js';
 import '../../style.css';
 import '../../styles/data-surfaces.css';
 import '../style.css';
@@ -27,4 +28,8 @@ router.beforeEach(to=>{
 const app=createApp(Demo);app.use(createPinia());app.use(router);app.use(i18n);
 sessionStorage.setItem('sched_office_reminder_seen','1');
 localStorage.setItem(`schedule.overlayPrefs.v2:${actor.id}:${practice.id}`,JSON.stringify({rowHeightMode:'large',hideWeekend:true,spanMode:'week'}));
-export const ready=router.isReady().then(()=>app.mount('#aw-demo'));
+export const ready=router.isReady().then(()=>{
+  app.mount('#aw-demo');
+  initializeAuricwellAnalytics({mode:'demo',router,context:window.__auricwellDemoAnalyticsContext});
+  delete window.__auricwellDemoAnalyticsContext;
+});

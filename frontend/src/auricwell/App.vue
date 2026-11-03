@@ -10,11 +10,14 @@
     <WorkspaceShell v-else :actor="actor" :slug="slug" :section="section" :navigation="navigation" :website-base="websiteBase" :unread="unread" :demo="!!demoContext">
       <template #notice>
       <AnnouncementToasts v-if="!demoContext" :storage-key="`auricwell:${actor.id}:agency:${context.practice.id}`" :load-items="loadOfficeToasts" />
-      <div v-if="demoContext" class="aw-identity" role="status"><strong>Interactive demo · Fictional practice</strong><span>Explore the actual EHR screens. Nothing is saved, signed, submitted or sent.</span><button type="button" @click="resetDemo">Reset demo</button></div>
+      <div v-if="demoContext" class="aw-identity" role="status"><strong>Interactive demo · Fictional practice</strong><span>Explore the actual EHR screens. Nothing is saved, signed, submitted or sent.</span><button type="button" data-analytics-id="demo-reset" @click="resetDemo">Reset demo</button></div>
       <div v-else-if="context.qaWorkspace" class="aw-identity" role="status"><strong>QA workspace · {{ actorName }} · {{ actor.role }}</strong><span>Fictional clients in {{ context.practice.name }}. Changes are saved for testing.</span></div>
       <div v-else class="aw-identity" role="status"><strong>Superadmin preview · {{ actorName }}</strong><span>Real {{ context.practice.name }} records. Saved drafts are live and attributed to you.</span><a :href="appBase">Switch practice</a></div>
       </template>
-        <Overview v-if="section === 'overview' || section === 'reports'" :key="context.practice.id" :agency="context.practice" :actor="actor" :slug="slug" :can-document="canDocument" :report="section === 'reports'" :demo="!!demoContext" />
+        <slot v-if="demoContext && section === 'documentation' && $slots.documentation" name="documentation" />
+        <slot v-else-if="demoContext && section === 'clients' && $slots.clients" name="clients" />
+        <slot v-else-if="demoContext && section === 'providers' && $slots.providers" name="providers" />
+        <Overview v-else-if="section === 'overview' || section === 'reports'" :key="context.practice.id" :agency="context.practice" :actor="actor" :slug="slug" :can-document="canDocument" :report="section === 'reports'" :demo="!!demoContext" />
         <WorkspaceTools v-else-if="['account','settings','payroll','notifications'].includes(section)" :section="section" :agency="context.practice" :actor="actor" :slug="slug" :notifications="notificationItems" :loading="notificationsLoading" :error="notificationsError" @refresh="loadNotifications" />
         <section v-else-if="section === 'announcements' && !demoContext" class="aw-toast-managers">
           <ToastAnnouncementManager :request="toastRequest" base-path="/auricwell-preview/toasts" />

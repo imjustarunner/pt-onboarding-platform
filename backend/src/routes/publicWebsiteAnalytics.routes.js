@@ -9,7 +9,7 @@ const service=createPublicWebsiteAnalyticsService(pool,config.jwt.secret);
 export const publicAnalyticsIngestLimiter=rateLimit({windowMs:60000,max:90,standardHeaders:true,legacyHeaders:false,keyGenerator:req=>`website:${getClientIpAddress(req)||req.ip}`});
 export async function ingestPublicWebsiteAnalytics(req,res,next){
   // Exclude signed-in browsers (including sessions still hydrating on the frontend), bots and previews.
-  if(req.cookies?.authToken||req.headers.authorization||/bot|spider|crawler|headless/i.test(req.get('user-agent')||''))return res.sendStatus(204);
+  if(req.cookies?.authToken||req.headers.authorization||req.get('dnt')==='1'||req.get('sec-gpc')==='1'||/bot|spider|crawler|headless/i.test(req.get('user-agent')||''))return res.sendStatus(204);
   try{await service.ingest(String(req.params.slug||''),req.body);res.sendStatus(204);}catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}
 }
 const router=express.Router();

@@ -85,6 +85,7 @@
     >
       <ClinicalNoteLibrarySidebar
         v-if="!isEmbedded"
+        :data-analytics-area="demoPresentation ? 'note-library' : undefined"
         title="Note Library"
         :allow-create="!demoLinkedWorkspace"
         :drafts="recentDrafts"
@@ -110,6 +111,7 @@
 
       <main
         ref="naMainEl"
+        :data-analytics-area="demoPresentation ? (supervisorReviewItem ? 'co-sign' : 'note-editor') : undefined"
         v-show="!libraryExpanded || libraryCollapsed"
         class="na-main"
         :class="{ 'na-main--start': showStartPage, 'na-main--library': showAidPicker }"
@@ -182,6 +184,8 @@
 
         <NoteAidStartPage
           v-if="showStartPage"
+          :heading="demoPresentation?.heading || ''"
+          :description="demoPresentation?.description || ''"
           :session-linked-only="demoLinkedWorkspace"
           :has-next-in-progress="!!nextInProgressRow"
           :has-next-in-queue="!!nextInQueueItem"
@@ -1127,7 +1131,7 @@
         >
           <div class="na-output-head">
             <div>
-              <h2>{{ noteTypeDisplayLabel.includes('Treatment') || noteTypeDisplayLabel.includes('Plan') ? 'AI Generated Treatment Plan' : 'AI Generated Note' }}</h2>
+              <h2>{{ demoPresentation && outputObj?.meta?.manualSections ? 'Clinician-authored note' : (noteTypeDisplayLabel.includes('Treatment') || noteTypeDisplayLabel.includes('Plan') ? 'AI Generated Treatment Plan' : 'AI Generated Note') }}</h2>
               <span class="na-ready-badge">Ready for review</span>
             </div>
             <button type="button" class="na-link-btn" @click="collapseAllSections = !collapseAllSections">
@@ -1467,7 +1471,7 @@
         </section>
 
         <ClinicalArtifactRetentionPanel
-          v-if="canApproveToClinicalRecord"
+          v-if="canApproveToClinicalRecord && !demoPresentation"
           :agencyId="Number(currentAgencyId || 0)"
           :clientId="Number(retentionClientId || 0)"
           :officeEventId="Number(retentionOfficeEventId || 0)"
@@ -1481,6 +1485,7 @@
       </main>
 
       <NoteAidWorkQueuePanel
+        :data-analytics-area="demoPresentation ? 'my-work' : undefined"
         :allow-add="authStore.user?.role === 'super_admin'"
         v-if="canUseTool && !isEmbedded && !(libraryExpanded && !libraryCollapsed)"
         :items="workQueueItems"
@@ -1800,6 +1805,8 @@ const route = useRoute();
 const router = useRouter();
 
 const props = defineProps({
+  /** Presentation and action isolation for the public fictional demo only. */
+  demoPresentation: { type: Object, default: null },
   embedded: { type: Boolean, default: false },
   embedDraftId: { type: [Number, String], default: null },
   embedClinicalNoteId: { type: [Number, String], default: null },
@@ -3897,6 +3904,7 @@ function reopenClientSetupIfNeeded() {
 const noteAidSetupPromotedIds = new Set();
 
 async function promoteNoteAidClientIfSetupComplete() {
+  if (props.demoPresentation) return;
   const cid = Number(effectiveClientId.value || 0);
   if (!cid || !clientSetupComplete.value) return;
   const source = String(selectedClient.value?.source || '').toUpperCase();
@@ -3994,6 +4002,7 @@ function applySessionTimingDefaults({ force = false } = {}) {
 
 function collapseSidebarsForNote() {
   libraryExpanded.value = false;
+  if (props.demoPresentation?.keepSidebarsOpen) return;
   libraryCollapsed.value = true;
   workQueueCollapsed.value = true;
 }
@@ -5098,6 +5107,8 @@ const programLabel = (programId) => {
 };
 
 const autosave = async () => {
+  // The public demo never persists authored content, including interval autosaves.
+  if (props.demoPresentation) return;
   if (!canUseTool.value || chartNoteReadOnly.value || pendingDurationChange.value || durationCodeMismatch.value || autosaveBusy || isWorkspaceHydrating()) return;
   const seq = workQueueActivateSeq;
   const targetDraftId = draftId.value;
@@ -7510,6 +7521,7 @@ let workQueueSyncSeq = 0;
 function persistWorkQueue() {
   const uid = authStore.user?.id;
   saveWorkQueue(uid, workQueueItems.value);
+  if (props.demoPresentation) return;
   const seq = ++workQueueSyncSeq;
   const snapshot = (workQueueItems.value || []).map((row) => ({ ...row }));
   syncWorkQueueToApi(uid, snapshot).then((saved) => {
@@ -9278,6 +9290,11 @@ onMounted(async () => {
   }
 
   if (canUseTool.value) {
+    // Demo fixtures resolve immediately; seed before recent-note reconciliation so
+    // its empty initial memory snapshot cannot replace the fictional My Work list.
+    if (props.demoPresentation && !isEmbedded.value) {
+      await fetchWorkQueueFromApi(authStore.user?.id).catch(() => {});
+    }
     await bootstrapWorkspace();
     if (!isAuricWell.value) claimUnassignedNoteAidClients().catch(() => {});
     if (isEmbedded.value) {

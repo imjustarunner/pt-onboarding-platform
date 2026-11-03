@@ -12,18 +12,21 @@ const db=mysql.createPool({...config,database:'analytics_test'});
 const service=createPublicWebsiteAnalyticsService(db,'test-only-hmac-secret');
 const admin={id:1,role:'super_admin'};
 try{
- await db.query(`CREATE TABLE public_marketing_pages(id INT PRIMARY KEY,slug VARCHAR(100),title VARCHAR(100),is_active BOOLEAN);
+ await db.query(`CREATE TABLE public_marketing_pages(id INT AUTO_INCREMENT PRIMARY KEY,slug VARCHAR(100),title VARCHAR(100),is_active BOOLEAN,page_type VARCHAR(64),hero_title VARCHAR(512),hero_subtitle TEXT);
  CREATE TABLE agencies(id INT PRIMARY KEY,organization_type VARCHAR(30));
  CREATE TABLE public_marketing_page_sources(page_id INT,source_type VARCHAR(30),source_id INT,is_active BOOLEAN);
  CREATE TABLE users(id INT PRIMARY KEY,role VARCHAR(30),is_active BOOLEAN,is_archived BOOLEAN);
  CREATE TABLE user_agencies(user_id INT,agency_id INT,agency_role VARCHAR(30),is_active BOOLEAN);
- INSERT INTO public_marketing_pages VALUES(1,'itsco','ITSCO',1),(2,'other','Other',1),(3,'range','Range',1),(4,'offline','Offline',0);
+ INSERT INTO public_marketing_pages(id,slug,title,is_active) VALUES(1,'itsco','ITSCO',1),(2,'other','Other',1),(3,'range','Range',1),(4,'offline','Offline',0);
  INSERT INTO agencies VALUES(1,'agency'),(2,'agency'),(11,'school');
  INSERT INTO public_marketing_page_sources VALUES(1,'agency',1,1),(2,'agency',2,1);
  INSERT INTO users VALUES(2,'admin',1,0),(3,'admin',1,0),(4,'support',1,0),(5,'client',1,0),(6,'admin',1,0),(7,'admin',1,1);
  INSERT INTO user_agencies VALUES(2,1,NULL,1),(3,2,NULL,1),(4,11,NULL,1),(5,1,NULL,1),(6,1,'provider',1),(7,1,NULL,1);`);
  const migration=await readFile(new URL('../migrations/1433_public_website_analytics.sql',import.meta.url),'utf8');await db.query(migration);await db.query(migration);
  const documentMigration=await readFile(new URL('../migrations/1491_public_website_document_analytics.sql',import.meta.url),'utf8');await db.query(documentMigration);await db.query(documentMigration);
+ const engagementMigration=await readFile(new URL('../migrations/1734_auricwell_website_engagement.sql',import.meta.url),'utf8');await db.query(engagementMigration);await db.query(engagementMigration);
+ assert.equal((await service.authorize(admin,'auricwell')).slug,'auricwell');
+ await assert.rejects(()=>service.authorize({id:2,role:'admin'},'auricwell'),e=>e.status===403);
  assert.equal((await service.authorize(admin,'range')).id,3);
  assert.equal((await service.authorize({id:2,role:'admin'},'itsco')).id,1);
  for(const actor of [null,{id:3,role:'admin'},{id:4,role:'support'},{id:5,role:'client'},{id:6,role:'admin'},{id:7,role:'admin'},{...admin,demoMode:true}])await assert.rejects(()=>service.report(actor,'itsco'),e=>e.status===403);
@@ -55,5 +58,9 @@ try{
  assert.equal(docs.totals.documentViews,1);assert.equal(docs.totals.documentDownloads,1);assert.equal(docs.totals.clicks,2);assert.equal(docs.totals.views,0);assert.equal(docs.rows.length,2);assert.equal(Number(docs.daily[0].clicks),2);
  assert.equal((await service.report(admin,'itsco',{page:'/p/itsco/team'})).totals.documentViews,0);
  assert.equal((await service.report(admin,'other')).totals.documentDownloads,0);
- console.log('PASS: document migrations, document counts and retry deduplication, migration, role and tenant isolation, mixed-source authorization, event deduplication, scoped browser counts, actual reports, area matching, input exclusion, validation, and retention.');
+ const timedEvents=[event('page_time','page',{pagePath:'/p/auricwell/demo/clients',durationMs:15000}),event('section_time','page/client-chart',{pagePath:'/p/auricwell/demo/clients',durationMs:15000}),event('section_time','page/client-quick-look',{pagePath:'/p/auricwell/demo/clients',durationMs:5000})];
+ await service.ingest('auricwell',{visitorId,events:timedEvents});await service.ingest('auricwell',{visitorId,events:timedEvents});
+ const engagement=await service.report(admin,'auricwell');assert.equal(engagement.totals.durationMs,15000,'overlapping section time does not inflate page time');assert.equal(engagement.engagement.length,3);assert.equal(engagement.engagement.at(-1).durationMs,5000);assert.equal(engagement.totals.views,0);
+ assert.equal((await service.report(admin,'auricwell',{target:'page/client-chart'})).engagement[0].durationMs,15000);
+ console.log('PASS: engagement migrations and bounded durations, non-overlapping page totals, ranked engagement, document counts and retry deduplication, role and tenant isolation, mixed-source authorization, scoped browser counts, actual reports, area matching, input exclusion, validation, and retention.');
 }finally{await db.end();}

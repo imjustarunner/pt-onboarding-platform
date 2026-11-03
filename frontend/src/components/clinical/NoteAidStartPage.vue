@@ -2,8 +2,9 @@
   <div class="na-start">
     <div class="na-start-hero">
       <div class="na-start-icon" aria-hidden="true">✨</div>
-      <h1>No note selected</h1>
-      <p v-if="sessionLinkedOnly">This workspace opens drafts and signed notes connected to a scheduled session or billing encounter, along with the client’s treatment plans. Choose an existing item below, or open a session on your schedule and use Quick note to start its draft.</p>
+      <h1>{{ heading || 'No note selected' }}</h1>
+      <p v-if="description">{{ description }}</p>
+      <p v-else-if="sessionLinkedOnly">This workspace opens drafts and signed notes connected to a scheduled session or billing encounter, along with the client’s treatment plans. Choose an existing item below, or open a session on your schedule and use Quick note to start its draft.</p>
       <p v-else>Select a note from the library, open a to-do from the work queue, or create a new note to begin.</p>
     </div>
 
@@ -82,6 +83,8 @@
 
 <script setup>
 defineProps({
+  heading: { type: String, default: '' },
+  description: { type: String, default: '' },
   sessionLinkedOnly: { type: Boolean, default: false },
   hasNextInProgress: { type: Boolean, default: false },
   hasNextInQueue: { type: Boolean, default: false }

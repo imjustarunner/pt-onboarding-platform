@@ -2,21 +2,27 @@
   <div class="aw-demo">
     <div v-if="notice" class="aw-demo-notice" role="status"><span>{{ notice }}</span><button type="button" @click="notice = ''" aria-label="Dismiss demo notice">×</button></div>
     <App :demo-context="{practice,actor}">
+      <template #clients><DemoPeople section="clients" /></template>
+      <template #providers><DemoPeople section="providers" /></template>
+      <template #documentation><DemoDocumentation /></template>
       <template #appointments>
         <p class="aw-caption">The shared scheduling workspace · Fictional appointments and confirmation states. Try the calendar views or open Book session; bookings and notifications are not sent.</p>
-        <Schedule :user-id="actor.id" :agency-id="practice.id" :week-start-ymd="weekStart" compact-page-chrome schedule-title="Practice schedule" :show-company-events-calendar-button="false" :show-skill-builders-programs-button="false" />
+        <div data-analytics-area="schedule"><Schedule :key="scheduleProvider.id" :user-id="scheduleProvider.id" :agency-id="practice.id" :week-start-ymd="weekStart" compact-page-chrome schedule-title="Practice schedule" :show-company-events-calendar-button="false" :show-skill-builders-programs-button="false" /></div>
       </template>
     </App>
   </div>
 </template>
 <script setup>
-import {ref,onBeforeUnmount,defineAsyncComponent,watch} from 'vue';
+import {ref,onBeforeUnmount,defineAsyncComponent,watch,computed} from 'vue';
 import App from '../App.vue';
+import DemoPeople from './DemoPeople.vue';
+import DemoDocumentation from './DemoDocumentation.vue';
 import {useRoute} from 'vue-router';
 const Schedule=defineAsyncComponent(()=>import('../../components/schedule/ScheduleAvailabilityGrid.vue'));
-import {practice,actor,weekStart} from './fixtures';
+import {practice,actor,weekStart,providers} from './fixtures';
 const route=useRoute();
-const notice=ref('');watch(()=>route.fullPath,()=>{notice.value='';});const notify=event=>{notice.value=String(event.detail);};
+const scheduleProvider=computed(()=>providers.find(provider=>provider.id===Number(route.query.providerId))||actor);
+const notice=ref('');watch(()=>route.path,()=>{notice.value='';});const notify=event=>{notice.value=String(event.detail);};
 window.addEventListener('aw-demo-notice',notify);
 onBeforeUnmount(()=>window.removeEventListener('aw-demo-notice',notify));
 </script>

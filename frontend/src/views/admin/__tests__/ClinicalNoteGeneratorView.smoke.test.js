@@ -44,11 +44,11 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     vi.mocked(api.get).mockReset().mockResolvedValue({ data: {} });
   });
 
-  async function workspace(aid = 'psychotherapy', { realFrame = false } = {}) {
+  async function workspace(aid = 'psychotherapy', { realFrame = false, demoPresentation = null } = {}) {
     const View = (await import('../ClinicalNoteGeneratorView.vue')).default;
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/note-aid', component: View }] });
     await router.push('/note-aid');
-    const wrapper = shallowMount(View, { global: { plugins: [router, createPinia()], stubs: { ClinicalWorkspaceFrame: realFrame ? false : { template: '<section><slot /></section>' } } } });
+    const wrapper = shallowMount(View, { props: { demoPresentation }, global: { plugins: [router, createPinia()], stubs: { ClinicalWorkspaceFrame: realFrame ? false : { template: '<section><slot /></section>' } } } });
     await flushPromises();
     const state = wrapper.vm.$.setupState;
     state.derivedTier = 'intern_plus';
@@ -496,6 +496,39 @@ describe('ClinicalNoteGeneratorView smoke', () => {
       await state.autosave();
       const saved = api.patch.mock.calls.find(([url]) => url === '/clinical-notes/drafts/295')[1];
       expect(saved).toMatchObject({ serviceCode: '90834', outputJson: { meta: { sessionContext: { serviceCode: '90834', durationMinutes: 52, startTimeLocal: '12:00', endTimeLocal: '12:52' } } } });
+    } finally { wrapper.unmount(); }
+  });
+
+  it('keeps the public demo library visible and never autosaves fictional edits', async () => {
+    const { wrapper, state } = await workspace('');
+    try {
+      await wrapper.setProps({ demoPresentation: { heading: 'Choose a fictional note', keepSidebarsOpen: true } });
+      state.libraryCollapsed = false;
+      state.workQueueCollapsed = false;
+      state.draftId = 990131;
+      state.inputText = 'Fictional edit must stay in the demo screen.';
+      await nextTick();
+      state.collapseSidebarsForNote();
+      expect(state.libraryCollapsed).toBe(false);
+      expect(state.workQueueCollapsed).toBe(false);
+      api.post.mockClear(); api.patch.mockClear();
+      await state.autosave();
+      expect(api.post).not.toHaveBeenCalled();
+      expect(api.patch).not.toHaveBeenCalled();
+      expect(state.inputText).toContain('Fictional edit');
+    } finally { wrapper.unmount(); }
+  });
+
+  it('loads fictional My Work before recent-note reconciliation without sending queue writes', async () => {
+    const queue = [{ id: 'demo_work', clientId: 990121, draftId: 990131, status: 'started', docStatus: 'started' }];
+    vi.mocked(api.get).mockImplementation(async path => ({ data: path === '/clinical-notes/work-queue'
+      ? { items: queue } : path === '/clinical-notes/recent' ? { drafts: [{ id: 990131, client_id: 990121, status: 'draft', input_text: 'Fictional existing draft.' }], signedSessions: [] } : {} }));
+    api.put.mockClear();
+    const { wrapper, state } = await workspace('', { demoPresentation: { heading: 'Choose a fictional note', keepSidebarsOpen: true } });
+    try {
+      await flushPromises();
+      expect(state.workQueueItems).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'demo_work', draftId: 990131, status: 'started' })]));
+      expect(api.put).not.toHaveBeenCalled();
     } finally { wrapper.unmount(); }
   });
 

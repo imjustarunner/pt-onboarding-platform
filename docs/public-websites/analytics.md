@@ -81,3 +81,53 @@ button bypass website tracking. Existing guest-only collection, access controls,
 anonymous browser estimates, deduplication, and retention rules also apply.
 No historical document counts are reconstructed. Migration 1491 adds the two
 explicit event kinds (`document_view`, `document_download`) to the existing enum.
+
+## AuricWell website and fictional demo
+
+Migration **1734** registers `auricwell` as an inactive, reporting-only
+`analytics_only` page without a tenant source, and adds bounded `duration_ms` values plus `page_time` and
+`section_time` event kinds. Its reports are available only to platform
+superadmins. Sign in on the main app domain and open
+`/admin/website-analytics/auricwell`. The report starts with all website pages. Its
+**Where visitors spend the longest** table ranks aggregate active viewing time;
+the activity table can also sort by **Longest active time**. The table shows
+total active time and average time per distinct anonymous browser. CSV exports include
+visible active seconds. The protected API is `/api/website-analytics/auricwell`.
+The generic public marketing endpoints do not render `analytics_only` records,
+even if someone later changes their active flag. Ingestion allows this exact
+reporting registration without publishing a generic website or tenant data.
+
+The collector covers all five static marketing pages and the public working
+demo, including same-origin demo embeds. Actual public URLs are normalized to
+`/p/auricwell`, `/p/auricwell/product`, `/p/auricwell/security`,
+`/p/auricwell/about`, `/p/auricwell/contact`, and
+`/p/auricwell/demo/{overview,appointments,clients,documentation,billing,providers,reports}`.
+Changing a client, note or query within a demo screen does not add a page view.
+Demo clicks use a fixed action catalog; unknown controls receive a generic
+label. Names, chart IDs, note text, arbitrary button text and search contents do
+not enter demo event payloads. Editable field values are never observed.
+
+Viewing time stops when the tab is hidden or unfocused, the embedded demo is
+outside its parent's viewport, or there has been no pointer, keyboard, touch or
+scroll interaction for 60 seconds. A heartbeat sends at most one page-time
+segment and eight major area-time segments every 15 seconds, with final time
+flushed on navigation/teardown. Individual durations are restricted to 1–60,000
+milliseconds by the backend. Sections may be visible together, so section times
+overlap; page totals count only page-time events. These are estimates of visible
+activity, not proof of attention, reading or workflow completion.
+
+DNT and Global Privacy Control suppress AuricWell collection and creation of a
+browser identifier. The demo reads only the presence of sign-in storage before
+isolating application storage, so it can exclude signed-in visitors without
+copying account data into analytics. Its transport permits only POST requests to
+the same-origin public analytics ingestion endpoint, omits credentials and
+referrers, and refuses redirects. The public demo has no clinical API access.
+The static website sends cookies only to its own ingestion URL so the backend
+can independently exclude authenticated requests.
+
+No earlier engagement history is reconstructed. Time data appears only after
+the migration and collector are deployed and eligible visitors use the website.
+The focused frontend analytics suites and backend website analytics suite cover
+duration, visibility, idle behavior, fixed demo labels, opt-outs and aggregate
+query boundaries. The disposable MySQL harness also exercises migration reruns
+and stored duration reports; run it only against the documented test database.

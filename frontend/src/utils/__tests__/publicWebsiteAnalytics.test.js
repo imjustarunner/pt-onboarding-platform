@@ -12,6 +12,7 @@ describe('public website analytics privacy and identity',()=>{
  it('requires sustained visible area exposure and stops all event collection on disposal',()=>{const{emit,tracker}=start();const el=document.querySelector('article');const entry={target:el,isIntersecting:true,intersectionRatio:.6,intersectionRect:{height:200}};visibility([entry]);vi.advanceTimersByTime(600);visibility([{...entry,isIntersecting:false,intersectionRatio:0}]);vi.advanceTimersByTime(1000);expect(emit.mock.calls.some(([e])=>e.kind==='section_view')).toBe(false);visibility([entry]);vi.advanceTimersByTime(1000);expect(emit.mock.calls.filter(([e])=>e.kind==='section_view')).toHaveLength(1);visibility([entry]);vi.advanceTimersByTime(1000);expect(emit.mock.calls.filter(([e])=>e.kind==='section_view')).toHaveLength(1);tracker.stop();document.querySelector('a').click();expect(emit.mock.calls).toHaveLength(2);});
  it('uses expiring browser identifiers and tolerates disabled storage',()=>{const storage={getItem:vi.fn(),setItem:vi.fn()};const crypto={randomUUID:()=> '12345678-1234-1234-1234-123456789abc'};const id=anonymousWebsiteVisitor(storage,crypto,100);expect(storage.setItem).toHaveBeenCalled();storage.getItem.mockReturnValue(JSON.stringify({id,expires:200}));expect(anonymousWebsiteVisitor(storage,crypto,150)).toBe(id);const blocked={getItem(){throw Error();},setItem(){throw Error();}};expect(anonymousWebsiteVisitor(blocked,crypto)).toBe(id);});
  it('exports a real CSV with spreadsheet formula protection and groups referrers without URLs',()=>{const csv=analyticsCsv([{pagePath:'/p/itsco',label:' =HYPERLINK("bad")',kind:'click',count:2,visitors:1,lastSeen:'2026-09-12'}]);expect(csv).toContain("' =HYPERLINK");expect(csv).toContain('""bad""');expect(websiteSource('https://www.google.com/search?q=private','https://app.test')).toBe('search');expect(websiteSource('https://app.test/private?token=abc','https://app.test')).toBe('internal');});
+ it('exports total and per-browser viewing seconds without presenting time segments as pageviews',()=>{const csv=analyticsCsv([{pagePath:'/p/auricwell/demo/clients',label:'Client chart',kind:'section_time',count:4,visitors:2,durationMs:60000}]);expect(csv).toContain('"Visible active seconds","Average active seconds per browser"');expect(csv).toContain('"section_time","4","2","60","30"');});
 });
 
 it('counts document actions separately, only on activation, and respects staff exclusion',()=>{
@@ -23,4 +24,32 @@ it('counts document actions separately, only on activation, and respects staff e
  expect(emit.mock.calls[1][0].targetKey).toBe('page/school-partnership-guide/view-guide');
  expect(emit.mock.calls[2][0].targetKey).toBe('page/school-partnership-guide/download-guide');
  guest=false;document.querySelector('a').click();expect(emit).toHaveBeenCalledTimes(3);tracker.stop();
+});
+
+describe('visible active viewing time',()=>{
+ it('flushes bounded page and section time, stops in hidden tabs and after idle, and resumes on interaction',()=>{
+  let hidden=false;vi.spyOn(document,'hidden','get').mockImplementation(()=>hidden);
+  const emit=vi.fn();const tracker=createWebsiteTracker({document,window,pagePath:'/p/itsco',canTrack:()=>true,emit,trackDwell:true});
+  const section=document.querySelector('section');visibility([{target:section,isIntersecting:true,intersectionRatio:1,intersectionRect:{height:600}}]);
+  vi.advanceTimersByTime(15000);
+  expect(emit.mock.calls.filter(([e])=>e.kind==='page_time').map(([e])=>e.durationMs)).toEqual([15000]);
+  expect(emit.mock.calls.find(([e])=>e.kind==='section_time')[0]).toMatchObject({targetKey:'page/directory',durationMs:15000});
+  vi.advanceTimersByTime(5000);hidden=true;document.dispatchEvent(new Event('visibilitychange'));
+  const before=emit.mock.calls.length;vi.advanceTimersByTime(45000);expect(emit.mock.calls).toHaveLength(before);
+  hidden=false;document.dispatchEvent(new Event('visibilitychange'));vi.advanceTimersByTime(90000);
+  const time=()=>emit.mock.calls.filter(([e])=>e.kind==='page_time').reduce((sum,[e])=>sum+e.durationMs,0);
+  expect(time()).toBe(80000); // 20 seconds before hide, 60 seconds before idle.
+  document.dispatchEvent(new Event('pointerdown'));vi.advanceTimersByTime(15000);tracker.stop();
+  expect(time()).toBe(95000);
+  expect(emit.mock.calls.filter(([e])=>e.durationMs).every(([e])=>e.durationMs>0&&e.durationMs<=60000)).toBe(true);
+  const after=emit.mock.calls.length;vi.advanceTimersByTime(30000);expect(emit.mock.calls).toHaveLength(after);
+  vi.restoreAllMocks();
+ });
+ it('does not count unfocused or offscreen embedded views',()=>{
+  let frameVisible=true;const emit=vi.fn();const tracker=createWebsiteTracker({document,window,pagePath:'/p/itsco',canTrack:()=>true,emit,trackDwell:true,isFrameVisible:()=>frameVisible});
+  vi.advanceTimersByTime(5000);window.dispatchEvent(new Event('blur'));vi.advanceTimersByTime(30000);
+  expect(emit.mock.calls.filter(([e])=>e.kind==='page_time').map(([e])=>e.durationMs)).toEqual([5000]);
+  window.dispatchEvent(new Event('focus'));frameVisible=false;vi.advanceTimersByTime(30000);tracker.stop();
+  expect(emit.mock.calls.filter(([e])=>e.kind==='page_time')).toHaveLength(1);
+ });
 });

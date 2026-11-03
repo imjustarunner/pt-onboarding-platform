@@ -5,7 +5,7 @@
     <aside class="aw-sidebar" aria-label="Workspace sidebar">
       <a class="aw-sidebar-brand" :href="websiteBase" aria-label="AuricWell website"><img :src="AURICWELL_MARK_URL" alt="" /><span>AuricWell</span></a>
       <nav class="aw-nav" aria-label="Practice navigation">
-        <RouterLink v-for="item in navigation" :key="item.key" :to="`/${slug}/${item.key}`" :title="item.label" :aria-current="section===item.key?'page':undefined" @click="mobileOpen=false"><PortalIcon :name="item.icon"/><span>{{ item.label }}</span></RouterLink>
+        <RouterLink v-for="item in navigation" :key="item.key" :data-analytics-id="demo ? `nav-${item.key}` : undefined" :to="`/${slug}/${item.key}`" :title="item.label" :aria-current="section===item.key?'page':undefined" @click="mobileOpen=false"><PortalIcon :name="item.icon"/><span>{{ item.label }}</span></RouterLink>
       </nav>
       <div class="aw-sidebar-bottom">
         <a :href="demo?websiteBase:personalToolUrl(slug,'support')"><PortalIcon name="help"/><span>Help &amp; Support</span></a>
@@ -22,7 +22,7 @@
         </form>
         <RouterLink v-if="!demo" :to="`/${slug}/notifications`" class="aw-notification-button aw-icon-button" :aria-label="unread===null?'Notifications':`Notifications, ${unread} unread`"><PortalIcon name="notifications"/><span v-if="unread>0" class="aw-unread-dot"/></RouterLink>
         <div class="aw-account">
-          <button :disabled="demo" class="aw-account-toggle" :aria-expanded="accountOpen" aria-controls="aw-account-menu" @click="accountOpen=!accountOpen"><span class="aw-avatar">{{ initials(actorName) }}</span><span class="aw-account-label"><strong>{{ actorName }}{{ actor.credential ? `, ${actor.credential}` : '' }}</strong><small>{{ roleLabel }}</small></span><span aria-hidden="true">⌄</span></button>
+          <button :disabled="demo" class="aw-account-toggle" :aria-expanded="accountOpen" aria-controls="aw-account-menu" @click="accountOpen=!accountOpen"><span class="aw-avatar"><img v-if="demo && actor.profile_photo_url" :src="actor.profile_photo_url" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%" /><template v-else>{{ initials(actorName) }}</template></span><span class="aw-account-label"><strong>{{ actorName }}{{ actor.credential ? `, ${actor.credential}` : '' }}</strong><small>{{ roleLabel }}</small></span><span aria-hidden="true">⌄</span></button>
           <div v-if="accountOpen" id="aw-account-menu" class="aw-account-menu">
             <RouterLink :to="`/${slug}/account`" @click="accountOpen=false">My Account</RouterLink>
             <RouterLink :to="`/${slug}/settings`" @click="accountOpen=false">Settings</RouterLink>

@@ -13,15 +13,32 @@ export function websiteSource(referrer,origin){
 }
 export function analyticsCsv(rows) {
   const cell=value=>{let s=String(value??'');if(/^\s*[=+\-@\t\r]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';};
-  return [['Page','Area','Event','Count','Anonymous browsers','Last seen'],...rows.map(r=>[r.pagePath,r.label,r.kind,r.count,r.visitors,r.lastSeen])].map(row=>row.map(cell).join(',')).join('\r\n');
+  return [['Page','Area','Event','Count','Anonymous browsers','Visible active seconds','Average active seconds per browser','Last seen'],...rows.map(r=>[r.pagePath,r.label,r.kind,r.count,r.visitors,Math.round(Number(r.durationMs||0)/1000),Math.round(Number(r.durationMs||0)/Math.max(1,Number(r.visitors||0))/1000),r.lastSeen])].map(row=>row.map(cell).join(',')).join('\r\n');
 }
-export function createWebsiteTracker({document,window,pagePath,canTrack,emit,onTargets}) {
+export function createWebsiteTracker({document,window,pagePath,canTrack,emit,onTargets=()=>{},rootSelector=ANALYTICS_ROOTS,resolveMetadata,trackDwell=false,isFrameVisible=()=>true,isContentReady=root=>Boolean(root.querySelector('h1'))}) {
   let root=null,disposed=false,ready=false,scanTimer=null;const metadata=new WeakMap(),targets=new Map(),viewed=new Set(),timers=new Map();
   const context={pagePath,source:websiteSource(document.referrer,window.location.origin)};
-  function send(kind,meta){if(disposed||!canTrack())return;emit({...context,eventId:window.crypto.randomUUID(),kind,targetKey:meta.key,label:meta.label,device:window.innerWidth<600?'mobile':window.innerWidth<1024?'tablet':'desktop',language:(document.documentElement.lang||'en').split('-')[0]});}
+  function send(kind,meta,durationMs){if(disposed||!canTrack())return;emit({...context,eventId:window.crypto.randomUUID(),kind,targetKey:meta.key,label:meta.label,device:window.innerWidth<600?'mobile':window.innerWidth<1024?'tablet':'desktop',language:(document.documentElement.lang||'en').split('-')[0],...(durationMs?{durationMs}: {})});}
+  // Time is an estimate of visible, non-idle viewing, not a claim about attention.
+  // Only eight major visible areas are timed, and page totals use page_time alone.
+  const activeAreas=new Map(),pendingTime=new Map(),idleMs=60000,now=()=>window.performance.now();
+  let lastActivity=now(),lastTick=lastActivity,visible=!document.hidden,focused=true;
+  function sampleTime(){
+    const time=now(),elapsed=Math.max(0,Math.min(time,lastActivity+idleMs)-lastTick);lastTick=time;
+    if(!trackDwell||!ready||!visible||!focused||!isFrameVisible()||!canTrack()||elapsed<1)return;
+    const accumulate=(kind,meta)=>{const key=kind+':'+meta.key;const previous=pendingTime.get(key);pendingTime.set(key,{kind,meta,duration:Math.min(60000,(previous?.duration||0)+elapsed)});};
+    accumulate('page_time',{key:'page',label:'Page'});
+    const major=[...activeAreas.values()].filter(meta=>meta.element.isConnected&&meta.element.matches('section,[data-analytics-area]'));
+    for(const meta of major.slice(0,8))accumulate('section_time',meta);
+  }
+  function dwell(){sampleTime();const pending=[...pendingTime.values()];pendingTime.clear();for(const entry of pending.filter(e=>e.kind==='page_time'))send(entry.kind,entry.meta,Math.round(entry.duration));for(const entry of pending.filter(e=>e.kind==='section_time'&&e.duration>=1000).sort((a,b)=>b.duration-a.duration).slice(0,8))send(entry.kind,entry.meta,Math.round(entry.duration));}
+  function visibility(){dwell();visible=!document.hidden;lastTick=now();if(visible)lastActivity=lastTick;}
+  function blur(){dwell();focused=false;}
+  function focus(){focused=true;lastActivity=lastTick=now();}
   function meaningfulText(el){const explicit=el.getAttribute('data-analytics-label');if(explicit)return compact(explicit);const heading=el.querySelector('h1,h2,h3,h4');return compact(heading?.textContent)||({HEADER:'Navigation',FOOTER:'Footer',ARTICLE:'Card',SECTION:'Section'}[el.tagName])||'Page area';}
   function describe(el,area=false){
     if(metadata.has(el))return metadata.get(el);
+    if(resolveMetadata){const safe=resolveMetadata(el,area);if(!safe)return null;const meta={...safe,area,element:el};metadata.set(el,meta);targets.set(el,meta);return meta;}
     const candidate=el.parentElement?.closest('section,article,header,footer');
     const parent=candidate&&root.contains(candidate)?candidate:null;
     const parentMeta=parent&&root.contains(parent)?describe(parent,true):{key:'page',label:'Page'};
@@ -41,25 +58,30 @@ export function createWebsiteTracker({document,window,pagePath,canTrack,emit,onT
     metadata.set(el,meta);targets.set(el,meta);return meta;
   }
   function allowed(el){return root?.contains(el)&&!el.closest(EXCLUDED)&&!el.matches('input:not([type="search"])');}
-  const intersection=new window.IntersectionObserver(entries=>{for(const entry of entries){const el=entry.target,meta=metadata.get(el);if(!meta||viewed.has(meta.key))continue;const visible=entry.isIntersecting&&(entry.intersectionRatio>=.5||entry.intersectionRect.height>=window.innerHeight*.5);if(visible&&!timers.has(el)){timers.set(el,window.setTimeout(()=>{timers.delete(el);if(document.hidden||!canTrack())return;viewed.add(meta.key);send('section_view',meta);},1000));}else if(!visible&&timers.has(el)){window.clearTimeout(timers.get(el));timers.delete(el);}}},{threshold:[0,.1,.25,.5,.75,1]});
+  const intersection=new window.IntersectionObserver(entries=>{sampleTime();for(const entry of entries){const el=entry.target,meta=metadata.get(el);if(!meta)continue;const inView=entry.isIntersecting&&(entry.intersectionRatio>=.5||entry.intersectionRect.height>=window.innerHeight*.5);if(inView)activeAreas.set(el,meta);else activeAreas.delete(el);if(inView&&!viewed.has(meta.key)&&!timers.has(el)){timers.set(el,window.setTimeout(()=>{timers.delete(el);if(document.hidden||!canTrack()||!isFrameVisible())return;viewed.add(meta.key);send('section_view',meta);},1000));}else if(!inView&&timers.has(el)){window.clearTimeout(timers.get(el));timers.delete(el);}}},{threshold:[0,.1,.25,.5,.75,1]});
   function scan(){
-    if(disposed)return;root=document.querySelector(ANALYTICS_ROOTS);if(!root)return;
+    if(disposed)return;root=document.querySelector(rootSelector);if(!root)return;
     // Wait for actual content; loading/error wrappers are not page impressions.
-    if(!root.querySelector('h1'))return;
-    if(!ready){ready=true;send('page_view',{key:'page',label:'Page'});}
-    for(const el of root.querySelectorAll('section,article,header,footer')){if(!allowed(el))continue;const fresh=!metadata.has(el);describe(el,true);if(fresh)intersection.observe(el);}
+    if(!isContentReady(root))return;
+    if(!ready){ready=true;lastTick=lastActivity=now();send('page_view',{key:'page',label:'Page'});}
+    for(const el of root.querySelectorAll('section,article,header,footer,[data-analytics-area]')){if(!allowed(el))continue;const fresh=!metadata.has(el);if(describe(el,true)&&fresh)intersection.observe(el);}
     for(const el of root.querySelectorAll('a,button,summary,select,input[type="search"]')){if(allowed(el))describe(el);}
-    for(const[el]of targets)if(!el.isConnected){targets.delete(el);intersection.unobserve(el);window.clearTimeout(timers.get(el));timers.delete(el);}
+    for(const[el]of targets)if(!el.isConnected){targets.delete(el);activeAreas.delete(el);intersection.unobserve(el);window.clearTimeout(timers.get(el));timers.delete(el);}
     onTargets([...targets.values()]);
   }
   function queueScan(){if(scanTimer||disposed)return;scanTimer=window.setTimeout(()=>{scanTimer=null;scan();},150);}
-  function click(event){const el=event.target.closest('a,button,summary');if(!el||!allowed(el))return;const meta=describe(el);const explicit=el.getAttribute('data-analytics-kind');const href=el.getAttribute('href')||'';
+  function click(event){const el=event.target.closest?.('a,button,summary');if(!el||!allowed(el))return;const meta=describe(el);if(!meta)return;const explicit=el.getAttribute('data-analytics-kind');const href=resolveMetadata?'':el.getAttribute('href')||'';
     const kind=['document_view','document_download'].includes(explicit)?explicit:explicit==='filter_use'||el.matches('button[aria-pressed],button[aria-selected],[role=tab]')?'filter_use':explicit==='profile_open'||/[?&]provider=|\/providers?\//.test(href)?'profile_open':'click';send(kind==='profile_open'&&el.tagName==='SUMMARY'&&el.parentElement?.open?'click':kind,meta);}
-  function change(event){const el=event.target;if(el.matches('select')&&allowed(el))send('filter_use',describe(el));}
+  function change(event){const el=event.target;if(el.matches('select')&&allowed(el)){const meta=describe(el);if(meta)send('filter_use',meta);}}
   // Search usage, not individual keystrokes or the submitted search text.
-  function search(event){const el=event.target;if(el.matches('input[type="search"]')&&allowed(el))send('search',describe(el));}
+  function search(event){const el=event.target;if(el.matches('input[type="search"]')&&allowed(el)){const meta=describe(el);if(meta)send('search',meta);}}
   const depths=new Set();function scroll(){if(!ready)return;const height=Math.max(root?.scrollHeight||0,document.documentElement.scrollHeight);const depth=Math.min(100,Math.round((window.scrollY+window.innerHeight)/height*100));for(const mark of [25,50,75,100])if(depth>=mark&&!depths.has(mark)){depths.add(mark);send('scroll_depth',{key:`page/scroll-${mark}`,label:`Reached ${mark}% of page`});}}
   document.addEventListener('click',click,true);document.addEventListener('change',change,true);document.addEventListener('change',search,true);window.addEventListener('scroll',scroll,{passive:true});
+  const activityEvents=['pointerdown','pointermove','keydown','touchstart','scroll'];
+  // Avoid an analytics event for every mouse movement: only the 15-second heartbeat emits time.
+  const active=()=>{sampleTime();lastActivity=now();};
+  if(trackDwell){for(const type of activityEvents)document.addEventListener(type,active,{passive:true,capture:true});document.addEventListener('visibilitychange',visibility);window.addEventListener('blur',blur);window.addEventListener('focus',focus);window.addEventListener('pagehide',dwell);}
+  const dwellTimer=trackDwell?window.setInterval(dwell,15000):null;
   const mutation=new window.MutationObserver(records=>{if(records.some(r=>!r.target.closest?.('.public-website-analytics')))queueScan();});mutation.observe(document.body,{childList:true,subtree:true});scan();
-  return {stop(){disposed=true;mutation.disconnect();intersection.disconnect();window.clearTimeout(scanTimer);for(const timer of timers.values())window.clearTimeout(timer);document.removeEventListener('click',click,true);document.removeEventListener('change',change,true);document.removeEventListener('change',search,true);window.removeEventListener('scroll',scroll);onTargets([]);}};
+  return {flush:dwell,refresh:queueScan,stop(){dwell();disposed=true;mutation.disconnect();intersection.disconnect();window.clearTimeout(scanTimer);window.clearInterval(dwellTimer);for(const timer of timers.values())window.clearTimeout(timer);document.removeEventListener('click',click,true);document.removeEventListener('change',change,true);document.removeEventListener('change',search,true);window.removeEventListener('scroll',scroll);for(const type of activityEvents)document.removeEventListener(type,active,true);document.removeEventListener('visibilitychange',visibility);window.removeEventListener('blur',blur);window.removeEventListener('focus',focus);window.removeEventListener('pagehide',dwell);onTargets([]);}};
 }

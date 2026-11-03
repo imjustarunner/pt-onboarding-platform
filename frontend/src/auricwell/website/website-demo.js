@@ -1,3 +1,4 @@
+import { initializeAuricwellAnalytics } from './analytics.js';
 import { createApp } from 'vue';
 import ActualExamples from './ActualExamples.vue';
 import PublicWebsiteContactForm from '../../components/public/PublicWebsiteContactForm.vue';
@@ -14,3 +15,5 @@ for (const element of document.querySelectorAll('[data-actual-example]')) {
 for (const element of document.querySelectorAll('[data-auricwell-contact]')) {
   createApp(PublicWebsiteContactForm, { agencySlug: 'auricwell', title: 'Contact AuricWell' }).mount(element);
 }
+
+initializeAuricwellAnalytics();

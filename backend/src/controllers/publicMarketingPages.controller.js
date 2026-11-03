@@ -100,7 +100,7 @@ export const getPublicMarketingPage = async (req, res, next) => {
   try {
     const slug = String(req.params.slug || '').trim().toLowerCase();
     const page = await getMarketingPageRowBySlug(slug);
-    if (!page || !page.isActive) {
+    if (!page || !page.isActive || page.pageType === 'analytics_only') {
       return res.status(404).json({ error: { message: 'Page not found' } });
     }
     const sources = await listSourcesForPage(page.id);
@@ -150,7 +150,7 @@ export const getPublicMarketingPageTheme = async (req, res, next) => {
   try {
     const slug = String(req.params.slug || '').trim().toLowerCase();
     const page = await getMarketingPageRowBySlug(slug);
-    if (!page || !page.isActive) {
+    if (!page || !page.isActive || page.pageType === 'analytics_only') {
       return res.status(404).json({ error: { message: 'Page not found' } });
     }
     res.json(buildHubThemeResponse(page, req));
@@ -164,7 +164,7 @@ export const getPublicMarketingPageEvents = async (req, res, next) => {
   try {
     const slug = String(req.params.slug || '').trim().toLowerCase();
     const page = await getMarketingPageRowBySlug(slug);
-    if (!page || !page.isActive) {
+    if (!page || !page.isActive || page.pageType === 'analytics_only') {
       return res.status(404).json({ error: { message: 'Page not found' } });
     }
     const sources = await listSourcesForPage(page.id);
@@ -209,7 +209,7 @@ export const getPublicMarketingPageMetrics = async (req, res, next) => {
   try {
     const slug = String(req.params.slug || '').trim().toLowerCase();
     const page = await getMarketingPageRowBySlug(slug);
-    if (!page || !page.isActive) {
+    if (!page || !page.isActive || page.pageType === 'analytics_only') {
       return res.status(404).json({ error: { message: 'Page not found' } });
     }
     const profile = String(page.metricsProfile || '').trim();
@@ -238,7 +238,7 @@ export const getPublicMarketingPageBookingHints = async (req, res, next) => {
   try {
     const slug = String(req.params.slug || '').trim().toLowerCase();
     const page = await getMarketingPageRowBySlug(slug);
-    if (!page || !page.isActive) {
+    if (!page || !page.isActive || page.pageType === 'analytics_only') {
       return res.status(404).json({ error: { message: 'Page not found' } });
     }
     const sources = await listSourcesForPage(page.id);

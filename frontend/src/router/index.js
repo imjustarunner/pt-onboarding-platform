@@ -405,6 +405,7 @@ const routes = [
   { path: '/account-security', name: 'AccountSecurity', component: () => import('../components/AccountSecurityPanel.vue'), meta: { requiresAuth: true, accountSecurity: true } },
   {path:'/billing/complete/:token?',name:'PaymentTask',component:()=>import('../views/PaymentTaskView.vue'),meta:{requiresAuth:true}},
   ...familyBillingRoutes,
+  { path: '/admin/website-analytics/auricwell', name: 'AuricwellWebsiteAnalytics', component: () => import('../views/admin/AuricwellWebsiteAnalyticsView.vue'), meta: { requiresAuth: true, requiresRole: ['super_admin'] } },
   { path: '/admin/support-review', name: 'SupportEmailReview', component: () => import('../views/admin/SupportEmailReviewView.vue'), meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'] } },
   { path: '/:organizationSlug/admin/support-review', name: 'OrganizationSupportEmailReview', component: () => import('../views/admin/SupportEmailReviewView.vue'), meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], organizationSlug: true } },
   // Public school finder (no auth). Must be before "/:organizationSlug".

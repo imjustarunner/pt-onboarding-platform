@@ -31,3 +31,18 @@ it('shows separate document totals and filters download requests',async()=>{
  expect(wrapper.find('.wa-metrics').text()).toContain('12Document views');expect(wrapper.find('.wa-metrics').text()).toContain('5Download requests');
  await wrapper.find('[aria-label="Activity type"]').setValue('document_download');expect(wrapper.findAll('tbody tr')).toHaveLength(1);expect(wrapper.find('tbody tr').text()).toContain('Download School Partnership Guide');
 });
+
+it('loads a reporting-only site inline on its protected admin route with total and average time',async()=>{
+ state.auth.user={id:1,role:'super_admin'};state.route.path='/admin/website-analytics/auricwell';
+ const timed={...result,site:{title:'AuricWell website analytics'},totals:{views:2,visitors:2,durationMs:60000},pages:['/p/auricwell/demo/clients'],rows:[{pagePath:'/p/auricwell/demo/clients',targetKey:'page/client-chart',label:'Client chart',kind:'section_time',count:4,visitors:2,durationMs:60000}],engagement:[{pagePath:'/p/auricwell/demo/clients',targetKey:'page/client-chart',label:'Client chart',kind:'section_time',visitors:2,durationMs:60000}]};
+ api.get.mockImplementation(url=>Promise.resolve({data:url.endsWith('/access')?{allowed:true}:timed}));
+ wrapper=mount(Analytics,{attachTo:document.body,props:{siteSlug:'auricwell',reportOnly:true},global:{stubs:{Teleport:true}}});
+ await flushPromises();
+ expect(wrapper.find('.wa-toolbar').exists()).toBe(false);expect(wrapper.find('[role=region]').exists()).toBe(true);
+ expect(api.get).toHaveBeenCalledWith('/website-analytics/auricwell',expect.objectContaining({params:expect.objectContaining({page:''})}));
+ expect(wrapper.findAll('table')[0].text()).toContain('Total active time');expect(wrapper.findAll('table')[0].text()).toContain('1m 0s');expect(wrapper.findAll('table')[0].text()).toContain('30s');
+ expect(wrapper.text()).toContain('heartbeat segments, not page views');
+ expect(document.documentElement.style.overflow).not.toBe('hidden');
+ await wrapper.findAll('table')[0].find('tbody button').trigger('click');await flushPromises();
+ expect(wrapper.find('.wa-duration-summary').text()).toBe('1m 0s of visible active viewing time for this area');
+});
