@@ -55,7 +55,42 @@ export const AGREEMENT_TEMPLATES = {
     body: "Specify the information authorized for disclosure, sender, recipient, purpose, expiration date/event, applicable limitations, revocation procedure and required notices. Authorization applies only to the completed scope below and is not a general permission to disclose all records.",
   },
 };
-export async function createAgreement(ctx, input) {
+// The shared organization archive uses the same agreement state machine with
+// agency/user persistence. Native AuricWell callers keep this default adapter.
+export const nativeAgreementStore = {
+  create, get, update, transaction, lockPractice, audit,
+  async signerAuthority(ctx, signer, data, db) {
+    const { pool, open } = await import("./repository.js");
+    const [[m]] = await (db || pool).execute(
+      `SELECT m.*,a.profile FROM auricwell_memberships m JOIN auricwell_accounts a ON a.id=m.account_id WHERE m.practice_id=? AND m.account_id=? AND m.status='active' AND a.status='active'`,
+      [ctx.practiceId, signer.accountId],
+    );
+    if (!m)
+      throw fail(400, "Every signer must have an active practice account.");
+    const { json } = await import("./policy.js");
+    if (data.patientId) {
+      if (
+        m.actor_type === "staff"
+          ? !json(m.permissions, []).includes("agreements")
+          : !json(m.patient_ids, []).includes(data.patientId)
+      )
+        throw fail(
+          400,
+          "Select an authorized patient, guardian or practice countersigner.",
+        );
+      return { patient: m.actor_type !== "staff" };
+    } else {
+      if (!json(m.permissions, []).includes("agreements"))
+        throw fail(400, "Signer lacks agreement authority.");
+      if (open(m.profile, `auricwell:account:${signer.accountId}`).operator)
+        return { operator: true };
+      else return { practice: true };
+    }
+  },
+};
+
+export async function createAgreement(ctx, input, store = nativeAgreementStore) {
+  const { create, get } = store;
   requirePermission(ctx, "agreements");
   const template = AGREEMENT_TEMPLATES[input.type];
   if (!template) throw fail(400, "Choose a supported agreement type.");
@@ -98,7 +133,8 @@ export function agreementHash(data) {
     }),
   );
 }
-export async function saveAgreement(ctx, id, input) {
+export async function saveAgreement(ctx, id, input, store = nativeAgreementStore) {
+  const { get, update } = store;
   requirePermission(ctx, "agreements");
   const r = await get(ctx, "agreement", id);
   if (r.data.status !== "draft")
@@ -133,13 +169,16 @@ export async function saveAgreement(ctx, id, input) {
   };
   return update(ctx, r, data);
 }
-export async function approveAgreement(ctx, id) {
+export async function approveAgreement(ctx, id, store = nativeAgreementStore, reviewedHash = null) {
+  const { get, update } = store;
   const r = await get(ctx, "agreement", id);
   if (!AGREEMENT_TEMPLATES[r.data.type]?.patient && !ctx.profile.operator)
     throw fail(403, "An AuricWell operator must approve platform agreements.");
   requirePermission(ctx, "agreements");
   if (r.data.status !== "draft")
     throw fail(409, "Only drafts can be approved.");
+  if (reviewedHash !== null && reviewedHash !== agreementHash(r.data))
+    throw fail(409, "Review this exact saved document before approval.");
   for (const party of ["practice", ...(r.data.patientId ? [] : ["operator"])]) {
     const p = r.data.parties?.[party];
     if (!p?.legalName || !p?.address || !p?.noticeContact)
@@ -162,7 +201,8 @@ export async function approveAgreement(ctx, id) {
     approvedAt: new Date().toISOString(),
   });
 }
-export async function issueAgreement(ctx, id) {
+export async function issueAgreement(ctx, id, store = nativeAgreementStore) {
+  const { get, update } = store;
   requirePermission(ctx, "agreements");
   const r = await get(ctx, "agreement", id);
   if (
@@ -171,36 +211,14 @@ export async function issueAgreement(ctx, id) {
     r.data.approvalHash !== agreementHash(r.data)
   )
     throw fail(409, "Approve this exact completed agreement before issuance.");
-  const { pool, open } = await import("./repository.js");
   let operatorSigner = false;
   let practiceSigner = false;
   let patientSigner = false;
   for (const signer of r.data.signers) {
-    const [[m]] = await pool.execute(
-      `SELECT m.*,a.profile FROM auricwell_memberships m JOIN auricwell_accounts a ON a.id=m.account_id WHERE m.practice_id=? AND m.account_id=? AND m.status='active' AND a.status='active'`,
-      [ctx.practiceId, signer.accountId],
-    );
-    if (!m)
-      throw fail(400, "Every signer must have an active practice account.");
-    const { json } = await import("./policy.js");
-    if (r.data.patientId) {
-      if (
-        m.actor_type === "staff"
-          ? !json(m.permissions, []).includes("agreements")
-          : !json(m.patient_ids, []).includes(r.data.patientId)
-      )
-        throw fail(
-          400,
-          "Select an authorized patient, guardian or practice countersigner.",
-        );
-      if (m.actor_type !== "staff") patientSigner = true;
-    } else {
-      if (!json(m.permissions, []).includes("agreements"))
-        throw fail(400, "Signer lacks agreement authority.");
-      if (open(m.profile, `auricwell:account:${signer.accountId}`).operator)
-        operatorSigner = true;
-      else practiceSigner = true;
-    }
+    const authority = await store.signerAuthority(ctx, signer, r.data);
+    operatorSigner ||= !!authority.operator;
+    practiceSigner ||= !!authority.practice;
+    patientSigner ||= !!authority.patient;
   }
   if (r.data.patientId && !patientSigner)
     throw fail(
@@ -216,13 +234,17 @@ export async function issueAgreement(ctx, id) {
     contentHash: agreementHash(r.data),
   });
 }
-export async function signAgreement(ctx, id, input) {
+export async function signAgreement(ctx, id, input, store = nativeAgreementStore) {
+  const { create, get, update, transaction, lockPractice, audit } = store;
   return transaction(async (db) => {
     await lockPractice(ctx, db);
     const r = await get(ctx, "agreement", id, db, true);
     const signer = r.data.signers?.find((s) => s.accountId === ctx.accountId);
     if (!signer || !["issued", "partially_signed"].includes(r.data.status))
       throw fail(403, "This agreement is not awaiting your signature.");
+    const authority = await store.signerAuthority(ctx, signer, r.data, db);
+    if (!r.data.patientId && !authority.operator && !authority.practice)
+      throw fail(403, "Your authority for this contracting party is no longer active.");
     if (
       r.data.patientId &&
       !(ctx.actorType === "staff"
@@ -245,6 +267,7 @@ export async function signAgreement(ctx, id, input) {
     const signatures = [
       ...r.data.signatures,
       {
+        ...(store.signatureEvidence?.(ctx) || {}),
         accountId: ctx.accountId,
         name: text(input.name, "Signature name", 200),
         capacity: signer.capacity,
@@ -289,7 +312,8 @@ export async function signAgreement(ctx, id, input) {
     return result;
   });
 }
-export async function reviseAgreement(ctx, id) {
+export async function reviseAgreement(ctx, id, store = nativeAgreementStore) {
+  const { create, get } = store;
   requirePermission(ctx, "agreements");
   const r = await get(ctx, "agreement", id);
   if (r.data.status !== "completed")

@@ -1,0 +1,14 @@
+// Suggestions come from existing public legal profiles and the retained review
+// packet. They are not confirmation of corporate identity or signing authority.
+export const PARTNER_AGREEMENT_SOURCES = Object.freeze([
+  {key:'schoolcarebridge',name:'SchoolCareBridge',aliases:['schoolcarebridge','school-care-bridge'],suggestedLegalName:'MH4Kidz',note:'SchoolCareBridge is a program of MH4Kidz, not a separate legal counterparty. Confirm whether the MH4Kidz agreement already covers this service.',sources:['deliverables/schoolcarebridge-agreements/06_MH4KIDZ_PLOTTWISTCO_TECHNOLOGY_AGREEMENT.html']},
+  {key:'mh4kidz',name:'MH4Kidz',aliases:['mh4kidz','mh4kidz-org'],suggestedLegalName:'MH4Kidz',note:'Confirm actual covered-entity, upstream business-associate or subcontractor roles and the executed upstream chain. The retained maintenance agreement includes subcontractor BAA provisions.',sources:['deliverables/schoolcarebridge-agreements/06_MH4KIDZ_PLOTTWISTCO_TECHNOLOGY_AGREEMENT.html','deliverables/schoolcarebridge-agreements/02_MH4KIDZ_PLOTTWISTCO_SUBCONTRACTOR_BAA.html']},
+  {key:'itsco',name:'ITSCO',aliases:['itsco'],suggestedLegalName:'ITSCO, LLC',note:'The prior packet distinguishes the MH4Kidz program agreement from any direct AuricWell technology agreement. Confirm the actual processing relationship.',sources:['deliverables/schoolcarebridge-agreements/01_ITSCO_MH4KIDZ_SCHOOLCAREBRIDGE_BAA.html','deliverables/schoolcarebridge-agreements/03_ITSCO_PLOTTWISTCO_AURICWELL_BAA.html']},
+  {key:'nlu',name:'Next Level Up',aliases:['nlu','nextlevelup','next-level-up'],suggestedLegalName:'NEXTLEVELUP, LLC',note:'Suggested legal name comes from the existing public legal profile; confirm it and the service scope. No practice-specific executed BAA was established by the source audit.',sources:['frontend/src/content/tenantLegalProfiles.js']},
+  {key:'tisi',name:'The Inner Strength Institute',aliases:['tisi','innerstrength','theinnerstrengthinstitute'],suggestedLegalName:'The Inner Strength Institute, LLC',note:'The retained packet contains program and conditional direct technology drafts. Confirm which legal relationship applies.',sources:['deliverables/schoolcarebridge-agreements/08_INNER_STRENGTH_MH4KIDZ_SCHOOLCAREBRIDGE_BAA.html','deliverables/schoolcarebridge-agreements/09_INNER_STRENGTH_PLOTTWISTCO_AURICWELL_BAA.html']},
+  {key:'rise',name:'Rise Revive',aliases:['rise','riserevive','risereviveco'],suggestedLegalName:'',note:'The public profile is prelaunch and does not establish a contracting legal name or HIPAA role. Complete the actual entity and processing relationship.',sources:['frontend/src/content/tenantLegalProfiles.js']}
+]);
+export function partnerAgreementSuggestion(organization) {
+  const slug=String(organization.slug || '').toLowerCase();
+  return PARTNER_AGREEMENT_SOURCES.find(p=>p.aliases.includes(slug)) || null;
+}

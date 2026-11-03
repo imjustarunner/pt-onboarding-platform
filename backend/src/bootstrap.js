@@ -136,6 +136,8 @@ server.listen(PORT, HOST, () => {
       await ensurePrivateLibraryContent();
       const {ensureSafetyPlanSchema}=await import('./services/safetyPlans/schema.js');
       await ensureSafetyPlanSchema();
+      const {ensureOrganizationAgreementSchema}=await import('./services/organizationAgreementSchema.js');
+      await ensureOrganizationAgreementSchema();
       console.log('[startup:app] Loading application modules');
       return import('./server.js');
     })

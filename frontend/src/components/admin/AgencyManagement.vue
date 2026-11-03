@@ -210,6 +210,7 @@
             </div>
 
             <div class="detail-summary-actions">
+                <router-link v-if="['super_admin','admin','agency_admin'].includes(userRole)" class="btn btn-secondary btn-sm" :to="{ path: $route.params.organizationSlug ? `/${$route.params.organizationSlug}/admin/organization-agreements` : '/admin/organization-agreements', query: { agencyId: editingAgency.id } }">Agreements &amp; signed files</router-link>
                 <label class="org-jump">
                   <span class="sr-only">Find organization</span>
                   <input

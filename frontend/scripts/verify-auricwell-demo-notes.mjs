@@ -59,13 +59,13 @@ try {
   for (const name of ['Emerson Cole', 'Morgan Rivera', 'Jamie Stone']) assert.match(await ownQueue.innerText(), new RegExp(name));
   const initialCounts = await libraryCounts();
   assert.equal(initialCounts.inProgress, 3);
-  assert.equal(initialCounts.signed, 8);
+  assert.equal(initialCounts.signed, 16);
   await page.locator('.demo-doc-explanation > summary').click();
   assert.match(await page.locator('.demo-doc-context').innerText(), /optional AI assistance/);
   assert.match(await page.locator('.demo-doc-context').innerText(), /consented session transcript/);
   await page.locator('.demo-doc-explanation > summary').click();
   await screenshot('initial');
-  checks.push('Initial choose-note prompt, three My Work drafts, eight historical signed examples, optional AI and consent copy');
+  checks.push('Initial choose-note prompt, three My Work drafts, sixteen historical signed examples, optional AI and consent copy');
 
   await ownQueue.getByRole('button', { name: /Emerson Cole/ }).click();
   await waitForDraft(990131, 'Emerson Cole');

@@ -49,6 +49,7 @@
 import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { demoClientById, demoStaffById, demoDay, demoDateLabel } from './people';
+import { demoClientRecordIds } from './recordIds';
 const props = defineProps({ clientId: { type: [String, Number], required: true } });
 const route = useRoute();
 const slug = computed(() => String(route.params.organizationSlug || 'meadowbrook'));
@@ -63,7 +64,7 @@ const chartNotes = computed(() => {
   const clientId = Number(props.clientId), notes = [];
   if (clientId >= 990121 && clientId <= 990123) notes.push({ title: 'Progress note · Current draft', status: 'In progress', author: client.value?.provider_name, id: { draftId: String(990131 + clientId - 990121) } });
   if ([990124, 990125].includes(clientId)) notes.push({ title: 'Progress note · Supervisor review', status: 'Awaiting co-sign', author: `${client.value?.provider_name} · Tessa Brooks, PhD`, id: { noteId: String(990181 + clientId - 990124), launchIntent: 'cosign', agencyId: '990101' } });
-  notes.push({ title: 'Progress note · Prior visit', status: 'Signed example', author: client.value?.provider_name, id: { noteId: String(990171 + clientId - 990121) } });
+  notes.push({ title: 'Progress note · Prior visit', status: 'Signed example', author: client.value?.provider_name, id: { noteId: String(demoClientRecordIds(clientId).historyNoteId) } });
   return notes;
 });
 function noteLink(noteQuery) {

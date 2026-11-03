@@ -1,3 +1,4 @@
+import { demoClientRecordIds } from './recordIds.js';
 // Fictional browser-only examples. These records never reference production IDs.
 export const DEMO_NOTE_NOTICE = 'Demo only: this does not sign or complete a note. Nothing is saved, submitted or sent.';
 export const DEMO_DRAFT_IDS = [990131, 990132, 990133];
@@ -49,13 +50,17 @@ export function createDemoNoteFixtures({ practice, actor, clients, providers = [
     durationMinutes: 45, locationLabel: 'Telehealth · client at home', startTime: '09:00', endTime: '09:45', participants: 'Client Only', placeOfService: '10', serviceLocationId: 990151
   });
   const outputFor = (client, index, aiGenerated = false) => ({
-    sections: sections(index),
+    sections: index < 8 ? sections(index) : {
+      ...sections(index), Subjective: client.session_summary || sections(index).Subjective,
+      Interventions: client.intervention_summary || sections(index).Interventions,
+      Plan: client.next_steps || sections(index).Plan
+    },
     meta: {
       toolId: 'clinical_psychotherapy_note', serviceCode: '90834', noteKind: 'progress', manualSections: !aiGenerated, aiGenerated,
       ...(aiGenerated ? { source: 'session_recording', recordingConsent: { status: 'consented', exampleOnly: true }, model: 'Illustrative consented transcript example' } : {}),
       structuredChart: structuredChart(client),
       sessionContext: { sourceTimezone: 'America/Denver', locationLabel: 'Telehealth · client at home', durationMinutes: 45, startTimeLocal: '09:00', endTimeLocal: '09:45', participants: 'Client Only', serviceCode: '90834', serviceLocationId: 990151, placeOfService: '10' },
-      prescribedFrequency: 'Weekly individual therapy', treatmentRecommendation: 'continue'
+      prescribedFrequency: index < 8 ? 'Weekly individual therapy' : client.frequency, treatmentRecommendation: 'continue'
     }
   });
   const drafts = DEMO_DRAFT_IDS.map((id, index) => {
@@ -72,18 +77,24 @@ export function createDemoNoteFixtures({ practice, actor, clients, providers = [
     };
   });
   const ratingsFor = client => [{
-    id: 991000 + Number(client.id), objectiveId: 990163 + (Number(client.id) - 990121) * 10,
+    id: 991000 + Number(client.id), objectiveId: demoClientRecordIds(client.id).objectiveId,
     goalIndex: 1, objectiveIndex: 1, goalText: client.goal || 'Build confidence using coping strategies.',
     objectiveText: client.objective || 'Use a grounding strategy independently when stress increases.',
     scaleStart: client.baseline || 3, scalePrevious: client.rating || 5, scaleValue: Math.min(client.target || 8, (client.rating || 5) + 1), scaleTarget: client.target || 8, disposition: 'rated',
     progressLabel: 'progressing', raterKind: 'clinician', raterLabel: 'Clinical observation', dateOfService: weekStart
   }];
-  const historicalNotes = clients.map((client, index) => ({
-    ...drafts[index % drafts.length], id: 990171 + index, client_id: client.id, client_full_name: clientName(client), initials: client.initials,
-    date_of_service: previousDate, provider_id: providerFor(client).id, status: 'signed', provider_signed_at: `${previousDate}T17:00:00Z`,
-    clinical_session_id: 990291 + index, office_event_id: 990241 + index,
-    title: 'Progress note · fictional historical record', output_json: outputFor(client, index)
-  }));
+  const historicalNotes = clients.map((client, index) => {
+    const ids = demoClientRecordIds(client.id), output = outputFor(client, index);
+    const date = index < 8 ? previousDate : client.last_date || previousDate;
+    return {
+      ...drafts[index % drafts.length], id: ids.historyNoteId, client_id: client.id, client_full_name: clientName(client), initials: client.initials,
+      date_of_service: date, provider_id: providerFor(client).id, status: 'signed', provider_signed_at: `${date}T17:00:00Z`,
+      clinical_session_id: ids.historySessionId, office_event_id: ids.historyOfficeEventId,
+      title: 'Progress note · fictional historical record', output_json: output,
+      ...(index >= 8 ? { created_at: `${date}T16:00:00Z`, updated_at: `${date}T17:00:00Z` } : {}),
+      input_text: index < 8 ? drafts[index % drafts.length].input_text : `Fictional historical session: ${output.sections.Subjective} ${output.sections.Interventions}`
+    };
+  });
   const cosignNotes = DEMO_COSIGN_IDS.map((id, index) => {
     const client = clientFor(index + 3);
     return { ...drafts[index], id, client_id: client.id, client_full_name: clientName(client), initials: client.initials,
@@ -126,15 +137,15 @@ export function createDemoNoteFixtures({ practice, actor, clients, providers = [
   function chartExtras(clientId) {
     const client = clients.find(row => Number(row.id) === Number(clientId));
     if (!client) return {};
-    const index = Number(client.id) - 990121;
-    const objectiveId = 990163 + index * 10;
+    const ids = demoClientRecordIds(client.id);
+    const objectiveId = ids.objectiveId;
     const diagnosis = diagnosisFor(client);
     return {
-      diagnoses: diagnosis ? [{ id: 990160 + index * 10, icd10_code: diagnosis.icd10Code, description: diagnosis.description, is_primary: 1 }] : [],
-      intakeNotes: [{ id: 990500 + index, status: 'final', finalized_at: `${previousDate}T17:00:00Z`, title: 'Fictional intake assessment' }],
+      diagnoses: diagnosis ? [{ id: ids.diagnosisId, icd10_code: diagnosis.icd10Code, description: diagnosis.description, is_primary: 1 }] : [],
+      intakeNotes: [{ id: ids.intakeNoteId, status: 'final', finalized_at: `${previousDate}T17:00:00Z`, title: 'Fictional intake assessment' }],
       latestPlan: client.plan_status === 'To establish' ? null : {
-        id: 990161 + index * 10, title: client.focus || 'Build confidence and strengthen coping strategies', status: 'active',
-        effective_date: previousDate, created_at: `${previousDate}T16:00:00Z`, prescribed_frequency: 'Weekly individual therapy',
+        id: ids.planId, title: client.focus || 'Build confidence and strengthen coping strategies', status: 'active',
+        effective_date: previousDate, created_at: `${previousDate}T16:00:00Z`, prescribed_frequency: client.frequency || 'Weekly individual therapy',
         diagnostic_justification: 'Fictional example: symptoms associated with a life transition interfere with coping and daily routines.',
         goals: [{ id: objectiveId - 1, goal_index: 1, goal_text: client.goal || 'Build confidence using coping strategies.', status: 'active', objectives: [{
           id: objectiveId, objective_index: 1, objective_text: client.objective || 'Use a grounding strategy independently when stress increases.', status: 'active', scale_start: client.baseline || 3, scale_current: client.rating || 5, scale_target: client.target || 8,
@@ -142,7 +153,13 @@ export function createDemoNoteFixtures({ practice, actor, clients, providers = [
         }] }]
       },
       objectiveRatings: [{ objective_id: objectiveId, goal_id: objectiveId - 1, rater_kind: 'clinician', rater_label: 'clinical observation', scale_value: client.rating || 5, date_of_service: previousDate, disposition: 'rated', progress_label: 'progressing' }],
-      notes: historicalNotes.filter(note => note.client_id === client.id), sessions: []
+      notes: historicalNotes.filter(note => note.client_id === client.id),
+      sessions: historicalNotes.filter(note => note.client_id === client.id).map(note => ({
+        id: note.clinical_session_id, client_id: client.id, agency_id: practice.id, provider_id: providerFor(client).id,
+        office_event_id: note.office_event_id, date_of_service: note.date_of_service, status: 'completed',
+        service_code: note.service_code, modality: note.output_json.meta.sessionContext.placeOfService === '10' ? 'VIRTUAL' : 'IN_PERSON',
+        duration_minutes: 45, note_id: note.id, documentation_status: 'signed'
+      }))
     };
   }
   function response(path, query = {}) {

@@ -27,6 +27,7 @@
 
     <footer v-if="!error && !loading" class="pmh-sub-foot">
       <div class="pmh-sub-foot-inner">
+        <AuricWellPartnerBadge v-if="isTisiHub" partner="tisi" name="The Inner Strength Institute" />
         <router-link class="pmh-sub-foot-login" to="/login">Staff login</router-link>
         <PoweredByFooter
           variant="embedded"
@@ -39,6 +40,7 @@
 </template>
 
 <script setup>
+import AuricWellPartnerBadge from '../../components/public/AuricWellPartnerBadge.vue';
 import PublicWebsiteContactForm from '../../components/public/PublicWebsiteContactForm.vue';
 import PublicResourcesMenu from "../../components/public/PublicResourcesMenu.vue";
 import PublicWebsiteProviderLinks from "../../components/public/PublicWebsiteProviderLinks.vue";

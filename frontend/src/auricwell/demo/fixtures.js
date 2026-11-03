@@ -1,6 +1,7 @@
 import { demoClients, demoProviders, demoStaff } from './people.js';
 import { createDemoNoteFixtures } from './notes.js';
 import { createDemoTaskFixtures } from './tasks.js';
+import { demoClientRecordIds } from './recordIds.js';
 import { zonedDatetimeLocalToIso } from '../../utils/timezones.js';
 // Fictional fixtures only. This adapter has no network fallback and never accepts writes.
 export const practice = { id: 990101, name: 'Meadowbrook Therapy', slug: 'meadowbrook', organization_type: 'agency', timezone: 'America/Denver', feature_flags: { noteAidEnabled: true, clinicalNoteGeneratorEnabled: true, medicalBillingEnabled: true } };
@@ -16,7 +17,7 @@ export const drafts = noteFixtures.drafts;
 const taskFixtures=createDemoTaskFixtures({practice,actor,staff,weekStart});
 export const demoTaskLists=taskFixtures.lists;
 const historicalNotes = noteFixtures.historicalNotes;
-const claims = clients.map((c,i)=>({id:990141+i,agency_id:practice.id,client_id:c.id,clinical_note_id:990171+i,claim_number:`DEMO-${101+i}`,payer_name:'Example Health Plan',date_of_service:weekStart,amount_cents:12500,currency_code:'USD',claim_lifecycle:['draft','ready','rejected'][i % 3],payer_sequence:1}));
+const claims = clients.map((c,i)=>({id:demoClientRecordIds(c.id).claimId,agency_id:practice.id,client_id:c.id,clinical_note_id:demoClientRecordIds(c.id).historyNoteId,claim_number:`DEMO-${101+i}`,payer_name:'Example Health Plan',date_of_service:weekStart,amount_cents:12500,currency_code:'USD',claim_lifecycle:['draft','ready','rejected'][i % 3],payer_sequence:1}));
 // Seed current display versions so shared-calendar migrations do not try to save
 // on first load. View choices already use the demo's memory-only browser storage.
 const preferenceDefaults = () => ({schedule_display_prefs:{layoutDefaultsVersion:2,schedulePaletteVersion:2,scheduleSideBySide:false,rowHeightMode:'large',hideWeekend:true,spanMode:'week'}});

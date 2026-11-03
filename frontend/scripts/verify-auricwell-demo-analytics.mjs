@@ -53,14 +53,14 @@ function checkPayloads(batches, { demoOnly = false } = {}) {
   for (const batch of batches) {
     assert.match(batch.visitorId, /^[a-f0-9-]{36}$/i);
     for (const event of batch.events) {
-      assert.match(event.pagePath, demoOnly ? /^\/p\/auricwell\/demo\/(overview|appointments|clients|documentation|billing|providers|reports)$/ : /^\/p\/auricwell(?:\/(product|security|about|contact)|\/demo\/(overview|appointments|clients|documentation|billing|providers|reports))?$/);
+      assert.match(event.pagePath, demoOnly ? /^\/p\/auricwell\/demo\/(overview|appointments|clients|documentation|billing|providers|reports)$/ : /^\/p\/auricwell(?:\/(product|security|about|contact|partners)|\/demo\/(overview|appointments|clients|documentation|billing|providers|reports))?$/);
       assert.match(event.targetKey, /^page(?:\/[a-z0-9_.:-]+)*$/);
       for (const field of Object.keys(event)) assert(['eventId', 'pagePath', 'kind', 'targetKey', 'label', 'device', 'language', 'source', 'durationMs'].includes(field), `Unexpected event field: ${field}`);
       if (event.kind.endsWith('_time')) assert(Number.isSafeInteger(event.durationMs) && event.durationMs > 0 && event.durationMs <= 60000);
       if (event.pagePath.includes('/demo/')) {
         const text = JSON.stringify(event);
         for (const token of [...secrets, ...fakeNames]) assert(!text.includes(token), `Private/demo content reached analytics: ${token}`);
-        assert(!/[?&#]|(?:^|[/:])99012[1-8](?:$|[/?])/.test(event.pagePath + event.targetKey), 'Route queries and record IDs must not enter analytics keys');
+        assert(!/[?&#]|(?:^|[/:])(?:99012|99102)[1-8](?:$|[/?])/.test(event.pagePath + event.targetKey), 'Route queries and record IDs must not enter analytics keys');
       }
     }
   }
@@ -103,8 +103,9 @@ try {
     checkPayloads(run.batches, { demoOnly: true });
     assert.deepEqual(run.blocked, [], 'The public demo must make zero clinical/auth API requests');
     summary.demo = { events: run.events().length, pages: [...new Set(run.events().map(event => event.pagePath))], timedEvents: run.events().filter(event => event.kind.endsWith('_time')).length, clinicalRequests: 0 };
+    await run.page.clock.resume();
     const websiteStart = run.batches.length;
-    for (const section of ['home', 'product', 'security', 'about', 'contact']) {
+    for (const section of ['home', 'product', 'security', 'about', 'contact', 'partners']) {
       const expected = `/p/auricwell${section === 'home' ? '' : '/' + section}`;
       await run.page.goto(`${base}/auricwell/${section === 'home' ? '' : section}`);
       await run.page.getByRole('heading', { level: 1 }).first().waitFor();

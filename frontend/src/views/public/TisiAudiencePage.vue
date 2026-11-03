@@ -28,10 +28,11 @@
       <section v-if="bodyHtml" class="wrap agency-copy"><h2>{{ contentPage.title || 'More about our care' }}</h2><div v-html="bodyHtml" /></section>
       <section class="wrap faq"><div><p class="eyebrow">Frequently asked questions</p><h2>Your questions.<br />Answered.</h2></div><div class="questions"><details v-for="[question, answer] in page.faq" :key="question"><summary>{{ question }}</summary><p>{{ answer }}</p></details></div></section>
     </main>
-    <footer><div class="wrap footer-top"><router-link class="brand" to="/p/tisi"><img :src="config.logoUrl" alt="" /><span>{{ config.siteName }}<small>{{ config.tagline }}</small></span></router-link><p>Ready to take the next step?</p><a class="button" :href="cta">Get Started <span aria-hidden="true">→</span></a></div><div class="wrap footer-bottom"><nav aria-label="Footer"><router-link v-for="item in navigation" :key="item.slug" :to="`/p/tisi${item.slug ? '/' + item.slug : ''}`">{{ item.label }}</router-link><a v-for="link in legalLinks" :key="link.href" :href="link.href">{{ link.label }}</a></nav><small>© {{ new Date().getFullYear() }} {{ config.siteName }}</small></div></footer>
+    <footer><div class="wrap footer-top"><router-link class="brand" to="/p/tisi"><img :src="config.logoUrl" alt="" /><span>{{ config.siteName }}<small>{{ config.tagline }}</small></span></router-link><p>Ready to take the next step?</p><a class="button" :href="cta">Get Started <span aria-hidden="true">→</span></a></div><div class="wrap footer-bottom"><nav aria-label="Footer"><router-link v-for="item in navigation" :key="item.slug" :to="`/p/tisi${item.slug ? '/' + item.slug : ''}`">{{ item.label }}</router-link><a v-for="link in legalLinks" :key="link.href" :href="link.href">{{ link.label }}</a></nav><AuricWellPartnerBadge partner="tisi" name="The Inner Strength Institute" /><small>© {{ new Date().getFullYear() }} {{ config.siteName }}</small></div></footer>
   </div>
 </template>
 <script setup>
+import AuricWellPartnerBadge from '../../components/public/AuricWellPartnerBadge.vue';
 import PublicResourcesMenu from "../../components/public/PublicResourcesMenu.vue";
 import { computed, ref, watch } from 'vue';
 import DOMPurify from 'dompurify';

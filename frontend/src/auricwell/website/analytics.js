@@ -32,7 +32,7 @@ export const DEMO_ANALYTICS_AREAS = Object.freeze({
   'co-sign': 'Supervisor co-sign review', schedule: 'Practice schedule', billing: 'Demo billing',
   overview: 'Practice overview', reports: 'Demo reports', tasks:'Tasks and to-do lists'
 });
-const PAGES = new Set(['home', 'product', 'security', 'about', 'contact']);
+const PAGES = new Set(['home', 'product', 'security', 'about', 'contact', 'partners']);
 const DEMO_SECTIONS = new Set(['overview', 'appointments', 'clients', 'documentation', 'billing', 'providers', 'reports', 'tasks']);
 const ENDPOINT = '/api/public/marketing-pages/auricwell/analytics/events';
 const privacyRequested = browser => browser.navigator.globalPrivacyControl === true ||

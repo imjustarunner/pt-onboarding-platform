@@ -11,6 +11,8 @@ vi.mock('../../../views/admin/ClinicalNoteGeneratorView.vue', () => ({ default: 
   template: '<div><h1>{{ demoPresentation.heading }}</h1><button @click="selectQueuedCosign">Open queued co-sign</button><button @click="mutations.sign()">Sign and open next in queue</button><button @click="mutations.save()">Save Draft</button><button @click="mutations.sign()">Cosign &amp; approve for billing review</button><button>Signature details</button></div>'
 } }));
 import Documentation from '../DemoDocumentation.vue';
+import ClientChart from '../DemoClientChart.vue';
+import { demoResponse } from '../fixtures.js';
 
 let wrapper;
 afterEach(() => { wrapper?.unmount(); wrapper = null; vi.clearAllMocks(); });
@@ -122,5 +124,33 @@ describe('fictional note fixtures', () => {
     expect(notes.response('/clinical-notes/drafts/990131/appointment')).toMatchObject({ linked: true, context: { draftId: 990131, clientId: 990121, clinicalSessionId: 990191 } });
     expect(notes.response('/clinical-data/sessions/990191/materials')).toEqual([]);
     expect(() => notes.response('/clinical-data/sessions/1/materials')).toThrow(/outside/);
+  });
+});
+
+describe('client chart history navigation', () => {
+  it.each([
+    { clientId: 990121, name: 'Emerson Cole', historyId: 990171 },
+    { clientId: 991021, name: 'Harper Rowan', historyId: 991171 },
+    { clientId: 991028, name: 'Marlowe Vale', historyId: 991178 }
+  ])('opens $name’s own seeded history from the chart', async ({ clientId, name, historyId }) => {
+    const router = createRouter({ history: createMemoryHistory(), routes: [
+      { path: '/:organizationSlug/clients/:id', component: { template: '<span />' } },
+      { path: '/:organizationSlug/documentation', component: { template: '<span />' } },
+      { path: '/:organizationSlug/clients', component: { template: '<span />' } },
+      { path: '/:organizationSlug/providers', component: { template: '<span />' } },
+      { path: '/:organizationSlug/appointments', component: { template: '<span />' } }
+    ] });
+    await router.push(`/meadowbrook/clients/${clientId}`);
+    await router.isReady();
+    wrapper = mount(ClientChart, { props: { clientId }, global: { plugins: [router] } });
+    expect(wrapper.get('h1').text()).toBe(name);
+    await wrapper.get('#chart-tab-notes').trigger('click');
+    const history = wrapper.findAll('.document-row').find(row => row.text().includes('Prior visit'));
+    expect(history).toBeDefined();
+    await history.trigger('click');
+    await flushPromises();
+    expect(router.currentRoute.value.path).toBe('/meadowbrook/documentation');
+    expect(router.currentRoute.value.query).toEqual({ agencyId: '990101', clientId: String(clientId), noteId: String(historyId) });
+    expect(demoResponse(`/medical-billing/notes/${historyId}`).note.clientName).toBe(name);
   });
 });

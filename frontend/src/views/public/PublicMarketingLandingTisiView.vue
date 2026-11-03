@@ -393,6 +393,7 @@
             <img v-if="v.logoUrl" class="tisi-footer-mark" :src="v.logoUrl" alt="" />
             <p class="tisi-footer-name">{{ v.siteName }}</p>
             <p class="tisi-footer-tag">{{ v.tagline }}</p>
+            <AuricWellPartnerBadge v-if="hubSlug === 'tisi'" class="tisi-partner-badge" partner="tisi" name="The Inner Strength Institute" />
             <template v-if="editing">
               <input v-model="v.contactPhone" class="tisi-inline tisi-inline--on-dark" type="text" placeholder="Phone" />
               <input v-model="v.contactEmail" class="tisi-inline tisi-inline--on-dark" type="text" placeholder="Email" />
@@ -478,6 +479,7 @@
 </template>
 
 <script setup>
+import AuricWellPartnerBadge from '../../components/public/AuricWellPartnerBadge.vue';
 import PublicWebsiteContactForm from "../../components/public/PublicWebsiteContactForm.vue";
 import PublicResourcesMenu from "../../components/public/PublicResourcesMenu.vue";
 import PublicWebsiteProviderLinks from "../../components/public/PublicWebsiteProviderLinks.vue";
@@ -1274,6 +1276,7 @@ watch(() => route.params.hubSlug, () => { if (!props.previewPage) { cancelEdit()
   font-size: 13px;
 }
 .tisi-footer-tag { margin: 0; font-size: 12px; opacity: 0.75; }
+.tisi-partner-badge { margin-top: 16px; }
 .tisi-footer-heading {
   margin: 0 0 12px;
   font-size: 12px;

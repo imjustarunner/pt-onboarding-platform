@@ -31,10 +31,11 @@
   <PublicWebsiteContactForm v-if="section==='contact'" agency-slug="mh4kidz" />
 </main>
   <router-link v-if="section!=='donate'" class="mh-button mh-donate-sticky" :to="path('donate')"><span aria-hidden="true">♥</span> Donate now</router-link>
-  <footer class="mh-footer"><div class="mh-wrap"><div class="mh-footer-top"><router-link :to="path('')"><img :src="safe(settings.footerLogoUrl)||asset('logo-white')" alt="MH4Kidz"/></router-link><nav aria-label="Footer"><router-link class="mh-button" :to="path('donate')">Donate now</router-link><a href="https://plottwisthq.com/records-request">Request my records</a><router-link v-for="[label,slug] in nav" :key="slug" :to="path(slug)">{{label}}</router-link></nav><p class="mh-scribble">Kids today.<br/>Brighter tomorrows.</p></div><div class="mh-footer-bottom"><small>© {{new Date().getFullYear()}} MH4Kidz.</small><nav aria-label="Legal"><router-link :to="path('privacy')">Privacy</router-link><router-link :to="path('terms')">Terms</router-link><router-link :to="path('contact')">Contact</router-link></nav></div></div><p><a href="/community-standards">Community Standards &amp; communication privacy</a></p></footer>
+  <footer class="mh-footer"><div class="mh-wrap"><div class="mh-footer-top"><router-link :to="path('')"><img :src="safe(settings.footerLogoUrl)||asset('logo-white')" alt="MH4Kidz"/></router-link><nav aria-label="Footer"><router-link class="mh-button" :to="path('donate')">Donate now</router-link><a href="https://plottwisthq.com/records-request">Request my records</a><router-link v-for="[label,slug] in nav" :key="slug" :to="path(slug)">{{label}}</router-link></nav><p class="mh-scribble">Kids today.<br/>Brighter tomorrows.</p></div><div class="mh-footer-bottom"><small>© {{new Date().getFullYear()}} MH4Kidz.</small><AuricWellPartnerBadge partner="mh4kidz" name="MH4Kidz" /><nav aria-label="Legal"><router-link :to="path('privacy')">Privacy</router-link><router-link :to="path('terms')">Terms</router-link><router-link :to="path('contact')">Contact</router-link></nav></div></div><p><a href="/community-standards">Community Standards &amp; communication privacy</a></p></footer>
  </div>
 </template>
 <script setup>
+import AuricWellPartnerBadge from '../../components/public/AuricWellPartnerBadge.vue';
 import Mh4kidzDonations from "../../components/public/Mh4kidzDonations.vue";
 import Mh4kidzVolunteerForm from "../../components/public/Mh4kidzVolunteerForm.vue";
 import PublicWebsiteContactForm from "../../components/public/PublicWebsiteContactForm.vue";
@@ -103,3 +104,4 @@ const choices=computed(()=>{
 });
 </script>
 <style src="../../styles/mh4kidzWebsite.css"></style>
+<style scoped>.mh-footer-bottom{flex-wrap:wrap}</style>
