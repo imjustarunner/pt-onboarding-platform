@@ -6482,9 +6482,16 @@ function intakeRecordedSex() {
 const recordSexLabel = computed(() => formatDemoLookupValue(props.client?.gender, sexSelectOptions) || '');
 const intakeSexLabel = computed(() =>
   formatDemoLookupValue(props.client?.recorded_sex || intakeRecordedSex(), sexSelectOptions) || '');
+function isIntakeSexField(field) {
+  const key = String(field?.key || '').trim();
+  const label = String(field?.label || '').trim();
+  return /^(sex|gender|child_sex|child_gender|client_sex|client_gender)$/i.test(key)
+    || /^(child\s+)?(sex|gender)$/i.test(label);
+}
 function withIntakeSex(fields) {
-  if (!intakeSexLabel.value || fields.some((field) => /sex|gender/i.test(String(field?.key || field?.label || '')))) return fields;
-  return [{ key: 'sex', label: 'Sex', value: intakeSexLabel.value }, ...fields];
+  const rest = fields.filter((field) => !isIntakeSexField(field));
+  if (!intakeSexLabel.value) return rest.length === fields.length ? fields : rest;
+  return [{ key: 'sex', label: 'Sex', value: intakeSexLabel.value }, ...rest];
 }
 
 const clientDemoDisplayRows = computed(() => {
