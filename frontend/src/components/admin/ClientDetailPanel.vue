@@ -49,7 +49,8 @@
                 <span v-if="client.identifier_code" class="mono">ID {{ client.identifier_code }}</span>
                 <span v-else-if="client.id" class="mono">ID {{ client.id }}</span>
                 <span v-if="clientDobLabel">DOB {{ clientDobLabel }}</span>
-                <span v-if="recordedSexLabel">Sex {{ recordedSexLabel }}</span>
+                <span v-if="recordSexLabel">Sex {{ recordSexLabel }}</span>
+                <span v-else-if="intakeSexLabel">Sex {{ intakeSexLabel }} · intake</span>
                 <span v-if="guardianIntakeName">{{ intakeContactLabel }}: {{ guardianIntakeName }}</span>
               </div>
               <div class="cdp-tenant-line">
@@ -555,7 +556,7 @@
                         <option v-for="o in sexSelectOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
                       </select>
                     </template>
-                    <template v-else>{{ recordedSexLabel || '-' }}</template>
+                    <template v-else>{{ recordSexLabel || '-' }}</template>
                   </div>
                 </div>
                 <div class="ov-row">
@@ -6461,7 +6462,7 @@ const demoSupplementalSections = computed(() => {
       id: 'client_intake',
       title: 'Client (intake)',
       subtitle: 'From the latest submitted intake form',
-      fields: clientIntake.filter(include)
+      fields: withIntakeSex(clientIntake.filter(include))
     },
     {
       id: 'guardian_intake',
@@ -6478,8 +6479,13 @@ function intakeRecordedSex() {
   return match ? String(match.value).trim() : '';
 }
 
-const recordedSexLabel = computed(() =>
-  formatDemoLookupValue(props.client?.gender || props.client?.recorded_sex || intakeRecordedSex(), sexSelectOptions) || '');
+const recordSexLabel = computed(() => formatDemoLookupValue(props.client?.gender, sexSelectOptions) || '');
+const intakeSexLabel = computed(() =>
+  formatDemoLookupValue(props.client?.recorded_sex || intakeRecordedSex(), sexSelectOptions) || '');
+function withIntakeSex(fields) {
+  if (!intakeSexLabel.value || fields.some((field) => /sex|gender/i.test(String(field?.key || field?.label || '')))) return fields;
+  return [{ key: 'sex', label: 'Sex', value: intakeSexLabel.value }, ...fields];
+}
 
 const clientDemoDisplayRows = computed(() => {
   const c = props.client || {};
@@ -6499,7 +6505,7 @@ const clientDemoDisplayRows = computed(() => {
     {
       key: 'sex',
       label: 'Sex',
-      value: recordedSexLabel.value,
+      value: recordSexLabel.value,
       important: true
     },
     {
