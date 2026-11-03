@@ -2,9 +2,15 @@ import ClientGuardian from '../models/ClientGuardian.model.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 
 export function parseProviderReply(body) {
+  const short = String(body || '').trim().match(/^#([0-9a-z]+)(?:\s*:\s*|\s+)([\s\S]+)$/i);
+  if (short && short[2].trim()) {
+    const routeId = parseInt(short[1], 36);
+    return Number.isSafeInteger(routeId) && routeId > 0 ? { routeId, body: short[2].trim() } : null;
+  }
   const match = String(body || '').trim().match(/^([A-Z0-9]+-\d+-\d+)(?:\s*:\s*|\s+)([\s\S]+)$/i);
   return match && match[2].trim() ? { code: match[1].toUpperCase(), body: match[2].trim() } : null;
 }
+export function shortFamilyCode(route) { return `#${Number(route.id).toString(36).toUpperCase()}`; }
 export function familyReplyCode(client, guardianId) {
   const initials = String(client.initials || 'CLIENT').replace(/[^a-z0-9]/gi, '').slice(0, 24).toUpperCase() || 'CLIENT';
   return `${initials}-${Number(client.id)}-${Number(guardianId) || 0}`;

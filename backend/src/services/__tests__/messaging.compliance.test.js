@@ -241,7 +241,7 @@ describe('submission and evidence validation', () => {
 
 it('preserves provider identity and brand without repeating opt-out on authored replies', async () => {
  permissions.push({scope:'campaign:C123',phone:message.to,purpose:'care',status:'opted_in'});
- expect(await prepareSmsDelivery({...message,purpose:'care',body:'Michael: Sounds good.',senderFirstName:'Michael'})).toMatchObject({body:'Michael: Sounds good.\nITSCO.'});
+ expect(await prepareSmsDelivery({...message,purpose:'care',body:'Michael: Sounds good.',senderFirstName:'Michael'})).toMatchObject({body:'Sounds good.\n— Michael with ITSCO'});
 });
 it('a provider name does not bypass consent or STOP', async () => {
  await expect(prepareSmsDelivery({...message,purpose:'care',senderFirstName:'Michael'})).rejects.toMatchObject({code:'sms_consent_required'});
@@ -261,4 +261,32 @@ it('allows one bounded staff request reply without changing recurring consent, b
  permissions.push({scope:'campaign:C123',phone:message.to,purpose:'suppression',status:'opted_out'});
  await expect(prepareSmsDelivery({...request,staffAssistantReply:staffAssistantReplyCapability({...request,messageId:'inbound-2'})})).rejects.toMatchObject({code:'sms_opted_out'});
  expect(connection.execute).not.toHaveBeenCalled();
+});
+
+function relayEnrollmentQueries() {
+ const original=connection.execute.getMockImplementation();
+ connection.execute.mockImplementation(async(sql,args)=>{
+  if(sql.startsWith('SELECT id FROM provider_sms_relay_enrollments')||sql.startsWith('SELECT e.id FROM provider_sms_relay_enrollments'))return [[{id:1}]];
+  if(sql.startsWith('SELECT status FROM sms_recipient_permissions'))return pool.execute(sql,args);
+  return original(sql,args);
+ });
+}
+it('NOCLIENTS consumes the command and changes only personal forwarding; repeated delivery does not resend confirmation',async()=>{
+ relayEnrollmentQueries();const sendReply=vi.fn();
+ const request={from:message.to,to:message.from,body:'NOCLIENTS',messageId:'relay-off',sendReply};
+ expect(await processSmsKeyword(request)).toBe(true);await processSmsKeyword(request);
+ expect(sendReply).toHaveBeenCalledTimes(1);expect(sendReply.mock.calls[0][0].body).toContain('Your in-app messages and other text choices are unchanged');
+ expect(permissions).toContainEqual(expect.objectContaining({scope:'agency:2',purpose:'client_forwarding',status:'opted_out'}));
+ expect(permissions.some(p=>p.purpose==='suppression')).toBe(false);
+});
+it('START lists restored forwarding only for a category restart, while START after STOP preserves the category decline',async()=>{
+ relayEnrollmentQueries();const sendReply=vi.fn();
+ await processSmsKeyword({from:message.to,to:message.from,body:'NOCLIENTS',messageId:'relay-off-1',sendReply});
+ await processSmsKeyword({from:message.to,to:message.from,body:'START',messageId:'relay-start-1',sendReply});
+ expect(sendReply.mock.calls.at(-1)[0].body).toContain('NOCLIENTS (client text forwarding)');
+ await processSmsKeyword({from:message.to,to:message.from,body:'NOCLIENTS',messageId:'relay-off-2',sendReply});
+ phoneState.blocked=true;
+ await processSmsKeyword({from:message.to,to:message.from,body:'START',messageId:'relay-start-2',receivedAt:Date.now()+1,sendReply});
+ expect(sendReply.mock.calls.at(-1)[0].body).not.toContain('Turned back on:');
+ expect(permissions).toContainEqual(expect.objectContaining({purpose:'client_forwarding',status:'opted_out'}));
 });
