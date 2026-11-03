@@ -1,6 +1,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSupportReplyReviewService } from '../supportReplyReview.service.js';
+import { createSupportReplyReviewService as createReview } from '../supportReplyReview.service.js';
+const createSupportReplyReviewService=options=>createReview({createInteractiveReview:async({review})=>({id:42,entries:review.totals.sent,totals:review.totals}),...options});
 
 let originalKey;
 before(() => { originalKey = process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64; process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64 = Buffer.alloc(32, 7).toString('base64'); });
@@ -324,13 +325,14 @@ describe('immutable support reply review', () => {
     await assert.rejects(service.authorize({ id: 507, role: 'admin' }, 2), { status: 403 });
   });
 
-  it('durably sends one generic digest across two concurrent scheduler workers and retries', async () => {
+  it('durably sends one interactive review across two concurrent scheduler workers and retries', async () => {
     const db = memoryDb(); let sends = 0;
     const options = { db, now: () => new Date('2026-10-27T00:01:00Z'), sendNotice: async ({ notice }) => {
       sends += 1;
       assert.doesNotMatch(notice.text, /Latest received email|Original school email/);
-      assert.match(notice.text, /Conversations reviewed: 1\nDrafts captured: 0\nConfirmed sent replies: 0\nReplies without a captured draft: 0/);
-      assert.match(notice.text, /\/itsco\/admin\/support-review\?date=2026-10-26&agencyId=2/);
+      assert.match(notice.text, /0 review items · 1 conversations · 0 confirmed replies/);
+      assert.match(notice.html,/Good, Acceptable, or Bad/);
+      assert.match(notice.text, /\/itsco\/admin\/support-review\?batch=42&agencyId=2/);
       return { id: 'gmail-notice' };
     } };
     const a = createSupportReplyReviewService(options), b = createSupportReplyReviewService(options);
@@ -353,7 +355,7 @@ describe('immutable support reply review', () => {
       sendNotice: async ({ reviewer, notice }) => {
         sends += 1;
         assert.equal(reviewer.email, 'reviewer@example.test');
-        assert.match(notice.text, /date=2026-10-26&agencyId=2/);
+        assert.match(notice.text, /batch=42&agencyId=2/);
         return { id: 'gmail-catch-up' };
       } });
     await service.runDigestTick();

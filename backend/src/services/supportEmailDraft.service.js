@@ -2,7 +2,7 @@ import { decryptTicketMessageRow, decryptTicketRow } from '../utils/supportTicke
 import {
   SUPPORT_EMAIL_DRAFT_VERSION, SUPPORT_EMAIL_REPLY_STANDARDS, SUPPORT_EMAIL_DRAFT_SYSTEM_INSTRUCTION,
   buildSupportEmailDraftContext, buildSupportEmailDraftPrompt,
-  classifySupportEmailDraft, parseSupportEmailDraftResult, validateSupportEmailDraft
+  classifySupportEmailDraft, parseSupportEmailDraftResult, validateSupportEmailDraft, isExternalSupportReferralRequest
 } from '../utils/supportEmailDraft.shared.js';
 import { summarizeLibrarySources } from '../utils/schoolSupportReplyLibrary.shared.js';
 import { lookupSupportEnrollment } from './supportEnrollmentLookup.service.js';
@@ -18,12 +18,21 @@ function currentDraftContext(input) {
 
 /** Run the enrollment search before either cache reuse or model generation. */
 export async function prepareSupportEmailDraftInput(input, dependencies = {}) {
-  const context = currentDraftContext(input);
-  if (classifySupportEmailDraft(context).suppressed) return input;
+  let context = currentDraftContext(input);
+  const {lookupSupportReviewerLearning,lookupSupportCorrespondence}=await import('./supportReviewerLearning.service.js');
+  const prepared={...input};
+  const warnings=[];
+  for(const [field,lookup] of [['reviewerLearning',dependencies.lookupReviewerLearning || lookupSupportReviewerLearning],['correspondence',dependencies.lookupCorrespondence || lookupSupportCorrespondence]]) {
+    if(input[field]!==undefined) continue;
+    try{prepared[field]=await lookup(context,dependencies);}catch{prepared[field]=null;warnings.push(`${field}_unavailable`);}
+  }
+  prepared.learningWarnings=warnings;
+  context=currentDraftContext(prepared);
+  if (classifySupportEmailDraft(context).suppressed) return {...prepared,supportLookupsPrepared:true};
   const lookup = dependencies.lookupEnrollment || lookupSupportEnrollment;
   const enrollmentLookup = input.enrollmentLookup || await lookup(context, dependencies);
   const providerAbsence = await (dependencies.lookupProviderAbsence || lookupSupportProviderAbsence)(context, dependencies);
-  return { ...input, enrollmentLookup, providerAbsence, supportLookupsPrepared: true };
+  return { ...prepared, enrollmentLookup, providerAbsence, supportLookupsPrepared: true };
 }
 
 /** Pure preflight. Current suppression evidence always takes priority over cache reuse. */
@@ -58,7 +67,8 @@ export async function generateSupportEmailDraft(input, dependencies = {}) {
     promptVersion: SUPPORT_EMAIL_DRAFT_VERSION,
     evidenceFingerprint: context.evidenceFingerprint,
     unresolvedFacts: context.unresolvedFacts,
-    reviewWarnings: [],
+    reviewWarnings: input.learningWarnings || [],
+    reviewerLearning: context.reviewerLearning ? {version:context.reviewerLearning.version,fingerprint:context.reviewerLearning.fingerprint,savedFeedbackCount:context.reviewerLearning.savedFeedbackCount,reviewEntryIds:context.reviewerLearning.examples.map(e=>e.reviewEntryId),decision:context.reviewerLearning.decision,standards:context.reviewerLearning.standards.map(s=>s.id)} : null,
     claimantUserId: context.claimant.id,
     claimantName: context.claimant.name,
     latestInboundMessageId: context.latestInbound.id || null,
@@ -92,10 +102,10 @@ export async function generateSupportEmailDraft(input, dependencies = {}) {
 
   // Directory-grounded options for explicit external referral requests. Never
   // manufacture providers, availability, credentials or insurance acceptance.
-  const requestText = `${context.original.subject || ''}\n${context.latestInbound.body || ''}`;
+  const requestText = context.latestInbound.body || '';
   const { detectReferralServices, referralEmailContent } = await import('../utils/referralMatching.js');
   const requestedServices = detectReferralServices(requestText);
-  if (requestedServices.length && /\b(?:referr\w*|recommend\w*|looking for|find|list of|options|send)\b/i.test(context.latestInbound.body || '')) {
+  if (requestedServices.length && isExternalSupportReferralRequest(requestText)) {
     const findOptions = dependencies.findReferralOptions || (await import('./referralOutreach.service.js')).findReferralOptions;
     const options = await findOptions(context.agencyId,{services:requestedServices});
     if (options.entries.length) {
@@ -108,8 +118,7 @@ export async function generateSupportEmailDraft(input, dependencies = {}) {
 
   let knowledgeMatches = input.knowledgeMatches;
   let promptNotes = input.promptNotes;
-  const reviewWarnings = context.enrollmentLookup && context.enrollmentLookup.status !== 'verified_match'
-    ? [`enrollment_${context.enrollmentLookup.status}`] : [];
+  const reviewWarnings = [...(input.learningWarnings || []),...(context.enrollmentLookup && context.enrollmentLookup.status !== 'verified_match' ? [`enrollment_${context.enrollmentLookup.status}`] : [])];
   if (!Array.isArray(knowledgeMatches)) {
     try {
       const matchKnowledge = dependencies.matchKnowledge || (await import('./schoolSupportReplyRetrieval.service.js')).matchReplyKnowledgeForTicket;

@@ -5,8 +5,8 @@
     <p v-if="error" class="notice error" role="alert">{{ error }}</p>
     <template v-if="report">
       <section class="overview" aria-label="Review progress">
-        <div><strong>{{ reviewed }} / {{ report.rows.length }} reviewed</strong><p>{{ formatTime(report.window.start) }} – {{ formatTime(report.window.end) }} · Mountain time</p><p>{{ report.totals.tickets }} conversations · {{ report.totals.sent }} confirmed replies · {{ report.totals.drafts }} captured drafts</p></div>
-        <div><span v-if="report.batch.completedAt" class="complete" role="status">Review complete · feedback saved</span><button v-else type="button" :disabled="reviewed !== report.rows.length || hasUnsaved || completing" @click="finish">{{ completing ? 'Finishing…' : 'Finish review' }}</button><p class="hint">You can save an item and return later.</p></div>
+        <div><strong>{{ savedCount }} / {{ report.rows.length }} with feedback</strong><p>{{ formatTime(report.window.start) }} – {{ formatTime(report.window.end) }} · Mountain time</p><p>{{ report.totals.tickets }} conversations · {{ report.totals.sent }} confirmed replies · {{ report.totals.drafts }} captured drafts</p></div>
+        <div><span v-if="report.batch.completedAt" class="complete" role="status">Review complete · feedback saved</span><button v-else type="button" :disabled="(!savedCount && report.rows.length>0) || hasUnsaved || completing" @click="finish">{{ completing ? 'Finishing…' : 'Finish review' }}</button><p class="hint">You can save an item and return later.</p></div>
       </section>
       <details class="coverage"><summary>About this review’s evidence</summary><p>This is a saved review of recorded support emails. A missing historical draft is marked unavailable; it has not been recreated. A closed ticket alone does not confirm an email was sent.</p><p>{{ report.coverage.personalMailboxReplies }}</p><p>{{ report.coverage.historicalDrafts }}</p><p v-if="report.coverage.conversationsWithoutReplyOrDraft">{{ report.coverage.conversationsWithoutReplyOrDraft }} other recorded conversations had no confirmed reply or readable captured draft to rate.</p><p>Ratings and written feedback stay in the app for improving future drafts.</p></details>
       <nav class="filters" aria-label="Review filters"><label>Show <select v-model="filter" @change="page=1"><option value="all">All items</option><option value="remaining">Still to review</option><option value="reviewed">Reviewed</option></select></label><span>{{ filtered.length }} items · {{ Object.values(dirty).filter(Boolean).length }} with unsaved changes</span></nav>
@@ -39,6 +39,7 @@ const route=useRoute();
 const report=ref(null),loading=ref(false),error=ref(''),forms=ref({}),dirty=ref({}),saving=ref({}),saved=ref({}),itemErrors=ref({}),completing=ref(false),filter=ref('all'),page=ref(1);
 const choices=[{value:'good',label:'Good'},{value:'acceptable',label:'Acceptable'},{value:'bad',label:'Bad'}];
 const agencyId=computed(()=>Number(route.query.agencyId)),batchId=computed(()=>Number(route.query.batch));
+const savedCount=computed(()=>(report.value?.rows || []).filter(r=>r.feedback.revision>0).length);
 const reviewed=computed(()=>(report.value?.rows || []).filter(r=>r.feedback.reviewedAt).length);
 const hasUnsaved=computed(()=>Object.values(dirty.value).some(Boolean));
 const filtered=computed(()=>(report.value?.rows || []).filter(r=>filter.value==='all'||(filter.value==='reviewed'?!!r.feedback.reviewedAt:!r.feedback.reviewedAt)));
