@@ -220,13 +220,14 @@ export async function attachDiagnosisToClinicalNote({
   const did = safeInt(primaryDiagnosisId);
   if (!nid || !did) return false;
   try {
-    await clinicalPool.execute(
+    const [result]=await clinicalPool.execute(
       `UPDATE clinical_notes
        SET primary_diagnosis_id = ?,
            diagnostic_justification = COALESCE(?, diagnostic_justification)
-       WHERE id = ?`,
+       WHERE id = ? AND provider_signed_at IS NULL`,
       [did, diagnosticJustification ? String(diagnosticJustification) : null, nid]
     );
+    if (!result.affectedRows) throw Object.assign(new Error('Signed diagnosis context requires a linked amendment version.'),{status:409});
     return true;
   } catch (e) {
     if (e.code === 'ER_BAD_FIELD_ERROR') return false;

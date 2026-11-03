@@ -63,15 +63,10 @@ describe('amendments never create duplicate original claims',()=>{
   it('refuses original transmission when durable history shows an earlier attempt',async()=>{
     const db={execute:vi.fn().mockResolvedValue([[{id:1}]])};await expect(assertOriginalTransmissionAllowed({id:7,agency_id:1,claim_lifecycle:'draft'},db)).rejects.toMatchObject({status:409});
   });
-  it('plain narrative addenda touch the note/signature only, never claims or service-change requests',async()=>{
-    const {db,source}=setup();await appendClinicalNoteAmendment({noteId:4,agencyId:1,body:'Additional context only',actorUserId:5,entryKind:'addendum',reason:'New information',authorAttested:true},source);
-    expect(db.execute.mock.calls.some(([sql])=>sql.includes('clinical_claim'))).toBe(false);expect(db.commit).toHaveBeenCalled();
-  });
-  it('atomically records attested code corrections with the addendum, no new claim',async()=>{
-    const {db,source}=setup();const base=db.execute.getMockImplementation();db.execute.mockImplementation(async(sql,...rest)=>sql.startsWith('SELECT clinical_session_id')?[[{clinical_session_id:2}]]:base(sql,...rest));
-    await appendClinicalNoteAmendment({noteId:4,agencyId:1,body:'Correct duration',actorUserId:5,entryKind:'correction',reason:'Duration documented incorrectly',authorAttested:true,serviceLines:[{procedureCode:'90834',units:1}]},source);
-    expect(db.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO clinical_note_addenda'),expect.arrayContaining([expect.stringContaining('90834: 1 unit(s)')]));
-    expect(db.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO clinical_claim_change_requests'))).toBe(true);expect(db.execute.mock.calls.some(([sql])=>/^INSERT INTO clinical_claims\b/.test(sql))).toBe(false);expect(db.commit).toHaveBeenCalled();
+  it('refuses legacy inline service corrections before changing signed content or claim lines',async()=>{
+    const {db,source}=setup();
+    await expect(appendClinicalNoteAmendment({noteId:4,agencyId:1,body:'Correct duration',actorUserId:5,entryKind:'correction',reason:'Duration documented incorrectly',authorAttested:true,serviceLines:[{procedureCode:'90834',units:1}]},source)).rejects.toMatchObject({status:409});
+    expect(db.execute).not.toHaveBeenCalled();expect(db.beginTransaction).not.toHaveBeenCalled();
   });
   it('central claim creation blocks an existing original regardless of deleted/void status or note version',async()=>{
     const db={execute:vi.fn().mockResolvedValueOnce([[{id:2}]]).mockResolvedValueOnce([[{id:7}]])};await expect(ClinicalClaim.create({clinicalSessionId:2,agencyId:1,clientId:3,db})).rejects.toMatchObject({status:409});expect(db.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT'))).toBe(false);expect(db.execute.mock.calls[0][0]).toContain('FOR UPDATE');

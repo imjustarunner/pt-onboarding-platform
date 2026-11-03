@@ -22,6 +22,15 @@
       </span>
     </div>
 
+    <section v-if="!providerSigned" class="ts-signature-review" aria-label="Treatment summary signature review">
+      <p v-if="snapshotLoading" role="status">Loading the saved treatment summary for signature…</p>
+      <template v-if="signingSnapshot">
+        <h4>{{ signingSnapshot.title || 'Saved treatment summary' }}</h4>
+        <article v-for="section in signingSections" :key="section.id"><h4>{{ section.title }}</h4><p class="ts-signature-narrative">{{ section.text }}</p></article>
+        <label v-if="canProviderSign"><input v-model="providerAttested" type="checkbox" :disabled="!!busy" /> I reviewed this saved treatment summary and electronically sign it as accurate and complete.</label>
+      </template>
+      <button v-if="!snapshotLoading && !signingSnapshot" type="button" class="ts-btn" @click="loadSigningSnapshot">Reload saved summary</button>
+    </section>
     <div class="ts-doc-actions">
       <button type="button" class="ts-btn" :disabled="busy === 'pdf'" @click="downloadPdf">
         {{ busy === 'pdf' ? 'Preparing…' : 'Download PDF' }}
@@ -30,10 +39,10 @@
         {{ busy === 'print' ? 'Preparing…' : 'Print' }}
       </button>
       <button
-        v-if="!providerSigned"
+        v-if="!providerSigned && canProviderSign"
         type="button"
         class="ts-btn ts-btn-primary"
-        :disabled="busy === 'sign'"
+        :disabled="!!busy || !providerAttested || !signingSnapshot?.signingToken"
         @click="signProvider"
       >
         {{ busy === 'sign' ? 'Signing…' : 'Provider sign' }}
@@ -60,8 +69,10 @@
 
 <script setup>
 import ClinicalNoteCosignReview from './ClinicalNoteCosignReview.vue';
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { supervisorNoteSections } from '../../utils/supervisorNoteReview.js';
 import api from '../../services/api.js';
+import { useAuthStore } from '../../store/auth.js';
 
 const props = defineProps({
   noteId: { type: [Number, String], default: null },
@@ -71,6 +82,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['updated']);
+const authStore = useAuthStore();
 
 const error = ref('');
 const success = ref('');
@@ -79,6 +91,11 @@ const phiDocumentId = ref('');
 const signedByName = ref('');
 const localProviderSigned = ref(null);
 const localSupervisorSigned = ref(null);
+const signingSnapshot = ref(null), snapshotLoading = ref(false), providerAttested = ref(false);
+const canProviderSign = computed(() => typeof signingSnapshot.value?.canSignClinicalNote === 'boolean' ? signingSnapshot.value.canSignClinicalNote : ['provider', 'supervisor'].includes(String(authStore.user?.role || '').toLowerCase()));
+const signingSections = computed(() => supervisorNoteSections(signingSnapshot.value?.outputJson || signingSnapshot.value?.sections));
+let signingGeneration = 0;
+onBeforeUnmount(() => { signingGeneration++; });
 
 const providerSigned = computed(
   () => !!(localProviderSigned.value || props.providerSignedAt)
@@ -88,14 +105,30 @@ const supervisorSigned = computed(
 );
 
 watch(
-  () => props.noteId,
+  () => `${Number(props.agencyId)}:${Number(props.noteId)}`,
   () => {
+    signingGeneration++;
     localProviderSigned.value = null;
     localSupervisorSigned.value = null;
+    signingSnapshot.value = null;
+    providerAttested.value = false;
     error.value = '';
     success.value = '';
-  }
+    if (props.noteId && !props.providerSignedAt) loadSigningSnapshot();
+  }, { immediate: true }
 );
+async function loadSigningSnapshot() {
+  const g = ++signingGeneration;
+  snapshotLoading.value = true; providerAttested.value = false; error.value = '';
+  try {
+    const { data } = await api.get(`/medical-billing/notes/${props.noteId}`, { params: { agencyId: Number(props.agencyId) }, skipGlobalLoading: true });
+    if (g !== signingGeneration) return;
+    if (!data?.note?.signingToken) throw new Error('The saved signature version is unavailable. Reload the summary before signing.');
+    signingSnapshot.value = data.note;
+    localProviderSigned.value = data.note.providerSignedAt || null;
+  } catch (e) { if (g === signingGeneration) error.value = e.response?.data?.error?.message || e.message || 'Unable to load saved summary.'; }
+  finally { if (g === signingGeneration) snapshotLoading.value = false; }
+}
 
 async function fetchPdfBlob() {
   const res = await api.get(`/medical-billing/notes/${props.noteId}/treatment-summary-pdf`, {
@@ -148,27 +181,34 @@ async function printPdf() {
 }
 
 async function signProvider() {
+  if (busy.value || !canProviderSign.value || !providerAttested.value || !signingSnapshot.value?.signingToken) return;
+  const g = signingGeneration;
   error.value = '';
   success.value = '';
   busy.value = 'sign';
   try {
-    await api.post(
+    const { data } = await api.post(
       `/medical-billing/notes/${props.noteId}/sign`,
-      { agencyId: Number(props.agencyId), accurateAndComplete: true, medicalNecessityAttested: false },
+      { agencyId: Number(props.agencyId), signingToken: signingSnapshot.value.signingToken, accurateAndComplete: true, medicalNecessityAttested: false, contentReviewConfirmed: true },
       { skipGlobalLoading: true }
     );
-    localProviderSigned.value = new Date().toISOString();
+    if (g !== signingGeneration) return;
+    if (!data?.signedAt) throw new Error('The server did not confirm the signature. Reload the saved summary.');
+    localProviderSigned.value = data.signedAt;
+    providerAttested.value = false;
     success.value = 'Provider signature applied. Clinical supervisor can cosign next.';
     emit('updated');
   } catch (e) {
-    error.value = e.response?.data?.error?.message || e.message || 'Provider sign failed';
+    if (g === signingGeneration) { providerAttested.value = false; if (e.response?.status === 409) signingSnapshot.value = null; error.value = e.response?.data?.error?.message || e.message || 'Provider sign failed'; }
   } finally {
     busy.value = '';
   }
 }
 
-function onSupervisorSigned() {
-  localSupervisorSigned.value = new Date().toISOString();
+function onSupervisorSigned(result) {
+  const signedAt = result?.cosignedAt || result?.revision?.signatures?.find(signature => signature.action === 'supervisor_sign')?.signedAt;
+  if (!signedAt) { emit('updated'); return; }
+  localSupervisorSigned.value = signedAt;
   success.value = 'Clinical supervisor cosign applied.';
   emit('updated');
 }
@@ -198,6 +238,7 @@ async function linkPrintUpload() {
 </script>
 
 <style scoped>
+.ts-signature-review{margin:12px 0;padding:12px;border:1px solid #ccdbe5;border-radius:8px;font-size:.84rem}.ts-signature-review h4{margin:8px 0}.ts-signature-narrative{white-space:pre-wrap;line-height:1.5}
 .ts-doc-panel {
   margin-top: 16px;
   padding: 14px 16px;

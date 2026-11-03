@@ -49,6 +49,12 @@ describe('service billing supervisors', () => {
     mocks.clinical.mockResolvedValue([[{ provider_user_id: 9, service_code: 'H0002' }]]);
     await expect(resolveNoteDocumentationPolicy(note)).rejects.toThrow(/match/);
   });
+  it('resolves the supervisor from a persisted approved revision service code', async () => {
+    const note = { agency_id: 2, client_id: 10, clinical_session_id: 11, created_by_user_id: 8, clinical_version_id: 12, metadata_json: { serviceCode: '90834', dateOfService: '2026-10-14' } };
+    expect(await resolveNoteDocumentationPolicy(note)).toMatchObject({ supervisorUserId: 506 });
+    note.metadata_json.serviceCode = 'H0002';
+    expect(await resolveNoteDocumentationPolicy(note)).toMatchObject({ supervisorUserId: 501 });
+  });
   it('uses the service timezone at the October 14 boundary', async () => {
     mocks.clinical.mockResolvedValue([[{ provider_user_id: 8, service_code: 'H0002', scheduled_start_at: '2026-10-14 02:00:00', source_timezone: 'America/Denver', metadata_json: {} }]]);
     expect(await resolveNoteDocumentationPolicy({ agency_id: 2, client_id: 10, clinical_session_id: 11, created_by_user_id: 8 })).toMatchObject({ supervisorUserId: 506 });

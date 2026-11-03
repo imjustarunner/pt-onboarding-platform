@@ -1,5 +1,6 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ liveAgency: vi.fn(), selfPayCheck: vi.fn(), prepare: vi.fn(), upload: vi.fn(), event: vi.fn(), connection: vi.fn(), execute: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() }));
+const mocks = vi.hoisted(() => ({ liveAgency: vi.fn(), selfPayCheck: vi.fn(), prepare: vi.fn(), upload: vi.fn(), event: vi.fn(), connection: vi.fn(), execute: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(), versionGuard: vi.fn() }));
+vi.mock('../clinicalNoteVersionBilling.service.js', async original => ({ ...await original(), assertClinicalVersionSubmission: mocks.versionGuard }));
 vi.mock('../syntheticClearinghouseGuard.service.js',()=>({assertLiveClearinghouseAgency:mocks.liveAgency}));
 vi.mock('../familyLedger/serviceCharges.js',()=>({assertNoSelfPayBalance:mocks.selfPayCheck}));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: mocks.execute, getConnection: async () => ({ execute: mocks.execute, beginTransaction: mocks.begin, commit: mocks.commit, rollback: mocks.rollback, release: mocks.release }) } }));
@@ -12,9 +13,9 @@ vi.mock('../familyBillingEncryption.service.js', () => ({ encryptFamilyBilling: 
 import { submitClaimToClaimMd } from '../../controllers/medicalBilling.controller.js';
 const response = () => ({ code: 200, body: null, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } });
 const request = () => ({ user: { id: 9, role: 'admin' }, params: { claimId: '11' }, body: { agencyId: 1, approved: true, reviewHash: 'a'.repeat(64), accountMode: 'test' } });
-const prepared = () => ({ claim: { id: 11, client_id: 7, clinical_session_id: 71, claim_lifecycle: 'ready', billing_revision: 0 }, readiness: { ready: true }, insurance: {}, payload: { remote_claimid: '11' }, reviewHash: 'a'.repeat(64) });
+const prepared = () => ({ claim: { id: 11, client_id: 7, clinical_note_id: 4, clinical_session_id: 71, claim_lifecycle: 'ready', billing_revision: 0 }, documentation: { note: { clinical_version_id: 12, clinical_version_number: 2, clinical_version_content_hash: 'b'.repeat(64) } }, readiness: { ready: true }, insurance: {}, payload: { remote_claimid: '11' }, reviewHash: 'a'.repeat(64) });
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.liveAgency.mockResolvedValue(undefined); mocks.selfPayCheck.mockResolvedValue(undefined); mocks.prepare.mockResolvedValue(prepared());
+  vi.clearAllMocks(); mocks.liveAgency.mockResolvedValue(undefined); mocks.selfPayCheck.mockResolvedValue(undefined); mocks.versionGuard.mockResolvedValue(undefined); mocks.prepare.mockResolvedValue(prepared());
   mocks.connection.mockResolvedValue({ accountKey: 'synthetic', mode: 'test', connectionId: 'account:100' });
   mocks.execute.mockImplementation(async sql=>sql.startsWith('SELECT')?[[]]:[{affectedRows:1}]);
   mocks.upload.mockResolvedValue({ claim: [{ remote_claimid: '11', claimmd_id: '800', status: 'A' }] });
@@ -51,6 +52,13 @@ describe('reviewed claim transmission', () => {
     expect(mocks.execute.mock.calls.filter(([sql])=>sql.includes('FOR UPDATE'))).toHaveLength(4);
     expect(mocks.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE clinical_claims'))).toBe(false);
   });
+  it('holds transmission for a newly pending clinical revision under the note lock', async () => {
+    mocks.versionGuard.mockRejectedValueOnce(Object.assign(Error('A clinical amendment is pending clinical approval'), { status: 409 }));
+    const next = vi.fn(); await submitClaimToClaimMd(request(), response(), next);
+    expect(mocks.versionGuard).toHaveBeenCalledWith({ noteId: 4, agencyId: 1, expectedRevisionId: 12, expectedContentHash: 'b'.repeat(64) }, expect.anything());
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 409 })); expect(mocks.upload).not.toHaveBeenCalled(); expect(mocks.rollback).toHaveBeenCalled();
+    expect(mocks.execute.mock.calls.some(([sql]) => sql.startsWith('UPDATE clinical_claims'))).toBe(false);
+  });
   it('requires explicit approval before resolving credentials or transmitting', async () => {
     const req = request(); req.body.approved = false; const res = response(); await submitClaimToClaimMd(req, res, e => { throw e; });
     expect(res.code).toBe(400); expect(mocks.upload).not.toHaveBeenCalled(); expect(mocks.connection).not.toHaveBeenCalled();
@@ -73,7 +81,7 @@ describe('reviewed claim transmission', () => {
   it('commits approval before upload and leaves an ambiguous upload queued', async () => {
     mocks.upload.mockRejectedValue(new Error('timeout')); const next = vi.fn();
     await submitClaimToClaimMd(request(), response(), next);
-    expect(mocks.commit).toHaveBeenCalledTimes(1); expect(mocks.event).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'approved_submission', actorUserId: 9 }), expect.anything());
+    expect(mocks.commit).toHaveBeenCalledTimes(1); expect(mocks.event).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'approved_submission', actorUserId: 9, payload: expect.objectContaining({ clinicalVersion: { revisionId: 12, revisionNumber: 2, contentHash: 'b'.repeat(64) } }) }), expect.anything());
     expect(mocks.upload).toHaveBeenCalledTimes(1); expect(mocks.execute.mock.calls.filter(([sql]) => sql.startsWith('UPDATE clinical_claims'))).toHaveLength(1);
     expect(mocks.commit.mock.invocationCallOrder[0]).toBeLessThan(mocks.upload.mock.invocationCallOrder[0]);
     expect(next.mock.calls[0][0].message).toBe('timeout');

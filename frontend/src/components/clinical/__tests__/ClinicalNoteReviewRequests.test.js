@@ -28,9 +28,15 @@ describe('author review requests', () => {
     const wrapper = mount(ClinicalNoteReviewRequests, { props: { requests: [request('review_acknowledge')] } });
     await wrapper.find('button').trigger('click');
     await flushPromises();
-    expect(api.post).toHaveBeenCalledExactlyOnceWith('/medical-billing/notes/71/review-requests/request-1/acknowledge', { agencyId: 7 });
+    expect(api.post).toHaveBeenCalledExactlyOnceWith('/medical-billing/notes/71/review-requests/request-1/acknowledge', { agencyId: 7 }, { skipGlobalLoading: true });
     expect(wrapper.emitted('acknowledged')).toHaveLength(1);
     wrapper.unmount();
+  });
+  it.each(['clinical_revision','clinical_revision_proposal'])('opens the exact %s version and never uses generic acknowledgement',async source=>{
+    const saved=request(source==='clinical_revision'?'review_acknowledge':'changes_needed',{source,revisionId:901,revisionContentHash:'DEMO QA exact revision hash'});
+    const wrapper=mount(ClinicalNoteReviewRequests,{props:{requests:[saved]}});
+    expect(wrapper.text()).not.toContain('Acknowledge reviewed');await wrapper.find('button').trigger('click');
+    expect(wrapper.emitted('open-version')[0][0]).toMatchObject({revisionId:901,revisionContentHash:'DEMO QA exact revision hash'});expect(api.post).not.toHaveBeenCalled();wrapper.unmount();
   });
   it('allows feedback to be dismissed without claiming acknowledgement is required', () => {
     const wrapper = mount(ClinicalNoteReviewRequests, { props: { requests: [request('feedback')] } });

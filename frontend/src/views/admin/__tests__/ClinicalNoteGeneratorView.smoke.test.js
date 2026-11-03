@@ -734,12 +734,27 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     await nextTick();
     expect(wrapper.find('.na-plan-fields__freq').exists()).toBe(false);
     const todo = { id: 'termination_after_note_77', clientId: 22, agencyId: 7, noteKind: 'termination', status: 'not_started' };
-    vi.mocked(api.post).mockImplementation(async (url) => ({ data: url.endsWith('/notes') ? { note: { id: 77 } } : url.endsWith('/sign') ? { terminationTodo: todo } : {} }));
+    vi.mocked(api.post).mockImplementation(async (url) => ({ data: url.endsWith('/notes') ? { note: { id: 77, signingToken: 'DEMO QA saved snapshot token' } } : url.endsWith('/sign') ? { signedAt: '2026-11-03T17:12:34Z', terminationTodo: todo } : {} }));
     await state.approveNoteOutput({ afterSign: 'close' });
     expect(state.selectedAidId).toBe('termination');
     expect(state.activeWorkQueueItemId).toBe(todo.id);
     expect(state.approvalMessage).toContain('Progress note signed');
     wrapper.unmount();
+  });
+
+  it('uses the saved snapshot token and server signature time for a treatment summary', async () => {
+    const { wrapper, state } = await workspace('treatment_summary');
+    try {
+      state.selectedClientId = 22; state.selectedClient = { id: 22, agency_id: 7 };
+      await flushPromises(); state.sessionClinicalSessionId = 9;
+      state.outputObj = { sections: { Summary: 'DEMO QA clinical summary for a synthetic client.' }, meta: { manualSections: true } };
+      state.attestAccurateAndComplete = true; state.attestMedicallyNecessary = true; await nextTick();
+      vi.mocked(api.post).mockImplementation(async url => ({ data: url.endsWith('/notes') ? { note: { id: 77, signingToken: 'DEMO QA saved snapshot token' } } : url.endsWith('/sign') ? { signedAt: '2026-11-03T17:12:34Z' } : {} }));
+      await state.approveNoteOutput({ afterSign: 'close' });
+      expect(state.approvalError).toBe('');
+      expect(api.post).toHaveBeenCalledWith('/medical-billing/notes/77/sign', expect.objectContaining({ signingToken: 'DEMO QA saved snapshot token' }), { skipGlobalLoading: true });
+      expect(state.treatmentSummaryProviderSignedAt).toBe('2026-11-03T17:12:34Z');
+    } finally { wrapper.unmount(); }
   });
 
   it('opens supervisor review without replacing the author draft and restores it on close', async () => {

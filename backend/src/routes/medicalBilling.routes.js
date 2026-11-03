@@ -1,4 +1,5 @@
 import { postSupervisorReview, acknowledgeNoteReview, listMyNoteReviewWork, correctNoteServiceDetails } from '../controllers/clinicalSupervisorReview.controller.js';
+import { listClinicalNoteVersions, getClinicalNoteVersion, createClinicalNoteVersion, updateClinicalNoteVersion, signClinicalNoteVersion, cosignClinicalNoteVersion, acknowledgeClinicalNoteVersion } from '../controllers/clinicalNoteVersions.controller.js';
 import { setTreatmentGoalProgress, getTreatmentGoalProgressHistory } from '../controllers/treatmentGoalProgress.controller.js';
 import { excludeSupportClinicalContent } from '../middleware/supportContentAccess.middleware.js';
 import { getH0002SourceDocuments, closeH0002RoiTask, getH0002ScreeningReview, signH0002ScreeningReview, saveH0002ScreeningDraft, forwardH0002Screening, translateH0002Screening } from '../controllers/h0002Screening.controller.js';
@@ -442,6 +443,13 @@ router.patch(
 );
 
 router.get('/notes/review-work', excludeSupportClinicalContent, listMyNoteReviewWork);
+router.get('/notes/:noteId/versions', requireClinicalChart, listClinicalNoteVersions);
+router.post('/notes/:noteId/versions', requireClinicalChart, createClinicalNoteVersion);
+router.get('/notes/:noteId/versions/:versionId', requireClinicalChart, getClinicalNoteVersion);
+router.patch('/notes/:noteId/versions/:versionId', requireClinicalChart, updateClinicalNoteVersion);
+router.post('/notes/:noteId/versions/:versionId/sign', requireClinicalNoteSigning, signClinicalNoteVersion);
+router.post('/notes/:noteId/versions/:versionId/cosign', requireClinicalNoteSigning, cosignClinicalNoteVersion);
+router.post('/notes/:noteId/versions/:versionId/acknowledge', requireClinicalChart, acknowledgeClinicalNoteVersion);
 router.post('/notes/:noteId/supervisor-review', requireClinicalNoteSigning, postSupervisorReview);
 router.post('/notes/:noteId/service-details', requireClinicalNoteSigning, correctNoteServiceDetails);
 router.post('/notes/:noteId/review-requests/:requestId/acknowledge', requireClinicalChart, acknowledgeNoteReview);

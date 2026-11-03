@@ -4,6 +4,12 @@ on:
     branches: [main]
     paths:
       - 'backend/src/services/familyLedger/**'
+      - 'backend/src/services/clinicalNote*.js'
+      - 'backend/src/services/__tests__/clinicalNoteVersion.mysql.test.js'
+      - 'backend/src/controllers/clinicalNoteVersions.controller.js'
+      - 'frontend/src/components/clinical/ClinicalNoteVersionHistory.vue'
+      - 'frontend/src/utils/clinicalNoteVersions.js'
+      - 'database/clinical_migrations/027_immutable_note_revisions.sql'
       - 'backend/src/services/coGuardian*.js'
       - 'backend/src/services/__tests__/coGuardian*.test.js'
       - 'backend/src/controllers/clientNotificationHistory.controller.js'
@@ -110,6 +116,12 @@ on:
   pull_request:
     paths:
       - 'backend/src/services/familyLedger/**'
+      - 'backend/src/services/clinicalNote*.js'
+      - 'backend/src/services/__tests__/clinicalNoteVersion.mysql.test.js'
+      - 'backend/src/controllers/clinicalNoteVersions.controller.js'
+      - 'frontend/src/components/clinical/ClinicalNoteVersionHistory.vue'
+      - 'frontend/src/utils/clinicalNoteVersions.js'
+      - 'database/clinical_migrations/027_immutable_note_revisions.sql'
       - 'backend/src/services/coGuardian*.js'
       - 'backend/src/services/__tests__/coGuardian*.test.js'
       - 'backend/src/controllers/clientNotificationHistory.controller.js'
@@ -216,7 +228,8 @@ jobs:
       mysql:
         image: mysql:8.0
         env:
-          MYSQL_RANDOM_ROOT_PASSWORD: 'yes'
+          MYSQL_ROOT_PASSWORD: synthetic-root-only
+          MYSQL_ROOT_HOST: '%'
           MYSQL_DATABASE: family_billing_test
           MYSQL_USER: family_billing_test
           MYSQL_PASSWORD: synthetic-only
@@ -287,6 +300,11 @@ jobs:
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.claimmd.config.js backend/src/controllers/__tests__/claimMdReviewSnapshot.test.js
       - name: Claim and documentation verification
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.claimmd.config.js
+      - name: Immutable clinical versions, exact signatures and audit in MySQL
+        env:
+          CLINICAL_NOTE_VERSION_MYSQL_TEST: '1'
+          CLINICAL_NOTE_VERSION_MYSQL_CI: '1'
+        run: node --test backend/src/services/__tests__/clinicalNoteVersion.mysql.test.js
       - name: Portal welcome and private issue reports
         run: npm --prefix frontend test -- --config vitest.guardian-onboarding.config.js
       - name: Family portal navigation, onboarding, and secure messages

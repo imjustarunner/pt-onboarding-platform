@@ -1,3 +1,4 @@
+import { withClinicalSigningToken } from '../services/clinicalNoteSigningToken.service.js';
 import { hasSchedulingBillingAccess, schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
 import { validationResult } from 'express-validator';
 import AdminAuditLog from '../models/AdminAuditLog.model.js';
@@ -515,7 +516,7 @@ export const createSessionNote = async (req, res, next) => {
       console.warn('[createSessionNote] objective rating link failed', linkErr?.message || linkErr);
     }
 
-    res.status(201).json({ ok: true, note });
+    res.status(201).json({ ok: true, note:await withClinicalSigningToken(await ClinicalNote.findById(note.id)) });
   } catch (error) {
     if (handleSchemaError(error, res)) return;
     next(error);
@@ -671,6 +672,7 @@ export const softDeleteClinicalRecord = async (req, res, next) => {
     const loaded = await getRecordForMutation(req, res);
     if (!loaded) return;
     const { model, record, session, recordType } = loaded;
+    if (recordType==='note' && (record.provider_signed_at || record.content_review_source==='provider_review')) return res.status(409).json({error:{message:'Signed or completed clinical notes cannot be deleted. Create a linked amendment version; the original stays on file.'}});
     const ok = await model.softDeleteById(record.id, req.user.id);
     if (!ok) {
       return res.status(400).json({ error: { message: 'Record cannot be deleted (already deleted or under legal hold)' } });

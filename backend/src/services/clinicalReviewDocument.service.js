@@ -4,6 +4,7 @@ import { maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
 import ClinicalTreatmentPlan from '../models/clinical/ClinicalTreatmentPlan.model.js';
 import { policyError, parseObject } from './supervisedBillingPolicy.service.js';
 import { sharedNotePredicate } from './sharedClinicalChart.service.js';
+import { getApprovedClinicalContext } from './clinicalNoteVersionBilling.service.js';
 // Preserve historical review hashes when an old entry has no typed attestation.
 export const noteReviewContent = (payload,addenda) => JSON.stringify({note:maybeDecryptNotePayload(payload),addenda:addenda.map(a=>({
   id:a.id,body:maybeDecryptNotePayload(a.body),created_at:a.created_at,
@@ -23,16 +24,22 @@ export async function loadReviewDocument(s,type,id, db = clinicalPool) {
   const authorScope=type==='treatment_plan'
     ? `(d.created_by_user_id = ? OR EXISTS (SELECT 1 FROM clinical_notes n WHERE n.agency_id=d.agency_id AND n.client_id=d.client_id AND n.created_by_user_id=? AND n.is_deleted=0 AND n.provider_signed_at IS NOT NULL AND ${sharedNotePredicate('n')}))`
     : 'COALESCE(d.provider_signed_by_user_id,d.created_by_user_id) = ?';
-  const [[row]]=await db.execute(`SELECT d.* FROM ${table} d WHERE d.id = ? AND d.agency_id = ? AND ${authorScope}`,[id,s.agencyId,s.providerUserId,...(type==='treatment_plan'?[s.providerUserId]:[])]);
+  let [[row]]=await db.execute(`SELECT d.* FROM ${table} d WHERE d.id = ? AND d.agency_id = ? AND ${authorScope}`,[id,s.agencyId,s.providerUserId,...(type==='treatment_plan'?[s.providerUserId]:[])]);
   if(!row || row.is_deleted || ['void','superseded','deleted'].includes(row.status))throw policyError(404,'Document is not available for this supervisee');
   const meta=parseObject(row.metadata_json);
   if([meta.privatePsychotherapyNote,meta.restricted].some(v=>v===true||v==='true'))throw policyError(403,'Restricted records require a separate authorized disclosure workflow');
-  let content;
+  let content, session = null;
   if(type==='note') {
-    const [addenda]=await db.execute('SELECT id,body,created_at,entry_kind,entry_reason,author_signed_at,created_by_user_id FROM clinical_note_addenda WHERE clinical_note_id = ? AND agency_id = ? ORDER BY id',[id,s.agencyId]);
+    const [[liveSession]] = row.clinical_session_id ? await db.execute('SELECT * FROM clinical_sessions WHERE id=? AND agency_id=? AND client_id=?', [row.clinical_session_id, row.agency_id, row.client_id]) : [[{}]];
+    const approved = await getApprovedClinicalContext({ note: row, session: liveSession || {} }, db);
+    row = approved.note;
+    session = approved.session;
+    const [legacyAddenda]=row.clinical_version_addenda ? [row.clinical_version_addenda] : await db.execute('SELECT id,body,created_at,entry_kind,entry_reason,author_signed_at,created_by_user_id FROM clinical_note_addenda WHERE clinical_note_id = ? AND agency_id = ? ORDER BY id',[id,s.agencyId]);
+    const addenda = legacyAddenda;
     row.latest_addendum_at=addenda.at(-1)?.created_at || null;
     row.addendum_count=addenda.length;
     content=noteReviewContent(row.note_payload,addenda);
+    row.legacy_review_content_hash=crypto.createHash('sha256').update(noteReviewContent(row.note_payload,row.clinical_version_signed_addenda || addenda)).digest('hex');
   } else content=JSON.stringify(await ClinicalTreatmentPlan.findById(id));
-  return {row,content,hash:crypto.createHash('sha256').update(String(content)).digest('hex')};
+  return {row,content,session,hash:row.clinical_version_content_hash || crypto.createHash('sha256').update(String(content)).digest('hex')};
 }

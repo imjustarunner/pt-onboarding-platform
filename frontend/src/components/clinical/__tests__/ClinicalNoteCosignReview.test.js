@@ -4,13 +4,14 @@ import ClinicalNoteCosignReview from '../ClinicalNoteCosignReview.vue';
 import ClinicalNoteSupervisorReview from '../ClinicalNoteSupervisorReview.vue';
 import api from '../../../services/api.js';
 
+vi.mock('../ClinicalNoteVersionHistory.vue', () => ({ default: { emits: ['loaded'], template: '<section>Immutable version history</section>', mounted() { this.$emit('loaded', { pendingRevisionId: null }); } } }));
 vi.mock('../../../services/api.js', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 beforeEach(() => {
   vi.resetAllMocks();
   api.get.mockImplementation(async url => ({ data: url.includes('document-reviews')
     ? { content: JSON.stringify({ note: { sections: { Narrative: 'Signed note for review' } }, addenda: [] }), contentHash: 'version-2', reviewSnapshotToken: 'metadata-2', canCosign: true }
     : { note: { id: 4, providerSignedByUserId: 7, providerSignedAt: '2026-11-02T10:00:00Z', reviewSnapshotToken: 'metadata-2', isBillable: false } } }));
-  api.post.mockResolvedValue({ data: { ok: true } });
+  api.post.mockResolvedValue({ data: { ok: true, cosignedAt: '2026-11-03T17:00:00Z' } });
 });
 const mountReview = () => mount(ClinicalNoteCosignReview, { props: { noteId: 4, agencyId: 1, providerId: 7 } });
 

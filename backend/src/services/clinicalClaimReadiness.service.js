@@ -1,6 +1,14 @@
 import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { getPrimaryClinicalDiagnosis } from './clinicalDiagnosisAttach.service.js';
+import { getApprovedClinicalContext, clinicalVersionBillingState } from './clinicalNoteVersionBilling.service.js';
+
+async function approvedNoteById(noteId, agencyId = null, clientId = null) {
+  if (!safeInt(noteId)) return null;
+  const [[note]] = await clinicalPool.execute(`SELECT * FROM clinical_notes WHERE id = ?${safeInt(agencyId) ? ' AND agency_id = ?' : ''}${safeInt(clientId) ? ' AND client_id = ?' : ''} AND is_deleted = 0 LIMIT 1`,
+    [Number(noteId), ...(safeInt(agencyId) ? [Number(agencyId)] : []), ...(safeInt(clientId) ? [Number(clientId)] : [])]);
+  return note ? (await getApprovedClinicalContext({ note })).note : null;
+}
 
 function safeInt(v) {
   const n = Number(v);
@@ -23,8 +31,22 @@ export async function resolveClaimDiagnosisCodes({
   agencyId,
   clientId,
   clinicalNoteId = null,
-  diagnosisCodes = null
+  diagnosisCodes = null,
+  approvedNote = null
 }) {
+  const versionedNote = approvedNote || await approvedNoteById(clinicalNoteId, agencyId, clientId);
+  if (versionedNote?.clinical_version_id) {
+    const metadata = typeof versionedNote.metadata_json === 'string' ? JSON.parse(versionedNote.metadata_json) : versionedNote.metadata_json || {};
+    if (metadata.source === 'h0002_digital_screening' || (metadata.serviceCode || versionedNote.clinical_version_encounter_context?.serviceCode) === 'H0002') return ['R69'];
+    const recordedCodes = metadata.diagnosisCodes || metadata.diagnosis_codes;
+    if (Array.isArray(recordedCodes) && recordedCodes.length) return recordedCodes.map(code => String(code).trim().toUpperCase()).filter(Boolean);
+    if (versionedNote.primary_diagnosis_id) {
+      const [[diagnosis]] = await clinicalPool.execute('SELECT icd10_code FROM clinical_diagnoses WHERE id = ? AND agency_id = ? AND client_id = ? LIMIT 1', [versionedNote.primary_diagnosis_id, agencyId, clientId]);
+      if (diagnosis?.icd10_code) return [String(diagnosis.icd10_code).trim().toUpperCase()];
+    }
+    // A caller override cannot replace diagnosis evidence signed in a version.
+    diagnosisCodes = null;
+  }
   if (safeInt(clinicalNoteId)) {
     const [[screening]] = await clinicalPool.execute(`SELECT n.metadata_json FROM clinical_notes n JOIN clinical_sessions s ON s.id=n.clinical_session_id
       WHERE n.id=? AND n.agency_id=? AND n.client_id=? AND n.is_deleted=0 AND s.service_code='H0002'
@@ -71,8 +93,14 @@ export async function resolveClaimDiagnosisCodes({
 export async function resolveClaimDateOfService({
   clinicalSessionId,
   clinicalNoteId = null,
-  dateOfService = null
+  dateOfService = null,
+  approvedNote = null
 }) {
+  const versionedNote = approvedNote || await approvedNoteById(clinicalNoteId);
+  if (versionedNote?.clinical_version_id) {
+    const metadata = typeof versionedNote.metadata_json === 'string' ? JSON.parse(versionedNote.metadata_json) : versionedNote.metadata_json || {};
+    return isoDate(metadata.dateOfService || metadata.date_of_service || versionedNote.clinical_version_encounter_context?.dateOfService);
+  }
   // A digital screening is rendered when its clinician completes the review.
   // Neither a caller override nor the draft's creation date can establish DOS.
   const sessionId = safeInt(clinicalSessionId);
@@ -170,10 +198,10 @@ export async function evaluateClaimReadiness({
 
   let noteId = safeInt(clinicalNoteId);
   let note = null;
-  const selectNoteFull = `SELECT id, clinical_session_id, provider_signed_at, supervisor_cosigned_at, is_billable,
+  const selectNoteFull = `SELECT id, agency_id, client_id, clinical_session_id, provider_signed_at, supervisor_cosigned_at, is_billable,
               primary_diagnosis_id, metadata_json, created_at
        FROM clinical_notes`;
-  const selectNoteLegacy = `SELECT id, clinical_session_id, provider_signed_at, supervisor_cosigned_at, is_billable,
+  const selectNoteLegacy = `SELECT id, agency_id, client_id, clinical_session_id, provider_signed_at, supervisor_cosigned_at, is_billable,
                   metadata_json, created_at
            FROM clinical_notes`;
 
@@ -224,7 +252,16 @@ export async function evaluateClaimReadiness({
 
   checks.hasNote = !!noteId;
   if (!noteId) blockers.push('No clinical note on this session');
+  let clinicalVersion = null;
   if (note) {
+    note = (await getApprovedClinicalContext({ note })).note;
+    const state = await clinicalVersionBillingState({ noteId, agencyId: agency });
+    blockers.push(...state.blockers);
+    const metadata = typeof note.metadata_json === 'string' ? JSON.parse(note.metadata_json) : note.metadata_json || {};
+    if ((metadata.serviceDetailAmendments || []).some(amendment => !amendment.approvedAt && !amendment.supersededByAmendmentId && !amendment.supersededByRevisionId)) {
+      blockers.push('A legacy service correction awaits approval in an amended clinical version. Claim transmission is paused.');
+    }
+    clinicalVersion = { revisionId: state.effectiveRevisionId, contentHash: state.effectiveRevision?.contentHash || null, pendingRevisionId: state.pendingRevisionId };
     checks.noteSigned = !!note.provider_signed_at;
     checks.noteBillable = Number(note.is_billable) === 1;
     if (requireSignedNote && note.provider_signed_at && !checks.noteBillable) {
@@ -242,7 +279,8 @@ export async function evaluateClaimReadiness({
   const diagnosisCodes = await resolveClaimDiagnosisCodes({
     agencyId: agency,
     clientId: client,
-    clinicalNoteId: noteId
+    clinicalNoteId: noteId,
+    approvedNote: note
   });
   checks.hasDiagnosisCode = diagnosisCodes.length > 0;
   if (!checks.hasDiagnosisCode) {
@@ -287,7 +325,8 @@ export async function evaluateClaimReadiness({
 
   checks.dateOfService = await resolveClaimDateOfService({
     clinicalSessionId: sessionId,
-    clinicalNoteId: noteId
+    clinicalNoteId: noteId,
+    approvedNote: note
   });
 
   const ready = blockers.length === 0;
@@ -298,6 +337,7 @@ export async function evaluateClaimReadiness({
     warnings,
     diagnosisCodes,
     noteId,
+    clinicalVersion,
     planId,
     primaryDiagnosis: primary
       ? {

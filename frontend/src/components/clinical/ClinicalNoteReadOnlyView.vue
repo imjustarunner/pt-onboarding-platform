@@ -34,6 +34,8 @@
       </button>
     </div>
 
+    <ClinicalNoteVersionHistory ref="versionHistory" v-if="note.providerSignedAt && note.id && note.agencyId" :note-id="note.id" :agency-id="note.agencyId" :legacy-pending-service-details="note.pendingServiceDetails" :legacy-amendment="legacyPendingAmendment" prefer-pending @changed="onVersionChanged" />
+
     <section v-if="hasSessionFacts" class="ccn-block ccn-facts" aria-label="Session details">
       <h4 class="ccn-block-title">Session details</h4>
       <dl class="ccn-facts-grid">
@@ -326,8 +328,8 @@
     </section>
 
     <section v-if="!compact" :id="`post-signature-entries-${note.id}`" class="ccn-block" aria-label="Addenda and amendments">
-      <h4 class="ccn-block-title">Add to this signed note</h4>
-      <p class="ccn-field-hint">This note is complete. Add missing or newly available information below in your own words. The original signed note remains intact; your addition receives its own date, signature and supervisor review.</p>
+      <h4 class="ccn-block-title">Separate addenda and late entries</h4>
+      <p class="ccn-field-hint">This note is complete. Add missing or newly available information below in your own words. The original signed note remains intact; your addition receives its own author, date and signature.</p>
       <article v-for="item in addenda" :key="item.id" class="ccn-addendum">
         <strong>{{ entryLabel(item.entryKind) }}</strong>
         <p>{{ item.body }}</p>
@@ -336,35 +338,27 @@
         <small v-if="item.authorSignedAt"> · Author signed {{ formatTimestamp(item.authorSignedAt) }}</small>
       </article>
       <p v-if="!addenda.length" class="ccn-muted">No post-signature entries yet.</p>
+      <template v-if="canSignClinicalEntry">
       <label>Additional information <textarea v-model="addendumDraft" class="ccn-addendum-input" rows="6" maxlength="20000" :placeholder="entryKind === 'correction' ? 'Identify the original error and document the corrected information…' : 'Add the information that was missing from this session note…'" /></label>
       <label>Reason for adding this information <input v-model="entryReason" data-testid="entry-reason" class="ccn-addendum-input" maxlength="2000" placeholder="For example, worksheet reviewed after the session" /></label>
-      <details class="ccn-entry-options"><summary>Correction or late entry options</summary>
+      <details class="ccn-entry-options"><summary>Late entry options</summary>
       <label>Entry type
         <select v-model="entryKind" data-testid="entry-kind">
           <option value="addendum">Addendum — additional information</option>
-          <option value="correction">Amendment / correction — correct existing information</option>
           <option value="late_entry">Late entry — previously omitted information</option>
         </select>
       </label>
       <p class="ccn-field-hint">{{ entryHint }}</p>
       </details>
-      <p class="ccn-field-hint">Saving an entry does not create or resend a claim. Use an amendment/correction for changes to documented codes or units.</p>
-      <label v-if="entryKind === 'correction'"><input v-model="serviceCorrection" data-testid="service-correction" type="checkbox" /> Correct service codes / units</label>
-      <div v-if="serviceCorrection">
-        <p>List every service line for this encounter, including unchanged lines. Supervisor approval and billing review are required; nothing is transmitted automatically.</p>
-        <div v-for="(line,i) in correctedServices" :key="i">
-          <label>Service code <input v-model="line.procedureCode" maxlength="5" /></label><label>Units <input v-model.number="line.units" type="number" min="1" max="999" /></label>
-          <button type="button" :disabled="correctedServices.length===1" @click="correctedServices.splice(i,1)">Remove service</button>
-        </div>
-        <button type="button" :disabled="correctedServices.length>=50" @click="correctedServices.push({procedureCode:'',units:1})">Add service</button>
-        <label><input v-model="serviceChangeAttested" data-testid="service-attestation" type="checkbox" /> I attest that this complete corrected service list accurately describes the care delivered.</label>
-      </div>
+      <p class="ccn-field-hint">Use Create amendment in Note versions to revise the signed narrative or service context.</p>
       <label><input v-model="authorAttested" data-testid="author-attestation" type="checkbox" /> I authored and reviewed this entry and electronically sign it as accurate. It will be dated now and sent for supervisor approval.</label>
       <button type="button" data-testid="sign-entry" class="ccn-copy-btn ccn-copy-btn--primary" :disabled="savingAddendum || !addendumDraft.trim() || !entryReason.trim() || !authorAttested || (serviceCorrection && !serviceChangeAttested)" @click="saveAddendum">
         {{ savingAddendum ? 'Saving…' : 'Sign addition and send for review' }}
       </button>
       <p v-if="amendmentPending" role="status">Entry signed; supervisor approval is required. No claim was created or transmitted. Service corrections await a separate billing decision.</p>
       <p v-if="addendumError" class="ccn-error">{{ addendumError }}</p>
+      </template>
+      <p v-else class="ccn-field-hint">Clinical additions require the clinical author’s own signature. Billing changes can be proposed through Create amendment in Note versions.</p>
     </section>
 
     <SessionSupportingMaterials v-if="!compact && note.clinicalSessionId" :key="note.clinicalSessionId" :clinical-session-id="note.clinicalSessionId" />
@@ -379,6 +373,7 @@
 <script setup>
 import { canAccessMedicalBilling } from '../../config/medicalBillingAccess.js';
 import SessionSupportingMaterials from './SessionSupportingMaterials.vue';
+import ClinicalNoteVersionHistory from './ClinicalNoteVersionHistory.vue';
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api.js';
 import { MSE_DOMAINS } from '../../utils/noteAidSessionQueue.js';
@@ -400,6 +395,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['open-claim', 'amended']);
+const versionHistory = ref(null);
+defineExpose({ openRevision: revisionId => versionHistory.value?.openRevision(revisionId) });
 
 const authStore = useAuthStore();
 const copiedKey = ref('');
@@ -449,6 +446,9 @@ const structuredChart = computed(() =>
 );
 
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
+const legacyPendingAmendment = computed(() => (props.note?.serviceDetailAmendments || []).filter(entry => !entry.approvedAt && !entry.supersededByAmendmentId).at(-1) || null);
+const canSignClinicalEntry = computed(() => typeof props.note?.canSignAddendum === 'boolean' ? props.note.canSignAddendum : ['provider', 'supervisor'].includes(roleNorm.value));
+function onVersionChanged(result) { emit('amended', result); }
 const canAmendBilling = computed(() => canAccessMedicalBilling(authStore.user, props.note?.agencyId || props.note?.agency_id));
 const canOpenClaim = canAmendBilling;
 
@@ -684,7 +684,7 @@ const signStatusLabel = computed(() => {
 async function saveAddendum() {
   const body = String(addendumDraft.value || '').trim();
   const noteId = Number(props.note?.id || 0);
-  if (!body || !noteId || !entryReason.value.trim() || !authorAttested.value || (serviceCorrection.value && !serviceChangeAttested.value) || savingAddendum.value) return;
+  if (!canSignClinicalEntry.value || entryKind.value === 'correction' || !body || !noteId || !entryReason.value.trim() || !authorAttested.value || (serviceCorrection.value && !serviceChangeAttested.value) || savingAddendum.value) return;
   savingAddendum.value = true;
   addendumError.value = '';
   try {
@@ -695,7 +695,7 @@ async function saveAddendum() {
       reason: entryReason.value.trim(),
       authorAttested: authorAttested.value,
       ...(serviceCorrection.value?{serviceLines:correctedServices.value,serviceChangeAttested:serviceChangeAttested.value}:{})
-    });
+    }, { skipGlobalLoading: true });
     if (Number(props.note?.id) !== noteId) return;
     const rows = Array.isArray(res?.data?.addenda) ? res.data.addenda : [];
     localAddenda.value = rows.map((a) => ({

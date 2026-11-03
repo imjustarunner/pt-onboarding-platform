@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { reviewSnapshotToken, effectiveServiceDetails, pendingServiceDetails, reviewRequestsForDisplay } from '../services/clinicalSupervisorReview.service.js';
 import pool from '../config/database.js';
 import {providerBillingNpi} from '../services/providerBillingNpi.service.js';
@@ -5,7 +6,9 @@ import clinicalPool from '../config/clinicalDatabase.js';
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
 import { hasSchedulingBillingAccess } from '../services/schedulingBillingAccess.service.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from '../services/familyBillingEncryption.service.js';
-import { loadReviewDocument } from '../services/clinicalReviewDocument.service.js';
+import { loadReviewDocument, noteReviewContent } from '../services/clinicalReviewDocument.service.js';
+import { getApprovedClinicalContext, clinicalVersionReference } from '../services/clinicalNoteVersionBilling.service.js';
+import { getRevisionSummary } from '../services/clinicalNoteVersion.service.js';
 import { recordClaimEvent } from '../services/claimMdWorkflow.service.js';
 import { resolveDocumentationPolicy, resolveNoteDocumentationPolicy, normalizeSupervisionPolicy, normalizePayerPolicy, policyError, parseObject, normalizeNoteType, nonBillableReviewTypes, requiredDocumentReviewTypes, validNpi, isNonBillableDocument, hasCurrentSupervisorCosign, documentReviewRequirement } from '../services/supervisedBillingPolicy.service.js';
 import { withSupervisorTimeLock, reviewInterval, assertNoReviewTimeOverlap, assertNoMeetingOverlap } from '../services/supervisionReviewTime.service.js';
@@ -150,16 +153,26 @@ export async function getSuperviseeReviewDocument(req,res,next) {
     const s=await documentationScope(req,{noteScope:true});
     if(!['note','treatment_plan'].includes(req.params.type))throw policyError(400,'Invalid document type');
     const d=await loadReviewDocument(s,req.params.type,Number(req.params.documentId));
-    const cosignCurrent=hasCurrentSupervisorCosign(d.row,s.policy.supervisorUserId,d.hash);
-    await pool.execute(`INSERT INTO supervision_case_review_events (agency_id,provider_user_id,reviewer_user_id,client_id,event_type,content_hash) VALUES (?,?,?,?,'view',?)`,[s.agencyId,s.providerUserId,req.user.id,d.row.client_id,d.hash]);
-    let reviewSnapshot = null, snapshotToken = null;
+    let reviewSnapshot = null, snapshotToken = null, versions = null;
     if (req.params.type === 'note') {
+      const [[liveSession]] = d.row.clinical_session_id ? await clinicalPool.execute('SELECT * FROM clinical_sessions WHERE id=? AND agency_id=?',[d.row.clinical_session_id,s.agencyId]) : [[{}]];
+      const approved = await getApprovedClinicalContext({ note: d.row, session: liveSession });
+      d.row = approved.note;
+      const session = approved.session;
+      versions = await getRevisionSummary({ noteId: d.row.id, agencyId: s.agencyId });
+      if (d.row.clinical_version_id) {
+        d.content = noteReviewContent(d.row.note_payload, d.row.clinical_version_addenda || []);
+        d.row.legacy_review_content_hash = crypto.createHash('sha256').update(noteReviewContent(d.row.note_payload, d.row.clinical_version_signed_addenda || d.row.clinical_version_addenda || [])).digest('hex');
+        d.hash = d.row.clinical_version_content_hash;
+      }
       const metadata = parseObject(d.row.metadata_json);
-      const [[session]] = d.row.clinical_session_id ? await clinicalPool.execute('SELECT * FROM clinical_sessions WHERE id=? AND agency_id=?',[d.row.clinical_session_id,s.agencyId]) : [[{}]];
       snapshotToken = reviewSnapshotToken(d.row,session || {});
-      reviewSnapshot = {serviceTimeZone:session?.source_timezone || 'America/Denver',effectiveServiceDetails:effectiveServiceDetails(d.row,session || {}),pendingServiceDetails:pendingServiceDetails(metadata),serviceDetailAmendments:metadata.serviceDetailAmendments || [],reviewRequests:reviewRequestsForDisplay(metadata),dateOfService:metadata.dateOfService || null,serviceCode:metadata.serviceCode || session?.service_code || null,providerSignedAt:d.row.provider_signed_at,isBillable:!isNonBillableDocument(d.row)};
+      reviewSnapshot = {serviceTimeZone:session?.source_timezone || 'America/Denver',effectiveServiceDetails:effectiveServiceDetails(d.row,session || {}),pendingServiceDetails:pendingServiceDetails(metadata),serviceDetailAmendments:metadata.serviceDetailAmendments || [],reviewRequests:reviewRequestsForDisplay(metadata),dateOfService:metadata.dateOfService || null,serviceCode:metadata.serviceCode || session?.service_code || null,providerSignedAt:d.row.provider_signed_at,isBillable:!isNonBillableDocument(d.row),clinicalVersion:clinicalVersionReference(d.row)};
     }
-    res.json({reviewSnapshotToken:snapshotToken,reviewSnapshot,canCosign:s.canAttest,canTrackCosignTime:req.params.type==='note'&&s.canAttest&&Number(req.user.id)!==s.providerUserId&&Number(d.row.provider_signed_by_user_id)!==Number(req.user.id)&&!!d.row.provider_signed_at&&!cosignCurrent,content:clinicalReviewContent(d.content),contentHash:d.hash,cosignedAt:cosignCurrent?d.row.supervisor_cosigned_at:null,amendmentSignoffRequired:!cosignCurrent && Number(d.row.addendum_count || 0)>0});
+    const cosignCurrent=hasCurrentSupervisorCosign(d.row,s.policy.supervisorUserId,d.hash);
+    const legacyCosignAllowed = !versions?.pendingRevisionId && Number(d.row.clinical_version_number || 1) === 1;
+    await pool.execute(`INSERT INTO supervision_case_review_events (agency_id,provider_user_id,reviewer_user_id,client_id,event_type,content_hash) VALUES (?,?,?,?,'view',?)`,[s.agencyId,s.providerUserId,req.user.id,d.row.client_id,d.hash]);
+    res.json({reviewSnapshotToken:snapshotToken,reviewSnapshot,versions,clinicalVersion:clinicalVersionReference(d.row),canCosign:s.canAttest&&legacyCosignAllowed,canTrackCosignTime:req.params.type==='note'&&s.canAttest&&legacyCosignAllowed&&Number(req.user.id)!==s.providerUserId&&Number(d.row.provider_signed_by_user_id)!==Number(req.user.id)&&!!d.row.provider_signed_at&&!cosignCurrent,content:clinicalReviewContent(d.content),contentHash:d.hash,cosignedAt:cosignCurrent?d.row.supervisor_cosigned_at:null,amendmentSignoffRequired:!!versions?.pendingRevisionId||(!cosignCurrent && Number(d.row.addendum_count || 0)>0)});
   }catch(e){next(e);}
 }
 export async function listSuperviseeDocumentReviews(req,res,next) {
@@ -168,23 +181,24 @@ export async function listSuperviseeDocumentReviews(req,res,next) {
     if(!Number.isSafeInteger(page)||page<1||page>10000||!Number.isSafeInteger(clientId)||clientId<0)throw policyError(400,'Invalid document page or client');
     const values=[s.agencyId,s.providerUserId,...(clientId?[clientId]:[])], offset=(page-1)*100;
     const [notes]=await clinicalPool.execute(`SELECT n.*, (SELECT COUNT(*) FROM clinical_note_addenda a WHERE a.clinical_note_id=n.id AND a.agency_id=n.agency_id) AS addendum_count FROM clinical_notes n WHERE n.agency_id = ? AND n.created_by_user_id = ? AND n.is_deleted = 0 AND n.provider_signed_at IS NOT NULL AND ${sharedNotePredicate('n')} ${clientId?'AND n.client_id=?':''} ORDER BY n.updated_at DESC, n.id DESC LIMIT 100 OFFSET ${offset}`,values);
+    const approvedNotes = await Promise.all(notes.map(async note => (await getApprovedClinicalContext({ note })).note));
     const [plans]=await clinicalPool.execute(`SELECT p.id,p.client_id,p.created_by_user_id,p.title,p.status,p.created_at FROM clinical_treatment_plans p WHERE p.agency_id = ? AND (p.created_by_user_id = ? OR EXISTS (SELECT 1 FROM clinical_notes n WHERE n.agency_id=p.agency_id AND n.client_id=p.client_id AND n.created_by_user_id=? AND n.is_deleted=0 AND n.provider_signed_at IS NOT NULL AND ${sharedNotePredicate('n')})) AND p.status IN ('active','final') ${clientId?'AND p.client_id=?':''} ORDER BY p.id DESC LIMIT 100 OFFSET ${offset}`,[s.agencyId,s.providerUserId,s.providerUserId,...(clientId?[clientId]:[])]);
     const reviewFilters=[], reviewIds=[];
-    for(const [type,rows] of [['note',notes],['treatment_plan',plans]]) if(rows.length) {
+    for(const [type,rows] of [['note',approvedNotes],['treatment_plan',plans]]) if(rows.length) {
       reviewFilters.push(`(r.document_type=? AND r.document_id IN (${rows.map(()=>'?').join(',')}))`);
       reviewIds.push(type,...rows.map(r=>r.id));
     }
     const [reviews]=reviewFilters.length ? await pool.execute(`SELECT r.id,r.document_type,r.document_id,r.outcome,r.created_at,r.content_hash,r.feedback_encrypted FROM clinical_document_reviews r
       WHERE r.agency_id=? AND r.provider_user_id=? AND (${reviewFilters.join(' OR ')})
       AND NOT EXISTS (SELECT 1 FROM clinical_document_reviews newer WHERE newer.agency_id=r.agency_id AND newer.provider_user_id=r.provider_user_id AND newer.document_type=r.document_type AND newer.document_id=r.document_id AND newer.id>r.id)`,[s.agencyId,s.providerUserId,...reviewIds]) : [[]];
-    const documents=[...notes.map(n=>({id:n.id,nonBillable:isNonBillableDocument(n),clientId:n.client_id,authorUserId:n.created_by_user_id,createdAt:n.created_at,type:'note',noteType:normalizeNoteType(n.note_type || parseObject(n.metadata_json).noteType),title:n.title,signedAt:n.provider_signed_at,cosignedAt:null,amendmentSignoffRequired:Number(n.addendum_count || 0)>0,cosignDueAt:n.provider_signed_at ? new Date(new Date(n.provider_signed_at).getTime()+Number(parseObject(n.metadata_json).supervisionPolicyAtSignature?.cosignDueDays || s.policy.cosignDueDays)*86400000).toISOString():null})),...plans.map(p=>({id:p.id,nonBillable:true,clientId:p.client_id,authorUserId:p.created_by_user_id,createdAt:p.created_at,type:'treatment_plan',noteType:'TREATMENT_PLAN',title:p.title}))];
+    const documents=[...approvedNotes.map(n=>({id:n.id,nonBillable:isNonBillableDocument(n),clientId:n.client_id,authorUserId:n.created_by_user_id,createdAt:n.created_at,type:'note',noteType:normalizeNoteType(n.note_type || parseObject(n.metadata_json).noteType),title:n.title,clinicalVersion:clinicalVersionReference(n),signedAt:n.provider_signed_at,cosignedAt:null,amendmentSignoffRequired:n.clinical_version_id ? !!n.clinical_version_pending_id : Number(n.addendum_count || 0)>0,cosignDueAt:n.provider_signed_at ? new Date(new Date(n.provider_signed_at).getTime()+Number(parseObject(n.metadata_json).supervisionPolicyAtSignature?.cosignDueDays || s.policy.cosignDueDays)*86400000).toISOString():null})),...plans.map(p=>({id:p.id,nonBillable:true,clientId:p.client_id,authorUserId:p.created_by_user_id,createdAt:p.created_at,type:'treatment_plan',noteType:'TREATMENT_PLAN',title:p.title}))];
     const cache=new Map();
     for(const d of documents) {
       const key=`${d.clientId}:${String(d.createdAt).slice(0,10)}`;
       if(!cache.has(key))cache.set(key,await requiredDocumentReviewTypes(s.agencyId,d.clientId,d.createdAt));
       Object.assign(d,documentReviewRequirement({note_type:d.noteType,addendum_count:d.amendmentSignoffRequired?1:0,metadata_json:{nonBillable:d.nonBillable}},s.policy,cache.get(key)));
       d.latestReview=reviews.find(r=>r.document_type===d.type&&Number(r.document_id)===Number(d.id))||null;
-      const row=d.type==='note'?notes.find(n=>Number(n.id)===Number(d.id)):null;
+      const row=d.type==='note'?approvedNotes.find(n=>Number(n.id)===Number(d.id)):null;
       if(d.latestReview || row?.supervisor_cosigned_at) {
         const current=await loadReviewDocument(s,d.type,d.id);
         if(row && hasCurrentSupervisorCosign(current.row,(await resolveNoteDocumentationPolicy(current.row)).supervisorUserId,current.hash)){ d.cosignedAt=current.row.supervisor_cosigned_at; d.amendmentSignoffRequired=false; }
@@ -199,14 +213,15 @@ export async function recordSuperviseeDocumentReview(req,res,next) {
   try {
     const s=await documentationScope(req,{reviewerOnly:true,noteScope:true}), type=req.body.documentType,id=Number(req.body.documentId);
     if(!['note','treatment_plan'].includes(type)||!['approved','changes_requested'].includes(req.body.outcome)||req.body.attested!==true)throw policyError(400,'Document, outcome and review attestation are required');
-    const {hash}=await loadReviewDocument(s,type,id), feedback=String(req.body.feedback || '').trim();
+    const {hash,row}=await loadReviewDocument(s,type,id), feedback=String(req.body.feedback || '').trim();
+    const clinicalVersion = type === 'note' ? clinicalVersionReference(row) : null;
     if(req.body.contentHash!==hash)throw policyError(409,'Document changed or was not opened. Read the latest version before attesting.');
     if(feedback.length>4000 || (req.body.outcome==='changes_requested'&&!feedback))throw policyError(400,'Describe the requested changes (up to 4000 characters)');
-    await pool.execute('INSERT INTO clinical_document_reviews (agency_id,provider_user_id,supervisor_user_id,document_type,document_id,content_hash,outcome,feedback_encrypted) VALUES (?,?,?,?,?,?,?,?)',[s.agencyId,s.providerUserId,req.user.id,type,id,hash,req.body.outcome,encryptFamilyBilling({feedback},`document-review:${s.agencyId}:${type}:${id}`)]);
+    await pool.execute('INSERT INTO clinical_document_reviews (agency_id,provider_user_id,supervisor_user_id,document_type,document_id,content_hash,outcome,feedback_encrypted) VALUES (?,?,?,?,?,?,?,?)',[s.agencyId,s.providerUserId,req.user.id,type,id,hash,req.body.outcome,encryptFamilyBilling({feedback,clinicalVersion},`document-review:${s.agencyId}:${type}:${id}`)]);
     if(type==='note' && req.body.outcome==='changes_requested') {
       const [claims]=await clinicalPool.execute("SELECT id,claimmd_connection_id FROM clinical_claims WHERE agency_id = ? AND clinical_note_id = ? AND is_deleted = 0 AND claim_lifecycle NOT IN ('draft','ready','rejected')",[s.agencyId,id]);
       for(const claim of claims)await recordClaimEvent({agencyId:s.agencyId,claimId:claim.id,connectionId:claim.claimmd_connection_id||`agency:${s.agencyId}`,eventKey:`documentation-changes:${id}:${hash}:${Date.now()}`,eventType:'documentation_followup',actorUserId:req.user.id,payload:{message:'Supervisor requested a documentation amendment after submission. Review whether a corrected claim or payer follow-up is required.',documentId:id}});
     }
-    res.json({ok:true});
+    res.json({ok:true,clinicalVersion});
   }catch(e){next(e);}
 }

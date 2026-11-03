@@ -83,6 +83,29 @@ class ClinicalNote {
       throw Object.assign(new Error('Add a signed amendment/correction to the original note using Addenda and amendments; do not replace an amendment draft.'), { status: 409 });
     }
     const nid = Number(noteId || 0);
+    if (nid && notePayload === undefined && title == null && metadataJson !== undefined) {
+      const db=await clinicalPool.getConnection();
+      try {
+        await db.beginTransaction();
+        const [[current]]=await db.execute('SELECT * FROM clinical_notes WHERE id=? FOR UPDATE',[nid]);
+        if (!current) { await db.rollback(); return null; }
+        if (current.provider_signed_at || current.content_review_source === 'provider_review') {
+          const parse=v=>typeof v==='string'?JSON.parse(v || '{}'):v || {};
+          const canonical=v=>JSON.stringify(v, function(k,value){return value && typeof value==='object' && !Array.isArray(value)?Object.fromEntries(Object.keys(value).sort().map(key=>[key,value[key]])):value;});
+          const incoming=parse(metadataJson), existing=parse(current.metadata_json);
+          for (const [key,value] of Object.entries(incoming)) {
+            if (!['printUpload','digitalShare'].includes(key) && canonical(value)!==canonical(existing[key])) throw Object.assign(new Error('Signed clinical content and signature history require a linked amendment version.'),{status:409});
+          }
+          const permitted={};
+          if (incoming.printUpload !== undefined) permitted.printUpload=incoming.printUpload;
+          if (incoming.digitalShare !== undefined) permitted.digitalShare={...(existing.digitalShare || {}),...incoming.digitalShare};
+          if (!Object.keys(permitted).length) throw Object.assign(new Error('Only operational document references may be updated on a signed note.'),{status:409});
+          await db.execute('UPDATE clinical_notes SET metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',[JSON.stringify({...existing,...permitted}),nid]);
+          await db.commit(); return this.findById(nid);
+        }
+        await db.rollback();
+      } catch(error) { await db.rollback(); throw error; } finally { db.release(); }
+    }
     if (!nid) return null;
     const updates = [];
     const values = [];
@@ -100,9 +123,8 @@ class ClinicalNote {
     }
     if (!updates.length) return this.findById(nid);
     values.push(nid);
-    const changesContent=notePayload!==undefined||title!=null;
     const [result]=await clinicalPool.execute(
-      `UPDATE clinical_notes SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ? ${changesContent?'AND provider_signed_at IS NULL':''} AND COALESCE(content_review_source,'') <> 'provider_review'`,
+      `UPDATE clinical_notes SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND provider_signed_at IS NULL AND COALESCE(content_review_source,'') <> 'provider_review'`,
       values
     );
     if(!result.affectedRows)throw Object.assign(new Error('Completed notes must be changed through an amendment/addendum'),{status:409});
@@ -134,6 +156,8 @@ class ClinicalNote {
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ?
          AND is_deleted = 0
+         AND provider_signed_at IS NULL
+         AND COALESCE(content_review_source,'') <> 'provider_review'
          AND is_legal_hold = 0`,
       [actorUserId, id]
     );

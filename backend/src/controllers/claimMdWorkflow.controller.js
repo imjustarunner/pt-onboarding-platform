@@ -1,5 +1,5 @@
-import { appendReviewRequest, noteAuthorId, serviceDetailBillingBlockers } from '../services/clinicalSupervisorReview.service.js';
-import { parseObject } from '../services/supervisedBillingPolicy.service.js';
+import { serviceDetailBillingBlockers } from '../services/clinicalSupervisorReview.service.js';
+import { getApprovedClinicalContext, approvedVersionBillingBlockers, clinicalVersionReference } from '../services/clinicalNoteVersionBilling.service.js';
 import { checkSuperviseePayerEligibility } from '../services/credentialPayerEligibility.service.js';
 import { screeningClaimBlockers } from '../services/h0002ScreeningRules.js';
 import crypto from 'node:crypto';
@@ -54,7 +54,10 @@ export async function prepareClaimReview(agencyId, claimId) {
   const documentation = await claimDocumentation(agencyId, claim);
   readiness.blockers.push(...screeningClaimBlockers(documentation.note,claim,lines));
   documentation.note.latest_addendum_at = documentation.addenda.at(-1)?.created_at || null;
-  const [[session]] = await clinicalPool.execute('SELECT provider_user_id, rendering_provider_user_id,service_location_id,place_of_service FROM clinical_sessions WHERE id = ? AND agency_id = ?', [claim.clinical_session_id,agencyId]);
+  const [[liveSession]] = await clinicalPool.execute('SELECT * FROM clinical_sessions WHERE id = ? AND agency_id = ?', [claim.clinical_session_id,agencyId]);
+  const approvedContext = await getApprovedClinicalContext({ note: documentation.note, session: liveSession });
+  const session = approvedContext.session;
+  documentation.note = approvedContext.note;
   const providerId = Number(session?.provider_user_id || session?.rendering_provider_user_id);
   const rollout = await providerBillingRolloutReview({ agencyId, providerUserId: providerId, payerId: insurance?.primary?.payerId, serviceDate: claim.date_of_service });
   if (!rollout.ready) readiness.blockers.push(rollout.reason);
@@ -88,6 +91,7 @@ export async function prepareClaimReview(agencyId, claimId) {
     supervising_provider: supervision.emitSupervisor ? supervision.supervisingProvider : null,
     place_of_service: overrides?.placeOfService || claim.place_of_service, billing_npi: overrides?.billingNpi || claim.billing_npi, taxonomy_code: overrides?.taxonomyCode || claim.taxonomy_code };
   readiness.blockers.push(...await serviceDetailBillingBlockers(documentation.note,effective,lines,undefined,session));
+  readiness.blockers.push(...approvedVersionBillingBlockers({ note: documentation.note, claim: effective, lines, session, diagnosisCodes: readiness.diagnosisCodes }));
   assertClaimBillingNpi(billingProfile, effective.billing_npi);
   const effectiveLines = overrides?.modifiers ? lines.map(line => ({ ...line, modifiers_json: String(overrides.modifiers).split(/[,\s]+/).filter(Boolean) })) : lines;
   const basePayload = buildClaimMdJsonClaim(effective, effectiveLines, { insurance, practice });
@@ -101,8 +105,11 @@ export async function prepareClaimReview(agencyId, claimId) {
   if(aiReview.status==='required')readiness.blockers.push('Run the AI content and claim consistency review');
   else if(unresolved.length)readiness.blockers.push(...unresolved.map(f=>f.message));
   else aiReview.status='passed';
-  const [[clinicalReview]] = await pool.execute("SELECT outcome FROM clinical_document_reviews WHERE agency_id = ? AND document_type = 'note' AND document_id = ? ORDER BY id DESC LIMIT 1",[agencyId,claim.clinical_note_id]);
-  if(clinicalReview?.outcome==='changes_requested')readiness.blockers.push('Supervisor requested documentation changes; obtain review after the amendment');
+  const [[clinicalReview]] = await pool.execute("SELECT outcome,content_hash FROM clinical_document_reviews WHERE agency_id = ? AND document_type = 'note' AND document_id = ? ORDER BY id DESC LIMIT 1",[agencyId,claim.clinical_note_id]);
+  const reviewTargetsCurrentVersion = !clinicalReview?.content_hash || !documentation.note.clinical_version_id
+    || clinicalReview.content_hash === documentation.note.clinical_version_content_hash
+    || (Number(documentation.note.clinical_version_number) === 1 && clinicalReview.content_hash === documentation.note.legacy_review_content_hash);
+  if(clinicalReview?.outcome==='changes_requested'&&reviewTargetsCurrentVersion)readiness.blockers.push('Supervisor requested documentation changes; obtain review after the amendment');
   readiness.blockers.push(...supervision.blockers);
   if(await hasPendingClaimChange(claim))readiness.blockers.push('Service-code changes await supervisor approval and billing review. Claim transmission is paused.');
   if(previouslyTransmitted(claim))readiness.blockers.push('Previously transmitted claim: reconcile payer status and use the payer-specific correction workflow; do not send another original.');
@@ -138,7 +145,7 @@ export async function reviewClaim(req, res, next) {
     const history = await claimEventHistory(agencyId, claimId);
     res.json({ claimId, clientId: prepared.claim.client_id, dateOfService: prepared.claim.date_of_service, clinicalSessionId: prepared.claim.clinical_session_id, clinicalNoteId: prepared.claim.clinical_note_id,
       lifecycle: prepared.claim.claim_lifecycle, billingOffice: prepared.billingOffice, payload: prepared.payload, readiness: prepared.readiness, reviewHash: prepared.reviewHash,
-      supervision:prepared.supervision,aiReview:prepared.aiReview,appliedOverrides:prepared.appliedOverrides,history });
+      supervision:prepared.supervision,clinicalVersion:clinicalVersionReference(prepared.documentation.note),aiReview:prepared.aiReview,appliedOverrides:prepared.appliedOverrides,history });
   } catch (e) { next(e); }
 }
 
@@ -246,9 +253,14 @@ export async function claimDraft(req, res, next) {
 export async function listUndraftedNotes(req, res, next) {
   try {
     const agencyId = await agencyFor(req);
-    const [notes] = await clinicalPool.execute(`SELECT n.id, n.client_id, n.clinical_session_id, n.service_code, n.provider_signed_at
+    const [notes] = await clinicalPool.execute(`SELECT n.id, n.client_id, n.clinical_session_id,
+      COALESCE(JSON_UNQUOTE(JSON_EXTRACT(r.snapshot_json,'$.metadataJson.serviceCode')),n.service_code) AS service_code,
+      n.provider_signed_at, h.effective_revision_id AS clinical_version_id
       FROM clinical_notes n JOIN clinical_sessions s ON s.id = n.clinical_session_id AND s.agency_id = n.agency_id
+      JOIN clinical_note_revision_heads h ON h.clinical_note_id=n.id AND h.agency_id=n.agency_id
+      JOIN clinical_note_revisions r ON r.id=h.effective_revision_id AND r.agency_id=n.agency_id
       WHERE n.agency_id = ? AND n.is_deleted = 0 AND n.provider_signed_at IS NOT NULL AND n.is_billable = 1
+      AND h.pending_revision_id IS NULL
       AND s.encounter_status NOT IN ('no_show','cancelled','canceled','voided','rescheduled')
       AND (s.claim_blocked_reason IS NULL OR s.claim_blocked_reason = '')
       AND NOT EXISTS (SELECT 1 FROM clinical_claims c WHERE c.agency_id = n.agency_id AND c.clinical_session_id = n.clinical_session_id)
@@ -277,22 +289,24 @@ export async function correctClaim(req, res, next) {
     if (Number(req.body.revision) !== claim.billing_revision) throw fail(409, 'Someone changed this claim. Reload before saving.');
     const [originalLines] = await db.execute('SELECT id, charge_cents, modifiers_json FROM clinical_claim_lines WHERE clinical_claim_id = ? FOR UPDATE', [claimId]);
     if (lines.length !== originalLines.length || new Set(lines.map(l => l.id)).size !== lines.length || lines.some(l => !originalLines.some(o => Number(o.id) === l.id))) throw fail(409, 'Service lines changed. Reload the claim.');
+    let clinicalVersion = null;
+    if (claim.clinical_note_id) {
+      const [[originalNote]] = await db.execute('SELECT * FROM clinical_notes WHERE id=? AND agency_id=? FOR UPDATE',[claim.clinical_note_id,agencyId]);
+      if (!originalNote) throw fail(409, 'The claim clinical note is unavailable.');
+      const [[session]] = await db.execute('SELECT * FROM clinical_sessions WHERE id=? AND agency_id=?',[claim.clinical_session_id,agencyId]);
+      const approved = await getApprovedClinicalContext({ note: originalNote, session }, db);
+      const approvedPos = approved.note.metadata_json?.structuredChart?.placeOfService || approved.session.place_of_service;
+      if (approvedPos && String(approvedPos) !== pos) throw fail(409, 'Propose a clinical amendment and obtain the author signature and required supervisor approval before changing this claim’s place of service.');
+      clinicalVersion = clinicalVersionReference(approved.note);
+    }
     for (const line of lines) await db.execute('UPDATE clinical_claim_lines SET charge_cents = ?, modifiers_json = ? WHERE id = ? AND clinical_claim_id = ?', [line.chargeCents, JSON.stringify(line.modifiers), line.id, claimId]);
     await db.execute(`UPDATE clinical_claims SET place_of_service = ?, billing_npi = ?, rendering_npi = ?, taxonomy_code = ?, amount_cents = ?, billing_revision = billing_revision + 1 WHERE id = ? AND agency_id = ?`,
       [pos, billingNpi, renderingNpi, taxonomy || null, lines.reduce((sum, l) => sum + l.chargeCents, 0), claimId, agencyId]);
     await recordClaimEvent({ agencyId, claimId, connectionId: claim.claimmd_connection_id || `agency:${agencyId}`, eventKey: `correction:${crypto.randomUUID()}`,
-      eventType: 'correction', actorUserId: req.user.id, payload: { reason,
+      eventType: 'correction', actorUserId: req.user.id, payload: { reason, clinicalVersion,
         before: { placeOfService: claim.place_of_service, billingNpi: claim.billing_npi, renderingNpi: claim.rendering_npi, taxonomyCode: claim.taxonomy_code, lines: originalLines },
         after: { placeOfService: pos, billingNpi, renderingNpi, taxonomyCode: taxonomy, lines } } }, db);
-    if (claim.clinical_note_id) {
-      const [[note]] = await db.execute('SELECT * FROM clinical_notes WHERE id=? AND agency_id=? FOR UPDATE',[claim.clinical_note_id,agencyId]);
-      if (note && Number(req.user.id) !== noteAuthorId(note)) {
-        const meta = parseObject(note.metadata_json);
-        appendReviewRequest(meta,{action:'review_acknowledge',message:`Billing amended claim #${claimId} linked to your note. ${reason}`,actorUserId:req.user.id,source:'billing_correction'});
-        await db.execute('UPDATE clinical_notes SET metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND agency_id=?',[JSON.stringify(meta),note.id,agencyId]);
-      }
-    }
     await db.commit();
-    res.json({ ok: true, message: 'Claim corrected. The note author has a review/acknowledgement request. Review the refreshed claim before submitting.' });
+    res.json({ ok: true, clinicalVersion, message: 'Billing fields corrected. Review the refreshed claim before submitting. Clinical corrections require a signed note amendment.' });
   } catch (e) { if (db) await db.rollback(); next(e); } finally { db?.release(); }
 }

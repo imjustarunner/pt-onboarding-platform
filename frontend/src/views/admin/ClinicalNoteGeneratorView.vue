@@ -136,6 +136,7 @@
           :requests="activeNoteReviewRequests"
           @acknowledged="loadNoteReviewWork"
           @correct="beginAmendmentFromSignedNote"
+          @open-version="openRequestedNoteVersion"
         />
         <NoteAidIntakeDraftEditor
           v-if="showIntakeDraftEditor && effectiveClientId"
@@ -1108,15 +1109,16 @@
               <span class="na-ready-badge na-ready-badge--signed">Signed · read only</span>
             </div>
             <button type="button" class="na-btn-outline" @click="beginAmendmentFromSignedNote">
-              Add entry or correction
+              Amend or add entry
             </button>
           </div>
           <p class="na-field-hint">
             The original signed note remains on file. Use an addendum for new information, an amendment/correction
-            for an error, or a late entry for omitted information. Each post-signature entry needs its own author signature and supervisor approval.
+            for an error, or a late entry for omitted information. Each addition records its own author, signature and timestamp. Amendments follow the required review steps.
           </p>
           <p v-if="approvalError" class="na-delete-err">{{ approvalError }}</p>
           <ClinicalNoteDetailFetcher
+            ref="signedNoteDetail"
             :note-id="signedNoteViewerId"
             :agency-id="signedNoteViewerAgencyId || noteAidAgencyId || currentAgencyId"
             @amended="loadNoteReviewWork"
@@ -3248,6 +3250,7 @@ const draftId = ref(null);
 /** Chart clinical_notes row opened for read-only section copy. */
 const viewingChartNote = ref(null);
 /** Chart note id for read-only signed / chart copy view (independent of draft outputObj). */
+const signedNoteDetail = ref(null);
 const signedNoteViewerId = ref(null);
 const signedNoteViewerAgencyId = ref(null);
 const chartNoteReadOnly = computed(() => !!viewingChartNote.value || !!signedNoteViewerId.value);
@@ -4064,9 +4067,14 @@ async function closeNoteWorkspace() {
 
 const libraryUserId = computed(() => authStore.user?.id || null);
 
+async function openRequestedNoteVersion(request) {
+  if (Number(request?.clinicalNoteId) !== Number(signedNoteViewerId.value)) return;
+  await signedNoteDetail.value?.openRevision(request.revisionId);
+  await beginAmendmentFromSignedNote();
+}
 async function beginAmendmentFromSignedNote() {
   if (!signedNoteViewerId.value) return;
-  const section = document.getElementById(`post-signature-entries-${signedNoteViewerId.value}`);
+  const section = document.getElementById(`immutable-note-versions-${signedNoteViewerId.value}`);
   section?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   section?.querySelector('select')?.focus({ preventScroll: true });
 }
@@ -6523,6 +6531,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       await api.post(`/medical-billing/notes/${noteId}/review`,{agencyId:Number(noteAidAgencyId.value||currentAgencyId.value),contentReviewConfirmed:true,contentHash:hash},{skipGlobalLoading:true});
     }
     let terminationTodo = null;
+    let providerSignatureAt = null;
     const openTerminationAfterSign = ['now', 'after_progress'].includes(terminationNextStep.value);
     if (shouldAutosign) {
       try {
@@ -6530,19 +6539,22 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
           `/medical-billing/notes/${noteId}/sign`,
           {
             agencyId: Number(noteAidAgencyId.value || currentAgencyId.value || 0),
+            signingToken: createRes?.data?.note?.signingToken,
             accurateAndComplete: true,
             medicalNecessityAttested: !isReviewOnlyAid.value && !isTreatmentSummaryAid.value,
             contentReviewConfirmed: isReviewOnlyAid.value || isTreatmentSummaryAid.value
           },
           { skipGlobalLoading: true }
         );
+        if (!signRes?.data?.signedAt) throw new Error('The server did not confirm the provider signature. Reload the saved note before continuing.');
+        providerSignatureAt = signRes.data.signedAt;
         terminationTodo = signRes?.data?.terminationTodo || null;
         if (terminationTodo) {
           workQueueItems.value = [...workQueueItems.value.filter((row) => row.id !== terminationTodo.id), normalizeWorkQueueItemStatus(terminationTodo)];
           saveWorkQueue(authStore.user?.id, workQueueItems.value);
         }
       } catch (signErr) {
-        throw new Error(signErr?.response?.data?.error?.message || 'The note was saved, but signing failed. Review and retry the signature.');
+        throw new Error(signErr?.response?.data?.error?.message || signErr?.message || 'The note was saved, but signing failed. Review and retry the signature.');
       }
     }
 
@@ -6551,7 +6563,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
 
     if (isTreatmentSummaryAid.value && noteId) {
       treatmentSummaryNoteId.value = noteId;
-      treatmentSummaryProviderSignedAt.value = shouldAutosign ? new Date().toISOString() : null;
+      treatmentSummaryProviderSignedAt.value = providerSignatureAt;
       treatmentSummarySupervisorSignedAt.value = null;
     }
 
@@ -6578,7 +6590,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
     const nextProgress = nextInProgressRow.value;
     const nextSameClientProgress = nextSameClientInProgressRow.value;
     const nextSameClientQueue = nextSameClientInQueueItem.value;
-    markActiveWorkQueueItemSigned();
+    markActiveWorkQueueItemSigned(providerSignatureAt);
     await loadRecent();
 
     const mode = afterSign === 'progress'
@@ -7746,9 +7758,9 @@ function markActiveWorkQueueItemCompleted(itemId = null) {
   }, itemId);
 }
 
-function markActiveWorkQueueItemSigned() {
+function markActiveWorkQueueItemSigned(signedAt = null) {
   patchActiveWorkQueueStatus(DOC_STATUS.SIGNED, {
-    signedAt: new Date().toISOString()
+    signedAt: signedAt || new Date().toISOString()
   });
 }
 

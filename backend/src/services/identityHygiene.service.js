@@ -327,6 +327,19 @@ export async function mergeUsers({ keepId, sourceIds, fieldChoices = {}, actorUs
   return previewUserMerge({ keepId, sourceIds: [], fieldChoices: {} }).catch(() => ({ keepId, merged: true }));
 }
 
+export async function assertClientMergePreservesSignedNotes(database, sourceIds) {
+  const ids = [...new Set(sourceIds.map(Number).filter(value => Number.isSafeInteger(value) && value > 0))];
+  if (!ids.length) return;
+  let records;
+  try {
+    [records] = await database.execute(`SELECT id FROM clinical_notes WHERE client_id IN (${ids.map(() => '?').join(',')}) AND provider_signed_at IS NOT NULL FOR UPDATE`, ids);
+  } catch (error) {
+    if (error.code === 'ER_NO_SUCH_TABLE') return;
+    throw error;
+  }
+  if (records.length) throw Object.assign(new Error('A source client has signed clinical records. Preserve those records under their original client identity and use the clinical chart reconciliation workflow before merging.'), { status: 409 });
+}
+
 export async function mergeClients({ keepId, sourceIds, fieldChoices = {}, actorUserId = null }) {
   const preview = await previewClientMerge({ keepId, sourceIds, fieldChoices });
   const conn = await pool.getConnection();
@@ -335,8 +348,8 @@ export async function mergeClients({ keepId, sourceIds, fieldChoices = {}, actor
     try {
       const clinicalPool = (await import('../config/clinicalDatabase.js')).default;
       clinicalConn = await clinicalPool.getConnection();
-    } catch {
-      clinicalConn = null;
+    } catch (error) {
+      throw Object.assign(new Error('Clinical records are unavailable. Retry the client merge after clinical storage is available.'), { status: 503, cause: error });
     }
     await conn.beginTransaction();
     if (clinicalConn) await clinicalConn.beginTransaction();
@@ -345,6 +358,7 @@ export async function mergeClients({ keepId, sourceIds, fieldChoices = {}, actor
     if (locked.length !== ids.length || locked.some(row => Number(row.agency_id) !== Number(preview.keep.agency_id) || row.status === 'ARCHIVED')) {
       throw Object.assign(new Error('Client records changed or belong to different agencies. Refresh the merge review.'), { status: 409 });
     }
+    await assertClientMergePreservesSignedNotes(clinicalConn || conn, preview.others.map(row => row.id));
 
     // Free unique identifier_code on sources before any keep-field update that might adopt one.
     for (const other of preview.others) {

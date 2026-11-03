@@ -6,23 +6,43 @@ import { encryptFamilyBilling, decryptFamilyBilling } from './familyBillingEncry
 import { callGeminiText } from './geminiText.service.js';
 import { policyError } from './supervisedBillingPolicy.service.js';
 import { noteReviewContent } from './clinicalReviewDocument.service.js';
+import { getApprovedClinicalContext, clinicalVersionReference } from './clinicalNoteVersionBilling.service.js';
 
 export const REVIEW_VERSION = 'claim-content-v1';
 export const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export async function claimDocumentation(agencyId, claim, db = clinicalPool) {
-  const [[note]] = await db.execute('SELECT * FROM clinical_notes WHERE id = ? AND agency_id = ? AND clinical_session_id = ? AND is_deleted = 0', [claim.clinical_note_id, agencyId, claim.clinical_session_id]);
-  if (!note) throw policyError(409,'A current clinical note is required');
-  const [addenda] = await db.execute('SELECT id,body,created_by_user_id,created_at,entry_kind,entry_reason,author_signed_at FROM clinical_note_addenda WHERE clinical_note_id = ? AND agency_id = ? ORDER BY id', [note.id,agencyId]);
+  const [[originalNote]] = await db.execute('SELECT * FROM clinical_notes WHERE id = ? AND agency_id = ? AND clinical_session_id = ? AND is_deleted = 0', [claim.clinical_note_id, agencyId, claim.clinical_session_id]);
+  if (!originalNote) throw policyError(409,'A current clinical note is required');
+  const { note } = await getApprovedClinicalContext({ note: originalNote }, db);
+  const [legacyAddenda] = await db.execute('SELECT id,body,created_by_user_id,created_at,entry_kind,entry_reason,author_signed_at FROM clinical_note_addenda WHERE clinical_note_id = ? AND agency_id = ? ORDER BY id', [note.id,agencyId]);
+  const addenda = note.clinical_version_addenda || legacyAddenda;
   note.addendum_count=addenda.length;
   note.latest_addendum_at=addenda.at(-1)?.created_at || null;
-  note.review_content_hash=crypto.createHash('sha256').update(noteReviewContent(note.note_payload,addenda)).digest('hex');
+  note.legacy_review_content_hash=crypto.createHash('sha256').update(noteReviewContent(note.note_payload,note.clinical_version_signed_addenda || addenda)).digest('hex');
+  note.review_content_hash=note.clinical_version_content_hash || crypto.createHash('sha256').update(noteReviewContent(note.note_payload,addenda)).digest('hex');
+  const clinicalSupervisorSignature = note.clinical_version_signatures?.find(signature => ['supervisor_sign', 'initial_supervisor_sign'].includes(signature.action));
+  if (clinicalSupervisorSignature) {
+    note.supervisor_cosigned_at = clinicalSupervisorSignature.signedAt;
+    note.supervisor_cosigned_by_user_id = clinicalSupervisorSignature.actorUserId;
+    const metadata = typeof note.metadata_json === 'string' ? JSON.parse(note.metadata_json) : note.metadata_json || {};
+    note.metadata_json = { ...metadata, supervisorCosign: { contentHash: note.review_content_hash, signedAt: clinicalSupervisorSignature.signedAt, signedByUserId: clinicalSupervisorSignature.actorUserId, revisionId: note.clinical_version_id, signatureId: clinicalSupervisorSignature.id } };
+  } else if (Number(note.clinical_version_number) > 1) {
+    // An original-version signature cannot approve a later amendment.
+    note.supervisor_cosigned_at = null;
+    note.supervisor_cosigned_by_user_id = null;
+    const metadata = typeof note.metadata_json === 'string' ? JSON.parse(note.metadata_json) : note.metadata_json || {};
+    const { supervisorCosign, ...unsignedMetadata } = metadata;
+    note.metadata_json = unsignedMetadata;
+  }
   const raw = maybeDecryptNotePayload(note.note_payload);
   let narrative = raw;
   try { const parsed=JSON.parse(raw); if(parsed.sections && typeof parsed.sections==='object') narrative=JSON.stringify(parsed.sections); } catch { /* plain clinical narrative */ }
-  return { note, narrative: String(narrative || ''), addenda: addenda.map(a=>({...a,body:maybeDecryptNotePayload(a.body)})) };
+  return { note, version: clinicalVersionReference(note), narrative: String(narrative || ''), addenda: addenda.map(a=>({...a,body:maybeDecryptNotePayload(a.body)})) };
 }
 export function reviewSourceHash({ documentation, payload, supervision, overrides, revision }) {
   return digest({ version:REVIEW_VERSION,note:documentation.note.id,content:documentation.narrative,addenda:documentation.addenda,
+    clinicalVersion: documentation.version || clinicalVersionReference(documentation.note),
+    clinicalSignatures: documentation.note.clinical_version_signatures || [],
     providerSignature:documentation.note.provider_signed_at,payload,supervision,overrides,revision });
 }
 export async function redactReviewNarrative(text, insurance, { fetchImpl = fetch, tokenProvider } = {}) {

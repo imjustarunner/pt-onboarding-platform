@@ -12,13 +12,14 @@ export const sessionLocationLabel = session => parseObject(session?.metadata_jso
 
 export const REVIEW_ACTIONS = ['changes_needed', 'review_acknowledge', 'feedback'];
 export function reviewSnapshotToken(note, session = {}) {
+  const ordered = value => Array.isArray(value) ? value.map(ordered) : value && typeof value==='object' ? Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([key,item])=>[key,ordered(item)])) : value;
   const date = v => {
     if (!v) return null;
     const raw = String(v), parsed = v instanceof Date ? v : new Date(/[zZ]$|[+-]\d\d:?\d\d$/.test(raw)?raw.replace(' ','T'):`${raw.replace(' ','T')}Z`);
     return Number.isFinite(+parsed) ? parsed.toISOString() : raw;
   };
   const {supervisorQueue,...metadata}=parseObject(note.metadata_json);
-  return crypto.createHash('sha256').update(JSON.stringify({metadata,providerSignedAt:date(note.provider_signed_at),providerSignedBy:note.provider_signed_by_user_id || null,supervisorSignedAt:date(note.supervisor_cosigned_at),supervisorSignedBy:note.supervisor_cosigned_by_user_id || null,session:{start:date(session.scheduled_start_at),end:date(session.scheduled_end_at),duration:session.duration_minutes==null?null:Number(session.duration_minutes),location:sessionLocationLabel(session),pos:session.place_of_service || null,serviceLocationId:Number(session.service_location_id)||null,timeZone:session.source_timezone || 'America/Denver'}})).digest('hex');
+  return crypto.createHash('sha256').update(JSON.stringify(ordered({metadata,providerSignedAt:date(note.provider_signed_at),providerSignedBy:note.provider_signed_by_user_id || null,supervisorSignedAt:date(note.supervisor_cosigned_at),supervisorSignedBy:note.supervisor_cosigned_by_user_id || null,session:{start:date(session.scheduled_start_at),end:date(session.scheduled_end_at),duration:session.duration_minutes==null?null:Number(session.duration_minutes),location:sessionLocationLabel(session),pos:session.place_of_service || null,serviceLocationId:Number(session.service_location_id)||null,timeZone:session.source_timezone || 'America/Denver'}}))).digest('hex');
 }
 export const noteAuthorId = note => Number(note.provider_signed_by_user_id || note.created_by_user_id);
 export function reviewRequestsForDisplay(metadata) {
@@ -55,7 +56,7 @@ export function normalizeServiceDetails(input) {
 }
 export function effectiveServiceDetails(note, session = {}) {
   const meta = parseObject(note.metadata_json), chart = meta.structuredChart || {};
-  const approved = (meta.serviceDetailAmendments || []).filter(a => a.approvedAt).at(-1);
+  const approved = Number(note.clinical_version_number)>1 ? null : (meta.serviceDetailAmendments || []).filter(a => a.approvedAt && !a.supersededByRevisionId).at(-1);
   const localTime = raw => {
     if (!raw) return null;
     const instant = raw instanceof Date ? raw : new Date(/[zZ]$|[+-]\d\d:?\d\d$/.test(String(raw)) ? String(raw).replace(' ','T') : `${String(raw).replace(' ','T')}Z`);
@@ -65,7 +66,7 @@ export function effectiveServiceDetails(note, session = {}) {
   };
   return approved?.serviceDetails || {durationMinutes: chart.durationMinutes ?? session.duration_minutes ?? null, locationLabel: chart.locationLabel || sessionLocationLabel(session) || meta.locationLabel || null, startTime: chart.startTime || localTime(session.scheduled_start_at), endTime: chart.endTime || localTime(session.scheduled_end_at), placeOfService: chart.placeOfService || session.place_of_service || null,serviceLocationId:Number(session.service_location_id) || null, ...(chart.participants ? {participants:chart.participants} : {}), ...(typeof chart.patientPresent === 'boolean' ? {patientPresent:chart.patientPresent} : {})};
 }
-export function pendingServiceDetails(meta) { return (meta.serviceDetailAmendments || []).filter(a => !a.approvedAt && !a.supersededByAmendmentId).at(-1)?.serviceDetails || null; }
+export function pendingServiceDetails(meta) { return (meta.serviceDetailAmendments || []).filter(a => !a.approvedAt && !a.supersededByAmendmentId && !a.supersededByRevisionId).at(-1)?.serviceDetails || null; }
 export function assertServiceDetailsComplete(note, session = {}) {
   const details = pendingServiceDetails(parseObject(note.metadata_json)) || effectiveServiceDetails(note,session);
   const missing = ['durationMinutes','locationLabel','startTime','endTime'].filter(k => !details[k]);
@@ -118,14 +119,14 @@ export async function lockedNoteMutation({noteId, agencyId, contentHash, snapsho
     const current = await loadReviewDocument({agencyId,providerUserId:note.provider_signed_by_user_id || note.created_by_user_id},'note',noteId,db);
     if (contentHash !== undefined && (!contentHash || contentHash !== current.hash)) throw policyError(409,'The note changed. Open the current version before continuing.');
     const [[reviewSession]] = note.clinical_session_id ? await db.execute('SELECT * FROM clinical_sessions WHERE id=? AND agency_id=?',[note.clinical_session_id,agencyId]) : [[{}]];
-    if (contentHash !== undefined && snapshotToken !== reviewSnapshotToken(note,reviewSession || {})) throw policyError(409,'The review details changed. Open the current note before continuing.');
+    if (contentHash !== undefined && snapshotToken !== reviewSnapshotToken(current.row || note,current.session || reviewSession || {})) throw policyError(409,'The review details changed. Open the current note before continuing.');
     const meta = parseObject(note.metadata_json), result = await mutate({db,note,meta,current});
     await db.execute('UPDATE clinical_notes SET metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND agency_id=?',[JSON.stringify(meta),noteId,agencyId]);
     await db.commit(); return result;
   } catch (e) { await db.rollback(); throw e; } finally { db.release(); }
 }
 export async function applyApprovedServiceDetails(db, note, meta, actorUserId, approvedAt) {
-  const pending = (meta.serviceDetailAmendments || []).filter(a => !a.approvedAt && !a.supersededByAmendmentId);
+  const pending = (meta.serviceDetailAmendments || []).filter(a => !a.approvedAt && !a.supersededByAmendmentId && !a.supersededByRevisionId);
   if (!pending.length) return;
   const latest = pending.at(-1), d = latest.serviceDetails;
   const [[session]] = await db.execute('SELECT * FROM clinical_sessions WHERE id=? AND agency_id=?',[note.clinical_session_id,note.agency_id]);
@@ -147,7 +148,7 @@ export async function applyApprovedServiceDetails(db, note, meta, actorUserId, a
 // A corrected duration must agree with the configured code/units. Never silently
 // reprice a draft or let stale units survive an approved timing amendment.
 export async function serviceDetailBillingBlockers(note, claim, lines, loadCodes, session) {
-  const meta = parseObject(note.metadata_json), approved = (meta.serviceDetailAmendments || []).filter(a => a.approvedAt).at(-1);
+  const meta = parseObject(note.metadata_json), approved = Number(note.clinical_version_number)>1 ? null : (meta.serviceDetailAmendments || []).filter(a => a.approvedAt && !a.supersededByRevisionId).at(-1);
   if (!approved) return [];
   const blockers = [], details = approved.serviceDetails;
   try { await verifyServiceAmendmentLocation(note,session || {},details); } catch(e) { blockers.push(e.message); }
@@ -192,7 +193,7 @@ export async function verifiedServiceLocation(agencyId, details, source=pool) {
   const [[location]]=await source.execute('SELECT id,name,place_of_service,billing_office_location_id,street_address,city,state,postal_code FROM agency_service_locations WHERE id=? AND agency_id=? AND is_active=1',[details.serviceLocationId,agencyId]);
   if (!location) throw policyError(409,'The selected service location is unavailable or belongs to another agency.');
   if (String(location.place_of_service)!==String(details.placeOfService) || String(location.name)!==String(details.locationLabel)) throw policyError(409,'The service location changed. Refresh its verified name and place of service.');
-  if (details.locationSnapshot && JSON.stringify(details.locationSnapshot)!==JSON.stringify(serviceLocationSnapshot(location))) throw policyError(409,'The verified location address or billing office changed. Record a new service-detail amendment before approval.');
+  if (details.locationSnapshot && JSON.stringify(Object.entries(details.locationSnapshot).sort(([a],[b])=>a.localeCompare(b)))!==JSON.stringify(Object.entries(serviceLocationSnapshot(location)).sort(([a],[b])=>a.localeCompare(b)))) throw policyError(409,'The verified location address or billing office changed. Record a new service-detail amendment before approval.');
   return location;
 }
 export function serviceLocationSnapshot(location) { return {name:location.name,placeOfService:location.place_of_service,billingOfficeLocationId:Number(location.billing_office_location_id)||null,streetAddress:location.street_address||null,city:location.city||null,state:location.state||null,postalCode:location.postal_code||null}; }

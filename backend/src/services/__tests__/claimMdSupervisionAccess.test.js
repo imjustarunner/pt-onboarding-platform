@@ -6,6 +6,7 @@ vi.mock('../clinicalEligibility.service.js',()=>({default:{ensureAgencyAccess:m.
 vi.mock('../schedulingBillingAccess.service.js',async original=>({...await original(),hasSchedulingBillingAccess:m.billing}));
 vi.mock('../supervisedBillingPolicy.service.js',async original=>({...await original(),resolveDocumentationPolicy:m.policy,resolveNoteDocumentationPolicy:m.policy,requiredDocumentReviewTypes:vi.fn().mockResolvedValue([])}));
 vi.mock('../clinicalReviewDocument.service.js',()=>({loadReviewDocument:m.document}));
+vi.mock('../clinicalNoteVersionBilling.service.js',async original=>({...await original(),getApprovedClinicalContext:async({note,session})=>({note,session:session||{}})}));
 import { documentationScope,listSuperviseeDocumentReviews, getSupervisionDocumentationPolicy,saveSupervisionDocumentationPolicy,saveDocumentationReviewTime,getSuperviseeReviewDocument,saveSupervisedPayerPolicy,listSupervisedPayerPolicies } from '../../controllers/supervisedBilling.controller.js';
 const req=()=>({user:{id:5,role:'provider'},params:{providerId:'7'},body:{agencyId:1},query:{}});
 const res=()=>({json:vi.fn(),status:vi.fn().mockReturnThis()});

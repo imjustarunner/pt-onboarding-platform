@@ -1,0 +1,84 @@
+// Run the preview script first. Every fixture is conspicuously DEMO QA and all
+// writes terminate in api.js memory; external browser requests are blocked here.
+import assert from 'node:assert/strict';
+import { mkdir, realpath, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+let playwright;
+try { playwright = await import(process.env.NOTE_QA_PLAYWRIGHT || 'playwright'); }
+catch { const sharedDeps = await realpath(new URL('../node_modules/', import.meta.url)); playwright = await import(pathToFileURL(path.resolve(sharedDeps, '../../node_modules/playwright/index.mjs')).href); }
+const origin = process.env.NOTE_QA_ORIGIN || 'http://127.0.0.1:5198';
+const output = process.env.NOTE_QA_OUTPUT || '/private/tmp/pt-immutable-notes-qa';
+await mkdir(output, { recursive: true });
+const browser = await playwright.chromium.launch({ headless: true, executablePath: process.env.NOTE_QA_CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' });
+const page = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
+const errors = [], checks = [];
+page.on('pageerror', error => errors.push(error.message));
+await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+const check = (value, label) => { assert.ok(value, label); checks.push(label); };
+const inspect = () => page.evaluate(() => window.__DEMO_QA__.inspect());
+async function scenario(value) { await page.getByTestId('qa-scenario').selectOption(value); await page.getByTestId('version-select').waitFor(); }
+try {
+  await page.goto(origin); await page.getByTestId('create-amendment').waitFor();
+  check((await page.locator('.qa-banner').innerText()).includes('No backend'), 'Conspicuous DEMO QA fixture boundary');
+  await page.getByTestId('create-amendment').click();
+  check(await page.getByTestId('revision-durationMinutes').inputValue() === '10', 'Legacy pending duration prefills the unapproved draft');
+  check((await page.getByTestId('revision-participants').inputValue()).includes('Guardian: DEMO QA'), 'Legacy guardian and interpreter details are preserved');
+  check((await page.getByTestId('revision-serviceLocationId').innerText()).includes('DEMO QA Virtual'), 'Legacy virtual setting remains the saved draft choice');
+  check((await page.getByTestId('version-reason').inputValue()).includes('guardian-only'), 'Legacy correction reason is retained for review');
+  await page.getByTestId('revision-narrative-Subjective').fill('DEMO QA supervisor amended narrative after verifying the guardian-only screening.');
+  await page.screenshot({ path: path.join(output, 'supervisor-amendment-desktop.png'), fullPage: true });
+  await page.evaluate(() => window.__DEMO_QA__.setSignatureDelay(1000));
+  await page.getByTestId('supervisor-draft-attestation').check();
+  check(await page.getByTestId('save-version-draft').innerText() === 'Sign & submit amended version', 'One explicit final supervisor signature action');
+  await page.getByTestId('save-version-draft').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(output, 'supervisor-final-submit-desktop.png'), fullPage: true });
+  await page.getByTestId('save-version-draft').click();
+  check((await inspect()).selectedNoteId === 990071, 'Supervisor row remains selected while signature is unconfirmed');
+  check((await inspect()).completed.length === 0, 'No premature completion before server confirmation');
+  await page.waitForFunction(() => window.__DEMO_QA__.inspect().selectedNoteId === 990072);
+  const completed = await inspect(), writes = completed.calls.filter(call => call.method === 'post');
+  check(writes.filter(call => /\/versions\/\d+\/cosign$/.test(call.url)).length === 1, 'Exactly one final supervisor signature request');
+  check(!writes.some(call => /^\/medical-billing\/notes\/\d+\/cosign$/.test(call.url)), 'No second legacy note cosign');
+  check(completed.completed.includes(990071) && completed.selectedNoteId === 990072, 'Completed row disappears and actual workspace advances to next cosign');
+  check(!!completed.retainedDraft, 'Unrelated My Work draft remains attached');
+  check(completed.authorTasks.length === 1 && completed.authorTasks[0].assignedToUserId === 990009, 'Acknowledgement is assigned only to the original author');
+  check(completed.revisions[0].snapshot.notePayload.sections.Subjective.startsWith('DEMO QA original signed narrative'), 'Original signed narrative remains intact');
+  check(completed.revisions[1].snapshot.encounterContext.patientPresent === false, 'Final amendment preserves guardian-only patient presence');
+  check(completed.revisions[1].signatures[0].contentHash === completed.revisions[1].contentHash, 'Final signature covers the exact amended revision fingerprint');
+  check(writes.filter(call => /\/versions\/\d+\/cosign$/.test(call.url)).every(call => call.body.expectedEntryManifestHash === 'DEMO-QA-empty-entry-manifest'), 'Supervisor signature binds the exact reviewed addition manifest');
+  check(writes.every(call => call.skipGlobalLoading === true), 'Mutations use local loading without global overlays');
+  await page.screenshot({ path: path.join(output, 'next-cosign-desktop.png'), fullPage: true });
+  await scenario('provider');
+  check((await page.getByRole('region', { name: 'Independent additions included in this review' }).innerText()).includes('DEMO QA separately signed addition'), 'Signer sees independent additions with their own provenance before attesting');
+  await page.screenshot({ path: path.join(output, 'provider-addenda-review.png'), fullPage: true });
+  await page.getByTestId('version-select').selectOption('9900710'); await page.locator('.revision-content > summary').click();
+  check(await page.locator('.revision-content').innerText().then(text => text.includes('DEMO QA original signed narrative')), 'Original revision remains independently readable');
+  check(await page.locator('textarea').count() === 0, 'Prior signed revision has no editing controls');
+  check(!(await page.locator('.note-versions').innerText()).match(/delete/i), 'Signed revision exposes no delete action');
+  await page.getByTestId('version-select').selectOption('9900711'); await page.getByTestId('version-attestation').check(); await page.getByTestId('sign-version').click();
+  await page.waitForFunction(() => window.__DEMO_QA__.inspect().revisions[1].status === 'awaiting_supervisor_signature');
+  check((await page.locator('.version-status').innerText()).includes('Latest approved: version 1'), 'Author signature leaves supervisor approval pending');
+  await scenario('billing'); await page.getByTestId('create-amendment').click();
+  await page.getByTestId('version-reason').fill('DEMO QA billing identified incorrect documented service code.');
+  await page.getByTestId('revision-serviceCode').fill('90834'); await page.getByTestId('save-version-draft').click();
+  await page.waitForFunction(() => window.__DEMO_QA__.inspect().revisions.length === 2);
+  check(await page.getByTestId('sign-version').count() === 0, 'Biller can propose changes but cannot clinically sign');
+  check((await inspect()).revisions[1].proposedByUserId === 990022, 'Billing proposal retains biller identity');
+  await scenario('conflict'); await page.getByTestId('version-attestation').check(); await page.getByTestId('sign-version').click();
+  await page.getByRole('alert').filter({ hasText: 'revision changed' }).waitFor();
+  check(await page.getByTestId('sign-version').isDisabled(), 'Stale revision conflict blocks repeat signing until refresh');
+  check((await inspect()).completed.length === 0, 'Stale signature failure never completes the queue item');
+  await page.setViewportSize({ width: 390, height: 844 }); await scenario('supervisor'); await page.getByTestId('create-amendment').click();
+  check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Phone viewport has no horizontal overflow');
+  await page.screenshot({ path: path.join(output, 'supervisor-amendment-phone.png'), fullPage: true });
+  await page.getByTestId('save-version-draft').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(output, 'supervisor-final-submit-phone.png'), fullPage: true });
+  check(errors.length === 0, 'No browser runtime errors');
+  await writeFile(path.join(output, 'results.json'), JSON.stringify({ checks, errors }, null, 2));
+  console.log(JSON.stringify({ passed: checks.length, errors, output }));
+} catch (error) {
+  await page.screenshot({ path: path.join(output, 'failure.png'), fullPage: true }).catch(() => {});
+  await writeFile(path.join(output, 'failure.json'), JSON.stringify({ error: error.message, browserErrors: errors, checks }, null, 2));
+  throw error;
+} finally { await browser.close(); }

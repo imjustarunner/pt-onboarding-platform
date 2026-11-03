@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+const versions = vi.hoisted(() => ({ approved: vi.fn(), state: vi.fn() }));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: vi.fn() } }));
 vi.mock('../clinicalDiagnosisAttach.service.js', () => ({ getPrimaryClinicalDiagnosis: vi.fn() }));
+vi.mock('../clinicalNoteVersionBilling.service.js', () => ({ getApprovedClinicalContext: versions.approved, clinicalVersionBillingState: versions.state }));
 import clinicalPool from '../../config/clinicalDatabase.js';
 import { getPrimaryClinicalDiagnosis } from '../clinicalDiagnosisAttach.service.js';
 import { evaluateClaimReadiness } from '../clinicalClaimReadiness.service.js';
@@ -10,6 +12,8 @@ let note;
 const evaluate = (extra = {}) => evaluateClaimReadiness({ agencyId: 1, clientId: 2, clinicalSessionId: 3, requireSignedNote: true, ...extra });
 describe('clinical claim readiness', () => {
   beforeEach(() => {
+    versions.approved.mockImplementation(async ({ note }) => ({ note }));
+    versions.state.mockResolvedValue({ effectiveRevisionId: 10, effectiveRevision: { contentHash: 'a'.repeat(64) }, pendingRevisionId: null, blockers: [] });
     session = { id: 3 };
     note = { id: 4, clinical_session_id: 3, provider_signed_at: '2026-09-01', is_billable: 1 };
     getPrimaryClinicalDiagnosis.mockResolvedValue({ id: 5, icd10_code: 'F41.1' });
@@ -55,5 +59,21 @@ describe('clinical claim readiness', () => {
   it('preserves a session billing block', async () => {
     session.claim_blocked_reason = 'Duration is below the minimum';
     expect((await evaluate()).blockers).toContain('Duration is below the minimum');
+  });
+  it('uses the fully approved version diagnosis and date rather than mutable original metadata', async () => {
+    versions.approved.mockResolvedValue({ note: { ...note, clinical_version_id: 12, metadata_json: { dateOfService: '2026-10-04', diagnosisCodes: ['F43.20'] } } });
+    versions.state.mockResolvedValue({ effectiveRevisionId: 12, effectiveRevision: { contentHash: 'b'.repeat(64) }, pendingRevisionId: null, blockers: [] });
+    expect(await evaluate()).toMatchObject({ ready: true, diagnosisCodes: ['F43.20'], checks: { dateOfService: '2026-10-04' }, clinicalVersion: { revisionId: 12, contentHash: 'b'.repeat(64) } });
+  });
+  it('holds transmission while a new amendment is pending and retains the last approved version', async () => {
+    versions.state.mockResolvedValue({ effectiveRevisionId: 12, effectiveRevision: { contentHash: 'b'.repeat(64) }, pendingRevisionId: 13, blockers: ['A clinical amendment is pending clinical approval. Claim transmission is paused.'] });
+    expect(await evaluate()).toMatchObject({ ready: false, checks: { noteSigned: true }, clinicalVersion: { revisionId: 12, pendingRevisionId: 13 }, blockers: [expect.stringContaining('pending clinical approval')] });
+  });
+  it('holds an unconverted legacy service correction even when the original note already has a supervisor signature', async () => {
+    note.supervisor_cosigned_at = '2026-09-02';
+    note.metadata_json = { serviceDetailAmendments: [{ id: 20, approvedAt: null, serviceDetails: { durationMinutes: 60 } }] };
+    expect(await evaluate()).toMatchObject({ ready: false, blockers: [expect.stringContaining('legacy service correction')] });
+    note.metadata_json.serviceDetailAmendments[0].supersededByRevisionId = 12;
+    expect(await evaluate()).toMatchObject({ ready: true });
   });
 });

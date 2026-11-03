@@ -56,6 +56,18 @@ describe('supervisor review workflow and service detail audit',()=>{
     await lockedNoteMutation({noteId:4,agencyId:2,contentHash:'current',snapshotToken:reviewSnapshotToken(note),mutate:({meta})=>appendReviewRequest(meta,{action:'review_acknowledge',message:'Please review the claim amendment.',actorUserId:9})},source);
     const [sql,values]=db.execute.mock.calls.at(-1);expect(sql).not.toContain('note_payload');expect(JSON.parse(values[0]).reviewRequests[0].action).toBe('review_acknowledge');expect(db.commit).toHaveBeenCalled();
   });
+  it('validates the approved version token while preserving raw original clinical metadata in operational updates',async()=>{
+    const {db,source,note}=setup();note.metadata_json={clinicalValue:'original'};
+    const approved={...note,metadata_json:{clinicalValue:'approved-amendment'}},session={duration_minutes:60};
+    mocks.review.mockResolvedValue({row:approved,session,hash:'current'});
+    await lockedNoteMutation({noteId:4,agencyId:2,contentHash:'current',snapshotToken:reviewSnapshotToken(approved,session),mutate:({meta})=>appendReviewRequest(meta,{action:'feedback',message:'Review feedback',actorUserId:9})},source);
+    expect(JSON.parse(db.execute.mock.calls.at(-1)[1][0])).toMatchObject({clinicalValue:'original'});
+  });
+  it('ignores legacy service details superseded by an approved immutable version',()=>{
+    const meta={structuredChart:{...details,durationMinutes:60},serviceDetailAmendments:[{approvedAt:'old',serviceDetails:{durationMinutes:10}},{approvedAt:null,supersededByRevisionId:31,serviceDetails:{durationMinutes:5}}]};
+    expect(pendingServiceDetails(meta)).toBeNull();
+    expect(effectiveServiceDetails({clinical_version_number:2,metadata_json:meta})).toMatchObject({durationMinutes:60});
+  });
   it('applies the latest approved details to the encounter and existing draft while invalidating draft approval',async()=>{
     const note={id:4,agency_id:2,clinical_session_id:7}, meta={serviceDetailAmendments:[{id:11,serviceDetails:details,dateOfService:'2026-11-02',timeZone:'America/Denver',approvedAt:null}]};
     const db={execute:vi.fn(async sql=>sql.includes('SELECT * FROM clinical_sessions')?[[{id:7}]]:sql.includes('SELECT * FROM clinical_claims')?[[{id:8,claim_lifecycle:'draft',claim_payload:'{}'}]]:[[]])};

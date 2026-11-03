@@ -20,17 +20,17 @@
           <div><dt>Start – end <span v-if="serviceTimeZone">({{ serviceTimeZone }})</span></dt><dd :class="{ missing: !details.startTime || !details.endTime }">{{ details.startTime || 'Not recorded' }} – {{ details.endTime || 'Not recorded' }}</dd></div>
         </dl>
         <div class="signature-state"><span>{{ note.providerSignedAt ? 'Author signed' : 'Author signature missing' }}</span><span>{{ review.cosignedAt ? 'Supervisor approved' : 'Awaiting supervisor approval' }}</span></div>
-        <p v-if="note.pendingServiceDetails" class="pending-label">Service details above include an amendment awaiting your approval. <button type="button" :disabled="busy" @click="showCorrections = true">Revise pending amendment</button></p>
+        <p v-if="note.pendingServiceDetails" class="pending-label">A historical service amendment is awaiting approval. Review the preserved draft in Note versions before signing.</p>
         <CosignReviewTimer v-if="review.canTrackCosignTime && reviewProviderId" :key="`${noteId}-${review.contentHash}`" compact :agency-id="agencyId" :provider-id="reviewProviderId" :note-id="noteId" :content-hash="review.contentHash" />
       </div>
       <div ref="body" class="review-body">
         <p v-if="notice" class="review-notice" role="status">{{ notice }}</p>
+        <ClinicalNoteVersionHistory :note-id="noteId" :agency-id="agencyId" :legacy-pending-service-details="note.pendingServiceDetails" :legacy-amendment="legacyPendingAmendment" prefer-pending @loaded="onVersionsLoaded" @changed="onVersionChanged" @editing="amendmentEditing = $event" />
         <section v-if="openRequests.length" class="request-history" aria-label="Supervisor requests">
           <article v-for="request in openRequests" :key="request.id"><strong>{{ actionLabel(request.action || request.requestType || request.request_type) }}</strong><p>{{ readableReviewMessage(request.message) }}</p><small>{{ timestamp(request.createdAt || request.created_at) }}</small></article>
         </section>
         <div v-if="missingDetails.length && !review.cosignedAt" class="missing-details" role="status">
           <strong>Complete service documentation:</strong> {{ missingDetails.join(', ') }}.
-          <button v-if="canAmendService" type="button" :disabled="busy || showFeedback" @click="showCorrections = true">Add or correct service details</button>
         </div>
         <section v-if="sections.length" class="note-content" aria-label="Entered note content">
           <details v-for="section in sections" :key="section.id" open class="content-section">
@@ -58,7 +58,6 @@
         <section v-if="medicationText" class="clinical-section"><h3>Medications</h3><p class="prose">{{ medicationText }}</p></section>
         <nav class="detail-tabs" aria-label="Additional note information">
           <button v-for="tab in infoTabs" :key="tab.id" type="button" :title="tab.hint" :aria-expanded="activeInfo === tab.id" @click="toggleInfo(tab.id)">{{ tab.label }}</button>
-          <button v-if="canAmendService" type="button" title="Record a signed, attributable amendment to service details" :disabled="busy || showFeedback" :aria-expanded="showCorrections" @click="showCorrections = true">Service amendment</button>
         </nav>
         <section v-if="activeInfo === 'signature'" class="info-panel" aria-label="Electronic signature details">
           <h3>Electronic signatures</h3><p>{{ note.attestation?.statement || `${note.providerSigner?.name || 'Author'} signed ${timestamp(note.providerSignedAt)}.` }}</p>
@@ -79,30 +78,6 @@
           <ul v-else-if="materials.length"><li v-for="item in materials" :key="item.id">{{ item.title || item.filename || `Document #${item.id}` }}<span v-if="item.document_type"> · {{ item.document_type.replace(/_/g, ' ') }}</span></li></ul>
           <p v-else class="muted">No supporting documents listed for this encounter.</p>
         </section>
-        <form v-if="showCorrections && canAmendService" class="info-panel amendment-form" @submit.prevent="saveCorrection">
-          <h3>Service documentation amendment</h3><p>Record verified encounter details and the reason for your change. Your signed amendment preserves the original, requires fresh supervisory approval, and asks the author to acknowledge it.</p>
-          <p v-if="serviceTimeZone" class="muted">Start and end times use {{ serviceTimeZone }} on the date of service.</p>
-          <p v-if="locationsLoading" role="status">Loading service locations…</p>
-          <p v-else-if="locationsError" role="alert">{{ locationsError }} <button type="button" @click="loadServiceLocations">Retry locations</button></p>
-          <p v-else-if="!serviceLocations.length && !retainedLocation" role="status">No active service locations are available. Ask billing to configure the correct encounter location before signing an amendment.</p>
-          <div v-if="note.serviceDetailProposal" class="proposal-notice">
-            <p>Submission proposal: {{ note.serviceDetailProposal.dateOfService }}, {{ note.serviceDetailProposal.startTime }}–{{ note.serviceDetailProposal.endTime }} (10 minutes). Verify these are the actual service times on this note’s date of service.</p>
-            <button type="button" :disabled="busy || note.serviceDetailProposal.dateOfService !== String(note.dateOfService || '').slice(0,10) || note.serviceDetailProposal.crossesMidnight" @click="applySubmissionProposal">Use proposed times</button>
-          </div>
-          <div class="correction-fields">
-            <label>Duration (minutes)<input v-model="correction.durationMinutes" data-testid="duration" type="number" min="1" max="1440" required :disabled="busy" /></label>
-            <label>Service location<select v-model="correction.serviceLocationId" data-testid="location" required :disabled="busy || locationsLoading"><option value="">Select the documented location</option><option v-if="retainedLocation" value="documented">Keep documented setting: {{ retainedLocation.name }} · POS {{ retainedLocation.place_of_service }}</option><option v-for="location in serviceLocations" :key="location.id" :value="location.id">{{ location.name }} · POS {{ location.place_of_service }}</option></select></label>
-            <label>Start time<input v-model="correction.startTime" data-testid="start" type="time" required :disabled="busy" /></label>
-            <label>End time<input v-model="correction.endTime" data-testid="end" type="time" required :disabled="busy" /></label>
-            <label>Place of service<input :value="selectedServiceLocation?.place_of_service || ''" data-testid="pos" readonly placeholder="From selected location" /></label>
-          </div>
-          <label>Participants<input v-model="correction.participants" data-testid="participants" maxlength="1000" placeholder="Names and roles of the people who participated" :disabled="busy" /></label>
-          <label>Patient present<select v-model="correction.patientPresent" data-testid="patient-present" :disabled="busy"><option :value="null">Confirm patient presence</option><option :value="true">Patient present</option><option :value="false">Patient not present</option></select></label>
-          <p v-if="selectedLocationAddress" class="muted">Service address: {{ selectedLocationAddress }}</p>
-          <label>Reason and source of verified details<textarea v-model="correctionReason" data-testid="correction-reason" maxlength="2000" rows="2" required :disabled="busy" /></label>
-          <label class="check-line"><input v-model="correctionAttested" data-testid="correction-attestation" type="checkbox" :disabled="busy" /> I verified these encounter details and electronically sign this amendment as accurate.</label>
-          <button type="submit" :disabled="busy || !validCorrection">Sign amendment</button><button type="button" :disabled="busy" @click="showCorrections = false">Cancel amendment</button>
-        </form>
         <form v-if="showFeedback && canReview" class="info-panel feedback-form" @submit.prevent="sendFeedback">
           <h3>Send to note author</h3>
           <label>Action<select v-model="feedbackAction" data-testid="feedback-action" :disabled="busy"><option value="changes_needed">Changes needed · return for correction</option><option value="review_acknowledge">Review / acknowledge needed · no new signature</option><option value="feedback">Feedback · no response required</option></select></label>
@@ -111,35 +86,42 @@
           <button type="submit" :disabled="busy || !feedbackMessage.trim()">Send {{ feedbackAction === 'feedback' ? 'feedback' : 'request' }}</button><button type="button" :disabled="busy" @click="cancelFeedback">Cancel</button>
         </form>
       </div>
-      <footer class="review-footer">
+      <footer v-if="!amendmentEditing && !hasPendingVersion" class="review-footer">
         <template v-if="canSign">
           <label class="check-line"><input v-model="attested" data-testid="supervisor-attestation" type="checkbox" :disabled="busy || missingDetails.length > 0 || hasChangesNeeded || hasUnfinishedAction" /> {{ isBillable ? 'I reviewed this note, its service details and all amendments, and approve this documentation for billing review under my supervisory responsibility.' : 'I reviewed this note and all amendments, and approve this clinical documentation under my supervisory responsibility.' }}</label>
           <p v-if="hasChangesNeeded" class="missing">Changes have been requested. Review the author's correction before approving.</p>
-          <p v-if="hasUnfinishedAction" class="missing" role="status">{{ showCorrections ? 'Sign or cancel the service amendment before approving this note.' : 'Send or cancel your request or feedback before approving this note.' }}</p>
-          <div class="footer-actions"><button type="button" :disabled="busy || showCorrections" @click="showFeedback = true">Return / provide feedback</button><button type="button" class="approve" data-testid="cosign" :disabled="busy || !attested || missingDetails.length > 0 || hasChangesNeeded || hasUnfinishedAction" @click="sign">{{ busy ? 'Saving…' : isBillable ? 'Cosign & approve for billing review' : 'Cosign & approve documentation' }}</button></div>
+          <p v-if="hasUnfinishedAction" class="missing" role="status">{{ amendmentEditing ? 'Submit or cancel the amendment before approving this note.' : 'Send or cancel your request or feedback before approving this note.' }}</p>
+          <div class="footer-actions"><button type="button" :disabled="busy || amendmentEditing" @click="showFeedback = true">Return / provide feedback</button><button type="button" class="approve" data-testid="cosign" :disabled="busy || !attested || missingDetails.length > 0 || hasChangesNeeded || hasUnfinishedAction" @click="sign">{{ busy ? 'Saving…' : isBillable ? 'Cosign & approve for billing review' : 'Cosign & approve documentation' }}</button></div>
         </template>
-        <template v-else><p class="muted">{{ review.cosignedAt ? 'This version has been approved by the supervisor.' : 'Only the assigned responsible supervisor can approve this note.' }}</p><button v-if="canReview" type="button" :disabled="busy || showCorrections" @click="showFeedback = true">Provide feedback</button></template>
+        <template v-else><p class="muted">{{ !versionHistoryReady ? 'Confirm the current note version in Note versions before approving.' : hasPendingVersion ? 'Use Note versions above to review and sign the pending revision at its current stage.' : review.cosignedAt ? 'This version has been approved by the supervisor.' : 'Only the assigned responsible supervisor can approve this note.' }}</p><button v-if="canReview" type="button" :disabled="busy || amendmentEditing" @click="showFeedback = true">Provide feedback</button></template>
       </footer>
     </template>
   </section>
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../services/api.js';
 import { readableReviewMessage } from '../../utils/noteReviewWork.js';
 import CosignReviewTimer from './CosignReviewTimer.vue';
+import ClinicalNoteVersionHistory from './ClinicalNoteVersionHistory.vue';
 import { formatMedicationsText, formatRiskAssessmentText } from '../../utils/noteAidUiHelpers.js';
 import { missingSupervisorServiceDetails, parseReviewContent, supervisorMentalStatus, supervisorNoteSections, supervisorObjectiveRatings, supervisorServiceDetails } from '../../utils/supervisorNoteReview.js';
 
 const props = defineProps({ noteId: { type: [Number, String], required: true }, agencyId: { type: [Number, String], required: true }, providerId: { type: [Number, String], default: null }, clientName: { type: String, default: '' }, fullPage: { type: Boolean, default: false } });
 const emit = defineEmits(['signed', 'returned', 'open-full', 'close']);
 const note = ref(null), review = ref(null), reviewProviderId = ref(null), loading = ref(false), busy = ref(false), error = ref(''), notice = ref(''), attested = ref(false);
-const activeInfo = ref(''), showCorrections = ref(false), showFeedback = ref(false), feedbackAction = ref('changes_needed'), feedbackMessage = ref('');
-const correction = reactive({ durationMinutes: '', locationLabel: '', startTime: '', endTime: '', placeOfService: '', serviceLocationId: '', participants: '', patientPresent: null }), correctionReason = ref(''), correctionAttested = ref(false);
+const activeInfo = ref(''), showFeedback = ref(false), feedbackAction = ref('changes_needed'), feedbackMessage = ref('');
 const materials = ref([]), materialsLoading = ref(false), materialsError = ref(''), materialsLoaded = ref(false);
-const serviceLocations = ref([]), locationsLoading = ref(false), locationsError = ref('');
 const body = ref(null);
+const versionSummary = ref(null), versionHistoryReady = ref(false), amendmentEditing = ref(false);
+function onVersionsLoaded(summary) { versionSummary.value = summary; versionHistoryReady.value = true; }
+const legacyPendingAmendment = computed(() => (note.value?.serviceDetailAmendments || []).filter(entry => !entry.approvedAt && !entry.supersededByAmendmentId).at(-1) || null);
+const hasPendingVersion = computed(() => !!versionSummary.value?.pendingRevisionId);
+function onVersionChanged(result) {
+  if (result.action === 'cosign' || (result.action === 'sign' && result.revision?.status === 'approved')) emit('signed', { ...context.value, ...result });
+  else emit('returned', { ...context.value, ...result, action: result.action === 'sign' ? 'review_acknowledge' : result.action });
+}
 let generation = 0;
 const context = computed(() => ({ noteId: Number(props.noteId), agencyId: Number(props.agencyId) }));
 const canonical = computed(() => parseReviewContent(review.value?.content));
@@ -163,15 +145,10 @@ const ratings = computed(() => supervisorObjectiveRatings(note.value?.objectiveR
 const addenda = computed(() => Array.isArray(canonical.value?.addenda) ? canonical.value.addenda : note.value?.addenda || []);
 const openRequests = computed(() => (note.value?.reviewRequests || []).filter(request => !request.resolvedAt && !request.resolved_at && !request.acknowledgedAt && !request.acknowledged_at && !request.dismissedAt && !request.dismissed_at && request.status !== 'resolved' && request.status !== 'acknowledged' && request.status !== 'dismissed'));
 const hasChangesNeeded = computed(() => openRequests.value.some(request => (request.action || request.requestType || request.request_type) === 'changes_needed'));
-const hasUnfinishedAction = computed(() => showCorrections.value || !!feedbackMessage.value.trim());
+const hasUnfinishedAction = computed(() => amendmentEditing.value || !!feedbackMessage.value.trim());
 const canReview = computed(() => review.value?.canCosign === true || note.value?.canSuperviseReview === true);
-const canAmendService = computed(() => canReview.value && isBillable.value && !!note.value?.clinicalSessionId);
-const canSign = computed(() => review.value?.canCosign === true && !!note.value?.providerSignedAt && !review.value?.cosignedAt);
+const canSign = computed(() => versionHistoryReady.value && !hasPendingVersion.value && review.value?.canCosign === true && !!note.value?.providerSignedAt && !review.value?.cosignedAt);
 const providerLabel = computed(() => [note.value?.providerSigner?.name, note.value?.providerSigner?.credentials].filter(Boolean).join(', ') || 'Not recorded');
-const retainedLocation = computed(() => !details.value.serviceLocationId && details.value.locationLabel && details.value.placeOfService ? {id:null,name:details.value.locationLabel,place_of_service:details.value.placeOfService} : null);
-const selectedServiceLocation = computed(() => correction.serviceLocationId === 'documented' ? retainedLocation.value : serviceLocations.value.find(location => Number(location.id) === Number(correction.serviceLocationId)) || null);
-const selectedLocationAddress = computed(() => { const location = selectedServiceLocation.value; return location ? [location.street_address || location.billing_office_street, location.city || location.billing_office_city, location.state || location.billing_office_state, location.postal_code || location.billing_office_postal].filter(Boolean).join(', ') : ''; });
-const validCorrection = computed(() => !locationsLoading.value && !locationsError.value && correctionAttested.value && correctionReason.value.trim() && selectedServiceLocation.value && !missingSupervisorServiceDetails(correction, { requirePlaceOfService: true, requireParticipants:note.value?.serviceCode === 'H0002' }).length && Number(correction.durationMinutes) >= 1 && Number(correction.durationMinutes) <= 1440);
 const feedbackHelp = computed(() => ({ changes_needed: 'The note returns to the author with your request at the top. Approval waits for their signed correction.', review_acknowledge: 'The author must review and acknowledge your message. Their existing signature remains valid.', feedback: 'The author receives your feedback; no acknowledgement or new signature is required.' }[feedbackAction.value]));
 const infoTabs = computed(() => [{ id: 'signature', label: 'Signature details', hint: `${providerLabel.value} · ${timestamp(note.value?.providerSignedAt)}` }, { id: 'claim', label: 'Claim data', hint: `${note.value?.clientPayer?.name || 'Payer not available'} · ${note.value?.linkedClaim?.statusLabel || 'No claim linked'}` }, { id: 'addenda', label: `Addenda (${addenda.value.length})`, hint: 'Read separately signed additions and amendments' }, { id: 'materials', label: 'Supporting materials', hint: 'List documents attached to this encounter' }]);
 const score = value => value == null || value === '' ? '—' : value;
@@ -181,9 +158,6 @@ const actionLabel = action => ({ changes_needed: 'Changes needed', review_acknow
 const entryLabel = kind => ({ correction: 'Amendment / correction', late_entry: 'Late entry', addendum: 'Addendum' }[kind] || 'Signed entry');
 const errorMessage = (e, fallback) => e.response?.data?.error?.message || e.message || fallback;
 
-watch([correction, correctionReason], () => { correctionAttested.value = false; }, { deep: true });
-watch(showCorrections, async value => { if (value) { Object.assign(correction, details.value, {serviceLocationId:details.value.serviceLocationId || (retainedLocation.value ? 'documented' : '')}); if (!correction.participants && note.value?.serviceDetailProposal?.participants) { correction.participants=note.value.serviceDetailProposal.participants; correction.patientPresent=note.value.serviceDetailProposal.patientPresent; } correctionReason.value = ''; correctionAttested.value = false; attested.value = false; await loadServiceLocations(); await focusForm('.amendment-form'); } });
-watch(selectedServiceLocation, location => { if (location) { correction.locationLabel = location.name; correction.placeOfService = location.place_of_service; } });
 watch(showFeedback, async value => { if (value) await focusForm('.feedback-form'); });
 watch(hasUnfinishedAction, value => { if (value) attested.value = false; });
 watch(() => `${Number(props.agencyId)}:${Number(props.noteId)}`, () => { notice.value = ''; load(); }, { immediate: true });
@@ -196,19 +170,12 @@ async function focusForm(selector) {
   form?.querySelector('textarea, input, select')?.focus();
 }
 
-function applySubmissionProposal() {
-  const proposal=note.value?.serviceDetailProposal;
-  if (!proposal || proposal.dateOfService !== String(note.value?.dateOfService || '').slice(0,10) || proposal.crossesMidnight) return;
-  Object.assign(correction,{durationMinutes:proposal.durationMinutes,startTime:proposal.startTime,endTime:proposal.endTime});
-  correctionAttested.value=false;
-}
-
 function cancelFeedback() { feedbackMessage.value = ''; showFeedback.value = false; }
 
 async function load(attempt = 0) {
   const retry = Number.isInteger(attempt) ? attempt : 0;
   const g = ++generation;
-  loading.value = true; error.value = ''; note.value = null; review.value = null; attested.value = false; busy.value = false; showCorrections.value = false; showFeedback.value = false; activeInfo.value = ''; feedbackMessage.value = ''; materials.value = []; materialsLoaded.value = false; materialsLoading.value = false; materialsError.value = ''; serviceLocations.value = []; locationsLoading.value = false; locationsError.value = '';
+  loading.value = true; error.value = ''; versionSummary.value = null; versionHistoryReady.value = false; note.value = null; review.value = null; attested.value = false; busy.value = false; amendmentEditing.value = false; showFeedback.value = false; activeInfo.value = ''; feedbackMessage.value = ''; materials.value = []; materialsLoaded.value = false; materialsLoading.value = false; materialsError.value = '';
   try {
     const { data } = await api.get(`/medical-billing/notes/${props.noteId}`, { params: { agencyId: Number(props.agencyId) }, skipGlobalLoading:true });
     if (g !== generation) return;
@@ -231,8 +198,8 @@ async function sign() {
   if (busy.value || !canSign.value || !attested.value || missingDetails.value.length || hasChangesNeeded.value || hasUnfinishedAction.value) return;
   const g = generation; busy.value = true; error.value = '';
   try {
-    const { data } = await api.post(`/medical-billing/notes/${props.noteId}/cosign`, { agencyId: Number(props.agencyId), contentHash: review.value.contentHash, reviewSnapshotToken: review.value.reviewSnapshotToken, reviewedAndApproved: true }, {skipGlobalLoading:true});
-    if (g === generation) { attested.value = false; review.value = { ...review.value, cosignedAt: data.cosignedAt || new Date().toISOString() }; emit('signed', { ...context.value, ...data }); }
+    const { data } = await api.post(`/medical-billing/notes/${props.noteId}/cosign`, { agencyId: Number(props.agencyId), contentHash: review.value.contentHash, reviewSnapshotToken: review.value.reviewSnapshotToken, ...(review.value.revisionSummary?.effectiveRevision?.entryManifestHash || review.value.revisionSummary?.entryManifestHash ? { expectedEntryManifestHash: review.value.revisionSummary.effectiveRevision?.entryManifestHash || review.value.revisionSummary.entryManifestHash } : {}), reviewedAndApproved: true }, {skipGlobalLoading:true});
+    if (g === generation) { if (!data?.cosignedAt) throw new Error('The server did not confirm supervisor approval. Reload before continuing.'); attested.value = false; review.value = { ...review.value, cosignedAt: data.cosignedAt }; emit('signed', { ...context.value, ...data }); }
   } catch (e) { if (g === generation) { attested.value = false; error.value = errorMessage(e, 'Unable to approve this note.'); } }
   finally { if (g === generation) busy.value = false; }
 }
@@ -253,37 +220,13 @@ async function sendFeedback() {
   finally { if (g === generation) busy.value = false; }
 }
 
-async function saveCorrection() {
-  if (busy.value || !canAmendService.value || !validCorrection.value) return;
-  const g = generation; busy.value = true; error.value = ''; attested.value = false;
-  try {
-    await api.post(`/medical-billing/notes/${props.noteId}/service-details`, { agencyId: Number(props.agencyId), contentHash: review.value.contentHash, reviewSnapshotToken: review.value.reviewSnapshotToken, reason: correctionReason.value.trim(), attested: true, serviceDetails: { ...correction, durationMinutes: Number(correction.durationMinutes), serviceLocationId: Number(correction.serviceLocationId) || null } }, {skipGlobalLoading:true});
-    if (g !== generation) return;
-    notice.value = 'Amendment signed. Review the updated details and attest again to approve this version. The author will be asked to acknowledge your amendment.';
-    await load();
-  } catch (e) { if (g === generation) { correctionAttested.value = false; error.value = errorMessage(e, 'Unable to save the service amendment.'); } }
-  finally { if (g === generation) busy.value = false; }
-}
-
-async function loadServiceLocations() {
-  const g = generation;
-  locationsLoading.value = true; locationsError.value = '';
-  try {
-    const { data } = await api.get('/medical-billing/service-locations', { params: { agencyId: Number(props.agencyId) }, skipGlobalLoading:true });
-    if (g !== generation) return;
-    serviceLocations.value = (data.items || []).filter(location => location.is_active !== false && location.is_active !== 0 && location.is_active !== '0');
-    if (correction.serviceLocationId !== 'documented' && !selectedServiceLocation.value) correction.serviceLocationId = '';
-  } catch (e) { if (g === generation) locationsError.value = errorMessage(e, 'Unable to load active service locations.'); }
-  finally { if (g === generation) locationsLoading.value = false; }
-}
-
 async function toggleInfo(id) {
   activeInfo.value = activeInfo.value === id ? '' : id;
   if (id !== 'materials' || materialsLoaded.value || materialsLoading.value) return;
   const g = generation; materialsLoading.value = true; materialsError.value = '';
   try {
     if (note.value?.clinicalSessionId) {
-      const { data } = await api.get(`/clinical-data/sessions/${note.value.clinicalSessionId}/artifacts`, { params: { includeDeleted: 'false' } });
+      const { data } = await api.get(`/clinical-data/sessions/${note.value.clinicalSessionId}/artifacts`, { params: { includeDeleted: 'false' }, skipGlobalLoading: true });
       if (g !== generation) return;
       materials.value = (data.artifacts?.documents || []).filter(item => !item.is_deleted);
     } else materials.value = note.value?.supportingMaterials || [];

@@ -6,7 +6,7 @@ import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import { getProviderClaimBillingMode } from './resolveClaimProviders.service.js';
 
 export const NPI_CHANGE_DATE = '2027-01-01';
-export const NONBILLABLE_TYPES = ['MISSED_APPOINTMENT', 'NO_SHOW', 'TERMINATION', 'TREATMENT_PLAN', 'CONTACT_NOTE', 'CONTACT', 'APPOINTMENT_WAIVER', 'APPOINTMENT_CHANGE'];
+export const NONBILLABLE_TYPES = ['MISSED_APPOINTMENT', 'NO_SHOW', 'TERMINATION', 'TREATMENT_PLAN', 'TREATMENT_SUMMARY', 'CONTACT_NOTE', 'CONTACT', 'APPOINTMENT_WAIVER', 'APPOINTMENT_CHANGE'];
 export const parseObject = value => { try { return typeof value === 'string' ? JSON.parse(value) : value || {}; } catch { return {}; } };
 export const policyError = (status, message) => Object.assign(new Error(message), { status });
 export const dateOnly = v => v instanceof Date ? v.toISOString().slice(0, 10) : String(v || '').slice(0, 10);
@@ -31,6 +31,9 @@ export function hasClinicalAmendments(note) {
 export function hasCurrentSupervisorCosign(note, supervisorUserId, contentHash = note.review_content_hash) {
   if (!supervisorUserId || !note.supervisor_cosigned_at || Number(note.supervisor_cosigned_by_user_id) !== Number(supervisorUserId)) return false;
   const signedHash = parseObject(note.metadata_json).supervisorCosign?.contentHash;
+  if (Number(note.clinical_version_number) === 1 && signedHash && signedHash === note.clinical_version_content_hash) return true;
+  if (Number(note.clinical_version_number) === 1 && note.clinical_version_provenance?.kind === 'legacy_observed'
+    && signedHash && note.legacy_review_content_hash && signedHash === note.legacy_review_content_hash) return true;
   // Amended documents require a signature over the exact note and all addenda.
   if (hasClinicalAmendments(note)) return !!signedHash && !!contentHash && signedHash === contentHash;
   return signedHash && contentHash ? signedHash === contentHash : true;
@@ -115,7 +118,7 @@ export async function resolveNoteDocumentationPolicy(note, db = pool, clinicalDb
     const instant = raw instanceof Date ? raw : new Date(String(raw || '').replace(' ', 'T').replace(/Z?$/, 'Z'));
     const serviceDate = noteMetadata.dateOfService || noteMetadata.date_of_service || metadata.serviceDate ||
       utcDateToZonedYmd(instant, session.source_timezone || 'America/Denver');
-    context = { serviceCode: session.service_code, dateOfService: serviceDate };
+    context = { serviceCode: (note.clinical_version_id && noteMetadata.serviceCode) || session.service_code, dateOfService: serviceDate };
   }
   return resolveDocumentationPolicy(note.agency_id, note.provider_signed_by_user_id || note.created_by_user_id, db, context);
 }

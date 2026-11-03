@@ -7,7 +7,8 @@ vi.mock('../../../services/api.js', () => ({ default: { get: vi.fn(), post: vi.f
 
 const note = () => ({ id: 71, agencyId: 2, reviewSnapshotToken: 'metadata-version', clientName: 'DEMO QA Client', providerSignedAt: '2026-11-02T16:00:00Z', providerSignedByUserId: 9, providerSigner: { id: 9, name: 'DEMO QA Author', credentials: 'LSW' }, dateOfService: '2026-11-01', serviceCode: 'H0002', durationMinutes: 45, locationLabel: 'Office', startTime: '10:00', endTime: '10:45', placeOfService: '11', serviceLocationId: 5, clinicalSessionId: 100, structuredChart: { participants: 'Client only', patientPresent:true, mentalStatusExam: { domains: { Appearance: { status: 'normal' }, Mood: { status: 'abnormal', detail: 'Anxious' } } }, medications: { noneCurrently: true } }, outputJson: { sections: { Subjective: 'Stale fetched text' } }, objectiveRatings: [{ id: 1, goalIndex: 1, objectiveIndex: 1, scaleStart: 3, scalePrevious: 4, scaleValue: 5, scaleTarget: 8, objectiveText: 'Use a grounding strategy', disposition: 'rated' }] });
 const review = () => ({ reviewSnapshotToken: 'metadata-version', contentHash: 'reviewed-current-version', canCosign: true, content: JSON.stringify({ note: { sections: { Subjective: 'Current signed narrative', Objective: '', Plan: 'Practice the agreed strategy.' } }, addenda: [{ id: 4, body: 'A signed correction', entry_kind: 'correction', entry_reason: 'Clarification', created_by_user_id: 3 }] }) });
-const mounted = () => mount(ClinicalNoteSupervisorReview, { props: { noteId: 71, agencyId: 2 }, global: { stubs: { CosignReviewTimer: true } } });
+const versionStub = { name: 'ClinicalNoteVersionHistory', emits: ['loaded', 'changed', 'editing'], template: '<section>Immutable version history</section>', mounted() { this.$emit('loaded', { pendingRevisionId: null }); } };
+const mounted = () => mount(ClinicalNoteSupervisorReview, { props: { noteId: 71, agencyId: 2 }, global: { stubs: { CosignReviewTimer: true, ClinicalNoteVersionHistory: versionStub } } });
 const byText = (wrapper, label) => wrapper.findAll('button').find(button => button.text() === label);
 
 beforeEach(() => {
@@ -61,6 +62,11 @@ describe('supervisor note review', () => {
     expect(w.find('[data-testid="supervisor-attestation"]').element.checked).toBe(false);
     expect(w.emitted('signed')).toBeUndefined(); w.unmount();
   });
+  it('binds original supervisor approval to the attached-entry manifest from the reviewed snapshot',async()=>{
+    const get=api.get.getMockImplementation();api.get.mockImplementation((url,config)=>url.includes('document-reviews')?Promise.resolve({data:{...review(),revisionSummary:{effectiveRevision:{entryManifestHash:'DEMO-QA-reviewed-entry-manifest'}}}}):get(url,config));
+    const w=mounted();await flushPromises();await w.get('[data-testid="supervisor-attestation"]').setValue(true);await w.get('[data-testid="cosign"]').trigger('click');await flushPromises();
+    expect(api.post).toHaveBeenCalledWith('/medical-billing/notes/71/cosign',expect.objectContaining({expectedEntryManifestHash:'DEMO-QA-reviewed-entry-manifest'}),{skipGlobalLoading:true});w.unmount();
+  });
 
   it('returns changes needed with an explicit message and exact review hash', async () => {
     api.post.mockResolvedValue({ data: { ok: true, reviewRequest: { id: 8, action: 'changes_needed', message: 'Please clarify the intervention.' } } });
@@ -83,54 +89,24 @@ describe('supervisor note review', () => {
     expect(w.emitted('returned')[0][0].action).toBe('feedback'); w.unmount();
   });
 
-  it('records a reasoned signed service amendment then reloads before cosigning', async () => {
+  it('completes a supervisor amendment from the immutable editor with the existing queue signed event', async () => {
     const w = mounted(); await flushPromises();
-    await byText(w, 'Service amendment').trigger('click'); await flushPromises();
-    await w.find('[data-testid="duration"]').setValue('50');
-    await w.find('[data-testid="end"]').setValue('10:50');
-    await w.find('[data-testid="correction-reason"]').setValue('Verified against the encounter record.');
-    await w.find('[data-testid="correction-attestation"]').setValue(true);
-    await w.find('.amendment-form').trigger('submit'); await flushPromises();
-    expect(api.post).toHaveBeenCalledWith('/medical-billing/notes/71/service-details', { agencyId: 2, contentHash: 'reviewed-current-version', reviewSnapshotToken: 'metadata-version', reason: 'Verified against the encounter record.', attested: true, serviceDetails: { durationMinutes: 50, locationLabel: 'Office', startTime: '10:00', endTime: '10:50', placeOfService: '11', serviceLocationId: 5, participants:'Client only', patientPresent:true } }, {skipGlobalLoading:true});
-    expect(api.get.mock.calls.filter(([url]) => url.includes('document-reviews'))).toHaveLength(2);
-    expect(w.find('[data-testid="supervisor-attestation"]').element.checked).toBe(false);
-    expect(w.text()).toContain('Amendment signed'); w.unmount();
+    const history = w.findComponent({ name: 'ClinicalNoteVersionHistory' });
+    history.vm.$emit('changed', { noteId: 71, agencyId: 2, action: 'cosign', revision: { id: 11, origin: 'supervisor', status: 'approved' } }); await flushPromises();
+    expect(w.emitted('signed')[0][0]).toMatchObject({ noteId: 71, action: 'cosign', revision: { status: 'approved' } });
+    expect(api.post).not.toHaveBeenCalled(); w.unmount();
   });
 
-  it('requires an active mapped location and derives its POS instead of keeping the old address', async () => {
-    const originalGet = api.get.getMockImplementation();
-    api.get.mockImplementation((url, config) => url.includes('service-locations') ? Promise.resolve({ data: { items: [{ id: 5, name: 'Inactive office', place_of_service: '11', is_active: 0 }, { id: 6, name: 'DEMO QA School', place_of_service: '03', street_address: '100 Example Street', is_active: 1 }] } }) : originalGet(url, config));
+  it('does not approve the old saved version while a linked amendment is pending or being edited', async () => {
     const w = mounted(); await flushPromises();
-    await byText(w, 'Service amendment').trigger('click'); await flushPromises();
-    expect(w.find('[data-testid="location"]').element.value).toBe('');
-    expect(w.find('[data-testid="location"]').text()).not.toContain('Inactive office');
-    await w.find('[data-testid="correction-reason"]').setValue('Verified school encounter address.');
-    await w.find('[data-testid="correction-attestation"]').setValue(true);
-    expect(byText(w, 'Sign amendment').element.disabled).toBe(true);
-    await w.find('[data-testid="location"]').setValue('6');
-    expect(w.find('[data-testid="pos"]').element.value).toBe('03');
-    expect(w.find('.amendment-form').text()).toContain('100 Example Street');
-    expect(w.find('[data-testid="correction-attestation"]').element.checked).toBe(false);
-    await w.find('[data-testid="correction-attestation"]').setValue(true);
-    await w.find('.amendment-form').trigger('submit'); await flushPromises();
-    expect(api.post).toHaveBeenCalledWith('/medical-billing/notes/71/service-details', expect.objectContaining({ serviceDetails: expect.objectContaining({ serviceLocationId: 6, locationLabel: 'DEMO QA School', placeOfService: '03' }) }), {skipGlobalLoading:true});
-    w.unmount();
-  });
-
-  it('cannot approve the old saved details while a service amendment is open', async () => {
-    const w = mounted(); await flushPromises();
-    await w.find('[data-testid="supervisor-attestation"]').setValue(true);
-    await byText(w, 'Service amendment').trigger('click'); await flushPromises();
-    await w.find('[data-testid="duration"]').setValue('50');
-    expect(w.find('[data-testid="supervisor-attestation"]').element.checked).toBe(false);
-    expect(w.find('[data-testid="supervisor-attestation"]').element.disabled).toBe(true);
-    expect(w.find('[data-testid="cosign"]').element.disabled).toBe(true);
-    expect(w.find('.review-footer').text()).toContain('Sign or cancel the service amendment');
-    await w.find('[data-testid="cosign"]').trigger('click'); await flushPromises();
-    expect(api.post).not.toHaveBeenCalled();
-    await byText(w, 'Cancel amendment').trigger('click');
-    expect(w.find('[data-testid="supervisor-attestation"]').element.disabled).toBe(false);
-    expect(w.find('[data-testid="supervisor-attestation"]').element.checked).toBe(false); w.unmount();
+    await w.get('[data-testid="supervisor-attestation"]').setValue(true);
+    const history = w.findComponent({ name: 'ClinicalNoteVersionHistory' });
+    history.vm.$emit('editing', true); await flushPromises();
+    expect(w.find('.review-footer').exists()).toBe(false);
+    expect(w.find('[data-testid="cosign"]').exists()).toBe(false);
+    history.vm.$emit('loaded', { pendingRevisionId: 11 }); await flushPromises();
+    expect(w.find('[data-testid="cosign"]').exists()).toBe(false);
+    expect(w.find('.review-footer').exists()).toBe(false); w.unmount();
   });
 
   it('requires sending or cancelling an unsent request before a fresh approval', async () => {
@@ -154,7 +130,7 @@ describe('supervisor note review', () => {
 
   it('lists supporting materials with a read-only request', async () => {
     const w = mounted(); await flushPromises(); await byText(w, 'Supporting materials').trigger('click'); await flushPromises();
-    expect(api.get).toHaveBeenCalledWith('/clinical-data/sessions/100/artifacts', { params: { includeDeleted: 'false' } });
+    expect(api.get).toHaveBeenCalledWith('/clinical-data/sessions/100/artifacts', { params: { includeDeleted: 'false' }, skipGlobalLoading: true });
     expect(w.find('[aria-label="Supporting materials"]').text()).toContain('Recorded screener');
     expect(api.post).not.toHaveBeenCalled(); w.unmount();
   });
@@ -210,19 +186,14 @@ describe('stable supervisor interaction and pending amendment revisions',()=>{
   expect(w.get('[data-testid="cosign"]').element.disabled).toBe(false);
   w.unmount();
  });
- it('reopens the pending amendment with its saved virtual setting and participants',async()=>{
+ it('preserves historical pending service details and routes signing through immutable versions',async()=>{
   const original=api.get.getMockImplementation();
-  const pending={durationMinutes:10,startTime:'10:00',endTime:'10:10',locationLabel:'Virtual — client’s home',placeOfService:'10',serviceLocationId:null,participants:'Guardian: DEMO',patientPresent:false};
+  const pending={durationMinutes:10,startTime:'10:00',endTime:'10:10',locationLabel:'DEMO QA virtual setting',placeOfService:'10',serviceLocationId:null,participants:'Guardian: DEMO QA',patientPresent:false};
   api.get.mockImplementation(async(url,config)=>url.includes('/notes/')?{data:{note:{...note(),pendingServiceDetails:pending}}}:original(url,config));
   const w=mounted();await flushPromises();
-  await byText(w,'Revise pending amendment').trigger('click');await flushPromises();
-  expect(w.get('[data-testid="location"]').element.value).toBe('documented');
-  expect(w.get('[data-testid="participants"]').element.value).toBe('Guardian: DEMO');
-  await w.get('[data-testid="participants"]').setValue('Guardian: DEMO; interpreter: QA');
-  await w.get('[data-testid="correction-reason"]').setValue('Clarified all participants before approval.');
-  await w.get('[data-testid="correction-attestation"]').setValue(true);
-  await w.get('.amendment-form').trigger('submit');await flushPromises();
-  expect(api.post).toHaveBeenCalledWith('/medical-billing/notes/71/service-details',expect.objectContaining({serviceDetails:expect.objectContaining({serviceLocationId:null,placeOfService:'10',participants:'Guardian: DEMO; interpreter: QA',patientPresent:false})}),{skipGlobalLoading:true});
-  w.unmount();
+  expect(w.text()).toContain('DEMO QA virtual setting');
+  expect(w.text()).toContain('historical service amendment');
+  expect(byText(w,'Service amendment')).toBeUndefined();
+  expect(w.find('.amendment-form').exists()).toBe(false);w.unmount();
  });
 });

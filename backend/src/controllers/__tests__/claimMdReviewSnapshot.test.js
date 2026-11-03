@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ main: vi.fn(), clinical: vi.fn(), find: vi.fn(), policy: vi.fn() }));
+const m = vi.hoisted(() => ({ main: vi.fn(), clinical: vi.fn(), find: vi.fn(), policy: vi.fn(), approved: vi.fn(), summary: vi.fn(), pdf: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.main }, onTableWrite: vi.fn() }));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: m.clinical } }));
 vi.mock('../../services/noteAidChartAudit.service.js', () => ({ logNoteAidChartEvent: vi.fn() }));
@@ -7,10 +7,15 @@ vi.mock('../../services/clinicalEligibility.service.js', () => ({ default: { ens
 vi.mock('../../services/schedulingBillingAccess.service.js', () => ({ hasSchedulingBillingAccess: vi.fn(async () => false), schedulingResponseForUser: vi.fn(async (_user, _agency, body) => body) }));
 vi.mock('../../models/clinical/ClinicalNote.model.js', () => ({ default: { findById: m.find } }));
 vi.mock('../../services/supervisedBillingPolicy.service.js', async original => ({ ...await original(), resolveDocumentationPolicy: m.policy, resolveNoteDocumentationPolicy: m.policy }));
-import { getClinicalNoteById } from '../medicalBilling.controller.js';
-import { getSuperviseeReviewDocument } from '../supervisedBilling.controller.js';
+vi.mock('../../services/clinicalNoteVersionBilling.service.js', async original => ({ ...await original(), getApprovedClinicalContext: m.approved }));
+vi.mock('../../services/clinicalNoteVersion.service.js', async original => ({ ...await original(), getRevisionSummary: m.summary, ensureLegacyVersion: m.summary }));
+vi.mock('../../services/treatmentSummaryPdf.service.js', () => ({ generateTreatmentSummaryPdf: m.pdf, extractNotePayloadText: note => note.note_payload }));
+vi.mock('../../services/familyBillingEncryption.service.js', async original => ({ ...await original(), encryptFamilyBilling: vi.fn(() => 'Synthetic encrypted review'), decryptFamilyBilling: vi.fn(() => ({})) }));
+import { getClinicalNoteById, downloadTreatmentSummaryPdf } from '../medicalBilling.controller.js';
+import { getSuperviseeReviewDocument, recordSuperviseeDocumentReview, listSuperviseeDocumentReviews } from '../supervisedBilling.controller.js';
+import { loadReviewDocument } from '../../services/clinicalReviewDocument.service.js';
 import { reviewSnapshotToken } from '../../services/clinicalSupervisorReview.service.js';
-const response = () => ({ json: vi.fn(), status: vi.fn().mockReturnThis() });
+const response = () => ({ json: vi.fn(), status: vi.fn().mockReturnThis(), setHeader: vi.fn(), send: vi.fn() });
 let note, session;
 beforeEach(() => {
   vi.clearAllMocks();
@@ -18,6 +23,9 @@ beforeEach(() => {
   session = { id: 167, client_id: 2297, agency_id: 450, duration_minutes: 60, source_timezone: 'America/Denver', scheduled_start_at: null, scheduled_end_at: null, place_of_service: null, service_location_id: null, metadata_json: null };
   m.find.mockImplementation(async () => structuredClone(note));
   m.policy.mockResolvedValue({ supervisorUserId: 9, reviewSupervisorIds: [9] });
+  m.approved.mockImplementation(async ({ note, session }) => ({ note, session: session || {}, version: { revisionId: null, revisionNumber: null, contentHash: null } }));
+  m.summary.mockResolvedValue({ originalRevisionId: null, effectiveRevisionId: null, pendingRevisionId: null, revisions: [] });
+  m.pdf.mockResolvedValue(Buffer.from('Synthetic PDF fixture'));
   m.main.mockImplementation(async sql => sql.includes('FROM user_agencies') ? [[{ user_id: 7 }]] : [[]]);
   m.clinical.mockImplementation(async sql => {
     // The migrated clinical schema has metadata_json/service_location_id, but
@@ -61,6 +69,48 @@ it('reports encounter read failure instead of issuing a false empty snapshot', a
   await getClinicalNoteById({ user: { id: 9, role: 'super_admin' }, params: { noteId: '444' }, query: { agencyId: '450' } }, res, next);
   expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 503, message: expect.stringContaining('encounter details') }));
   expect(res.json).not.toHaveBeenCalled();
+});
+
+it('serves the same approved amended version through the chart and supervisor review and disables another legacy cosign', async () => {
+  const approved = { ...note, note_payload: JSON.stringify({ sections: { Narrative: 'Approved version two content' } }), clinical_version_id: 12, clinical_version_number: 2, clinical_version_content_hash: 'b'.repeat(64), clinical_version_addenda: [] };
+  const frozenSession = { ...session, duration_minutes: 45, place_of_service: '11', metadata_json: { locationLabel: 'Approved office' } };
+  const version = { revisionId: 12, revisionNumber: 2, contentHash: 'b'.repeat(64) };
+  m.approved.mockResolvedValue({ note: approved, session: frozenSession, version });
+  m.summary.mockResolvedValue({ originalRevisionId: 10, effectiveRevisionId: 12, pendingRevisionId: null, revisions: [] });
+  const pair = await readPair();
+  expect(pair.chart.reviewSnapshotToken).toBe(pair.review.reviewSnapshotToken);
+  expect(pair.chart.clinicalVersion).toEqual(version);
+  expect(pair.review.contentHash).toBe('b'.repeat(64));
+  expect(pair.review.content).toContain('Approved version two content');
+  expect(pair.review.canCosign).toBe(false);
+  expect(pair.chart.effectiveServiceDetails).toEqual(pair.review.reviewSnapshot.effectiveServiceDetails);
+});
+
+it('exports the approved narrative and its actual version signatures without attributing the original author signature to a supervisor amendment', async () => {
+  const approved = { ...note, note_type: 'TREATMENT_SUMMARY', note_payload: 'Approved supervisor amendment', clinical_version_id: 12, clinical_version_number: 2, clinical_version_content_hash: 'b'.repeat(64), clinical_version_addenda: [], clinical_version_signatures: [{ action: 'supervisor_sign', actorUserId: 9, signedAt: '2026-11-03T19:00:00Z' }], supervisor_cosigned_at: '2026-11-03T19:00:00Z' };
+  m.approved.mockResolvedValue({ note: approved, session, version: { revisionId: 12 } });
+  const res = response(), next = vi.fn();
+  await downloadTreatmentSummaryPdf({ user: { id: 9, role: 'super_admin' }, params: { noteId: '444' }, query: { agencyId: '450' } }, res, next);
+  expect(next).not.toHaveBeenCalled();
+  expect(m.pdf).toHaveBeenCalledWith(expect.objectContaining({ bodyText: expect.stringContaining('Approved supervisor amendment'), providerSignedAt: null, supervisorSignedAt: '2026-11-03T19:00:00Z' }));
+  expect(m.pdf.mock.calls[0][0].bodyText).toContain('Clinical version 2');
+  expect(res.send).toHaveBeenCalled();
+});
+
+it('uses the approved revision hash in shared review reads, recorded reviews, and review listings', async () => {
+  note.supervisor_cosigned_at = '2026-10-23';
+  const approved = { ...note, title: 'Approved amended title', note_payload: 'Approved version narrative', clinical_version_id: 12, clinical_version_number: 2, clinical_version_content_hash: 'b'.repeat(64), clinical_version_addenda: [], supervisor_cosigned_by_user_id: 9, metadata_json: { ...note.metadata_json, supervisorCosign: { contentHash: 'b'.repeat(64) } } };
+  m.approved.mockResolvedValue({ note: approved, session, version: { revisionId: 12, revisionNumber: 2, contentHash: 'b'.repeat(64) } });
+  m.policy.mockResolvedValue({ supervisorUserId: 9, reviewSupervisorIds: [9], nonBillableReview: 'all', cosignDueDays: 7 });
+  const document = await loadReviewDocument({ agencyId: 450, providerUserId: 7 }, 'note', 444);
+  expect(document.hash).toBe('b'.repeat(64)); expect(document.content).toContain('Approved version narrative');
+  const req = { user: { id: 9, role: 'super_admin' }, params: { providerId: '7' }, query: { agencyId: '450' }, body: { agencyId: 450, documentType: 'note', documentId: 444, outcome: 'approved', attested: true, contentHash: 'b'.repeat(64) } };
+  const next = vi.fn(); await recordSuperviseeDocumentReview(req, response(), next);
+  expect(next).not.toHaveBeenCalled();
+  expect(m.main.mock.calls.find(([sql]) => sql.startsWith('INSERT INTO clinical_document_reviews'))[1][5]).toBe('b'.repeat(64));
+  const list = response(); await listSuperviseeDocumentReviews(req, list, next);
+  expect(next).not.toHaveBeenCalled();
+  expect(list.json.mock.calls[0][0].documents[0]).toMatchObject({ title: 'Approved amended title', clinicalVersion: { revisionId: 12 }, cosignedAt: '2026-10-23', amendmentSignoffRequired: false });
 });
 
 it.skipIf(process.env.CLINICAL_REVIEW_MYSQL_TEST !== '1')('reads and approves corrections against the migrated MySQL encounter schema', async () => {

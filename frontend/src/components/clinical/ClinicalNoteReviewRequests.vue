@@ -5,7 +5,11 @@
         <span>{{ request.createdByName || (request.createdByUserId ? `Reviewer #${request.createdByUserId}` : 'Reviewer') }}<template v-if="request.createdAt"> · {{ formatDate(request.createdAt) }}</template></span>
       </header>
       <p>{{ readableReviewMessage(request.message) }}</p>
-      <template v-if="request.status === 'changes_needed'">
+      <template v-if="isVersionRequest(request)">
+        <small>{{ request.source === 'clinical_revision_proposal' ? 'Review the proposed revision and sign it as the original clinical author. The existing approved version remains on file.' : 'Review this exact saved amendment, then record your acknowledgement in Note versions. The supervisor signature is already complete.' }}</small>
+        <button type="button" @click="$emit('open-version', request)">{{ request.source === 'clinical_revision_proposal' ? 'Review proposed version' : 'Review amended version' }}</button>
+      </template>
+      <template v-else-if="request.status === 'changes_needed'">
         <small>The original signature stays on file. Sign a correction addressing this request to return the note for supervisor review.</small>
         <button type="button" @click="$emit('correct')">Add signed correction</button>
       </template>
@@ -24,23 +28,24 @@ import { ref, watch, onBeforeUnmount } from 'vue';
 import api from '../../services/api.js';
 import { NOTE_REVIEW_STATUS, readableReviewMessage } from '../../utils/noteReviewWork.js';
 const props = defineProps({ requests: { type: Array, default: () => [] } });
-const emit = defineEmits(['acknowledged', 'correct']);
+const emit = defineEmits(['acknowledged', 'correct', 'open-version']);
 const busy = ref(false);
 const error = ref('');
 let generation = 0;
 watch(() => props.requests, () => { generation++; busy.value = false; error.value = ''; });
 onBeforeUnmount(() => { generation++; });
+const isVersionRequest = request => ['clinical_revision', 'clinical_revision_proposal'].includes(request.source) && !!request.revisionId;
 function formatDate(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
 }
 async function acknowledge(request) {
-  if (busy.value) return;
+  if (busy.value || isVersionRequest(request)) return;
   const seq = generation;
   busy.value = true;
   error.value = '';
   try {
-    await api.post(`/medical-billing/notes/${request.clinicalNoteId}/review-requests/${request.requestId || request.id}/acknowledge`, { agencyId: Number(request.agencyId) });
+    await api.post(`/medical-billing/notes/${request.clinicalNoteId}/review-requests/${request.requestId || request.id}/acknowledge`, { agencyId: Number(request.agencyId) }, { skipGlobalLoading: true });
     if (seq === generation) emit('acknowledged', request);
   } catch (e) {
     if (seq === generation) error.value = e.response?.data?.error?.message || 'Could not save acknowledgement. Please retry.';

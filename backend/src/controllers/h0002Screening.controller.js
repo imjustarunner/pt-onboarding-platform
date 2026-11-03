@@ -1,3 +1,4 @@
+import { withClinicalSigningToken } from '../services/clinicalNoteSigningToken.service.js';
 import { screeningEncounterProposal } from '../services/h0002EncounterDetails.js';
 import { grantScreeningDocumentRead } from '../services/h0002DocumentAccess.service.js';
 import { listClientPhiDocuments, viewPhiDocument } from './phiDocuments.controller.js';
@@ -47,7 +48,7 @@ export async function signH0002ScreeningReview(req, res, next) {
     // the audit context required by the note signature handler.
     const signingRequest = Object.create(req);
     signingRequest.params = { noteId: note.id };
-    signingRequest.body = { agencyId: note.agency_id, accurateAndComplete: true, medicalNecessityAttested: true };
+    signingRequest.body = { agencyId: note.agency_id, accurateAndComplete: true, medicalNecessityAttested: true, signingToken:(await withClinicalSigningToken(note)).signingToken };
     await signClinicalNote(signingRequest, res, error => { throw error; });
   } catch (error) { next(error); } finally {
     if (acquired) await db.execute('SELECT RELEASE_LOCK(?)', [key]);

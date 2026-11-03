@@ -9,6 +9,7 @@ on:
       - 'frontend/**'
       - 'scripts/check-school-demo-release.test.mjs'
       - 'database/migrations/**'
+      - 'database/clinical_migrations/**'
       - 'scripts/preserve-deploy-secrets*'
       - 'scripts/provision-mfa-secret*'
       - '.dockerignore'

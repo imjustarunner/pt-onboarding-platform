@@ -4,6 +4,7 @@ import ClinicalNoteReadOnlyView from '../ClinicalNoteReadOnlyView.vue';
 import { formatChartClinicalNoteCopy } from '../../../utils/noteAidUiHelpers.js';
 import api from '../../../services/api.js';
 vi.mock('../../../services/api.js',()=>({default:{post:vi.fn()}}));
+vi.mock('../ClinicalNoteVersionHistory.vue',()=>({default:{template:'<section>Immutable note versions</section>'}}));
 vi.mock('../../../store/auth.js',()=>({useAuthStore:()=>({user:{id:5,role:'provider'}})}));
 const props={note:{id:4,agencyId:1,clinicalSessionId:2,providerSignedAt:'2026-09-20',noteType:'PROGRESS',sections:{assessment:'Progress'}}};
 const field=(w,id)=>w.find(`[data-testid="${id}"]`);
@@ -34,7 +35,7 @@ describe('signed-note amendment flow',()=>{
     const w=mount(ClinicalNoteReadOnlyView,{props});await prepare(w,kind);
     expect(field(w,'sign-entry').attributes('disabled')).toBeDefined();
     await field(w,'author-attestation').setValue(true);await field(w,'sign-entry').trigger('click');await flushPromises();
-    expect(api.post).toHaveBeenCalledExactlyOnceWith('/medical-billing/notes/4/addenda',{agencyId:1,body:'Additional clinical context',entryKind:kind,reason:'Explains the entry',authorAttested:true});
+    expect(api.post).toHaveBeenCalledExactlyOnceWith('/medical-billing/notes/4/addenda',{agencyId:1,body:'Additional clinical context',entryKind:kind,reason:'Explains the entry',authorAttested:true},{skipGlobalLoading:true});
     expect(w.text()).toContain('No claim was created or transmitted');expect(w.text()).toContain('Author signed');w.unmount();
   });
   it('requires a reason and renewed author attestation after editing',async()=>{
@@ -43,20 +44,15 @@ describe('signed-note amendment flow',()=>{
     await field(w,'entry-reason').setValue('');await field(w,'author-attestation').setValue(true);
     expect(field(w,'sign-entry').attributes('disabled')).toBeDefined();expect(api.post).not.toHaveBeenCalled();w.unmount();
   });
-  it('attests the complete corrected clinical service list without exposing fees to a provider',async()=>{
-    const w=mount(ClinicalNoteReadOnlyView,{props});await prepare(w,'correction');await field(w,'service-correction').setValue(true);
-    await w.find('input[maxlength="5"]').setValue('90834');await w.find('input[type=number]').setValue(1);
-    await field(w,'service-attestation').setValue(true);await field(w,'author-attestation').setValue(true);
-    await field(w,'sign-entry').trigger('click');await flushPromises();
-    expect(api.post).toHaveBeenCalledExactlyOnceWith('/medical-billing/notes/4/addenda',{agencyId:1,body:'Additional clinical context',entryKind:'correction',reason:'Explains the entry',authorAttested:true,serviceLines:[{procedureCode:'90834',units:1}],serviceChangeAttested:true});
-    expect(w.text()).not.toContain('Total line charge');w.unmount();
+  it('keeps separate additions distinct from replacement amendments',async()=>{
+    const w=mount(ClinicalNoteReadOnlyView,{props});
+    expect(field(w,'entry-kind').findAll('option').map(option=>option.element.value)).toEqual(['addendum','late_entry']);
+    expect(w.text()).toContain('Use Create amendment in Note versions');
+    expect(field(w,'service-correction').exists()).toBe(false);w.unmount();
   });
-  it('drops service changes and signature when switching back to an addendum',async()=>{
-    const w=mount(ClinicalNoteReadOnlyView,{props});await prepare(w,'correction');await field(w,'service-correction').setValue(true);
-    await field(w,'author-attestation').setValue(true);await field(w,'entry-kind').setValue('addendum');
-    expect(field(w,'service-correction').exists()).toBe(false);expect(field(w,'author-attestation').element.checked).toBe(false);
-    await field(w,'author-attestation').setValue(true);await field(w,'sign-entry').trigger('click');await flushPromises();
-    expect(api.post.mock.calls[0][1]).not.toHaveProperty('serviceLines');w.unmount();
+  it('does not expose clinical addition signatures when the server denies them',()=>{
+    const w=mount(ClinicalNoteReadOnlyView,{props:{note:{...props.note,canSignAddendum:false}}});
+    expect(field(w,'author-attestation').exists()).toBe(false);expect(field(w,'sign-entry').exists()).toBe(false);w.unmount();
   });
   it('clears unsaved text, reason and attestation when changing notes',async()=>{
     const w=mount(ClinicalNoteReadOnlyView,{props});await prepare(w);await field(w,'author-attestation').setValue(true);
