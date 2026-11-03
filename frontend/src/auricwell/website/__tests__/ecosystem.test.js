@@ -115,13 +115,20 @@ describe('AuricWell website navigation and confirmed ecosystem', () => {
       'https://plotlinepo.com',
       'https://schoolcarebridge.org'
     ]) expect(links).toContain(normalizedUrl(destination));
-    for (const [label, service] of [['Billing', 'billing'], ['Credentialing', 'credentialing'], ['People Operations', 'people-operations']]) {
-      const action = [...main.querySelectorAll('a')].find(a => textIn(a).startsWith(`I need ${label}`));
-      expect(action).toBeTruthy();
-      const url = new URL(action.getAttribute('href'), 'https://auricwell.com');
-      expect(url.pathname).toBe('/contact');
-      expect(url.searchParams.get('service')).toBe(service);
-      expect(url.hash).toBe('#contact-form');
+    const expected = [
+      ['billing', 'https://plottwistco.com/contact?topic=billing#contact-form', 'https://plottwistco.com'],
+      ['credentialing', 'https://plottwistco.com/contact?topic=credentialing#contact-form', 'https://plottwistco.com'],
+      ['people-operations', 'https://plotlinepo.com/start?topic=people-operations#contact-form', 'https://plotlinepo.com']
+    ];
+    for (const [key, contact, website] of expected) {
+      const panel = main.querySelector(`#service-${key}`);
+      expect(panel?.tagName).toBe('DETAILS');
+      expect(panel.open).toBe(false);
+      expect(panel.querySelector('summary img').getAttribute('alt')).toBe('');
+      expect(panel.querySelectorAll('li').length).toBeGreaterThanOrEqual(6);
+      expect(linksIn(panel)).toEqual([normalizedUrl(contact), normalizedUrl(website)]);
+      const shortcut = doc.querySelector(`.practice-help a[href="/about#service-${key}"]`);
+      expect(shortcut?.querySelector('img')).toBeTruthy();
     }
   });
 });

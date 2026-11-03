@@ -1,5 +1,5 @@
 <template>
-  <section class="pl-lead-form" aria-label="Request a Plotline conversation">
+  <section id="contact-form" class="pl-lead-form" aria-label="Request a Plotline conversation">
     <div v-if="submitted" class="pl-form-success" role="status" tabindex="-1" ref="success">
       <span class="pl-eyebrow">Request received</span><h2>Your next chapter is underway.</h2><p>Our team will review your request and follow up at <strong>{{ form.email }}</strong>.</p><p class="pl-reference">Reference: {{ submitted }}</p><p>No payment has been collected and no subscription has started.</p><router-link class="pl-button" to="/plottline/product">Explore the platform →</router-link>
     </div>
@@ -11,9 +11,9 @@
         <label>Last name<input v-model.trim="form.lastName" autocomplete="family-name" required maxlength="100"></label>
         <label>Work email<input v-model.trim="form.email" type="email" autocomplete="email" required maxlength="254"></label>
         <label>Phone number<input v-model.trim="form.phone" type="tel" autocomplete="tel" required maxlength="40"></label>
-        <label>Organization type<select v-model="form.businessType" required><option value="" disabled>Select your organization</option><option value="mental-health">Care or behavioral health</option><option value="consulting">Consulting</option><option value="coaching">Coaching</option><option value="tutoring">Education or tutoring</option><option value="other">Nonprofit or another organization</option></select></label>
+        <label>Organization type<select v-model="form.businessType" aria-label="Organization type" required><option value="" disabled>Select your organization</option><option value="mental-health">Care or behavioral health</option><option value="consulting">Consulting</option><option value="coaching">Coaching</option><option value="tutoring">Education or tutoring</option><option value="other">Nonprofit or another organization</option></select></label>
         <label>Current stage<select v-model="form.stage" required><option value="established">Established</option><option value="expanding">Growing or restructuring</option><option value="launching">Preparing to launch</option><option value="idea">Exploring an idea</option></select></label>
-        <label class="pl-full">What would you like to explore?<select v-model="interest"><option>Plotline walkthrough</option><option>Standalone plan</option><option>Connected plan</option><option>Suite plan</option><option>Multiple organizations</option></select></label>
+        <label class="pl-full">What would you like to explore?<select v-model="interest" aria-label="What would you like to explore?"><option>People Operations</option><option>Plotline walkthrough</option><option>Standalone plan</option><option>Connected plan</option><option>Suite plan</option><option>Multiple organizations</option></select></label>
         <label class="pl-full">What would make a difference for your team?<textarea aria-label="What would make a difference for your team?" v-model.trim="form.goals" required maxlength="750" rows="4" placeholder="Tell us about your team, your current process, and what you’d like to improve."/><small>Please leave out employee, applicant, patient, and payment details.</small></label>
       </div>
       <div class="pl-trap" aria-hidden="true"><label>Leave empty<input v-model="form.websiteTrap" tabindex="-1" autocomplete="off"></label></div>
@@ -28,7 +28,7 @@ import { ref, reactive, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 const route = useRoute();
 const plans = {standalone:'Standalone plan', connected:'Connected plan', suite:'Suite plan'};
-const interest = ref(plans[route.query.plan] || 'Plotline walkthrough');
+const interest = ref(route.query.topic === 'people-operations' ? 'People Operations' : plans[route.query.plan] || 'Plotline walkthrough');
 const form = reactive({businessName:'',firstName:'',lastName:'',email:'',phone:'',businessType:'',stage:'established',goals:'',consent:false,websiteTrap:''});
 const busy=ref(false),error=ref(''),submitted=ref(''),success=ref(null);
 let submissionKey='',lastPayload='';

@@ -3,6 +3,7 @@ import { createApp } from 'vue';
 import ActualExamples from './ActualExamples.vue';
 import PublicWebsiteContactForm from '../../components/public/PublicWebsiteContactForm.vue';
 import { initializeWebsiteNavigation } from './navigation.js';
+import { initializeManagementServices } from './service-details.js';
 import { serviceInquiries } from './ecosystem.mjs';
 import { initializeFeatureRotation } from './feature-rotation.js';
 for (const element of document.querySelectorAll('[data-feature-rotation]')) {
@@ -20,4 +21,5 @@ for (const element of document.querySelectorAll('[data-auricwell-contact]')) {
 }
 
 initializeWebsiteNavigation();
+initializeManagementServices();
 initializeAuricwellAnalytics();

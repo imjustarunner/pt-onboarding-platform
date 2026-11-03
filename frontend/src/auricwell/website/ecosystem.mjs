@@ -1,3 +1,5 @@
+import { ptcoServices } from '../../constants/ptcoWebsite.js';
+
 // Confirmed by the practice owner on November 3, 2026. This public directory is
 // deliberately separate from tenant/account enumeration and private agreements.
 export const partners = Object.freeze([
@@ -24,8 +26,23 @@ export const serviceInquiries = Object.freeze({
   'people-operations': { title: 'Let’s talk people operations', message: 'I would like help with people operations for my organization. Please contact me about services and next steps.' }
 });
 
-export function managementSection({ link }) {
-  return `<section class="section management-section" id="management"><div class="management-strip"><div class="management-logo"><img src="/assets/ptco/logo-flat.webp" alt="Plot Twist Co." loading="lazy" width="220" height="88"></div><div><p class="eyebrow">THE TEAM BEHIND THE PLATFORM</p><h2>Managed by Plot Twist Co.</h2><p>AuricWell is a Plot Twist Co. product. We work closely with the management team to connect the software with the practical work of running a practice, including billing, credentialing and people operations.</p><p class="feature-note">Management services are scoped separately to fit your organization.</p></div></div><div class="service-cards">${[['billing','Billing','Support for the work from claim preparation through follow-up.'],['credentialing','Credentialing','Help organizing payer applications, provider information and next steps.'],['people-operations','People Operations','Hiring, onboarding and the day-to-day work of supporting your team.']].map(([key,title,description])=>`<article><h3>${title}</h3><p>${description}</p>${link(`contact?service=${key}#contact-form`,`I need ${title}`,'text-link')}</article>`).join('')}</div></section>`;
+// Reuse the management team's published service catalog rather than maintaining
+// a second description of their scope on AuricWell.
+export const managementServices = Object.freeze([
+  { key:'billing', title:'Billing', catalog:'medical-billing', note:'New AuricWell contracts start in 2027. Talk with Plot Twist Co. about billing in your existing EHR or planning your transition.', brand:'Plot Twist Co.', logo:'/assets/ptco/logo-flat.webp', website:'https://plottwistco.com', contact:'https://plottwistco.com/contact?topic=billing#contact-form' },
+  { key:'credentialing', title:'Credentialing', catalog:'credentialing', brand:'Plot Twist Co.', logo:'/assets/ptco/logo-flat.webp', website:'https://plottwistco.com', contact:'https://plottwistco.com/contact?topic=credentialing#contact-form' },
+  { key:'people-operations', title:'People Operations', catalog:'people', brand:'Plotline', logo:'/assets/plotline/website/brand/logos/favicon-48.png', website:'https://plotlinepo.com', contact:'https://plotlinepo.com/start?topic=people-operations#contact-form' }
+]);
+
+export function managementShortcuts(url) {
+  return `<div class="practice-help" aria-label="Practice management services"><span>How can we help your practice?</span>${managementServices.map(s=>`<a href="${url(`about#service-${s.key}`)}" data-management-link><img src="${s.logo}" alt="" width="20" height="20">I need ${s.title}</a>`).join('')}</div>`;
+}
+
+export function managementSection() {
+  return `<section class="section management-section" id="management"><div class="management-strip"><div class="management-logo"><img src="/assets/ptco/logo-flat.webp" alt="Plot Twist Co." loading="lazy" width="220" height="88"></div><div><p class="eyebrow">THE TEAM BEHIND THE PLATFORM</p><h2>Managed by Plot Twist Co.</h2><p>AuricWell is a Plot Twist Co. product. We work closely with the management team to connect the software with the practical work of running a practice, including billing, credentialing and people operations.</p><p class="feature-note">Explore the support you need below. Management services are scoped separately to fit your organization.</p></div></div><div class="service-cards">${managementServices.map(service=>{
+    const catalog=ptcoServices.find(s=>s.id===service.catalog);
+    return `<details class="management-service" id="service-${service.key}" data-management-service="${service.key}"><summary><div class="service-card-heading"><img src="${service.logo}" alt="" width="38" height="38"><div><span class="service-brand">${service.brand}</span><h3>${service.title}</h3></div><span class="service-expand" aria-hidden="true">+</span></div><p>${catalog.body}</p><span class="service-read-more">Explore ${service.title.toLowerCase()} support</span></summary><div class="service-details"><p class="service-intro">${catalog.detail}</p><div class="service-details-grid"><div><h4>How we can help</h4><ul>${catalog.includes.map(item=>`<li>${item}</li>`).join('')}</ul></div><div><h4>What happens next</h4><ol>${catalog.process.map(item=>`<li>${item}</li>`).join('')}</ol></div></div><p class="service-scope">${catalog.pricing}</p>${service.note?`<p class="feature-note">${service.note}</p>`:''}<div class="service-actions"><a class="button" href="${service.contact}">Contact ${service.brand} <span aria-hidden="true">↗</span></a><a class="text-link" href="${service.website}">Visit ${service.brand} website <span aria-hidden="true">↗</span></a></div></div></details>`;
+  }).join('')}</div></section>`;
 }
 
 export function integrationsSection() {

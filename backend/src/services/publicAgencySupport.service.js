@@ -41,6 +41,13 @@ export const PUBLIC_SUPPORT_CATEGORIES = [
   { id: 'other', label: 'Something else' }
 ];
 
+const PTCO_SUPPORT_CATEGORIES = [
+  {id:'billing',label:'Billing'}, {id:'credentialing',label:'Credentialing'},
+  {id:'people_operations',label:'People Operations'},
+  {id:'intake_join',label:'Getting started'}, {id:'school_partnership',label:'Partnership inquiry'},
+  {id:'technical',label:'Website help'}, {id:'other',label:'Something else'}
+];
+
 const DEFAULT_INTRO = [
   'We are glad you reached out. Share your question below without protected health information.',
   'For health details, use your secure portal. Community Standards apply to all communications.'
@@ -309,7 +316,8 @@ export async function getPublicAgencySupportConfig(agencySlug) {
   }
   const site = await getPublicWebsiteIdentity(String(agencySlug));
   if (site) result.agency = {...result.agency,name:site.name,logoUrl:site.logoUrl};
-  if (['ptco','range','mh4kidz','kimi','rise'].includes(agencySlug)) result.categories = [
+  if (isPtcoWebsite(agencySlug)) result.categories = PTCO_SUPPORT_CATEGORIES;
+  if (['range','mh4kidz','kimi','rise'].includes(agencySlug)) result.categories = [
     {id:'intake_join',label:'Getting started'}, {id:'billing',label:'Billing question'},
     {id:'school_partnership',label:'Partnership inquiry'}, {id:'technical',label:'Website help'}, {id:'other',label:'Something else'}
   ];
@@ -476,7 +484,8 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
     if (!rows.length) throw Object.assign(new Error('This provider is not available at this organization. Please choose another provider.'),{status:400});
     inquiryProvider={id:providerId,name:[rows[0].first_name,rows[0].last_name].filter(Boolean).join(' ')};
   }
-  const category = inquiryProvider ? 'provider' : PUBLIC_SUPPORT_CATEGORIES.some((c) => c.id === payload.category)
+  const allowedCategories = isPtcoWebsite(agencySlug) ? PTCO_SUPPORT_CATEGORIES : PUBLIC_SUPPORT_CATEGORIES;
+  const category = inquiryProvider ? 'provider' : allowedCategories.some((c) => c.id === payload.category)
     ? payload.category
     : 'other';
   const phiAcknowledged = payload.phiAcknowledged === true || payload.phiAcknowledged === 'true';
@@ -521,7 +530,7 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
 
   const internshipContact = internshipInquiry ? await resolveInternshipContact(agency) : null;
   const chatReferral = await resolveChatReferral(String(agencySlug),payload.chatReferral);
-  const categoryLabel = PUBLIC_SUPPORT_CATEGORIES.find((c) => c.id === category)?.label || category;
+  const categoryLabel = allowedCategories.find((c) => c.id === category)?.label || category;
   const subject = internshipInquiry ? INTERNSHIP_INQUIRY_SUBJECT : providerWaitlist ? `Provider waitlist: ${providerWaitlist.providerName} — ${providerWaitlist.serviceType}`.slice(0,255) : inquiryProvider ? `Provider inquiry: ${inquiryProvider.name} — ${name}`.slice(0,255) : `${categoryLabel} — ${name}`.slice(0, 255);
   const question = [
     message,

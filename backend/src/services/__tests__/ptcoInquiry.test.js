@@ -13,7 +13,7 @@ vi.mock('../../utils/supportTicketCrypto.js', () => ({ prepareEncryptedTicketTex
 vi.mock('../intakeResponsesEncryption.service.js', () => ({ encryptIntakePayload: () => ({ ciphertext: 'encrypted', ivB64: 'iv', authTagB64: 'tag', keyId: 'test' }), decryptIntakePayload: vi.fn() }));
 import pool from '../../config/database.js';
 import EmailService from '../email.service.js';
-import { deliverPtcoInquiry } from '../ptcoInquiry.service.js';
+import { deliverPtcoInquiry, deliverPtcoBusinessInquiry } from '../ptcoInquiry.service.js';
 import { createBusinessOnboardingService } from '../businessOnboarding.service.js';
 import { createPublicAgencySupportTicket, getPublicAgencySupportConfig } from '../publicAgencySupport.service.js';
 
@@ -31,6 +31,17 @@ describe('Plot Twist Co. inquiry delivery', () => {
     expect(result).toMatchObject({ ticketId: 31, emailDelivered: true });
     expect(EmailService.sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'admin@plottwistco.com', fromAddress: 'notifications@plottwistco.com', replyTo: contact.email, text: expect.stringContaining(contact.message) }));
     expect((await getPublicAgencySupportConfig('ptco')).supportContact.email).toBe('admin@plottwistco.com');
+  });
+  it.each([['billing','Billing'],['credentialing','Credentialing'],['people_operations','People Operations']])('preserves %s service inquiries and routes them only to the admin mailbox', async (category,label) => {
+    const config = await getPublicAgencySupportConfig('ptco');
+    expect(config.categories).toContainEqual({id:category,label});
+    await createPublicAgencySupportTicket('ptco', {...contact,category,to:'override@example.test'}, null);
+    expect(EmailService.sendEmail).toHaveBeenCalledTimes(1);
+    expect(EmailService.sendEmail).toHaveBeenCalledWith(expect.objectContaining({to:'admin@plottwistco.com',subject:expect.stringContaining(label),text:expect.stringContaining(`Category: ${label}`)}));
+  });
+  it('routes the Plotline People Operations request through the same admin mailbox', async () => {
+    await deliverPtcoBusinessInquiry({id:'synthetic-plotline-request',business:{...business,services:['people'],goals:'Plotline website · People Operations\nHelp our team with onboarding.'}});
+    expect(EmailService.sendEmail).toHaveBeenCalledWith(expect.objectContaining({to:'admin@plottwistco.com',text:expect.stringContaining('Plotline website · People Operations'),replyTo:business.email}));
   });
   it('does not redirect another website sharing the agency', async () => {
     await createPublicAgencySupportTicket('range', contact, null);

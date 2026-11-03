@@ -64,7 +64,7 @@
 
         <PtcoPlatformShowcase v-if="!section || section==='contact'" faq-only :compact="!section" />
         <section v-if="!section" class="ptco-band"><div class="ptco-wrap ptco-values"><div><p class="ptco-eyebrow">More than a service</p><h2>A true partnership.</h2></div><article v-for="[icon,title,body] in values" :key="title"><PtcoIcon :name="icon"/><h3>{{ title }}</h3><p>{{ body }}</p></article></div></section>
-<PublicWebsiteContactForm v-if="section==='contact'" agency-slug="ptco" />
+<PublicWebsiteContactForm v-if="section==='contact'" id="contact-form" agency-slug="ptco" />
         <section v-if="section !== 'conversa'" class="ptco-final"><div class="ptco-wrap"><div><p class="ptco-eyebrow">Your next chapter starts here.</p><h2>Let’s build a brighter tomorrow — together.</h2><p>Get support, useful tools, and a partner who understands your purpose.</p></div><router-link class="ptco-button ptco-button-light" to="/p/ptco/start">Let’s talk →</router-link><span class="ptco-motto">People.<br>Purpose.<br>Possibility.</span></div></section>
       </template>
     </main>

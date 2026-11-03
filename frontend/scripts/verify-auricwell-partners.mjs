@@ -38,9 +38,16 @@ try {
  await open('about');for(const name of ['Managed by Plot Twist Co.','Plotline','SchoolCareBridge'])assert.match(await page.locator('main').innerText(),new RegExp(name.replaceAll('.','\\.')));await page.locator('#integrations').scrollIntoViewIfNeeded();for(const img of await page.locator('#integrations img').all())await img.evaluate(i=>i.decode());await shot('integrations');
  for(const [key,label] of [['billing','Billing'],['credentialing','Credentialing'],['people-operations','People Operations']]){
   await page.locator('.practice-help').getByRole('link',{name:`I need ${label}`,exact:true}).click();
-  assert.equal(new URL(page.url()).searchParams.get('service'),key);await page.locator('textarea').waitFor();assert.match(await page.locator('textarea').inputValue(),new RegExp(key==='people-operations'?'people operations':key,'i'));
+  assert.equal(new URL(page.url()).hash,`#service-${key}`);
+  const panel=page.locator(`#service-${key}`);await page.waitForFunction(id=>document.getElementById(id)?.open,`service-${key}`);
+  assert.equal(await page.locator('[data-management-service][open]').count(),1);
+  assert(await panel.locator('.service-details').isVisible());
+  const contact=new URL(await panel.getByRole('link',{name:/^Contact/}).getAttribute('href'));
+  assert.equal(contact.searchParams.get('topic'),key);
+  assert.equal(contact.hostname,key==='people-operations'?'plotlinepo.com':'plottwistco.com');
+  assert.equal(await panel.locator('.service-actions a').count(),2);
  }
- checks.push('Management/integrations and all three service shortcuts work through the existing contact form; no inquiry submitted');
+ checks.push('Branded shortcuts open the matching About disclosure with service details and topic-specific contact/main-website links');
  for(const width of [1440,1024,768,390,320]){
   await page.setViewportSize({width,height:1000});
   for(const section of ['partners','about','product','contact']){
