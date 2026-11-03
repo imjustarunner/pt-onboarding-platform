@@ -1,11 +1,11 @@
 <template>
   <div class="df-field">
     <div v-if="label" class="df-field-label">
-      {{ label }}
+      {{ translateContent ? translateEnrollment(label) : label }}
       <span v-if="required" class="df-field-required">*</span>
       <span v-else-if="optionalBadge" class="df-field-optional">{{ translateEnrollment('optional') }}</span>
     </div>
-    <p v-if="help" class="df-field-help">{{ help }}</p>
+    <p v-if="help" class="df-field-help">{{ translateContent ? translateEnrollment(help) : help }}</p>
     <div
       class="df-choice-group"
       :class="{
@@ -29,7 +29,7 @@
       >
         <span class="df-choice-bubble" aria-hidden="true" />
         <span v-if="opt.icon" class="df-choice-icon" aria-hidden="true">{{ opt.icon }}</span>
-        <span class="df-choice-btn-label">{{ opt.label }}</span>
+        <span class="df-choice-btn-label">{{ translateContent ? translateEnrollment(opt.label) : opt.label }}</span>
       </button>
     </div>
   </div>
@@ -47,6 +47,7 @@ const props = defineProps({
   help: { type: String, default: '' },
   required: { type: Boolean, default: false },
   optionalBadge: { type: Boolean, default: false },
+  translateContent: { type: Boolean, default: true },
   multiple: { type: Boolean, default: false },
   exclusiveValue: { type: String, default: '' },
   layout: { type: String, default: 'pills' }

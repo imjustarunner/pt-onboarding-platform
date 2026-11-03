@@ -10,8 +10,8 @@ vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: null, isAut
 let wrapper;
 beforeEach(() => { sessionStorage.clear(); localStorage.clear(); setPublicLocale('en'); window.scrollTo=vi.fn(); });
 afterEach(() => { wrapper?.unmount(); vi.clearAllMocks(); setPublicLocale('en'); });
-async function render(slug='itsco') {
- const config={agency:{id:2,slug,name:slug==='itsco'?'ITSCO':'Example Care'},branding:{enrollmentProduct:'auricwell',agencyName:slug==='itsco'?'ITSCO':'Example Care'},activeService:{serviceType:'counseling',displayName:'Counseling'},intakeServices:[{serviceType:'counseling'}],pathways:{quick:{enabled:true},full:{enabled:true,publicKey:'office-test'}},selfConcernOptions:[{value:'custom',label:'Published agency concern'}],copy:{}};
+async function render(slug='itsco', overrides={}) {
+ const config={agency:{id:2,slug,name:slug==='itsco'?'ITSCO':'Example Care'},branding:{enrollmentProduct:'auricwell',agencyName:slug==='itsco'?'ITSCO':'Example Care'},activeService:{serviceType:'counseling',displayName:'Counseling'},intakeServices:[{serviceType:'counseling'}],pathways:{quick:{enabled:true},full:{enabled:true,publicKey:'office-test'}},selfConcernOptions:[{value:'custom',label:'Published agency concern'}],copy:{},...overrides};
  api.get.mockResolvedValue({data:config});api.post.mockResolvedValue({data:{translations:{'Published agency concern':'Motivo publicado'}}});
  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/join/:agencySlug/:serviceType',component:Join},{path:'/intake/:publicKey',component:{template:'<div/>'}},{path:'/:pathMatch(.*)*',component:{template:'<div/>'}}]});
  await router.push(`/join/${slug}/counseling`);await router.isReady();
@@ -57,6 +57,10 @@ describe('Shared enrollment experience',()=>{
     Object.assign(form.familyMembers[0], { firstName: 'Demo', lastName: 'Member', dateOfBirth: '2015-01-01', relationshipToPrimary: 'Child' });
    }
    await flushPromises();
+   if (subject === 'child') {
+    expect(wrapper.get('.ogi-rights .df-field-required').text()).toBe('*');
+    expect(wrapper.get('.ogi-rights select').attributes('required')).toBeDefined();
+   }
    const optionalBasics = wrapper.findAllComponents(DigitalFormField).filter(field => ['Middle name', 'Apartment, suite, or unit'].includes(field.props('label')));
    expect(optionalBasics.length).toBe(subject === 'myself' ? 2 : subject === 'couple' ? 4 : 3);
    for (const field of optionalBasics) {
@@ -70,7 +74,10 @@ describe('Shared enrollment experience',()=>{
    const continueButton = wrapper.get('.ai-join-continue');
    expect(continueButton.element.disabled).toBe(false);
    form.address.street = ''; await flushPromises();
-   expect(continueButton.element.disabled).toBe(true);
+   expect(continueButton.element.disabled).toBe(false);
+   await continueButton.trigger('click'); await flushPromises();
+   expect(wrapper.vm.quickStep).toBe(0);
+   expect(wrapper.get('.ai-join-validation').text()).toContain(locale === 'es' ? 'La dirección de la calle es obligatoria.' : 'Street address is required.');
    form.address.street = '123 Demo St'; await flushPromises();
    await continueButton.trigger('click'); await flushPromises();
    expect(wrapper.vm.quickStep).toBe(1);
@@ -88,5 +95,91 @@ describe('Shared enrollment experience',()=>{
   expect(middle.get('.df-field-optional').text()).toBe(locale === 'es' ? 'opcional' : 'optional');
   expect(middle.get('input').element.value).toBe('');
   expect(wrapper.vm.canContinueQuick).toBe(true);
+ });
+
+ it.each(['en', 'es'])('shows actionable %s errors and advances page 3 with valid matching essentials', async locale => {
+  setPublicLocale(locale); await render('itsco', { exchangeEssentialsRequired: true });
+  const form = wrapper.vm.form;
+  Object.assign(form.respondent, { firstName: 'Demo', lastName: '', email: 'interest-form@example.com', phone: '2025550123' });
+  form.birthdate = '1990-01-01';
+  Object.assign(form.address, { street: '123 Demo St', city: 'Denver', state: 'CO', zip: '80202' });
+  await wrapper.get('.ai-join-continue').trigger('click'); await flushPromises();
+  expect(wrapper.vm.quickStep).toBe(0);
+  expect(wrapper.get('[role="alert"]').text()).toContain(locale === 'es' ? 'El apellido es obligatorio.' : 'Last name is required.');
+  form.respondent.lastName = 'Example';
+  await wrapper.get('.ai-join-continue').trigger('click'); await flushPromises();
+  expect(wrapper.vm.quickStep).toBe(1);
+  await wrapper.get('.ai-join-continue').trigger('click'); await flushPromises();
+  expect(wrapper.vm.quickStep).toBe(1);
+  expect(wrapper.get('.ai-join-validation').text()).toContain(locale === 'es' ? 'Seleccione al menos un motivo' : 'Select at least one concern');
+  await wrapper.get('.ai-concern-chip').trigger('click');
+  await wrapper.get('.ai-join-continue').trigger('click'); await flushPromises();
+  expect(wrapper.vm.quickStep).toBe(2);
+  const modality = wrapper.findAllComponents(DigitalFormField).find(field => field.props('label') === 'Preferred format');
+  expect(modality.props('required')).toBe(true);
+  expect(modality.get('select').element.value).toBe('');
+  expect(modality.get('option[value=""]').text()).toBe(locale === 'es' ? 'Seleccionar…' : 'Select…');
+  await wrapper.get('.ai-join-continue').trigger('click'); await flushPromises();
+  expect(wrapper.vm.quickStep).toBe(2);
+  expect(wrapper.get('.ai-join-validation').text()).toContain(locale === 'es' ? 'Elija una modalidad preferida.' : 'Choose a preferred format.');
+  expect(wrapper.get('[data-exchange-field="days"]').attributes('aria-invalid')).toBe('true');
+  expect(wrapper.get('[data-exchange-field="times"]').attributes('aria-invalid')).toBe('true');
+  await modality.get('select').setValue('either');
+  const payer = wrapper.findAllComponents(DigitalFormField).find(field => field.props('label') === 'Insurance plan or self-pay');
+  expect(payer.props('required')).toBe(true);
+  await payer.get('input').setValue('Self-pay');
+  await wrapper.get('[data-exchange-field="days"] label:nth-child(3) input').setValue(true);
+  await wrapper.get('[data-exchange-field="times"] label:nth-child(2) input').setValue(true);
+  expect(form.preferences.exchangeSchedule).toMatchObject({ days: ['Wednesday'], periods: ['afternoon'] });
+  if (locale === 'es') {
+   expect(wrapper.get('.client-schedule').text()).toContain('Miércoles');
+   expect(wrapper.get('.client-schedule').text()).toContain('Zona horaria');
+   expect(wrapper.get('.client-schedule').text()).not.toContain('When does the client');
+   expect(wrapper.get('.client-schedule').text()).not.toContain('Required. Choose');
+   expect(payer.text()).toContain('Plan de seguro o pago por cuenta propia');
+  }
+  await wrapper.get('.ai-join-continue').trigger('click'); await flushPromises();
+  expect(wrapper.vm.quickStep).toBe(4);
+  expect(wrapper.find('.ai-join-validation').exists()).toBe(false);
+  await wrapper.get('.ai-join-continue').trigger('click'); await flushPromises();
+  expect(wrapper.vm.quickStep).toBe(4);
+  expect(wrapper.get('.ai-join-validation').text()).toContain(locale === 'es' ? 'autorización de contacto' : 'contact authorization');
+  await wrapper.get('.ai-consent-check input').setValue(true);
+  await wrapper.get('.ai-join-continue').trigger('click'); await flushPromises();
+  expect(wrapper.vm.quickStep).toBe(5);
+  api.post.mockResolvedValue({ data: { confirmation: { reference: 'DEMO-TEST' } } });
+  await wrapper.get('.ai-join-continue').trigger('click'); await flushPromises();
+  expect(wrapper.vm.submitted).toBe(true);
+  const submission = api.post.mock.calls.find(([url]) => url.endsWith('/quick'));
+  expect(submission).toBeTruthy();
+  expect(submission[1].respondent.email).toBe('interest-form@example.com');
+  expect(submission[1].preferences.exchangeSchedule).toMatchObject({ days: ['Wednesday'], periods: ['afternoon'] });
+  expect(api.get.mock.calls.some(([url]) => url.includes('/choose-providers'))).toBe(false);
+ });
+
+ it('retranslates visible validation while retaining preferences and rejects an incomplete specific-time row', async () => {
+  await render('itsco', { exchangeEssentialsRequired: true });
+  wrapper.vm.quickStep = 2;
+  Object.assign(wrapper.vm.form.preferences, { preferredModality: 'virtual', insuranceOrPayment: 'Self-pay', exchangeSchedule: { days: [], periods: [], windows: [{ day: 'Wednesday', start: '', end: '' }], timezone: 'America/Denver' } });
+  wrapper.vm.form.accomplishGoal = 'Demo support goal';
+  await wrapper.get('.ai-join-continue').trigger('click'); await flushPromises();
+  expect(wrapper.vm.quickStep).toBe(2);
+  expect(wrapper.get('.ai-join-validation').text()).toContain('Enter a start time');
+  setPublicLocale('es'); await flushPromises();
+  expect(wrapper.get('.ai-join-validation').text()).toContain('Ingrese una hora de inicio');
+  expect(wrapper.get('.ai-join-validation').text()).not.toContain('Enter a start time');
+  expect(wrapper.vm.form.preferences.insuranceOrPayment).toBe('Self-pay');
+  expect(wrapper.vm.form.accomplishGoal).toBe('Demo support goal');
+  await wrapper.get('.time-row input[type="time"]').setValue('15:30');
+  await wrapper.get('.ai-join-continue').trigger('click'); await flushPromises();
+  expect(wrapper.vm.quickStep).toBe(4);
+ });
+
+ it('carries the selected language to full enrollment', async () => {
+  const router = await render();
+  setPublicLocale('es');
+  await wrapper.vm.onPathwayContinue('full'); await flushPromises();
+  expect(router.currentRoute.value.path).toBe('/intake/office-test');
+  expect(router.currentRoute.value.query.lang).toBe('es');
  });
 });

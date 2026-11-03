@@ -343,6 +343,7 @@ export async function buildPacketSectionContext({
     title: sectionTitle(key, loc),
     locale: loc,
     agencyId: resolvedAgencyId,
+    variant: normalizeOfficePacketVariant(variant),
     organizationId: orgId,
     packetVersion,
     html: snapshotHtml,

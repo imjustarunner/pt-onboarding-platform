@@ -1,4 +1,5 @@
 import { normalizeIntakeDataShape } from '../services/completedIntakeRecord.service.js';
+import { officeAdultConsentBlockMessage } from './officeAdultConsent.js';
 
 export function intakeChildRoster(intakeData = {}) {
   const normalized = normalizeIntakeDataShape(intakeData);
@@ -16,7 +17,26 @@ export function intakeChildRoster(intakeData = {}) {
 }
 
 export function validateMultiChildSigning({ intakeData = {}, clients = [] } = {}) {
+  const normalized = normalizeIntakeDataShape(intakeData);
   const roster = intakeChildRoster(intakeData);
+  const submission = normalized.responses?.submission || {};
+  const guardianAnswers = normalized.responses?.guardian || {};
+  const guardian = normalized.guardian || {};
+  const identities = Array.isArray(normalized.clients) && normalized.clients.length
+    ? normalized.clients : (Array.isArray(clients) ? clients : []);
+  const adultConsentError = officeAdultConsentBlockMessage({
+    serviceSubject: submission.serviceSubject || normalized.serviceSubject,
+    participants: Array.from({ length: Math.max(roster.length, identities.length) }, (_, index) => ({
+      ...(identities[index] || {}), ...(roster[index] || {})
+    })),
+    primarySigner: {
+      firstName: guardian.firstName || guardianAnswers.pc_legal_first || guardianAnswers.guardian_legal_first || submission.pc_legal_first,
+      lastName: guardian.lastName || guardianAnswers.pc_legal_last || guardianAnswers.guardian_legal_last || submission.pc_legal_last,
+      dateOfBirth: guardian.dateOfBirth || guardian.dob || guardianAnswers.pc_date_of_birth || submission.pc_date_of_birth
+    },
+    locale: normalized.formLocale || 'en'
+  });
+  if (adultConsentError) return adultConsentError;
   const count = Math.max(roster.length, Array.isArray(clients) ? clients.length : 0);
   if (count < 2) return null;
   const consent = intakeData.multiClientSignatureConsent;

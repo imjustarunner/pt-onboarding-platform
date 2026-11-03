@@ -39,7 +39,6 @@ function field({
   scope = 'couple',
   privateToRespondent = false,
   partnerIndex = null,
-  defaultValue = undefined
 }) {
   return {
     id: `field_${key}`,
@@ -59,7 +58,6 @@ function field({
     category: 'clinical',
     privateToRespondent: privateToRespondent || undefined,
     partnerIndex: partnerIndex == null ? undefined : partnerIndex,
-    defaultValue
   };
 }
 
@@ -315,7 +313,7 @@ function howRelationshipGoing() {
   return step({
     id: 'how_relationship_going',
     label: 'How the Relationship Is Going',
-    helperText: 'Rate each area. Defaults are for convenience — update as needed.',
+    helperText: 'Choose the ratings that reflect your experience, or leave them blank to discuss later.',
     whyWeAsk: 'A shared functioning snapshot is faster than repeating individual life-area pages twice.',
     fields: [
       ...areas.map(([key, label]) =>
@@ -324,7 +322,6 @@ function howRelationshipGoing() {
           label,
           type: 'radio',
           options: rating,
-          defaultValue: 'going_well',
           section: 'How are things going in each area?'
         })
       ),
@@ -526,7 +523,7 @@ function partnerPrivateSafety(partnerIndex, partnerLabel) {
     id: `private_safety_${partnerIndex}`,
     label: `${partnerLabel} — Private Safety Check`,
     helperText: 'Answer privately. Your partner will not see these answers on the shared review screen.',
-    whyWeAsk: 'Relationship safety and suicide risk must stay person-scoped and private.',
+    whyWeAsk: 'These questions help your therapist understand each partner’s safety needs.',
     audience: 'couple_partner',
     privatePerPartner: true,
     fields: [
@@ -645,7 +642,7 @@ function coupleQuestionnaires() {
     label: 'Standard Questionnaires',
     type: 'clinical_questions',
     helperText: 'Individual measures are saved under each participant. Scores are not shared as if they describe both partners.',
-    whyWeAsk: 'Reuse the existing questionnaire engine with respondent attribution.',
+    whyWeAsk: 'These questionnaires give your therapist more information about each person’s current concerns.',
     audience: 'couple_partner',
     fields: buildStandardQuestionnaireFields().map((f) => ({
       ...f,

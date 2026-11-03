@@ -505,11 +505,11 @@
               <label for="guardianEmail">{{ t('yourEmail') }} <span class="required-indicator">*</span></label>
               <input id="guardianEmail" v-model="guardianEmail" type="email" :readonly="!!portalEnrollmentEmail" :class="{ 'input-error': !!consentErrors.guardianEmail }" />
             </div>
-            <div v-if="intakeForSelf !== false" class="form-group form-group--dob">
+            <div v-if="intakeForSelf !== false || ['couple', 'family'].includes(serviceSubject)" class="form-group form-group--dob">
               <label for="starterDob">{{ t('dateOfBirth') }} <span class="required-indicator">*</span></label>
               <input id="starterDob" v-model="starterDob" type="date" :class="{ 'input-error': !!consentErrors.starterDob }" />
             </div>
-            <div v-if="intakeForSelf === false" class="form-group form-group--rel">
+            <div v-if="intakeForSelf === false && (!serviceSubject || serviceSubject === 'dependent')" class="form-group form-group--rel">
               <label for="guardianRelationship">{{ t('relationshipToClient') }} <span class="required-indicator">*</span></label>
               <select
                 id="guardianRelationship"
@@ -530,16 +530,17 @@
             <template v-if="intakeForSelf === false">
               <div class="intake-start-dependents">
                 <div class="intake-start-dependents-head">
-                  <strong>{{ t('dependentN') }}</strong>
+                  <strong>{{ serviceSubject === 'couple' ? tx('Your partner') : serviceSubject === 'family' ? (intakeLocale === 'es' ? 'Miembros de la familia' : 'Family members') : t('dependentN') }}</strong>
                   <button
                     type="button"
-                    v-if="!isCoGuardianInvitee"
+                    v-if="!isCoGuardianInvitee && serviceSubject !== 'couple'"
                     class="intake-add-dependent"
                     @click="onClickAddClient"
-                  >+ {{ t('addAnotherDependent') }}</button>
+                  >+ {{ serviceSubject === 'family' ? (intakeLocale === 'es' ? 'Agregar miembro de la familia' : 'Add family member') : t('addAnotherDependent') }}</button>
                 </div>
                 <div
                   v-for="(c, idx) in clients"
+                  v-show="serviceSubject !== 'couple' || idx > 0"
                   :key="`office-child-${idx}`"
                   class="intake-start-child"
                 >
@@ -549,13 +550,13 @@
                       :id="`clientFirstName_${idx}`"
                       v-model="c.firstName" :readonly="isCoGuardianInvitee"
                       type="text"
-                      placeholder="First"
+                      :placeholder="t('dependentFirstName')"
                       :class="{ 'input-error': !!startClientErrors[idx]?.firstName }"
                     />
                   </div>
                   <div class="form-group form-group--middle">
                     <label>{{ t('middleNameOptional') }}</label>
-                    <input :id="`clientMiddleName_${idx}`" v-model="c.middleName" :readonly="isCoGuardianInvitee" type="text" placeholder="Middle" />
+                    <input :id="`clientMiddleName_${idx}`" v-model="c.middleName" :readonly="isCoGuardianInvitee" type="text" :placeholder="t('middleNameOptional')" />
                   </div>
                   <div class="form-group form-group--name">
                     <label>
@@ -571,7 +572,7 @@
                       :id="`clientLastName_${idx}`"
                       v-model="c.lastName" :readonly="isCoGuardianInvitee"
                       type="text"
-                      placeholder="Last"
+                      :placeholder="t('dependentLastName')"
                       :class="{ 'input-error': !!startClientErrors[idx]?.lastName }"
                     />
                   </div>
@@ -585,7 +586,7 @@
                     />
                   </div>
                   <button
-                    v-if="clients.length > 1 && !isCoGuardianInvitee"
+                    v-if="clients.length > 1 && !isCoGuardianInvitee && serviceSubject !== 'couple'"
                     type="button"
                     class="intake-start-child-remove"
                     @click="removeClient(idx)"
@@ -593,7 +594,7 @@
                 </div>
               </div>
               <div
-                v-if="multiClientConsentDialogOpen"
+                v-if="multiClientConsentDialogOpen && (!serviceSubject || serviceSubject === 'dependent')"
                 class="multi-client-consent-panel intake-start-consent"
                 role="dialog"
                 aria-live="polite"
@@ -615,7 +616,7 @@
                 </div>
               </div>
               <p
-                v-if="multiClientConsentDeclined && !multiClientConsentDialogOpen"
+                v-if="multiClientConsentDeclined && !multiClientConsentDialogOpen && (!serviceSubject || serviceSubject === 'dependent')"
                 class="intake-start-consent-note"
               >{{ t('multiDependentDeclineNotice') }}</p>
               <div v-if="isCoGuardianInvitee" class="intake-start-custody">
@@ -623,7 +624,7 @@
                 <p>{{ t('coGuardianIsolatedLead') }}</p>
               </div>
               <OtherGuardianIntakeFields
-                v-else
+                v-else-if="!serviceSubject || serviceSubject === 'dependent'"
                 class="intake-start-custody"
                 :model="otherGuardian"
                 :copy="otherGuardianCopy"
@@ -1928,8 +1929,8 @@
           >
             <div class="reminder-contact-head">
               <div>
-                <strong>{{ contact.label }}</strong>
-                <p class="muted">{{ contact.source }}{{ contact.name ? ` · ${contact.name}` : ' · not added yet' }}</p>
+                <strong>{{ tx(contact.label) }}</strong>
+                <p class="muted">{{ tx(contact.source) }} · {{ contact.name || tx('not added yet') }}</p>
               </div>
               <label class="reminder-include">
                 <input type="checkbox" v-model="contact.included" />
@@ -1958,22 +1959,22 @@
           <div v-if="providerMatchOnClinicalHold" class="clinical-review-hold">
             <DigitalFormNotice
               variant="warn"
-              title="Clinical review before provider matching"
-              body="Based on answers in this intake, a clinician will review your information before matching you with a provider. You can continue — no provider selection is needed right now."
+              :title="tx('Clinical review before provider matching')"
+              :body="tx('Based on answers in this intake, a clinician will review your information before matching you with a provider. You can continue — no provider selection is needed right now.')"
             />
           </div>
           <template v-else>
             <div class="enrollment-provider-preferences">
-              <p>Tell us how you would like to meet and any provider preferences. Open providers appear first, followed by providers accepting waitlist requests. These preferences are optional.</p>
-              <label for="enrollment-provider-format">Appointment format</label>
+              <p>{{ tx('Tell us how you would like to meet and any provider preferences. Open providers appear first, followed by providers accepting waitlist requests. These preferences are optional.') }}</p>
+              <label for="enrollment-provider-format">{{ tx('Appointment format') }}</label>
               <select id="enrollment-provider-format" :value="enrollmentModality" @change="changeEnrollmentModality($event.target.value)">
-                <option value="ALL">Either virtual or in person</option>
-                <option v-for="format in enrollmentModalityOptions" :key="format" :value="format">{{format==='VIRTUAL'?'Virtual':'In person'}}</option>
+                <option value="ALL">{{ tx('Either virtual or in person') }}</option>
+                <option v-for="format in enrollmentModalityOptions" :key="format" :value="format">{{ tx(format === 'VIRTUAL' ? 'Virtual' : 'In person') }}</option>
               </select>
-              <label v-if="enrollmentModality !== 'VIRTUAL'" for="enrollment-service-location">Where would you like in-person services?</label>
+              <label v-if="enrollmentModality !== 'VIRTUAL'" for="enrollment-service-location">{{ tx('Where would you like in-person services?') }}</label>
               <select v-if="enrollmentModality !== 'VIRTUAL'" id="enrollment-service-location" v-model="intakeResponses.submission.preferred_service_location">
-                <option value="">Select a location…</option>
-                <option>Colorado Springs</option><option>Denver</option><option>Either location</option><option>Other location</option><option>Not yet decided</option>
+                <option value="">{{ tx('Select a location…') }}</option>
+                <option>Colorado Springs</option><option>Denver</option><option value="Either location">{{ tx('Either location') }}</option><option value="Other location">{{ tx('Other location') }}</option><option value="Not yet decided">{{ tx('Not yet decided') }}</option>
               </select>
               <template v-if="link?.master_channel !== 'tutoring'">
                 <label for="enrollment-therapist-gender">{{ tx('Therapist gender preference (optional)') }}</label>
@@ -1982,21 +1983,21 @@
                 </select>
                 <p>{{ tx('If selected, only providers matching this preference can be considered. No preference includes all provider genders.') }}</p>
               </template>
-              <p v-if="officeProvidersLoading" role="status">Checking Open and Waitlist providers…</p>
-              <p v-if="officeProvidersError" role="alert">{{officeProvidersError}} <button type="button" @click="loadOfficeIntakeProviders">Try again</button></p>
+              <p v-if="officeProvidersLoading" role="status">{{ tx('Checking Open and Waitlist providers…') }}</p>
+              <p v-if="officeProvidersError" role="alert">{{ tx(officeProvidersError) }} <button type="button" @click="loadOfficeIntakeProviders">{{ tx('Try again') }}</button></p>
               <fieldset class="enrollment-scheduling-preferences">
-                <legend>When could you meet? (optional)</legend>
-                <p>Your provider and support team can use these preferences when an opening becomes available. They do not reserve an appointment.</p>
-                <div class="enrollment-preference-options" role="group" aria-label="Preferred days">
-                  <label v-for="day in enrollmentWeekdays" :key="day"><input v-model="enrollmentPreferredDays" type="checkbox" :value="day" /> {{day}}</label>
+                <legend>{{ tx('When could you meet? (optional)') }}</legend>
+                <p>{{ tx('Your provider and support team can use these preferences when an opening becomes available. They do not reserve an appointment.') }}</p>
+                <div class="enrollment-preference-options" role="group" :aria-label="tx('Preferred days')">
+                  <label v-for="day in enrollmentWeekdays" :key="day"><input v-model="enrollmentPreferredDays" type="checkbox" :value="day" /> {{ tx(day) }}</label>
                 </div>
-                <div class="enrollment-preference-options" role="group" aria-label="Preferred times">
-                  <label v-for="time in enrollmentTimeWindows" :key="time"><input v-model="enrollmentPreferredTimes" type="checkbox" :value="time" /> {{time}}</label>
+                <div class="enrollment-preference-options" role="group" :aria-label="tx('Preferred times')">
+                  <label v-for="time in enrollmentTimeWindows" :key="time"><input v-model="enrollmentPreferredTimes" type="checkbox" :value="time" /> {{ tx(time) }}</label>
                 </div>
-                <label for="enrollment-preference-timezone">Time zone</label>
-                <input id="enrollment-preference-timezone" v-model="enrollmentPreferenceTimeZone" maxlength="100" placeholder="For example, America/Denver" />
-                <label for="enrollment-scheduling-notes">Anything else about your availability?</label>
-                <textarea id="enrollment-scheduling-notes" v-model="intakeResponses.submission.preferred_scheduling_notes" maxlength="1000" rows="2" placeholder="For example, Tuesdays after 4 PM or Thursday mornings." />
+                <label for="enrollment-preference-timezone">{{ tx('Time zone') }}</label>
+                <input id="enrollment-preference-timezone" v-model="enrollmentPreferenceTimeZone" maxlength="100" :placeholder="tx('For example, America/Denver')" />
+                <label for="enrollment-scheduling-notes">{{ tx('Anything else about your availability?') }}</label>
+                <textarea id="enrollment-scheduling-notes" v-model="intakeResponses.submission.preferred_scheduling_notes" maxlength="1000" rows="2" :placeholder="tx('For example, Tuesdays after 4 PM or Thursday mornings.')" />
               </fieldset>
               <template v-if="!providerChoicesVisible && !officeProvidersLoading && !officeProvidersError && link?.master_channel!=='tutoring'">
                 <div v-for="(client,idx) in clients" :key="idx">
@@ -2004,15 +2005,15 @@
                   <ClientMatchingPreferences :model-value="intakeResponses.clients[idx]?.matchingPreferences||{}" :allowed-options="matchingPreferenceOptions" :locale="intakeLocale" @update:model-value="ensureClientBag(idx).matchingPreferences=$event" />
                 </div>
               </template>
-              <button v-if="!providerChoicesVisible" class="btn btn-primary" type="button" :disabled="officeProvidersLoading || !!officeProvidersError" @click="providerChoicesVisible=true">Show matching providers</button>
-              <button v-else class="btn btn-secondary" type="button" @click="providerChoicesVisible=false">Adjust matching preferences</button>
-              <button v-if="!providerChoicesVisible" class="btn btn-secondary" type="button" @click="skipEnrollmentProvider">Skip provider choice — let the care team help</button>
+              <button v-if="!providerChoicesVisible" class="btn btn-primary" type="button" :disabled="officeProvidersLoading || !!officeProvidersError" @click="providerChoicesVisible=true">{{ tx('Show matching providers') }}</button>
+              <button v-else class="btn btn-secondary" type="button" @click="providerChoicesVisible=false">{{ tx('Adjust matching preferences') }}</button>
+              <button v-if="!providerChoicesVisible" class="btn btn-secondary" type="button" @click="skipEnrollmentProvider">{{ tx('Skip provider choice — let the care team help') }}</button>
             </div>
             <ChooseProviderDirectory
               v-if="providerChoicesVisible"
               mode="intake"
-              title="Choose a provider (optional)"
-              lead="Selecting a provider does not guarantee placement. Our support team or a care coordinator will contact you to confirm availability and coordinate care."
+              :title="tx('Choose a provider (optional)')"
+              :lead="tx('Selecting a provider does not guarantee placement. Our support team or a care coordinator will contact you to confirm availability and coordinate care.')"
               :show-header="true"
               :providers="matchingOfficeProviders"
               :loading="officeProvidersLoading"
@@ -2023,9 +2024,9 @@
               @update:selected-ids="setSelectedOfficeProviderIds"
               @skip="skipEnrollmentProvider"
             />
-            <p v-if="selectedEnrollmentProvider && enrollmentProviderStatus(selectedEnrollmentProvider,enrollmentModality)==='waitlist'" role="status">Your enrollment requests {{selectedEnrollmentProvider.name}}’s waitlist. No appointment or start date is confirmed; the care team will follow up.</p>
-            <p v-if="providerSelectionNotice" role="status">{{providerSelectionNotice}}</p>
-            <p v-if="providerHoldChangeError" role="alert">{{ providerHoldChangeError }}</p>
+            <p v-if="selectedEnrollmentProvider && enrollmentProviderStatus(selectedEnrollmentProvider,enrollmentModality)==='waitlist'" role="status">{{ txFmt('Your enrollment requests {name}’s waitlist. No appointment or start date is confirmed; the care team will follow up.', { name: selectedEnrollmentProvider.name }) }}</p>
+            <p v-if="providerSelectionNotice" role="status">{{ tx(providerSelectionNotice) }}</p>
+            <p v-if="providerHoldChangeError" role="alert">{{ tx(providerHoldChangeError) }}</p>
             <PublicProviderSlotPicker v-if="providerChoicesVisible && selectedOfficeProviderIds.length === 1 && selectedEnrollmentProvider && enrollmentProviderStatus(selectedEnrollmentProvider,enrollmentModality)==='accepting' && !hasBridgeLearning()" :agency-slug="referralAgencySlug || agencyInfo?.portal_url || agencyInfo?.slug || ''" :provider-id="Number(selectedOfficeProviderIds[0])" :fixed-format="selectedProviderSlotFormat" :time-zone="enrollmentPreferenceTimeZone" :care-type="serviceSubject==='couple'?'COUPLES':serviceSubject==='family'?'FAMILY':'INDIVIDUAL'" :service-type="link?.master_channel==='tutoring'?'tutoring':'counseling'" @hold="saveOpeningPreference" />
           </template>
         </div>
@@ -2200,9 +2201,10 @@
 
         <!-- Paged interview questions — one intake_steps questions page at a time -->
         <div v-if="currentFlowStep?.type === 'questions' && !isCurrentQuestionnairePage" class="questions-step intake-interview-page">
+          <p v-if="visibleQuestionFields.some(requiresOriginalInstrumentLanguage)" class="df-field-help" role="note">{{ tx('Some standardized screening questions on this page are currently available in English only. Please contact the care team for language assistance. Required questions still need a response.') }}</p>
           <div class="form-grid">
             <template v-for="(row, idx) in currentQuestionRows" :key="row.field?.key || `sec_${idx}`">
-              <h4 v-if="row.section" class="df-section-kicker form-group form-group--span-12">{{ interpolateChildTokens(row.section) }}</h4>
+              <h4 v-if="row.section" class="df-section-kicker form-group form-group--span-12">{{ interpolateChildTokens(tx(row.section)) }}</h4>
               <div
                 v-else-if="row.field"
                 class="form-group"
@@ -2229,7 +2231,8 @@
                   :label="txField(row.field)"
                   :help="txField(row.field, 'helperText')"
                   :placeholder="txField(row.field, 'placeholder')"
-                  :options="(row.field.options || []).map((opt) => ({ value: opt.value || opt.label, label: txOption(opt) }))"
+                  :options="translatedQuestionOptions(row.field)"
+                  :preserve-original-copy="requiresOriginalInstrumentLanguage(row.field)"
                   :required="isOfficeInDepthIntake ? isOfficeRequiredQuestionField(row.field) : (isOfficeHardRequiredField(row.field) || !!row.field.required)"
                   :show-optional="isOfficeInDepthIntake"
                   :error="isQuestionFieldMissing(row.field)"
@@ -2274,8 +2277,8 @@
             <div v-if="group.meta" class="clinical-instrument-head">
               <div>
                 <span class="clinical-instrument-kicker">{{ tx('Recommended') }}</span>
-                <h3 class="clinical-instrument-title">{{ group.meta.title }} — {{ group.meta.subtitle }}</h3>
-                <p v-if="group.sharedHelper" class="clinical-group-header">{{ tx(group.sharedHelper) }}</p>
+                <h3 class="clinical-instrument-title">{{ tx(group.meta.title) }} — {{ tx(group.meta.subtitle) }}</h3>
+                <p v-if="group.sharedHelper" class="clinical-group-header">{{ group.fields.some(requiresOriginalInstrumentLanguage) ? group.sharedHelper : tx(group.sharedHelper) }}</p>
               </div>
               <button
                 type="button"
@@ -2284,8 +2287,9 @@
               >{{ tx('Skip for now') }}</button>
             </div>
             <div v-else-if="group.sharedHelper" class="clinical-group-header">
-              {{ tx(group.sharedHelper) }}
+              {{ group.fields.some(requiresOriginalInstrumentLanguage) ? group.sharedHelper : tx(group.sharedHelper) }}
             </div>
+            <p v-if="group.fields.some(requiresOriginalInstrumentLanguage)" class="df-field-help" role="note">{{ tx('This standardized questionnaire is currently available in English only. Please contact the care team for language assistance. You may skip optional questionnaires; required questions still need a response.') }}</p>
             <div
               v-for="field in group.fields"
               :key="field.key || field.id"
@@ -2297,7 +2301,8 @@
                 :model-value="activeClinicalResponses[field.key]"
                 :label="txField(field)"
                 :help="group.sharedHelper ? '' : txField(field, 'helperText')"
-                :options="(field.options || []).map((opt) => ({ value: opt.value || opt.label, label: txOption(opt) }))"
+                :options="translatedQuestionOptions(field)"
+                :preserve-original-copy="requiresOriginalInstrumentLanguage(field)"
                 :required="isOfficeInDepthIntake && isOfficeRequiredQuestionField(field)"
                 :show-optional="isOfficeInDepthIntake"
                 :error="false"
@@ -2314,16 +2319,16 @@
             <h4>{{ currentChildReviewName }}</h4>
             <dl class="child-review-summary">
               <div v-for="row in currentChildReviewRows" :key="row.label">
-                <dt>{{ row.label }}</dt>
+                <dt>{{ tx(row.label) }}</dt>
                 <dd>{{ row.value }}</dd>
               </div>
             </dl>
             <button class="btn btn-outline btn-sm" type="button" @click="editCurrentChildIntake">
-              Edit {{ currentChildReviewName }}
+              {{ txFmt('Edit {name}', { name: currentChildReviewName }) }}
             </button>
           </div>
           <div v-if="!isCoGuardianInvitee" class="child-review-add">
-            <p class="df-section-help">Are you signing up another dependent?</p>
+            <p class="df-section-help">{{ tx('Are you signing up another dependent?') }}</p>
             <div
               v-if="reviewAddConsentOpen"
               class="multi-client-consent-panel"
@@ -3020,6 +3025,7 @@
     />
     <OfficeSkipNowSplash
       v-if="officeSkipSplashOpen"
+      :language="intakeLocale"
       :support-text="t('officeSkipSplashSupport')"
       :skip-label="t('officeSkipSplashSkip')"
       :skip-hint="t('officeSkipSplashSkipHint')"
@@ -3065,6 +3071,8 @@ import PublicIntakePaymentStep from '../components/public-intake/PublicIntakePay
 import PublicIntakeInsurancePaymentStep from '../components/public-intake/PublicIntakeInsurancePaymentStep.vue';
 import PublicIntakePackageSelectionStep from '../components/public-intake/PublicIntakePackageSelectionStep.vue';
 import OfficeSkipNowSplash from '../components/public-intake/OfficeSkipNowSplash.vue';
+import { nextRetainedOfficeStepIndex } from '../utils/officeIntakeNavigation.js';
+import { officeAdultConsentBlockMessage } from '../utils/officeAdultConsent.js';
 import {
   AdaptiveConsentCard,
   AdaptiveIntakeHelpPanel,
@@ -3121,9 +3129,11 @@ import {
   ageYearsFromDob
 } from '../utils/intakeShowIf.js';
 import {
+  hasStructuredIntakeTranslation,
   lookupStructuredIntakeTranslation,
   txFmtStructuredIntake
 } from '../constants/structuredIntakeStepSpanish.js';
+import { officeSpanishScreenField, preserveOriginalOfficeInstrument } from '../utils/officeClinicalTranslations.js';
 import { useAuthStore } from '../store/auth';
 import {
   resolveSchoolOnboardingSupportEmail,
@@ -4336,14 +4346,20 @@ const txFmt = (template, vars = {}) =>
 const interpolateChildTokens = (str, clientIndex = currentFlowStep.value?.clientIndex) => {
   const name = childDisplayName(clientIndex);
   return String(str || '')
+    .replace(/\{memberName\}/gi, name)
     .replaceAll('{childName}', name)
     .replaceAll('{CHILDNAME}', name)
     .replaceAll('{ChildName}', name)
     .replaceAll('[Child Name]', name);
 };
 
+const requiresOriginalInstrumentLanguage = field => isOfficeInDepthIntake.value
+  && preserveOriginalOfficeInstrument(field, intakeLocale.value);
 const txField = (field, prop = 'label') => {
   if (!field) return '';
+  const publishedSpanish = isOfficeInDepthIntake.value && intakeLocale.value === 'es' ? officeSpanishScreenField(field) : null;
+  if (publishedSpanish?.[prop]) return interpolateChildTokens(publishedSpanish[prop]);
+  if (requiresOriginalInstrumentLanguage(field)) return interpolateChildTokens(field[prop] || '');
   const stored = storedSpanishFieldText(
     field,
     prop,
@@ -4363,6 +4379,15 @@ const txOption = (opt) => {
   const en = String(opt.label || opt.value || '').trim();
   if (stored && intakeLocale.value === 'es' && spanishQuestionLabelsEnabled.value && isActuallyTranslated(stored, en)) return stored;
   return tx(en);
+};
+
+const translatedQuestionOptions = (field) => {
+  const publishedSpanish = isOfficeInDepthIntake.value && intakeLocale.value === 'es' ? officeSpanishScreenField(field) : null;
+  return (field?.options || []).map(opt => ({
+    value: opt.value ?? opt.label,
+    label: publishedSpanish?.options?.find(item => String(item.value) === String(opt.value))?.label
+      || (requiresOriginalInstrumentLanguage(field) ? String(opt.label || opt.value || '') : txOption(opt))
+  }));
 };
 
 /**
@@ -4397,6 +4422,8 @@ async function fetchStringTranslations() {
         return;
       }
       if (typeof value !== 'object') return;
+      // Scored instruments require their published language edition, never an API paraphrase.
+      if (isOfficeInDepthIntake.value && value.instrument) return;
       for (const [key, child] of Object.entries(value)) {
         if (['label', 'title', 'description', 'helperText', 'placeholder', 'summaryText', 'authorizationNotice'].includes(key)) {
           addString(child);
@@ -4414,6 +4441,7 @@ async function fetchStringTranslations() {
     const fields = Array.isArray(link.value?.intake_fields) ? link.value.intake_fields : [];
     const useStored = spanishQuestionLabelsEnabled.value;
     for (const f of fields) {
+      if (isOfficeInDepthIntake.value && f?.instrument) continue;
       if (f?.label && !(useStored && isActuallyTranslated(f.labelEs, f.label))) addString(f.label);
       if (f?.description && !(useStored && isActuallyTranslated(f.descriptionEs, f.description))) addString(f.description);
       if (f?.placeholder && !(useStored && isActuallyTranslated(f.placeholderEs, f.placeholder))) addString(f.placeholder);
@@ -4595,7 +4623,7 @@ async function fetchStringTranslations() {
       communicationsWorkforceNoLabel.value
     ].forEach(addString);
 
-    const arr = [...strings].filter(Boolean);
+    const arr = [...strings].filter(text => text && !hasStructuredIntakeTranslation(text));
     if (!arr.length) {
       stringTranslations.value = {};
       return;
@@ -4652,7 +4680,7 @@ const intakeLocale = computed(() => {
 
 provide('intakeLocale', intakeLocale);
 provide('intakeTimeZone', computed(() => link.value?.scheduling_timezone || 'America/Denver'));
-provide('enrollmentTranslate', text => translateJoinEnrollment(text, intakeLocale.value));
+provide('enrollmentTranslate', text => tx(translateJoinEnrollment(text, intakeLocale.value)));
 
 const spanishClarificationStep = computed(() => {
   if (intakeLocale.value !== 'es') return null;
@@ -5791,9 +5819,11 @@ function childDisplayName(idx) {
   const bag = intakeResponses.clients?.[i] || {};
   const ident = clients.value?.[i] || {};
   const name = String(
-    bag.child_preferred_name || ident.firstName || bag.child_legal_first || ''
+    bag.member_preferred_name || bag.child_preferred_name || ident.firstName || bag.member_legal_first || bag.child_legal_first || ''
   ).trim();
-  return name || 'this child';
+  return name || (['family', 'couple'].includes(serviceSubject.value)
+    ? (intakeLocale.value === 'es' ? 'esta persona' : 'this person')
+    : (intakeLocale.value === 'es' ? 'este niño' : 'this child'));
 }
 
 const learningForCurrentClient=computed(()=>Number.isInteger(currentFlowStep.value?.clientIndex)?intakeResponses.clients[currentFlowStep.value.clientIndex]?.learning||((currentFlowStep.value.clientIndex===0)?intakeResponses.submission.learning:undefined):intakeResponses.submission.learning);
@@ -5990,6 +6020,12 @@ const captchaError = ref('');
 const showRecaptchaWidget = ref(false);
 const recaptchaWidgetElStart = ref(null);
 const recaptchaWidgetId = ref(null);
+let recaptchaRenderedContainer = null;
+let recaptchaRenderedMount = null;
+let recaptchaRenderedMode = '';
+let recaptchaRenderedSiteKey = '';
+let recaptchaViewActive = true;
+onBeforeUnmount(() => { recaptchaViewActive = false; });
 const captchaWidgetFailed = ref(false);
 let recaptchaInitPromise = null;
 const activeRecaptchaSiteKey = computed(() =>
@@ -6802,7 +6838,7 @@ const embeddedPacketSections = ref({});
 const packetSectionContexts = ref(null);
 const templateHtmlLoads = new Map();
 const packetSectionLoads = new Map();
-let disclosureContextLoad = null;
+const disclosureContextLoads = new Map();
 const agencyRegistrationCatalog = ref([]);
 
 /**
@@ -7157,8 +7193,8 @@ const otherGuardianCopy = computed(() => {
     viewConsentDetails: t('otherGuardianViewConsent'),
     chooseFiles: t('chooseFiles'),
     noFileChosen: t('noFileChosen'),
-    firstPlaceholder: 'First',
-    lastPlaceholder: 'Last',
+    firstPlaceholder: tx('First'),
+    lastPlaceholder: tx('Last'),
     relationshipPlaceholder: intakeLocale.value === 'es' ? 'p. ej., Copadre, Tutor' : 'e.g., Co-parent, Guardian',
     emailPlaceholder: 'name@email.com',
     phonePlaceholder: '(555) 123-4567',
@@ -7330,6 +7366,7 @@ async function saveOfficePdfEmailTemplate() {
   }
 }
 function otherGuardianFieldBag() {
+  if (isOfficeInDepthIntake.value && ['couple', 'family'].includes(serviceSubject.value)) return {};
   const rights = String(otherGuardian.hasLegalRights || '').trim().toLowerCase();
   const needsOther = rights === 'yes' || rights === 'shared';
   // Both school and office guardians explicitly request the other parent's
@@ -7350,6 +7387,7 @@ function otherGuardianFieldBag() {
   };
 }
 function otherGuardianContactOk() {
+  if (isOfficeInDepthIntake.value && ['couple', 'family'].includes(serviceSubject.value)) return true;
   if (intakeForSelf.value !== false || isCoGuardianInvitee.value) return true;
   const rights = String(otherGuardian.hasLegalRights || '').trim().toLowerCase();
   if (!rights) return false;
@@ -7478,6 +7516,20 @@ const startClientErrors = ref([]);
 const intakeForSelf = ref(null);
 /** self | dependent | couple | family — preferred over boolean intakeForSelf for office counseling. */
 const serviceSubject = ref('');
+// The saved subject is authoritative after a refresh; false also describes
+// couples and families and must never be interpreted as dependent by itself.
+watch(() => intakeResponses.submission?.serviceSubject, (saved) => {
+  if (!['self', 'dependent', 'couple', 'family'].includes(saved)) return;
+  serviceSubject.value = saved;
+  const forSelf = saved === 'self';
+  if (intakeForSelf.value !== forSelf) intakeForSelf.value = forSelf;
+}, { flush: 'sync' });
+watch([serviceSubject, guardianFirstName, guardianMiddleName, guardianLastName, starterDob], () => {
+  if (serviceSubject.value !== 'couple') return;
+  if (!clients.value[0]) clients.value[0] = emptyOfficeClient();
+  Object.assign(clients.value[0], { firstName: guardianFirstName.value, middleName: guardianMiddleName.value,
+    lastName: guardianLastName.value, dateOfBirth: starterDob.value });
+}, { flush: 'sync' });
 const whoForError = ref('');
 
 function emptyOfficeClient() {
@@ -7493,7 +7545,7 @@ function emptyFamilyRosterMember() {
     sex: '',
     relationshipToPrimary: '',
     livesInHousehold: '',
-    participation: 'expected_regular'
+    participation: ''
   };
 }
 
@@ -7526,7 +7578,7 @@ function seedFamilyRosterFromClients() {
       sex: String(bag.member_sex || '').trim(),
       relationshipToPrimary: String(bag.member_relationship_to_primary || '').trim(),
       livesInHousehold: String(bag.member_lives_in_household || '').trim(),
-      participation: String(bag.member_participation || 'expected_regular').trim() || 'expected_regular'
+      participation: String(bag.member_participation || '').trim()
     };
   });
 }
@@ -7678,6 +7730,8 @@ function chooseServiceSubject(subject) {
   if (isCoGuardianInvitee.value) return;
   const next = String(subject || '').trim().toLowerCase();
   if (!isEnrollmentOptionEnabled(next)) return;
+  if ((next === 'dependent' || next === 'family') && !clients.value.length) clients.value = [emptyOfficeClient()];
+  if (next === 'couple' && clients.value.length < 2) clients.value = [emptyOfficeClient(), emptyOfficeClient()];
   serviceSubject.value = next;
   intakeResponses.submission.serviceSubject = next;
   intakeForSelf.value = next === 'self';
@@ -7701,6 +7755,20 @@ async function continueWhoFor() {
   }
   if (!serviceSubject.value && typeof intakeForSelf.value === 'boolean') {
     serviceSubject.value = intakeForSelf.value ? 'self' : 'dependent';
+  }
+  const adultConsentMessage = officeAdultConsentBlockMessage({
+    serviceSubject: serviceSubject.value,
+    participants: clients.value,
+    primarySigner: {
+      firstName: guardianFirstName.value,
+      lastName: guardianLastName.value,
+      dateOfBirth: starterDob.value
+    },
+    locale: intakeLocale.value
+  });
+  if (adultConsentMessage) {
+    whoForError.value = adultConsentMessage;
+    return;
   }
   if (canBypassIntakeRequired.value) {
     whoForError.value = '';
@@ -7743,7 +7811,7 @@ async function continueWhoFor() {
       lastName: String(c?.lastName || '').trim() ? '' : t('required'),
       dob: String(c?.dateOfBirth || '').trim() ? '' : t('required')
     }));
-    consentErrors.starterDob = '';
+    consentErrors.starterDob = subjectNow === 'family' && !starterDob.value.trim() ? t('required') : '';
     consentErrors.clientFirstName = startClientErrors.value[0]?.firstName || '';
     consentErrors.clientLastName = startClientErrors.value[0]?.lastName || '';
   } else if (subjectNow === 'couple') {
@@ -7753,7 +7821,7 @@ async function continueWhoFor() {
       lastName: String(c?.lastName || '').trim() ? '' : t('required'),
       dob: String(c?.dateOfBirth || '').trim() ? '' : t('required')
     }));
-    consentErrors.starterDob = '';
+    consentErrors.starterDob = starterDob.value.trim() ? '' : t('required');
     consentErrors.clientFirstName = startClientErrors.value[0]?.firstName || '';
     consentErrors.clientLastName = startClientErrors.value[0]?.lastName || '';
   } else {
@@ -7828,7 +7896,7 @@ async function continueWhoFor() {
       }
       reminderConsentLoading.value = false;
     }
-    applyStarterDataAndContinue();
+    await applyStarterDataAndContinue();
     return true;
   };
   if (!sessionToken.value) {
@@ -7884,6 +7952,9 @@ async function applyCoGuardianInviteFromQuery() {
 }
 
 function applyStarterDataAndContinue() {
+  if (['family', 'couple'].includes(serviceSubject.value)) {
+    intakeResponses.submission = { ...intakeResponses.submission, pc_date_of_birth: starterDob.value };
+  }
   if (intakeForSelf.value) {
     intakeResponses.submission = {
       ...(intakeResponses.submission || {}),
@@ -7891,8 +7962,7 @@ function applyStarterDataAndContinue() {
       legal_last_name: guardianLastName.value,
       date_of_birth: starterDob.value,
       phone_number: guardianPhone.value,
-      email_address: guardianEmail.value,
-      preferred_name: intakeResponses.submission?.preferred_name || guardianFirstName.value
+      email_address: guardianEmail.value
     };
   } else {
     while (intakeResponses.clients.length < clients.value.length) {
@@ -7912,8 +7982,8 @@ function applyStarterDataAndContinue() {
       intakeResponses.clients[i].child_dob = dob;
       intakeResponses.clients[i].child_date_of_birth = dob;
     });
-    if (clients.value[0]?.dateOfBirth) starterDob.value = clients.value[0].dateOfBirth;
-    if (clients.value.length > 1) {
+    if (serviceSubject.value === 'dependent' && clients.value[0]?.dateOfBirth) starterDob.value = clients.value[0].dateOfBirth;
+    if (serviceSubject.value === 'dependent' && clients.value.length > 1) {
       multiClientPlanChoice.value = 'multiple';
       if (!multiClientConsentAccepted.value) {
         multiClientConsentDialogOpen.value = true;
@@ -7929,7 +7999,7 @@ function applyStarterDataAndContinue() {
       ...otherGuardianFieldBag()
     };
   }
-  submitConsent();
+  return submitConsent().finally(() => { consentLoading.value = false; });
 }
 
 const returnLinkUrl = computed(() => {
@@ -9186,6 +9256,9 @@ const applyDenyAllField = (field) => {
 };
 
 const applyQuestionDefaults = () => {
+  // Legacy published schemas may contain convenience defaults. Clinical
+  // answers must stay unanswered until the respondent chooses them.
+  if (isOfficeInDepthIntake.value) return;
   const bag = questionValues.value;
   if (!bag) return;
   for (const f of visibleQuestionFields.value || []) {
@@ -9569,15 +9642,16 @@ const loadLink = async () => {
     loading.value = true;
     templateHtmlLoads.clear();
     packetSectionLoads.clear();
-    disclosureContextLoad = null;
+    disclosureContextLoads.clear();
     let preferredLocale = null;
     try {
       const stored = localStorage.getItem('publicLocale') || localStorage.getItem('preferredFormLanguage');
       if (stored === 'es' || stored === 'en') preferredLocale = stored;
     } catch { /* ignore */ }
-    // An explicit form link owns its initial language. A browser's previous
-    // English session must not select the English master for a Spanish link.
-    const localeHint = userChoseLocale.value ? (inPageLocale.value === 'es' ? 'es' : 'en') : undefined;
+    // Carry the visitor's current welcome-page choice through navigation and
+    // reload. Without ?lang, an explicit EN/ES form keeps its own language.
+    const entryLocale = ['en', 'es'].includes(route.query.lang) ? route.query.lang : undefined;
+    const localeHint = userChoseLocale.value ? (inPageLocale.value === 'es' ? 'es' : 'en') : entryLocale;
     const resp = await api.get(
       `/public-intake/${publicKey}`,
       {
@@ -9599,7 +9673,7 @@ const loadLink = async () => {
       organizationId.value = String(link.value.organization_id);
     }
     try {
-      const lang = String(link.value?.language_code || preferredLocale || i18n.global.locale.value || 'en').toLowerCase();
+      const lang = String(localeHint || link.value?.language_code || preferredLocale || i18n.global.locale.value || 'en').toLowerCase();
       if (lang === 'es') {
         const cached = localStorage.getItem(`intakeEnglishKey:${publicKey}`);
         if (cached) linkedLanguageEnglishPublicKey.value = cached;
@@ -9617,14 +9691,15 @@ const loadLink = async () => {
         && String(resp.data?.organization?.organization_type || '').toLowerCase() !== 'school';
       if (officeLike) {
         inPageLocale.value = userChoseLocale.value ? inPageLocale.value : (lang.startsWith('es') ? 'es' : 'en');
+        if (entryLocale) setPublicLocale(inPageLocale.value);
         if (inPageLocale.value === 'es') fetchStringTranslations();
       } else if (usesSchoolMaster.value) {
-        const masterLang = String(link.value?.master_language_code || link.value?.language_code || 'en')
+        const masterLang = String(localeHint || link.value?.master_language_code || link.value?.language_code || 'en')
           .toLowerCase()
           .startsWith('es') ? 'es' : 'en';
         inPageLocale.value = userChoseLocale.value ? inPageLocale.value : masterLang;
       } else if (hasMap || hasQuestionLabelsEs || isSmartRoiForm) {
-        const linkLang = String(link.value?.language_code || 'en').toLowerCase().startsWith('es') ? 'es' : 'en';
+        const linkLang = String(localeHint || link.value?.language_code || 'en').toLowerCase().startsWith('es') ? 'es' : 'en';
         if (!userChoseLocale.value) inPageLocale.value = linkLang;
         if (inPageLocale.value === 'es' && (hasMap || hasQuestionLabelsEs)) {
           fetchStringTranslations();
@@ -9818,20 +9893,26 @@ const ensureTemplateHtml = async (template) => {
 const ensurePacketSectionContext = async (sectionKey) => {
   const key = String(sectionKey || '').trim();
   if (!key) return null;
+  const locale = intakeLocale.value;
+  const variant = intakeForSelf.value === false ? 'parent' : 'self';
+  const requestKey = `${key}:${locale}:${variant}`;
+  const isCurrent = () => intakeLocale.value === locale
+    && (intakeForSelf.value === false ? 'parent' : 'self') === variant;
   const existing = packetSectionContexts.value?.[key];
-  if (existing?.html) return existing;
-  if (packetSectionLoads.has(key)) return packetSectionLoads.get(key);
+  if (existing?.html && existing.locale === locale && existing.variant === variant) return existing;
   packetSectionContexts.value = {
     ...(packetSectionContexts.value || {}),
-    [key]: { ...(existing || {}), sectionKey: key, lite: true, loadError: false }
+    [key]: { sectionKey: key, locale, variant, html: null, lite: true, loadError: false }
   };
+  if (packetSectionLoads.has(requestKey)) return packetSectionLoads.get(requestKey);
   const pending = api.get(
     `/public-intake/${publicKey}/packet-section/${key}`,
     {
-      params: { variant: intakeForSelf.value ? 'self' : 'parent' },
+      params: { variant, locale },
       skipGlobalLoading: true
     }
   ).then(({ data }) => {
+    if (!isCurrent()) return data;
     packetSectionContexts.value = {
       ...(packetSectionContexts.value || {}),
       [key]: data
@@ -9839,41 +9920,52 @@ const ensurePacketSectionContext = async (sectionKey) => {
     return data;
   }).catch((err) => {
     console.warn('[publicIntake] packet section load failed', key, err?.message || err);
+    if (!isCurrent()) return null;
     packetSectionContexts.value = {
       ...(packetSectionContexts.value || {}),
       [key]: {
-        ...(existing || { sectionKey: key, html: null }),
+        sectionKey: key, locale, variant, html: null,
         lite: false,
         loadError: true
       }
     };
     return packetSectionContexts.value[key];
   }).finally(() => {
-    packetSectionLoads.delete(key);
+    packetSectionLoads.delete(requestKey);
   });
-  packetSectionLoads.set(key, pending);
+  packetSectionLoads.set(requestKey, pending);
   return pending;
 };
 
 const ensureDisclosureContext = async () => {
-  if (disclosureContext.value && disclosureContext.value.lite !== true) {
+  const locale = intakeLocale.value;
+  if (disclosureContext.value && disclosureContext.value.lite !== true && disclosureContext.value.locale === locale) {
     return disclosureContext.value;
   }
-  if (disclosureContextLoad) return disclosureContextLoad;
-  disclosureContextLoad = api.get(
+  disclosureContext.value = { locale, lite: true, providers: [], sections: [] };
+  if (disclosureContextLoads.has(locale)) return disclosureContextLoads.get(locale);
+  const pending = api.get(
     `/public-intake/${publicKey}/disclosure-context`,
-    { skipGlobalLoading: true }
+    { params: { locale }, skipGlobalLoading: true }
   ).then(({ data }) => {
+    if (intakeLocale.value !== locale) return data?.disclosureContext || null;
     disclosureContext.value = data?.disclosureContext || null;
     return disclosureContext.value;
   }).catch((err) => {
     console.warn('[publicIntake] disclosure context load failed', err?.message || err);
     return disclosureContext.value;
   }).finally(() => {
-    disclosureContextLoad = null;
+    disclosureContextLoads.delete(locale);
   });
-  return disclosureContextLoad;
+  disclosureContextLoads.set(locale, pending);
+  return pending;
 };
+
+watch(() => [intakeLocale.value, intakeForSelf.value], async () => {
+  const type = String(currentFlowStep.value?.type || '');
+  if (isPacketSectionStepType(type)) await ensurePacketSectionContext(PACKET_SECTION_STEP_TO_KEY[type]);
+  if (isSmartDisclosure.value || ['smart_disclosure', 'disclosure'].includes(type)) await ensureDisclosureContext();
+});
 
 const hydrateHeavyIntakeAssets = async () => {
   const htmlTemplates = (templates.value || []).filter((t) => t?.template_type === 'html' && !t.html_content);
@@ -10036,28 +10128,44 @@ const clearCaptchaState = () => {
   captchaError.value = '';
 };
 
+const captchaWidgetSelector = 'iframe, textarea[name="g-recaptcha-response"], .grecaptcha-badge';
+const hasCurrentRecaptchaWidget = () => recaptchaWidgetId.value !== null
+  && recaptchaRenderedContainer === recaptchaWidgetElStart.value
+  && recaptchaRenderedContainer?.isConnected
+  && recaptchaRenderedMount?.parentElement === recaptchaRenderedContainer
+  && !!recaptchaRenderedMount?.querySelector(captchaWidgetSelector)
+  && recaptchaRenderedMode === activeRecaptchaMode.value
+  && recaptchaRenderedSiteKey === activeRecaptchaSiteKey.value;
+
 const ensureRecaptchaWidget = async (mode = 'standard', forceReload = false) => {
   try {
+    if (!recaptchaViewActive) return false;
+    if (forceReload) {
+      recaptchaWidgetId.value = null;
+      clearCaptchaState();
+    }
     const grecaptcha = await loadRecaptchaScript(mode, forceReload);
     const renderFn = mode === 'enterprise' ? grecaptcha?.enterprise?.render : grecaptcha?.render;
     if (!renderFn) return false;
     let el = recaptchaWidgetElStart.value;
-    for (let i = 0; !el && i < 12; i++) {
+    for (let i = 0; !el && recaptchaViewActive && i < 12; i++) {
       await nextTick();
       await new Promise((r) => setTimeout(r, 100 * (i + 1)));
       el = recaptchaWidgetElStart.value;
       if (!el) el = document.getElementById('recaptcha-widget-start');
     }
+    if (!recaptchaViewActive) return false;
     if (!el) {
       console.warn('[recaptcha] widget container not ready');
       return false;
     }
     // reCAPTCHA won't render into zero-size containers; wait for visibility
-    for (let i = 0; i < 25 && (!el.offsetParent || el.offsetWidth < 1); i++) {
+    for (let i = 0; recaptchaViewActive && i < 25 && (!el.offsetParent || el.offsetWidth < 1); i++) {
       await new Promise((r) => setTimeout(r, 80));
       el = recaptchaWidgetElStart.value || document.getElementById('recaptcha-widget-start') || el;
     }
-    if (recaptchaWidgetId.value !== null) {
+    if (!recaptchaViewActive || !el.isConnected) return false;
+    if (!forceReload && hasCurrentRecaptchaWidget()) {
       return true;
     }
     const api = mode === 'enterprise' ? grecaptcha?.enterprise : grecaptcha;
@@ -10065,28 +10173,49 @@ const ensureRecaptchaWidget = async (mode = 'standard', forceReload = false) => 
     if (readyFn) {
       await new Promise((resolve) => readyFn(resolve));
     }
-    recaptchaWidgetId.value = api.render(el, {
+    if (!recaptchaViewActive || el !== recaptchaWidgetElStart.value || !el.isConnected) return false;
+    // A language/layout update can replace the host while leaving its old
+    // widget ID behind. Render into a new child so Google's old DOM registration
+    // cannot make the replacement host appear verified or already rendered.
+    if (recaptchaWidgetId.value !== null) {
+      try { api.reset?.(recaptchaWidgetId.value); } catch { /* detached old widget */ }
+    }
+    recaptchaWidgetId.value = null;
+    clearCaptchaState();
+    const mount = document.createElement('div');
+    el.replaceChildren(mount);
+    recaptchaRenderedContainer = el;
+    recaptchaRenderedMount = mount;
+    recaptchaRenderedMode = mode;
+    recaptchaRenderedSiteKey = activeRecaptchaSiteKey.value;
+    const isCurrent = () => recaptchaViewActive && recaptchaRenderedMount === mount
+      && recaptchaWidgetElStart.value === el && mount.isConnected;
+    recaptchaWidgetId.value = api.render(mount, {
       sitekey: activeRecaptchaSiteKey.value,
       size: 'normal',
       theme: 'light',
       callback: (token) => {
+        if (!isCurrent()) return;
         const t = String(token || '').trim();
         captchaToken.value = t;
         captchaError.value = '';
         captchaWidgetFailed.value = false;
       },
       'expired-callback': () => {
+        if (!isCurrent()) return;
         captchaToken.value = '';
         captchaError.value = t('completeCaptchaToContinue');
       },
       'error-callback': () => {
+        if (!isCurrent()) return;
         captchaToken.value = '';
         captchaError.value = t('captchaFailed');
       }
     });
     for (let i = 0; i < 20; i++) {
       await new Promise((r) => setTimeout(r, 100));
-      if (el.querySelector('iframe, textarea[g-recaptcha-response], .grecaptcha-badge')) {
+      if (!isCurrent()) return false;
+      if (mount.querySelector(captchaWidgetSelector)) {
         return true;
       }
     }
@@ -10113,10 +10242,13 @@ const resetRecaptchaWidget = async () => {
 };
 
 const updateRecaptchaMode = async () => {
-  if (!recaptchaSiteKey.value || (step.value !== -1 && step.value !== WHO_FOR_STEP)) return;
+  if (!recaptchaViewActive || !recaptchaSiteKey.value || (step.value !== -1 && step.value !== WHO_FOR_STEP)) return;
   if (recaptchaInitPromise) {
     await recaptchaInitPromise;
-    return;
+    // A new host can arrive while the previous initialization is in flight.
+    // Recheck it instead of treating that older promise as a successful render.
+    if (!recaptchaViewActive || hasCurrentRecaptchaWidget()) return;
+    return updateRecaptchaMode();
   }
   captchaWidgetFailed.value = false;
   showRecaptchaWidget.value = true;
@@ -10125,8 +10257,9 @@ const updateRecaptchaMode = async () => {
     await nextTick();
     await new Promise((r) => requestAnimationFrame(r));
     await new Promise((r) => setTimeout(r, 150));
+    const renderTarget = recaptchaWidgetElStart.value;
     const rendered = await ensureRecaptchaWidget(activeRecaptchaMode.value);
-    if (!rendered) captchaWidgetFailed.value = true;
+    if (!rendered && recaptchaViewActive && recaptchaWidgetElStart.value === renderTarget) captchaWidgetFailed.value = true;
   })().catch((err) => {
     console.warn('[recaptcha] mode init failed', err);
     captchaWidgetFailed.value = true;
@@ -10137,14 +10270,14 @@ const updateRecaptchaMode = async () => {
 };
 
 const maybeInitRecaptchaForCover = async () => {
-  if (loading.value) return;
+  if (!recaptchaViewActive || loading.value) return;
   if (step.value !== -1 && step.value !== WHO_FOR_STEP) return;
   if (!showCaptchaGate.value) return;
   if (!activeRecaptchaSiteKey.value) return;
   await nextTick();
   await updateRecaptchaMode();
   // One guarded retry helps when script/container timing races on first page load.
-  if (captchaWidgetFailed.value) {
+  if (recaptchaViewActive && captchaWidgetFailed.value && recaptchaWidgetElStart.value?.isConnected) {
     await new Promise((r) => setTimeout(r, 180));
     const rendered = await ensureRecaptchaWidget(activeRecaptchaMode.value, true);
     captchaWidgetFailed.value = !rendered;
@@ -10187,11 +10320,15 @@ watch(step, async (val, prev) => {
 });
 
 watch(
-  () => [loading.value, step.value, showCaptchaGate.value, activeRecaptchaSiteKey.value, activeRecaptchaMode.value],
+  () => [loading.value, step.value, showCaptchaGate.value, activeRecaptchaSiteKey.value, activeRecaptchaMode.value, recaptchaWidgetElStart.value, recaptchaLanguageCode.value],
   async ([isLoading, stepVal, showGate, siteKey]) => {
     if (isLoading) return;
     if (stepVal !== -1 && stepVal !== WHO_FOR_STEP) return;
     if (!showGate || !siteKey) return;
+    if (recaptchaRenderedContainer && recaptchaRenderedContainer !== recaptchaWidgetElStart.value) {
+      recaptchaWidgetId.value = null;
+      clearCaptchaState();
+    }
     await maybeInitRecaptchaForCover();
   },
   { flush: 'post' }
@@ -10898,7 +11035,7 @@ function maybeOpenOfficeSkipSplash(kind) {
   return true;
 }
 
-async function proceedOfficeQuestionStepAfterSplash() {
+async function proceedOfficeQuestionStepAfterSplash(advance = true) {
   skipConfirmActive.value = false;
   skipConfirmKeys.value = [];
   missingRequiredQuestionKeys.value = [];
@@ -10940,10 +11077,10 @@ async function proceedOfficeQuestionStepAfterSplash() {
     bag.clinicalSafetyAlert = isClinicalSafetyPositive(interviewShowIfValues.value);
   }
   stampClinicalReviewOnSubmission();
-  await nextFlowStep();
+  if (advance) await nextFlowStep();
 }
 
-async function proceedOfficeClinicalStepAfterSplash() {
+async function proceedOfficeClinicalStepAfterSplash(advance = true) {
   skipConfirmActive.value = false;
   skipConfirmKeys.value = [];
   if (!Number.isInteger(currentFlowStep.value?.clientIndex)) {
@@ -10952,23 +11089,26 @@ async function proceedOfficeClinicalStepAfterSplash() {
   stampClinicalReviewOnSubmission();
   stepError.value = '';
   await nextTick();
-  void nextFlowStep();
+  if (advance) await nextFlowStep();
 }
 
 const onOfficeSkipNow = async () => {
+  const previousSteps = [...flowSteps.value];
+  const previousId = String(currentFlowStep.value?.id || '');
+  const kind = officeSkipSplashPendingKind.value;
+  if (kind === 'clinical') await proceedOfficeClinicalStepAfterSplash(false);
+  else await proceedOfficeQuestionStepAfterSplash(false);
   officeEssentialOnlyMode.value = true;
   intakeResponses.submission.officeEssentialOnly = true;
   officeSkipSplashOpen.value = false;
-  const kind = officeSkipSplashPendingKind.value;
   officeSkipSplashPendingKind.value = '';
-  const stayId = String(currentFlowStep.value?.id || '');
+  const nextIndex = nextRetainedOfficeStepIndex(previousSteps, previousId, flowSteps.value);
+  currentFlowIndex.value = nextIndex < 0 ? Math.max(0, flowSteps.value.length - 1) : nextIndex;
+  // Rebase sidebar reachability as well as the current page after filtering.
+  maxReachedProgressIndex.value = dfProgressIndex.value;
   await nextTick();
-  if (stayId) {
-    const idx = flowSteps.value.findIndex((s) => String(s?.id || '') === stayId);
-    if (idx >= 0) currentFlowIndex.value = idx;
-  }
-  if (kind === 'clinical') await proceedOfficeClinicalStepAfterSplash();
-  else await proceedOfficeQuestionStepAfterSplash();
+  await saveServerProgress();
+  if (nextIndex < 0) await nextFlowStep();
 };
 
 const onOfficeSkipContinueNormal = async () => {
@@ -11845,20 +11985,20 @@ const currentFlowContinueLabel = computed(() => {
     return intakeLocale.value === 'es' ? `Continuar con las preguntas de ${name}` : `Continue to ${name}’s questions`;
   }
 
-  if (currentFlowStep.value?.type === 'upload') return 'Continue';
-  if (currentFlowStep.value?.type === 'references') return 'Save references & continue';
+  if (currentFlowStep.value?.type === 'upload') return t('continue');
+  if (currentFlowStep.value?.type === 'references') return tx('Save references & continue');
   if (currentFlowStep.value?.type === 'guardian_waiver') return t('continue');
-  if (currentFlowStep.value?.type === 'package_selection') return 'Continue';
-  if (currentFlowStep.value?.type === 'insurance_info') return 'Save & continue';
-  if (currentFlowStep.value?.type === 'payment_collection') return 'Continue';
-  if (currentFlowStep.value?.type === 'communications') return 'Save preferences & continue';
-  if (currentFlowStep.value?.type === 'reminder_contacts') return 'Save contacts & continue';
+  if (currentFlowStep.value?.type === 'package_selection') return t('continue');
+  if (currentFlowStep.value?.type === 'insurance_info') return tx('Save & continue');
+  if (currentFlowStep.value?.type === 'payment_collection') return t('continue');
+  if (currentFlowStep.value?.type === 'communications') return tx('Save preferences & continue');
+  if (currentFlowStep.value?.type === 'reminder_contacts') return tx('Save contacts & continue');
   if (currentFlowStep.value?.type === 'provider_match') return t('continue');
-  if (currentFlowStep.value?.type === 'demographics') return 'Save & continue';
-  if (isQuestionnaireFlowStep(currentFlowStep.value) || currentFlowStep.value?.type === 'clinical_questions') return 'Save & continue';
-  if (currentFlowStep.value?.type === 'questions') return 'Save & continue';
+  if (currentFlowStep.value?.type === 'demographics') return tx('Save & continue');
+  if (isQuestionnaireFlowStep(currentFlowStep.value) || currentFlowStep.value?.type === 'clinical_questions') return tx('Save & continue');
+  if (currentFlowStep.value?.type === 'questions') return tx('Save & continue');
   if (currentFlowStep.value?.type === 'child_review') return t('continue');
-  if (currentFlowStep.value?.type === 'family_roster') return 'Save & continue';
+  if (currentFlowStep.value?.type === 'family_roster') return tx('Save & continue');
   if (currentFlowStep.value?.type === 'document') {
     return currentDoc.value?.document_action_type === 'signature' ? t('signContinue') : t('markReviewedContinue');
   }
@@ -11930,6 +12070,27 @@ const sanitizeFinalizeResponses = (input) => {
 };
 
 const finalizePacket = async () => {
+  // Recheck the retained safety prerequisites, including drafts saved before
+  // the optional-step navigation repair or answers cleared on a revisit.
+  if (isOfficeInDepthIntake.value && !canBypassIntakeRequired.value) {
+    const missingSafety = flowSteps.value.findIndex(flow => {
+      if (!['questions', 'clinical_questions'].includes(flow.type)) return false;
+      const bag = flow.type === 'clinical_questions'
+        ? clinicalAnswersForStep(flow, intakeResponses, clinicalResponses)
+        : Number.isInteger(flow.clientIndex) ? intakeResponses.clients[flow.clientIndex] || {}
+          : flow.audience === 'guardian' ? intakeResponses.guardian : intakeResponses.submission;
+      const values = mergeShowIfValues(intakeResponses.submission, intakeResponses.guardian, bag);
+      return (flow.fields || []).some(field =>
+        ['feel_physically_safe', 'safety_immediate_danger'].includes(field.key)
+        && matchesShowIf(field.showIf, values) && isBlankQuestionLikeValue(field, bag));
+    });
+    if (missingSafety >= 0) {
+      currentFlowIndex.value = missingSafety;
+      step.value = 2;
+      stepError.value = t('completeRequiredFields');
+      return;
+    }
+  }
   if (!validateSchoolChildDetails()) {
     stepError.value = intakeLocale.value === 'es' ? 'Complete los datos de cada niño.' : 'Please complete the highlighted details for each child.';
     await openSchoolChildDetails();
@@ -12678,16 +12839,16 @@ const currentInterviewPageTitle = computed(() => {
   if (type === 'document') return t('document');
   if (type === 'upload') return tx(s?.label) || t('upload');
   if (type === 'school_roi') return t('schoolRoi');
-  if (type === 'smart_disclosure' || type === 'disclosure') return tx(s?.label) || 'Disclosure Statement';
+  if (type === 'smart_disclosure' || type === 'disclosure') return tx(s?.label) || tx('Disclosure Statement');
   if (isPacketSectionStepType(type)) return tx(s?.label) || packetSectionTitleForStep(s);
   if (type === 'registration') return tx(s?.label) || t('registration');
   if (type === 'guardian_waiver') return tx(s?.label) || t('guardianWaiversSafety');
-  if (type === 'package_selection') return tx(s?.label) || 'Select a package';
+  if (type === 'package_selection') return tx(s?.label) || tx('Select a package');
   if (type === 'insurance_info') {
     if (isPaymentOnlyEnrollmentChannel.value || s?.paymentOnly) {
-      return tx(s?.label) || 'Payment Information';
+      return tx(s?.label) || tx('Payment Information');
     }
-    return tx(s?.label) || t('insuranceInformation') || 'Insurance & Payment Information';
+    return tx(s?.label) || t('insuranceInformation') || tx('Insurance & Payment Information');
   }
   if (type === 'payment_collection') return tx(s?.label) || t('paymentInformation');
   if (type === 'communications') return tx(s?.label) || t('communicationPreferences');
@@ -12697,7 +12858,7 @@ const currentInterviewPageTitle = computed(() => {
   if (type === 'demographics') return tx(s?.label) || t('demographics');
   if (type === 'clinical_questions') return currentFlowStepTitle.value || t('clinicalQuestions');
   if (type === 'references') return tx(s?.label) || t('professionalReferences');
-  if (type === 'child_review') return currentFlowStepTitle.value || 'Dependent Review';
+  if (type === 'child_review') return currentFlowStepTitle.value || tx('Dependent Review');
   if (type === 'questions') return currentFlowStepTitle.value || t('questions');
   return currentFlowStepTitle.value || tx(s?.label) || t('questions');
 });
@@ -12801,13 +12962,16 @@ const currentChildBanner = computed(() => {
   const i = currentFlowStep.value.clientIndex;
   const total = Math.max(clients.value.length, 1);
   const child = sharedSigningRoster.value[i];
-  const label = intakeLocale.value === 'es' ? `Respondiendo para el niño ${i + 1} de ${total}` : `Answering for child ${i + 1} of ${total}`;
+  const member = ['family', 'couple'].includes(serviceSubject.value);
+  const label = intakeLocale.value === 'es'
+    ? `Respondiendo para ${member ? 'el miembro' : 'el niño'} ${i + 1} de ${total}`
+    : `Answering for ${member ? 'member' : 'child'} ${i + 1} of ${total}`;
   return `${label} — ${child?.fullName || childDisplayName(i)}${child?.dateOfBirth ? ` · ${child.dateOfBirth}` : ''}`;
 });
 const reviewAddConsentOpen = ref(false);
 const currentChildReviewName = computed(() => {
   const idx = currentFlowStep.value?.clientIndex;
-  if (!Number.isInteger(idx)) return 'this child';
+  if (!Number.isInteger(idx)) return tx('this child');
   const bag = intakeResponses.clients?.[idx] || {};
   const ident = clients.value?.[idx] || {};
   const first = String(bag.child_preferred_name || ident.firstName || bag.child_legal_first || '').trim();
@@ -12823,7 +12987,7 @@ const formatReviewValue = (raw, fieldKey = '') => {
     const field = fields.find((f) => f?.key === fieldKey)
       || fields.find((f) => (f?.options || []).some((o) => String(o.value || o.label) === v));
     const opt = (field?.options || []).find((o) => String(o.value || o.label) === v);
-    if (opt?.label) return String(opt.label);
+    if (opt?.label) return txOption(opt);
     return v.replace(/_/g, ' ');
   };
   if (Array.isArray(raw)) {
@@ -12844,7 +13008,8 @@ const currentChildReviewRows = computed(() => {
     return '—';
   };
   return [
-    { label: 'Name / DOB', value: firstText('child_preferred_name', 'child_legal_first', 'child_dob') },
+    { label: 'Name / DOB', value: [currentChildReviewName.value,
+      bag.member_date_of_birth || bag.child_dob || clients.value[idx]?.dateOfBirth].filter(Boolean).join(' · ') || '—' },
     { label: 'Why seeking support', value: firstText('main_reason_and_concerns', 'main_reason_seeking', 'most_concerned_about') },
     { label: 'Why now', value: firstText('why_seeking_now') },
     { label: 'Primary concerns', value: firstText('biggest_concern_now', 'presenting_concerns') },
@@ -12856,12 +13021,12 @@ const currentChildReviewRows = computed(() => {
     { label: 'Peer concerns', value: firstText('peer_concerns') },
     { label: 'Medical', value: firstText('medical_know', 'medical_condition', 'taking_medication') },
     { label: 'Prior treatment', value: firstText('prior_services_know', 'received_counseling', 'prior_services') },
-    { label: 'Safety', value: bag.clinicalSafetyAlert ? 'Needs attention before first appointment' : firstText('self_harm', 'talked_wanting_to_die') },
+    { label: 'Safety', value: bag.clinicalSafetyAlert ? tx('Needs attention before first appointment') : firstText('self_harm', 'talked_wanting_to_die') },
     { label: 'Tell provider before first meeting', value: firstText('child_would_tell_provider') },
     { label: 'Questionnaires', value: formatReviewValue([
-      bag.psc_1 ? 'PSC-17 started' : null,
-      bag.send_child_depression === 'send' ? 'Depression questionnaire: send to the child' : null,
-      bag.send_child_anxiety === 'send' ? 'Anxiety questionnaire: send to the child' : null
+      bag.psc_1 ? tx('PSC-17 started') : null,
+      bag.send_child_depression === 'send' ? tx('Depression questionnaire: send to the child') : null,
+      bag.send_child_anxiety === 'send' ? tx('Anxiety questionnaire: send to the child') : null
     ].filter(Boolean)) },
     { label: 'Service format', value: firstText('preferred_service_format') },
     { label: 'Schedule preferences', value: firstText('days_that_work', 'times_that_work', 'earliest_availability') },

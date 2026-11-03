@@ -7,8 +7,9 @@
       aria-labelledby="office-skip-splash-title"
       @click="emitContinue"
     >
-      <div class="office-skip-splash__card" @click="emitContinue">
+      <div class="office-skip-splash__card" :class="{ 'office-skip-splash__card--text': language === 'es' }" @click="emitContinue">
         <img
+          v-if="language !== 'es'"
           class="office-skip-splash__art"
           :src="artSrc"
           alt=""
@@ -34,6 +35,7 @@
 
 <script setup>
 defineProps({
+  language: { type: String, default: 'en' },
   artSrc: { type: String, default: '/assets/skipnow.png' },
   supportText: {
     type: String,
@@ -88,6 +90,11 @@ function emitContinue() {
   background: linear-gradient(180deg, rgba(244, 239, 230, 0) 0%, #f4efe6 18%);
   margin-top: -36px;
   position: relative;
+}
+
+.office-skip-splash__card--text .office-skip-splash__footer {
+  margin-top: 0;
+  padding-top: 24px;
 }
 
 .office-skip-splash__support {
@@ -162,7 +169,12 @@ function emitContinue() {
     padding: 6px 14px 16px;
     margin-top: -28px;
   }
-  .office-skip-splash__support {
+  .office-skip-splash__card--text .office-skip-splash__footer {
+  margin-top: 0;
+  padding-top: 24px;
+}
+
+.office-skip-splash__support {
     font-size: 0.88rem;
   }
 }

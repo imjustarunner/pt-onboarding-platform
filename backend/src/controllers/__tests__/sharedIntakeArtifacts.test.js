@@ -84,6 +84,19 @@ test('a failed chart attachment does not count as a completed consent', async ()
   assert.equal(state.acknowledged.length, 0);
 });
 
+test('a Spanish disclosure remains Spanish when finalized through an English office link', async () => {
+  const state = setup();
+  let selectedLocale;
+  state.deps.buildSmartDisclosureContext = async ({ locale }) => { selectedLocale = locale; return { locale, providers: [] }; };
+  state.deps.buildSmartDisclosureHtml = ({ disclosureContext }) => disclosureContext.locale === 'es' ? 'Divulgación en español' : 'English disclosure';
+  const persist = load('persistEmbeddedDisclosureForClient', 'async function persistEmbeddedRoiForClient', state.deps);
+  await persist({ intakeData: { smartDisclosure: { locale: 'es', acknowledged: true, signatureData: 'demo-signature', contentHash: 'es-hash' } }, updatedSubmission: { client_id: 101 }, agency: { id: 10 }, organization: { id: 20 }, link: { language_code: 'en' }, now: new Date() });
+  assert.equal(selectedLocale, 'es');
+  assert.equal(state.generated[0].template.html_content, 'Divulgación en español');
+  assert.equal(state.acknowledged[0].languageCode, 'es');
+  assert.equal(state.acknowledged[0].contentHash, 'es-hash');
+});
+
 test('finalize rejects missing shared-signature consent before updating the submission', async () => {
   const signing = await import('../../utils/multiChildIntake.js');
   let updates = 0;

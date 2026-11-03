@@ -336,7 +336,7 @@ const canContinueFromAcknowledge = computed(() => {
 const buildDisclosurePayload = () => ({
   acknowledged: !!acknowledged.value,
   signatureData: signatureData.value || null,
-  locale: resolvedLocale.value,
+  locale: props.disclosureContext?.locale || resolvedLocale.value,
   contentHash: props.disclosureContext?.contentHash || props.disclosureContext?.content_hash || null,
   signerName: [signerFirstName.value, signerLastName.value].filter(Boolean).join(' ').trim() || null,
   signerEmail: String(signerEmail.value || '').trim() || null,
@@ -613,9 +613,13 @@ function resign() {
 }
 
 watch(
-  () => props.savedCapture,
-  (saved) => {
-    if (!saved?.signatureData) return;
+  () => [props.savedCapture, props.disclosureContext?.locale, props.disclosureContext?.contentHash],
+  ([saved]) => {
+    acknowledged.value = false;
+    signatureData.value = '';
+    stageIndex.value = 0;
+    if (!saved?.signatureData || saved.locale !== props.disclosureContext?.locale
+      || saved.contentHash !== props.disclosureContext?.contentHash) return;
     acknowledged.value = true;
     signatureData.value = saved.signatureData;
     const signIdx = stageOrder.value.indexOf('sign');

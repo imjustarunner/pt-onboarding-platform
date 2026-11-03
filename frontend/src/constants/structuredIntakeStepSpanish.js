@@ -1,3 +1,7 @@
+import { OFFICE_INTAKE_ES } from './officeIntakeSpanish.js';
+import { OFFICE_ENROLLMENT_UI_ES } from './officeEnrollmentUiSpanish.js';
+import { OFFICE_SCREEN_ES } from './officeClinicalSpanish.js';
+
 /**
  * Curated Spanish for structured intake steps (insurance, guardian waivers, communications).
  * Participant-facing copy when intakeLocale === 'es'. API translations fill any gaps.
@@ -389,10 +393,18 @@ export const STRUCTURED_INTAKE_STEP_ES = {
     'Soy padre, madre o tutor y lo envío para mi(s) hijo(s)'
 };
 
+const CURATED_INTAKE_ES = { ...OFFICE_INTAKE_ES, ...OFFICE_ENROLLMENT_UI_ES, ...STRUCTURED_INTAKE_STEP_ES, ...OFFICE_SCREEN_ES };
+const normalizedCopyKey = text => String(text || '').trim().replace(/\s+/g, ' ').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').toLowerCase();
+const NORMALIZED_INTAKE_ES = new Map(Object.entries(CURATED_INTAKE_ES).map(([key, value]) => [normalizedCopyKey(key), value]));
+
+export function hasStructuredIntakeTranslation(text) {
+  return NORMALIZED_INTAKE_ES.has(normalizedCopyKey(text));
+}
+
 export function lookupStructuredIntakeTranslation(en, apiMap = {}) {
   const key = String(en || '');
   if (!key) return key;
-  return STRUCTURED_INTAKE_STEP_ES[key] || apiMap[key] || key;
+  return CURATED_INTAKE_ES[key] || NORMALIZED_INTAKE_ES.get(normalizedCopyKey(key)) || apiMap[key] || key;
 }
 
 export function txFmtStructuredIntake(template, vars = {}, apiMap = {}, locale = 'en') {

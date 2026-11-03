@@ -33,7 +33,6 @@ function field({
   section = '',
   layout = '',
   scope = 'family',
-  defaultValue = undefined,
   privateToRespondent = false
 }) {
   return {
@@ -52,7 +51,6 @@ function field({
     section,
     layout: layout || undefined,
     category: 'clinical',
-    defaultValue,
     privateToRespondent: privateToRespondent || undefined
   };
 }
@@ -140,7 +138,7 @@ function familyRoster() {
     label: 'Your Family',
     type: 'family_roster',
     helperText: 'Add everyone who may be part of care. Adults and children can both be listed.',
-    whyWeAsk: 'A roster keeps people as separate client records under one family unit.',
+    whyWeAsk: 'Knowing who may participate helps us plan care for your family.',
     fields: [
       field({
         key: 'family_roster_note',
@@ -340,7 +338,6 @@ function howFamilyDoing() {
           label,
           type: 'radio',
           options: rating,
-          defaultValue: 'going_well',
           section: 'How are things going in each area?'
         })
       ),
@@ -359,7 +356,7 @@ function importantChanges() {
     id: 'important_changes',
     label: 'Important Changes & History',
     helperText: 'Family-level changes and history — not a full individual trauma interview.',
-    whyWeAsk: 'Reuse the spirit of dependent family/hard-experiences at the unit level.',
+    whyWeAsk: 'Family experiences and relationships help your therapist understand what support would be useful.',
     fields: [
       field({
         key: 'recent_family_changes',
@@ -408,8 +405,8 @@ function memberMiniIntake() {
   return step({
     id: 'member_mini',
     label: 'About {memberName}',
-    helperText: 'Reduced family-therapy member intake. Full individual packet is not required unless also enrolling individually.',
-    whyWeAsk: 'Clinically relevant member context without duplicating entire self/dependent packets.',
+    helperText: 'Tell us a little about this family member. If they also want individual therapy, they may need a separate enrollment.',
+    whyWeAsk: 'A little context about each person helps your therapist prepare for family sessions.',
     audience: 'family_member',
     repeatPerClient: true,
     fields: [
@@ -472,8 +469,8 @@ function familySafety() {
   return step({
     id: 'safety',
     label: 'Safety',
-    helperText: 'Person-level safety stays private. Shared family flags route to the right member quietly.',
-    whyWeAsk: 'Safety belongs partly to the person, not the family record.',
+    helperText: 'Tell us about safety concerns in your household. You can ask to discuss details with your therapist.',
+    whyWeAsk: 'Your therapist uses this information to understand what support your family may need.',
     fields: [
       field({
         key: 'household_safety_concerns',
@@ -495,8 +492,8 @@ function memberPrivateSafety() {
   return step({
     id: 'member_safety',
     label: 'Private Safety — {memberName}',
-    helperText: 'Complete privately when indicated. Other family members do not see these answers on shared review.',
-    whyWeAsk: 'Reuse person-scoped safety infrastructure.',
+    helperText: 'You can answer these questions privately or ask to discuss them with your therapist.',
+    whyWeAsk: 'These questions help your therapist understand each person’s safety needs.',
     audience: 'family_member',
     repeatPerClient: true,
     fields: [

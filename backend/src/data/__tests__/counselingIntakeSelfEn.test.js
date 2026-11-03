@@ -43,7 +43,7 @@ describe('counseling self EN intake', () => {
     const most = feeling.fields.find((f) => f.key === 'bothering_most');
     assert.deepEqual(most.showIf, { fieldKey: 'recent_symptoms', notEquals: 'none', minSelected: 2 });
     const lifeWork = feeling.fields.find((f) => f.key === 'life_work_school');
-    assert.equal(lifeWork.defaultValue, 'going_well');
+    assert.equal(lifeWork.defaultValue, undefined);
 
     const history = steps.find((s) => s.id === 'counseling_self_history_health');
     const alcoholIdx = history.fields.findIndex((f) => f.key === 'alcohol_use');

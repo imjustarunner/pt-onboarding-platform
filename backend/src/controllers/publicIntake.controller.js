@@ -219,8 +219,19 @@ async function resolveIntakeDevFillOptions(req, link, submissionId = null) {
 }
 
 function buildPacketSectionSignedHtml({ sectionContext, response, signedAt }) {
+  // The selected language/audience determines the canonical server edition.
+  // Never render client-supplied HTML or silently attach a newer edition to an
+  // acknowledgment captured before the document changed.
+  if ((response?.contentHash && response.contentHash !== sectionContext?.contentHash)
+    || (response?.packetVersion && String(response.packetVersion) !== String(sectionContext?.packetVersion))) {
+    const error = new Error(sectionContext?.locale === 'es'
+      ? 'Este acuerdo ha cambiado. Vuelva a revisarlo y firmarlo antes de continuar.'
+      : 'This agreement has changed. Please review and sign it again before continuing.');
+    error.status = 409;
+    throw error;
+  }
   const title = sectionContext?.title || sectionTitle(sectionContext?.sectionKey, sectionContext?.locale);
-  const body = String(sectionContext?.html || response?.snapshotHtml || '');
+  const body = String(sectionContext?.html || '');
   const signerName = String(response?.signerName || '').trim();
   const when = signedAt instanceof Date ? signedAt.toISOString() : String(signedAt || '');
   const sigImg = response?.signatureData
@@ -400,7 +411,7 @@ async function persistPacketSectionFromIntakeData({
       signerEmail: response.signerEmail || updatedSubmission.signer_email || null,
       contentHash: response.contentHash || sectionContext.contentHash,
       packetVersion: response.packetVersion || sectionContext.packetVersion,
-      snapshotHtml: response.snapshotHtml || sectionContext.html
+      snapshotHtml: sectionContext.html
     });
   }
   return paths;
@@ -417,7 +428,7 @@ async function persistEmbeddedDisclosureForClient({ intakeData, updatedSubmissio
       boundClient,
       organization,
       agency,
-      locale: link.language_code || 'en'
+      locale: intakeData.smartDisclosure?.locale || link.language_code || 'en'
     });
     if (disclosureContext) {
       const disclosureResponse = normalizeSmartDisclosureResponse({
@@ -6310,7 +6321,7 @@ export const getPublicIntakePacketSection = async (req, res, next) => {
     const ctx = await buildPacketSectionContext({
       organizationId: officePacket ? 0 : schoolOrgId,
       agencyId: Number(agency?.id || 0) || null,
-      locale: link.language_code || 'en',
+      locale: resolveRequestedMasterLanguage(req.query, link.language_code || 'en'),
       sectionKey,
       office: officePacket,
       variant: String(req.query?.variant || 'self')
@@ -6322,14 +6333,14 @@ export const getPublicIntakePacketSection = async (req, res, next) => {
   }
 };
 
-function wrapPublicLegalHtml({ title, versionLabel, fingerprint, agencyName, bodyHtml }) {
+function wrapPublicLegalHtml({ title, versionLabel, fingerprint, agencyName, bodyHtml, locale = 'en' }) {
   const esc = (value) => String(value ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${String(locale).startsWith('es') ? 'es' : 'en'}">
 <head>
   <meta charset="utf-8" />
   <title>${esc(title)}</title>
@@ -6367,7 +6378,7 @@ export const viewPublicPacketSectionHtml = async (req, res, next) => {
     const ctx = await buildPacketSectionContext({
       organizationId: officePacket ? 0 : schoolOrgId,
       agencyId: Number(agency?.id || 0) || null,
-      locale: link.language_code || 'en',
+      locale: resolveRequestedMasterLanguage(req.query, link.language_code || 'en'),
       sectionKey,
       office: officePacket,
       variant: String(req.query?.variant || 'self')
@@ -6375,7 +6386,8 @@ export const viewPublicPacketSectionHtml = async (req, res, next) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'public, max-age=300');
     return res.send(wrapPublicLegalHtml({
-      title: ctx.title || sectionTitle(sectionKey, link.language_code || 'en'),
+      title: ctx.title || sectionTitle(sectionKey, ctx.locale),
+      locale: ctx.locale,
       versionLabel: ctx.packetVersion ? `Version ${ctx.packetVersion}` : '',
       fingerprint: ctx.contentHash || '',
       agencyName: agency?.official_name || agency?.name || '',
@@ -6439,7 +6451,7 @@ export const getPublicIntakeDisclosureContext = async (req, res, next) => {
       boundClient,
       organization,
       agency,
-      locale: link.language_code || 'en'
+      locale: resolveRequestedMasterLanguage(req.query, link.language_code || 'en')
     });
     res.setHeader('Cache-Control', 'no-store');
     res.json({ disclosureContext });
@@ -6469,7 +6481,7 @@ export const viewPublicDisclosureHtml = async (req, res, next) => {
       boundClient,
       organization,
       agency,
-      locale: link.language_code || 'en'
+      locale: resolveRequestedMasterLanguage(req.query, link.language_code || 'en')
     });
     const html = disclosureContext
       ? buildSmartDisclosureHtml({ disclosureContext })
@@ -8842,7 +8854,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         boundClient,
         organization,
         agency,
-        locale: link.language_code || 'en'
+        locale: intakeData?.smartDisclosure?.locale || link.language_code || 'en'
       });
       if (!disclosureContext) {
         return res.status(400).json({ error: { message: 'Smart Disclosure is not enabled for this school yet.' } });

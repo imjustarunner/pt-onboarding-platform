@@ -1,6 +1,6 @@
 <template>
   <div class="pi-ins">
-    <p v-if="fileError" class="pi-ins-inline-error" role="alert">{{ fileError }}</p>
+    <p v-if="fileError" class="pi-ins-inline-error" role="alert">{{ tx(fileError) }}</p>
     <!-- Step description + non-Medicaid disclaimer -->
     <p v-if="stepConfig.nonMedicaidDisclaimerText && !hasAnyMedicaid" class="pi-ins-disclaimer">
       {{ tx(stepConfig.nonMedicaidDisclaimerText) }}
@@ -56,7 +56,7 @@
               @mousedown.prevent="selectPrimary(ins)"
             >
               <span>{{ ins.label }}</span>
-              <span v-if="ins.group === 'Medicaid'" class="pi-ins-badge">Medicaid</span>
+              <span v-if="ins.group === 'Medicaid'" class="pi-ins-badge">{{ tx("Medicaid") }}</span>
             </div>
           </div>
         </div>
@@ -111,7 +111,7 @@
             placeholder="e.g. COA123456789"
           />
           <div v-if="validationErrorFor('memberId')" class="pi-ins-inline-error">
-            {{ validationErrorFor('memberId') }}
+            {{ tx(validationErrorFor('memberId')) }}
           </div>
           <div v-if="primaryIsMedicaid" class="pi-ins-field-note">
             {{ tx('For Medicaid plans, Member ID is recommended but not required.') }}
@@ -131,11 +131,11 @@
       </div>
 
       <div class="claim-fields">
-        <h4>Primary subscriber</h4>
-        <label>Client’s relationship to subscriber<select v-model="local.primary.relationshipToSubscriber" @change="push"><option value="">Select</option><option value="self">Self (client is the subscriber)</option><option value="child">Child</option><option value="spouse">Spouse</option><option value="other">Other</option></select></label>
-        <label>Subscriber date of birth<input v-model="local.primary.subscriberDob" type="date" @change="push" /></label>
-        <label>Subscriber sex on policy<select v-model="local.primary.subscriberSex" @change="push"><option value="">Select</option><option>M</option><option>F</option><option>U</option></select></label>
-        <label v-for="field in [{key:'subscriberFirstName',label:'Subscriber legal first name'},{key:'subscriberLastName',label:'Subscriber legal last name'},{key:'subscriberAddressLine1',label:'Subscriber address'},{key:'subscriberCity',label:'City'},{key:'subscriberState',label:'State'},{key:'subscriberPostalCode',label:'ZIP code'},{key:'payerId',label:'Electronic payer ID (if known)'},{key:'planType',label:'Plan type (if known)'}]" :key="field.key">{{ field.label }}<input v-model="local.primary[field.key]" maxlength="255" @input="push" /></label>
+        <h4>{{ tx("Primary subscriber") }}</h4>
+        <label>{{ tx("Client’s relationship to subscriber") }}<select v-model="local.primary.relationshipToSubscriber" @change="push"><option value="">{{ tx("Select") }}</option><option value="self">{{ tx("Self (client is the subscriber)") }}</option><option value="child">{{ tx("Child") }}</option><option value="spouse">{{ tx("Spouse") }}</option><option value="other">{{ tx("Other") }}</option></select></label>
+        <label>{{ tx("Subscriber date of birth") }}<input v-model="local.primary.subscriberDob" type="date" @change="push" /></label>
+        <label>{{ tx("Subscriber sex on policy") }}<select v-model="local.primary.subscriberSex" @change="push"><option value="">{{ tx("Select") }}</option><option>M</option><option>F</option><option>U</option></select></label>
+        <label v-for="field in [{key:'subscriberFirstName',label:'Subscriber legal first name'},{key:'subscriberLastName',label:'Subscriber legal last name'},{key:'subscriberAddressLine1',label:'Subscriber address'},{key:'subscriberCity',label:'City'},{key:'subscriberState',label:'State'},{key:'subscriberPostalCode',label:'ZIP code'},{key:'payerId',label:'Electronic payer ID (if known)'},{key:'planType',label:'Plan type (if known)'}]" :key="field.key">{{ tx(field.label) }}<input v-model="local.primary[field.key]" maxlength="255" @input="push" /></label>
       </div>
       <!-- Insurance card photos -->
       <div
@@ -196,7 +196,7 @@
         </label>
       </div>
       <div v-if="validationErrorFor('card')" class="pi-ins-inline-error">
-        {{ validationErrorFor('card') }}
+        {{ tx(validationErrorFor('card')) }}
       </div>
 
       <div v-if="showMultiClientMedicaidSection" class="pi-ins-multi-client">
@@ -255,7 +255,7 @@
               @mousedown.prevent="selectSecondary(ins)"
             >
               <span>{{ ins.label }}</span>
-              <span v-if="ins.group === 'Medicaid'" class="pi-ins-badge">Medicaid</span>
+              <span v-if="ins.group === 'Medicaid'" class="pi-ins-badge">{{ tx("Medicaid") }}</span>
             </div>
           </div>
         </div>
@@ -267,24 +267,24 @@
       <div class="pi-ins-grid">
         <div class="form-group">
           <label class="pi-ins-lbl">{{ tx('Member ID') }}</label>
-          <input v-model="local.secondary.memberId" class="pi-ins-input" type="text" placeholder="Optional" />
+          <input v-model="local.secondary.memberId" class="pi-ins-input" type="text" :placeholder="tx('Optional')" />
         </div>
         <div v-if="!secondaryIsMedicaid" class="form-group">
           <label class="pi-ins-lbl">{{ tx('Group number') }}</label>
-          <input v-model="local.secondary.groupNumber" class="pi-ins-input" type="text" placeholder="Optional" />
+          <input v-model="local.secondary.groupNumber" class="pi-ins-input" type="text" :placeholder="tx('Optional')" />
         </div>
         <div v-if="!secondaryIsMedicaid" class="form-group">
           <label class="pi-ins-lbl">{{ tx('Subscriber name') }}</label>
-          <input v-model="local.secondary.subscriberName" class="pi-ins-input" type="text" placeholder="Optional" />
+          <input v-model="local.secondary.subscriberName" class="pi-ins-input" type="text" :placeholder="tx('Optional')" />
         </div>
       </div>
 
       <div class="claim-fields">
-        <h4>Secondary subscriber</h4>
-        <label>Client’s relationship to subscriber<select v-model="local.secondary.relationshipToSubscriber" @change="push"><option value="">Select</option><option value="self">Self (client is the subscriber)</option><option value="child">Child</option><option value="spouse">Spouse</option><option value="other">Other</option></select></label>
-        <label>Subscriber date of birth<input v-model="local.secondary.subscriberDob" type="date" @change="push" /></label>
-        <label>Subscriber sex on policy<select v-model="local.secondary.subscriberSex" @change="push"><option value="">Select</option><option>M</option><option>F</option><option>U</option></select></label>
-        <label v-for="field in [{key:'subscriberFirstName',label:'Subscriber legal first name'},{key:'subscriberLastName',label:'Subscriber legal last name'},{key:'subscriberAddressLine1',label:'Subscriber address'},{key:'subscriberCity',label:'City'},{key:'subscriberState',label:'State'},{key:'subscriberPostalCode',label:'ZIP code'},{key:'payerId',label:'Electronic payer ID (if known)'},{key:'planType',label:'Plan type (if known)'}]" :key="field.key">{{ field.label }}<input v-model="local.secondary[field.key]" maxlength="255" @input="push" /></label>
+        <h4>{{ tx("Secondary subscriber") }}</h4>
+        <label>{{ tx("Client’s relationship to subscriber") }}<select v-model="local.secondary.relationshipToSubscriber" @change="push"><option value="">{{ tx("Select") }}</option><option value="self">{{ tx("Self (client is the subscriber)") }}</option><option value="child">{{ tx("Child") }}</option><option value="spouse">{{ tx("Spouse") }}</option><option value="other">{{ tx("Other") }}</option></select></label>
+        <label>{{ tx("Subscriber date of birth") }}<input v-model="local.secondary.subscriberDob" type="date" @change="push" /></label>
+        <label>{{ tx("Subscriber sex on policy") }}<select v-model="local.secondary.subscriberSex" @change="push"><option value="">{{ tx("Select") }}</option><option>M</option><option>F</option><option>U</option></select></label>
+        <label v-for="field in [{key:'subscriberFirstName',label:'Subscriber legal first name'},{key:'subscriberLastName',label:'Subscriber legal last name'},{key:'subscriberAddressLine1',label:'Subscriber address'},{key:'subscriberCity',label:'City'},{key:'subscriberState',label:'State'},{key:'subscriberPostalCode',label:'ZIP code'},{key:'payerId',label:'Electronic payer ID (if known)'},{key:'planType',label:'Plan type (if known)'}]" :key="field.key">{{ tx(field.label) }}<input v-model="local.secondary[field.key]" maxlength="255" @input="push" /></label>
       </div>
       <div v-if="!secondaryIsMedicaid" class="pi-ins-photos">
         <div class="pi-ins-photo-slot">
@@ -350,21 +350,20 @@
     </div>
 
     <section v-if="!isSelfPay" class="pi-ins-claim-details">
-      <h4>Coverage and subscriber details</h4>
-      <p>The subscriber may be the parent or the child. Check the policy details and confirm who is covered. A matching name alone does not verify coverage.</p>
-      <label>Policy applies to
-        <select v-model="coverageScope" @change="push"><option value="client">One client</option><option value="account_holder">Account holder with covered dependents</option></select>
+      <h4>{{ tx("Coverage and subscriber details") }}</h4>
+      <p>{{ tx("The subscriber may be the parent or the child. Check the policy details and confirm who is covered. A matching name alone does not verify coverage.") }}</p>
+      <label>{{ tx("Policy applies to") }} <select v-model="coverageScope" @change="push"><option value="client">{{ tx("One client") }}</option><option value="account_holder">{{ tx("Account holder with covered dependents") }}</option></select>
       </label>
-      <label v-for="(clientName, index) in clientDisplayNames" :key="index" class="checkbox-row"><input v-model="coverageClientIndexes" :value="index" type="checkbox" @change="push" /> I confirm {{ clientName }} is covered by this policy.</label>
+      <label v-for="(clientName, index) in clientDisplayNames" :key="index" class="checkbox-row"><input v-model="coverageClientIndexes" :value="index" type="checkbox" @change="push" /> {{ tx("I confirm") }} {{ clientName }} {{ tx("is covered by this policy.") }}</label>
       <div v-for="index in coverageClientIndexes" :key="`separate-${index}`">
-        <label class="checkbox-row"><input :checked="!!separatePolicies[index]" type="checkbox" @change="toggleSeparatePolicy(index,$event.target.checked)" /> {{ clientDisplayNames[index] }} has a different policy</label>
+        <label class="checkbox-row"><input :checked="!!separatePolicies[index]" type="checkbox" @change="toggleSeparatePolicy(index,$event.target.checked)" /> {{ clientDisplayNames[index] }} {{ tx("has a different policy") }}</label>
         <div v-if="separatePolicies[index]" class="pi-ins-claim-details">
-          <h4>Policy for {{ clientDisplayNames[index] }}</h4>
+          <h4>{{ tx("Policy for") }} {{ clientDisplayNames[index] }}</h4>
           <InsurancePolicyFields v-model="separatePolicies[index].primary" @update:model-value="push" />
-          <label v-for="slot in (policyIsMedicaid(separatePolicies[index].primary) ? [] : ['primary_front','primary_back'])" :key="slot">{{ slot === 'primary_front' ? 'Card front' : 'Card back' }}<input type="file" accept="image/png,image/jpeg,application/pdf" :disabled="coverageUploadBusy" @change="uploadSeparateCard(index,slot,$event)" /><span v-if="separatePolicies[index][`${slot}_url`]">Uploaded securely</span></label>
+          <label v-for="slot in (policyIsMedicaid(separatePolicies[index].primary) ? [] : ['primary_front','primary_back'])" :key="slot">{{ tx(slot === 'primary_front' ? 'Card front' : 'Card back') }}<input type="file" accept="image/png,image/jpeg,application/pdf" :disabled="coverageUploadBusy" @change="uploadSeparateCard(index,slot,$event)" /><span v-if="separatePolicies[index][`${slot}_url`]">{{ tx("Uploaded securely") }}</span></label>
         </div>
       </div>
-      <p v-if="coverageUploadError" role="alert">{{ coverageUploadError }}</p>
+      <p v-if="coverageUploadError" role="alert">{{ tx(coverageUploadError) }}</p>
 
     </section>
     <div class="pi-ins-card pi-ins-identity-card">
@@ -418,8 +417,7 @@
           {{ tx('This authorization extends to the extent necessary to obtain payment for the services provided to me, and includes authorization to release information about mental health, substance use, or HIV diagnoses as required.') }}
         </p>
         <p>
-          {{ tx('In consideration of the services provided to me, I assign all benefits to') }} <strong>{{ props.agencyName || 'the provider' }}</strong> if accepted, and authorize my insurance companies, Medicare, or other third-party payers to make payments directly to <strong>{{ props.agencyName || 'the provider' }}</strong> and its affiliates.
-        </p>
+          {{ tx('In consideration of the services provided to me, I assign all benefits to') }} <strong>{{ props.agencyName || 'the provider' }}</strong> {{ tx("if accepted, and authorize my insurance companies, Medicare, or other third-party payers to make payments directly to") }} <strong>{{ props.agencyName || 'the provider' }}</strong> {{ tx("and its affiliates.") }} </p>
         <p v-if="!hasAnyMedicaid">
           {{ tx('I understand that I remain responsible for all amounts due by me, including (but not limited to) copays, coinsurance, deductible amounts, and all services not covered by my insurance plan (including those for which I fail to obtain prior authorization), and mutually agreed-upon services or fees that are deemed not medically necessary.') }}
         </p>
@@ -429,7 +427,7 @@
       </div>
 
       <div v-if="validationErrorFor('authorization')" class="pi-ins-auth-error">
-        {{ validationErrorFor('authorization') }}
+        {{ tx(validationErrorFor('authorization')) }}
       </div>
 
       <!-- PRIMARY PATH: re-use the signature drawn earlier in this session -->
@@ -453,7 +451,7 @@
             <div>
               <div>
                 <strong>{{ tx('Signed') }}</strong>
-                <span v-if="props.guardianName"> by {{ props.guardianName }}</span>
+                <span v-if="props.guardianName"> {{ tx("by") }} {{ props.guardianName }}</span>
               </div>
               <div class="pi-ins-auth-stamp">
                 {{ tx('e-Signature applied') }} {{ formatSignedAt(authorizationSignedAt) }} · {{ tx('source: reused signature from earlier in this session') }}

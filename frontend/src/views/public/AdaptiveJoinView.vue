@@ -434,6 +434,7 @@
               :model="form.otherGuardian"
               :copy="localizedGuardianCopy" :locale="locale"
               :error="otherGuardianError"
+              required
             />
           </section>
         </template>
@@ -443,6 +444,7 @@
       <div v-else-if="quickStep === 1" class="ai-join-form">
         <h1 class="ai-page-title"> {{ tx("What support are you looking for?") }} </h1>
         <p class="ai-page-lead">{{ tx(concernsLead) }}</p>
+        <p v-if="config?.exchangeEssentialsRequired" class="ai-page-lead">{{ tx('Required: select at least one concern below or describe the support you want in the goals field.') }}</p>
         <div class="ai-concern-grid">
           <button
             v-for="c in concernOptions"
@@ -481,7 +483,7 @@
             label="Preferred format"
             :optional-badge="!config?.exchangeEssentialsRequired"
             :required="config?.exchangeEssentialsRequired"
-            placeholder="No preference"
+            :placeholder="config?.exchangeEssentialsRequired ? 'Select…' : 'No preference'"
             :options="modalityOptions"
           />
           <DigitalFormField v-if="!config?.exchangeEssentialsRequired"
@@ -494,9 +496,9 @@
           />
         </div>
         <template v-if="config?.exchangeEssentialsRequired">
-          <DigitalFormField v-if="form.preferences.preferredModality !== 'virtual'" v-model="form.preferences.preferredLocation" type="select" label="In-person service city" placeholder="Use my home city" :options="EXCHANGE_CITIES.map(city=>({value:city,label:city}))" />
-          <p>When you leave the service city blank, we use Denver or Colorado Springs from your home address. Choose a city above if you prefer another location.</p>
-          <ClientSchedulePreferences v-model="form.preferences.exchangeSchedule" required />
+          <DigitalFormField v-if="form.preferences.preferredModality !== 'virtual'" v-model="form.preferences.preferredLocation" type="select" label="In-person service city" :placeholder="homeServiceLocation ? 'Use my home city' : 'Select…'" :required="!homeServiceLocation" :options="EXCHANGE_CITIES.map(city=>({value:city,label:city}))" />
+          <p v-if="form.preferences.preferredModality !== 'virtual'">{{ tx('When you leave the service city blank, we use Denver or Colorado Springs from your home address. Choose a city above if you prefer another location.') }}</p>
+          <ClientSchedulePreferences v-model="form.preferences.exchangeSchedule" required :missing-fields="showQuickValidation ? matchingIssues.map(issue => issue.key) : []" />
         </template>
         <DigitalFormField v-else
           v-model="form.preferences.preferredDaysRaw"
@@ -505,7 +507,8 @@
         />
         <DigitalFormField
           v-model="form.preferences.insuranceOrPayment"
-          :label="config?.exchangeEssentialsRequired ? 'Insurance plan or self-pay *' : 'Insurance or payment (optional)'"
+          :label="config?.exchangeEssentialsRequired ? 'Insurance plan or self-pay' : 'Insurance or payment (optional)'"
+          :required="!!config?.exchangeEssentialsRequired"
         />
       </div>
 
@@ -615,15 +618,19 @@
             />
           </div>
         </template>
-        <div v-if="submitError" class="df-banner df-banner--warn">{{ submitError }}</div>
       </div>
 
+      <div v-if="showQuickValidation && quickValidationIssues.length" ref="quickValidationEl" class="df-banner df-banner--warn ai-join-validation" role="alert" tabindex="-1">
+        <strong>{{ tx('Please complete the following before continuing:') }}</strong>
+        <ul><li v-for="issue in quickValidationIssues" :key="issue.key">{{ tx(issue.message) }}</li></ul>
+      </div>
+      <div v-if="submitError" class="df-banner df-banner--warn" role="alert">{{ tx(submitError) }}</div>
       <div class="df-actions ai-join-actions">
         <button type="button" class="df-btn df-btn-secondary" @click="goBack"> {{ tx("Back") }} </button>
         <button
           type="button"
           class="df-btn df-btn-primary ai-join-continue"
-          :disabled="submitting || !canContinueQuick || (quickStep === 4 && !form.consentGiven)"
+          :disabled="submitting"
           @click="onQuickContinue"
         >
           <span>{{ tx(quickStep >= 5 ? (submitting ? 'Submitting…' : 'Submit interest form') : 'Continue') }}</span>
@@ -638,14 +645,15 @@
 
 <script setup>
 import ClientSchedulePreferences from '../../components/clientExchange/ClientSchedulePreferences.vue';
-import {EXCHANGE_CITIES,assertExchangeEssentials} from '../../navigation/clientExchangeEssentials.js';
+import {EXCHANGE_CITIES,missingExchangeEssentials} from '../../navigation/clientExchangeEssentials.js';
 import {resolveExchangeLocation} from '../../navigation/clientExchangeLocation.js';
+import { normalizeExchangeSchedule } from '../../utils/clientExchangeSchedule.js';
 
 import { i18n, setPublicLocale } from '../../i18n.js';
 import { translateJoinEnrollment, JOIN_ENROLLMENT_ES } from '../../utils/joinEnrollmentCopy.js';
 import LearningEnrollmentQuestions from '../../components/learning/LearningEnrollmentQuestions.vue';
 import {publicWebsitePath} from '../../utils/publicWebsitePath';
-import { computed, onMounted, provide, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, provide, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import OtherGuardianIntakeFields from '../../components/public-intake/OtherGuardianIntakeFields.vue';
 import api from '../../services/api';
@@ -691,6 +699,7 @@ provide('enrollmentTranslate', tx);
 
 const route = useRoute();
 const router = useRouter();
+if (['en', 'es'].includes(route.query.lang)) setPublicLocale(route.query.lang);
 const authStore = useAuthStore();
 const entryProviderId = computed(() => Number(route.query.providerId || route.query.preferredProviderUserId || 0));
 const isProviderEnrollment = computed(() => route.query.enrollmentSource === 'provider' || entryProviderId.value > 0);
@@ -750,6 +759,8 @@ const selectedPathway = ref('');
 const quickStep = ref(0);
 const submitting = ref(false);
 const submitError = ref('');
+const showQuickValidation = ref(false);
+const quickValidationEl = ref(null);
 const submitted = ref(false);
 const confirmation = ref(null);
 const editingSidebar = ref(false);
@@ -1251,47 +1262,78 @@ function openJoinSupport() {
   router.push(`/${encodeURIComponent(agencySlug.value)}/support?topic=intake_join`);
 }
 
-const canContinueQuick = computed(() => {
-  if (quickStep.value === 0) {
-    if (!form.whoFor) return false;
-    const r = form.respondent;
-    if (!r.firstName.trim() || !r.lastName.trim() || !r.email.trim() || !r.phone.trim()) return false;
-    if (!isValidEmailAddress(r.email) || !isValidUsPhone(r.phone)) return false;
-    if (!form.birthdate.trim()) return false;
-    if (!form.address.street.trim() || !form.address.city.trim() || !form.address.state.trim() || !form.address.zip.trim()) return false;
-    if (form.whoFor === 'couple') {
-      const p = form.partner;
-      if (!p.firstName.trim() || !p.lastName.trim() || !p.dateOfBirth.trim()) return false;
-      if (!form.notifyPartner) return false;
-      if (form.partnersSameAddress === 'no') {
-        const a = p.address || {};
-        if (!a.street?.trim() || !a.city?.trim() || !a.state?.trim() || !a.zip?.trim()) return false;
-      }
-      return true;
+const basicsIssues = computed(() => {
+  const issues = [];
+  const required = (key, value, message) => { if (!String(value || '').trim()) issues.push({ key, message }); };
+  required('whoFor', form.whoFor, 'Choose who will receive services.');
+  required('firstName', form.respondent.firstName, 'First name is required.');
+  required('lastName', form.respondent.lastName, 'Last name is required.');
+  if (!isValidEmailAddress(form.respondent.email)) issues.push({ key: 'email', message: 'Enter a valid email address.' });
+  if (!isValidUsPhone(form.respondent.phone)) issues.push({ key: 'phone', message: 'Enter a valid 10-digit US phone number.' });
+  required('birthdate', form.birthdate, 'Date of birth is required.');
+  required('street', form.address.street, 'Street address is required.');
+  required('city', form.address.city, 'City is required.');
+  required('state', form.address.state, 'State is required.');
+  required('zip', form.address.zip, 'ZIP code is required.');
+  if (form.whoFor === 'couple') {
+    required('partnerFirst', form.partner.firstName, 'Your partner’s first name is required.');
+    required('partnerLast', form.partner.lastName, 'Your partner’s last name is required.');
+    required('partnerDob', form.partner.dateOfBirth, 'Your partner’s date of birth is required.');
+    required('notifyPartner', form.notifyPartner, 'Choose whether to notify your partner.');
+    if (form.partnersSameAddress === 'no' && ['street', 'city', 'state', 'zip'].some(key => !String(form.partner.address?.[key] || '').trim())) {
+      issues.push({ key: 'partnerAddress', message: 'Complete your partner’s street address, city, state, and ZIP code.' });
     }
-    if (form.whoFor === 'family') {
-      if (!form.familyRole) return false;
-      if (!form.familyMembers.length) return false;
-      return form.familyMembers.every((m) =>
-        m.firstName.trim() && m.lastName.trim() && m.dateOfBirth.trim() && m.relationshipToPrimary.trim()
-      );
+  } else if (form.whoFor === 'family') {
+    required('familyRole', form.familyRole, 'Choose your role in the family.');
+    if (!form.familyMembers.length || form.familyMembers.some(member => ['firstName', 'lastName', 'dateOfBirth', 'relationshipToPrimary'].some(key => !String(member[key] || '').trim()))) {
+      issues.push({ key: 'familyMembers', message: 'Each family member needs a first name, last name, date of birth, and relationship to you.' });
     }
-    if (isDependentWhoFor.value) {
-      if (!form.client.firstName.trim()) return false;
-      if (!isCoGuardianInvitee.value && !form.client.lastName.trim()) return false;
-      if (!isCoGuardianInvitee.value) {
-        if (!otherGuardianContactOk()) return false;
-      }
+  } else if (isDependentWhoFor.value) {
+    required('clientFirst', form.client.firstName, 'The dependent’s first name is required.');
+    if (!isCoGuardianInvitee.value) {
+      required('clientLast', form.client.lastName, 'The dependent’s last name is required.');
+      if (!otherGuardianContactOk()) issues.push({ key: 'guardian', message: 'Answer the custody question and provide the other guardian’s email, phone, or court documents when applicable.' });
     }
-    return true;
   }
-  if (quickStep.value === 5 && isDependentWhoFor.value && form.additionalDependent.enabled) {
-    return !!form.additionalDependent.firstName.trim()
-      && !!form.additionalDependent.lastName.trim()
-      && !!form.additionalDependent.dateOfBirth.trim();
-  }
-  return true;
+  return issues;
 });
+const homeServiceLocation = computed(() => resolveExchangeLocation({ address_city: form.address.city, address_state: form.address.state }).serviceLocation);
+const matchingIssues = computed(() => {
+  if (!config.value?.exchangeEssentialsRequired) return [];
+  const p = form.preferences;
+  const location = resolveExchangeLocation({ address_city: form.address.city, address_state: form.address.state }, { preferredLocation: p.preferredLocation });
+  const messages = {
+    modality: 'Choose a preferred format.',
+    location: 'Choose an in-person service city: Denver, Colorado Springs, or either location.',
+    insurance: 'Enter your insurance plan name or self-pay.',
+    days: 'Choose at least one available day or a specific day/time option.',
+    times: 'Choose at least one available time or a specific day/time option.',
+    concerns: 'Select at least one concern or describe the support you want on the What support page.'
+  };
+  const issues = missingExchangeEssentials({ preferences: { modality: p.preferredModality, ...location, insurance: p.insuranceOrPayment, schedule: p.exchangeSchedule }, presentingProblems: [form.accomplishGoal, ...form.concerns] })
+    .map(issue => ({ ...issue, message: messages[issue.key] }));
+  try { normalizeExchangeSchedule(p.exchangeSchedule); }
+  catch (error) { issues.push({ key: 'schedule', message: error.message }); }
+  return issues;
+});
+const quickValidationIssues = computed(() => {
+  if (quickStep.value === 0) return basicsIssues.value;
+  if (quickStep.value === 1) return matchingIssues.value.filter(issue => issue.key === 'concerns');
+  if (quickStep.value === 2) return matchingIssues.value;
+  if (quickStep.value === 4 && !form.consentGiven) return [{ key: 'consent', message: 'Please read and accept the contact authorization before continuing.' }];
+  if (quickStep.value === 5 && isDependentWhoFor.value && form.additionalDependent.enabled
+    && ['firstName', 'lastName', 'dateOfBirth'].some(key => !String(form.additionalDependent[key] || '').trim())) {
+    return [{ key: 'additionalDependent', message: 'The additional dependent needs a first name, last name, and date of birth.' }];
+  }
+  return [];
+});
+const canContinueQuick = computed(() => quickValidationIssues.value.length === 0);
+async function showValidation() {
+  showQuickValidation.value = true;
+  await nextTick();
+  quickValidationEl.value?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+  quickValidationEl.value?.focus?.();
+}
 
 function validateBasicsField(field) {
   if (field === 'email') {
@@ -1551,6 +1593,8 @@ function joinWelcomePath() {
 }
 
 function goBack() {
+  showQuickValidation.value = false;
+  submitError.value = '';
   if (phase.value === 'quick' && quickStep.value > 0) {
     let prev = quickStep.value - 1;
     if (prev === 3 && !showChooseProvider.value) prev = 2;
@@ -1573,7 +1617,7 @@ function onPathwayContinue(pathway) {
   if (pathway === 'full') {
     const key = config.value?.pathways?.full?.publicKey;
     if (!key) return;
-    router.push({path:`/intake/${key}`,query:{...route.query,program:serviceType.value==='tutoring'?learningForm.value.program:undefined}});
+    router.push({path:`/intake/${key}`,query:{...route.query,lang:locale.value,program:serviceType.value==='tutoring'?learningForm.value.program:undefined}});
     return;
   }
   phase.value = 'quick';
@@ -1589,7 +1633,7 @@ async function continueProviderEnrollment(format) {
       providerId: entryProviderId.value,
       serviceType: resolvedServiceType.value,
       format,
-      query: route.query
+      query: { ...route.query, lang: locale.value }
     });
     const key = `provider-hold:${agencySlug.value}`;
     let selected;
@@ -1616,7 +1660,7 @@ async function continueWithoutProvider() {
       if (selected.token) await api.post(`/public/agency-services/${encodeURIComponent(agencySlug.value)}/release-hold`, { token: selected.token }, { skipAuthRedirect: true });
       sessionStorage.removeItem(key);
     }
-    await router.replace({ path: route.path, query: {} });
+    await router.replace({ path: route.path, query: { lang: locale.value } });
     loadError.value = '';
     providerEntrySchedule.value = null;
   } catch {
@@ -1645,6 +1689,7 @@ watch(()=>[learningForm.value.program,learningForm.value.grade,learningForm.valu
 let learningProviderGeneration=0;
 
 async function loadProviders() {
+  if (!showChooseProvider.value && resolvedServiceType.value !== 'tutoring') return;
   const generation=++learningProviderGeneration;
   providersLoading.value = true;
   providersError.value = '';
@@ -1700,24 +1745,20 @@ async function toggleChooseProvider(event) {
 }
 
 function validateMatchingEssentials() {
-  if(!config.value?.exchangeEssentialsRequired)return true;
-  try {
-    const p=form.preferences;
-    const location=resolveExchangeLocation({address_city:form.address.city,address_state:form.address.state},{preferredLocation:p.preferredLocation});
-    assertExchangeEssentials({preferences:{modality:p.preferredModality,...location,insurance:p.insuranceOrPayment,schedule:p.exchangeSchedule},presentingProblems:[form.accomplishGoal,...form.concerns]});
-    return true;
-  }catch(e){submitError.value=e.message;return false;}
+  if (!matchingIssues.value.length) return true;
+  quickStep.value = matchingIssues.value.every(issue => issue.key === 'concerns') ? 1 : 2;
+  void showValidation();
+  return false;
 }
 async function onQuickContinue() {
-  if(quickStep.value===2 && !validateMatchingEssentials())return;
-  if (quickStep.value === 0) {
-    if (!validateBasicsFields()) return;
-    if (isDependentWhoFor.value && !isCoGuardianInvitee.value && !otherGuardianContactOk()) {
-      otherGuardianError.value = 'Please enter their email or phone so we can reach out on your behalf.';
-      return;
-    }
-    otherGuardianError.value = '';
+  submitError.value = '';
+  if (quickStep.value === 0) validateBasicsFields();
+  if (!canContinueQuick.value) {
+    await showValidation();
+    return;
   }
+  showQuickValidation.value = false;
+  otherGuardianError.value = '';
   if (quickStep.value < 5) {
     let next = quickStep.value + 1;
     if (next === 3 && !showChooseProvider.value) next = 4;

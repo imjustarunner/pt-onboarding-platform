@@ -4,11 +4,11 @@
   </div>
   <div v-else class="df-field" :class="{ 'df-field--error': error, [`df-field--${size}`]: !!size }">
     <label v-if="label && type !== 'checkbox'" class="df-field-label" :for="inputId">
-      {{ translateEnrollment(label) }}
+      {{ translateContent ? translateEnrollment(label) : label }}
       <span v-if="required" class="df-field-required">*</span>
       <span v-else-if="optionalBadge" class="df-field-optional">{{ translateEnrollment('optional') }}</span>
     </label>
-    <p v-if="help && type !== 'checkbox' && !['optional', 'opcional'].includes(String(help).trim().toLowerCase())" class="df-field-help">{{ translateEnrollment(help) }}</p>
+    <p v-if="help && type !== 'checkbox' && !['optional', 'opcional'].includes(String(help).trim().toLowerCase())" class="df-field-help">{{ translateContent ? translateEnrollment(help) : help }}</p>
 
     <template v-if="type === 'email'">
       <input
@@ -95,7 +95,7 @@
     >
       <option value="" disabled>{{ translateEnrollment(placeholder || 'Select…') }}</option>
       <option v-for="opt in normalizedOptions" :key="opt.value" :value="opt.value">
-        {{ translateEnrollment(opt.label) }}
+        {{ translateContent ? translateEnrollment(opt.label) : opt.label }}
       </option>
     </select>
 
@@ -109,7 +109,7 @@
           :disabled="disabled"
           @change="$emit('update:modelValue', opt.value)"
         />
-        {{ translateEnrollment(opt.label) }}
+        {{ translateContent ? translateEnrollment(opt.label) : opt.label }}
       </label>
     </div>
 
@@ -121,10 +121,10 @@
         @change="$emit('update:modelValue', $event.target.checked)"
       />
       <span>
-        {{ translateEnrollment(label) }}
+        {{ translateContent ? translateEnrollment(label) : label }}
         <span v-if="required" class="df-field-required">*</span>
         <span v-else-if="optionalBadge" class="df-field-optional">{{ translateEnrollment('optional') }}</span>
-        <span v-if="help && !['optional', 'opcional'].includes(String(help).trim().toLowerCase())" class="df-field-help" style="display:block;">{{ translateEnrollment(help) }}</span>
+        <span v-if="help && !['optional', 'opcional'].includes(String(help).trim().toLowerCase())" class="df-field-help" style="display:block;">{{ translateContent ? translateEnrollment(help) : help }}</span>
       </span>
     </label>
 
@@ -142,6 +142,7 @@ const props = defineProps({
   modelValue: { type: [String, Number, Boolean, Array], default: '' },
   type: { type: String, default: 'text' },
   label: { type: String, default: '' },
+  translateContent: { type: Boolean, default: true },
   help: { type: String, default: '' },
   placeholder: { type: String, default: '' },
   required: { type: Boolean, default: false },
