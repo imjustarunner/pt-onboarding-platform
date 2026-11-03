@@ -3,7 +3,6 @@ import { createNotificationAndDispatch } from './notificationDispatcher.service.
 import { createClientOnboardingTaskForProvider } from './clientOnboardingTask.service.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
-import { resolvePreferredSenderIdentityForAgency } from './emailSenderIdentityResolver.service.js';
 import CommunicationLoggingService from './communicationLogging.service.js';
 import { schoolEmailPortalUrl, SCHOOL_EMAIL_DISPLAY_NAME } from './schoolEmailPortal.service.js';
 
@@ -101,7 +100,6 @@ async function getSchoolDisplayName(schoolOrganizationId) {
   }
 }
 
-const SCHOOLS_REPLY_TO = 'schools@itsco.health';
 
 function isTestOrPlaceholderSenderDisplayName(name) {
   const n = String(name || '').trim().toLowerCase();
@@ -162,79 +160,23 @@ async function logSchoolStatusEmailSkip({
   }
 }
 
-function isNotificationsMailbox(identity) {
-  return String(identity?.from_email || '').trim().toLowerCase() === 'notifications@itsco.health';
-}
-
-/**
- * From: notifications@itsco.health (school_intake / notifications key).
- * Signature: prefer schools@ mailbox art when the From identity has none.
- */
+/** Packet status mail uses the owning agency's verified Schools mailbox. */
 async function resolveIntakeStatusSenderIdentity({ agencyId } = {}) {
-  const aid = Number(agencyId || 0) || null;
-  try {
-    let fromIdentity = null;
-    if (aid) {
-      fromIdentity = await resolvePreferredSenderIdentityForAgency({
-        agencyId: aid,
-        preferredKeys: ['school_intake', 'notifications', 'intake', 'system'],
-        includePlatformDefaults: false,
-        onlyActive: true
-      });
-      if (fromIdentity && !isNotificationsMailbox(fromIdentity)) {
-        const list = await EmailSenderIdentity.list({
-          agencyId: aid,
-          includePlatformDefaults: false,
-          onlyActive: true
-        });
-        fromIdentity = (list || []).find(isNotificationsMailbox) || fromIdentity;
-      }
-    }
-    if (!fromIdentity || !Number(fromIdentity.id || 0)) {
-      const identity = await EmailSenderIdentity.findByFromEmail('notifications@itsco.health', {
-        preferAgencyId: aid,
-        skipTestDisplayNames: true
-      });
-      fromIdentity = identity || null;
-    }
-    if (!fromIdentity || !Number(fromIdentity.id || 0)) return null;
-
-    const hasSig = !!(
-      String(fromIdentity.signature_image_path || '').trim()
-      || String(fromIdentity.signature_image_url || '').trim()
-    );
-    if (hasSig) return { senderIdentityId: Number(fromIdentity.id), signatureIdentityId: null };
-
-    // User request: use schools@ITSCO.health signature art on these school group emails.
-    let schoolsIdentity = null;
-    if (aid) {
-      const list = await EmailSenderIdentity.list({
-        agencyId: aid,
-        includePlatformDefaults: false,
-        onlyActive: true
-      });
-      schoolsIdentity = (list || []).find((row) =>
-        String(row?.identity_key || '').trim().toLowerCase() === 'schools'
-        || String(row?.from_email || '').trim().toLowerCase() === 'schools@itsco.health'
-      ) || null;
-    }
-    if (!schoolsIdentity) {
-      schoolsIdentity = await EmailSenderIdentity.findByFromEmail('schools@itsco.health', {
-        preferAgencyId: aid,
-        skipTestDisplayNames: true
-      }).catch(() => null);
-    }
-    const signatureIdentityId = Number(schoolsIdentity?.id || 0) || null;
-    return {
-      senderIdentityId: Number(fromIdentity.id),
-      signatureIdentityId:
-        signatureIdentityId && signatureIdentityId !== Number(fromIdentity.id)
-          ? signatureIdentityId
-          : null
-    };
-  } catch {
-    return null;
-  }
+  const aid = Number(agencyId || 0);
+  if (!aid) return null;
+  const identities = await EmailSenderIdentity.list({
+    agencyId: aid, includePlatformDefaults: false, onlyActive: true
+  });
+  const identity = identities.find(row => Number(row.agency_id) === aid
+    && /^schools@[^@]+$/i.test(String(row.from_email || '').trim()));
+  if (!identity?.id) return null;
+  const email = String(identity.from_email).trim().toLowerCase();
+  return {
+    senderIdentityId: Number(identity.id),
+    signatureIdentityId: null,
+    replyTo: email,
+    cc: email === 'schools@itsco.health' ? 'support@itsco.health' : null
+  };
 }
 
 async function sendSchoolIntakeStatusEmail({
@@ -291,7 +233,7 @@ async function sendSchoolIntakeStatusEmail({
       schoolOrganizationId: sid,
       to,
       subject,
-      reason: 'No notifications@itsco.health sender identity configured'
+      reason: 'No tenant schools@ sender identity configured'
     });
     return false;
   }
@@ -363,7 +305,8 @@ async function sendSchoolIntakeStatusEmail({
       clientId: clientId || null,
       templateType: 'school_enrollment_packet_status',
       fromDisplayNameOverride: SCHOOL_EMAIL_DISPLAY_NAME,
-      replyToOverride: SCHOOLS_REPLY_TO,
+      replyToOverride: senderResolved.replyTo,
+      cc: senderResolved.cc,
       signatureIdentityId,
       linkUrl: portalUrl
     });
