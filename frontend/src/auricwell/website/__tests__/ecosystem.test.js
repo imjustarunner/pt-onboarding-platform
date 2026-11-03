@@ -15,6 +15,17 @@ const linksIn = element => [...element.querySelectorAll('a[href]')].map(a => nor
 const textIn = element => element.textContent.replace(/\s+/g, ' ').trim();
 
 describe('AuricWell website navigation and confirmed ecosystem', () => {
+  it('keeps public scripts and styles tied to the page build through edge caches', () => {
+    for (const page of ['', 'product', 'partners', 'about', 'contact']) {
+      const first = documentFor(page, { assetVersion: 'release-one' });
+      const next = documentFor(page, { assetVersion: 'release-two' });
+      const assets = doc => [...doc.querySelectorAll('script[src],link[rel="stylesheet"]')].map(el => el.getAttribute('src') || el.getAttribute('href')).filter(url => url.startsWith('/auricwell/website'));
+      expect(assets(first).length).toBeGreaterThanOrEqual(2);
+      expect(assets(first).every(url => url.endsWith('?v=release-one'))).toBe(true);
+      expect(assets(next).every(url => url.endsWith('?v=release-two'))).toBe(true);
+      expect(assets(first).some(url => assets(next).includes(url))).toBe(false);
+    }
+  });
   it('publishes Partners as a public page with matching desktop and mobile navigation', () => {
     expect(pages).toHaveProperty('partners');
     const doc = documentFor('partners', { origin: 'https://auricwell.com', canonicalBase: '' });
