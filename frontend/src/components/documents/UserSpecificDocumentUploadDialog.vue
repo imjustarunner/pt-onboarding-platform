@@ -94,6 +94,10 @@ const props = defineProps({
   userId: {
     type: Number,
     required: true
+  },
+  agencyId: {
+    type: Number,
+    default: null
   }
 });
 
@@ -163,7 +167,6 @@ const handleUpload = async () => {
     }
 
     // First create the task
-    const TaskAssignmentService = (await import('../../store/tasks')).default;
     const taskData = {
       taskType: 'document',
       documentActionType: formData.value.documentActionType,
@@ -172,6 +175,7 @@ const handleUpload = async () => {
       referenceId: null, // Will be set after user-specific document is created
       assignedByUserId: authStore.user.id,
       assignedToUserId: props.userId,
+      ...(props.agencyId ? { assignedToAgencyId: props.agencyId } : {}),
       dueDate: formData.value.dueDate || null
     };
     

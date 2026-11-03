@@ -49,3 +49,22 @@ it('shows credited hours and explains logged attendance that does not count towa
   const other=mount(SupervisionRecordPanel,{props:{sessionId:102}});await flushPromises();
   expect(other.text()).toContain('Attendance logged; requirement tracking needs a supervision start date.');other.unmount();
 });
+it('records a missed supervisee with a reason without changing supervisor attendance',async() => {
+  const w=mount(SupervisionRecordPanel,{props:{sessionId:102,providerId:567,timezone:'America/Denver'}});await flushPromises();
+  await w.get('[data-testid="attendance-outcome"]').setValue('MISSED');
+  expect(w.find('fieldset').text()).not.toContain('Michael');
+  await w.get('[data-testid="correction-reason"]').setValue('Did not attend the scheduled session after reminder.');
+  await w.get('[data-testid="correction-attestation"]').setValue(true);
+  await w.findAll('button').find(b=>b.text()==='Save attendance outcome').trigger('click');await flushPromises();
+  expect(api.post).toHaveBeenCalledWith('/supervision/sessions/102/time-corrections',expect.objectContaining({userIds:[567],minutes:0,modality:'MISSED',attested:true,reason:'Did not attend the scheduled session after reminder.'}));w.unmount();
+});
+it('resets selected participant and discards an old save response when provider context changes',async() => {
+  const w=mount(SupervisionRecordPanel,{props:{sessionId:102,providerId:567}});await flushPromises();
+  await w.get('[data-testid="correction-minutes"]').setValue(55);await w.get('[data-testid="correction-reason"]').setValue('Correct actual attendance after phone continuation.');await w.get('[data-testid="correction-attestation"]').setValue(true);
+  let finish;api.post.mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+  await w.findAll('button').find(b=>b.text()==='Save time correction').trigger('click');
+  await w.setProps({providerId:501});await flushPromises();
+  expect(w.find('fieldset input:checked').element.value).toBe('501');
+  finish({data:{message:'Old provider saved'}});await flushPromises();
+  expect(w.emitted('changed')).toBeUndefined();expect(w.text()).not.toContain('Old provider saved');w.unmount();
+});

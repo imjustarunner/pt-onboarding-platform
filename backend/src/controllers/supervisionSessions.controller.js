@@ -4699,21 +4699,26 @@ export const getSuperviseeSessions = async (req, res, next) => {
     if (!activeMember || !(privileged || actorId === superviseeId || assigned)) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
-    await autoFinalizeOverdueSessions({ agencyId: aId, actorUserId: actorId });
-
+    const page = req.query?.page == null ? 1 : Number(req.query.page);
+    const pageSize = req.query?.pageSize == null ? 50 : Number(req.query.pageSize);
+    if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 100 || !Number.isSafeInteger((page - 1) * pageSize)) return res.status(400).json({ error: { message: 'Enter a valid history page and page size (1–100).' } });
+    if (page === 1) await autoFinalizeOverdueSessions({ agencyId: aId, actorUserId: actorId });
     let sessions = await SupervisionSession.listSessionsForSuperviseeWithArtifacts({
       superviseeUserId: superviseeId,
       agencyId: aId,
-      limit: 50
+      limit: pageSize + 1, offset: (page - 1) * pageSize, includeCancelled: true
     });
     if (await repairInflatedSessionAttendance(sessions, { userId: superviseeId })) {
       sessions = await SupervisionSession.listSessionsForSuperviseeWithArtifacts({
         superviseeUserId: superviseeId,
         agencyId: aId,
-        limit: 50
+        limit: pageSize + 1, offset: (page - 1) * pageSize, includeCancelled: true
       });
     }
 
+    const attendanceSummary = await SupervisionSession.getSuperviseeAttendanceSummary({ superviseeUserId:superviseeId, agencyId:aId });
+    const hasMore = sessions.length > pageSize;
+    sessions = sessions.slice(0, pageSize);
     const includeTranscript = canViewTranscript(role);
     const sanitized = (sessions || []).map((s) => {
       const out = { ...s };
@@ -4721,15 +4726,19 @@ export const getSuperviseeSessions = async (req, res, next) => {
       return out;
     });
 
-    const withJoinUrl = await Promise.all(sanitized.map(async (s) => ({
-      ...s,
-      joinUrl: await supervisionAppJoinUrl(s),
-      participantJoinUrl: await supervisionAppJoinUrl(s),
-      hostJoinUrl: await supervisionHostJoinUrl(s),
-      waitingRoomEnabled: isWaitingRoomEnabled(s)
-    })));
+    // Every row is constrained to aId; resolve that tenant's base once rather
+    // than looking up the same agency three times for every historical session.
+    const meetingBase = sanitized.length ? await tenantMeetingBase(aId) : null;
+    const withJoinUrl = sanitized.map(s => {
+      const participantKey = String(s.participant_join_token || s.join_token || s.id || '').trim();
+      const hostKey = String(s.host_join_token || '').trim();
+      const joinUrl = joinUrlForSupervision(meetingBase, participantKey);
+      return { ...s, joinUrl, participantJoinUrl:joinUrl,
+        hostJoinUrl:hostKey ? joinUrlForSupervision(meetingBase, hostKey) : null,
+        waitingRoomEnabled:isWaitingRoomEnabled(s) };
+    });
 
-    res.json({ ok: true, sessions: withJoinUrl });
+    res.json({ ok: true, sessions: withJoinUrl, page, pageSize, hasMore, attendanceSummary });
   } catch (e) {
     next(e);
   }

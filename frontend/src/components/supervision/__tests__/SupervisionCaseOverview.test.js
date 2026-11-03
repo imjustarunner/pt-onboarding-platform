@@ -7,6 +7,16 @@ const overview={clientId:3,contentHash:'current',description:'Source excerpts',t
 beforeEach(()=>{vi.resetAllMocks();api.get.mockImplementation(url=>Promise.resolve({data:url.endsWith('/overview')?overview:{cases:[{clientId:3}],nextCursor:null}}));api.post.mockResolvedValue({data:{ok:true}});});
 const click=async(w,label)=>{await w.findAll('button').find(b=>b.text()===label).trigger('click');await flushPromises();};
 describe('clinical case overview',()=>{
+  it('opens and loads clinical records directly in the dedicated tab without a global loading overlay',async()=>{
+    const w=mount(SupervisionCaseOverview,{props:{agencyId:1,providerId:7,canReview:true,expanded:true}});await flushPromises();
+    expect(w.find('details').exists()).toBe(false);
+    expect(w.text()).toContain('Client #3');
+    expect(api.get).toHaveBeenCalledExactlyOnceWith('/supervision/supervisee/7/cases',{params:{agencyId:1,afterClientId:0},skipGlobalLoading:true});
+    await click(w,'Build case overview');
+    expect(w.text()).toContain('Improving');
+    expect(api.get.mock.calls.every(([,options])=>options.skipGlobalLoading)).toBe(true);
+    w.unmount();
+  });
   it('links to full notes/addenda and acknowledges the exact version without cosigning',async()=>{
     const w=mount(SupervisionCaseOverview,{props:{agencyId:1,providerId:7,canReview:true}});
     await click(w,'Refresh cases');await click(w,'Build case overview');expect(w.text()).toContain('Improving');expect(w.text()).toContain('Amendments/addenda are attached');

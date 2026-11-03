@@ -94,3 +94,17 @@ describe('supervision actual time corrections', () => {
     expect(writes()).toEqual([]);
   });
 });
+it('records an explicit supervisee absence with audit reason and never changes supervisor payroll',async() => {
+  expect(validateSupervisionTimeCorrection({...input(),userIds:[20],minutes:0,modality:'MISSED'})).toMatchObject({totalSeconds:0,modality:'MISSED'});
+  const result=await submitSupervisionTimeCorrection(1,host,{...input(),userIds:[20],minutes:0,modality:'MISSED'});
+  expect(result.status).toBe('approved');
+  const updates=writes().filter(([sql])=>sql.startsWith('INSERT INTO supervision_session_attendance_rollups'));
+  expect(updates).toHaveLength(1);expect(updates[0][1][1]).toBe(20);expect(updates[0][1][4]).toBe(0);
+  expect(m.hours).toHaveBeenCalledOnce();expect(m.claim).not.toHaveBeenCalled();
+});
+it('restricts absences to supervisors documenting supervisees with exactly zero minutes',async() => {
+  await expect(submitSupervisionTimeCorrection(1,student,{...input(),userIds:[20],minutes:0,modality:'MISSED'})).rejects.toMatchObject({status:403});
+  await expect(submitSupervisionTimeCorrection(1,host,{...input(),userIds:[10],minutes:0,modality:'EXCUSED'})).rejects.toMatchObject({status:403});
+  expect(()=>validateSupervisionTimeCorrection({...input(),minutes:20,modality:'MISSED'})).toThrow();
+  expect(writes()).toEqual([]);
+});

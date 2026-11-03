@@ -12,10 +12,11 @@ export function validateSupervisionTimeCorrection(input, now = new Date()) {
   if (![input.startAt, input.endAt].every(v => /^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(v || ''))) fail('Times must include a timezone.');
   const start = new Date(input.startAt), end = new Date(input.endAt), minutes = Number(input.minutes);
   if (!Number.isFinite(+start) || !Number.isFinite(+end) || end <= start || end > now || end - start > 8 * 3600000) fail('Enter actual past attendance within an eight-hour window.');
-  if (!Number.isInteger(minutes) || minutes < 1 || minutes > 480 || minutes * 60000 > end - start) fail('Attended minutes must be between 1 and the elapsed time, excluding breaks.');
+  const absence = ['MISSED', 'EXCUSED'].includes(input.modality);
+  if (!Number.isInteger(minutes) || minutes < (absence ? 0 : 1) || minutes > 480 || minutes * 60000 > end - start || (absence && minutes !== 0)) fail('Enter actual attended minutes, or zero for an explicitly recorded absence.');
   const reason = String(input.reason || '').trim();
   if (reason.length < 10 || reason.length > 2000) fail('Give a reason for this correction (10–2,000 characters).');
-  if (!['PLATFORM_VIDEO', 'PHONE', 'IN_PERSON', 'EXTERNAL_VIDEO', 'MIXED'].includes(input.modality)) fail('Choose how this supervision took place.');
+  if (!['PLATFORM_VIDEO', 'PHONE', 'IN_PERSON', 'EXTERNAL_VIDEO', 'MIXED', 'MISSED', 'EXCUSED'].includes(input.modality)) fail('Choose how this supervision took place.');
   if (input.attested !== true) fail('Confirm these are the actual attendance times.');
   if (!/^[\w-]{8,80}$/.test(input.requestKey || '')) fail('A submission identifier is required.');
   const userIds = [...new Set((Array.isArray(input.userIds) ? input.userIds : []).map(Number))];
@@ -38,8 +39,10 @@ export async function supervisionRecordAccess(sessionId, actor) {
 async function recordParticipants(session, db = pool) {
   const [rows] = await db.execute(`SELECT u.id AS userId, CONCAT_WS(' ',COALESCE(NULLIF(TRIM(u.preferred_name),''),u.first_name),u.last_name) AS name,
     IF(u.id IN (?,?), 'Supervisor', 'Supervisee') AS role,
-    r.total_seconds AS totalSeconds,r.first_joined_at AS firstJoinedAt,r.last_left_at AS lastLeftAt,r.manual_correction_id AS correctionId
+    r.total_seconds AS totalSeconds,r.first_joined_at AS firstJoinedAt,r.last_left_at AS lastLeftAt,r.manual_correction_id AS correctionId,
+    c.modality AS attendanceCorrectionType,c.reason AS attendanceReason
     FROM users u LEFT JOIN supervision_session_attendance_rollups r ON r.user_id=u.id AND r.session_id=?
+    LEFT JOIN supervision_time_corrections c ON c.id=r.manual_correction_id AND c.session_id=r.session_id AND c.user_id=r.user_id AND c.status='approved'
     WHERE u.id IN (?,?,?) OR EXISTS (SELECT 1 FROM supervision_session_attendees a WHERE a.session_id=? AND a.user_id=u.id AND a.status NOT IN ('REMOVED','WITHDRAWN'))
     ORDER BY role,u.last_name,u.first_name`, [session.supervisor_user_id, session.co_facilitator_user_id, session.id,
     session.supervisor_user_id, session.co_facilitator_user_id, session.supervisee_user_id, session.id]);
@@ -75,6 +78,7 @@ async function assertCorrectionWindow(db, session, input) {
   if (Math.abs(instant(input.startAt) - instant(session.start_at)) > 24 * 3600000) fail('Use the original session’s date. Record a separate session for another day.');
   const [live] = await db.execute('SELECT 1 FROM supervision_session_join_presence WHERE session_id=? AND left_at IS NULL AND last_seen_at >= DATE_SUB(UTC_TIMESTAMP(),INTERVAL 2 MINUTE) LIMIT 1', [session.id]);
   if (live.length) fail('End the live meeting before correcting attendance.', 409);
+  if (Number(input.totalSeconds) === 0) return;
   for (const uid of input.userIds) {
     const [overlap] = await db.execute(`SELECT r.session_id FROM supervision_session_attendance_rollups r
       JOIN supervision_sessions s ON s.id=r.session_id WHERE r.user_id=? AND r.session_id<>? AND r.total_seconds>0
@@ -88,8 +92,8 @@ async function applyCorrection(db, session, correction, actorId) {
   const [[previous]] = await db.execute('SELECT * FROM supervision_session_attendance_rollups WHERE session_id=? AND user_id=? FOR UPDATE', [session.id, correction.user_id]);
   await db.execute(`UPDATE supervision_time_corrections SET previous_record_json=?,status='approved',reviewed_by_user_id=?,reviewed_at=UTC_TIMESTAMP() WHERE id=?`, [JSON.stringify(previous || null),actorId,correction.id]);
   await db.execute(`INSERT INTO supervision_session_attendance_rollups (session_id,user_id,first_joined_at,last_left_at,total_seconds,segment_count,is_finalized,manual_correction_id)
-    VALUES (?,?,?,?,?,1,1,?) ON DUPLICATE KEY UPDATE first_joined_at=VALUES(first_joined_at),last_left_at=VALUES(last_left_at),total_seconds=VALUES(total_seconds),is_finalized=1,manual_correction_id=VALUES(manual_correction_id)`,
-    [session.id,correction.user_id,correction.start_at,correction.end_at,correction.total_seconds,correction.id]);
+    VALUES (?,?,?,?,?,?,1,?) ON DUPLICATE KEY UPDATE first_joined_at=VALUES(first_joined_at),last_left_at=VALUES(last_left_at),total_seconds=VALUES(total_seconds),segment_count=VALUES(segment_count),is_finalized=1,manual_correction_id=VALUES(manual_correction_id)`,
+    [session.id,correction.user_id,correction.total_seconds > 0 ? correction.start_at : null,correction.total_seconds > 0 ? correction.end_at : null,correction.total_seconds,correction.total_seconds > 0 ? 1 : 0,correction.id]);
   await queueMeetingRecordNotice(db,{type:'supervision',id:session.id,kind:'correction',sourceId:correction.id,actorUserId:actorId});
 }
 
@@ -123,6 +127,7 @@ export async function submitSupervisionTimeCorrection(sessionId, actor, body) {
   const { session, canManage } = await supervisionRecordAccess(sessionId, actor);
   const participants = await recordParticipants(session);
   if (input.userIds.some(id => !participants.some(p => Number(p.userId) === id) || (!canManage && id !== Number(actor.id)))) fail('You may correct only authorized participants.',403);
+  if (['MISSED', 'EXCUSED'].includes(input.modality) && (!canManage || input.userIds.some(id => participants.find(p => Number(p.userId) === id)?.role !== 'Supervisee'))) fail('Only the supervisor or an authorized administrator can document a supervisee absence.',403);
   await withSupervisorTimeLock([...input.userIds, session.supervisor_user_id], async db => {
     await db.beginTransaction();
     try {
@@ -163,9 +168,13 @@ export async function reviewSupervisionTimeCorrection(sessionId, correctionId, a
       const [[locked]] = await db.execute('SELECT * FROM supervision_time_corrections WHERE id=? FOR UPDATE',[request.id]);
       if (locked.status !== 'pending') fail('This correction has already been reviewed.',409);
       if (decision === 'approve') {
+        if (['MISSED', 'EXCUSED'].includes(locked.modality)) {
+          const people = await recordParticipants(current, db);
+          if (people.find(p => Number(p.userId) === Number(locked.user_id))?.role !== 'Supervisee') fail('Absence records belong to supervisees only.',403);
+        }
         const [newer] = await db.execute("SELECT id FROM supervision_time_corrections WHERE session_id=? AND user_id=? AND id>? AND status='approved' LIMIT 1",[session.id,locked.user_id,locked.id]);
         if (newer.length) fail('A newer correction has already been saved. Review the current time and submit a fresh correction.',409);
-        await assertCorrectionWindow(db,current,{startAt:locked.start_at,endAt:locked.end_at,userIds:[locked.user_id]});
+        await assertCorrectionWindow(db,current,{startAt:locked.start_at,endAt:locked.end_at,totalSeconds:locked.total_seconds,userIds:[locked.user_id]});
         await applyCorrection(db,current,locked,actor.id);
         await completeRecord(db,current,actor.id);
       } else await db.execute("UPDATE supervision_time_corrections SET status='rejected',reviewed_by_user_id=?,reviewed_at=UTC_TIMESTAMP() WHERE id=?",[actor.id,locked.id]);

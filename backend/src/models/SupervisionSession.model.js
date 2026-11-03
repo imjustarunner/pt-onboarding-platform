@@ -1276,11 +1276,39 @@ class SupervisionSession {
    * List supervision sessions for a supervisee (past and upcoming) with artifacts.
    * Used for "My supervision" tab and dashboard.
    */
-  static async listSessionsForSuperviseeWithArtifacts({ superviseeUserId, agencyId = null, limit = 50 }) {
+  /** Attendance facts across the complete retained history, without loading clinical artifacts. */
+  static async getSuperviseeAttendanceSummary({ superviseeUserId, agencyId }) {
+    const uid = Number(superviseeUserId), aId = Number(agencyId);
+    if (!Number.isSafeInteger(uid) || uid < 1 || !Number.isSafeInteger(aId) || aId < 1) return null;
+    const [[row]] = await pool.execute(`SELECT COUNT(*) AS total,
+      SUM(attendance_state='attended') AS attended, SUM(attendance_state='missed') AS missed,
+      SUM(attendance_state='excused') AS excused, SUM(attendance_state='cancelled') AS cancelled,
+      SUM(attendance_state='unknown') AS unknown
+      FROM (
+        SELECT CASE
+          WHEN UPPER(correction.modality)='MISSED' THEN 'missed'
+          WHEN UPPER(correction.modality)='EXCUSED' THEN 'excused'
+          WHEN UPPER(TRIM(COALESCE(ss.status,''))) IN ('CANCELLED','RESCHEDULED') THEN 'cancelled'
+          WHEN ssar.total_seconds>0 THEN 'attended'
+          WHEN UPPER(TRIM(COALESCE(ss.status,'')))='MISSED' THEN 'missed'
+          ELSE 'unknown' END AS attendance_state
+        FROM supervision_sessions ss
+        LEFT JOIN supervision_session_attendance_rollups ssar ON ssar.session_id=ss.id AND ssar.user_id=?
+        LEFT JOIN supervision_time_corrections correction ON correction.id=ssar.manual_correction_id
+          AND correction.session_id=ssar.session_id AND correction.user_id=ssar.user_id AND correction.status='approved'
+        WHERE ss.agency_id=? AND ss.start_at<=UTC_TIMESTAMP()
+          AND (ss.supervisee_user_id=? OR EXISTS (SELECT 1 FROM supervision_session_attendees attendee
+            WHERE attendee.session_id=ss.id AND attendee.user_id=? AND attendee.participant_role='supervisee'))
+      ) history`, [uid, aId, uid, uid]);
+    return Object.fromEntries(['total','attended','missed','excused','cancelled','unknown'].map(key => [key, Number(row?.[key] || 0)]));
+  }
+
+  static async listSessionsForSuperviseeWithArtifacts({ superviseeUserId, agencyId = null, limit = 50, offset = 0, includeCancelled = false }) {
     const uid = parseInt(superviseeUserId, 10);
     if (!uid) return [];
     const aId = Number(agencyId) > 0 ? Number(agencyId) : null;
     const lim = Number.isFinite(Number(limit)) && Number(limit) > 0 ? Math.min(200, Math.floor(Number(limit))) : 50;
+    const skip = Number.isSafeInteger(Number(offset)) && Number(offset) >= 0 ? Number(offset) : 0;
     const whereAgency = aId ? `AND ss.agency_id = ${aId}` : '';
 
     // NOTE: Inline validated integers here to avoid intermittent driver/proxy prepared-statement
@@ -1317,6 +1345,8 @@ class SupervisionSession {
          ssar.total_seconds,
          ssar.segment_count,
          ssar.is_finalized,
+         correction.modality AS attendance_correction_type,
+         correction.reason AS attendance_reason,
          ss.finalized_at,
          ss.finalized_by_user_id,
          ss.finalize_source,
@@ -1330,6 +1360,8 @@ class SupervisionSession {
        LEFT JOIN supervision_session_attendance_rollups ssar
          ON ssar.session_id = ss.id
         AND ssar.user_id = ${uid}
+       LEFT JOIN supervision_time_corrections correction
+         ON correction.id = ssar.manual_correction_id AND correction.session_id = ssar.session_id AND correction.user_id = ssar.user_id AND correction.status = 'approved'
        LEFT JOIN supervision_session_hour_credits sshc
          ON sshc.session_id = ss.id
         AND sshc.user_id = ${uid}
@@ -1341,10 +1373,10 @@ class SupervisionSession {
            )
          )
          ${whereAgency}
-         AND (ss.status IS NULL OR ss.status <> 'CANCELLED')
+         ${includeCancelled ? '' : "AND (ss.status IS NULL OR ss.status <> 'CANCELLED')"}
          AND ss.start_at <= UTC_TIMESTAMP()
-       ORDER BY ss.start_at DESC
-       LIMIT ${lim}`
+       ORDER BY ss.start_at DESC, ss.id DESC
+       LIMIT ${lim} OFFSET ${skip}`
     );
 
     return (rows || []).map((r) => {
@@ -1389,7 +1421,9 @@ class SupervisionSession {
         summaryGeneratedAt: r.summary_generated_at || null,
         firstJoinedAt: r.first_joined_at || null,
         lastLeftAt: r.last_left_at || null,
-        totalSeconds: Number(r.total_seconds || 0),
+        totalSeconds: r.total_seconds == null ? null : Number(r.total_seconds),
+        attendanceCorrectionType: r.attendance_correction_type || null,
+        attendanceReason: r.attendance_reason || null,
         totalHours: Math.round((Number(r.total_seconds || 0) / 3600) * 100) / 100,
         segmentCount: Number(r.segment_count || 0),
         isFinalized: Number(r.is_finalized || 0) === 1,

@@ -45,7 +45,7 @@ it('shows recorded, pending and applied co-sign time without exposing internal s
   }));
   const w = mount(SupervisionDocumentationPanel, {props: {agencyId: 1, providerId: 7}});
   await flushPromises();
-  const timeSection = w.findAll('details').find(d => d.find('summary').text() === 'Documentation review & RPO time');
+  const timeSection = w.findAll('details').find(d => d.find('summary').text() === 'Documentation review time');
   timeSection.element.open = true;
   await timeSection.trigger('toggle'); await flushPromises();
   expect(timeSection.text()).toContain('Recorded — awaiting confirmation');
@@ -54,4 +54,68 @@ it('shows recorded, pending and applied co-sign time without exposing internal s
   expect(timeSection.text().toLowerCase()).not.toContain('submitted');
   expect(timeSection.findAll('button').filter(b => b.text() === 'Confirm recorded time')).toHaveLength(1);
   w.unmount();
+});
+
+describe('separate supervision workspace tabs', () => {
+  it('keeps settings separate without loading case, queue, time, or service billing data', async () => {
+    const w = mount(SupervisionDocumentationPanel, {props: {agencyId: 1, providerId: 7, mode: 'settings'}});
+    await flushPromises();
+    expect(w.text()).toContain('Documentation settings');
+    expect(w.text()).toContain('Save supervision policy');
+    expect(w.find('.review-queue').exists()).toBe(false);
+    expect(w.find('.review-time').exists()).toBe(false);
+    expect(api.get.mock.calls.map(([url]) => url)).toEqual(['/supervision/supervisee/7/documentation-policy']);
+    expect(api.get).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({skipGlobalLoading: true}));
+    w.unmount();
+  });
+
+  it('loads the documentation queue only when selected and retains it on tab return', async () => {
+    api.get.mockImplementation(url => Promise.resolve({data: url.endsWith('/documentation-policy') ? structuredClone(settings) : {documents: [{id: 4, type: 'note', title: 'Progress note', noteType: 'PROGRESS', reviewRequested: true}]}}));
+    const w = mount(SupervisionDocumentationPanel, {props: {agencyId: 1, providerId: 7, mode: 'settings'}});
+    await flushPromises();
+    await w.setProps({mode: 'queue'}); await flushPromises();
+    expect(w.text()).toContain('Progress note');
+    expect(w.text()).not.toContain('Save supervision policy');
+    expect(w.find('.review-time').exists()).toBe(false);
+    const queueCalls = () => api.get.mock.calls.filter(([url]) => url.endsWith('/document-reviews'));
+    expect(queueCalls()).toHaveLength(1);
+    expect(queueCalls()[0][1]).toMatchObject({skipGlobalLoading: true, params: {agencyId: 1}});
+    await w.setProps({mode: 'settings'}); await w.setProps({mode: 'queue'}); await flushPromises();
+    expect(queueCalls()).toHaveLength(1);
+    w.unmount();
+  });
+
+  it('loads tracked and manual review time in its own tab with the activity explained', async () => {
+    api.get.mockImplementation(url => Promise.resolve({data: url.endsWith('/documentation-policy') ? structuredClone(settings) : {items: []}}));
+    const w = mount(SupervisionDocumentationPanel, {props: {agencyId: 1, providerId: 7, mode: 'time'}});
+    await flushPromises();
+    expect(w.text()).toContain('Documentation review time');
+    expect(w.text()).toContain('Rendering provider oversight means');
+    expect(w.text()).not.toContain('RPO');
+    expect(w.find('fieldset').exists()).toBe(false);
+    expect(w.find('.review-queue').exists()).toBe(false);
+    expect(api.get.mock.calls.map(([url]) => url)).toEqual([
+      '/supervision/supervisee/7/documentation-policy',
+      '/supervision/supervisee/7/cosign-time',
+      '/supervision/supervisee/7/review-time'
+    ]);
+    expect(api.get.mock.calls.every(([, options]) => options.skipGlobalLoading)).toBe(true);
+    w.unmount();
+  });
+
+  it('does not leak another provider’s queue when the selection changes mid-request', async () => {
+    let finishOld;
+    api.get.mockImplementation(url => {
+      if (url.endsWith('/documentation-policy')) return Promise.resolve({data: structuredClone(settings)});
+      if (url.includes('/7/document-reviews')) return new Promise(resolve => {finishOld = resolve;});
+      return Promise.resolve({data: {documents: [{id: 8, type: 'note', title: 'New provider note'}]}});
+    });
+    const w = mount(SupervisionDocumentationPanel, {props: {agencyId: 1, providerId: 7, mode: 'queue'}});
+    await flushPromises();
+    await w.setProps({providerId: 9}); await flushPromises();
+    finishOld({data: {documents: [{id: 4, type: 'note', title: 'Old provider note'}]}}); await flushPromises();
+    expect(w.text()).toContain('New provider note');
+    expect(w.text()).not.toContain('Old provider note');
+    w.unmount();
+  });
 });

@@ -1,3 +1,4 @@
+import { getSuperviseeWorkspace } from '../controllers/superviseeWorkspace.controller.js';
 import { dismissSupervisionSignup } from '../services/supervisionSignup.service.js';
 import {startReviewActivity,pulseReviewActivity,submitReviewActivity,listReviewActivities} from '../controllers/cosignReviewActivity.controller.js';
 import {getRecord,submitCorrection,reviewCorrection,syncCorrections} from '../controllers/supervisionTimeCorrection.controller.js';
@@ -103,6 +104,7 @@ router.get('/sessions/:id/transcription',getMeetingTranscription);
 router.post('/sessions/:id/transcription/control',setMeetingTranscription);
 router.post('/sessions/:id/transcription/audio',meetingAudioUpload.single('audio'),saveMeetingAudio);
 const documentationGate=[requireActiveStatus,(req,res,next)=>{res.set('Cache-Control','no-store');next();}];
+router.get('/supervisee/:providerId/workspace',...documentationGate,getSuperviseeWorkspace);
 router.get('/supervisee/:providerId/cases',...documentationGate,getSupervisionCases);
 router.get('/supervisee/:providerId/cases/:clientId/overview',...documentationGate,getSupervisionCaseOverview);
 router.post('/supervisee/:providerId/cases/:clientId/acknowledgement',...documentationGate,acknowledgeSupervisionCase);

@@ -4,7 +4,7 @@
   <p>Tracks active review of this provider’s note. Hidden windows and inactivity pause tracking. Your own notes are excluded.</p>
   <button type="button" @click="toggle" :disabled="!session || !!ended">{{ paused ? 'Resume timer' : 'Pause timer' }}</button>
   <p v-if="error" role="alert">{{ error }} Use Documentation review time to report work the timer missed.</p>
-  <p>Review and confirm recorded time under Documentation oversight → Documentation review &amp; RPO time.</p>
+  <p>Review and confirm recorded time in the Documentation review time tab.</p>
  </aside>
 </template>
 <script setup>
@@ -16,7 +16,8 @@ const session=ref(null),seconds=ref(0),paused=ref(false),ended=ref(false),error=
 const status=computed(()=>state.value),displayTime=computed(()=>`${Math.floor(seconds.value/60)}m ${Math.floor(seconds.value%60)}s`);
 let interval,lastInput=Date.now(),disposed=false,queue=Promise.resolve();
 const base=`/supervision/supervisee/${props.providerId}/cosign-time`;
-const active=()=>!paused.value&&!globalThis.document.hidden&&globalThis.document.hasFocus()&&Date.now()-lastInput<60000;
+function reviewVisible(){let element=timerRoot.value;while(element){const style=globalThis.window.getComputedStyle(element);if(element.hidden||style.display==='none'||style.visibility==='hidden'||style.visibility==='collapse')return false;element=element.parentElement;}return !!timerRoot.value;}
+const active=()=>!paused.value&&reviewVisible()&&!globalThis.document.hidden&&globalThis.document.hasFocus()&&Date.now()-lastInput<60000;
 function pulse(close=false){const isActive=active();queue=queue.catch(()=>{}).then(async()=>{if(!session.value||ended.value)return;try{const {data}=await api.post(`${base}/${session.value}/heartbeat`,{agencyId:Number(props.agencyId),active:isActive,close});seconds.value=Number(data.item.active_seconds);ended.value=!!data.item.ended_at;state.value=ended.value?'Saved':data.item.pausedReason?'Paused — overlapping time':isActive?'Tracking':'Paused';error.value=data.item.pausedReason||'';}catch(e){error.value=e.response?.data?.error?.message||'Time tracking could not save.';state.value='Not saving';}});return queue;}
 function input(event){const pane=timerRoot.value?.closest('.document-review, .cosign-review');if(pane?.contains(event.target))lastInput=Date.now();}
 function visibility(){pulse();}

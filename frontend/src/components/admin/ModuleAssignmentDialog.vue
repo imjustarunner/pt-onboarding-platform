@@ -111,6 +111,10 @@ const props = defineProps({
   preSelectedUserId: {
     type: Number,
     default: null
+  },
+  agencyId: {
+    type: Number,
+    default: null
   }
 });
 
@@ -122,7 +126,7 @@ const agencyStore = useAgencyStore();
 const assignmentType = ref('user');
 const selectedUserIds = ref([]);
 const selectedRole = ref('');
-const selectedAgencyId = ref('');
+const selectedAgencyId = ref(props.agencyId || '');
 const dueDate = ref('');
 const taskTitle = ref('');
 const taskDescription = ref('');
@@ -149,7 +153,7 @@ const isFormValid = computed(() => {
 const resetAssignment = () => {
   selectedUserIds.value = [];
   selectedRole.value = '';
-  selectedAgencyId.value = '';
+  selectedAgencyId.value = props.agencyId || '';
 };
 
 const fetchUsers = async () => {
@@ -211,7 +215,8 @@ const handleAssign = async () => {
         try {
           const response = await api.post('/tasks', {
             ...taskData,
-            assignedToUserId: userIdNum
+            assignedToUserId: userIdNum,
+            ...(props.agencyId ? { assignedToAgencyId: props.agencyId } : {})
           });
           
           if (!response.data || !response.data.id) {
@@ -272,7 +277,9 @@ onMounted(async () => {
   
   await fetchUsers();
   await fetchAgencies();
-  if (agencyStore.userAgencies?.length > 0) {
+  if (props.agencyId) {
+    selectedAgencyId.value = props.agencyId;
+  } else if (agencyStore.userAgencies?.length > 0) {
     selectedAgencyId.value = agencyStore.userAgencies[0].id;
   }
 });

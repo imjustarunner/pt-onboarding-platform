@@ -15,7 +15,7 @@ beforeEach(()=>{
 });
 afterEach(()=>wrapper?.unmount());
 it('reads balances after attendance finalization, refreshes on corrections and focus, and scopes events by agency',async()=>{
- wrapper=shallowMount(Modal,{global:{stubs:{RouterLink:true}}});await flushPromises();
+ wrapper=shallowMount(Modal,{global:{stubs:{RouterLink:true,SuperviseeSessionHistory:true,SuperviseeWorkPanel:true}}});await flushPromises();
  const s=wrapper.vm.$.setupState;s.selectedSupervisee={supervisee_id:20,agency_id:2};await flushPromises();
  expect(s.supervisionAttendanceIndividualHours).toBe(0.92);expect(s.supervisionAttendanceGroupHours).toBe(0.5);
  const calls=m.get.mock.calls.map(([url])=>url);

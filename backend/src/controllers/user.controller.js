@@ -8468,7 +8468,8 @@ export const getAffiliatedPortals = async (req, res, next) => {
         id: a.id,
         name: a.name || `Organization ${a.id}`,
         slug: (a.slug || a.portal_url || '').toString().trim(),
-        organization_type: (a.organization_type || 'school').toLowerCase()
+        organization_type: (a.organization_type || 'school').toLowerCase(),
+        icon_url: a.icon_file_path || a.logo_path || a.logo_url || null
       }))
       .filter((p) => p.slug);
 

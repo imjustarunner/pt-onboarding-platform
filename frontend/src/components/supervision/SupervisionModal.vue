@@ -70,18 +70,46 @@
                 <p v-if="selectedSupervisee?.supervisee_email" class="supervision-hero-meta">{{ selectedSupervisee.supervisee_email }}</p>
                 <p v-if="selectedSupervisee?.agency_name" class="supervision-hero-meta">{{ selectedSupervisee.agency_name }}</p>
               </div>
-            </section>
-            <nav class="supervision-jump-links" aria-label="Supervisee sections">
-              <a href="#supervision-snapshot">At a glance</a>
-              <a href="#supervision-documentation">Documentation review</a>
-              <a href="#supervision-clients">Clients</a>
-              <a href="#supervision-schedules">Schedules</a>
-              <a href="#supervision-documents">Documents</a>
-              <a href="#supervision-manual">Log supervision</a>
-              <a href="#supervision-history">Past sessions</a>
-            </nav>
-            <section id="supervision-snapshot" class="supervision-detail-section at-a-glance-card">
-              <h3>At a glance</h3>
+            <div class="hero-actions"><RouterLink :to="superviseeFullScheduleLink" class="btn btn-secondary">View schedule</RouterLink><button type="button" class="btn btn-primary" @click="openSupervisionScheduler">Schedule supervision</button></div></section>
+
+            <div class="supervision-workspace">
+              <nav class="supervision-navigation" aria-label="Supervisee workspace">
+                <div v-for="group in navigationGroups" :key="group.label" class="workspace-nav-group">
+                  <span class="workspace-nav-label">{{ group.label }}</span>
+                  <button v-for="item in group.items" :key="item.id" type="button"
+                    :class="['workspace-nav-button', { active: activeSection === item.id }]"
+                    :aria-current="activeSection === item.id ? 'page' : undefined"
+                    :aria-controls="`supervision-content-${selectedSupervisee.supervisee_id}`"
+                    @click="selectSection(item.id)">
+                    <component :is="item.icon" :size="18" aria-hidden="true" />
+                    <span>{{ item.label }}</span><span v-if="sectionCount(item.id) != null" class="nav-count">{{ sectionCount(item.id) }}</span>
+                  </button>
+                </div>
+              </nav>
+              <main :id="`supervision-content-${selectedSupervisee.supervisee_id}`" class="supervision-content" tabindex="-1">
+                <header class="workspace-heading"><div><span class="workspace-eyebrow">{{ selectedSuperviseeDisplayName }} · Supervision</span><h3>{{ activeSectionLabel }}</h3></div>
+                  <button v-if="['overview','sessions','clients','schedule','schools','documents','training'].includes(activeSection)" type="button" class="workspace-refresh" :disabled="summaryLoading || sessionHistoryLoading" @click="refreshCurrentSection"><RefreshCw :size="16" aria-hidden="true" /> Refresh</button>
+                </header>
+                <section v-show="activeSection === 'overview'" class="supervision-overview">
+                  <div class="overview-facts" aria-label="Supervision attendance overview">
+                    <button class="overview-fact fact-blue" type="button" @click="showSessions('all')"><span>{{ overallAttendanceSummary ? 'Supervision sessions' : 'Loaded sessions' }}</span><strong>{{ sessionHistoryLoading ? '…' : sessionHistoryError ? '—' : attendanceCounts.total }}</strong><small>Open session history</small></button>
+                    <button class="overview-fact fact-green" type="button" @click="showSessions('attended')"><span>Attended</span><strong>{{ sessionHistoryLoading ? '…' : sessionHistoryError ? '—' : attendanceCounts.attended }}</strong><small>{{ supervisionSessionHours == null ? 'Hours unavailable' : `${fmtNum(supervisionSessionHours)} recorded hours` }}</small></button>
+                    <button class="overview-fact fact-red" type="button" @click="showSessions('missed')"><span>Missed</span><strong>{{ sessionHistoryLoading ? '…' : sessionHistoryError ? '—' : attendanceCounts.missed }}</strong><small>Documented absences</small></button>
+                    <button class="overview-fact fact-amber" type="button" @click="showSessions('unknown')"><span>Needs attendance review</span><strong>{{ sessionHistoryLoading ? '…' : sessionHistoryError ? '—' : attendanceCounts.unknown }}</strong><small>Zero time without a recorded outcome</small></button>
+                  </div>
+                  <p v-if="sessionHistoryError" role="alert" class="supervision-error-inline">{{ sessionHistoryError }}</p>
+                  <div class="upcoming-card">
+                    <div class="upcoming-card-heading"><CalendarDays :size="22" aria-hidden="true" /><div><h4>Upcoming supervision</h4><p>This week · {{ upcomingSessions.length }} upcoming</p></div><RouterLink :to="superviseeFullScheduleLink" class="btn btn-secondary btn-sm">Full schedule</RouterLink></div>
+                    <p v-if="scheduleLoading" role="status">Loading upcoming sessions…</p><p v-else-if="scheduleError" role="alert">{{ scheduleError }}</p>
+                    <p v-else-if="!upcomingSessions.length">No upcoming supervision sessions this week.</p>
+                    <article v-for="session in upcomingSessions" :key="session.id" class="upcoming-session-row"><div><strong>{{ formatSessionDate(session.startAt) }}</strong><p>Until {{ formatSessionDate(session.endAt) }} · {{ session.sessionType || 'Supervision' }}<template v-if="session.modality"> · {{ session.modality }}</template></p></div><div class="supervision-actions-row"><a v-if="session.googleMeetLink" :href="session.googleMeetLink" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Open Meet</a><button v-if="session.googleMeetLink" type="button" class="btn btn-secondary btn-sm" :disabled="meetingTrackerSaving" @click="startTrackedMeeting(session)">Start tracked Meet</button><button type="button" class="btn btn-primary btn-sm" @click="startAppVideoMeeting(session)">Join session</button><button type="button" class="btn btn-secondary btn-sm" @click="openAgendaForSession(session.id)">Agenda</button></div></article>
+                  </div>
+                </section>
+                <SuperviseeWorkPanel v-if="selectedSuperviseeAgencyId" v-show="['overview', 'performance'].includes(activeSection)" :key="`performance-${superviseeKey(selectedSupervisee)}`" :agency-id="Number(selectedSuperviseeAgencyId)" :provider-id="Number(selectedSupervisee.supervisee_id)" mode="performance" />
+                <section v-show="activeSection === 'overview'" class="supervision-overview-secondary">
+                  <div class="overview-shortcuts"><button type="button" @click="selectSection('clients')"><Users :size="20" /><strong>Client caseload</strong><span>{{ clientsLoading ? 'Loading…' : clientsError ? 'Caseload unavailable' : `${clientsList.length} assigned clients` }}</span><ArrowUpRight :size="18" /></button><button type="button" @click="selectSection('queue')"><ClipboardList :size="20" /><strong>Documentation to review</strong><span>Notes, plans &amp; requested changes</span><ArrowUpRight :size="18" /></button></div>
+            <details class="snapshot-details"><summary>Hours, payroll &amp; compliance details</summary>
+
               <button type="button" class="btn btn-secondary btn-sm" :disabled="summaryLoading" @click="refreshSupervisionLog">Refresh hours</button>
               <div v-if="summaryLoading" class="supervision-placeholder">Loading snapshot…</div>
               <div v-else-if="summaryError" class="supervision-error-inline">{{ summaryError }}</div>
@@ -150,37 +178,21 @@
                   <span class="summary-meta">Jan 1–Dec 31 trip dates; submitted, approved and paid, excluding rejected claims.</span>
                 </div>
               </div>
-            </section>
-            <section class="supervision-detail-section">
-              <div id="supervision-documentation">
-                <p>Review clinical notes and treatment plans, and log documentation review time. This is separate from logging a supervision session.</p>
-                <SupervisionDocumentationPanel v-if="selectedSuperviseeAgencyId" :key="`${selectedSuperviseeAgencyId}-${selectedSupervisee.supervisee_id}`" :agency-id="Number(selectedSuperviseeAgencyId)" :provider-id="Number(selectedSupervisee.supervisee_id)" />
-              </div>
-              <h3>School / program portals</h3>
-              <p class="supervision-placeholder" style="margin-bottom: 0.5rem;">You have read-only access to each school or program this supervisee is affiliated with.</p>
-              <div v-if="affiliatedPortalsLoading" class="supervision-placeholder">Loading…</div>
-              <div v-else-if="affiliatedPortalsError" class="supervision-error-inline">{{ affiliatedPortalsError }}</div>
-              <div v-else-if="affiliatedPortals.length === 0" class="supervision-placeholder">No school or program portals for this supervisee.</div>
-              <div v-else class="supervision-portal-buttons">
-                <a
-                  v-for="portal in affiliatedPortals"
-                  :key="portal.id"
-                  :href="`/${portal.slug}/dashboard`"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="btn btn-secondary btn-sm"
-                >
-                  {{ portal.name }} portal
-                </a>
-              </div>
-            </section>
-            <section class="supervision-detail-section">
+            </details>
+                </section>
+                <section v-if="selectedSuperviseeAgencyId" v-show="['overview', 'sessions'].includes(activeSection)" class="sessions-workspace">
+                  <div class="session-section-heading"><h4>Supervision sessions</h4><button type="button" class="btn btn-secondary btn-sm" @click="showManualEntry = !showManualEntry">{{ showManualEntry ? 'Hide manual entry' : 'Log supervision outside the app' }}</button></div>
+                  <ManualSupervisionPanel v-if="showManualEntry && selectedSuperviseeAgencyId" :agency-id="Number(selectedSuperviseeAgencyId)" :user-id="selectedSupervisee.supervisee_id" :sessions="sessionHistory" @saved="refreshSupervisionLog" />
+                  <p v-if="sessionHistoryError" role="alert" class="supervision-error-inline">{{ sessionHistoryError }}</p>
+                  <SuperviseeSessionHistory v-if="selectedSuperviseeAgencyId" ref="historyPanel" :key="superviseeKey(selectedSupervisee)" :agency-id="Number(selectedSuperviseeAgencyId)" :provider-id="Number(selectedSupervisee.supervisee_id)" :sessions="sessionHistory" :has-more-sessions="historyHasMore" :attendance-summary="overallAttendanceSummary" v-model:attendance-filter="sessionFilter" @refreshed="onHistoryRefreshed" @changed="refreshSupervisionLog" />
+                </section>
+            <section v-show="activeSection === 'clients'" class="supervision-detail-section">
               <h3 id="supervision-clients">Clients (caseload)</h3>
               <p class="summary-meta">Feedback shows scores from client check-ins and questionnaires, not an evaluation of the supervisee.</p>
               <div v-if="clientsLoading" class="supervision-placeholder">Loading clients…</div>
               <div v-else-if="clientsError" class="supervision-error-inline">{{ clientsError }}</div>
               <div v-else-if="clientsList?.length" class="supervision-readonly-summary">
-                <p><strong>{{ clientsList.length }}</strong> client(s) assigned. Read-only.</p>
+                <p><strong>{{ clientsList.length }}</strong> assigned clients. Open a quick view or the full client record.</p>
                 <p v-if="feedbackError" role="alert">{{ feedbackError }}</p><CaseloadFeedbackSummary :by-client="feedbackByClient" />
                 <div class="caseload-table-wrap">
                   <table class="caseload-table">
@@ -198,12 +210,13 @@
                         <td class="caseload-cell-client">
                           <button
                             type="button"
-                            class="summary-meta summary-link-button"
+                            class="client-quick-button"
                             :disabled="schoolClientModalLoading"
                             @click="openCaseloadClientModal(client)"
                           >
                             {{ clientDisplayLabel(client) }}
                           </button>
+                          <RouterLink class="client-full-link" :to="fullClientLink(client)">Open full record ↗</RouterLink>
                         </td>
                         <td>{{ clientSchoolName(client) || '—' }}</td>
                         <td>{{ caseloadAssignedDate(client) }}</td>
@@ -224,44 +237,11 @@
               </div>
               <p v-else class="supervision-placeholder">No clients assigned for this agency.</p>
             </section>
-            <section class="supervision-detail-section">
-              <h3>Compliance list (not current)</h3>
-              <p class="supervision-placeholder">Included in the caseload table above. Sort by Status or Missing checklist to prioritize follow-up.</p>
-            </section>
-            <section class="supervision-detail-section">
-              <h3 id="supervision-schedules">Schedules</h3>
-              <div v-if="scheduleLoading" class="supervision-placeholder">Loading schedule…</div>
-              <div v-else-if="scheduleError" class="supervision-error-inline">{{ scheduleError }}</div>
-              <div v-else-if="scheduleSummary" class="supervision-readonly-summary">
-                <p>Schedule summary for current week. View-only.</p>
-                <p v-if="(scheduleSummary.officeEvents?.length || 0) + (scheduleSummary.supervisionSessions?.length || 0) > 0" class="summary-meta">
-                  {{ scheduleSummary.officeEvents?.length || 0 }} office event(s), {{ scheduleSummary.supervisionSessions?.length || 0 }} supervision session(s).
-                </p>
-                <div class="supervision-portal-buttons" style="margin-top: 0.5rem;">
-                  <a
-                    :href="superviseeFullScheduleLink"
-                    class="btn btn-secondary btn-sm"
-                  >
-                    Open full schedule
-                  </a>
-                </div>
-                <div v-if="affiliatedPortals.length > 0" class="supervision-portal-buttons" style="margin-top: 0.5rem;">
-                  <a
-                    v-for="portal in affiliatedPortals"
-                    :key="`schedule-${portal.id}`"
-                    :href="`/${portal.slug}/dashboard?sp=days`"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="btn btn-secondary btn-sm"
-                  >
-                    Open {{ portal.name }} schedule view
-                  </a>
-                </div>
-              </div>
-              <p v-else class="supervision-placeholder">No schedule data for this week.</p>
-            </section>
-            <section class="supervision-detail-section">
-              <h3>Checklist &amp; current training</h3>
+
+                <section v-show="activeSection === 'schedule'" class="supervision-detail-section schedule-launch-card"><CalendarDays :size="36" aria-hidden="true" /><h3>{{ selectedSuperviseeDisplayName }}’s schedule</h3><p>Use the same My Schedule workspace, with this supervisee selected, to see office visits, school work and supervision together.</p><RouterLink :to="superviseeFullScheduleLink" class="btn btn-primary">View schedule</RouterLink></section>
+                <section v-show="activeSection === 'schools'" class="supervision-detail-section"><h3>School &amp; program portals</h3><p>Open a school’s portal to view its roster and the client information your supervisor access permits. Client charts remain available from the Caseload tab.</p><p v-if="affiliatedPortalsLoading">Loading schools…</p><p v-else-if="affiliatedPortalsError" role="alert">{{ affiliatedPortalsError }}</p><p v-else-if="!affiliatedPortals.length">No school or program affiliations.</p><div class="school-portal-grid"><a v-for="portal in affiliatedPortals" :key="portal.id" :href="`/${portal.slug}/dashboard`" target="_blank" rel="noopener noreferrer" class="school-portal-card"><img v-if="portal.icon_url || portal.icon_file_path || portal.logo_url" :src="toUploadsUrl(portal.icon_url || portal.icon_file_path || portal.logo_url)" alt="" /><span v-else class="school-icon-fallback" aria-hidden="true"><School :size="24" /></span><div><strong>{{ portal.name }}</strong><span>View school, roster &amp; client information</span></div><ArrowUpRight :size="18" /></a></div></section>
+            <section v-show="activeSection === 'training'" class="supervision-detail-section">
+              <h3>Training &amp; onboarding</h3><p>Live checklist progress from the training and document systems.</p><button type="button" class="btn btn-primary" @click="showModulePicker = true">Assign training module</button>
               <div v-if="checklistLoading" class="supervision-placeholder">Loading checklist…</div>
               <div v-else-if="checklistError" class="supervision-error-inline">{{ checklistError }}</div>
               <div v-else-if="checklistData" class="supervision-checklist-readonly">
@@ -288,10 +268,9 @@
                 <p v-if="!checklistData.trainingItems?.length && !checklistData.documentItems?.length && !checklistData.trainingFocusesWithItems?.length" class="supervision-placeholder">No checklist items.</p>
               </div>
             </section>
-            <!-- Documents: upload-only assign. When the main document process/feature is fixed in the main document section, update this flow to stay in sync. -->
-            <section class="supervision-detail-section">
+            <section v-show="activeSection === 'documents'" class="supervision-detail-section">
               <h3 id="supervision-documents">Documents</h3>
-              <p class="summary-meta" style="margin-bottom: 0.5rem;">Read-only status. You cannot open or view document content unless you assigned it. You can assign new documents for signature or review below.</p>
+              <p class="summary-meta" style="margin-bottom: 0.5rem;">Current and completed document assignments from the task system for this organization. Document content follows your existing assignment permissions. Assign a PDF for signature or review below.</p>
               <div v-if="documentsLoading" class="supervision-placeholder">Loading documents…</div>
               <div v-else-if="documentsError" class="supervision-error-inline">{{ documentsError }}</div>
               <ul v-else-if="documentsList?.length" class="supervision-docs-list">
@@ -300,23 +279,19 @@
                   <span class="summary-meta"> — {{ formatTaskStatusLabel(doc.task_status) }}</span>
                 </li>
               </ul>
-              <p v-else class="supervision-placeholder">No documents.</p>
+              <p v-else class="supervision-placeholder">No document assignments in this organization.</p>
+              <p v-if="documentsTotal > documentsList.length" class="summary-meta">Showing {{ documentsList.length }} of {{ documentsTotal }} assignments.</p>
               <div style="margin-top: 0.75rem;">
                 <button type="button" class="btn btn-primary btn-sm" @click="showUploadDocumentDialog = true">Assign document (upload PDF, choose type &amp; review/signature)</button>
               </div>
             </section>
-            <section class="supervision-detail-section">
-              <h3>Training</h3>
-              <div v-if="checklistData?.trainingItems?.length || checklistData?.trainingFocusesWithItems?.length" class="summary-meta" style="margin-bottom: 0.5rem;">
-                Training progress is shown in the checklist above.
-              </div>
-              <div>
-                <button type="button" class="btn btn-primary btn-sm" @click="showModulePicker = true">
-                  Assign module to this supervisee
-                </button>
-              </div>
-            </section>
 
+                <SupervisionDocumentationPanel v-for="section in documentationSections.filter(item => visitedSections.has(item.id))" v-show="activeSection === section.id" :key="`${superviseeKey(selectedSupervisee)}-${section.id}`" :agency-id="Number(selectedSuperviseeAgencyId)" :provider-id="Number(selectedSupervisee.supervisee_id)" :mode="section.mode" />
+                <SuperviseeWorkPanel v-if="selectedSuperviseeAgencyId" :key="`counts-${superviseeKey(selectedSupervisee)}-${countsRevision}`" :agency-id="Number(selectedSuperviseeAgencyId)" :provider-id="Number(selectedSupervisee.supervisee_id)" mode="counts" @counts="updateWorkCounts" />
+                <div v-show="activeSection === 'communications'" class="communications-launch"><RouterLink :to="chatsLink" class="btn btn-primary"><MessagesSquare :size="18" /> Message {{ selectedSuperviseeDisplayName }}</RouterLink></div>
+                <SuperviseeWorkPanel v-for="section in workSections.filter(item => visitedSections.has(item))" v-show="activeSection === section" :key="`${superviseeKey(selectedSupervisee)}-${section}`" :agency-id="Number(selectedSuperviseeAgencyId)" :provider-id="Number(selectedSupervisee.supervisee_id)" :mode="section" @counts="updateWorkCounts" />
+              </main>
+            </div>
             <!-- Module picker for assign training -->
             <div v-if="showModulePicker" class="supervision-modal-overlay" style="z-index: 10000;" @click.self="showModulePicker = false">
               <div class="supervision-modal" style="max-width: 400px;">
@@ -346,343 +321,32 @@
               v-if="showModuleAssignmentDialog && selectedModuleForAssignObj"
               :module="selectedModuleForAssignObj"
               :pre-selected-user-id="selectedSupervisee?.supervisee_id"
+              :agency-id="Number(selectedSuperviseeAgencyId)"
               @close="showModuleAssignmentDialog = false; selectedModuleForAssign = ''"
-              @assigned="showModuleAssignmentDialog = false; selectedModuleForAssign = ''; fetchChecklist()"
+              @assigned="onTrainingAssigned"
             />
             <!-- Assign document: upload-only. Sync with main document section when that feature is fixed. -->
             <UserSpecificDocumentUploadDialog
               v-if="showUploadDocumentDialog && selectedSupervisee?.supervisee_id"
               :user-id="selectedSupervisee.supervisee_id"
+              :agency-id="Number(selectedSuperviseeAgencyId)"
               @close="showUploadDocumentDialog = false"
               @uploaded="onDocumentUploaded"
             />
-            <section class="supervision-detail-section">
-              <h3>Supervision meetings</h3>
-              <div class="supervision-actions-row">
-                <a :href="chatsLink" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Chat with supervisee</a>
-              </div>
-              <div v-if="upcomingSessions.length > 0" class="upcoming-sessions" style="margin-top: 1rem;">
-                <h4 style="margin: 0 0 0.5rem 0; font-size: 0.95rem;">Upcoming sessions (this week)</h4>
-                <ul class="supervision-docs-list">
-                  <li v-for="s in upcomingSessions" :key="s.id">
-                    {{ formatSessionDate(s.startAt) }} – {{ formatSessionDate(s.endAt) }}
-                    <span v-if="s.modality" class="summary-meta"> ({{ s.modality }})</span>
-                    <span v-if="s.googleMeetLink" class="summary-meta"> · </span>
-                    <a
-                      v-if="s.googleMeetLink"
-                      :href="s.googleMeetLink"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="summary-meta"
-                    >
-                      Open Meet
-                    </a>
-                    <button
-                      v-if="s.googleMeetLink"
-                      type="button"
-                      class="btn btn-secondary btn-sm"
-                      style="margin-left: 0.5rem;"
-                      :disabled="meetingTrackerSaving"
-                      @click="startTrackedMeeting(s)"
-                    >
-                      Start tracked
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-primary btn-sm"
-                      style="margin-left: 0.5rem;"
-                      :disabled="appVideoLoading"
-                      @click="startAppVideoMeeting(s)"
-                    >
-                      {{ appVideoLoading && appVideoSessionId === s.id ? 'Joining…' : 'Join with app' }}
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-secondary btn-sm"
-                      style="margin-left: 0.5rem;"
-                      @click="openAgendaForSession(s.id)"
-                    >
-                      Agenda
-                    </button>
-                    <div class="supervision-artifact-box">
-                      <div v-if="artifactLoadingById[s.id]" class="summary-meta">Loading meeting transcript/summary...</div>
-                      <div v-else>
-                        <div class="form-group">
-                          <label class="summary-meta">Transcript link</label>
-                          <input
-                            :value="artifactDraftForSession(s.id).transcriptUrl"
-                            type="url"
-                            class="input"
-                            placeholder="https://... transcript/doc link"
-                            @input="setArtifactDraft(s.id, { transcriptUrl: $event?.target?.value || '' })"
-                          />
-                        </div>
-                        <div class="form-group">
-                          <label class="summary-meta">Transcript text</label>
-                          <textarea
-                            :value="artifactDraftForSession(s.id).transcriptText"
-                            class="input"
-                            rows="4"
-                            placeholder="Paste transcript text (Gemini summary will use this)"
-                            @input="setArtifactDraft(s.id, { transcriptText: $event?.target?.value || '' })"
-                          />
-                        </div>
-                        <div class="form-group">
-                          <label class="summary-meta">Summary</label>
-                          <textarea
-                            :value="artifactDraftForSession(s.id).summaryText"
-                            class="input"
-                            rows="4"
-                            placeholder="Session summary"
-                            @input="setArtifactDraft(s.id, { summaryText: $event?.target?.value || '' })"
-                          />
-                        </div>
-                        <div class="supervision-actions-row">
-                          <button
-                            type="button"
-                            class="btn btn-secondary btn-sm"
-                            :disabled="artifactSavingById[s.id]"
-                            @click="saveSessionArtifact(s.id, { autoSummarize: false })"
-                          >
-                            Save transcript + summary
-                          </button>
-                          <button
-                            type="button"
-                            class="btn btn-primary btn-sm"
-                            :disabled="artifactSavingById[s.id]"
-                            @click="saveSessionArtifact(s.id, { autoSummarize: true })"
-                          >
-                            Generate summary with Gemini
-                          </button>
-                          <a
-                            v-if="artifactForSession(s.id)?.transcript_url"
-                            :href="artifactForSession(s.id).transcript_url"
-                            class="btn btn-secondary btn-sm"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            Open transcript link
-                          </a>
-                        </div>
-                        <div v-if="artifactErrorById[s.id]" class="supervision-error-inline">
-                          {{ artifactErrorById[s.id] }}
-                        </div>
-                        <div class="supervision-activity-section">
-                          <button
-                            type="button"
-                            class="btn btn-outline btn-sm"
-                            :disabled="activityLoadingById[s.id]"
-                            @click="toggleSessionActivity(s.id)"
-                          >
-                            {{ activityExpandedById[s.id] ? 'Hide' : 'View' }} meeting chat & Q&A
-                          </button>
-                          <div v-if="activityExpandedById[s.id]" class="supervision-activity-content">
-                            <div v-if="activityLoadingById[s.id]" class="summary-meta">Loading…</div>
-                            <div v-else-if="activityErrorById[s.id]" class="supervision-error-inline">{{ activityErrorById[s.id] }}</div>
-                            <div v-else-if="!sessionActivityById[s.id]?.length" class="summary-meta">No chat, polls, or Q&A recorded for this session.</div>
-                            <div v-else class="activity-list">
-                              <div
-                                v-for="a in sessionActivityById[s.id]"
-                                :key="a.id"
-                                class="activity-item"
-                                :class="`activity-${a.activityType}`"
-                              >
-                                <span class="activity-sender">{{ a.participantIdentity?.replace(/^user-/, 'User ') }}</span>
-                                <span v-if="a.activityType === 'chat'" class="activity-text">{{ a.payload?.text }}</span>
-                                <span v-else-if="a.activityType === 'poll'" class="activity-text">Poll: {{ a.payload?.question }} — {{ (a.payload?.options || []).join(', ') }}</span>
-                                <span v-else-if="a.activityType === 'poll_vote'" class="activity-text">Voted on poll</span>
-                                <span v-else-if="a.activityType === 'question'" class="activity-text">Q: {{ a.payload?.text }}</span>
-                                <span v-else-if="a.activityType === 'answer'" class="activity-text">A: {{ a.payload?.text }}</span>
-                                <span class="activity-time">{{ formatActivityTime(a.createdAt) }}</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </li>
-                </ul>
-              </div>
-              <div id="supervision-manual">
-                <ManualSupervisionPanel v-if="selectedSuperviseeAgencyId" :key="`manual-${selectedSuperviseeAgencyId}-${selectedSupervisee.supervisee_id}`" :agency-id="selectedSuperviseeAgencyId" :user-id="selectedSupervisee.supervisee_id" :sessions="sessionHistory" @saved="refreshSupervisionLog" />
-              </div>
-              <div id="supervision-history" class="upcoming-sessions" style="margin-top: 1rem;">
-                <div class="supervision-actions-row" style="justify-content: space-between; align-items: center;">
-                  <h4 style="margin: 0; font-size: 0.95rem;">Past sessions (audit trail)</h4>
-                  <button type="button" class="btn btn-primary btn-sm" @click="openSupervisionScheduler">Schedule supervision</button>
-                  <button
-                    type="button"
-                    class="btn btn-secondary btn-sm"
-                    :disabled="!sessionHistory.length"
-                    @click="exportSessionHistoryCsv"
-                  >
-                    Export CSV
-                  </button>
-                </div>
-                <div v-if="sessionHistoryLoading" class="summary-meta" style="margin-top: 0.5rem;">Loading session history…</div>
-                <div v-else-if="sessionHistoryError" class="supervision-error-inline" style="margin-top: 0.5rem;">{{ sessionHistoryError }}</div>
-                <label>Search loaded past sessions <input v-model="historySearch" type="search" placeholder="Date, supervisor, type, or status" /></label>
-                <p class="summary-meta">Most recent 50 past sessions. Future bookings remain in your schedule.</p>
-                <ul v-if="filteredSessionHistory.length" class="supervision-docs-list supervision-history-list">
-                  <li v-for="s in filteredSessionHistory" :key="`history-${s.id}`" class="supervision-history-item">
-                    <button
-                      type="button"
-                      class="supervision-history-toggle"
-                      :aria-expanded="expandedHistoryId === s.id"
-                      @click="toggleHistorySession(s)"
-                    >
-                      <span class="supervision-history-main">
-                        <strong>{{ formatSessionDate(s.startAt) }}</strong>
-                        <span class="summary-meta"> – {{ formatSessionDate(s.endAt) }}</span>
-                        <span class="summary-meta"> · {{ String(s.sessionType || 'individual') }}</span>
-                        <span class="summary-meta"> · {{ formatHistoryStatus(s.status) }}</span>
-                        <span class="summary-meta"> · attended {{ formatAttendanceDuration(s) }}</span>
-                      </span>
-                      <span class="summary-meta">{{ expandedHistoryId === s.id ? 'Hide' : 'Details' }}</span>
-                    </button>
-                    <div v-if="expandedHistoryId === s.id" class="supervision-history-detail">
-                      <p class="summary-meta" v-if="s.firstJoinedAt || s.lastLeftAt || s.sessionFinalizedAt">
-                        <span v-if="s.firstJoinedAt">Joined {{ formatSessionDate(s.firstJoinedAt) }}</span>
-                        <span v-if="s.lastLeftAt"> · Left {{ formatSessionDate(s.lastLeftAt) }}</span>
-                        <span v-if="s.sessionFinalizedAt"> · Finalized {{ formatSessionDate(s.sessionFinalizedAt) }}</span>
-                        <span v-if="s.segmentCount"> · {{ s.segmentCount }} segment(s)</span>
-                      </p>
-                      <p
-                        v-if="s.hoursAttended != null || s.hoursBefore != null || s.hoursAfter != null"
-                        class="summary-meta"
-                      >
-                        <template v-if="s.hoursBefore != null && s.hoursAfter != null && Number(s.hoursAfter) > Number(s.hoursBefore)">
-                          Hours toward 100: {{ fmtNum(s.hoursBefore) }} → +{{ fmtNum(s.hoursAttended) }} → {{ fmtNum(s.hoursAfter) }}
-                        </template>
-                        <template v-else-if="s.hoursBefore != null && s.hoursAfter != null && Number(s.hoursAttended || 0) > 0 && Number(s.hoursAfter) <= Number(s.hoursBefore)">
-                          Attended {{ fmtNum(s.hoursAttended) }} hrs but not credited toward Individual/Group
-                          (supervision start date missing or after this session).
-                        </template>
-                        <template v-else-if="Number(s.hoursAttended || 0) === 0 && Number(s.totalSeconds || 0) > 0">
-                          Attended {{ formatAttendanceDuration(s) }} but 0 hrs credited toward Individual/Group
-                          (check supervision start date on their profile).
-                        </template>
-                        <template v-else-if="s.hoursAttended != null">
-                          Credited {{ fmtNum(s.hoursAttended) }} hrs toward Individual/Group
-                        </template>
-                      </p>
-                      <p v-if="s.notes" class="supervision-history-notes">{{ s.notes }}</p>
-                      <div v-if="hasHistoryWorkspace(s)" class="supervision-history-workspace">
-                        <div v-if="s.focusTitle" class="form-group">
-                          <label class="summary-meta">Session focus</label>
-                          <div>{{ s.focusTitle }}</div>
-                        </div>
-                        <div v-if="(s.goals || []).length" class="form-group">
-                          <label class="summary-meta">Goals</label>
-                          <ul class="supervision-workspace-list">
-                            <li v-for="g in s.goals" :key="g.id || g.text">
-                              <span>{{ g.done ? '✓' : '○' }}</span> {{ g.text }}
-                            </li>
-                          </ul>
-                        </div>
-                        <div v-if="(s.actionItems || []).length" class="form-group">
-                          <label class="summary-meta">Action items</label>
-                          <ul class="supervision-workspace-list">
-                            <li v-for="a in s.actionItems" :key="a.id || a.text">
-                              <span>{{ a.done ? '✓' : '○' }}</span> {{ a.text }}
-                            </li>
-                          </ul>
-                        </div>
-                      </div>
-                      <div v-if="artifactLoadingById[s.id]" class="summary-meta">Loading transcript / summary…</div>
-                      <div v-else class="supervision-artifact-box">
-                        <div class="form-group">
-                          <label class="summary-meta">Transcript link</label>
-                          <input
-                            :value="artifactDraftForSession(s.id).transcriptUrl"
-                            type="url"
-                            class="input"
-                            placeholder="https://… transcript link"
-                            @input="setArtifactDraft(s.id, { transcriptUrl: $event?.target?.value || '' })"
-                          />
-                        </div>
-                        <div class="form-group">
-                          <label class="summary-meta">Transcript text</label>
-                          <textarea
-                            :value="artifactDraftForSession(s.id).transcriptText"
-                            class="input"
-                            rows="4"
-                            placeholder="No auto transcript from Vonage yet — paste Meet/text transcript here."
-                            @input="setArtifactDraft(s.id, { transcriptText: $event?.target?.value || '' })"
-                          />
-                        </div>
-                        <div class="form-group">
-                          <label class="summary-meta">Summary</label>
-                          <textarea
-                            :value="artifactDraftForSession(s.id).summaryText"
-                            class="input"
-                            rows="3"
-                            placeholder="Session summary (or generate with Gemini after pasting a transcript)"
-                            @input="setArtifactDraft(s.id, { summaryText: $event?.target?.value || '' })"
-                          />
-                        </div>
-                        <div class="supervision-actions-row">
-                          <button
-                            type="button"
-                            class="btn btn-secondary btn-sm"
-                            :disabled="artifactSavingById[s.id]"
-                            @click="saveSessionArtifact(s.id, { autoSummarize: false })"
-                          >
-                            Save transcript + summary
-                          </button>
-                          <button
-                            type="button"
-                            class="btn btn-primary btn-sm"
-                            :disabled="artifactSavingById[s.id] || !String(artifactDraftForSession(s.id).transcriptText || '').trim()"
-                            @click="saveSessionArtifact(s.id, { autoSummarize: true })"
-                          >
-                            Generate summary with Gemini
-                          </button>
-                        </div>
-                        <p v-if="artifactErrorById[s.id]" class="supervision-error-inline">{{ artifactErrorById[s.id] }}</p>
-                        <p
-                          v-if="!artifactDraftForSession(s.id).transcriptText && !artifactDraftForSession(s.id).summaryText"
-                          class="summary-meta"
-                        >
-                          No transcript or AI summary saved for this meeting yet.
-                        </p>
-                      </div>
-                      <div class="supervision-actions-row" style="margin-top: 0.35rem;">
-                        <button
-                          v-if="isFinalizableSession(s)"
-                          type="button"
-                          class="btn btn-primary btn-sm"
-                          :disabled="!!sessionFinalizeLoadingById[s.id]"
-                          @click="submitFinalizeSession(s, false)"
-                        >
-                          {{ sessionFinalizeLoadingById[s.id] ? 'Finalizing…' : 'Submit session' }}
-                        </button>
-                        <button
-                          v-if="isFinalizableSession(s)"
-                          type="button"
-                          class="btn btn-secondary btn-sm"
-                          :disabled="!!sessionFinalizeLoadingById[s.id]"
-                          @click="submitFinalizeSession(s, true)"
-                        >
-                          Mark missed
-                        </button>
-                      </div>
-                    </div>
-                  </li>
-                </ul>
-                <p v-else class="summary-meta" style="margin-top: 0.5rem;">{{ historySearch ? 'No loaded past sessions match your search.' : 'No past sessions found.' }}</p>
-              </div>
-            </section>
+
           </div>
         </template>
     </div>
-    <ClientModal
-      presentation="side-panel"
-      v-if="selectedSchoolClient && selectedSchoolClientOrgId"
-      :client="selectedSchoolClient"
-      :school-organization-id="selectedSchoolClientOrgId"
-      @close="closeSchoolClientModal"
-    />
+    <Teleport to="body">
+      <aside v-if="quickViewClient" class="supervision-client-quick-view" role="dialog" aria-modal="false" aria-labelledby="supervision-client-quick-title" @keydown.esc="quickViewClient = null">
+        <header><div><span>Client quick view</span><h3 id="supervision-client-quick-title">{{ clientDisplayLabel(quickViewClient) }}</h3></div><button type="button" ref="quickViewClose" class="btn btn-secondary btn-sm" @click="quickViewClient = null">Close</button></header>
+        <dl><dt>School / location</dt><dd>{{ clientSchoolName(quickViewClient) || '—' }}</dd><dt>Status</dt><dd>{{ caseloadStatus(quickViewClient) }}</dd><dt>Assigned</dt><dd>{{ caseloadAssignedDate(quickViewClient) }}</dd><dt>Missing checklist</dt><dd>{{ caseloadMissingChecklist(quickViewClient).join(', ') || 'None reported' }}</dd></dl>
+        <ClientFeedbackSummary :summaries="feedbackByClient[quickViewClient.id]" :loading="feedbackLoading" :unavailable="!!feedbackError" />
+        <button type="button" class="btn btn-primary" @click="openClientChart(quickViewClient)">Expand client chart</button><RouterLink :to="fullClientLink(quickViewClient)" class="btn btn-secondary">Open full client record ↗</RouterLink>
+        <p>Chart tools follow your existing client permissions.</p>
+      </aside>
+      <ClientDetailPanel v-if="chartClient" :client="chartClient" :school-organization-id="chartClient.organization_type === 'school' ? chartClient.organization_id : null" @close="chartClient = null" @updated="onClientUpdated" @vue:mounted="focusClientChart" />
+    </Teleport>
     <div v-if="showAgendaPanel && agendaSessionId" class="supervision-agenda-overlay" @click.self="showAgendaPanel = false">
       <MeetingAgendaPanel
         :meeting-type="'supervision_session'"
@@ -758,22 +422,28 @@ import ClientFeedbackSummary from '../kiosk/ClientFeedbackSummary.vue';
 import CaseloadFeedbackSummary from '../kiosk/CaseloadFeedbackSummary.vue';
 import { useClientFeedbackSummaries } from '../../composables/useClientFeedbackSummaries.js';
 
-import SupervisionDocumentationPanel from './SupervisionDocumentationPanel.vue';
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+const SupervisionDocumentationPanel = defineAsyncComponent(() => import('./SupervisionDocumentationPanel.vue'));
+import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated, watch, defineAsyncComponent, nextTick } from 'vue';
+import { LayoutDashboard, Video, Users, ClipboardList, ListChecks, Inbox, CalendarDays, MapPin, School, Files, GraduationCap, MessagesSquare, ChartNoAxesCombined, Clock, Settings, ArrowUpRight, RefreshCw } from '@lucide/vue';
+import { supervisionSessionCounts } from '../../utils/superviseeSessionHistory.js';
+const SuperviseeSessionHistory = defineAsyncComponent(() => import('./SuperviseeSessionHistory.vue'));
+const SuperviseeWorkPanel = defineAsyncComponent(() => import('./SuperviseeWorkPanel.vue'));
+const ClientDetailPanel = defineAsyncComponent(() => import('../admin/ClientDetailPanel.vue'));
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
-import api from '../../services/api';
+import supervisionApi from '../../services/api';
+// Detail reads paint local states without covering the dashboard with its legacy loader.
+const api = { get: (url, config = {}) => supervisionApi.get(url, { ...config, skipGlobalLoading: true }), post: (...args) => supervisionApi.post(...args) };
 import { onSupervisionHoursChanged } from '../../utils/supervisionHoursRefresh.js';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
-import ModuleAssignmentDialog from '../admin/ModuleAssignmentDialog.vue';
-import UserSpecificDocumentUploadDialog from '../documents/UserSpecificDocumentUploadDialog.vue';
-import ClientModal from '../school/redesign/ClientModal.vue';
-import ManualSupervisionPanel from './ManualSupervisionPanel.vue';
-import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
+const ModuleAssignmentDialog = defineAsyncComponent(() => import('../admin/ModuleAssignmentDialog.vue'));
+const UserSpecificDocumentUploadDialog = defineAsyncComponent(() => import('../documents/UserSpecificDocumentUploadDialog.vue'));
+const ManualSupervisionPanel = defineAsyncComponent(() => import('./ManualSupervisionPanel.vue'));
+const MeetingAgendaPanel = defineAsyncComponent(() => import('../meetings/MeetingAgendaPanel.vue'));
 import BrandingLogo from '../BrandingLogo.vue';
-import SupervisionVideoRoom from './SupervisionVideoRoom.vue';
-import SupervisionVideoLobbyPanel from './SupervisionVideoLobbyPanel.vue';
+const SupervisionVideoRoom = defineAsyncComponent(() => import('./SupervisionVideoRoom.vue'));
+const SupervisionVideoLobbyPanel = defineAsyncComponent(() => import('./SupervisionVideoLobbyPanel.vue'));
 import { suspendInactivityTimeout, resumeInactivityTimeout } from '../../utils/activityTracker';
 
 const route = useRoute();
@@ -803,6 +473,7 @@ const checklistData = ref(null);
 const checklistLoading = ref(false);
 const checklistError = ref('');
 const documentsList = ref([]);
+const documentsTotal = ref(null);
 const documentsLoading = ref(false);
 const documentsError = ref('');
 const clientsList = ref([]);
@@ -828,8 +499,6 @@ const clientsError = ref('');
 const compliancePendingList = ref([]);
 const compliancePendingLoading = ref(false);
 const compliancePendingError = ref('');
-const selectedSchoolClient = ref(null);
-const selectedSchoolClientOrgId = ref(null);
 const schoolClientModalLoading = ref(false);
 const schoolClientModalError = ref('');
 const affiliatedPortals = ref([]);
@@ -859,25 +528,94 @@ const appVideoIsSupervisor = ref(false);
 const appVideoFullscreen = ref(false);
 const appVideoLoading = ref(false);
 const appVideoError = ref('');
-const sessionArtifactsById = ref({});
-const artifactDraftById = ref({});
-const artifactLoadingById = ref({});
-const artifactSavingById = ref({});
-const artifactErrorById = ref({});
-const activityLoadingById = ref({});
-const activityErrorById = ref({});
-const activityExpandedById = ref({});
-const sessionActivityById = ref({});
 const sessionHistory = ref([]);
-const historySearch = ref('');
-const filteredSessionHistory = computed(() => {
-  const query = historySearch.value.trim().toLowerCase();
-  return sessionHistory.value.filter(s => !query || [s.startAt, new Date(s.startAt).toLocaleDateString(), s.supervisorName, s.sessionType, s.status].join(' ').toLowerCase().includes(query));
-});
 const sessionHistoryLoading = ref(false);
 const sessionHistoryError = ref('');
-const sessionFinalizeLoadingById = ref({});
-const expandedHistoryId = ref(null);
+
+const activeSection = ref('overview');
+const visitedSections = ref(new Set(['overview']));
+const showManualEntry = ref(false);
+const sessionFilter = ref('all');
+const historyPanel = ref(null);
+const historyHasMore = ref(false);
+const overallAttendanceSummary = ref(null);
+const quickViewClient = ref(null);
+const quickViewClose = ref(null);
+let quickViewTrigger = null;
+watch(quickViewClient, async client => { if (client) { quickViewTrigger = document.activeElement; await nextTick(); quickViewClose.value?.focus(); } else if (!chartClient.value) { quickViewTrigger?.focus?.(); quickViewTrigger = null; } });
+const chartClient = ref(null);
+let chartTrigger = null;
+watch(chartClient, client => { if (!client) { chartTrigger?.focus?.(); chartTrigger = null; quickViewTrigger = null; } });
+function focusClientChart() { document.querySelector('.cdp-chart-overlay .btn-close')?.focus(); }
+const workCounts = ref({});
+const countsRevision = ref(0);
+const workSections = ['tasks', 'work', 'communications', 'assignments'];
+const documentationSections = [{id:'cases',mode:'cases'},{id:'queue',mode:'queue'},{id:'review-time',mode:'time'},{id:'settings',mode:'settings'}];
+const navigationGroups = [
+  { label: 'Supervision', items: [
+    {id:'overview',label:'Overview',icon:LayoutDashboard},{id:'sessions',label:'Sessions',icon:Video},
+    {id:'queue',label:'Documentation to review',icon:ClipboardList},{id:'cases',label:'Case review',icon:Files}
+  ]},
+  { label: 'Provider workspace', items: [
+    {id:'clients',label:'Caseload',icon:Users},{id:'tasks',label:'Task list',icon:ListChecks},{id:'work',label:'My Work',icon:Inbox},
+    {id:'schedule',label:'Schedule',icon:CalendarDays},{id:'assignments',label:'Assignments',icon:MapPin},
+    {id:'schools',label:'Schools & programs',icon:School},{id:'documents',label:'Documents',icon:Files},
+    {id:'training',label:'Training',icon:GraduationCap},{id:'communications',label:'Communications',icon:MessagesSquare}
+  ]},
+  { label: 'Management', items: [
+    {id:'performance',label:'Response & note timing',icon:ChartNoAxesCombined},{id:'review-time',label:'Review time',icon:Clock},
+    {id:'settings',label:'Oversight settings',icon:Settings}
+  ]}
+];
+const navigationItems = navigationGroups.flatMap(group => group.items);
+const activeSectionLabel = computed(() => navigationItems.find(item => item.id === activeSection.value)?.label || 'Overview');
+const attendanceCounts = computed(() => overallAttendanceSummary.value || supervisionSessionCounts(sessionHistory.value));
+function sectionCount(section) {
+  if (['tasks','work'].includes(section)) return workCounts.value[section] ?? null;
+  if (section === 'clients') return clientsLoading.value || clientsError.value ? null : clientsList.value.length;
+  if (section === 'sessions') return sessionHistoryLoading.value || sessionHistoryError.value ? null : overallAttendanceSummary.value?.total ?? sessionHistory.value.length;
+  if (section === 'documents') return visitedSections.value.has('documents') && !documentsError.value && !documentsLoading.value ? documentsTotal.value : null;
+  return null;
+}
+function updateWorkCounts(counts) { workCounts.value = { ...workCounts.value, ...counts }; }
+function persistWorkspace() {
+  if (!router.replace) return;
+  const query = { ...route.query };
+  if (selectedSupervisee.value) {
+    query.supervisionProvider = String(selectedSupervisee.value.supervisee_id);
+    query.supervisionAgency = String(selectedSuperviseeAgencyId.value);
+    query.supervisionSection = activeSection.value;
+  } else {
+    delete query.supervisionProvider; delete query.supervisionAgency; delete query.supervisionSection;
+  }
+  if (JSON.stringify(query) !== JSON.stringify(route.query)) void router.replace({ query });
+}
+function selectSection(section) {
+  if (!navigationItems.some(item => item.id === section)) return;
+  activeSection.value = section;
+  visitedSections.value = new Set([...visitedSections.value, section]);
+  persistWorkspace();
+  void loadSection(section);
+}
+async function loadSection(section, force = false) {
+  if (!selectedSupervisee.value) return;
+  if (section === 'training' && (force || !checklistData.value) && !checklistLoading.value) await fetchChecklist();
+  if (section === 'documents' && (force || !documentsLoaded.value) && !documentsLoading.value) await fetchDocuments();
+  if (['schools','clients'].includes(section) && (force || !portalsLoaded.value) && !affiliatedPortalsLoading.value) void fetchAffiliatedPortals();
+  if (section === 'clients' && (force || !complianceLoaded.value) && !compliancePendingLoading.value) void fetchCompliancePending();
+}
+function showSessions(filter) { sessionFilter.value = filter; selectSection('sessions'); }
+function onHistoryRefreshed(rows, meta = {}) { sessionHistory.value = rows; if (meta.hasMore != null) historyHasMore.value = meta.hasMore; if (meta.attendanceSummary) overallAttendanceSummary.value = meta.attendanceSummary; }
+async function refreshCurrentSection() {
+  if (['overview','sessions'].includes(activeSection.value)) return refreshSupervisionLog();
+  if (activeSection.value === 'clients') await fetchClients();
+  if (activeSection.value === 'schedule') await fetchScheduleSummary();
+  await loadSection(activeSection.value, true);
+}
+const documentsLoaded = ref(false), portalsLoaded = ref(false), complianceLoaded = ref(false);
+let workspaceActive = true;
+onActivated(() => { workspaceActive = true; if (selectedSupervisee.value) persistWorkspace(); });
+onDeactivated(() => { workspaceActive = false; });
 
 const organizationSlug = computed(() => route.params?.organizationSlug || '');
 
@@ -888,6 +626,7 @@ const chatsLink = computed(() => {
   const agencyId = selectedSuperviseeAgencyId.value;
   const base = slug ? `/${slug}/dashboard` : '/dashboard';
   const params = new URLSearchParams();
+  params.set('tab', 'chats');
   if (s?.supervisee_id) params.set('openChatWith', String(s.supervisee_id));
   if (agencyId) params.set('agencyId', String(agencyId));
   if (selectedSuperviseeDisplayName.value) params.set('openChatWithName', selectedSuperviseeDisplayName.value);
@@ -914,6 +653,7 @@ const superviseeFullScheduleLink = computed(() => {
     params.set('scheduleMode', 'supervisee');
     params.set('superviseeId', String(s.supervisee_id));
   }
+  if (selectedSuperviseeAgencyId.value) params.set('agencyId', String(selectedSuperviseeAgencyId.value));
   return `${base}?${params.toString()}`;
 });
 
@@ -922,7 +662,7 @@ const upcomingSessions = computed(() => {
   const list = scheduleSummary.value?.supervisionSessions || [];
   const now = new Date();
   return list
-    .filter((s) => s.role === 'supervisee' && new Date(s.startAt || 0) >= now)
+    .filter((s) => s.role === 'supervisee' && new Date(s.endAt || s.startAt || 0) >= now)
     .slice(0, 10);
 });
 
@@ -950,288 +690,6 @@ function formatSessionDate(iso) {
     return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
   } catch {
     return String(iso);
-  }
-}
-
-function hasHistoryWorkspace(session) {
-  if (!session) return false;
-  if (String(session.focusTitle || '').trim()) return true;
-  if (Array.isArray(session.goals) && session.goals.length) return true;
-  if (Array.isArray(session.actionItems) && session.actionItems.length) return true;
-  return false;
-}
-
-function formatHistoryStatus(status) {
-  const s = String(status || '').trim().toUpperCase();
-  if (s === 'FINALIZED') return 'Finalized';
-  if (s === 'MISSED') return 'Missed';
-  if (s === 'IN_PROGRESS') return 'In progress';
-  if (s === 'COMPLETED_PENDING_FINALIZE') return 'Pending finalize';
-  if (s === 'SCHEDULED') return 'Scheduled';
-  return s ? s.replace(/_/g, ' ').toLowerCase() : '—';
-}
-
-function formatAttendanceDuration(session) {
-  const seconds = Number(session?.totalSeconds || 0);
-  if (seconds > 0) {
-    const mins = Math.max(1, Math.round(seconds / 60));
-    if (mins < 60) return `${mins} min`;
-    const hrs = Math.round((seconds / 3600) * 100) / 100;
-    return `${hrs} hrs (${mins} min)`;
-  }
-  const hrs = Number(session?.totalHours || 0);
-  if (hrs > 0 && hrs < 24) {
-    const mins = Math.max(1, Math.round(hrs * 60));
-    return mins < 60 ? `${mins} min` : `${fmtNum(hrs)} hrs`;
-  }
-  return '0 min';
-}
-
-async function toggleHistorySession(session) {
-  const sid = Number(session?.id || 0);
-  if (!sid) return;
-  if (expandedHistoryId.value === sid) {
-    expandedHistoryId.value = null;
-    return;
-  }
-  expandedHistoryId.value = sid;
-  await loadSessionArtifact(sid, { force: true });
-}
-
-function artifactForSession(sessionId) {
-  return sessionArtifactsById.value?.[Number(sessionId)] || null;
-}
-
-function artifactDraftForSession(sessionId) {
-  const sid = Number(sessionId || 0);
-  if (!sid) return { transcriptUrl: '', transcriptText: '', summaryText: '' };
-  const existing = artifactDraftById.value?.[sid];
-  if (existing) return existing;
-  const fromArtifact = artifactForSession(sid);
-  return {
-    transcriptUrl: String(fromArtifact?.transcript_url || ''),
-    transcriptText: String(fromArtifact?.transcript_text || ''),
-    summaryText: String(fromArtifact?.summary_text || '')
-  };
-}
-
-function setArtifactDraft(sessionId, patch) {
-  const sid = Number(sessionId || 0);
-  if (!sid) return;
-  const prev = artifactDraftForSession(sid);
-  artifactDraftById.value = {
-    ...artifactDraftById.value,
-    [sid]: {
-      ...prev,
-      ...patch
-    }
-  };
-}
-
-async function loadSessionArtifact(sessionId, { force = false } = {}) {
-  const sid = Number(sessionId || 0);
-  if (!sid) return;
-  if (!force && sessionArtifactsById.value?.[sid]) return;
-  artifactLoadingById.value = { ...artifactLoadingById.value, [sid]: true };
-  artifactErrorById.value = { ...artifactErrorById.value, [sid]: '' };
-  try {
-    const resp = await api.get(`/supervision/sessions/${sid}/artifacts`);
-    const artifact = resp?.data?.artifact || null;
-    sessionArtifactsById.value = {
-      ...sessionArtifactsById.value,
-      [sid]: artifact
-    };
-    if (artifact) {
-      setArtifactDraft(sid, {
-        transcriptUrl: String(artifact.transcript_url || artifact.transcriptUrl || ''),
-        transcriptText: String(artifact.transcript_text || artifact.transcriptText || ''),
-        summaryText: String(artifact.summary_text || artifact.summaryText || '')
-      });
-      sessionHistory.value = (sessionHistory.value || []).map((row) => {
-        if (Number(row?.id) !== sid) return row;
-        return {
-          ...row,
-          focusTitle: artifact.focusTitle || artifact.focus_title || row.focusTitle || null,
-          goals: artifact.goals || artifact.goals_json || row.goals || [],
-          actionItems: artifact.actionItems || artifact.action_items_json || row.actionItems || [],
-          privateNotesText: artifact.privateNotesText || artifact.private_notes_text || row.privateNotesText || null,
-          summaryText: artifact.summaryText || artifact.summary_text || row.summaryText || null,
-          transcriptText: artifact.transcriptText || artifact.transcript_text || row.transcriptText || null
-        };
-      });
-    }
-  } catch (err) {
-    artifactErrorById.value = {
-      ...artifactErrorById.value,
-      [sid]: err?.response?.data?.error?.message || 'Failed to load meeting transcript/summary.'
-    };
-  } finally {
-    artifactLoadingById.value = { ...artifactLoadingById.value, [sid]: false };
-  }
-}
-
-async function saveSessionArtifact(sessionId, { autoSummarize = false } = {}) {
-  const sid = Number(sessionId || 0);
-  if (!sid) return;
-  let draft = artifactDraftForSession(sid);
-  if (autoSummarize && !String(draft.transcriptText || '').trim()) {
-    // Draft may be empty if history was expanded before artifacts finished loading —
-    // reload once so Generate Summary can use the saved live transcript.
-    await loadSessionArtifact(sid, { force: true });
-    draft = artifactDraftForSession(sid);
-  }
-  if (autoSummarize && !String(draft.transcriptText || '').trim()) {
-    artifactErrorById.value = {
-      ...artifactErrorById.value,
-      [sid]: 'Add or capture a transcript first, then generate a summary.'
-    };
-    return;
-  }
-  artifactSavingById.value = { ...artifactSavingById.value, [sid]: true };
-  artifactErrorById.value = { ...artifactErrorById.value, [sid]: '' };
-  try {
-    const resp = await api.post(`/supervision/sessions/${sid}/artifacts`, {
-      transcriptUrl: String(draft.transcriptUrl || '').trim() || null,
-      transcriptText: String(draft.transcriptText || '').trim() || null,
-      summaryText: autoSummarize ? undefined : (String(draft.summaryText || '').trim() || null),
-      autoSummarize
-    });
-    const artifact = resp?.data?.artifact || null;
-    sessionArtifactsById.value = {
-      ...sessionArtifactsById.value,
-      [sid]: artifact
-    };
-    if (artifact) {
-      setArtifactDraft(sid, {
-        transcriptUrl: String(artifact.transcript_url || ''),
-        transcriptText: String(artifact.transcript_text || ''),
-        summaryText: String(artifact.summary_text || '')
-      });
-    }
-    if (autoSummarize && !String(artifact?.summary_text || '').trim()) {
-      artifactErrorById.value = {
-        ...artifactErrorById.value,
-        [sid]: 'Gemini did not return a summary. Try again or paste a longer transcript.'
-      };
-    }
-  } catch (err) {
-    artifactErrorById.value = {
-      ...artifactErrorById.value,
-      [sid]: err?.response?.data?.error?.message || 'Failed to save meeting transcript/summary.'
-    };
-  } finally {
-    artifactSavingById.value = { ...artifactSavingById.value, [sid]: false };
-  }
-}
-
-function isFinalizableSession(session) {
-  const status = String(session?.status || '').trim().toUpperCase();
-  if (['FINALIZED', 'MISSED', 'CANCELLED', 'RESCHEDULED'].includes(status)) return false;
-  const endMs = new Date(session?.endAt || 0).getTime();
-  return Number.isFinite(endMs) && endMs <= Date.now();
-}
-
-async function submitFinalizeSession(session, markMissed = false) {
-  const sid = Number(session?.id || 0);
-  if (!sid) return;
-  sessionFinalizeLoadingById.value = { ...sessionFinalizeLoadingById.value, [sid]: true };
-  sessionHistoryError.value = '';
-  try {
-    await api.post(`/supervision/sessions/${sid}/finalize`, { markMissed: !!markMissed });
-    await fetchSessionHistory();
-    await fetchSuperviseeExtras();
-  } catch (err) {
-    sessionHistoryError.value = err?.response?.data?.error?.message || 'Failed to finalize session.';
-  } finally {
-    sessionFinalizeLoadingById.value = { ...sessionFinalizeLoadingById.value, [sid]: false };
-  }
-}
-
-function exportSessionHistoryCsv() {
-  const rows = Array.isArray(sessionHistory.value) ? sessionHistory.value : [];
-  if (!rows.length) return;
-  const csvCell = (value) => {
-    const raw = value == null ? '' : String(value);
-    if (!raw.includes('"') && !raw.includes(',') && !raw.includes('\n')) return raw;
-    return `"${raw.replace(/"/g, '""')}"`;
-  };
-  const headers = [
-    'sessionId',
-    'sessionType',
-    'status',
-    'startAt',
-    'endAt',
-    'supervisorName',
-    'totalSeconds',
-    'totalHours',
-    'segmentCount',
-    'firstJoinedAt',
-    'lastLeftAt',
-    'sessionFinalizedAt',
-    'sessionFinalizeSource',
-    'summaryText',
-    'transcriptUrl'
-  ];
-  const lines = [headers.join(',')];
-  for (const row of rows) {
-    const values = [
-      Number(row.id || 0),
-      String(row.sessionType || 'individual'),
-      String(row.status || ''),
-      row.startAt || '',
-      row.endAt || '',
-      String(row.supervisorName || ''),
-      Number(row.totalSeconds || 0),
-      Number(row.totalHours || 0),
-      Number(row.segmentCount || 0),
-      row.firstJoinedAt || '',
-      row.lastLeftAt || '',
-      row.sessionFinalizedAt || '',
-      row.sessionFinalizeSource || '',
-      row.summaryText || '',
-      row.transcriptUrl || ''
-    ];
-    lines.push(values.map(csvCell).join(','));
-  }
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  const stamp = new Date().toISOString().slice(0, 10);
-  anchor.href = url;
-  anchor.download = `supervision-history-${Number(selectedSupervisee.value?.supervisee_id || 0)}-${stamp}.csv`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
-}
-
-function formatActivityTime(createdAt) {
-  if (!createdAt) return '';
-  try {
-    const d = new Date(createdAt);
-    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  } catch {
-    return '';
-  }
-}
-
-async function toggleSessionActivity(sessionId) {
-  const sid = Number(sessionId || 0);
-  if (!sid) return;
-  const expanded = !activityExpandedById.value[sid];
-  activityExpandedById.value = { ...activityExpandedById.value, [sid]: expanded };
-  if (!expanded) return;
-  if (sessionActivityById.value[sid]?.length) return;
-  activityLoadingById.value = { ...activityLoadingById.value, [sid]: true };
-  activityErrorById.value = { ...activityErrorById.value, [sid]: '' };
-  try {
-    const resp = await api.get(`/supervision/sessions/${sid}/activity`);
-    sessionActivityById.value = { ...sessionActivityById.value, [sid]: resp?.data?.activity || [] };
-  } catch (err) {
-    activityErrorById.value = { ...activityErrorById.value, [sid]: err?.response?.data?.error?.message || 'Failed to load chat & Q&A.' };
-    sessionActivityById.value = { ...sessionActivityById.value, [sid]: [] };
-  } finally {
-    activityLoadingById.value = { ...activityLoadingById.value, [sid]: false };
   }
 }
 
@@ -1369,13 +827,6 @@ function openAgendaForSession(sessionId) {
   agendaSessionId.value = Number(sessionId || 0);
   showAgendaPanel.value = !!agendaSessionId.value;
 }
-
-watch(upcomingSessions, (list) => {
-  for (const row of list || []) {
-    const sid = Number(row?.id || 0);
-    if (sid) loadSessionArtifact(sid);
-  }
-}, { immediate: true });
 
 const selectedModuleForAssignObj = computed(() => {
   const id = selectedModuleForAssign.value ? parseInt(selectedModuleForAssign.value, 10) : null;
@@ -1588,65 +1039,24 @@ function resolveClientOrgId(client) {
   return null;
 }
 
-async function openSchoolClientModal({ orgId, clientId, seedClient = null }) {
-  const oid = Number(orgId || 0);
-  const cid = Number(clientId || 0);
-  if (!oid || !cid) {
-    schoolClientModalError.value = 'Unable to open client: missing school context.';
-    return;
-  }
-  schoolClientModalLoading.value = true;
-  schoolClientModalError.value = '';
+function fullClientLink(client) {
+  const prefix = organizationSlug.value ? `/${organizationSlug.value}` : '';
+  return `${prefix}/admin/clients/${Number(client.id)}`;
+}
+function openCaseloadClientModal(client) { quickViewClient.value = client; }
+async function openClientChart(client) {
+  const expectedId = Number(client.id);
+  chartTrigger = quickViewTrigger || document.activeElement;
+  chartClient.value = { ...client };
+  quickViewClient.value = null;
   try {
-    const response = await api.get(`/school-portal/${oid}/clients`, {
-      params: { clientId: cid }
-    });
-    const rows = Array.isArray(response.data) ? response.data : [];
-    const found = rows.find((r) => Number(r?.id) === cid) || null;
-    if (found) {
-      selectedSchoolClient.value = found;
-      selectedSchoolClientOrgId.value = oid;
-      return;
-    }
-    if (seedClient) {
-      selectedSchoolClient.value = {
-        ...seedClient,
-        id: cid,
-        organization_id: Number(seedClient?.organization_id || oid) || oid
-      };
-      selectedSchoolClientOrgId.value = oid;
-      return;
-    }
-    schoolClientModalError.value = 'Client was not found in this school portal context.';
-    return;
+    const { data } = await api.get(`/clients/${expectedId}`);
+    if (chartClient.value?.id === expectedId && data) chartClient.value = { ...client, ...data };
   } catch (err) {
-    if (seedClient) {
-      selectedSchoolClient.value = {
-        ...seedClient,
-        id: cid,
-        organization_id: Number(seedClient?.organization_id || oid) || oid
-      };
-      selectedSchoolClientOrgId.value = oid;
-      schoolClientModalError.value = '';
-      return;
-    }
-    schoolClientModalError.value = err?.response?.data?.error?.message || 'Failed to open client.';
-  } finally {
-    schoolClientModalLoading.value = false;
+    if (chartClient.value?.id === expectedId) { chartClient.value = null; schoolClientModalError.value = err.response?.data?.error?.message || 'Unable to open client chart.'; }
   }
 }
-
-function closeSchoolClientModal() {
-  selectedSchoolClient.value = null;
-  selectedSchoolClientOrgId.value = null;
-  schoolClientModalError.value = '';
-}
-
-function openCaseloadClientModal(client) {
-  const clientId = Number(client?.id || 0);
-  const orgId = resolveClientOrgId(client);
-  openSchoolClientModal({ orgId, clientId, seedClient: client });
-}
+function onClientUpdated(payload) { if (!payload?.client) { void fetchClients(); if (visitedSections.value.has('clients')) void fetchCompliancePending(); return; } if (payload?.client) { chartClient.value = { ...payload.client }; clientsList.value = clientsList.value.map(client => Number(client.id) === Number(payload.client.id) ? { ...client, ...payload.client } : client); } }
 
 function superviseeDisplayName(s) {
   const first = (s.supervisee_first_name || '').trim();
@@ -1719,6 +1129,10 @@ async function fetchSupervisees() {
     const response = await api.get(`/supervisor-assignments/supervisor/${userId}`);
     const rows = Array.isArray(response.data) ? response.data : [];
     supervisees.value = rows;
+    const providerId = Number(route.query?.supervisionProvider);
+    const agencyId = Number(route.query?.supervisionAgency);
+    const restored = rows.find(row => Number(row.supervisee_id) === providerId && Number(row.agency_id) === agencyId);
+    if (restored && !selectedSupervisee.value) selectedSupervisee.value = restored;
   } catch (err) {
     console.error('Failed to fetch supervisees:', err);
     error.value = err?.response?.data?.error?.message || 'Failed to load supervisees.';
@@ -1744,11 +1158,23 @@ function fmtPct(ratio) {
   return (ratio * 100).toFixed(1) + '%';
 }
 
-async function refreshSupervisionLog() {
-  // History/hours reads may finalize an overdue session and add its credits.
-  // Read the requirement balance after those operations finish.
-  await Promise.all([fetchSessionHistory(), fetchSuperviseeExtras()]);
-  await fetchSuperviseeSummary();
+let supervisionRefresh = null;
+async function refreshSupervisionLog({ includeHistory = true } = {}) {
+  const selected = selectedSupervisee.value;
+  if (!selected) return;
+  if (supervisionRefresh?.selected === selected) {
+    supervisionRefresh.historyRequested ||= includeHistory;
+    return supervisionRefresh.promise;
+  }
+  const entry = { selected, historyRequested: includeHistory, promise: null };
+  supervisionRefresh = entry;
+  entry.promise = (async () => {
+    if (includeHistory) await Promise.all([fetchSessionHistory(), fetchSuperviseeExtras()]);
+    else await fetchSuperviseeExtras();
+    if (!includeHistory && entry.historyRequested && selectedSupervisee.value === selected) await fetchSessionHistory();
+    if (selectedSupervisee.value === selected) await fetchSuperviseeSummary();
+  })().finally(() => { if (supervisionRefresh === entry) supervisionRefresh = null; });
+  return entry.promise;
 }
 
 async function fetchSuperviseeSummary() {
@@ -1765,11 +1191,12 @@ async function fetchSuperviseeSummary() {
     if (selectedSupervisee.value !== s || selectedSuperviseeAgencyId.value !== agencyId) return;
     summary.value = response.data;
   } catch (err) {
+    if (selectedSupervisee.value !== s) return;
     console.error('Failed to fetch supervisee summary:', err);
     summaryError.value = err?.response?.data?.error?.message || 'Failed to load snapshot.';
     summary.value = null;
   } finally {
-    summaryLoading.value = false;
+    if (selectedSupervisee.value === s) summaryLoading.value = false;
   }
 }
 
@@ -1812,18 +1239,26 @@ async function fetchSessionHistory() {
   sessionHistoryLoading.value = true;
   sessionHistoryError.value = '';
   try {
-    const response = await api.get(`/supervision/supervisee/${s.supervisee_id}/sessions`, {
-      params: { agencyId }
-    });
-    const rows = Array.isArray(response?.data?.sessions) ? response.data.sessions : [];
-    sessionHistory.value = rows
-      .slice(0, 100)
-      .sort((a, b) => new Date(b?.startAt || 0).getTime() - new Date(a?.startAt || 0).getTime());
+    const pages = Math.max(1, Math.ceil(sessionHistory.value.length / 50));
+    const rows = [];
+    let hasMore = false;
+    for (let page = 1; page <= pages; page++) {
+      const { data } = await api.get(`/supervision/supervisee/${s.supervisee_id}/sessions`, { params: { agencyId, page, pageSize: 50 } });
+      if (selectedSupervisee.value !== s) return;
+      if (data?.attendanceSummary) overallAttendanceSummary.value = data.attendanceSummary;
+      const incoming = Array.isArray(data?.sessions) ? data.sessions : [];
+      rows.push(...incoming);
+      hasMore = data?.hasMore ?? incoming.length === 50;
+      if (!hasMore) break;
+    }
+    historyHasMore.value = hasMore;
+    sessionHistory.value = [...new Map(rows.map(row => [Number(row.id), row])).values()];
   } catch (err) {
+    if (selectedSupervisee.value !== s) return;
     sessionHistoryError.value = err?.response?.data?.error?.message || 'Failed to load session history.';
     sessionHistory.value = [];
   } finally {
-    sessionHistoryLoading.value = false;
+    if (selectedSupervisee.value === s) sessionHistoryLoading.value = false;
   }
 }
 
@@ -1836,16 +1271,18 @@ async function fetchScheduleSummary() {
   scheduleSummary.value = null;
   try {
     const weekStart = new Date();
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
-    const weekStartStr = weekStart.toISOString().slice(0, 10);
+    weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
+    const weekStartStr = `${weekStart.getFullYear()}-${String(weekStart.getMonth()+1).padStart(2,'0')}-${String(weekStart.getDate()).padStart(2,'0')}`;
     const response = await api.get(`/users/${s.supervisee_id}/schedule-summary`, {
       params: { agencyId: agencyId || undefined, weekStart: weekStartStr }
     });
+    if (selectedSupervisee.value !== s) return;
     scheduleSummary.value = response.data;
   } catch (err) {
+    if (selectedSupervisee.value !== s) return;
     scheduleError.value = err?.response?.data?.error?.message || 'Failed to load schedule.';
   } finally {
-    scheduleLoading.value = false;
+    if (selectedSupervisee.value === s) scheduleLoading.value = false;
   }
 }
 
@@ -1857,11 +1294,13 @@ async function fetchChecklist() {
   checklistData.value = null;
   try {
     const response = await api.get(`/users/${s.supervisee_id}/unified-checklist`);
+    if (selectedSupervisee.value !== s) return;
     checklistData.value = response.data;
   } catch (err) {
+    if (selectedSupervisee.value !== s) return;
     checklistError.value = err?.response?.data?.error?.message || 'Failed to load checklist.';
   } finally {
-    checklistLoading.value = false;
+    if (selectedSupervisee.value === s) checklistLoading.value = false;
   }
 }
 
@@ -1872,12 +1311,16 @@ async function fetchDocuments() {
   documentsError.value = '';
   documentsList.value = [];
   try {
-    const response = await api.get(`/user-documents/user/${s.supervisee_id}`);
-    documentsList.value = Array.isArray(response.data) ? response.data : [];
+    const response = await api.get(`/supervision/supervisee/${s.supervisee_id}/workspace`, { params: { agencyId: selectedSuperviseeAgencyId.value, section: 'documents' } });
+    if (selectedSupervisee.value !== s) return;
+    documentsList.value = Array.isArray(response.data?.items) ? response.data.items : [];
+    documentsTotal.value = Number(response.data?.total ?? documentsList.value.length);
+    documentsLoaded.value = true;
   } catch (err) {
+    if (selectedSupervisee.value !== s) return;
     documentsError.value = err?.response?.data?.error?.message || 'Failed to load documents.';
   } finally {
-    documentsLoading.value = false;
+    if (selectedSupervisee.value === s) documentsLoading.value = false;
   }
 }
 
@@ -1895,12 +1338,14 @@ async function fetchClients() {
   clientsList.value = [];
   try {
     const response = await api.get(`/clients/for-user/${s.supervisee_id}`, { params: { agencyId } });
+    if (selectedSupervisee.value !== s) return;
     clientsList.value = Array.isArray(response.data) ? response.data : [];
   } catch (err) {
+    if (selectedSupervisee.value !== s) return;
     clientsError.value = err?.response?.data?.error?.message || 'Failed to load clients.';
     clientsList.value = [];
   } finally {
-    clientsLoading.value = false;
+    if (selectedSupervisee.value === s) clientsLoading.value = false;
   }
 }
 
@@ -1917,11 +1362,14 @@ async function fetchCompliancePending() {
     const response = await api.get('/compliance-corner/pending-clients', {
       params: { providerUserId: s.supervisee_id }
     });
+    if (selectedSupervisee.value !== s) return;
     compliancePendingList.value = Array.isArray(response.data?.results) ? response.data.results : [];
+    complianceLoaded.value = true;
   } catch (err) {
+    if (selectedSupervisee.value !== s) return;
     compliancePendingError.value = err?.response?.data?.error?.message || 'Failed to load compliance list.';
   } finally {
-    compliancePendingLoading.value = false;
+    if (selectedSupervisee.value === s) compliancePendingLoading.value = false;
   }
 }
 
@@ -1936,18 +1384,27 @@ async function fetchAffiliatedPortals() {
   affiliatedPortals.value = [];
   try {
     const response = await api.get(`/users/${s.supervisee_id}/affiliated-portals`);
+    if (selectedSupervisee.value !== s) return;
     affiliatedPortals.value = Array.isArray(response.data?.portals) ? response.data.portals : [];
+    portalsLoaded.value = true;
   } catch (err) {
+    if (selectedSupervisee.value !== s) return;
     affiliatedPortalsError.value = err?.response?.data?.error?.message || 'Failed to load portals.';
     affiliatedPortals.value = [];
   } finally {
-    affiliatedPortalsLoading.value = false;
+    if (selectedSupervisee.value === s) affiliatedPortalsLoading.value = false;
   }
 }
 
 function onDocumentUploaded() {
   showUploadDocumentDialog.value = false;
-  fetchDocuments();
+  countsRevision.value++;
+  void fetchDocuments();
+}
+function onTrainingAssigned() {
+  showModuleAssignmentDialog.value = false; selectedModuleForAssign.value = '';
+  countsRevision.value++;
+  void fetchChecklist();
 }
 
 async function fetchAssignableModules() {
@@ -1970,11 +1427,18 @@ watch(showModulePicker, (v) => {
 });
 
 watch(selectedSupervisee, (v) => {
+  quickViewClient.value = null; chartClient.value = null;
+  documentsLoaded.value = false; portalsLoaded.value = false; complianceLoaded.value = false;
+  workCounts.value = {}; documentsTotal.value = null; showManualEntry.value = false; sessionFilter.value = 'all'; historyHasMore.value = false; overallAttendanceSummary.value = null;
+  const restoreSection = Number(route.query?.supervisionProvider) === Number(v?.supervisee_id) && Number(route.query?.supervisionAgency) === Number(v?.agency_id) ? String(route.query?.supervisionSection || 'overview') : 'overview';
+  activeSection.value = navigationItems.some(item => item.id === restoreSection) ? restoreSection : 'overview';
+  visitedSections.value = new Set(['overview', activeSection.value]);
   summary.value = null;
   summaryError.value = '';
   supervisionSessionHours.value = null;
   supervisionSessionCount.value = null;
   compliance24Plus.value = [];
+  scheduleLoading.value = false; checklistLoading.value = false; documentsLoading.value = false; clientsLoading.value = false; compliancePendingLoading.value = false; affiliatedPortalsLoading.value = false;
   scheduleSummary.value = null;
   scheduleError.value = '';
   checklistData.value = null;
@@ -1991,35 +1455,38 @@ watch(selectedSupervisee, (v) => {
   showModuleAssignmentDialog.value = false;
   showUploadDocumentDialog.value = false;
   selectedModuleForAssign.value = '';
-  sessionArtifactsById.value = {};
-  artifactDraftById.value = {};
-  artifactLoadingById.value = {};
-  artifactSavingById.value = {};
-  artifactErrorById.value = {};
   sessionHistory.value = [];
   sessionHistoryError.value = '';
-  sessionFinalizeLoadingById.value = {};
   if (v) {
     void refreshSupervisionLog();
     fetchScheduleSummary();
-    fetchChecklist();
-    fetchDocuments();
     fetchClients();
-    fetchCompliancePending();
-    fetchAffiliatedPortals();
+    void loadSection(activeSection.value);
+    persistWorkspace();
   } else {
     summaryLoading.value = false;
+    persistWorkspace();
+  }
+});
+
+watch(() => [route.query?.supervisionProvider, route.query?.supervisionAgency, route.query?.supervisionSection], ([providerId, agencyId, section]) => {
+  if (!providerId) return;
+  const assignment = supervisees.value.find(row => Number(row.supervisee_id) === Number(providerId) && Number(row.agency_id) === Number(agencyId));
+  if (!assignment) return;
+  if (superviseeKey(selectedSupervisee.value || {}) !== superviseeKey(assignment)) selectedSupervisee.value = assignment;
+  else if (section && section !== activeSection.value && navigationItems.some(item => item.id === section)) {
+    activeSection.value = section; visitedSections.value = new Set([...visitedSections.value, section]); void loadSection(section);
   }
 });
 
 let stopHoursRefresh;
-const refreshVisibleSupervision = () => {
-  if (selectedSupervisee.value && document.visibilityState !== 'hidden') void refreshSupervisionLog();
+const refreshVisibleSupervision = ({ includeHistory = false } = {}) => {
+  if (workspaceActive && selectedSupervisee.value && document.visibilityState !== 'hidden') void refreshSupervisionLog({ includeHistory });
 };
 onMounted(() => {
   fetchSupervisees();
   stopHoursRefresh = onSupervisionHoursChanged(event => {
-    if (Number(event.detail?.agencyId) === Number(selectedSuperviseeAgencyId.value)) refreshVisibleSupervision();
+    if (Number(event.detail?.agencyId) === Number(selectedSuperviseeAgencyId.value)) refreshVisibleSupervision({ includeHistory: true });
   });
   window.addEventListener('focus', refreshVisibleSupervision);
 });
@@ -2586,9 +2053,241 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
 }
+
+.supervision-overview-secondary { margin-top: 1rem; }
+.communications-launch { margin: .5rem 0 1rem; }
+/* Supervisor workspace: navigation remains within reach while a tab owns its content. */
+.supervision-panel { overflow: visible; color: #20344d; background: #f6f8fc; border-color: #d7e0ed; }
+.supervision-panel > .supervision-modal-header { background: #fff; flex-wrap: wrap; }
+.supervision-modal-back { padding: .55rem .8rem; border: 1px solid #c4d1e1; border-radius: 8px; color: #284667; font-weight: 650; }
+.supervision-panel > .supervision-modal-body { overflow: visible; padding: 1.1rem; }
+.supervision-hero { padding: 1rem 1.2rem; margin-bottom: 1rem; gap: 1rem; background: #fff; border-color: #d7e0ed; }
+.supervision-hero-avatar { width: 66px; height: 66px; }
+.supervision-hero-name { font-size: 1.35rem; color: #172c49; }
+.supervision-hero-meta { color: #536780; font-size: .86rem; margin-top: .25rem; }
+.hero-actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: .5rem; }
+.supervision-workspace { display: grid; grid-template-columns: 222px minmax(0, 1fr); gap: 1.1rem; align-items: start; }
+.supervision-navigation { position: sticky; top: 1rem; max-height: calc(100vh - 3rem); overflow-y: auto; background: #fff; border: 1px solid #d7e0ed; padding: .6rem; border-radius: 12px; }
+.workspace-nav-group + .workspace-nav-group { margin-top: .65rem; padding-top: .65rem; border-top: 1px solid #e3e9f2; }
+.workspace-nav-label { display: block; color: #5a6d86; font-size: .68rem; font-weight: 750; text-transform: uppercase; letter-spacing: .09em; padding: .4rem .5rem; }
+.workspace-nav-button { width: 100%; border: 0; background: transparent; color: #3e526e; display: flex; align-items: center; gap: .6rem; padding: .7rem .6rem; font: inherit; font-size: .84rem; line-height: 1.3; border-radius: 8px; text-align: left; cursor: pointer; }
+.workspace-nav-button > svg { flex-shrink: 0; }
+.workspace-nav-button:hover { background: #eef3fb; color: #163d75; }
+.workspace-nav-button.active { background: #e7efff; color: #1a4b94; font-weight: 750; box-shadow: inset 3px 0 #3166c7; }
+.nav-count { margin-left: auto; background: #e9edf4; color: #3e526e; border-radius: 6px; padding: .12rem .4rem; font-size: .73rem; font-weight: 700; }
+.workspace-nav-button.active .nav-count { background: #fff; color: #1a4b94; }
+.supervision-content { min-width: 0; background: #fff; border: 1px solid #d7e0ed; border-radius: 12px; padding: 1.25rem; min-height: 600px; }
+.workspace-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.1rem; }
+.workspace-eyebrow { color: #61728a; font-size: .73rem; }
+.workspace-heading h3 { margin: .3rem 0 0; color: #152b48; font-size: 1.4rem; }
+.workspace-refresh { display: inline-flex; align-items: center; gap: .4rem; border: 1px solid #c9d4e3; color: #3d536f; background: white; padding: .5rem .7rem; border-radius: 8px; cursor: pointer; }
+.overview-facts { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: .7rem; margin-bottom: 1rem; }
+.overview-fact { display: flex; flex-direction: column; align-items: flex-start; gap: .5rem; padding: 1rem; border: 1px solid; border-radius: 10px; text-align: left; cursor: pointer; font-family: inherit; }
+.overview-fact > span { font-size: .78rem; font-weight: 700; }
+.overview-fact > strong { font-size: 2rem; line-height: 1; }
+.overview-fact > small { font-size: .71rem; line-height: 1.4; }
+.fact-blue { color: #184989; background: #eff5ff; border-color: #ccdcf8; }
+.fact-green { color: #17634d; background: #effaf6; border-color: #c9e6d9; }
+.fact-red { color: #9b3040; background: #fff2f3; border-color: #f2cfd4; }
+.fact-amber { color: #885211; background: #fff8ec; border-color: #efdcb7; }
+.upcoming-card { border: 1px solid #c6d7ef; border-left: 4px solid #3166c7; background: #f7faff; border-radius: 10px; padding: 1rem; margin: 1rem 0; }
+.upcoming-card-heading { display: flex; gap: .75rem; align-items: center; color: #244e87; }
+.upcoming-card-heading h4 { margin: 0; color: #153b6d; font-size: 1.05rem; }
+.upcoming-card-heading p { margin: .2rem 0 0; font-size: .78rem; color: #506684; }
+.upcoming-card-heading a { margin-left: auto; }
+.upcoming-session-row { display: flex; gap: 1rem; align-items: center; justify-content: space-between; border-top: 1px solid #dce6f5; padding-top: .85rem; margin-top: .85rem; }
+.upcoming-session-row p { font-size: .8rem; color: #52667f; margin: .3rem 0 0; }
+.overview-shortcuts { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .75rem; }
+.overview-shortcuts button { display: grid; grid-template-columns: 22px 1fr 18px; gap: .4rem .6rem; border: 1px solid #d7e0ed; background: white; color: #29496f; border-radius: 10px; padding: 1rem; text-align: left; cursor: pointer; }
+.overview-shortcuts button span { grid-row: 2; grid-column: 2; font-size: .76rem; color: #586d87; }
+.overview-shortcuts button svg:last-child { grid-column: 3; grid-row: 1; }
+.snapshot-details { border: 1px solid #d7e0ed; border-radius: 10px; padding: .85rem 1rem; margin-top: 1rem; color: #344c6c; }
+.snapshot-details > summary { cursor: pointer; font-weight: 650; }
+.snapshot-details .supervision-summary-grid { grid-template-columns: repeat(auto-fit,minmax(170px,1fr)); margin-top: .8rem; }
+.summary-cell { padding: .7rem; background: #f7f9fc; border-radius: 8px; }
+.summary-label { color: #526780; font-size: .7rem; }
+.summary-value { color: #253d5b; }
+.summary-meta { color: #526780; }
+.sessions-workspace { margin-top: 1.5rem; border-top: 1px solid #e2e8f0; padding-top: 1rem; }
+.session-section-heading { display: flex; align-items: center; justify-content: space-between; gap: .7rem; margin-bottom: .7rem; }
+.session-section-heading h4 { font-size: 1.1rem; margin: 0; color: #173a68; }
+.supervision-detail { gap: 0; }
+.supervision-detail-section { margin: 0; color: #263e5c; }
+.supervision-detail-section h3 { color: #183957; font-size: 1.05rem; margin-top: .5rem; }
+.supervision-detail-section p { color: #516680; font-size: .86rem; line-height: 1.6; }
+.supervision-panel :deep(.documentation-panel), .supervision-panel :deep(.supervisee-work-panel) { margin-top: 0; }
+.supervision-panel .btn { text-decoration: none; border-radius: 8px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: .4rem; font-size: .82rem; padding: .5rem .8rem; }
+.supervision-panel .btn-primary { background: #285bae; color: #fff; border: 1px solid #285bae; }
+.supervision-panel .btn-secondary { background: #fff; color: #304f74; border: 1px solid #c1cfe1; }
+.school-portal-grid { display: grid; gap: .8rem; margin-top: 1rem; }
+.school-portal-card { display: flex; align-items: center; gap: .9rem; padding: 1rem; border: 1px solid #d5dfed; border-radius: 10px; text-decoration: none; color: #1f3e65; }
+.school-portal-card:hover { background: #f2f6fd; border-color: #729bd6; }
+.school-portal-card img, .school-icon-fallback { width: 44px; height: 44px; object-fit: contain; border-radius: 8px; background: #eff3fa; padding: 5px; }
+.school-icon-fallback { display: grid; place-items: center; }
+.school-portal-card div { display: grid; gap: .4rem; flex: 1; }
+.school-portal-card div span { color: #566c87; font-size: .8rem; }
+.schedule-launch-card { padding: 2.5rem 1rem; text-align: center; max-width: 580px; margin: auto; }
+.schedule-launch-card > svg { color: #3267b9; }
+.caseload-table { font-size: .82rem; color: #2e4562; }
+.caseload-table th { color: #4b617f; background: #f5f8fc; }
+.client-quick-button { background: #edf4ff; border: 1px solid #cadaf2; color: #235490; font: inherit; font-weight: 700; padding: .45rem .6rem; border-radius: 6px; cursor: pointer; }
+.client-full-link { display: block; margin-top: .45rem; color: #2b5b9c; font-size: .72rem; }
+.supervision-client-quick-view { position: fixed; inset: 0 0 0 auto; width: min(440px,100vw); z-index: 10000; padding: 1.5rem; box-sizing: border-box; overflow-y: auto; background: #fff; box-shadow: -10px 0 50px #18385935; border-left: 1px solid #c9d7e9; color: #263e5c; display: flex; flex-direction: column; gap: .8rem; }
+.supervision-client-quick-view header { display: flex; align-items: center; justify-content: space-between; gap: .8rem; }
+.supervision-client-quick-view header span, .supervision-client-quick-view p { font-size: .8rem; color: #58708e; }
+.supervision-client-quick-view h3 { margin: .35rem 0; color: #183957; }
+.supervision-client-quick-view dl { display: grid; gap: .45rem; }
+.supervision-client-quick-view dt { font-size: .75rem; color: #58708e; margin-top: .5rem; }
+.supervision-client-quick-view dd { margin: 0; font-size: .92rem; }
+.supervision-client-quick-view .btn { text-decoration: none; padding: .7rem; border-radius: 8px; }
+.workspace-nav-button:focus-visible, .overview-fact:focus-visible, .client-quick-button:focus-visible, .school-portal-card:focus-visible { outline: 3px solid #6b93cf; outline-offset: 2px; }
+@media (max-width: 1050px) {
+  .supervision-workspace { grid-template-columns: 190px minmax(0,1fr); gap: .7rem; }
+  .supervision-content { padding: 1rem; }
+  .overview-facts { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media (max-width: 760px) {
+  .supervision-panel > .supervision-modal-body { padding: .6rem; }
+  .supervision-workspace { display: block; }
+  .supervision-navigation { position: sticky; top: .4rem; z-index: 10; display: flex; gap: .4rem; overflow-x: auto; white-space: nowrap; max-height: none; margin-bottom: .75rem; padding: .5rem; }
+  .workspace-nav-group { display: contents; }
+  .workspace-nav-label { display: none; }
+  .workspace-nav-button { width: auto; flex-shrink: 0; font-size: .8rem; padding: .7rem; }
+  .workspace-nav-button.active { box-shadow: inset 0 -3px #3166c7; }
+  .supervision-hero { flex-wrap: wrap; padding: .8rem; }
+  .supervision-hero-avatar { width: 48px; height: 48px; }
+  .supervision-hero-name { font-size: 1.1rem; }
+  .hero-actions { margin-left: 0; width: 100%; }
+  .supervision-content { padding: .8rem; min-height: 400px; }
+  .overview-fact { padding: .75rem; }
+  .overview-shortcuts { grid-template-columns: 1fr; }
+  .workspace-heading { align-items: flex-start; }
+  .workspace-heading h3 { font-size: 1.15rem; }
+  .upcoming-session-row, .session-section-heading { align-items: flex-start; flex-direction: column; }
+  .upcoming-card-heading { flex-wrap: wrap; }
+  .upcoming-card-heading a { margin-left: 0; }
+  .supervision-panel > .supervision-modal-header { gap: .5rem; padding: .8rem; }
+  .auricwell-supervision-brand { font-size: .72rem; }
+}
+
 </style>
 
 <style scoped>
 .auricwell-supervision-brand { display:inline-flex; align-items:center; gap:6px; color:#52776c; font-size:12px; font-weight:700; letter-spacing:.06em; }
 .auricwell-supervision-brand img { width:22px; height:26px; }
+
+/* Supervisor workspace: navigation remains within reach while a tab owns its content. */
+.supervision-panel { color: #20344d; background: #f6f8fc; border-color: #d7e0ed; }
+.supervision-panel > .supervision-modal-header { background: #fff; flex-wrap: wrap; }
+.supervision-modal-back { padding: .55rem .8rem; border: 1px solid #c4d1e1; border-radius: 8px; color: #284667; font-weight: 650; }
+.supervision-panel > .supervision-modal-body { overflow: visible; padding: 1.1rem; }
+.supervision-hero { padding: 1rem 1.2rem; margin-bottom: 1rem; gap: 1rem; background: #fff; border-color: #d7e0ed; }
+.supervision-hero-avatar { width: 66px; height: 66px; }
+.supervision-hero-name { font-size: 1.35rem; color: #172c49; }
+.supervision-hero-meta { color: #536780; font-size: .86rem; margin-top: .25rem; }
+.hero-actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: .5rem; }
+.supervision-workspace { display: grid; grid-template-columns: 222px minmax(0, 1fr); gap: 1.1rem; align-items: start; }
+.supervision-navigation { position: sticky; top: 1rem; max-height: calc(100vh - 3rem); overflow-y: auto; background: #fff; border: 1px solid #d7e0ed; padding: .6rem; border-radius: 12px; }
+.workspace-nav-group + .workspace-nav-group { margin-top: .65rem; padding-top: .65rem; border-top: 1px solid #e3e9f2; }
+.workspace-nav-label { display: block; color: #5a6d86; font-size: .68rem; font-weight: 750; text-transform: uppercase; letter-spacing: .09em; padding: .4rem .5rem; }
+.workspace-nav-button { width: 100%; border: 0; background: transparent; color: #3e526e; display: flex; align-items: center; gap: .6rem; padding: .7rem .6rem; font: inherit; font-size: .84rem; line-height: 1.3; border-radius: 8px; text-align: left; cursor: pointer; }
+.workspace-nav-button > svg { flex-shrink: 0; }
+.workspace-nav-button:hover { background: #eef3fb; color: #163d75; }
+.workspace-nav-button.active { background: #e7efff; color: #1a4b94; font-weight: 750; box-shadow: inset 3px 0 #3166c7; }
+.nav-count { margin-left: auto; background: #e9edf4; color: #3e526e; border-radius: 6px; padding: .12rem .4rem; font-size: .73rem; font-weight: 700; }
+.workspace-nav-button.active .nav-count { background: #fff; color: #1a4b94; }
+.supervision-content { min-width: 0; background: #fff; border: 1px solid #d7e0ed; border-radius: 12px; padding: 1.25rem; min-height: 600px; }
+.workspace-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.1rem; }
+.workspace-eyebrow { color: #61728a; font-size: .73rem; }
+.workspace-heading h3 { margin: .3rem 0 0; color: #152b48; font-size: 1.4rem; }
+.workspace-refresh { display: inline-flex; align-items: center; gap: .4rem; border: 1px solid #c9d4e3; color: #3d536f; background: white; padding: .5rem .7rem; border-radius: 8px; cursor: pointer; }
+.overview-facts { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: .7rem; margin-bottom: 1rem; }
+.overview-fact { display: flex; flex-direction: column; align-items: flex-start; gap: .5rem; padding: 1rem; border: 1px solid; border-radius: 10px; text-align: left; cursor: pointer; font-family: inherit; }
+.overview-fact > span { font-size: .78rem; font-weight: 700; }
+.overview-fact > strong { font-size: 2rem; line-height: 1; }
+.overview-fact > small { font-size: .71rem; line-height: 1.4; }
+.fact-blue { color: #184989; background: #eff5ff; border-color: #ccdcf8; }
+.fact-green { color: #17634d; background: #effaf6; border-color: #c9e6d9; }
+.fact-red { color: #9b3040; background: #fff2f3; border-color: #f2cfd4; }
+.fact-amber { color: #885211; background: #fff8ec; border-color: #efdcb7; }
+.upcoming-card { border: 1px solid #c6d7ef; border-left: 4px solid #3166c7; background: #f7faff; border-radius: 10px; padding: 1rem; margin: 1rem 0; }
+.upcoming-card-heading { display: flex; gap: .75rem; align-items: center; color: #244e87; }
+.upcoming-card-heading h4 { margin: 0; color: #153b6d; font-size: 1.05rem; }
+.upcoming-card-heading p { margin: .2rem 0 0; font-size: .78rem; color: #506684; }
+.upcoming-card-heading a { margin-left: auto; }
+.upcoming-session-row { display: flex; gap: 1rem; align-items: center; justify-content: space-between; border-top: 1px solid #dce6f5; padding-top: .85rem; margin-top: .85rem; }
+.upcoming-session-row p { font-size: .8rem; color: #52667f; margin: .3rem 0 0; }
+.overview-shortcuts { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .75rem; }
+.overview-shortcuts button { display: grid; grid-template-columns: 22px 1fr 18px; gap: .4rem .6rem; border: 1px solid #d7e0ed; background: white; color: #29496f; border-radius: 10px; padding: 1rem; text-align: left; cursor: pointer; }
+.overview-shortcuts button span { grid-row: 2; grid-column: 2; font-size: .76rem; color: #586d87; }
+.overview-shortcuts button svg:last-child { grid-column: 3; grid-row: 1; }
+.snapshot-details { border: 1px solid #d7e0ed; border-radius: 10px; padding: .85rem 1rem; margin-top: 1rem; color: #344c6c; }
+.snapshot-details > summary { cursor: pointer; font-weight: 650; }
+.snapshot-details .supervision-summary-grid { grid-template-columns: repeat(auto-fit,minmax(170px,1fr)); margin-top: .8rem; }
+.summary-cell { padding: .7rem; background: #f7f9fc; border-radius: 8px; }
+.summary-label { color: #526780; font-size: .7rem; }
+.summary-value { color: #253d5b; }
+.summary-meta { color: #526780; }
+.sessions-workspace { margin-top: 1.5rem; border-top: 1px solid #e2e8f0; padding-top: 1rem; }
+.session-section-heading { display: flex; align-items: center; justify-content: space-between; gap: .7rem; margin-bottom: .7rem; }
+.session-section-heading h4 { font-size: 1.1rem; margin: 0; color: #173a68; }
+.supervision-detail { gap: 0; }
+.supervision-detail-section { margin: 0; color: #263e5c; }
+.supervision-detail-section h3 { color: #183957; font-size: 1.05rem; margin-top: .5rem; }
+.supervision-detail-section p { color: #516680; font-size: .86rem; line-height: 1.6; }
+.supervision-panel :deep(.documentation-panel), .supervision-panel :deep(.supervisee-work-panel) { margin-top: 0; }
+.supervision-panel .btn { text-decoration: none; border-radius: 8px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: .4rem; font-size: .82rem; padding: .5rem .8rem; }
+.supervision-panel .btn-primary { background: #285bae; color: #fff; border: 1px solid #285bae; }
+.supervision-panel .btn-secondary { background: #fff; color: #304f74; border: 1px solid #c1cfe1; }
+.school-portal-grid { display: grid; gap: .8rem; margin-top: 1rem; }
+.school-portal-card { display: flex; align-items: center; gap: .9rem; padding: 1rem; border: 1px solid #d5dfed; border-radius: 10px; text-decoration: none; color: #1f3e65; }
+.school-portal-card:hover { background: #f2f6fd; border-color: #729bd6; }
+.school-portal-card img, .school-icon-fallback { width: 44px; height: 44px; object-fit: contain; border-radius: 8px; background: #eff3fa; padding: 5px; }
+.school-icon-fallback { display: grid; place-items: center; }
+.school-portal-card div { display: grid; gap: .4rem; flex: 1; }
+.school-portal-card div span { color: #566c87; font-size: .8rem; }
+.schedule-launch-card { padding: 2.5rem 1rem; text-align: center; max-width: 580px; margin: auto; }
+.schedule-launch-card > svg { color: #3267b9; }
+.caseload-table { font-size: .82rem; color: #2e4562; }
+.caseload-table th { color: #4b617f; background: #f5f8fc; }
+.client-quick-button { background: #edf4ff; border: 1px solid #cadaf2; color: #235490; font: inherit; font-weight: 700; padding: .45rem .6rem; border-radius: 6px; cursor: pointer; }
+.client-full-link { display: block; margin-top: .45rem; color: #2b5b9c; font-size: .72rem; }
+.supervision-client-quick-view { position: fixed; inset: 0 0 0 auto; width: min(440px,100vw); z-index: 10000; padding: 1.5rem; box-sizing: border-box; overflow-y: auto; background: #fff; box-shadow: -10px 0 50px #18385935; border-left: 1px solid #c9d7e9; color: #263e5c; display: flex; flex-direction: column; gap: .8rem; }
+.supervision-client-quick-view header { display: flex; align-items: center; justify-content: space-between; gap: .8rem; }
+.supervision-client-quick-view header span, .supervision-client-quick-view p { font-size: .8rem; color: #58708e; }
+.supervision-client-quick-view h3 { margin: .35rem 0; color: #183957; }
+.supervision-client-quick-view dl { display: grid; gap: .45rem; }
+.supervision-client-quick-view dt { font-size: .75rem; color: #58708e; margin-top: .5rem; }
+.supervision-client-quick-view dd { margin: 0; font-size: .92rem; }
+.supervision-client-quick-view .btn { text-decoration: none; padding: .7rem; border-radius: 8px; }
+.workspace-nav-button:focus-visible, .overview-fact:focus-visible, .client-quick-button:focus-visible, .school-portal-card:focus-visible { outline: 3px solid #6b93cf; outline-offset: 2px; }
+@media (max-width: 1050px) {
+  .supervision-workspace { grid-template-columns: 190px minmax(0,1fr); gap: .7rem; }
+  .supervision-content { padding: 1rem; }
+  .overview-facts { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media (max-width: 760px) {
+  .supervision-panel > .supervision-modal-body { padding: .6rem; }
+  .supervision-workspace { display: block; }
+  .supervision-navigation { position: static; display: flex; gap: .4rem; overflow-x: auto; white-space: nowrap; max-height: none; margin-bottom: .75rem; padding: .5rem; }
+  .workspace-nav-group { display: contents; }
+  .workspace-nav-label { display: none; }
+  .workspace-nav-button { width: auto; flex-shrink: 0; font-size: .8rem; padding: .7rem; }
+  .workspace-nav-button.active { box-shadow: inset 0 -3px #3166c7; }
+  .supervision-hero { flex-wrap: wrap; padding: .8rem; }
+  .supervision-hero-avatar { width: 48px; height: 48px; }
+  .supervision-hero-name { font-size: 1.1rem; }
+  .hero-actions { margin-left: 0; width: 100%; }
+  .supervision-content { padding: .8rem; min-height: 400px; }
+  .overview-fact { padding: .75rem; }
+  .overview-shortcuts { grid-template-columns: 1fr; }
+  .workspace-heading { align-items: flex-start; }
+  .workspace-heading h3 { font-size: 1.15rem; }
+  .upcoming-session-row, .session-section-heading { align-items: flex-start; flex-direction: column; }
+  .upcoming-card-heading { flex-wrap: wrap; }
+  .upcoming-card-heading a { margin-left: 0; }
+  .supervision-panel > .supervision-modal-header { gap: .5rem; padding: .8rem; }
+  .auricwell-supervision-brand { font-size: .72rem; }
+}
+
 </style>

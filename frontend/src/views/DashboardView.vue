@@ -1036,8 +1036,8 @@
             />
           </div>
 
-          <div v-if="!previewMode && isOnboardingComplete && !isClubContext && activeTab === 'supervision'" class="my-panel">
-            <SupervisionModal />
+          <div v-if="!previewMode && isOnboardingComplete && !isClubContext" v-show="activeTab === 'supervision'" class="my-panel">
+            <KeepAlive><SupervisionModal v-if="activeTab === 'supervision'" /></KeepAlive>
           </div>
           <div v-if="!previewMode && isOnboardingComplete && !isClubContext && activeTab === 'my_supervision'" class="my-panel">
             <UserSupervisionTab userId="me" :agency-id="currentAgencyId" />
