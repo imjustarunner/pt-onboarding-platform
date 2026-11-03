@@ -107,9 +107,12 @@ export async function listCommunications(appointmentId) {
      LIMIT 200`,
     [Number(appointmentId)]
   );
+  const [receipts] = rows?.length ? await pool.execute('SELECT communication_id,confirmed_at FROM cancellation_email_receipts WHERE appointment_id=?',[Number(appointmentId)]) : [[]];
   return (rows || []).map((r) => {
     const raw = typeof r.metadata_json === 'string' ? r.metadata_json : JSON.stringify(r.metadata_json);
     const metadata = parseJson(maybeDecryptNotePayload(raw), null);
+    const receipt = receipts.find(receipt=>Number(receipt.communication_id) === Number(metadata?.communicationId));
+    if (receipt && metadata) { metadata.receiptRequired=true;metadata.receiptConfirmedAt=receipt.confirmed_at || null; }
     return ({
     id: Number(r.id),
     appointmentId: Number(r.appointment_id),

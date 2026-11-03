@@ -3,14 +3,16 @@
  <div v-for="person in participants" :key="person.id" class="participant-row"><div><strong>{{ person.name }}</strong><small class="rsvp-badge" :class="`rsvp-${person.rsvp || 'pending'}`">{{ person.rsvp === 'accepted' ? 'Confirmed' : person.rsvp === 'declined' ? 'Declined' : 'Awaiting RSVP' }}{{ person.isHost ? ' · Host' : '' }}</small><small v-if="person.rsvp_decline_reason">Reason: {{person.rsvp_decline_reason}}</small><small v-if="person.compensation">{{ person.compensation }}</small></div>
  <label><input type="checkbox" :checked="!!person.is_required" :disabled="!canEdit || saving" @change="save(person,'is_required',$event.target.checked)" /> Mandatory</label>
  <label><input type="checkbox" :checked="person.isHost || !!person.is_cohost" :disabled="!canEdit || saving || person.isHost" @change="save(person,'is_cohost',$event.target.checked)" /> Co-host</label>
+ <label v-if="Number(person.id) === viewerId">My RSVP <select :value="person.rsvp || 'pending'" :disabled="saving" @change="rsvp($event.target.value)"><option value="pending" disabled>Awaiting RSVP</option><option value="accepted">Attending</option><option value="declined">Not attending</option></select></label>
  </div></section>
 </template>
 <script setup>
 import { ref, watch } from 'vue';import api from '../../services/api';
 const emit=defineEmits(['updated']);
-const props=defineProps({eventId:{type:[Number,String],required:true}}),participants=ref([]),canEdit=ref(false),saving=ref(false),error=ref('');
-watch(()=>props.eventId,async(id)=>{if(!Number(id))return;try{const{data}=await api.get(`/team-meetings/${id}/participants`,{skipGlobalLoading:true});participants.value=data.participants||[];canEdit.value=!!data.canEdit;}catch(e){error.value=e.response?.data?.error?.message||'Could not load participants.';}},{immediate:true});
+const props=defineProps({eventId:{type:[Number,String],required:true}}),participants=ref([]),canEdit=ref(false),viewerId=ref(0),saving=ref(false),error=ref('');
+watch(()=>props.eventId,async(id)=>{if(!Number(id))return;try{const{data}=await api.get(`/team-meetings/${id}/participants`,{skipGlobalLoading:true});participants.value=data.participants||[];canEdit.value=!!data.canEdit;viewerId.value=Number(data.viewerId || 0);}catch(e){error.value=e.response?.data?.error?.message||'Could not load participants.';}},{immediate:true});
 async function save(person,key,value){saving.value=true;error.value='';try{const next={...person,[key]:value};await api.put(`/team-meetings/${props.eventId}/participants/${person.id}`,{isRequired:!!next.is_required,isCohost:!!next.is_cohost});person[key]=value;emit('updated');}catch(e){error.value=e.response?.data?.error?.message||'Could not update participant.';}finally{saving.value=false;}}
+async function rsvp(response){saving.value=true;error.value='';try{await api.post(`/team-meetings/${props.eventId}/my-rsvp`,{response});const person=participants.value.find(p=>Number(p.id)===viewerId.value);if(person)person.rsvp=response;emit('updated');window.dispatchEvent(new CustomEvent('meeting-rsvp-changed'));}catch(e){error.value=e.response?.data?.error?.message||'Could not save your RSVP.';}finally{saving.value=false;}}
 </script>
 <style scoped>
 .participant-row .rsvp-badge { display:inline-block; padding:3px 8px; border-radius:12px; font-weight:700; }.participant-row .rsvp-accepted{background:#d1fae5;color:#065f46}.participant-row .rsvp-declined{background:#fee2e2;color:#991b1b}.participant-row .rsvp-pending{background:#fef3c7;color:#92400e}

@@ -14,6 +14,7 @@ import { authenticate, authenticateOptional } from '../middleware/auth.middlewar
 import {
   getMeetingParticipantPreferences,
   putMeetingParticipantPreferences,
+  updateMyMeetingRsvp,
   getMeetingTypeSettings,
   putMeetingTypeSettings,
   getTeamMeetingJoinInfo,
@@ -107,6 +108,7 @@ router.post('/:eventId/enable-attendance-tracking', enableTeamMeetingAttendanceT
 router.get('/:eventId/activity', getTeamMeetingActivity);
 router.post('/:eventId/activity', postTeamMeetingActivity);
 router.get('/:eventId/participants', getMeetingParticipantPreferences);
+router.post('/:eventId/my-rsvp', updateMyMeetingRsvp);
 router.put('/:eventId/participants/:userId', putMeetingParticipantPreferences);
 router.get('/:eventId/workspace', getTeamMeetingWorkspace);
 router.post('/:eventId/workspace', upsertTeamMeetingWorkspace);

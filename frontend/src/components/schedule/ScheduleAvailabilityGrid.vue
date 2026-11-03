@@ -5346,6 +5346,7 @@
               >
                 {{calendarSessionState(item) || 'Cancelled'}} — retained in schedule history
               </div>
+              <CanceledSessionDetails v-if="item.isCancelled && item.appointmentId" :appointment-id="Number(item.appointmentId)" />
               <div
                 v-if="isEditableScheduleStackItem(item) && scheduleEventEditId !== Number(item.eventId || 0)"
                 class="stack-details-actions"
@@ -5905,6 +5906,7 @@ import OpenSlotPlusOfficeRequestBody from './OpenSlotPlusOfficeRequestBody.vue';
 import { useAppointmentChange } from '../../composables/useAppointmentChange.js';
 import AppointmentRemindersPanel from './AppointmentRemindersPanel.vue';
 import AppointmentCommunicationsPanel from './AppointmentCommunicationsPanel.vue';
+import CanceledSessionDetails from './CanceledSessionDetails.vue';
 import PushSessionUpdatePanel from './PushSessionUpdatePanel.vue';
 import MyRoomLobbyDialog from './MyRoomLobbyDialog.vue';
 import ScheduleColorLegend from './ScheduleColorLegend.vue';

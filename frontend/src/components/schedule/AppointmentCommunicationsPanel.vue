@@ -66,6 +66,7 @@ watch(() => props.appointmentId, () => { rows.value = []; notice.value = ''; off
         <p class="communication-meta">{{ when(row.createdAt) }}<template v-if="row.metadata.recipient"> · To: {{ row.metadata.recipient }}</template><template v-if="row.metadata.clientId"> · Client #{{ row.metadata.clientId }}</template></p>
         <p v-if="row.metadata.scheduledFor && ['pending','queued'].includes(deliveryStatus(row))" class="communication-meta">Planned send: {{ when(row.metadata.scheduledFor) }}. Later edits may change this time.</p>
         <p v-if="row.metadata.sentAt" class="communication-meta">Sent: {{ when(row.metadata.sentAt) }}</p>
+        <p v-if="row.metadata.receiptRequired" class="communication-meta">{{ row.metadata.receiptConfirmedAt ? `Recipient confirmed receipt: ${when(row.metadata.receiptConfirmedAt)}` : 'Awaiting recipient confirmation — sending or opening the email does not confirm receipt.' }}</p>
         <p v-if="row.metadata.subject"><strong>Subject:</strong> {{ row.metadata.subject }}</p>
         <p v-if="row.metadata.reason" class="attention">{{ row.metadata.reason }}</p>
         <details v-if="row.metadata.body || row.bodyPreview"><summary>View recorded message</summary><p class="communication-body">{{ row.metadata.body || row.bodyPreview }}</p></details>

@@ -5,6 +5,8 @@ import { createCancellationSchoolNoticeService } from './cancellationSchoolNotic
 import { hasTerminalClientStatus } from './clientTerminationRoster.service.js';
 import { dayAbsenceMessage } from './dayAbsencePolicy.service.js';
 import { schoolAbsenceHistory } from './schoolAbsenceHistory.service.js';
+import { cancellationEmailReceipts, needsCancellationReceipt, appendCancellationReceipt } from './cancellationEmailReceipt.service.js';
+import { notificationTransportReceipt } from '../utils/notificationTransportReceipt.js';
 
 const fail = message => Object.assign(new Error(message), { status: 409 });
 
@@ -21,9 +23,11 @@ async function sendRosterEmail({ agencyId, clientId, ...message }) {
   const optOut = await createSchoolSessionEmailOptOutLink(scope);
   const footer = schoolSessionEmailOptOutContent(optOut.url);
   const brand = { ...context.brand, replyTo: mailbox.support, displayName: `${context.tenant.name} Notifications` };
-  const text = `${message.text}\n\nPlease log in to see upcoming changes to your schedule: ${context.url('login')}` + footer.text;
+  const text = `${message.text}\n\nReview upcoming changes to your schedule: ${context.url('login')}` + footer.text;
+  const { escapeNoticeHtml } = await import('./scheduleNoticeMessage.service.js');
+  const html = `${message.html || `<p>${escapeNoticeHtml(message.text).replaceAll('\n','<br>')}</p>`}<p><a href="${escapeNoticeHtml(context.url('login'))}">Review my appointments</a></p>${footer.html}`;
   return sendEmailFromIdentity({ ...message, agencyId, clientId, text,
-    html: renderPortalEmail({ brand, text }), portalEmailBrand: brand,
+    html: renderPortalEmail({ brand, text, html }), portalEmailBrand: brand,
     senderIdentityId: mailbox.senderIdentityId, replyToOverride: mailbox.support, fromDisplayNameOverride: brand.displayName,
     templateType: SCHOOL_EMAIL_TEMPLATE, schoolSessionScopeKey: optOut.scopeKey });
 }
@@ -31,7 +35,7 @@ async function sendRosterEmail({ agencyId, clientId, ...message }) {
 /** School-day assignments are notification evidence, never synthetic appointments. */
 export function createCancellationSchoolRosterService(overrides = {}) {
   const d = { database: pool, contacts: (...args) => cancellationRecipients.review(...args),
-    permitted: (...args) => cancellationRecipients.permitted(...args), sendEmail: sendRosterEmail, history: schoolAbsenceHistory, ...overrides };
+    permitted: (...args) => cancellationRecipients.permitted(...args), sendEmail: sendRosterEmail, history: schoolAbsenceHistory, receipts:cancellationEmailReceipts, ...overrides };
   async function list({ agencyId, providerId, date }) {
     const weekday = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date(`${date}T12:00:00Z`).getUTCDay()];
     const [rows] = await d.database.execute(`SELECT cpa.id AS assignment_id,cpa.client_id,cpa.organization_id AS school_id,
@@ -60,7 +64,7 @@ export function createCancellationSchoolRosterService(overrides = {}) {
     }
     return [...clients.values()];
   }
-  async function review(row, { agencyId, providerId, date, reason, reasonCategory, urgent = true, absenceSource = 'cancel_day', choices, message, required = false, followUpAction, followUpMessage = '' }) {
+  async function review(row, { agencyId, providerId, date, reason, reasonCategory, providerAuthored = false, urgent = true, absenceSource = 'cancel_day', choices, message, required = false, followUpAction, followUpMessage = '' }) {
     const clientId = Number(row.client_id);
     const client = await d.contacts(clientId, agencyId, choices, { required, allowMissingEmail: true });
     // Assigned-day notices have no appointment/portal session to attach texts or replacement offers to.
@@ -68,13 +72,13 @@ export function createCancellationSchoolRosterService(overrides = {}) {
     if (followUpAction === 'private_slots') throw fail('Private replacement times require scheduled appointments. Choose contact support for assigned-day clients.');
     return { key: `school_roster:${agencyId}:${providerId}:${date}:${clientId}:${row.school_id}`, kind: 'school_roster',
       id: clientId, clientId, agencyId, providerId, schoolId: Number(row.school_id), date,
-      reason, reasonCategory, urgent, absenceSource,
+      reason, reasonCategory, urgent, absenceSource, providerAuthored, emailOnly:true,
       title: `${client.clientName} — ${row.school_name} assigned-day notice`, clients: [{ ...client, emailOnly: true }],
       recipients: [client.clientName],
-      message: reviewedMessage(message, dayAbsenceMessage({ urgent, providerName: row.provider_name, schoolName: row.school_name, date, reason })),
+      message: reviewedMessage(message, dayAbsenceMessage({ urgent, providerAuthored, providerName: row.provider_name, clientName:client.clientName, schoolName: row.school_name, date, reason, reasonCategory })),
       source: { assignment: row, contacts: client.contacts } };
   }
-  async function deliver(_token, item, actorUserId) {
+  async function deliver(_token, item, actorUserId, historyId) {
     const current = (await list(item)).find(r => Number(r.client_id) === item.clientId && Number(r.school_id) === item.schoolId);
     if (!current || JSON.stringify(current) !== JSON.stringify(item.source.assignment)) throw fail('This school-day assignment changed. Review it again before notifying the family.');
     const client = item.clients[0];
@@ -89,7 +93,18 @@ export function createCancellationSchoolRosterService(overrides = {}) {
       let allowed = false;
       for (const r of matching) if (await d.permitted(item.clientId, item.agencyId, r, 'email')) allowed = true;
       if (!allowed) return { skipped: true, reason: 'Family notification preference or access prevents delivery.' };
-      return d.sendEmail({ ...args, clientId: item.clientId });
+      let receipt;
+      if (needsCancellationReceipt(item)) {
+        receipt = await d.receipts.issue({agencyId:item.agencyId,clientId:item.clientId,providerId:item.providerId,actorUserId,
+          schoolHistoryId:historyId,deliveryType:'school_roster',deliveryKey:`${historyId}:${createHash('sha256').update(args.to).digest('hex')}`,
+          recipient:args.to,recipientUserId:matching[0]?.userId || null});
+        args = appendCancellationReceipt(args,receipt.url);
+      }
+      try {
+        const result = await d.sendEmail({ ...args, clientId: item.clientId });
+        if (receipt) await d.receipts.sent(receipt.id,notificationTransportReceipt(result,item.agencyId).accepted ? 'sent' : 'held',result?.communicationId);
+        return result;
+      } catch (error) { if (receipt) await d.receipts.sent(receipt.id,'review'); throw error; }
     } });
     const addresses = [...new Set(client.recipients.map(r => r.email.toLowerCase()).filter(Boolean))];
     const result = addresses.length ? await notices.send(deliveryToken, { ...item, recipients: addresses }, actorUserId) : { sent: 0, deliveries: [] };
@@ -99,7 +114,7 @@ export function createCancellationSchoolRosterService(overrides = {}) {
   async function send(token, item, actorUserId, { suppressed = false } = {}) {
     const id = await d.history.begin(token, item, actorUserId);
     try {
-      const result = suppressed ? { sent: 0, suppressed: 1, reason: 'Emails deferred; follow-up review is required.' } : await deliver(token, item, actorUserId);
+      const result = suppressed ? { sent: 0, suppressed: 1, reason: 'Emails deferred; follow-up review is required.' } : await deliver(token, item, actorUserId,id);
       await d.history.finish(id, result);
       return result;
     } catch (error) {

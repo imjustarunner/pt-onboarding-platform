@@ -3007,7 +3007,7 @@ const routes = [
     path: '/:organizationSlug/admin/notifications',
     name: 'OrganizationNotifications',
     redirect: (to) => ({
-      path: '/notifications',
+      path: `/${to.params.organizationSlug}/notifications`,
       query: { ...to.query, scope: 'managed' }
     }),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'provider', 'staff', 'school_staff', 'club_manager'], organizationSlug: true }
@@ -3231,10 +3231,7 @@ const routes = [
   {
     path: '/:organizationSlug/notifications',
     name: 'OrganizationSupervisorNotifications',
-    redirect: (to) => ({
-      path: '/notifications',
-      query: { ...to.query }
-    }),
+    component: () => import('../views/NotificationsHubView.vue'),
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {

@@ -17,7 +17,7 @@ export function buildScheduleNoticeMessage(entries, portalUrl, { recipientUserId
   const sections = entries.filter(e => !linkedReplacements.has(Number(e.appointment.id))).map(({ appointment: a, payload, cancellation }) => {
     if (cancellation?.replacementAppointmentId) return cancellation;
     if (cancellation) {
-      if (payload.facts?.absenceSource) return cancellation;
+      if (payload.facts?.absenceSource) return { ...cancellation, text:cancellation.bodyText || cancellation.text, html:cancellation.bodyHtml || cancellation.html };
       if (cancellation.noShow) return { ...cancellation, sms: `Please review the missed appointment notice in your secure portal. ${FAMILY_APPOINTMENT_LOGIN}` };
       const attribution = familyCancellationAttribution(a,payload.facts,recipientUserId);
       // The other parent's private explanation is not copied into shared texts/email.
@@ -44,11 +44,11 @@ export function buildScheduleNoticeMessage(entries, portalUrl, { recipientUserId
     }
     return { text, html: `<p>${escapeNoticeHtml(text)}</p>`, subject: replacement ? 'Your replacement appointment is reserved' : moved ? 'Your appointment has moved' : 'Your appointment is scheduled' };
   });
-  const footer = 'Please reply to this email to reach our support team. Use the secure portal for clinical details.';
+  const footer = entries.every(e => e.payload.facts?.absenceSource) ? '' : 'Please reply to this email to reach our support team. Use the secure portal for clinical details.';
   return {
     subject: sections.length === 1 ? sections[0].subject : 'Your appointment schedule has been updated',
     text: `${sections.map(s => s.text).join('\n\n')}\n\nReview your current schedule: ${portalUrl}\n\n${footer}`,
-    html: `${sections.map(s => s.html).join('<hr>')}<p><a href="${escapeNoticeHtml(portalUrl)}">Review my appointments</a></p><p>${footer}</p>`,
+    html: `${sections.map(s => s.html).join('<hr>')}<p><a href="${escapeNoticeHtml(portalUrl)}">Review my appointments</a></p>${footer ? `<p>${footer}</p>` : ''}`,
     sms: sections.every(section => section.sms) ? sections.map(section => section.sms).join('\n') : `Your appointment schedule has been updated. Please review the latest details in your secure portal: ${portalUrl}`
   };
 }

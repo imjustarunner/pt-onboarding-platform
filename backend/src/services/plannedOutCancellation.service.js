@@ -4,7 +4,7 @@ import pool from '../config/database.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 
 export function plannedOutCancellationInput({ payload, providerId, agencyId }) {
-  if (payload.availability === 'available') return null;
+  if (payload.availability === 'available' || payload.cancelScheduledItems === false) return null;
   const timeZone = payload.timeZone || 'America/Denver';
   const localDate = value => new Intl.DateTimeFormat('en-CA', { timeZone, year:'numeric',month:'2-digit',day:'2-digit' }).format(parseUtcDate(value));
   const start = payload.allDay ? payload.startDate : localDate(payload.startAt);
@@ -16,12 +16,13 @@ export function plannedOutCancellationInput({ payload, providerId, agencyId }) {
     ...(payload.allDay ? {} : { windowStart:payload.startAt, windowEnd:payload.endAt }) };
 }
 
-export async function preparePlannedOutCancellation(args, actor) {
+export async function preparePlannedOutCancellation(args, actor, { previewOnly = false, reviewToken = null, includeUntimedKeys = [], finalReview = false, requireReview = false } = {}) {
   const input = plannedOutCancellationInput(args);
   if (!input) return null;
   const { authorizeDayCancellation } = await import('../controllers/providerDayCancellation.controller.js');
   const { assertAppointmentChangeAccess } = await import('../controllers/appointment.controller.js');
-  return dayCancellation.preview(input,actor,authorizeDayCancellation,(who,a) => assertAppointmentChangeAccess({ user:who },a));
+  if (requireReview) return dayCancellation.plannedOutReview(input,reviewToken,actor,authorizeDayCancellation);
+  return dayCancellation.preview({...input,includeUntimedKeys,messagesReviewed:previewOnly ? finalReview === true : input.messagesReviewed},actor,authorizeDayCancellation,(who,a) => assertAppointmentChangeAccess({ user:who },a));
 }
 export async function completePlannedOutCancellation(plan, actor) {
   if (!plan) return null;

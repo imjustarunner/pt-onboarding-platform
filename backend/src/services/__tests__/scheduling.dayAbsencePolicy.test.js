@@ -10,7 +10,7 @@ import { createPlannedOutParticipation } from '../plannedOutParticipation.servic
 describe('day absence policy and schedule evidence',()=>{
   it('uses first-person urgent school copy and concise nonurgent copy without requesting a reply',()=>{
     const urgent=dayAbsenceMessage({urgent:true,providerName:'Avery QA',schoolName:'Cedar Grove',date:'2026-11-09',reason:'Weather conditions'});
-    expect(urgent.text).toContain('I will not be at Cedar Grove');expect(urgent.text).toContain('Avery QA');
+    expect(urgent.text).toContain('I need to cancel');expect(urgent.text).toContain('at Cedar Grove');expect(urgent.text).toContain('Avery QA');
     expect(urgent.text).not.toMatch(/confirm|text|receipt/i);
     const planned=dayAbsenceMessage({urgent:false,date:'2026-11-09',reason:'Private reason'});
     expect(planned.text).toContain('Your care team has canceled an upcoming session');

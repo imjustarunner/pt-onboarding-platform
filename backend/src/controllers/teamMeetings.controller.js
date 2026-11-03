@@ -2616,9 +2616,18 @@ export const getMeetingParticipantPreferences = async (req,res,next) => {
     const { meetingParticipantRows }=await import('../services/meetingParticipants.service.js');
     const people=await meetingParticipantRows(event,{includeCompensation:admin});
     const canSeeDeclined=canViewDeclinedMeetingParticipants(event,req.user,people);
-    res.json({participants:visibleMeetingRsvpParticipants(people,canSeeDeclined),canSeeDeclined,canEdit:Number(event.provider_id)===Number(req.user.id)||admin});
+    res.json({participants:visibleMeetingRsvpParticipants(people,canSeeDeclined,req.user.id),viewerId:Number(req.user.id),canSeeDeclined,canEdit:Number(event.provider_id)===Number(req.user.id)||admin});
   }catch(error){next(error);}
 };
+export const updateMyMeetingRsvp = async(req,res,next) => {
+  try {
+    const event=await ProviderScheduleEvent.findById(Number(req.params.eventId));
+    if (!event || !await canAccessTeamMeeting(req,event)) return res.status(403).json({error:{message:'Access denied'}});
+    const {saveMeetingSelfRsvp}=await import('../services/meetingSelfRsvp.service.js');
+    res.json(await saveMeetingSelfRsvp(event,Number(req.user.id),req.body?.response));
+  } catch(error) { if(error.status) return res.status(error.status).json({error:{message:error.message}});next(error); }
+};
+
 export const putMeetingParticipantPreferences = async (req,res,next) => {
   try {
     const event=await ProviderScheduleEvent.findById(Number(req.params.eventId));

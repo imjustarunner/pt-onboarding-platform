@@ -3826,7 +3826,7 @@ async function loadConversations({ quiet = false, append = false } = {}) {
     if (id === 'needs_attention') {
       const {data} = await api.get('/communications/drafts/attention', {params:{agencyId:agencyId.value},signal:controller.signal});
       if(request !== inboxRequest) return;
-      conversations.value=(data.items || []).map(item=>({...item,id:item.draftId || `failed-${item.messageId}`,channel:'email',primary_participant_name:item.deliveryLabel,last_message_at:item.updatedAt}));
+      conversations.value=(data.items || []).map(item=>({...item,id:item.id || item.draftId || `failed-${item.messageId}`,channel:'email',primary_participant_name:item.deliveryLabel,last_message_at:item.updatedAt}));
       return;
     }
     if (id === 'drafts') {
@@ -4095,6 +4095,7 @@ async function toggleStarByConversationId(conversationId, currentlyStarred, msg 
 }
 
 async function pickConversation(conv, { preserveSequence = false } = {}) {
+  if (conv.type === 'cancellation_contact') { const slug=String(route.params?.organizationSlug || ''); return router.push({path:slug ? `/${slug}/my-schedule` : '/my-schedule',query:{cancelDay:conv.cancellationReview.date,providerId:String(conv.cancellationReview.providerId),agencyId:String(conv.cancellationReview.agencyId)}}); }
   if (!preserveSequence && !conv.draftId) {
     const rows = filteredConversations.value.filter(row => !row.draftId);
     readingSequence.value = rows.some(row => readerKey(row) === readerKey(conv)) ? [...rows] : [conv];

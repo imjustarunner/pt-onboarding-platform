@@ -18,3 +18,8 @@ describe('school soft-schedule and medical-file cancellation evidence',()=>{
   const w=mount(Records,{props:{clientId:2337}});await flushPromises();expect(m.get).toHaveBeenCalledWith('/clients/2337/school-absence-history',expect.any(Object));expect(w.text()).toContain('Delivery uncertain');
  });
 });
+
+it('shows explicit recipient confirmation separately from transport acceptance',()=>{
+ const w=mount(Records,{props:{records:[{id:1,date:'2026-11-16',clientName:'Child',schoolName:'School',delivery:{sent:1,deliveries:[{status:'sent',recipient_address:'parent@example.test',receiptRequired:true,receiptConfirmedAt:'2026-11-02 21:00:00'}]}}]}});
+ expect(w.text()).toContain('Receipt confirmed 2026-11-02 21:00:00');expect(w.find('summary').text()).toContain('receipt confirmed');w.unmount();
+});

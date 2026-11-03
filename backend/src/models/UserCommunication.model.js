@@ -110,7 +110,7 @@ class UserCommunication {
       `SELECT uc.id, uc.user_id, uc.client_id, uc.agency_id, uc.template_type, uc.template_id,
               uc.channel, uc.subject, uc.recipient_address, uc.delivery_status,
               uc.external_message_id, uc.sent_at, uc.delivered_at, uc.opened_at,
-              uc.first_clicked_at, uc.error_message, uc.generated_at,
+              uc.first_clicked_at, uc.error_message, uc.generated_at,uc.metadata,
               u.id AS recipient_user_id,
               u.email AS recipient_email,
               u.first_name AS recipient_first_name,

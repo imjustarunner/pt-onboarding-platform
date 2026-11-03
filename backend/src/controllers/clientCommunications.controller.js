@@ -73,6 +73,7 @@ async function ensureClientAccess({ userId, role, clientId }) {
  * Shape an email row (raw `user_communications` join) into the format the UI expects.
  * Body intentionally omitted from list payloads — fetched separately via the body endpoint.
  */
+function receiptMetadata(row) { try { const m=typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata; return {receiptRequired:!!m?.cancellationReceiptId,receiptConfirmedAt:m?.cancellationReceiptConfirmedAt || null}; } catch {return {receiptRequired:false,receiptConfirmedAt:null};} }
 function shapeEmailRow(row) {
   const recipientUserId = row.recipient_user_id || row.user_id || null;
   const recipientName = [row.recipient_first_name, row.recipient_last_name]
@@ -84,6 +85,7 @@ function shapeEmailRow(row) {
   return {
     id: row.id,
     channel: 'email',
+    ...receiptMetadata(row),
     direction: 'outbound',
     subject: row.subject || null,
     recipientAddress: row.recipient_address || row.recipient_email || null,
@@ -388,6 +390,7 @@ export const getClientCommunicationBody = async (req, res, next) => {
       sentAt: row.sent_at || null,
       deliveredAt: row.delivered_at || null,
       openedAt: row.opened_at || null,
+      ...receiptMetadata(row),
       deliveryStatus: row.delivery_status || null,
       templateType: row.template_type || null,
       externalMessageId: row.external_message_id || null

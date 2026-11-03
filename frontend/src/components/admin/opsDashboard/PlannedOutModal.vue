@@ -6,7 +6,7 @@
         <button type="button" class="pom-x" aria-label="Close" @click="$emit('close')">×</button>
       </header>
 
-      <form v-if="!savedCancellation" class="pom-form" @submit.prevent="submit">
+      <form v-if="!savedCancellation && !preflight" class="pom-form" @submit.prevent="submit">
         <p class="pom-info" role="note">
           This is a notification to let the admin team know when you will not be available.
           It does not submit vacation, PTO, or sick time.
@@ -106,18 +106,35 @@
 
         <p v-if="error" class="pom-err">{{ error }}</p>
 
+        <label v-if="availability === 'unavailable'" class="field"><span><input v-model="cancelScheduledItems" type="checkbox"> Cancel all overlapping sessions and scheduled events, and mark my RSVPs as not attending (default).</span></label>
         <p class="pom-info pom-info--foot" role="note">
           <strong>Important:</strong>
-          When unavailable, submitting cancels overlapping future sessions and scheduled events and marks your RSVPs as not attending. Families receive a nonurgent email; school offices do not. No texts or receipt confirmations are sent. Records stay in place, and you can change an event RSVP afterward.
+          When unavailable, review the affected items before confirming. With cancel-all selected, overlapping sessions and scheduled events are canceled and RSVPs are marked not attending. If you turn it off, only the availability block is saved. Families receive a nonurgent email; school offices do not. No texts or receipt confirmations are sent. Records stay in place, and you can change an event RSVP afterward.
         </p>
 
         <footer class="pom-foot">
           <button type="button" class="btn ghost" @click="$emit('close')">Cancel</button>
           <button type="submit" class="btn primary" :disabled="saving">
-            {{ saving ? 'Saving…' : availability === 'unavailable' ? 'Submit and cancel scheduled items' : 'Submit planned out' }}
+            {{ saving ? 'Saving…' : availability === 'unavailable' && cancelScheduledItems ? 'Review affected items' : 'Submit planned out' }}
           </button>
         </footer>
       </form>
+      <section v-else-if="preflight" class="pom-form pom-review">
+        <h4>{{ reviewFinal ? 'Final Planned Out review' : 'Review affected items' }}</h4>
+        <p>Nothing has been canceled or sent yet. This absence uses nonurgent family emails, without texts, school-office notices, or receipt requests.</p>
+        <p>{{ selectedWhen }} · {{ preflight.items.length }} items</p>
+        <ul><li v-for="item in preflight.items" :key="item.key" :class="{ 'pom-err': item.clients?.some(c => !c.recipients?.some(r => r.email)) }">
+          <strong>{{ item.date }} · {{ item.title }}</strong>
+          <p>{{ item.kind === 'participation' ? 'Set RSVP to not attending; keep the event' : item.kind === 'school_roster' ? 'Notify assigned school family; no EHR session is created' : 'Cancel this scheduled item; preserve its content' }}</p>
+          <p v-for="client in item.clients || []" :key="client.clientId">{{ client.clientName }}: <span v-for="r in client.recipients" :key="r.key">{{ r.name }} — {{ r.email || 'No email on file; follow-up required' }}; </span><strong v-if="!client.recipients?.length">No selected recipient; follow-up required</strong></p>
+          <details v-if="item.message"><summary>Family email</summary><strong>{{ item.message.subject }}</strong><p style="white-space:pre-wrap">{{ item.message.text }}</p></details>
+          <details v-if="item.note"><summary>Preserved cancellation note</summary><p>{{ item.note }}</p></details>
+        </li></ul>
+        <section v-if="preflight.unchanged?.length"><h4>Not included</h4><div v-for="item in preflight.unchanged" :key="item.key"><p>{{ item.date }} · {{ item.title }} — {{ item.detail }}</p><label v-if="item.needsTimeReview && !reviewFinal"><input v-model="includeUntimedKeys" type="checkbox" :value="item.key"> I checked that this absence affects this untimed school family; include them.</label></div></section>
+        <p v-if="error" class="pom-err" role="alert">{{ error }}</p>
+        <label v-if="reviewFinal"><input v-model="confirmedReview" type="checkbox"> I reviewed the affected items, recipients, messages, and missing-contact warnings and approve these cancellations and notifications.</label>
+        <footer class="pom-foot"><button type="button" class="btn ghost" :disabled="saving" @click="preflight=null;reviewFinal=false">Back</button><button type="button" class="btn primary" :disabled="saving || (reviewFinal && !confirmedReview)" @click="reviewFinal ? confirmPlannedOut() : reviewPlannedOut()">{{ saving ? 'Saving…' : reviewFinal ? 'Confirm Planned Out and cancel items' : 'Review final Planned Out' }}</button></footer>
+      </section>
       <section v-else class="pom-form"><p role="alert">{{ error }}</p><button type="button" class="btn primary" @click="showResume=true">Continue saved cancellations</button><button type="button" @click="emit('created');emit('close')">Close and follow up later</button></section>
       <DayCancellationDialog v-if="showResume" :provider-id="savedCancellation.providerId" :agency-id="Number(agencyId)" :date="savedCancellation.date" :review-token="savedCancellation.token" @close="showResume=false" @saved="emit('created');emit('close')" />
     </div>
@@ -156,6 +173,7 @@ const contactPreference = ref('none');
 const details = ref('');
 const saving = ref(false), savedCancellation = ref(null), showResume = ref(false);
 const error = ref('');
+const cancelScheduledItems = ref(true), preflight = ref(null), pendingBody = ref(null), includeUntimedKeys = ref([]), reviewFinal = ref(false), confirmedReview = ref(false);
 
 const selectedWhen = computed(() => {
   if (spanType.value === 'all_day') {
@@ -199,6 +217,7 @@ async function submit() {
       // 8am-12pm / 12pm-5pm windows) in this zone, not the agency's configured time zone.
       timeZone: myTimezone,
       availability: availability.value,
+      cancelScheduledItems: cancelScheduledItems.value,
       emergencies: emergencies.value,
       emergenciesRedirectName: emergencies.value === 'redirect' ? emergenciesRedirectName.value.trim() : undefined,
       contactPreference: contactPreference.value,
@@ -223,15 +242,36 @@ async function submit() {
       body.endDate = addOneDay(endDateInclusive.value || startDate.value);
       body.allDay = true;
     }
-    const res = await api.post('/planned-outs', body, { skipGlobalLoading: true });
-    if (res.data?.cancellation && res.data.cancellation.status !== 'completed') { savedCancellation.value = res.data.cancellation; showResume.value = true; error.value = res.data.cancellation.error || 'Planned Out was saved. Schedule cancellations are processing; open the saved review for progress.'; return; }
-    emit('created', res.data?.plannedOut || null);
-    emit('close');
+    if (body.availability === 'unavailable' && body.cancelScheduledItems) {
+      const { data } = await api.post('/planned-outs/preview', {...body,includeUntimedKeys:[],finalReview:false}, {skipGlobalLoading:true});
+      preflight.value = data.review; pendingBody.value = body; reviewFinal.value = false; confirmedReview.value = false; includeUntimedKeys.value = []; return;
+    }
+    await savePlannedOut(body);
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to submit planned out';
   } finally {
     saving.value = false;
   }
+}
+
+async function savePlannedOut(body) {
+  const res = await api.post('/planned-outs', body, { skipGlobalLoading:true });
+  preflight.value = null;
+  if (res.data?.cancellation && res.data.cancellation.status !== 'completed') { savedCancellation.value=res.data.cancellation;showResume.value=true;error.value=res.data.cancellation.error || 'Planned Out was saved. Open the saved review for cancellation progress.';return; }
+  emit('created',res.data?.plannedOut || null); emit('close');
+}
+async function reviewPlannedOut() {
+  saving.value=true;error.value='';
+  try { const {data}=await api.post('/planned-outs/preview',{...pendingBody.value,includeUntimedKeys:includeUntimedKeys.value,finalReview:true},{skipGlobalLoading:true});preflight.value=data.review;reviewFinal.value=true;confirmedReview.value=false; }
+  catch(e) { error.value=e.response?.data?.error?.message || 'Could not prepare the final review.'; }
+  finally {saving.value=false;}
+}
+async function confirmPlannedOut() {
+  if (!confirmedReview.value || !reviewFinal.value || saving.value) return;
+  saving.value=true;error.value='';
+  try { await savePlannedOut({...pendingBody.value,cancellationReviewToken:preflight.value.token}); }
+  catch(e) {error.value=e.response?.data?.error?.message || 'Could not submit Planned Out. Review the saved status before trying again.';}
+  finally {saving.value=false;}
 }
 </script>
 
@@ -364,4 +404,5 @@ async function submit() {
 @media (max-width: 640px) {
   .pom-row-2, .pom-row-3 { grid-template-columns: 1fr; }
 }
+.pom-review{max-height:75dvh;overflow:auto}.pom-review ul{padding-left:20px}.pom-review li{padding:12px 0;border-bottom:1px solid #dce2eb;overflow-wrap:anywhere}
 </style>

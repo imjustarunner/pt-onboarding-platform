@@ -13,7 +13,8 @@ watch(() => [props.clientId, props.records], async () => {
   catch { if (request === requestNumber) error.value = 'School cancellation history could not be loaded.'; }
 }, { immediate:true });
 const attention = row => row.canceled !== false && (!row.delivery?.sent || ['held','skipped','failed','suppressed'].some(k => row.delivery?.[k] > 0));
-const label = row => row.canceled === false ? 'Soft schedule' : attention(row) ? 'Canceled · contact needs attention' : 'Canceled · email sent (receipt unconfirmed)';
+const allConfirmed = row => { const sent = (row.delivery?.deliveries || []).filter(d => d.status === 'sent'); return sent.length > 0 && sent.every(d => d.receiptConfirmedAt); };
+const label = row => row.canceled === false ? 'Soft schedule' : attention(row) ? 'Canceled · contact needs attention' : allConfirmed(row) ? 'Canceled · receipt confirmed' : 'Canceled · email sent (receipt unconfirmed)';
 </script>
 <template>
   <section v-if="rows.length || error" class="school-absence-records" aria-label="School soft schedule and cancellation history">
@@ -25,7 +26,7 @@ const label = row => row.canceled === false ? 'Soft schedule' : attention(row) ?
       <template v-if="row.canceled !== false">
         <p>{{ row.reason }} · {{ row.urgent ? 'Urgent absence' : 'Nonurgent absence' }}. Initiated by {{ row.actorName || `user #${row.actorUserId}` }} for {{ row.providerName }}, {{ row.recordedAt }} UTC. No service rendered; nonbillable.</p>
         <p v-if="row.delivery?.reason">{{ row.delivery.reason }}</p>
-        <ul><li v-for="(delivery,index) in row.delivery?.deliveries || []" :key="index">{{ delivery.recipient_name || 'Recipient' }} · {{ delivery.recipient_address || 'No email on file' }}{{ delivery.actual_recipient_address && delivery.actual_recipient_address !== delivery.recipient_address ? ` (QA delivery to ${delivery.actual_recipient_address})` : '' }} · email · {{ delivery.status === 'sent' ? 'Sent; inbox receipt unconfirmed' : delivery.status }}{{ delivery.sent_at ? ` · ${delivery.sent_at} UTC` : '' }}{{ delivery.error_message ? ` · ${delivery.error_message}` : '' }}</li></ul>
+        <ul><li v-for="(delivery,index) in row.delivery?.deliveries || []" :key="index">{{ delivery.recipient_name || 'Recipient' }} · {{ delivery.recipient_address || 'No email on file' }}{{ delivery.actual_recipient_address && delivery.actual_recipient_address !== delivery.recipient_address ? ` (QA delivery to ${delivery.actual_recipient_address})` : '' }} · email · {{ delivery.status === 'sent' ? delivery.receiptConfirmedAt ? `Receipt confirmed ${delivery.receiptConfirmedAt} UTC` : delivery.receiptRequired ? 'Sent; awaiting recipient confirmation' : 'Sent; inbox receipt unconfirmed' : delivery.status }}{{ delivery.sent_at ? ` · ${delivery.sent_at} UTC` : '' }}{{ delivery.error_message ? ` · ${delivery.error_message}` : '' }}</li></ul>
         <details v-if="row.message"><summary>Preserved cancellation note and email</summary><strong>{{ row.message.subject }}</strong><p class="message">{{ row.message.text }}</p><p v-for="slot in row.slots || []" :key="slot.id">{{ slot.note }}</p></details>
       </template>
     </details>

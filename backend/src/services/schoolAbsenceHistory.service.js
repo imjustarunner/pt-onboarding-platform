@@ -32,7 +32,16 @@ export function createSchoolAbsenceHistory({ database = pool, encrypt = maybeEnc
       AND (? IS NULL OR h.provider_id=?) AND (? IS NULL OR h.client_id=?)
       AND (? IS NULL OR h.absence_date>=?) AND (? IS NULL OR h.absence_date<?)
       ORDER BY h.absence_date DESC,h.id DESC LIMIT 500`, [agencyId,providerId,providerId,clientId,clientId,startDate,startDate,endDate,endDate]);
-    return rows.map(display);
+    if (!rows.length) return [];
+    const [receipts] = await database.execute(`SELECT school_history_id,recipient_payload,confirmed_at FROM cancellation_email_receipts WHERE agency_id=? AND school_history_id IN (${rows.map(()=>'?').join(',')})`, [agencyId,...rows.map(r=>r.id)]);
+    return rows.map(row => {
+      const record = display(row);
+      record.delivery.deliveries = (record.delivery.deliveries || []).map(delivery => {
+        const receipt = receipts.find(r => Number(r.school_history_id) === Number(row.id) && JSON.parse(decrypt(r.recipient_payload)).address.toLowerCase() === String(delivery.recipient_address || '').toLowerCase());
+        return { ...delivery,receiptRequired:!!receipt,receiptConfirmedAt:receipt?.confirmed_at || null };
+      });
+      return record;
+    });
   }
   return { begin, finish, list };
 }

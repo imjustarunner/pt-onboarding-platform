@@ -276,6 +276,7 @@ function normalizePayload(body = {}, timeZone = DEFAULT_SCHEDULE_TZ) {
   const contactPreference = contactAllowed.includes(contactRaw) ? contactRaw : 'none';
 
   return {
+    cancelScheduledItems:body.cancelScheduledItems !== false,
     timeZone: tz,
     spanType: allDay ? 'all_day' : spanType,
     halfDayPart,
@@ -319,7 +320,34 @@ export const listPlannedOuts = async (req, res, next) => {
   }
 };
 
-export const createPlannedOut = async (req, res, next) => {
+export const previewPlannedOut = async (req,res,next) => {
+  try {
+    const access = await ensureAgencyAccess(req,req.body?.agencyId);
+    if (!access.ok) return res.status(access.status).json({error:{message:access.message}});
+    const providerId = Number(req.body?.userId || req.user.id);
+    if (providerId !== Number(req.user.id) && !isManager(req)) return res.status(403).json({error:{message:'Only authorized staff can submit Planned Out for others.'}});
+    const payload = normalizePayload(req.body || {},req.body?.timeZone || access.agency.timezone || DEFAULT_SCHEDULE_TZ);
+    const review = await preparePlannedOutCancellation({payload,providerId,agencyId:access.agencyId},req.user,
+      {previewOnly:true,includeUntimedKeys:req.body?.includeUntimedKeys || [],finalReview:req.body?.finalReview === true});
+    res.json({review});
+  } catch(error) { if(error.status) return res.status(error.status).json({error:{message:error.message}}); next(error); }
+};
+
+export const createPlannedOut = async(req,res,next) => {
+  const token=String(req.body?.cancellationReviewToken || '');
+  if (!/^[a-f0-9-]{36}$/.test(token)) return createPlannedOutRecord(req,res,next);
+  let connection,locked=false;
+  try {
+    connection=await pool.getConnection();
+    const [[lock]]=await connection.execute('SELECT GET_LOCK(?,5) AS acquired',[`planned-out:${token}`]);
+    if (Number(lock?.acquired)!==1) return res.status(409).json({error:{message:'This Planned Out is already being saved. Check its saved status before trying again.'}});
+    locked=true;
+    return await createPlannedOutRecord(req,res,next);
+  } catch(error) {next(error);}
+  finally {if(connection){if(locked)await connection.execute('SELECT RELEASE_LOCK(?)',[`planned-out:${token}`]).catch(()=>connection.destroy());connection.release();}}
+};
+
+const createPlannedOutRecord = async (req, res, next) => {
   try {
     if (!(await PlannedOut.tableExists())) {
       return res.status(503).json({ error: { message: 'Planned outs not available — run migration 1014' } });
@@ -361,7 +389,16 @@ export const createPlannedOut = async (req, res, next) => {
       }
     }
 
-    const cancellationPlan = await preparePlannedOutCancellation({ payload,providerId:targetUserId,agencyId:access.agencyId },req.user);
+    if (/^[a-f0-9-]{36}$/.test(String(req.body?.cancellationReviewToken || ''))) {
+      const [[existing]]=await pool.execute('SELECT id FROM planned_outs WHERE cancellation_review_token=? AND agency_id=? AND user_id=? AND submitted_by_user_id=? LIMIT 1',[req.body.cancellationReviewToken,access.agencyId,targetUserId,req.user.id]);
+      if (existing) {
+        const saved=await PlannedOut.findById(existing.id);
+        if (!saved || !['pending','approved','revision'].includes(saved.status)) return res.status(409).json({error:{message:'This Planned Out is no longer active. Review its current status.'}});
+        const cancellation=await completePlannedOutCancellation({token:req.body.cancellationReviewToken,providerId:targetUserId},req.user);
+        return res.json({plannedOut:serializePlannedOutForApi(saved),cancellation,alreadySaved:true});
+      }
+    }
+    const cancellationPlan = await preparePlannedOutCancellation({ payload,providerId:targetUserId,agencyId:access.agencyId },req.user,{requireReview:true,reviewToken:req.body?.cancellationReviewToken});
     const event = await createScheduleBlockForOut({
       req,
       agencyId: access.agencyId,

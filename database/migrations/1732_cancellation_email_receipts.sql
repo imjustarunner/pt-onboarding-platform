@@ -1,0 +1,25 @@
+-- An explicit recipient action is separate from transport acceptance and opens.
+CREATE TABLE IF NOT EXISTS cancellation_email_receipts (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  agency_id INT NOT NULL,
+  client_id INT NOT NULL,
+  provider_id INT NOT NULL,
+  actor_user_id INT NOT NULL,
+  appointment_id INT NULL,
+  school_history_id BIGINT UNSIGNED NULL,
+  communication_id INT NULL,
+  delivery_type VARCHAR(24) NOT NULL,
+  delivery_key VARCHAR(190) NOT NULL,
+  token_hash CHAR(64) NOT NULL,
+  token_payload LONGTEXT NOT NULL,
+  recipient_payload LONGTEXT NOT NULL,
+  delivery_status VARCHAR(24) NOT NULL DEFAULT 'pending',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at DATETIME NOT NULL,
+  confirmed_at DATETIME NULL,
+  UNIQUE KEY uq_cancellation_receipt_delivery (agency_id,delivery_type,delivery_key),
+  UNIQUE KEY uq_cancellation_receipt_token (token_hash),
+  KEY ix_cancellation_receipt_appointment (agency_id,appointment_id),
+  KEY ix_cancellation_receipt_school (agency_id,school_history_id),
+  KEY ix_cancellation_receipt_communication (communication_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

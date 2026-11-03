@@ -172,6 +172,7 @@
               <span v-if="item.deliveredAt" class="meta-item delivered-chip" title="Provider confirmed delivery to recipient mailbox">
                 Delivered {{ formatRelative(item.deliveredAt) }}
               </span>
+              <span v-if="item.receiptRequired" class="meta-item delivered-chip">{{ item.receiptConfirmedAt ? `Receipt confirmed ${formatDate(item.receiptConfirmedAt)}` : 'Awaiting receipt confirmation' }}</span>
               <span v-if="item.openedAt" class="meta-item open-chip" title="Tracking pixel detected an open">
                 Opened {{ formatRelative(item.openedAt) }}
               </span>

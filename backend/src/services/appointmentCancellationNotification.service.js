@@ -78,7 +78,7 @@ export function buildCancellationNotification(appointment, facts, resolved = {})
   }
   if (feeText) paragraphs.push(feeText);
   const text = [...paragraphs, ...(portalUrl ? [`Review the latest options: ${portalUrl}`] : [])].join('\n\n');
-  return { ...details, noShow, feeText, when, followUpText, replacementAppointmentId: moved ? resolved.replacement.id : null, subject: reviewed?.subject || (noShow ? 'Your missed appointment' : moved ? 'Your appointment has moved' : 'Your appointment has been canceled'), text,
+  return { ...details, bodyText:paragraphs.join('\n\n'), bodyHtml:paragraphs.map(p => `<p>${escapeHtml(p).replaceAll('\n', '<br>')}</p>`).join(''), noShow, feeText, when, followUpText, replacementAppointmentId: moved ? resolved.replacement.id : null, subject: reviewed?.subject || (noShow ? 'Your missed appointment' : moved ? 'Your appointment has moved' : 'Your appointment has been canceled'), text,
     html: paragraphs.map(p => `<p>${escapeHtml(p).replaceAll('\n', '<br>')}</p>`).join('') + links,
     sms: `Your appointment schedule has been updated. Please review the latest details in your secure portal${portalUrl ? `: ${portalUrl}` : '.'}` };
 }

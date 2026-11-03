@@ -3,12 +3,14 @@ import pool from '../config/database.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { maybeEncryptNotePayload, maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
 import { futureAppointment, scheduleNoticeDeadline, buildScheduleNoticeMessage } from './scheduleNoticeMessage.service.js';
+import { cancellationEmailReceipts, needsCancellationReceipt, appendCancellationReceipt } from './cancellationEmailReceipt.service.js';
 
 const sqlDate = d => d.toISOString().slice(0, 19).replace('T', ' ');
 const active = a => ['scheduled', 'confirmed', 'client_confirmed'].includes(a?.status);
 const canceled = a => ['canceled','cancelled','canceled_by_provider','canceled_by_client','canceled_by_guardian','canceled_by_organization','canceled_by_agency','late_canceled','rescheduled','no_show'].includes(a?.status);
 const defaults = {
   database: pool, now: () => new Date(), encrypt: maybeEncryptNotePayload, decrypt: maybeDecryptNotePayload,
+  receipts:cancellationEmailReceipts,
   appointment: async id => (await import('../models/Appointment.model.js')).default.findById(id),
   attendance: async a => (await import('./replacementBookingConfirmation.service.js')).replacementAttendanceDetails(a),
   participants: async id => (await import('../models/Appointment.model.js')).default.listParticipants(id),
@@ -57,10 +59,10 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
   }
   async function summary(appointmentId) {
     const [rows] = await db.execute('SELECT id,status,fire_at,payload_json FROM appointment_schedule_notices WHERE appointment_id=? ORDER BY id', [appointmentId]);
-    const [deliveryRows] = await db.execute(`SELECT DISTINCT d.id,d.channel,d.status,d.error_message,d.sent_at,d.recipient_address,uc.opened_at,uc.delivered_at,n.client_id FROM appointment_schedule_notice_deliveries d JOIN appointment_schedule_notices n ON n.batch_id=d.batch_id LEFT JOIN user_communications uc ON uc.id=d.communication_id WHERE n.appointment_id=?`, [appointmentId]);
+    const [deliveryRows] = await db.execute(`SELECT DISTINCT d.id,d.channel,d.status,d.error_message,d.sent_at,d.recipient_address,uc.opened_at,uc.delivered_at,n.client_id,r.id AS receipt_id,r.confirmed_at FROM appointment_schedule_notice_deliveries d JOIN appointment_schedule_notices n ON n.batch_id=d.batch_id LEFT JOIN user_communications uc ON uc.id=d.communication_id LEFT JOIN cancellation_email_receipts r ON r.agency_id=n.agency_id AND r.delivery_type='appointment' AND r.delivery_key=CAST(d.id AS CHAR) WHERE n.appointment_id=?`, [appointmentId]);
     return { pending: rows.filter(r => r.status === 'pending').length, suppressed: rows.filter(r => r.status === 'suppressed').length,
       warnings: rows.map(r=>r.payload_json && decode(r.payload_json).offerUnavailableReason).filter(Boolean),
-      queuedUntil: rows.filter(r => r.status === 'pending').map(r => r.fire_at).at(-1) || null, deliveries: deliveryRows.map(r=>({id:r.id,source:'schedule_notice',channel:r.channel,status:r.status,reason:r.error_message,sentAt:r.sent_at,recipient:r.recipient_address,openedAt:r.opened_at,deliveredAt:r.delivered_at,clientId:r.client_id})),
+      queuedUntil: rows.filter(r => r.status === 'pending').map(r => r.fire_at).at(-1) || null, deliveries: deliveryRows.map(r=>({id:r.id,source:'schedule_notice',channel:r.channel,status:r.status,reason:r.error_message,sentAt:r.sent_at,recipient:r.recipient_address,openedAt:r.opened_at,deliveredAt:r.delivered_at,clientId:r.client_id,receiptRequired:!!r.receipt_id,receiptConfirmedAt:r.confirmed_at || null})),
       sent: deliveryRows.filter(r=>r.status==='sent').length, failed: deliveryRows.filter(r=>r.status==='failed').length, held: deliveryRows.filter(r=>['held','review','sending'].includes(r.status)).length, skipped: deliveryRows.filter(r=>r.status==='skipped').length };
   }
   async function queue(appointmentId, { eventType, before = null, facts = {}, actorUserId = null, channels = null, sendImmediately = false } = {}) {
@@ -203,8 +205,8 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
       const targets = selectedContacts ? (selectedContacts.recipients.length ? selectedContacts.recipients : [{ key: 'missing', email: '', phone: '', userId: null }]) : family.hasRelationships ? family.recipients : [null];
       const sentTargets = new Set();
       for (const target of targets) for (const channel of channels.length ? channels : ['in_app']) {
-        let attempted = false, communication = null, recipient = null, externalId = null, status = 'failed', reason = null;
-        const recipientMessage = buildScheduleNoticeMessage(entries,portalUrl,{recipientUserId:target?.userId || null});
+        let attempted = false, communication = null, recipient = null, externalId = null, status = 'failed', reason = null, receipt = null;
+        let recipientMessage = buildScheduleNoticeMessage(entries,portalUrl,{recipientUserId:target?.userId || null});
         const body = channel === 'sms' ? recipientMessage.sms : recipientMessage.text;
         const [delivery] = await db.execute(`INSERT INTO appointment_schedule_notice_deliveries (batch_id,channel,message_json,recipient_key) VALUES (?,?,?,?)`, [batchId,channel,d.encrypt(JSON.stringify(recipientMessage)),target?.key || 'default']);
         try {
@@ -240,6 +242,12 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
             sentTargets.add(targetKey);
             let result;
             if (channel === 'email') {
+              if (entries.every(e => needsCancellationReceipt(e.payload.facts))) {
+                receipt = await d.receipts.issue({agencyId:seed.agency_id,clientId:seed.client_id,providerId:seed.provider_id,
+                  actorUserId:seed.created_by_user_id,appointmentId:entries[0].appointment.id,deliveryType:'appointment',deliveryKey:String(delivery.insertId),
+                  recipient,recipientUserId:target?.userId || null,communicationId:communication.id});
+                recipientMessage = appendCancellationReceipt(recipientMessage,receipt.url);
+              }
               attempted = true;
               result = await d.sendEmail({agencyId:seed.agency_id,clientId:seed.client_id,userId:consent.guardianUserId || null,to:recipient,
                 entries,
@@ -261,6 +269,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
           }
         } catch (e) { status=attempted ? 'review' : 'failed'; reason=String(e?.message || 'Notification failed').slice(0,500); }
         const sentAt = status === 'sent' ? sqlDate(d.now()) : null;
+        if (receipt) await d.receipts.sent(receipt.id,status,communication?.id);
         await db.execute('UPDATE appointment_schedule_notice_deliveries SET status=?,recipient_address=?,communication_id=?,external_message_id=?,error_message=?,sent_at=? WHERE id=?',
           [status,recipient,communication?.id || null,externalId,reason,sentAt,delivery.insertId]);
         if (communication?.id) await d.updateCommunication(communication.id,['review','held'].includes(status)?'flagged':status,externalId,null,reason);

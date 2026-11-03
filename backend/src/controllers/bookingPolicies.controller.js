@@ -14,6 +14,7 @@ import {
 } from '../services/appointmentReminder.service.js';
 import Appointment from '../models/Appointment.model.js';
 import appointmentStaffTools from '../services/appointmentStaffTools.service.js';
+import { canceledSessionSummary } from '../services/canceledSessionSummary.service.js';
 
 async function assertAgencyAccess(req, agencyId) {
   const aid = Number(agencyId || 0);
@@ -131,12 +132,12 @@ export const resolvePolicyPreview = async (req, res, next) => {
 export const getAppointmentTimeline = async (req, res, next) => {
   try {
     const appointmentId = parseInt(req.params.id, 10);
-    await appointmentStaffTools.authorize(req.user, appointmentId);
+    const appointment = await appointmentStaffTools.authorize(req.user, appointmentId);
     const [reminders, communications] = await Promise.all([
       listReminders(appointmentId),
       listCommunications(appointmentId)
     ]);
-    res.json({ ok: true, reminders, communications });
+    res.json({ ok: true, reminders, communications, cancellation:await canceledSessionSummary(appointment) });
   } catch (e) {
     next(e);
   }

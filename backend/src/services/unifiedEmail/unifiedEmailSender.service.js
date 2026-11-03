@@ -188,6 +188,7 @@ async function applyUserEmailSignatureBlock({
 import { standardizeEmailButtons } from '../../utils/emailActionButton.js';
 import { renderProviderUpdateReceipt } from '../../utils/providerUpdateReceiptEmail.js';
 import { refreshEmailBrandImageUrls } from '../../utils/emailBrandImageCache.js';
+import { constrainPortalEmailLayout } from '../../utils/portalEmailLayout.js';
 import { publicAppBaseUrl } from '../contactReminderToken.service.js';
 
 export async function finalizeOutboundContent({
@@ -339,7 +340,7 @@ export async function finalizeOutboundContent({
   if (signed.html) signed.html = refreshEmailBrandImageUrls(signed.html, [
     publicAppBaseUrl(), process.env.BACKEND_PUBLIC_URL, process.env.BACKEND_URL
   ]);
-  return appendComplianceFooter({
+  const finalized = await appendComplianceFooter({
     text: signed.text,
     html: signed.html,
     to,
@@ -349,6 +350,7 @@ export async function finalizeOutboundContent({
     skipOptOutLink: isCredentialSecurityNotice(identity, templateType) || isRequestedAccountEmail(templateType) || templateType==='school_session_notice'
       || await isRequiredProviderWorkEmail({templateType,to,userId,agencyId:aid})
   });
+  return { ...finalized, html:constrainPortalEmailLayout(finalized.html) };
 }
 
 /**

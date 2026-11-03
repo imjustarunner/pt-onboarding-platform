@@ -3,7 +3,7 @@ const m = vi.hoisted(() => ({ find: vi.fn(), create: vi.fn(), update: vi.fn(), l
 vi.mock('../../models/Agency.model.js', () => ({ default: { findById: async () => ({ id: 2, timezone: 'America/Denver' }) } }));
 vi.mock('../../models/User.model.js', () => ({ default: { findById: async () => ({ id: 539, first_name: 'Katie' }), getAgencies: async () => [{ id: 2 }] } }));
 vi.mock('../../models/PlannedOut.model.js', async importOriginal => ({ ...await importOriginal(), default: { tableExists: async () => true, findById: m.find, create: m.create, updateById: m.update, listForAgency: m.list } }));
-vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
+vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(),getConnection:async()=>({execute:async sql=>sql.includes('GET_LOCK')?[[{acquired:1}]]:[[{}]],release:()=>{},destroy:()=>{}}) } }));
 vi.mock('../../models/ProviderScheduleEvent.model.js', () => ({ default: { create: m.block, listForProvider: async () => [] } }));
 vi.mock('../../models/UserPresenceStatus.model.js', () => ({ default: {} }));
 vi.mock('../../models/Notification.model.js', () => ({ default: { markAsResolvedByRelatedEntity: m.resolve } }));
@@ -11,6 +11,7 @@ vi.mock('../../services/notificationDispatcher.service.js', () => ({ createNotif
 vi.mock('../../services/plannedOutPresence.service.js', () => ({ applyPlannedOutPresenceForUser: m.presence }));
 vi.mock('../../services/plannedOutScheduleSync.service.js', () => ({ syncScheduleEventFromPlannedOut: m.sync }));
 vi.mock('../../services/plannedOutCancellation.service.js',()=>({preparePlannedOutCancellation:vi.fn(async()=>null),completePlannedOutCancellation:vi.fn(async()=>null)}));
+import pool from '../../config/database.js';
 import { createPlannedOut, reviewPlannedOut } from '../plannedOuts.controller.js';
 
 const response = () => ({ status: vi.fn().mockReturnThis(), json: vi.fn() });
@@ -72,4 +73,12 @@ describe('planned-out dates and acknowledgment', () => {
     expect(m.notify.mock.calls[0][0].message).not.toContain('October 7');
     expect(res.json.mock.calls[0][0].plannedOut.start_date).toBe('2026-10-06');
   });
+});
+
+it('returns a previously saved Planned Out for the same approved token without another block or record',async()=>{
+ const row={id:35,agency_id:2,user_id:539,status:'pending',span_type:'all_day',all_day:1,start_date:'2026-11-26',end_date:'2026-11-27'};
+ pool.execute.mockResolvedValueOnce([[{id:35}]]);m.find.mockResolvedValue(row);
+ const res=response(),next=vi.fn();
+ await createPlannedOut(request({spanType:'all_day',startDate:'2026-11-26',endDate:'2026-11-27',cancellationReviewToken:'11111111-1111-4111-8111-111111111111'}),res,next);
+ expect(next).not.toHaveBeenCalled();expect(m.create).not.toHaveBeenCalled();expect(m.block).not.toHaveBeenCalled();expect(res.json.mock.calls[0][0]).toMatchObject({alreadySaved:true,plannedOut:{id:35}});
 });

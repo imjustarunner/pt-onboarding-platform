@@ -21,7 +21,7 @@ beforeEach(() => {
     if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
     if (sql.includes('RELEASE_LOCK')) return [[{ released: 1 }]];
     if (sql.startsWith('INSERT INTO provider_day_cancellations')) { record = { token: args[0], provider_id: args[1], actor_user_id: args[2], cancellation_date: args[3], plan_json: args[4], results_json: '{}', status: 'preview', expires_at: '2026-11-01 01:00:00' }; return [{ affectedRows: 1 }]; }
-    if (sql.startsWith('SELECT * FROM provider_day_cancellations WHERE provider_id')) return [[record].filter(r => r && r.provider_id === args[0] && r.actor_user_id === args[1] && r.cancellation_date === args[2] && ['processing', 'partial'].includes(r.status))];
+    if (sql.startsWith('SELECT * FROM provider_day_cancellations WHERE provider_id')) return [[record].filter(r => r && r.provider_id === args[0] && r.actor_user_id === args[1] && ['processing', 'partial','completed'].includes(r.status))];
     if (sql.startsWith('SELECT * FROM provider_day_cancellations')) return [[record].filter(r => r && r.token === args[0] && (args.length === 1 || r.actor_user_id === args[1]))];
     if (sql.includes("SET status='processing'")) { record.status = 'processing'; return [{}]; }
     if (sql.includes('SET results_json=')) { record.results_json = args[0]; record.status = args[1]; return [{}]; }
@@ -42,7 +42,7 @@ beforeEach(() => {
     roster: vi.fn(async () => []), rosterReview: vi.fn(), notifyRoster: vi.fn(async () => ({ sent: 1 })),
     schools: vi.fn(async () => []), schoolReview: (item, edits) => ({ ...item, ...edits }), notifySchool: vi.fn(async () => ({sent:1})),
     cancellationMessage: vi.fn(() => ({ subject:'Canceled', text:'Canceled', when:'Wednesday' })), validateOffer: vi.fn(),
-    ensureTask: vi.fn(async () => 72), completeTask: vi.fn(), notifyAppointment: vi.fn(async () => ({ pending: 1 })), invalidate: vi.fn() };
+    plannedOutSaved:vi.fn(async()=>true),ensureTask: vi.fn(async () => 72), completeTask: vi.fn(), notifyAppointment: vi.fn(async () => ({ pending: 1 })), invalidate: vi.fn() };
   service = createDayCancellationService(dependencies); authorize = vi.fn(); appointmentAccess = vi.fn();
 });
 const preview = () => service.preview(input, actor, authorize, appointmentAccess);
@@ -260,4 +260,29 @@ describe('assigned-day clients without appointments',()=>{
     const deferred=await service.preview({...input,deferredToken:plan.token},actor,authorize,appointmentAccess);
     expect(deferred.items[0].kind).toBe('school_roster');
   });
+});
+
+it('reopens a completed day as read-only results rather than offering another send',async()=>{
+  const plan=await preview();await apply(plan);
+  expect((await service.resume({providerId:9,date:input.date},actor,authorize)).review.status).toBe('completed');
+  expect(dependencies.completeAppointment).toHaveBeenCalledTimes(1);
+});
+it('requires explicit inclusion of untimed school families in a timed Planned Out',async()=>{
+  appointments=[];dependencies.roster.mockResolvedValue([{client_id:77,school_id:4,client_name:'Untimed',school_name:'School',slots:[]}]);
+  dependencies.participation=vi.fn(async()=>[]);dependencies.rosterReview.mockImplementation(async()=>({key:'school_roster:2:9:2026-11-04:77:4',kind:'school_roster',agencyId:2,date:input.date,source:{}}));
+  service=createDayCancellationService(dependencies);
+  const body={...input,urgent:false,reasonCategory:'planned_out',absenceSource:'planned_out',timeZone:'America/Denver',windowStart:'2026-11-04 15:00:00',windowEnd:'2026-11-04 19:00:00'};
+  const first=await service.preview(body,actor,authorize,appointmentAccess);
+  expect(first.items).toHaveLength(0);expect(first.unchanged[0].needsTimeReview).toBe(true);expect(dependencies.rosterReview).not.toHaveBeenCalled();
+  const final=await service.preview({...body,includeUntimedKeys:[first.unchanged[0].key]},actor,authorize,appointmentAccess);
+  expect(final.items).toHaveLength(1);expect(dependencies.rosterReview).toHaveBeenCalledTimes(1);
+  expect((await service.plannedOutReview({...body,dates:[input.date]},final.token,actor,authorize)).status).toBe('preview');
+  await expect(service.plannedOutReview({...body,windowEnd:'2026-11-04 20:00:00'},final.token,actor,authorize)).rejects.toThrow('changed');
+  expect(dependencies.completeAppointment).not.toHaveBeenCalled();
+});
+
+it('reopens the second day of a completed multi-day absence without notifying again',async()=>{
+ const plan=await service.preview({...input,dates:['2026-11-04','2026-11-05']},actor,authorize,appointmentAccess);await apply(plan);
+ const restored=await service.resume({providerId:9,date:'2026-11-05'},actor,authorize);
+ expect(restored.review).toMatchObject({token:plan.token,status:'completed'});expect(dependencies.completeAppointment).toHaveBeenCalledTimes(1);
 });

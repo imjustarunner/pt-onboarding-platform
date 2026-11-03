@@ -4,6 +4,7 @@ import { requireAgencyAccess } from '../middleware/agencyAccess.middleware.js';
 import {
   listPlannedOuts,
   createPlannedOut,
+  previewPlannedOut,
   deletePlannedOut,
   reviewPlannedOut,
   updatePlannedOut
@@ -14,6 +15,7 @@ router.use(authenticate);
 
 router.get('/', requireAgencyAccess, listPlannedOuts);
 router.post('/', requireAgencyAccess, createPlannedOut);
+router.post('/preview', requireAgencyAccess, previewPlannedOut);
 router.patch('/:id', updatePlannedOut);
 router.post('/:id/review', reviewPlannedOut);
 router.delete('/:id', deletePlannedOut);

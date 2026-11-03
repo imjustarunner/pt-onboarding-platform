@@ -44,7 +44,7 @@ function harness() {
     followUp:async()=>({nextAppointment:async()=>null}),offers:vi.fn(async()=>({ensure:vi.fn(),view:async()=>null})),
     portal:async()=> 'https://portal.example.test/guardian',
     cancellationMessage:async(a,f)=>({subject:'Your appointment was canceled',text:`Your appointment was canceled. ${f.clientFacingReason || ''}`,html:'<p>Your appointment was canceled.</p>'})};
-  return {service:createAppointmentScheduleNoticeService(deps),deps,notices,deliveries,appointments,advance:n=>{clock=new Date(+clock+n*60000);}};
+  return {service:createAppointmentScheduleNoticeService({...deps,receipts:{issue:vi.fn(async()=>({id:1,url:'https://example.test/receipt'})),sent:vi.fn()}}),deps,notices,deliveries,appointments,advance:n=>{clock=new Date(+clock+n*60000);}};
 }
 
 describe('one durable schedule update per client after edits settle',()=>{

@@ -9,11 +9,12 @@ export function canViewDeclinedMeetingParticipants(event, actor, people = []) {
     || Number(person?.is_cohost) === 1;
 }
 
-export function visibleMeetingRsvpParticipants(people, canSeeDeclined) {
+export function visibleMeetingRsvpParticipants(people, canSeeDeclined, viewerId = null) {
   return people.filter(person => canSeeDeclined
+    || (viewerId && Number(person.id ?? person.userId ?? person.user_id) === Number(viewerId))
     || !['DECLINED', 'WITHDRAWN'].includes(String(person.status || person.rsvp || '').toUpperCase()))
     .map(person => {
-      if (canSeeDeclined) return person;
+      if (canSeeDeclined || (viewerId && Number(person.id ?? person.userId ?? person.user_id) === Number(viewerId))) return person;
       const { declineReason, decline_reason, rsvp_decline_reason, ...visible } = person;
       return visible;
     });

@@ -4,7 +4,7 @@ import { createCancellationSchoolRosterService } from '../cancellationSchoolRost
 const row={slots:[],assignment_id:1,client_id:8,school_id:4,service_day:'Wednesday',status:'ACTIVE',client_status_key:'being_seen',school_name:'Rudy',provider_name:'Nicole'};
 const contact={key:'guardian:7',userId:7,role:'guardian',name:'Parent',email:'parent@example.test',phone:''};
 const client={clientId:8,clientName:'Child',mode:'guardian',channels:['email'],contacts:[contact],recipients:[contact]};
-const args={agencyId:2,providerId:505,date:'2026-10-28',reason:'Provider availability',followUpAction:'client_contact_support',required:true};
+const args={providerAuthored:true,agencyId:2,providerId:505,date:'2026-10-28',reason:'Provider availability',followUpAction:'client_contact_support',required:true};
 function setup(){
  const receipts=new Map(); let rows=[row];
  const database={execute:vi.fn(async(sql,a=[])=>{
@@ -19,7 +19,7 @@ function setup(){
  })};
  const contacts=vi.fn(async()=>structuredClone(client)),permitted=vi.fn(async()=>true),sendEmail=vi.fn(async()=>({id:'sent',communicationId:21}));
  const history={begin:vi.fn(async()=>1),finish:vi.fn()};
- const service=createCancellationSchoolRosterService({database,contacts,permitted,sendEmail,history});
+ const service=createCancellationSchoolRosterService({database,contacts,permitted,sendEmail,history,receipts:{issue:vi.fn(async()=>({id:1,url:'https://example.test/receipt'})),sent:vi.fn()}});
  return {service,database,contacts,permitted,sendEmail,history,setRows:r=>{rows=r;}};
 }
 describe('school roster cancellation without appointments',()=>{
@@ -43,7 +43,7 @@ describe('school roster cancellation without appointments',()=>{
  });
  it('reviews an absence without claiming an appointment exists or sending',async()=>{
   const s=setup();const item=await s.service.review(row,args);
-  expect(item.message.text).toContain('I will not be at Rudy');
+  expect(item.message.text).toContain('at Rudy');expect(item.message.text).toContain('I need to cancel');
   expect(item.message.text).not.toContain('appointment scheduled');expect(s.sendEmail).not.toHaveBeenCalled();
   expect(item.clients[0].emailOnly).toBe(true);
  });

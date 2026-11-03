@@ -12,7 +12,14 @@ const manifestArg = process.argv.find(a=>a.startsWith('--manifest='));
 const agencyId=450,schoolId=451,providerId=1433,actorId=1434;
 const source='qa_cancel_day_20261102';
 const days=['Monday','Tuesday','Wednesday','Thursday','Friday'];
-const dates=['2026-11-16','2026-11-17','2026-11-18','2026-11-19','2026-11-20','2026-11-23'];
+const dateArg=process.argv.find(a=>a.startsWith('--dates='));
+const dates=dateArg ? [...new Set(dateArg.slice(8).split(','))].sort() : ['2026-11-16','2026-11-17','2026-11-18','2026-11-19','2026-11-20','2026-11-23'];
+const scenarioArg=process.argv.find(a=>a.startsWith('--scenario-dates='));
+const scenarioDates=scenarioArg ? scenarioArg.slice(17).split(',') : ['2026-11-18','2026-11-19'];
+for(const date of [...dates,...scenarioDates]) if(!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0,10)!==date) throw Error('Use explicit valid YYYY-MM-DD fixture dates.');
+if(!dates.length || dates.length>14 || scenarioDates.length!==2) throw Error('Choose up to fourteen session dates and two scenario dates.');
+const [hostedDate,rsvpDate]=scenarioDates;
+const scenarioSuffix=scenarioArg ? ` ${hostedDate}-${rsvpDate}` : '';
 const schoolEmail='qa.cedar-grove.cancel-day@example.com';
 const definitions=[
  {key:'QACDSE',name:'Cancel Day School Email QA',type:'school',guardians:[1440]},
@@ -98,7 +105,7 @@ try {
    report.appointments.push({id:Number(id),date,clientId:client.id,case:client.key,status:old?.status||'scheduled'});
   }
   // A booked school occurrence must replace its roster fallback, not generate two family notices.
-  const schoolClient=report.clients.find(c=>c.key==='QACDSE'),date='2026-11-18',title='Cancel day QA booked school precedence';
+  const schoolClient=report.clients.find(c=>c.key==='QACDSE'),date=hostedDate,title=`Cancel day QA booked school precedence${scenarioSuffix}`;
   let [[booked]]=await db.execute('SELECT id FROM appointments WHERE agency_id=? AND source=? AND title=?',[agencyId,source,title]);
   if(!booked){
    const pse=await event({title,date,start:'09:00',end:'09:45',clientId:schoolClient.id});
@@ -108,27 +115,27 @@ try {
   }
   report.appointments.push({id:Number(booked.id),date,clientId:schoolClient.id,case:'EHR school precedence'});
   for(const spec of [
-   {title:'Cancel day QA hosted meeting',date:'2026-11-18',start:'13:00',end:'13:30',kind:'TEAM_MEETING',attendees:[1438]},
-   {title:'Cancel day QA attended interview RSVP',date:'2026-11-19',start:'13:00',end:'13:30',host:1438,kind:'TEAM_MEETING',attendees:[providerId]},
-   {title:'Cancel day QA personal event content',date:'2026-11-19',start:'17:00',end:'17:30'}
+   {title:`Cancel day QA hosted meeting${scenarioSuffix}`,date:hostedDate,start:'13:00',end:'13:30',kind:'TEAM_MEETING',attendees:[1438]},
+   {title:`Cancel day QA attended interview RSVP${scenarioSuffix}`,date:rsvpDate,start:'13:00',end:'13:30',host:1438,kind:'TEAM_MEETING',attendees:[providerId]},
+   {title:`Cancel day QA personal event content${scenarioSuffix}`,date:rsvpDate,start:'17:00',end:'17:30'}
   ]) report.events.push({id:await event(spec),title:spec.title,date:spec.date});
-  const companyTitle='Cancel day QA company event RSVP';
+  const companyTitle=`Cancel day QA company event RSVP${scenarioSuffix}`;
   let [[company]]=await db.execute('SELECT id FROM company_events WHERE agency_id=? AND title=?',[agencyId,companyTitle]);
   if(!company){
    const [r]=await db.execute(`INSERT INTO company_events (agency_id,created_by_user_id,updated_by_user_id,title,starts_at,ends_at,timezone,is_active,rsvp_mode)
-    VALUES (?,?,?,?,?,?,'America/Denver',1,'registration')`,[agencyId,actorId,actorId,companyTitle,instant('2026-11-19','18:00'),instant('2026-11-19','18:30')]);company={id:r.insertId};
+    VALUES (?,?,?,?,?,?,'America/Denver',1,'registration')`,[agencyId,actorId,actorId,companyTitle,instant(rsvpDate,'18:00'),instant(rsvpDate,'18:30')]);company={id:r.insertId};
    await db.execute("INSERT INTO company_event_invitations (company_event_id,agency_id,user_id,token,response,responded_at,created_by_user_id) VALUES (?,?,?,?,'yes',UTC_TIMESTAMP(),?)",[company.id,agencyId,providerId,randomUUID(),actorId]);
    await db.execute("INSERT INTO company_event_responses (company_event_id,user_id,response_key,response_label,source) VALUES (?,?,'yes','Attending','in_app')",[company.id,providerId]);
   }
-  report.events.push({id:Number(company.id),type:'company',title:companyTitle,date:'2026-11-19'});
-  const supervisionTitle='Cancel day QA attended supervision';
-  let [[supervision]]=await db.execute('SELECT id FROM supervision_sessions WHERE agency_id=? AND supervisor_user_id=1438 AND supervisee_user_id=? AND start_at=?',[agencyId,providerId,instant('2026-11-19','17:30')]);
+  report.events.push({id:Number(company.id),type:'company',title:companyTitle,date:rsvpDate});
+  const supervisionTitle=`Cancel day QA attended supervision${scenarioSuffix}`;
+  let [[supervision]]=await db.execute('SELECT id FROM supervision_sessions WHERE agency_id=? AND supervisor_user_id=1438 AND supervisee_user_id=? AND start_at=?',[agencyId,providerId,instant(rsvpDate,'17:30')]);
   if(!supervision){
    const [r]=await db.execute(`INSERT INTO supervision_sessions (agency_id,supervisor_user_id,supervisee_user_id,start_at,end_at,status)
-    VALUES (?,1438,?,?,?,'SCHEDULED')`,[agencyId,providerId,instant('2026-11-19','17:30'),instant('2026-11-19','18:00')]);supervision={id:r.insertId};
+    VALUES (?,1438,?,?,?,'SCHEDULED')`,[agencyId,providerId,instant(rsvpDate,'17:30'),instant(rsvpDate,'18:00')]);supervision={id:r.insertId};
    await db.execute("INSERT INTO supervision_session_attendees (session_id,user_id,participant_role,status) VALUES (?,?,'supervisee','SIGNED_UP')",[supervision.id,providerId]);
   }
-  report.events.push({id:Number(supervision.id),type:'supervision',title:supervisionTitle,date:'2026-11-19'});
+  report.events.push({id:Number(supervision.id),type:'supervision',title:supervisionTitle,date:rsvpDate});
   await db.commit();report.applied=true;
   if(manifestArg)await writeFile(manifestArg.slice('--manifest='.length),JSON.stringify(report,null,2)+'\n');
   console.log(JSON.stringify({agencyId,applied:true,clients:report.clients.length,appointments:report.appointments.length,softSlots:report.softSlots.length,events:report.events.length,schoolEmail,notificationsSent:0}));

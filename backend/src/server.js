@@ -2,6 +2,7 @@ import { publicRouter as publicMeetingReservationRoutes, staffRouter as meetingR
 import clientSupportRoutes from './routes/clientSupport.routes.js';
 import dependentPortalRoutes from './routes/dependentPortal.routes.js';
 import publicAppointmentResponseRoutes from './routes/publicAppointmentResponse.routes.js';
+import publicCancellationReceiptRoutes from './routes/publicCancellationReceipt.routes.js';
 import publicSchoolSessionEmailPreferencesRoutes from './routes/publicSchoolSessionEmailPreferences.routes.js';
 import publicFamilyNotificationsRoutes from './routes/publicFamilyNotifications.routes.js';
 import publicExchangePreferencesRoutes from './routes/publicExchangePreferences.routes.js';
@@ -849,6 +850,7 @@ app.use('/api/public/email-opt-out', publicEmailOptOutRoutes);
 app.use('/api/public/misdirected-email-report', publicMisdirectedEmailReportRoutes);
 app.use('/api/public/contact-reminders', publicContactRemindersRoutes);
 app.use('/api/public/appointment-response', publicAppointmentResponseRoutes);
+app.use('/api/public/cancellation-receipt', publicCancellationReceiptRoutes);
 app.use('/api/public/school-session-emails', publicSchoolSessionEmailPreferencesRoutes);
 app.use('/api/public/family-notifications', publicFamilyNotificationsRoutes);
 app.use('/api/public/exchange-preferences', publicExchangePreferencesRoutes);

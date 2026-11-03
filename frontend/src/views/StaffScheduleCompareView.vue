@@ -485,8 +485,11 @@ const loadUsers = async () => {
     loading.value = true;
     error.value = '';
     if (canLoadDirectoryUsers.value) {
-      const resp = await api.get('/users', { params: { _t: Date.now() } });
-      users.value = Array.isArray(resp.data) ? resp.data : [];
+      const ids = (availableAgencies.value || []).map(a => Number(a.id)).filter(Boolean);
+      const results = await Promise.all(ids.map(agencyId => api.get('/staff/directory', {params:{agencyId,activeOnly:true},skipGlobalLoading:true}).then(r=>(r.data.staff || []).map(u=>({id:Number(u.id),first_name:u.displayName,last_name:'',email:u.workEmail || '',role:u.role,agency_ids:String(agencyId),has_provider_access:['provider','provider_plus','supervisor','intern','intern_plus','clinician','tutor','facilitator'].includes(u.role)})))));
+      const people = new Map();
+      for (const u of results.flat()) { const saved=people.get(u.id); people.set(u.id,saved ? {...saved,agency_ids:[...new Set([...saved.agency_ids.split(','),...u.agency_ids.split(',')])].join(',')} : u); }
+      users.value=[...people.values()];
       return;
     }
     const me = Number(authStore.user?.id || 0);
@@ -586,7 +589,7 @@ onMounted(async () => {
     // ignore
   }
   const role = actorRole.value;
-  if (['super_admin', 'superadmin', 'admin', 'support'].includes(role) || !(agencyStore.userAgencies || []).length) {
+  if (['super_admin', 'superadmin', 'admin'].includes(role) || !(agencyStore.userAgencies || []).length) {
     try {
       await agencyStore.fetchAgencies();
     } catch {
