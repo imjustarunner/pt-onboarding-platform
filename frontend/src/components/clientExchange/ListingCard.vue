@@ -22,7 +22,7 @@
       <div class="lc-top">
         <div class="lc-title">
           <span class="status-badge" :class="`status-${listing.status}`">{{ listing.status }}</span>
-          <strong v-if="clientLabel" class="lc-client-label">{{ clientLabel }}</strong>
+          <strong v-if="clientLabel" class="lc-client-label">{{ clientLabel }}</strong><span v-if="listing.isDemo" class="lc-badge">Demo · staff only</span>
           <span v-if="listing.clientType" class="lc-type">{{ formatClientType(listing.clientType) }}</span>
           <span v-if="listing.pendingRequestCount > 0" class="lc-pending-badge">
             {{ listing.pendingRequestCount }} pending request{{ listing.pendingRequestCount === 1 ? '' : 's' }}

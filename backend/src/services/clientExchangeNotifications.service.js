@@ -1,3 +1,6 @@
+import { isDemoExchangeClient, isDemoExchangeListing, suppressDemoExchangeNotifications } from './clientExchangeDemo.service.js';
+import { sendDemoExchangeReport } from './clientExchangeDemoReport.service.js';
+import { DEMO_EXCHANGE_REASON } from '../utils/clientExchangeDemo.js';
 import {missingExchangeEssentials} from '../../../frontend/src/navigation/clientExchangeEssentials.js';
 import { eligibleExchangeProvider } from '../utils/clientExchangeProvider.js';
 import {sendExchangeRequestSupportNotice} from './clientExchangeRequestNotice.service.js';
@@ -33,7 +36,10 @@ export async function notifyExchangeMatches({ listing, client, send = true, repo
       const agencyId = Number(listing.agencyId);
       const agency = await Agency.findById(agencyId);
       const config = parseAuditJson(agency?.feature_flags)?.clientExchangeAudit;
-      await enrollExchangeAuditClient(listing, config);
+      const demo=await isDemoExchangeClient({client,agencyId});
+      const demoProviders=[];
+      if(demo)await suppressDemoExchangeNotifications(listing);
+      else await enrollExchangeAuditClient(listing, config);
       const identities = await EmailSenderIdentity.list({agencyId,includePlatformDefaults:false,onlyActive:true});
       const sender = identities.find(row=>row.identity_key==='client_exchange') || identities.find(row=>row.identity_key==='notifications') || identities.find(row=>/^notifications@/i.test(row.from_email||''));
       const noReply = sender?.identity_key==='client_exchange' ? sender.reply_to : identities.find(row=>/^(no-?reply)@/i.test(row.from_email||''))?.from_email || sender?.reply_to;
@@ -50,6 +56,13 @@ export async function notifyExchangeMatches({ listing, client, send = true, repo
         if(missingEssentials.length) decision={...decision,canNotify:false,notificationHold:`Support must complete: ${missingEssentials.map(item=>item.label).join(', ')}.`};
         await saveExchangeDecision(listing.id,user.id,decision);
         await saveExchangeDelivery(listing.id,user.id,previous);
+        if(demo) {
+          demoProviders.push({userId:user.id,name:[user.first_name,user.last_name].filter(Boolean).join(' '),...decision});
+          if(decision.matched)summary.matched++;
+          summary.skipped++;
+          await saveExchangeDelivery(listing.id,user.id,{email:{...previous.email,status:'suppressed',reason:DEMO_EXCHANGE_REASON},sms:{...previous.sms,status:'suppressed',reason:DEMO_EXCHANGE_REASON}});
+          continue;
+        }
         if(!decision.matched || decision.canNotify === false) {
           await saveExchangeDelivery(listing.id,user.id,{
             email:previous.email||{status:'not_sent',reason:decision.notificationHold || 'Provider did not match this evaluation.'},
@@ -106,7 +119,12 @@ export async function notifyExchangeMatches({ listing, client, send = true, repo
         await saveExchangeDelivery(listing.id,userId,previous);
       }
       await finishExchangeRun(listing.id,summary.failed?'delivery_needs_review':null);
-      if(report && agency?.slug !== AURICWELL_QA_SLUG){
+      if(demo && send && report) {
+        try { const receipt=await sendDemoExchangeReport({listing,agency,identities,providers:demoProviders});summary.demoReport=receipt;
+          if(!['sent','redirected','queued'].includes(receipt.status))await finishExchangeRun(listing.id,'demo_report_needs_review');
+        }catch(error){await finishExchangeRun(listing.id,'demo_report_needs_review');summary.demoReport={status:'failed',reason:error.code || 'demo_report_failed'};}
+      }
+      if(!demo && report && agency?.slug !== AURICWELL_QA_SLUG){
         try {const {sendExchangeAuditReport}=await import('./clientExchangeAuditReport.service.js');const result=await sendExchangeAuditReport({listing,agency,identities});
           if(result?.status&&!['sent'].includes(result.status))await finishExchangeRun(listing.id,'audit_delivery_needs_review');
         }catch(error){await finishExchangeRun(listing.id,'audit_send_failed');console.error('[clientExchange] Support audit needs retry',{listingId:listing.id,code:error?.code||'audit_send_failed'});}
@@ -117,6 +135,7 @@ export async function notifyExchangeMatches({ listing, client, send = true, repo
 }
 
 async function exchangeActivityNotification({ listing, userId, type, title, message, actorUserId }) {
+  if(await isDemoExchangeListing({listingId:listing.id,agencyId:listing.agency_id}))return;
   const agency = await Agency.findById(listing.agency_id);
   const [[recipient]] = await pool.execute(`SELECT u.id, u.role, u.work_email, u.email, u.personal_email, u.is_demo FROM users u
     JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ? WHERE u.id = ? AND COALESCE(ua.is_active,1) = 1 AND COALESCE(u.is_active,1) = 1 AND COALESCE(u.is_archived,0) = 0 LIMIT 1`, [listing.agency_id, userId]);
@@ -138,6 +157,7 @@ async function exchangeActivityNotification({ listing, userId, type, title, mess
 }
 
 export async function notifyExchangeClaim({ listing, requestingProviderUserId, requestId }) {
+  if(await isDemoExchangeListing({listingId:listing.id,agencyId:listing.agency_id}))return;
   const [reviewers] = await pool.execute(`SELECT DISTINCT u.id FROM users u JOIN user_agencies ua ON ua.user_id = u.id
     WHERE ua.agency_id = ? AND u.role IN ('admin','super_admin','support','staff')
     AND COALESCE(u.is_active,1) = 1 AND COALESCE(u.is_archived,0) = 0`, [listing.agency_id]);

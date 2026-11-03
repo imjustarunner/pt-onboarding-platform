@@ -93,7 +93,7 @@ export async function getExchangeAudit(listingId) {
   if(communicationIds.length){
     const [receipts]=await pool.execute(`SELECT id,delivery_status,opened_at,first_clicked_at FROM user_communications WHERE id IN (${communicationIds.map(()=>'?').join(',')})`,communicationIds);
     for(const row of rows){const email=parseAuditJson(row.email_json);const receipt=receipts.find(r=>Number(r.id)===Number(email?.communicationId));
-      if(receipt)row.email_json={...email,status:receipt.delivery_status==='pending'?'queued':receipt.delivery_status,openedAt:receipt.opened_at,firstClickedAt:receipt.first_clicked_at};}
+      if(receipt && email?.status !== 'suppressed')row.email_json={...email,status:receipt.delivery_status==='pending'?'queued':receipt.delivery_status,openedAt:receipt.opened_at,firstClickedAt:receipt.first_clicked_at};}
   }
   const [[views]]=await pool.execute('SELECT COALESCE(SUM(view_count),0) total,COUNT(*) unique_viewers FROM client_exchange_views WHERE listing_id=?',[listingId]);
   const [viewers]=await pool.execute(`SELECT v.user_id,u.first_name,u.last_name,v.view_count,v.last_viewed_at FROM client_exchange_views v JOIN users u ON u.id=v.user_id WHERE listing_id=? ORDER BY v.last_viewed_at DESC`,[listingId]);

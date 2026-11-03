@@ -1,3 +1,5 @@
+import { canViewDemoExchange } from '../utils/clientExchangeDemo.js';
+import { isDemoExchangeListing, isDemoExchangeClient } from '../services/clientExchangeDemo.service.js';
 import { exchangeStaffRole } from '../../../frontend/src/navigation/clientExchangePolicy.js';
 import { validateMatchingPreferences } from '../../../frontend/src/navigation/providerFocus.js';
 import { createExchangeReferral } from '../services/clientExchangeReferral.service.js';
@@ -339,7 +341,8 @@ export async function listRecentlyReferredClients(req, res, next) {
     }
     const windowDays = safeInt(req.query.windowDays) || 30;
     const clients = await ClientExchange.listPendingAcceptanceClients({ agencyId, windowDays });
-    res.json({ clients });
+    const visible=canViewDemoExchange(req.user.role)?clients:(await Promise.all(clients.map(async c=>await isDemoExchangeClient({clientId:c.client_id||c.id,agencyId})?null:c))).filter(Boolean);
+    res.json({ clients:visible });
   } catch (e) {
     next(e);
   }
@@ -359,7 +362,8 @@ export async function listPendingOfficeClients(req, res, next) {
       return res.status(403).json({ error: { message: 'Support/admin access required' } });
     }
     const clients = await ClientExchange.listPendingOfficeClients({ agencyId });
-    res.json({ clients });
+    const visible=canViewDemoExchange(req.user.role)?clients:(await Promise.all(clients.map(async c=>await isDemoExchangeClient({clientId:c.client_id||c.id,agencyId})?null:c))).filter(Boolean);
+    res.json({ clients:visible });
   } catch (e) {
     next(e);
   }
@@ -485,6 +489,7 @@ export async function getListingAudit(req,res,next) {
     const [[row]]=await pool.execute('SELECT agency_id FROM client_exchange_listings WHERE id=?',[id]);
     if(!row)return res.status(404).json({error:{message:'Listing not found'}});
     if(!await assertAgencyAccess(req,row.agency_id))return res.status(403).json({error:{message:'Forbidden'}});
+    if (!canViewDemoExchange(req.user.role) && await isDemoExchangeListing({listingId:id,agencyId:row.agency_id})) return res.status(404).json({error:{message:'Listing not found'}});
     const {getExchangeAudit}=await import('../services/clientExchangeAudit.service.js');
     const {currentExchangeAudit}=await import('../services/clientExchangeCurrentAudit.service.js');
     res.json(await currentExchangeAudit(await getExchangeAudit(id), row.agency_id));

@@ -1,3 +1,5 @@
+vi.mock('../clientExchangeDemo.service.js',()=>({isDemoExchangeListing:vi.fn(async()=>false)}));
+import {isDemoExchangeListing} from '../clientExchangeDemo.service.js';
 import {beforeEach, afterEach, it, expect, vi} from 'vitest';
 vi.mock('../exchangeSmsPreference.service.js',()=>({exchangeSmsOptedOut:vi.fn(async()=>false)}));
 import {exchangeSmsOptedOut} from '../exchangeSmsPreference.service.js';
@@ -16,7 +18,7 @@ vi.mock('../vonage.service.js',()=>({default:{sendSms:m.send}}));
 vi.mock('../smsProfileAudit.service.js',()=>({recordSmsProfileAudit:vi.fn()}));
 import Dispatcher from '../notificationDispatcher.service.js';
 const notification={id:9,type:'client_exchange_match',user_id:7,agency_id:2};
-beforeEach(()=>{vi.clearAllMocks();m.sender.mockResolvedValue('+17197163884');m.agency.mockResolvedValue({id:2,slug:'itsco',feature_flags:{companyEventsSenderNumberId:3}});m.prefs.mockResolvedValue({notification_categories:{staff_communications_2:{choices:{exchangeMatches:true}}}});m.channel.mockResolvedValue(true);m.gate.mockResolvedValue({sms:true});m.send.mockResolvedValue({sid:'mock'});vi.stubEnv('CLIENT_EXCHANGE_CLINICAL_SMS_AGENCY_IDS','');});
+beforeEach(()=>{vi.clearAllMocks();isDemoExchangeListing.mockResolvedValue(false);m.sender.mockResolvedValue('+17197163884');m.agency.mockResolvedValue({id:2,slug:'itsco',feature_flags:{companyEventsSenderNumberId:3}});m.prefs.mockResolvedValue({notification_categories:{staff_communications_2:{choices:{exchangeMatches:true}}}});m.channel.mockResolvedValue(true);m.gate.mockResolvedValue({sms:true});m.send.mockResolvedValue({sid:'mock'});vi.stubEnv('CLIENT_EXCHANGE_CLINICAL_SMS_AGENCY_IDS','');});
 afterEach(()=>vi.unstubAllEnvs());
 it('requires signed exchange consent even when the general SMS switch is enabled',async()=>{m.prefs.mockResolvedValue({notification_categories:{}});expect(await Dispatcher.dispatchForNotification(notification)).toMatchObject({reason:'exchange_sms_not_consented'});expect(m.send).not.toHaveBeenCalled();});
 it('honors NOEXCHANGE even if a queued notification has earlier signed preferences',async()=>{
@@ -52,4 +54,12 @@ it.each([
  await Dispatcher.dispatchForNotification(notification);
  expect(m.send.mock.calls[0][0].body).toContain(`Full? Turn off Accepting new clients and save: ${link}`);
  expect(m.send.mock.calls[0][0].body).not.toMatch(/admin\/users|providerId|userId/);
+});
+
+it('blocks a previously created demo match notification at SMS and push dispatch',async()=>{
+ isDemoExchangeListing.mockResolvedValue(true);
+ const demo={...notification,related_entity_type:'client_exchange_listing',related_entity_id:44};
+ await expect(Dispatcher.dispatchForNotification(demo)).resolves.toMatchObject({dispatched:false,reason:'demo_exchange_provider_notifications_suppressed'});
+ await expect(Dispatcher.dispatchPushForNotification(demo)).resolves.toMatchObject({dispatched:false,reason:'demo_exchange_provider_notifications_suppressed'});
+ expect(m.send).not.toHaveBeenCalled();
 });

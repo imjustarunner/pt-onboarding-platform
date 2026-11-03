@@ -1,3 +1,4 @@
+import pool from '../config/database.js';
 import { loadExchangeWaivers } from './clientExchangeWaivers.service.js';
 import { listExchangeShares } from './clientExchangeSharing.service.js';
 import Agency from '../models/Agency.model.js';
@@ -35,5 +36,7 @@ export async function currentExchangeAudit(audit, agencyId) {
   }
   await Promise.all(Array.from({ length: Math.min(6, eligible.length) }, worker));
   const [waivers, shares] = await Promise.all([loadExchangeWaivers({ listingId: listing.id, includeRevoked: true }), listExchangeShares(listing.id)]);
-  return { ...audit, providers, waivers, shares, canReview: ['open', 'requested'].includes(listing.status), matchesEvaluatedAt: new Date().toISOString() };
+  let demoReport=null;
+  if(listing.isDemo){const [[receipt]]=await pool.execute("SELECT status,communication_id,sent_at FROM client_exchange_audit_reports WHERE listing_id=? AND report_key LIKE 'demo-v1:%' ORDER BY updated_at DESC LIMIT 1",[listing.id]);demoReport=receipt || {status:'not_recorded'};}
+  return { ...audit, isDemo:listing.isDemo, demoReport, providers, waivers, shares, canReview: ['open', 'requested'].includes(listing.status), matchesEvaluatedAt: new Date().toISOString() };
 }

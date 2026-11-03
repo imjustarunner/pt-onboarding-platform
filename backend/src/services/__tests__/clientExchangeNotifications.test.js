@@ -1,3 +1,5 @@
+vi.mock('../clientExchangeDemoReport.service.js',()=>({sendDemoExchangeReport:vi.fn().mockResolvedValue({status:'sent'})}));
+import {sendDemoExchangeReport} from '../clientExchangeDemoReport.service.js';
 import { beforeEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ execute: vi.fn(), profile: vi.fn(), facets: vi.fn(), send: vi.fn(), notify: vi.fn(), enabled: vi.fn(), identities: vi.fn(), dispatch: vi.fn(), accepted: vi.fn(), current: vi.fn(), client: vi.fn() }));
 vi.mock('../clientExchange.service.js', () => ({ getListingForMatching: mocks.current }));
@@ -77,7 +79,7 @@ it('QA assignment notification fails closed when the recipient is not its demo p
 it('sends to every matched provider except current provider, with an agency-scoped private link', async () => {
   const result = await notifyExchangeMatches({ listing, client: { full_name: 'Private Client Name' } });
   expect(result).toEqual({ matched: 1, sent: 1, queued: 0, skipped: 0, failed: 0 });
-  expect(mocks.execute.mock.calls[0][1]).toEqual([2]);
+  expect(mocks.execute.mock.calls.find(([sql])=>sql.includes('FROM users u'))[1]).toEqual([2]);
   expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({ senderIdentityId: 77, to: 'user10@example.com', templateType: 'client_exchange_match', linkUrl: 'https://app.itsco.health/client-exchange?listingId=44&agencyId=2' }));
   expect(JSON.stringify(mocks.send.mock.calls)).not.toContain('Private Client Name');
   const email = mocks.send.mock.calls[0][0];
@@ -201,4 +203,18 @@ it('cannot send a matching notification when the provider does not accept the cl
 it('holds automated match emails when essential referral information is still missing',async()=>{
  await notifyExchangeMatches({listing:{...listing,preferences:{...listing.preferences,insurance:null}}});
  expect(mocks.send).not.toHaveBeenCalled();expect(saveExchangeDecision).toHaveBeenCalledWith(44,10,expect.objectContaining({canNotify:false,notificationHold:expect.stringContaining('insurance')}));
+});
+
+it('retains demo matching decisions but suppresses every provider channel and sends only the test report',async()=>{
+ const result=await notifyExchangeMatches({listing,client:{email:'Demo@Example.Com'}});
+ expect(result.matched).toBe(1);expect(result.sent).toBe(0);
+ expect(mocks.send).not.toHaveBeenCalled();expect(mocks.notify).not.toHaveBeenCalled();expect(mocks.dispatch).not.toHaveBeenCalled();
+ expect(saveExchangeDecision).toHaveBeenCalled();
+ expect(saveExchangeDelivery).toHaveBeenCalledWith(44,10,expect.objectContaining({email:expect.objectContaining({status:'suppressed'}),sms:expect.objectContaining({status:'suppressed'})}));
+ expect(sendDemoExchangeReport).toHaveBeenCalledWith(expect.objectContaining({providers:expect.arrayContaining([expect.objectContaining({userId:10,matched:true}),expect.objectContaining({userId:11,matched:false})])}));
+ expect(sendExchangeAuditReport).not.toHaveBeenCalled();
+});
+it('a demo dry run or disabled report cannot send a test report or notify a provider',async()=>{
+ await notifyExchangeMatches({listing,client:{email:'demo@example.com'},send:false});
+ expect(sendDemoExchangeReport).not.toHaveBeenCalled();expect(mocks.notify).not.toHaveBeenCalled();
 });

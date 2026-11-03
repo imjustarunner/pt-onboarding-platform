@@ -199,6 +199,7 @@
               <span class="cep-status-badge" :class="`cep-status-${selectedListing.status}`">
                 {{ selectedListing.status }}
               </span>
+              <span v-if="selectedListing.isDemo" class="cep-status-badge">Demo · staff only</span>
               <strong class="cep-detail-client-label">{{ listingClientLabel(selectedListing) }}</strong>
               <span class="cep-detail-type">{{ formatClientType(selectedListing.clientType) }}</span>
             </div>
@@ -435,7 +436,7 @@ function hasPendingClaim(listing) {
 }
 function canRequest(listing) {
   const providerRole = ['provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'clinical_practice_assistant'].includes(authStore.user?.role) || authStore.user?.has_provider_access;
-  if (!providerRole || !['open', 'requested'].includes(listing.status) || listing.viewerFit?.canRequest !== true) return false;
+  if (listing.isDemo || !providerRole || !['open', 'requested'].includes(listing.status) || listing.viewerFit?.canRequest !== true) return false;
   return !isCurrentProviderFor(listing) && !hasPendingClaim(listing) && (!listing.targetProviderUserId || Number(listing.targetProviderUserId) === Number(currentUserId.value));
 }
 function clientRecordPath(listing) {
@@ -594,7 +595,7 @@ function openPostModal() {
 async function onPosted(listing) {
   showPostModal.value = false;
   showNewReferral.value = false;
-  postingReceipt.value = listing?.id
+  postingReceipt.value = listing?.isDemo ? `Demo referral #${listing.id} saved for staff testing. Providers cannot see it or receive notifications. Review matching results and report status in the staff audit.` : listing?.id
     ? `Referral #${listing.id} ${listing.alreadyPosted ? 'already exists; the saved details are shown below.' : 'posted. Review the saved details and matching results below.'}`
     : 'Referral saved. Refresh or select the referral to review its details.';
   await load();

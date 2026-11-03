@@ -1,3 +1,4 @@
+import { isDemoExchangeClient } from './clientExchangeDemo.service.js';
 import pool from '../config/database.js';
 import {missingExchangeEssentials} from '../../../frontend/src/navigation/clientExchangeEssentials.js';
 import Agency from '../models/Agency.model.js';
@@ -33,6 +34,7 @@ async function shareContext({ listingId, agencyId, providerUserId, actor, requir
   if (listing.target_provider_user_id && Number(listing.target_provider_user_id) !== Number(providerUserId)) throw fail('This direct referral can only be shared with its intended recipient', 403);
   const client = await Client.findById(listing.client_id);
   if (!client || Number(client.agency_id) !== Number(agencyId) || ['ARCHIVED', 'DECLINED'].includes(String(client.status || '').toUpperCase())) throw fail('This client is no longer available on the exchange');
+  if (await isDemoExchangeClient({client,agencyId})) throw fail('Demo referrals cannot be shared with providers. Use the staff matching audit.',403);
   const { user } = await loadExchangeProvider({ userId: providerUserId, agencyId });
   if (!user) throw fail('Choose an active provider in this agency', 403);
   if (requireMatched) {

@@ -1,3 +1,4 @@
+import { blockDemoExchangeEmail } from '../clientExchangeDemo.service.js';
 import { isRequestedAccountEmail } from '../../utils/accountAccessEmail.js';
 import { isRequiredProviderWorkEmail } from '../requiredProviderWorkEmail.service.js';
 import { withSsoSenderCopy } from '../ssoEmailCopy.service.js';
@@ -638,6 +639,7 @@ export async function sendNotificationEmail({
 }) {
   if (templateType === 'vacation_auto_reply' && (!afterHoursReplyContext || !await eligibleVacationReply({...afterHoursReplyContext,ownerUserId:generatedByUserId,fromEmail:to}))) return {skipped:true,reason:'vacation_reply_not_allowed'};
   if (templateType === 'client_ooo_auto_reply' && (!afterHoursReplyContext || !await eligibleClientAfterHoursReply({ ...afterHoursReplyContext, ownerUserId: generatedByUserId, fromEmail: to }))) return { skipped: true, reason: 'after_hours_reply_not_allowed' };
+  if(await blockDemoExchangeEmail({templateType:templateType || triggerKey,clientId,agencyId}))return {skipped:true,reason:'demo_exchange_provider_notifications_suppressed'};
   const eventDelivery = await priorityEventEmailRecipient({agencyId,userId,templateType:templateType || triggerKey,to,subject});
   to=eventDelivery.to; subject=eventDelivery.subject;
   await assertMessageReminderRecipient({ templateType, userId, agencyId, to });
@@ -1053,6 +1055,10 @@ export async function sendEmailFromIdentity({
   await managedGroupEnvelope({ to, cc, bcc, actorUserId: generatedByUserId });
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
+  if(await blockDemoExchangeEmail({templateType,linkUrl,clientId,agencyId:identity.agency_id})){
+    if(existingCommunicationId)await pool.execute("UPDATE user_communications SET delivery_status='skipped',error_message='Demo Exchange provider notifications suppressed' WHERE id=?",[existingCommunicationId]);
+    return {skipped:true,reason:'demo_exchange_provider_notifications_suppressed'};
+  }
   await assertMessageReminderRecipient({ templateType, userId, agencyId: identity.agency_id, to, cc, bcc });
   if (templateType === 'treatment_goal_progress' && existingCommunicationId) {
     if (cc || bcc) throw new Error('Plan progress emails require an individual authorized recipient.');

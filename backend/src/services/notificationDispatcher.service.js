@@ -1,3 +1,4 @@
+import { isDemoExchangeListing } from './clientExchangeDemo.service.js';
 import { resolveRegisteredSmsSender } from './smsCompliance.service.js';
 import { exchangeSmsOptedOut } from './exchangeSmsPreference.service.js';
 import Notification from '../models/Notification.model.js';
@@ -121,6 +122,7 @@ class NotificationDispatcherService {
    */
   static async dispatchForNotification(notification, { context = {} } = {}) {
     if (!notification) return { dispatched: false, reason: 'missing_notification' };
+    if(notification.related_entity_type==='client_exchange_listing' && await isDemoExchangeListing({listingId:notification.related_entity_id,agencyId:notification.agency_id}))return {dispatched:false,reason:'demo_exchange_provider_notifications_suppressed'};
 
     // Map notification type -> preference category (allowlist)
     const categoryKey = SMS_CATEGORY_BY_TYPE[notification.type] || null;
@@ -294,6 +296,7 @@ class NotificationDispatcherService {
    */
   static async dispatchPushForNotification(notification) {
     if (!notification?.user_id) return { dispatched: false };
+    if(notification.related_entity_type==='client_exchange_listing' && await isDemoExchangeListing({listingId:notification.related_entity_id,agencyId:notification.agency_id}))return {dispatched:false,reason:'demo_exchange_provider_notifications_suppressed'};
     const prefs = await UserPreferences.findByUserId(notification.user_id);
     if (!prefs?.push_notifications_enabled) return { dispatched: false };
     const user = await User.findById(notification.user_id);

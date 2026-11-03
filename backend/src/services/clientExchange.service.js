@@ -1,3 +1,5 @@
+import { canViewDemoExchange } from '../utils/clientExchangeDemo.js';
+import { isDemoExchangeClient } from './clientExchangeDemo.service.js';
 import { assertExchangeEssentials } from '../../../frontend/src/navigation/clientExchangeEssentials.js';
 import { resolveExchangeLocation } from '../../../frontend/src/navigation/clientExchangeLocation.js';
 import { scheduleFromIntake } from '../utils/clientExchangeSchedule.js';
@@ -71,6 +73,7 @@ function parseJsonColumn(value) {
 function mapListingRow(row) {
   if (!row) return null;
   return {
+    isDemo: !!row.demo_exchange,
     id: Number(row.id),
     agencyId: Number(row.agency_id),
     clientId: row.client_id != null ? Number(row.client_id) : null,
@@ -128,6 +131,7 @@ function isPrivilegedViewer({ viewerRole, viewerUserId, listing }) {
 }
 
 function redactListing(listing, { viewerRole, viewerUserId }) {
+  if (listing.demo_exchange && !canViewDemoExchange(viewerRole)) return null;
   const mapped = mapListingRow(listing);
   if (!mapped) return null;
   if (String(viewerRole || '').toLowerCase() === 'support') Object.assign(mapped, supportExchangeSummary(mapped));
@@ -190,6 +194,7 @@ async function hydrateListingSummary(row) {
   if (!row.client_id) return row;
   const client = await Client.findById(row.client_id);
   if (!client || Number(client.agency_id) !== Number(row.agency_id)) return row;
+  row.demo_exchange = await isDemoExchangeClient({client,clientId:row.client_id,agencyId:row.agency_id});
   if (!['open', 'requested'].includes(row.status)) {
     for (const field of ['diagnoses_json', 'presenting_problems_json', 'demographics_json']) row[field] = exchangeSafeValue(parseJsonColumn(row[field]), client);
     const preferences = parseJsonColumn(row.preferences_json) || {};
@@ -276,6 +281,8 @@ export async function getMatchingAudit(listingId, { viewerUserId, viewerRole }) 
   const row = await getRawListingById(listingId);
   if (!row || !isPrivilegedViewer({ viewerUserId, viewerRole, listing: row })) return null;
   await hydrateListingSummary(row);
+  if (row.demo_exchange && !canViewDemoExchange(viewerRole)) return null;
+  await hydrateListingSummary(row);
   return exchangeProviderAudit({ listing: mapListingRow(row), agencyId: Number(row.agency_id) });
 }
 
@@ -304,6 +311,7 @@ export async function createListing({
   const client = await Client.findById(cid);
   if (!client) throw new Error('Client not found');
   if (Number(client.agency_id) !== aid) throw new Error('Client does not belong to this agency');
+  if (!canViewDemoExchange(viewerRole) && await isDemoExchangeClient({client,agencyId:aid})) throw Object.assign(new Error('Demo referrals are restricted to Support and administrators'),{status:403});
 
   if (!['transfer', 'additional_service'].includes(referralKind)) throw Object.assign(new Error('Invalid referral purpose'), { status: 400 });
   if (!['individual', 'family', 'couples', 'group', 'other'].includes(serviceType)) throw Object.assign(new Error('Invalid service type'), { status: 400 });
@@ -402,6 +410,8 @@ export async function getRequestById(requestId) {
 export async function listRequestsForListing(listingId, { viewerUserId, viewerRole } = {}) {
   const listing = await getRawListingById(listingId);
   if (!listing) return [];
+  await hydrateListingSummary(listing);
+  if (listing.demo_exchange && !canViewDemoExchange(viewerRole)) return [];
   const privileged = isPrivilegedViewer({ viewerRole, viewerUserId, listing });
   const [rows] = await pool.execute(
     `SELECT r.*, u.first_name AS requesting_first_name, u.last_name AS requesting_last_name
@@ -412,7 +422,6 @@ export async function listRequestsForListing(listingId, { viewerUserId, viewerRo
     [Number(listingId)]
   );
   const visibleRows = privileged ? rows : rows.filter(row => Number(row.requesting_provider_user_id) === Number(viewerUserId));
-  await hydrateListingSummary(listing);
   const mapped = await Promise.all((visibleRows || []).map(async row => {
     const context = await loadExchangeProvider({ userId: row.requesting_provider_user_id, agencyId: listing.agency_id });
     const waivers = await loadExchangeWaivers({ listingId: listing.id, userId: row.requesting_provider_user_id });
@@ -429,7 +438,7 @@ export async function listMyRequests({ agencyId, requestingProviderUserId }) {
   if (!aid || !uid) return [];
   const [rows] = await pool.execute(
     `SELECT r.*, u.first_name AS requesting_first_name, u.last_name AS requesting_last_name,
-            l.status AS listing_status, l.agency_id AS listing_agency_id
+            l.status AS listing_status, l.agency_id AS listing_agency_id,l.client_id AS listing_client_id
      FROM client_exchange_requests r
      JOIN client_exchange_listings l ON l.id = r.listing_id
      LEFT JOIN users u ON u.id = r.requesting_provider_user_id
@@ -437,7 +446,12 @@ export async function listMyRequests({ agencyId, requestingProviderUserId }) {
      ORDER BY r.created_at DESC`,
     [uid, aid]
   );
-  return (rows || []).map((row) => ({ ...mapRequestRow(row), listingStatus: row.listing_status }));
+  const visible=[];
+  for (const row of rows || []) {
+    if (await isDemoExchangeClient({clientId:row.listing_client_id,agencyId:aid})) continue;
+    visible.push({...mapRequestRow(row),listingStatus:row.listing_status});
+  }
+  return visible;
 }
 
 /**

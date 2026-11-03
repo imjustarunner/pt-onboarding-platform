@@ -20,6 +20,7 @@ beforeEach(() => {
   mocks.accepted.mockResolvedValue({ accepted: [{ name: 'Tricare' }], excluded: [] });
   mocks.poolExecute.mockImplementation(async () => [[{ listing_id: 1 }]]);
   mocks.execute.mockImplementation(async (sql, args) => {
+    if (sql.startsWith('SELECT c.id,c.email')) return [[{...client,demo_guardian_email:0}]];
     if (sql.includes('FROM client_exchange_match_waivers')) return [waivers];
     if (sql.startsWith('SELECT * FROM client_exchange_listings')) return [[{ ...listing }]];
     if (sql.startsWith('SELECT c.*')) return [[{ ...client }]];
@@ -150,4 +151,10 @@ it('requires a written plan as well as acknowledgement for a visit-format mismat
  await createExchangeClaim({...input,message:'I will arrange an assigned Colorado Springs office and offer in-person care.'});
  expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining('acknowledged_warnings_json'),[1,10,'I will arrange an assigned Colorado Springs office and offer in-person care.',expect.stringContaining('in-person')]);
  await expect(resolveExchangeClaim({requestId:1,action:'approve',actingUserId:8,actingRole:'support'})).rejects.toThrow('Resolve or waive');
+});
+
+it('blocks a demo request before a provider claim or support notice is created',async()=>{
+ client.email='demo@example.com';
+ await expect(createExchangeClaim({listingId:1,requestingProviderUserId:9})).rejects.toMatchObject({status:403});
+ expect(claims).toEqual([]);expect(mocks.commit).not.toHaveBeenCalled();
 });

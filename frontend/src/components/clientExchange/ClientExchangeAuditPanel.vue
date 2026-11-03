@@ -5,6 +5,8 @@
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-if="receipt" role="status">{{ receipt }}</p>
     <template v-if="audit">
+      <p v-if="audit.isDemo" role="status"><strong>Demo · staff only.</strong> These are hypothetical matching results. Providers cannot see or request this referral, and provider notifications are suppressed.</p>
+      <p v-if="audit.isDemo">Support demo report: {{ audit.demoReport?.status?.replaceAll('_', ' ') || 'not recorded' }}<span v-if="audit.demoReport?.communication_id"> · Communication #{{ audit.demoReport.communication_id }}</span>. A sent status records sender acceptance; receipt still needs verification.</p>
       <p>{{ matched.length }} {{ audit.matchesEvaluatedAt ? 'currently matched' : 'matched at last evaluation' }} · {{ adjustments.length }} can request with adjustments or availability review · {{ blocked.length }} blocked by eligibility or insurance</p>
       <p>Matching uses the client’s specified preferences. Missing diagnosis, location or gender preferences do not exclude providers. A possible match with unpublished availability still needs scheduling confirmation before assignment.</p>
       <p>{{ audit.views?.total || 0 }} detail views · {{ audit.views?.unique_viewers || 0 }} unique viewers since {{ audit.trackingStartedAt ? new Date(audit.trackingStartedAt).toLocaleString() : 'tracking began' }}. Earlier views were not tracked.</p>
@@ -34,7 +36,7 @@
               <button type="button" :disabled="saving" @click="waiver = null">Cancel</button>
             </form>
           </div>
-          <button v-if="audit.canReview && !provider.checks?.some(c => ['account','assigned','direct_referral'].includes(c.field) && c.status === 'fail')" type="button" :disabled="saving" @click="previewShare(provider)">{{ shareCount(provider.userId) ? 'Share with provider again' : 'Share with provider' }}</button>
+          <button v-if="!audit.isDemo && audit.canReview && !provider.checks?.some(c => ['account','assigned','direct_referral'].includes(c.field) && c.status === 'fail')" type="button" :disabled="saving" @click="previewShare(provider)">{{ shareCount(provider.userId) ? 'Share with provider again' : 'Share with provider' }}</button>
           <section v-if="share?.providerUserId === provider.userId" class="share-preview" aria-label="Share email preview">
             <h4>Email to {{ share.to }}</h4>
             <strong>{{ share.subject }}</strong>

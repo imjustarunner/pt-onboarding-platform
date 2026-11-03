@@ -22,6 +22,7 @@ beforeEach(() => {
   m.signature.mockImplementation(async value => ({ appended: true, text: `${value.text}\nSigned by Staff Seven`, html: `${value.html}<!-- pt-staff-html-signature -->Staff Seven` }));
   m.send.mockResolvedValue({ id: 'message-1', communicationId: 9 }); m.notify.mockResolvedValue({ id: 30 });
   m.execute.mockImplementation(async (sql, args) => {
+    if (sql.startsWith('SELECT c.id,c.email')) return [[{id:3,demo_guardian_email:0}]];
     if (sql.startsWith('SELECT * FROM client_exchange_listings')) return [[listing]];
     if (sql.startsWith('SELECT s.*')) return [shares];
     if (sql.startsWith('SELECT * FROM client_exchange_shares')) return [shares.filter(s => s.request_key === args[2])];
@@ -81,4 +82,11 @@ it('does not silently omit the signature or retry an uncertain send', async () =
 it.each([{ queued: true, status: 'queued' }, { skipped: true, status: 'skipped' }, { blocked: true, status: 'failed' }])('keeps accurate delivery status $status', async ({ status, ...result }) => {
   m.send.mockResolvedValue(result);
   expect((await sendExchangeShare(input)).share.status).toBe(status);
+});
+
+it('cannot preview or send a provider share for a demo client',async()=>{
+ m.client.mockResolvedValue({id:3,agency_id:2,email:'demo@example.com'});
+ await expect(previewExchangeShare(input)).rejects.toMatchObject({status:403});
+ await expect(sendExchangeShare(input)).rejects.toMatchObject({status:403});
+ expect(m.send).not.toHaveBeenCalled();expect(m.notify).not.toHaveBeenCalled();
 });
