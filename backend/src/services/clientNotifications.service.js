@@ -118,6 +118,7 @@ function isTestOrPlaceholderSenderDisplayName(name) {
 function readableEnrollmentSkip(reason) {
   const raw = String(reason || 'not sent');
   if (/assigned_by/i.test(raw)) return 'The enrollment notice was not sent because no assigned-by user is recorded.';
+  if (/configured school portal/i.test(raw)) return 'The school enrollment notice was not sent because the school portal is not configured.';
   if (/no school|itsco_email|school email/i.test(raw)) return 'This school has no school email set, so the enrollment notice was not sent.';
   if (/^ER_|foreign key constraint|cannot be null/i.test(raw)) return 'The enrollment notice was not sent because a required record is missing.';
   return raw.slice(0, 500);
@@ -576,10 +577,28 @@ export async function notifyNewPacketUploaded({
   // Full office enrollment reaches this path rather than the brief inquiry path.
   // Use the same per-client receipt so completing a packet after an interest form
   // does not send Support another “new client” notice.
-  const [[officeClient]] = await pool.execute(`SELECT client_type,status,provider_id,school_organization_id FROM clients WHERE id=? AND agency_id=?`,[clientId,agencyId]);
-  if(officeClient?.client_type==='clinical' && ['PENDING_REVIEW','PACKET','PENDING','PROSPECTIVE'].includes(officeClient.status) && !officeClient.school_organization_id && !officeClient.provider_id) {
-    const {sendNewClientSupportNotice}=await import('./clientExchangeEnrollmentNotice.service.js');
-    await sendNewClientSupportNotice({agencyId,clientId}).catch(error=>console.error('[clientExchange] Enrollment Support notice needs review',{clientId,code:error?.code||'support_notice_failed'}));
+  // Office routing must never prevent the independent school packet email.
+  // clients uses organization_id; school_organization_id is not a client column.
+  try {
+    const [[officeClient]] = await pool.execute(
+      `SELECT c.client_type, c.status, c.provider_id, a.organization_type
+       FROM clients c
+       LEFT JOIN agencies a ON a.id = c.organization_id
+       WHERE c.id = ? AND c.agency_id = ?`,
+      [clientId, agencyId]
+    );
+    if (officeClient?.client_type === 'clinical'
+      && ['PENDING_REVIEW', 'PACKET', 'PENDING', 'PROSPECTIVE'].includes(officeClient.status)
+      && officeClient.organization_type !== 'school'
+      && !officeClient.provider_id) {
+      const { sendNewClientSupportNotice } = await import('./clientExchangeEnrollmentNotice.service.js');
+      await sendNewClientSupportNotice({ agencyId, clientId });
+    }
+  } catch (error) {
+    console.error('[clientExchange] Enrollment Support notice needs review', {
+      clientId,
+      code: error?.code || 'support_notice_failed'
+    });
   }
 
   // School email is independent of in-app notification idempotency so a prior silent
@@ -592,8 +611,14 @@ export async function notifyNewPacketUploaded({
       clientInitials,
       schoolStaffName,
       clientId
-    }).catch((err) => {
+    }).catch(async (err) => {
       console.error('[notifyNewPacketUploaded] school status email error', err?.message || err);
+      await logSchoolStatusEmailSkip({
+        agencyId,
+        clientId,
+        schoolOrganizationId,
+        reason: String(err?.message || 'School packet email preparation failed').slice(0, 500)
+      });
     });
   }
 }

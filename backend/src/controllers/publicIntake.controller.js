@@ -10192,14 +10192,19 @@ export const finalizePublicIntake = async (req, res, next) => {
           null;
         const clientLabel =
           clientPayload?.fullName || clientRow?.identifier_code || clientRow?.initials || `ID ${clientId}`;
-        notifyNewPacketUploaded({
+        await notifyNewPacketUploaded({
           agencyId,
           schoolOrganizationId: schoolOrgId,
           clientId,
           clientNameOrIdentifier: clientLabel,
           clientInitials: clientRow?.initials || clientPayload?.initials || null,
           mode: 'digital_submission'
-        }).catch(() => {});
+        }).catch((error) => {
+          console.error('[packetNotification] Delivery needs review', {
+            clientId,
+            code: error?.code || 'packet_notification_failed'
+          });
+        });
         maybeNotifyClinicalSafetyAlert({
           agencyId,
           clientId,
@@ -11482,14 +11487,19 @@ export const submitPublicIntake = async (req, res, next) => {
           null;
         const clientLabel =
           clientPayload?.fullName || clientRow?.identifier_code || clientRow?.initials || `ID ${clientId}`;
-        notifyNewPacketUploaded({
+        await notifyNewPacketUploaded({
           agencyId,
           schoolOrganizationId: schoolOrgId,
           clientId,
           clientNameOrIdentifier: clientLabel,
           clientInitials: clientRow?.initials || clientPayload?.initials || null,
           mode: 'digital_submission'
-        }).catch(() => {});
+        }).catch((error) => {
+          console.error('[packetNotification] Delivery needs review', {
+            clientId,
+            code: error?.code || 'packet_notification_failed'
+          });
+        });
         maybeNotifyClinicalSafetyAlert({
           agencyId,
           clientId,

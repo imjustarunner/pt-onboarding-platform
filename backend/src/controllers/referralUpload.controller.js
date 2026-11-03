@@ -418,7 +418,7 @@ export const submitReferralPacketDraft = async (req, res, next) => {
       });
     }
 
-    notifyNewPacketUploaded({
+    await notifyNewPacketUploaded({
       agencyId,
       schoolOrganizationId: organization.id,
       clientId: client.id,
@@ -426,7 +426,12 @@ export const submitReferralPacketDraft = async (req, res, next) => {
       clientInitials: client.initials || null,
       mode: 'paper_upload',
       schoolStaffName: String(req.user?.role || '').toLowerCase() === 'school_staff' ? uploaderLabel : null
-    }).catch(() => {});
+    }).catch((error) => {
+      console.error('[packetNotification] Delivery needs review', {
+        clientId: client.id,
+        code: error?.code || 'packet_notification_failed'
+      });
+    });
 
     if (uploadNote && uploadNote.length <= 500 && uploaderId) {
       try {
