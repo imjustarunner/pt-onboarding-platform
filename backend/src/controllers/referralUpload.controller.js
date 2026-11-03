@@ -1,4 +1,6 @@
 import Agency from '../models/Agency.model.js';
+import pool from '../config/database.js';
+import { referralPacketUploaderLabel } from '../utils/referralPacketUploader.js';
 import Client from '../models/Client.model.js';
 import ClientNotes from '../models/ClientNotes.model.js';
 import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
@@ -329,9 +331,11 @@ export const submitReferralPacketDraft = async (req, res, next) => {
     const isInternalUpload = !!req.user?.id;
     const source = isInternalUpload ? 'SCHOOL_UPLOAD_INTERNAL' : 'SCHOOL_UPLOAD';
     const uploaderId = draft.uploaded_by_user_id || (isInternalUpload ? req.user.id : null);
-    const uploaderLabel = isInternalUpload
-      ? `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || req.user.email || `User ${req.user.id}`
-      : 'public_upload';
+    const uploaderLabel = await referralPacketUploaderLabel({
+      uploaderId: draft.uploaded_by_user_id,
+      currentUser: req.user,
+      database: pool
+    });
 
     const agencyId = draft.agency_id || (await resolveAgencyIdForOrganization(organization.id));
     const identifierCode = await generateUniqueSixDigitClientCode({ agencyId });
@@ -425,7 +429,7 @@ export const submitReferralPacketDraft = async (req, res, next) => {
       clientNameOrIdentifier: client.identifier_code || client.initials || `ID ${client.id}`,
       clientInitials: client.initials || null,
       mode: 'paper_upload',
-      schoolStaffName: uploaderLabel === 'public_upload' ? 'Public upload' : uploaderLabel
+      schoolStaffName: uploaderLabel
     }).catch((error) => {
       console.error('[packetNotification] Delivery needs review', {
         clientId: client.id,
