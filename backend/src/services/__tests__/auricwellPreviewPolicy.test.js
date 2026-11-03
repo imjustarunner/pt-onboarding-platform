@@ -9,6 +9,7 @@ describe('AuricWell administrator preview', () => {
     expect(()=>assertPreviewActor(user,{demoMode:true})).toThrow();
     expect(()=>assertPreviewActor(user,{testAccountSwitch:true})).toThrow();
   });
+  it('permits agenda reads while rejecting agenda mutations',()=>{ for(const path of ['/auricwell-preview/workspace-scope','/auricwell-preview/agenda','/auricwell-preview/directory']) { expect(previewRouteAllowed('GET',path)).toBe(true); for(const method of ['POST','PUT','PATCH','DELETE'])expect(previewRouteAllowed(method,path)).toBe(false); } });
   it('only aliases the explicitly requested InnerStrength URL', () => {
     expect(previewAgencySlug('innerstrength')).toBe('tisi');
     expect(previewAgencySlug('example')).toBe('example');

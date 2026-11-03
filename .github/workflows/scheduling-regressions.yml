@@ -106,6 +106,10 @@ jobs:
           backend/src/services/__tests__/meetingConfiguredReminders.test.js
           backend/src/services/__tests__/meetingReminders.test.js
           backend/src/controllers/__tests__/scheduling.plannedOuts.test.js
+      - name: AuricWell scoped agenda and directory
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.auricwell-agenda.config.js
+          (cd frontend && node node_modules/vitest/vitest.mjs run src/auricwell/__tests__/Agenda.test.js src/auricwell/__tests__/Workspace.test.js src/auricwell/__tests__/qaAccess.test.js src/components/schedule/__tests__/TeamScheduleHandoff.test.js)
       - name: Supervision RSVP, internship messaging, and family privacy
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.supervision-safety.config.js
       - name: Supervisor cosign and billing amendment regressions

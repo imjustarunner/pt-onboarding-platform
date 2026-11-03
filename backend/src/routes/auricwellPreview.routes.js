@@ -1,6 +1,7 @@
 import { withToastLoginSession } from '../utils/toastLoginSession.js';
 import express from 'express';
 import pool from '../config/database.js';
+import { auricwellAgenda } from '../services/auricwellAgenda.service.js';
 import Agency from '../models/Agency.model.js';
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
 import { requirePreviewAdmin } from '../middleware/auricwellPreview.middleware.js';
@@ -35,6 +36,14 @@ const toastAgency = req => {
   return id;
 };
 const run = fn => (req, res, next) => Promise.resolve().then(() => fn(req, res, next)).catch(next);
+for (const [path,method] of [['workspace-scope','workspace'],['agenda','agenda'],['directory','clients']]) {
+  router.get(`/${path}`,run(async(req,res)=>{
+    const agencyId=req.auricwellPreview?.agencyId;
+    if(!agencyId) throw previewError(400,'Select a practice first.');
+    res.set('Cache-Control','private, no-store');
+    res.json(await auricwellAgenda[method]({agencyId,actor:req.previewActor,input:req.query}));
+  }));
+}
 router.get('/toasts/active', run(async (req, res) => {
   const rows = await listToasts({ agencyId: toastAgency(req), active: true, includeSupport: true });
   res.set('Cache-Control', 'private, no-store');

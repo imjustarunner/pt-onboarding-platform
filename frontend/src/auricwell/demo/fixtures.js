@@ -33,6 +33,15 @@ export function demoResponse(url, config={}) {
  const userMatch=p.match(/\/users\/(\d+)(?:\/|$)/);if(userMatch&&!providers.some(u=>u.id===Number(userMatch[1])))throw new Error('That provider is outside this fictional demo.');
  if(p==='/clients') {const search=String(q.search||'').toLowerCase();return {clients:Number(q.page||1)>1?[]:clients.filter(c=>`${c.full_name} ${c.initials}`.toLowerCase().includes(search)),total:clients.length};}
  if(p==='/auricwell-preview/providers')return {providers};
+ if(p==='/auricwell-preview/workspace-scope')return {actorId:actor.id,scopes:['mine','practice'],providers:providers.map(p=>({...p,name:`${p.first_name} ${p.last_name}`,active:true,canViewSchedule:true}))};
+ if(p==='/auricwell-preview/directory'){const search=String(q.search||'').toLowerCase();let rows=clients.filter(c=>`${c.full_name} ${c.initials}`.toLowerCase().includes(search));rows.sort((a,b)=>a.full_name.localeCompare(b.full_name)*(q.order==='desc'?-1:1));return {clients:Number(q.page||1)>1?[]:rows,total:rows.length,page:1,pageSize:50};}
+ if(p==='/auricwell-preview/agenda'){
+   let items=q.providerId&&Number(q.providerId)!==actor.id?[]:schedule(q.start).scheduleEvents.map(e=>({...e,key:`appointment:${e.id}`,providerId:actor.id,providerName:'Avery Lane',kind:'appointment',clientName:clientFor(e.clientId).full_name,date:e.startAt.slice(0,10),startAt:e.startAt+'Z',endAt:e.endAt+'Z',location:e.modality,readOnly:true,status:e.appointmentStatus}));
+   const search=String(q.search||'').toLowerCase();items=items.filter(r=>(!q.end||r.date<q.end)&&(!search||[r.clientName,r.providerName,r.title,r.location].join(' ').toLowerCase().includes(search))&&(!q.kind||q.kind==='all'||q.kind===r.kind)&&q.status!=='canceled');
+   const field={client:'clientName',provider:'providerName',status:'status'}[q.sort]||'startAt';items.sort((a,b)=>String(a[field]).localeCompare(String(b[field]))*(q.order==='desc'?-1:1));
+   return {items:items.slice(((Number(q.page)||1)-1)*50,(Number(q.page)||1)*50),total:items.length,timeZone:practice.timezone,page:Number(q.page)||1,pageSize:50};
+ }
+
  if(p==='/auricwell-preview/tasks')return {tasks:[],total:0};
  if(p==='/appointments')return {appointments:schedule(q.windowStart).scheduleEvents.map(e=>({...e,title:e.title,providerUserId:actor.id,serviceCode:'90834'}))};
  if(/^\/clients\/\d+$/.test(p))return clientFor(clientMatch[1]);

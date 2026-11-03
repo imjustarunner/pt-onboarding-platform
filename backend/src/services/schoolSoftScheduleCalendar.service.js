@@ -37,6 +37,31 @@ export function createSchoolSoftScheduleCalendar({ roster = cancellationSchoolRo
     }
     return [...results.values()].sort((a,b) => a.date.localeCompare(b.date) || a.clientName.localeCompare(b.clientName));
   }
-  return { list };
+  // Bulk read adapter for the practice agenda: one roster read per day, not per provider.
+  async function listMany({ agencyId, providerIds, startDate, endDate, timeZone, appointments = [] }) {
+    if (!providerIds.length) return [];
+    const results = new Map();
+    const key = (providerId,date,clientId,schoolId) => `${agencyId}:${providerId}:${date}:${clientId}:${schoolId}`;
+    const booked = new Set(appointments.map(a => `${a.providerId}:${a.date}:${a.clientId}`));
+    for (let date=startDate, days=0; date<endDate && days<32; date=addDaysYmd(date,1), days++) {
+      for (const row of await roster.readMany({agencyId,providerIds,date})) {
+        const providerId=Number(row.provider_id), clientId=Number(row.client_id), schoolId=Number(row.school_id);
+        if (booked.has(`${providerId}:${date}:${clientId}`)) continue;
+        const k=key(providerId,date,clientId,schoolId);
+        results.set(k,{key:k,agencyId,providerId,clientId,schoolId,date,schoolName:row.school_name,
+          clientName:row.client_name || row.client_initials || `Client #${clientId}`,timeZone,
+          slots:(row.slots || []).map(s=>({id:s.id,startTime:s.startTime,endTime:s.endTime,
+            startAt:s.startTime ? wallMysqlToUtcMysql(`${date} ${s.startTime}`,timeZone)?.replace(' ','T')+'Z' : null,
+            endAt:s.endTime ? wallMysqlToUtcMysql(`${date} ${s.endTime}`,timeZone)?.replace(' ','T')+'Z' : null})),
+          explanation:DAY_ABSENCE_EXPLANATION,source:'school_soft_schedule',canceled:false});
+      }
+    }
+    for (const record of await history.list({agencyId,providerIds,startDate,endDate})) {
+      const k=key(record.providerId,record.date,record.clientId,record.schoolId);
+      results.set(k,{...results.get(k),...record,key:k,timeZone,explanation:DAY_ABSENCE_EXPLANATION,canceled:true});
+    }
+    return [...results.values()];
+  }
+  return { list, listMany };
 }
 export const schoolSoftScheduleCalendar = createSchoolSoftScheduleCalendar();

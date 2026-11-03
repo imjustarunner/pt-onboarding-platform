@@ -60,3 +60,18 @@ describe('day absence policy and schedule evidence',()=>{
     await expect(service.apply({id:11,type:'meeting',agencyId:450,providerId:7,source},8)).rejects.toThrow('event changed');
   });
 });
+
+it('bulk agenda reads retain provider identity, exact slots and cancellations without per-provider day queries',async()=>{
+ const roster={readMany:vi.fn(async()=>[
+  {provider_id:7,client_id:1,school_id:451,client_name:'DEMO QA One',school_name:'Cedar',slots:[{id:1,startTime:'10:28:00',endTime:'11:21:00'}]},
+  {provider_id:8,client_id:1,school_id:451,client_name:'DEMO QA One',school_name:'Cedar',slots:[]}
+ ])};
+ const history={list:vi.fn(async()=>[{id:5,providerId:7,clientId:9,schoolId:451,date:'2026-11-03',clientName:'DEMO QA retained',slots:[],delivery:{held:1}}])};
+ const service=createSchoolSoftScheduleCalendar({roster,history});
+ const rows=await service.listMany({agencyId:450,providerIds:[7,8],startDate:'2026-11-03',endDate:'2026-11-05',timeZone:'America/Denver',appointments:[{providerId:7,clientId:1,date:'2026-11-03'}]});
+ expect(roster.readMany).toHaveBeenCalledTimes(2);expect(history.list).toHaveBeenCalledWith(expect.objectContaining({agencyId:450,providerIds:[7,8]}));
+ expect(rows.some(r=>r.providerId===7&&r.clientId===1&&r.date==='2026-11-03')).toBe(false);
+ expect(rows.some(r=>r.providerId===8&&r.clientId===1&&r.date==='2026-11-03')).toBe(true);
+ expect(rows.find(r=>r.clientId===9)).toMatchObject({canceled:true,id:5,delivery:{held:1}});
+ expect(rows.find(r=>r.providerId===7&&r.date==='2026-11-04').slots[0]).toMatchObject({startAt:'2026-11-04T17:28:00Z',endAt:'2026-11-04T18:21:00Z'});
+});

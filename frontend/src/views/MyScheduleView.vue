@@ -17,7 +17,7 @@
         @select-view="onSelectHubView"
       >
         <template #header-controls>
-          <TeamSchedulePicker v-model="teamUserId" :agency-id="Number(agencyStore.currentAgency?.id) || null" @select-name="teamUserName = $event" />
+          <TeamSchedulePicker :initial-user-id="Number(route.query.scheduleViewAs || 0)" v-model="teamUserId" :agency-id="Number(agencyStore.currentAgency?.id) || null" @select-name="teamUserName = $event" />
           <router-link v-if="teamUserId && (canPickEmployeeSchedule || isSupervisorUser)" :to="{ path: orgTo('/dashboard'), query: { tab: 'my_schedule', scheduleViewAs: String(teamUserId) } }" class="btn btn-secondary btn-sm">Open schedule tools</router-link>
         </template>
         <template #header-actions>

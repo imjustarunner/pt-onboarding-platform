@@ -13,19 +13,20 @@ import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import PersonSearchSelect from './PersonSearchSelect.vue';
 import { canBrowseTeamSchedules, directoryScheduleOptions } from '../../utils/teamScheduleAccess.js';
-const props = defineProps({ modelValue: { type: Number, default: 0 }, agencyId: Number });
+const props = defineProps({ modelValue: { type: Number, default: 0 }, agencyId: Number, initialUserId: Number });
 const emit = defineEmits(['update:modelValue', 'select-name']);
 const authStore = useAuthStore();
 const people = ref([]), loading = ref(false), error = ref('');
 let generation = 0;
 const options = computed(() => people.value.filter(person => person.id !== Number(authStore.user?.id)));
+watch([() => props.initialUserId, options], () => { if(props.initialUserId && options.value.some(p=>p.id===props.initialUserId)) emit('update:modelValue',props.initialUserId); });
 watch([() => props.modelValue, options], () => emit('select-name', options.value.find(p => p.id === props.modelValue)?.first_name || 'Team member'));
 async function load() {
   const run = ++generation; people.value = []; error.value = '';
   if (!props.agencyId || !canBrowseTeamSchedules(authStore.user)) { loading.value = false; return; }
   loading.value = true;
   try {
-    const { data } = await api.get('/staff/directory', { params: { agencyId: props.agencyId, activeOnly: true }, skipGlobalLoading: true });
+    const { data } = await api.get('/staff/directory', { params: { agencyId: props.agencyId, activeOnly: !props.initialUserId }, skipGlobalLoading: true });
     if (run !== generation) return;
     people.value = directoryScheduleOptions(data.staff, props.agencyId);
     if (props.modelValue && !options.value.some(p => p.id === props.modelValue)) emit('update:modelValue', 0);

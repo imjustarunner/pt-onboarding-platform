@@ -53,7 +53,7 @@ export function constrainPreviewInput(input, agencyId) {
 }
 export function previewRouteAllowed(method, path) {
   if (method === 'GET') return [
-    /^\/auricwell-preview(?:\/context|\/providers|\/tasks|\/notifications|\/toasts(?:\/active)?)?$/,
+    /^\/auricwell-preview(?:\/context|\/providers|\/workspace-scope|\/agenda|\/directory|\/tasks|\/notifications|\/toasts(?:\/active)?)?$/,
     /^\/platform\/toast-announcements$/,
     /^\/clinical-notes\/(?:context|programs|recent|work-queue|termination-outcomes)$/,
     /^\/note-aid\/(?:catalog|tools)$/,

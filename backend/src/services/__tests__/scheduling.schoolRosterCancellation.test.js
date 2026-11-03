@@ -73,3 +73,11 @@ describe('school roster cancellation without appointments',()=>{
   s.contacts.mockResolvedValue({...client,channels:['sms']});await expect(s.service.review(row,args)).rejects.toThrow('support email');
  });
 });
+
+it('keeps separate assignments for two providers in a bulk read and sends nothing',async()=>{
+ const s=setup();s.setRows([{...row,provider_id:505},{...row,provider_id:506}]);
+ const rows=await s.service.readMany({...args,providerIds:[505,506]});expect(rows).toHaveLength(2);
+ expect(s.database.execute.mock.calls[0][1]).toEqual([2,505,506,'Wednesday']);expect(s.database.execute.mock.calls[0][0]).toContain('cpa.provider_user_id IN (?,?)');
+ expect(s.sendEmail).not.toHaveBeenCalled();expect(s.history.begin).not.toHaveBeenCalled();
+ const before=s.database.execute.mock.calls.length;expect(await s.service.readMany({...args,providerIds:[]})).toEqual([]);expect(s.database.execute).toHaveBeenCalledTimes(before);
+});

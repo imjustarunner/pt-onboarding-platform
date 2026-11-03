@@ -25,13 +25,16 @@ export function createSchoolAbsenceHistory({ database = pool, encrypt = maybeEnc
   async function finish(id, delivery) {
     await database.execute('UPDATE school_day_absence_history SET delivery_payload=? WHERE id=?', [encrypt(JSON.stringify(delivery)), id]);
   }
-  async function list({ agencyId, providerId = null, clientId = null, startDate = null, endDate = null }) {
+  async function list({ agencyId, providerId = null, providerIds = null, clientId = null, startDate = null, endDate = null }) {
+    if (providerIds && !providerIds.length) return [];
     const [rows] = await database.execute(`SELECT h.*, DATE_FORMAT(h.absence_date,'%Y-%m-%d') AS absence_date,
       CONCAT_WS(' ',u.first_name,u.last_name) AS actor_name FROM school_day_absence_history h
       LEFT JOIN users u ON u.id=h.actor_user_id WHERE h.agency_id=?
       AND (? IS NULL OR h.provider_id=?) AND (? IS NULL OR h.client_id=?)
       AND (? IS NULL OR h.absence_date>=?) AND (? IS NULL OR h.absence_date<?)
-      ORDER BY h.absence_date DESC,h.id DESC LIMIT 500`, [agencyId,providerId,providerId,clientId,clientId,startDate,startDate,endDate,endDate]);
+      ${providerIds ? `AND h.provider_id IN (${providerIds.map(()=>"?").join(",")})` : ""}
+      ORDER BY h.absence_date DESC,h.id DESC LIMIT 500`, [agencyId,providerId,providerId,clientId,clientId,startDate,startDate,endDate,endDate,...(providerIds || [])]);
+    if (providerIds && rows.length >= 500) throw Object.assign(new Error("Too many school cancellation records. Choose a shorter range or one provider."), {status:422});
     if (!rows.length) return [];
     const [receipts] = await database.execute(`SELECT school_history_id,recipient_payload,confirmed_at FROM cancellation_email_receipts WHERE agency_id=? AND school_history_id IN (${rows.map(()=>'?').join(',')})`, [agencyId,...rows.map(r=>r.id)]);
     return rows.map(row => {
