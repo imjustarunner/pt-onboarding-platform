@@ -16,3 +16,9 @@ it('uses the authenticated name when the original uploader submits it', async ()
 it('does not attribute a public upload to the later submitter', async () => {
   expect(await referralPacketUploaderLabel({ uploaderId: null, currentUser: { id: 501, first_name: 'Michael' }, database: {} })).toBe('Public upload');
 });
+
+it('loads the uploader name when authentication contains only their ID and email', async () => {
+  const database = { execute: vi.fn(async () => [[{ first_name: 'Jamie', last_name: 'Taylor' }]]) };
+  expect(await referralPacketUploaderLabel({ uploaderId: 12, currentUser: { id: 12, email: 'jamie@itsco.health' }, database })).toBe('Jamie Taylor');
+  expect(database.execute).toHaveBeenCalledOnce();
+});
