@@ -1,13 +1,16 @@
 import { verbalReminderProgramReady } from '../utils/staffVerbalReminderConsent.js';
 import { contactReminderConsentLock } from '../utils/contactReminderConsent.js';
 import {ITSCO_STAFF_ASSISTANT_NUMBER} from '../utils/staffSmsAssistant.js';
-import { staffCommunicationKey, phoneFingerprint, STAFF_COMMUNICATION_CHOICES } from '../utils/staffCommunicationChoices.js';
+import { staffCommunicationKey, phoneFingerprint, STAFF_COMMUNICATION_CHOICES, withExchangeSmsOptOut } from '../utils/staffCommunicationChoices.js';
+import { exchangeSmsOptedOut, setExchangeSmsPreference, restartExchangeSms } from './exchangeSmsPreference.service.js';
+import { categoryRestartMessage } from '../utils/smsCategoryRestart.js';
+import { setProviderRelayPreference, restartProviderRelay, cancelPendingRelayReplies } from './providerRelayPreference.service.js';
 import pool from '../config/database.js';
 import { allowQaSmsDelivery } from '../utils/auricwellQaPolicy.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import { parseSmsKeyword, SMS_PURPOSES, smsPolicyError, validateSmsRegistration, formatRegisteredSms } from '../utils/smsCompliancePolicy.js';
 import { CLIENT_SMS_PURPOSES, assertSmsCarrierPurpose, notifyreCampaignForAgency } from '../utils/smsCarrierPolicy.js';
-import { notifyrePhoneStopped, applyNotifyreAccountCommand, notifyrePurposeOptedOut, declineNotifyrePurpose } from './notifyreRecipientState.service.js';
+import { notifyrePhoneStopped, applyNotifyreAccountCommand, notifyrePurposeOptedOut, declineNotifyrePurpose, restartNotifyrePurpose } from './notifyreRecipientState.service.js';
 
 const json = (value) => typeof value === 'string' ? JSON.parse(value) : value;
 // One-use capabilities bind an automated control reply to its exact recipient/body.
@@ -39,7 +42,7 @@ export async function getSmsSender(from) {
     scope: row.campaign_id ? `campaign:${row.campaign_id}` : `number:${row.id}` };
 }
 
-export async function recordSmsPermission({ scope, phone, purpose, status, evidence, expiresAt = null }) {
+export async function recordSmsPermission({ scope, phone, purpose, status, evidence, expiresAt = null, onRecorded = null }) {
   const recipient = normalizeSmsPhone(phone);
   if (!recipient || !scope || ![...SMS_PURPOSES, 'suppression'].includes(purpose)
       || !['opted_in', 'opted_out'].includes(status) || !evidence?.source) {
@@ -59,6 +62,7 @@ export async function recordSmsPermission({ scope, phone, purpose, status, evide
       `INSERT INTO sms_permission_events (scope_key, phone, purpose, status, evidence_json, provider_message_id) VALUES (?, ?, ?, ?, ?, ?)`,
       [scope, recipient, purpose, status, details, evidence.messageId || null]
     );
+    if (onRecorded) await onRecorded(connection);
     await connection.commit();
     return true;
   } catch (error) {
@@ -108,7 +112,7 @@ export async function isSmsSuppressed(sender, phone) {
   return staff.length > 0;
 }
 
-export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications', senderFirstName, staffAssistantReply, hiringUserId, companyEventId, clientId, notificationCategory }) {
+export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications', senderFirstName, staffAssistantReply, hiringUserId, companyEventId, clientId, notificationCategory, providerRelayEnrollmentId }) {
   const recipient = normalizeSmsPhone(to);
   if (!recipient) throw smsPolicyError('sms_invalid_recipient', 'A valid recipient number is required');
   if (mediaUrl) throw smsPolicyError('sms_mms_unsupported', 'Attachments require a configured MMS transport; nothing was sent');
@@ -119,6 +123,9 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
   if (complianceReply && controlReplies.has(complianceReply)
       && complianceReply.to === recipient && complianceReply.from === sender.phone_number && complianceReply.body === body) {
     controlReplies.delete(complianceReply);
+    if (complianceReply.categoryReply && await isSmsSuppressed(sender, recipient)) {
+      throw smsPolicyError('sms_opted_out', 'Recipient has opted out of this SMS campaign');
+    }
     return { to: recipient, from: sender.phone_number, agencyId: sender.agency_id, body, registration: sender.registration, controlReply: true };
   }
   if (!allowQaSmsDelivery({id:sender.agency_id,slug:sender.agency_slug,feature_flags:sender.agency_feature_flags},{to:recipient,purpose,clientId})) {
@@ -131,6 +138,13 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
   }
   assertSmsCarrierPurpose({ registration, purpose });
   if (await isSmsSuppressed(sender, recipient)) throw smsPolicyError('sms_opted_out', 'Recipient has opted out of this SMS campaign');
+  if (providerRelayEnrollmentId) {
+    const [enrollments] = await pool.execute('SELECT * FROM provider_sms_relay_enrollments WHERE id=? AND agency_id=? AND number_id=? AND phone=?',
+      [providerRelayEnrollmentId, sender.agency_id, sender.id, recipient]);
+    const { relayEnrollmentReady } = await import('./providerSmsRelaySettings.service.js');
+    if (purpose !== 'care' || enrollments.length !== 1 || !await relayEnrollmentReady(enrollments[0]))
+      throw smsPolicyError('sms_relay_disabled', 'Personal-phone client forwarding is off');
+  }
   if(notificationCategory) {
     const {familyNotificationDeliveryGate}=await import('./familyNotificationChoices.service.js');
     const choice=await familyNotificationDeliveryGate({agencyId:sender.agency_id,clientId,to:recipient,channel:'sms',notificationCategory});
@@ -160,6 +174,10 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
     return {to:recipient,from:sender.phone_number,agencyId:sender.agency_id,body:formatRegisteredSms(body,registration.brandName),registration,purpose};
   }
   const staffStates = [];
+  if (purpose === 'workforce' && staffNotificationKind === 'exchangeMatches'
+      && await exchangeSmsOptedOut({ agencyId: sender.agency_id, phone: recipient })) {
+    throw smsPolicyError('sms_exchange_opted_out', 'Client Exchange texts are turned off for this phone and agency');
+  }
   if (['workforce','polling'].includes(purpose)) {
     const digits=recipient.slice(1), local=digits.length===11&&digits.startsWith('1')?digits.slice(1):digits;
     const [staff]=await pool.execute(`SELECT JSON_EXTRACT(p.notification_categories, ?) AS choices
@@ -193,9 +211,10 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
   if (['workforce', 'polling'].includes(purpose) && String(evidence?.reference || '').startsWith('staff_communications:')) {
     throw smsPolicyError('sms_consent_review_required', 'Staff preferences require administrator-reviewed SMS enrollment before delivery');
   }
-  const content = purpose === 'reminders' && !/\bNOREMIND\b/i.test(body)
+  let content = purpose === 'reminders' && !/\bNOREMIND\b/i.test(body)
     ? `${body} Reply NOREMIND to stop appointment reminders only.` : body;
-  return { to: recipient, from: sender.phone_number, agencyId: sender.agency_id, body: formatRegisteredSms(content, registration.brandName, purpose === 'care' ? senderFirstName : null), registration, purpose };
+  if (purpose === 'workforce' && staffNotificationKind === 'exchangeMatches') content = withExchangeSmsOptOut(content);
+  return { to: recipient, from: sender.phone_number, agencyId: sender.agency_id, body: formatRegisteredSms(content, registration.brandName, purpose === 'care' ? senderFirstName : null, { includeOptOut: !(purpose === 'care' && (senderFirstName || providerRelayEnrollmentId)) }), registration, purpose };
 }
 
 export async function resolveRegisteredSmsSender({ agencyId, purpose, numberId = null, requiredPurpose = null }) {
@@ -260,19 +279,22 @@ export async function recordInboundConversation({ from, to, messageId }) {
 }
 
 export async function processSmsKeyword({ from, to, body, messageId, receivedAt = Date.now(), sendReply }) {
-  const keyword = String(body || '').trim().toUpperCase() === 'NOREMIND' ? 'NOREMIND' : parseSmsKeyword(body);
+  const text = String(body || '').trim().toUpperCase();
+  const keyword = ['NOREMIND', 'NOPROVIDER', 'NOEXCHANGE', 'NOCLIENTS'].includes(text) ? text : parseSmsKeyword(body);
   if (!keyword) return false;
   const sender = await getSmsSender(to);
   const phone = normalizeSmsPhone(from);
   const registration = sender.registration;
-  if (keyword === 'NOREMIND' && registration?.provider !== 'notifyre') return false;
+  if (['NOREMIND','NOPROVIDER'].includes(keyword) && registration?.provider !== 'notifyre') return false;
+  if (keyword === 'NOCLIENTS' && registration?.provider !== 'notifyre') return false;
+  if (keyword === 'NOEXCHANGE' && !registration?.purposes?.some(p => ['workforce', 'polling'].includes(p))) return false;
   const brand = registration?.brandName || sender.agency_name || 'AuricWell';
   const contact = registration?.supportContact || sender.support_phone;
   const evidence = { source: `inbound_${keyword.toLowerCase()}`, messageId: messageId || null, numberId: sender.id };
   let consentDb;
   let locked = false;
   const lockName = contactReminderConsentLock(sender, phone);
-  if (registration?.provider === 'notifyre' && ['START', 'STOP', 'NOREMIND'].includes(keyword)) {
+  if (registration?.provider === 'notifyre' && ['START', 'STOP', 'NOREMIND', 'NOPROVIDER'].includes(keyword)) {
     consentDb = await pool.getConnection();
     const [[lock]] = await consentDb.execute('SELECT GET_LOCK(?, 5) AS acquired', [lockName]);
     locked = Number(lock?.acquired) === 1;
@@ -280,6 +302,8 @@ export async function processSmsKeyword({ from, to, body, messageId, receivedAt 
   }
   try {
   let reply;
+  const wasStopped = keyword === 'START' ? await isSmsSuppressed(sender, phone) : false;
+  let categoryRestart = false;
   if (consentDb && ['STOP','START'].includes(keyword)
       && (keyword === 'STOP' || (!validateSmsRegistration(registration).length && registration.allowRestart === true))) {
     await consentDb.beginTransaction();
@@ -289,20 +313,33 @@ export async function processSmsKeyword({ from, to, body, messageId, receivedAt 
       if (!applied) return true;
     } catch (error) { await consentDb.rollback(); throw error; }
   }
-  if (keyword === 'NOREMIND') {
+  if (keyword === 'NOCLIENTS') {
+    const changed = await setProviderRelayPreference({ sender, phone, enabled: false,
+      evidence: { ...evidence, collectedAt: new Date(receivedAt).toISOString() } });
+    if (!changed || await isSmsSuppressed(sender, phone)) return true;
+    reply = `${brand}: Client text forwarding to this phone is off. Your in-app messages and other text choices are unchanged. Reply START to restore previously consented categories.`;
+  } else if (keyword === 'NOEXCHANGE') {
+    const changed = await setExchangeSmsPreference({ agencyId: sender.agency_id, phone, enabled: false,
+      evidence: { ...evidence, collectedAt: new Date(receivedAt).toISOString() } });
+    if (!changed || await isSmsSuppressed(sender, phone)) return true;
+    reply = `${brand}: Client Exchange texts from this agency are off. Email and other text choices are unchanged. Reply START to restore your previously consented text categories, or use your communication settings. Reply STOP to stop all texts or HELP for help.`;
+  } else if (['NOREMIND','NOPROVIDER'].includes(keyword)) {
+    const declinedPurpose = keyword === 'NOREMIND' ? 'reminders' : 'care';
     await consentDb.beginTransaction();
     try {
-      const changed = await declineNotifyrePurpose({scope:sender.scope,phone,purpose:'reminders',evidence:{...evidence,collectedAt:new Date(receivedAt).toISOString()}},consentDb);
+      const changed = await declineNotifyrePurpose({scope:sender.scope,phone,purpose:declinedPurpose,evidence:{...evidence,collectedAt:new Date(receivedAt).toISOString()}},consentDb);
       await consentDb.commit();
       if (!changed) return true;
     } catch (error) { await consentDb.rollback(); throw error; }
     // It is a category command, not a conversation for staff to answer.
     // No confirmation may bypass an account-wide STOP.
     if (await isSmsSuppressed(sender, phone)) return true;
-    reply = `${brand}: Appointment text reminders are off. Your provider texting choice is unchanged. Use your notification settings or contact support to opt back into reminders. Reply STOP to stop all texts or HELP for help.`;
+    reply = `${brand}: ${keyword === 'NOREMIND' ? 'Appointment text reminders are off. Your provider texting choice is unchanged.' : 'Provider texts are off. Your appointment reminder choice is unchanged.'} Reply START to restore previously consented text categories, or use your notification settings. Reply STOP to stop all texts or HELP for help.`;
   } else if (keyword === 'STOP') {
-    const changed = await recordSmsPermission({ scope: sender.scope, phone, purpose: 'suppression', status: 'opted_out', evidence });
+    const changed = await recordSmsPermission({ scope: sender.scope, phone, purpose: 'suppression', status: 'opted_out',
+      evidence:{...evidence,providerNoticeRequested:true,agencyId:sender.agency_id,senderNumber:sender.phone_number,provider:registration?.provider||'vonage'} });
     const { applyContactReminderSmsKeyword } = await import('./contactReminderSmsConsent.service.js');
+    if (registration?.provider === 'notifyre') await cancelPendingRelayReplies(phone);
     await applyContactReminderSmsKeyword({ sender, phone, keyword, messageId });
     if (!changed) return true;
     reply = `${brand}: You are unsubscribed and will receive no further messages from this program. Reply HELP for help.`;
@@ -310,20 +347,35 @@ export async function processSmsKeyword({ from, to, body, messageId, receivedAt 
     // Reopening a suppression does not grant consent for marketing or any new purpose.
     // Only a registered, documented re-opt-in flow can clear it.
     if (!validateSmsRegistration(registration).length && registration.allowRestart === true) {
-      const changed = await recordSmsPermission({ scope: sender.scope, phone, purpose: 'suppression', status: 'opted_in', evidence });
+      const restored = [];
+      const changed = await recordSmsPermission({ scope: sender.scope, phone, purpose: 'suppression', status: 'opted_in', evidence,
+        onRecorded: async db => {
+          if (!wasStopped) {
+            categoryRestart = true;
+            if (registration.purposes.includes('workforce') && await restartExchangeSms({ sender, phone, evidence }, db)) restored.push('exchange_matches');
+            if (registration.provider === 'notifyre') {
+            for (const purpose of ['reminders','care'].filter(p => registration.purposes.includes(p))) {
+              if (await restartNotifyrePurpose({ scope: sender.scope, phone, purpose, evidence }, db)) restored.push(purpose === 'care' ? 'conversations' : purpose);
+            }
+            if (registration.provider === 'notifyre' && await restartProviderRelay({ sender, phone, evidence }, db)) restored.push('client_forwarding');
+            }
+          }
+        }
+      });
       if (!changed) return true;
       await recordSmsPermission({ scope: `number:${sender.id}`, phone, purpose: 'suppression', status: 'opted_in', evidence });
       const { applyContactReminderSmsKeyword } = await import('./contactReminderSmsConsent.service.js');
       if (!await notifyrePurposeOptedOut(sender.scope,phone,'reminders')) await applyContactReminderSmsKeyword({ sender, phone, keyword, messageId });
-      reply = `${brand}: Texting is re-enabled for your existing subscriptions. Message frequency varies. Message and data rates may apply. Reply HELP for help, STOP to opt out.`;
+      reply = categoryRestart ? categoryRestartMessage(brand, restored) : `${brand}: Texting is re-enabled for your existing subscriptions. Message frequency varies. Message and data rates may apply. Reply HELP for help, STOP to opt out.`;
     } else {
       reply = `${brand}: To subscribe, contact ${contact || 'your practice through its website'}. Reply STOP to opt out.`;
     }
   } else {
     reply = `${brand}: For help, contact ${contact || 'your practice through its website'}. Message frequency varies. Message and data rates may apply. Reply STOP to opt out.`;
   }
-  if (keyword === 'NOREMIND' || !['vonage', 'notifyre'].includes(registration?.keywordOwner)) {
-    const capability = { to: phone, from: sender.phone_number, body: reply };
+  if (categoryRestart || ['NOREMIND', 'NOPROVIDER', 'NOEXCHANGE', 'NOCLIENTS'].includes(keyword) || !['vonage', 'notifyre'].includes(registration?.keywordOwner)) {
+    const capability = { to: phone, from: sender.phone_number, body: reply,
+      ...((categoryRestart || ['NOREMIND', 'NOPROVIDER', 'NOEXCHANGE', 'NOCLIENTS'].includes(keyword)) ? { categoryReply: true } : {}) };
     controlReplies.add(capability);
     await sendReply({ ...capability, complianceReply: capability });
   }

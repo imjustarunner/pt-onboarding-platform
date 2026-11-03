@@ -1,3 +1,4 @@
+import { providerSmsRelaySettings } from '../controllers/providerSmsRelay.controller.js';
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { getUserPreferences, updateUserPreferences, updateKioskPin } from '../controllers/userPreferences.controller.js';
@@ -13,6 +14,9 @@ router.put('/me/email-signature-note',authenticate,emailSignatureNote);
 
 // Kiosk PIN (must be before :userId routes)
 router.put('/me/kiosk-pin', authenticate, updateKioskPin);
+
+router.get('/:userId/provider-sms-relay', authenticate, providerSmsRelaySettings);
+router.put('/:userId/provider-sms-relay', authenticate, providerSmsRelaySettings);
 
 // Get user preferences
 router.get('/:userId/preferences', authenticate, getUserPreferences);

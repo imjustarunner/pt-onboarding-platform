@@ -5,6 +5,13 @@ import { useSessionLockStore } from '../sessionLock';
 describe('warning wall-clock deadline', () => {
   beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-15T12:00:00Z')); setActivePinia(createPinia()); });
   afterEach(() => { useSessionLockStore().dismissWarning(); vi.useRealTimers(); });
+  it('uses the PIN lock only for an explicit Quick View requirement', () => {
+    const store = useSessionLockStore();
+    store.setLockConfig({ useLockScreen: true, pinLength: 4, pinRequired: false });
+    expect(store.useLockScreen).toBe(false);
+    store.setLockConfig({ useLockScreen: true, pinLength: 6, pinRequired: true });
+    expect(store.useLockScreen).toBe(true);
+  });
   it('expires while hidden without granting another 90 seconds', () => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
     const store = useSessionLockStore(); const expired = vi.fn();

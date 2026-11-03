@@ -2,12 +2,13 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import ReplacementOpeningBuilder from './ReplacementOpeningBuilder.vue';
-const props = defineProps({ deferredToken: String, providerId: { type: Number, required: true }, agencyId: Number, agencyOptions: { type: Array, default: () => [] }, date: { type: String, required: true } });
+import PlannedOutModal from '../admin/opsDashboard/PlannedOutModal.vue';
+const props = defineProps({ deferredToken: String, reviewToken: String, providerId: { type: Number, required: true }, agencyId: Number, agencyOptions: { type: Array, default: () => [] }, date: { type: String, required: true } });
 const emit = defineEmits(['close', 'saved']);
 const dialog = ref(null), busy = ref(false), error = ref(''), plan = ref(null), signed = ref(false), reviewed = ref(false);
 const resumeChecked = ref(false), applyAttempted = ref(false);
 const reasonCategory = ref('provider_unavailable'), followupOwner = ref('provider'), internalReason = ref(''), followUpAction = ref('client_contact_support'), followUpMessage = ref('');
-const notificationMode = ref('send'), suppressionReason = ref('');
+const notificationMode = ref('send'), suppressionReason = ref(''), urgent = ref(true), showPlannedOut = ref(false);
 const dates = ref([props.date]), addDate = ref(''), scopeMode = ref('days'), selectedSessions = ref([]);
 const draftPlan = ref(null);
 const contactChoices = reactive({}), messages = reactive({}), schoolChoices = reactive({});
@@ -30,14 +31,15 @@ onMounted(async () => {
   dialog.value?.showModal(); busy.value = true;
   try {
     if (props.deferredToken) { resumeChecked.value = true; notificationMode.value = 'send'; await review(false); return; }
-    const previous = (await api.get(base.value, { params: { date: props.date }, skipGlobalLoading: true })).data?.review;
-    if (previous) { plan.value = previous; signed.value = true; reviewed.value = true; followUpAction.value = previous.followUpAction; followUpMessage.value = previous.followUpMessage; notificationMode.value = previous.notificationMode || 'send'; scopeMode.value = previous.scopeMode || 'days'; }
+    const previous = (await api.get(base.value, { params: { date: props.date, ...(props.reviewToken ? { token: props.reviewToken } : {}) }, skipGlobalLoading: true })).data?.review;
+    if (previous) { plan.value = previous; signed.value = true; reviewed.value = true; urgent.value = previous.urgent !== false; dates.value = previous.dates || [props.date]; followUpAction.value = previous.followUpAction; followUpMessage.value = previous.followUpMessage; notificationMode.value = previous.notificationMode || 'send'; scopeMode.value = previous.scopeMode || 'days'; }
+    if (props.reviewToken && previous?.status === 'processing') await apply();
     resumeChecked.value = true;
   } catch { error.value = 'Could not check for an interrupted cancellation. Close and reopen this review before proceeding.'; }
   finally { busy.value = false; }
 });
 function close() { if (busy.value) return; if (changed.value || applyAttempted.value) emit('saved'); emit('close'); }
-function when(item) { return item.startAt ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone: item.timeZone }).format(new Date(item.startAt)) : ''; }
+function when(item) { if (['school','school_roster'].includes(item.kind)) return item.date || ''; return item.startAt ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone: item.timeZone }).format(new Date(item.startAt)) : ''; }
 watch(scopeMode, mode => { for (const item of Object.values(schoolChoices)) item.message.text = mode === 'sessions' ? item.message.text.replace('has canceled their sessions', 'has canceled selected sessions') : item.message.text.replace('has canceled selected sessions', 'has canceled their sessions'); });
 function addDay() { if (addDate.value && !dates.value.includes(addDate.value) && dates.value.length < 14) dates.value = [...dates.value, addDate.value].sort(); addDate.value = ''; }
 function initializeEditors() {
@@ -52,7 +54,7 @@ async function review(finalReview = false) {
   busy.value = true; error.value = '';
   try {
     const body = { agencyIds: selected.value, date: props.date, dates: dates.value, scopeMode: finalReview ? scopeMode.value : 'days', appointmentIds: selectedSessions.value,
-      deferredToken: props.deferredToken, reasonCategory: reasonCategory.value, followupOwner: followupOwner.value, internalReason: internalReason.value, notificationMode: notificationMode.value, suppressionReason: suppressionReason.value,
+      deferredToken: props.deferredToken, urgent: urgent.value, reasonCategory: reasonCategory.value, followupOwner: followupOwner.value, internalReason: internalReason.value, notificationMode: notificationMode.value, suppressionReason: suppressionReason.value,
       followUpAction: followUpAction.value, followUpMessage: followUpMessage.value, offerDays: offerDays.value, offeredSlots: offeredSlots.value,
       messagesReviewed: finalReview, ...(finalReview ? { contactChoices, messages, schoolChoices } : {}) };
     plan.value = (await api.post(`${base.value}/preview`, body, { skipGlobalLoading: true })).data;
@@ -87,21 +89,24 @@ async function apply(retryFailed = false) {
 
 <template>
   <dialog ref="dialog" class="cancel-day-dialog" aria-labelledby="cancel-day-title" @cancel.prevent="close" @click="($event.target === dialog) && close()">
-    <header><div><h2 id="cancel-day-title">{{ deferredToken ? 'Review deferred cancellation emails' : 'Cancel and offer replacement times' }}</h2><p>{{ dates.join(', ') }}</p></div><button type="button" :disabled="busy" aria-label="Close" @click="close">×</button></header>
+    <header><div><h2 id="cancel-day-title">{{ deferredToken ? 'Review deferred cancellation emails' : 'Cancel day' }}</h2><p>{{ dates.join(', ') }}</p></div><button type="button" :disabled="busy" aria-label="Close" @click="close">×</button></header>
     <div class="cancel-day-body">
-      <p v-if="deferredToken">These sessions are already canceled. Review the recipients and email messages, then approve sending them.</p><p v-else>Choose dates or individual sessions, then review recipients, messages, replacement times, and session notes before confirming.</p>
-      <p v-if="!deferredToken" class="day-scope-note">Canceling whole days marks those days unavailable across the provider’s calendars. Canceling selected sessions leaves the rest of the day available. Other recurring dates remain scheduled. School assignments remain in place. Assigned-day clients are included even without booked appointments. Review the school and family emails below; missing contacts and delivery restrictions need separate follow-up.</p>
+      <p v-if="deferredToken">These sessions are already canceled. Review the recipients and email messages, then approve sending them.</p><p v-else>Use urgent Cancel day for sickness, weather, or an unexpected absence. Use Planned Out for vacations, multiple future days, or a scheduled absence.</p>
+      <p v-if="!deferredToken" class="day-scope-note">Canceling whole days marks those days unavailable across the provider’s calendars. Canceling selected sessions leaves the rest of the day available. Other recurring dates remain scheduled. School assignments remain in place. Assigned-day clients are included even without booked appointments. Review the family emails and any urgent school notice below; missing contacts and delivery restrictions need separate follow-up.</p>
       <p v-if="error" role="alert" class="day-error">{{ error }}</p>
       <template v-if="!plan">
+        <p v-if="!deferredToken"><button type="button" @click="showPlannedOut = true">Use Planned Out instead</button></p>
+        <label class="day-field">Absence type <select v-model="urgent" @change="reasonCategory = urgent ? 'provider_unavailable' : 'facility'; followUpAction = urgent ? 'client_contact_support' : 'none'"><option :value="true">Urgent — sickness, weather, unexpected absence</option><option :value="false">Nonurgent — planned school closure or holiday</option></select></label>
+        <p>Email only. Families will not receive texts or a request to confirm receipt. Nonurgent notices go to families, not the school office.</p>
         <fieldset><legend>Agencies to review</legend><label v-for="a in agencies" :key="a.id"><input v-model="selected" type="checkbox" :value="a.id"> {{ a.label }}</label></fieldset>
         <label class="day-field">Add another date <input v-model="addDate" type="date"></label><button type="button" :disabled="!addDate || dates.length >= 14" @click="addDay">Add date</button>
         <p v-for="date in dates" :key="date">{{ date }} <button v-if="dates.length > 1" type="button" @click="dates = dates.filter(d => d !== date)">Remove date</button></p>
         <label class="day-field">Notifications <select v-model="notificationMode"><option value="send">Review and send cancellation notifications</option><option value="none">Do not send now — create a to-do</option></select></label>
         <label v-if="notificationMode === 'none'" class="day-field">Follow-up note (internal record) <textarea v-model="suppressionReason" maxlength="500" rows="2" /></label>
         <label v-if="notificationMode === 'none'" class="day-field">Assign email review to <select v-model="followupOwner"><option value="provider">The provider</option><option value="support">Support</option></select></label>
-        <label class="day-field">Cancellation category shared with recipients <select v-model="reasonCategory"><option value="provider_unavailable">Provider availability</option><option value="illness">Health-related absence</option><option value="personal">Personal circumstances</option><option value="weather">Weather conditions</option><option value="emergency">Emergency</option><option value="facility">Facility closure</option><option value="scheduling">Scheduling change</option></select></label>
+        <label class="day-field">Cancellation category shared with recipients <select v-model="reasonCategory"><option value="provider_unavailable">Unexpected provider absence</option><option value="illness">Health-related absence</option><option value="weather">Weather conditions</option><option value="emergency">Emergency</option><option value="facility">Facility closure</option><option v-if="!urgent" value="holiday">Scheduled holiday</option></select></label>
         <label class="day-field">Internal note (not included in email or text) <textarea v-model="internalReason" maxlength="2000" rows="2" /></label>
-        <label class="day-field">Follow-up <select v-model="followUpAction"><option value="keep_next_or_support">Keep the next appointment; contact support if none is scheduled</option><option value="client_contact_support">Ask the client to contact support to reschedule</option><option value="none">No rescheduling instruction</option></select></label>
+        <label v-if="urgent" class="day-field">Follow-up <select v-model="followUpAction"><option value="keep_next_or_support">Keep the next appointment; contact support if none is scheduled</option><option value="client_contact_support">Ask the client to contact support to reschedule</option><option value="none">No rescheduling instruction</option></select></label>
         <label class="day-field">Additional message (optional) <textarea v-model="followUpMessage" maxlength="1000" rows="2" /></label>
       </template>
       <template v-else>
@@ -112,17 +117,17 @@ async function apply(retryFailed = false) {
           <template v-if="notificationMode === 'send'">
             <h3>Family recipients</h3>
             <fieldset v-for="client in clients" :key="client.clientId" class="day-contact"><legend>{{ client.clientName }}</legend>
-              <p v-if="client.emailOnly && !client.recipients.some(r => r.email)" class="day-error">No family email is saved. Add a verified contact, or choose No contact and follow up separately.</p>
+              <p v-if="client.emailOnly && !client.recipients.some(r => r.email)" class="day-error">No family email is saved. Cancellation can continue; this client will be marked as needing contact follow-up.</p>
               <label>Contact <select v-model="contactChoices[client.clientId].mode"><option value="client">Client</option><option value="guardian">Guardian</option><option value="both">Both</option><option value="none">No contact</option></select></label>
-              <label><input v-model="contactChoices[client.clientId].channels" type="checkbox" value="email"> Email</label><label v-if="!client.emailOnly"><input v-model="contactChoices[client.clientId].channels" type="checkbox" value="sms"> Text</label>
+              <span>Email</span>
               <div v-for="recipient in contactChoices[client.clientId].recipients.filter(r => contactChoices[client.clientId].mode === 'both' || r.role === contactChoices[client.clientId].mode)" :key="recipient.key" class="day-recipient">
                 <label><input v-model="recipient.enabled" type="checkbox"> {{ recipient.name }} · {{ recipient.role }}</label>
                 <label v-if="contactChoices[client.clientId].channels.includes('email')">Email <input v-model="recipient.email" type="email" :aria-label="`${recipient.name} email`"></label>
                 <label v-if="contactChoices[client.clientId].channels.includes('sms')">Phone <input v-model="recipient.phone" type="tel" :aria-label="`${recipient.name} phone`"></label>
               </div>
             </fieldset>
-            <p>Contact edits apply to this cancellation. Texts require recorded consent; recipient preferences are checked again before delivery.</p>
-            <label v-if="!deferredToken" class="day-field">Rescheduling <select v-model="followUpAction"><option value="private_slots">Offer shared private replacement times</option><option value="keep_next_or_support">Keep the next appointment; contact support if none is scheduled</option><option value="client_contact_support">Ask clients to contact support</option><option value="none">No rescheduling instruction</option></select></label>
+            <p>Contact edits apply to this cancellation. Recipient permissions and email preferences are checked again before delivery. Missing contacts are flagged for separate follow-up.</p>
+            <label v-if="!deferredToken && urgent" class="day-field">Rescheduling <select v-model="followUpAction"><option value="private_slots">Offer shared private replacement times</option><option value="keep_next_or_support">Keep the next appointment; contact support if none is scheduled</option><option value="client_contact_support">Ask clients to contact support</option><option value="none">No rescheduling instruction</option></select></label>
             <section v-if="followUpAction === 'private_slots'">
               <p class="day-review"><strong>Offer only times you can commit to.</strong> When a client or guardian reserves a time, it becomes a scheduled appointment automatically. If you later need to adjust your schedule or close gaps, change the booked appointment and notify the family through My Schedule.</p><h3>Private replacement times</h3><p>Only the clients selected above can use these times. The first completed reservation schedules the appointment immediately; no additional approval is required. Lengths must be compatible with each selected session’s service or package. Times use {{ anchor?.timeZone }}.</p>
               <label class="day-field">Offer expires after <select v-model.number="offerDays"><option v-for="days in [1,2,3,7,14]" :key="days" :value="days">{{ days }} day(s)</option></select></label>
@@ -131,7 +136,7 @@ async function apply(retryFailed = false) {
               <label v-for="slot in slotOptions" :key="slot.key" class="day-field"><span><input type="checkbox" :checked="offeredSlots.some(s => s.key === slot.key)" :disabled="slot.requested || (offeredSlots.length >= 24 && !offeredSlots.some(s => s.key === slot.key))" @change="toggleSlot(slot)"> {{ slot.label }}</span></label>
               <p v-for="slot in offeredSlots" :key="slot.key">{{ slot.label }} <button type="button" @click="toggleSlot(slot)">Remove time</button></p>
             </section>
-            <h3>Review and edit emails</h3><p>Emails use your organization’s branding and notifications@ address. Replies go to support@. Only the cancellation category is included; internal notes stay private.</p><p>Each message is sent separately. Assigned-day notices describe the school absence without creating an appointment. For booked appointments, current reschedule options, the response deadline, the next scheduled session, and a secure portal link are added to family emails. Text: “Your appointment schedule has been updated. Please review the latest details in your secure portal,” followed by the secure link.</p>
+            <h3>Review and edit emails</h3><p>Emails use your organization’s branding and notifications@ address. Replies go to support@. Only the cancellation category is included; internal notes stay private.</p><p>Each message is sent separately. Assigned-day notices describe the school absence without creating an appointment. For booked appointments, current reschedule options, the response deadline, the next scheduled session, and a secure portal link are added to family emails. No text messages or receipt confirmations are sent for Cancel day.</p>
             <template v-for="item in plan.items" :key="item.key">
               <fieldset v-if="item.kind === 'school'" class="day-contact"><legend>{{ item.title }}</legend>
                 <div v-for="(_, i) in schoolChoices[item.key].recipients" :key="i" class="day-recipient"><label>School email <input v-model="schoolChoices[item.key].recipients[i]" type="email"></label><button type="button" @click="schoolChoices[item.key].recipients.splice(i, 1)">Remove recipient</button></div>
@@ -177,6 +182,7 @@ async function apply(retryFailed = false) {
       </template>
       <button v-else-if="plan.status === 'partial'" type="button" class="day-primary" :disabled="busy" @click="apply(true)">Retry failed items</button>
     </footer>
+    <PlannedOutModal v-if="showPlannedOut" :agency-id="selected[0]" :user-id="providerId" :initial-date="date" @close="showPlannedOut = false" @created="emit('saved'); close()" />
   </dialog>
 </template>
 <style scoped>

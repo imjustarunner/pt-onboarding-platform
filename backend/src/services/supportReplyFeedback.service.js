@@ -59,6 +59,17 @@ export function createSupportReplyFeedbackService({db:injectedDb,review=reviewSe
     const window={start:new Date(startMs).toISOString(),end:new Date(endMs).toISOString(),timeZone:config.timeZone,date:new Date(endMs).toISOString().slice(0,10)};
     const report=await review.dailyReview({agencyId,config,rangeWindow:window,includeAllStaff:true});
     if(report.coverage.truncated)throw reviewError('The review exceeds the safe display limit; use a smaller date range.',409);
+    return persistBatch({db,config,report,userId:user.id,requestKey,title});
+  }
+  async function ensureDailyBatch({config,date,report}) {
+    const db=await database();
+    const requestKey=`daily-support-review:${date}`;
+    const [[existing]]=await db.execute('SELECT id,counts_json FROM support_reply_review_batches WHERE agency_id=? AND request_key=?',[config.agencyId,requestKey]);
+    if(existing){const [[count]]=await db.execute('SELECT COUNT(*) AS count FROM support_reply_review_entries WHERE agency_id=? AND batch_id=?',[config.agencyId,existing.id]);return {id:existing.id,entries:Number(count.count),totals:parse(existing.counts_json)};}
+    return persistBatch({db,config,report,userId:config.reviewerUserId,requestKey,title:`Daily support reply review · ${date}`});
+  }
+  async function persistBatch({db,config,report,userId,requestKey,title}) {
+    const agencyId=config.agencyId,start=report.window.start,end=report.window.end;
     const entries=buildFeedbackEntries(report);
     // Seal before beginning the transaction: missing encryption must never create a partial batch.
     const evidence=entries.map(e=>seal(e));
@@ -67,10 +78,10 @@ export function createSupportReplyFeedbackService({db:injectedDb,review=reviewSe
       await connection.beginTransaction();
       const [created]=await connection.execute(`INSERT INTO support_reply_review_batches
         (agency_id,reviewer_user_id,created_by_user_id,request_key,title,window_start,window_end,time_zone,counts_json,coverage_json)
-        VALUES (?,?,?,?,?,?,?,?,?,?)`,[agencyId,config.reviewerUserId,user.id,requestKey,title,sqlDate(start),sqlDate(end),config.timeZone,JSON.stringify({...report.totals,tickets:new Set(entries.map(e=>e.ticketId)).size}),JSON.stringify({...report.coverage,recordedConversations:report.totals.tickets,conversationsWithoutReplyOrDraft:report.rows.filter(r=>!entries.some(e=>e.ticketId===r.ticketId)).length})]);
+        VALUES (?,?,?,?,?,?,?,?,?,?)`,[agencyId,config.reviewerUserId,userId,requestKey,title,sqlDate(start),sqlDate(end),config.timeZone,JSON.stringify({...report.totals,tickets:new Set(entries.map(e=>e.ticketId)).size}),JSON.stringify({...report.coverage,recordedConversations:report.totals.tickets,conversationsWithoutReplyOrDraft:report.rows.filter(r=>!entries.some(e=>e.ticketId===r.ticketId)).length})]);
       for(let i=0;i<entries.length;i++)await connection.execute(`INSERT INTO support_reply_review_entries
         (batch_id,agency_id,ticket_id,entry_key,evidence_encrypted) VALUES (?,?,?,?,?)`,[created.insertId,agencyId,entries[i].ticketId,entries[i].key,evidence[i]]);
-      await connection.commit();return {id:created.insertId,entries:entries.length,totals:report.totals};
+      await connection.commit();return {id:created.insertId,entries:entries.length,totals:{...report.totals,tickets:new Set(entries.map(e=>e.ticketId)).size}};
     }catch(error){await connection.rollback();throw error;}finally{connection.release();}
   }
   async function getBatch({user,agencyId,batchId}) {
@@ -101,10 +112,10 @@ export function createSupportReplyFeedbackService({db:injectedDb,review=reviewSe
     const {db,batch}=await access(user,agencyId,batchId);
     if(Number(user.id)!==Number(batch.reviewer_user_id))throw reviewError('Only the assigned reviewer can finish this review.',403);
     const [result]=await db.execute(`UPDATE support_reply_review_batches b SET completed_at=COALESCE(completed_at,CURRENT_TIMESTAMP(3))
-      WHERE id=? AND agency_id=? AND NOT EXISTS (SELECT 1 FROM support_reply_review_entries e WHERE e.batch_id=b.id AND e.reviewed_at IS NULL)`,[batchId,agencyId]);
-    if(!result.affectedRows)throw reviewError('Save ratings for each available reply and draft before finishing. Written feedback can complete an item with no reply or draft.',409);
+      WHERE id=? AND agency_id=? AND (NOT EXISTS (SELECT 1 FROM support_reply_review_entries e WHERE e.batch_id=b.id) OR EXISTS (SELECT 1 FROM support_reply_review_entries e WHERE e.batch_id=b.id AND e.feedback_encrypted IS NOT NULL))`,[batchId,agencyId]);
+    if(!result.affectedRows)throw reviewError('Save at least one rating or written correction before finishing. Unrated items will remain clearly identified.',409);
     return {completed:true};
   }
-  return {createBatch,getBatch,saveFeedback,completeBatch};
+  return {createBatch,ensureDailyBatch,getBatch,saveFeedback,completeBatch};
 }
 export default createSupportReplyFeedbackService();

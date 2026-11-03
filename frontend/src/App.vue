@@ -2185,8 +2185,8 @@
         </div>
       </div>
       <AnnouncementToasts
-        v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && agencyStore.currentAgency?.id && !sessionLockStore.isLocked && !sessionLockStore.warningActive"
-        :storage-key="`staff:${user.id}:agency:${agencyStore.currentAgency.id}`"
+        v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && (agencyStore.currentAgency?.id || agencyStore.userAgencies?.length) && !sessionLockStore.isLocked && !sessionLockStore.warningActive"
+        :storage-key="`staff:${user.id}:agency:${agencyStore.currentAgency?.id || 'platform'}`"
         :load-items="loadOfficeToasts"
         :record-event="recordOfficeToastEvent"
       />
@@ -2330,6 +2330,7 @@ import {
 } from './config/sessionRecordingAccess.js';
 import api from './services/api';
 import AnnouncementToasts from './components/notifications/AnnouncementToasts.vue';
+import { loadStaffAnnouncementToasts } from './utils/staffAnnouncementToasts';
 import ActiveMeetingToasts from './components/meetings/ActiveMeetingToasts.vue';
 import { listActivities } from './services/counselingApi.js';
 import { launchActivity, isStandaloneLaunchable, isToolsCatalogActivity, isEmbeddedSessionActivity, resolveStandaloneUrl } from './services/launchActivity.js';
@@ -6342,12 +6343,12 @@ const playNotificationSound = () => {
   }
 };
 
-const loadOfficeToasts = async () => {
-  const response = await api.get(`/agencies/${agencyStore.currentAgency.id}/announcements/toasts`, { skipGlobalLoading: true });
-  return response.data;
-};
+const loadOfficeToasts = () => loadStaffAnnouncementToasts({
+  request: (path, options) => api.get(path, options), userId: user.value?.id,
+  currentAgencyId: agencyStore.currentAgency?.id, agencies: agencyStore.userAgencies
+});
 const recordOfficeToastEvent = (item, eventType) => api.post(
-  `/agencies/${agencyStore.currentAgency.id}/announcements/${item.id}/events`,
+  `/agencies/${item.agency_id || agencyStore.currentAgency?.id}/announcements/${item.id}/events`,
   { eventType }, { skipGlobalLoading: true }
 );
 

@@ -1578,7 +1578,7 @@
               <tbody>
                 <tr v-for="imp in manageImportsList" :key="imp.id">
                   <td><strong>Run {{ imp.slot_number || imp.import_sequence }}</strong></td>
-                  <td class="muted">{{ String(imp.created_at || '').slice(0, 19) }}</td>
+                  <td class="muted">{{ fmtDateTime(imp.created_at) }}</td>
                   <td>{{ imp.original_filename || '—' }}</td>
                   <td>
                     <button type="button" class="btn btn-secondary btn-sm" @click="openRawModalForPeriodAndImport(manageImportsPeriodId, imp.id); showManageImportsModal = false">View</button>
@@ -2658,10 +2658,10 @@
                   </thead>
                   <tbody>
                     <tr v-for="c in pendingMileageClaims" :key="c.id">
-                      <td>{{ nameForUserId(c.user_id) }}</td>
+                      <td>{{ nameForUserId(c.user_id, c) }}</td>
                       <td>{{ submittedAtYmd(c) }}</td>
                       <td>{{ submitterLabel(c) }}</td>
-                      <td>{{ c.drive_date }}</td>
+                      <td>{{ fmtClaimDate(c.drive_date) }}</td>
                       <td class="right">
                         {{
                           fmtNum(
@@ -2747,10 +2747,10 @@
                   </thead>
                   <tbody>
                     <tr v-for="c in pendingReimbursementClaims" :key="c.id">
-                      <td>{{ nameForUserId(c.user_id) }}</td>
+                      <td>{{ nameForUserId(c.user_id, c) }}</td>
                       <td>{{ submittedAtYmd(c) }}</td>
                       <td>{{ submitterLabel(c) }}</td>
-                      <td>{{ c.expense_date }}</td>
+                      <td>{{ fmtClaimDate(c.expense_date) }}</td>
                       <td class="right">{{ fmtMoney(Number(c.amount || 0)) }}</td>
                       <td>
                         <div class="muted" style="line-height: 1.25;">
@@ -2828,7 +2828,7 @@
                   </thead>
                   <tbody>
                     <tr v-for="c in pendingTimeClaims" :key="c.id">
-                      <td>{{ nameForUserId(c.user_id) }}</td>
+                      <td>{{ nameForUserId(c.user_id, c) }}</td>
                       <td>{{ submittedAtYmd(c) }}</td>
                       <td>{{ submitterLabel(c) }}</td>
                       <td>{{ fmtClaimDate(c.claim_date) }}</td>
@@ -3084,7 +3084,7 @@
                   </thead>
                   <tbody>
                     <tr v-for="c in pendingHolidayBonusClaims" :key="c.id">
-                      <td>{{ nameForUserId(c.user_id) }}</td>
+                      <td>{{ nameForUserId(c.user_id, c) }}</td>
                       <td class="muted">{{ holidayBonusDatesLabel(c) }}</td>
                       <td class="right">{{ fmtMoney(Number(c.base_service_pay_amount || 0)) }}</td>
                       <td class="right">{{ fmtNum(Number(c.holiday_bonus_percent || 0)) }}</td>
@@ -3311,8 +3311,8 @@
                   </thead>
                   <tbody>
                     <tr v-for="c in approvedMileageClaims" :key="c.id">
-                      <td>{{ nameForUserId(c.user_id) }}</td>
-                      <td>{{ c.drive_date }}</td>
+                      <td>{{ nameForUserId(c.user_id, c) }}</td>
+                      <td>{{ fmtClaimDate(c.drive_date) }}</td>
                       <td class="right">{{ fmtNum(Number(c.eligible_miles ?? c.miles ?? 0)) }}</td>
                       <td class="right">
                         <div class="actions" style="justify-content: flex-end; margin: 0;">
@@ -3383,8 +3383,8 @@
                   </thead>
                   <tbody>
                     <tr v-for="c in approvedReimbursementClaims" :key="c.id">
-                      <td>{{ nameForUserId(c.user_id) }}</td>
-                      <td>{{ c.expense_date }}</td>
+                      <td>{{ nameForUserId(c.user_id, c) }}</td>
+                      <td>{{ fmtClaimDate(c.expense_date) }}</td>
                       <td class="right">{{ fmtMoney(Number(c.applied_amount || c.amount || 0)) }}</td>
                       <td>
                         <a v-if="c.receipt_file_path" :href="receiptUrl(c)" target="_blank" rel="noopener noreferrer">View</a>
@@ -3452,7 +3452,7 @@
                   </thead>
                   <tbody>
                     <tr v-for="c in approvedHolidayBonusClaims" :key="c.id">
-                      <td>{{ nameForUserId(c.user_id) }}</td>
+                      <td>{{ nameForUserId(c.user_id, c) }}</td>
                       <td class="muted">{{ holidayBonusDatesLabel(c) }}</td>
                       <td class="right">{{ fmtMoney(Number(c.base_service_pay_amount || 0)) }}</td>
                       <td class="right">{{ fmtNum(Number(c.holiday_bonus_percent || 0)) }}</td>
@@ -3503,7 +3503,7 @@
                   </thead>
                   <tbody>
                     <tr v-for="c in approvedTimeClaims" :key="c.id">
-                      <td>{{ nameForUserId(c.user_id) }}</td>
+                      <td>{{ nameForUserId(c.user_id, c) }}</td>
                       <td>{{ fmtClaimDate(c.claim_date) }}</td>
                       <td>
                         <select
@@ -3980,7 +3980,7 @@
                   <div class="row"><strong>Submitted by:</strong> {{ submitterLabel(selectedMileageClaim) }}</div>
                   <div class="row"><strong>Type:</strong> {{ String(selectedMileageClaim.claim_type || '').toLowerCase() === 'school_travel' ? 'School Mileage' : 'Other Mileage' }}</div>
                   <div class="row"><strong>Status:</strong> {{ String(selectedMileageClaim.status || '').toUpperCase() }}</div>
-                  <div class="row"><strong>Date:</strong> {{ selectedMileageClaim.drive_date }}</div>
+                  <div class="row"><strong>Date:</strong> {{ fmtClaimDate(selectedMileageClaim.drive_date) }}</div>
 
                   <template v-if="String(selectedMileageClaim.claim_type || '').toLowerCase() === 'school_travel'">
                     <div class="row"><strong>Eligible miles:</strong> {{ fmtNum(Number(selectedMileageClaim.eligible_miles ?? selectedMileageClaim.miles ?? 0)) }}</div>
@@ -6546,6 +6546,7 @@
 
 <script setup>
 import EventTravelPayrollReview from '../../components/payroll/EventTravelPayrollReview.vue';
+import { reportCalendarDate, reportViewerDateTime, payrollPersonName } from '../../utils/reportDateTime';
 import { supervisionActivityLabel } from '../../utils/payrollSubmissionReview';
 import PayrollTodoNotes from '../../components/payroll/PayrollTodoNotes.vue';
 import { workingPeriods, claimInWorkingPeriods } from '../../utils/payrollWorkingPeriods';
@@ -11070,24 +11071,10 @@ const fmtInt = (v) => {
   return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
 };
 
-const nameForUserId = (uid, row = null) => {
-  const id = Number(uid || 0);
-  const fn = String(row?.target_user_first_name || '').trim();
-  const ln = String(row?.target_user_last_name || '').trim();
-  if (fn || ln) return `${fn} ${ln}`.trim();
-  const u = (agencyUsers.value || []).find((x) => Number(x.id) === id) || null;
-  if (!u) return `User #${id}`;
-  return `${u.first_name || ''} ${u.last_name || ''}`.trim();
-};
+const nameForUserId = (uid, row = null) => payrollPersonName(uid, row, agencyUsers.value || []);
+const submittedAtYmd = (row) => reportViewerDateTime(row?.created_at);
+const fmtClaimDate = reportCalendarDate;
 
-const submittedAtYmd = (row) => String(row?.created_at || '').slice(0, 10) || '—';
-
-const fmtClaimDate = (d) => {
-  if (!d) return '';
-  const ymd = String(d).slice(0, 10);
-  const dt = new Date(ymd + 'T12:00:00');
-  return Number.isNaN(dt.getTime()) ? ymd : dt.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-};
 const submitterLabel = (row) => {
   if (automaticClaimLabel(row)) return automaticClaimLabel(row);
   const submittedById = row?.submitted_by_user_id === null || row?.submitted_by_user_id === undefined ? null : Number(row.submitted_by_user_id);
@@ -11678,10 +11665,7 @@ const splitBreakdownForDisplay = (breakdown) => {
 const selectedSummaryServiceLines = computed(() => splitBreakdownForDisplay(selectedSummary.value?.breakdown || null));
 const previewSummaryServiceLines = computed(() => splitBreakdownForDisplay(previewSummary.value?.breakdown || null));
 
-const fmtDateTime = (v) => {
-  const d = v ? new Date(v) : null;
-  return d && !Number.isNaN(d.getTime()) ? d.toLocaleString() : (v || '');
-};
+const fmtDateTime = reportViewerDateTime;
 
 const ymd = (v) => {
   if (!v) return '';

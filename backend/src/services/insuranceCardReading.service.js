@@ -1,4 +1,5 @@
 import ReferralOcrService from './referralOcr.service.js';
+import { coloradoMedicaidOcrMemberId } from '../utils/coloradoMedicaidMemberId.js';
 export function parseInsuranceCardText(rawText = '') {
   const text = String(rawText || '').replace(/\r/g, '\n');
   const compact = text.replace(/\s+/g, ' ').trim();
@@ -29,7 +30,7 @@ export function parseInsuranceCardText(rawText = '') {
 
   return {
     insurerName,
-    memberId: memberMatch?.[1] ? String(memberMatch[1]).trim() : '',
+    memberId: coloradoMedicaidOcrMemberId(memberMatch?.[1] || '', text),
     groupNumber: groupMatch?.[1] ? String(groupMatch[1]).trim() : '',
     subscriberName: subscriberMatch?.[1]
       ? String(subscriberMatch[1]).replace(/\s+/g, ' ').trim().slice(0, 120)

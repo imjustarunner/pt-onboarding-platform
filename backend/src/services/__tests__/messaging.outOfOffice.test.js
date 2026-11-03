@@ -1,3 +1,4 @@
+vi.mock('../providerSmsRelay.service.js',()=>({handleProviderSmsReply:vi.fn(),forwardClientSmsToProviders:vi.fn()}));
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:vi.fn(async()=>({name:'ITSCO',portal_url:'itsco'}))}}));
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), getConnection: vi.fn() } }));
@@ -13,7 +14,9 @@ import MessageLog from '../../models/MessageLog.model.js';
 import SmsCareThread from '../../models/SmsCareThread.model.js';
 import Vonage from '../vonage.service.js';
 import { offerOutOfOfficeSupport, handleOutOfOfficeSupportReply, OUT_OF_OFFICE_SMS } from '../smsOutOfOffice.service.js';
-const route = { agencyId: 2, clientId: 4, number: { id: 1 }, careOwnerUserId: 10, numberPurpose: 'clinical_care' };
+vi.mock('../smsCommunicationNotice.service.js', async importOriginal => ({...await importOriginal(),sendConversationStartNotice:vi.fn()}));
+import { sendConversationStartNotice } from '../smsCommunicationNotice.service.js';
+const route = { absenceKey:'10:schedule:42', agencyId: 2, clientId: 4, number: { id: 1 }, careOwnerUserId: 10, numberPurpose: 'clinical_care' };
 const incoming = { agencyId: 2, numberId: 1, clientId: 4, from: '+17195550100', to: '+17195550200', body: 'SUPPORT', messageId: 'reply1' };
 let db, offer, newer;
 beforeEach(() => {
@@ -33,15 +36,15 @@ it('stores the original for both providers without any ticket or forwarding', as
  await offerOutOfOfficeSupport({route,...incoming,body:'Can we talk tomorrow?'});
  expect(MessageLog.createInbound).toHaveBeenCalledWith(expect.objectContaining({body:'Can we talk tomorrow?',clientId:4,metadata:expect.objectContaining({awaitingProviderReturn:true})}));
  expect(SmsCareThread.upsert).toHaveBeenCalledWith(expect.objectContaining({careState:'under_care',supportAccess:'observe'}));
- expect(Vonage.sendSms).toHaveBeenCalledWith(expect.objectContaining({body:expect.stringContaining(OUT_OF_OFFICE_SMS)}));
- expect(MessageLog.createInbound.mock.invocationCallOrder[0]).toBeLessThan(Vonage.sendSms.mock.invocationCallOrder[0]);
- expect(OUT_OF_OFFICE_SMS).toContain('saved in their app now');
+ expect(sendConversationStartNotice).toHaveBeenCalledWith(expect.objectContaining({absenceKey:'10:schedule:42',inboundLogId:40}));
+ expect(MessageLog.createInbound.mock.invocationCallOrder[0]).toBeLessThan(sendConversationStartNotice.mock.invocationCallOrder[0]);
+ expect(OUT_OF_OFFICE_SMS).toContain('No out-of-office notices');
  expect(pool.getConnection).not.toHaveBeenCalled();
 });
 it('retains the original when the offer cannot be sent', async () => {
- Vonage.sendSms.mockRejectedValueOnce(Object.assign(new Error('blocked'),{code:'sms_opted_out'}));
+ sendConversationStartNotice.mockRejectedValueOnce(Object.assign(new Error('blocked'),{code:'sms_opted_out'}));
  await offerOutOfOfficeSupport({route,...incoming,body:'Hi'});
- expect(MessageLog.createInbound).toHaveBeenCalled(); expect(MessageLog.markFailed).toHaveBeenCalled();
+ expect(MessageLog.createInbound).toHaveBeenCalled(); expect(SmsCareThread.upsert).toHaveBeenCalled();
  expect(pool.getConnection).not.toHaveBeenCalled();
 });
 it('does not repeat an offer for a carrier retry', async () => {
@@ -88,7 +91,7 @@ it('alerts support only after persisting the high-priority ticket', async () => 
  expect(db.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO support_tickets'))[0]).toContain("'open', 'high', 0");
  expect(alertRequestedSupport).toHaveBeenCalledWith(50);
  expect(db.commit.mock.invocationCallOrder[0]).toBeLessThan(alertRequestedSupport.mock.invocationCallOrder[0]);
- expect(OUT_OF_OFFICE_SMS).toContain('Reply SUPPORT');
+ expect(OUT_OF_OFFICE_SMS).toContain('Reply NOOO');
  expect(OUT_OF_OFFICE_SMS).toContain('988'); expect(OUT_OF_OFFICE_SMS).toContain('911');
 });
 it('retains the queued request when alert dispatch fails', async () => {

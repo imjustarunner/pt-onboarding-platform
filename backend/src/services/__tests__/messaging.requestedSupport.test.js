@@ -70,3 +70,9 @@ it('retries persisted unclaimed tickets on the worker, including after process r
  expect(pool.execute.mock.calls[0][0]).toContain('INTERVAL 15 MINUTE');
  expect(Notification.create).toHaveBeenCalled();
 });
+it('identifies provider-requested handoffs accurately and includes them in the durable retry query',async()=>{
+ request.provider_requested=true;await alertRequestedSupport(50);
+ expect(Notification.create.mock.calls[0][0].message).toContain('A provider requested Support');
+ expect(Notification.create.mock.calls[0][0].message).not.toContain('providers are unavailable');
+ await retryRequestedSupportAlerts();expect(pool.execute.mock.calls[0][0]).toContain('supportRequestedByProvider');
+});

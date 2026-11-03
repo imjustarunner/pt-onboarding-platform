@@ -2556,7 +2556,7 @@ import { CONVERSA_ICON_URL } from '../../constants/conversa';
 import { computed, onMounted, onUnmounted, provide, reactive, ref, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
-  formatSchoolEventWhen as formatSchoolEventWhenUtil,
+  formatViewerEventWhen as formatSchoolEventWhenUtil,
   formatSchoolEventReportTime,
   timezoneAbbrevAt
 } from '../../utils/timezones';

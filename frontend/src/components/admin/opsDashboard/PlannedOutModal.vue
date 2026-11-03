@@ -6,7 +6,7 @@
         <button type="button" class="pom-x" aria-label="Close" @click="$emit('close')">×</button>
       </header>
 
-      <form class="pom-form" @submit.prevent="submit">
+      <form v-if="!savedCancellation" class="pom-form" @submit.prevent="submit">
         <p class="pom-info" role="note">
           This is a notification to let the admin team know when you will not be available.
           It does not submit vacation, PTO, or sick time.
@@ -108,17 +108,18 @@
 
         <p class="pom-info pom-info--foot" role="note">
           <strong>Important:</strong>
-          Submitting this does not guarantee schedule changes. If you have appointments or events
-          scheduled during this time, the admin team may need to follow up with you.
+          When unavailable, submitting cancels overlapping future sessions and scheduled events and marks your RSVPs as not attending. Families receive a nonurgent email; school offices do not. No texts or receipt confirmations are sent. Records stay in place, and you can change an event RSVP afterward.
         </p>
 
         <footer class="pom-foot">
           <button type="button" class="btn ghost" @click="$emit('close')">Cancel</button>
           <button type="submit" class="btn primary" :disabled="saving">
-            {{ saving ? 'Saving…' : 'Submit planned out' }}
+            {{ saving ? 'Saving…' : availability === 'unavailable' ? 'Submit and cancel scheduled items' : 'Submit planned out' }}
           </button>
         </footer>
       </form>
+      <section v-else class="pom-form"><p role="alert">{{ error }}</p><button type="button" class="btn primary" @click="showResume=true">Continue saved cancellations</button><button type="button" @click="emit('created');emit('close')">Close and follow up later</button></section>
+      <DayCancellationDialog v-if="showResume" :provider-id="savedCancellation.providerId" :agency-id="Number(agencyId)" :date="savedCancellation.date" :review-token="savedCancellation.token" @close="showResume=false" @saved="emit('created');emit('close')" />
     </div>
   </div>
 </template>
@@ -127,10 +128,13 @@
 import { computed, ref } from 'vue';
 import api from '../../../services/api';
 import { detectLocalTimezone, timezoneLabelFor, zonedDatetimeLocalToIso } from '../../../utils/timezones.js';
+import { defineAsyncComponent } from 'vue';
+const DayCancellationDialog = defineAsyncComponent(() => import('../../schedule/DayCancellationDialog.vue'));
 import { formatPlannedOutWhen } from '../../../utils/plannedOuts.js';
 
 const props = defineProps({
-  agencyId: { type: [Number, String], required: true }
+  agencyId: { type: [Number, String], required: true },
+  userId: { type: [Number,String], default:null }, initialDate: String
 });
 
 const emit = defineEmits(['close', 'created']);
@@ -138,19 +142,19 @@ const emit = defineEmits(['close', 'created']);
 const myTimezone = detectLocalTimezone();
 const myTimezoneLabel = timezoneLabelFor(myTimezone);
 
-const spanType = ref('hours');
+const spanType = ref(props.initialDate ? 'all_day' : 'hours');
 const startLocal = ref('');
 const endLocal = ref('');
 const dayDate = ref('');
 const halfDayPart = ref('am');
-const startDate = ref('');
-const endDateInclusive = ref('');
+const startDate = ref(props.initialDate || '');
+const endDateInclusive = ref(props.initialDate || '');
 const availability = ref('unavailable');
 const emergencies = ref('none');
 const emergenciesRedirectName = ref('');
 const contactPreference = ref('none');
 const details = ref('');
-const saving = ref(false);
+const saving = ref(false), savedCancellation = ref(null), showResume = ref(false);
 const error = ref('');
 
 const selectedWhen = computed(() => {
@@ -189,6 +193,7 @@ async function submit() {
   try {
     const body = {
       agencyId: Number(props.agencyId),
+      ...(props.userId ? {userId:Number(props.userId)} : {}),
       spanType: spanType.value,
       // Submitter's own browser time zone — backend interprets Start/End (and half-day
       // 8am-12pm / 12pm-5pm windows) in this zone, not the agency's configured time zone.
@@ -219,6 +224,7 @@ async function submit() {
       body.allDay = true;
     }
     const res = await api.post('/planned-outs', body, { skipGlobalLoading: true });
+    if (res.data?.cancellation && res.data.cancellation.status !== 'completed') { savedCancellation.value = res.data.cancellation; showResume.value = true; error.value = res.data.cancellation.error || 'Planned Out was saved. Schedule cancellations are processing; open the saved review for progress.'; return; }
     emit('created', res.data?.plannedOut || null);
     emit('close');
   } catch (e) {

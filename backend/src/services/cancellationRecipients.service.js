@@ -33,7 +33,7 @@ export function createCancellationRecipientService(overrides = {}) {
       ...links.filter(g => g.relationship_type !== 'self').map(g => ({ key: `guardian:${g.guardian_user_id}`, role: 'guardian', userId: Number(g.guardian_user_id), name: [g.first_name, g.last_name].filter(Boolean).join(' ') || 'Guardian', email: g.email || '', phone: g.phone || '' }))
     ] };
   }
-  async function review(clientId, agencyId, input, { required = false } = {}) {
+  async function review(clientId, agencyId, input, { required = false, allowMissingEmail = false } = {}) {
     const available = await contacts(clientId, agencyId);
     const mode = input?.mode || (available.contacts.some(c => c.role === 'guardian') ? 'guardian' : 'client');
     if (!['client', 'guardian', 'both', 'none'].includes(mode)) throw fail('Choose client, guardian, both, or no contact.');
@@ -47,7 +47,7 @@ export function createCancellationRecipientService(overrides = {}) {
       return { ...c, email: email ? reviewedEmail(email) : '', phone: phone ? d.normalizePhone(phone) : '', enabled: edit?.enabled !== false };
     }).filter(c => c.enabled);
     if (required && mode !== 'none' && !recipients.length) throw fail('No authorized contacts match this choice. Select another contact option.');
-    if (required && recipients.some(c => channels.includes('email') && !c.email || channels.includes('sms') && !c.phone)) throw fail('Add the missing email or phone, or turn off that channel for this client.');
+    if (required && recipients.some(c => channels.includes('email') && !c.email && !allowMissingEmail || channels.includes('sms') && !c.phone)) throw fail('Add the missing email or phone, or turn off that channel for this client.');
     if (required && channels.includes('sms') && recipients.some(c => !/^\+[1-9]\d{7,14}$/.test(c.phone))) throw fail('Enter a valid phone number, including its country code, for each text recipient.');
     return { ...available, mode, channels: [...new Set(channels)], recipients };
   }

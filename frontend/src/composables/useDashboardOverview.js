@@ -7,7 +7,7 @@ import { computed, ref, watch } from 'vue';
 import api from '../services/api';
 import { buildRecentSubmissionActivityItems } from '../utils/submitSubmissionHistory';
 import { shouldShowOnProviderDashboardEvents, companyEventDisplayWindow } from '../utils/companyEventStaffing';
-import { formatViewerTimeRangeMs } from '../utils/timezones.js';
+import { formatViewerTimeRangeMs, formatSchoolEventWhen, schoolEventDisplayTimezone } from '../utils/timezones.js';
 import { parseScheduleUtcInstant } from '../utils/scheduleEventInstants.js';
 import { notificationDestination } from '../utils/notificationActions.js';
 
@@ -341,6 +341,7 @@ export function useDashboardOverview(opts = {}) {
         id: `ce-${e.id}`,
         title,
         subtitle: formatTimeRange(startMs, endMs),
+        eventTimeLabel: `Event time: ${formatSchoolEventWhen(window.startsAt, window.endsAt, enriched.timezone)} (${schoolEventDisplayTimezone(enriched.timezone)})`,
         whereLine: whereParts.length ? whereParts.join(' · ') : '',
         schoolName: schoolName || '',
         location: location || '',

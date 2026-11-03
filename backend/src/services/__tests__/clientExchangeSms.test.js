@@ -1,4 +1,6 @@
 import {beforeEach, afterEach, it, expect, vi} from 'vitest';
+vi.mock('../exchangeSmsPreference.service.js',()=>({exchangeSmsOptedOut:vi.fn(async()=>false)}));
+import {exchangeSmsOptedOut} from '../exchangeSmsPreference.service.js';
 const m=vi.hoisted(()=>({prefs:vi.fn(),send:vi.fn(),channel:vi.fn(),gate:vi.fn(),sender:vi.fn(),agency:vi.fn()}));
 vi.mock('../../models/User.model.js',()=>({default:{findById:vi.fn(async()=>({id:7,role:'provider',personal_phone:'+17195550100'})),normalizePhone:v=>v}}));
 vi.mock('../../models/UserPreferences.model.js',()=>({default:{findByUserId:m.prefs}}));
@@ -17,6 +19,16 @@ const notification={id:9,type:'client_exchange_match',user_id:7,agency_id:2};
 beforeEach(()=>{vi.clearAllMocks();m.sender.mockResolvedValue('+17197163884');m.agency.mockResolvedValue({id:2,slug:'itsco',feature_flags:{companyEventsSenderNumberId:3}});m.prefs.mockResolvedValue({notification_categories:{staff_communications_2:{choices:{exchangeMatches:true}}}});m.channel.mockResolvedValue(true);m.gate.mockResolvedValue({sms:true});m.send.mockResolvedValue({sid:'mock'});vi.stubEnv('CLIENT_EXCHANGE_CLINICAL_SMS_AGENCY_IDS','');});
 afterEach(()=>vi.unstubAllEnvs());
 it('requires signed exchange consent even when the general SMS switch is enabled',async()=>{m.prefs.mockResolvedValue({notification_categories:{}});expect(await Dispatcher.dispatchForNotification(notification)).toMatchObject({reason:'exchange_sms_not_consented'});expect(m.send).not.toHaveBeenCalled();});
+it('honors NOEXCHANGE even if a queued notification has earlier signed preferences',async()=>{
+ exchangeSmsOptedOut.mockResolvedValueOnce(true);
+ expect(await Dispatcher.dispatchForNotification(notification)).toMatchObject({reason:'exchange_sms_opted_out'});
+ expect(exchangeSmsOptedOut).toHaveBeenCalledWith({agencyId:2,phone:'+17195550100'});
+ expect(m.send).not.toHaveBeenCalled();
+});
+it('includes the category-only opt-out instruction in Exchange texts',async()=>{
+ await Dispatcher.dispatchForNotification(notification);
+ expect(m.send.mock.calls[0][0].body).toContain('Reply NOEXCHANGE to stop Client Exchange texts only.');
+});
 it('respects per-type opt-out and contact hours',async()=>{m.channel.mockResolvedValue(false);await Dispatcher.dispatchForNotification(notification);expect(m.send).not.toHaveBeenCalled();m.channel.mockResolvedValue(true);m.gate.mockResolvedValue({sms:false});await Dispatcher.dispatchForNotification(notification);expect(m.send).not.toHaveBeenCalled();});
 it('keeps clinical details out of ordinary SMS and links to the secure exchange',async()=>{await Dispatcher.dispatchForNotification(notification,{context:{exchangeSummary:'Age: 9 · Diagnosis: F41.1'}});expect(m.send).toHaveBeenCalledWith(expect.objectContaining({staffNotificationKind:'exchangeMatches',body:expect.stringContaining('New client added to the exchange.')}));expect(m.send.mock.calls[0][0].body).toContain('/client-exchange');expect(m.send.mock.calls[0][0].body).not.toContain('F41.1');});
 it('uses the configured staff campaign and ignores the old clinical-summary override',async()=>{

@@ -1,3 +1,4 @@
+import { handleProviderSmsReply, forwardClientSmsToProviders } from '../services/providerSmsRelay.service.js';
 import { handleStaffSmsAssistant } from '../services/staffSmsAssistant.service.js';
 import { sendConversationStartNotice } from '../services/smsCommunicationNotice.service.js';
 import { offerOutOfOfficeSupport, handleOutOfOfficeSupportReply } from '../services/smsOutOfOffice.service.js';
@@ -177,6 +178,9 @@ export const inboundSmsWebhook = async (req, res, next) => {
       reception.reason = 'mms_attachment_pending';
       return await holdForReview();
     }
+    if (incomingCarrier === 'notifyre' && await handleProviderSmsReply({sender,from:fromNorm,to:toNorm,body,messageId}))
+      return res.status(200).json({ok:true,providerRelay:true});
+
     // SUPPORT is scoped to a sent offer; appointment and poll Y/N replies remain independent.
     if (incomingCarrier === 'notifyre' && !reception.reason && reception.number?.agency_id && reception.profile?.clientId && await handleOutOfOfficeSupportReply({
       agencyId: reception.number.agency_id, numberId: reception.number.id, clientId: reception.profile.clientId,
@@ -288,8 +292,13 @@ export const inboundSmsWebhook = async (req, res, next) => {
     const agencyId = route.agencyId || (ownerUser ? await getAgencyIdForUser(ownerUser.id) : null);
     const clientId = client?.id || null;
 
+    const directProviderCare = ownerType === 'staff' && !!assignedUserId && !!clientId;
+    const disableAwayNotices = directProviderCare && body.trim().toUpperCase() === 'NOOO';
+    const reminderSender = directProviderCare && /^(Y|YES|N|NO|R|RESCHEDULE)$/i.test(body.trim())
+      ? await resolveRegisteredSmsSender({ agencyId, purpose: 'reminders' }) : null;
+    const isReminderReply = !directProviderCare || (MessageLog.normalizePhone(reminderSender) || reminderSender) === toNorm;
     const explicitAppointmentReply = /^(Y|YES|N|NO|R|RESCHEDULE)$/i.test(body.trim());
-    if (route.allCaregiversAway && agencyId && clientId && !explicitAppointmentReply) {
+    if (route.allCaregiversAway && agencyId && clientId && !disableAwayNotices && !(explicitAppointmentReply && isReminderReply)) {
       await offerOutOfOfficeSupport({ route, from: fromNorm, to: toNorm, body, messageId, mediaUrls });
       return res.status(200).json({ ok: true, awaitingProviderReturn: true });
     }
@@ -298,7 +307,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
     // - Y/N/R → apply to booking, ACK, done
     // - other text with upcoming appointment → soft ACK + fall through to inbox so support can text back
     let appointmentReplyContext = null;
-    if (agencyId && clientId) {
+    if (agencyId && clientId && isReminderReply && !disableAwayNotices) {
       try {
         const { handleInboundSmsAppointmentReply } = await import('../services/appointmentReply.service.js');
         const apptReply = await handleInboundSmsAppointmentReply({
@@ -342,12 +351,12 @@ export const inboundSmsWebhook = async (req, res, next) => {
       }
     }
 
-    if (route.allCaregiversAway && agencyId && clientId) {
+    if (route.allCaregiversAway && agencyId && clientId && !disableAwayNotices) {
       await offerOutOfOfficeSupport({ route, from: fromNorm, to: toNorm, body, messageId, mediaUrls });
       return res.status(200).json({ ok: true, awaitingProviderReturn: true });
     }
 
-    if (body.trim().toUpperCase() === 'YES' && agencyId && clientId) {
+    if (!directProviderCare && body.trim().toUpperCase() === 'YES' && agencyId && clientId) {
       const handled = await SmsAutoReplyRuleService.handleYesReply({
         fromNumber: fromNorm,
         toNumber: toNorm,
@@ -370,7 +379,8 @@ export const inboundSmsWebhook = async (req, res, next) => {
     // An ordinary inbound message is not recurring or marketing consent and must
     // never overwrite STOP. Recipient permissions are managed by the shared gate.
 
-    const metadata = { provider: req.smsProvider || 'vonage', numberId };
+    const metadata = { provider: req.smsProvider || 'vonage', numberId, directProviderCare,
+      ...(disableAwayNotices ? { outOfOfficeNoticesDisabled: true } : {}) };
     if (mediaUrls.length > 0) metadata.media_urls = mediaUrls;
     if (appointmentReplyContext?.needsSupport) {
       metadata.appointment_reply = {
@@ -409,7 +419,11 @@ export const inboundSmsWebhook = async (req, res, next) => {
       userId: route.matchedUserId || null
     });
 
-    if (!keyword && !appointmentReplyContext?.ackMessage) {
+    if (!keyword && !appointmentReplyContext) {
+      await forwardClientSmsToProviders({route,from:fromNorm,to:toNorm,body,messageId,inboundLogId:inboundLog?.id,mediaUrls});
+    }
+
+    if (!disableAwayNotices && !keyword && !appointmentReplyContext?.ackMessage) {
       try {
         await sendConversationStartNotice({agencyId,numberId,clientId,userId:assignedUserId,
           from:toNorm,to:fromNorm,inboundLogId:inboundLog?.id});
@@ -458,13 +472,15 @@ export const inboundSmsWebhook = async (req, res, next) => {
       metadata: { clientId, messageLogId: inboundLog?.id || null, numberId, ownerType, hasKeyword: !!keyword }
     });
 
+    if (disableAwayNotices) return res.status(200).json({ ok: true, outOfOfficeNoticesDisabled: true });
+
     const prefs = ownerUser ? await UserPreferences.findByUserId(ownerUser.id) : null;
 
     if (agencyId && ownerUser?.id) {
       const isOnVacation = await VacationScheduleSyncService.isUserOnVacation(ownerUser.id, agencyId);
       const settings = await UserCallSettings.getByUserId(ownerUser.id);
       
-      if (!route.careOwnerUserId && isOnVacation && settings?.voicemail_vacation_message) {
+      if (!directProviderCare && !route.careOwnerUserId && isOnVacation && settings?.voicemail_vacation_message) {
         // Send immediate vacation auto-reply if they have a message set
         try {
           const from = MessageLog.normalizePhone(toNorm) || toNorm;
@@ -646,7 +662,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
     const ruleAutoReply = numberId ? await PhoneNumberRule.getActiveRule(numberId, 'after_hours') : null;
     const autoReplyMessage = ruleAutoReply?.auto_reply_text || prefs?.auto_reply_message || null;
 
-    if ((autoReplyEnabled || ruleAutoReply) && smsEnabled && autoReplyMessage) {
+    if (!directProviderCare && (autoReplyEnabled || ruleAutoReply) && smsEnabled && autoReplyMessage) {
       const decision = await NotificationGatekeeperService.decideChannels({
         userId: ownerUser?.id || assignedUserId,
         context: { severity: 'info' }

@@ -16,26 +16,39 @@ import {recordSmsPermission,isSmsSuppressed} from '../smsCompliance.service.js';
 import {appendSecurityEvidence} from '../securityEvidence.service.js';
 import {getStaffCommunicationAgencies,getStaffCommunicationChoices,saveStaffCommunicationChoices} from '../staffCommunicationChoices.service.js';
 import {validateStaffCommunicationInput,staffDeliveryKinds,staffNotificationBody} from '../../utils/staffCommunicationChoices.js';
-let stored,programs,conn,reviewed;
+let stored,programs,conn,reviewed,exchangeStatus;
 const profile={brandName:'ITSCO',legalName:'ITSCO, LLC',supportContact:'support@itsco.health'};
 const registration={...profile,brandId:'B123',campaignId:'C123',resellerId:'R123',website:'https://www.itsco.health',privacyUrl:'https://www.itsco.health/privacy',termsUrl:'https://www.itsco.health/terms',evidenceUrl:'https://www.itsco.health/proof',purposes:['workforce','polling'],keywordOwner:'application',approved:true,numberLinked:true};
 beforeEach(()=>{
- vi.clearAllMocks();stored={};programs=[];reviewed=false;isSmsSuppressed.mockResolvedValue(false);
+ vi.clearAllMocks();stored={};programs=[];reviewed=false;exchangeStatus=null;isSmsSuppressed.mockResolvedValue(false);
  User.findById.mockResolvedValue({id:7,role:'provider',personal_phone:'+13035550101'});User.getAgencies.mockResolvedValue([{id:2}]);
  getAgencyCampaignPacket.mockResolvedValue({profile,hasPublished:true,links:{termsUrl:'https://app.itsco.health/sms-programs/2/polling/terms',privacyUrl:'https://app.itsco.health/sms-programs/2/polling/privacy'}});
- pool.execute.mockImplementation(async sql=>sql.includes('FROM sms_recipient_permissions')?[reviewed?[{found:1}]:[]]:sql.includes('FROM twilio_numbers')?[programs]:[[{notification_categories:stored}]]);
- conn={execute:vi.fn(async(sql,args)=>{if(sql.includes('GET_LOCK'))return [[{acquired:1}]];if(sql.includes('INSERT INTO user_preferences'))stored[args[1]]=JSON.parse(args[2]);return [{affectedRows:1}];}),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()};pool.getConnection.mockResolvedValue(conn);
+ pool.execute.mockImplementation(async sql=>sql.includes('SELECT status FROM sms_recipient_permissions')?[exchangeStatus?[{status:exchangeStatus}]:[]]:sql.includes('FROM sms_recipient_permissions')?[reviewed?[{found:1}]:[]]:sql.includes('FROM twilio_numbers')?[programs]:[[{notification_categories:stored}]]);
+ conn={execute:vi.fn(async(sql,args)=>{if(sql.includes('GET_LOCK'))return [[{acquired:1}]];if(sql.includes('INSERT INTO user_preferences'))stored[args[1]]=JSON.parse(args[2]);if(sql.includes('INSERT INTO sms_recipient_permissions')&&args[2]==='exchange_matches')exchangeStatus=args[3];return [{affectedRows:1}];}),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()};pool.getConnection.mockResolvedValue(conn);
  enrollSmsRecipient.mockResolvedValue({status:'opted_in'});
 });
 async function input(choices={notifications:false,messageAlerts:false,polling:false}){const form=await getStaffCommunicationChoices({userId:7,agencyId:2});return {disclosureHash:form.disclosureHash,arrivalEmail:false,exchangeEmail:false,choices:{appointmentReplies:false,kioskArrivals:false,exchangeMatches:false,...choices},accessRequests:{staffSmsAssistant:false,inAppTexting:false,personalSmsRelay:false},phone:form.phone,signerName:'Example Provider',acknowledged:true,usageAcknowledged:true};}
 describe('staff communication choices',()=>{
+ it('shows a keyword opt-out without rewriting signed evidence and permits a new signed Exchange choice',async()=>{
+  const form=await input({notifications:true,messageAlerts:true,polling:false,exchangeMatches:true});form.exchangeEmail=true;
+  await saveStaffCommunicationChoices({userId:7,agencyId:2,input:form});
+  const originalEnvelope=stored.staff_communications_2.envelope;
+  exchangeStatus='opted_out';
+  const declined=await getStaffCommunicationChoices({userId:7,agencyId:2});
+  expect(declined.choices.exchangeMatches).toBe(false);expect(declined.exchangeEmail).toBe(true);
+  expect(declined.choices.messageAlerts).toBe(true);expect(stored.staff_communications_2.envelope).toEqual(originalEnvelope);
+  expect(declined.disclosure.choices.find(c=>c.key==='exchangeMatches').description).toContain('NOEXCHANGE');
+  const reenabled=await saveStaffCommunicationChoices({userId:7,agencyId:2,input:form});
+  expect(reenabled.choices.exchangeMatches).toBe(true);expect(exchangeStatus).toBe('opted_in');
+  expect(enrollSmsRecipient).not.toHaveBeenCalled();
+ });
  it('participates in the onboarding phase transaction without committing or releasing it',async()=>{
   const result=await saveStaffCommunicationChoices({userId:7,agencyId:2,input:await input(),source:'onboarding',database:conn});
   expect(result.reviewedAt).toBeTruthy();expect(conn.beginTransaction).not.toHaveBeenCalled();expect(conn.commit).not.toHaveBeenCalled();expect(conn.release).not.toHaveBeenCalled();
   expect(appendSecurityEvidence).toHaveBeenCalledWith(expect.any(Object),conn,{mirror:false});
  });
 
- it('records access and future-forwarding requests without enabling texting or relay',async()=>{const form=await input();form.accessRequests={staffSmsAssistant:false,inAppTexting:true,personalSmsRelay:true};const send=vi.fn();const saved=await saveStaffCommunicationChoices({userId:7,agencyId:2,input:form,sendConfirmation:send});expect(saved.accessRequests).toEqual(form.accessRequests);expect(saved.capabilities.clientRelay).toBe(false);expect(saved.activation).toEqual([]);expect(enrollSmsRecipient).not.toHaveBeenCalled();expect(send).not.toHaveBeenCalled();expect(conn.execute.mock.calls.some(([sql])=>sql.includes('sms_forwarding_enabled=FALSE'))).toBe(true);expect(JSON.parse(stored.staff_communications_2.envelope.cipher).accessRequests).toEqual(form.accessRequests);});
+ it('records access and future-forwarding requests without enabling texting or relay',async()=>{const form=await input();form.accessRequests={staffSmsAssistant:false,inAppTexting:true,personalSmsRelay:true};const send=vi.fn();const saved=await saveStaffCommunicationChoices({userId:7,agencyId:2,input:form,sendConfirmation:send});expect(saved.accessRequests).toEqual(form.accessRequests);expect(saved.capabilities.clientRelay).toBe(false);expect(saved.activation).toEqual([]);expect(enrollSmsRecipient).not.toHaveBeenCalled();expect(send).not.toHaveBeenCalled();expect(conn.execute.mock.calls.some(([sql])=>sql.includes('sms_forwarding_enabled=FALSE'))).toBe(false);expect(JSON.parse(stored.staff_communications_2.envelope.cipher).accessRequests).toEqual(form.accessRequests);});
  it('requires both access-request choices without accepting permission grants',async()=>{const form=await input();delete form.accessRequests;await expect(saveStaffCommunicationChoices({userId:7,agencyId:2,input:form})).rejects.toThrow('in-app texting');form.accessRequests={inAppTexting:true,personalSmsRelay:true,grantAccess:true};await expect(saveStaffCommunicationChoices({userId:7,agencyId:2,input:form})).rejects.toThrow('in-app texting');expect(appendSecurityEvidence).not.toHaveBeenCalled();});
  it('starts all choices off without treating employment as consent',async()=>{const f=await getStaffCommunicationChoices({userId:7,agencyId:2});expect(f.choices).toEqual({notifications:false,messageAlerts:false,polling:false,appointmentReplies:false,kioskArrivals:false,exchangeMatches:false});expect(f.needsReview).toBe(true);expect(f.capabilities.clientRelay).toBe(false);});
  it('accepts all No and stores encrypted, append-only signature evidence without sending',async()=>{const form=await input();const send=vi.fn();const result=await saveStaffCommunicationChoices({userId:7,agencyId:2,input:form,sendConfirmation:send});expect(result.reviewedAt).toBeTruthy();expect(result.needsReview).toBe(false);expect(appendSecurityEvidence).toHaveBeenCalledWith(expect.objectContaining({details:expect.objectContaining({envelope:expect.any(Object)})}),conn,{mirror:false});expect(enrollSmsRecipient).not.toHaveBeenCalled();expect(send).not.toHaveBeenCalled();});

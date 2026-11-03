@@ -87,6 +87,12 @@ describe('server session transitions', () => {
     expect(mocks.connection.commit).toHaveBeenCalled();
     expect(mocks.connection.execute.mock.calls[0][1]).toEqual(['signed-session-key', 1]);
   });
+  it('resumes without a code when no Quick View requirement applies, even with a legacy lock flag', async () => {
+    const result = await changeSessionSecurity({ key: 'signed-session-key', policy: { ...policy, pinRequired: false } }, 1, 'resume');
+    expect(result.phase).toBe('active');
+    expect(mocks.compare).not.toHaveBeenCalled();
+    expect(mocks.connection.execute.mock.calls.some(([sql]) => sql.includes('session_lock_pin_hash'))).toBe(false);
+  });
   it('commits failed attempts without clearing the lock', async () => {
     mocks.compare.mockResolvedValue(false);
     await expect(changeSessionSecurity(security(), 1, 'resume', '123456')).rejects.toMatchObject({ code: 'INVALID_PIN' });

@@ -32,7 +32,7 @@ beforeEach(() => {
   });
   const conn = { execute, beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() };
   database = { execute, getConnection: vi.fn(async () => conn) };
-  dependencies = { database, now: () => new Date('2026-11-01T00:00:00Z'), timeZone: async () => 'America/Denver',
+  dependencies = { database, now: () => new Date('2026-11-01T00:00:00Z'), timeZone: async () => 'America/Denver', providerName: async () => 'Avery QA',
     encrypt: vi.fn(s => JSON.stringify({ testEncrypted: s })), decrypt: s => JSON.parse(s).testEncrypted,
     listAppointments: vi.fn(async () => structuredClone(appointments)), getAppointment: vi.fn(async id => structuredClone(appointments.find(a => a.id === id))),
     participants: vi.fn(async () => structuredClone(recipients)), previewAppointment: vi.fn(async () => ({ narrative: 'Provider unavailable. No service rendered.' })),
@@ -48,6 +48,31 @@ beforeEach(() => {
 const preview = () => service.preview(input, actor, authorize, appointmentAccess);
 const apply = (plan, extra = {}) => service.apply(plan.token, { providerId: 9, signatureConfirmed: true, ...extra }, actor, authorize, appointmentAccess);
 
+describe('urgent and nonurgent day policy',()=>{
+  it('always limits day cancellation to email and reserves planned holidays for nonurgent use',()=>{
+    expect(dayCancellationFacts({urgent:false,reasonCategory:'holiday',followUpAction:'private_slots'})).toMatchObject({urgent:false,emailOnly:true,followUpAction:'none'});
+    expect(()=>dayCancellationFacts({urgent:true,reasonCategory:'holiday'})).toThrow('nonurgent');
+  });
+  it('sends nonurgent care-team notices to families without adding school notices',async()=>{
+    dependencies.schools.mockResolvedValue([{key:'school:2:4',kind:'school',agencyId:2}]);
+    const plan=await service.preview({...input,urgent:false,reasonCategory:'facility'},actor,authorize,appointmentAccess);
+    expect(dependencies.schools).not.toHaveBeenCalled();expect(plan.items[0].message.text).toContain('Your care team');
+    await apply(plan);expect(dependencies.completeAppointment.mock.calls[0][1]).toMatchObject({urgent:false,emailOnly:true,absenceSource:'cancel_day'});
+    expect(dependencies.contacts).toHaveBeenCalledWith(12,2,undefined,expect.objectContaining({allowMissingEmail:true}));
+  });
+  it('refuses a text channel even when a caller bypasses the email-only UI',async()=>{
+    dependencies.contacts.mockResolvedValue({clientId:12,channels:['sms'],contacts:[],recipients:[]});
+    await expect(preview()).rejects.toThrow('email only');
+  });
+  it('limits a timed Planned Out to overlapping appointments and leaves published hours in place',async()=>{
+    dependencies.listAppointments.mockImplementation(async args=>appointments.filter(a=>a.startAt<args.windowEnd && a.endAt>args.windowStart));
+    dependencies.participation=vi.fn(async()=>[]);service=createDayCancellationService(dependencies);
+    const plan=await service.preview({...input,urgent:false,reasonCategory:'planned_out',absenceSource:'planned_out',timeZone:'America/Denver',windowStart:'2026-11-04 19:30:00',windowEnd:'2026-11-04 21:00:00'},actor,authorize,appointmentAccess);
+    expect(plan.items).toHaveLength(0);await apply(plan);expect(blocks).toHaveLength(0);
+    expect(dependencies.editPublication).not.toHaveBeenCalled();expect(dependencies.participation).toHaveBeenCalled();
+  });
+});
+
 describe('reviewed provider-day cancellation', () => {
   it('uses actual local midnight across DST rather than assuming a 24-hour day', () => {
     expect(dayBounds('2026-11-01', 'America/Denver')).toEqual({ start: '2026-11-01 06:00:00', end: '2026-11-02 07:00:00' });
@@ -55,7 +80,7 @@ describe('reviewed provider-day cancellation', () => {
   });
   it('requires a reviewed public reason and keeps private details out of session facts', () => {
     expect(() => dayCancellationFacts({ reasonCategory: 'detailed private reason' })).toThrow('category');
-    expect(dayCancellationFacts(input)).toMatchObject({ initiator: 'provider', reasonOther: '', clientFacingReason: 'Provider availability', followUpAction: 'client_contact_support' });
+    expect(dayCancellationFacts(input)).toMatchObject({ initiator: 'provider', reasonOther: '', clientFacingReason: 'Unexpected provider absence', followUpAction: 'client_contact_support' });
     expect(() => dayCancellationFacts({ ...input, followUpAction: 'support_will_contact' })).toThrow('supported follow-up');
   });
   it('previews without sending or canceling and encrypts internal audit details', async () => {
@@ -163,7 +188,7 @@ describe('selected sessions, dates and reviewed outreach', () => {
     const plan = await service.preview({ ...input, dates: ['2026-11-04','2026-11-05'] }, actor, authorize, appointmentAccess);
     await apply(plan); expect(blocks).toHaveLength(2);
     expect(blocks.map(b => b[4])).toEqual(['2026-11-04','2026-11-05']);
-    expect(dependencies.completeAppointment.mock.calls[0][1].clientFacingReason).toBe('Provider availability');
+    expect(dependencies.completeAppointment.mock.calls[0][1].clientFacingReason).toBe('Unexpected provider absence');
   });
   it('includes assigned-school messages even on a day with no client appointments, and sends only the reviewed edit', async () => {
     appointments = [];
@@ -231,7 +256,7 @@ describe('assigned-day clients without appointments',()=>{
   });
   it('keeps deferred roster notices for later explicit approval',async()=>{
     appointments=[];roster();const plan=await service.preview({...input,notificationMode:'none',suppressionReason:'Review contacts'},actor,authorize,appointmentAccess);
-    await apply(plan);expect(dependencies.notifyRoster).not.toHaveBeenCalled();expect(dependencies.ensureTask).toHaveBeenCalled();
+    await apply(plan);expect(dependencies.notifyRoster).toHaveBeenCalledWith(plan.token, expect.any(Object), actor.id, {suppressed:true});expect(dependencies.ensureTask).toHaveBeenCalled();
     const deferred=await service.preview({...input,deferredToken:plan.token},actor,authorize,appointmentAccess);
     expect(deferred.items[0].kind).toBe('school_roster');
   });

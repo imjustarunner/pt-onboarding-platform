@@ -15,7 +15,7 @@ export const useSessionLockStore = defineStore('sessionLock', () => {
 
   const useLockScreen = computed(() => {
     const c = lockConfig.value;
-    return !!(c?.useLockScreen);
+    return !!(c?.pinRequired && c?.useLockScreen);
   });
 
   const effectiveTimeoutMs = computed(() => {

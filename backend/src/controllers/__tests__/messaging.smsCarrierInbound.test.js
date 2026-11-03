@@ -1,3 +1,4 @@
+vi.mock('../../services/providerSmsRelay.service.js',()=>({handleProviderSmsReply:vi.fn(),forwardClientSmsToProviders:vi.fn()}));
 import { beforeEach, it, expect, vi } from 'vitest';
 vi.mock('../../services/staffSmsAssistant.service.js',()=>({handleStaffSmsAssistant:vi.fn()}));
 vi.mock('../../services/smsCommunicationNotice.service.js',()=>({sendConversationStartNotice:vi.fn()}));
@@ -7,6 +8,7 @@ vi.mock('../../services/companyEventSmsReply.service.js',()=>({deliverCompanyEve
 vi.mock('../../services/companyEventCheckinSms.service.js',()=>({handleCompanyEventCheckinInbound:vi.fn()}));
 vi.mock('../../services/companyEventSms.service.js',()=>({handleCompanyEventTopicInbound:vi.fn(),recordCompanyEventSmsDeliveryStatus:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{}}));
+vi.mock('../../models/SmsCareThread.model.js',()=>({default:{upsert:vi.fn()}}));
 vi.mock('../../models/User.model.js',()=>({default:{}}));
 vi.mock('../../models/Client.model.js',()=>({default:{}}));
 vi.mock('../../models/UserPreferences.model.js',()=>({default:{}}));
@@ -99,4 +101,86 @@ it.each(['vonage','notifyre'])('processes STOP first on %s',async carrier=>{
 it('rejects the wrong carrier webhook for a registered number before processing consent or messages',async()=>{
  getSmsSender.mockResolvedValue({registration:{provider:'notifyre'}});const res=response();await inboundSmsWebhook(request('vonage'),res,vi.fn());
  expect(res.status).toHaveBeenCalledWith(403);expect(processSmsKeyword).not.toHaveBeenCalled();expect(inspectInboundReception).not.toHaveBeenCalled();
+});
+it('consumes NOEXCHANGE before staff assistant, polling or clinical inbox routing',async()=>{
+ processSmsKeyword.mockResolvedValue(true);
+ await inboundSmsWebhook(request('vonage','NOEXCHANGE'),response(),vi.fn());
+ expect(processSmsKeyword).toHaveBeenCalledWith(expect.objectContaining({body:'NOEXCHANGE',messageId:'test-id'}));
+ expect(inspectInboundReception).not.toHaveBeenCalled();expect(handleStaffSmsAssistant).not.toHaveBeenCalled();
+ expect(handleCompanyEventCheckinInbound).not.toHaveBeenCalled();expect(handleInboundSmsAppointmentReply).not.toHaveBeenCalled();
+});
+
+import pool from '../../config/database.js';
+import MessageLog from '../../models/MessageLog.model.js';
+import Agency from '../../models/Agency.model.js';
+import AgencyContact from '../../models/AgencyContact.model.js';
+import UserPreferences from '../../models/UserPreferences.model.js';
+import UserCallSettings from '../../models/UserCallSettings.model.js';
+import PhoneNumberRule from '../../models/PhoneNumberRule.model.js';
+import SmsOptInState from '../../models/SmsOptInState.model.js';
+import SmsCareThread from '../../models/SmsCareThread.model.js';
+import SmsAutoReplyRuleService from '../../services/smsAutoReplyRule.service.js';
+import VacationScheduleSyncService from '../../services/vacationScheduleSync.service.js';
+import { resolveRegisteredSmsSender } from '../../services/smsCompliance.service.js';
+import { sendConversationStartNotice } from '../../services/smsCommunicationNotice.service.js';
+import { offerOutOfOfficeSupport } from '../../services/smsOutOfOffice.service.js';
+function providerRoute(overrides={}) {
+ getSmsSender.mockResolvedValue({agency_id:450,registration:{provider:'notifyre'}});
+ resolveInboundRoute.mockResolvedValue({agencyId:450,client:{id:10},clientId:10,
+   number:{id:6},ownerType:'staff',ownerUser:{id:1433},careOwnerUserId:1433,
+   eligibleUserIds:[1433],allCaregiversAway:false,...overrides});
+ pool.execute=vi.fn().mockResolvedValue([[]]);
+ MessageLog.normalizePhone=vi.fn(value=>value ? '+'+String(value).replace(/\D/g,'') : null);
+ MessageLog.createInbound=vi.fn().mockResolvedValue({id:42});
+ Agency.findById=vi.fn().mockResolvedValue({feature_flags:{}});
+ AgencyContact.findByPhone=vi.fn().mockResolvedValue(null);
+ UserPreferences.findByUserId=vi.fn().mockResolvedValue({auto_reply_enabled:true,sms_enabled:true,auto_reply_message:'Legacy after-hours'});
+ UserCallSettings.getByUserId=vi.fn().mockResolvedValue({sms_inbound_enabled:true,voicemail_vacation_message:'Legacy vacation'});
+ VacationScheduleSyncService.isUserOnVacation=vi.fn().mockResolvedValue(false);
+ PhoneNumberRule.getActiveRule=vi.fn().mockImplementation(async(_id,type)=>type==='after_hours'?{auto_reply_text:'Legacy after-hours'}:null);
+ SmsOptInState.findByClientNumber=vi.fn().mockResolvedValue({status:'opted_in'});
+ SmsAutoReplyRuleService.handleYesReply=vi.fn();
+ resolveRegisteredSmsSender.mockResolvedValue('+17195550999');
+}
+it.each(['Please call when you can','YES'])('keeps direct provider text in the care thread without appointment or legacy auto acknowledgments (%s)',async body=>{
+ providerRoute();const next=vi.fn();
+ await inboundSmsWebhook(request('notifyre',body),response(),next);
+ expect(next).not.toHaveBeenCalled();
+ expect(MessageLog.createInbound).toHaveBeenCalledWith(expect.objectContaining({body,metadata:expect.objectContaining({directProviderCare:true})}));
+ expect(SmsCareThread.upsert).toHaveBeenCalledWith(expect.objectContaining({ownerUserId:1433,numberId:6}));
+ expect(handleInboundSmsAppointmentReply).not.toHaveBeenCalled();
+ expect(SmsAutoReplyRuleService.handleYesReply).not.toHaveBeenCalled();
+ expect(offerOutOfOfficeSupport).not.toHaveBeenCalled();
+ expect(VonageService.sendSms).not.toHaveBeenCalled();
+ expect(sendConversationStartNotice).toHaveBeenCalledOnce();
+});
+it('records NOOO silently during an absence without changing reminders or sending another notice',async()=>{
+ providerRoute({allCaregiversAway:true,absenceKey:'1433:schedule:12'});
+ const res=response(),next=vi.fn();
+ await inboundSmsWebhook(request('notifyre','  nooo  '),res,next);
+ expect(next).not.toHaveBeenCalled();
+ expect(MessageLog.createInbound).toHaveBeenCalledWith(expect.objectContaining({metadata:expect.objectContaining({outOfOfficeNoticesDisabled:true})}));
+ expect(SmsCareThread.upsert).toHaveBeenCalledOnce();
+ expect(res.json).toHaveBeenCalledWith({ok:true,outOfOfficeNoticesDisabled:true});
+ expect(offerOutOfOfficeSupport).not.toHaveBeenCalled();
+ expect(sendConversationStartNotice).not.toHaveBeenCalled();
+ expect(handleInboundSmsAppointmentReply).not.toHaveBeenCalled();
+ expect(VonageService.sendSms).not.toHaveBeenCalled();
+ expect(pool.execute).not.toHaveBeenCalled();
+});
+it('sends provider YES through the absence flow when it is not the reminder sender',async()=>{
+ providerRoute({allCaregiversAway:true,absenceKey:'1433:schedule:12'});
+ const next=vi.fn();await inboundSmsWebhook(request('notifyre','YES'),response(),next);
+ expect(next).not.toHaveBeenCalled();
+ expect(offerOutOfOfficeSupport).toHaveBeenCalledWith(expect.objectContaining({route:expect.objectContaining({absenceKey:'1433:schedule:12'}),body:'YES'}));
+ expect(handleInboundSmsAppointmentReply).not.toHaveBeenCalled();
+});
+it('still confirms an appointment on the configured reminder sender during an absence',async()=>{
+ providerRoute({allCaregiversAway:true,absenceKey:'1433:schedule:12'});
+ resolveRegisteredSmsSender.mockResolvedValue('+17195550100');
+ const next=vi.fn();await inboundSmsWebhook(request('notifyre','Y'),response(),next);
+ expect(next).not.toHaveBeenCalled();
+ expect(handleInboundSmsAppointmentReply).toHaveBeenCalledOnce();
+ expect(offerOutOfOfficeSupport).not.toHaveBeenCalled();
+ expect(VonageService.sendSms).toHaveBeenCalledWith(expect.objectContaining({body:'Confirmed'}));
 });

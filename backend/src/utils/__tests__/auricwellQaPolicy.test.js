@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { allowQaExchangeRecipient, allowQaSmsDelivery } from '../auricwellQaPolicy.js';
 const agency = {slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,exchangeProviderUserId:1433}}};
 const provider = {id:1433,is_demo:1,email:'qa.provider.auricwell@example.com'};
-test('QA SMS admits approved purposes only to the owner’s two test phones',()=>{
+test('QA SMS admits approved purposes only to authorized test phones',()=>{
  const qa={...agency,id:450};const options={to:'+16189107000',purpose:'workforce'};
  assert.equal(allowQaSmsDelivery(qa,options),true);
  for(const purpose of ['care','reminders','workforce']) assert.equal(allowQaSmsDelivery(qa,{to:'+18152122875',purpose}),true);
@@ -14,6 +14,14 @@ test('QA SMS admits approved purposes only to the owner’s two test phones',()=
  assert.equal(allowQaSmsDelivery({...qa,feature_flags:null},options),false);
  assert.equal(allowQaSmsDelivery({...qa,id:452,slug:'auricwell-qa-demo-clinic'},options),false);
  assert.equal(allowQaSmsDelivery({id:2,slug:'itsco'},{purpose:'care',to:'+15555550100'}),true);
+});
+test('provider relay phone is restricted to QA450 care messages',()=>{
+  const qa={...agency,id:450};
+  assert.equal(allowQaSmsDelivery(qa,{to:'+17192172227',purpose:'care'}),true);
+  for(const purpose of ['reminders','workforce','marketing','account_security'])
+    assert.equal(allowQaSmsDelivery(qa,{to:'+17192172227',purpose}),false);
+  for(const patch of [{id:452},{slug:'auricwell-qa-demo-clinic'},{feature_flags:null}])
+    assert.equal(allowQaSmsDelivery({...qa,...patch},{to:'+17192172227',purpose:'care'}),false);
 });
 test('QA allows only its explicitly configured demo provider',()=>{
   assert.equal(allowQaExchangeRecipient(agency,provider),true);

@@ -14,7 +14,8 @@ export function isAuricwellQaAgency(agency) {
 export function allowQaSmsDelivery(agency, {to,purpose,clientId}={}) {
   if (![450,451,452].includes(Number(agency?.id)) && !String(agency?.slug||'').startsWith(AURICWELL_QA_SLUG)) return true;
   return isAuricwellQaAgency(agency) && ['workforce','care','reminders'].includes(purpose)
-    && ['16189107000','18152122875'].includes(String(to||'').replace(/\D/g,''));
+    && (['16189107000','18152122875'].includes(String(to||'').replace(/\D/g,''))
+      || (purpose === 'care' && String(to||'').replace(/\D/g,'') === '17192172227'));
 }
 
 // The dedicated QA tenant fails closed until its explicit provider roster is set.

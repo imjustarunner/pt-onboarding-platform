@@ -29,6 +29,11 @@ class SmsAutoReplyRuleService {
        JOIN agencies a ON a.id = ml.agency_id
        WHERE ml.direction = 'INBOUND'
          AND COALESCE(JSON_EXTRACT(ml.metadata, '$.awaitingProviderReturn'), false) = false
+         AND COALESCE(JSON_EXTRACT(ml.metadata, '$.directProviderCare'), false) = false
+         AND COALESCE(ml.owner_type, '') <> 'staff'
+         AND NOT EXISTS (SELECT 1 FROM sms_care_threads care
+           WHERE care.agency_id=ml.agency_id AND care.number_id=ml.number_id
+             AND care.client_id=ml.client_id AND care.owner_user_id IS NOT NULL)
          AND ml.client_id IS NOT NULL
          AND ml.created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
          AND NOT EXISTS (

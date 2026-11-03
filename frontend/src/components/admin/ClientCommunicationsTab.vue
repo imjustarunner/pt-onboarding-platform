@@ -31,6 +31,7 @@
     </div>
 
     <ClientSecureMessageRecords :client-id="clientId" />
+    <SchoolAbsenceRecords :client-id="clientId" />
     <ClientNotificationHistory :client-id="clientId" />
 
     <section v-if="intakeCommPrefsLoading" class="intake-comm-prefs muted">Loading intake communication preferences…</section>
@@ -349,6 +350,7 @@
 </template>
 
 <script setup>
+import SchoolAbsenceRecords from '../schedule/SchoolAbsenceRecords.vue';
 import GuardianContactCard from './GuardianContactCard.vue';
 import ClientSecureMessageRecords from '../conversa/ClientSecureMessageRecords.vue';
 import ClientNotificationHistory from '../conversa/ClientNotificationHistory.vue';

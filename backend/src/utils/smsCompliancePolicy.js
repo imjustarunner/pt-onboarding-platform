@@ -34,15 +34,18 @@ export function validateSmsRegistration(registration) {
   return errors;
 }
 
-export function formatRegisteredSms(body, brandName, senderFirstName = null) {
+export function formatRegisteredSms(body, brandName, senderFirstName = null, { includeOptOut = true } = {}) {
   const text = String(body || '').trim();
   if (!text) throw smsPolicyError('sms_empty_body', 'SMS body is required');
   if (senderFirstName) {
     const name = String(senderFirstName).replace(/[\r\n\t:]+/g, ' ').trim();
-    const authored = text.startsWith(`${name}:`) ? text : `${name}: ${text}`;
-    return `${authored}\n${brandName}. Reply STOP to opt out.`;
+    const content = text.startsWith(`${name}:`) ? text.slice(name.length + 1).trimStart() : text;
+    const signature = `— ${name} with ${String(brandName).replace(/[\r\n\t]+/g, ' ').trim()}`;
+    const authored = content.endsWith(signature) ? content : `${content}\n${signature}`;
+    return includeOptOut ? `${authored}\nReply STOP to opt out.` : authored;
   }
   const branded = text.startsWith(`${brandName}:`) ? text : `${brandName}: ${text}`;
+  if (!includeOptOut) return branded;
   return /\b(?:reply|text)\s+(?:HELP\s+for\s+help,\s*)?STOP\s+to\s+(?:opt[ -]?out|unsubscribe|cancel|stop)\b/i.test(branded)
     ? branded : `${branded} Reply STOP to opt out.`;
 }

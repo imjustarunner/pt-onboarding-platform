@@ -107,3 +107,9 @@ it('still loads submissions when pay period loading is denied and names the fail
   expect(w.text()).toContain('$2.94');
   expect(button(w, 'Approve').element.disabled).toBe(true);
 });
+
+it('keeps the saved worker name and readable service date when that worker is absent from the directory', async () => {
+  Object.assign(rows[0], { user_id:596, provider_first_name:'Piper', provider_last_name:'Finch', drive_date:'2026-10-30T00:00:00.000Z' });
+  const w=await page();expect(w.text()).toContain('Piper Finch');expect(w.text()).toContain('Oct 30, 2026');
+  expect(w.text()).not.toContain('User #596');expect(w.text()).not.toContain('T00:00:00.000Z');
+});

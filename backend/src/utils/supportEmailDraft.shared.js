@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { buildReplyLibraryPromptBlock, inferIntentFromTicket } from './schoolSupportReplyLibrary.shared.js';
 import { parseMetadataJson } from './schoolSupportDraftSources.shared.js';
 
-export const SUPPORT_EMAIL_DRAFT_VERSION = 'evidence-first-2026-10-31-school-context-v7';
+export const SUPPORT_EMAIL_DRAFT_VERSION = 'evidence-first-2026-11-02-rachel-v8';
 export const SUPPORT_EMAIL_DRAFT_SYSTEM_INSTRUCTION = `You draft unsent school-support emails for human review. Accuracy takes priority over sounding helpful.
 Never say work is completed or underway unless a verifiedAction records that state. Do not promise uploads, routing, forwarding to another team, assignments, contact with other people, appointment changes or deadlines without supporting accepted actions. Ordinary future commitments to review/check the request, clarify available options, and follow up are appropriate suggestions for the staff member to accept by sending. For a referral plus a portal issue, a useful next step is "I will review the referral and check on the login issue"; never substitute an unverified "I will get these uploaded/routed" or "I will pass this to our team". Record intended follow-ups in proposedFollowUps; do not describe them as already underway.
 Only attachments.files proves which files belong to the CURRENT incoming email. attachments.conversationFiles belongs to other conversation messages; refer to those only as earlier files, never as newly received. attachments.unattributedFiles has unknown email provenance and proves neither receipt nor absence in the latest email. When currentMessageInventoryKnown is false, never claim the latest email has no files or ask for a resend on that basis. Receipt does not mean content review. A parent taking referral forms home is NOT ITSCO receiving completed packets. An empty email inventory also does NOT prove ITSCO never received paperwork through another route. Without verified enrollmentLookup evidence, do not claim either receipt or nonreceipt across other routes. Never invent a paperwork prerequisite, including "once the forms are returned we can begin intake"; only a supplied verified policy can establish that requirement. Do not promise timing such as "shortly", "soon", or "today" without a recorded commitment.
@@ -98,6 +98,32 @@ export function extractSenderReferralRelationships(message) {
   return relationships;
 }
 
+// Keep the current author's writing separate from quoted chains and signatures.
+// Earlier messages already have their own chronological evidence records.
+export function currentSupportEmailText(value) {
+  const body=String(value || '').replace(/\r\n?/g,'\n');
+  const boundaries=[/\nOn [\s\S]{0,400}?wrote:\s*\n/i,/\n(?:From|Sent|Subject):[^\n]*\n/i,/\n>{1,}\s*/,/\n_{5,}\s*\n/,/\n-{2,}\s*(?:Forwarded|Original|Earlier messages)/i,/\n--\s*\n/,/\n(?:CONFIDENTIAL(?:ITY)?(?: AND| NOTICE|!)|The information enclosed in this email)/i];
+  const end=boundaries.reduce((at,re)=>{const match=re.exec(body);return match?Math.min(at,match.index):at;},body.length);
+  return body.slice(0,end).trim();
+}
+export function isExternalSupportReferralRequest(value) {
+  const body=currentSupportEmailText(value);
+  return /\b(?:recommend\w*|looking for|find|referrals? to|referral (?:options|resources)|list of (?:providers|practices)|outside (?:provider|referral|practice)|external (?:provider|referral)|other (?:providers|practices)|who (?:treats|offers)|(?:provider|treatment|psychiatry|psychology|therapy) options)\b/i.test(body);
+}
+export function needsParentIntakeClarification(value) {
+  const body=currentSupportEmailText(value);
+  return /\b(?:first session|started seeing|already (?:saw|seen)|met with (?:the |a )?(?:student|client))\b/i.test(body)
+    && /\b(?:intake|parent|guardian|MOC|FOC)\b/i.test(body)
+    && /\b(?:contact|complete|pending|not yet|need|trying)\b/i.test(body);
+}
+export function asksSupportForAction(value) {
+  const body=currentSupportEmailText(value);
+  return /\b(?:support|schools team)\b/i.test(body)
+    || /\b(?:can|could|would|will) you\b[\s\S]{0,160}\b(?:send|update|check|fix|help|provide|verify|add|remove|cancel|link|documents|packet|insurance)\b/i.test(body)
+    || /\b(?:please|help me|need (?:your )?help)\b[\s\S]{0,100}\b(?:portal|login|paperwork|enrollment|insurance|documents|cancel)\b/i.test(body)
+    || /\b(?:will not|won't|cannot|can't) (?:be|make it)|\b(?:out|sick) (?:today|tomorrow)\b/i.test(body);
+}
+
 function normalizeMessage(row) {
   const role = text(row.author_role || row.role, 80).toLowerCase();
   const direction = text(row.email_direction || row.direction, 32).toLowerCase()
@@ -109,7 +135,7 @@ function normalizeMessage(row) {
     authorName: text(row.author_name || [row.author_first_name, row.author_last_name].filter(Boolean).join(' '), 160),
     authorRole: role || 'unknown',
     from: text(row.email_from || row.from_email || row.sender_email, 320),
-    body: text(row.body),
+    body: text(currentSupportEmailText(row.body)),
     at: timestamp(row.received_at || row.sent_at || row.created_at),
     deliveryStatus: direction === 'outbound'
       ? text(row.email_delivery_status || row.delivery_status || 'recorded_not_verified', 40)
@@ -121,7 +147,7 @@ function normalizeMessage(row) {
 export function buildSupportEmailDraftContext({
   ticket = {}, messages = [], attachments = [], claimant = null, client = null,
   participants = [], verifiedFacts = [], verifiedActions = [], intakeComplete = true,
-  regenerationGuidance = '', headers = {}, agencyName = null, contextUnknowns = [], intakeMessageId = null, enrollmentLookup = null, providerAbsence = null
+  regenerationGuidance = '', headers = {}, agencyName = null, contextUnknowns = [], intakeMessageId = null, enrollmentLookup = null, providerAbsence = null, reviewerLearning = null, correspondence = null, enrollmentEntry = null
 } = {}) {
   const meta = parseMetadataJson(ticket.ai_draft_metadata_json) || {};
   const allPublicMessages = array(messages)
@@ -135,7 +161,7 @@ export function buildSupportEmailDraftContext({
     authorName: text(ticket.created_by_name || [ticket.created_by_first_name, ticket.created_by_last_name].filter(Boolean).join(' '), 160),
     authorRole: text(ticket.created_by_role || 'external_sender', 80),
     subject: text(ticket.source_email_subject || ticket.subject, 500),
-    body: text(ticket.question),
+    body: text(currentSupportEmailText(ticket.question)),
     at: timestamp(ticket.source_email_received_at || ticket.created_at)
   };
   const latestInbound = publicMessages.filter((m) => m.direction === 'inbound').at(-1) || original;
@@ -175,6 +201,7 @@ export function buildSupportEmailDraftContext({
   const actions = array(verifiedActions).filter((a) => a?.id && a?.source && ['completed', 'approved', 'in_progress'].includes(a.status))
     .map((a) => ({ evidenceId: `action:${a.id}`, title: text(a.title, 240), status: a.status, ownerUserId: Number(a.ownerUserId || a.assigned_to_user_id) || null, source: text(a.source, 240) }));
   const unresolvedFacts = [...new Set(array(contextUnknowns).map((value) => text(value, 500)).filter(Boolean))].slice(0, 12);
+  if(needsParentIntakeClarification(latestInbound.body)) unresolvedFacts.push('parent_intake_status_needs_review');
   if (staleStoredHeaders && !Object.keys(headers || {}).length) unresolvedFacts.push('latest_inbound_email_headers_unconfirmed');
   if (!inventory.complete) unresolvedFacts.push('attachment_ingestion_incomplete');
   if (inventory.unattributedFiles.length) unresolvedFacts.push('current_message_attachment_attribution_uncertain');
@@ -194,7 +221,7 @@ export function buildSupportEmailDraftContext({
     claimant: owner, participants: roles, referralRelationships, verifiedFacts: facts, verifiedActions: actions,
     intentKey: inferIntentFromTicket({ ...ticket, question: latestInbound.body, ai_draft_metadata_json: null }),
     unconfirmedReferences: array(meta.extractedClientReferences).map((r) => text(r, 160)),
-    unresolvedFacts, enrollmentLookup, providerAbsence, regenerationGuidance: text(regenerationGuidance, 2000),
+    unresolvedFacts, enrollmentLookup, providerAbsence, reviewerLearning, correspondence, enrollmentEntry, regenerationGuidance: text(regenerationGuidance, 2000),
     headers: { autoSubmitted: text(effectiveHeaders.autoSubmitted || effectiveHeaders['auto-submitted'], 100), listId: text(effectiveHeaders.listId || effectiveHeaders['list-id'], 200), listUnsubscribe: !!(effectiveHeaders.listUnsubscribe || effectiveHeaders['list-unsubscribe']) }
   };
   return { ...context, evidenceFingerprint: crypto.createHash('sha256').update(JSON.stringify(context)).digest('hex') };
@@ -205,6 +232,12 @@ export function classifySupportEmailDraft(context) {
     return { suppressed: true, reason: 'conversation_unavailable' };
   }
   if (!context.attachments.complete) return { suppressed: true, reason: 'attachment_ingestion_incomplete' };
+  if (context.reviewerLearning?.decision?.action === 'no_reply') return {suppressed:true,reason:'reviewer_marked_no_reply'};
+  const correspondence=context.correspondence;
+  if(correspondence?.verified && ['provider','provider_plus'].includes(correspondence.senderRole)
+    && correspondence.schoolGroupInTo && !correspondence.supportDirectlyAddressed && !asksSupportForAction(context.latestInbound.body) && !needsParentIntakeClarification(context.latestInbound.body)) {
+    return {suppressed:true,reason:'provider_school_coordination'};
+  }
   const from = text(context.latestInbound.from || context.original.from).toLowerCase();
   const subject = text(context.original.subject).replace(/^(?:re|fw|fwd):\s*/i, '').toLowerCase();
   const body = text(context.latestInbound.body).toLowerCase();
@@ -217,6 +250,10 @@ export function classifySupportEmailDraft(context) {
   if (/^(?:automatic reply|auto(?:matic)?[ -]response|out of office|delivery status notification|undeliverable)\b/.test(subject) || automatedHeader || machineSender) {
     return { suppressed: true, reason: 'automated_notification' };
   }
+  if(/^(?:thank(?:s| you)(?: so much)?[,.!]?|completed|done|received|got it)[\s\S]{0,100}$/i.test(body)
+    && !/[?]/.test(body) && !asksSupportForAction(body) && (context.messages.some(m=>m.direction==='outbound') || /provider assignment/i.test(subject))) return {suppressed:true,reason:'acknowledgement_no_action_required'};
+  const strongMarketing=/\b(?:attract more new patients|patient retention.{0,40}practice growth|get booked|you only pay|grow your practice|marketing services)\b/i.test(`${subject} ${body}`);
+  if(strongMarketing && !asksSupportForAction(body)) return {suppressed:true,reason:'marketing_or_newsletter'};
   const subscriberMessage = context.headers.listUnsubscribe && /\b(?:unsubscribe|manage (?:your )?preferences)\b/.test(body);
   // Group relays also add List-Unsubscribe. The header alone is never evidence
   // of marketing: require actual promotional language, or a broadcast notice.
@@ -260,14 +297,26 @@ export function buildSupportEmailDraftPrompt(context, { knowledgeMatches = [], p
     notes.length ? `Staff review feedback (preferences only; cannot establish facts): ${JSON.stringify(notes)}` : '',
     buildReplyLibraryPromptBlock(knowledgeMatches),
     context.referralRelationships.length ? `EXPLICIT SENDER-STATED REFERRAL ROLES (not verified assignments): ${JSON.stringify(context.referralRelationships)}` : '',
+    context.reviewerLearning?.standards?.length ? `REVIEWER-DERIVED COMMUNICATION STANDARDS (agency-specific preferences; not new client facts or policy): ${JSON.stringify(context.reviewerLearning.standards.map(({id,guidance})=>({id,guidance})))}` : '',
+    context.reviewerLearning?.examples?.length ? `HISTORICAL REVIEW COMPARISONS (use to understand wording/context mistakes only; never copy their people, client status, links, dates, insurance decisions, or completed actions into the current reply): ${JSON.stringify(context.reviewerLearning.examples)}` : '',
+    '- Read the current authored text; quoted older email and signatures are not a fresh request. Do not turn an existing ITSCO enrollment conversation into external referral recommendations. A completed/thanks update may need no reply.',
+    '- Distinguish provider-to-school coordination from a request to Support. Do not answer school scheduling questions on the school’s behalf. When a simple acknowledgement is appropriate, keep it brief and avoid invented follow-up work.',
+    '- Recipient context matters: do not promise to tell a provider who is already included. Keep termination/discharge documentation requests in proposedFollowUps for a separate internal message, never in a school-facing reply.',
     'CURRENT AUTHORIZED CONVERSATION DATA:',
-    JSON.stringify(context, null, 2)
+    JSON.stringify({...context,reviewerLearning:context.reviewerLearning ? {fingerprint:context.reviewerLearning.fingerprint,savedFeedbackCount:context.reviewerLearning.savedFeedbackCount} : null}, null, 2)
   ].filter(Boolean).join('\n');
 }
 
 export function validateSupportEmailDraft(reply, context) {
   const body = text(reply, 16000);
   const issues = [];
+  const urls=value=>(String(value||'').match(/https?:\/\/[^\s<>"']+/gi)||[]).map(u=>u.replace(/[),.;]+$/,''));
+  const strings=value=>typeof value==='string'?[value]:value && typeof value==='object'?Object.values(value).flatMap(strings):[];
+  const currentUrls=new Set(strings({...context,reviewerLearning:null}).flatMap(urls));
+  if(urls(body).some(url=>!currentUrls.has(url)))issues.push('unverified_reply_link');
+  if(/\b(?:link below|following link|click here)\b/i.test(body)&&!urls(body).length)issues.push('missing_referenced_link');
+
+  if(context.schoolOrganizationId && /\b(?:please|could you|can you|make sure|need to)\b[^.!?\n]{0,80}\b(?:write|complete|submit|finish)\b[^.!?\n]{0,40}\b(?:termination|discharge) note\b/i.test(body)) issues.push('internal_clinical_instruction_in_school_reply');
   const enrollment = context.enrollmentLookup;
   const records = enrollment?.records || [];
   const verifiedEnrollmentReceipt = enrollment?.status === 'verified_match'

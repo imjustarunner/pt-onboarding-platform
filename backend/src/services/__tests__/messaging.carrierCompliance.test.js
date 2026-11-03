@@ -95,3 +95,10 @@ describe('live read-only checks', () => {
     await expect(listVonage10dlc('/brands', 'brands')).rejects.toThrow('incomplete');
   });
 });
+it.each(['ITSCO','NextLevelUp','InnerStrength'])('signs a care reply with its actual organization: %s',brand=>{
+ expect(formatRegisteredSms('Michael: See you then.',brand,'Michael',{includeOptOut:false})).toBe(`See you then.\n— Michael with ${brand}`);
+});
+it('omits the SMS footer only when explicitly requested by a conversation path',()=>{
+ expect(formatRegisteredSms('A conversation reply','ITSCO',null,{includeOptOut:false})).toBe('ITSCO: A conversation reply');
+ expect(formatRegisteredSms('A notification','ITSCO')).toContain('Reply STOP to opt out.');
+});
