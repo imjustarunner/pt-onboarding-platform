@@ -1,5 +1,18 @@
 /** Spanish display copy for office enrollment steps; stored answers and consent choices are unchanged. */
 export const OFFICE_ENROLLMENT_UI_ES = {
+  "Friends and getting along with others": "Amistades y relaciones con otras personas",
+  "Mother": "Madre",
+  "Father": "Padre",
+  "Parent/guardian": "Madre, padre o tutor",
+  "Please choose insurance or self-pay.": "Elija seguro o pago particular.",
+  "Please choose a payment method option.": "Elija una opción de método de pago.",
+  "All optional account updates (no marketing)": "Todas las actualizaciones opcionales de la cuenta (sin publicidad)",
+  "By typing my name and continuing, I electronically sign these choices. If I request texts, I control the listed phone and am the recipient or their authorized guardian. I can decline texts and still receive services.": "Al escribir mi nombre y continuar, firmo electrónicamente estas opciones. Si solicito mensajes de texto, controlo el teléfono indicado y soy la persona destinataria o su tutor autorizado. Puedo rechazar los mensajes de texto y seguir recibiendo servicios.",
+  "and, when applicable, your provider/care team (for example,": "y, cuando corresponda, de su proveedor o equipo de atención (por ejemplo,",
+  "Optionally choose up to three preferred providers, or skip and let our team help. Selecting a provider does not guarantee placement. Our support team or a care coordinator will contact you to coordinate care and confirm fit and availability.": "Si lo desea, elija hasta tres profesionales preferidos, o deje que nuestro equipo le ayude. Seleccionar un profesional no garantiza la asignación. Nuestro equipo de apoyo o un coordinador de atención se comunicará con usted para coordinar los servicios y confirmar que sean adecuados y que haya disponibilidad.",
+  "We'll ask the same questions about this dependent separately so each person has their own intake and care record.": "Haremos las mismas preguntas sobre este dependiente por separado para que cada persona tenga su propio formulario de admisión y expediente de atención.",
+  "If your household carries secondary (supplemental) insurance in addition to the primary plan above, please add it using the option below or contact us promptly with complete policy information. Failure to provide complete and accurate coverage details—including applicable secondary insurance when it exists—may delay authorizations or benefit verification and could result in interruptions or delays in services.": "Si su hogar tiene un seguro secundario (complementario) además del plan principal indicado arriba, agréguelo mediante la opción siguiente o comuníquese con nosotros pronto con los datos completos de la póliza. No proporcionar datos completos y precisos de la cobertura, incluido el seguro secundario cuando exista, puede retrasar las autorizaciones o la verificación de beneficios y causar interrupciones o demoras en los servicios.",
+
   "Payment Information": "Información de pago",
   "Insurance & Payment Information": "Información de seguro y pago",
   "Set up payment for your selected package or services.": "Configure el pago del paquete o los servicios que seleccionó.",

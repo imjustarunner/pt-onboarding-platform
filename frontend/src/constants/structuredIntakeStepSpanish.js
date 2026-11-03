@@ -393,18 +393,30 @@ export const STRUCTURED_INTAKE_STEP_ES = {
     'Soy padre, madre o tutor y lo envío para mi(s) hijo(s)'
 };
 
+// Translate only the known application-authored disclosures. Keep custom agency text intact.
+const BRANDED_DISCLOSURES_ES = [
+  [' offers optional account emails about appointments, school sessions when applicable, schedule changes, secure-message alerts, forms and signatures, enrollment follow-ups, billing and required insurance cards. Medicaid cards are not requested. Choose all optional account emails, scheduling only, or essential messages only. This choice does not include marketing, enroll another adult, or affect your care. Requested login, password recovery and essential security messages are separate.',
+   ' ofrece correos opcionales de la cuenta sobre citas, sesiones escolares cuando corresponda, cambios de horario, alertas de mensajes seguros, formularios y firmas, seguimiento de inscripción, facturación y tarjetas de seguro requeridas. No se solicitan tarjetas de Medicaid. Elija todos los correos opcionales de la cuenta, solo programación o solo mensajes esenciales. Esta elección no incluye publicidad, no inscribe a otro adulto ni afecta su atención. Los mensajes solicitados de acceso, recuperación de contraseña y seguridad esencial se gestionan por separado.'],
+  [' offers optional text messages for appointment reminders, schedule changes, cancellations and links to sign in or join a scheduled session. Choose Yes or No below. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Choosing No does not affect care, enrollment or school services. This choice does not authorize marketing or enroll other contacts. Texts may appear on a shared phone or lock screen; use the secure app for private details.',
+   ' ofrece mensajes de texto opcionales con recordatorios de citas, cambios de horario, cancelaciones y enlaces para iniciar sesión o participar en una sesión programada. Elija Sí o No a continuación. La frecuencia de los mensajes varía. Pueden aplicarse tarifas de mensajes y datos. Responda STOP para cancelar o HELP para obtener ayuda. Elegir No no afecta la atención, la inscripción ni los servicios escolares. Esta elección no autoriza publicidad ni inscribe a otros contactos. Los mensajes pueden aparecer en un teléfono compartido o en la pantalla de bloqueo; use la aplicación segura para los detalles privados.']
+];
+function translatedBrandedDisclosure(text) {
+  const match = BRANDED_DISCLOSURES_ES.find(([suffix]) => text.endsWith(suffix) && text.length > suffix.length);
+  return match ? text.slice(0, -match[0].length) + match[1] : undefined;
+}
+
 const CURATED_INTAKE_ES = { ...OFFICE_INTAKE_ES, ...OFFICE_ENROLLMENT_UI_ES, ...STRUCTURED_INTAKE_STEP_ES, ...OFFICE_SCREEN_ES };
 const normalizedCopyKey = text => String(text || '').trim().replace(/\s+/g, ' ').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').toLowerCase();
 const NORMALIZED_INTAKE_ES = new Map(Object.entries(CURATED_INTAKE_ES).map(([key, value]) => [normalizedCopyKey(key), value]));
 
 export function hasStructuredIntakeTranslation(text) {
-  return NORMALIZED_INTAKE_ES.has(normalizedCopyKey(text));
+  return NORMALIZED_INTAKE_ES.has(normalizedCopyKey(text)) || !!translatedBrandedDisclosure(String(text || ''));
 }
 
 export function lookupStructuredIntakeTranslation(en, apiMap = {}) {
   const key = String(en || '');
   if (!key) return key;
-  return CURATED_INTAKE_ES[key] || NORMALIZED_INTAKE_ES.get(normalizedCopyKey(key)) || apiMap[key] || key;
+  return CURATED_INTAKE_ES[key] || NORMALIZED_INTAKE_ES.get(normalizedCopyKey(key)) || translatedBrandedDisclosure(key) || apiMap[key] || key;
 }
 
 export function txFmtStructuredIntake(template, vars = {}, apiMap = {}, locale = 'en') {

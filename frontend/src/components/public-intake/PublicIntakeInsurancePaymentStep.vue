@@ -2,7 +2,7 @@
   <div class="pi-ip" :class="{ 'pi-ip--with-sidebar': showSidebar }">
     <div class="pi-ip-main">
       <header class="pi-ip-header">
-        <h2 class="pi-ip-title">
+        <h2 v-if="!hideHeading" class="pi-ip-title">
           {{ paymentOnly ? tx('Payment Information') : tx('Insurance & Payment Information') }}
         </h2>
         <p class="pi-ip-subtitle">
@@ -32,8 +32,8 @@
           <button
             type="button"
             class="pi-ip-choice"
-            :class="{ 'pi-ip-choice--active': !isSelfPay }"
-            :aria-pressed="!isSelfPay"
+            :class="{ 'pi-ip-choice--active': payerChoice === 'insurance' }"
+            :aria-pressed="payerChoice === 'insurance'"
             @click="setSelfPay(false)"
           >
             <span class="pi-ip-choice-radio" aria-hidden="true" />
@@ -60,7 +60,7 @@
       </section>
 
       <!-- Existing insurance UI (hidden for payment-only / collapsed when self-pay handled inside child) -->
-      <section v-if="!paymentOnly && !insuranceOnFile" class="pi-ip-section pi-ip-section--insurance">
+      <section v-if="!paymentOnly && !insuranceOnFile && payerChoice" class="pi-ip-section pi-ip-section--insurance">
         <PublicIntakeInsuranceStep
           ref="insuranceRef"
           :model-value="insuranceInfo"
@@ -156,7 +156,7 @@
         <p v-else-if="paymentChoice === 'later'" class="pi-ip-hint">
           {{ tx('Add a payment method in your portal before paid services begin.') }}
         </p>
-        <p v-else class="pi-ip-hint">
+        <p v-else-if="paymentChoice === 'na'" class="pi-ip-hint">
           {{ tx('No card will be saved now. Our office may contact you about payment arrangements.') }}
         </p>
       </section>
@@ -172,7 +172,7 @@
         <p class="pi-ip-section-lead">{{ tx('By checking the box below, I certify that:') }}</p>
         <ul class="pi-ip-auth-list">
           <li>{{ tx('The information I provided is accurate and complete to the best of my knowledge.') }}</li>
-          <li v-if="!paymentOnly && !insuranceOnFile && !isSelfPay">
+          <li v-if="!paymentOnly && !insuranceOnFile && payerChoice === 'insurance'">
             {{ tx('I authorize this organization to release information necessary to verify benefits and bill my insurance.') }}
           </li>
           <li v-if="!isMedicaid">{{ tx('I understand the office will explain any patient responsibility and applicable payment terms before collecting payment.') }}</li>
@@ -186,7 +186,7 @@
             <span class="req">*</span>
           </span>
         </label>
-        <p v-if="authError" class="pi-ip-error">{{ authError }}</p>
+        <p v-if="authError" class="pi-ip-error">{{ tx(authError) }}</p>
 
         <div class="pi-ip-sign">
           <label class="pi-ip-lbl">{{ tx('Signature') }} <span class="req">*</span></label>
@@ -225,7 +225,7 @@
           <span>{{ tx('Package fee') }}</span>
           <strong>{{ formatPrice(selectedPackage.priceCents) }}</strong>
         </div>
-        <div v-if="!paymentOnly && !insuranceOnFile && !isSelfPay" class="pi-ip-side-row">
+        <div v-if="!paymentOnly && !insuranceOnFile && payerChoice === 'insurance'" class="pi-ip-side-row">
           <span>{{ tx('Est. insurance coverage') }}</span>
           <strong>{{ isMedicaid ? tx('Medicaid') : tx('Pending') }}</strong>
         </div>
@@ -266,6 +266,7 @@ const props = defineProps({
   paymentInfo: { type: Object, default: () => ({}) },
   stepConfig: { type: Object, default: () => ({}) },
   selectedPackage: { type: Object, default: null },
+  hideHeading: { type: Boolean, default: false },
   paymentOnly: { type: Boolean, default: false },
   insuranceOnFile: { type: Boolean, default: false },
   paymentCollectionAvailable: { type: Boolean, default: true },
@@ -303,9 +304,7 @@ const authAgreed = ref(!!props.insuranceInfo?.authorizationAgreed);
 const authSignature = ref(props.insuranceInfo?.authorizationSignature || '');
 const authSignatureData = ref(props.insuranceInfo?.authorizationSignatureData || '');
 const authError = ref('');
-const paymentChoice = ref(
-  props.stepConfig.paymentRequired === false ? (props.paymentInfo?.paymentChoice || 'add_card') : 'add_card'
-);
+const paymentChoice = ref(props.paymentInfo?.paymentChoice || '');
 
 const isSelfPay = computed(() => {
   if (props.paymentOnly) return true;
@@ -314,6 +313,13 @@ const isSelfPay = computed(() => {
     || String(props.insuranceInfo?.primary?.insurerName || '').trim().toLowerCase().includes('self-pay')
     || String(props.insuranceInfo?.primary?.insurerName || '').trim().toLowerCase() === 'self pay'
   );
+});
+
+// A legacy false isSelfPay value is not evidence that insurance was chosen.
+const payerChoice = computed(() => {
+  if (props.paymentOnly || isSelfPay.value) return 'self_pay';
+  if (['insurance', 'self_pay'].includes(props.insuranceInfo?.payerChoice)) return props.insuranceInfo.payerChoice;
+  return String(props.insuranceInfo?.primary?.insurerName || '').trim() ? 'insurance' : '';
 });
 
 const isMedicaid = computed(() => {
@@ -366,13 +372,14 @@ function patchInsurance(patch) {
 
 function setSelfPay(next) {
   // Preserve declared coverage when changing payment preferences.
-  patchInsurance({ isSelfPay: next });
+  patchInsurance({ isSelfPay: next, payerChoice: next ? 'self_pay' : 'insurance' });
 }
 
 function onInsuranceUpdate(v) {
   emit('update:insuranceInfo', {
     ...v,
     isSelfPay: isSelfPay.value,
+    payerChoice: payerChoice.value,
     authorizationAgreed: authAgreed.value,
     authorizationSignature: authSignature.value,
     authorizationSignatureData: authSignatureData.value || v?.authorizationSignatureData || ''
@@ -419,14 +426,22 @@ watch([authAgreed, authSignature], () => {
 
 function validateAuthorization() {
   authError.value = '';
+  if (!props.paymentOnly && !props.insuranceOnFile && !payerChoice.value) {
+    authError.value = 'Please choose insurance or self-pay.';
+    return false;
+  }
+  if (showPaymentSection.value && !paymentChoice.value) {
+    authError.value = 'Please choose a payment method option.';
+    return false;
+  }
   if (!authAgreed.value) {
-    authError.value = tx('Please agree to the authorization statements to continue.');
+    authError.value = 'Please agree to the authorization statements to continue.';
     return false;
   }
   const typed = String(authSignature.value || '').trim();
   const drawn = String(authSignatureData.value || props.insuranceInfo?.authorizationSignatureData || '').trim();
   if (typed.length < 2 && drawn.length < 50) {
-    authError.value = tx('Please type your full name as a signature.');
+    authError.value = 'Please type your full name as a signature.';
     return false;
   }
   return true;
@@ -442,6 +457,7 @@ defineExpose({
   getInsuranceEntryState: () => ({
     ...(insuranceRef.value?.getInsuranceEntryState?.() || {}),
     isSelfPay: isSelfPay.value,
+    payerChoice: payerChoice.value,
     paymentChoice: paymentChoice.value,
     authorizationAgreed: authAgreed.value
   })

@@ -27,13 +27,13 @@ const clock = time => {
   const [hour, minute] = time.split(':').map(Number);
   return `${hour % 12 || 12}:${String(minute).padStart(2, '0')} ${hour < 12 ? 'AM' : 'PM'}`;
 };
-export function exchangeScheduleLines(schedule) {
+export function exchangeScheduleLines(schedule, tx = text => text) {
   if (!schedule) return [];
   const lines = [];
-  if (schedule.days?.length) lines.push(`Days: ${schedule.days.join(', ')}`);
-  if (schedule.periods?.length) lines.push(`Preferred times: ${schedule.periods.map(period => schedulePeriods[period] || period).join(', ')}`);
-  for (const window of schedule.windows || []) lines.push(`${window.day || (schedule.days?.length ? schedule.days.join(', ') : 'Any day')}: ${clock(window.start)}${window.end ? `–${clock(window.end)}` : ' (specific start time)'}`);
-  if (schedule.timezone && lines.length) lines.push(`Time zone: ${schedule.timezone}`);
+  if (schedule.days?.length) lines.push(`${tx('Days')}: ${schedule.days.map(tx).join(', ')}`);
+  if (schedule.periods?.length) lines.push(`${tx('Preferred times')}: ${schedule.periods.map(period => tx(schedulePeriods[period] || period)).join(', ')}`);
+  for (const window of schedule.windows || []) lines.push(`${window.day ? tx(window.day) : (schedule.days?.length ? schedule.days.map(tx).join(', ') : tx('Any day'))}: ${clock(window.start)}${window.end ? `–${clock(window.end)}` : ` (${tx('specific start time')})`}`);
+  if (schedule.timezone && lines.length) lines.push(`${tx('Time zone')}: ${schedule.timezone}`);
   if (schedule.notes) lines.push(schedule.notes);
   return lines;
 }

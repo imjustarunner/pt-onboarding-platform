@@ -10,7 +10,8 @@ export default defineConfig({
       'src/views/public/__tests__/{JoinEnrollmentExperience,ProviderEnrollmentEntry}.test.js',
       'src/constants/__tests__/{officeIntakeSpanish,structuredIntakeStepSpanish}.test.js',
       'src/utils/__tests__/{officeAdultConsent,officeIntakeNavigation,officeQuestionnaireRecommend}.test.js',
-      'src/components/public-intake/__tests__/OfficeSpanishDisplay.test.js',
+      'src/components/public-intake/__tests__/{OfficeSpanishDisplay,InsurancePaymentEnrollment}.test.js',
+      'src/components/adaptive-intake/__tests__/AdaptiveIntakeThankYou.test.js',
       'src/components/public/__tests__/{PacketSectionConsentFlow,SmartDisclosureFlow}.test.js',
       'src/components/digital-form/__tests__/IntakeQuestionOptional.test.js'
     ]

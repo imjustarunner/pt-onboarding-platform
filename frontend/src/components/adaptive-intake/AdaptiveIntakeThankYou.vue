@@ -14,26 +14,14 @@
           <dt> {{ enrollmentTx("Email") }} </dt>
           <dd>{{ portalAccess.email }}</dd>
         </div>
-        <div v-if="portalPassword">
-          <dt> {{ enrollmentTx("Password") }} </dt>
-          <dd class="ai-portal-password">
-            <code>{{ portalPassword }}</code>
-            <button type="button" class="ai-link-btn" @click="copyPassword">
-              {{ enrollmentTx(passwordCopied ? 'Copied' : 'Copy') }}
-            </button>
-          </dd>
-        </div>
-        <div v-else>
-          <dt> {{ enrollmentTx("Password") }} </dt>
-          <dd> {{ enrollmentTx("Use the password you already have for this email.") }} </dd>
-        </div>
       </dl>
+      <p>{{ enrollmentTx("Use your existing password to sign in, or request a private email link to set up your password.") }}</p>
       <a class="df-btn df-btn-primary" :href="portalHref"> {{ enrollmentTx("Sign in") }} </a>
       <button type="button" class="df-btn df-btn-secondary" :disabled="loginEmailing" @click="emailLoginDetails">
-        {{ enrollmentTx(loginEmailing ? 'Sending…' : 'Email these login details') }}
+        {{ enrollmentTx(loginEmailing ? 'Sending…' : 'Email me a sign-in or setup link') }}
       </button>
       <button type="button" class="df-btn df-btn-secondary" @click="portalDismissed = true"> {{ enrollmentTx("I'll do this later") }} </button>
-      <p v-if="loginEmailStatus" class="ai-email-copy-status">{{ loginEmailStatus }}</p>
+      <p v-if="loginEmailStatus" class="ai-email-copy-status">{{ enrollmentTx(loginEmailStatus) }}</p>
     </section>
 
     <section v-if="coGuardianInvite" class="ai-portal-card">
@@ -64,7 +52,7 @@
       <section class="ai-receipt-section">
         <h3> {{ enrollmentTx("About you") }} </h3>
         <dl class="ai-receipt-dl">
-          <div v-for="row in aboutRows" :key="row.label">
+          <div v-for="row in aboutRows" :key="`${row.label}:${row.value}`">
             <dt>{{ enrollmentTx(row.label) }}</dt>
             <dd>{{ row.value }}</dd>
           </div>
@@ -74,7 +62,7 @@
       <section v-if="preferenceRows.length" class="ai-receipt-section">
         <h3> {{ enrollmentTx("Preferences") }} </h3>
         <dl class="ai-receipt-dl">
-          <div v-for="row in preferenceRows" :key="row.label">
+          <div v-for="row in preferenceRows" :key="`${row.label}:${row.value}`">
             <dt>{{ enrollmentTx(row.label) }}</dt>
             <dd>{{ row.value }}</dd>
           </div>
@@ -84,7 +72,7 @@
       <section v-if="notesRows.length" class="ai-receipt-section">
         <h3> {{ enrollmentTx("What you shared") }} </h3>
         <dl class="ai-receipt-dl ai-receipt-dl--stack">
-          <div v-for="row in notesRows" :key="row.label">
+          <div v-for="row in notesRows" :key="`${row.label}:${row.value}`">
             <dt>{{ enrollmentTx(row.label) }}</dt>
             <dd>{{ row.value }}</dd>
           </div>
@@ -94,7 +82,7 @@
       <section v-if="acknowledgments.length" class="ai-receipt-acks">
         <h3> {{ enrollmentTx("You acknowledged") }} </h3>
         <ul>
-          <li v-for="(line, i) in acknowledgments" :key="i">{{ line }}</li>
+          <li v-for="(line, i) in acknowledgments" :key="i">{{ enrollmentTx(line) }}</li>
         </ul>
       </section>
 
@@ -110,23 +98,23 @@
         :disabled="pdfDownloading"
         @click="downloadBrandedPdf"
       >
-        {{ pdfDownloading ? 'Preparing PDF…' : (packetClients.length > 1 ? 'Download packets' : 'Download PDF') }}
+        {{ enrollmentTx(pdfDownloading ? 'Preparing PDF…' : (packetClients.length > 1 ? 'Download packets' : 'Download PDF')) }}
       </button>
       <div class="ai-email-copy">
-        <input v-model="copyEmail" type="email" placeholder="Send a copy to another email" />
+        <input v-model="copyEmail" type="email" :placeholder="enrollmentTx('Send a copy to another email')" />
         <button type="button" class="df-btn df-btn-secondary" :disabled="emailSending || !copyEmail" @click="emailBrandedPdf">
-          {{ emailSending ? 'Sending…' : 'Email PDF' }}
+          {{ enrollmentTx(emailSending ? 'Sending…' : 'Email PDF') }}
         </button>
       </div>
-      <p v-if="emailStatus" class="ai-email-copy-status">{{ emailStatus }}</p>
+      <p v-if="emailStatus" class="ai-email-copy-status">{{ enrollmentTx(emailStatus) }}</p>
     </div>
-    <p v-if="pdfError" class="ai-thankyou-download-error">{{ pdfError }}</p>
+    <p v-if="pdfError" class="ai-thankyou-download-error">{{ enrollmentTx(pdfError) }}</p>
 
     <div class="ai-thankyou-grid">
       <div v-for="item in highlights" :key="item.title" class="ai-thankyou-card">
         <div class="ai-thankyou-card-icon" aria-hidden="true">{{ item.icon }}</div>
-        <strong>{{ item.title }}</strong>
-        <p>{{ item.body }}</p>
+        <strong>{{ enrollmentTx(item.title) }}</strong>
+        <p>{{ enrollmentTx(item.body) }}</p>
       </div>
     </div>
 
@@ -134,8 +122,8 @@
       <h2> {{ enrollmentTx("What happens next?") }} </h2>
       <ol class="ai-thankyou-timeline">
         <li v-for="step in nextSteps" :key="step.title">
-          <strong>{{ step.title }}</strong>
-          <span>{{ step.body }}</span>
+          <strong>{{ enrollmentTx(step.title) }}</strong>
+          <span>{{ enrollmentTx(step.body) }}</span>
         </li>
       </ol>
     </section>
@@ -148,16 +136,16 @@
         <a v-if="supportEmail" :href="`mailto:${supportEmail}`">{{ supportEmail }}</a>
       </div>
       <form class="ai-thankyou-form" @submit.prevent="submitSupport">
-        <DigitalFormField v-model="supportForm.name" label="Your name" required />
-        <DigitalFormField v-model="supportForm.email" type="email" label="Email" required />
+        <DigitalFormField v-model="supportForm.name" :label="enrollmentTx('Your name')" required />
+        <DigitalFormField v-model="supportForm.email" type="email" :label="enrollmentTx('Email')" required />
         <DigitalFormField
           v-model="supportForm.message"
           type="textarea"
-          label="How can we help?"
+          :label="enrollmentTx('How can we help?')"
           :rows="4"
           required
         />
-        <div v-if="supportError" class="df-banner df-banner--warn">{{ supportError }}</div>
+        <div v-if="supportError" class="df-banner df-banner--warn">{{ enrollmentTx(supportError) }}</div>
         <div v-if="supportSent" class="df-banner df-banner--success"> {{ enrollmentTx("Message sent. Our team will follow up soon.") }} </div>
         <button type="submit" class="df-btn df-btn-primary" :disabled="supportSending">
           {{ enrollmentTx(supportSending ? 'Sending…' : 'Contact support') }}
@@ -168,13 +156,16 @@
 </template>
 
 <script setup>
-import { inject } from 'vue';
-const enrollmentTx = inject('enrollmentTranslate', text => text);
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, inject, reactive, ref, watch, unref } from 'vue';
+import { exchangeScheduleLines } from '../../utils/clientExchangeSchedule.js';
 import api from '../../services/api';
 import { DigitalFormField } from '../digital-form';
 import PhiDownloadNotice from './PhiDownloadNotice.vue';
 import { buildPublicPortalLoginUrl } from '../../utils/publicPortalUrl.js';
+
+const enrollmentTx = inject('enrollmentTranslate', text => text);
+const enrollmentLocale = inject('enrollmentLocale', 'en');
+const displayLocale = computed(() => String(unref(enrollmentLocale)).startsWith('es') ? 'es-US' : 'en-US');
 
 const props = defineProps({
   agencySlug: { type: String, required: true },
@@ -201,7 +192,7 @@ const loginEmailStatus = ref('');
 const copyEmail = ref('');
 const emailSending = ref(false);
 const emailStatus = ref('');
-const passwordCopied = ref(false);
+
 
 const referenceCode = computed(() => props.confirmation?.identifierCode || '');
 const summary = computed(() => props.confirmation?.summary || {});
@@ -218,9 +209,6 @@ const packetClients = computed(() => {
 });
 const portalAccess = computed(() => props.confirmation?.portalAccess || props.confirmation?.temporaryAccess || null);
 const coGuardianInvite = computed(() => props.confirmation?.coGuardianInvite || null);
-const portalPassword = computed(() =>
-  String(portalAccess.value?.password || portalAccess.value?.temporaryPassword || '').trim()
-);
 const portalHref = computed(() => {
   const fromAccess = String(
     portalAccess.value?.portalLoginUrl
@@ -254,10 +242,10 @@ const supportPhoneTel = computed(() => {
 
 const submittedLabel = computed(() => {
   const raw = props.confirmation?.submittedAt;
-  if (!raw) return 'just now';
+  if (!raw) return enrollmentTx('just now');
   const date = new Date(raw);
   if (Number.isNaN(date.getTime())) return String(raw);
-  return date.toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' });
+  return date.toLocaleString(displayLocale.value, { dateStyle: 'long', timeStyle: 'short' });
 });
 
 const acknowledgments = computed(() =>
@@ -267,11 +255,11 @@ const acknowledgments = computed(() =>
 const aboutRows = computed(() => {
   const s = summary.value || {};
   return [
-    s.whoForLabel ? { label: 'This is for', value: s.whoForLabel } : null,
+    s.whoForLabel ? { label: 'This is for', value: enrollmentTx(s.whoForLabel) } : null,
     s.contactName ? { label: 'Contact', value: s.contactName } : null,
     s.contactEmail ? { label: 'Email', value: s.contactEmail } : null,
     s.contactPhone ? { label: 'Phone', value: formatPhone(s.contactPhone) } : null,
-    s.clientName && s.whoForLabel && s.whoForLabel !== 'Myself' ? { label: 'Dependent', value: s.clientName } : null,
+    s.clientName && ['child', 'legal'].includes(s.whoFor) ? { label: 'Dependent', value: s.clientName } : null,
     s.birthdate ? { label: 'Date of birth', value: formatDate(s.birthdate) } : null,
     s.homeAddress ? { label: 'Home address', value: s.homeAddress } : null
   ].filter(Boolean);
@@ -280,22 +268,24 @@ const aboutRows = computed(() => {
 const preferenceRows = computed(() => {
   const s = summary.value || {};
   return [
-    s.serviceType ? { label: 'Service', value: s.serviceType } : null,
-    s.preferredProvider ? { label: 'Provider', value: s.preferredProvider } : null,
+    ...exchangeScheduleLines(s.exchangeSchedule, enrollmentTx).map((value, i) => ({ label: i ? '' : 'Availability', value })),
+    s.preferredLocation ? { label: 'In-person service city', value: enrollmentTx(s.preferredLocation) } : null,
+    s.serviceType ? { label: 'Service', value: enrollmentTx(s.serviceType) } : null,
+    s.preferredProvider ? { label: 'Provider', value: enrollmentTx(s.preferredProvider) } : null,
     s.requestedOpeningSummary ? { label: 'Selected appointment time', value: s.requestedOpeningSummary } : null,
-    s.preferredModality ? { label: 'Preferred format', value: s.preferredModality } : null,
-    s.preferredTimeOfDay ? { label: 'Preferred time', value: s.preferredTimeOfDay } : null,
+    s.preferredModality ? { label: 'Preferred format', value: enrollmentTx(s.preferredModality) } : null,
+    s.preferredTimeOfDay ? { label: 'Preferred time', value: enrollmentTx(s.preferredTimeOfDay) } : null,
     Array.isArray(s.preferredDays) && s.preferredDays.length
-      ? { label: 'Preferred days', value: s.preferredDays.join(', ') }
+      ? { label: 'Preferred days', value: s.preferredDays.map(enrollmentTx).join(', ') }
       : null,
-    s.insuranceOrPayment ? { label: 'Insurance / payment', value: s.insuranceOrPayment } : null
+    s.insuranceOrPayment ? { label: 'Insurance / payment', value: enrollmentTx(s.insuranceOrPayment) } : null
   ].filter(Boolean);
 });
 
 const notesRows = computed(() => {
   const s = summary.value || {};
   return [
-    Array.isArray(s.concerns) && s.concerns.length ? { label: 'Interests', value: s.concerns.join(', ') } : null,
+    Array.isArray(s.concerns) && s.concerns.length ? { label: 'Interests', value: s.concerns.map(enrollmentTx).join(', ') } : null,
     s.accomplishGoal ? { label: 'Goals', value: s.accomplishGoal } : null,
     s.notes ? { label: 'Additional notes', value: s.notes } : null
   ].filter(Boolean);
@@ -355,31 +345,17 @@ function formatDate(value) {
   if (!raw) return '';
   const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00` : raw);
   if (Number.isNaN(parsed.getTime())) return raw;
-  return parsed.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
-}
-
-async function copyPassword() {
-  if (!portalPassword.value) return;
-  try {
-    await navigator.clipboard.writeText(portalPassword.value);
-    passwordCopied.value = true;
-    setTimeout(() => { passwordCopied.value = false; }, 2000);
-  } catch {
-    passwordCopied.value = false;
-  }
+  return parsed.toLocaleDateString(displayLocale.value, { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
 async function emailLoginDetails() {
   loginEmailStatus.value = '';
   loginEmailing.value = true;
   try {
-    await api.post(`/public/adaptive-intake/${encodeURIComponent(props.agencySlug)}/portal-login-email`, {
-      email: portalAccess.value?.email,
-      username: portalAccess.value?.email,
-      temporaryPassword: portalPassword.value || null,
-      portalPath: portalHref.value
+    const { data } = await api.post(`/public/adaptive-intake/${encodeURIComponent(props.agencySlug)}/portal-login-email`, {
+      email: portalAccess.value?.email
     });
-    loginEmailStatus.value = 'Login details sent. Keep that email private.';
+    loginEmailStatus.value = data?.sent ? 'Check your email for your private sign-in or setup link.' : 'Your email request is queued. Please check your inbox shortly.';
   } catch (err) {
     loginEmailStatus.value = err?.response?.data?.error?.message || 'Unable to send login details.';
   } finally {

@@ -8,7 +8,7 @@
       <p class="lead">
         {{ tr(
           'Please review the disclosure below, including licensed provider information, business entity details, and your rights.',
-          'Revise la divulgacion a continuacion, incluida la informacion de proveedores con licencia, la entidad comercial y sus derechos.'
+          'Revise la divulgación a continuación, incluida la información de proveedores con licencia, la entidad comercial y sus derechos.'
         ) }}
       </p>
 
@@ -60,7 +60,7 @@
               {{ licenseLine(provider) }}
             </div>
             <div v-if="provider.education">
-              <span class="meta-label">{{ tr('Education', 'Educacion') }}:</span>
+              <span class="meta-label">{{ tr('Education', 'Educación') }}:</span>
               {{ provider.education }}
             </div>
             <div v-for="(sup, idx) in supervisorLines(provider)" :key="`${provider.id || provider.fullName}-sup-${idx}`">
@@ -90,14 +90,14 @@
         <span>
           {{ tr(
             'I acknowledge that I have reviewed this disclosure and the parties listed.',
-            'Reconozco que he revisado esta divulgacion y las partes listadas.'
+            'Reconozco que he revisado esta divulgación y las partes listadas.'
           ) }}
         </span>
       </label>
       </div>
 
       <div class="actions">
-        <button type="button" class="btn btn-secondary" @click="goBackOrEmit">{{ tr('Back', 'Atras') }}</button>
+        <button type="button" class="btn btn-secondary" @click="goBackOrEmit">{{ tr('Back', 'Atrás') }}</button>
         <button v-if="!hideIntroContinue || isEmbeddedMode" type="button" class="btn btn-primary" :disabled="isEmbeddedMode && !acknowledged" @click="goNext">
           {{ isEmbeddedMode ? tr('Continue to signature', 'Continuar a la firma') : tr('Continue', 'Continuar') }}
         </button>
@@ -111,7 +111,7 @@
       <p v-else>
         {{ tr(
           'I have read and understand this disclosure statement, including the credentials and regulatory status of the providers listed.',
-          'He leido y entiendo esta declaracion de divulgacion, incluidas las credenciales y el estado regulatorio de los proveedores listados.'
+          'He leído y entiendo esta declaración de divulgación, incluidas las credenciales y el estado regulatorio de los proveedores listados.'
         ) }}
       </p>
       <div v-if="!isEmbeddedMode" class="signer-fields">
@@ -133,12 +133,12 @@
         <span>
           {{ tr(
             'I acknowledge that I have reviewed this disclosure and the parties listed.',
-            'Reconozco que he revisado esta divulgacion y las partes listadas.'
+            'Reconozco que he revisado esta divulgación y las partes listadas.'
           ) }}
         </span>
       </label>
       <div class="actions">
-        <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atras') }}</button>
+        <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atrás') }}</button>
         <button type="button" class="btn btn-primary" :disabled="!canContinueFromAcknowledge" @click="goNext">
           {{ tr('Continue', 'Continuar') }}
         </button>
@@ -147,11 +147,11 @@
 
     <div v-else-if="stage === 'sign'" class="smart-disclosure-card">
       <div v-if="!isEmbeddedMode" class="progress-label">{{ tr('Step', 'Paso') }} {{ stepNumber }} {{ tr('of', 'de') }} {{ totalSteps }}</div>
-      <h3>{{ tr('Electronic signature', 'Firma electronica') }}</h3>
+      <h3>{{ tr('Electronic signature', 'Firma electrónica') }}</h3>
       <p>
         {{ tr(
           'Apply your saved signature to complete this disclosure, or draw a new one.',
-          'Aplique su firma guardada para completar esta divulgacion, o dibuje una nueva.'
+          'Aplique su firma guardada para completar esta divulgación, o dibuje una nueva.'
         ) }}
       </p>
 
@@ -200,7 +200,7 @@
       </template>
 
       <div class="actions">
-        <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atras') }}</button>
+        <button type="button" class="btn btn-secondary" @click="goBack">{{ tr('Back', 'Atrás') }}</button>
         <button
           type="button"
           class="btn btn-primary"
@@ -212,7 +212,7 @@
               ? tr('Submitting...', 'Enviando...')
               : (isEmbeddedMode
                 ? tr('Continue', 'Continuar')
-                : tr('Complete disclosure', 'Completar divulgacion'))
+                : tr('Complete disclosure', 'Completar divulgación'))
           }}
         </button>
       </div>
@@ -223,7 +223,7 @@
       <p>
         {{ tr(
           'The smart disclosure was signed successfully.',
-          'La divulgacion inteligente se firmo correctamente.'
+          'La divulgación inteligente se firmó correctamente.'
         ) }}
       </p>
       <div class="actions">
@@ -234,7 +234,7 @@
           target="_blank"
           rel="noopener"
         >
-          {{ tr('Download signed disclosure', 'Descargar divulgacion firmada') }}
+          {{ tr('Download signed disclosure', 'Descargar divulgación firmada') }}
         </a>
       </div>
     </div>
@@ -559,7 +559,7 @@ const goNext = () => {
     return;
   }
   if ((stage.value === 'acknowledge' || (isEmbeddedMode.value && stage.value === 'intro')) && !acknowledged.value) {
-    error.value = tr('Please acknowledge the disclosure to continue.', 'Reconozca la divulgacion para continuar.');
+    error.value = tr('Please acknowledge the disclosure to continue.', 'Reconozca la divulgación para continuar.');
     return;
   }
   if (stage.value === 'acknowledge' && !isEmbeddedMode.value && !canContinueFromAcknowledge.value) {
@@ -642,7 +642,7 @@ const submitDisclosure = async () => {
     return;
   }
   if (!acknowledged.value) {
-    error.value = tr('Please acknowledge the disclosure to continue.', 'Reconozca la divulgacion para continuar.');
+    error.value = tr('Please acknowledge the disclosure to continue.', 'Reconozca la divulgación para continuar.');
     return;
   }
   if (!isEmbeddedMode.value) {
@@ -652,7 +652,7 @@ const submitDisclosure = async () => {
     if (!firstName || !lastName || !email.includes('@')) {
       error.value = tr(
         'Please enter your name and email before completing the disclosure.',
-        'Ingrese su nombre y correo antes de completar la divulgacion.'
+        'Ingrese su nombre y correo antes de completar la divulgación.'
       );
       return;
     }
@@ -716,7 +716,7 @@ const submitDisclosure = async () => {
       );
     } else {
       error.value = err.response?.data?.error?.message
-        || tr('Failed to complete the smart disclosure.', 'No se pudo completar la divulgacion inteligente.');
+        || tr('Failed to complete the smart disclosure.', 'No se pudo completar la divulgación inteligente.');
     }
   } finally {
     submitting.value = false;

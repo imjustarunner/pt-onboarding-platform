@@ -158,3 +158,14 @@ it('rechecks the current host when it is replaced during initialization', async 
   expect(renderWidget).toHaveBeenCalledTimes(1);
   expect(wrapper.vm.captchaWidgetFailed).toBe(false);
 });
+
+it('translates an expired CAPTCHA error both ways without remounting the widget', async () => {
+  await render({ captcha: true });
+  callbacks[0]['expired-callback'](); await flushPromises();
+  expect(wrapper.text()).toContain('Complete the verification to continue.');
+  await wrapper.vm.switchLinkedLanguage('es'); await flushPromises();
+  expect(wrapper.get('.captcha-block .error').text()).toBe('Complete la verificación para continuar.');
+  await wrapper.vm.switchLinkedLanguage('en'); await flushPromises();
+  expect(wrapper.get('.captcha-block .error').text()).toBe('Complete the verification to continue.');
+  expect(renderWidget).toHaveBeenCalledTimes(1);
+});

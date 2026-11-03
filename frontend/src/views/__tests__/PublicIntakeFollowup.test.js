@@ -221,3 +221,66 @@ it('rechecks mandatory safety before final submission even when a later page is 
   expect(wrapper.vm.stepError).not.toBe('');
   expect(post.mock.calls.some(([url]) => /\/finalize/.test(url))).toBe(false);
 });
+
+it.each(['en', 'es'])('continues a saved family starter and adds members without a hidden dependent dialog in %s', async locale => {
+  await render([question('family-details', 'family_notes', { audience: 'family' })], { locale });
+  wrapper.vm.step = 0.5;
+  wrapper.vm.chooseServiceSubject('family');
+  Object.assign(wrapper.vm, { guardianFirstName: 'Demo', guardianLastName: 'Parent', guardianEmail: 'demo@example.com', guardianPhone: '2025550123', starterDob: '1990-01-01', sessionToken: 'mock-saved-family', multiClientPlanChoice: 'multiple', reminderConsentStatus: 'declined' });
+  Object.assign(wrapper.vm.clients[0], { firstName: 'Demo', lastName: 'Child', dateOfBirth: '2015-03-10' });
+  await flushPromises();
+  await wrapper.get('.intake-add-dependent').trigger('click');
+  expect(wrapper.vm.clients).toHaveLength(2);
+  expect(wrapper.vm.multiClientConsentDialogOpen).toBe(false);
+  Object.assign(wrapper.vm.clients[1], { firstName: 'Demo', lastName: 'Sibling', dateOfBirth: '2017-03-10' });
+  await wrapper.get('.intake-start-continue').trigger('click');
+  await flushPromises();
+  expect(wrapper.vm.step).toBe(2);
+  expect(post.mock.calls.some(([url]) => url.endsWith('/consent'))).toBe(true);
+  expect(wrapper.vm.multiClientConsentDialogOpen).toBe(false);
+});
+
+it.each(['couple', 'family'])('keeps the separate-adult consent stop before a %s can save consent', async subject => {
+  await render([question('shared-details', 'shared_notes', { audience: subject })]);
+  wrapper.vm.step = 0.5;
+  wrapper.vm.chooseServiceSubject(subject);
+  Object.assign(wrapper.vm, { guardianFirstName: 'Demo', guardianLastName: 'Partner', starterDob: '1990-01-01', sessionToken: 'mock-couple' });
+  Object.assign(wrapper.vm.clients[subject === 'couple' ? 1 : 0], { firstName: 'Demo', lastName: 'Other', dateOfBirth: '1988-02-20' });
+  await flushPromises();
+  await wrapper.get('.intake-start-continue').trigger('click');
+  await flushPromises();
+  expect(wrapper.vm.step).toBe(0.5);
+  expect(wrapper.text()).toContain('Each adult must provide their own consent');
+  expect(post.mock.calls.some(([url]) => url.endsWith('/consent'))).toBe(false);
+});
+
+it('starts reminder contacts unchecked and restores only explicitly saved selections', async () => {
+  await render([{ id: 'reminders', type: 'reminder_contacts', label: 'Reminder contacts' }], { subject: 'dependent', locale: 'es' });
+  wrapper.vm.guardianRelationship = 'Mother';
+  wrapper.vm.intakeResponses.guardian.emergency_contact_name = 'Demo Emergency';
+  wrapper.vm.intakeResponses.guardian.emergency_contact_phone = '2025550199';
+  wrapper.vm.seedReminderContacts();
+  await flushPromises();
+  expect(wrapper.findAll('.reminder-include input')).toHaveLength(2);
+  expect(wrapper.findAll('.reminder-include input').every(input => !input.element.checked)).toBe(true);
+  expect(wrapper.get('.reminder-contact-fields label:nth-child(2) input').element.value).toBe('Madre');
+  expect(wrapper.vm.reminderContacts[0].relationship).toBe('Mother');
+  wrapper.vm.intakeResponses.submission.appointment_reminder_contacts = wrapper.vm.reminderContacts.map(contact => ({ ...contact, included: contact.role === 'me' }));
+  wrapper.vm.seedReminderContacts();
+  await flushPromises();
+  expect(wrapper.findAll('.reminder-include input').map(input => input.element.checked)).toEqual([true, false]);
+});
+
+it('names and links missing interview fields in the current language', async () => {
+  await render([{ id: 'identity', type: 'questions', label: 'About You', fields: [
+    { key: 'date_of_birth', label: 'Date of birth', type: 'date', required: true },
+    { key: 'address_street', label: 'Street address', type: 'text', required: true }
+  ] }]);
+  await wrapper.vm.handleCurrentFlowContinue(); await flushPromises();
+  expect(wrapper.findAll('.validation-field-link').map(button => button.text())).toEqual(['Date of birth', 'Street address']);
+  await wrapper.findAll('.validation-field-link')[1].trigger('click');
+  expect(document.activeElement.closest('[data-question-key]').dataset.questionKey).toBe('address_street');
+  await wrapper.vm.switchLinkedLanguage('es'); await flushPromises();
+  expect(wrapper.findAll('.validation-field-link').map(button => button.text())).toEqual(['Fecha de nacimiento', 'Dirección de la calle']);
+  expect(post.mock.calls.some(([url]) => /finalize|\/sign/.test(url))).toBe(false);
+});

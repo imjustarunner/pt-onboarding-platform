@@ -76,7 +76,7 @@ function localize(fields, instrument) {
   const options = (instrument === 'psc17' ? ['Nunca', 'Algunas veces', 'Frecuentemente'] : FREQUENCY)
     .map((label, index) => ({ value: String(index), label }));
   return fields.map((field, index) => ({ ...field, label: ITEMS[instrument][index],
-    helperText: instrument === 'psc17' ? 'Indique cual síntoma mejor describe a su hijo/a' : TWO_WEEKS,
+    helperText: instrument === 'psc17' ? 'Indique cuál síntoma mejor describe a su hijo/a' : TWO_WEEKS,
     options: options.map(option => ({...option})), instrumentLocale: 'es', instrumentSource: SPANISH_SCREEN_SOURCES[instrument].url
   }));
 }

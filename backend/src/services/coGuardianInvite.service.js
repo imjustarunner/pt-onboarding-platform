@@ -757,9 +757,11 @@ export async function emailPortalLoginInfo({
   const {buildClientEnrollmentEmail}=await import('./clientPortalEmailContent.js');
   const {clientPortalInviteUrl}=await import('./clientPortalContext.service.js');
   const guardian=await User.findByEmail(email);
+  // A prospective account may set up its login through verified email before
+  // clinical portal access is enabled. This does not enable access to records.
   if(!clientId && guardian?.role==='client_guardian') {
     const [[linked]]=await pool.execute(`SELECT c.id FROM clients c JOIN client_guardians cg ON cg.client_id=c.id
-      WHERE cg.guardian_user_id=? AND c.agency_id=? AND cg.access_enabled=1 AND c.guardian_portal_enabled=1
+      WHERE cg.guardian_user_id=? AND c.agency_id=? AND cg.access_enabled=1 AND (c.guardian_portal_enabled=1 OR c.source='ADAPTIVE_QUICK_PROSPECTIVE')
       AND c.status NOT IN ('ARCHIVED','INACTIVE','TERMINATED') ORDER BY c.id LIMIT 1`,[guardian.id,agency.id]);
     clientId=linked?.id || null;
   }

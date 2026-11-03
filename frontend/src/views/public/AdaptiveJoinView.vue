@@ -92,6 +92,10 @@
 
     <template v-else-if="phase === 'quick'">
       <div class="ai-join-stage">
+      <p v-if="canKeepQuickDraft" class="ai-draft-notice">
+        {{ tx('Your answers are kept in this tab for up to 12 hours, until you submit or clear them.') }}
+        <button type="button" class="ai-clear-draft" @click="restartQuickForm">{{ tx('Clear answers and start over') }}</button>
+      </p>
       <div v-if="canEditLanding || canDevFill" class="ai-join-devfill">
         <template v-if="canEditLanding">
           <template v-if="!editingSidebar">
@@ -155,7 +159,7 @@
           <p class="ai-who-label"> {{ tx("Who are you looking for services for?") }} </p>
           <p v-if="form.whoFor === 'couple'" class="ai-page-lead" style="margin-top:0.35rem;"> {{ tx("Tell us who would be participating so we can help you find the right provider.") }} </p>
           <p v-else-if="form.whoFor === 'family'" class="ai-page-lead" style="margin-top:0.35rem;"> {{ tx("Tell us who may participate. You can include adults and children.") }} </p>
-          <div class="ai-who-grid" role="radiogroup" aria-label="Who are you looking for services for?">
+          <div class="ai-who-grid" role="radiogroup" :aria-label="tx('Who are you looking for services for?')">
             <button
               v-for="opt in whoForOptions"
               :key="opt.value"
@@ -426,7 +430,7 @@
                 <DigitalFormField v-model="form.client.lastName" label="Last name" required />
               </div>
               <div class="ai-span-4">
-                <DigitalFormField v-model="form.birthdate" type="date" :label="whoForDobLabel" required />
+                <DigitalFormField v-model="form.dependentBirthdate" type="date" :label="whoForDobLabel" required />
               </div>
             </div>
           </section>
@@ -509,10 +513,15 @@
           placeholder="e.g. Tuesdays, weekends, Thursday afternoons"
         />
         <DigitalFormField
-          v-model="form.preferences.insuranceOrPayment"
-          :label="config?.exchangeEssentialsRequired ? 'Insurance plan or self-pay' : 'Insurance or payment (optional)'"
+          v-model="payerMethod"
+          type="select"
+          label="Insurance or self-pay"
+          placeholder="Select…"
           :required="!!config?.exchangeEssentialsRequired"
+          :optional-badge="!config?.exchangeEssentialsRequired"
+          :options="[{ value: 'insurance', label: 'Use insurance' }, { value: 'self_pay', label: 'Self-pay' }]"
         />
+        <DigitalFormField v-if="payerMethod === 'insurance'" v-model="insurancePlan" label="Insurance plan name" :required="!!config?.exchangeEssentialsRequired" />
       </div>
 
       <!-- Step: consent / contact permission -->
@@ -546,12 +555,14 @@
           </p>
           <p v-if="form.whoFor === 'couple'">
             <strong> {{ tx("Partner:") }} </strong> {{ form.partner.firstName }} {{ form.partner.middleName }} {{ form.partner.lastName }}
+            <span v-if="form.partner.dateOfBirth"> · {{ formatBirthdate(form.partner.dateOfBirth) }}</span>
             <span v-if="form.notifyPartner"> {{ tx("· Notify:") }} {{ tx(form.notifyPartner === 'yes' ? 'Yes' : 'Not yet') }}</span>
           </p>
           <template v-if="form.whoFor === 'family'">
             <p><strong> {{ tx("Your role:") }} </strong> {{ familyRoleOptions.find((o) => o.value === form.familyRole)?.label || form.familyRole }}</p>
             <p v-for="(m, i) in form.familyMembers" :key="'rev-fm-' + i">
               <strong> {{ tx("Member") }} {{ i + 1 }}:</strong> {{ m.firstName }} {{ m.middleName }} {{ m.lastName }}
+              <span v-if="m.dateOfBirth"> · {{ formatBirthdate(m.dateOfBirth) }}</span>
               <span v-if="m.relationshipToPrimary"> · {{ m.relationshipToPrimary }}</span>
               <span v-if="m.participationStatus"> · {{ m.participationStatus.replace(/_/g, ' ') }}</span>
             </p>
@@ -560,7 +571,7 @@
             <strong> {{ tx("Dependent 2:") }} </strong> {{ form.additionalDependent.firstName }} {{ form.additionalDependent.middleName }} {{ form.additionalDependent.lastName }}
             <span v-if="form.additionalDependent.dateOfBirth"> · {{ formatBirthdate(form.additionalDependent.dateOfBirth) }}</span>
           </p>
-          <p v-if="form.birthdate"><strong> {{ tx("Date of birth:") }} </strong> {{ formatBirthdate(form.birthdate) }}</p>
+          <p v-if="selectedBirthdate"><strong> {{ tx("Date of birth:") }} </strong> {{ formatBirthdate(selectedBirthdate) }}</p>
           <p v-if="formattedHomeAddress"><strong> {{ tx("Home address:") }} </strong> {{ formattedHomeAddress }}</p>
           <p v-if="form.concerns.length"><strong> {{ tx("Interests:") }} </strong> {{ concernLabels }}</p>
           <p v-if="form.accomplishGoal"><strong> {{ tx("Goals:") }} </strong> {{ form.accomplishGoal }}</p>
@@ -568,6 +579,8 @@
           <p v-if="form.preferences.preferredModality">
             <strong> {{ tx("Format:") }} </strong> {{ tx(modalityLabel(form.preferences.preferredModality)) }}
           </p>
+          <p v-if="form.preferences.preferredModality !== 'virtual' && resolvedServiceLocation"><strong>{{ tx('In-person service city') }}:</strong> {{ tx(resolvedServiceLocation) }}</p>
+          <p v-for="(line, i) in exchangeScheduleLines(form.preferences.exchangeSchedule, tx)" :key="'schedule-' + i">{{ line }}</p>
           <p v-if="form.preferences.preferredTimeOfDay">
             <strong> {{ tx("Preferred time:") }} </strong> {{ tx(timeLabel(form.preferences.preferredTimeOfDay)) }}
           </p>
@@ -575,7 +588,7 @@
             <strong> {{ tx("Preferred days:") }} </strong> {{ form.preferences.preferredDaysRaw }}
           </p>
           <p v-if="form.preferences.insuranceOrPayment">
-            <strong> {{ tx("Insurance / payment:") }} </strong> {{ form.preferences.insuranceOrPayment }}
+            <strong> {{ tx("Insurance / payment:") }} </strong> {{ tx(form.preferences.insuranceOrPayment) }}
           </p>
           <p> {{ tx("You can request a provider when completing the full enrollment packet.") }} </p>
           <div v-if="form.consentGiven" class="ai-review-ack">
@@ -650,7 +663,7 @@
 import ClientSchedulePreferences from '../../components/clientExchange/ClientSchedulePreferences.vue';
 import {EXCHANGE_CITIES,missingExchangeEssentials} from '../../navigation/clientExchangeEssentials.js';
 import {resolveExchangeLocation} from '../../navigation/clientExchangeLocation.js';
-import { normalizeExchangeSchedule } from '../../utils/clientExchangeSchedule.js';
+import { normalizeExchangeSchedule, exchangeScheduleLines } from '../../utils/clientExchangeSchedule.js';
 
 import { i18n, setPublicLocale } from '../../i18n.js';
 import { translateJoinEnrollment, JOIN_ENROLLMENT_ES } from '../../utils/joinEnrollmentCopy.js';
@@ -699,6 +712,7 @@ const locale = i18n.global.locale;
 const publishedSpanish = ref({});
 const tx = text => translateJoinEnrollment(text, locale.value, publishedSpanish.value);
 provide('enrollmentTranslate', tx);
+provide('enrollmentLocale', locale);
 
 const route = useRoute();
 const router = useRouter();
@@ -845,6 +859,7 @@ const form = reactive({
   respondent: { firstName: '', middleName: '', lastName: '', email: '', phone: '' },
   client: { firstName: '', middleName: '', lastName: '' },
   birthdate: '',
+  dependentBirthdate: '',
   address: { street: '', apt: '', city: '', state: '', zip: '' },
   partner: {
     firstName: '',
@@ -904,6 +919,79 @@ const form = reactive({
   consentGiven: false
 });
 
+// Keep the API's payer string while requiring a deliberate UI choice.
+const payerSelection = ref('');
+const emptyQuickForm = JSON.parse(JSON.stringify(form));
+const draftReady = ref(false);
+const canKeepQuickDraft = computed(() => isCounselingJoin.value && !isProviderEnrollment.value && !isCoGuardianInvitee.value);
+const quickDraftKey = computed(() => `interest-draft:v1:${agencySlug.value}:${resolvedServiceType.value}`);
+const draftLifetimeMs = 12 * 60 * 60 * 1000;
+
+function clearQuickDraft() {
+  try { sessionStorage.removeItem(quickDraftKey.value); } catch { /* Storage may be unavailable. */ }
+}
+async function restartQuickForm() {
+  draftReady.value = false;
+  Object.assign(form, JSON.parse(JSON.stringify(emptyQuickForm)));
+  payerSelection.value = '';
+  quickStep.value = 0;
+  showQuickValidation.value = false;
+  submitError.value = '';
+  clearQuickDraft();
+  await nextTick();
+  draftReady.value = true;
+}
+function restoreQuickDraft() {
+  if (!canKeepQuickDraft.value) return;
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(quickDraftKey.value) || 'null');
+    if (!saved) return;
+    if (saved.version !== 1 || !Number.isFinite(saved.savedAt) || Date.now() - saved.savedAt >= draftLifetimeMs) {
+      clearQuickDraft(); return;
+    }
+    // Restore known fields only, keeping file handles and verification out of storage.
+    const restore = (base, value) => {
+      if (Array.isArray(base)) return Array.isArray(value) ? value.slice(0, 50).map(item => base.length ? restore(base[0], item) : item).filter(item => item != null) : base;
+      if (base && typeof base === 'object') return Object.fromEntries(Object.entries(base).map(([key, initial]) => [key, restore(initial, value?.[key])]));
+      return typeof value === typeof base ? value : base;
+    };
+    const recovered = restore(emptyQuickForm, saved.form);
+    recovered.otherGuardian.courtFiles = [];
+    recovered.concerns = recovered.concerns.filter(value => typeof value === 'string');
+    recovered.preferences.exchangeSchedule = normalizeExchangeSchedule(saved.form?.preferences?.exchangeSchedule || {});
+    if (!['myself', 'child', 'couple', 'family'].includes(recovered.whoFor)) return;
+    if (!recovered.familyMembers.length) recovered.familyMembers = JSON.parse(JSON.stringify(emptyQuickForm.familyMembers));
+    Object.assign(form, recovered);
+    payerSelection.value = ['insurance', 'self_pay'].includes(saved.payerSelection) ? saved.payerSelection : '';
+    selectedPathway.value = 'quick';
+    phase.value = 'quick';
+    // Return to basics if an uploaded file was the only custody evidence.
+    const needsCourtFile = ['yes', 'shared'].includes(recovered.otherGuardian.hasLegalRights) && !recovered.otherGuardian.email && !recovered.otherGuardian.phone;
+    quickStep.value = !needsCourtFile && [0, 1, 2, 4, 5].includes(saved.step) ? saved.step : 0;
+  } catch { clearQuickDraft(); }
+}
+watch([form, quickStep, payerSelection, phase, submitted], () => {
+  if (!draftReady.value || !canKeepQuickDraft.value) return;
+  if (submitted.value) { clearQuickDraft(); return; }
+  if (phase.value !== 'quick') return;
+  try {
+    sessionStorage.setItem(quickDraftKey.value, JSON.stringify({
+      version: 1, savedAt: Date.now(), step: quickStep.value, payerSelection: payerSelection.value,
+      form: { ...form, otherGuardian: { ...form.otherGuardian, courtFiles: [] } }
+    }));
+  } catch { /* A blocked or full storage area must not prevent enrollment. */ }
+}, { deep: true });
+const insurancePlan = computed({
+  get: () => payerMethod.value === 'insurance' ? form.preferences.insuranceOrPayment : '',
+  set: value => { form.preferences.insuranceOrPayment = value; }
+});
+const payerMethod = computed({
+  get: () => payerSelection.value || (/^self[- ]?pay$/i.test(form.preferences.insuranceOrPayment) ? 'self_pay' : form.preferences.insuranceOrPayment ? 'insurance' : ''),
+  set: value => {
+    payerSelection.value = value;
+    form.preferences.insuranceOrPayment = value === 'self_pay' ? 'Self-pay' : '';
+  }
+});
 const whoForOptionsAll = [
   { value: 'myself', label: 'Myself', description: 'I will be the client receiving services.' },
   {
@@ -1018,6 +1106,7 @@ const pageTitle = computed(() => {
 });
 
 const isDependentWhoFor = computed(() => form.whoFor === 'child' || form.whoFor === 'legal');
+const selectedBirthdate = computed(() => isDependentWhoFor.value ? form.dependentBirthdate : form.birthdate);
 
 const whoForDobLabel = computed(() => {
   if (form.whoFor === 'myself' || form.whoFor === 'couple' || form.whoFor === 'family') return 'Date of birth';
@@ -1139,7 +1228,7 @@ function formatBirthdate(value) {
   if (!raw) return '';
   const parsed = new Date(`${raw}T00:00:00`);
   if (Number.isNaN(parsed.getTime())) return raw;
-  return parsed.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+  return parsed.toLocaleDateString(locale.value === 'es' ? 'es-US' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
 const quickCard = computed(() => {
@@ -1273,7 +1362,7 @@ const basicsIssues = computed(() => {
   required('lastName', form.respondent.lastName, 'Last name is required.');
   if (!isValidEmailAddress(form.respondent.email)) issues.push({ key: 'email', message: 'Enter a valid email address.' });
   if (!isValidUsPhone(form.respondent.phone)) issues.push({ key: 'phone', message: 'Enter a valid 10-digit US phone number.' });
-  required('birthdate', form.birthdate, 'Date of birth is required.');
+  required('birthdate', selectedBirthdate.value, 'Date of birth is required.');
   required('street', form.address.street, 'Street address is required.');
   required('city', form.address.city, 'City is required.');
   required('state', form.address.state, 'State is required.');
@@ -1303,6 +1392,7 @@ const basicsIssues = computed(() => {
   return issues;
 });
 const homeServiceLocation = computed(() => resolveExchangeLocation({ address_city: form.address.city, address_state: form.address.state }).serviceLocation);
+const resolvedServiceLocation = computed(() => form.preferences.preferredModality === 'virtual' ? '' : (form.preferences.preferredLocation || homeServiceLocation.value));
 const matchingIssues = computed(() => {
   if (!config.value?.exchangeEssentialsRequired) return [];
   const p = form.preferences;
@@ -1550,7 +1640,8 @@ function devFillQuick() {
   form.client.firstName = person.child;
   form.client.middleName = '';
   form.client.lastName = person.last;
-  form.birthdate = person.dob;
+  if (isDependentWhoFor.value) form.dependentBirthdate = person.dob;
+  else form.birthdate = person.dob;
   Object.assign(form.address, {
     street: '412 Cascade Avenue',
     apt: 'Unit 3',
@@ -1795,14 +1886,14 @@ async function submitQuick() {
           whoFor: form.whoFor,
           respondent,
           client: { ...form.client },
-          birthdate: form.birthdate,
+          birthdate: selectedBirthdate.value,
           homeAddress: formattedHomeAddress.value,
           address: { ...form.address },
           concerns: form.concerns,
           accomplishGoal: form.accomplishGoal.trim() || null,
           notes: form.notes,
           preferences: {
-            preferredLocation: form.preferences.preferredLocation || null,
+            preferredLocation: resolvedServiceLocation.value || null,
         exchangeSchedule: config.value?.exchangeEssentialsRequired ? form.preferences.exchangeSchedule : undefined,
         preferredModality: form.preferences.preferredModality || null,
             preferredTimeOfDay: form.preferences.preferredTimeOfDay || null,
@@ -1871,7 +1962,7 @@ async function submitQuick() {
         phone: normalizeUsPhoneForSubmit(form.respondent.phone)
       },
       client: clientPayload,
-      birthdate: form.birthdate,
+      birthdate: selectedBirthdate.value,
       homeAddress: formattedHomeAddress.value,
       address: { ...form.address },
       concerns: form.concerns,
@@ -1879,7 +1970,7 @@ async function submitQuick() {
       notes: form.notes,
       preferences: {
         learning: resolvedServiceType.value==='tutoring'?learningForm.value:undefined,
-        preferredLocation: form.preferences.preferredLocation || null,
+        preferredLocation: resolvedServiceLocation.value || null,
         exchangeSchedule: config.value?.exchangeEssentialsRequired ? form.preferences.exchangeSchedule : undefined,
         preferredModality: form.preferences.preferredModality || null,
         preferredTimeOfDay: form.preferences.preferredTimeOfDay || null,
@@ -1974,6 +2065,8 @@ onMounted(async () => {
       await router.replace(joinWelcomePath() || `/join/${encodeURIComponent(agencySlug.value)}/counseling`);
       return;
     }
+    restoreQuickDraft();
+    draftReady.value = true;
     if (services.length === 0) {
       loadError.value = 'No intake services are available right now.';
     }
@@ -1994,6 +2087,8 @@ onMounted(async () => {
   background-position: center;
   background-color: #0f3d3a;
 }
+.ai-draft-notice { font-size: 0.85rem; margin: 0 0 1rem; }
+.ai-clear-draft { background: none; border: none; text-decoration: underline; color: inherit; cursor: pointer; }
 .ai-join-stage {
   width: 100%;
 }

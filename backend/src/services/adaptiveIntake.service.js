@@ -830,13 +830,7 @@ function portalPathForAgency(agencyRow) {
   return slug ? `/${encodeURIComponent(slug)}/guardian` : '/guardian';
 }
 
-function existingPortalLoginNeedsReset(user) {
-  if (!user?.password_hash) return true;
-  // Leftover 24-hour temp logins should become a lasting client-portal password.
-  return !!user.temporary_password_hash;
-}
-
-async function provisionQuickProspectiveAccess({
+export async function provisionQuickProspectiveAccess({
   email,
   firstName,
   lastName,
@@ -867,28 +861,10 @@ async function provisionQuickProspectiveAccess({
     const existing = await User.findByEmail(normalizedEmail);
     if (existing?.id) {
       await linkGuardian(existing.id);
-      if (!existingPortalLoginNeedsReset(existing)) {
-        return {
-          existingAccount: true,
-          email: normalizedEmail,
-          userId: existing.id,
-          portalPath,
-          expiresInHours: null
-        };
-      }
-      const password = await User.generateTemporaryPassword();
-      await User.changePassword(existing.id, password);
-      return {
-        existingAccount: true,
-        email: normalizedEmail,
-        userId: existing.id,
-        password,
-        portalPath,
-        expiresInHours: null
-      };
+      // A public interest form must never reset or disclose an existing login.
+      return { existingAccount: true, email: normalizedEmail, userId: existing.id, portalPath };
     }
 
-    const password = await User.generateTemporaryPassword();
     const user = await User.create({
       email: normalizedEmail,
       role: 'client_guardian',
@@ -898,15 +874,13 @@ async function provisionQuickProspectiveAccess({
       status: 'active'
     });
     if (!user?.id) return null;
-    await User.changePassword(user.id, password);
+    // No password is created here. The existing verified-email setup flow sets it.
     await linkGuardian(user.id);
     return {
       existingAccount: false,
       email: normalizedEmail,
       userId: user.id,
-      password,
-      portalPath,
-      expiresInHours: null
+      portalPath
     };
   } catch (err) {
     console.warn('Quick prospective portal account skipped:', err?.message || err);
@@ -1434,7 +1408,9 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
         clientName: `${clientFirst} ${clientLast}`.trim(),
         birthdate,
         homeAddress,
-        concerns,
+        concerns: concerns.map(value => [...SELF_QUICK_CONCERN_OPTIONS, ...DEPENDENT_QUICK_CONCERN_OPTIONS, ...COUPLE_QUICK_CONCERN_OPTIONS, ...FAMILY_QUICK_CONCERN_OPTIONS].find(option => option.value === value)?.label || humanizeToken(value)),
+        exchangeSchedule: preferences.exchangeSchedule || payload.exchangeSchedule || null,
+        preferredLocation: preferences.preferredLocation || null,
         accomplishGoal,
         notes: payload.notes || null,
         preferredModality: labelModality(preferences.preferredModality || payload.preferredModality),
@@ -1452,12 +1428,8 @@ export async function submitQuickProspective({ agencySlugOrId, payload = {}, req
           : 'Let the team choose / first available',
         acknowledgments
       },
-      temporaryAccess,
       portalAccess: temporaryAccess
-        ? {
-            ...temporaryAccess,
-            password: temporaryAccess.password || temporaryAccess.temporaryPassword || null
-          }
+        ? { existingAccount: temporaryAccess.existingAccount, email: temporaryAccess.email, portalPath: temporaryAccess.portalPath }
         : null,
       supportContact: await resolveClientFacingSupport(agencyRow)
     },

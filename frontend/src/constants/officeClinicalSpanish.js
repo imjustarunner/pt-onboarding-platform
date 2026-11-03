@@ -24,7 +24,7 @@ export const OFFICE_SCREEN_ES = {
   "Becoming easily annoyed or irritable": "Se ha molestado o irritado fácilmente",
   "Feeling afraid, as if something awful might happen": "Ha tenido miedo de que algo terrible fuera a pasar",
   "Fidgety, unable to sit still": "Es inquieto(a), incapaz de sentarse tranquilo(a)",
-  "Please select the answer that best fits your dependent:": "Indique cual síntoma mejor describe a su hijo/a",
+  "Please select the answer that best fits your dependent:": "Indique cuál síntoma mejor describe a su hijo/a",
   "Never": "Nunca",
   "Sometimes": "Algunas veces",
   "Often": "Frecuentemente",
@@ -448,7 +448,7 @@ export const OFFICE_SCREEN_FIELDS_ES = {
   },
   "psc_1": {
     "label": "Es inquieto(a), incapaz de sentarse tranquilo(a)",
-    "helperText": "Indique cual síntoma mejor describe a su hijo/a",
+    "helperText": "Indique cuál síntoma mejor describe a su hijo/a",
     "options": [
       {
         "value": "0",
@@ -469,7 +469,7 @@ export const OFFICE_SCREEN_FIELDS_ES = {
   },
   "psc_2": {
     "label": "Es muy activo(a), tiene mucha energía",
-    "helperText": "Indique cual síntoma mejor describe a su hijo/a",
+    "helperText": "Indique cuál síntoma mejor describe a su hijo/a",
     "options": [
       {
         "value": "0",
@@ -490,7 +490,7 @@ export const OFFICE_SCREEN_FIELDS_ES = {
   },
   "psc_3": {
     "label": "Sueña despierto demasiado",
-    "helperText": "Indique cual síntoma mejor describe a su hijo/a",
+    "helperText": "Indique cuál síntoma mejor describe a su hijo/a",
     "options": [
       {
         "value": "0",
@@ -511,7 +511,7 @@ export const OFFICE_SCREEN_FIELDS_ES = {
   },
   "psc_4": {
     "label": "Se distrae fácilmente",
-    "helperText": "Indique cual síntoma mejor describe a su hijo/a",
+    "helperText": "Indique cuál síntoma mejor describe a su hijo/a",
     "options": [
       {
         "value": "0",
@@ -532,7 +532,7 @@ export const OFFICE_SCREEN_FIELDS_ES = {
   },
   "psc_5": {
     "label": "Se siente triste, infeliz",
-    "helperText": "Indique cual síntoma mejor describe a su hijo/a",
+    "helperText": "Indique cuál síntoma mejor describe a su hijo/a",
     "options": [
       {
         "value": "0",
@@ -553,7 +553,7 @@ export const OFFICE_SCREEN_FIELDS_ES = {
   },
   "psc_6": {
     "label": "Se siente sin esperanzas",
-    "helperText": "Indique cual síntoma mejor describe a su hijo/a",
+    "helperText": "Indique cuál síntoma mejor describe a su hijo/a",
     "options": [
       {
         "value": "0",
@@ -574,7 +574,7 @@ export const OFFICE_SCREEN_FIELDS_ES = {
   },
   "psc_7": {
     "label": "Tiene problemas para concentrarse",
-    "helperText": "Indique cual síntoma mejor describe a su hijo/a",
+    "helperText": "Indique cuál síntoma mejor describe a su hijo/a",
     "options": [
       {
         "value": "0",
@@ -595,7 +595,7 @@ export const OFFICE_SCREEN_FIELDS_ES = {
   },
   "psc_8": {
     "label": "Pelea con otros niños",
-    "helperText": "Indique cual síntoma mejor describe a su hijo/a",
+    "helperText": "Indique cuál síntoma mejor describe a su hijo/a",
     "options": [
       {
         "value": "0",
@@ -616,7 +616,7 @@ export const OFFICE_SCREEN_FIELDS_ES = {
   },
   "psc_9": {
     "label": "Se siente mal de sí mismo(a)",
-    "helperText": "Indique cual síntoma mejor describe a su hijo/a",
+    "helperText": "Indique cuál síntoma mejor describe a su hijo/a",
     "options": [
       {
         "value": "0",
@@ -637,7 +637,7 @@ export const OFFICE_SCREEN_FIELDS_ES = {
   },
   "psc_10": {
     "label": "Se preocupa mucho",
-    "helperText": "Indique cual síntoma mejor describe a su hijo/a",
+    "helperText": "Indique cuál síntoma mejor describe a su hijo/a",
     "options": [
       {
         "value": "0",
@@ -658,7 +658,7 @@ export const OFFICE_SCREEN_FIELDS_ES = {
   },
   "psc_11": {
     "label": "Parece divertirse menos",
-    "helperText": "Indique cual síntoma mejor describe a su hijo/a",
+    "helperText": "Indique cuál síntoma mejor describe a su hijo/a",
     "options": [
       {
         "value": "0",
@@ -679,7 +679,7 @@ export const OFFICE_SCREEN_FIELDS_ES = {
   },
   "psc_12": {
     "label": "No obedece las reglas",
-    "helperText": "Indique cual síntoma mejor describe a su hijo/a",
+    "helperText": "Indique cuál síntoma mejor describe a su hijo/a",
     "options": [
       {
         "value": "0",
@@ -700,7 +700,7 @@ export const OFFICE_SCREEN_FIELDS_ES = {
   },
   "psc_13": {
     "label": "No comprende los sentimientos de otros",
-    "helperText": "Indique cual síntoma mejor describe a su hijo/a",
+    "helperText": "Indique cuál síntoma mejor describe a su hijo/a",
     "options": [
       {
         "value": "0",
@@ -721,7 +721,7 @@ export const OFFICE_SCREEN_FIELDS_ES = {
   },
   "psc_14": {
     "label": "Molesta o se burla de otros",
-    "helperText": "Indique cual síntoma mejor describe a su hijo/a",
+    "helperText": "Indique cuál síntoma mejor describe a su hijo/a",
     "options": [
       {
         "value": "0",
@@ -742,7 +742,7 @@ export const OFFICE_SCREEN_FIELDS_ES = {
   },
   "psc_15": {
     "label": "Culpa a otros por sus problemas",
-    "helperText": "Indique cual síntoma mejor describe a su hijo/a",
+    "helperText": "Indique cuál síntoma mejor describe a su hijo/a",
     "options": [
       {
         "value": "0",
@@ -763,7 +763,7 @@ export const OFFICE_SCREEN_FIELDS_ES = {
   },
   "psc_16": {
     "label": "Toma cosas que no le pertenecen",
-    "helperText": "Indique cual síntoma mejor describe a su hijo/a",
+    "helperText": "Indique cuál síntoma mejor describe a su hijo/a",
     "options": [
       {
         "value": "0",
@@ -784,7 +784,7 @@ export const OFFICE_SCREEN_FIELDS_ES = {
   },
   "psc_17": {
     "label": "Se niega a compartir",
-    "helperText": "Indique cual síntoma mejor describe a su hijo/a",
+    "helperText": "Indique cuál síntoma mejor describe a su hijo/a",
     "options": [
       {
         "value": "0",

@@ -209,7 +209,7 @@
                 <div v-if="showRecaptchaWidget" class="recaptcha-verify-first">
                   {{ t('verifyHumanFirst') }}
                 </div>
-                <div v-if="captchaError" class="error">{{ captchaError }}</div>
+                <div v-if="captchaError" class="error">{{ t(captchaError) }}</div>
                 <div class="recaptcha-widget">
                   <div id="recaptcha-widget-start" ref="recaptchaWidgetElStart" />
                   <div v-if="captchaWidgetFailed" class="muted" style="margin-top: 6px; color: var(--warning, #b8860b);">
@@ -269,7 +269,7 @@
             <div v-if="showRecaptchaWidget" class="recaptcha-verify-first">
               {{ t('verifyHumanFirst') }}
             </div>
-            <div v-if="captchaError" class="error">{{ captchaError }}</div>
+            <div v-if="captchaError" class="error">{{ t(captchaError) }}</div>
             <div class="recaptcha-widget">
               <div id="recaptcha-widget-start" ref="recaptchaWidgetElStart" />
               <div v-if="captchaWidgetFailed" class="muted" style="margin-top: 6px; color: var(--warning, #b8860b);">
@@ -654,7 +654,7 @@
             class="captcha-block captcha-block-start"
           >
             <div class="muted">{{ t('protectedByRecaptcha') }}</div>
-            <div v-if="captchaError" class="error">{{ captchaError }}</div>
+            <div v-if="captchaError" class="error">{{ t(captchaError) }}</div>
             <div class="recaptcha-widget">
               <div id="recaptcha-widget-start" ref="recaptchaWidgetElStart" />
               <div v-if="captchaWidgetFailed" class="muted" style="margin-top: 6px; color: var(--warning, #b8860b);">
@@ -705,7 +705,7 @@
               </li>
             </ul>
           </div>
-          <p v-else-if="whoForError" class="error" style="margin: 0 0 8px;">{{ whoForError }}</p>
+          <p v-else-if="whoForError || stepError || error" class="error" role="alert" style="margin: 0 0 8px;">{{ whoForError || stepError || error }}</p>
           <button
             type="button"
             class="df-btn df-btn-primary intake-start-continue"
@@ -808,7 +808,12 @@
         <h1 v-if="isOfficeInDepthIntake" class="ai-page-title">{{ t('letsStartWithBasics') }}</h1>
         <h3 v-else class="df-section-title">{{ t('questions') || "Welcome! Let's get started" }}</h3>
         <p :class="isOfficeInDepthIntake ? 'ai-page-lead' : 'df-section-help'">{{ t('tellUsAboutYou') }}</p>
-        <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
+        <div v-if="stepError" class="error" role="alert" style="margin-bottom: 10px;">
+          {{ missingRequiredQuestionKeys.length ? t('completeRequiredFields') : stepError }}
+          <ul v-if="missingQuestionFields.length">
+            <li v-for="field in missingQuestionFields" :key="field.key"><button type="button" class="validation-field-link" @click="focusQuestionField(field.key)">{{ txField(field) }}</button></li>
+          </ul>
+        </div>
 
         <div v-if="showSpanishClarificationBlock" class="spanish-clarification-step field-inputs">
           <h4>{{ spanishClarificationCopy.title }}</h4>
@@ -1432,7 +1437,12 @@
           title="Private answers"
           body="Please complete this page alone when possible. These answers stay private to clinical review and are not shown on shared review screens."
         />
-        <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
+        <div v-if="stepError" class="error" role="alert" style="margin-bottom: 10px;">
+          {{ missingRequiredQuestionKeys.length ? t('completeRequiredFields') : stepError }}
+          <ul v-if="missingQuestionFields.length">
+            <li v-for="field in missingQuestionFields" :key="field.key"><button type="button" class="validation-field-link" @click="focusQuestionField(field.key)">{{ txField(field) }}</button></li>
+          </ul>
+        </div>
         <div v-if="isSharedFamilySigningStep" class="intake-child-banner" role="note">
           <strong>{{ intakeLocale === 'es' ? 'Una firma para estos niños' : 'One signature for these children' }}</strong>
           <ul>
@@ -1700,6 +1710,7 @@
           <PublicIntakeInsurancePaymentStep
             v-if="isOfficeInDepthIntake || isPaymentOnlyEnrollmentChannel"
             ref="insurancePaymentStepRef"
+            :hide-heading="true"
             :insurance-info="intakeResponses.submission.insuranceInfo || {}"
             :payment-info="intakeResponses.submission.paymentInfo || {}"
             :step-config="currentFlowStep"
@@ -1849,7 +1860,7 @@
             <template v-else>
               <p class="communications-disclosure">
                 {{ tx('If you choose Yes, you consent to receive service-related text messages through PlotTwistHQ from') }}
-                {{ communicationsTenantName }} and, when applicable, your provider/care team (for example,
+                {{ communicationsTenantName }} {{ tx('and, when applicable, your provider/care team (for example,') }}
                 {{ tx('follow-up, coordination, and service-related responses). Standard SMS is not end-to-end encrypted. Avoid sending sensitive clinical information by text; use the secure portal for private details. These messages relate to your services at') }} {{ communicationsTenantName }}.
               </p>
               <p class="communications-disclosure" style="margin-top: 8px;">
@@ -1947,7 +1958,7 @@
             </div>
             <div class="reminder-contact-fields">
               <label>{{ tx('Name') }} <input v-model="contact.name" autocomplete="name" /></label>
-              <label>{{ tx('Relationship') }} <input v-model="contact.relationship" autocomplete="off" /></label>
+              <label>{{ tx('Relationship') }} <input :value="tx(contact.relationship)" @input="contact.relationship = $event.target.value" autocomplete="off" /></label>
               <label>{{ tx('Email') }} <input v-model="contact.email" type="email" autocomplete="email" /></label>
               <label>{{ tx('Phone') }} <input v-model="contact.phone" type="tel" autocomplete="tel" /></label>
             </div>
@@ -2209,10 +2220,10 @@
 
         <!-- Paged interview questions — one intake_steps questions page at a time -->
         <div v-if="currentFlowStep?.type === 'questions' && !isCurrentQuestionnairePage" class="questions-step intake-interview-page">
-          <p v-if="visibleQuestionFields.some(requiresOriginalInstrumentLanguage)" class="df-field-help" role="note">{{ tx('Some standardized screening questions on this page are currently available in English only. Please contact the care team for language assistance. Required questions still need a response.') }}</p>
+          <p v-if="visibleQuestionFields.some(requiresOriginalInstrumentLanguage)" class="df-field-help instrument-language-notice" role="note">{{ tx('Some standardized screening questions on this page are currently available in English only. Please contact the care team for language assistance. Required questions still need a response.') }}</p>
           <div class="form-grid">
             <template v-for="(row, idx) in currentQuestionRows" :key="row.field?.key || `sec_${idx}`">
-              <h4 v-if="row.section" class="df-section-kicker form-group form-group--span-12">{{ interpolateChildTokens(tx(row.section)) }}</h4>
+              <h4 v-if="row.section" class="df-section-kicker form-group form-group--span-12">{{ interpolateChildTokens(tx(row.section === 'Peers' ? 'Friends and getting along with others' : row.section)) }}</h4>
               <div
                 v-else-if="row.field"
                 class="form-group"
@@ -6526,7 +6537,9 @@ const insuranceLegalLastName = computed(() => {
   const bag = intakeResponses.submission || {};
   return String(bag.legal_last_name || guardianLastName.value || '').trim();
 });
-const insuranceClientNames = computed(() => guardianWaiverClientLabels.value);
+const insuranceClientNames = computed(() => intakeForSelf.value
+  ? [guardianDisplayNameForInsurance.value || tx('Client')]
+  : sharedSigningRoster.value.map((member, i) => member.fullName || childDisplayName(i)));
 const guardianDefaultPickup = computed(() => ({
   name: guardianDisplayNameForInsurance.value,
   relationship: String(guardianRelationship.value || '').trim() || 'Parent/Guardian',
@@ -7263,7 +7276,7 @@ function seedReminderContacts() {
     id: 'me',
     role: 'me',
     label: 'Me',
-    included: me.included !== false,
+    included: me.included === true,
     name: me.name || personDisplayName(guardianFirstName.value, guardianLastName.value),
     email: me.email || guardianEmail.value || g.email || '',
     phone: me.phone || guardianPhone.value || g.phone || g.phoneNumber || '',
@@ -7277,7 +7290,7 @@ function seedReminderContacts() {
       id: 'other_parent',
       role: 'other_parent',
       label: 'Another parent or guardian',
-      included: other.included !== undefined ? !!other.included : !!(ogName || otherGuardian.email),
+      included: other.included === true,
       name: other.name || ogName,
       email: other.email || otherGuardian.email || '',
       phone: other.phone || otherGuardian.phone || '',
@@ -7294,7 +7307,7 @@ function seedReminderContacts() {
       id: 'emergency_contact',
       role: 'emergency_contact',
       label: 'Emergency contact',
-      included: emergency.included !== undefined ? !!emergency.included : !!(emName || emPhone),
+      included: emergency.included === true,
       name: emName,
       email: emergency.email || '',
       phone: emPhone,
@@ -7307,7 +7320,7 @@ function seedReminderContacts() {
       id: c.id || `extra-${idx + 1}`,
       role: 'other',
       label: c.label || 'Someone else',
-      included: c.included !== false,
+      included: c.included === true,
       name: c.name || '',
       email: c.email || '',
       phone: c.phone || '',
@@ -7325,7 +7338,7 @@ function addReminderContact() {
       id: `extra-${Date.now()}`,
       role: 'other',
       label: 'Someone else',
-      included: true,
+      included: false,
       name: '',
       email: '',
       phone: '',
@@ -9082,12 +9095,14 @@ const matchesToken = (field, pattern) => {
 };
 
 const hasValue = (val) => val !== null && val !== undefined && (typeof val !== 'string' || val.trim() !== '');
-/** Format YYYY-MM-DD as MM/DD/YYYY for display. */
+/** Display a calendar date in the selected language without a timezone shift. */
 const formatDateForDisplay = (val) => {
   const s = String(val || '').trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
   const [, yyyy, mm, dd] = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  return `${mm}/${dd}/${yyyy}`;
+  const date = new Date(`${yyyy}-${mm}-${dd}T12:00:00Z`);
+  if (Number.isNaN(date.getTime())) return s;
+  return date.toLocaleDateString(intakeLocale.value === 'es' ? 'es-US' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
 };
 /** Format an ISO datetime string to a friendly local string like "Monday, April 13, 2026 at 4:00 PM". */
 const formatIsoDatetime = (val) => {
@@ -10251,12 +10266,12 @@ const ensureRecaptchaWidget = async (mode = 'standard', forceReload = false) => 
       'expired-callback': () => {
         if (!isCurrent()) return;
         captchaToken.value = '';
-        captchaError.value = t('completeCaptchaToContinue');
+        captchaError.value = 'completeCaptchaToContinue';
       },
       'error-callback': () => {
         if (!isCurrent()) return;
         captchaToken.value = '';
-        captchaError.value = t('captchaFailed');
+        captchaError.value = 'captchaFailed';
       }
     });
     for (let i = 0; i < 20; i++) {
@@ -10755,7 +10770,7 @@ const submitConsent = async () => {
   }
   }
   // Selecting multiple children is not agreement to share signatures.
-  if (!intakeForSelf.value && !isClientBound.value && multiClientPlanChoice.value === 'multiple'
+  if ((!serviceSubject.value || serviceSubject.value === 'dependent') && !intakeForSelf.value && !isClientBound.value && multiClientPlanChoice.value === 'multiple'
     && !multiClientConsentAccepted.value && !multiClientConsentDeclined.value) {
     multiClientConsentDialogOpen.value = true;
     stepError.value = t('confirmSignatureReuse');
@@ -10986,6 +11001,13 @@ const completeCurrentDocument = async () => {
     submitLoading.value = false;
   }
 };
+
+const missingQuestionFields = computed(() => visibleQuestionFields.value.filter(field => missingRequiredQuestionKeys.value.includes(field.key)));
+function focusQuestionField(key) {
+  const container = Array.from(document.querySelectorAll('[data-question-key]')).find(element => element.dataset.questionKey === key);
+  container?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  container?.querySelector('input, textarea, select, [tabindex], button')?.focus();
+}
 
 const isQuestionFieldMissing = (field) => {
   if (!field || !field.required || field.type === 'info') return false;
@@ -12643,6 +12665,10 @@ const onSelectMultiClientPlan = (choice) => {
 
 const onClickAddClient = () => {
   if (isCoGuardianInvitee.value) return;
+  if (serviceSubject.value === 'family') {
+    addClient();
+    return;
+  }
   if (multiClientConsentAccepted.value) {
     addClient();
     return;
@@ -13011,9 +13037,9 @@ const currentChildBanner = computed(() => {
   const child = sharedSigningRoster.value[i];
   const member = ['family', 'couple'].includes(serviceSubject.value);
   const label = intakeLocale.value === 'es'
-    ? `Respondiendo para ${member ? 'el miembro' : 'el niño'} ${i + 1} de ${total}`
+    ? `Respondiendo para ${member ? 'el miembro' : 'el dependiente'} ${i + 1} de ${total}`
     : `Answering for ${member ? 'member' : 'child'} ${i + 1} of ${total}`;
-  return `${label} — ${child?.fullName || childDisplayName(i)}${child?.dateOfBirth ? ` · ${child.dateOfBirth}` : ''}`;
+  return `${label} — ${child?.fullName || childDisplayName(i)}${child?.dateOfBirth ? ` · ${formatDateForDisplay(child.dateOfBirth) || child.dateOfBirth}` : ''}`;
 });
 const reviewAddConsentOpen = ref(false);
 const currentChildReviewName = computed(() => {
@@ -13056,7 +13082,7 @@ const currentChildReviewRows = computed(() => {
   };
   return [
     { label: 'Name / DOB', value: [currentChildReviewName.value,
-      bag.member_date_of_birth || bag.child_dob || clients.value[idx]?.dateOfBirth].filter(Boolean).join(' · ') || '—' },
+      formatDateForDisplay(bag.member_date_of_birth || bag.child_dob || clients.value[idx]?.dateOfBirth)].filter(Boolean).join(' · ') || '—' },
     { label: 'Why seeking support', value: firstText('main_reason_and_concerns', 'main_reason_seeking', 'most_concerned_about') },
     { label: 'Why now', value: firstText('why_seeking_now') },
     { label: 'Primary concerns', value: firstText('biggest_concern_now', 'presenting_concerns') },
@@ -14202,6 +14228,9 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.instrument-language-notice { display: block; margin: 0 0 20px; padding: 12px; line-height: 1.6; background: #f3f7f5; border-radius: 8px; }
+.validation-field-link { background: transparent; border: 0; padding: 4px 0; color: inherit; text-decoration: underline; text-align: left; cursor: pointer; }
+
 
 .school-family-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; margin: 16px 0; border: 1px solid var(--border-color, #d9e3df); border-radius: 12px; }
 .school-family-summary ul { margin: 8px 0 0; padding-left: 20px; }

@@ -10,8 +10,25 @@ vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn()
 const props = () => ({ insuranceInfo: { primary: { insurerName: 'Commercial' }, secondary: { insurerName: 'Health First Colorado', isMedicaid: true } }, clientNames: ['Sample Client'], guardianName: 'Sample Parent' });
 const mountForm = overrides => mount(Combined, { props: { ...props(), ...overrides }, global: { stubs: { PublicIntakePaymentStep: { template: '<div data-card-form>Secure card form</div>' } } } });
 describe('insurance enrollment', () => {
+  it('requires a fresh payer choice and restores an explicitly saved choice without selecting a card', async () => {
+    const w = mountForm({ insuranceInfo: {} });
+    expect(w.findAll('.pi-ip-choice[aria-pressed="true"]')).toHaveLength(0);
+    expect(w.vm.validateAuthorization()).toBe(false);
+    await flushPromises();
+    expect(w.text()).toContain('Please choose insurance or self-pay');
+    await w.findAll('button').find(button => button.text().includes('Self-Pay')).trigger('click');
+    const saved = w.emitted('update:insuranceInfo').at(-1)[0];
+    expect(saved.isSelfPay).toBe(true);
+    w.unmount();
+    const restored = mountForm({ insuranceInfo: saved, hideHeading: true });
+    expect(restored.text()).toContain('Your payment arrangement');
+    expect(restored.find('[data-card-form]').exists()).toBe(false);
+    expect(restored.find('h2').exists()).toBe(false);
+    restored.unmount();
+  });
   it('cannot advance with payment follow-up until the self-pay authorization is agreed and signed', async () => {
     const w=mount(Combined,{props:{insuranceInfo:{isSelfPay:true},guardianName:'QA Parent',stepConfig:{paymentRequired:false}},global:{stubs:{SecureCardSetup:true}}});
+    await w.findAll('button').find(b => b.text().includes('Add Card')).trigger('click');
     const button=()=>w.findAll('button').find(b=>b.text()==='Continue with payment follow-up');
     await button().trigger('click');
     expect(w.emitted('skip-acknowledged')).toBeUndefined();
@@ -56,9 +73,12 @@ describe('insurance enrollment', () => {
     expect(w.text()).toContain('Secondary subscriber');
     w.unmount();
   });
-  it('commercial, self-pay and nonclinical enrollment keep real card collection', () => {
+  it('commercial, self-pay and nonclinical enrollment collect a card only after an explicit choice', async () => {
     for (const override of [{ insuranceInfo: { primary: { insurerName: 'Commercial' } } }, { insuranceInfo: { isSelfPay: true } }, { paymentOnly: true }]) {
-      const w = mountForm(override); expect(w.find('[data-card-form]').exists()).toBe(true); w.unmount();
+      const w = mountForm(override);
+      expect(w.find('[data-card-form]').exists()).toBe(false);
+      await w.findAll('button').find(b => b.text().includes('Add Card')).trigger('click');
+      expect(w.find('[data-card-form]').exists()).toBe(true); w.unmount();
     }
   });
   it('summary works without a package and does not fabricate a zero-dollar estimate', () => {

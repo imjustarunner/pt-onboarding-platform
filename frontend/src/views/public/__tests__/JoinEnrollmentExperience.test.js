@@ -16,7 +16,7 @@ async function render(slug='itsco', overrides={}) {
  const router=createRouter({history:createMemoryHistory(),routes:[{path:'/join/:agencySlug/:serviceType',component:Join},{path:'/intake/:publicKey',component:{template:'<div/>'}},{path:'/:pathMatch(.*)*',component:{template:'<div/>'}}]});
  await router.push(`/join/${slug}/counseling`);await router.isReady();
  wrapper=mount(Join,{global:{plugins:[router],stubs:{AdaptiveJoinLanding:{template:'<button @click="$emit(\'continue\',\'quick\')">Brief</button>'},LearningEnrollmentQuestions:true}}});
- await flushPromises();await wrapper.find('button').trigger('click');await flushPromises();return router;
+ await flushPromises();if(wrapper.vm.phase === 'pathway') await wrapper.find('button').trigger('click');await flushPromises();return router;
 }
 describe('Shared enrollment experience',()=>{
  it.each(['en', 'es'])('starts couple and family questions unanswered in %s and preserves explicit choices', async locale => {
@@ -45,7 +45,7 @@ describe('Shared enrollment experience',()=>{
   const form = wrapper.vm.form;
   Object.assign(form.respondent, { firstName: 'Demo', lastName: 'Parent', email: 'demo@example.com', phone: '2025550123' });
   Object.assign(form.client, { firstName: 'Demo', lastName: 'Child' });
-  form.birthdate = '2015-01-01'; form.otherGuardian.hasLegalRights = 'no';
+  form.dependentBirthdate = '2015-01-01'; form.otherGuardian.hasLegalRights = 'no';
   Object.assign(form.address, { street: '123 Demo St', city: 'Denver', state: 'CO', zip: '80202' });
   await wrapper.get('.ai-join-continue').trigger('click'); await flushPromises();
   expect(wrapper.vm.quickStep).toBe(1);
@@ -78,6 +78,7 @@ describe('Shared enrollment experience',()=>{
    Object.assign(form.address, { street: '123 Demo St', city: 'Denver', state: 'CO', zip: '80202' });
    if (subject === 'child') {
     Object.assign(form.client, { firstName: 'Demo', lastName: 'Child' });
+    form.dependentBirthdate = '2015-01-01';
     form.otherGuardian.hasLegalRights = 'no';
    }
    if (subject === 'couple') {
@@ -160,9 +161,10 @@ describe('Shared enrollment experience',()=>{
   expect(wrapper.get('[data-exchange-field="days"]').attributes('aria-invalid')).toBe('true');
   expect(wrapper.get('[data-exchange-field="times"]').attributes('aria-invalid')).toBe('true');
   await modality.get('select').setValue('either');
-  const payer = wrapper.findAllComponents(DigitalFormField).find(field => field.props('label') === 'Insurance plan or self-pay');
+  const payer = wrapper.findAllComponents(DigitalFormField).find(field => field.props('label') === 'Insurance or self-pay');
   expect(payer.props('required')).toBe(true);
-  await payer.get('input').setValue('Self-pay');
+  expect(payer.get('select').element.value).toBe('');
+  await payer.get('select').setValue('self_pay');
   await wrapper.get('[data-exchange-field="days"] label:nth-child(3) input').setValue(true);
   await wrapper.get('[data-exchange-field="times"] label:nth-child(2) input').setValue(true);
   expect(form.preferences.exchangeSchedule).toMatchObject({ days: ['Wednesday'], periods: ['afternoon'] });
@@ -171,7 +173,7 @@ describe('Shared enrollment experience',()=>{
    expect(wrapper.get('.client-schedule').text()).toContain('Zona horaria');
    expect(wrapper.get('.client-schedule').text()).not.toContain('When does the client');
    expect(wrapper.get('.client-schedule').text()).not.toContain('Required. Choose');
-   expect(payer.text()).toContain('Plan de seguro o pago por cuenta propia');
+   expect(payer.text()).toContain('Seguro o pago por cuenta propia');
   }
   await wrapper.get('.ai-join-continue').trigger('click'); await flushPromises();
   expect(wrapper.vm.quickStep).toBe(4);
@@ -218,3 +220,49 @@ describe('Shared enrollment experience',()=>{
   expect(router.currentRoute.value.query.lang).toBe('es');
  });
 });
+
+ it('keeps adult and dependent birth dates independent through route and language switches', async () => {
+  await render(); const form = wrapper.vm.form;
+  form.birthdate = '1990-01-15'; wrapper.vm.chooseWhoFor('child'); await flushPromises();
+  expect(form.dependentBirthdate).toBe(''); expect(wrapper.vm.basicsIssues.some(issue => /birth/i.test(issue.key))).toBe(true);
+  form.dependentBirthdate = '2015-03-10';
+  await wrapper.get('button[aria-label="Español"]').trigger('click');
+  wrapper.vm.chooseWhoFor('myself'); await flushPromises(); expect(form.birthdate).toBe('1990-01-15');
+  wrapper.vm.chooseWhoFor('child'); wrapper.vm.quickStep = 5; await flushPromises();
+  expect(wrapper.text()).toContain('10 de marzo de 2015'); expect(wrapper.text()).not.toContain('15 de enero de 1990');
+ });
+ it('restores answers and deliberate payer/schedule choices after refresh in the same tab and clears them on submission', async () => {
+  await render(); const form = wrapper.vm.form;
+  form.respondent.firstName = 'DEMO Restore'; form.birthdate = '1990-01-15'; form.dependentBirthdate = '2015-03-10';
+  form.preferences.exchangeSchedule = { days: ['Tuesday'], periods: ['afternoon'], windows: [], timezone: 'America/Denver', notes: 'After work' };
+  wrapper.vm.payerMethod = 'insurance'; wrapper.vm.insurancePlan = 'DEMO Plan'; wrapper.vm.quickStep = 2;
+  form.otherGuardian.courtFiles = [{ name: 'private.pdf', token: 'do-not-retain' }]; await flushPromises();
+  expect(sessionStorage.getItem('interest-draft:v1:itsco:counseling')).not.toContain('do-not-retain');
+  wrapper.unmount(); await render();
+  expect(wrapper.vm.quickStep).toBe(2); expect(wrapper.vm.form.respondent.firstName).toBe('DEMO Restore');
+  expect(wrapper.vm.form.dependentBirthdate).toBe('2015-03-10'); expect(wrapper.vm.payerMethod).toBe('insurance');
+  expect(wrapper.vm.insurancePlan).toBe('DEMO Plan'); expect(wrapper.vm.form.preferences.exchangeSchedule.days).toEqual(['Tuesday']);
+  expect(wrapper.vm.form.otherGuardian.courtFiles).toEqual([]);
+  expect(api.post.mock.calls.some(([url]) => /draft|session|submission/.test(url))).toBe(false);
+  wrapper.vm.submitted = true; await flushPromises(); expect(sessionStorage.getItem('interest-draft:v1:itsco:counseling')).toBeNull();
+ });
+ it('does not restore another agency or expired answers, and offers a complete clear action', async () => {
+  await render(); wrapper.vm.form.respondent.firstName = 'DEMO Isolated'; await flushPromises(); wrapper.unmount();
+  await render('other'); expect(wrapper.vm.form.respondent.firstName).toBe(''); wrapper.unmount();
+  const saved = JSON.parse(sessionStorage.getItem('interest-draft:v1:itsco:counseling'));
+  saved.savedAt = Date.now() - 13 * 60 * 60 * 1000; sessionStorage.setItem('interest-draft:v1:itsco:counseling', JSON.stringify(saved));
+  await render(); expect(wrapper.vm.form.respondent.firstName).toBe('');
+  wrapper.vm.form.respondent.firstName = 'DEMO Clear'; await flushPromises();
+  await wrapper.get('.ai-clear-draft').trigger('click'); await flushPromises();
+  expect(wrapper.vm.form.respondent.firstName).toBe(''); expect(sessionStorage.getItem('interest-draft:v1:itsco:counseling')).toBeNull();
+ });
+ it('shows translated schedule, city and dates on review without translating respondent text', async () => {
+  setPublicLocale('es'); await render('itsco', { exchangeEssentialsRequired: true });
+  wrapper.vm.form.birthdate = '1990-01-15'; wrapper.vm.form.address.city = 'Denver';
+  wrapper.vm.form.preferences.preferredModality = 'in_person';
+  wrapper.vm.form.preferences.exchangeSchedule = { days: ['Monday'], periods: ['morning'], windows: [{ day: 'Tuesday', start: '16:00', end: '17:00' }], timezone: 'America/Denver', notes: 'Private notes' };
+  wrapper.vm.quickStep = 5; await flushPromises();
+  expect(wrapper.text()).toContain('15 de enero de 1990'); expect(wrapper.text()).toContain('Días: Lunes');
+  expect(wrapper.text()).toContain('Horarios preferidos: Mañana / AM'); expect(wrapper.text()).toContain('Martes: 4:00 PM–5:00 PM');
+  expect(wrapper.text()).toContain('Denver'); expect(wrapper.text()).toContain('Private notes');
+ });
