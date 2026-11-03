@@ -95,8 +95,9 @@
             <input v-model="settings.smsSupportFallbackPhone" class="input" placeholder="+15551234567" />
           </div>
           <div class="form-group">
-            <label>SMS support escalation timeout (hours)</label>
+            <label>Stale text timeout (elapsed hours)</label>
             <input v-model.number="settings.smsSupportEscalationHours" class="input" type="number" min="1" max="168" />
+            <p class="muted">Default: 24 hours from the first unanswered client text, including nights and weekends. Follow-up texts do not restart the clock. Support receives an in-app Stale text item.</p>
           </div>
           <div class="form-group">
             <label>Auto-reply if unanswered (minutes)</label>
@@ -553,7 +554,7 @@ const settings = ref({
   companyEventsEnabled: false,
   companyEventsSenderNumberId: null,
   smsSupportFallbackPhone: '',
-  smsSupportEscalationHours: 12,
+  smsSupportEscalationHours: 24,
   voiceSupportFallbackPhone: '',
   voiceSupportFallbackMessage: '',
   voiceProviderRingTimeoutSeconds: 20,
@@ -647,7 +648,7 @@ const loadSettings = async () => {
       companyEventsEnabled: res.data?.companyEventsEnabled === true,
       companyEventsSenderNumberId: res.data?.companyEventsSenderNumberId || null,
       smsSupportFallbackPhone: res.data?.smsSupportFallbackPhone || '',
-      smsSupportEscalationHours: Number(res.data?.smsSupportEscalationHours || 12) || 12,
+      smsSupportEscalationHours: Number(res.data?.smsSupportEscalationHours || 24) || 24,
       voiceSupportFallbackPhone: res.data?.voiceSupportFallbackPhone || '',
       voiceSupportFallbackMessage: res.data?.voiceSupportFallbackMessage || '',
       voiceProviderRingTimeoutSeconds: Number(res.data?.voiceProviderRingTimeoutSeconds || 20) || 20,

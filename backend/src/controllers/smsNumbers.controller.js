@@ -1,3 +1,4 @@
+import { DEFAULT_STALE_TEXT_HOURS } from '../utils/staleTextPolicy.js';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
@@ -138,7 +139,7 @@ export const getAgencySmsSettings = async (req, res, next) => {
       voiceProviderPreConnectMessage: flags.voiceProviderPreConnectMessage || null,
       voiceSupportPreConnectMessage: flags.voiceSupportPreConnectMessage || null,
       smsSupportFallbackPhone: flags.smsSupportFallbackPhone || null,
-      smsSupportEscalationHours: Number(flags.smsSupportEscalationHours || 12) || 12,
+      smsSupportEscalationHours: Number(flags.smsSupportEscalationHours || DEFAULT_STALE_TEXT_HOURS) || DEFAULT_STALE_TEXT_HOURS,
       smsUnansweredAutoReplyMinutes: Number(flags.smsUnansweredAutoReplyMinutes || 0) || 0,
       smsUnansweredAutoReplyMessage: flags.smsUnansweredAutoReplyMessage || null
     });
@@ -232,7 +233,7 @@ export const updateAgencySmsSettings = async (req, res, next) => {
     }
     if (smsSupportEscalationHours !== undefined) {
       const n = parseInt(smsSupportEscalationHours, 10);
-      flags.smsSupportEscalationHours = Number.isFinite(n) ? Math.min(Math.max(n, 1), 168) : 12;
+      flags.smsSupportEscalationHours = Number.isFinite(n) ? Math.min(Math.max(n, 1), 168) : DEFAULT_STALE_TEXT_HOURS;
     }
     if (smsUnansweredAutoReplyMinutes !== undefined) {
       const n = parseInt(smsUnansweredAutoReplyMinutes, 10);
@@ -260,7 +261,7 @@ export const updateAgencySmsSettings = async (req, res, next) => {
       voiceProviderPreConnectMessage: flags.voiceProviderPreConnectMessage || null,
       voiceSupportPreConnectMessage: flags.voiceSupportPreConnectMessage || null,
       smsSupportFallbackPhone: flags.smsSupportFallbackPhone || null,
-      smsSupportEscalationHours: Number(flags.smsSupportEscalationHours || 12) || 12,
+      smsSupportEscalationHours: Number(flags.smsSupportEscalationHours || DEFAULT_STALE_TEXT_HOURS) || DEFAULT_STALE_TEXT_HOURS,
       smsUnansweredAutoReplyMinutes: Number(flags.smsUnansweredAutoReplyMinutes || 0) || 0,
       smsUnansweredAutoReplyMessage: flags.smsUnansweredAutoReplyMessage || null
     });

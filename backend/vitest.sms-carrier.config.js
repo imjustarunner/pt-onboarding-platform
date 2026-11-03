@@ -15,6 +15,7 @@ export default {
       'src/services/__tests__/messaging.providerRelayPreference.test.js',
       'src/services/__tests__/messaging.providerRelaySupport.test.js',
       'src/services/__tests__/messaging.requestedSupport.test.js',
+      'src/services/__tests__/messaging.staffEscalationPrivacy.test.js',
       'src/services/__tests__/messaging.sharedCareSend.test.js',
       'src/services/__tests__/messaging.staffCommunications.test.js',
       'src/services/__tests__/clientExchangeSms.test.js',
