@@ -47,6 +47,20 @@ beforeEach(() => {
 });
 
 describe('outbound email author signature', () => {
+  it.each(['auto', 'manual'])('keeps school packet notices signed by Schools for %s delivery', async source => {
+    const result = await finalizeOutboundContent({ ...message, source,
+      templateType: 'school_enrollment_packet_status',
+      identity: { id: 12, agency_id: 2, identity_key: 'schools', display_name: 'Schools',
+        from_email: 'schools@itsco.health', reply_to: 'schools@itsco.health' }
+    });
+    expect(result.html).toContain('pt-department-html-signature');
+    expect(result.html).toContain('Schools');
+    expect(result.html).toContain('schools@itsco.health');
+    expect(result.html).not.toContain('<!-- pt-staff-html-signature -->');
+    expect(result.html).not.toContain('Michael Mendez');
+    expect(result.html).not.toContain('Director of Operations');
+    expect(result.text).not.toContain('michael@itsco.health');
+  });
   it.each(['messages', 'personal_5'])('adds only the staff signature through %s', async identity_key => {
     const result = await finalizeOutboundContent({ ...message, identity: { ...identity, identity_key } });
     expect(result.html.match(/<!-- pt-staff-html-signature -->/g)).toHaveLength(1);

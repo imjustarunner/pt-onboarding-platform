@@ -9,6 +9,7 @@ export default {
     environment: 'node',
     include: [
       'src/services/__tests__/schoolEmailPortal.test.js',
+      'src/services/__tests__/messaging.outboundSignature.test.js',
       'src/services/__tests__/clientExchangeEnrollmentNotice.test.js'
     ],
     restoreMocks: true

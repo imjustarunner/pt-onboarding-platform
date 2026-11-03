@@ -244,23 +244,17 @@ async function sendSchoolIntakeStatusEmail({
   const supportTeam = SCHOOL_EMAIL_DISPLAY_NAME;
 
   const lead = isPaper
-    ? (
-        initials && staff
-          ? `A new ${packetLabel} has been uploaded into our system by ${staff} for the client with initials ${initials}.`
-          : initials
-            ? `A new ${packetLabel} has been uploaded into our system for the client with initials ${initials}.`
-            : `A new ${packetLabel} has been uploaded into our system for a new client.`
-      )
-    : (
-        initials
-          ? `A new ${packetLabel} has been submitted for the client with initials ${initials}.`
-          : `A new ${packetLabel} has been submitted for a new client.`
-      );
+    ? `A new ${packetLabel} has been uploaded into our system.`
+    : `A new ${packetLabel} has been submitted.`;
+  const initialsLine = `Client Initials: ${initials || 'Not recorded'}`;
+  const uploaderLine = isPaper ? `Uploaded by: ${staff || 'Not recorded'}` : null;
 
   const text = [
     'Hello,',
     '',
     lead,
+    initialsLine,
+    ...(uploaderLine ? [uploaderLine] : []),
     '',
     'Our team has been notified and we are working on getting this client onboarded and ready for scheduling. When a clinician is assigned, the school team and assigned clinician will receive an individual email with the next steps. If the client is placed on the waitlist, the school team will receive a separate update with the recorded reason.',
     '',
@@ -284,6 +278,8 @@ async function sendSchoolIntakeStatusEmail({
     <div style="font-family: Arial, Helvetica, sans-serif; line-height: 1.55; color: #1a1a1a; max-width: 640px;">
       <p>Hello,</p>
       <p>${esc(lead)}</p>
+      <p><strong>Client Initials:</strong> ${esc(initials || 'Not recorded')}</p>
+      ${isPaper ? `<p><strong>Uploaded by:</strong> ${esc(staff || 'Not recorded')}</p>` : ''}
       <p>Our team has been notified and we are working on getting this client onboarded and ready for scheduling. When a clinician is assigned, the school team and assigned clinician will receive an individual email with the next steps. If the client is placed on the waitlist, the school team will receive a separate update with the recorded reason.</p>
       <p><a href="${esc(portalUrl)}" style="display:inline-block;padding:10px 16px;background:#1f6b4a;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">Open school portal</a></p>
       <p style="font-size:13px;color:#555;">Or visit <a href="${esc(portalUrl)}">${esc(portalUrl)}</a></p>

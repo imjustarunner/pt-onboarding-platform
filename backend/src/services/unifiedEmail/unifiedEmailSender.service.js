@@ -230,7 +230,9 @@ export async function finalizeOutboundContent({
   if (providerUpdateReceipt && !portal && !String(html || '').includes('data-pt-provider-update-receipt="1"')) {
     html = renderProviderUpdateReceipt({ text });
   }
-  const useStaffSignature = !portal && generatedByUserId && (
+  // A manual retry still belongs to Schools; its initiating user is audit data.
+  const schoolPacketNotice = tt === 'school_enrollment_packet_status';
+  const useStaffSignature = !schoolPacketNotice && !portal && generatedByUserId && (
     tt === 'hub_email' || (
       src === 'manual' &&
       tt !== 'support_ticket_reply_team' &&

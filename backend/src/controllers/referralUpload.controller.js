@@ -425,7 +425,7 @@ export const submitReferralPacketDraft = async (req, res, next) => {
       clientNameOrIdentifier: client.identifier_code || client.initials || `ID ${client.id}`,
       clientInitials: client.initials || null,
       mode: 'paper_upload',
-      schoolStaffName: String(req.user?.role || '').toLowerCase() === 'school_staff' ? uploaderLabel : null
+      schoolStaffName: uploaderLabel === 'public_upload' ? 'Public upload' : uploaderLabel
     }).catch((error) => {
       console.error('[packetNotification] Delivery needs review', {
         clientId: client.id,

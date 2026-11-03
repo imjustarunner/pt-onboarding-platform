@@ -112,3 +112,19 @@ it('never substitutes another agency Schools sender',async()=>{
  expect(m.send).not.toHaveBeenCalled();
  expect(m.log).toHaveBeenCalledWith(expect.objectContaining({metadata:expect.objectContaining({skipReason:'No tenant schools@ sender identity configured'})}));
 });
+
+it('labels digital client initials and preserves their stored capitalization',async()=>{
+ await notifyNewPacketUploaded({agencyId:2,schoolOrganizationId:20,clientId:10,clientInitials:'ReaDom'});
+ const mail=m.send.mock.calls[0][0];
+ expect(mail.text).toContain('Client Initials: ReaDom');
+ expect(mail.html).toContain('<strong>Client Initials:</strong> ReaDom');
+ expect(mail.text).not.toContain('Uploaded by:');
+});
+
+it('identifies the paper packet uploader alongside the client initials',async()=>{
+ await notifyNewPacketUploaded({agencyId:2,schoolOrganizationId:20,clientId:10,clientInitials:'ReaDom',mode:'paper_upload',schoolStaffName:'Jamie & Taylor'});
+ const mail=m.send.mock.calls[0][0];
+ expect(mail.text).toContain('Client Initials: ReaDom');
+ expect(mail.text).toContain('Uploaded by: Jamie & Taylor');
+ expect(mail.html).toContain('<strong>Uploaded by:</strong> Jamie &amp; Taylor');
+});
