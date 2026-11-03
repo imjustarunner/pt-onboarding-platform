@@ -1,3 +1,4 @@
+import { screeningEncounterProposal } from '../services/h0002EncounterDetails.js';
 import { grantScreeningDocumentRead } from '../services/h0002DocumentAccess.service.js';
 import { listClientPhiDocuments, viewPhiDocument } from './phiDocuments.controller.js';
 import { closeRoiScreening } from '../services/h0002ScreeningDisposition.service.js';
@@ -25,7 +26,7 @@ export async function getH0002ScreeningReview(req, res, next) {
       clientCode: source.taskMeta.h0002Code, submittedAt: source.submittedAt, sourceHash: source.sourceHash,
       sourceText: source.summary, draftText: maybeDecryptNotePayload(note.note_payload), psc: source.psc,
       suggestedOutcome: source.suggestedOutcome, reportedConcerns: source.reportedConcerns, safetyFlag: source.safetyFlag,
-      proposedReview: proposedScreeningReview(source),
+      encounterProposal:screeningEncounterProposal(source), proposedReview: proposedScreeningReview(source),
       reviewServiceDate: screeningDate() });
   } catch (error) { next(error); }
 }

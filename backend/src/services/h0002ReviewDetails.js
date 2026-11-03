@@ -12,10 +12,14 @@ export function screeningPresentingProblem(input) {
 export function validateScreeningDraft(input, source) {
   if (input.sourceHash !== source.sourceHash) throw Object.assign(new Error('The source questionnaire changed. Reopen it before saving.'), { status: 409 });
   const result = { sourceHash: source.sourceHash };
-  for (const key of ['outcome','assessment','followUp','presentingProblem','safetyConcern','placeOfService']) {
+  for (const key of ['outcome','assessment','followUp','presentingProblem','safetyConcern','placeOfService','dateOfService','startTime','endTime','participants']) {
     if (input[key] != null && (typeof input[key] !== 'string' || input[key].length > 10000)) fail(`Invalid ${key}.`);
     result[key] = input[key] || '';
   }
+  result.durationMinutes = input.durationMinutes == null || input.durationMinutes === '' ? '' : Number(input.durationMinutes);
+  if (result.durationMinutes !== '' && (!Number.isInteger(result.durationMinutes) || result.durationMinutes<1 || result.durationMinutes>1440)) fail('Invalid screening duration.');
+  result.patientPresent = typeof input.patientPresent === 'boolean' ? input.patientPresent : null;
+  result.serviceDetailsConfirmed = input.serviceDetailsConfirmed === true;
   result.paperTranscription = input.paperTranscription === true;
   if (input.paperDocumentId != null && (!Number.isSafeInteger(Number(input.paperDocumentId)) || Number(input.paperDocumentId) < 1)) fail('Invalid paper document.');
   result.paperDocumentId = input.paperDocumentId ? Number(input.paperDocumentId) : null;

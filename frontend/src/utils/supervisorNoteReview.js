@@ -54,13 +54,14 @@ export function supervisorServiceDetails(note) {
     startTime: note?.startTime || chart.startTime || '',
     endTime: note?.endTime || chart.endTime || '',
     placeOfService: note?.placeOfService || chart.placeOfService || note?.metadata?.placeOfService || '',
+    participants: chart.participants || '', patientPresent: typeof chart.patientPresent === 'boolean' ? chart.patientPresent : null,
     serviceLocationId: note?.serviceLocationId || chart.serviceLocationId || note?.sessionTiming?.serviceLocationId || null
   };
   return { ...base, ...(note?.effectiveServiceDetails || {}), ...(note?.pendingServiceDetails || {}) };
 }
 
-export function missingSupervisorServiceDetails(details, { requirePlaceOfService = false } = {}) {
+export function missingSupervisorServiceDetails(details, { requirePlaceOfService = false, requireParticipants = false } = {}) {
   return [
-    ['durationMinutes', 'duration'], ['locationLabel', 'location'], ['startTime', 'start time'], ['endTime', 'end time'], ...(requirePlaceOfService ? [['placeOfService', 'place of service']] : [])
-  ].filter(([key]) => !text(details?.[key]) || (key === 'durationMinutes' && Number(details[key]) <= 0)).map(([, label]) => label);
+    ['durationMinutes', 'duration'], ['locationLabel', 'location'], ['startTime', 'start time'], ['endTime', 'end time'], ...(requirePlaceOfService ? [['placeOfService', 'place of service']] : []), ...(requireParticipants ? [['participants','participants']] : [])
+  ].filter(([key]) => !text(details?.[key]) || (key === 'durationMinutes' && Number(details[key]) <= 0)).map(([, label]) => label).concat(requireParticipants && typeof details?.patientPresent !== 'boolean' ? ['patient presence'] : []);
 }

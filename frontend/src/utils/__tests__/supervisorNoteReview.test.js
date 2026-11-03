@@ -26,3 +26,11 @@ describe('supervisor note presentation', () => {
     expect(parseReviewContent('Plain signed screener').note).toBe('Plain signed screener');
   });
 });
+
+describe('readable acknowledgement notices',()=>{
+ it('displays the legacy amendment notice with field labels and patient presence',async()=>{
+  const {readableReviewMessage}=await import('../noteReviewWork.js');
+  const message=readableReviewMessage('Please review the correction.\n'+JSON.stringify({durationMinutes:10,startTime:'10:00',endTime:'10:10',locationLabel:'Home',participants:'Guardian: DEMO',patientPresent:false}));
+  expect(message).toContain('Duration (minutes): 10');expect(message).toContain('Participants: Guardian: DEMO');expect(message).toContain('Patient present: No');expect(message).not.toContain('{');
+ });
+});

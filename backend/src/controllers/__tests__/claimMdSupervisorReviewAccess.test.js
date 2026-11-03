@@ -6,7 +6,7 @@ vi.mock('../../models/clinical/ClinicalNote.model.js',()=>({default:{findById:m.
 vi.mock('../../services/clinicalEligibility.service.js',()=>({default:{ensureAgencyAccess:m.access}}));
 vi.mock('../../services/supervisedBillingPolicy.service.js',()=>({resolveNoteDocumentationPolicy:m.policy,parseObject:v=>typeof v==='string'?JSON.parse(v):v||{},policyError:(status,message)=>Object.assign(new Error(message),{status}),isNonBillableDocument:()=>false}));
 vi.mock('../../services/clinicalNoteCrypto.service.js',()=>({maybeEncryptNotePayload:v=>v}));
-vi.mock('../../services/clinicalSupervisorReview.service.js',()=>({lockedNoteMutation:m.mutation,noteAuthorId:n=>n.provider_signed_by_user_id||n.created_by_user_id,reviewRequestsForDisplay:meta=>meta.reviewRequests||[],appendReviewRequest:vi.fn(),acknowledgeReviewRequest:vi.fn(),normalizeServiceDetails:v=>v,effectiveServiceDetails:vi.fn(),serviceDetailTimes:vi.fn()}));
+vi.mock('../../services/clinicalSupervisorReview.service.js',()=>({lockedNoteMutation:m.mutation,noteAuthorId:n=>n.provider_signed_by_user_id||n.created_by_user_id,reviewRequestsForDisplay:meta=>meta.reviewRequests||[],appendReviewRequest:vi.fn(),acknowledgeReviewRequest:vi.fn(),normalizeServiceDetails:v=>v,effectiveServiceDetails:vi.fn(()=>({durationMinutes:60})),serviceDetailTimes:vi.fn(),verifyServiceAmendmentLocation:vi.fn(async()=>({name:'Virtual',place_of_service:'10'})),serviceLocationSnapshot:vi.fn(v=>v),markSupervisorQueue:vi.fn(),synchronizeSupervisorQueue:vi.fn(async()=>true)}));
 vi.mock('../../utils/planStaffAccess.js',()=>({requireStaffPlanActor:m.staff}));
 vi.mock('../../services/medicalBillingFlags.service.js',()=>({getMedicalBillingFlags:m.flags}));
 import {postSupervisorReview,correctNoteServiceDetails,listMyNoteReviewWork} from '../clinicalSupervisorReview.controller.js';
@@ -35,4 +35,22 @@ describe('supervisor action tenant and author access',()=>{
     expect(next).not.toHaveBeenCalled();expect(m.clinical.mock.calls[0][1]).toEqual([5]);expect(m.staff).toHaveBeenCalled();
     expect(res.json.mock.calls[0][0].items).toEqual([expect.objectContaining({clinicalNoteId:4,agencyId:2,requestId:'r1',clientName:'DEMO QA Client'})]);
   });
+});
+
+it('revises a pending amendment without replacing its signed entry and resolves its obsolete acknowledgement',async()=>{
+  const oldRequest={id:'r1',source:'service_correction',amendmentId:11,acknowledgedAt:null};
+  const meta={serviceCode:'H0002',dateOfService:'2026-11-03',serviceDetailAmendments:[{id:11,serviceDetails:{durationMinutes:60},approvedAt:null}],reviewRequests:[oldRequest]};
+  const signed={id:4,agency_id:2,client_id:3,clinical_session_id:7,provider_signed_by_user_id:5,provider_signed_at:'2026-11-03',metadata_json:meta};
+  m.find.mockResolvedValue(signed);m.access.mockResolvedValue(true);m.policy.mockResolvedValue({supervisorUserId:9});
+  m.clinical.mockImplementation(async sql=>sql.includes('FROM clinical_sessions')?[[{id:7,source_timezone:'America/Denver'}]]:sql.includes('INSERT INTO clinical_note_addenda')?[{insertId:12}]:[[]]);
+  m.mutation.mockImplementation(async({mutate})=>mutate({db:{execute:m.clinical},note:signed,meta,current:{hash:'v1'}}));
+  const serviceDetails={durationMinutes:10,startTime:'10:00',endTime:'10:10',locationLabel:'Virtual',placeOfService:'10',participants:'Guardian: DEMO; interpreter: QA',patientPresent:false};
+  const res=response(),next=vi.fn();
+  await correctNoteServiceDetails({params:{noteId:4},user:{id:9},body:{agencyId:2,contentHash:'v1',reviewSnapshotToken:'snapshot',serviceDetails,reason:'Added the interpreter before approval.',attested:true}},res,next);
+  expect(next).not.toHaveBeenCalled();
+  expect(meta.serviceDetailAmendments[0]).toMatchObject({id:11,approvedAt:null,supersededByAmendmentId:12});
+  expect(meta.serviceDetailAmendments[1]).toMatchObject({id:12,createdByUserId:9,serviceDetails:expect.objectContaining({participants:serviceDetails.participants,patientPresent:false})});
+  expect(oldRequest.resolvedAt).toBeTruthy();expect(oldRequest.acknowledgedAt).toBeNull();
+  expect(m.clinical.mock.calls.some(([sql])=>sql.includes('UPDATE clinical_note_addenda'))).toBe(false);
+  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({requiresCosign:true,claimTransmitted:false}));
 });

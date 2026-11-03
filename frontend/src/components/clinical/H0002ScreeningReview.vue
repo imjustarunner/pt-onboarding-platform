@@ -9,7 +9,7 @@
         <div v-if="data" class="review-columns">
           <div class="review-form">
             <p><strong>{{ data.clientType === 'school' ? 'School client' : 'Office client' }}</strong><span v-if="data.schoolName"> · {{ data.schoolName }}</span></p>
-            <p class="muted">Questionnaire received: {{ data.submittedAt }}. Service date on signing: {{ data.reviewServiceDate }} (Mountain time).</p>
+            <p class="muted">Questionnaire received: {{ data.submittedAt }}. Confirm the actual service date below (Mountain time).</p>
             <section v-if="data.sourceLanguage === 'es'" class="language-box">
               <strong>This questionnaire was submitted in Spanish.</strong>
               <label>Answer language<select v-model="answerLanguage"><option value="en">English</option><option value="es">Spanish (original)</option><option value="both">English and Spanish</option></select></label>
@@ -61,6 +61,17 @@
               <p v-if="review.safetyConcern"><strong>Reported safety concern: {{ review.safetyConcern }}</strong></p>
               <label>Clinical assessment and rationale<textarea v-model="review.assessment" rows="4" maxlength="10000" /></label>
               <label>Treatment needs, available options and follow-up<textarea v-model="review.followUp" rows="3" maxlength="10000" /></label>
+              <fieldset class="encounter-details"><legend>Service details and participants</legend>
+                <p class="muted">Proposed times end at the questionnaire submission and begin 10 minutes earlier. Confirm or correct the actual screening service date and times. A submission timestamp alone does not establish service duration or attendance.</p>
+                <p v-if="data.encounterProposal?.crossesMidnight" class="error">The proposed window crosses midnight. Enter the actual service date and a supported same-day window, or contact the office for review.</p>
+                <label>Service date<input v-model="review.dateOfService" type="date" data-testid="screening-service-date" /></label>
+                <label>Duration (minutes)<input v-model="review.durationMinutes" type="number" min="1" max="1440" data-testid="screening-duration" /></label>
+                <label>Start time<input v-model="review.startTime" type="time" data-testid="screening-start" /></label>
+                <label>End time<input v-model="review.endTime" type="time" data-testid="screening-end" /></label>
+                <label>Participants<input v-model="review.participants" maxlength="1000" data-testid="screening-participants" placeholder="Names and roles of people who participated" /></label>
+                <label>Patient present<select v-model="review.patientPresent" data-testid="screening-patient-present"><option :value="null">Confirm patient presence</option><option :value="true">Patient present</option><option :value="false">Patient not present</option></select></label>
+                <label class="check"><input v-model="review.serviceDetailsConfirmed" type="checkbox" />I confirmed the actual service date, times, participants and patient presence.</label>
+              </fieldset>
               <label>Client service location<select v-model="review.placeOfService"><option value="10">Virtual — client’s home (10)</option><option value="03">School (03){{ data.schoolName ? ` — ${data.schoolName}` : '' }}</option><option value="11">Office (11)</option><option value="02">Virtual — outside the client’s home (02)</option></select></label>
               <label class="check"><input v-model="review.locationConfirmed" type="checkbox" />I confirmed the client service location for this screening.</label>
               <p class="muted">The submission method suggests a location for review. Your own address is not required.</p>
@@ -91,7 +102,7 @@ const englishText=ref(''),answerLanguage=ref('en'),translationText=ref(''),noIde
 const packets=ref([]),packetUrl=ref(''),packetError=ref(''),packetIsPdf=ref(false);
 let packetObjectUrl='',packetRequest=0;
 const outcomes = { meets: 'Does meet criteria for admission', does_not_meet: 'Does not meet criteria for admission', further_evaluation: 'Further clinical evaluation is needed' };
-const review = reactive({ outcome:'further_evaluation',assessment:'',followUp:'',presentingProblem:'',safetyConcern:'',placeOfService:'10',paperTranscription:false,paperDocumentId:null,paperSourceConfirmed:false,paperResponses:{},locationConfirmed:false,noConcernsConfirmed:false,reviewConfirmed:false,safetyReviewed:false,accurateAndComplete:false,medicalNecessityAttested:false });
+const review = reactive({ outcome:'further_evaluation',assessment:'',followUp:'',presentingProblem:'',dateOfService:'',durationMinutes:'',startTime:'',endTime:'',participants:'',patientPresent:null,serviceDetailsConfirmed:false,safetyConcern:'',placeOfService:'10',paperTranscription:false,paperDocumentId:null,paperSourceConfirmed:false,paperResponses:{},locationConfirmed:false,noConcernsConfirmed:false,reviewConfirmed:false,safetyReviewed:false,accurateAndComplete:false,medicalNecessityAttested:false });
 let revision=0, timer, ready=false, savePromise=null;
 const savedSnapshot=ref('');
 if(inject(matchedRouteKey,null))onBeforeRouteLeave(async()=>{if(saving.value&&!savePromise)return false;return await saveDraft();});
@@ -104,7 +115,8 @@ const effectivePsc=computed(()=>{
 });
 const suggestedOutcome=computed(()=>review.paperTranscription?(effectivePsc.value.complete&&effectivePsc.value.total>=15?'meets':'further_evaluation'):data.value?.suggestedOutcome);
 const needsSafetyReview=computed(()=>data.value?.safetyFlag || !!review.safetyConcern.trim());
-const canSign = computed(() => !data.value?.roiOnly && (!review.paperTranscription || (review.paperDocumentId && review.paperSourceConfirmed)) && effectivePsc.value.complete && !Object.values(effectivePsc.value.subscales || {}).some(s=>s.score==null)
+const encounterComplete=computed(()=>review.dateOfService && Number(review.durationMinutes)>0 && /^\d{2}:\d{2}$/.test(review.startTime) && /^\d{2}:\d{2}$/.test(review.endTime) && (Number(review.endTime.slice(0,2))*60+Number(review.endTime.slice(3)))-(Number(review.startTime.slice(0,2))*60+Number(review.startTime.slice(3)))===Number(review.durationMinutes) && review.participants.trim() && typeof review.patientPresent==='boolean' && review.serviceDetailsConfirmed);
+const canSign = computed(() => !data.value?.roiOnly && encounterComplete.value && (!review.paperTranscription || (review.paperDocumentId && review.paperSourceConfirmed)) && effectivePsc.value.complete && !Object.values(effectivePsc.value.subscales || {}).some(s=>s.score==null)
   && review.assessment.trim().length>=3 && review.followUp.trim().length>=3 && review.presentingProblem.trim().length>=3 && review.locationConfirmed
   && review.reviewConfirmed && review.accurateAndComplete && review.medicalNecessityAttested
   && (!needsSafetyReview.value || (review.safetyReviewed && review.safetyConcern.trim()))
@@ -114,7 +126,7 @@ onMounted(async()=>{
   window.addEventListener('beforeunload',warnUnsaved);
   try {
     const {data:result}=await api.get(`${endpoint()}/review`,{params:{agencyId:props.agencyId},skipGlobalLoading:true});data.value=result;
-    Object.assign(review,{outcome:result.suggestedOutcome,assessment:result.proposedReview?.assessment||'',followUp:result.proposedReview?.followUp||'',placeOfService:result.location?.code||'10',safetyConcern:(result.safetyConcerns||[]).join('\n'),presentingProblem:result.sourceLanguage==='es'?'':result.proposedReview?.presentingProblem||result.sourceText||''},result.savedReview||{});
+    Object.assign(review,result.encounterProposal || {},{outcome:result.suggestedOutcome,assessment:result.proposedReview?.assessment||'',followUp:result.proposedReview?.followUp||'',placeOfService:result.location?.code||'10',safetyConcern:(result.safetyConcerns||[]).join('\n'),presentingProblem:result.sourceLanguage==='es'?'':result.proposedReview?.presentingProblem||result.sourceText||''},result.savedReview||{});
     revision=Number(result.savedReview?.revision||0);englishText.value=result.sourceEnglish||'';translationText.value=result.translationPreview||'';
     savedSnapshot.value=result.savedReview?snapshot():'';await nextTick();ready=true;if(!result.signedAt && !result.roiOnly)await saveDraft();
     if(result.roiOnly || !result.psc?.complete || result.packetMethod==='paper' || review.paperTranscription)await loadPackets();
@@ -122,6 +134,7 @@ onMounted(async()=>{
   finally{loading.value=false;}
 });
 watch(review,()=>{if(!ready||data.value?.signedAt||data.value?.roiOnly)return;clearTimeout(timer);timer=setTimeout(()=>saveDraft(),800);},{deep:true});
+watch(()=>[review.dateOfService,review.durationMinutes,review.startTime,review.endTime,review.participants,review.patientPresent],()=>{if(ready)review.serviceDetailsConfirmed=false;});
 watch(()=>review.placeOfService,()=>{if(ready)review.locationConfirmed=false;});
 watch(()=>review.paperTranscription,()=>{if(!ready)return;review.locationConfirmed=false;if(review.paperTranscription){review.placeOfService=data.value?.clientType==='school'?'03':'11';review.assessment='';review.outcome='further_evaluation';}});
 watch(()=>review.paperResponses,()=>{if(ready)review.paperSourceConfirmed=false;},{deep:true});

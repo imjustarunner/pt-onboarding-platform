@@ -1,8 +1,9 @@
+import { screeningEncounterProposal } from '../services/h0002EncounterDetails.js';
 import { logNoteAidChartEvent } from '../services/noteAidChartAudit.service.js';
 import { assertLiveClearinghouseAgency } from '../services/syntheticClearinghouseGuard.service.js';
 import { parseObject } from '../services/supervisedBillingPolicy.service.js';
 import { sessionLocationLabel, reviewSnapshotToken, reviewRequestsForDisplay, effectiveServiceDetails, pendingServiceDetails, assertNoUnresolvedChanges, assertServiceDetailsComplete, applyApprovedServiceDetails, markSupervisorQueue, synchronizeSupervisorQueue } from '../services/clinicalSupervisorReview.service.js';
-import { validateScreeningSignature, completeH0002Screening, H0002_SOURCE } from '../services/h0002ScreeningWorkflow.service.js';
+import { validateScreeningSignature, completeH0002Screening, loadScreeningSource, H0002_SOURCE } from '../services/h0002ScreeningWorkflow.service.js';
 import { providerBillingNpi } from '../services/providerBillingNpi.service.js';
 import { buildNoteAidLocationChoices } from '../services/noteAidLocations.service.js';
 import { requireStaffPlanActor } from '../utils/planStaffAccess.js';
@@ -1561,6 +1562,13 @@ export const getClinicalNoteById = async (req, res, next) => {
 
     await logNoteAidChartEvent(req, { clientId: note.client_id, agencyId: note.agency_id, action: 'clinical_note_viewed', metadata: { noteId: note.id, clinicalSessionId: note.clinical_session_id || null } });
     const serviceDetailView = effectiveServiceDetails(note,serviceDetailSession);
+    let serviceDetailProposal = null;
+    if (metadata.source === H0002_SOURCE && metadata.screeningTaskId && !metadata.structuredChart?.participants) {
+      try {
+        const source = await loadScreeningSource(metadata.screeningTaskId);
+        if (Number(source.client.id)===Number(note.client_id) && Number(source.task.assigned_to_agency_id)===Number(note.agency_id)) serviceDetailProposal=screeningEncounterProposal(source);
+      } catch { /* Missing source evidence leaves manual confirmation available. */ }
+    }
     let canSuperviseReview = false;
     try { canSuperviseReview = Number((await resolveNoteDocumentationPolicy(note)).supervisorUserId) === Number(req.user.id) && Number(note.provider_signed_by_user_id || note.created_by_user_id) !== Number(req.user.id); } catch { /* Authorization fails closed. */ }
     let clientName = metadata.clientName || null;
@@ -1582,6 +1590,7 @@ export const getClinicalNoteById = async (req, res, next) => {
         serviceDetailAmendments: metadata.serviceDetailAmendments || [],
         serviceTimeZone: sessionTiming?.timeZone || 'America/Denver',
         effectiveServiceDetails: serviceDetailView,
+        serviceDetailProposal,
         pendingServiceDetails: pendingServiceDetails(metadata),
         title: note.title,
         noteType: note.note_type || metadata?.noteType || null,
@@ -1834,9 +1843,10 @@ export const signClinicalNote = async (req, res, next) => {
     }
 
     if (note.clinical_session_id) {
-      const [[screenSession]] = await clinicalPool.execute('SELECT metadata_json FROM clinical_sessions WHERE id=? AND agency_id=? AND client_id=?', [note.clinical_session_id,note.agency_id,note.client_id]);
+      const [[screenSession]] = await clinicalPool.execute('SELECT * FROM clinical_sessions WHERE id=? AND agency_id=? AND client_id=?', [note.clinical_session_id,note.agency_id,note.client_id]);
       const screenMeta = typeof screenSession?.metadata_json === 'string' ? JSON.parse(screenSession.metadata_json) : screenSession?.metadata_json;
       const noteMeta = typeof note.metadata_json === 'string' ? JSON.parse(note.metadata_json) : note.metadata_json;
+      if (noteMeta?.serviceCode === 'H0002') assertServiceDetailsComplete(note,screenSession || {});
       if (screenMeta?.source === H0002_SOURCE && noteMeta?.source !== H0002_SOURCE) return res.status(409).json({ error: { message: 'Use the digital screening review to sign this encounter.' } });
     }
     validateScreeningSignature(note);

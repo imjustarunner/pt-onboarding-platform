@@ -6,7 +6,7 @@ import ClinicalNote from '../models/clinical/ClinicalNote.model.js';
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
 import { resolveNoteDocumentationPolicy, parseObject, policyError, isNonBillableDocument } from '../services/supervisedBillingPolicy.service.js';
 import { maybeEncryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
-import { appendReviewRequest, acknowledgeReviewRequest, normalizeServiceDetails, effectiveServiceDetails, reviewRequestsForDisplay, lockedNoteMutation, noteAuthorId, serviceDetailTimes, verifiedServiceLocation, serviceLocationSnapshot, markSupervisorQueue, synchronizeSupervisorQueue } from '../services/clinicalSupervisorReview.service.js';
+import { appendReviewRequest, acknowledgeReviewRequest, normalizeServiceDetails, effectiveServiceDetails, reviewRequestsForDisplay, lockedNoteMutation, noteAuthorId, serviceDetailTimes, verifyServiceAmendmentLocation, serviceLocationSnapshot, markSupervisorQueue, synchronizeSupervisorQueue } from '../services/clinicalSupervisorReview.service.js';
 
 async function noteScope(req, supervisor = false) {
   const note = await ClinicalNote.findById(Number(req.params.noteId));
@@ -70,11 +70,12 @@ export async function correctNoteServiceDetails(req,res,next) {
   try {
     const note = await noteScope(req,true), serviceDetails = normalizeServiceDetails(req.body.serviceDetails), reason=String(req.body.reason || '').trim();
     if (req.body.attested !== true || !reason || reason.length>2000) throw policyError(400,'Sign the service correction and enter a reason of 1–2,000 characters.');
-    serviceDetails.locationSnapshot = serviceLocationSnapshot(await verifiedServiceLocation(note.agency_id,serviceDetails));
     if (!note.clinical_session_id || isNonBillableDocument(note)) throw policyError(409,'Service details can be corrected only on a linked billable encounter.');
     const amendment = await lockedNoteMutation({noteId:note.id,agencyId:note.agency_id,contentHash:req.body.contentHash || '',snapshotToken:req.body.reviewSnapshotToken,lockEncounter:true,mutate:async({db,note:locked,meta,current})=>{
       const [[session]] = await db.execute('SELECT * FROM clinical_sessions WHERE id=? AND agency_id=?',[locked.clinical_session_id,locked.agency_id]);
       if (!session) throw policyError(409,'The linked encounter is unavailable.');
+      if (meta.serviceCode === 'H0002' && (!serviceDetails.participants || typeof serviceDetails.patientPresent !== 'boolean')) throw policyError(400,'List the screening participants and confirm whether the patient was present.');
+      serviceDetails.locationSnapshot=serviceLocationSnapshot(await verifyServiceAmendmentLocation(locked,session,serviceDetails));
       const [claims] = await db.execute('SELECT * FROM clinical_claims WHERE clinical_session_id=? AND agency_id=? AND is_deleted=0',[locked.clinical_session_id,locked.agency_id]);
       for(const c of claims) {
         const [[attempt]]=await db.execute("SELECT id FROM claimmd_claim_events WHERE agency_id=? AND clinical_claim_id=? AND event_type='approved_submission' LIMIT 1",[locked.agency_id,c.id]);
@@ -83,13 +84,19 @@ export async function correctNoteServiceDetails(req,res,next) {
       const dateOfService=String(meta.dateOfService || parseObject(session.metadata_json).serviceDate || '').slice(0,10), timeZone=session.source_timezone || 'America/Denver';
       serviceDetailTimes(serviceDetails,dateOfService,timeZone);
       const before=effectiveServiceDetails(locked,session), createdAt=new Date().toISOString();
-      const describe = d => `Duration: ${d.durationMinutes ?? 'Not recorded'} minutes; location: ${d.locationLabel || 'Not recorded'}; start: ${d.startTime || 'Not recorded'}; end: ${d.endTime || 'Not recorded'}; place of service: ${d.placeOfService || 'Not recorded'}; service location #${d.serviceLocationId || 'Not recorded'}${d.locationSnapshot ? `; verified address: ${[d.locationSnapshot.streetAddress,d.locationSnapshot.city,d.locationSnapshot.state,d.locationSnapshot.postalCode].filter(Boolean).join(', ') || 'Not recorded'}; billing office #${d.locationSnapshot.billingOfficeLocationId || 'Not selected'}` : ''}`;
+      const describe = d => `Participants: ${d.participants || 'Not recorded'}; patient present: ${typeof d.patientPresent === 'boolean' ? d.patientPresent ? 'Yes' : 'No' : 'Not recorded'}; duration: ${d.durationMinutes ?? 'Not recorded'} minutes; location: ${d.locationLabel || 'Not recorded'}; start: ${d.startTime || 'Not recorded'}; end: ${d.endTime || 'Not recorded'}; place of service: ${d.placeOfService || 'Not recorded'}; service location #${d.serviceLocationId || 'Not recorded'}${d.locationSnapshot ? `; verified address: ${[d.locationSnapshot.streetAddress,d.locationSnapshot.city,d.locationSnapshot.state,d.locationSnapshot.postalCode].filter(Boolean).join(', ') || 'Not recorded'}; billing office #${d.locationSnapshot.billingOfficeLocationId || 'Not selected'}` : ''}`;
       const body=`Supervisor service-detail correction\nDate of service: ${dateOfService}; timezone: ${timeZone}\nPrevious: ${describe(before)}\nCorrected: ${describe(serviceDetails)}\nReason: ${reason}\nElectronically attested by user #${req.user.id} at ${createdAt}. The original signed note is preserved. This correction requires supervisor approval before billing.`;
       const [added] = await db.execute('INSERT INTO clinical_note_addenda (clinical_note_id,agency_id,client_id,body,created_by_user_id,entry_kind,entry_reason,author_signed_at) VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP(6))',[note.id,note.agency_id,note.client_id,maybeEncryptNotePayload(body),req.user.id,'correction',reason]);
       const entry={id:added.insertId,before,serviceDetails,dateOfService,timeZone,reason,createdByUserId:req.user.id,createdAt,authorSignedAt:createdAt,approvedAt:null};
+      for (const previous of meta.serviceDetailAmendments || []) {
+        if (!previous.approvedAt && !previous.supersededByAmendmentId) {
+          previous.supersededByAmendmentId=entry.id;
+          for (const request of meta.reviewRequests || []) if (request.source==='service_correction' && Number(request.amendmentId)===Number(previous.id) && !request.acknowledgedAt) { request.resolvedAt=createdAt; request.supersededByAmendmentId=entry.id; }
+        }
+      }
       meta.serviceDetailAmendments=[...(meta.serviceDetailAmendments || []),entry];
       markSupervisorQueue(meta,locked,req.user.id,'awaiting_supervisor');
-      appendReviewRequest(meta,{action:'review_acknowledge',message:`Your supervisor corrected service details on this note. ${reason}\n${JSON.stringify(serviceDetails)}`,actorUserId:req.user.id,contentHash:current.hash,source:'service_correction',amendmentId:added.insertId});
+      appendReviewRequest(meta,{action:'review_acknowledge',message:`Your supervisor corrected service details on this note. ${reason}\n${describe(serviceDetails).replace(/; /g,"\n")}`,actorUserId:req.user.id,contentHash:current.hash,source:'service_correction',amendmentId:added.insertId});
       if(meta.supervisorCosign){meta.supervisorCosignHistory=[...(meta.supervisorCosignHistory || []),meta.supervisorCosign];delete meta.supervisorCosign;}
       await db.execute('UPDATE clinical_notes SET supervisor_cosigned_at=NULL,supervisor_cosigned_by_user_id=NULL WHERE id=? AND agency_id=?',[note.id,note.agency_id]);
       return entry;

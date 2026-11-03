@@ -19,12 +19,12 @@ describe('cosign entry point shared by dashboard and billing', () => {
     const w = mountReview();
     expect(api.get).not.toHaveBeenCalled();
     await w.find('button').trigger('click'); await flushPromises();
-    expect(api.get).toHaveBeenCalledWith('/supervision/supervisee/7/document-reviews/note/4', { params: { agencyId: 1 } });
+    expect(api.get).toHaveBeenCalledWith('/supervision/supervisee/7/document-reviews/note/4', { params: { agencyId: 1 }, skipGlobalLoading:true });
     expect(w.text()).toContain('Signed note for review');
     expect(w.find('[data-testid="cosign"]').element.disabled).toBe(true);
     await w.find('[data-testid="supervisor-attestation"]').setValue(true);
     await w.find('[data-testid="cosign"]').trigger('click'); await flushPromises();
-    expect(api.post).toHaveBeenCalledWith('/medical-billing/notes/4/cosign', { agencyId: 1, contentHash: 'version-2', reviewSnapshotToken: 'metadata-2', reviewedAndApproved: true });
+    expect(api.post).toHaveBeenCalledWith('/medical-billing/notes/4/cosign', { agencyId: 1, contentHash: 'version-2', reviewSnapshotToken: 'metadata-2', reviewedAndApproved: true }, {skipGlobalLoading:true});
     expect(w.emitted('signed')).toHaveLength(1);
     expect(w.findComponent(ClinicalNoteSupervisorReview).exists()).toBe(false); w.unmount();
   });

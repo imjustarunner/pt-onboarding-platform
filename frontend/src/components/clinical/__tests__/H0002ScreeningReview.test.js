@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Review from '../H0002ScreeningReview.vue';
 import api from '../../../services/api';
 vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn(),put:vi.fn()}}));
-const fixture=()=>({clientCode:'SAMPLE',clientId:5,clientType:'school',schoolName:'Example School',sourceText:'Reported worry',sourceHash:'v1',sourceLanguage:'en',psc:{complete:true,answered:17,total:11,subscales:{attention:{score:7}}},suggestedOutcome:'further_evaluation',reportedConcerns:true,safetyFlag:false,location:{code:'10'},proposedReview:{presentingProblem:'Reported worry',assessment:'Further assessment needed.',followUp:'Discuss care options.'}});
+const fixture=()=>({clientCode:'SAMPLE',clientId:5,clientType:'school',schoolName:'Example School',sourceText:'Reported worry',sourceHash:'v1',sourceLanguage:'en',psc:{complete:true,answered:17,total:11,subscales:{attention:{score:7}}},suggestedOutcome:'further_evaluation',reportedConcerns:true,safetyFlag:false,encounterProposal:{dateOfService:'2026-11-03',durationMinutes:10,startTime:'10:00',endTime:'10:10',participants:'Guardian: DEMO',patientPresent:false},location:{code:'10'},proposedReview:{presentingProblem:'Reported worry',assessment:'Further assessment needed.',followUp:'Discuss care options.'}});
 async function open(overrides={}){api.get.mockResolvedValue({data:{...fixture(),...overrides}});const w=mount(Review,{props:{sessionId:12,agencyId:2},global:{stubs:{Teleport:true}}});await flushPromises();return w;}
 const label=(w,text)=>w.findAll('label').find(node=>node.text().startsWith(text));
 beforeEach(()=>{vi.clearAllMocks();api.put.mockImplementation(async(url,body)=>({data:{review:{...body,revision:body.revision+1},noteId:99}}));api.post.mockResolvedValue({data:{ok:true}});});
@@ -36,7 +36,7 @@ describe('ROI disposition and source documents',()=>{
   await label(w,'Transcribe a paper').get('input').setValue(true);
   for(let i=1;i<=17;i++)await label(w,`Question ${i}`).get('select').setValue(0);
   await label(w,'Clinical assessment').get('textarea').setValue('Reviewed actual paper responses.');
-  for(const text of ['I confirmed the client','I reviewed the screening','The note is accurate','This screening service'])await label(w,text).get('input').setValue(true);
+  for(const text of ['I confirmed the actual service','I confirmed the client','I reviewed the screening','The note is accurate','This screening service'])await label(w,text).get('input').setValue(true);
   expect(w.get('.btn-primary').element.disabled).toBe(true);expect(api.post).not.toHaveBeenCalled();w.unmount();
  });
 });
@@ -45,14 +45,14 @@ describe('screening review and saved work',()=>{
  it('restores saved edits and resets signature attestations',async()=>{const w=await open({savedReview:{revision:3,assessment:'Saved assessment',followUp:'Saved follow-up',presentingProblem:'Saved concern',safetyConcern:'',placeOfService:'03',paperResponses:{}}});expect(label(w,'Clinical assessment').get('textarea').element.value).toBe('Saved assessment');expect(label(w,'Client service location').get('select').element.value).toBe('03');expect(label(w,'The note is accurate').get('input').element.checked).toBe(false);expect(api.put).not.toHaveBeenCalled();w.unmount();});
  it('saves edited text before closing and emits the saved queue update',async()=>{const w=await open();await label(w,'Presenting problem').get('textarea').setValue('Updated concern');await w.findAll('button').find(b=>b.text()==='Save and close').trigger('click');await flushPromises();expect(api.put).toHaveBeenLastCalledWith('/medical-billing/screening-sessions/12/draft',expect.objectContaining({presentingProblem:'Updated concern',revision:1}),expect.anything());expect(w.emitted('saved')).toHaveLength(2);expect(w.emitted('close')).toHaveLength(1);w.unmount();});
  it('keeps the form open and retains edits when saving fails',async()=>{const w=await open();await label(w,'Presenting problem').get('textarea').setValue('Keep this text');api.put.mockRejectedValue(new Error('offline'));await w.findAll('button').find(b=>b.text()==='Save and close').trigger('click');await flushPromises();expect(w.emitted('close')).toBeUndefined();expect(label(w,'Presenting problem').get('textarea').element.value).toBe('Keep this text');expect(w.text()).toContain('Not saved');w.unmount();});
- it('signs only after explicit review and location confirmation',async()=>{const w=await open();for(const text of ['I confirmed the client','I reviewed the screening','The note is accurate','This screening service'])await label(w,text).get('input').setValue(true);await w.find('.btn-primary').trigger('click');await flushPromises();expect(api.post).toHaveBeenCalledWith('/medical-billing/screening-sessions/12/sign',expect.objectContaining({sourceHash:'v1',locationConfirmed:true,reviewConfirmed:true,placeOfService:'10'}),expect.anything());expect(w.emitted('signed')).toHaveLength(1);w.unmount();});
+ it('signs only after explicit review and location confirmation',async()=>{const w=await open();for(const text of ['I confirmed the actual service','I confirmed the client','I reviewed the screening','The note is accurate','This screening service'])await label(w,text).get('input').setValue(true);await w.find('.btn-primary').trigger('click');await flushPromises();expect(api.post).toHaveBeenCalledWith('/medical-billing/screening-sessions/12/sign',expect.objectContaining({sourceHash:'v1',locationConfirmed:true,reviewConfirmed:true,placeOfService:'10'}),expect.anything());expect(w.emitted('signed')).toHaveLength(1);w.unmount();});
  it('shows the specific safety concern in bold without checking follow-up automatically',async()=>{const w=await open({safetyFlag:true,safetyConcerns:['History of neglect reported']});expect(w.findAll('strong').some(n=>n.text().includes('History of neglect'))).toBe(true);expect(label(w,'I documented the indicated').get('input').element.checked).toBe(false);expect(w.find('.btn-primary').element.disabled).toBe(true);w.unmount();});
  it('does not send any Spanish source text automatically and requires redacted preview approval',async()=>{const w=await open({sourceLanguage:'es',sourceText:'Original privado',translationPreview:'[removed] reporta preocupación',transferProviders:[]});expect(w.text()).toContain('submitted in Spanish');expect(api.post).not.toHaveBeenCalled();const button=w.findAll('button').find(b=>b.text()==='Translate reviewed text to English');expect(button.element.disabled).toBe(true);w.findAll('details')[0].element.open=true;await label(w,'I checked this text').get('input').setValue(true);await flushPromises();expect(w.findAll('button').find(b=>b.text()==='Translate reviewed text to English').element.disabled).toBe(false);api.post.mockResolvedValue({data:{status:'translated',text:'[removed] reports worry'}});await w.findAll('button').find(b=>b.text()==='Translate reviewed text to English').trigger('click');await flushPromises();expect(api.post).toHaveBeenCalledWith('/medical-billing/screening-sessions/12/translate',{agencyId:2,reviewedText:'[removed] reporta preocupación',noIdentifiersConfirmed:true},expect.anything());expect(JSON.stringify(api.post.mock.calls)).not.toContain('Original privado');expect(w.text()).toContain('[removed] reports worry');w.unmount();});
  it('keeps a missing paper PSC answer unanswered',async()=>{const w=await open({pscItems:Array.from({length:17},(_,i)=>({key:`psc_${i+1}`,label:`Question ${i+1}`})),clinicalFields:[]});await label(w,'Transcribe a paper').get('input').setValue(true);await flushPromises();expect(w.text()).toContain('0/17 valid answers');expect(w.find('.btn-primary').element.disabled).toBe(true);expect(label(w,'Question 1').get('select').element.selectedOptions[0].textContent).toBe('Unanswered');w.unmount();});
 });
 
 describe('sign and open next',()=>{
- const confirm=async w=>{for(const text of ['I confirmed the client','I reviewed the screening','The note is accurate','This screening service'])await label(w,text).get('input').setValue(true);};
+ const confirm=async w=>{for(const text of ['I confirmed the actual service','I confirmed the client','I reviewed the screening','The note is accurate','This screening service'])await label(w,text).get('input').setValue(true);};
  it('requests the next item only after a successful save and signature',async()=>{
   const w=await open();await w.setProps({hasNextInQueue:true});await confirm(w);
   await w.get('.sign-next').trigger('click');await flushPromises();
@@ -66,4 +66,22 @@ describe('sign and open next',()=>{
  it('disables sign-and-next when there is no next item while allowing ordinary signing',async()=>{
   const w=await open();await confirm(w);expect(w.get('.sign-next').element.disabled).toBe(true);expect(w.get('.btn-primary').element.disabled).toBe(false);w.unmount();
  });
+});
+
+it('prefills source-derived service facts but blocks signing until they are confirmed, and resets confirmation after an edit',async()=>{
+ const w=await open();
+ expect(w.get('[data-testid="screening-duration"]').element.value).toBe('10');
+ expect(w.get('[data-testid="screening-participants"]').element.value).toBe('Guardian: DEMO');
+ const confirmed=label(w,'I confirmed the actual service').get('input');expect(confirmed.element.checked).toBe(false);
+ for(const text of ['I confirmed the client','I reviewed the screening','The note is accurate','This screening service'])await label(w,text).get('input').setValue(true);
+ expect(w.get('.btn-primary').element.disabled).toBe(true);
+ await confirmed.setValue(true);expect(w.get('.btn-primary').element.disabled).toBe(false);
+ await w.get('[data-testid="screening-participants"]').setValue('Guardian: DEMO; interpreter: QA');await flushPromises();
+ expect(label(w,'I confirmed the actual service').get('input').element.checked).toBe(false);expect(w.get('.btn-primary').element.disabled).toBe(true);w.unmount();
+});
+it('leaves unknown patient presence and unnamed participants unanswered for manual verification',async()=>{
+ const w=await open({encounterProposal:{dateOfService:'2026-11-03',durationMinutes:10,startTime:'10:00',endTime:'10:10',participants:'',patientPresent:null}});
+ expect(w.get('[data-testid="screening-participants"]').element.value).toBe('');
+ expect(w.get('[data-testid="screening-patient-present"]').element.selectedOptions[0].textContent).toBe('Confirm patient presence');
+ expect(w.get('.btn-primary').element.disabled).toBe(true);w.unmount();
 });

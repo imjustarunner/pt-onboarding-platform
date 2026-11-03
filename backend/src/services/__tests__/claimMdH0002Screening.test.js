@@ -23,6 +23,7 @@ const labels = ['Fidgety, unable to sit still', 'Acts as if driven by a motor', 
 const fields = labels.map((label, i) => ({ key: `psc_${i+1}`, label, options: ['Never','Sometimes','Often'].map((label,index) => ({ label, value: String(index+1) })) }));
 const byKey = new Map(fields.map(f => [f.key,f]));
 const scored = scores => scorePsc17(fields.map((f,i) => ({ key:f.key,score:scores[i] ?? null })), byKey);
+const encounter={dateOfService:'2026-10-19',durationMinutes:10,startTime:'10:00',endTime:'10:10',participants:'Guardian: DEMO',patientPresent:false,serviceDetailsConfirmed:true};
 const validReview = { outcome:'further_evaluation',assessment:'Consider the reported functioning and prior history.',followUp:'Complete an assessment and discuss available care.',setting:'ITSCO office, asynchronous review',reviewConfirmed:true };
 
 describe('H0002 screening results and clinician determinations', () => {
@@ -133,9 +134,9 @@ describe('H0002 preparation, signature and billing controls', () => {
     const main=mocks.main.execute.getMockImplementation();
     mocks.main.execute.mockImplementation((sql,args)=>sql.includes('SELECT first_name,last_name,credential')?[[{first_name:'Test',last_name:'Reviewer',credential:'LPC'}]]:main(sql,args));
     const {source}=await screeningReviewContext({sessionId:400,user:{id:8}});
-    const result=await writeScreeningDetermination({sessionId:400,user:{id:8},input:{...validReview,sourceHash:source.sourceHash,presentingProblem:'Reported concerns',placeOfService:'03',locationConfirmed:true}});
+    const result=await writeScreeningDetermination({sessionId:400,user:{id:8},input:{...validReview,...encounter,sourceHash:source.sourceHash,presentingProblem:'Reported concerns',placeOfService:'03',locationConfirmed:true}});
     const update=mocks.clinical.execute.mock.calls.find(([sql])=>sql.startsWith('UPDATE clinical_sessions'));
-    expect(update[0]).toContain("'$.locationLabel'");expect(update[0]).not.toContain('location_label');expect(update[1]).toEqual(['03',0,'School',400,2]);expect(result.note_payload).toContain('POS 03');
+    expect(update[0]).toContain("'$.locationLabel'");expect(update[0]).not.toContain('location_label');expect(update[1]).toEqual(['2026-10-19 16:00:00','2026-10-19 16:10:00',10,'03',0,'School',400,2]);expect(result.note_payload).toContain('POS 03');
   });
   it('rejects paper transcription without a source document belonging to the same client and agency',async()=>{
     const session={id:400,agency_id:2,client_id:300,provider_user_id:8,metadata_json:{source:'h0002_digital_screening',screeningTaskId:100}};
@@ -154,7 +155,7 @@ describe('H0002 preparation, signature and billing controls', () => {
     expect(await prepareH0002ScreeningTask(100)).toEqual({prepared:false,reason:'roi_only'});expect(state.sessions).toHaveLength(0);expect(mocks.queueAppend).not.toHaveBeenCalled();
   });
   it('requires today’s professional determination and an unchanged note to sign',()=>{
-    const payload='Screening evaluation';const meta={source:'h0002_digital_screening',dateOfService:'2026-10-19',screeningReview:{reviewConfirmed:true,reviewedByUserId:8,outcome:'further_evaluation',diagnosisCode:'R69',contentHash:crypto.createHash('sha256').update(payload).digest('hex')}};
+    const payload='Screening evaluation';const meta={source:'h0002_digital_screening',dateOfService:'2026-10-19',structuredChart:encounter,screeningReview:{serviceDetailsConfirmed:true,reviewedAt:'2026-10-19T18:00:00Z',reviewConfirmed:true,reviewedByUserId:8,outcome:'further_evaluation',diagnosisCode:'R69',contentHash:crypto.createHash('sha256').update(payload).digest('hex')}};
     const note={created_by_user_id:8,metadata_json:meta,note_payload:`encrypted:${payload}`};
     expect(()=>validateScreeningSignature(note)).not.toThrow();
     expect(()=>validateScreeningSignature({...note,note_payload:'changed'})).toThrow('confirm today');

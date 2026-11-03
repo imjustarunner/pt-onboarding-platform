@@ -125,9 +125,12 @@
       <ul v-if="reviewItems.length" class="na-wq-list na-wq-review-list" aria-label="Returned notes and feedback">
         <li v-for="item in reviewItems" :key="item.id" class="na-wq-item na-wq-item--review" :class="`na-wq-item--${item.status}`">
           <button type="button" class="na-wq-item-btn" @click="$emit('select-review', item)">
-            <div class="na-wq-item-top"><strong>{{ item.clientName || `Note #${item.clinicalNoteId}` }}</strong><span>{{ NOTE_REVIEW_STATUS[item.status] }}</span></div>
+            <div class="na-wq-item-top na-wq-review-heading"><strong>{{ item.clientName || `Note #${item.clinicalNoteId}` }}</strong><span>{{ NOTE_REVIEW_STATUS[item.status] }}</span></div>
             <div class="na-wq-item-meta">{{ formatQueueDate(item.date) }}<template v-if="item.serviceCode"> · {{ item.serviceCode }}</template></div>
-            <p class="na-wq-review-message">{{ item.message }}</p>
+            <div v-for="request in (item.requests || [item])" :key="request.requestId || request.id" class="na-wq-review-request">
+              <strong v-if="item.requests?.length > 1">{{ NOTE_REVIEW_STATUS[request.status] }}</strong>
+              <p class="na-wq-review-message">{{ readableReviewMessage(request.message) }}</p>
+            </div>
           </button>
         </li>
       </ul>
@@ -232,7 +235,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { NOTE_REVIEW_STATUS } from '../../utils/noteReviewWork.js';
+import { NOTE_REVIEW_STATUS, readableReviewMessage } from '../../utils/noteReviewWork.js';
 import {
   DOC_STATUS,
   deriveWorkQueueDocStatus,
@@ -574,8 +577,8 @@ function removeQueueTitle(item) {
 </script>
 
 <style scoped>
-.na-wq-review-message { margin: 7px 0 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: .78rem; color: #475569; }
-.na-wq-item--review { border-left: 3px solid #6366f1; }
+.na-wq-review-request + .na-wq-review-request {margin-top:10px;padding-top:8px;border-top:1px solid #dce3ed;}.na-wq-review-request>strong{font-size:.76rem;color:#4338ca;}.na-wq-review-message { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .82rem; line-height:1.5; color: #334155; }
+.na-wq-review-heading { flex-direction:column; align-items:flex-start!important; gap:5px!important; }.na-wq-review-heading span { white-space:normal!important; font-size:.8rem!important; }.na-wq-item--review { border-left: 3px solid #6366f1; }
 .na-wq-item--changes_needed { border-left-color: #d97706; }
 .na-wq-chip--review { color: #4338ca; background: #eef2ff; }
 .na-wq-rail-dot--review { background: #6366f1; }

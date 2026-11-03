@@ -47,7 +47,11 @@ export function normalizeServiceDetails(input) {
   if (![startTime,endTime].every(t => /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(t))) throw policyError(400, 'Enter start and end times in 24-hour HH:MM format.');
   const minutes = t => Number(t.slice(0,2))*60 + Number(t.slice(3));
   if (minutes(endTime) <= minutes(startTime) || minutes(endTime)-minutes(startTime) !== durationMinutes) throw policyError(400, 'Duration must match start and end times on the service date. Overnight encounters need an office review.');
-  return {durationMinutes, locationLabel, startTime, endTime, placeOfService, serviceLocationId:Number(input.serviceLocationId) || null};
+  const participants = input.participants == null ? undefined : String(input.participants).trim();
+  if (participants != null && participants.length > 1000) throw policyError(400,'Participants must be at most 1,000 characters.');
+  if (input.patientPresent != null && typeof input.patientPresent !== 'boolean') throw policyError(400,'Confirm whether the patient was present.');
+  return {durationMinutes, locationLabel, startTime, endTime, placeOfService, serviceLocationId:Number(input.serviceLocationId) || null,
+    ...(participants !== undefined ? {participants} : {}), ...(typeof input.patientPresent === 'boolean' ? {patientPresent:input.patientPresent} : {})};
 }
 export function effectiveServiceDetails(note, session = {}) {
   const meta = parseObject(note.metadata_json), chart = meta.structuredChart || {};
@@ -59,13 +63,14 @@ export function effectiveServiceDetails(note, session = {}) {
     if (!isValidTimeZone(session.source_timezone || 'America/Denver')) return null;
     return new Intl.DateTimeFormat('en-GB',{timeZone:session.source_timezone || 'America/Denver',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(instant);
   };
-  return approved?.serviceDetails || {durationMinutes: chart.durationMinutes ?? session.duration_minutes ?? null, locationLabel: chart.locationLabel || sessionLocationLabel(session) || meta.locationLabel || null, startTime: chart.startTime || localTime(session.scheduled_start_at), endTime: chart.endTime || localTime(session.scheduled_end_at), placeOfService: chart.placeOfService || session.place_of_service || null,serviceLocationId:Number(session.service_location_id) || null};
+  return approved?.serviceDetails || {durationMinutes: chart.durationMinutes ?? session.duration_minutes ?? null, locationLabel: chart.locationLabel || sessionLocationLabel(session) || meta.locationLabel || null, startTime: chart.startTime || localTime(session.scheduled_start_at), endTime: chart.endTime || localTime(session.scheduled_end_at), placeOfService: chart.placeOfService || session.place_of_service || null,serviceLocationId:Number(session.service_location_id) || null, ...(chart.participants ? {participants:chart.participants} : {}), ...(typeof chart.patientPresent === 'boolean' ? {patientPresent:chart.patientPresent} : {})};
 }
-export function pendingServiceDetails(meta) { return (meta.serviceDetailAmendments || []).filter(a => !a.approvedAt).at(-1)?.serviceDetails || null; }
+export function pendingServiceDetails(meta) { return (meta.serviceDetailAmendments || []).filter(a => !a.approvedAt && !a.supersededByAmendmentId).at(-1)?.serviceDetails || null; }
 export function assertServiceDetailsComplete(note, session = {}) {
   const details = pendingServiceDetails(parseObject(note.metadata_json)) || effectiveServiceDetails(note,session);
   const missing = ['durationMinutes','locationLabel','startTime','endTime'].filter(k => !details[k]);
   if (missing.length) throw policyError(409, `Complete and attest the service details before approval: ${missing.join(', ')}.`);
+  if (parseObject(note.metadata_json).serviceCode === 'H0002' && (!String(details.participants || '').trim() || typeof details.patientPresent !== 'boolean')) throw policyError(409,'Complete the screening participants and confirm whether the patient was present before approval.');
   const duration=Number(details.durationMinutes), validClock=t=>/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(t || ''));
   const minutes=t=>Number(t.slice(0,2))*60+Number(t.slice(3));
   if (!Number.isInteger(duration)||duration<1||duration>1440||!validClock(details.startTime)||!validClock(details.endTime)||minutes(details.endTime)-minutes(details.startTime)!==duration) throw policyError(409,'The duration must agree with valid start and end times. Sign a service-detail correction before approval.');
@@ -120,13 +125,13 @@ export async function lockedNoteMutation({noteId, agencyId, contentHash, snapsho
   } catch (e) { await db.rollback(); throw e; } finally { db.release(); }
 }
 export async function applyApprovedServiceDetails(db, note, meta, actorUserId, approvedAt) {
-  const pending = (meta.serviceDetailAmendments || []).filter(a => !a.approvedAt);
+  const pending = (meta.serviceDetailAmendments || []).filter(a => !a.approvedAt && !a.supersededByAmendmentId);
   if (!pending.length) return;
   const latest = pending.at(-1), d = latest.serviceDetails;
   const [[session]] = await db.execute('SELECT * FROM clinical_sessions WHERE id=? AND agency_id=?',[note.clinical_session_id,note.agency_id]);
   if (!session) throw policyError(409,'The linked encounter is unavailable.');
   const times = serviceDetailTimes(d,latest.dateOfService,latest.timeZone);
-  const location = await verifiedServiceLocation(note.agency_id,d);
+  const location = await verifyServiceAmendmentLocation(note,session,d);
   await db.execute(`UPDATE clinical_sessions SET scheduled_start_at=?,scheduled_end_at=?,duration_minutes=?,metadata_json=JSON_SET(COALESCE(metadata_json,JSON_OBJECT()),'$.locationLabel',?),place_of_service=?,service_location_id=?,billing_office_location_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND agency_id=?`,[times.startAt,times.endAt,d.durationMinutes,d.locationLabel,d.placeOfService,d.serviceLocationId,location.billing_office_location_id || null,note.clinical_session_id,note.agency_id]);
   const [claims] = await db.execute('SELECT * FROM clinical_claims WHERE clinical_session_id=? AND agency_id=? AND is_deleted=0 ORDER BY id',[note.clinical_session_id,note.agency_id]);
   for (const claim of claims) {
@@ -145,7 +150,7 @@ export async function serviceDetailBillingBlockers(note, claim, lines, loadCodes
   const meta = parseObject(note.metadata_json), approved = (meta.serviceDetailAmendments || []).filter(a => a.approvedAt).at(-1);
   if (!approved) return [];
   const blockers = [], details = approved.serviceDetails;
-  try { await verifiedServiceLocation(note.agency_id,details); } catch(e) { blockers.push(e.message); }
+  try { await verifyServiceAmendmentLocation(note,session || {},details); } catch(e) { blockers.push(e.message); }
   if (session && Number(session.service_location_id)!==Number(details.serviceLocationId)) blockers.push('The encounter location mapping differs from the latest approved service correction.');
   if (String(claim.place_of_service || '') !== details.placeOfService) blockers.push('The claim place of service differs from the latest approved service correction.');
   const codes = loadCodes ? await loadCodes() : await (await import('../models/AgencyMedicalServiceCode.model.js')).default.listByAgency(note.agency_id,{includeInactive:false});
@@ -191,3 +196,15 @@ export async function verifiedServiceLocation(agencyId, details, source=pool) {
   return location;
 }
 export function serviceLocationSnapshot(location) { return {name:location.name,placeOfService:location.place_of_service,billingOfficeLocationId:Number(location.billing_office_location_id)||null,streetAddress:location.street_address||null,city:location.city||null,state:location.state||null,postalCode:location.postal_code||null}; }
+
+// A digital screening may have a confirmed virtual/school setting without a
+// physical agency location ID. A timing/participant correction can retain that
+// exact documented setting; changing it still requires an active mapped site.
+export async function verifyServiceAmendmentLocation(note, session, details, source=pool) {
+  if (Number(details.serviceLocationId)) return verifiedServiceLocation(note.agency_id,details,source);
+  const meta=parseObject(note.metadata_json), chart=meta.structuredChart || {};
+  const label=sessionLocationLabel(session) || chart.locationLabel;
+  const pos=session.place_of_service || chart.placeOfService;
+  if (meta.serviceCode !== 'H0002' || !label || !pos || details.locationLabel !== label || details.placeOfService !== pos) throw policyError(409,'Select a verified location, or retain the screening’s documented setting unchanged.');
+  return {name:label,place_of_service:pos,billing_office_location_id:session.billing_office_location_id || null};
+}

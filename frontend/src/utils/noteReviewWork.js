@@ -23,3 +23,15 @@ export function groupNoteReviewWork(items = []) {
   return [...groups.values()].sort((a, b) => priority[a.status] - priority[b.status]
     || String(a.date || '').localeCompare(String(b.date || '')));
 }
+
+// Older amendment notices ended with JSON. Present the saved values as readable
+// lines without changing the original request or its acknowledgement state.
+export function readableReviewMessage(message) {
+  const text=String(message || ''), lines=text.split('\n');
+  try {
+    const data=JSON.parse(lines.at(-1));
+    if (!data || typeof data!=='object' || !('durationMinutes' in data) || !('startTime' in data)) return text;
+    const fields=[['participants','Participants'],['durationMinutes','Duration (minutes)'],['startTime','Start'],['endTime','End'],['locationLabel','Location'],['placeOfService','Place of service']];
+    return [...lines.slice(0,-1),...fields.filter(([key])=>data[key]!=null&&data[key]!=='').map(([key,label])=>`${label}: ${data[key]}`),...(typeof data.patientPresent==='boolean'?[`Patient present: ${data.patientPresent?'Yes':'No'}`]:[])].join('\n');
+  } catch { return text; }
+}

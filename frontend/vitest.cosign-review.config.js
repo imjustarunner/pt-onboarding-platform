@@ -10,6 +10,7 @@ export default defineConfig({
       'src/components/clinical/__tests__/ClinicalNoteAmendmentFlow.test.js',
       'src/components/clinical/__tests__/ClinicalNoteDetailFetcher.test.js',
       'src/components/clinical/__tests__/CosignReviewTimer.test.js',
+      'src/components/clinical/__tests__/H0002ScreeningReview.test.js',
       'src/views/__tests__/NotesWorkspaceQueueLaunch.test.js',
       'src/components/tasks/__tests__/TasksNotesQueue.test.js',
       'src/components/clinical/__tests__/NoteAidWorkQueuePanel.review.test.js',

@@ -4,7 +4,7 @@
       <header><strong>{{ NOTE_REVIEW_STATUS[request.status] || 'Note review' }}</strong>
         <span>{{ request.createdByName || (request.createdByUserId ? `Reviewer #${request.createdByUserId}` : 'Reviewer') }}<template v-if="request.createdAt"> · {{ formatDate(request.createdAt) }}</template></span>
       </header>
-      <p>{{ request.message }}</p>
+      <p>{{ readableReviewMessage(request.message) }}</p>
       <template v-if="request.status === 'changes_needed'">
         <small>The original signature stays on file. Sign a correction addressing this request to return the note for supervisor review.</small>
         <button type="button" @click="$emit('correct')">Add signed correction</button>
@@ -22,7 +22,7 @@
 <script setup>
 import { ref, watch, onBeforeUnmount } from 'vue';
 import api from '../../services/api.js';
-import { NOTE_REVIEW_STATUS } from '../../utils/noteReviewWork.js';
+import { NOTE_REVIEW_STATUS, readableReviewMessage } from '../../utils/noteReviewWork.js';
 const props = defineProps({ requests: { type: Array, default: () => [] } });
 const emit = defineEmits(['acknowledged', 'correct']);
 const busy = ref(false);
