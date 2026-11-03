@@ -107,7 +107,8 @@ export async function previewClientSummary(req, res, next) {
     const access = await resolveClientRecordAccess({ userId: req.user.id, role: req.user.role, client });
     if (!access.ok) return res.status(access.status || 403).json({ error: { message: access.message } });
     const summary = await loadClientExchangeSummary({ client });
-    res.json({ summary: req.user.role === 'support' ? supportExchangeSummary(summary) : summary });
+    const existingListings = await ClientExchange.listOpenClientReferrals({ clientId, agencyId });
+    res.json({ summary: req.user.role === 'support' ? supportExchangeSummary(summary) : summary, existingListings });
   } catch (error) { next(error); }
 }
 

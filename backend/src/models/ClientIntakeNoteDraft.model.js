@@ -1,4 +1,4 @@
-import pool from '../config/database.js';
+import { intakeDraftDatabase, withIntakeDraftMutationLock } from '../services/intakeDraftMutationLock.service.js';
 
 function safeInt(v) {
   const n = Number(v);
@@ -38,7 +38,7 @@ class ClientIntakeNoteDraft {
 
     const st = VALID_STATUSES.has(status) ? status : 'draft';
 
-    const [result] = await pool.execute(
+    const [result] = await intakeDraftDatabase().execute(
       `INSERT INTO client_intake_note_drafts
        (agency_id, client_id, provider_user_id, service_code, tool_id, status,
         scrubbed_input_enc, note_body_enc, note_sections_json_enc, session_context_enc,
@@ -63,7 +63,7 @@ class ClientIntakeNoteDraft {
     const sid = safeInt(intakeSubmissionId);
     if (!cid || !aid) return null;
     if (sid) {
-      const [rows] = await pool.execute(
+      const [rows] = await intakeDraftDatabase().execute(
         `SELECT * FROM client_intake_note_drafts
          WHERE client_id = ? AND agency_id = ? AND intake_submission_id = ?
            AND status != 'failed'
@@ -73,7 +73,7 @@ class ClientIntakeNoteDraft {
       );
       if (rows?.[0]) return rows[0];
     }
-    const [rows] = await pool.execute(
+    const [rows] = await intakeDraftDatabase().execute(
       `SELECT * FROM client_intake_note_drafts
        WHERE client_id = ? AND agency_id = ?
          AND status IN ('draft', 'diagnosis_pending', 'ready')
@@ -89,7 +89,7 @@ class ClientIntakeNoteDraft {
     const aid = safeInt(agencyId);
     if (!cid || !aid) return [];
     const lim = Math.min(100, Math.max(1, Number(limit) || 50));
-    const [rows] = await pool.execute(
+    const [rows] = await intakeDraftDatabase().execute(
       `SELECT id, status, service_code, tool_id, diagnosis_action, treatment_plan_id,
               created_at, updated_at, finalized_at, provider_user_id
        FROM client_intake_note_drafts
@@ -105,7 +105,7 @@ class ClientIntakeNoteDraft {
     const cid = safeInt(clientId);
     const aid = safeInt(agencyId);
     if (!cid || !aid) return false;
-    const [rows] = await pool.execute(
+    const [rows] = await intakeDraftDatabase().execute(
       `SELECT id FROM client_intake_note_drafts
        WHERE client_id = ? AND agency_id = ? AND status = 'final'
        LIMIT 1`,
@@ -117,7 +117,7 @@ class ClientIntakeNoteDraft {
   static async findById(id) {
     const iid = safeInt(id);
     if (!iid) return null;
-    const [rows] = await pool.execute(
+    const [rows] = await intakeDraftDatabase().execute(
       `SELECT * FROM client_intake_note_drafts WHERE id = ? LIMIT 1`,
       [iid]
     );
@@ -129,7 +129,7 @@ class ClientIntakeNoteDraft {
     const cid = safeInt(clientId);
     const aid = safeInt(agencyId);
     if (!iid || !cid || !aid) return null;
-    const [rows] = await pool.execute(
+    const [rows] = await intakeDraftDatabase().execute(
       `SELECT * FROM client_intake_note_drafts
        WHERE id = ? AND client_id = ? AND agency_id = ?
        LIMIT 1`,
@@ -142,7 +142,7 @@ class ClientIntakeNoteDraft {
     const cid = safeInt(clientId);
     const aid = safeInt(agencyId);
     if (!cid || !aid) return null;
-    const [rows] = await pool.execute(
+    const [rows] = await intakeDraftDatabase().execute(
       `SELECT * FROM client_intake_note_drafts
        WHERE client_id = ? AND agency_id = ?
        ORDER BY created_at DESC
@@ -153,60 +153,69 @@ class ClientIntakeNoteDraft {
   }
 
   static async updateStatus({ draftId, status, diagnosisAction = undefined, confirmedDxJson = undefined, treatmentPlanId = undefined, errorMessage = undefined, finalizedAt = undefined }) {
-    const iid = safeInt(draftId);
-    if (!iid) throw new Error('Invalid draftId');
+    return withIntakeDraftMutationLock(draftId, async () => {
+      const iid = safeInt(draftId);
+      if (!iid) throw new Error('Invalid draftId');
 
-    const sets = [];
-    const vals = [];
+      const current = await this.findById(iid);
+      if (current?.status === 'final' && (status !== 'final' || diagnosisAction !== undefined || confirmedDxJson !== undefined)) {
+        throw Object.assign(new Error('Intake note is already finalized; reopen it explicitly before editing.'), { status: 409, code: 'intake_already_finalized' });
+      }
 
-    if (VALID_STATUSES.has(status)) {
-      sets.push('status = ?');
-      vals.push(status);
-    }
-    if (diagnosisAction !== undefined) {
-      sets.push('diagnosis_action = ?');
-      vals.push(VALID_DIAGNOSIS_ACTIONS.has(diagnosisAction) ? diagnosisAction : null);
-    }
-    if (confirmedDxJson !== undefined) {
-      sets.push('confirmed_dx_json = ?');
-      vals.push(confirmedDxJson ?? null);
-    }
-    if (treatmentPlanId !== undefined) {
-      sets.push('treatment_plan_id = ?');
-      vals.push(safeInt(treatmentPlanId) ?? null);
-    }
-    if (errorMessage !== undefined) {
-      sets.push('error_message = ?');
-      vals.push(errorMessage ?? null);
-    }
-    if (finalizedAt !== undefined) {
-      sets.push('finalized_at = ?');
-      vals.push(finalizedAt ?? null);
-    }
+      const sets = [];
+      const vals = [];
 
-    if (!sets.length) return this.findById(iid);
+      if (VALID_STATUSES.has(status)) {
+        sets.push('status = ?');
+        vals.push(status);
+      }
+      if (diagnosisAction !== undefined) {
+        sets.push('diagnosis_action = ?');
+        vals.push(VALID_DIAGNOSIS_ACTIONS.has(diagnosisAction) ? diagnosisAction : null);
+      }
+      if (confirmedDxJson !== undefined) {
+        sets.push('confirmed_dx_json = ?');
+        vals.push(confirmedDxJson ?? null);
+      }
+      if (treatmentPlanId !== undefined) {
+        sets.push('treatment_plan_id = ?');
+        vals.push(safeInt(treatmentPlanId) ?? null);
+      }
+      if (errorMessage !== undefined) {
+        sets.push('error_message = ?');
+        vals.push(errorMessage ?? null);
+      }
+      if (finalizedAt !== undefined) {
+        sets.push('finalized_at = ?');
+        vals.push(finalizedAt ?? null);
+      }
 
-    vals.push(iid);
-    await pool.execute(
-      `UPDATE client_intake_note_drafts SET ${sets.join(', ')} WHERE id = ?`,
-      vals
-    );
-    return this.findById(iid);
+      if (!sets.length) return this.findById(iid);
+
+      vals.push(iid);
+      await intakeDraftDatabase().execute(
+        `UPDATE client_intake_note_drafts SET ${sets.join(', ')} WHERE id = ?`,
+        vals
+      );
+      return this.findById(iid);
+    });
   }
 
   /** Reopen a finalized draft so one-time chart setup can be replaced/corrected. */
   static async reopenForReplace(draftId) {
-    const iid = safeInt(draftId);
-    if (!iid) throw new Error('Invalid draftId');
-    await pool.execute(
-      `UPDATE client_intake_note_drafts
-       SET status = 'ready',
-           finalized_at = NULL,
-           error_message = NULL
-       WHERE id = ? AND status = 'final'`,
-      [iid]
-    );
-    return this.findById(iid);
+    return withIntakeDraftMutationLock(draftId, async () => {
+      const iid = safeInt(draftId);
+      if (!iid) throw new Error('Invalid draftId');
+      await intakeDraftDatabase().execute(
+        `UPDATE client_intake_note_drafts
+         SET status = 'ready',
+             finalized_at = NULL,
+             error_message = NULL
+         WHERE id = ? AND status = 'final'`,
+        [iid]
+      );
+      return this.findById(iid);
+    });
   }
   static async updateContent({
     draftId,
@@ -219,49 +228,55 @@ class ClientIntakeNoteDraft {
     scrubbedInputEnc = undefined,
     diagnosisAction = undefined
   }) {
-    const iid = safeInt(draftId);
-    if (!iid) throw new Error('Invalid draftId');
-    const sets = [];
-    const vals = [];
-    if (noteBodyEnc !== undefined) {
-      sets.push('note_body_enc = ?');
-      vals.push(noteBodyEnc ?? '');
-    }
-    if (noteSectionsJsonEnc !== undefined) {
-      sets.push('note_sections_json_enc = ?');
-      vals.push(noteSectionsJsonEnc ?? null);
-    }
-    if (sessionContextEnc !== undefined) {
-      sets.push('session_context_enc = ?');
-      vals.push(sessionContextEnc ?? null);
-    }
-    if (suggestedDxJson !== undefined) {
-      sets.push('suggested_dx_json = ?');
-      vals.push(suggestedDxJson ?? null);
-    }
-    if (confirmedDxJson !== undefined) {
-      sets.push('confirmed_dx_json = ?');
-      vals.push(confirmedDxJson ?? null);
-    }
-    if (status !== undefined && VALID_STATUSES.has(status)) {
-      sets.push('status = ?');
-      vals.push(status);
-    }
-    if (scrubbedInputEnc !== undefined) {
-      sets.push('scrubbed_input_enc = ?');
-      vals.push(scrubbedInputEnc ?? '');
-    }
-    if (diagnosisAction !== undefined) {
-      sets.push('diagnosis_action = ?');
-      vals.push(VALID_DIAGNOSIS_ACTIONS.has(diagnosisAction) ? diagnosisAction : null);
-    }
-    if (!sets.length) return this.findById(iid);
-    vals.push(iid);
-    await pool.execute(
-      `UPDATE client_intake_note_drafts SET ${sets.join(', ')} WHERE id = ?`,
-      vals
-    );
-    return this.findById(iid);
+    return withIntakeDraftMutationLock(draftId, async () => {
+      const iid = safeInt(draftId);
+      if (!iid) throw new Error('Invalid draftId');
+      const current = await this.findById(iid);
+      if (current?.status === 'final') {
+        throw Object.assign(new Error('Intake note is already finalized; reopen it explicitly before editing.'), { status: 409, code: 'intake_already_finalized' });
+      }
+      const sets = [];
+      const vals = [];
+      if (noteBodyEnc !== undefined) {
+        sets.push('note_body_enc = ?');
+        vals.push(noteBodyEnc ?? '');
+      }
+      if (noteSectionsJsonEnc !== undefined) {
+        sets.push('note_sections_json_enc = ?');
+        vals.push(noteSectionsJsonEnc ?? null);
+      }
+      if (sessionContextEnc !== undefined) {
+        sets.push('session_context_enc = ?');
+        vals.push(sessionContextEnc ?? null);
+      }
+      if (suggestedDxJson !== undefined) {
+        sets.push('suggested_dx_json = ?');
+        vals.push(suggestedDxJson ?? null);
+      }
+      if (confirmedDxJson !== undefined) {
+        sets.push('confirmed_dx_json = ?');
+        vals.push(confirmedDxJson ?? null);
+      }
+      if (status !== undefined && VALID_STATUSES.has(status)) {
+        sets.push('status = ?');
+        vals.push(status);
+      }
+      if (scrubbedInputEnc !== undefined) {
+        sets.push('scrubbed_input_enc = ?');
+        vals.push(scrubbedInputEnc ?? '');
+      }
+      if (diagnosisAction !== undefined) {
+        sets.push('diagnosis_action = ?');
+        vals.push(VALID_DIAGNOSIS_ACTIONS.has(diagnosisAction) ? diagnosisAction : null);
+      }
+      if (!sets.length) return this.findById(iid);
+      vals.push(iid);
+      await intakeDraftDatabase().execute(
+        `UPDATE client_intake_note_drafts SET ${sets.join(', ')} WHERE id = ?`,
+        vals
+      );
+      return this.findById(iid);
+    });
   }
 }
 

@@ -9,6 +9,7 @@ import { decryptIntakeSubmissionRows } from './intakeResponsesEncryption.service
 import { maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
 import { screeningPresentingProblem } from './h0002ReviewDetails.js';
 import { clientAge, exchangeInsuranceLabel } from '../utils/clientExchangeMatching.js';
+import { exchangeSafeText } from '../utils/clientExchangePrivacy.js';
 import { resolveExchangeLocation } from '../../../frontend/src/navigation/clientExchangeLocation.js';
 
 async function optionalClinicalQuery(sql, params) {
@@ -76,11 +77,19 @@ export async function loadClientExchangeSummary({ client, agencyId = client.agen
   });
   const problem = latestPresentingProblem({ plans, intakes: [...intakes, ...intakeNotes, ...screeningProblems], preferences: intake });
   if (!problem.presentingProblems.length && referral.presentingProblem) { problem.presentingProblems = [referral.presentingProblem]; problem.presentingProblemSource = 'Referral'; }
+  const sharedConcern = exchangeSafeText(intake.exchangeMatchingConcern, client);
+  if (sharedConcern) {
+    problem.presentingProblems = [sharedConcern];
+    problem.presentingProblemSource = 'Matching concern';
+    problem.presentingProblemUpdatedAt = intake.exchangeMatchingConcernUpdatedAt || null;
+  }
   return {
     demographics: { ...(age == null ? (referral.age == null ? {} : { ageBand: String(referral.age) }) : { ageBand: String(age) }), ...(client.gender ? { gender: client.gender } : {}) },
     diagnoses: summaryItems(diagnoses.length ? diagnoses : billing.length ? billing : referral.diagnoses),
     ...problem,
     preferences: {
+      sharedMatchingConcern: sharedConcern || null,
+      sharedSchedulingNotes: Object.hasOwn(intake, 'exchangeMatchingScheduleNotes') ? exchangeSafeText(intake.exchangeMatchingScheduleNotes, client) : null,
       insurance: exchangeInsuranceLabel(client.insurance_type_label, intake.insurance, intake.insuranceOrPayment, insuranceRecord?.primary?.insurerName),
       matchingPreferences: intake.matchingPreferences || null,
       modality: intake.preferredModality ? String(intake.preferredModality).toLowerCase() : null,

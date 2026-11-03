@@ -33,6 +33,11 @@ export function mergeCurrentExchangeSummary(saved, additional = {}, client = {})
   const summary = mergeExchangeSummary(saved, additional);
   let intake = client.intake_preferences_json || {};
   if (typeof intake === 'string') { try { intake = JSON.parse(intake); } catch { intake = {}; } }
+  if (Object.hasOwn(intake, 'exchangeMatchingConcern')) {
+    summary.presentingProblems = summaryItems(saved.presentingProblems);
+    summary.preferences.sharedMatchingConcern = saved.preferences?.sharedMatchingConcern || null;
+  }
+  if (Object.hasOwn(intake, 'exchangeMatchingScheduleNotes')) summary.preferences.sharedSchedulingNotes = saved.preferences?.sharedSchedulingNotes ?? '';
   const sources = {
     matchingPreferences: ['matchingPreferences'], modality: ['preferredModality'],
     providerGender: ['preferredProviderGender'], providerQualification: ['providerQualification'],

@@ -1,5 +1,8 @@
+import { withIntakeDraftMutationLock } from '../services/intakeDraftMutationLock.service.js';
 import { logNoteAidChartEvent } from '../services/noteAidChartAudit.service.js';
 import pool from '../config/database.js';
+import clinicalPool from '../config/clinicalDatabase.js';
+import { intakeDraftContext, intakeDraftReview, validateIntakeDraftReview } from '../services/intakeDraftReview.service.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -733,12 +736,25 @@ function formatDraftResponse(row) {
     suggestedDiagnosis,
     confirmedDiagnosis,
     sections,
+    sourceReview: intakeDraftReview(row, sections),
     intakeSubmissionId: row.intake_submission_id || null,
     treatmentPlanId: row.treatment_plan_id || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     finalizedAt: row.finalized_at || null
   };
+}
+
+async function intakeAppointmentOptions({ agencyId, clientId, providerUserId, serviceCode }) {
+  if (!providerUserId) return [];
+  const [rows] = await clinicalPool.execute(`SELECT id, appointment_id, office_event_id, scheduled_start_at, source_timezone, service_code
+    FROM clinical_sessions
+    WHERE agency_id = ? AND client_id = ? AND provider_user_id = ? AND UPPER(TRIM(service_code)) = ?
+      AND (appointment_id IS NOT NULL OR office_event_id IS NOT NULL)
+      AND COALESCE(encounter_status, '') NOT IN ('cancelled', 'canceled', 'voided', 'no_show')
+    ORDER BY scheduled_start_at DESC, id DESC LIMIT 100`, [agencyId, clientId, providerUserId, serviceCode]);
+  return (rows || []).map(row => ({ clinicalSessionId: row.id, appointmentId: row.appointment_id || null,
+    officeEventId: row.office_event_id || null, startsAt: row.scheduled_start_at, timeZone: row.source_timezone || 'America/Denver', serviceCode: row.service_code }));
 }
 
 // ---------------------------------------------------------------------------
@@ -780,7 +796,16 @@ export const getClientIntakeNote = async (req, res, next) => {
       isCurrent: row ? Number(h.id) === Number(row.id) : false
     }));
     if (row) await logNoteAidChartEvent(req, { clientId, agencyId, action: 'client_intake_note_viewed', metadata: { intakeNoteId: row.id, treatmentPlanId: row.treatment_plan_id || null } });
-    res.json({ draft: formatDraftResponse(row), treatmentPlan, history });
+    let appointmentOptions = [], appointmentOptionsUnavailable = false;
+    if (row) {
+      try { appointmentOptions = await intakeAppointmentOptions({ agencyId, clientId,
+        providerUserId: row.provider_user_id || await resolveAssignedPrimaryProviderUserId(clientId, access.client), serviceCode: row.service_code }); }
+      catch (error) {
+        appointmentOptionsUnavailable = true;
+        console.warn('[clientIntakeNote] Appointment review unavailable:', error?.code || error?.name || 'unknown');
+      }
+    }
+    res.json({ draft: formatDraftResponse(row), treatmentPlan, history, appointmentOptions, appointmentOptionsUnavailable });
   } catch (e) {
     next(e);
   }
@@ -977,99 +1002,101 @@ export const confirmClientIntakeDiagnosis = async (req, res, next) => {
     const agencyId = safeInt(access.client?.agency_id);
     if (!agencyId) return res.status(400).json({ error: { message: 'Client has no agency' } });
 
-    const draft = await ClientIntakeNoteDraft.findForClient({ draftId, clientId, agencyId });
-    if (!draft) return res.status(404).json({ error: { message: 'Draft not found' } });
-    if (draft.status === 'final') {
-      return res.status(409).json({ error: { message: 'Intake note is already finalized' } });
-    }
-    if (draft.status === 'failed') {
-      return res.status(409).json({ error: { message: 'Cannot confirm diagnosis on a failed draft' } });
-    }
-
-    const action = String(req.body?.action || '').trim().toLowerCase();
-    if (!['remain', 'confirmed', 'updated'].includes(action)) {
-      return res.status(400).json({ error: { message: 'action must be remain | confirmed | updated' } });
-    }
-
-    let suggestedDx = null;
-    try {
-      suggestedDx = draft.suggested_dx_json ? JSON.parse(draft.suggested_dx_json) : null;
-    } catch {
-      suggestedDx = null;
-    }
-
-    let confirmedDx;
-    if (action === 'updated') {
-      const code = String(
-        req.body?.confirmedCode || req.body?.code || ''
-      ).trim();
-      if (!code) {
-        return res.status(400).json({ error: { message: 'confirmedCode is required when action is "updated"' } });
+    return await withIntakeDraftMutationLock(draftId, async () => {
+      const draft = await ClientIntakeNoteDraft.findForClient({ draftId, clientId, agencyId });
+      if (!draft) return res.status(404).json({ error: { message: 'Draft not found' } });
+      if (draft.status === 'final') {
+        return res.status(409).json({ error: { message: 'Intake note is already finalized' } });
       }
-      confirmedDx = {
-        code,
-        description: String(
-          req.body?.confirmedDescription || req.body?.description || ''
-        ).trim() || (suggestedDx?.description || ''),
-        justification: String(
-          req.body?.confirmedJustification ||
-            req.body?.justification ||
-            suggestedDx?.justification ||
-            ''
-        ).trim() || (suggestedDx?.justification || '')
-      };
-    } else {
-      // remain / confirmed — keep suggested dx including justification
-      confirmedDx = suggestedDx
-        ? {
-            code: suggestedDx.code,
-            description: suggestedDx.description,
-            justification: suggestedDx.justification || ''
-          }
-        : null;
-    }
+      if (draft.status === 'failed') {
+        return res.status(409).json({ error: { message: 'Cannot confirm diagnosis on a failed draft' } });
+      }
 
-    const comment = req.body?.comment ? String(req.body.comment).trim() : null;
+      const action = String(req.body?.action || '').trim().toLowerCase();
+      if (!['remain', 'confirmed', 'updated'].includes(action)) {
+        return res.status(400).json({ error: { message: 'action must be remain | confirmed | updated' } });
+      }
 
-    // Persist confirmation audit record
-    await ClientDiagnosisConfirmation.create({
-      agencyId,
-      clientId,
-      draftId,
-      action,
-      suggestedDxJson: JSON.stringify(suggestedDx || {}),
-      confirmedDxJson: JSON.stringify(confirmedDx || {}),
-      comment,
-      actorUserId: req.user.id
-    });
+      let suggestedDx = null;
+      try {
+        suggestedDx = draft.suggested_dx_json ? JSON.parse(draft.suggested_dx_json) : null;
+      } catch {
+        suggestedDx = null;
+      }
 
-    // Update draft
-    const updated = await ClientIntakeNoteDraft.updateStatus({
-      draftId,
-      status: 'ready',
-      diagnosisAction: action,
-      confirmedDxJson: confirmedDx ? JSON.stringify(confirmedDx) : null
-    });
+      let confirmedDx;
+      if (action === 'updated') {
+        const code = String(
+          req.body?.confirmedCode || req.body?.code || ''
+        ).trim();
+        if (!code) {
+          return res.status(400).json({ error: { message: 'confirmedCode is required when action is "updated"' } });
+        }
+        confirmedDx = {
+          code,
+          description: String(
+            req.body?.confirmedDescription || req.body?.description || ''
+          ).trim() || (suggestedDx?.description || ''),
+          justification: String(
+            req.body?.confirmedJustification ||
+              req.body?.justification ||
+              suggestedDx?.justification ||
+              ''
+          ).trim() || (suggestedDx?.justification || '')
+        };
+      } else {
+        // remain / confirmed — keep suggested dx including justification
+        confirmedDx = suggestedDx
+          ? {
+              code: suggestedDx.code,
+              description: suggestedDx.description,
+              justification: suggestedDx.justification || ''
+            }
+          : null;
+      }
 
-    // Audit (non-blocking — missing ENUM values must not undo diagnosis confirm)
-    const actionTypeMap = {
-      remain: 'client_intake_note_diagnosis_remain',
-      confirmed: 'client_intake_note_diagnosis_confirmed',
-      updated: 'client_intake_note_diagnosis_updated'
-    };
-    try {
-      await AdminAuditLog.logAction({
-        actionType: actionTypeMap[action],
-        actorUserId: req.user.id,
-        targetUserId: null,
+      const comment = req.body?.comment ? String(req.body.comment).trim() : null;
+
+      // Persist confirmation audit record
+      await ClientDiagnosisConfirmation.create({
         agencyId,
-        metadata: { clientId, draftId, action, confirmedCode: confirmedDx?.code || null }
+        clientId,
+        draftId,
+        action,
+        suggestedDxJson: JSON.stringify(suggestedDx || {}),
+        confirmedDxJson: JSON.stringify(confirmedDx || {}),
+        comment,
+        actorUserId: req.user.id
       });
-    } catch (auditErr) {
-      console.error('[clientIntakeNote] Audit log failed after diagnosis:', auditErr?.message || auditErr);
-    }
 
-    res.json({ draft: formatDraftResponse(updated) });
+      // Update draft
+      const updated = await ClientIntakeNoteDraft.updateStatus({
+        draftId,
+        status: 'ready',
+        diagnosisAction: action,
+        confirmedDxJson: confirmedDx ? JSON.stringify(confirmedDx) : null
+      });
+
+      // Audit (non-blocking — missing ENUM values must not undo diagnosis confirm)
+      const actionTypeMap = {
+        remain: 'client_intake_note_diagnosis_remain',
+        confirmed: 'client_intake_note_diagnosis_confirmed',
+        updated: 'client_intake_note_diagnosis_updated'
+      };
+      try {
+        await AdminAuditLog.logAction({
+          actionType: actionTypeMap[action],
+          actorUserId: req.user.id,
+          targetUserId: null,
+          agencyId,
+          metadata: { clientId, draftId, action, confirmedCode: confirmedDx?.code || null }
+        });
+      } catch (auditErr) {
+        console.error('[clientIntakeNote] Audit log failed after diagnosis:', auditErr?.message || auditErr);
+      }
+
+      res.json({ draft: formatDraftResponse(updated) });
+    });
   } catch (e) {
     next(e);
   }
@@ -1097,219 +1124,246 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
     const agencyId = safeInt(access.client?.agency_id);
     if (!agencyId) return res.status(400).json({ error: { message: 'Client has no agency' } });
 
-    const draft = await ClientIntakeNoteDraft.findForClient({ draftId, clientId, agencyId });
-    if (!draft) return res.status(404).json({ error: { message: 'Draft not found' } });
-    const allowReplace = req.body?.replace === true || req.body?.forceReplace === true
-      || req.query?.replace === '1' || req.query?.forceReplace === '1';
-    if (draft.status === 'final') {
-      if (!allowReplace) {
+    return await withIntakeDraftMutationLock(draftId, async () => {
+      const draft = await ClientIntakeNoteDraft.findForClient({ draftId, clientId, agencyId });
+      if (!draft) return res.status(404).json({ error: { message: 'Draft not found' } });
+      const allowReplace = req.body?.replace === true || req.body?.forceReplace === true
+        || req.query?.replace === '1' || req.query?.forceReplace === '1';
+      let reviewedContext;
+      if (draft.status !== 'final' || allowReplace) {
+        const sections = formatDraftResponse(draft).sections;
+        let review;
+        try { review = validateIntakeDraftReview(draft, sections, req.body?.sourceReview); }
+        catch (error) { return res.status(error.status || 409).json({ error: { code: error.code, message: error.message } }); }
+        let options;
+        try { options = await intakeAppointmentOptions({ agencyId, clientId,
+          providerUserId: draft.provider_user_id || await resolveAssignedPrimaryProviderUserId(clientId, access.client), serviceCode: draft.service_code }); }
+        catch {
+          return res.status(503).json({ error: { code: 'INTAKE_APPOINTMENT_REVIEW_UNAVAILABLE', message: 'Appointment information is temporarily unavailable. Your draft is preserved; refresh it and review the appointment before finalizing.' } });
+        }
+        const selectedId = safeInt(req.body?.sourceReview?.clinicalSessionId);
+        const selected = options.find(option => Number(option.clinicalSessionId) === selectedId);
+        if ((options.length && !selected) || (selectedId && !selected)) {
+          return res.status(409).json({ error: { code: 'INTAKE_APPOINTMENT_REVIEW_REQUIRED', message: 'Select the matching intake appointment in the client chart. The appointment must belong to this client, provider and organization.' } });
+        }
+        reviewedContext = { ...intakeDraftContext(draft), clinicalSessionId: selected?.clinicalSessionId || null,
+          appointmentId: selected?.appointmentId || null, officeEventId: selected?.officeEventId || null,
+          sourceReview: { fingerprint: review.fingerprint, sectionKeys: sections.map(section => section.key),
+            reviewedByUserId: req.user.id, reviewedAt: new Date().toISOString(),
+            appointmentReviewed: true, sourceCompared: true, unsupportedClaimsRemoved: true } };
+      }
+      if (draft.status === 'final') {
+        if (!allowReplace) {
+          return res.status(409).json({
+            error: {
+              message: 'Intake note is already finalized',
+              code: 'intake_already_finalized',
+              replaceAllowed: true
+            }
+          });
+        }
+        await ClientIntakeNoteDraft.reopenForReplace(draftId);
+      }
+      // Re-read after optional reopen
+      const draftNow = allowReplace && draft.status === 'final'
+        ? await ClientIntakeNoteDraft.findForClient({ draftId, clientId, agencyId })
+        : draft;
+      if (!draftNow) return res.status(404).json({ error: { message: 'Draft not found' } });
+      if (draftNow.status !== 'ready') {
         return res.status(409).json({
-          error: {
-            message: 'Intake note is already finalized',
-            code: 'intake_already_finalized',
-            replaceAllowed: true
-          }
+          error: { message: `Draft must be in 'ready' status before finalizing (current: ${draftNow.status})` }
         });
       }
-      await ClientIntakeNoteDraft.reopenForReplace(draftId);
-    }
-    // Re-read after optional reopen
-    const draftNow = allowReplace && draft.status === 'final'
-      ? await ClientIntakeNoteDraft.findForClient({ draftId, clientId, agencyId })
-      : draft;
-    if (!draftNow) return res.status(404).json({ error: { message: 'Draft not found' } });
-    if (draftNow.status !== 'ready') {
-      return res.status(409).json({
-        error: { message: `Draft must be in 'ready' status before finalizing (current: ${draftNow.status})` }
-      });
-    }
 
-    // Build treatment plan goals from request or extract from note sections
-    const requestGoals = Array.isArray(req.body?.goals) ? req.body.goals : [];
-    const goals = requestGoals.map((g, i) => ({
-      goalIndex: i + 1,
-      goalText: String(g?.goalText || '').trim(),
-      projectedCompletion: g?.projectedCompletion ? String(g.projectedCompletion).slice(0, 10) : null,
-      status: 'active',
-      objectives: Array.isArray(g?.objectives)
-        ? g.objectives.map((o, oi) => ({
-            objectiveIndex: oi + 1,
-            objectiveText: String(o?.objectiveText || '').trim(),
-            scaleCurrent: o?.scaleCurrent ?? null,
-            scaleTarget: o?.scaleTarget ?? null,
-            measurementMethod: o?.measurementMethod ? String(o.measurementMethod) : null
-          }))
-        : []
-    })).filter((g) => g.goalText);
+      await ClientIntakeNoteDraft.updateContent({ draftId, sessionContextEnc: maybeEncryptNotePayload(JSON.stringify(reviewedContext)) });
 
-    // Create draft treatment plan (linked to this intake) — unless an imported / authoritative
-    // treatment plan already owns diagnosis + presenting problem + justification.
-    let treatmentPlan = null;
-    let primaryDiagnosisId = null;
-    let diagnosticJustification = null;
-    try {
-      const { pickAuthoritativeTreatmentPlan } = await import('../services/treatmentPlanPrecedence.service.js');
-      const existingPlans = await ClinicalTreatmentPlan.listByClient({ agencyId, clientId });
-      const authoritativePlanMeta = pickAuthoritativeTreatmentPlan(existingPlans);
-      const authoritativePlan = authoritativePlanMeta?.id
-        ? await ClinicalTreatmentPlan.findById(authoritativePlanMeta.id)
-        : null;
+      // Build treatment plan goals from request or extract from note sections
+      const requestGoals = Array.isArray(req.body?.goals) ? req.body.goals : [];
+      const goals = requestGoals.map((g, i) => ({
+        goalIndex: i + 1,
+        goalText: String(g?.goalText || '').trim(),
+        projectedCompletion: g?.projectedCompletion ? String(g.projectedCompletion).slice(0, 10) : null,
+        status: 'active',
+        objectives: Array.isArray(g?.objectives)
+          ? g.objectives.map((o, oi) => ({
+              objectiveIndex: oi + 1,
+              objectiveText: String(o?.objectiveText || '').trim(),
+              scaleCurrent: o?.scaleCurrent ?? null,
+              scaleTarget: o?.scaleTarget ?? null,
+              measurementMethod: o?.measurementMethod ? String(o.measurementMethod) : null
+            }))
+          : []
+      })).filter((g) => g.goalText);
 
-      let confirmedDx = null;
-      let allDiagnoses = [];
-      const planDiagnosesLinks = [];
+      // Create draft treatment plan (linked to this intake) — unless an imported / authoritative
+      // treatment plan already owns diagnosis + presenting problem + justification.
+      let treatmentPlan = null;
+      let primaryDiagnosisId = null;
+      let diagnosticJustification = null;
       try {
-        const parsed = draftNow.confirmed_dx_json ? JSON.parse(draftNow.confirmed_dx_json) : null;
-        if (Array.isArray(parsed?.diagnoses)) {
-          allDiagnoses = parsed.diagnoses;
-          confirmedDx = parsed.primary || parsed.diagnoses[0] || null;
-        } else {
-          confirmedDx = parsed;
-          if (confirmedDx?.code) allDiagnoses = [confirmedDx];
-        }
-      } catch {
-        confirmedDx = null;
-      }
-      if (!confirmedDx?.code) {
+        const { pickAuthoritativeTreatmentPlan } = await import('../services/treatmentPlanPrecedence.service.js');
+        const existingPlans = await ClinicalTreatmentPlan.listByClient({ agencyId, clientId });
+        const authoritativePlanMeta = pickAuthoritativeTreatmentPlan(existingPlans);
+        const authoritativePlan = authoritativePlanMeta?.id
+          ? await ClinicalTreatmentPlan.findById(authoritativePlanMeta.id)
+          : null;
+
+        let confirmedDx = null;
+        let allDiagnoses = [];
+        const planDiagnosesLinks = [];
         try {
-          const suggested = draftNow.suggested_dx_json ? JSON.parse(draftNow.suggested_dx_json) : null;
-          if (Array.isArray(suggested?.diagnoses)) {
-            allDiagnoses = suggested.diagnoses;
-            confirmedDx = suggested.primary || suggested.diagnoses[0] || null;
+          const parsed = draftNow.confirmed_dx_json ? JSON.parse(draftNow.confirmed_dx_json) : null;
+          if (Array.isArray(parsed?.diagnoses)) {
+            allDiagnoses = parsed.diagnoses;
+            confirmedDx = parsed.primary || parsed.diagnoses[0] || null;
           } else {
-            confirmedDx = suggested;
+            confirmedDx = parsed;
             if (confirmedDx?.code) allDiagnoses = [confirmedDx];
           }
         } catch {
           confirmedDx = null;
         }
-      }
-      diagnosticJustification = String(confirmedDx?.justification || '').trim() || null;
-
-      if (authoritativePlan) {
-        // Treatment plan already on file: keep its primary dx / justification / presenting problem.
-        // Still add any new intake codes as non-primary chart diagnoses for reference.
-        for (let i = 0; i < allDiagnoses.length; i += 1) {
-          const dx = allDiagnoses[i];
-          if (!dx?.code) continue;
-          await upsertClinicalDiagnosis({
-            agencyId,
-            clientId,
-            icd10Code: dx.code,
-            description: dx.description || null,
-            justification: null,
-            createdByUserId: req.user.id,
-            setPrimary: false
-          });
+        if (!confirmedDx?.code) {
+          try {
+            const suggested = draftNow.suggested_dx_json ? JSON.parse(draftNow.suggested_dx_json) : null;
+            if (Array.isArray(suggested?.diagnoses)) {
+              allDiagnoses = suggested.diagnoses;
+              confirmedDx = suggested.primary || suggested.diagnoses[0] || null;
+            } else {
+              confirmedDx = suggested;
+              if (confirmedDx?.code) allDiagnoses = [confirmedDx];
+            }
+          } catch {
+            confirmedDx = null;
+          }
         }
-        treatmentPlan = authoritativePlan;
-        primaryDiagnosisId = authoritativePlan.primary_diagnosis_id || null;
-        diagnosticJustification = authoritativePlan.diagnostic_justification || diagnosticJustification;
-      } else {
-        for (let i = 0; i < allDiagnoses.length; i += 1) {
-          const dx = allDiagnoses[i];
-          if (!dx?.code) continue;
-          const dxId = await upsertClinicalDiagnosis({
-            agencyId,
-            clientId,
-            icd10Code: dx.code,
-            description: dx.description || null,
-            justification: i === 0 ? diagnosticJustification : dx.justification || null,
-            createdByUserId: req.user.id,
-            setPrimary: i === 0
-          });
-          if (i === 0) primaryDiagnosisId = dxId;
-          if (dxId) {
-            planDiagnosesLinks.push({
-              diagnosisId: dxId,
-              isPrimary: i === 0,
+        diagnosticJustification = String(confirmedDx?.justification || '').trim() || null;
+
+        if (authoritativePlan) {
+          // Treatment plan already on file: keep its primary dx / justification / presenting problem.
+          // Still add any new intake codes as non-primary chart diagnoses for reference.
+          for (let i = 0; i < allDiagnoses.length; i += 1) {
+            const dx = allDiagnoses[i];
+            if (!dx?.code) continue;
+            await upsertClinicalDiagnosis({
+              agencyId,
+              clientId,
+              icd10Code: dx.code,
+              description: dx.description || null,
+              justification: null,
+              createdByUserId: req.user.id,
+              setPrimary: false
+            });
+          }
+          treatmentPlan = authoritativePlan;
+          primaryDiagnosisId = authoritativePlan.primary_diagnosis_id || null;
+          diagnosticJustification = authoritativePlan.diagnostic_justification || diagnosticJustification;
+        } else {
+          for (let i = 0; i < allDiagnoses.length; i += 1) {
+            const dx = allDiagnoses[i];
+            if (!dx?.code) continue;
+            const dxId = await upsertClinicalDiagnosis({
+              agencyId,
+              clientId,
+              icd10Code: dx.code,
+              description: dx.description || null,
               justification: i === 0 ? diagnosticJustification : dx.justification || null,
-              sortOrder: i + 1
+              createdByUserId: req.user.id,
+              setPrimary: i === 0
             });
+            if (i === 0) primaryDiagnosisId = dxId;
+            if (dxId) {
+              planDiagnosesLinks.push({
+                diagnosisId: dxId,
+                isPrimary: i === 0,
+                justification: i === 0 ? diagnosticJustification : dx.justification || null,
+                sortOrder: i + 1
+              });
+            }
           }
-        }
 
-        if (!primaryDiagnosisId && confirmedDx?.code) {
-          primaryDiagnosisId = await upsertPrimaryClinicalDiagnosis({
+          if (!primaryDiagnosisId && confirmedDx?.code) {
+            primaryDiagnosisId = await upsertPrimaryClinicalDiagnosis({
+              agencyId,
+              clientId,
+              icd10Code: confirmedDx.code,
+              description: confirmedDx.description || null,
+              justification: diagnosticJustification,
+              createdByUserId: req.user.id
+            });
+            if (primaryDiagnosisId) {
+              planDiagnosesLinks.push({
+                diagnosisId: primaryDiagnosisId,
+                isPrimary: true,
+                justification: diagnosticJustification,
+                sortOrder: 1
+              });
+            }
+          }
+
+          // Refresh or create linked Treatment Plan Draft from finalized intake content.
+          const {
+            refreshTreatmentPlanDraftFromIntake
+          } = await import('../services/intakePacketBootstrap.service.js');
+          treatmentPlan = await refreshTreatmentPlanDraftFromIntake({
+            intakeDraft: { ...draftNow, status: 'final' },
             agencyId,
             clientId,
-            icd10Code: confirmedDx.code,
-            description: confirmedDx.description || null,
-            justification: diagnosticJustification,
-            createdByUserId: req.user.id
+            actorUserId: req.user.id,
+            goalsFromRequest: goals.length ? goals : null,
+            primaryDiagnosisId,
+            planDiagnoses: planDiagnosesLinks
           });
-          if (primaryDiagnosisId) {
-            planDiagnosesLinks.push({
-              diagnosisId: primaryDiagnosisId,
-              isPrimary: true,
-              justification: diagnosticJustification,
-              sortOrder: 1
-            });
-          }
         }
-
-        // Refresh or create linked Treatment Plan Draft from finalized intake content.
-        const {
-          refreshTreatmentPlanDraftFromIntake
-        } = await import('../services/intakePacketBootstrap.service.js');
-        treatmentPlan = await refreshTreatmentPlanDraftFromIntake({
-          intakeDraft: { ...draftNow, status: 'final' },
-          agencyId,
-          clientId,
-          actorUserId: req.user.id,
-          goalsFromRequest: goals.length ? goals : null,
-          primaryDiagnosisId,
-          planDiagnoses: planDiagnosesLinks
-        });
+      } catch (e) {
+        // Failing to create the TP should not block note finalization — log and continue.
+        console.error('[clientIntakeNote] Failed to create treatment plan / promote diagnosis:', e?.message);
       }
-    } catch (e) {
-      // Failing to create the TP should not block note finalization — log and continue.
-      console.error('[clientIntakeNote] Failed to create treatment plan / promote diagnosis:', e?.message);
-    }
 
-    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
-    const finalized = await ClientIntakeNoteDraft.updateStatus({
-      draftId,
-      status: 'final',
-      treatmentPlanId: treatmentPlan?.id ?? draftNow.treatment_plan_id ?? null,
-      finalizedAt: now
-    });
-
-    // Audit (non-blocking — missing ENUM values must not undo a successful finalize)
-    try {
-      await AdminAuditLog.logAction({
-        actionType: 'client_intake_note_finalized',
-        actorUserId: req.user.id,
-        targetUserId: null,
-        agencyId,
-        metadata: {
-          clientId,
-          draftId,
-          serviceCode: draftNow.service_code,
-          treatmentPlanId: treatmentPlan?.id ?? null,
-          primaryDiagnosisId: primaryDiagnosisId || null
-        }
+      const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      const finalized = await ClientIntakeNoteDraft.updateStatus({
+        draftId,
+        status: 'final',
+        treatmentPlanId: treatmentPlan?.id ?? draftNow.treatment_plan_id ?? null,
+        finalizedAt: now
       });
-    } catch (auditErr) {
-      console.error('[clientIntakeNote] Audit log failed after finalize:', auditErr?.message || auditErr);
-    }
-    try {
-      const { logClientAccess } = await import('../services/clientAccessLog.service.js');
-      await logClientAccess(req, clientId, 'intake_note_finalized');
-    } catch {
-      // best-effort
-    }
 
-    res.json({
-      draft: formatDraftResponse(finalized),
-      treatmentPlan: treatmentPlan
-        ? {
-            id: treatmentPlan.id,
-            goals: treatmentPlan.goals || [],
+      // Audit (non-blocking — missing ENUM values must not undo a successful finalize)
+      try {
+        await AdminAuditLog.logAction({
+          actionType: 'client_intake_note_finalized',
+          actorUserId: req.user.id,
+          targetUserId: null,
+          agencyId,
+          metadata: {
+            clientId,
+            draftId,
+            serviceCode: draftNow.service_code,
+            treatmentPlanId: treatmentPlan?.id ?? null,
             primaryDiagnosisId: primaryDiagnosisId || null
           }
-        : null,
-      primaryDiagnosisId: primaryDiagnosisId || null
+        });
+      } catch (auditErr) {
+        console.error('[clientIntakeNote] Audit log failed after finalize:', auditErr?.message || auditErr);
+      }
+      try {
+        const { logClientAccess } = await import('../services/clientAccessLog.service.js');
+        await logClientAccess(req, clientId, 'intake_note_finalized');
+      } catch {
+        // best-effort
+      }
+
+      res.json({
+        draft: formatDraftResponse(finalized),
+        treatmentPlan: treatmentPlan
+          ? {
+              id: treatmentPlan.id,
+              goals: treatmentPlan.goals || [],
+              primaryDiagnosisId: primaryDiagnosisId || null
+            }
+          : null,
+        primaryDiagnosisId: primaryDiagnosisId || null
+      });
     });
   } catch (e) {
     next(e);
@@ -1661,95 +1715,97 @@ export const updateClientIntakeNoteSections = async (req, res, next) => {
     const agencyId = safeInt(access.client?.agency_id);
     if (!agencyId) return res.status(400).json({ error: { message: 'Client has no agency' } });
 
-    const draft = await ClientIntakeNoteDraft.findForClient({ draftId, clientId, agencyId });
-    if (!draft) return res.status(404).json({ error: { message: 'Draft not found' } });
-    const allowReplace = req.body?.replace === true || req.body?.forceReplace === true
-      || req.query?.replace === '1' || req.query?.forceReplace === '1';
-    if (draft.status === 'final') {
-      if (!allowReplace) {
-        return res.status(409).json({
-          error: {
-            message: 'Intake note is already finalized',
-            code: 'intake_already_finalized',
-            replaceAllowed: true
-          }
-        });
+    return await withIntakeDraftMutationLock(draftId, async () => {
+      const draft = await ClientIntakeNoteDraft.findForClient({ draftId, clientId, agencyId });
+      if (!draft) return res.status(404).json({ error: { message: 'Draft not found' } });
+      const allowReplace = req.body?.replace === true || req.body?.forceReplace === true
+        || req.query?.replace === '1' || req.query?.forceReplace === '1';
+      if (draft.status === 'final') {
+        if (!allowReplace) {
+          return res.status(409).json({
+            error: {
+              message: 'Intake note is already finalized',
+              code: 'intake_already_finalized',
+              replaceAllowed: true
+            }
+          });
+        }
+        await ClientIntakeNoteDraft.reopenForReplace(draftId);
       }
-      await ClientIntakeNoteDraft.reopenForReplace(draftId);
-    }
-    if (draft.status === 'failed') {
-      return res.status(409).json({ error: { message: 'Cannot update a failed draft' } });
-    }
+      if (draft.status === 'failed') {
+        return res.status(409).json({ error: { message: 'Cannot update a failed draft' } });
+      }
 
-    const sectionsInput = Array.isArray(req.body?.sections) ? req.body.sections : null;
-    let noteBodyEnc;
-    let noteSectionsJsonEnc;
-    if (sectionsInput) {
-      const normalizedSections = sectionsInput.map((sec, index) => ({
-        key: String(sec.key || sec.title || sec.label || `section_${index + 1}`),
-        label: String(sec.title || sec.label || sec.key || `Section ${index + 1}`),
-        body: String(sec.content || sec.body || '').trim(),
-        order: Number(sec.order || index + 1)
-      })).filter((s) => s.body);
-      const noteBody = normalizedSections
-        .map((s) => `${s.label}\n${s.body}`)
-        .join('\n\n')
-        .slice(0, 50000);
-      noteBodyEnc = maybeEncryptNotePayload(noteBody);
-      noteSectionsJsonEnc = maybeEncryptNotePayload(JSON.stringify(normalizedSections));
-    }
+      const sectionsInput = Array.isArray(req.body?.sections) ? req.body.sections : null;
+      let noteBodyEnc;
+      let noteSectionsJsonEnc;
+      if (sectionsInput) {
+        const normalizedSections = sectionsInput.map((sec, index) => ({
+          key: String(sec.key || sec.title || sec.label || `section_${index + 1}`),
+          label: String(sec.title || sec.label || sec.key || `Section ${index + 1}`),
+          body: String(sec.content || sec.body || '').trim(),
+          order: Number(sec.order || index + 1)
+        })).filter((s) => s.body);
+        const noteBody = normalizedSections
+          .map((s) => `${s.label}\n${s.body}`)
+          .join('\n\n')
+          .slice(0, 50000);
+        noteBodyEnc = maybeEncryptNotePayload(noteBody);
+        noteSectionsJsonEnc = maybeEncryptNotePayload(JSON.stringify(normalizedSections));
+      }
 
-    let confirmedDxJson;
-    let status;
-    const sharedJustification = String(
-      req.body?.diagnosticJustification
-        ?? req.body?.diagnostic_justification
-        ?? ''
-    ).trim();
-    const diagnosesInput = Array.isArray(req.body?.diagnoses) ? req.body.diagnoses : null;
-    if (diagnosesInput?.length) {
-      const normalized = diagnosesInput
-        .map((d, i) => ({
+      let confirmedDxJson;
+      let status;
+      const sharedJustification = String(
+        req.body?.diagnosticJustification
+          ?? req.body?.diagnostic_justification
+          ?? ''
+      ).trim();
+      const diagnosesInput = Array.isArray(req.body?.diagnoses) ? req.body.diagnoses : null;
+      if (diagnosesInput?.length) {
+        const normalized = diagnosesInput
+          .map((d, i) => ({
+            code: String(d.code || d.icd10Code || d.icd10_code || '').trim(),
+            description: String(d.description || '').trim(),
+            justification: i === 0
+              ? (sharedJustification || String(d.justification || '').trim())
+              : '',
+            isPrimary: d.isPrimary != null ? !!d.isPrimary : i === 0,
+            evaluationScore: d.evaluationScore ?? null,
+            evaluationSummary: d.evaluationSummary || null
+          }))
+          .filter((d) => d.code);
+        if (normalized.length) {
+          confirmedDxJson = JSON.stringify({
+            diagnoses: normalized,
+            primary: normalized[0],
+            diagnosticJustification: normalized[0].justification || null
+          });
+          status = 'ready';
+        }
+      } else if (req.body?.diagnosis) {
+        const d = req.body.diagnosis;
+        const diagnosis = {
           code: String(d.code || d.icd10Code || d.icd10_code || '').trim(),
           description: String(d.description || '').trim(),
-          justification: i === 0
-            ? (sharedJustification || String(d.justification || '').trim())
-            : '',
-          isPrimary: d.isPrimary != null ? !!d.isPrimary : i === 0,
-          evaluationScore: d.evaluationScore ?? null,
-          evaluationSummary: d.evaluationSummary || null
-        }))
-        .filter((d) => d.code);
-      if (normalized.length) {
-        confirmedDxJson = JSON.stringify({
-          diagnoses: normalized,
-          primary: normalized[0],
-          diagnosticJustification: normalized[0].justification || null
-        });
-        status = 'ready';
+          justification: sharedJustification || String(d.justification || '').trim()
+        };
+        if (diagnosis.code) {
+          confirmedDxJson = JSON.stringify(diagnosis);
+          status = 'ready';
+        }
       }
-    } else if (req.body?.diagnosis) {
-      const d = req.body.diagnosis;
-      const diagnosis = {
-        code: String(d.code || d.icd10Code || d.icd10_code || '').trim(),
-        description: String(d.description || '').trim(),
-        justification: sharedJustification || String(d.justification || '').trim()
-      };
-      if (diagnosis.code) {
-        confirmedDxJson = JSON.stringify(diagnosis);
-        status = 'ready';
-      }
-    }
 
-    const updated = await ClientIntakeNoteDraft.updateContent({
-      draftId,
-      noteBodyEnc,
-      noteSectionsJsonEnc,
-      confirmedDxJson,
-      status
+      const updated = await ClientIntakeNoteDraft.updateContent({
+        draftId,
+        noteBodyEnc,
+        noteSectionsJsonEnc,
+        confirmedDxJson,
+        status
+      });
+
+      return res.json({ draft: formatDraftResponse(updated) });
     });
-
-    return res.json({ draft: formatDraftResponse(updated) });
   } catch (e) {
     next(e);
   }

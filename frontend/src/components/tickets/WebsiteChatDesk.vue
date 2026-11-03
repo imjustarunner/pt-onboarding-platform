@@ -1,7 +1,7 @@
 <template>
- <Teleport to="body"><aside ref="desk" class="webchat-desk" :style="movement.style.value" aria-label="Live Chat desk">
-  <div class="webchat-desk-controls"><button class="webchat-move" aria-label="Move Live Chat" title="Drag to move; use arrow keys when focused" @pointerdown="movement.start" @pointermove="movement.pointerMove" @pointerup="movement.stop" @pointercancel="movement.stop" @lostpointercapture="movement.stop" @keydown="movement.keyMove">⠿</button>
-  <button class="webchat-desk-toggle" @click="expanded=!expanded">Live Chat <span v-if="waitingCount">{{waitingCount}} message{{waitingCount===1?'':'s'}} waiting</span> · {{available?'On':'Off'}}</button></div>
+ <Teleport to="body" :disabled="compactLayout"><aside ref="desk" class="webchat-desk" :class="{'webchat-desk--inline':compactLayout}" :style="compactLayout ? undefined : movement.style.value" aria-label="Live Chat desk">
+  <div class="webchat-desk-controls"><button v-if="!compactLayout" class="webchat-move" aria-label="Move Live Chat" title="Drag to move; use arrow keys when focused" @pointerdown="movement.start" @pointermove="movement.pointerMove" @pointerup="movement.stop" @pointercancel="movement.stop" @lostpointercapture="movement.stop" @keydown="movement.keyMove">⠿</button>
+  <button class="webchat-desk-toggle" :aria-expanded="expanded" @click="expanded=!expanded">Live Chat <span v-if="waitingCount">{{waitingCount}} message{{waitingCount===1?'':'s'}} waiting</span> · {{available?'On':'Off'}}</button></div>
   <section v-if="expanded" class="webchat-desk-panel">
    <header><strong>Live Chat</strong><label><input v-model="available" type="checkbox" @change="setAvailable"/>Available for chat</label><button aria-label="Minimize Live Chat" @click="expanded=false">−</button></header>
    <p class="webchat-desk-note"><strong>Send a visitor a message to initiate a chat. They cannot chat with you until you send the first message.</strong></p>
@@ -42,6 +42,11 @@ const details=ref({}),team=ref([]),tab=ref('chats'),topic=ref(''),confirmFlag=re
 const auth=useAuthStore(),desk=ref();
 const stateKey=`website-chat-desk:${auth.user?.id||'staff'}`;
 const movement=useMovableChatPanel(desk,expanded,`${stateKey}:position`);
+const isCompactLayout=()=>typeof window!=='undefined'&&(window.innerWidth<=960||window.innerHeight<=500);
+const compactLayout=ref(isCompactLayout());
+function syncLayout(){compactLayout.value=isCompactLayout();if(compactLayout.value)movement.stop();}
+onMounted(()=>window.addEventListener('resize',syncLayout));
+onUnmounted(()=>window.removeEventListener('resize',syncLayout));
 let timer,typingTimer,busy=false,alive=true,selection=0,initialized=false,restored=false;
 function saveState(){try{sessionStorage.setItem(stateKey,JSON.stringify({expanded:expanded.value,seen:seen.value}));}catch{}}
 function markSeen(id,data){const latest=(data.messages||[]).filter(m=>m.sender==='visitor').at(-1)?.id||0;seen.value[id]=Math.max(Number(seen.value[id]||0),Number(latest));saveState();}
@@ -78,4 +83,11 @@ onUnmounted(()=>{alive=false;selection++;clearInterval(timer);clearTimeout(typin
 </script>
 <style scoped>
 .webchat-desk{position:fixed;right:18px;bottom:150px;z-index:1200;color:#233238;font:14px/1.45 system-ui,sans-serif}.webchat-desk button{font:inherit;cursor:pointer;border:1px solid #bccdc8;background:#fff;color:#23473d;border-radius:7px;padding:7px 10px}.webchat-desk .webchat-desk-toggle{background:#173e36;color:white;box-shadow:0 3px 14px #0003}.webchat-desk-toggle span{background:#b3293d;border-radius:20px;padding:2px 7px}.webchat-desk-panel{margin-top:8px;background:#fff;border:1px solid #b8cbc5;border-radius:12px;width:410px;max-width:calc(100vw - 24px);max-height:75vh;overflow:auto;box-shadow:0 8px 40px #0003}.webchat-desk-panel>header{padding:12px;display:flex;align-items:center;justify-content:space-between;gap:6px;background:#f0f5f3}.webchat-desk-panel header label{font-size:12px}.webchat-desk-note{padding:0 12px;font-size:12px}.webchat-visitors{max-height:180px;overflow:auto}.visitor-toast{display:flex;margin:8px;border:1px solid #d5e1dd;border-radius:8px}.visitor-toast.selected{background:#e4eeea}.visitor-toast button:first-child{display:flex;align-items:center;gap:8px;flex:1;text-align:left;border:0;background:transparent}.visitor-toast img{width:34px;height:30px;object-fit:contain}.visitor-toast small{display:block;font-size:11px}.visitor-toast b{font-size:10px;color:#a31e36}.webchat-selected{padding:10px;display:flex;justify-content:space-between;gap:8px;font-size:12px}.webchat-staff-thread{max-height:240px;overflow:auto;padding:10px}.webchat-staff-thread article{background:#f3f3f3;margin-bottom:7px;padding:8px 12px;border-radius:8px}.webchat-staff-thread article.staff{background:#e4f1e9;margin-left:20px}.webchat-staff-thread p{white-space:pre-wrap;overflow-wrap:anywhere;margin:4px 0}.webchat-quick{display:flex;flex-wrap:wrap;gap:5px;padding:10px}.webchat-quick button{font-size:12px}.webchat-desk form{display:grid;gap:8px;padding:12px}.webchat-desk textarea{font:inherit;border:1px solid #9db7ad;border-radius:7px;padding:8px;color:#233238;background:white}.webchat-desk form>button{background:#175b49;color:white}
-.webchat-desk-controls{display:flex;align-items:center;gap:4px}.webchat-desk .webchat-move{cursor:grab;touch-action:none;font-size:22px;padding:3px 9px}.webchat-desk .webchat-move:active{cursor:grabbing}.webchat-desk{max-height:calc(100dvh - 16px);overflow:auto;max-width:calc(100vw - 16px)}.webchat-desk select{display:block;max-width:100%;font:inherit;padding:6px}.webchat-desk button:disabled{opacity:.5;cursor:default}.webchat-desk-panel{width:480px}.webchat-desk-note a{color:#086aa0}</style>
+.webchat-desk-controls{display:flex;align-items:center;gap:4px}.webchat-desk .webchat-move{cursor:grab;touch-action:none;font-size:22px;padding:3px 9px}.webchat-desk .webchat-move:active{cursor:grabbing}.webchat-desk{max-height:calc(100dvh - 16px);overflow:auto;max-width:calc(100vw - 16px)}.webchat-desk select{display:block;max-width:100%;font:inherit;padding:6px}.webchat-desk button:disabled{opacity:.5;cursor:default}.webchat-desk-panel{width:480px}.webchat-desk-note a{color:#086aa0}
+.webchat-desk--inline{position:static;width:100%;max-width:100%;max-height:none;overflow:visible;z-index:auto;margin:8px 0}
+.webchat-desk--inline .webchat-desk-panel{width:100%;max-width:100%;max-height:none;box-sizing:border-box;overflow:visible}
+.webchat-desk--inline .webchat-desk-controls,.webchat-desk--inline .webchat-desk-panel>header{flex-wrap:wrap}
+.webchat-desk--inline .webchat-desk-toggle{box-shadow:none;max-width:100%;white-space:normal}
+.webchat-desk--inline .visitor-toast,.webchat-desk--inline .webchat-selected{flex-wrap:wrap;overflow-wrap:anywhere}
+.webchat-desk--inline textarea,.webchat-desk--inline .visitor-toast button{min-width:0}
+</style>

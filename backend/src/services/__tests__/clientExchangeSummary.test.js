@@ -66,3 +66,10 @@ it('preserves explicit clears instead of falling back to older enrollment or ref
 });
 
 it('uses the recorded payer instead of treating Commercial / Other as a missing plan',async()=>{mocks.insurance.mockResolvedValue({primary:{insurerName:'Cigna',memberId:'PRIVATE'}});const summary=await loadClientExchangeSummary({client:{id:3,agency_id:2,insurance_type_label:'Commercial / Other'}});expect(summary.preferences.insurance).toBe('Cigna');expect(JSON.stringify(summary)).not.toContain('PRIVATE');});
+
+it('uses a prepared matching concern without changing or publishing the source intake narrative',async()=>{
+ const client={id:3,agency_id:2,full_name:'Jamie Example',intake_preferences_json:{presentingConcern:'Private intake narrative',exchangeMatchingConcern:'Stress management',exchangeMatchingConcernUpdatedAt:'2026-11-03T07:00:00Z',exchangeSchedule:{days:['Tuesday'],periods:['afternoon'],notes:'After work'},exchangeMatchingScheduleNotes:'After work'}};
+ const summary=await loadClientExchangeSummary({client});
+ expect(summary.presentingProblems).toEqual(['Stress management']);expect(summary.presentingProblemSource).toBe('Matching concern');expect(summary.preferences.sharedMatchingConcern).toBe('Stress management');expect(summary.preferences.sharedSchedulingNotes).toBe('After work');
+ expect(client.intake_preferences_json.presentingConcern).toBe('Private intake narrative');expect(JSON.stringify(summary)).not.toContain('Private intake narrative');
+});

@@ -36,6 +36,15 @@ export function nameMatchKey(fullName) {
   return `${parsed.first}|${parsed.last}`;
 }
 
+// Review groups must retain middle names and suffixes. Collapsing everything
+// between the first and last token merges unrelated people (or QA cases).
+export function fullNameMatchKey(fullName) {
+  const parts = String(fullName || '').split(',').map(normalizeNamePart).filter(Boolean);
+  if (parts.length < 2) return parts[0] || '';
+  if (NAME_SUFFIXES.has(parts[1])) return parts.join(' ');
+  return [parts[1], parts[0], ...parts.slice(2)].join(' ');
+}
+
 export function looksLikeInitialsOnly(fullName, initials) {
   const compact = String(fullName || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
   const init = String(initials || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
@@ -68,7 +77,8 @@ export function groupClientsByFirstLastName(clients, { minGroupSize = 2 } = {}) 
   const byKey = new Map();
   for (const client of clients || []) {
     if (looksLikeInitialsOnly(client?.full_name, client?.initials)) continue;
-    const key = nameMatchKey(client?.full_name);
+    if (!parseFullName(client?.full_name)) continue;
+    const key = fullNameMatchKey(client?.full_name);
     if (!key) continue;
     if (!byKey.has(key)) byKey.set(key, []);
     byKey.get(key).push(client);
@@ -77,7 +87,7 @@ export function groupClientsByFirstLastName(clients, { minGroupSize = 2 } = {}) 
   const groups = [];
   for (const [key, members] of byKey) {
     if (members.length < minGroupSize) continue;
-    const [firstName, lastName] = key.split('|');
+    const { first: firstName, last: lastName } = parseFullName(members[0].full_name);
     groups.push({
       key,
       firstName,

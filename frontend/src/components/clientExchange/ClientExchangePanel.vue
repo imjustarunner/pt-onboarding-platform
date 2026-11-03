@@ -210,8 +210,8 @@
         <section class="cep-detail-section">
           <ExchangeMatchStatus :fit="selectedListing.viewerFit" />
           <ClientExchangeSummary :listing="selectedListing" />
-          <ClientExchangeEssentialsEditor v-if="isBackoffice" :key="selectedListing.id" :listing="selectedListing" @saved="onExpand(selectedListing.id)" />
-          <ClientExchangeAuditPanel v-if="selectedListing.canViewAudit ?? isBackoffice" :listing-id="selectedListing.id" @changed="onExpand(selectedListing.id)" />
+          <ClientExchangeEssentialsEditor v-if="isBackoffice" :key="selectedListing.id" :listing="selectedListing" @saved="onPreferencesSaved(selectedListing.id)" />
+          <ClientExchangeAuditPanel v-if="selectedListing.canViewAudit ?? isBackoffice" :listing-id="selectedListing.id" :revision="auditRevision" @changed="onExpand(selectedListing.id)" />
           <ExchangeMatchingAudit v-if="!(selectedListing.canViewAudit ?? isBackoffice) && selectedListing.canManageClaims" :listing-id="selectedListing.id" />
           <router-link v-if="selectedListing.clientId && (isBackoffice || isCurrentProviderFor(selectedListing))" class="cep-btn cep-btn--ghost cep-btn--sm" :to="clientRecordPath(selectedListing)">Open client record</router-link>
         </section>
@@ -325,6 +325,7 @@
 <script setup>
 import {exchangeRequestNeedsPlan,exchangeRequestPlanValid} from '../../navigation/clientExchangePolicy.js';
 import { exchangeStaffRole } from '../../navigation/clientExchangePolicy.js';
+import { rateLimitRetryAt } from '../../utils/rateLimitRetry.js';
 import ClientExchangeAuditPanel from './ClientExchangeAuditPanel.vue';
 import { computed, watch, ref, reactive } from 'vue';
 import { useRoute } from 'vue-router';
@@ -361,11 +362,13 @@ const listings = ref([]);
 const myRequests = ref([]);
 const requestsByListing = ref({});
 const requestsLoadingId = ref(null);
+const detailRequestVersions = new Map();
 const showPostModal = ref(false);
 const selectedListingId = ref(null);
 const searchQuery = ref('');
 const actionPending = ref(false);
 const postingReceipt = ref('');
+const auditRevision = ref(0);
 const requestMessages = reactive({});
 
 const selectedListing = computed(() => {
@@ -481,16 +484,32 @@ async function load() {
   }
 }
 
-async function onExpand(listingId) {
+async function onPreferencesSaved(listingId) {
+  if (await onExpand(listingId, { preferencesSaved: true }) && selectedListingId.value === listingId) auditRevision.value++;
+}
+
+async function onExpand(listingId, { preferencesSaved = false } = {}) {
+  const requestedAgencyId = agencyId.value;
+  const version=(detailRequestVersions.get(listingId)||0)+1;
+  detailRequestVersions.set(listingId,version);
   requestsLoadingId.value = listingId;
   try {
     const res = await api.get(`/client-exchange/listings/${listingId}`);
+    if(agencyId.value!==requestedAgencyId||detailRequestVersions.get(listingId)!==version)return false;
     requestsByListing.value = { ...requestsByListing.value, [listingId]: res.data?.requests || [] };
     if (res.data?.listing) listings.value = listings.value.map(l => l.id === listingId ? res.data.listing : l);
+    if(selectedListingId.value===listingId)error.value = '';
+    return true;
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load requests';
+    if(agencyId.value!==requestedAgencyId||detailRequestVersions.get(listingId)!==version||selectedListingId.value!==listingId)return false;
+    const retry = Number(e?.response?.status) === 429
+      ? ` Please wait until ${new Date(rateLimitRetryAt(e)).toLocaleTimeString()} before refreshing.` : ' Please refresh to see the current details.';
+    error.value = preferencesSaved
+      ? `Matching details were saved, but the listing and matching audit could not be refreshed.${retry}`
+      : (e?.response?.data?.error?.message || e?.message || 'Failed to load requests');
+    return false;
   } finally {
-    requestsLoadingId.value = null;
+    if(detailRequestVersions.get(listingId)===version&&requestsLoadingId.value===listingId)requestsLoadingId.value = null;
   }
 }
 

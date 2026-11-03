@@ -490,7 +490,7 @@ class PublicIntakeClientService {
           clientId: client.id,
           guardianUserId: guardianUser.id,
           relationshipType: enrollmentRelationship(payload, priorLink),
-          relationshipTitle: guardianPayload.relationship || 'Guardian',
+          relationshipTitle: priorLink?.relationship_title || (enrollmentRelationship(payload, priorLink) === 'self' ? 'Self' : guardianPayload.relationship || 'Guardian'),
           accessEnabled: priorLink ? Number(priorLink.access_enabled)===1 : true,
           permissionsJson: priorLink?.permissions_json || { intakeLink: link.id },
           createdByUserId: null
@@ -679,7 +679,7 @@ class PublicIntakeClientService {
         clientId: client.id,
         guardianUserId: guardianUser.id,
         relationshipType: enrollmentRelationship(payload, priorLink),
-        relationshipTitle: guardianPayload.relationship || 'Guardian',
+        relationshipTitle: priorLink?.relationship_title || (enrollmentRelationship(payload, priorLink) === 'self' ? 'Self' : guardianPayload.relationship || 'Guardian'),
         accessEnabled: priorLink ? Number(priorLink.access_enabled)===1 : true,
         permissionsJson: priorLink?.permissions_json || { intakeLink: link.id },
         createdByUserId: null

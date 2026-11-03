@@ -50,6 +50,10 @@
             <option value="other">Other services</option>
           </select>
         </label>
+        <div v-if="existingListing" class="error" role="status">
+          Referral #{{ existingListing.id }} already exists for this purpose and service. Open it to review or update the saved details.
+          <button type="button" class="btn btn-secondary" @click="$emit('posted', { ...existingListing, alreadyPosted: true })">Open existing referral</button>
+        </div>
         <label class="field">
           <span class="label">Send referral to</span>
           <select v-model="destination" class="select">
@@ -120,7 +124,7 @@
         <div v-if="submitError" class="error">{{ submitError }}</div>
 
         <div class="modal-actions">
-          <button type="button" class="btn btn-primary" :disabled="!selectedClientId || (destination === 'provider' && !targetProviderUserId) || submitting || posted || summaryLoading || !!summaryError" @click="submit">
+          <button type="button" class="btn btn-primary" :disabled="!selectedClientId || (destination === 'provider' && !targetProviderUserId) || submitting || posted || !!existingListing || summaryLoading || !!summaryError" @click="submit">
             {{ submitting ? 'Sending…' : 'Send referral' }}
           </button>
           <button type="button" class="btn btn-secondary" @click="posted ? $emit('posted', postedListing) : $emit('close')">{{ posted ? 'Done' : 'Cancel' }}</button>
@@ -178,6 +182,8 @@ const posted = ref(false);
 const postedListing = ref(null);
 const submitError = ref('');
 const sharedSummary = ref({});
+const existingListings = ref([]);
+const existingListing = computed(() => existingListings.value.find(listing => listing.referralKind === referralKind.value && listing.serviceType === serviceType.value));
 const summaryLoading = ref(false);
 const summaryError = ref('');
 const validationAttempted = ref(false), requiredFields = ref(null);
@@ -191,6 +197,7 @@ watch(selectedClientId, async clientId => {
   validationAttempted.value = false;
   const version = ++summaryVersion;
   sharedSummary.value = {};
+  existingListings.value = [];
   matchingPreferences.value = {};
   schedule.value = {}; providerGender.value = ''; providerQualification.value = ''; serviceLocation.value = '';
   ageBand.value = ''; gender.value = ''; presentingProblemsRaw.value = ''; modality.value = ''; insurance.value = ''; notes.value = '';
@@ -202,6 +209,7 @@ watch(selectedClientId, async clientId => {
     const response = await api.get(`/client-exchange/clients/${clientId}/summary`, { params: { agencyId: props.agencyId } });
     if (version === summaryVersion) {
       sharedSummary.value = response.data?.summary || {};
+      existingListings.value = response.data?.existingListings || [];
       schedule.value = sharedSummary.value.preferences?.schedule || {};
       matchingPreferences.value = sharedSummary.value.preferences?.matchingPreferences || {};
       providerGender.value = sharedSummary.value.preferences?.providerGender || '';
@@ -249,7 +257,7 @@ async function loadClients() {
 }
 
 async function submit() {
-  if (!selectedClientId.value || submitting.value || posted.value) return;
+  if (!selectedClientId.value || submitting.value || posted.value || existingListing.value || summaryLoading.value || summaryError.value) return;
   submitError.value = ''; validationAttempted.value = true;
   if (missingFields.value.length) { await nextTick(); requiredFields.value?.focusFirst(); return; }
   submitting.value = true;

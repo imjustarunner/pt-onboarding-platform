@@ -1947,6 +1947,81 @@
           v-if="isAuthenticated && !brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff && !isImmersiveJoinRoute && !isSummitStatsChallengeChrome && !String(route.path || '').includes('/tickets') && !String(route.path || '').includes('/counseling')"
         />
 
+        <div class="app-status-tools">
+          <div v-if="showPayrollPendingToast || showPreHireToast || showApplicantsToast" class="app-corner-toasts" aria-live="polite">
+            <div
+              v-if="showPayrollPendingToast"
+              class="payroll-pending-toast-wrap"
+              role="status"
+            >
+              <button type="button" class="payroll-pending-toast" @click="goToPayrollPending()">
+                <span class="payroll-pending-toast-icon" aria-hidden="true">💼</span>
+                <span>
+                  <strong>{{ payrollPendingCount }}</strong> pending payroll submission{{ payrollPendingCount !== 1 ? 's' : '' }}
+                  <span v-if="payrollPendingItems.length" class="payroll-pending-toast-names">
+                    — {{ payrollPendingItems.slice(0, 3).map((p) => p.name.split(' ')[0]).join(', ') }}{{ payrollPendingItems.length > 3 ? ` +${payrollPendingItems.length - 3} more` : '' }}
+                  </span>
+                </span>
+              </button>
+              <button
+                type="button"
+                class="toast-dismiss-btn payroll-pending-toast-dismiss"
+                aria-label="Snooze for 3 hours"
+                title="Snooze for 3 hours"
+                @pointerdown.prevent.stop="dismissPayrollPendingToast"
+                @click.prevent.stop="dismissPayrollPendingToast"
+              >✕</button>
+            </div>
+            <div
+              v-if="showPreHireToast"
+              class="hiring-toast-wrap hiring-toast-wrap--prehire"
+              role="status"
+            >
+              <button type="button" class="hiring-toast" @click="goToPreHireFromToast()">
+                <span class="hiring-toast-icon" aria-hidden="true">🤝</span>
+                <span>
+                  <strong>{{ preHireToastCount }}</strong> in pre-hire
+                  <span v-if="preHireToastNames.length" class="hiring-toast-names">
+                    — {{ preHireToastNames.slice(0, 3).join(', ') }}{{ preHireToastNames.length > 3 ? ` +${preHireToastNames.length - 3} more` : '' }}
+                  </span>
+                </span>
+              </button>
+              <button
+                type="button"
+                class="toast-dismiss-btn hiring-toast-dismiss"
+                aria-label="Snooze for 3 hours"
+                title="Snooze for 3 hours"
+                @pointerdown.prevent.stop="dismissPreHireToast"
+                @click.prevent.stop="dismissPreHireToast"
+              >✕</button>
+            </div>
+            <div
+              v-if="showApplicantsToast"
+              class="hiring-toast-wrap hiring-toast-wrap--applicants"
+              role="status"
+            >
+              <button type="button" class="hiring-toast" @click="goToApplicantsFromToast()">
+                <span class="hiring-toast-icon" aria-hidden="true">📋</span>
+                <span>
+                  <strong>{{ applicantsToastCount }}</strong> application{{ applicantsToastCount !== 1 ? 's' : '' }}
+                  <span v-if="applicantsToastNames.length" class="hiring-toast-names">
+                    — {{ applicantsToastNames.slice(0, 3).join(', ') }}{{ applicantsToastNames.length > 3 ? ` +${applicantsToastNames.length - 3} more` : '' }}
+                  </span>
+                </span>
+              </button>
+              <button
+                type="button"
+                class="toast-dismiss-btn hiring-toast-dismiss"
+                aria-label="Snooze for 3 hours"
+                title="Snooze for 3 hours"
+                @pointerdown.prevent.stop="dismissApplicantsToast"
+                @click.prevent.stop="dismissApplicantsToast"
+              >✕</button>
+            </div>
+          </div>
+          <WebsiteChatDesk v-if="isAuthenticated && !clinicalWorkspaceActive && ['admin','support','super_admin'].includes(String(user?.role||'').toLowerCase()) && !route.meta?.publicMarketingHub && !hideGlobalNavForSchoolStaff" />
+        </div>
+
         <div
           v-if="showPasswordExpiryBanner"
           class="pw-expiry-banner"
@@ -1970,7 +2045,6 @@
       <PublicWebsiteEditorBar v-if="route.meta?.publicMarketingHub" />
       <PublicWebsiteAnalytics v-if="route.meta?.publicMarketingHub" />
       <PublicWebsiteChat v-if="route.meta?.publicMarketingHub && !isAuthenticated" />
-      <WebsiteChatDesk v-if="isAuthenticated && !clinicalWorkspaceActive && ['admin','support','super_admin'].includes(String(user?.role||'').toLowerCase()) && !route.meta?.publicMarketingHub && !hideGlobalNavForSchoolStaff" />
       <MomentumStickiesOverlay v-if="showMomentumStickiesShell" />
       <AddStickyFab v-if="showMomentumStickiesShell" />
       <AddToStickyContextMenu v-if="showMomentumStickiesShell" />
@@ -2112,77 +2186,6 @@
           aria-label="Dismiss"
           @click.stop="dismissNewNotificationToast"
         >×</button>
-      </div>
-      <div class="app-corner-toasts" aria-live="polite">
-        <div
-          v-if="showPayrollPendingToast"
-          class="payroll-pending-toast-wrap"
-          role="status"
-        >
-          <button type="button" class="payroll-pending-toast" @click="goToPayrollPending()">
-            <span class="payroll-pending-toast-icon" aria-hidden="true">💼</span>
-            <span>
-              <strong>{{ payrollPendingCount }}</strong> pending payroll submission{{ payrollPendingCount !== 1 ? 's' : '' }}
-              <span v-if="payrollPendingItems.length" class="payroll-pending-toast-names">
-                — {{ payrollPendingItems.slice(0, 3).map((p) => p.name.split(' ')[0]).join(', ') }}{{ payrollPendingItems.length > 3 ? ` +${payrollPendingItems.length - 3} more` : '' }}
-              </span>
-            </span>
-          </button>
-          <button
-            type="button"
-            class="toast-dismiss-btn payroll-pending-toast-dismiss"
-            aria-label="Snooze for 3 hours"
-            title="Snooze for 3 hours"
-            @pointerdown.prevent.stop="dismissPayrollPendingToast"
-            @click.prevent.stop="dismissPayrollPendingToast"
-          >✕</button>
-        </div>
-        <div
-          v-if="showPreHireToast"
-          class="hiring-toast-wrap hiring-toast-wrap--prehire"
-          role="status"
-        >
-          <button type="button" class="hiring-toast" @click="goToPreHireFromToast()">
-            <span class="hiring-toast-icon" aria-hidden="true">🤝</span>
-            <span>
-              <strong>{{ preHireToastCount }}</strong> in pre-hire
-              <span v-if="preHireToastNames.length" class="hiring-toast-names">
-                — {{ preHireToastNames.slice(0, 3).join(', ') }}{{ preHireToastNames.length > 3 ? ` +${preHireToastNames.length - 3} more` : '' }}
-              </span>
-            </span>
-          </button>
-          <button
-            type="button"
-            class="toast-dismiss-btn hiring-toast-dismiss"
-            aria-label="Snooze for 3 hours"
-            title="Snooze for 3 hours"
-            @pointerdown.prevent.stop="dismissPreHireToast"
-            @click.prevent.stop="dismissPreHireToast"
-          >✕</button>
-        </div>
-        <div
-          v-if="showApplicantsToast"
-          class="hiring-toast-wrap hiring-toast-wrap--applicants"
-          role="status"
-        >
-          <button type="button" class="hiring-toast" @click="goToApplicantsFromToast()">
-            <span class="hiring-toast-icon" aria-hidden="true">📋</span>
-            <span>
-              <strong>{{ applicantsToastCount }}</strong> application{{ applicantsToastCount !== 1 ? 's' : '' }}
-              <span v-if="applicantsToastNames.length" class="hiring-toast-names">
-                — {{ applicantsToastNames.slice(0, 3).join(', ') }}{{ applicantsToastNames.length > 3 ? ` +${applicantsToastNames.length - 3} more` : '' }}
-              </span>
-            </span>
-          </button>
-          <button
-            type="button"
-            class="toast-dismiss-btn hiring-toast-dismiss"
-            aria-label="Snooze for 3 hours"
-            title="Snooze for 3 hours"
-            @pointerdown.prevent.stop="dismissApplicantsToast"
-            @click.prevent.stop="dismissApplicantsToast"
-          >✕</button>
-        </div>
       </div>
       <AnnouncementToasts
         v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && (agencyStore.currentAgency?.id || agencyStore.userAgencies?.length) && !sessionLockStore.isLocked && !sessionLockStore.warningActive"
@@ -8388,6 +8391,9 @@ button.nav-dropdown-button-link:hover {
 }
 
 /* ── Payroll pending submissions toast ── */
+.app-status-tools {
+  display: contents;
+}
 .app-corner-toasts {
   position: fixed;
   top: 72px;
@@ -8402,6 +8408,29 @@ button.nav-dropdown-button-link:hover {
 }
 .app-corner-toasts > * {
   pointer-events: auto;
+}
+/* Browser zoom reduces the CSS viewport just like a narrow phone screen. Keep
+   persistent actions in normal flow so they cannot cover the page's controls. */
+@media (max-width: 960px), (max-height: 500px) {
+  .app-status-tools {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0 12px;
+  }
+  .app-corner-toasts {
+    position: static;
+    width: 100%;
+    max-width: none;
+    align-items: stretch;
+    z-index: auto;
+    margin: 8px 0;
+  }
+  .app-corner-toasts .hiring-toast,
+  .app-corner-toasts .payroll-pending-toast {
+    padding: 8px 10px;
+    overflow-wrap: anywhere;
+  }
 }
 
 .payroll-pending-toast-wrap {

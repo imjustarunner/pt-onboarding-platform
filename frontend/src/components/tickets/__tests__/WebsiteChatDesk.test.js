@@ -4,10 +4,12 @@ import Desk from '../WebsiteChatDesk.vue';
 import api from '../../../services/api';
 vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:{id:7}})}));
 vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn()}}));
-let wrapper,rows,threads;
+let wrapper,rows,threads,host;
+const originalViewport={width:window.innerWidth,height:window.innerHeight};
+function resizeViewport(width,height){Object.defineProperty(window,'innerWidth',{configurable:true,value:width});Object.defineProperty(window,'innerHeight',{configurable:true,value:height});window.dispatchEvent(new Event('resize'));}
 const detail=id=>({messages:threads[id],quickReplies:[{label:'Get started',body:'Welcome. https://www.itsco.health/join/itsco/counseling'}],pageLinks:[{label:'Services',url:'https://www.itsco.health/services'}],viewers:[{userId:1,name:'Staff One',memberNumber:1,viewing:true,typing:true}],topics:[{id:'billing',label:'Billing'}],canReply:true});
 beforeEach(()=>{vi.useFakeTimers();localStorage.clear();sessionStorage.clear();rows=[{id:'visitor-a',name:'ITSCO',color:'#165c4f',lastMessageId:1,lastVisitorMessageId:1,pagePath:'/services',visitorMessages:1},{id:'visitor-b',name:'NLU',color:'#234567',lastMessageId:2,lastVisitorMessageId:2,pagePath:'/tutoring',visitorMessages:1}];threads={'visitor-a':[{id:1,sender:'visitor',body:'Question'}],'visitor-b':[{id:2,sender:'visitor',body:'Another question'}]};api.post.mockImplementation(async url=>({data:url.endsWith('/referral')?{url:'https://www.itsco.health/live-chat-support?ref=test'}:detail(url.includes('visitor-b')?'visitor-b':'visitor-a')}));api.get.mockImplementation(async url=>({data:url==='/website-chat/sessions'?{sessions:rows}:url==='/website-chat/team'?{team:[{userId:1,name:'Staff One'}]}:detail(url.split('/').at(-1))}));});
-afterEach(()=>{wrapper?.unmount();vi.useRealTimers();vi.clearAllMocks();});
+afterEach(()=>{wrapper?.unmount();host?.remove();host=null;resizeViewport(originalViewport.width,originalViewport.height);vi.useRealTimers();vi.clearAllMocks();});
 async function render(){wrapper=mount(Desk,{global:{stubs:{teleport:true}}});await flushPromises();}
 async function pointer(handle,type,options){const event=new MouseEvent(type,{bubbles:true,cancelable:true,...options});event._vts=Date.now()+1;Object.defineProperty(event,'pointerId',{value:options.pointerId});handle.element.dispatchEvent(event);await flushPromises();}
 async function select(index=0){await wrapper.findAll('.visitor-toast button')[index].trigger('click');await flushPromises();}
@@ -56,4 +58,28 @@ it('allows dragging the desk, remembers its position, and keeps it within the vi
 it('supports moving the desk with arrow keys',async()=>{
  await render();wrapper.find('.webchat-desk').element.getBoundingClientRect=()=>({left:100,top:100,width:300,height:200});
  await wrapper.find('[aria-label="Move Live Chat"]').trigger('keydown',{key:'ArrowRight'});expect(wrapper.find('.webchat-desk').element.style.left).toBe('120px');
+});
+it.each([[512,320],[427,267],[390,844],[1200,450]])('keeps chat in its page location at a %s by %s CSS viewport',async(width,height)=>{
+ resizeViewport(width,height);
+ localStorage.setItem('website-chat-desk:7:position',JSON.stringify({x:200,y:150}));
+ host=document.createElement('div');document.body.appendChild(host);
+ wrapper=mount(Desk,{attachTo:host});await flushPromises();
+ const aside=host.querySelector('.webchat-desk');
+ expect(aside).not.toBeNull();
+ expect(aside.classList.contains('webchat-desk--inline')).toBe(true);
+ expect(aside.style.left).toBe('');
+ expect(aside.querySelector('[aria-label="Move Live Chat"]')).toBeNull();
+ await wrapper.find('[aria-label="Minimize Live Chat"]').trigger('click');
+ expect(wrapper.find('.webchat-desk-toggle').attributes('aria-expanded')).toBe('false');
+ await wrapper.find('.webchat-desk-toggle').trigger('click');
+ expect(wrapper.find('.webchat-desk-toggle').attributes('aria-expanded')).toBe('true');
+ await select();await wrapper.find('textarea').setValue('Unsent reply survives zoom');
+ resizeViewport(1280,800);await flushPromises();
+ const floating=document.body.querySelector('.webchat-desk');
+ expect(host.contains(floating)).toBe(false);
+ expect(floating.querySelector('[aria-label="Move Live Chat"]')).not.toBeNull();
+ expect(floating.querySelector('textarea').value).toBe('Unsent reply survives zoom');
+ resizeViewport(width,height);await flushPromises();
+ expect(host.querySelector('textarea').value).toBe('Unsent reply survives zoom');
+ expect(api.post.mock.calls.some(([url])=>url.endsWith('/messages'))).toBe(false);
 });

@@ -19,3 +19,10 @@ it('clears the prior dependent and ignores an obsolete response',async()=>{
 it('offers a Spanish history with a genuine failure state',async()=>{
  api.get.mockRejectedValue(new Error('offline'));const w=mount(History,{props:{clientId:5,guardian:true,language:'es'}});await flushPromises();expect(w.text()).toContain('Historial de comunicaciones');expect(w.get('[role=alert]').text()).toContain('No se pudo cargar');w.unmount();
 });
+it.each([['en','Not sent (skipped)','Delivery not recorded','Recipient not recorded'],['es','No enviada (omitida)','Entrega no registrada','Destinatario no registrado']])
+('distinguishes skipped and unknown delivery evidence in %s',async(language,skipped,unknown,recipient)=>{
+ api.get.mockResolvedValue({data:{notifications:[{id:'session-1',type:'session_change',channel:'sms',status:'skipped',recipient:'•••0111',occurredAt:'2026-11-02T18:49:00Z'},{id:'session-2',type:'other',channel:'sms',status:'unknown',recipient:null,occurredAt:'2026-11-02T18:49:00Z'}]}});
+ const w=mount(History,{props:{clientId:5,guardian:true,language}});await flushPromises();
+ const rows=w.findAll('li');expect(rows[0].text()).toContain(skipped);expect(rows[1].text()).toContain(unknown);expect(rows[1].text()).toContain(recipient);
+ expect(rows[1].text()).not.toContain('Account contact');expect(rows[1].text()).not.toContain('sms · Sent');w.unmount();
+});

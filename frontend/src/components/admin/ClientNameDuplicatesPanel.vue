@@ -4,7 +4,7 @@
       <div>
         <h2 class="cnd-title">Possible name duplicates</h2>
         <p class="cnd-sub">
-          Internal review by first and last name. Nothing is merged automatically — open the records and decide.
+          Review matching full names, including middle names and suffixes. Open the records to compare; nothing is merged automatically.
         </p>
       </div>
       <label class="cnd-include">
@@ -13,10 +13,10 @@
       </label>
     </div>
 
-    <p v-if="!agencyId" class="cnd-empty">Pick a tenant to scan for first-and-last-name duplicates.</p>
+    <p v-if="!agencyId" class="cnd-empty">Pick a tenant to review matching full names.</p>
     <p v-else-if="loading" class="cnd-empty">Scanning names…</p>
     <p v-else-if="error" class="cnd-error">{{ error }}</p>
-    <p v-else-if="!groups.length" class="cnd-empty">No first-and-last-name duplicates found for this tenant.</p>
+    <p v-else-if="!groups.length" class="cnd-empty">No matching full names found for this tenant.</p>
 
     <div v-else class="cnd-groups">
       <article v-for="group in groups" :key="group.key" class="cnd-group">
@@ -76,6 +76,8 @@ const error = ref('');
 const includeArchived = ref(false);
 
 function displayName(group) {
+  const fullName = String(group?.members?.[0]?.full_name || '').trim();
+  if (fullName) return fullName;
   const first = String(group?.firstName || '');
   const last = String(group?.lastName || '');
   return `${first} ${last}`.trim().replace(/\b\w/g, (ch) => ch.toUpperCase());
@@ -84,7 +86,7 @@ function displayName(group) {
 function confidenceLabel(value) {
   if (value === 'high') return 'Same name + DOB';
   if (value === 'medium') return 'Same name + school';
-  return 'Same first and last name';
+  return 'Matching full name';
 }
 
 function formatDob(value) {

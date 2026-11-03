@@ -201,7 +201,7 @@ async function buildGuardianProfileFallbackFromLinked(clientId) {
       u?.phone_number || u?.personal_phone || u?.work_phone || ''
     ).trim() || null;
     const email = String(u?.email || primary?.email || '').trim().toLowerCase() || null;
-    const relationship = String(primary?.relationship_title || 'Guardian').trim() || null;
+    const relationship = String(primary?.relationship_type === 'self' ? 'Self' : primary?.relationship_title || 'Guardian').trim() || null;
     const dob = u?.date_of_birth
       ? String(u.date_of_birth).slice(0, 10)
       : null;
@@ -6232,7 +6232,7 @@ export const getClientClinicalResponses = async (req, res, next) => {
     }
 
     const { row: sub, submissionData, clientResponses, intakeFields, formConfig } = best;
-    const sections = [];
+    let sections = [];
 
     // ── 1. New-style clinical_questions step data ───────────────────────────
     // Read tolerantly from BOTH the nested `responses.submission` and the flat

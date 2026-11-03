@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   parseFullName,
   nameMatchKey,
+  fullNameMatchKey,
   looksLikeInitialsOnly,
   groupClientsByFirstLastName,
   flaggedClientIdsFromGroups
@@ -38,6 +39,18 @@ describe('looksLikeInitialsOnly', () => {
 });
 
 describe('groupClientsByFirstLastName', () => {
+  it('keeps distinct middle names and suffixes out of duplicate groups', () => {
+    const names = ['DEMO QA Adult Exchange', 'DEMO QA Manual Exchange',
+      'Cancel Day School Email QA', 'Cancel Day School Two Guardians QA',
+      'Alex Rivera Jr', 'Alex Rivera Sr', 'Alex Morgan Rivera', 'Alex Taylor Rivera'];
+    assert.deepEqual(groupClientsByFirstLastName(names.map((full_name, i) => ({ id: i + 1, full_name }))), []);
+  });
+
+  it('matches complete names in surname-first and ordinary order', () => {
+    assert.equal(fullNameMatchKey('Rivera, Alex Morgan, Jr.'), fullNameMatchKey('Alex Morgan Rivera, Jr.'));
+    assert.equal(fullNameMatchKey('Alex Morgan Rivera'), fullNameMatchKey('Rivera, Alex Morgan'));
+    assert.notEqual(fullNameMatchKey('Alex Rivera'), fullNameMatchKey('Alex Morgan Rivera'));
+  });
   it('groups the same first and last name and flags both ids', () => {
     const groups = groupClientsByFirstLastName([
       { id: 1, full_name: 'Alex Rivera', initials: 'ALXRIV', organization_id: 10, date_of_birth: '2014-04-01' },

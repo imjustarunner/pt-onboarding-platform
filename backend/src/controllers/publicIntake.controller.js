@@ -1543,6 +1543,7 @@ const extractGuardianProfileFromPayload = ({ payload = {}, intakeData = {}, subm
   ) || null;
   const relationship = normalizeName(
     pick(
+      (payload?.intakeForSelf === true || intakeData?.intakeForSelf === true) ? 'self' : null,
       guardianBody?.relationship,
       guardianIntake?.relationship,
       guardianResponses?.relationship,

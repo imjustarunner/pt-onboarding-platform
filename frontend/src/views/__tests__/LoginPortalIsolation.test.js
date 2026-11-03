@@ -77,3 +77,14 @@ it('ignores theme redirects from a sign-in page that has already unmounted',asyn
  finishTheme({data:{agency:{canonicalLoginSlug:'other-agency'}}});await flushPromises();
  expect(replace).not.toHaveBeenCalled();expect(isPublicAuthFormActive()).toBe(false);
 });
+
+it('explains an edge rate limit with its wait time and preserves the username',async()=>{
+ await render();
+ post.mockRejectedValue({response:{status:429,data:'Rate exceeded.',headers:{'retry-after':'125'}}});
+ wrapper.vm.username='avery.qa@example.com';
+ await wrapper.vm.verifyUsername({reason:'submit'});await flushPromises();
+ expect(wrapper.text()).toContain('Please wait 3 minutes, then try again.');
+ expect(wrapper.text()).not.toContain('Verification failed');
+ expect(wrapper.vm.username).toBe('avery.qa@example.com');
+ expect(post).toHaveBeenCalledTimes(1);
+});

@@ -103,7 +103,7 @@
         <h3 class="cc-hub-section__title">Contacts &amp; relationships</h3>
         <div class="cdp-contacts-grid">
           <article class="cdp-contact-card">
-            <div class="cdp-contact-card__role">Guardian</div>
+            <div class="cdp-contact-card__role">{{ contactRole }}</div>
             <div class="cdp-contact-card__name">{{ guardianName || 'No contact on file' }}</div>
             <div class="cdp-glance-meta">{{ guardianMeta || '—' }}</div>
           </article>
@@ -180,6 +180,7 @@ const props = defineProps({
   lastSessionLabel: { type: String, default: '—' },
   alerts: { type: Array, default: () => [] },
   guardianName: { type: String, default: '' },
+  contactRole: { type: String, default: 'Guardian' },
   guardianMeta: { type: String, default: '' },
   organizationName: { type: String, default: '' }
 });

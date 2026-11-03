@@ -16,7 +16,12 @@ export async function saveStaffExchangePreferences({clientId,agencyId,actor,inpu
     const schedule=normalizeExchangeSchedule(input.schedule||{}),concerns=String(input.concerns||'').trim();
     if(insurance.length>200||concerns.length>2000)throw Object.assign(new Error('Insurance or clinical concerns are too long'),{status:400});
     assertExchangeEssentials({preferences:{modality,serviceLocation,insurance,schedule},presentingProblems:concerns?[concerns]:summary.presentingProblems});
-    const patch={preferredModality:modality,serviceLocation,serviceLocationSource:'preference',insurance,exchangeSchedule:schedule,...(concerns?{presentingConcern:concerns,submittedAt:new Date().toISOString()}:{})};
+    const scheduleNotesProvided = Object.hasOwn(input.schedule || {}, 'notes');
+    if (!scheduleNotesProvided && summary.preferences?.schedule?.notes) schedule.notes = summary.preferences.schedule.notes;
+    // Prefilled source notes do not become shareable merely because another field was saved.
+    const sharedNotesChanged = scheduleNotesProvided && (summary.preferences?.sharedSchedulingNotes != null
+      || String(schedule.notes || '') !== String(summary.preferences?.schedule?.notes || ''));
+    const patch={preferredModality:modality,serviceLocation,serviceLocationSource:'preference',insurance,exchangeSchedule:schedule,...(sharedNotesChanged?{exchangeMatchingScheduleNotes:schedule.notes || ''}:{}),...(concerns?{exchangeMatchingConcern:concerns,exchangeMatchingConcernUpdatedAt:new Date().toISOString()}:{})};
     for(const [key,value] of Object.entries(patch)) await db.execute(`UPDATE clients SET intake_preferences_json=JSON_SET(COALESCE(intake_preferences_json,JSON_OBJECT()),'$.${key}',CAST(? AS JSON)) WHERE id=? AND agency_id=?`,[JSON.stringify(value),clientId,agencyId]);
     await db.execute("INSERT INTO client_status_history (client_id,changed_by_user_id,field_changed,from_value,to_value,note) VALUES (?,?,'exchange_service_preferences',?,?,?)",[clientId,actor.id,JSON.stringify(summary.preferences),JSON.stringify(patch),'Support updated matching details after reviewing the client record or speaking with the family. Insurance coverage still requires verification.']);
     await db.commit();return {saved:true};

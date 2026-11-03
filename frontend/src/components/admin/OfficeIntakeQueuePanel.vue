@@ -263,13 +263,13 @@
               <span class="oiq-detail-label">Format</span>
               <span class="oiq-detail-value">{{ labelModality(selected.intakePreferences.preferredModality) }}</span>
             </div>
-            <div v-if="selected.intakePreferences?.preferredTimeOfDay">
-              <span class="oiq-detail-label">Time of day</span>
-              <span class="oiq-detail-value">{{ labelTime(selected.intakePreferences.preferredTimeOfDay) }}</span>
+            <div v-if="scheduleLines(selected).length">
+              <span class="oiq-detail-label">Availability</span>
+              <div v-for="line in scheduleLines(selected)" :key="line" class="oiq-detail-value">{{ line }}</div>
             </div>
-            <div v-if="selected.intakePreferences?.preferredDays?.length">
-              <span class="oiq-detail-label">Days</span>
-              <span class="oiq-detail-value">{{ selected.intakePreferences.preferredDays.join(', ') }}</span>
+            <div v-if="selected.intakePreferences?.preferredLocation">
+              <span class="oiq-detail-label">Location</span>
+              <span class="oiq-detail-value">{{ selected.intakePreferences.preferredLocation }}</span>
             </div>
             <div v-if="selected.intakePreferences?.insuranceOrPayment">
               <span class="oiq-detail-label">Insurance / payment</span>
@@ -419,6 +419,8 @@ import {
 import api from '../../services/api';
 import QuickPostClientToExchange from '../clientExchange/QuickPostClientToExchange.vue';
 import ClientDisplayModeToggle from './ClientDisplayModeToggle.vue';
+import { reportCalendarDate } from '../../utils/reportDateTime.js';
+import { exchangeScheduleLines, scheduleFromIntake } from '../../utils/clientExchangeSchedule.js';
 
 const { getClientLabel, getAvatarLetters } = useClientDisplayMode();
 
@@ -480,10 +482,7 @@ function formatDate(v) {
 }
 
 function formatBirthdate(v) {
-  if (!v) return '—';
-  const d = new Date(`${v}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return String(v);
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+  return reportCalendarDate(v);
 }
 
 function clientTypeLabel(t) {
@@ -524,14 +523,32 @@ function labelModality(v) {
   return map[v] || v;
 }
 
-function labelTime(v) {
-  const map = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening', flexible: 'Flexible' };
-  return map[v] || v;
+function scheduleLines(c) {
+  const preferences = c?.intakePreferences || {};
+  const schedule = scheduleFromIntake(preferences);
+  const lines = exchangeScheduleLines(schedule);
+  if (preferences.exchangeSchedule) return lines;
+  // Older forms accepted a single label or free-text time. Keep that answer
+  // intact until a structured schedule is saved, including "flexible".
+  const legacyTimes = (Array.isArray(preferences.preferredTimeOfDay)
+    ? preferences.preferredTimeOfDay : [preferences.preferredTimeOfDay])
+    .map(value => String(value || '').trim()).filter(Boolean)
+    .map(value => ({ morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening', flexible: 'Flexible' }[value.toLowerCase()] || value));
+  if (!legacyTimes.length) return lines;
+  const timeIndex = lines.findIndex(line => line.startsWith('Preferred times:'));
+  const timeLine = `Preferred times: ${legacyTimes.join(', ')}`;
+  if (timeIndex >= 0) lines[timeIndex] = timeLine;
+  else {
+    const zoneIndex = lines.findIndex(line => line.startsWith('Time zone:'));
+    lines.splice(zoneIndex >= 0 ? zoneIndex : lines.length, 0, timeLine);
+  }
+  if (schedule.timezone && !lines.some(line => line.startsWith('Time zone:'))) lines.push(`Time zone: ${schedule.timezone}`);
+  return lines;
 }
 
 function hasPreferences(c) {
   const p = c.intakePreferences;
-  return p && (p.preferredModality || p.preferredTimeOfDay || p.preferredDays?.length || p.insuranceOrPayment);
+  return p && (p.preferredModality || scheduleLines(c).length || p.preferredLocation || p.insuranceOrPayment);
 }
 
 function isProspectivePathway(c) {

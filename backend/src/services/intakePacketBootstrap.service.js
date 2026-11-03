@@ -519,25 +519,14 @@ export async function regenerateIntakeDraftFromAddendum({
     throw err;
   }
 
-  const existingBody = maybeDecryptNotePayload(draft.note_body_enc) || '';
-  const existingSectionsEnc = maybeDecryptNotePayload(draft.note_sections_json_enc);
-  let sectionsText = '';
-  try {
-    const parsed = existingSectionsEnc ? JSON.parse(existingSectionsEnc) : null;
-    if (Array.isArray(parsed)) {
-      sectionsText = parsed.map((s) => `${s.label || s.key}\n${s.body || ''}`).join('\n\n');
-    } else {
-      sectionsText = existingBody;
-    }
-  } catch {
-    sectionsText = existingBody;
-  }
-
   const scrubbedBase = maybeDecryptNotePayload(draft.scrubbed_input_enc) || '';
-  const addendumClean = String(addendum || '').trim();
+  // An earlier generated draft is not evidence. Reusing it as source can perpetuate
+  // unsupported observations even after a clinician asks for a correction.
+  const client = await Client.findById(draft.client_id, { includeSensitive: true });
+  const extraNames = await collectClientPhiNames(client);
+  const addendumClean = scrubIntakeTextForNoteWriter(String(addendum || '').trim(), { extraNames });
   const combined = [
-    scrubbedBase ? `Original scrubbed intake summary:\n${scrubbedBase}` : '',
-    sectionsText ? `Current draft sections:\n${sectionsText}` : '',
+    scrubbedBase ? `Original scrubbed intake source:\n${scrubbedBase}` : '',
     addendumClean ? `Additional clinician information / revision instructions:\n${addendumClean}` : ''
   ].filter(Boolean).join('\n\n');
 
@@ -563,6 +552,7 @@ export async function regenerateIntakeDraftFromAddendum({
 
   const updated = await ClientIntakeNoteDraft.updateContent({
     draftId: draft.id,
+    scrubbedInputEnc: maybeEncryptNotePayload(combined),
     noteBodyEnc: maybeEncryptNotePayload(geminiText),
     noteSectionsJsonEnc: sections.length
       ? maybeEncryptNotePayload(JSON.stringify(sections))

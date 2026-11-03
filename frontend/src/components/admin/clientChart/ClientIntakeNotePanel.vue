@@ -167,6 +167,16 @@
             </div>
           </section>
 
+          <section v-if="draft.status !== 'final'" class="cin-panel cin-source-review">
+            <h4>Review against the intake source</h4>
+            <p>Generated text is a draft. Check each section against the source below and any documented clinician observations. Remove unsupported observations, denials, risk findings and diagnoses before finalizing.</p>
+            <details>
+              <summary>Source used to prepare this draft</summary>
+              <pre class="cin-section__body">{{ draft.sourceReview?.sourceText || 'The source is unavailable. Finalization is paused until it can be reviewed.' }}</pre>
+            </details>
+            <p>Use Edit Note to correct the draft. Editing, changing the diagnosis or regenerating it clears this review.</p>
+          </section>
+
           <!-- Note sections -->
           <section v-if="draft.sections?.length" class="cin-panel cin-sections">
             <div class="cin-panel__head">
@@ -199,6 +209,10 @@
                   <button type="button" class="cdp-text-link" @click.stop="copyText(sec.body, sec.label)">Copy</button>
                 </div>
                 <pre class="cin-section__body">{{ sec.body || '—' }}</pre>
+                <label v-if="draft.status !== 'final' && !isHistoricalView" class="cin-review-check">
+                  <input v-model="reviewedSections" type="checkbox" :value="sec.key" :disabled="busy" />
+                  I compared this section with the source and corrected unsupported claims.
+                </label>
               </div>
             </div>
           </section>
@@ -236,7 +250,7 @@
             </svg>
             <div class="cin-progress__label">
               <strong>{{ progressPct }}%</strong>
-              <span class="muted tiny">Complete</span>
+              <span class="muted tiny">Reviewed</span>
             </div>
           </div>
 
@@ -286,13 +300,15 @@
             </button>
 
             <template v-if="draft.status !== 'final' && !isHistoricalView">
-              <label class="cin-sidebar__context-label muted tiny">Optional session context (scrubbed before rewrite)</label>
-              <textarea
-                v-model="sessionContext"
-                class="filters-input cin-sidebar__context"
-                rows="3"
-                placeholder="Additional clinical context from first session…"
-              />
+              <label class="cin-sidebar__context-label">Intake appointment</label>
+              <p v-if="appointmentOptionsUnavailable" class="error">Appointment information could not be loaded. Your draft is available to review; refresh before finalizing.</p>
+              <select v-else-if="appointmentOptions.length" v-model="selectedClinicalSessionId" class="filters-input" :disabled="busy">
+                <option value="">Choose the matching appointment</option>
+                <option v-for="option in appointmentOptions" :key="option.clinicalSessionId" :value="option.clinicalSessionId">{{ appointmentLabel(option) }}</option>
+              </select>
+              <p v-else class="hint">No matching appointment is available. This intake remains a chart record without an appointment link.</p>
+              <label class="cin-review-check"><input v-model="sourceCompared" type="checkbox" :disabled="busy" /> I reviewed all sections against their sources and removed unsupported claims.</label>
+              <label class="cin-review-check"><input v-model="appointmentReviewed" type="checkbox" :disabled="busy" /> I checked the appointment information above.</label>
               <button
                 type="button"
                 class="cdp-btn-primary cin-sidebar__btn"
@@ -309,7 +325,7 @@
               >
                 Finalize intake only
               </button>
-              <p v-if="!canFinalize" class="hint cin-sidebar__hint">Confirm or update diagnosis before finalizing.</p>
+              <p v-if="!canFinalize" class="hint cin-sidebar__hint">Confirm the diagnosis, review every section and check the appointment before finalizing.</p>
             </template>
 
             <button
@@ -404,13 +420,18 @@ const showDxEdit = ref(false);
 const showImport = ref(false);
 const showMoreMenu = ref(false);
 const showRationale = ref(false);
-const sessionContext = ref('');
+const reviewedSections = ref([]), sourceCompared = ref(false), appointmentReviewed = ref(false);
+const appointmentOptions = ref([]), selectedClinicalSessionId = ref(''), appointmentOptionsUnavailable = ref(false);
 const dxEdit = ref({ code: '', description: '', justification: '', comment: '' });
 const copyFlash = ref('');
 const expandedSections = reactive({});
 const sectionRefs = ref({});
 
 const GENDER_LABELS = {
+  m: 'Male',
+  f: 'Female',
+  u: 'Unknown',
+  unknown: 'Unknown',
   male: 'Male',
   female: 'Female',
   nonbinary: 'Non-binary',
@@ -423,7 +444,7 @@ const statusLabel = computed(() => {
     none: 'Not started',
     draft: 'Draft',
     diagnosis_pending: 'Awaiting diagnosis confirm',
-    ready: 'Ready to finalize',
+    ready: canFinalize.value ? 'Ready to finalize' : 'Needs source review',
     final: 'Finalized'
   };
   return map[s] || s;
@@ -432,14 +453,18 @@ const statusLabel = computed(() => {
 const statusChipClass = computed(() => {
   const s = String(draft.value?.status || '');
   if (s === 'final') return 'cin-status-chip--final';
-  if (s === 'ready') return 'cin-status-chip--ready';
+  if (s === 'ready' && canFinalize.value) return 'cin-status-chip--ready';
   if (s === 'diagnosis_pending') return 'cin-status-chip--pending';
   return 'cin-status-chip--draft';
 });
 
 const canFinalize = computed(() => {
   const s = draft.value?.status;
-  return s === 'ready' || (s === 'draft' && draft.value?.diagnosisAction);
+  return s === 'ready' && !appointmentOptionsUnavailable.value && !!draft.value?.sourceReview?.sourceText
+    && sourceCompared.value && appointmentReviewed.value
+    && (draft.value?.sections || []).length > 0
+    && draft.value.sections.every(section => reviewedSections.value.includes(section.key))
+    && (!appointmentOptions.value.length || !!selectedClinicalSessionId.value);
 });
 
 const activeDiagnosis = computed(() => (
@@ -454,8 +479,8 @@ const isHistoricalView = computed(() => {
 const progressPct = computed(() => {
   const s = String(draft.value?.status || 'none');
   if (s === 'final') return 100;
-  const map = { none: 0, draft: 30, diagnosis_pending: 55, ready: 80 };
-  return map[s] ?? 15;
+  const sections = draft.value?.sections || [];
+  return sections.length ? Math.round(100 * sections.filter(section => reviewedSections.value.includes(section.key)).length / sections.length) : 0;
 });
 
 const clientName = computed(() => String(props.client?.full_name || '').trim());
@@ -471,8 +496,8 @@ const clientAge = computed(() => {
   }
   const raw = props.client?.date_of_birth;
   if (!raw) return '';
-  const d = new Date(raw);
-  if (!Number.isFinite(d.getTime())) return '';
+  const d = dateOnly(raw);
+  if (!d || !Number.isFinite(d.getTime())) return '';
   const now = new Date();
   let age = now.getFullYear() - d.getFullYear();
   const m = now.getMonth() - d.getMonth();
@@ -490,7 +515,7 @@ const clientDobLabel = computed(() => {
   const raw = props.client?.date_of_birth;
   if (!raw) return '';
   try {
-    return new Date(raw).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    return dateOnly(raw)?.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) || '';
   } catch {
     return String(raw);
   }
@@ -538,8 +563,8 @@ function sectionPreview(body, max = 140) {
 function sectionStatus(sec) {
   const body = String(sec?.body || '').trim();
   if (!body) return 'Empty';
-  if (body.length > 200) return 'Complete';
-  return 'Draft';
+  if (draft.value?.status === 'final') return 'Finalized';
+  return reviewedSections.value.includes(sec.key) ? 'Reviewed' : 'Needs review';
 }
 
 function setSectionRef(key, el) {
@@ -592,6 +617,9 @@ async function load(opts = {}) {
     draft.value = r.data?.draft || null;
     treatmentPlan.value = r.data?.treatmentPlan || null;
     history.value = r.data?.history || [];
+    appointmentOptions.value = r.data?.appointmentOptions || [];
+    appointmentOptionsUnavailable.value = r.data?.appointmentOptionsUnavailable === true;
+    selectedClinicalSessionId.value = draft.value?.sourceReview?.clinicalSessionId || '';
     syncDxEditFromDraft();
     initExpandedSections();
 
@@ -685,7 +713,9 @@ async function finalize() {
   error.value = '';
   try {
     const r = await api.post(`/clients/${id}/intake-note/${draftId}/finalize`, {
-      sessionContext: sessionContext.value || ''
+      sourceReview: { fingerprint: draft.value?.sourceReview?.fingerprint, sectionKeys: reviewedSections.value,
+        sourceCompared: sourceCompared.value, unsupportedClaimsRemoved: sourceCompared.value, appointmentReviewed: appointmentReviewed.value,
+        clinicalSessionId: selectedClinicalSessionId.value || null }
     });
     draft.value = r.data?.draft || draft.value;
     treatmentPlan.value = r.data?.treatmentPlan || null;
@@ -764,10 +794,26 @@ function runMoreAction(action) {
   else if (action === 'copy') copyAll();
 }
 
+function dateOnly(raw) {
+  const match = String(raw || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12) : null;
+}
+function appointmentLabel(option) {
+  const raw = option.startsAt;
+  const instant = typeof raw === 'string' && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)
+    ? `${raw.replace(' ', 'T')}Z` : raw;
+  const date = new Date(instant);
+  const when = Number.isFinite(date.getTime()) ? date.toLocaleString(undefined, { timeZone: option.timeZone, timeZoneName: 'short' }) : 'Time unavailable';
+  return `${when} · ${option.serviceCode} · ${option.appointmentId ? `Appointment #${option.appointmentId}` : `Event #${option.officeEventId}`}`;
+}
+watch(() => draft.value?.sourceReview?.fingerprint, () => {
+  reviewedSections.value = []; sourceCompared.value = false; appointmentReviewed.value = false;
+});
+
 function formatWhen(v) {
   if (!v) return '—';
   try {
-    return new Date(v).toLocaleString();
+    return new Date(v).toLocaleString(undefined, { timeZoneName: 'short' });
   } catch {
     return String(v);
   }
@@ -788,7 +834,7 @@ function historyStatusLabel(status) {
   const map = {
     draft: 'Draft',
     diagnosis_pending: 'Dx pending',
-    ready: 'Ready',
+    ready: 'Needs source review',
     final: 'Final'
   };
   return map[s] || s.replace(/_/g, ' ');
@@ -797,7 +843,7 @@ function historyStatusLabel(status) {
 function historyStatusClass(status) {
   const s = String(status || '');
   if (s === 'final') return 'cin-status-chip--final';
-  if (s === 'ready') return 'cin-status-chip--ready';
+  if (s === 'ready') return 'cin-status-chip--pending';
   if (s === 'diagnosis_pending') return 'cin-status-chip--pending';
   return 'cin-status-chip--draft';
 }
@@ -1330,4 +1376,10 @@ watch(() => props.clientId, () => {
 .tiny { font-size: 12px; }
 .hint { font-size: 12px; color: var(--text-secondary, #64748b); margin: 0; }
 .error { color: #b91c1c; font-weight: 650; margin-bottom: 12px; }
+</style>
+
+<style scoped>
+.cin-review-check { display: flex; align-items: flex-start; gap: .5rem; margin: .75rem 0; font-size: .85rem; }
+.cin-review-check input { flex: 0 0 auto; margin-top: .2rem; }
+.cin-source-review pre { max-height: 28rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>

@@ -742,6 +742,7 @@ import RememberedGoogleAccount from '../components/RememberedGoogleAccount.vue';
 import LoginWorkspaceProgress from '../components/LoginWorkspaceProgress.vue';
 import { completeGoogleLogin } from '../utils/completeGoogleLogin';
 import { safeLoginDestination } from '../utils/loginHandoff';
+import { rateLimitNotice } from '../utils/rateLimitRetry';
 import { startActivityTracking } from '../utils/activityTracker';
 import { useSessionLockStore } from '../store/sessionLock';
 import { signalFreshLogin } from '../composables/useReminderSnooze';
@@ -2204,7 +2205,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
 
     showPassword.value = true;
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Verification failed. Please try again.';
+    error.value = rateLimitNotice(e) || e?.response?.data?.error?.message || 'Verification failed. Please try again.';
     showPassword.value = false;
     needsOrgChoice.value = false;
   } finally {

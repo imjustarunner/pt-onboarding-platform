@@ -78,3 +78,12 @@ it('links missing times to their controls and keeps a notes-only schedule editab
  expect(document.activeElement).toBe(wrapper.find('[data-exchange-field="times"] input').element);
  expect(wrapper.find('textarea[placeholder^="For example: after"]').element.value).toBe('After 3pm');wrapper.unmount();
 });
+
+it('detects an existing purpose and service before Send without creating another referral',async()=>{
+ mocks.get.mockResolvedValue({data:{summary:{preferences:essentials,presentingProblems:['Worry']},existingListings:[{id:18,referralKind:'transfer',serviceType:'individual',status:'open'}]}});
+ const wrapper=mount(Modal,{props:{agencyId:2,presetClientId:4,lockClient:true}});await flushPromises();
+ expect(wrapper.text()).toContain('Referral #18 already exists');expect(wrapper.find('.btn-primary').attributes('disabled')).toBeDefined();
+ await wrapper.find('.btn-primary').trigger('click');expect(mocks.post).not.toHaveBeenCalled();
+ await wrapper.findAll('button').find(b=>b.text()==='Open existing referral').trigger('click');expect(wrapper.emitted('posted')[0][0]).toMatchObject({id:18,alreadyPosted:true});
+ await wrapper.findAll('select').find(select=>select.find('option[value="additional_service"]').exists()).setValue('additional_service');expect(wrapper.find('.btn-primary').attributes('disabled')).toBeUndefined();wrapper.unmount();
+});

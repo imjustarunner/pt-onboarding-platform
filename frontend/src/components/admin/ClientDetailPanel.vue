@@ -49,7 +49,7 @@
                 <span v-if="client.identifier_code" class="mono">ID {{ client.identifier_code }}</span>
                 <span v-else-if="client.id" class="mono">ID {{ client.id }}</span>
                 <span v-if="clientDobLabel">DOB {{ clientDobLabel }}</span>
-                <span v-if="guardianIntakeName">Guardian: {{ guardianIntakeName }}</span>
+                <span v-if="guardianIntakeName">{{ intakeContactLabel }}: {{ guardianIntakeName }}</span>
               </div>
               <div class="cdp-tenant-line">
                 <span
@@ -146,7 +146,7 @@
         </div>
 
         <div class="cdp-header-actions">
-          <button v-if="canPostClientToExchange" type="button" class="btn btn-secondary" @click="openPostToExchangeModal">Internal referral</button>
+          <button v-if="canPostClientToExchange" type="button" class="btn btn-secondary" @click="openPostToExchangeModal">Refer through Client Exchange</button>
           <button
             v-if="!props.fullPage && props.client?.id"
             class="cdp-btn-primary cdp-open-full"
@@ -192,6 +192,7 @@
             :last-session-label="lastSessionLabel"
             :alerts="overviewAlertItems"
             :guardian-name="overviewGuardianName"
+            :contact-role="intakeContactLabel"
             :guardian-meta="overviewGuardianMeta"
             :organization-name="client.organization_name || schoolGlanceLabel"
             @edit="startEditOverview(true)"
@@ -401,7 +402,7 @@
             <h3 class="cdp-section-title">Contacts &amp; relationships</h3>
             <div class="cdp-contacts-grid">
               <article class="cdp-contact-card">
-                <div class="cdp-contact-card__role">Guardian</div>
+                <div class="cdp-contact-card__role">{{ intakeContactLabel }}</div>
                 <div class="cdp-contact-card__name">{{ overviewGuardianName || (guardiansLoading ? 'Loading contact…' : 'No contact on file') }}</div>
                 <div class="cdp-glance-meta">{{ overviewGuardianMeta || '—' }}</div>
               </article>
@@ -961,9 +962,9 @@
             <!-- Guardian (latest intake) -->
             <section v-if="canViewGuardians" class="ov-card ov-card--guardian">
               <header class="ov-card-header">
-                <h3>Guardian contact</h3>
+                <h3>{{ intakeContactLabel }} contact</h3>
                 <button
-                  v-if="editingOverview && guardianIntakeProfile && !intakeGuardianAlreadyLinked && canManageGuardians"
+                  v-if="editingOverview && guardianIntakeProfile && !isSelfIntakeContact && !intakeGuardianAlreadyLinked && canManageGuardians"
                   type="button"
                   class="btn btn-primary btn-sm"
                   @click="openAddGuardian"
@@ -1617,7 +1618,7 @@
 
             <!-- Intake guardian placeholder (not yet a full account) -->
             <div
-              v-if="canManageGuardians && guardianIntakeProfile && !intakeGuardianAlreadyLinked && !guardiansLoading"
+              v-if="canManageGuardians && guardianIntakeProfile && !isSelfIntakeContact && !intakeGuardianAlreadyLinked && !guardiansLoading"
               class="intake-guardian-placeholder"
             >
               <div class="intake-guardian-placeholder-header">
@@ -1716,8 +1717,9 @@
                     <td>{{ g.first_name }} {{ g.last_name }}</td>
                     <td>{{ g.email }}</td>
                     <td style="min-width: 220px;">
+                      <span v-if="String(g.relationship_type || '').trim().toLowerCase() === 'self'">Client (self)</span>
                       <input
-                        v-if="canManageGuardians"
+                        v-else-if="canManageGuardians"
                         v-model="g.relationship_title"
                         type="text"
                       />
@@ -2856,6 +2858,7 @@ import ClientExchangeSummary from '../clientExchange/ClientExchangeSummary.vue';
 import ClientTreatmentPlansPanel from './clientChart/ClientTreatmentPlansPanel.vue';
 import ClientLearningOsPanel from './clientChart/ClientLearningOsPanel.vue';
 import ClientAuthorizationsPanel from './clientChart/ClientAuthorizationsPanel.vue';
+import { intakeContactIsSelf } from '../../utils/intakeContactRole.js';
 import { linkedGuardianSummary } from '../../utils/linkedGuardianSummary.js';
 import {useLinkedGuardianContact} from '../../composables/useLinkedGuardianContact.js';
 
@@ -3135,6 +3138,8 @@ const guardianIntakeProfile = computed(() => {
   if (roleNorm.value === 'school_staff') return null;
   return props.client?.guardian_intake_profile || null;
 });
+const isSelfIntakeContact = computed(() => intakeContactIsSelf(props.client, guardians.value || []));
+const intakeContactLabel = computed(() => isSelfIntakeContact.value ? 'Client (self)' : 'Guardian');
 const onGuardianContactSaved = (profile) => {
   emit('updated', { keepOpen: true, client: { ...props.client, guardian_intake_profile: profile } });
 };
@@ -3145,7 +3150,7 @@ const guardianIntakeName = computed(() => String(
 ).trim() || null);
 const guardianIntakeEmail = computed(() => String(guardianIntakeProfile.value?.email || '').trim() || null);
 const guardianIntakePhone = computed(() => String(guardianIntakeProfile.value?.phone || '').trim() || null);
-const guardianIntakeRelationship = computed(() => String(guardianIntakeProfile.value?.relationship || '').trim() || null);
+const guardianIntakeRelationship = computed(() => isSelfIntakeContact.value ? 'Self' : String(guardianIntakeProfile.value?.relationship || '').trim() || null);
 const guardianIntakeDob = computed(() => String(guardianIntakeProfile.value?.dateOfBirth || '').trim() || null);
 const intakeGuardianAlreadyLinked = computed(() => {
   const intakeEmail = guardianIntakeEmail.value;
@@ -5406,7 +5411,7 @@ const addGuardian = async () => {
 };
 
 const createGuardianFromIntake = async () => {
-  if (!canManageGuardians.value) return;
+  if (!canManageGuardians.value || isSelfIntakeContact.value) return;
   const gip = guardianIntakeProfile.value;
   if (!gip?.email || !gip?.firstName) return;
   try {

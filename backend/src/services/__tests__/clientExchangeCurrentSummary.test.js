@@ -13,3 +13,10 @@ it('does not resurrect explicit clears from the old referral snapshot', () => {
   const client = { intake_preferences_json: { serviceLocation: null, preferredModality: null, providerQualification: null, exchangeSchedule: null } };
   expect(mergeCurrentExchangeSummary(chart, previous, client).preferences).toMatchObject(chart.preferences);
 });
+
+it('replaces stale listing concerns and scheduling notes with a current prepared matching summary',()=>{
+ const chart={presentingProblems:['Current brief concern'],preferences:{sharedMatchingConcern:'Current brief concern',sharedSchedulingNotes:'After work'}};
+ const old={presentingProblems:['Old referral concern'],preferences:{sharedMatchingConcern:'Old brief',sharedSchedulingNotes:'Old hours'}};
+ const summary=mergeCurrentExchangeSummary(chart,old,{intake_preferences_json:{exchangeMatchingConcern:'Current brief concern',exchangeMatchingScheduleNotes:'After work'}});
+ expect(summary.presentingProblems).toEqual(['Current brief concern']);expect(summary.preferences.sharedMatchingConcern).toBe('Current brief concern');expect(summary.preferences.sharedSchedulingNotes).toBe('After work');
+});

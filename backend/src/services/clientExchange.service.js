@@ -193,6 +193,8 @@ async function hydrateListingSummary(row) {
   if (!['open', 'requested'].includes(row.status)) {
     for (const field of ['diagnoses_json', 'presenting_problems_json', 'demographics_json']) row[field] = exchangeSafeValue(parseJsonColumn(row[field]), client);
     const preferences = parseJsonColumn(row.preferences_json) || {};
+    preferences.sharedMatchingConcern = exchangeSafeText(preferences.sharedMatchingConcern, client) || null;
+    if (preferences.sharedSchedulingNotes != null) preferences.sharedSchedulingNotes = exchangeSafeText(preferences.sharedSchedulingNotes, client);
     if (preferences.schedule) preferences.schedule.notes = exchangeSafeText(preferences.schedule.notes, client);
     row.preferences_json = preferences; row.notes = exchangeSafeText(row.notes, client);
     return row;
@@ -209,7 +211,7 @@ async function hydrateListingSummary(row) {
   row.diagnoses_json = exchangeSafeValue(summary.diagnoses, client);
   row.presenting_problems_json = exchangeSafeValue(summary.presentingProblems, client);
   row.demographics_json = exchangeSafeValue(summary.demographics, client);
-  row.preferences_json = { ...summary.preferences, schedule: summary.preferences.schedule ? { ...summary.preferences.schedule, notes: exchangeSafeText(summary.preferences.schedule.notes, client) } : undefined };
+  row.preferences_json = { ...summary.preferences, sharedMatchingConcern: exchangeSafeText(summary.preferences.sharedMatchingConcern, client) || null, sharedSchedulingNotes: summary.preferences.sharedSchedulingNotes == null ? null : exchangeSafeText(summary.preferences.sharedSchedulingNotes, client), schedule: summary.preferences.schedule ? { ...summary.preferences.schedule, notes: exchangeSafeText(summary.preferences.schedule.notes, client) } : undefined };
   row.notes = exchangeSafeText(row.notes, client);
   return row;
 }
@@ -329,6 +331,8 @@ export async function createListing({
   });
   if(Object.hasOwn(preferences || {},'serviceLocation') && preferences.serviceLocation !== savedSummary.preferences.serviceLocation)sharedSummary.preferences.serviceLocationSource='preference';
   sharedSummary.preferences.additionalPresentingProblems = summaryItems(presentingProblems);
+  // Only text deliberately prepared in this referral becomes a shared concern.
+  sharedSummary.preferences.sharedMatchingConcern = exchangeSafeText(summaryItems(presentingProblems).join('\n') || savedSummary.preferences?.sharedMatchingConcern, client) || null;
   sharedSummary.preferences.presentingProblemSource = savedSummary.presentingProblemSource;
   sharedSummary.preferences.presentingProblemUpdatedAt = savedSummary.presentingProblemUpdatedAt;
   ({ demographics, preferences, presentingProblems, diagnoses } = sharedSummary);
@@ -369,6 +373,13 @@ export async function withdrawListing({ listingId, actingUserId, viewerRole }) {
 export async function createRequest({ listingId, requestingProviderUserId, message = null, acknowledgedWarnings = [] }) {
   const { requestId } = await createExchangeClaim({ listingId, requestingProviderUserId, message, acknowledgedWarnings });
   return getRequestById(requestId);
+}
+
+/** Minimal duplicate lookup; callers must first verify access to this client record. */
+export async function listOpenClientReferrals({ clientId, agencyId }) {
+  const [rows] = await pool.execute(`SELECT id, referral_kind, service_type, status FROM client_exchange_listings
+    WHERE client_id = ? AND agency_id = ? AND status IN ('open', 'requested') ORDER BY id`, [Number(clientId), Number(agencyId)]);
+  return rows.map(row => ({ id: Number(row.id), referralKind: row.referral_kind || 'transfer', serviceType: row.service_type || 'individual', status: row.status }));
 }
 
 export async function getExchangeListingScope(listingId) {

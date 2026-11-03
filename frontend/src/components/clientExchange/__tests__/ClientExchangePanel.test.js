@@ -116,3 +116,41 @@ it('remembers a collapsed help notice for this user and agency',async()=>{
  let wrapper=makeWrapper();await flushPromises();let help=wrapper.find('details.cep-banner');expect(help.element.open).toBe(true);help.element.open=false;await help.trigger('toggle');expect(localStorage.getItem('client-exchange-help-v1:7:2')).toBe('collapsed');wrapper.unmount();
  wrapper=makeWrapper();await flushPromises();expect(wrapper.find('details.cep-banner').element.open).toBe(false);wrapper.unmount();localStorage.clear();
 });
+it.each([false,true])('refreshes the audit after saved preferences, keeping a 429 refresh failure distinct (limited=%s)',async limited=>{
+ const listing={id:19,clientId:4,agencyId:450,status:'open',canViewAudit:true,preferences:{modality:'virtual',insurance:'Self-pay'},hasClinicalConcerns:true};
+ mocks.user={id:7,role:'support'};mocks.store=reactive({currentAgency:{id:450},userAgencies:[],agencies:[],fetchUserAgencies:vi.fn().mockResolvedValue([])});mocks.route.query={listingId:'19'};
+ let afterSave=false;mocks.get.mockReset().mockImplementation(async url=>{
+  if(url.endsWith('/19')&&afterSave&&limited)throw {response:{status:429,headers:{'retry-after':'120'}}};
+  return {data:url.endsWith('/audit')?{providers:[],canReview:true}:url.endsWith('/19')?{listing,requests:[]}:{listings:[listing],requests:[]}};
+ });
+ const wrapper=makeWrapper();await flushPromises();const before=mocks.get.mock.calls.filter(([url])=>url.endsWith('/audit')).length;afterSave=true;
+ wrapper.findComponent({name:'ClientExchangeEssentialsEditor'}).vm.$emit('saved');await flushPromises();
+ expect(mocks.get.mock.calls.filter(([url])=>url.endsWith('/audit')).length).toBe(before+(limited?0:1));
+ if(limited){expect(wrapper.text()).toContain('Matching details were saved, but the listing and matching audit could not be refreshed');expect(wrapper.text()).toContain('before refreshing');}
+ wrapper.unmount();
+});
+it('does not let an older detail response replace the saved matching details',async()=>{
+ const listing={id:19,clientId:4,agencyId:450,status:'open',canViewAudit:true,preferences:{modality:'virtual',insurance:'Self-pay'},hasClinicalConcerns:true};
+ mocks.user={id:7,role:'support'};mocks.store=reactive({currentAgency:{id:450},userAgencies:[],agencies:[],fetchUserAgencies:vi.fn().mockResolvedValue([])});mocks.route.query={listingId:'19'};
+ const pending=[];mocks.get.mockReset().mockImplementation(url=>url.endsWith('/19')?new Promise(resolve=>pending.push(resolve)):Promise.resolve({data:url.endsWith('/audit')?{providers:[],canReview:true}:{listings:[listing],requests:[]}}));
+ const wrapper=makeWrapper();await flushPromises();
+ wrapper.findComponent({name:'ClientExchangeEssentialsEditor'}).vm.$emit('saved');await flushPromises();expect(pending).toHaveLength(2);
+ pending[1]({data:{listing:{...listing,presentingProblems:['Fresh concern']},requests:[]}});await flushPromises();
+ pending[0]({data:{listing:{...listing,presentingProblems:['Stale concern']},requests:[]}});await flushPromises();
+ expect(wrapper.text()).toContain('Fresh concern');expect(wrapper.text()).not.toContain('Stale concern');wrapper.unmount();
+});
+it('ignores a saved-listing refresh failure after switching to another listing',async()=>{
+ const listing={id:19,clientId:4,agencyId:450,status:'open',canViewAudit:true,preferences:{modality:'virtual',insurance:'Self-pay'},hasClinicalConcerns:true};
+ const other={...listing,id:20,clientId:5,clientInitials:'NEXT'};
+ mocks.user={id:7,role:'support'};mocks.store=reactive({currentAgency:{id:450},userAgencies:[],agencies:[],fetchUserAgencies:vi.fn().mockResolvedValue([])});mocks.route.query={listingId:'19'};
+ let afterSave=false,rejectRefresh;mocks.get.mockReset().mockImplementation(url=>{
+  if(url.endsWith('/19')&&afterSave)return new Promise((resolve,reject)=>{rejectRefresh=reject;});
+  return Promise.resolve({data:url.endsWith('/audit')?{providers:[],canReview:true}:url.endsWith('/19')?{listing,requests:[]}:url.endsWith('/20')?{listing:other,requests:[]}:{listings:[listing,other],requests:[]}});
+ });
+ const wrapper=makeWrapper();await flushPromises();afterSave=true;
+ wrapper.findComponent({name:'ClientExchangeEssentialsEditor'}).vm.$emit('saved');await flushPromises();
+ wrapper.findAllComponents({name:'ListingCard'}).find(card=>card.props('listing').id===20).vm.$emit('select');await flushPromises();
+ rejectRefresh({response:{status:429,headers:{'retry-after':'120'}}});await flushPromises();
+ expect(wrapper.findComponent({name:'ClientExchangeEssentialsEditor'}).props('listing').id).toBe(20);
+ expect(wrapper.text()).not.toContain('Matching details were saved, but');wrapper.unmount();
+});

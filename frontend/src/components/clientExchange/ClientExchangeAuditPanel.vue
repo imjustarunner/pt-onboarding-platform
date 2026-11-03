@@ -64,7 +64,7 @@ import { exchangeCheckLabel, compareExchangeFit } from '../../navigation/clientE
 import ExchangeMatchStatus from './ExchangeMatchStatus.vue';
 import {ref,computed,watch} from 'vue';
 import api from '../../services/api';
-const props=defineProps({listingId:{type:Number,required:true}});
+const props=defineProps({listingId:{type:Number,required:true},revision:{type:Number,default:0}});
 const emit = defineEmits(['changed']);
 const audit=ref(null),error=ref(''),loading=ref(false),saving=ref(false),receipt=ref(''),waiver=ref(null),share=ref(null);
 const ranked=computed(()=>[...(audit.value?.providers || [])].sort(compareExchangeFit));
@@ -74,7 +74,7 @@ const blocked=computed(()=>ranked.value.filter(p=>!p.matched && !p.canRequest));
 const delivery=value=>value?`${value.status}${value.reason?` — ${value.reason}`:''}`:'Not attempted / no historical receipt';
 let version=0, actionVersion=0;
 async function load(){const token=++version;loading.value=true;error.value='';try{const {data}=await api.get(`/client-exchange/listings/${props.listingId}/audit`);if(token===version)audit.value=data;}catch(e){if(token===version)error.value=e?.response?.data?.error?.message||'Could not load audit';}finally{if(token===version)loading.value=false;}}
-watch(()=>props.listingId,()=>{actionVersion++;audit.value=null;waiver.value=null;share.value=null;receipt.value='';saving.value=false;load();},{immediate:true});
+watch(()=>[props.listingId,props.revision],()=>{actionVersion++;audit.value=null;waiver.value=null;share.value=null;receipt.value='';saving.value=false;load();},{immediate:true});
 const date = value => value ? new Date(value).toLocaleString() : 'not recorded';
 const providerName = id => audit.value?.providers?.find(p => Number(p.userId) === Number(id))?.name || `Provider #${id}`;
 const waiverIsApplied = id => audit.value?.providers?.some(p => p.checks?.some(c => Number(c.waiver?.id) === Number(id)));

@@ -2,10 +2,30 @@ import pool from '../config/database.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { resolveClientRecordAccess } from '../services/clientRecordAccess.service.js';
 import {guardianContactRows,sharedHistoryRecipient} from '../services/guardianContactSharing.service.js';
+import { maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
 
 // Historical tables use both unicode_ci and 0900_ai_ci; JSON text uses bin.
 // Normalize every text projection before UNION, without altering stored data.
 const historyText = expression => `CONVERT(${expression} USING utf8mb4) COLLATE utf8mb4_unicode_ci`;
+
+const deliveryStatuses = new Set(['sent', 'delivered', 'failed', 'pending', 'sending', 'bounced', 'skipped', 'held', 'review', 'flagged', 'suppressed', 'superseded', 'queued', 'canceled', 'undelivered']);
+
+function appointmentHistoryFields(row, clientId) {
+  if (!String(row.id).startsWith('session-')) return row;
+  let metadata = {};
+  try {
+    const raw = typeof row.appointment_metadata === 'string' ? row.appointment_metadata : JSON.stringify(row.appointment_metadata);
+    metadata = JSON.parse(maybeDecryptNotePayload(raw)) || {};
+  } catch { /* Unreadable or absent audit metadata is not evidence of sending. */ }
+  // A group appointment can have separate audits for different clients.
+  if (metadata.clientId != null && Number(metadata.clientId) !== clientId) return null;
+  const status = String(metadata.deliveryStatus ?? metadata.status ?? '').trim().toLowerCase();
+  return { ...row,
+    notification_type: metadata.scheduleNotice === true ? 'session_change' : row.notification_type,
+    recipient_address: typeof metadata.recipient === 'string' ? metadata.recipient.trim() || null : null,
+    delivery_status: deliveryStatuses.has(status) ? status : 'unknown'
+  };
+}
 
 export async function listClientNotificationHistory(req, res, next) {
   try {
@@ -28,42 +48,44 @@ export async function listClientNotificationHistory(req, res, next) {
       `SELECT ${historyText("CONCAT('email-', uc.id)")} AS id, ${historyText('uc.channel')} AS channel,
         ${historyText('uc.template_type')} AS notification_type, ${historyText('uc.recipient_address')} AS recipient_address,
         ${historyText('uc.delivery_status')} AS delivery_status,
-        COALESCE(uc.sent_at, uc.generated_at) AS occurred_at, ${historyText('a.name')} AS organization_name
+        COALESCE(uc.sent_at, uc.generated_at) AS occurred_at, ${historyText('a.name')} AS organization_name,
+        ${historyText('NULL')} AS appointment_metadata
        FROM user_communications uc LEFT JOIN agencies a ON a.id = uc.agency_id WHERE uc.client_id = ?
          AND NOT EXISTS (SELECT 1 FROM co_guardian_invite_deliveries d WHERE d.communication_id=uc.id)
        UNION ALL
        SELECT ${historyText("CONCAT('guardian-invite-', d.id)")}, ${historyText("'email'")},
         ${historyText("CASE WHEN d.delivery_kind='reminder' THEN 'guardian_enrollment_reminder' ELSE 'guardian_enrollment_invitation' END")},
-        ${historyText('d.recipient_email')},${historyText('d.delivery_status')},d.created_at,${historyText('a.name')}
+        ${historyText('d.recipient_email')},${historyText('d.delivery_status')},d.created_at,${historyText('a.name')},${historyText('NULL')}
        FROM co_guardian_invite_deliveries d JOIN co_guardian_invites i ON i.id=d.invite_id
        JOIN co_guardian_invite_clients ic ON ic.invite_id=i.id JOIN clients c ON c.id=ic.client_id AND c.agency_id=i.agency_id
        LEFT JOIN agencies a ON a.id=i.agency_id WHERE ic.client_id=?
        UNION ALL
        SELECT ${historyText("CONCAT('sms-', ml.id)")}, ${historyText("'sms'")},
         ${historyText("'session_or_service_notification'")}, ${historyText('ml.to_number')},
-        ${historyText('ml.delivery_status')}, ml.created_at, ${historyText('a.name')}
+        ${historyText('ml.delivery_status')}, ml.created_at, ${historyText('a.name')},${historyText('NULL')}
        FROM message_logs ml LEFT JOIN agencies a ON a.id = ml.agency_id
        WHERE ml.client_id = ? AND ml.direction = 'OUTBOUND'
        UNION ALL
        SELECT ${historyText("CONCAT('session-', ac.id)")}, ${historyText('ac.channel')}, ${historyText('ac.kind')},
-        ${historyText("JSON_UNQUOTE(JSON_EXTRACT(ac.metadata_json, '$.recipient'))")},
-        ${historyText("COALESCE(JSON_UNQUOTE(JSON_EXTRACT(ac.metadata_json, '$.status')), 'sent')")},
-        ac.created_at, ${historyText('a.name')}
+        ${historyText('NULL')}, ${historyText('NULL')},
+        ac.created_at, ${historyText('a.name')},${historyText('ac.metadata_json')}
        FROM appointment_communications ac LEFT JOIN agencies a ON a.id = ac.agency_id
        WHERE ac.direction = 'outbound' AND EXISTS (SELECT 1 FROM appointment_participants ap WHERE ap.appointment_id = ac.appointment_id AND ap.client_id = ?)
        UNION ALL
        SELECT ${historyText("CONCAT('app-', n.id)")}, ${historyText("'in_app'")}, ${historyText('n.type')},
         ${historyText("CONCAT_WS(' ', u.first_name, u.last_name)")}, ${historyText("'delivered'")},
-        n.created_at, ${historyText('a.name')}
+        n.created_at, ${historyText('a.name')},${historyText('NULL')}
        FROM notifications n LEFT JOIN users u ON u.id = n.user_id LEFT JOIN agencies a ON a.id = n.agency_id
        WHERE (n.related_entity_type = 'client' AND n.related_entity_id = ?)
          OR (n.related_entity_type = 'chat_thread' AND EXISTS (SELECT 1 FROM chat_threads t WHERE t.id = n.related_entity_id AND t.client_id = ?))
          OR (n.related_entity_type = 'support_ticket' AND EXISTS (SELECT 1 FROM support_tickets st WHERE st.id = n.related_entity_id AND st.client_id = ?))
        ORDER BY occurred_at DESC, id DESC LIMIT 50 OFFSET ${offset}`, [clientId, clientId, clientId, clientId, clientId, clientId, clientId]);
-    // Shared delivery history never discloses another recipient's login/setup links or tokens.
+    // Decode appointment audits only after authorization. New cancellation metadata is
+    // encrypted; legacy audits use deliveryStatus (or status), never an implicit "sent".
+    // Shared delivery history never discloses message bodies, login/setup links or tokens.
     const familyViewer = ['client', 'client_guardian'].includes(req.user.role);
     const contacts = familyViewer ? await guardianContactRows(clientId) : [];
-    const notifications = rows.map((r) => ({ id: r.id, channel: r.channel, type: r.notification_type,
+    const notifications = rows.map(r => appointmentHistoryFields(r, clientId)).filter(Boolean).map((r) => ({ id: r.id, channel: r.channel, type: r.notification_type,
       recipient: familyViewer ? sharedHistoryRecipient(r.recipient_address,r.channel,contacts,req.user.id) : r.recipient_address,
       status: r.delivery_status, occurredAt: r.occurred_at, organization: r.organization_name }));
     res.set('Cache-Control', 'no-store');

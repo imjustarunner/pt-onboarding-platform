@@ -1,11 +1,11 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ claim:vi.fn(),scope:vi.fn(),client: vi.fn(), access: vi.fn(), create: vi.fn(), recordAccess: vi.fn(), summary: vi.fn(), execute: vi.fn(), referral: vi.fn(), audit: vi.fn(), view: vi.fn(), listing:vi.fn(), requests:vi.fn(), waiver:vi.fn(), sharePreview:vi.fn(), share:vi.fn() }));
+const mocks = vi.hoisted(() => ({ existing:vi.fn(),claim:vi.fn(),scope:vi.fn(),client: vi.fn(), access: vi.fn(), create: vi.fn(), recordAccess: vi.fn(), summary: vi.fn(), execute: vi.fn(), referral: vi.fn(), audit: vi.fn(), view: vi.fn(), listing:vi.fn(), requests:vi.fn(), waiver:vi.fn(), sharePreview:vi.fn(), share:vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.execute } }));
 vi.mock('../../models/User.model.js', () => ({ default: {} }));
 vi.mock('../../models/Client.model.js', () => ({ default: { findById: mocks.client } }));
 vi.mock('../../services/clientRecordAccess.service.js', () => ({ providerHasAssignedClientAccess: mocks.access, resolveClientRecordAccess: mocks.recordAccess }));
 vi.mock('../../services/clientExchangeSummary.service.js', () => ({ loadClientExchangeSummary: mocks.summary }));
-vi.mock('../../services/clientExchange.service.js', () => ({ createRequest:mocks.claim,getExchangeListingScope:mocks.scope,createListing: mocks.create, getMatchingAudit: mocks.audit, getListingById:mocks.listing, listRequestsForListing:mocks.requests }));
+vi.mock('../../services/clientExchange.service.js', () => ({ listOpenClientReferrals:mocks.existing,createRequest:mocks.claim,getExchangeListingScope:mocks.scope,createListing: mocks.create, getMatchingAudit: mocks.audit, getListingById:mocks.listing, listRequestsForListing:mocks.requests }));
 vi.mock('../../services/clientExchangeReferral.service.js', () => ({ createExchangeReferral: mocks.referral }));
 vi.mock('../../services/clientExchangeCurrentAudit.service.js', () => ({ currentExchangeAudit: async audit => audit }));
 vi.mock('../../services/clientExchangeAudit.service.js',()=>({getExchangeAudit:mocks.audit,recordExchangeView:mocks.view}));
@@ -14,7 +14,7 @@ vi.mock('../../services/clientExchangeSharing.service.js', () => ({ previewExcha
 import { createRequest,saveMatchingWaiver, previewShare, shareListing, getMatchingAudit, getListingAudit, getListing, createReferral, createListing, previewClientSummary, saveClientSchedule, saveClientMatchingPreferences } from '../clientExchange.controller.js';
 const response = () => { const res = { status: vi.fn(), json: vi.fn() }; res.status.mockReturnValue(res); return res; };
 const request = () => ({ user: { id: 7, role: 'provider', agencies: [{ id: 2 }] }, body: { agencyId: 2, clientId: 4, currentProviderUserId: 999 } });
-beforeEach(() => { vi.clearAllMocks(); mocks.execute.mockResolvedValue([[{authorized:1}]]); mocks.view.mockResolvedValue(undefined); mocks.client.mockResolvedValue({ id: 4, agency_id: 2, provider_id: 7, status: 'CURRENT' }); mocks.access.mockResolvedValue(true); mocks.create.mockResolvedValue({ id: 12 }); });
+beforeEach(() => { vi.clearAllMocks(); mocks.existing.mockResolvedValue([]); mocks.execute.mockResolvedValue([[{authorized:1}]]); mocks.view.mockResolvedValue(undefined); mocks.client.mockResolvedValue({ id: 4, agency_id: 2, provider_id: 7, status: 'CURRENT' }); mocks.access.mockResolvedValue(true); mocks.create.mockResolvedValue({ id: 12 }); });
 it('permits assigned providers and trusts the actual client assignment', async () => {
   const res = response(); await createListing(request(), res, vi.fn());
   expect(res.status).toHaveBeenCalledWith(201); expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ currentProviderUserId: 7 }));
@@ -54,7 +54,7 @@ it('protects the chart summary with record access and agency checks', async () =
   expect(denied.status).toHaveBeenCalledWith(403); expect(mocks.summary).not.toHaveBeenCalled();
   mocks.recordAccess.mockResolvedValue({ ok: true }); mocks.summary.mockResolvedValue({ diagnoses: ['F41.1'], presentingProblems: ['Concern'] });
   const allowed = response(); await previewClientSummary(req, allowed, vi.fn());
-  expect(allowed.json).toHaveBeenCalledWith({ summary: { diagnoses: ['F41.1'], presentingProblems: ['Concern'] } });
+  expect(allowed.json).toHaveBeenCalledWith({ summary: { diagnoses: ['F41.1'], presentingProblems: ['Concern'] }, existingListings: [] });
   req.query.agencyId = 3; const otherAgency = response(); await previewClientSummary(req, otherAgency, vi.fn());
   expect(otherAgency.status).toHaveBeenCalledWith(404);
 });
@@ -141,4 +141,11 @@ it('authorizes request scope without repeating the full listing and matching aud
  const res=response(),next=vi.fn();await createRequest({...request(),params:{id:'14'},body:{}},res,next);
  expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(201);expect(mocks.claim).toHaveBeenCalledWith(expect.objectContaining({listingId:14,requestingProviderUserId:7}));expect(mocks.listing).not.toHaveBeenCalled();
  mocks.execute.mockResolvedValue([[]]);mocks.claim.mockClear();const denied=response();await createRequest({...request(),params:{id:'14'}},denied,next);expect(denied.status).toHaveBeenCalledWith(403);expect(mocks.claim).not.toHaveBeenCalled();
+});
+
+it('returns existing referral references only after the client record access check',async()=>{
+ const req={user:{id:7,role:'support'},params:{clientId:4},query:{agencyId:2}};
+ mocks.recordAccess.mockResolvedValue({ok:false,status:403});const denied=response();await previewClientSummary(req,denied,vi.fn());expect(mocks.existing).not.toHaveBeenCalled();
+ mocks.recordAccess.mockResolvedValue({ok:true});mocks.summary.mockResolvedValue({});mocks.existing.mockResolvedValue([{id:18,referralKind:'transfer',serviceType:'individual',status:'open'}]);
+ const allowed=response();await previewClientSummary(req,allowed,vi.fn());expect(mocks.existing).toHaveBeenCalledWith({clientId:4,agencyId:2});expect(allowed.json.mock.calls[0][0].existingListings[0].id).toBe(18);
 });

@@ -43,3 +43,8 @@ it('previews the signed email and sends only after the staff member selects Send
   expect(mocks.post).toHaveBeenLastCalledWith('/client-exchange/listings/9/shares',expect.objectContaining({providerUserId:7,expectedShareCount:0,requestKey:expect.any(String)}));
   expect(wrapper.find('[role="status"]').text()).toContain('accepted the message');
 });
+it('refreshes current counts and every provider row after the listing preferences change',async()=>{
+ mocks.get.mockResolvedValueOnce({data:{providers:[{userId:7,name:'Provider One',matched:false,checks:[]},{userId:8,name:'Provider Two',matched:false,checks:[]},{userId:9,name:'Provider Three',matched:false,checks:[]}]}}).mockResolvedValueOnce({data:auditFixture()});
+ const wrapper=mount(ClientExchangeAuditPanel,{props:{listingId:19}});await flushPromises();expect(wrapper.text()).toContain('Blocked providers (3)');for(const name of ['Provider One','Provider Two','Provider Three'])expect(wrapper.text()).toContain(name);
+ await wrapper.setProps({revision:1});await flushPromises();expect(wrapper.text()).toContain('Matched providers (1)');expect(wrapper.text()).toContain('Blocked providers (0)');expect(wrapper.text()).not.toContain('Provider Three');expect(mocks.get).toHaveBeenCalledTimes(2);wrapper.unmount();
+});

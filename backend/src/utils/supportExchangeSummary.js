@@ -3,16 +3,22 @@
 export function supportExchangeSummary(summary = {}) {
   const preferences = summary.preferences || {};
   const schedule = preferences.schedule;
+  const sharedConcern = String(preferences.sharedMatchingConcern || '').trim();
+  const sharedNotes = preferences.sharedSchedulingNotes;
+  const scheduleNotesRestricted = Boolean(schedule?.notes && sharedNotes == null);
   return {
-    demographics: summary.demographics || {}, diagnoses: [], presentingProblems: [],
+    demographics: summary.demographics || {}, diagnoses: [], presentingProblems: sharedConcern ? [sharedConcern] : [],
     hasClinicalConcerns: Boolean(summary.presentingProblems?.length || summary.hasClinicalConcerns),
-    presentingProblemSource: null, presentingProblemUpdatedAt: null,
+    presentingProblemSource: sharedConcern ? 'Matching concern' : null, presentingProblemUpdatedAt: sharedConcern ? summary.presentingProblemUpdatedAt : null,
     preferences: {
+      sharedMatchingConcern: sharedConcern || null,
+      sharedSchedulingNotes: sharedNotes ?? null,
+      scheduleNotesRestricted,
       serviceLocationSource: preferences.serviceLocationSource || null,
       serviceLocation: preferences.serviceLocation || null, insurance: preferences.insurance || null, modality: preferences.modality || null,
       providerGender: preferences.providerGender || null,
       matchingPreferences: preferences.matchingPreferences || null,
-      schedule: schedule ? { days: schedule.days, periods: schedule.periods, windows: schedule.windows, timezone: schedule.timezone } : null
+      schedule: schedule ? { days: schedule.days, periods: schedule.periods, windows: schedule.windows, timezone: schedule.timezone, ...(sharedNotes != null ? { notes: sharedNotes } : {}) } : null
     }
   };
 }
