@@ -9,12 +9,20 @@ vi.mock('../../../store/auth.js',()=>({useAuthStore:()=>({user:{id:5,role:'provi
 const props={note:{id:4,agencyId:1,clinicalSessionId:2,providerSignedAt:'2026-09-20',noteType:'PROGRESS',sections:{assessment:'Progress'}}};
 const field=(w,id)=>w.find(`[data-testid="${id}"]`);
 async function prepare(w,kind='addendum'){
+  if(field(w,'create-addendum').attributes('aria-expanded')!=='true')await field(w,'create-addendum').trigger('click');
   await field(w,'entry-kind').setValue(kind);
   await w.find('textarea').setValue('Additional clinical context');
   await field(w,'entry-reason').setValue('Explains the entry');
 }
 beforeEach(()=>{vi.resetAllMocks();api.post.mockResolvedValue({data:{addenda:[{id:6,body:'Amended',created_by_user_id:5,entry_kind:'addendum',entry_reason:'Explains the entry',author_signed_at:'2026-09-24T12:00:00Z',created_at:'2026-09-24T12:00:00Z'}]}});});
 describe('signed-note amendment flow',()=>{
+  it('keeps the addendum editor closed until requested and preserves its text while folded',async()=>{
+    const w=mount(ClinicalNoteReadOnlyView,{attachTo:document.body,props});expect(field(w,'addendum-editor').isVisible()).toBe(false);
+    await prepare(w);expect(field(w,'addendum-editor').isVisible()).toBe(true);
+    await field(w,'create-addendum').trigger('click');expect(field(w,'addendum-editor').isVisible()).toBe(false);
+    await field(w,'create-addendum').trigger('click');expect(w.find('textarea').element.value).toBe('Additional clinical context');expect(api.post).not.toHaveBeenCalled();w.unmount();
+  });
+
   it('labels the original signature as version 1 and gives independent additions their own attestation',()=>{
     const w=mount(ClinicalNoteReadOnlyView,{props:{note:{...props.note,clinicalVersion:{revisionNumber:2},attestation:{statement:'DEMO QA original author signature'}}}});
     expect(w.text()).toContain('original author signature below belongs to version 1');

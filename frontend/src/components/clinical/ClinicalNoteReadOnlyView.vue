@@ -340,6 +340,8 @@
       </article>
       <p v-if="!addenda.length" class="ccn-muted">No post-signature entries yet.</p>
       <template v-if="canSignClinicalEntry">
+      <button type="button" data-testid="create-addendum" class="ccn-copy-btn" :aria-expanded="addendumOpen" :aria-controls="`addendum-editor-${note.id}`" :disabled="savingAddendum" @click="addendumOpen = !addendumOpen">{{ addendumOpen ? 'Hide addendum' : 'Create addendum' }}</button>
+      <div v-show="addendumOpen" :id="`addendum-editor-${note.id}`" data-testid="addendum-editor">
       <label>Additional information <textarea v-model="addendumDraft" class="ccn-addendum-input" rows="6" maxlength="20000" :placeholder="entryKind === 'correction' ? 'Identify the original error and document the corrected information…' : 'Add the information that was missing from this session note…'" /></label>
       <label>Reason for adding this information <input v-model="entryReason" data-testid="entry-reason" class="ccn-addendum-input" maxlength="2000" placeholder="For example, worksheet reviewed after the session" /></label>
       <details class="ccn-entry-options"><summary>Late entry options</summary>
@@ -358,6 +360,7 @@
       </button>
       <p v-if="amendmentPending" role="status">Entry signed; supervisor approval is required. No claim was created or transmitted. Service corrections await a separate billing decision.</p>
       <p v-if="addendumError" class="ccn-error">{{ addendumError }}</p>
+      </div>
       </template>
       <p v-else class="ccn-field-hint">Clinical additions require the clinical author’s own signature. Billing changes can be proposed through Create amendment in Note versions.</p>
     </section>
@@ -405,6 +408,7 @@ const copiedFull = ref(false);
 const showProviderSigMeta = ref(false);
 const showSupervisorSigMeta = ref(false);
 const addendumDraft = ref('');
+const addendumOpen = ref(false);
 const entryKind = ref('addendum');
 const entryReason = ref('');
 const authorAttested = ref(false);
@@ -419,7 +423,7 @@ watch(entryKind,()=>{ serviceCorrection.value=false; serviceChangeAttested.value
 watch([addendumDraft,entryReason,entryKind,serviceCorrection,correctedServices],()=>{authorAttested.value=false;},{deep:true});
 watch(correctedServices,()=>{serviceChangeAttested.value=false;},{deep:true});
 watch(()=>props.note?.id,()=>{
-  addendumDraft.value='';entryKind.value='addendum';entryReason.value='';authorAttested.value=false;addendumError.value='';
+  addendumOpen.value=false;addendumDraft.value='';entryKind.value='addendum';entryReason.value='';authorAttested.value=false;addendumError.value='';
   serviceCorrection.value=false;serviceChangeAttested.value=false;correctedServices.value=[{procedureCode:'',units:1}];
 });
 const savingAddendum = ref(false);

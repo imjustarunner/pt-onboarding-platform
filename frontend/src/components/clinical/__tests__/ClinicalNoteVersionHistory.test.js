@@ -8,7 +8,7 @@ const original = () => ({ id: 10, revisionNumber: 1, origin: 'original', status:
 const revision = (overrides = {}) => ({ ...original(), id: 11, revisionNumber: 2, origin: 'provider', status: 'awaiting_author_signature', reason: 'DEMO QA clarification', proposedByUserId: 9, originalAuthorUserId: 9, responsibleSupervisorUserId: 8, requiresSupervisorCosign: true, contentHash: 'amended-hash', signatures: [], capabilities: {}, ...overrides });
 const summary = (pending = null, caps = {}) => ({ originalRevisionId: 10, effectiveRevisionId: 10, pendingRevisionId: pending?.id || null, revisions: [original(), ...(pending ? [pending] : [])], effectiveRevision: original(), pendingRevision: pending, capabilities: caps });
 let response;
-const mountHistory = () => mount(ClinicalNoteVersionHistory, { props: { noteId: 71, agencyId: 2, preferPending: true } });
+const mountHistory = () => mount(ClinicalNoteVersionHistory, { attachTo: document.body, props: { noteId: 71, agencyId: 2, preferPending: true } });
 const field = (w, id) => w.get(`[data-testid="${id}"]`);
 beforeEach(() => { vi.resetAllMocks(); response = summary(); api.get.mockImplementation(async url => ({ data: url.includes('service-locations') ? { items: [{ id: 5, name: 'DEMO QA Office', place_of_service: '11', is_active: 1 }, { id: 6, name: 'DEMO QA School', place_of_service: '03', is_active: 1 }, { id: 7, name: 'DEMO QA Inactive', place_of_service: '11', is_active: 0 }] } : response })); });
 
@@ -125,4 +125,67 @@ describe('immutable signed note version history', () => {
     const saved=revision({origin:'supervisor',status:'draft',entryManifestHash:'DEMO-QA-after',capabilities:{canCosign:true},currentAddenda:[{id:44,body:'DEMO QA addition arrived during draft save',created_by_user_id:77,author_signed_at:'2026-11-03T16:00:00Z'}]});api.post.mockResolvedValue({data:{...summary(saved),revision:saved}});
     await field(w,'save-version-draft').trigger('submit');await flushPromises();expect(api.post).toHaveBeenCalledTimes(1);expect(w.emitted('changed')).toBeUndefined();expect(w.text()).toContain('Separate additions changed');expect(w.text()).toContain('DEMO QA addition arrived during draft save');expect(field(w,'version-attestation').element.checked).toBe(false);w.unmount();
   });
+  it('starts a single signed version collapsed and opens directly from Create amendment', async () => {
+    response = summary(null, { canCreateSupervisor: true }); const w = mountHistory(); await flushPromises();
+    expect(field(w, 'toggle-version-history').attributes('aria-expanded')).toBe('false');
+    expect(field(w, 'version-history-body').isVisible()).toBe(false);
+    expect(field(w, 'create-amendment').isVisible()).toBe(true);
+    await field(w, 'create-amendment').trigger('click'); await flushPromises();
+    expect(field(w, 'version-history-body').isVisible()).toBe(true); expect(field(w, 'version-reason').isVisible()).toBe(true);
+    await field(w, 'version-reason').setValue('DEMO QA retained draft');
+    await field(w, 'toggle-version-history').trigger('click');
+    expect(field(w, 'version-history-body').isVisible()).toBe(false);
+    await field(w, 'toggle-version-history').trigger('click');
+    expect(field(w, 'version-reason').element.value).toBe('DEMO QA retained draft'); expect(api.post).not.toHaveBeenCalled(); w.unmount();
+  });
+  it('opens multiple versions and pending review, permits folding, and opens an explicitly requested revision', async () => {
+    response = summary(revision({ capabilities: { canSign: true } })); const w = mountHistory(); await flushPromises();
+    expect(field(w, 'toggle-version-history').attributes('aria-expanded')).toBe('true');
+    await field(w, 'toggle-version-history').trigger('click'); expect(field(w, 'version-history-body').isVisible()).toBe(false);
+    await w.vm.openRevision(11); await flushPromises();
+    expect(field(w, 'version-history-body').isVisible()).toBe(true); expect(field(w, 'version-attestation').isVisible()).toBe(true);
+    response = summary(); await w.setProps({ noteId: 72 }); await flushPromises();
+    expect(field(w, 'toggle-version-history').attributes('aria-expanded')).toBe('false'); w.unmount();
+  });
+  it('opens retained multi-version history even after all approval work is complete', async () => {
+    const approved = revision({ status: 'approved' }); response = { ...summary(), effectiveRevisionId: 11, effectiveRevision: approved, revisions: [original(), approved] };
+    const w = mountHistory(); await flushPromises(); expect(field(w, 'version-history-body').isVisible()).toBe(true);
+    await field(w, 'toggle-version-history').trigger('click'); expect(field(w, 'version-history-body').isVisible()).toBe(false); w.unmount();
+  });
+  it('synchronizes duration then start, and later endpoint edits recalculate duration', async () => {
+    response = summary(null, { canCreateSupervisor: true }); const w = mountHistory(); await flushPromises(); await field(w, 'create-amendment').trigger('click'); await flushPromises();
+    await field(w, 'revision-durationMinutes').setValue('10'); await field(w, 'revision-startTime').setValue('10:45');
+    expect(field(w, 'revision-endTime').element.value).toBe('10:55');
+    await field(w, 'revision-startTime').setValue('10:50'); expect(field(w, 'revision-durationMinutes').element.value).toBe('5');
+    await field(w, 'revision-startTime').setValue('10:45'); await field(w, 'revision-endTime').setValue('11:00');
+    expect(field(w, 'revision-durationMinutes').element.value).toBe('15'); expect(field(w, 'revision-startTime').element.value).toBe('10:45');
+    await field(w, 'revision-durationMinutes').setValue('20'); expect(field(w, 'revision-endTime').element.value).toBe('11:05');
+    expect(response.effectiveRevision.snapshot.encounterContext).toMatchObject({ durationMinutes: 45, startTime: '10:00', endTime: '10:45' });
+    expect(api.post).not.toHaveBeenCalled(); w.unmount();
+  });
+  it('synchronizes duration then end by backfilling start over previously saved times', async () => {
+    response = summary(null, { canCreateSupervisor: true }); const w = mountHistory(); await flushPromises(); await field(w, 'create-amendment').trigger('click'); await flushPromises();
+    await field(w, 'revision-durationMinutes').setValue('10'); await field(w, 'revision-endTime').setValue('10:55');
+    expect(field(w, 'revision-startTime').element.value).toBe('10:45'); expect(field(w, 'revision-durationMinutes').element.value).toBe('10');
+    await field(w, 'revision-startTime').setValue('10:50'); expect(field(w, 'revision-durationMinutes').element.value).toBe('5'); w.unmount();
+  });
+  it('fills a blank duration from explicitly entered start and end times', async () => {
+    response = summary(null, { canCreateSupervisor: true }); const w = mountHistory(); await flushPromises(); await field(w, 'create-amendment').trigger('click'); await flushPromises();
+    await field(w, 'revision-durationMinutes').setValue(''); await field(w, 'revision-startTime').setValue(''); await field(w, 'revision-endTime').setValue('');
+    await field(w, 'revision-startTime').setValue('10:45'); await field(w, 'revision-endTime').setValue('10:55');
+    expect(field(w, 'revision-durationMinutes').element.value).toBe('10'); w.unmount();
+  });
+  it('fills only missing draft timing and leaves the saved version unchanged', async () => {
+    const base = original(); base.snapshot.encounterContext = { ...base.snapshot.encounterContext, durationMinutes: '', startTime: '10:45', endTime: '10:55' };
+    response = { ...summary(null, { canCreateSupervisor: true }), effectiveRevision: base, revisions: [base] };
+    const w = mountHistory(); await flushPromises(); await field(w, 'create-amendment').trigger('click'); await flushPromises();
+    expect(field(w, 'revision-durationMinutes').element.value).toBe('10'); expect(base.snapshot.encounterContext.durationMinutes).toBe(''); w.unmount();
+  });
+  it('does not invent a different service date when an automatic time would cross midnight', async () => {
+    response = summary(null, { canCreateSupervisor: true }); const w = mountHistory(); await flushPromises(); await field(w, 'create-amendment').trigger('click'); await flushPromises();
+    await field(w, 'revision-durationMinutes').setValue('10'); await field(w, 'revision-startTime').setValue('23:55');
+    expect(field(w, 'revision-endTime').element.value).toBe(''); expect(field(w, 'service-time-feedback').text()).toContain('cross midnight');
+    expect(field(w, 'revision-dateOfService').element.value).toBe('2026-11-01'); expect(api.post).not.toHaveBeenCalled(); w.unmount();
+  });
+
 });

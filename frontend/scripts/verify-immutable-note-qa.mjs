@@ -17,7 +17,7 @@ page.on('pageerror', error => errors.push(error.message));
 await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
 const check = (value, label) => { assert.ok(value, label); checks.push(label); };
 const inspect = () => page.evaluate(() => window.__DEMO_QA__.inspect());
-async function scenario(value) { await page.getByTestId('qa-scenario').selectOption(value); await page.getByTestId('version-select').waitFor(); }
+async function scenario(value) { await page.getByTestId('qa-scenario').selectOption(value); await page.getByTestId('toggle-version-history').waitFor(); }
 try {
   await page.goto(origin); await page.getByTestId('create-amendment').waitFor();
   check((await page.locator('.qa-banner').innerText()).includes('No backend'), 'Conspicuous DEMO QA fixture boundary');
@@ -59,7 +59,27 @@ try {
   await page.getByTestId('version-select').selectOption('9900711'); await page.getByTestId('version-attestation').check(); await page.getByTestId('sign-version').click();
   await page.waitForFunction(() => window.__DEMO_QA__.inspect().revisions[1].status === 'awaiting_supervisor_signature');
   check((await page.locator('.version-status').innerText()).includes('Latest approved: version 1'), 'Author signature leaves supervisor approval pending');
-  await scenario('billing'); await page.getByTestId('create-amendment').click();
+  await scenario('billing');
+  check(await page.getByTestId('toggle-version-history').getAttribute('aria-expanded') === 'false', 'Single-version history starts collapsed');
+  check(!await page.getByTestId('version-history-body').isVisible(), 'Single original history details stay out of the main review');
+  await page.screenshot({path:path.join(output,'collapsed-history-desktop.png'),fullPage:true});
+  await page.getByTestId('create-amendment').click();
+  check(await page.getByTestId('version-history-body').isVisible(), 'Create amendment expands its editor directly');
+  const enterTime = async (field,value) => { const input=page.getByTestId(`revision-${field}`);await input.fill(value);await input.press('Tab'); };
+  await enterTime('durationMinutes','10');await enterTime('startTime','10:45');
+  check(await page.getByTestId('revision-endTime').inputValue()==='10:55','Duration10 and start10:45 derive end10:55');
+  await enterTime('startTime','10:50');check(await page.getByTestId('revision-durationMinutes').inputValue()==='5','Changing start10:50 recalculates duration5');
+  await enterTime('startTime','10:45');await enterTime('endTime','11:00');
+  check(await page.getByTestId('revision-durationMinutes').inputValue()==='15','Overriding automatic end to11:00 recalculates duration15');
+  await page.getByTestId('version-reason').fill('DEMO QA timing draft retained');await page.getByTestId('toggle-version-history').click();
+  check(!await page.getByTestId('version-history-body').isVisible(),'Expanded amendment can be folded');await page.getByTestId('toggle-version-history').click();
+  check(await page.getByTestId('version-reason').inputValue()==='DEMO QA timing draft retained','Folding preserves the unsigned draft');
+  await page.getByRole('button',{name:'Cancel',exact:true}).click();await page.getByTestId('create-amendment').click();
+  await enterTime('durationMinutes','10');await enterTime('endTime','10:55');
+  check(await page.getByTestId('revision-startTime').inputValue()==='10:45','Duration10 and end10:55 derive start10:45');
+  await enterTime('durationMinutes','');await enterTime('startTime','');await enterTime('endTime','');await enterTime('startTime','10:45');await enterTime('endTime','10:55');
+  check(await page.getByTestId('revision-durationMinutes').inputValue()==='10','Start and end fill a blank duration');
+  await page.screenshot({path:path.join(output,'linked-times-desktop.png'),fullPage:true});
   await page.getByTestId('version-reason').fill('DEMO QA billing identified incorrect documented service code.');
   await page.getByTestId('revision-serviceCode').fill('90834'); await page.getByTestId('save-version-draft').click();
   await page.waitForFunction(() => window.__DEMO_QA__.inspect().revisions.length === 2);
@@ -74,6 +94,17 @@ try {
   await page.screenshot({ path: path.join(output, 'supervisor-amendment-phone.png'), fullPage: true });
   await page.getByTestId('save-version-draft').scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(output, 'supervisor-final-submit-phone.png'), fullPage: true });
+  await scenario('billing');
+  check(!await page.getByTestId('version-history-body').isVisible(),'Phone single-version history starts folded');
+  check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Collapsed phone history has no horizontal overflow');
+  await page.screenshot({path:path.join(output,'collapsed-history-phone.png'),fullPage:true});
+  await scenario('addendum');
+  check(!await page.getByTestId('addendum-editor').isVisible(),'Separate addendum form starts closed');
+  await page.getByTestId('create-addendum').click();check(await page.getByTestId('addendum-editor').isVisible(),'Create addendum expands the separate entry form');
+  await page.getByTestId('addendum-editor').locator('textarea').fill('DEMO QA separate entry retained');await page.getByTestId('create-addendum').click();await page.getByTestId('create-addendum').click();
+  check(await page.getByTestId('addendum-editor').locator('textarea').inputValue()==='DEMO QA separate entry retained','Folding preserves independent addendum text');
+  check(!(await inspect()).calls.some(call=>call.method==='post'),'Opening and folding addendum never signs or sends it');
+  await page.screenshot({path:path.join(output,'addendum-editor-phone.png'),fullPage:true});
   check(errors.length === 0, 'No browser runtime errors');
   await writeFile(path.join(output, 'results.json'), JSON.stringify({ checks, errors }, null, 2));
   console.log(JSON.stringify({ passed: checks.length, errors, output }));

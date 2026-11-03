@@ -1,9 +1,14 @@
 <template>
   <section :id="`immutable-note-versions-${noteId}`" class="note-versions" :aria-busy="loading || busy" aria-label="Immutable note version history">
-    <header class="version-heading"><div><h3>Note versions</h3><p>Signed versions remain on record. An amendment creates a linked revision; an addendum is a separate addition.</p></div><button type="button" :disabled="loading || busy" @click="load">Refresh versions</button></header>
+    <header class="version-heading">
+      <h3><button type="button" class="history-toggle" data-testid="toggle-version-history" :aria-expanded="historyExpanded" :aria-controls="`note-version-history-${noteId}`" :disabled="loading || busy" @click="expandedChoice = !historyExpanded"><span aria-hidden="true">{{ historyExpanded ? '▾' : '▸' }}</span> Note versions<span v-if="summary" class="history-summary">{{ revisions.length }} {{ revisions.length === 1 ? 'version' : 'versions' }}<template v-if="pending"> · Review pending</template><template v-else-if="needsReview"> · Review needed</template></span></button></h3>
+      <button v-if="createOrigins.length && !pending && !editing" type="button" data-testid="create-amendment" :disabled="busy || !effective" @click="startAmendment">{{ hasLegacyPending ? 'Review saved service correction' : 'Create amendment' }}</button>
+    </header>
     <p v-if="loading" role="status">Loading note versions…</p>
     <p v-if="error" class="version-error" role="alert">{{ error }}</p>
     <p v-if="notice" class="version-notice" role="status">{{ notice }}</p>
+    <div v-show="historyExpanded" :id="`note-version-history-${noteId}`" data-testid="version-history-body">
+      <div class="history-intro"><p>Signed versions remain on record. An amendment creates a linked revision; an addendum is a separate addition.</p><button type="button" :disabled="loading || busy || editing" @click="load">Refresh versions</button></div>
     <template v-if="summary && !loading">
       <div class="version-status" role="status">
         <strong>{{ effective ? `Latest approved: version ${effective.revisionNumber}` : 'No approved version recorded' }}</strong>
@@ -14,7 +19,6 @@
       <p v-if="pending" class="workflow-help">{{ workflowHelp(pending) }}</p>
       <div class="version-controls">
         <label>Version history<select v-model="selectedId" data-testid="version-select" :disabled="busy || editing"><option v-for="revision in revisions" :key="revision.id" :value="revision.id">Version {{ revision.revisionNumber }} · {{ originLabel(revision.origin) }} · {{ statusLabel(revision.status) }}</option></select></label>
-        <button v-if="createOrigins.length && !pending && !editing" type="button" data-testid="create-amendment" :disabled="busy || !effective" @click="startAmendment">{{ hasLegacyPending ? 'Review saved service correction' : 'Create amendment' }}</button>
         <button v-if="selected?.capabilities?.canEdit && !editing" type="button" data-testid="edit-amendment" :disabled="busy" @click="startEditing">Edit amendment draft</button>
       </div>
       <ClinicalNoteVersionAddenda v-if="!editing" :entries="reviewAddenda" />
@@ -55,11 +59,12 @@
           <p v-if="locationsLoading" role="status">Loading documented service locations…</p><p v-if="locationsError" class="version-error" role="alert">{{ locationsError }} <button type="button" @click="loadLocations">Retry locations</button></p>
           <label>Service location<select v-model="draftLocationId" data-testid="revision-serviceLocationId" :disabled="locationsLoading"><option value="">Keep saved location: {{ draftSavedLocation.locationLabel || 'Not recorded' }} · POS {{ draftSavedLocation.placeOfService || 'Not recorded' }}</option><option v-for="location in serviceLocations" :key="location.id" :value="String(location.id)">{{ location.name }} · POS {{ location.place_of_service }}</option></select></label>
           <p v-if="draftContext.locationLabel">{{ draftContext.locationLabel }} · POS {{ draftContext.placeOfService || 'Not recorded' }}</p>
-          <div class="editor-context"><label v-for="field in editableContextFields" :key="field.key">{{ field.label }}<input v-model="draftContext[field.key]" :data-testid="`revision-${field.key}`" :type="field.type || 'text'" :min="field.type === 'number' ? 1 : undefined" :max="field.key === 'durationMinutes' ? 1440 : undefined" /></label><label>Patient present<select v-model="draftContext.patientPresent"><option :value="null">Not recorded</option><option :value="true">Present</option><option :value="false">Not present</option></select></label></div></fieldset>
+          <div class="editor-context"><label v-for="field in editableContextFields" :key="field.key">{{ field.label }}<input v-model="draftContext[field.key]" :data-testid="`revision-${field.key}`" :type="field.type || 'text'" :min="field.type === 'number' ? 1 : undefined" :max="field.key === 'durationMinutes' ? 1440 : undefined" @change="updateDraftContext(field, $event.target.value)" /></label><label>Patient present<select v-model="draftContext.patientPresent"><option :value="null">Not recorded</option><option :value="true">Present</option><option :value="false">Not present</option></select></label></div><p v-if="timeFeedback" class="version-error" role="status" data-testid="service-time-feedback">{{ timeFeedback }}</p></fieldset>
         <label v-if="draftOrigin === 'supervisor'" class="check-line"><input v-model="draftAttested" type="checkbox" data-testid="supervisor-draft-attestation" :disabled="busy || conflicted" /> I authored and reviewed this amended narrative and service context and electronically sign this version as accurate. It will be submitted now for the original author to review and acknowledge.</label>
         <button type="submit" data-testid="save-version-draft" :disabled="busy || conflicted || !draftReason.trim() || (draftOrigin === 'supervisor' && !draftAttested)">{{ busy ? 'Saving…' : draftOrigin === 'supervisor' ? 'Sign & submit amended version' : draftOrigin === 'billing' ? 'Save billing proposal' : 'Save amendment draft' }}</button><button type="button" :disabled="busy" @click="cancelEditing">Cancel</button>
       </form>
     </template>
+    </div>
   </section>
 </template>
 
@@ -67,13 +72,15 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../services/api.js';
 import ClinicalNoteVersionAddenda from './ClinicalNoteVersionAddenda.vue';
+import { synchronizeServiceTimes, serviceTimeFeedback } from '../../utils/clinicalServiceTimes.js';
 import { cloneRevisionValue, revisionNarrativeFields, revisedNarrativePayload, revisionSignatureLabel, revisionStatusLabel } from '../../utils/clinicalNoteVersions.js';
 
 const props = defineProps({ noteId: { type: [Number, String], required: true }, agencyId: { type: [Number, String], required: true }, preferPending: { type: Boolean, default: false }, legacyPendingServiceDetails: { type: Object, default: null }, legacyAmendment: { type: Object, default: null } });
 const emit = defineEmits(['changed', 'loaded', 'editing']);
 defineExpose({ openRevision });
 const summary = ref(null), selectedId = ref(null), loading = ref(false), busy = ref(false), error = ref(''), notice = ref(''), attested = ref(false), conflicted = ref(false), viewOpen = ref(false);
-const draftAttested = ref(false);
+const draftAttested = ref(false), expandedChoice = ref(null);
+let durationAwaitingTime = false, timeHasBeenEdited = false;
 const serviceLocations = ref([]), locationsLoading = ref(false), locationsError = ref(''), draftLocationId = ref(''), draftSavedLocation = ref({});
 const editing = ref(false), draftRevision = ref(null), draftBase = ref(null), draftOrigin = ref('provider'), draftReason = ref(''), draftTitle = ref(''), draftFields = ref([]), draftContext = ref({});
 let generation = 0;
@@ -81,6 +88,20 @@ const revisions = computed(() => summary.value?.revisions || []);
 const effective = computed(() => summary.value?.effectiveRevision || revisions.value.find(item => item.id === summary.value?.effectiveRevisionId));
 const pending = computed(() => summary.value?.pendingRevision || revisions.value.find(item => item.id === summary.value?.pendingRevisionId));
 const hasLegacyPending = computed(() => !!props.legacyPendingServiceDetails && !pending.value);
+const needsReview = computed(() => revisions.value.some(item => ['canSign', 'canCosign', 'canAcknowledge'].some(action => item.capabilities?.[action])));
+const historyExpanded = computed(() => expandedChoice.value ?? (revisions.value.length > 1 || !!pending.value || needsReview.value || hasLegacyPending.value));
+const attentionKey = computed(() => `${pending.value?.id || ''}:${revisions.value.filter(item => ['canSign','canCosign','canAcknowledge'].some(action => item.capabilities?.[action])).map(item => `${item.id}:${item.status}`).join(',')}`);
+watch(attentionKey, (value, previous) => { if (value !== ':' && value !== previous) expandedChoice.value = true; });
+const timeFeedback = computed(() => serviceTimeFeedback(draftContext.value));
+function updateDraftContext(field, value) {
+  draftContext.value[field.key] = field.type === 'number' && value !== '' ? Number(value) : value;
+  draftAttested.value = false;
+  if (!['durationMinutes', 'startTime', 'endTime'].includes(field.key)) return;
+  const isTime = field.key !== 'durationMinutes';
+  draftContext.value = synchronizeServiceTimes(draftContext.value, field.key, { anchorDuration: isTime && durationAwaitingTime });
+  if (isTime && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)) { timeHasBeenEdited = true; durationAwaitingTime = false; }
+  else if (!isTime) durationAwaitingTime = !timeHasBeenEdited;
+}
 const selected = computed(() => revisions.value.find(item => String(item.id) === String(selectedId.value)) || null);
 const createOrigins = computed(() => ['provider', 'supervisor', 'billing'].filter(origin => summary.value?.capabilities?.[`canCreate${origin[0].toUpperCase()}${origin.slice(1)}`] === true));
 function attachedEntries(revision) { const entries = [...(revision?.snapshot?.addenda || []), ...(revision?.currentAddenda || [])]; return entries.filter((entry, index) => entries.findIndex(other => entry.id ? String(other.id) === String(entry.id) : other.body === entry.body && other.created_at === entry.created_at) === index); }
@@ -105,9 +126,10 @@ watch(editing, value => emit('editing', value));
 watch([draftFields, draftContext, draftReason, draftTitle, draftOrigin], () => { draftAttested.value = false; }, { deep: true });
 watch(draftLocationId, value => { const location = serviceLocations.value.find(item => String(item.id) === value); const original = draftSavedLocation.value; if (location) Object.assign(draftContext.value, { serviceLocationId: Number(location.id), locationLabel: location.name, placeOfService: location.place_of_service }); else for (const key of ['serviceLocationId', 'locationLabel', 'placeOfService']) { if (Object.prototype.hasOwnProperty.call(original, key)) draftContext.value[key] = original[key]; else delete draftContext.value[key]; } });
 watch(selectedId, () => { attested.value = false; viewOpen.value = !!selected.value && (String(selected.value.id) !== String(effective.value?.id) || !!selectedAction.value); });
-watch(() => `${props.agencyId}:${props.noteId}`, () => { notice.value = ''; summary.value = null; selectedId.value = null; editing.value = false; load(); }, { immediate: true });
+watch(() => `${props.agencyId}:${props.noteId}`, () => { notice.value = ''; summary.value = null; selectedId.value = null; editing.value = false; expandedChoice.value = null; load(); }, { immediate: true });
 onBeforeUnmount(() => { generation++; });
 async function openRevision(revisionId) {
+  expandedChoice.value = true;
   if (!summary.value || loading.value) await load(revisionId);
   if (!revisions.value.some(item => String(item.id) === String(revisionId))) { error.value = 'The requested revision is unavailable. Refresh versions before reviewing this request.'; return; }
   selectedId.value = revisionId; viewOpen.value = true; attested.value = false;
@@ -123,6 +145,8 @@ function prepareDraft(revision) {
   draftTitle.value = snapshot.title || ''; draftFields.value = revisionNarrativeFields(snapshot.notePayload);
   draftContext.value = cloneRevisionValue(snapshot.encounterContext || {});
   if (!draftRevision.value && hasLegacyPending.value) Object.assign(draftContext.value, cloneRevisionValue(props.legacyPendingServiceDetails));
+  draftContext.value = synchronizeServiceTimes(draftContext.value);
+  durationAwaitingTime = false; timeHasBeenEdited = false; expandedChoice.value = true;
   draftContext.value.dateOfService = String(draftContext.value.dateOfService || '').slice(0, 10);
   draftSavedLocation.value = cloneRevisionValue(draftContext.value);
   draftLocationId.value = ''; editing.value = true; attested.value = false; notice.value = ''; loadLocations();
@@ -188,5 +212,5 @@ async function signRevision() {
 </script>
 
 <style scoped>
-.note-versions{border:1px solid #b9cdd9;background:#f8fbfd;border-radius:10px;padding:14px;margin:12px 0;color:#243d51;font-size:.82rem;overflow-wrap:anywhere}.version-heading,.version-controls,.revision-title{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.version-heading h3{margin:0;font-size:.95rem}.version-heading p{margin:5px 0 10px;line-height:1.45}.note-versions button{background:#fff;border:1px solid #aac3d1;border-radius:6px;padding:8px 10px;font:inherit;color:#1b526c;cursor:pointer}.note-versions button:disabled{opacity:.5;cursor:not-allowed}.version-status{display:flex;flex-wrap:wrap;gap:8px 18px;border-left:3px solid #287e75;background:#edf7f4;padding:9px 12px}.version-status span{color:#71521b}.workflow-help{line-height:1.45}.version-controls{align-items:flex-end;flex-wrap:wrap;margin:12px 0}.version-controls label{flex:1;min-width:180px}.note-versions label{display:block;line-height:1.45}.note-versions input:not([type=checkbox]),.note-versions select,.note-versions textarea{display:block;width:100%;box-sizing:border-box;border:1px solid #afc5d3;border-radius:5px;background:#fff;color:#243d51;padding:8px;font:inherit;margin:4px 0 10px}.revision-record{background:#fff;border:1px solid #d8e4eb;border-radius:8px;padding:12px}.revision-title span{font-size:.74rem;color:#617589}.revision-reason{white-space:pre-wrap}.revision-content{border-top:1px solid #e1eaf0;padding-top:10px}.note-versions summary{cursor:pointer;color:#23536e;font-weight:600;padding:4px 0}.note-versions h4{font-size:.83rem;margin:10px 0 6px}.context-grid,.editor-context{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px}.context-grid dt,.saved-context dt{font-size:.7rem;color:#5b7187}.context-grid dd,.saved-context dd{margin:3px 0;white-space:pre-wrap}.saved-context div{margin:8px 0}.narrative-section p{white-space:pre-wrap;line-height:1.5}.revision-signatures{margin-top:12px;border-top:1px solid #e1eaf0;padding-top:4px}.revision-signatures article{padding:8px 0}.revision-signatures article span,.revision-signatures article small{display:block;margin-top:3px}.revision-signatures small{font-size:.69rem;color:#617589}.legacy-provenance{background:#fff8eb;padding:9px;border-radius:6px}.legacy-provenance p{margin:6px 0;line-height:1.4}.revision-attestation{background:#f0f7fa;margin-top:12px;padding:10px;border-radius:6px}.check-line{display:flex!important;gap:8px;align-items:flex-start;margin:8px 0 12px}.check-line input{margin-top:3px}.revision-editor{margin-top:12px}.revision-editor fieldset{border:1px solid #d0dfe8;border-radius:6px;margin:12px 0;padding:12px}.revision-editor legend{font-weight:600}.revision-editor button+button{margin-left:8px}.version-error{color:#9a3412;background:#fff2eb;padding:10px}.version-notice{color:#17604c;background:#e6f5ef;padding:10px}.muted{color:#617589}.note-versions :is(button,input,textarea,select,summary):focus-visible{outline:3px solid #339ac9;outline-offset:2px}@media(max-width:600px){.note-versions{padding:10px}.version-heading,.revision-title{flex-direction:column;gap:5px}.version-heading>button{align-self:flex-end}.version-controls{align-items:stretch}.version-controls>button{width:100%}.context-grid,.editor-context{grid-template-columns:1fr}.revision-record{padding:9px}.revision-editor button{min-height:42px}}
+.note-versions{border:1px solid #b9cdd9;background:#f8fbfd;border-radius:10px;padding:14px;margin:12px 0;color:#243d51;font-size:.82rem;overflow-wrap:anywhere}.version-heading,.version-controls,.revision-title{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.version-heading{align-items:center;flex-wrap:wrap}.version-heading h3{margin:0;font-size:.95rem}.note-versions .history-toggle{border:0;background:transparent;padding:4px 0;text-align:left;color:#243d51;font-weight:600}.history-summary{font-size:.76rem;color:#617589;font-weight:400;margin-left:10px}.history-intro{display:flex;gap:12px;align-items:center;justify-content:space-between;margin:8px 0}.history-intro p{margin:0;line-height:1.45;flex:1}.history-intro button{flex-shrink:0}.version-heading p{margin:5px 0 10px;line-height:1.45}.note-versions button{background:#fff;border:1px solid #aac3d1;border-radius:6px;padding:8px 10px;font:inherit;color:#1b526c;cursor:pointer}.note-versions button:disabled{opacity:.5;cursor:not-allowed}.version-status{display:flex;flex-wrap:wrap;gap:8px 18px;border-left:3px solid #287e75;background:#edf7f4;padding:9px 12px}.version-status span{color:#71521b}.workflow-help{line-height:1.45}.version-controls{align-items:flex-end;flex-wrap:wrap;margin:12px 0}.version-controls label{flex:1;min-width:180px}.note-versions label{display:block;line-height:1.45}.note-versions input:not([type=checkbox]),.note-versions select,.note-versions textarea{display:block;width:100%;box-sizing:border-box;border:1px solid #afc5d3;border-radius:5px;background:#fff;color:#243d51;padding:8px;font:inherit;margin:4px 0 10px}.revision-record{background:#fff;border:1px solid #d8e4eb;border-radius:8px;padding:12px}.revision-title span{font-size:.74rem;color:#617589}.revision-reason{white-space:pre-wrap}.revision-content{border-top:1px solid #e1eaf0;padding-top:10px}.note-versions summary{cursor:pointer;color:#23536e;font-weight:600;padding:4px 0}.note-versions h4{font-size:.83rem;margin:10px 0 6px}.context-grid,.editor-context{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px}.context-grid dt,.saved-context dt{font-size:.7rem;color:#5b7187}.context-grid dd,.saved-context dd{margin:3px 0;white-space:pre-wrap}.saved-context div{margin:8px 0}.narrative-section p{white-space:pre-wrap;line-height:1.5}.revision-signatures{margin-top:12px;border-top:1px solid #e1eaf0;padding-top:4px}.revision-signatures article{padding:8px 0}.revision-signatures article span,.revision-signatures article small{display:block;margin-top:3px}.revision-signatures small{font-size:.69rem;color:#617589}.legacy-provenance{background:#fff8eb;padding:9px;border-radius:6px}.legacy-provenance p{margin:6px 0;line-height:1.4}.revision-attestation{background:#f0f7fa;margin-top:12px;padding:10px;border-radius:6px}.check-line{display:flex!important;gap:8px;align-items:flex-start;margin:8px 0 12px}.check-line input{margin-top:3px}.revision-editor{margin-top:12px}.revision-editor fieldset{border:1px solid #d0dfe8;border-radius:6px;margin:12px 0;padding:12px}.revision-editor legend{font-weight:600}.revision-editor button+button{margin-left:8px}.version-error{color:#9a3412;background:#fff2eb;padding:10px}.version-notice{color:#17604c;background:#e6f5ef;padding:10px}.muted{color:#617589}.note-versions :is(button,input,textarea,select,summary):focus-visible{outline:3px solid #339ac9;outline-offset:2px}@media(max-width:600px){.note-versions{padding:10px}.version-heading,.revision-title{flex-direction:column;gap:5px}.version-heading>button{align-self:flex-end}.version-controls{align-items:stretch}.version-controls>button{width:100%}.context-grid,.editor-context{grid-template-columns:1fr}.revision-record{padding:9px}.revision-editor button{min-height:42px}}
 </style>

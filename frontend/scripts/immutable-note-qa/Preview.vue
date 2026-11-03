@@ -1,15 +1,18 @@
 <template>
-  <main class="qa-page"><header class="qa-banner"><strong>DEMO QA · Synthetic immutable-note workflow</strong><p>All records and signatures are in memory. No backend, claims, messages or real client data are connected.</p><label>QA scenario<select v-model="scenario" data-testid="qa-scenario"><option value="supervisor">Supervisor · saved legacy correction + next cosign</option><option value="provider">Original author · billing proposal signature</option><option value="billing">Billing · attributed proposal only</option><option value="conflict">Conflict · reject a stale revision</option></select></label></header>
+  <main class="qa-page"><header class="qa-banner"><strong>DEMO QA · Synthetic immutable-note workflow</strong><p>All records and signatures are in memory. No backend, claims, messages or real client data are connected.</p><label>QA scenario<select v-model="scenario" data-testid="qa-scenario"><option value="supervisor">Supervisor · saved legacy correction + next cosign</option><option value="provider">Original author · billing proposal signature</option><option value="billing">Billing · attributed proposal only</option><option value="addendum">Original author · create separate addendum</option><option value="conflict">Conflict · reject a stale revision</option></select></label></header>
     <ClinicalNoteGeneratorView v-if="scenario === 'supervisor'" :key="generation" ref="workspace" />
+    <ClinicalNoteReadOnlyView v-else-if="scenario === 'addendum'" :key="generation" :note="addendumNote" />
     <ClinicalNoteVersionHistory v-else :key="generation" :note-id="990071" :agency-id="990002" prefer-pending />
   </main>
 </template>
 <script setup>
-import { nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import ClinicalNoteReadOnlyView from '../../src/components/clinical/ClinicalNoteReadOnlyView.vue';
 import ClinicalNoteGeneratorView from '../../src/views/admin/ClinicalNoteGeneratorView.vue';
 import ClinicalNoteVersionHistory from '../../src/components/clinical/ClinicalNoteVersionHistory.vue';
 import { qa, resetScenario } from './api.js';
 const scenario = ref('supervisor'), generation = ref(0), workspace = ref(null);
+const addendumNote = computed(() => ({ id:990071,agencyId:990002,title:'DEMO QA signed note',providerSignedAt:'2026-11-01T17:00:00Z',canSignAddendum:true,outputJson:{sections:{Subjective:'DEMO QA original signed narrative'}},addenda:[] }));
 function queueRow(id) { return { id: `cosign_${id}`, clinicalNoteId: id, agencyId: 990002, clientName: `DEMO QA synthetic client ${id}`, providerName: 'DEMO QA Original Author', dateOfService: '2026-11-01', serviceCode: 'H0002' }; }
 async function initialize() {
   await nextTick(); if (scenario.value !== 'supervisor' || !workspace.value) return;
