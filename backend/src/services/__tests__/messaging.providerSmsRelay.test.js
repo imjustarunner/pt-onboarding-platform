@@ -61,6 +61,7 @@ it('forwards once with a short family code and sends opt-out guidance on the fir
  expect(Vonage.sendSms).toHaveBeenCalledTimes(1);
  expect(Vonage.sendSms).toHaveBeenCalledWith(expect.objectContaining({providerRelayEnrollmentId:1,body:expect.stringContaining('or #1 followed by your message.')}));
  expect(Vonage.sendSms.mock.calls[0][0].body).toContain('NOCLIENTS to stop client forwarding');
+ expect(Vonage.sendSms.mock.calls[0][0].body).toContain('SUPPORT anytime for scheduling or other help');
  expect(Vonage.sendSms.mock.calls[0][0].body).not.toContain(code);
 });
 it('reminds only on the first incoming forward after fourteen days, not every message or confirmation',async()=>{
@@ -124,6 +125,7 @@ it('marks uncertain sends for review without retrying on duplicate carrier deliv
 it('SUPPORT asks which recent family to hand off, creates a Support request after Y, and never texts SUPPORT to the family',async()=>{
  await handleProviderSmsReply({...reply,body:'SUPPORT'});expect(requestRelaySupport).not.toHaveBeenCalled();expect(sendClinicalSms).not.toHaveBeenCalled();
  expect(Vonage.sendSms.mock.calls.at(-1)[0].body).toContain('to Support? Reply Y');
+ expect(pool.execute.mock.calls.find(([sql])=>sql.startsWith('SELECT route.*'))[0]).not.toContain('INTERVAL 2 HOUR');
  await handleProviderSmsReply({...reply,body:'Y',messageId:'support-Y'});
  expect(requestRelaySupport).toHaveBeenCalledWith(expect.objectContaining({enrollment,route}));expect(sendClinicalSms).not.toHaveBeenCalled();
  await handleProviderSmsReply({...reply,body:'Y',messageId:'support-Y'});expect(requestRelaySupport).toHaveBeenCalledTimes(1);

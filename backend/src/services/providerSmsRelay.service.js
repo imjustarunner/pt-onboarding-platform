@@ -35,7 +35,7 @@ async function sendProviderCopy(enrollment, from, body, metadata) {
     WHERE number_id=? AND to_number=? AND direction='OUTBOUND' AND delivery_status IN ('sent','delivered','queued')
       AND JSON_EXTRACT(metadata,'$.providerSmsRelayNotice')=TRUE`, [enrollment.number_id,enrollment.phone]);
   const due = !notice?.last_notice || (metadata.providerSmsRelay && Date.now()-new Date(notice.last_notice).getTime() >= 14*86400000);
-  const content = due ? `${body}\nReminder: Reply SUPPORT for help with this conversation, NOCLIENTS to stop client forwarding to this phone, or STOP to stop all texts.` : body;
+  const content = due ? `${body}\nReminder: Reply SUPPORT anytime for scheduling or other help, NOCLIENTS to stop client forwarding to this phone, or STOP to stop all texts.` : body;
   const details = { ...metadata, providerSmsRelayNotice: !!due };
   const log=await MessageLog.createOutbound({agencyId:enrollment.agency_id,numberId:enrollment.number_id,
     userId:enrollment.provider_user_id,assignedUserId:enrollment.provider_user_id,ownerType:'staff',
@@ -96,14 +96,14 @@ async function pendingReply(enrollment) {
     ORDER BY r.id DESC LIMIT 1`, [enrollment.id]);
   return rows[0] || null;
 }
-async function recentRoute(enrollment) {
+async function recentRoute(enrollment, { forSupport = false } = {}) {
   // Only an actually sent forward can establish recent context. Existing long
   // codes remain usable, and historical forwards can seed the new confirmation.
   const [rows] = await pool.execute(`SELECT route.* FROM provider_sms_relay_dispatches d
     JOIN message_logs m ON m.id=d.outbound_log_id
     JOIN provider_sms_relay_routes route ON route.enrollment_id=d.enrollment_id
       AND route.reply_code=JSON_UNQUOTE(JSON_EXTRACT(m.metadata,'$.replyCode'))
-    WHERE d.enrollment_id=? AND d.status='sent' AND d.created_at>=UTC_TIMESTAMP()-INTERVAL 2 HOUR
+    WHERE d.enrollment_id=? AND d.status='sent' ${forSupport ? '' : 'AND d.created_at>=UTC_TIMESTAMP()-INTERVAL 2 HOUR'}
       AND m.delivery_status IN ('sent','delivered','queued')
     ORDER BY d.id DESC LIMIT 1`, [enrollment.id]);
   return rows[0] || null;
@@ -135,9 +135,9 @@ export async function handleProviderSmsReply({sender,from,to,body,messageId}) {
       if (control === 'SUPPORT') {
         const candidate = pending
           ? (await pool.execute('SELECT * FROM provider_sms_relay_routes WHERE enrollment_id=? AND id=?',[enrollment.id,Number(pending.route_id)]))[0][0]
-          : await recentRoute(enrollment);
+          : await recentRoute(enrollment, { forSupport: true });
         const recipient = await validRecipient(enrollment,candidate);
-        if (!recipient) return guide('There is no recent eligible conversation. Reply with its short code followed by SUPPORT, or use Forward to Support in the app.');
+        if (!recipient) return guide('There is no eligible conversation to forward. Reply with its short code followed by SUPPORT, or contact Support in the app.');
         if (pending) await pool.execute("UPDATE provider_sms_relay_replies SET status='cancelled' WHERE id=?",[pending.id]);
         const label = familyReplyCode(recipient.client,recipient.family.guardianUserId).split('-')[0];
         const logId = await sendProviderCopy(enrollment,to,`Forward the conversation for ${label} (family phone ending ${candidate.family_phone.slice(-4)}) to Support? Reply Y to confirm or N to cancel. Nothing will be sent to the family.`,
