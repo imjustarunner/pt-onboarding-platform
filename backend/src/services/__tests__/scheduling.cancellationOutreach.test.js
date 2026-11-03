@@ -58,7 +58,7 @@ describe('school cancellation review and delivery', () => {
     const sendEmail = vi.fn(), service = createCancellationSchoolNoticeService({ database, sendEmail });
     const [school] = await service.list({ providerId: 7, agencyId: 2, date: '2030-01-02', reason: 'Unavailable' });
     expect(database.execute).toHaveBeenCalledWith(expect.stringContaining('oa.agency_id=?'), [2, 7, 'Wednesday']);
-    expect(school.recipients).toEqual(['school@example.test', 'group@example.test']);
+    expect(school.recipients).toEqual(['group@example.test']);
     expect(service.review(school, { recipients: ['changed@example.test', 'added@example.test'], message: { subject: 'Edited', text: 'My message' } }, true)).toMatchObject({ recipients: ['changed@example.test', 'added@example.test'], message: { subject: 'Edited', text: 'My message' } });
     expect(sendEmail).not.toHaveBeenCalled();
     expect(() => service.review(school, { recipients: [] }, true)).toThrow('school email');
@@ -68,6 +68,7 @@ describe('school cancellation review and delivery', () => {
     const database = { execute: vi.fn(async (sql, p) => {
       if (sql.startsWith('INSERT IGNORE')) { if (!rows.has(p[2])) rows.set(p[2], { status: 'pending', recipient_address: p[2] }); return [{}]; }
       if (sql.includes("SET status='sending'")) { const r = rows.get(p[2]); const affectedRows = ['pending', 'failed'].includes(r.status) ? 1 : 0; if (affectedRows) r.status = 'sending'; return [{ affectedRows }]; }
+      if (sql.includes('SET external_message_id=')) return [{}];
       if (sql.startsWith('UPDATE')) { Object.assign(rows.get(p[6]), { status: p[0], error_message: p[1] }); return [{}]; }
       if (sql.startsWith('SELECT')) return [[rows.get(p[2])]];
       throw new Error(sql);

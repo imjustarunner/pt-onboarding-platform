@@ -17,6 +17,7 @@ export function buildScheduleNoticeMessage(entries, portalUrl, { recipientUserId
   const sections = entries.filter(e => !linkedReplacements.has(Number(e.appointment.id))).map(({ appointment: a, payload, cancellation }) => {
     if (cancellation?.replacementAppointmentId) return cancellation;
     if (cancellation) {
+      if (payload.facts?.absenceSource) return cancellation;
       if (cancellation.noShow) return { ...cancellation, sms: `Please review the missed appointment notice in your secure portal. ${FAMILY_APPOINTMENT_LOGIN}` };
       const attribution = familyCancellationAttribution(a,payload.facts,recipientUserId);
       // The other parent's private explanation is not copied into shared texts/email.

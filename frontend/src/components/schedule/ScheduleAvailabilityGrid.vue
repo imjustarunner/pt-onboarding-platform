@@ -880,6 +880,7 @@
       </details>
     </div>
 
+    <SchoolAbsenceRecords :records="summary?.schoolSoftSessions || []" schedule />
     <div v-if="summary?.schoolAssignments?.length" class="school-commitment-summary" aria-label="Assigned school hours" style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">
       <button v-for="assignment in summary.schoolAssignments" :key="`${assignment.agencyId}-${assignment.schoolOrgId}-${assignment.dayOfWeek}`" class="btn btn-secondary btn-sm" type="button" @click="schoolAssignmentReview={agencyId:Number(assignment.agencyId || assignment._agencyId || effectiveAgencyId),schoolId:Number(assignment.schoolOrgId || assignment.schoolOrganizationId),assignmentId:Number(assignment.assignmentId || 0)}">
         {{assignment.schoolName}} · {{assignment.dayOfWeek}} {{assignment.startTime}}–{{assignment.endTime}} · Hours / client spots
@@ -5910,6 +5911,7 @@ import ScheduleColorLegend from './ScheduleColorLegend.vue';
 import ScheduleHelp from './ScheduleHelp.vue';
 import ScheduleQuarterHourPicker from './ScheduleQuarterHourPicker.vue';
 import DayCancellationDialog from './DayCancellationDialog.vue';
+import SchoolAbsenceRecords from './SchoolAbsenceRecords.vue';
 import OfferedTimeDialog from './OfferedTimeDialog.vue';
 const offeredTime = ref(null);
 const onOfferReleased = async () => { offeredTime.value = null; invalidateScheduleSummaryCacheForUser(props.userId); await load({ forceRefresh: true }); };
@@ -9597,6 +9599,7 @@ const filterSummaryByActiveAgencies = (data) => {
     officeRequests: (data.officeRequests || []).filter(keep),
     schoolRequests: (data.schoolRequests || []).filter(keep),
     schoolAssignments: (data.schoolAssignments || []).filter(keep),
+    schoolSoftSessions: (data.schoolSoftSessions || []).filter(keep),
     officeEvents: (data.officeEvents || []).filter(keep),
     supervisionSessions: (data.supervisionSessions || []).filter(keep),
     scheduleEvents: (data.scheduleEvents || []).filter(keepScheduleEvent),
@@ -9800,6 +9803,7 @@ const load = async ({ forceRefresh = false } = {}) => {
         officeRequests: [],
         schoolRequests: [],
         schoolAssignments: [],
+        schoolSoftSessions: [],
         officeEvents: [],
         supervisionSessions: [],
         scheduleEvents: [],
@@ -9858,6 +9862,7 @@ const load = async ({ forceRefresh = false } = {}) => {
         const aId = r.agencyId;
         merged.officeRequests.push(...(r.data?.officeRequests || []).map((x) => tagIfMember(x, aId)));
         merged.schoolRequests.push(...(r.data?.schoolRequests || []).map((x) => tagIfMember(x, aId)));
+        merged.schoolSoftSessions.push(...(r.data?.schoolSoftSessions || []).map((x) => tagIfMember(x, aId)));
         merged.schoolAssignments.push(...(r.data?.schoolAssignments || []).map((x) => tagIfMember(x, aId)));
         // Office events are building-scoped; do NOT stamp the fetch agencyId (shared buildings
         // return the same event for every co-tenant — first alphabetically was Burning Sage).

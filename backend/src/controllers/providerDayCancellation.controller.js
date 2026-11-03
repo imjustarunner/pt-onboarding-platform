@@ -26,11 +26,11 @@ export async function authorizeDayCancellation(actor, providerId, agencyIds) {
 }
 const appointmentAccess = (actor, appointment) => assertAppointmentChangeAccess({ user: actor }, appointment);
 export async function resumeDayCancellation(req, res, next) {
-  try { res.json(await dayCancellation.resume({ providerId: Number(req.params.providerId), date: req.query.date }, req.user, authorizeDayCancellation)); }
+  try { res.json(await dayCancellation.resume({ providerId: Number(req.params.providerId), date: req.query.date, token: req.query.token }, req.user, authorizeDayCancellation)); }
   catch (e) { if (e.status) return res.status(e.status).json({ error: { message: e.message } }); next(e); }
 }
 export async function previewDayCancellation(req, res, next) {
-  try { res.json(await dayCancellation.preview({ ...req.body, providerId: Number(req.params.providerId) }, req.user, authorizeDayCancellation, appointmentAccess)); }
+  try { res.json(await dayCancellation.preview({ ...req.body, absenceSource: 'cancel_day', providerId: Number(req.params.providerId) }, req.user, authorizeDayCancellation, appointmentAccess)); }
   catch (e) { if (e.status) return res.status(e.status).json({ error: { message: e.message } }); next(e); }
 }
 export async function applyDayCancellation(req, res, next) {
