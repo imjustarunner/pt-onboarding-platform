@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { appCommunicationVisibilitySql, isExternalTestingHistory } from '../utils/externalTestingEmail.js';
 import { activeCommunicationFailureSql } from '../utils/communicationFailureQueue.js';
 import UserCommunication from '../models/UserCommunication.model.js';
 import EmailTemplate from '../models/EmailTemplate.model.js';
@@ -624,7 +625,7 @@ export const getCommunication = async (req, res, next) => {
 
     const communication = await UserCommunication.findById(parseInt(id));
     
-    if (!communication) {
+    if (!communication || isExternalTestingHistory(communication)) {
       return res.status(404).json({ error: { message: 'Communication not found' } });
     }
 
@@ -659,7 +660,7 @@ export const regenerateEmail = async (req, res, next) => {
 
     const communication = await UserCommunication.findById(parseInt(id));
     
-    if (!communication) {
+    if (!communication || isExternalTestingHistory(communication)) {
       return res.status(404).json({ error: { message: 'Communication not found' } });
     }
 
@@ -743,7 +744,8 @@ export const getPendingCommunicationsCount = async (req, res, next) => {
       `SELECT COUNT(*) AS cnt FROM user_communications uc
        WHERE uc.agency_id IN (${placeholders})
          AND uc.delivery_status IN ('pending', 'failed', 'bounced', 'undelivered', 'skipped')
-         AND ${activeCommunicationFailureSql('uc')}`,
+         AND ${activeCommunicationFailureSql('uc')}
+         AND ${appCommunicationVisibilitySql('uc')}`,
       agencyIds
     );
     const count = Number(rows?.[0]?.cnt || 0);
@@ -915,7 +917,7 @@ export const getCommunicationDetail = async (req, res, next) => {
       `SELECT ${COMMUNICATION_DETAIL_SELECT}
        FROM user_communications uc
        ${COMMUNICATION_DETAIL_JOINS}
-       WHERE uc.id = ?
+       WHERE uc.id = ? AND ${appCommunicationVisibilitySql('uc')}
        LIMIT 1`,
       [id]
     );

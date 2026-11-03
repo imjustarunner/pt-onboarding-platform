@@ -2,6 +2,8 @@
  * Aggregated summaries for employee Messages Dashboard and admin Communications Center.
  */
 import pool from '../config/database.js';
+import { appCommunicationVisibilitySql } from '../utils/externalTestingEmail.js';
+
 import { activeCommunicationFailureSql } from '../utils/communicationFailureQueue.js';
 import User from '../models/User.model.js';
 import { countMultiAgencyCommunicationQualityIssues } from '../services/outboundEmailQuality.service.js';
@@ -416,7 +418,7 @@ export const getCommunicationsCenterSummary = async (req, res, next) => {
            SUM(CASE WHEN delivery_status = 'delivered'
                       AND generated_at > DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) AS delivered_cnt
          FROM user_communications
-         WHERE agency_id IN (${placeholders})`,
+         WHERE agency_id IN (${placeholders}) AND ${appCommunicationVisibilitySql()}`,
         agencyIds
       );
       pendingInQueues = Number(pRows?.[0]?.pending_cnt || 0);
@@ -440,7 +442,7 @@ export const getCommunicationsCenterSummary = async (req, res, next) => {
       const [pendList] = await pool.query(
         `SELECT id, user_id, client_id, subject, recipient_address, delivery_status, channel, template_type, generated_at, sent_at
          FROM user_communications
-         WHERE agency_id IN (${placeholders})
+         WHERE agency_id IN (${placeholders}) AND ${appCommunicationVisibilitySql()}
            AND delivery_status IN ('pending', 'failed', 'bounced', 'undelivered', 'skipped')
            AND ${activeCommunicationFailureSql()}
          ORDER BY generated_at DESC
@@ -452,7 +454,7 @@ export const getCommunicationsCenterSummary = async (req, res, next) => {
       const [sentList] = await pool.query(
         `SELECT id, user_id, client_id, subject, recipient_address, delivery_status, channel, template_type, generated_at, sent_at
          FROM user_communications
-         WHERE agency_id IN (${placeholders})
+         WHERE agency_id IN (${placeholders}) AND ${appCommunicationVisibilitySql()}
            AND delivery_status IN ('sent', 'delivered')
          ORDER BY COALESCE(sent_at, generated_at) DESC
          LIMIT 8`,

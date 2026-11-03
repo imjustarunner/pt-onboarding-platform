@@ -1,4 +1,6 @@
 import pool from '../config/database.js';
+import { appCommunicationVisibilitySql } from '../utils/externalTestingEmail.js';
+
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { resolveClientRecordAccess } from '../services/clientRecordAccess.service.js';
 import {guardianContactRows,sharedHistoryRecipient} from '../services/guardianContactSharing.service.js';
@@ -50,7 +52,7 @@ export async function listClientNotificationHistory(req, res, next) {
         ${historyText('uc.delivery_status')} AS delivery_status,
         COALESCE(uc.sent_at, uc.generated_at) AS occurred_at, ${historyText('a.name')} AS organization_name,
         ${historyText('NULL')} AS appointment_metadata
-       FROM user_communications uc LEFT JOIN agencies a ON a.id = uc.agency_id WHERE uc.client_id = ?
+       FROM user_communications uc LEFT JOIN agencies a ON a.id = uc.agency_id WHERE uc.client_id = ? AND ${appCommunicationVisibilitySql('uc')}
          AND NOT EXISTS (SELECT 1 FROM co_guardian_invite_deliveries d WHERE d.communication_id=uc.id)
        UNION ALL
        SELECT ${historyText("CONCAT('guardian-invite-', d.id)")}, ${historyText("'email'")},

@@ -1,5 +1,7 @@
 import crypto from 'crypto';
 import pool from '../config/database.js';
+import { appCommunicationVisibilitySql } from '../utils/externalTestingEmail.js';
+
 import { maybeEncryptNotePayload, maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
 
 class UserCommunication {
@@ -126,11 +128,11 @@ class UserCommunication {
          ON cg.guardian_user_id = uc.user_id AND cg.client_id = ?
        LEFT JOIN users gb ON uc.generated_by_user_id = gb.id
        LEFT JOIN agencies a ON uc.agency_id = a.id
-       WHERE uc.client_id = ?
+       WHERE ${appCommunicationVisibilitySql('uc')} AND (uc.client_id = ?
           OR (uc.client_id IS NULL AND uc.agency_id = (SELECT agency_id FROM clients WHERE id = ?)
             AND EXISTS (SELECT 1 FROM client_guardians only_guardian JOIN users recipient ON recipient.id=only_guardian.guardian_user_id
               WHERE only_guardian.client_id=? AND (recipient.id=uc.user_id OR LOWER(recipient.email) COLLATE utf8mb4_unicode_ci=LOWER(uc.recipient_address) COLLATE utf8mb4_unicode_ci)
-              AND NOT EXISTS (SELECT 1 FROM client_guardians sibling JOIN clients sibling_client ON sibling_client.id=sibling.client_id WHERE sibling.guardian_user_id=recipient.id AND sibling.client_id<>only_guardian.client_id AND sibling_client.agency_id=uc.agency_id)))
+              AND NOT EXISTS (SELECT 1 FROM client_guardians sibling JOIN clients sibling_client ON sibling_client.id=sibling.client_id WHERE sibling.guardian_user_id=recipient.id AND sibling.client_id<>only_guardian.client_id AND sibling_client.agency_id=uc.agency_id))))
        ORDER BY COALESCE(uc.sent_at, uc.generated_at) DESC, uc.id DESC
        LIMIT ${lim}`,
       [cid, cid, cid, cid]
@@ -214,7 +216,7 @@ class UserCommunication {
                  LEFT JOIN agencies a ON uc.agency_id = a.id
                  LEFT JOIN users gb ON uc.generated_by_user_id = gb.id
                  LEFT JOIN clients c ON uc.client_id = c.id
-                 WHERE uc.user_id = ?`;
+                 WHERE uc.user_id = ? AND ${appCommunicationVisibilitySql('uc')}`;
     const params = [userId];
 
     if (agencyId) {
@@ -245,7 +247,7 @@ class UserCommunication {
   static async countByUser(userId, filters = {}) {
     const { agencyId, templateType } = filters;
     
-    let query = 'SELECT COUNT(*) as count FROM user_communications WHERE user_id = ?';
+    let query = `SELECT COUNT(*) as count FROM user_communications WHERE user_id = ? AND ${appCommunicationVisibilitySql()}`;
     const params = [userId];
 
     if (agencyId) {

@@ -1,6 +1,7 @@
 import { isGrasshopperVoicemail } from './grasshopperVoicemail.service.js';
 import { createHash } from 'node:crypto';
 import pool from '../config/database.js';
+import { isExternalTestingEmail } from '../utils/externalTestingEmail.js';
 import { replyMessageIds } from '../utils/emailThreading.js';
 
 // Older importers stored only text. Retrying that exact delivery may enrich its
@@ -15,6 +16,9 @@ export async function restoreMissingInboundHtml(db, messageId, bodyHtml) {
 
 /** Inbox row lock serializes thread creation; receipt+message+attachments commit together. */
 export async function persistInboundEmail({ inboxId, agencyId, deliveryId, conversationId = null, threadId = null, ownerUserId = null, fromEmail, replyToEmail = null, subject, bodyText, bodyHtml = null, to = [], cc = [], inReplyTo = null, referencesHeader = null, receivedAt = new Date(), attachments = [], isGroupEmail = false, internalNote = false, isAutoReply = false }) {
+  if (isExternalTestingEmail(fromEmail, replyToEmail, to, cc)) {
+    return { ingested: true, ignored: true, reason: 'external_testing_mail' };
+  }
   if (!deliveryId) throw new Error('Inbound email is missing a delivery identifier');
   const hash = createHash('sha256').update(String(deliveryId)).digest('hex');
   const db = await pool.getConnection();

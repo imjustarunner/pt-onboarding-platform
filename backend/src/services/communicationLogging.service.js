@@ -13,6 +13,7 @@
  */
 
 import UserCommunication from '../models/UserCommunication.model.js';
+import { isExternalTestingHistory } from '../utils/externalTestingEmail.js';
 
 class CommunicationLoggingService {
   /**
@@ -62,7 +63,8 @@ class CommunicationLoggingService {
     });
 
     // Mirror client-linked emails onto the chart as Contact notes (accessible via record).
-    if (clientId && String(channel || 'email').toLowerCase() === 'email') {
+    if (clientId && String(channel || 'email').toLowerCase() === 'email'
+        && !isExternalTestingHistory({ channel, recipientAddress, metadata })) {
       try {
         const { upsertClientContactNoteFromEmail } = await import('./clientEmailContactNote.service.js');
         const meta = metadata && typeof metadata === 'object' ? metadata : {};

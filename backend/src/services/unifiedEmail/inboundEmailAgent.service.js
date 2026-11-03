@@ -2,6 +2,7 @@ import { isSchoolWelcomeSupportReply, isTechnologyIdentity, ingestTechnologyEmai
 import { deferredInboundMessages, deferInboundMessage, clearInboundRetry } from './gmailInboundRetry.js';
 import { resolvePersonalMailRecipients } from '../groupMailboxRouting.service.js';
 import pool from '../../config/database.js';
+import { isExternalTestingMailHeaders } from '../../utils/externalTestingEmail.js';
 import { getGmailClient, getImpersonatedUser } from './gmailClient.js';
 import { ensureLabelId } from './gmailLabels.js';
 import EmailSenderIdentity from '../../models/EmailSenderIdentity.model.js';
@@ -936,9 +937,15 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     try {
     const full = await gmail.users.messages.get({ userId: 'me', id, format: 'full' });
     const payload = full.data?.payload || null;
+    const hdrs = headerMap(payload?.headers || []);
+    if (isExternalTestingMailHeaders(hdrs)) {
+      await gmail.users.messages.modify({ userId: 'me', id,
+        requestBody: { addLabelIds: [processedLabelId, ignoredLabelId] } });
+      results.ignored += 1;
+      continue;
+    }
     const { reconcileGuardianDeliveryReport } = await import('../coGuardianBounce.service.js');
     await reconcileGuardianDeliveryReport(payload);
-    const hdrs = headerMap(payload?.headers || []);
     const fromHeader = hdrs.get('from') || '';
     const rawFromEmail = extractEmails(fromHeader)[0] || '';
     const fromEmail = resolveInboundSenderEmail({

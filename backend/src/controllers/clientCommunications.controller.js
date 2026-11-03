@@ -13,6 +13,8 @@ import {communicationPrintDocument} from '../services/communicationPrint.service
  * don't ship multi-KB HTML in the list payload.
  */
 import pool from '../config/database.js';
+import { appCommunicationVisibilitySql } from '../utils/externalTestingEmail.js';
+
 import Client from '../models/Client.model.js';
 import User from '../models/User.model.js';
 import UserCommunication from '../models/UserCommunication.model.js';
@@ -367,7 +369,7 @@ export const getClientCommunicationBody = async (req, res, next) => {
                 WHERE cg.client_id = ? AND cg.guardian_user_id = uc.user_id
               ) AS is_client_guardian_recipient
          FROM user_communications uc
-        WHERE uc.id = ?
+        WHERE uc.id = ? AND ${appCommunicationVisibilitySql('uc')}
         LIMIT 1`,
       [clientId, commId]
     );
@@ -421,7 +423,7 @@ export const exportClientCommunications = async (req,res,next) => {
       const linked=await listClientEmailThreads(clientId,req.user.id);
       for(const thread of linked)threads.push(await clientEmailThread(clientId,thread.id,req.user.id));
       threads.push(...await clientSecureThreads(clientId,req.user.id));
-      const [automated]=await pool.execute(`SELECT uc.*,u.first_name AS author_first_name,u.last_name AS author_last_name FROM user_communications uc LEFT JOIN users u ON u.id=uc.generated_by_user_id WHERE uc.client_id=? ORDER BY COALESCE(uc.sent_at,uc.generated_at),uc.id`,[clientId]);
+      const [automated]=await pool.execute(`SELECT uc.*,u.first_name AS author_first_name,u.last_name AS author_last_name FROM user_communications uc LEFT JOIN users u ON u.id=uc.generated_by_user_id WHERE uc.client_id=? AND ${appCommunicationVisibilitySql('uc')} ORDER BY COALESCE(uc.sent_at,uc.generated_at),uc.id`,[clientId]);
       const messageIds=new Set(threads.flatMap(t=>t.messages.map(m=>m.internet_message_id)).filter(Boolean));
       for(const m of automated) if(!m.external_message_id || !messageIds.has(m.external_message_id)) threads.push({subject:m.subject || 'Notification',messages:[{...m,body_text:String(m.body || '').replace(/<[^>]*>/g,' '),recipientAddress:m.recipient_address,sentAt:m.sent_at || m.generated_at,deliveryStatus:m.delivery_status}]});
       const [sms]=await pool.execute('SELECT ml.*,u.first_name AS author_first_name,u.last_name AS author_last_name FROM message_logs ml LEFT JOIN users u ON u.id=ml.user_id WHERE ml.client_id=? ORDER BY ml.created_at,ml.id',[clientId]);

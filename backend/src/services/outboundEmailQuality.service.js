@@ -5,6 +5,8 @@
 
 import { buildQualityIssueSqlClause } from './communicationQualitySql.js';
 import { activeCommunicationFailureSql } from '../utils/communicationFailureQueue.js';
+import { appCommunicationVisibilitySql } from '../utils/externalTestingEmail.js';
+
 import {
   COMMUNICATION_MESSAGE_CATEGORIES,
   appendCategoryFilter
@@ -266,7 +268,7 @@ function buildCommunicationListFilters({
   }
 
   const statusPlaceholders = statusList.map(() => '?').join(',');
-  const where = ['uc.agency_id = ?', `uc.delivery_status IN (${statusPlaceholders})`, activeCommunicationFailureSql('uc')];
+  const where = ['uc.agency_id = ?', `uc.delivery_status IN (${statusPlaceholders})`, activeCommunicationFailureSql('uc'), appCommunicationVisibilitySql('uc')];
   const params = [Number(agencyId), ...statusList];
 
   if (channel) {
