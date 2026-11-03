@@ -281,6 +281,10 @@ jobs:
         env:
           FAMILY_PORTAL_ESTIMATE_MYSQL_TEST: '1'
         run: node --test backend/src/services/__tests__/familyCostEstimates.mysql.test.js
+      - name: Supervisor review and amendment SQL schema
+        env:
+          CLINICAL_REVIEW_MYSQL_TEST: '1'
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.claimmd.config.js backend/src/controllers/__tests__/claimMdReviewSnapshot.test.js
       - name: Claim and documentation verification
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.claimmd.config.js
       - name: Portal welcome and private issue reports

@@ -6,6 +6,10 @@ import { parseObject, policyError, validDate } from './supervisedBillingPolicy.s
 import { maybeEncryptNotePayload, maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
 import { zonedWallTimeToUtc, dateToMysqlUtcDateTime, isValidTimeZone } from '../utils/zonedWallTime.util.js';
 
+// Clinical encounter locations are stored by ID and in metadata, not in a
+// location_label SQL column. Retain the legacy in-memory field for old callers.
+export const sessionLocationLabel = session => parseObject(session?.metadata_json).locationLabel || session?.location_label || null;
+
 export const REVIEW_ACTIONS = ['changes_needed', 'review_acknowledge', 'feedback'];
 export function reviewSnapshotToken(note, session = {}) {
   const date = v => {
@@ -14,7 +18,7 @@ export function reviewSnapshotToken(note, session = {}) {
     return Number.isFinite(+parsed) ? parsed.toISOString() : raw;
   };
   const {supervisorQueue,...metadata}=parseObject(note.metadata_json);
-  return crypto.createHash('sha256').update(JSON.stringify({metadata,providerSignedAt:date(note.provider_signed_at),providerSignedBy:note.provider_signed_by_user_id || null,supervisorSignedAt:date(note.supervisor_cosigned_at),supervisorSignedBy:note.supervisor_cosigned_by_user_id || null,session:{start:date(session.scheduled_start_at),end:date(session.scheduled_end_at),duration:session.duration_minutes==null?null:Number(session.duration_minutes),location:session.location_label || null,pos:session.place_of_service || null,serviceLocationId:Number(session.service_location_id)||null,timeZone:session.source_timezone || 'America/Denver'}})).digest('hex');
+  return crypto.createHash('sha256').update(JSON.stringify({metadata,providerSignedAt:date(note.provider_signed_at),providerSignedBy:note.provider_signed_by_user_id || null,supervisorSignedAt:date(note.supervisor_cosigned_at),supervisorSignedBy:note.supervisor_cosigned_by_user_id || null,session:{start:date(session.scheduled_start_at),end:date(session.scheduled_end_at),duration:session.duration_minutes==null?null:Number(session.duration_minutes),location:sessionLocationLabel(session),pos:session.place_of_service || null,serviceLocationId:Number(session.service_location_id)||null,timeZone:session.source_timezone || 'America/Denver'}})).digest('hex');
 }
 export const noteAuthorId = note => Number(note.provider_signed_by_user_id || note.created_by_user_id);
 export function reviewRequestsForDisplay(metadata) {
@@ -55,7 +59,7 @@ export function effectiveServiceDetails(note, session = {}) {
     if (!isValidTimeZone(session.source_timezone || 'America/Denver')) return null;
     return new Intl.DateTimeFormat('en-GB',{timeZone:session.source_timezone || 'America/Denver',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(instant);
   };
-  return approved?.serviceDetails || {durationMinutes: chart.durationMinutes ?? session.duration_minutes ?? null, locationLabel: chart.locationLabel || session.location_label || meta.locationLabel || null, startTime: chart.startTime || localTime(session.scheduled_start_at), endTime: chart.endTime || localTime(session.scheduled_end_at), placeOfService: chart.placeOfService || session.place_of_service || null,serviceLocationId:Number(session.service_location_id) || null};
+  return approved?.serviceDetails || {durationMinutes: chart.durationMinutes ?? session.duration_minutes ?? null, locationLabel: chart.locationLabel || sessionLocationLabel(session) || meta.locationLabel || null, startTime: chart.startTime || localTime(session.scheduled_start_at), endTime: chart.endTime || localTime(session.scheduled_end_at), placeOfService: chart.placeOfService || session.place_of_service || null,serviceLocationId:Number(session.service_location_id) || null};
 }
 export function pendingServiceDetails(meta) { return (meta.serviceDetailAmendments || []).filter(a => !a.approvedAt).at(-1)?.serviceDetails || null; }
 export function assertServiceDetailsComplete(note, session = {}) {
@@ -123,7 +127,7 @@ export async function applyApprovedServiceDetails(db, note, meta, actorUserId, a
   if (!session) throw policyError(409,'The linked encounter is unavailable.');
   const times = serviceDetailTimes(d,latest.dateOfService,latest.timeZone);
   const location = await verifiedServiceLocation(note.agency_id,d);
-  await db.execute('UPDATE clinical_sessions SET scheduled_start_at=?,scheduled_end_at=?,duration_minutes=?,location_label=?,place_of_service=?,service_location_id=?,billing_office_location_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND agency_id=?',[times.startAt,times.endAt,d.durationMinutes,d.locationLabel,d.placeOfService,d.serviceLocationId,location.billing_office_location_id || null,note.clinical_session_id,note.agency_id]);
+  await db.execute(`UPDATE clinical_sessions SET scheduled_start_at=?,scheduled_end_at=?,duration_minutes=?,metadata_json=JSON_SET(COALESCE(metadata_json,JSON_OBJECT()),'$.locationLabel',?),place_of_service=?,service_location_id=?,billing_office_location_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND agency_id=?`,[times.startAt,times.endAt,d.durationMinutes,d.locationLabel,d.placeOfService,d.serviceLocationId,location.billing_office_location_id || null,note.clinical_session_id,note.agency_id]);
   const [claims] = await db.execute('SELECT * FROM clinical_claims WHERE clinical_session_id=? AND agency_id=? AND is_deleted=0 ORDER BY id',[note.clinical_session_id,note.agency_id]);
   for (const claim of claims) {
     if (claim.claimmd_submitted_at || claim.claimmd_claim_id || claim.claimmd_connection_id || !['draft','ready'].includes(claim.claim_lifecycle)) throw policyError(409,'An existing claim has submission history. Billing must reconcile it before service details can be approved.');

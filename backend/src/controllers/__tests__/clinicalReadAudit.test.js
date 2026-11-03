@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(async () => [[]]) }, onTableWrite: vi.fn() }));
-vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: vi.fn(async () => [[]]) } }));
+vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: vi.fn(async sql => sql.includes('FROM clinical_sessions') ? [[{ id: 167, agency_id: 450, client_id: 2297 }]] : [[]]) } }));
 vi.mock('../../services/noteAidChartAudit.service.js', () => ({ logNoteAidChartEvent: vi.fn() }));
 vi.mock('../../services/clinicalEligibility.service.js', () => ({ default: { ensureAgencyAccess: vi.fn() } }));
 vi.mock('../../services/schedulingBillingAccess.service.js', () => ({ hasSchedulingBillingAccess: vi.fn(async () => false), schedulingResponseForUser: vi.fn(async (_user, _agency, body) => body) }));

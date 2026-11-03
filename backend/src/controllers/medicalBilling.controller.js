@@ -1,7 +1,7 @@
 import { logNoteAidChartEvent } from '../services/noteAidChartAudit.service.js';
 import { assertLiveClearinghouseAgency } from '../services/syntheticClearinghouseGuard.service.js';
 import { parseObject } from '../services/supervisedBillingPolicy.service.js';
-import { reviewSnapshotToken, reviewRequestsForDisplay, effectiveServiceDetails, pendingServiceDetails, assertNoUnresolvedChanges, assertServiceDetailsComplete, applyApprovedServiceDetails, markSupervisorQueue, synchronizeSupervisorQueue } from '../services/clinicalSupervisorReview.service.js';
+import { sessionLocationLabel, reviewSnapshotToken, reviewRequestsForDisplay, effectiveServiceDetails, pendingServiceDetails, assertNoUnresolvedChanges, assertServiceDetailsComplete, applyApprovedServiceDetails, markSupervisorQueue, synchronizeSupervisorQueue } from '../services/clinicalSupervisorReview.service.js';
 import { validateScreeningSignature, completeH0002Screening, H0002_SOURCE } from '../services/h0002ScreeningWorkflow.service.js';
 import { providerBillingNpi } from '../services/providerBillingNpi.service.js';
 import { buildNoteAidLocationChoices } from '../services/noteAidLocations.service.js';
@@ -1468,14 +1468,17 @@ export const getClinicalNoteById = async (req, res, next) => {
     }
 
     let sessionTiming = null;
+    let serviceDetailSession = {};
     if (clinicalSessionId) {
       try {
         const [sessRows] = await clinicalPool.execute(
-          `SELECT id, appointment_id, source_timezone, scheduled_start_at, scheduled_end_at, duration_minutes, service_code, location_label, place_of_service, service_location_id, provider_user_id
+          `SELECT *
            FROM clinical_sessions WHERE id = ? AND agency_id = ? AND client_id = ? LIMIT 1`,
           [clinicalSessionId, note.agency_id, note.client_id]
         );
         const s = sessRows?.[0];
+        if (!s) throw new Error('Linked encounter unavailable');
+        serviceDetailSession = s;
         if (s) {
           sessionTiming = {
             appointmentId: s.appointment_id || null,
@@ -1487,7 +1490,7 @@ export const getClinicalNoteById = async (req, res, next) => {
             endAt: s.scheduled_end_at || null,
             durationMinutes: s.duration_minutes ?? null,
             serviceCode: s.service_code || null,
-            locationLabel: s.location_label || null,
+            locationLabel: sessionLocationLabel(s),
             providerUserId: s.provider_user_id || null
           };
           if (!providerSigner && s.provider_user_id) {
@@ -1514,7 +1517,7 @@ export const getClinicalNoteById = async (req, res, next) => {
           }
         }
       } catch {
-        sessionTiming = null;
+        throw Object.assign(new Error('Unable to load the linked encounter details. Please try again.'), { status: 503 });
       }
     }
 
@@ -1557,10 +1560,6 @@ export const getClinicalNoteById = async (req, res, next) => {
     }
 
     await logNoteAidChartEvent(req, { clientId: note.client_id, agencyId: note.agency_id, action: 'clinical_note_viewed', metadata: { noteId: note.id, clinicalSessionId: note.clinical_session_id || null } });
-    const serviceDetailSession = {
-      duration_minutes: sessionTiming?.durationMinutes, location_label: sessionTiming?.locationLabel,
-      scheduled_start_at: sessionTiming?.startAt, scheduled_end_at: sessionTiming?.endAt, source_timezone: sessionTiming?.timeZone, place_of_service: sessionTiming?.placeOfService,service_location_id:sessionTiming?.serviceLocationId
-    };
     const serviceDetailView = effectiveServiceDetails(note,serviceDetailSession);
     let canSuperviseReview = false;
     try { canSuperviseReview = Number((await resolveNoteDocumentationPolicy(note)).supervisorUserId) === Number(req.user.id) && Number(note.provider_signed_by_user_id || note.created_by_user_id) !== Number(req.user.id); } catch { /* Authorization fails closed. */ }
