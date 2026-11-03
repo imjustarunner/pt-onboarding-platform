@@ -1,7 +1,7 @@
 <script setup>
 import { ref, watch } from 'vue';
 import api from '../../services/api';
-const props = defineProps({ records: Array, clientId: [Number,String], schedule: Boolean });
+const props = defineProps({ records: Array, clientId: [Number,String], schedule: Boolean, expanded: Boolean, showHeading: { type: Boolean, default: true } });
 const rows = ref([]), error = ref('');
 let requestNumber = 0;
 watch(() => [props.clientId, props.records], async () => {
@@ -18,9 +18,9 @@ const label = row => row.canceled === false ? 'Soft schedule' : attention(row) ?
 </script>
 <template>
   <section v-if="rows.length || error" class="school-absence-records" aria-label="School soft schedule and cancellation history">
-    <h3>{{ schedule ? 'SCHOOL soft schedule' : 'School session cancellation notes' }}</h3>
+    <h3 v-if="showHeading">{{ schedule ? 'SCHOOL soft schedule' : 'School session cancellation notes' }}</h3>
     <p v-if="error" role="alert">{{ error }}</p>
-    <details v-for="row in rows" :key="row.key || row.id" :class="{ attention:attention(row), sent:row.canceled !== false && !attention(row) }">
+    <details v-for="row in rows" :key="row.key || row.id" :open="expanded" :class="{ attention:attention(row), sent:row.canceled !== false && !attention(row) }">
       <summary>{{ row.date }} · {{ row.clientName }} · {{ row.schoolName }} · {{ label(row) }}<span v-for="slot in row.slots || []" :key="slot.id"> · {{ slot.startTime?.slice(0,5) || 'Time not entered' }}{{ slot.endTime ? `–${slot.endTime.slice(0,5)}` : '' }}</span></summary>
       <p v-if="row.explanation">{{ row.explanation }}</p>
       <template v-if="row.canceled !== false">

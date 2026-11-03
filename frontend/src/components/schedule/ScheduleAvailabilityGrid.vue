@@ -18,6 +18,8 @@
       :session="personalSupervisionRsvp.session" @close="personalSupervisionRsvp = null"
       @details="openPersonalSupervisionDetails" @saved="refreshPersonalSupervisionRsvp" @join="joinPersonalSupervision" />
     <OfferedTimeDialog v-if="offeredTime" :item="offeredTime" @close="offeredTime=null" @released="onOfferReleased" />
+    <SchoolSoftScheduleDialog v-if="selectedSchoolSoftBlock" :block="selectedSchoolSoftBlock" :can-cancel-day="canBookFromGrid"
+      @close="selectedSchoolSoftBlock = null" @cancel-day="date => { selectedSchoolSoftBlock = null; cancelDayDate = date; }" />
     <DayCancellationDialog v-if="cancelDayDate" :date="cancelDayDate" :provider-id="Number(userId || authStore.user?.id)"
       :agency-id="Number(effectiveAgencyId || 0)" :agency-options="headerTenantOptions"
       @close="cancelDayDate = ''" @saved="onDayCancelled" />
@@ -880,7 +882,6 @@
       </details>
     </div>
 
-    <SchoolAbsenceRecords :records="summary?.schoolSoftSessions || []" schedule />
     <div v-if="summary?.schoolAssignments?.length" class="school-commitment-summary" aria-label="Assigned school hours" style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">
       <button v-for="assignment in summary.schoolAssignments" :key="`${assignment.agencyId}-${assignment.schoolOrgId}-${assignment.dayOfWeek}`" class="btn btn-secondary btn-sm" type="button" @click="schoolAssignmentReview={agencyId:Number(assignment.agencyId || assignment._agencyId || effectiveAgencyId),schoolId:Number(assignment.schoolOrgId || assignment.schoolOrganizationId),assignmentId:Number(assignment.assignmentId || 0)}">
         {{assignment.schoolName}} · {{assignment.dayOfWeek}} {{assignment.startTime}}–{{assignment.endTime}} · Hours / client spots
@@ -1096,15 +1097,15 @@
             :class="[
               `cell-block-${item.kind}`,
               item.isOfficeBlock ? `cell-block-office cell-block-office--${item.officeStatus || 'reserved'}` : '',
-              item.isCancelled ? 'cell-block-sevt--cancelled' : '',
+              item.isCancelled && item.kind !== 'school-soft' ? 'cell-block-sevt--cancelled' : '',
               item.isMissed ? 'cell-block--missed' : '',
               fallCheckinEventClass(item)
             ]"
             :style="agendaItemStyle(item)"
             role="button"
             tabindex="0"
-            @click="item.allDay ? openAllDayBlock($event, item, agendaDayName) : onCellBlockClick($event, item, agendaDayName, item.hour, 0)"
-            @keydown.enter="item.allDay ? openAllDayBlock($event, item, agendaDayName) : onCellBlockClick($event, item, agendaDayName, item.hour, 0)"
+            @click="item.allDay ? openAllDayBlock($event, item, agendaDayName) : onCellBlockClick($event, item, agendaDayName, item.hour, item.cellMinute || 0)"
+            @keydown.enter="item.allDay ? openAllDayBlock($event, item, agendaDayName) : onCellBlockClick($event, item, agendaDayName, item.hour, item.cellMinute || 0)"
           >
             <div class="sched-agenda__time">{{ item.timeLabel }}</div>
             <div class="sched-agenda__body">
@@ -1178,6 +1179,12 @@
           <button type="button" class="sched-hours-toggle" :aria-pressed="showAllHours" @click="showAllHours = !showAllHours">{{ showAllHours ? 'Auto hours' : 'Show 24h' }}</button>
           <button v-if="canBookFromGrid" type="button" class="sched-day-cancel" @click="openDayCancellation(mobileTimelineDay)">Cancel day…</button>
         </div>
+        <div v-if="untimedSchoolBlocksForDay(mobileTimelineDay).length" class="sched-mobile-untimed">
+          <strong>Time not set</strong>
+          <button v-for="block in untimedSchoolBlocksForDay(mobileTimelineDay)" :key="block.key" type="button"
+            class="sched-all-day-item cell-block-school-soft" :style="cellBlockStyle(block)" :title="block.title"
+            @click="selectedSchoolSoftBlock = block">{{ block.clientName }} · {{ block.schoolName }}<span class="cell-block-soft-status">{{ block.status.label }}</span></button>
+        </div>
         <div v-if="allDayBlocksForDay(mobileTimelineDay).length" class="sched-mobile-all-day">
           <span class="sched-all-day-label">All day</span>
           <button v-for="block in allDayBlocksForDay(mobileTimelineDay)" :key="block.key" type="button"
@@ -1201,13 +1208,13 @@
                   `cell-block-${b.kind}`,
                   b.isOfficeBlock ? `cell-block-office cell-block-office--${b.officeStatus || 'reserved'}` : '',
                   b.peerActivityType ? `cell-block-peer-${b.peerActivityType}` : '',
-                  b.isCancelled ? 'cell-block-sevt--cancelled' : '',
+                  b.isCancelled && b.kind !== 'school-soft' ? 'cell-block-sevt--cancelled' : '',
                   b.isMissed ? 'cell-block--missed' : '',
                   fallCheckinEventClass(b)
                 ]"
-                :style="cellBlockStyle(b)"
+                :style="agendaItemStyle(b)"
                 :title="b.title"
-                @click="onCellBlockClick($event, b, mobileTimelineDay, h, 0)"
+                @click="onCellBlockClick($event, b, mobileTimelineDay, h, b.cellMinute || 0)"
               >
                 <img
                   v-if="b.peerPhotoUrl && b.kind === 'peerbusy'"
@@ -1255,6 +1262,7 @@
                     {{ b.officeStatusLabel }}
                     <span v-if="b.officeEmpty" class="cell-block-office-empty"> · No bookings</span>
                   </div>
+                  <div v-else-if="b.kind === 'school-soft'" class="sched-day-card__meta">{{ b.status.label }}</div>
                   <div v-else-if="!b.isOfficeBlock && b.kind !== 'peerbusy'" class="sched-day-card__meta muted">
                     No office / any location
                   </div>
@@ -1326,6 +1334,16 @@
           </div>
         </div>
 
+        <template v-if="hasVisibleUntimedSchoolItems">
+          <div class="sched-all-day-label">Time not set</div>
+          <div v-for="d in visibleDays" :key="`school-untimed-${d}`" class="sched-all-day-cell sched-untimed-school-cell">
+            <button v-for="block in untimedSchoolBlocksForDay(d)" :key="block.key" type="button"
+              class="sched-all-day-item cell-block-school-soft" :style="cellBlockStyle(block)" :title="block.title"
+              @click="selectedSchoolSoftBlock = block">
+              {{ block.clientName }} · {{ block.schoolName }}<span class="cell-block-soft-status">{{ block.status.label }}</span>
+            </button>
+          </div>
+        </template>
         <template v-if="hasVisibleAllDayItems">
           <div class="sched-all-day-label">All day</div>
           <div v-for="d in visibleDays" :key="`all-day-${d}`" class="sched-all-day-cell" :class="{ 'sched-cell-today': isTodayDay(d) }">
@@ -1448,7 +1466,7 @@
                   b.isOfficeBlock ? `cell-block-office cell-block-office--${b.officeStatus || 'reserved'}` : '',
                   b.peerActivityType ? `cell-block-peer-${b.peerActivityType}` : '',
                   b.segmentClass ? `cell-block-segment-${b.segmentClass}` : '',
-                  b.isCancelled ? 'cell-block-sevt--cancelled' : '',
+                  b.isCancelled && b.kind !== 'school-soft' ? 'cell-block-sevt--cancelled' : '',
                   b.isMissed ? 'cell-block--missed' : '',
                   fallCheckinEventClass(b),
                   {
@@ -1470,6 +1488,10 @@
                   }
                 ]"
                 :aria-label="b.title"
+                :role="b.kind === 'school-soft' ? 'button' : undefined"
+                :tabindex="b.kind === 'school-soft' ? 0 : undefined"
+                @keydown.enter="b.kind === 'school-soft' && onCellBlockClick($event, b, d, slot.hour, slot.minute, true)"
+                @keydown.space="b.kind === 'school-soft' && onCellBlockClick($event, b, d, slot.hour, slot.minute, true)"
                 :style="{ ...cellBlockStyle(b), ...schedResizeOverrideStyle(b, d, slot.hour, slot.minute) }"
                 @mouseenter="hoveredBlockKey = blockKey(d, slot.hour, b)"
                 @mouseleave="hoveredBlockKey = ''"
@@ -1546,6 +1568,10 @@
                   <span v-else-if="b.viewerSignedUp" class="cell-block-signup-status cell-block-signup-status--ok">Signed up</span>
                   <span v-else class="cell-block-signup-status">{{ b.signupStatusLabel }}</span>
                   <span v-if="b.signupHostName" class="cell-block-signup-host">{{ b.signupHostName }}</span>
+                </span>
+                <span v-else-if="b.kind === 'school-soft'" class="cell-block-text">
+                  <span>{{ b.clientName }}{{ b.isCancelled ? ' · Canceled' : '' }}</span>
+                  <span class="cell-block-soft-status">{{ b.timeLabel }} · {{ b.isCancelled ? b.status.label.replace('Canceled · ', '') : b.schoolName }}</span>
                 </span>
                 <span v-else-if="b.shortLabel && b.kind !== 'peerbusy'" class="cell-block-text">
                   <span v-if="b.viewerIsPresenter" class="cell-block-presenter-badge">PRESENTER</span>
@@ -5913,7 +5939,8 @@ import ScheduleColorLegend from './ScheduleColorLegend.vue';
 import ScheduleHelp from './ScheduleHelp.vue';
 import ScheduleQuarterHourPicker from './ScheduleQuarterHourPicker.vue';
 import DayCancellationDialog from './DayCancellationDialog.vue';
-import SchoolAbsenceRecords from './SchoolAbsenceRecords.vue';
+import SchoolSoftScheduleDialog from './SchoolSoftScheduleDialog.vue';
+import { schoolSoftScheduleBlocks, schoolSoftBlocksInCell } from '../../utils/schoolSoftScheduleBlocks.js';
 import OfferedTimeDialog from './OfferedTimeDialog.vue';
 const offeredTime = ref(null);
 const onOfferReleased = async () => { offeredTime.value = null; invalidateScheduleSummaryCacheForUser(props.userId); await load({ forceRefresh: true }); };
@@ -6235,6 +6262,11 @@ const hours = computed(() => {
   const s = summary.value || {};
   const dates = visibleDays.value.map(day => addDaysYmd(s.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day)));
   const items = [...(s.scheduleEvents || []), ...(s.supervisionSessions || [])];
+  // visibleScheduleHours consumes wall-clock values; convert school instants to the grid zone.
+  items.push(...schoolSoftBlocks.value.filter(block => !block.untimed).map(block => ({
+    startAt: isoToZonedDatetimeLocal(block.startAt, bookingTimezoneIana.value),
+    endAt: isoToZonedDatetimeLocal(block.endAt, bookingTimezoneIana.value)
+  })));
   if (showMyRooms.value) items.push(...(s.officeEvents || []));
   for (const userId of peerBusySelectedIds.value) {
     const peer = peerBusySummariesByUserId.value[userId] || {};
@@ -6264,6 +6296,14 @@ const hours = computed(() => {
 });
 const gridMinHour = computed(() => hours.value[0] ?? 7);
 const gridMaxHour = computed(() => (hours.value.at(-1) ?? 21) + 1);
+const selectedSchoolSoftBlock = ref(null);
+watch(() => props.userId, () => { selectedSchoolSoftBlock.value = null; });
+const schoolSoftBlocks = computed(() => schoolSoftScheduleBlocks(summary.value?.schoolSoftSessions || [], bookingTimezoneIana.value));
+const untimedSchoolBlocksForDay = day => {
+  const date = addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day));
+  return schoolSoftBlocks.value.filter(block => block.untimed && block.displayDate === date);
+};
+const hasVisibleUntimedSchoolItems = computed(() => visibleDays.value.some(day => untimedSchoolBlocksForDay(day).length));
 const cancelDayDate = ref('');
 const openDayCancellation = (day) => {
   cancelDayDate.value = addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day));
@@ -6567,7 +6607,11 @@ const mobileTimelineHours = computed(() => (Array.isArray(hours.value) ? hours.v
 const mobileDayCardsForHour = (hour) => {
   const day = mobileTimelineDay.value;
   if (!day) return [];
-  return (cellBlocks(day, hour, 0) || []).filter((b) => b && b.kind !== 'more');
+  const blocks = (showQuarterDetail.value ? [0, 15, 30, 45] : [0])
+    .flatMap(minute => cellBlocks(day, hour, minute, false, true).filter(block =>
+      !sideBySideDayLayouts.value.get(day)?.get(scheduleBlockPlacementKey(hour, minute, block.key))?.background)
+      .map(block => ({ ...block, cellMinute: minute })));
+  return [...new Map(blocks.filter(b => b && b.kind !== 'more').map(b => [b.key, b])).values()];
 };
 const CELL_PLUS_HIT_RESERVE_PX = 24;
 
@@ -10280,9 +10324,11 @@ const agendaItems = computed(() => {
   const day = agendaDayName.value;
   if (!day || !summary.value) return [];
   const items = allDayBlocksForDay(day).map(block => ({ ...block, hour: gridMinHour.value, timeLabel: 'All day', sortKey: '' }));
+  items.push(...untimedSchoolBlocksForDay(day).map(block => ({ ...block, hour: gridMinHour.value, timeLabel: 'Time not set', sortKey: '' })));
   const seen = new Set(items.map(item => item.key));
-  for (const h of (hours.value || [])) {
-    for (const b of (cellBlocks(day, h, 0) || [])) {
+  for (const slot of displayTimeSlots.value) {
+    const h = slot.hour;
+    for (const b of (cellBlocks(day, h, slot.minute, false, true) || [])) {
       if (!b || b.kind === 'more') continue;
       const key = String(b.key || `${b.kind}-${b.title}-${h}`);
       if (seen.has(key)) continue;
@@ -10297,7 +10343,7 @@ const agendaItems = computed(() => {
         };
         timeLabel = /^\d{2}:\d{2}$/.test(end) ? `${fmt(start)} – ${fmt(end)}` : fmt(start);
       }
-      items.push({ ...b, key, hour: Number(h), timeLabel, sortKey: start || `${pad2(h)}:00` });
+      items.push({ ...b, key, hour: Number(h), cellMinute: slot.minute, timeLabel, sortKey: start || `${pad2(h)}:00` });
     }
   }
   items.sort((a, b) => String(a.sortKey).localeCompare(String(b.sortKey)));
@@ -10881,6 +10927,7 @@ const agendaItemTitle = (item) => {
 };
 
 const agendaItemMeta = (item) => {
+  if (item?.kind === 'school-soft') return item.status.label;
   if (isFallCheckinPreslotBlock(item)) return 'Open until a school books this slot';
   if (isFallCheckinBookedBlock(item)) return 'Booked Fall School Check-in';
   return '';
@@ -11815,6 +11862,10 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = fal
     });
   }
 
+  // Render school soft-schedule occurrences at their saved times without booking EHR sessions.
+  const softDate = addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(dayName));
+  blocks.push(...schoolSoftBlocksInCell(schoolSoftBlocks.value, softDate, hour, minute, showQuarterDetail.value ? 15 : 60, expanded));
+
   // App-scheduled provider events (personal/hold/indirect) — include agencyId per event
   const scheduleHits = scheduleEventsInCell(dayName, hour, minute).filter(ev => !isAllDayScheduleItem(ev));
   for (const ev of scheduleHits) {
@@ -12121,6 +12172,10 @@ const dayViewLaneLayout = computed(() => {
       }
     }
   }
+  const date = addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(dayName));
+  for (const block of schoolSoftBlocks.value) {
+    if (!block.untimed && block.displayDate === date) pushInterval(block.key, block.startAt, block.endAt);
+  }
   // Dedupe by key (quarter loops can re-see the same start).
   const byKey = new Map();
   for (const row of intervals) {
@@ -12309,6 +12364,7 @@ const cellBlockKindLabel = (block) => {
   if (block?.isOfficeBlock) return 'Office booking';
   if (kind === 'portal') return 'Saved virtual availability';
   if (kind === 'school') return 'School assignment';
+  if (kind === 'school-soft') return 'School soft schedule';
   if (kind === 'request') return 'Office request';
   if (kind === 'supv-signup') return 'Open group supervision';
   if (kind === 'supv') return 'Supervision';
@@ -12354,6 +12410,8 @@ const buildCellBlockStackItem = (block, dayName, hour, minute = 0) => {
     const st = String(block?.startTime || '').slice(0, 5);
     const et = String(block?.endTime || '').slice(0, 5);
     if (st && et) subLabel = `${st}–${et}`;
+  } else if (kind === 'school-soft') {
+    subLabel = block.status.label;
   } else if (kind === 'school') {
     subLabel = 'Assigned school hours';
   } else if (kind === 'request') {
@@ -20254,6 +20312,14 @@ const cellBlockStyle = (b) => {
     style['--blockBorder']='var(--sched-school-border, rgba(37,99,235,.70))';
     style['--blockTypeStripe']='var(--sched-school-border, rgba(37,99,235,.85))';
   }
+  if (kind === 'school-soft') {
+    const tone = b.status?.tone;
+    const palette = tone === 'attention' ? (dark ? ['#55252a', '#ffb4b4', '#fff0f0'] : ['#fff0f0', '#b4232c', '#7a1820'])
+      : tone === 'sent' ? (dark ? ['#173e2c', '#80d9a1', '#e4fff0'] : ['#edf9f1', '#24834c', '#174c2c'])
+      : (dark ? ['#16364c', '#7cc5ef', '#effaff'] : ['#e5f3ff', '#3787b9', '#163d59']);
+    style['--blockFill'] = palette[0]; style['--blockBorder'] = palette[1];
+    style['--blockTypeStripe'] = palette[1]; style.color = palette[2];
+  }
   // Continuous appointment: top/height % of the start cell (height may exceed 100%).
   if (b?.timedSlice && Number.isFinite(b.timedSlice.topPct) && Number.isFinite(b.timedSlice.heightPct)) {
     const hp = Number(b.timedSlice.heightPct);
@@ -25119,6 +25185,7 @@ const onAppointmentPointerUp = (e) => {
 
 const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
   const kind = String(block?.kind || '');
+  if (kind === 'school-soft') { selectedSchoolSoftBlock.value = block; return; }
   if (block?.eventKind === 'PRIVATE_REPLACEMENT_OFFER') {
     const ev = (summary.value?.scheduleEvents || []).find(e => Number(e.id) === Number(block.eventId) && e.kind === block.eventKind);
     if (ev) offeredTime.value = buildScheduleStackItemFromEvent(ev);
@@ -25286,7 +25353,7 @@ const onCellBlockClick = (e, block, dayName, hour, minute = 0, explicitPick = fa
       || !!block?.timedSlice                                                        // absolutely positioned with known bounds
       || !!block?.shareRow                                                          // occupies its own half-cell lane
       || Number(block?.laneCol ?? -1) >= 0                                         // occupies a dedicated lane column
-      || ['portal', 'school', 'request', 'intake-ip', 'intake-vi'].includes(kind)  // typed config blocks (no overlap ambiguity)
+      || ['portal', 'school', 'school-soft', 'request', 'intake-ip', 'intake-vi'].includes(kind)  // typed config blocks (no overlap ambiguity)
     );
 
   if (isDistinctBlock) {
@@ -29821,6 +29888,11 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   max-width: calc(100% - 24px);
 }
 .cell-block-request { background: var(--blockFill, rgba(253, 224, 71, 0.42)); border-color: var(--blockBorder, rgba(234, 179, 8, 0.28)); }
+.cell-block-school-soft { background: var(--blockFill); border: 1px solid var(--blockBorder); border-left: 4px solid var(--blockBorder); cursor: pointer; }
+.cell-block-school-soft:focus-visible { outline: 3px solid #2563eb; outline-offset: 2px; }
+.cell-block-soft-status { display: block; font-size: .9em; font-weight: 700; }
+.sched-untimed-school-cell { max-height: 130px; overflow-y: auto; }
+.sched-mobile-untimed { padding: 10px; display: grid; gap: 6px; }
 .cell-block-school { background: var(--blockFill, rgba(147, 197, 253, 0.45)); border-color: var(--blockBorder, rgba(59, 130, 246, 0.22)); }
 .cell-block-pending-badge {
   flex: 0 0 auto;

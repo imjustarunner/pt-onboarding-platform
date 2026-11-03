@@ -228,6 +228,8 @@ jobs:
         run: >-
           node frontend/node_modules/vitest/vitest.mjs run
           --config backend/vitest.security-notifications.config.js
+      - name: School soft schedule calendar placement and cancellation details
+        run: node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.school-soft-calendar.config.js
       - name: Scheduling form and display regressions
         working-directory: frontend
         run: >-
