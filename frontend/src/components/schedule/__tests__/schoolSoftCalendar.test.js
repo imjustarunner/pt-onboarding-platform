@@ -103,7 +103,11 @@ it('opens the preserved contact history immediately, including who canceled, mis
   await flushPromises();
   expect(wrapper.find('details').attributes()).toHaveProperty('open');
   expect(wrapper.text()).toContain('Synthetic support'); expect(wrapper.text()).toContain('qa.a@example.com');
-  expect(wrapper.text()).toContain('Receipt confirmed 2026-10-12 18:04:00');
+  const receiptTime = new Date('2026-10-12T18:04:00Z').toLocaleString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short'
+  });
+  expect(wrapper.text()).toContain(`Receipt confirmed ${receiptTime}`);
+  expect(wrapper.text()).not.toContain('2026-10-12 18:04:00');
   expect(wrapper.text()).toContain('No email on file'); expect(wrapper.text()).toContain('Missing email');
   expect(wrapper.text()).toContain('does not represent a booked EHR session');
   await wrapper.find('button[aria-label="Close school schedule details"]').trigger('click');
