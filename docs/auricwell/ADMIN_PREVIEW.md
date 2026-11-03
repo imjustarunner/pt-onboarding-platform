@@ -31,11 +31,11 @@ Validated locally: nine preview policy/boundary tests; 154 shared billing tests 
 
 ## Public website and app addresses
 
-The website is hosted at `https://plottwisthq.com/auricwell`, with Home, Product, Security, About and Contact pages. The Vercel deployment at auricwell.com is unchanged. Static HTML is built by `scripts/build-auricwell-website.mjs`; public pages load no clinical JavaScript, stores or APIs. Copy distinguishes the administrator preview from planned customer workflows. Illustrations use sample content.
+The website is hosted at `https://plottwisthq.com/auricwell`, with Home, Product, Security, About and Contact pages. The Vercel deployment at auricwell.com is unchanged. Static HTML is built by `scripts/build-auricwell-website.mjs`; feature examples use fictional data. The contact page uses the shared public support form and its public configuration/submission endpoints; it does not request clinical data. Copy distinguishes the administrator preview from planned customer workflows. Illustrations use sample content.
 
 Sign-in starts at `/auricwell/app/login`, continues through the existing HQ authentication flow and returns to the chooser at `/auricwell/app`. This does not introduce customer credentials or implicit cross-product sign-in. The explicit, identified superadmin preview remains the only available access. Workspaces use `/auricwell/app/:organizationSlug/:section?`. Old `/auricwell/:organizationSlug` links redirect, preserving queries; practice switches still reload to clear state. Other HQ routes, including `/app`, are unchanged.
 
-Contact opens an email to the user-designated `support@auricwell.com`; it is not a form submission or delivery confirmation. Configure that mailbox separately. No pricing, certifications, testimonials or launch dates are asserted. Moving to auricwell.com later requires deployment routing, canonical metadata and authenticated API configuration; changing DNS alone is not a validated deployment.
+Contact now mounts the shared public website support form and uses `/api/public/agency-support/auricwell`. Requests are saved as encrypted support tickets under the product owner, marked with the AuricWell website source, and emailed to the server-owned `admin@auricwell.com` group. The public form and configuration do not reveal its recipients. Michael and Melissa are subscribed to every email; the usual AI manager is a member. Email acceptance is tracked separately from ticket creation, and failed alerts do not discard a saved inquiry. The group retains its default posting and moderation settings.
 
 Run `node frontend/scripts/verify-auricwell-website.mjs` (Chrome / Playwright; optional `AURICWELL_PREVIEW_URL`). Covers five pages at 1440, 768, 390 and 320 pixels, keyboard navigation, mobile links, contact and login handoff, with zero public clinical API requests. The preview browser check verifies old-link redirects and scoped practice switching. Production compilation and 30 shared Note Aid/billing component tests pass.
 
@@ -125,3 +125,5 @@ It covers provider bios, client charts, draft opening with both rails collapsed,
 blocked saving/booking, claim review, 320–1440px layouts, zero backend requests and
 same-tab session/preferences isolation. Existing preview and public website
 regression scripts remain separate.
+
+The primary Note Workspace website example is an explicitly labeled illustrative layout: started drafts on the left, a fictional progress note with Start/Previous/This session/Goal ratings in the center, and sample own-note queue entries on the right. It does not modify the clinical workspace or seed production records. Existing actual-screen captures remain separately labeled and retained. AI drafting is optional; recording/transcription copy describes in-app consent, transcript-assisted drafting and clinician review. Notifyre copy distinguishes its HIPAA-compliant service/BAA from carrier SMS privacy limits.

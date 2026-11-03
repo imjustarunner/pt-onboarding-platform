@@ -1,5 +1,6 @@
 <template>
-  <WorkspaceShowcase v-if="kind === 'workspace'" />
+  <NoteWorkspaceShowcase v-if="kind === 'note-workspace'" />
+  <WorkspaceShowcase v-else-if="kind === 'workspace'" />
   <ProviderShowcase v-else-if="kind === 'providers'" />
   <ScheduleShowcase v-else-if="kind === 'schedule'" />
   <KioskShowcase v-else-if="kind === 'kiosk'" />
@@ -12,6 +13,7 @@
 </template>
 <script setup>
 import { ref } from 'vue';
+import NoteWorkspaceShowcase from './NoteWorkspaceShowcase.vue';
 import WorkspaceShowcase from './WorkspaceShowcase.vue';
 import ProviderShowcase from './ProviderShowcase.vue';
 import ScheduleShowcase from './ScheduleShowcase.vue';

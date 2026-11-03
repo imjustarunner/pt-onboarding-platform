@@ -27,7 +27,7 @@ try {
     assert.match(await visible.innerText(), /reply Y to confirm attendance/);
     await page.mouse.move(0, 0);
     await page.clock.runFor(8001);
-    assert.match(await visible.innerText(), /Family texts, right in your workspace/);
+    assert.match(await visible.innerText(), /1:1 texting with the assigned provider/);
     await rotation.getByRole('button', { name: 'Next feature', exact: true }).click();
     assert.match(await visible.innerText(), /Separate accounts/);
     await page.mouse.move(0, 0);
@@ -36,17 +36,17 @@ try {
     assert.equal(await rotation.getByRole('button', { name: 'Guardian accounts', exact: true }).getAttribute('aria-pressed'), 'true');
     assert.equal(await visible.getByRole('link').getAttribute('href'), '/auricwell/product#guardians');
     await rotation.getByRole('button', { name: 'Guardian accounts', exact: true }).press('End');
-    assert.match(await visible.innerText(), /reviewed draft/);
+    assert.match(await visible.innerText(), /Optional AI assistance/);
     await page.keyboard.press('Home');
     assert.match(await visible.innerText(), /A reminder/);
     await rotation.getByRole('button', { name: 'Start rotation', exact: true }).click();
     await page.mouse.move(0, 0);
     await page.clock.runFor(8001);
-    assert.match(await visible.innerText(), /Family texts/);
+    assert.match(await visible.innerText(), /1:1 texting/);
     await rotation.getByRole('button', { name: 'Pause rotation', exact: true }).click();
     await page.mouse.move(0, 0);
     await page.clock.runFor(16001);
-    assert.match(await visible.innerText(), /Family texts/, 'The pause control stops rotation');
+    assert.match(await visible.innerText(), /1:1 texting/, 'The pause control stops rotation');
     for (const label of ['Appointment reminders', 'In-app texting', 'Guardian accounts', 'Documentation']) {
       await rotation.getByRole('button', { name: label, exact: true }).click();
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `Overflow at ${width}, ${label}`);

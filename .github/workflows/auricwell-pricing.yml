@@ -4,6 +4,10 @@ on:
     branches: [main]
     paths:
       - 'backend/src/**/auricwellPricing*'
+      - 'backend/src/services/auricwellInquiry.service.js'
+      - 'backend/src/services/publicAgencySupport.service.js'
+      - 'backend/src/services/__tests__/auricwellInquiry.test.js'
+      - 'backend/vitest.auricwell-inquiry.config.js'
       - 'backend/vitest.auricwell-pricing.config.js'
       - 'frontend/src/config/auricwellPricing.js'
       - 'frontend/src/components/billing/Auricwell*'
@@ -22,6 +26,10 @@ on:
   pull_request:
     paths:
       - 'backend/src/**/auricwellPricing*'
+      - 'backend/src/services/auricwellInquiry.service.js'
+      - 'backend/src/services/publicAgencySupport.service.js'
+      - 'backend/src/services/__tests__/auricwellInquiry.test.js'
+      - 'backend/vitest.auricwell-inquiry.config.js'
       - 'frontend/src/**/Auricwell*'
       - 'frontend/src/config/auricwellPricing.js'
       - 'frontend/src/auricwell/website/**'
@@ -70,5 +78,7 @@ jobs:
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.auricwell-pricing.config.js
       - name: Pricing screens
         run: npm --prefix frontend test -- src/components/billing/__tests__/AuricwellPricing.test.js src/components/billing/__tests__/BillingCostPlanner.test.js src/components/meetings/__tests__/PlanComparisonTable.test.js src/components/ptco/__tests__/PtcoProducts.test.js
+      - name: AuricWell public inquiry routing
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.auricwell-inquiry.config.js
       - name: Static website build
         run: node frontend/scripts/build-auricwell-website.mjs

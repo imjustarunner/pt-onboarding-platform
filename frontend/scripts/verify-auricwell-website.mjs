@@ -4,8 +4,9 @@ const base = process.env.AURICWELL_PREVIEW_URL || 'http://127.0.0.1:5181';
 const browser = await chromium.launch({headless:true, channel:'chrome'});
 const page = await browser.newPage();
 const errors = [], apiRequests = [];
+await page.route('**/api/public/agency-support/auricwell', route => route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({categories:[{id:'intake_join',label:'New practice or account setup'}],recaptchaRequired:false})}));
 page.on('pageerror', error => errors.push(error.message));
-page.on('request', req => { if (new URL(req.url()).pathname.startsWith('/api/')) apiRequests.push(req.url()); });
+page.on('request', req => { if (new URL(req.url()).pathname.startsWith('/api/') && !new URL(req.url()).pathname.startsWith('/api/public/agency-support/auricwell')) apiRequests.push(req.url()); });
 try {
  const legacy = await page.request.get(`${base}/auricwell/innerstrength/clients?clientId=71`, {maxRedirects:0});
  assert([301,302].includes(legacy.status()));
@@ -70,9 +71,12 @@ try {
   await goalDemo.getByRole('button',{name:'Reset example'}).click();
   await goalDemo.getByRole('button',{name:'Client',exact:true}).click();
   assert.equal((await goalDemo.locator('.na-scale-btn.prev').textContent()).trim(),'4');
-  assert.equal(await page.locator('img[src="/auricwell/examples/practice-notes.png"]').count(),1);
+  assert.equal(await page.locator('.note-showcase').count(),1);
+  assert.match(await page.locator('.note-showcase').innerText(), /Started drafts[\s\S]*Progress note[\s\S]*This session[\s\S]*Cosign requests/);
   assert.equal(await page.locator('img[src="/auricwell/examples/note-editor.png"]').count(),1);
-  assert(await page.locator('.app-screenshot img').first().evaluate(img=>img.complete && img.naturalWidth>0));
+  await page.locator('.app-screenshot img').first().scrollIntoViewIfNeeded();
+  await page.locator('.app-screenshot img').first().evaluate(img=>img.decode());
+  assert(await page.locator('.app-screenshot img').first().evaluate(img=>img.naturalWidth>0));
   assert.equal(await page.locator('.plan-card').count(),3);
   const kiosk = page.locator('[data-actual-example=kiosk]');
   await kiosk.scrollIntoViewIfNeeded();
@@ -114,7 +118,9 @@ try {
  assert.equal(apiRequests.length,0,'Public pages and examples must not request clinical or authentication APIs');
  await page.locator('.faq summary').first().click();
  assert(await page.locator('.faq').first().getAttribute('open') !== null);
- assert.match(await page.locator('a[href^="mailto:"]').getAttribute('href'),/^mailto:support@auricwell.com/);
+ await page.locator('.website-contact form').waitFor();
+ assert(!/michael@|melissa@|admin@auricwell/.test(await page.locator('main').innerText()));
+ assert.equal(await page.locator('a[href^="mailto:"]').count(),0);
  await page.goto(`${base}/auricwell`);
  await page.keyboard.press('Tab');
  assert.equal(await page.locator(':focus').textContent(),'Skip to content');

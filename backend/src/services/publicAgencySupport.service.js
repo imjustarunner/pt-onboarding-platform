@@ -3,6 +3,7 @@ import {getPublicWebsiteIdentity} from './publicWebsiteIdentity.service.js';
 import { routePublicWebsiteTicket } from './publicWebsiteTicketRouting.service.js';
 import { validateMichaelWebsiteInquiry } from './michaelInquiryPolicy.js';
 import { PTCO_INQUIRY_EMAIL, isPtcoWebsite, deliverPtcoInquiry } from './ptcoInquiry.service.js';
+import { isAuricwellWebsite, AURICWELL_SUPPORT_AGENCY_ID, deliverAuricwellInquiry } from './auricwellInquiry.service.js';
 import pool from '../config/database.js';
 import { resolveInternshipContact, deliverInternshipInquiry, INTERNSHIP_INQUIRY_SUBJECT } from './itscoInternshipInquiry.service.js';
 import config from '../config/config.js';
@@ -143,6 +144,7 @@ export function ticketTopicFromPublicCategory(category) {
 async function resolveAgency(slugOrId) {
   const slug = String(slugOrId || '').trim();
   if (!slug) return null;
+  if (isAuricwellWebsite(slug)) return Agency.findById(AURICWELL_SUPPORT_AGENCY_ID);
   if (/^\d+$/.test(slug)) return Agency.findById(Number(slug));
   const direct = (await Agency.findByPortalUrl(slug)) || (await Agency.findBySlug(slug));
   if (direct) return direct;
@@ -294,6 +296,17 @@ export async function getPublicAgencySupportConfig(agencySlug) {
   }
   const result = buildPublicConfig(agency, agencySlug, identityEmail);
   if (isPtcoWebsite(agencySlug)) result.supportContact.email = PTCO_INQUIRY_EMAIL;
+  if (isAuricwellWebsite(agencySlug)) {
+    result.agency = { ...result.agency, name: 'AuricWell', slug: 'auricwell', logoUrl: 'https://auricwell.com/auricwell/mark.svg' };
+    result.supportContact = { phone: '', phoneExtension: '', phoneDisplay: '', telHref: '', smsHref: '', email: '' };
+    result.shortcuts = { loginPath: '/login', joinPath: null, joinUrl: null, careersPath: null, bookingPath: null };
+    result.categories = [
+      { id: 'intake_join', label: 'New practice or account setup' },
+      { id: 'billing', label: 'Plans and billing' },
+      { id: 'technical', label: 'Technical support' },
+      { id: 'other', label: 'Something else' }
+    ];
+  }
   const site = await getPublicWebsiteIdentity(String(agencySlug));
   if (site) result.agency = {...result.agency,name:site.name,logoUrl:site.logoUrl};
   if (['ptco','range','mh4kidz','kimi','rise'].includes(agencySlug)) result.categories = [
@@ -574,17 +587,21 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
   }
 
   const site = await getPublicWebsiteIdentity(String(agencySlug));
-  if (site) await pool.execute('UPDATE support_tickets SET source_website_slug=? WHERE id=? AND agency_id=?',[site.slug,insertId,agency.id]);
+  if (site || isAuricwellWebsite(agencySlug)) await pool.execute('UPDATE support_tickets SET source_website_slug=? WHERE id=? AND agency_id=?',[isAuricwellWebsite(agencySlug) ? 'auricwell' : site.slug,insertId,agency.id]);
   if(chatReferral)await pool.execute('UPDATE public_website_chat_referrals SET ticket_id=? WHERE token_hash=?',[insertId,chatReferral.tokenHash]);
   await routePublicWebsiteTicket({agency,ticketId:insertId,subject,category});
 
   try {
-    await notifyPublicSupportTicket({ agency, topic, subject, question, ticketId: insertId });
+    if (!isAuricwellWebsite(agencySlug)) await notifyPublicSupportTicket({ agency, topic, subject, question, ticketId: insertId });
   } catch {
     /* never block create */
   }
 
   let emailDelivered;
+  const auricwellInquiry = isAuricwellWebsite(agencySlug);
+  if (auricwellInquiry) {
+    emailDelivered = await deliverAuricwellInquiry({ subject: `AuricWell inquiry: ${subject}`, text: `${question}\n\nReference: #${insertId}`, replyTo: email || null });
+  }
   const ptcoInquiry = isPtcoWebsite(agencySlug) || isPtcoWebsite(site?.slug);
   if (ptcoInquiry) {
     emailDelivered = await deliverPtcoInquiry({
@@ -600,9 +617,9 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
   const slug = tenantSlugForPublicPaths(agency, agencySlug);
   return {
     ok: true,
-    ...(internshipContact || ptcoInquiry ? { emailDelivered } : {}),
+    ...(internshipContact || ptcoInquiry || auricwellInquiry ? { emailDelivered } : {}),
     ticketId: insertId || null,
     suggestedQuickForm: scan.flags.includes('possible_phi'),
-    joinPath: `/join/${encodeURIComponent(slug)}/counseling`
+    ...(!auricwellInquiry ? { joinPath: `/join/${encodeURIComponent(slug)}/counseling` } : {})
   };
 }
