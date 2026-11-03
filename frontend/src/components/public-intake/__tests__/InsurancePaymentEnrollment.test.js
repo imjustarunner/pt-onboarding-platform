@@ -73,6 +73,18 @@ describe('insurance enrollment', () => {
     expect(w.text()).toContain('Secondary subscriber');
     w.unmount();
   });
+  it('hides another-parent payment on a Myself enrollment and names the child on the insurance button', () => {
+    const selfPay = mountForm({ intakeForSelf: true, insuranceInfo: { isSelfPay: true, payerChoice: 'self_pay' } });
+    expect(selfPay.text()).not.toContain('another parent');
+    selfPay.unmount();
+    const child = mount(Insurance, {
+      props: { modelValue: { primary: {} }, intakeForSelf: false, clientNames: ['Demo Kid One QA'], guardianName: 'Demo Parent' },
+      global: { provide: { intakeLocale: ref('en'), intakeStringTranslations: ref({}), intakeSessionToken: ref('') } }
+    });
+    expect(child.text()).toContain('Use Demo Kid One QA');
+    expect(child.text()).not.toContain('Use Client 1 Name');
+    child.unmount();
+  });
   it('lets self-pay continue without a card after an explicit no-card choice', async () => {
     const w = mountForm({ insuranceInfo: { isSelfPay: true, payerChoice: 'self_pay' } });
     expect(w.text()).toContain('N/A — Not Paying Now');

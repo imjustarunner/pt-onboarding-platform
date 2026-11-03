@@ -685,14 +685,14 @@
                 class="btn btn-outline"
                 :class="{ 'btn--selected': reminderChoice === 'agreed' }"
                 :disabled="reminderConsentLoading"
-                @click="reminderChoice = 'agreed'"
+                @click="chooseReminderConsent('agreed')"
               >{{ t('reminderConsentAgree') }}</button>
               <button
                 type="button"
                 class="btn btn-outline"
                 :class="{ 'btn--selected': reminderChoice === 'declined' }"
                 :disabled="reminderConsentLoading"
-                @click="reminderChoice = 'declined'"
+                @click="chooseReminderConsent('declined')"
               >{{ t('reminderConsentDecline') }}</button>
             </div>
             <p v-if="reminderConsentError" class="error" style="margin-top: 8px;">{{ reminderConsentError }}</p>
@@ -1939,7 +1939,7 @@
         </div>
 
         <div v-if="currentFlowStep?.type === 'reminder_contacts'" class="reminder-contacts-step">
-          <p class="muted">{{ tx(currentFlowStep?.helperText) || tx('Add or confirm the people who should receive scheduling reminders.') }}</p>
+          <p v-if="!showInterviewPageLead" class="muted">{{ tx(currentFlowStep?.helperText) || tx('Add or confirm the people who should receive scheduling reminders.') }}</p>
           <article
             v-for="contact in reminderContacts"
             :key="contact.id"
@@ -2051,7 +2051,7 @@
         </div>
 
         <div v-if="currentFlowStep?.type === 'family_roster'" class="family-roster-step intake-interview-page">
-          <p class="df-section-help">
+          <p v-if="!showInterviewPageLead" class="df-section-help">
             {{ t('rosterLead') }}
           </p>
           <div
@@ -5535,6 +5535,12 @@ const needsEnrollmentReminderConsent = computed(() => {
 const showReminderConsentGate = ref(false);
 const reminderConsentStatus = ref('');
 const reminderChoice = ref('');
+function chooseReminderConsent(choice) {
+  reminderChoice.value = choice;
+  const message = reminderConsentError.value;
+  reminderConsentError.value = '';
+  if (message && whoForError.value === message) whoForError.value = '';
+}
 const reminderConsentLoading = ref(false);
 const reminderConsentError = ref('');
 const reminderMoreInfoOpen = ref(false);
@@ -7930,7 +7936,6 @@ async function continueWhoFor() {
       const choice = String(reminderChoice.value || '').toLowerCase();
       if (choice !== 'agreed' && choice !== 'declined') {
         reminderConsentError.value = t('reminderConsentRequired');
-        whoForError.value = t('reminderConsentRequired');
         consentLoading.value = false;
         return false;
       }
@@ -18158,7 +18163,9 @@ onBeforeUnmount(() => {
   gap: 0.65rem;
   margin-top: 1rem;
 }
-.reminder-consent-actions .btn--selected {
+.reminder-consent-actions .btn--selected,
+.reminder-consent-actions .btn--selected:hover,
+.reminder-consent-actions .btn--selected:focus {
   background: #1f6b4a;
   color: #fff;
   border-color: #1f6b4a;

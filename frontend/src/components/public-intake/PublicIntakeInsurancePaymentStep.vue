@@ -92,7 +92,7 @@
             <option value="discuss">{{ tx('Discuss payment with the office') }}</option>
             <option value="all">{{ tx('Pay all of the verified patient responsibility') }}</option>
             <option value="part">{{ tx('Pay part of the verified patient responsibility') }}</option>
-            <option value="alternate">{{ tx('Alternate sessions with another parent') }}</option>
+            <option v-if="!intakeForSelf" value="alternate">{{ tx('Alternate sessions with another parent') }}</option>
           </select>
         </label>
         <label>{{ tx('Agreement details or proposed share') }}<textarea :value="paymentInfo.arrangementNotes || ''" maxlength="2000" rows="2" @input="emit('update:paymentInfo', { ...paymentInfo, arrangementNotes: $event.target.value })" /></label>

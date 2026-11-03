@@ -51,7 +51,7 @@
                 <div class="ajl-card-top"><span class="ajl-card-icon"><PublicEntryIcon :name="cardKey === 'quick' ? (serene ? 'leaf' : 'bolt') : 'document'" /></span></div>
                 <h2>{{ cards[cardKey].title }}</h2><p class="ajl-card-tag">{{ cards[cardKey].tagline }}</p><p class="ajl-card-desc">{{ cards[cardKey].description }}</p>
                 <ul v-if="cards[cardKey].bullets?.length"><li v-for="(bullet, i) in cards[cardKey].bullets" :key="i"><PublicEntryIcon v-if="serene" name="check" />{{ bullet }}</li></ul>
-                <div class="ajl-card-fit"><span v-if="serene" class="ajl-fit-icon"><PublicEntryIcon :name="cardKey === 'quick' ? 'people' : 'person'" /></span><div><strong>{{ isSpanish ? 'Ideal para ti si…' : 'Best for you if…' }}</strong><p>{{ choiceHelp[cardKey] }}</p></div></div>
+                <div class="ajl-card-fit" translate="no"><span v-if="serene" class="ajl-fit-icon"><PublicEntryIcon :name="cardKey === 'quick' ? 'people' : 'person'" /></span><div><strong>{{ isSpanish ? 'Ideal para ti si…' : 'Best for you if…' }}</strong><p>{{ choiceHelp[cardKey] }}</p></div></div>
                 <button type="button" class="ajl-cta" :disabled="!designMode && cardKey === 'full' && !full.enabled" @click="continueAction('continue', cardKey)">{{ cardKey === 'full' && !full.enabled ? (full.disabledReason || 'Not available yet') : cards[cardKey].cta }}</button>
                 <p v-if="!serene" class="ajl-card-foot">{{ cards[cardKey].footer }}</p>
               </article>
@@ -69,7 +69,7 @@
       </section>
       <section v-for="element in customRailElements" :key="element.id" class="ajl-block" :style="blockStyle(element.id)" v-bind="elementAttrs(element.id)"><JoinCustomElement :element="element" :copy="copy" /></section>
     </div>
-    <footer v-if="view.footerStyle !== 'hidden' && !view.hidden.footer" class="ajl-footer" :style="{ textAlign: view.align.footer, justifyContent: view.align.footer === 'right' ? 'flex-end' : view.align.footer === 'center' ? 'center' : 'flex-start' }" :class="{ 'ajl-block--selected': designMode && selectedElement === 'footer' }" v-bind="elementAttrs('footer')">
+    <footer v-if="view.footerStyle !== 'hidden' && !view.hidden.footer" class="ajl-footer" translate="no" :style="{ textAlign: view.align.footer, justifyContent: view.align.footer === 'right' ? 'flex-end' : view.align.footer === 'center' ? 'center' : 'flex-start' }" :class="{ 'ajl-block--selected': designMode && selectedElement === 'footer' }" v-bind="elementAttrs('footer')">
       <span v-for="item in footerTrust" :key="item.icon"><PublicEntryIcon :name="item.icon" /><span><b>{{ item.label }}</b><small v-if="serene">{{ item.detail }}</small></span></span><strong v-if="!serene">{{ copy.slogan }}</strong>
     </footer>
     <PublicEntryLegalFooter :language="isSpanish ? 'es' : 'en'" :organization-slug="agencySlug" />

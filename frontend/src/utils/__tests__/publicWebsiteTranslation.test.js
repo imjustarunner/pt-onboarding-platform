@@ -45,6 +45,14 @@ it('reveals a Spanish page together and excludes private editor content',async()
  resolve[1](response);resolve[2](response);await pause();
  expect(document.querySelector('main').style.visibility).toBe('');expect(document.querySelectorAll('p')[19].textContent).toBe('Texto 19');expect(document.querySelector('.public-profile-editor').textContent).toBe('Private editor value');
 });
+it('leaves copy the page already translated alone',async()=>{
+ vi.useFakeTimers();document.body.innerHTML='<div class="ajl"><p class="ajl-card-fit" translate="no">Quieres compartir tus datos básicos y que nuestro equipo se comunique contigo. Puedes completar la inscripción después.</p><p>Need Help?</p></div>';
+ const translate=vi.fn(async strings=>({configured:true,translations:Object.fromEntries(strings.map(s=>[s,'Real people. Real support.']))}));
+ translator=createWebsiteTranslator({document,translate});translator.setSpanish(true);await pause();
+ expect(document.querySelector('.ajl-card-fit').textContent).toContain('Quieres compartir');
+ expect(document.querySelectorAll('p')[1].textContent).toBe('¿Necesitas ayuda?');
+ expect(translate.mock.calls.flat(2)).not.toContain('Quieres compartir tus datos básicos y que nuestro equipo se comunique contigo. Puedes completar la inscripción después.');
+});
 it('restores the visible English page immediately when switched during a pending request',async()=>{
  vi.useFakeTimers();document.body.innerHTML='<main class="itsco-site"><p>Waiting for Spanish</p></main>';
  let resolve;translator=createWebsiteTranslator({document,translate:()=>new Promise(r=>resolve=r)});translator.setSpanish(true);await pause();translator.setSpanish(false);

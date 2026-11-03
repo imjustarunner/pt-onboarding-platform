@@ -82,7 +82,7 @@
           class="btn btn-secondary btn-sm"
           @click="fillPrimarySubscriberFromFirstClient"
         >
-          {{ tx('Use Client 1 Name') }}
+          {{ txFmt('Use {name}', { name: firstClientDisplayName }) }}
         </button>
       </div>
 
@@ -508,7 +508,7 @@ import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
 import api from '../../services/api.js';
 import InsurancePolicyFields from '../billing/InsurancePolicyFields.vue';
 
-const { tx } = useIntakeStepTx();
+const { tx, txFmt } = useIntakeStepTx();
 const intakeSessionToken = inject('intakeSessionToken', ref(''));
 
 const DEFAULT_SECONDARY_INSURANCE_NOTICE =

@@ -269,6 +269,7 @@ export const STRUCTURED_INTAKE_STEP_ES = {
   'Use My Name': 'Usar mi nombre',
   'Use Guardian Name': 'Usar nombre del tutor',
   'Use Client 1 Name': 'Usar nombre del cliente 1',
+  'Use {name}': 'Usar el nombre de {name}',
   'Insurance card – front': 'Tarjeta de seguro – frente',
   'Insurance card – back': 'Tarjeta de seguro – reverso',
   'Tap to take photo or upload': 'Toque para tomar foto o subir',
