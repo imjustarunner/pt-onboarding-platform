@@ -1,5 +1,6 @@
 import { decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
+import { clinicalBillingStage, clinicalApprovalFields, clinicalApprovalJoins } from './billingClinicalApproval.service.js';
 
 const object = value => { try { return typeof value === 'string' ? JSON.parse(value) : value || {}; } catch { return {}; } };
 const id = value => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
@@ -18,18 +19,8 @@ export function billingWorkStage(row) {
   if (['submitted', 'accepted'].includes(lifecycle)) return 'submitted';
   if (['queued', 'processing', 'pending_payer', 'adjusted'].includes(lifecycle)) return 'processing';
   if (['rejected', 'on_hold', 'held', 'reconciliation_required'].includes(lifecycle) || Number(row.service_change_pending)) return 'on_hold';
-  const requests = object(row.review_requests_json);
-  if (Array.isArray(requests) && requests.some(request => request.action === 'changes_needed' && !request.resolvedAt)) return 'revisions_needed';
-  if (row.pending_revision_id) return row.pending_revision_origin !== 'supervisor' && !Number(row.pending_author_signed) ? 'draft' : 'pending_review';
-  if (row.approved_at || (row.provider_signed_at && row.supervisor_cosigned_at)) return 'ready_to_submit';
-  if (row.provider_signed_at) {
-    // The signing policy is recorded with the exact original snapshot. A legacy
-    // note without that evidence stays pending, rather than guessing approval.
-    const billable = row.is_billable === true || row.is_billable === 'true' || Number(row.is_billable) === 1;
-    if (Number(row.requires_supervisor_cosign) === 0 && billable && row.effective_revision_id && Number(row.has_original_signature) === 1) return 'ready_to_submit';
-    return 'pending_review';
-  }
-  if (row.clinical_note_id || row.draft_id) return 'draft';
+  const clinicalStage = clinicalBillingStage(row);
+  if (clinicalStage) return clinicalStage;
   if (row.claimId && lifecycle === 'ready') return 'ready_to_submit';
   return 'note_needed';
 }
@@ -65,18 +56,10 @@ export function normalizeBillingWorkItem(row) {
   return item;
 }
 
-const noteFields = `n.id AS clinical_note_id,n.provider_signed_at,n.supervisor_cosigned_at,
-  COALESCE(JSON_EXTRACT(r.snapshot_json,'$.isBillable'),n.is_billable) AS is_billable,
-  JSON_EXTRACT(n.metadata_json,'$.reviewRequests') AS review_requests_json,
-  h.effective_revision_id,h.pending_revision_id,r.requires_supervisor_cosign,pending.origin AS pending_revision_origin,
-  EXISTS(SELECT 1 FROM clinical_note_revision_signatures ps WHERE ps.revision_id=pending.id AND ps.signature_action='author_sign') AS pending_author_signed,
-  EXISTS(SELECT 1 FROM clinical_note_revision_signatures os WHERE os.revision_id=r.id AND os.signature_action='initial_author_sign') AS has_original_signature,
-  COALESCE(r.responsible_supervisor_user_id,n.supervisor_cosigned_by_user_id,JSON_UNQUOTE(JSON_EXTRACT(n.metadata_json,'$.supervisionPolicyAtSignature.supervisorUserId'))) AS supervisor_user_id,approval.approved_at,
+const noteFields = `${clinicalApprovalFields},
+  COALESCE(r.responsible_supervisor_user_id,n.supervisor_cosigned_by_user_id,JSON_UNQUOTE(JSON_EXTRACT(n.metadata_json,'$.supervisionPolicyAtSignature.supervisorUserId'))) AS supervisor_user_id,
   JSON_EXTRACT(r.snapshot_json,'$.encounterContext') AS encounter_context_json`;
-const versionJoins = `LEFT JOIN clinical_note_revision_heads h ON h.clinical_note_id=n.id AND h.agency_id=n.agency_id
-  LEFT JOIN clinical_note_revisions r ON r.id=h.effective_revision_id AND r.agency_id=n.agency_id
-  LEFT JOIN clinical_note_revisions pending ON pending.id=h.pending_revision_id AND pending.agency_id=n.agency_id
-  LEFT JOIN clinical_note_revision_approvals approval ON approval.revision_id=r.id AND approval.agency_id=n.agency_id`;
+const versionJoins = clinicalApprovalJoins;
 
 // Claims, authored drafts and documented services share one work queue. A read
 // never manufactures a clinical encounter, signature, claim or amount owed.

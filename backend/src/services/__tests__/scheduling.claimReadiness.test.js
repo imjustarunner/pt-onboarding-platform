@@ -16,7 +16,7 @@ describe('clinical claim readiness', () => {
   beforeEach(() => {
     diagnosisPolicy.evaluate.mockResolvedValue({ready:true,blockers:[],warnings:[],alerts:[]});
     versions.approved.mockImplementation(async ({ note }) => ({ note }));
-    versions.state.mockResolvedValue({ effectiveRevisionId: 10, effectiveRevision: { contentHash: 'a'.repeat(64) }, pendingRevisionId: null, blockers: [] });
+    versions.state.mockResolvedValue({ effectiveRevisionId: 10, effectiveRevision: { contentHash: 'a'.repeat(64),approval:{approvedAt:'2026-09-01'} }, pendingRevisionId: null, blockers: [] });
     session = { id: 3 };
     note = { id: 4, clinical_session_id: 3, provider_signed_at: '2026-09-01', is_billable: 1 };
     getPrimaryClinicalDiagnosis.mockResolvedValue({ id: 5, icd10_code: 'F41.1' });
@@ -74,7 +74,7 @@ describe('clinical claim readiness', () => {
   });
   it('uses the fully approved version diagnosis and date rather than mutable original metadata', async () => {
     versions.approved.mockResolvedValue({ note: { ...note, clinical_version_id: 12, metadata_json: { dateOfService: '2026-10-04', diagnosisCodes: ['F43.20'] } } });
-    versions.state.mockResolvedValue({ effectiveRevisionId: 12, effectiveRevision: { contentHash: 'b'.repeat(64) }, pendingRevisionId: null, blockers: [] });
+    versions.state.mockResolvedValue({ effectiveRevisionId: 12, effectiveRevision: { contentHash: 'b'.repeat(64),approval:{approvedAt:'2026-10-04'} }, pendingRevisionId: null, blockers: [] });
     expect(await evaluate()).toMatchObject({ ready: true, diagnosisCodes: ['F43.20'], checks: { dateOfService: '2026-10-04' }, clinicalVersion: { revisionId: 12, contentHash: 'b'.repeat(64) } });
   });
   it('holds transmission while a new amendment is pending and retains the last approved version', async () => {
@@ -87,5 +87,10 @@ describe('clinical claim readiness', () => {
     expect(await evaluate()).toMatchObject({ ready: false, blockers: [expect.stringContaining('legacy service correction')] });
     note.metadata_json.serviceDetailAmendments[0].supersededByRevisionId = 12;
     expect(await evaluate()).toMatchObject({ ready: true });
+  });
+  it('holds a legacy author-only H0002 despite its billable flag and no currently required supervisor',async()=>{
+    session.service_code='H0002';
+    versions.state.mockResolvedValue({effectiveRevisionId:10,effectiveRevision:{contentHash:'a'.repeat(64),requiresSupervisorCosign:false,signatures:[],provenance:{kind:'legacy_observed'}},pendingRevisionId:null,blockers:[]});
+    expect(await evaluate()).toMatchObject({ready:false,checks:{clinicalApprovalStage:'pending_review'},blockers:[expect.stringContaining('does not have final approval')]});
   });
 });

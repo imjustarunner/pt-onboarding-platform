@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ effective: vi.fn(), summary: vi.fn(), pending: vi.fn(), legacy: vi.fn(), original: vi.fn() }));
-vi.mock('../../config/clinicalDatabase.js', () => ({ default: {} }));
+const m = vi.hoisted(() => ({ effective: vi.fn(), summary: vi.fn(), pending: vi.fn(), legacy: vi.fn(), original: vi.fn(), execute:vi.fn() }));
+vi.mock('../../config/clinicalDatabase.js', () => ({ default: {execute:m.execute} }));
 vi.mock('../clinicalNoteVersion.service.js', () => ({ getEffectiveNote: m.effective, getRevisionSummary: m.summary, hasPendingRevision: m.pending, ensureLegacyVersion: m.legacy, ensureOriginalRevision: m.original }));
 vi.mock('../supervisedBillingPolicy.service.js', () => ({ parseObject: v => typeof v === 'string' ? JSON.parse(v) : v || {}, dateOnly: v => String(v || '').slice(0, 10), policyError: (status, message) => Object.assign(Error(message), { status }) }));
 import { approvedVersionBillingBlockers, assertClinicalVersionSubmission, clinicalVersionBillingState, getApprovedClinicalContext, PENDING_CLINICAL_REVISION_HOLD } from '../clinicalNoteVersionBilling.service.js';
@@ -10,6 +10,7 @@ const original = { id: 4, agency_id: 2, clinical_session_id: 6, provider_signed_
 const approved = () => ({ ...original, note_payload: 'Fully approved corrected content', clinical_version_id: 12, clinical_version_number: 2, clinical_version_content_hash: hash, metadata_json: { dateOfService: '2026-10-03', serviceCode: '90837', billingPrimaryUnits: 1, billingAddons: [], structuredChart: { placeOfService: '11' } }, clinical_version_encounter_context: { dateOfService: '2026-10-03', serviceCode: '90837', durationMinutes: 60, sourceTimezone: 'America/Denver', placeOfService: '11', locationLabel: 'Frozen office', renderingProviderUserId: 7 } });
 beforeEach(() => {
   vi.clearAllMocks(); m.summary.mockResolvedValue({ originalRevisionId: 10, effectiveRevisionId: 12, effectiveRevision: { id: 12, contentHash: hash }, pendingRevisionId: null }); m.effective.mockResolvedValue(approved()); m.pending.mockResolvedValue(false);
+  m.execute.mockResolvedValue([[{clinical_note_id:4,provider_signed_at:'2026-10-01',approved_at:'2026-11-03'}]]);
 });
 
 describe('version-bound billing preflight', () => {
@@ -43,5 +44,9 @@ describe('version-bound billing preflight', () => {
     await expect(assertClinicalVersionSubmission({ noteId: 4, agencyId: 2, expectedRevisionId: 10, expectedContentHash: hash })).rejects.toMatchObject({ status: 409 });
     await expect(assertClinicalVersionSubmission({ noteId: 4, agencyId: 2, expectedRevisionId: 12, expectedContentHash: 'c'.repeat(64) })).rejects.toMatchObject({ status: 409 });
     await expect(assertClinicalVersionSubmission({ noteId: 4, agencyId: 2, expectedRevisionId: 12, expectedContentHash: hash })).resolves.toMatchObject({ id: 12 });
+  });
+  it('rejects transmission of a matching legacy snapshot which has no final clinical approval',async()=>{
+    m.execute.mockResolvedValue([[{clinical_note_id:4,provider_signed_at:'2026-10-01',effective_revision_id:12,requires_supervisor_cosign:0,is_billable:1,has_original_signature:0}]]);
+    await expect(assertClinicalVersionSubmission({noteId:4,agencyId:2,expectedRevisionId:12,expectedContentHash:hash})).rejects.toMatchObject({status:409,code:'CLINICAL_APPROVAL_REQUIRED'});
   });
 });

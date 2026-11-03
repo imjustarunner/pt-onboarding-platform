@@ -4,6 +4,7 @@ import {randomUUID} from 'node:crypto';
 vi.mock('../claimMdWorkflow.service.js',()=>({recordClaimEvent:async({agencyId,claimId,eventType},db)=>{await db.execute('INSERT INTO test_events(agency_id,claim_id,event_type) VALUES(?,?,?)',[agencyId,claimId,eventType]);}}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{}}));
 import {loadBillingWorkItems} from '../billingWorkItems.service.js';
+import {loadClinicalBillingApproval} from '../billingClinicalApproval.service.js';
 import {createClaimResubmission} from '../claimResubmission.service.js';
 
 it.skipIf(!process.env.BILLING_TEST_MYSQL_SOCKET && process.env.BILLING_FOLLOWUP_MYSQL_TEST!=='1')('MySQL work queue and immutable follow-up claims retain source records and exact tenant/encounter links',async()=>{
@@ -38,6 +39,19 @@ it.skipIf(!process.env.BILLING_TEST_MYSQL_SOCKET && process.env.BILLING_FOLLOWUP
   const deps={clinical:db,main:db};let result=await loadBillingWorkItems([1],deps);
   expect(result.items).toHaveLength(3);expect(result.items.find(r=>r.clinical_note_id===11)).toMatchObject({stage:'ready_to_submit',canPrepareClaim:true,client_name:'DEMO One',supervisor_name:'DEMO Supervisor',place_of_service:'10'});
   expect(result.items.filter(r=>r.stage==='draft')).toHaveLength(2);expect(result.items.some(r=>r.clinical_session_id===3)).toBe(false);
+  // Recovery and the queue must agree on a legacy-observed, author-only H0002.
+  await db.query(`INSERT INTO clinical_sessions(id,agency_id,client_id,provider_user_id,service_code,encounter_status) VALUES(5,1,10,90,'H0002','completed')`);
+  await db.query(`INSERT INTO clinical_notes(id,agency_id,client_id,clinical_session_id,provider_signed_at,is_billable) VALUES(15,1,10,5,'2025-01-03',1)`);
+  await db.query(`INSERT INTO clinical_note_revision_heads VALUES(15,1,105,NULL)`);
+  await db.query(`INSERT INTO clinical_note_revisions VALUES(105,1,0,NULL,'{"isBillable":true}','original')`);
+  result=await loadBillingWorkItems([1],deps);
+  expect(result.items.find(r=>r.clinical_note_id===15)).toMatchObject({stage:'pending_review',canPrepareClaim:false});
+  expect(await loadClinicalBillingApproval({noteId:15,agencyId:1},db)).toMatchObject({stage:'pending_review',approved:false});
+  expect(await loadClinicalBillingApproval({noteId:15,agencyId:2},db)).toMatchObject({approved:false});
+  await db.query(`INSERT INTO clinical_note_revision_signatures VALUES(105,'initial_author_sign')`);
+  result=await loadBillingWorkItems([1],deps);
+  expect(result.items.find(r=>r.clinical_note_id===15)).toMatchObject({stage:'ready_to_submit',canPrepareClaim:true});
+  expect(await loadClinicalBillingApproval({noteId:15,agencyId:1},db)).toMatchObject({stage:'ready_to_submit',approved:true});
   await db.query(`INSERT INTO clinical_claims(id,clinical_session_id,agency_id,client_id,clinical_note_id,claim_lifecycle,billing_revision,amount_cents,payer_name,metadata_json,diagnosis_codes_json,date_of_service) VALUES(30,1,1,10,11,'paid',2,1000,'Synthetic payer','{"clinicalVersion":{"revisionId":101,"contentHash":"saved"}}','["R69"]','2025-01-02')`);
   await db.query(`INSERT INTO clinical_claim_lines(clinical_claim_id,line_number,procedure_code,units,charge_cents,diagnosis_pointers,clinical_note_id,service_date) VALUES(30,1,'H0002',1,1000,'[1]',11,'2025-01-02')`);
   const [[before]]=await db.query('SELECT * FROM clinical_claims WHERE id=30');

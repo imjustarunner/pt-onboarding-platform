@@ -38,7 +38,7 @@ it('does not turn missing coverage into a request for payment',async()=>{
 });
 it('uses truthful follow-up text and embeds a branded QR without allowing MIME header injection',()=>{
   const mail=paymentSetupEmail({clientName:'<script>DEMO</script>',url:'https://auricwell.com/demo/guardian',provider:true,familyNotified:false});
-  expect(mail.html).not.toContain('<script>');expect(mail.text).not.toContain('notified by email');expect(mail.html).toContain('fundthred');
+  expect(mail.html).not.toContain('<script>');expect(mail.text).not.toContain('notified by email');expect(mail.html).toContain('fundthred');expect(mail.text).toContain('their own account');expect(mail.text).not.toContain('You may also sign in');
   const mime=buildMimeMessage({to:'qa@example.com',from:'billing@example.com',...mail,attachments:[{contentId:'payment-setup-qr',filename:'qr.png',contentType:'image/png',contentBase64:'dGVzdA=='}]});
   expect(mime).toContain('Content-ID: <payment-setup-qr>');expect(mime).toContain('Content-Disposition: inline');
   const unsafe=buildMimeMessage({to:'qa@example.com',from:'billing@example.com',subject:'test',attachments:[{contentId:'evil\r\nBcc: leak@example.com',filename:'file".png'}]});expect(unsafe).not.toContain('Bcc:');expect(unsafe).not.toContain('Content-ID:');expect(unsafe).toContain('Content-Disposition: attachment');

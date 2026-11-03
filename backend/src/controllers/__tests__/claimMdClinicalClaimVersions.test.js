@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ clinical: vi.fn(), main: vi.fn(), session: vi.fn(), approved: vi.fn(), readiness: vi.fn(), diagnosis: vi.fn(), date: vi.fn(), create: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn() }));
+const m = vi.hoisted(() => ({ clinical: vi.fn(), approval:vi.fn(), main: vi.fn(), session: vi.fn(), approved: vi.fn(), readiness: vi.fn(), diagnosis: vi.fn(), date: vi.fn(), create: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.main }, onTableWrite: vi.fn() }));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: m.clinical, getConnection: async () => ({ execute: m.clinical, beginTransaction: m.begin, commit: m.commit, rollback: m.rollback, release: vi.fn() }) } }));
 vi.mock('../../models/clinical/ClinicalSession.model.js', () => ({ default: { findById: m.session } }));
@@ -31,7 +31,8 @@ beforeEach(() => {
   m.diagnosis.mockImplementation(async input => input.approvedNote.metadata_json.diagnosisCodes);
   m.date.mockImplementation(async input => input.approvedNote.metadata_json.dateOfService);
   m.create.mockResolvedValue({ id: 50 });
-  m.clinical.mockImplementation(async sql => sql.includes('FROM clinical_notes') ? [[physical]] : sql.startsWith('SELECT') ? [[]] : [{ affectedRows: 1 }]);
+  m.approval.mockResolvedValue({clinical_note_id:4,provider_signed_at:physical.provider_signed_at,effective_revision_id:12,approved_at:'2026-11-03'});
+  m.clinical.mockImplementation(async sql => sql.includes('AS has_original_signature') ? [[await m.approval()]] : sql.includes('FROM clinical_notes') ? [[physical]] : sql.startsWith('SELECT') ? [[]] : [{ affectedRows: 1 }]);
 });
 
 it('creates billing services from the approved revision and records its immutable reference', async () => {
@@ -41,8 +42,21 @@ it('creates billing services from the approved revision and records its immutabl
   const created = m.create.mock.calls[0][0];
   expect(JSON.parse(created.claimPayload)).toMatchObject({ lines: [{ procedureCode: '90837', units: 1, serviceDate: '2026-10-02' }], diagnosisCodes: ['F41.1'] });
   expect(created.metadataJson.clinicalVersion).toEqual({ revisionId: 12, revisionNumber: 2, contentHash: hash });
+  expect(m.clinical.mock.calls.find(([sql])=>sql.includes('UPDATE clinical_claims SET'))[1][9]).toBe('ready');
   expect(res.status).toHaveBeenCalledWith(201); expect(m.commit).toHaveBeenCalled();
   expect(physical.metadata_json.serviceCode).toBe('90834');
+});
+it('does not create a ready claim from a legacy-observed original without an exact author signature',async()=>{
+  m.approval.mockResolvedValue({clinical_note_id:4,provider_signed_at:physical.provider_signed_at,effective_revision_id:12,requires_supervisor_cosign:0,is_billable:1,has_original_signature:0});
+  const next=vi.fn();await createMedicalClaim(request(),response(),next);
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409,code:'CLINICAL_APPROVAL_REQUIRED'}));
+  expect(m.create).not.toHaveBeenCalled();expect(m.begin).not.toHaveBeenCalled();
+});
+it('rechecks required clinical approval under the note lock before creating a claim',async()=>{
+  m.approval.mockResolvedValueOnce({clinical_note_id:4,provider_signed_at:physical.provider_signed_at,approved_at:'2026-11-03'}).mockResolvedValueOnce({clinical_note_id:4,provider_signed_at:physical.provider_signed_at,pending_revision_id:13,pending_revision_origin:'supervisor'});
+  const next=vi.fn();await createMedicalClaim(request(),response(),next);
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409,code:'CLINICAL_APPROVAL_REQUIRED'}));
+  expect(m.create).not.toHaveBeenCalled();expect(m.rollback).toHaveBeenCalled();
 });
 it('rejects caller service lines that conflict with the approved clinical revision', async () => {
   const res = response(), next = vi.fn();

@@ -1,6 +1,7 @@
 import clinicalPool from '../config/clinicalDatabase.js';
 import { getEffectiveNote, getRevisionSummary, hasPendingRevision, ensureLegacyVersion, ensureOriginalRevision } from './clinicalNoteVersion.service.js';
 import { parseObject, policyError, dateOnly } from './supervisedBillingPolicy.service.js';
+import { assertClinicalBillingApproval } from './billingClinicalApproval.service.js';
 
 export const PENDING_CLINICAL_REVISION_HOLD = 'A clinical amendment is pending clinical approval. Claim transmission is paused.';
 
@@ -101,5 +102,6 @@ export async function assertClinicalVersionSubmission({ noteId, agencyId, expect
   if (await hasPendingRevision({ noteId, agencyId }, db)) throw policyError(409, PENDING_CLINICAL_REVISION_HOLD);
   const summary = await getRevisionSummary({ noteId, agencyId }, db);
   if (Number(summary.effectiveRevisionId) !== Number(expectedRevisionId) || !expectedContentHash || summary.effectiveRevision?.contentHash !== expectedContentHash) throw policyError(409, 'The approved clinical version changed. Review the claim again.');
+  await assertClinicalBillingApproval({ noteId, agencyId }, db);
   return summary.effectiveRevision;
 }

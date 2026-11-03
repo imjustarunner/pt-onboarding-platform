@@ -1,4 +1,5 @@
 import { listClientDiagnosisAlerts } from '../services/clinicalDiagnosisPolicy.service.js';
+import { assertClinicalBillingApproval } from '../services/billingClinicalApproval.service.js';
 import { clinicalNoteSnapshotHash, ensureOriginalRevision, appendOriginalSignature, hasPendingRevision, getRevisionSummary, listPendingRevisionWork, appendRevisionAddendum } from '../services/clinicalNoteVersion.service.js';
 import { assertClientDiagnosisPolicy } from '../services/clinicalDiagnosisPolicy.service.js';
 import { assertClinicalSigner, CLINICAL_SIGNER_ROLES } from '../services/clinicalNoteSigningToken.service.js';
@@ -2706,16 +2707,16 @@ export const createMedicalClaim = async (req, res, next) => {
     let claim;
     // Clinical checks alone do not establish insurance, intake documentation,
     // payer enrollment or submission readiness. Full review runs before upload.
-    const approvalPolicy = await resolveNoteDocumentationPolicy(approvedNote);
-    const approvedForBilling = !!approvedNote.provider_signed_at && !approvedNote.clinical_version_pending_id && !isNonBillableDocument(approvedNote) &&
-      (!approvalPolicy.supervisorUserId || hasCurrentSupervisorCosign(approvedNote, approvalPolicy.supervisorUserId, approvedNote.clinical_version_content_hash));
-    const claimLifecycle = approvedForBilling ? 'ready' : 'draft';
+    await assertClinicalBillingApproval({ noteId, agencyId }, clinicalPool);
+    if (isNonBillableDocument(approvedNote)) throw Object.assign(new Error('This clinical document is not billable.'), {status:409});
+    const claimLifecycle = 'ready';
     const draftDb = await clinicalPool.getConnection();
     try {
       await draftDb.beginTransaction();
       await draftDb.execute('SELECT id FROM clinical_sessions WHERE id = ? AND agency_id = ? FOR UPDATE', [sessionId, agencyId]);
       const [[lockedNote]] = await draftDb.execute('SELECT * FROM clinical_notes WHERE id=? AND agency_id=? FOR UPDATE', [noteId, agencyId]);
       if (!lockedNote) throw Object.assign(new Error('The clinical note is unavailable.'), { status: 409 });
+      await assertClinicalBillingApproval({ noteId, agencyId }, draftDb);
       const lockedContext = await getApprovedClinicalContext({ note: lockedNote, session: approvedSession }, draftDb);
       if (clinicalVersion.revisionId !== Number(lockedContext.note.clinical_version_id) || clinicalVersion.contentHash !== lockedContext.note.clinical_version_content_hash) throw Object.assign(new Error('The approved clinical version changed. Prepare the claim again.'), { status: 409 });
       const [duplicates] = await draftDb.execute(`SELECT id FROM clinical_claims WHERE agency_id = ? AND clinical_session_id = ?`, [agencyId, sessionId]);

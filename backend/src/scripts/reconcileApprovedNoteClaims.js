@@ -5,7 +5,8 @@ import clinicalPool from '../config/clinicalDatabase.js';
 import User from '../models/User.model.js';
 import { hasSchedulingBillingAccess } from '../services/schedulingBillingAccess.service.js';
 import { getEffectiveNote } from '../services/clinicalNoteVersion.service.js';
-import { resolveNoteDocumentationPolicy, hasCurrentSupervisorCosign, isNonBillableDocument } from '../services/supervisedBillingPolicy.service.js';
+import { isNonBillableDocument } from '../services/supervisedBillingPolicy.service.js';
+import { loadClinicalBillingApproval } from '../services/billingClinicalApproval.service.js';
 import { createMedicalClaim } from '../controllers/medicalBilling.controller.js';
 import { claimRecoveryFailure } from '../services/claimRecoveryResult.js';
 
@@ -25,9 +26,10 @@ async function main() {
   const results = [];
   for (const source of notes) {
     try {
+      const approval = await loadClinicalBillingApproval({ noteId: source.id, agencyId }, clinicalPool);
+      if (!approval.approved) { results.push({noteId:Number(source.id),status:'not_approved',stage:approval.stage,code:'CLINICAL_APPROVAL_REQUIRED'}); continue; }
       const note = await getEffectiveNote({ note: source });
-      const policy = await resolveNoteDocumentationPolicy(note);
-      if (isNonBillableDocument(note) || note.clinical_version_pending_id || (policy.supervisorUserId && !hasCurrentSupervisorCosign(note,policy.supervisorUserId,note.clinical_version_content_hash))) {
+      if (isNonBillableDocument(note)) {
         results.push({noteId:Number(note.id),status:'not_approved'}); continue;
       }
       if (!apply) { results.push({noteId:Number(note.id),sessionId:Number(note.clinical_session_id),status:'would_create',clinicalRevisionId:note.clinical_version_id}); continue; }

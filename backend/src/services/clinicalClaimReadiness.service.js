@@ -1,3 +1,4 @@
+import { clinicalBillingStageFromSummary, CLINICAL_APPROVAL_REQUIRED } from './billingClinicalApproval.service.js';
 import { evaluateClientDiagnosisPolicy } from './clinicalDiagnosisPolicy.service.js';
 import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 import clinicalPool from '../config/clinicalDatabase.js';
@@ -258,6 +259,8 @@ export async function evaluateClaimReadiness({
     note = (await getApprovedClinicalContext({ note })).note;
     const state = await clinicalVersionBillingState({ noteId, agencyId: agency });
     blockers.push(...state.blockers);
+    checks.clinicalApprovalStage = clinicalBillingStageFromSummary(note, state);
+    if (checks.clinicalApprovalStage !== 'ready_to_submit' && !state.pendingRevisionId) blockers.push(CLINICAL_APPROVAL_REQUIRED);
     const metadata = typeof note.metadata_json === 'string' ? JSON.parse(note.metadata_json) : note.metadata_json || {};
     if ((metadata.serviceDetailAmendments || []).some(amendment => !amendment.approvedAt && !amendment.supersededByAmendmentId && !amendment.supersededByRevisionId)) {
       blockers.push('A legacy service correction awaits approval in an amended clinical version. Claim transmission is paused.');
