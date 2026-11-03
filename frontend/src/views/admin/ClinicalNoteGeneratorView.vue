@@ -116,6 +116,12 @@
         class="na-main"
         :class="{ 'na-main--start': showStartPage, 'na-main--library': showAidPicker }"
       >
+        <ClinicalAppointmentAlertGate v-if="effectiveClientId && (noteAidAgencyId || currentAgencyId) && !supervisorReviewItem"
+          :agency-id="Number(noteAidAgencyId || currentAgencyId)" :client-id="Number(effectiveClientId)"
+          :clinical-session-id="sessionClinicalSessionId || bookingContext.clinicalSessionId || null"
+          :office-event-id="sessionOfficeEventId || bookingContext.officeEventId || null"
+          :date-of-service="dateOfService || ''" :read-only="!!(chartNoteReadOnly || signedNoteViewerId)"
+          @blocked="appointmentAlertBlocked = $event" />
         <ClinicalNoteSupervisorReview
           v-if="supervisorReviewItem"
           :key="`${supervisorReviewItem.agencyId}-${supervisorReviewItem.clinicalNoteId}`"
@@ -834,7 +840,7 @@
             </div>
           </aside>
 
-          <div class="na-write-main">
+          <div class="na-write-main" :inert="appointmentAlertBlocked">
         <NoteAidObjectiveRatings
           v-if="showObjectiveRatings && notePathway !== 'csNoteBuild' && !signedNoteViewerId"
           :goals="activeTreatmentGoals"
@@ -1127,6 +1133,7 @@
 
         <section
           v-else-if="displayPanels.length"
+          :inert="appointmentAlertBlocked"
           ref="naGeneratedOutputEl"
           class="na-output"
           :class="{ 'na-output--fresh': generatedOutputFresh }"
@@ -1251,6 +1258,8 @@
               {{ applyingIntakeDiagnoses ? 'Saving diagnoses…' : 'Apply reviewed diagnoses to chart' }}
             </button>
           </div>
+          <ClinicalDiagnosisFields v-if="isIntakeOutput && intakeDiagnosisRecommendations.length && !chartNoteReadOnly && !signedNoteViewerId" v-model="intakeDiagnosisRecommendations" />
+          <ClinicalDiagnosisReviewPanel v-if="effectiveClientId && (chartAgencyIdForSave || noteAidAgencyId)" :client-id="effectiveClientId" :agency-id="chartAgencyIdForSave || noteAidAgencyId" :provider-user-id="supervisorReviewItem?.providerId || authStore.user?.id" :read-only="chartNoteReadOnly || !!signedNoteViewerId" />
           <NoteAidStructuredChartPanel
             v-if="showStructuredChartPanel && !chartNoteReadOnly && !signedNoteViewerId"
             :diagnoses="structuredChartDiagnoses"
@@ -1674,6 +1683,9 @@ import NoteAidDiagnosisWriterModal from '../../components/clinical/NoteAidDiagno
 import NoteAidTreatmentPlanStandaloneModal from '../../components/clinical/NoteAidTreatmentPlanStandaloneModal.vue';
 import NoteAidSessionContextStrip from '../../components/clinical/NoteAidSessionContextStrip.vue';
 import NoteAidStructuredChartPanel from '../../components/clinical/NoteAidStructuredChartPanel.vue';
+import ClinicalAppointmentAlertGate from '../../components/clinical/ClinicalAppointmentAlertGate.vue';
+import ClinicalDiagnosisFields from '../../components/clinical/ClinicalDiagnosisFields.vue';
+import ClinicalDiagnosisReviewPanel from '../../components/clinical/ClinicalDiagnosisReviewPanel.vue';
 import {
   loadWorkQueue,
   saveWorkQueue,
@@ -2497,14 +2509,14 @@ const intakeDiagnosisAppliedFingerprint = ref('');
 const intakeAssessmentSnapshot = ref(null);
 const applyingIntakeDiagnoses = ref(false);
 const isIntakeOutput = computed(() => aidKind(selectedAid.value) === 'intake');
-const intakeDiagnosisFingerprint = computed(() => JSON.stringify([intakeDiagnosisRecommendations.value.map((d) => [d.icd10_code, d.description]), chartDiagnosticJustification.value]));
+const intakeDiagnosisFingerprint = computed(() => JSON.stringify([intakeDiagnosisRecommendations.value.map((d) => [d.icd10_code, d.description, d.justification]), chartDiagnosticJustification.value]));
 const intakeDiagnosesPending = computed(() => isIntakeOutput.value && intakeDiagnosisRecommendations.value.length > 0 && intakeDiagnosisAppliedFingerprint.value !== intakeDiagnosisFingerprint.value);
 
 function synchronizeIntakeFields() {
   if (!isIntakeOutput.value || !outputObj.value || chartNoteReadOnly.value || signedNoteViewerId.value) return;
   const sections = Object.fromEntries(mergedSectionEntries.value || []);
   const diagnoses = intakeDiagnoses(sections).filter((d) => chartDiagnosisMode.value !== 'none' && (chartDiagnosisMode.value !== 'zr_only' || isSocialDeterminantCode(d.icd10_code)));
-  intakeDiagnosisRecommendations.value = diagnoses.map((d) => ({ ...d, id: intakeDiagnosisRecommendations.value.find((old) => old.icd10_code === d.icd10_code)?.id }));
+  intakeDiagnosisRecommendations.value = diagnoses.map((d) => { const old=intakeDiagnosisRecommendations.value.find(previous => previous.icd10_code === d.icd10_code); return {...d,id:old?.id,generatedJustification:d.justification,justification:old && old.justification !== old.generatedJustification ? old.justification : d.justification}; });
   if (diagnoses.length) chartDiagnosticJustification.value = intakeSection(sections, 'Diagnostic Justification');
   const next = intakeAssessments(sections);
   chartMentalStatus.value = mergeGeneratedAssessment(chartMentalStatus.value, intakeAssessmentSnapshot.value?.mentalStatusExam, next.mentalStatusExam);
@@ -2519,6 +2531,7 @@ function draftStructuredChart() {
     riskAssessment: chartRiskAssessment.value,
     medications: chartMedications.value,
     diagnosticJustification: chartDiagnosticJustification.value,
+    diagnoses: structuredChartDiagnoses.value,
     intakeDiagnoses: intakeDiagnosisRecommendations.value,
     intakeDiagnosisAppliedFingerprint: intakeDiagnosisAppliedFingerprint.value,
     intakeAssessmentSnapshot: intakeAssessmentSnapshot.value
@@ -2534,12 +2547,13 @@ async function applyIntakeDiagnosesToChart() {
   const fingerprint = intakeDiagnosisFingerprint.value;
   const recommendations = intakeDiagnosisRecommendations.value.map((d) => ({ ...d }));
   const justification = chartDiagnosticJustification.value;
+  if(recommendations.some(d => !String(d.justification || '').trim())) throw new Error('Every diagnosis requires its own clinical justification.');
   applyingIntakeDiagnoses.value = true;
   try {
     for (const d of recommendations) {
       const res = await api.post('/medical-billing/diagnoses', {
         agencyId, clientId, icd10Code: d.icd10_code, description: d.description,
-        justification, isPrimary: !!d.is_primary, clinicalSessionId: sessionClinicalSessionId.value || null
+        justification: d.justification || '', isPrimary: !!d.is_primary, clinicalSessionId: sessionClinicalSessionId.value || null
       });
       if (!res?.data?.id) throw new Error('The chart did not confirm that the diagnosis was saved. Please retry.');
       d.id = res.data.id;
@@ -2740,6 +2754,7 @@ const csProposedInterventions = computed(() => {
 });
 
 const csGenerateDisabled = computed(() => {
+  if (appointmentAlertBlocked.value) return true;
   if (generating.value || !canUseTool.value) return true;
   if (noteAidAgencyNeedsChoice.value && !noteAidAgencyId.value) return true;
   const goalIds = (activeTreatmentGoals.value || []).map((g) => g.id).filter(Boolean);
@@ -2771,8 +2786,10 @@ const hasScheduledSessionContext = computed(() =>
     || canApproveToClinicalRecord.value
   )
 );
+const appointmentAlertBlocked = ref(false);
 const noteWizardStep = ref(1);
 const canContinueToWriteStep = computed(() => {
+  if (appointmentAlertBlocked.value) return false;
   const basics = !!(String(dateOfService.value || '').trim() && (effectiveClientId.value || String(initials.value || '').trim()));
   if (!basics) return false;
   return !progressPlanBlocksWriting.value;
@@ -4476,6 +4493,7 @@ const eligibleCodesLabel = computed(() => {
 });
 
 const generateDisabled = computed(() => {
+  if (appointmentAlertBlocked.value) return true;
   if (pendingDurationChange.value || durationCodeMismatch.value) return true;
   if (skipAiAid.value) return true;
   if (generating.value) return true;
@@ -4500,6 +4518,7 @@ const generateDisabled = computed(() => {
 });
 
 const generateBlockedReason = computed(() => {
+  if (appointmentAlertBlocked.value) return 'Review the appointment alert above before continuing.';
   if (isTerminationAid.value && (!effectiveClientId.value || !terminationReason.value || !terminationRecommendation.value.trim())) return 'Select a client, termination reason, and provider recommendation.';
   if (skipAiAid.value) return 'Skip AI is on — write each section manually below.';
   if (generating.value) return 'Generating…';
@@ -4692,7 +4711,7 @@ const canRegenerateFromDraft = computed(() => {
   return !!outputObj.value;
 });
 
-const regenerateDisabled = computed(() => !canRegenerateFromDraft.value);
+const regenerateDisabled = computed(() => appointmentAlertBlocked.value || !canRegenerateFromDraft.value);
 
 const regenerateButtonLabel = computed(() => {
   if (generating.value) return 'Regenerating…';
@@ -5880,6 +5899,7 @@ const stopTranscription = () => {
 };
 
 const generateNote = async () => {
+  if (appointmentAlertBlocked.value) { generateError.value = 'Review the appointment alert above before continuing.'; return; }
   if (pendingDurationChange.value || durationCodeMismatch.value) return;
   if (progressPlanBlocksWriting.value) {
     generateError.value = planOnFile.value

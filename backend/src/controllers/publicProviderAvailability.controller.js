@@ -398,17 +398,16 @@ async function maybeCreateClientForPublicRequest({ agencyId, providerId, body })
       options: { ...PUBLIC_BOOKING_INQUIRY_CLIENT_OPTIONS }
     });
     const createdClientId = Number(clients?.[0]?.id || 0) || null;
+    let assignmentDeferred = false;
     if (createdClientId) {
-      await pool.execute(
-        `UPDATE clients
-         SET provider_id = ?
-         WHERE id = ?`,
-        [Number(providerId), createdClientId]
-      );
+      const { assignPublicIntakeProviderWhenVerified } = await import('../services/clientCoverageAdmission.service.js');
+      const assignment = await assignPublicIntakeProviderWhenVerified(createdClientId, Number(providerId));
+      assignmentDeferred = assignment.assignmentDeferred;
     }
     return {
       createdClientId,
-      createdGuardianUserId: Number(guardianUser?.id || 0) || null
+      createdGuardianUserId: Number(guardianUser?.id || 0) || null,
+      assignmentDeferred
     };
   } catch {
     return { createdClientId: null, createdGuardianUserId: null };
@@ -774,6 +773,7 @@ export const createPublicAppointmentRequest = async (req, res, next) => {
         matchedClientId: created?.matched_client_id || null,
         createdClientId: created?.created_client_id || null,
         createdGuardianUserId: created?.created_guardian_user_id || null,
+        assignmentDeferred: createdEntity.assignmentDeferred === true,
         requestedStartAt: created?.requested_start_at ?? null,
         requestedEndAt: created?.requested_end_at ?? null,
         status: created?.status ?? 'PENDING'

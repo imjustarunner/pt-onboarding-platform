@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import { NOTIFICATION_TYPES } from '../services/notificationCatalog.service.js';
 
 const PRIVATE_CROSS_USER_TYPES = new Set([
+  'payment_setup_required',
   'chat_message',
   'treatment_goal_progress',
   'inbound_client_message',

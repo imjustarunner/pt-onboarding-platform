@@ -13,6 +13,7 @@ vi.mock('../../services/clientInsurance.service.js', () => ({ readClientInsuranc
 vi.mock('../../services/claimMdBillingProfile.service.js', () => ({ resolveClaimMdBillingProfile: vi.fn(async () => null) }));
 vi.mock('../../services/applyBillingClaimOverrides.service.js', () => ({ applyBillingClaimOverrides: vi.fn(async () => null) }));
 vi.mock('../../services/familyBillingEncryption.service.js', () => ({ encryptFamilyBilling: vi.fn(() => 'synthetic encrypted insurance'), decryptFamilyBilling: vi.fn() }));
+vi.mock('../../services/supervisedBillingPolicy.service.js', async original => ({ ...await original(), resolveNoteDocumentationPolicy: vi.fn(async () => ({supervisorUserId:null})) }));
 import { createMedicalClaim } from '../medicalBilling.controller.js';
 
 const hash = 'b'.repeat(64);

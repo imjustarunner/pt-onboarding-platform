@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ find: vi.fn(), agency: vi.fn(), policy: vi.fn(), billing: vi.fn(), summary: vi.fn(), revision: vi.fn(), propose: vi.fn(), edit: vi.fn(), sign: vi.fn(), approved: vi.fn(), clinical: vi.fn(), nonbillable: vi.fn() }));
+const m = vi.hoisted(() => ({ find: vi.fn(), agency: vi.fn(), policy: vi.fn(), billing: vi.fn(), summary: vi.fn(), revision: vi.fn(), propose: vi.fn(), edit: vi.fn(), sign: vi.fn(), approved: vi.fn(), clinical: vi.fn(), nonbillable: vi.fn(), diagnosis:vi.fn(), materialize:vi.fn() }));
+vi.mock('../medicalBilling.controller.js',()=>({draftClaimAfterSignature:m.materialize}));
+vi.mock('../../services/clinicalDiagnosisPolicy.service.js',()=>({assertClientDiagnosisPolicy:m.diagnosis}));
 vi.mock('../../models/clinical/ClinicalNote.model.js', () => ({ default: { findById: m.find } }));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: m.clinical } }));
 vi.mock('../../services/clinicalEligibility.service.js', () => ({ default: { ensureAgencyAccess: m.agency } }));
@@ -16,7 +18,7 @@ const response = () => ({ json: vi.fn(), status: vi.fn().mockReturnThis() });
 let pending, state;
 beforeEach(() => {
   vi.clearAllMocks();
-  m.nonbillable.mockReturnValue(false);
+  m.nonbillable.mockReturnValue(false); m.diagnosis.mockResolvedValue({ready:true});
   const note = { id: 4, agency_id: 2, client_id: 3, clinical_session_id: 5, created_by_user_id: 7, provider_signed_by_user_id: 7, provider_signed_at: '2026-10-31', metadata_json: { serviceCode: '90834' } };
   pending = { id: 12, revisionNumber: 2, origin: 'provider', reason: 'Clarification', originalAuthorUserId: 7, proposedByUserId: 7, responsibleSupervisorUserId: 9, requiresSupervisorCosign: true, contentHash: hash, signatures: [], snapshot: { metadataJson: {}, encounterContext: {} } };
   state = { originalRevisionId: 10, effectiveRevisionId: 10, pendingRevisionId: 12, effectiveRevision: { ...pending, id: 10, revisionNumber: 1 }, pendingRevision: pending, revisions: [pending] };
@@ -24,6 +26,7 @@ beforeEach(() => {
 });
 
 describe('clinical version HTTP authorization and signatures', () => {
+  it('blocks a clinical amendment signature before persistence when diagnosis documentation is incomplete',async()=>{m.diagnosis.mockRejectedValueOnce(Object.assign(Error('Separate justification required'),{status:409}));const next=vi.fn();await signClinicalNoteVersion(request(undefined,{attested:true}),response(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));expect(m.sign).not.toHaveBeenCalled();});
   it('derives billability for new and edited amendments instead of inheriting a legacy supervisor hold or trusting a client flag', async () => {
     const legacy = { ...await m.find(), note_type: 'PROGRESS_NOTE', is_billable: 0 };
     m.find.mockResolvedValue(legacy);
@@ -88,6 +91,17 @@ describe('clinical version HTTP authorization and signatures', () => {
     state.pendingRevisionId = null; pending.status = 'approved'; pending.signatures = [{ action: 'supervisor_sign', actorUserId: 9 }];
     const listed = response(); await listClinicalNoteVersions(request({ id: 9, role: 'super_admin' }), listed, next);
     expect(listed.json.mock.calls[0][0].revisions[0].capabilities).toMatchObject({ canSign: false, canCosign: false, canAcknowledge: false });
+  });
+  it('materializes the approved amendment claim only after the final clinical signature',async()=>{
+    pending.origin='supervisor';pending.proposedByUserId=9;
+    m.sign.mockImplementation(async()=>{state={...state,effectiveRevisionId:12,pendingRevisionId:null,effectiveRevision:pending,pendingRevision:null};return {...pending,status:'approved'};});
+    const next=vi.fn();await cosignClinicalNoteVersion(request({id:9,role:'supervisor'},{attested:true}),response(),next);
+    expect(next).not.toHaveBeenCalled();expect(m.materialize).toHaveBeenCalledOnce();expect(m.materialize).toHaveBeenCalledWith(expect.objectContaining({user:{id:9,role:'supervisor'}}),expect.objectContaining({id:4,clinical_session_id:5}));
+  });
+  it('does not create another claim while an amendment remains pending or on author acknowledgement',async()=>{
+    const next=vi.fn();await signClinicalNoteVersion(request(undefined,{attested:true}),response(),next);expect(next).not.toHaveBeenCalled();expect(m.materialize).not.toHaveBeenCalled();
+    pending.origin='supervisor';pending.signatures=[{action:'supervisor_sign',actorUserId:9}];state.pendingRevisionId=null;state.effectiveRevisionId=12;
+    await acknowledgeClinicalNoteVersion(request(undefined,{attested:true}),response(),next);expect(next).not.toHaveBeenCalled();expect(m.materialize).not.toHaveBeenCalled();
   });
   it('assigns nonblocking review acknowledgement only to the original author after supervisor approval', async () => {
     pending.origin = 'supervisor'; pending.signatures = [{ action: 'supervisor_sign', actorUserId: 9 }]; state.pendingRevisionId = null;

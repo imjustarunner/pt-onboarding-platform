@@ -1,3 +1,4 @@
+import { evaluateClientDiagnosisPolicy } from './clinicalDiagnosisPolicy.service.js';
 import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { getPrimaryClinicalDiagnosis } from './clinicalDiagnosisAttach.service.js';
@@ -184,7 +185,7 @@ export async function evaluateClaimReadiness({
   }
 
   const [sessions] = await clinicalPool.execute(
-    `SELECT id, encounter_status, claim_blocked_reason FROM clinical_sessions WHERE id = ? AND agency_id = ? AND client_id = ? LIMIT 1`,
+    `SELECT id, encounter_status, claim_blocked_reason, provider_user_id, service_code FROM clinical_sessions WHERE id = ? AND agency_id = ? AND client_id = ? LIMIT 1`,
     [sessionId, agency, client]
   );
   checks.hasSession = !!sessions?.[0];
@@ -329,6 +330,11 @@ export async function evaluateClaimReadiness({
     approvedNote: note
   });
 
+  const approvedMetadata = typeof note?.metadata_json === 'string' ? JSON.parse(note.metadata_json) : note?.metadata_json || {};
+  const diagnosisPolicy = await evaluateClientDiagnosisPolicy({agencyId:agency,clientId:client,providerUserId:note?.provider_signed_by_user_id || note?.created_by_user_id || sessions[0]?.provider_user_id,serviceCode:note?.clinical_version_encounter_context?.serviceCode || approvedMetadata.serviceCode || sessions[0]?.service_code,dateOfService:checks.dateOfService,diagnosisCodes,note});
+  blockers.push(...diagnosisPolicy.blockers);
+  warnings.push(...diagnosisPolicy.warnings);
+  checks.diagnosisPolicy = diagnosisPolicy.ready;
   const ready = blockers.length === 0;
   return {
     ready,
@@ -339,6 +345,7 @@ export async function evaluateClaimReadiness({
     noteId,
     clinicalVersion,
     planId,
+    diagnosisAlerts: diagnosisPolicy.alerts,
     primaryDiagnosis: primary
       ? {
           id: primary.id,

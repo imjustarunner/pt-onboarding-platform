@@ -1,3 +1,4 @@
+import { claimResubmissionFields } from './claimResubmissionPolicy.js';
 import { assertLiveClearinghouseAgency } from './syntheticClearinghouseGuard.service.js';
 /**
  * Claim.MD clearinghouse adapter (https://api.claim.md/).
@@ -142,7 +143,7 @@ export function buildClaimMdJsonClaim(claim, lines = [], { insurance, practice =
   });
   if (!/^\d{10}$/.test(required.bill_npi) || !/^\d{10}$/.test(required.prov_npi) || !/^\d{9}$/.test(required.bill_taxid)) throw Object.assign(new Error('Billing NPI, rendering NPI, or tax ID is invalid'), {status:409});
   const secondary = insurance.secondary;
-  const payload = {...required, ...(secondary ? {other_ins_number:secondary.memberId, other_ins_name_f:secondary.subscriberFirstName, other_ins_name_l:secondary.subscriberLastName, other_ins_dob:secondary.subscriberDob, other_ins_sex:secondary.subscriberSex, other_payerid:secondary.payerId, other_payer_name:secondary.insurerName, other_pat_rel:({self:'18',spouse:'01',child:'19',other:'G8'})[secondary.relationshipToSubscriber]} : {}), accept_assign:insurance.acceptAssignment ? 'Y' : 'N', bill_addr_2:practice.street_address_2 || '', remote_claimid:claim.agency_id ? `PT-${claim.agency_id}-${claim.id}` : String(claim.id), pcn:claim.claim_number || String(claim.id),claim_form:'1500',
+  const payload = {...required, ...claimResubmissionFields(claim), ...(secondary ? {other_ins_number:secondary.memberId, other_ins_name_f:secondary.subscriberFirstName, other_ins_name_l:secondary.subscriberLastName, other_ins_dob:secondary.subscriberDob, other_ins_sex:secondary.subscriberSex, other_payerid:secondary.payerId, other_payer_name:secondary.insurerName, other_pat_rel:({self:'18',spouse:'01',child:'19',other:'G8'})[secondary.relationshipToSubscriber]} : {}), accept_assign:insurance.acceptAssignment ? 'Y' : 'N', bill_addr_2:practice.street_address_2 || '', remote_claimid:claim.agency_id ? `PT-${claim.agency_id}-${claim.id}` : String(claim.id), pcn:claim.claim_number || String(claim.id),claim_form:'1500',
     payer_name:primary.insurerName,payer_order:'Primary',ins_group:primary.groupNumber || '',
     ins_addr_2:primary.subscriberAddressLine2 || '',pat_addr_2:patient.addressLine2 || '',
     bill_taxid_type:practice.tax_id_type==='ssn'?'S':'E',prov_taxonomy:claim.taxonomy_code || '',

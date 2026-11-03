@@ -1,4 +1,5 @@
 import { beforeEach, afterEach, it, expect, vi } from 'vitest';
+vi.mock('../../services/clinicalAppointmentAlerts.service.js',()=>({default:{assertReviewed:vi.fn(async()=>{})}}));
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: vi.fn() } }));
 vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: vi.fn(async () => [{ id: 450 }]) } }));
@@ -8,6 +9,7 @@ vi.mock('../../services/staffCareEligibility.service.js', () => ({ readStaffCare
 vi.mock('../../utils/noteAidClientAgency.js', () => ({ coerceNoteAidAgencyForClient: vi.fn(async () => ({ agencyId: 450 })),
   canRemapDraftAgency: vi.fn(), listClientAgencyMembershipIds: vi.fn() }));
 vi.mock('../../services/noteAidChartAudit.service.js', () => ({ logNoteAidChartEvent: vi.fn() }));
+import clinicalAppointmentAlerts from '../../services/clinicalAppointmentAlerts.service.js';
 import clinicalPool from '../../config/clinicalDatabase.js';
 import ClinicalNoteDraft from '../../models/ClinicalNoteDraft.model.js';
 import { createClinicalNoteDraft } from '../clinicalNoteGenerator.controller.js';
@@ -45,3 +47,5 @@ it('rejects a foreign explicit session without falling back to a guessed encount
   expect(ClinicalNoteDraft.create).not.toHaveBeenCalled();
   expect(clinicalPool.execute).toHaveBeenCalledTimes(1);
 });
+
+it('checks the current appointment alert before creating any draft or session',async()=>{clinicalAppointmentAlerts.assertReviewed.mockRejectedValueOnce(Object.assign(new Error('Review appointment alert'),{status:409,code:'APPOINTMENT_ALERT_REVIEW_REQUIRED'}));const req=request(),next=vi.fn();await createClinicalNoteDraft(req,response(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409,code:'APPOINTMENT_ALERT_REVIEW_REQUIRED'}));expect(ClinicalNoteDraft.create).not.toHaveBeenCalled();expect(clinicalPool.execute).not.toHaveBeenCalled();expect(req.body.inputText).toBe('Previously entered clinician facts.');});

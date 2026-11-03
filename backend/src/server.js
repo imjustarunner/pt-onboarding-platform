@@ -1224,6 +1224,8 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({
     error: {
       message: err.message || 'Internal server error',
+      ...(err.code === 'PAYMENT_SETUP_REVIEW_REQUIRED' ? { code: err.code } : {}),
+      ...(err.code === 'INSURANCE_VERIFICATION_REQUIRED' ? { code: err.code, clientId: Number(err.details?.clientId), agencyId: Number(err.details?.agencyId) } : {}),
       ...(err.code === 'RECIPIENT_AVAILABILITY_CHOICE_REQUIRED' ? { code: err.code, availability: err.availability } : {}),
       ...(['ACTIVITY_REVIEW_REQUIRED','MFA_REQUIRED','MFA_FRESH_REQUIRED','SELF_APPROVAL_FORBIDDEN','INVALID_REVIEW_REQUEST','INVALID_REVIEW','LOGIN_PROTECTION_UNAVAILABLE','EMAIL_RECIPIENT_REQUIRED'].includes(err.code) ? { code: err.code } : {}),
       ...(config.nodeEnv === 'development' && { 

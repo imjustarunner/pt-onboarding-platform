@@ -1,3 +1,4 @@
+import { getClinicalAppointmentAlerts, acknowledgeClinicalAppointmentAlert } from '../controllers/clinicalAppointmentAlerts.controller.js';
 import * as contactDocumentation from '../controllers/contactDocumentation.controller.js';
 import express from 'express';
 import { excludeSupportClinicalContent } from '../middleware/supportContentAccess.middleware.js';
@@ -58,6 +59,8 @@ router.post('/contact-documentation/:type/:id', apiLimiter, contactDocumentation
 
 // Operational contact notes stay available above this clinical-content boundary.
 router.use(excludeSupportClinicalContent);
+router.get('/appointment-alerts',apiLimiter,getClinicalAppointmentAlerts);
+router.post('/appointment-alerts/:appointmentId/acknowledge',apiLimiter,acknowledgeClinicalAppointmentAlert);
 router.get('/context', apiLimiter, [query('agencyId').isInt({ min: 1 })], getClinicalNotesContext);
 router.get('/drafts/:draftId/appointment',apiLimiter,repairClinicalDraftAppointment);
 router.post('/drafts/:draftId/appointment',apiLimiter,repairClinicalDraftAppointment);

@@ -62,6 +62,10 @@ class Client {
    * @returns {Promise<Object>} Created client object
    */
   static async create(clientData, { executor = pool, hydrate = true } = {}) {
+    if (Number(clientData.provider_id) > 0) {
+      const { assertNewClientProviderCoverage } = await import('../services/clientCoverageAdmission.service.js');
+      await assertNewClientProviderCoverage(clientData, { db: executor });
+    }
     const {
       organization_id,
       agency_id,
@@ -501,6 +505,13 @@ class Client {
    * @returns {Promise<Object|null>} Updated client object or null
    */
   static async update(id, clientData, updated_by_user_id = null, { executor = pool, hydrate = true, agencyId = null } = {}) {
+    if (Number(clientData.provider_id) > 0) {
+      const [[assignmentClient]] = await executor.execute('SELECT id,agency_id,client_type,provider_id FROM clients WHERE id=?', [id]);
+      if (assignmentClient && Number(assignmentClient.provider_id) !== Number(clientData.provider_id)) {
+        const { assertNewProviderCoverageAdmission } = await import('../services/clientCoverageAdmission.service.js');
+        await assertNewProviderCoverageAdmission(id, clientData.provider_id, { db: executor });
+      }
+    }
     const schedulingStatusChange = clientData.client_status_id !== undefined || clientData.terminated_at !== undefined || String(clientData.status || '').toUpperCase() === 'ARCHIVED';
     if (schedulingStatusChange && executor === pool) {
       const db = await pool.getConnection();

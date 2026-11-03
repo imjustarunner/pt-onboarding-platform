@@ -5,7 +5,8 @@ import { listClientNotificationHistory } from '../controllers/clientNotification
 import { listClientSecureMessages, getClientSecureMessage } from '../controllers/clientSecureMessages.controller.js';
 import express from 'express';
 import * as serviceEnrollments from '../controllers/clientServiceEnrollment.controller.js';
-import { getClientCareBillingSummary } from '../controllers/clientCareBillingSummary.controller.js';
+import { getClientCareBillingSummary, getClientCoverageAdmission } from '../controllers/clientCareBillingSummary.controller.js';
+import { previewClientPaymentFollowup, requestClientPaymentFollowup } from '../controllers/clientPaymentFollowup.controller.js';
 import { getClientAccountSupport, getClientOperationalStatus } from '../controllers/clientAccountSupport.controller.js';
 import { excludeSupportClinicalContent } from '../middleware/supportContentAccess.middleware.js';
 import { getSupportClientInsurance, saveSupportClientInsurance } from '../controllers/clientInsurance.controller.js';
@@ -261,6 +262,9 @@ router.put('/:id/clinical-responses', excludeSupportClinicalContent, updateClien
 
 // Insurance card images from intake (provider/admin) — streamed (decrypts if encrypted)
 router.get('/:id/care-billing-summary', getClientCareBillingSummary);
+router.get('/:id/coverage-readiness', getClientCoverageAdmission);
+router.get('/:id/payment-setup-followup', previewClientPaymentFollowup);
+router.post('/:id/payment-setup-followup', requestClientPaymentFollowup);
 router.get('/:id/reminder-text-consent', requireActiveStatus, getStaffReminderConsent);
 router.post('/:id/reminder-text-consent', requireActiveStatus, saveStaffReminderConsent);
 router.get('/:id/account-support', requireActiveStatus, getClientAccountSupport);

@@ -45,13 +45,14 @@ watch(() => props.appointmentId, load, { immediate: true });
       <p v-if="data.canOpenLearningWorkspace"><button type="button" :disabled="openingLearning" @click="openLearningWorkspace">{{ openingLearning ? 'Opening…' : 'Open learning session' }}</button></p>
       <div class="staff-alert" :class="{ 'staff-alert--active': !!data.alert.text }">
         <div class="staff-alert__heading"><strong>⚑ Internal appointment alert</strong><button v-if="data.canEdit && !editing" type="button" @click="editing = true; draft = data.alert.text">{{ data.alert.text ? 'Edit alert' : 'Add alert' }}</button></div>
-        <p class="hint">Visible to staff with full access to this schedule. Never sent to clients.</p>
+        <p class="hint">Visible to authorized staff. The note author must acknowledge a current alert before starting or continuing this session note. Never sent to clients.</p>
         <p v-if="data.alert.text && !editing" class="alert-text">{{ data.alert.text }}</p>
         <form v-if="editing" @submit.prevent="save">
           <label>Reminder for this appointment<textarea v-model="draft" rows="2" maxlength="500" :disabled="saving" placeholder="For example: prepare the intake paperwork before this session." /></label>
           <div class="staff-alert__actions"><button type="submit" :disabled="saving">{{ saving ? 'Saving…' : 'Save alert' }}</button><button type="button" :disabled="saving" @click="editing = false">Discard changes</button><button v-if="data.alert.text" type="button" :disabled="saving" @click="draft = ''; save()">Remove alert</button></div>
         </form>
       </div>
+      <div v-for="alert in data.diagnosisAlerts || []" :key="`${alert.clientId}:${alert.diagnosisId}:${alert.code}`" class="staff-alert staff-alert--active" role="status"><strong>Diagnosis review</strong><p>{{ alert.message }}</p><a :href="`/admin/clients/${alert.clientId}?tab=clinical`">Review clinical record</a></div>
       <div v-if="data.clients.length" class="staff-contact">
         <label v-if="data.clients.length > 1">Client<select v-model="selectedClientId" @change="messaging = false"><option v-for="client in data.clients" :key="client.id" :value="client.id">{{ client.name }}</option></select></label>
         <button type="button" @click="messaging = !messaging">{{ messaging ? 'Hide messages' : 'Text, message or email client · Conversa' }}</button>

@@ -44,16 +44,7 @@
             </button>
           </div>
         </div>
-        <label class="na-label">
-          Diagnostic justification
-          <textarea
-            v-model="diagnosticJustification"
-            class="na-textarea"
-            rows="4"
-            placeholder="How the presentation supports the diagnosis list…"
-            :disabled="isFinal"
-          />
-        </label>
+        <ClinicalDiagnosisFields v-model="diagnoses" :disabled="isFinal" />
       </div>
 
       <div v-if="!isFinal" class="na-revision-block">
@@ -105,6 +96,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
+import ClinicalDiagnosisFields from './ClinicalDiagnosisFields.vue';
 
 const props = defineProps({
   clientId: { type: [Number, String], required: true },
@@ -155,7 +147,7 @@ function applyDraft(draft) {
   if (Array.isArray(list) && list.length) {
     diagnoses.value = list.map((d) => ({
       code: d.code || d.icd10Code || d.icd10_code || '',
-      description: d.description || ''
+      description: d.description || '', justification: d.justification || ''
     }));
     diagnosticJustification.value = String(
       list[0]?.justification || confirmed?.justification || draft.diagnosticJustification || ''
@@ -196,7 +188,7 @@ function diagnosesPayload() {
   return diagnoses.value.map((d, i) => ({
     code: d.code,
     description: d.description,
-    justification: i === 0 ? just : '',
+    justification: String(d.justification || '').trim(),
     isPrimary: i === 0
   }));
 }
@@ -251,6 +243,7 @@ async function regenerate() {
 
 async function finalize({ openPlan } = {}) {
   if (!draftId.value) return;
+  if(diagnoses.value.some(d => !String(d.justification || '').trim())) { error.value = 'Add a separate clinical justification for every diagnosis before finalizing.'; return; }
   busy.value = true;
   busyAction.value = 'finalize';
   error.value = '';

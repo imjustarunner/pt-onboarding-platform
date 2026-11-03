@@ -2456,6 +2456,7 @@
             <AppointmentBillingPanel
               v-if="editorIsClinical && editorPracticeCategory === 'mental_health'"
               :agency-id="Number(editorAgencyId || selectedActionAgencyId || 0)"
+              :client-id="editorInfoClientId"
               :client-name="editorInfoClientName"
               :can-view-financials="editorCanViewBillingFinancials"
               v-model:primary-service-code="bookingServiceCode"

@@ -50,7 +50,10 @@ async function saveInsurance(req,res,next,support=false) {
     if (coverageSources.primary) profileId = coverageSources.primary.profileId;
     const insurance = await writeClientInsurance({...c,primary:req.body.primary,secondary:req.body.secondary,patient:req.body.patient,profileId,coverageSources,confirmedBy:req.user.id,verifiedForClaims:!support&&req.body.verifiedForClaims===true,acceptAssignment:support?(previous?.acceptAssignment??null):req.body.acceptAssignment===true ? true : req.body.acceptAssignment===false ? false : null});
     await auditBilling({...c,userId:req.user.id,action:'staff_update_insurance'});
-    res.set('Cache-Control','no-store').json({insurance:support?supportInsurance(insurance):insurance,...(support?{}:{missingClaimFields:claimInsuranceIssues(insurance.primary)})});
+    let eligibilityQueueWarning=null;
+    try {const { enqueueIntakeEligibility } = await import('../services/intakeEligibility.service.js');await enqueueIntakeEligibility({...c,submissionId:0});}
+    catch(error){eligibilityQueueWarning='Insurance was saved. Automatic eligibility could not be queued; use Verify coverage to complete billing review.';console.warn('[insurance] eligibility queue failed',{agencyId:c.agencyId,clientId:c.clientId,code:error.code||'queue_failed'});}
+    res.set('Cache-Control','no-store').json({insurance:support?supportInsurance(insurance):insurance,eligibilityQueueWarning,...(support?{}:{missingClaimFields:claimInsuranceIssues(insurance.primary)})});
   } catch(e){next(e);}
 }
 

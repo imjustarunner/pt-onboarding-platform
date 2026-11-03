@@ -1,3 +1,5 @@
+import {assertClientDiagnosisPolicy} from '../../services/clinicalDiagnosisPolicy.service.js';
+vi.mock('../../services/clinicalDiagnosisPolicy.service.js',()=>({assertClientDiagnosisPolicy:vi.fn(async()=>({ready:true})),listClientDiagnosisAlerts:vi.fn(async()=>[])}));
 import { beforeEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(()=>({ execute:vi.fn(),clinical:vi.fn(),access:vi.fn(),draft:vi.fn(),update:vi.fn(),reopen:vi.fn(),client:vi.fn(),status:vi.fn(),history:vi.fn(),plan:vi.fn(),planById:vi.fn(),audit:vi.fn() }));
 vi.mock('../../config/database.js',()=>({default:{execute:mocks.execute,getConnection:async()=>({execute:async(sql)=>sql.includes('GET_LOCK')?[[{acquired:1}]]:[[]],release:vi.fn()})},onTableWrite:vi.fn()}));
@@ -44,7 +46,7 @@ it.each(['ready','final'])('rejects unreviewed %s finalization before modifying 
 it('rejects a selected appointment outside the scoped options before any writes',async()=>{
  const sections=JSON.parse(row.note_sections_json_enc);const res=response(),next=vi.fn();await finalizeClientIntakeNote({params:{id:'2304',draftId:'1'},query:{},body:{sourceReview:{fingerprint:intakeDraftReview(row,sections).fingerprint,sectionKeys:['mse'],sourceCompared:true,unsupportedClaimsRemoved:true,appointmentReviewed:true,clinicalSessionId:999}},user:{id:1,role:'super_admin'}},res,next);
  expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(409);expect(res.json.mock.calls[0][0].error.code).toBe('INTAKE_APPOINTMENT_REVIEW_REQUIRED');expect(mocks.update).not.toHaveBeenCalled();
- expect(mocks.clinical.mock.calls[0][1]).toEqual([450,2304,1433,'90791']);
+ expect(mocks.clinical.mock.calls[0][1]).toEqual([450,2304,'90791',1433]);
 });
 
 it('finalizes only after review and stores the matching appointment with actor evidence',async()=>{
@@ -66,3 +68,5 @@ it('keeps the draft readable when appointment lookup fails and blocks finalizati
  await finalizeClientIntakeNote({params:{id:'2304',draftId:'1'},query:{},body:{sourceReview:{fingerprint:intakeDraftReview(row,sections).fingerprint,sectionKeys:['mse'],sourceCompared:true,unsupportedClaimsRemoved:true,appointmentReviewed:true}},user:{id:1,role:'super_admin'}},finalizeResponse,next);
  expect(next).not.toHaveBeenCalled();expect(finalizeResponse.status).toHaveBeenCalledWith(503);expect(mocks.update).not.toHaveBeenCalled();
 });
+
+it('requires diagnosis review before finalizing the intake snapshot',async()=>{assertClientDiagnosisPolicy.mockRejectedValueOnce(Object.assign(new Error('Each diagnosis requires justification'),{status:409,code:'DIAGNOSIS_REVIEW_REQUIRED'}));mocks.plan.mockResolvedValue([{id:55,status:'active',source_tool_id:'note_aid_plan_import'}]);mocks.planById.mockResolvedValue({id:55,status:'active'});const sections=JSON.parse(row.note_sections_json_enc),next=vi.fn();await finalizeClientIntakeNote({params:{id:'2304',draftId:'1'},query:{},body:{sourceReview:{fingerprint:intakeDraftReview(row,sections).fingerprint,sectionKeys:['mse'],sourceCompared:true,unsupportedClaimsRemoved:true,appointmentReviewed:true}},user:{id:1,role:'super_admin'}},response(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({code:'DIAGNOSIS_REVIEW_REQUIRED'}));expect(mocks.status).not.toHaveBeenCalled();expect(mocks.update).not.toHaveBeenCalled();});

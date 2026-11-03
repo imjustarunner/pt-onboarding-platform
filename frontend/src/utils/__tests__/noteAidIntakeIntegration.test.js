@@ -67,3 +67,5 @@ describe('generated intake integration', () => {
     expect(sections['Mental Status Examination']).not.toContain('Mood: Calm');
   });
 });
+
+it('keeps separately generated justifications attached to each code in order',()=>{const diagnoses=intakeDiagnoses({Diagnosis:'F41.1 Generalized anxiety disorder\nZ63.4 Family context','Diagnostic Justification':'F41.1: Source-supported anxiety symptoms with functional impact.\n\nZ63.4: Documented family circumstance affecting care.'});expect(diagnoses.map(d=>d.justification)).toEqual(['Source-supported anxiety symptoms with functional impact.','Documented family circumstance affecting care.']);const sections=intakeSectionsForRecord({}, {diagnoses});expect(sections['Diagnostic Justification']).toBe('F41.1: Source-supported anxiety symptoms with functional impact.\n\nZ63.4: Documented family circumstance affecting care.');});

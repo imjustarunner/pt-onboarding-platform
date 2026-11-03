@@ -651,6 +651,8 @@ async function upsertClientIdentity({ agencyId, clientId, patientNameHash, patie
 
 async function ensureProviderAssignment({ clientId, agencyId, providerUserId, actingUserId, clientType, organizationId }) {
   if (!clientId || !providerUserId) return;
+  const { assertNewProviderCoverageAdmission } = await import('./clientCoverageAdmission.service.js');
+  await assertNewProviderCoverageAdmission(clientId, providerUserId);
   let orgId = Number(organizationId || 0) || Number(agencyId);
   if (!organizationId) {
     try {

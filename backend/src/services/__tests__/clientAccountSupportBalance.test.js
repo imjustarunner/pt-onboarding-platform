@@ -1,3 +1,4 @@
+vi.mock('../clientPaymentSetup.service.js',()=>({clientPaymentSetup:vi.fn(async()=>({summary:{medicaid:false,cardOnFile:true,responsibleParties:[{name:'Synthetic Parent'}]}}))}));
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../clientInsurance.service.js',()=>({readClientInsurance:vi.fn(async()=>({primary:{insurerName:'Example'}}))}));
@@ -16,5 +17,5 @@ it('only totals the remaining collectible amount and excludes pending and review
   expect(JSON.stringify(result)).not.toMatch(/paid_cents|amount_cents|due_date|claim/);
 });
 it('retains the status-only response for clinicians and other existing consumers',async()=>{
-  const result=await clientCareBillingSummary(2,20,pool);expect(result.balance).not.toHaveProperty('payableCents');
+  const result=await clientCareBillingSummary(2,20,pool);expect(result).not.toHaveProperty('balance');expect(result.paymentSetup.cardOnFile).toBe(true);expect(pool.execute).not.toHaveBeenCalled();
 });

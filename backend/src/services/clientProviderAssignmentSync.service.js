@@ -22,6 +22,9 @@ export async function ensureClientProviderAssignmentRow(
   const pid = parseInt(providerUserId, 10);
   if (!cid || !oid || !pid) return { ok: false, reason: 'missing_ids' };
 
+  const { assertNewProviderCoverageAdmission } = await import('./clientCoverageAdmission.service.js');
+  await assertNewProviderCoverageAdmission(cid, pid, { db: connection });
+
   const day = serviceDay ? String(serviceDay).trim() : null;
   const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
   const normalizedDay = day && allowedDays.includes(day) ? day : null;

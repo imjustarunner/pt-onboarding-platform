@@ -12,12 +12,13 @@ import { claimDocumentation } from '../services/claimContentReview.service.js';
 import { resolveNoteDocumentationPolicy, hasCurrentSupervisorCosign, hasClinicalAmendments, isNonBillableDocument } from '../services/supervisedBillingPolicy.service.js';
 import { appointmentFinancials } from '../services/appointmentFinancials.service.js';
 import { logClientAccess } from '../services/clientAccessLog.service.js';
+import { clientPaymentSetup } from '../services/clientPaymentSetup.service.js';
 
 export async function getPlannedBillingServices(req,res,next) {
   try {
     const agencyId=Number(req.query.agencyId);
     await ClinicalEligibilityService.ensureAgencyAccess({reqUser:req.user,agencyId});
-    res.set('Cache-Control','no-store').json(await plannedBillingServices(agencyId));
+    res.set('Cache-Control','no-store').json(await plannedBillingServices(agencyId,undefined,{clientId:req.query.clientId}));
   }catch(error){next(error);}
 }
 
@@ -33,6 +34,12 @@ export async function getAppointmentBilling(req, res, next) {
     if (!access.ok) return res.status(access.status).json({error:{message:access.message}});
     const financialAccess=await hasSchedulingBillingAccess(req.user,agencyId);
     const insurance=await readClientInsurance(session.client_id,agencyId);
+    if(!financialAccess){
+      const {summary:paymentSetup}=await clientPaymentSetup(agencyId,session.client_id);
+      await logClientAccess(req,session.client_id,'view_care_coverage_status');
+      return res.set('Cache-Control','no-store').json({financialAccess:false,clientId:session.client_id,sessionId,
+        policies:['primary','secondary'].filter(slot=>insurance?.[slot]?.insurerName).map(slot=>({position:slot,insurerName:insurance[slot].insurerName})),paymentSetup});
+    }
     const [claims]=await clinicalPool.execute('SELECT * FROM clinical_claims WHERE agency_id=? AND client_id=? AND clinical_session_id=? AND is_deleted=0 ORDER BY payer_sequence,id',[agencyId,session.client_id,sessionId]);
     const [[latestNote]]=await clinicalPool.execute('SELECT id,provider_signed_at FROM clinical_notes WHERE agency_id=? AND client_id=? AND clinical_session_id=? AND is_deleted=0 ORDER BY id DESC LIMIT 1',[agencyId,session.client_id,sessionId]);
 
@@ -58,6 +65,6 @@ export async function getAppointmentBilling(req, res, next) {
     }
     const policySummary=policy => policy ? {insurerName:policy.insurerName || '',memberId:policy.memberId || '',planType:policy.planType || ''} : null;
     await logClientAccess(req,session.client_id,'appointment_claim_progress_viewed');
-    res.json({financialAccess,sessionId,serviceCode:session.service_code,primaryPolicy:policySummary(insurance?.primary),secondaryPolicy:policySummary(insurance?.secondary),progress});
+    res.set('Cache-Control','no-store').json({financialAccess,clientId:session.client_id,sessionId,serviceCode:session.service_code,primaryPolicy:policySummary(insurance?.primary),secondaryPolicy:policySummary(insurance?.secondary),progress});
   } catch(error) { next(error); }
 }

@@ -4029,6 +4029,10 @@ export const assignProvider = async (req, res, next) => {
 
       const oldProviderId = currentClient.provider_id ? parseInt(currentClient.provider_id, 10) : null;
       const oldDay = currentClient.service_day ? String(currentClient.service_day) : null;
+      if (providerId && providerId !== oldProviderId) {
+        const { assertNewProviderCoverageAdmission } = await import('../services/clientCoverageAdmission.service.js');
+        await assertNewProviderCoverageAdmission(id, providerId, { db: connection });
+      }
       const schoolId = parseInt(currentClient.organization_id, 10);
       const workflowArchived = String(currentClient.status || '').toUpperCase() === 'ARCHIVED';
       const [curStatusRows] = await connection.execute(
@@ -8379,6 +8383,10 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
         [clientId, orgId, providerUserId]
       );
       const activeList = (assignmentRows || []).filter(row => Number(row.is_active) === 1);
+      if (!activeList.length) {
+        const { assertNewProviderCoverageAdmission } = await import('../services/clientCoverageAdmission.service.js');
+        await assertNewProviderCoverageAdmission(clientId, providerUserId, { db: connection });
+      }
       const existingSameDay =
         [...activeList, ...(assignmentRows || [])].find((r) => (r.service_day == null && serviceDay == null) || String(r.service_day || '') === String(serviceDay || '')) ||
         null;

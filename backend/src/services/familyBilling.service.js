@@ -4,9 +4,10 @@ import GuardianInsuranceProfile from '../models/GuardianInsuranceProfile.model.j
 import { BILLING_TERMS, BILLING_TERMS_VERSION, linkAllowsBilling, linkAllowsBillingView, linkAllowsInsurance, requireInsuranceLink, requireBillingLink, requireResponsiblePayer, billingError, positiveId, auditBilling, recordBillingConsent } from './familyBillingPolicy.service.js';
 import { normalizePolicy, applySubmittedClientInsurance, readClientInsurance, claimInsuranceIssues } from './clientInsurance.service.js';
 import { getStripePublishableKey } from './stripePayments.service.js';
+import { hasMedicaidCoverage } from '../utils/insurancePaymentPolicy.js';
 
 export async function getFamilyBillingSummary(userId, agencyId) {
-  const [clients] = await pool.execute(`SELECT c.id, c.full_name, c.initials, c.date_of_birth, c.client_type, c.billing_insurance_payload IS NOT NULL AS insurance_on_file, cg.access_enabled, cg.relationship_type, cg.permissions_json,i.status AS independence_status,g.scopes_json AS support_scopes
+  const [clients] = await pool.execute(`SELECT c.id, c.full_name, c.initials, c.date_of_birth, c.client_type, c.primary_insurer_name, c.billing_insurance_payload IS NOT NULL AS insurance_on_file, cg.access_enabled, cg.relationship_type, cg.permissions_json,i.status AS independence_status,g.scopes_json AS support_scopes
     FROM client_guardians cg JOIN clients c ON c.id = cg.client_id
     LEFT JOIN client_portal_independence i ON i.client_id=c.id
     LEFT JOIN client_support_grants g ON g.client_id=c.id AND g.helper_user_id=cg.guardian_user_id AND g.agency_id=? AND g.revoked_at IS NULL
@@ -21,8 +22,14 @@ export async function getFamilyBillingSummary(userId, agencyId) {
       JOIN client_guardians cg ON cg.client_id = p.client_id AND cg.guardian_user_id = p.guardian_user_id
       WHERE p.agency_id = ? AND p.client_id = ? AND p.status = 'active'`, [agencyId, c.id]);
     const own = linkAllowsBilling(c) ? payers.find(p => Number(p.guardian_user_id) === Number(userId)) : null;
+    const insurance=linkAllowsBilling(c)?await readClientInsurance(c.id,agencyId):null;
+    const medicaid=hasMedicaidCoverage(insurance)||(linkAllowsBilling(c)&&hasMedicaidCoverage({primary:{insurerName:c.primary_insurer_name}}));
+    const [[paymentRequest]]=linkAllowsBilling(c)?await pool.execute(`SELECT r.id FROM client_payment_setup_requests r
+      JOIN client_payment_setup_deliveries d ON d.request_id=r.id AND d.recipient_user_id=? AND d.recipient_kind='family'
+      WHERE r.agency_id=? AND r.client_id=? ORDER BY r.id DESC LIMIT 1`,[userId,agencyId,c.id]):[[]];
     items.push({ clientId: c.id, clientName: c.full_name || c.initials, clientType:c.client_type, insuranceApplicable:!['learning','tutoring'].includes(String(c.client_type).toLowerCase()), insuranceOnFile: linkAllowsInsurance(c) ? !!c.insurance_on_file : null, canManageInsurance: linkAllowsInsurance(c), responsiblePayers: payers.filter(p=>c.independence_status!=='active'||c.relationship_type==='self'||Number(p.guardian_user_id)===Number(userId)).map(p => ({ name: [p.first_name, p.last_name].filter(Boolean).join(' ') || 'Responsible payer' })), canAcceptResponsibility: linkAllowsBilling(c), canManageBilling: !!own,
-      ...(own ? { paymentCardId: own.payment_card_id, recurringEnabled: !!own.consent_id, recurringLimitCents: own.recurring_limit_cents, paymentOnFileRequired: !own.payment_card_id } : {}) });
+      medicaid,paymentSetupRequested:!medicaid&&!!paymentRequest&&!own?.payment_card_id,
+      ...(own ? { paymentCardId: own.payment_card_id, recurringEnabled: !!own.consent_id, recurringLimitCents: own.recurring_limit_cents, paymentOnFileRequired: !medicaid&&!own.payment_card_id } : {}) });
   }
   const canManage = items.some(c => c.canManageBilling);
   const cards = canManage ? (await GuardianPaymentCard.findActiveByGuardian(userId, agencyId)).map(paymentCardSummary) : [];

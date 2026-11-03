@@ -325,3 +325,12 @@ export async function correctClaim(req, res, next) {
     res.json({ ok: true, clinicalVersion, message: 'Billing fields corrected. Review the refreshed claim before submitting. Clinical corrections require a signed note amendment.' });
   } catch (e) { if (db) await db.rollback(); next(e); } finally { db?.release(); }
 }
+
+export async function prepareClaimResubmission(req,res,next) {
+  try {
+    const agencyId=await agencyFor(req),claimId=Number(req.params.claimId);
+    if(!Number.isSafeInteger(claimId)||claimId<1)throw fail(400,'A valid claim is required.');
+    const {createClaimResubmission}=await import('../services/claimResubmission.service.js');
+    res.status(201).json(await createClaimResubmission({...req.body,agencyId,claimId,actorUserId:Number(req.user.id)}));
+  }catch(error){next(error);}
+}

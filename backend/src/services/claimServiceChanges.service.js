@@ -36,6 +36,8 @@ export async function assertOriginalTransmissionAllowed(claim,db=clinicalPool) {
   const [[attempt]]=await db.execute("SELECT id FROM claimmd_claim_events WHERE agency_id=? AND clinical_claim_id=? AND event_type='approved_submission' LIMIT 1",[claim.agency_id,claim.id]);
   if(previouslyTransmitted(claim)||attempt)throw policyError(409,'This claim has a submission history. Pause for payer-status reconciliation and the payer-specific correction workflow; do not send another original claim.');
   if(await hasPendingClaimChange(claim,db))throw policyError(409,'Service changes await supervisor sign-off and billing review. Submission is paused.');
+  const { assertResubmissionSource } = await import('./claimResubmission.service.js');
+  await assertResubmissionSource(claim,db);
 }
 
 // Never transmits. Submitted originals and payment state remain immutable here.

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(),getConnection:vi.fn()}}));
+vi.mock('../../config/database.js',()=>({onTableWrite:vi.fn(),default:{execute:vi.fn(),getConnection:vi.fn()}}));
 vi.mock('../../models/GuardianInsuranceProfile.model.js',()=>({default:{findByGuardian:vi.fn(),upsert:vi.fn()},decodeInsuranceProfile:row=>row}));
 vi.mock('../../models/GuardianPaymentCard.model.js',()=>({default:{findActiveByGuardian:vi.fn()},paymentCardSummary:value=>value}));
 vi.mock('../storage.service.js',()=>({default:{}}));
@@ -13,7 +13,7 @@ import {readClientInsurance,applySubmittedClientInsurance} from '../clientInsura
 import {getFamilyBillingSummary,saveFamilyInsurance} from '../familyBilling.service.js';
 import {cardContext} from '../insuranceCards/service.js';
 
-beforeEach(()=>vi.clearAllMocks());
+beforeEach(()=>{vi.clearAllMocks();readClientInsurance.mockResolvedValue({});});
 describe('second guardian insurance readiness',()=>{
  it('allows the policy holder to upload an explicitly linked additional policy before coverage coordination',async()=>{
   const profile={id:22,agency_id:1,guardian_user_id:20,client_id:101,primary:{insurerName:'Other coverage',memberId:'SYNTHETIC'}};
@@ -21,6 +21,7 @@ describe('second guardian insurance readiness',()=>{
    if(sql.includes('SELECT p.*'))return [[profile]];
    if(sql.includes('SELECT DISTINCT c.id'))return [[{id:101,assigned_profile_id:22}]];
    if(sql.includes('SELECT cg.*'))return [[{access_enabled:1,relationship_type:'guardian'}]];
+   if(sql.includes('FROM intake_submissions'))return [[{id:7}]];
    throw Error(sql);
   });
   readClientInsurance.mockResolvedValue({profileId:11,primary:{insurerName:'First coverage'}});
@@ -62,4 +63,17 @@ describe('second guardian insurance readiness',()=>{
   expect(applySubmittedClientInsurance).toHaveBeenCalledWith(expect.objectContaining({clientId:101,profileId:22,confirmedBy:20}),db);
   expect(db.commit).toHaveBeenCalled();
  });
+});
+
+it('never requests a payment method for legacy or secondary Medicaid in the family summary',async()=>{
+ for(const legacy of [true,false]){
+  pool.execute.mockImplementation(async sql=>{
+   if(sql.includes('SELECT c.id'))return [[{id:101,full_name:'DEMO QA Child',access_enabled:1,relationship_type:'guardian',primary_insurer_name:legacy?'Health First Colorado':'Private plan'}]];
+   if(sql.includes('SELECT p.guardian_user_id'))return [[{guardian_user_id:20,first_name:'DEMO QA',last_name:'Payer',payment_card_id:null}]];
+   if(sql.includes('client_payment_setup_requests'))return [[{id:8}]];
+   return [[]];
+  });
+  readClientInsurance.mockResolvedValue(legacy?{}:{primary:{insurerName:'Private plan'},secondary:{isMedicaid:true}});Cards.findActiveByGuardian.mockResolvedValue([]);Profiles.findByGuardian.mockResolvedValue([]);
+  const result=await getFamilyBillingSummary(20,1);expect(result.clients[0]).toMatchObject({medicaid:true,paymentOnFileRequired:false,paymentSetupRequested:false});
+ }
 });

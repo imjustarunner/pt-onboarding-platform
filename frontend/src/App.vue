@@ -1,6 +1,7 @@
 <template>
   <BrandingProvider>
     <AccountSecurityNotice v-if="isAuthenticated" />
+    <InsuranceVerificationGate v-if="isAuthenticated && !sessionLockStore.isLocked && !sessionLockStore.warningActive" />
     <OfficeArrivalSplash v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :key="user.id" />
     <BillingFollowupSplash v-if="!route.meta?.auricwellPreview && canSeeMedicalBilling && isAuthenticated && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :key="`billing-followup-${user.id}`" />
     <SchoolContactPlanSplash
@@ -2298,6 +2299,7 @@ const isNative = Capacitor.isNativePlatform();
 import { useAuthStore } from './store/auth';
 import EmailComposerDock from './components/messages/EmailComposerDock.vue';
 import AccountSecurityNotice from './components/AccountSecurityNotice.vue';
+import InsuranceVerificationGate from './components/billing/InsuranceVerificationGate.vue';
 import SchoolContactPlanSplash from './components/school/SchoolContactPlanSplash.vue';
 import { useBrandingStore } from './store/branding';
 import { useAgencyStore } from './store/agency';

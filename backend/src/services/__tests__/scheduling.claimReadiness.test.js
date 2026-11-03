@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+const diagnosisPolicy = vi.hoisted(() => ({ evaluate:vi.fn() }));
+vi.mock('../clinicalDiagnosisPolicy.service.js',()=>({evaluateClientDiagnosisPolicy:diagnosisPolicy.evaluate}));
 const versions = vi.hoisted(() => ({ approved: vi.fn(), state: vi.fn() }));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: vi.fn() } }));
 vi.mock('../clinicalDiagnosisAttach.service.js', () => ({ getPrimaryClinicalDiagnosis: vi.fn() }));
@@ -12,6 +14,7 @@ let note;
 const evaluate = (extra = {}) => evaluateClaimReadiness({ agencyId: 1, clientId: 2, clinicalSessionId: 3, requireSignedNote: true, ...extra });
 describe('clinical claim readiness', () => {
   beforeEach(() => {
+    diagnosisPolicy.evaluate.mockResolvedValue({ready:true,blockers:[],warnings:[],alerts:[]});
     versions.approved.mockImplementation(async ({ note }) => ({ note }));
     versions.state.mockResolvedValue({ effectiveRevisionId: 10, effectiveRevision: { contentHash: 'a'.repeat(64) }, pendingRevisionId: null, blockers: [] });
     session = { id: 3 };
@@ -19,7 +22,7 @@ describe('clinical claim readiness', () => {
     getPrimaryClinicalDiagnosis.mockResolvedValue({ id: 5, icd10_code: 'F41.1' });
     clinicalPool.execute.mockImplementation(async (sql, params) => {
       if (sql.includes("s.service_code='H0002'")) return [[]];
-      if (sql.includes('claim_blocked_reason FROM clinical_sessions')) return [[session].filter(Boolean)];
+      if (sql.includes('claim_blocked_reason') && sql.includes('FROM clinical_sessions')) return [[session].filter(Boolean)];
       if (sql.includes('FROM clinical_notes') && sql.includes('is_deleted = 0')) {
         expect(sql).toContain('agency_id = ?');
         expect(sql).toContain('client_id = ?');
@@ -32,8 +35,17 @@ describe('clinical claim readiness', () => {
       throw new Error(`Unexpected query: ${sql}`);
     });
   });
+  it('keeps an approved note linked while blocking transmission for diagnosis review',async()=>{diagnosisPolicy.evaluate.mockResolvedValue({ready:false,blockers:['Clinical justification required'],warnings:[],alerts:[{code:'diagnosis_supporting_evidence_required'}]});expect(await evaluate()).toMatchObject({ready:false,noteId:4,blockers:['Clinical justification required'],diagnosisAlerts:[{code:'diagnosis_supporting_evidence_required'}]});});
   it('accepts a signed billable note with diagnosis', async () => {
     expect(await evaluate()).toMatchObject({ ready: true, noteId: 4 });
+  });
+  it('checks the clinical author credential rather than a substituted billing rendering provider',async()=>{
+    note.provider_signed_by_user_id=7;session.provider_user_id=7;session.rendering_provider_user_id=99;
+    await evaluate();expect(diagnosisPolicy.evaluate).toHaveBeenLastCalledWith(expect.objectContaining({providerUserId:7}));
+  });
+  it('evaluates diagnosis coverage against the approved amendment service code',async()=>{
+    session.service_code='H0031';versions.approved.mockResolvedValue({note:{...note,clinical_version_encounter_context:{serviceCode:'90834'},metadata_json:{serviceCode:'90834'}}});
+    await evaluate();expect(diagnosisPolicy.evaluate).toHaveBeenLastCalledWith(expect.objectContaining({serviceCode:'90834'}));
   });
   it('rejects a mismatched client/session before reading notes', async () => {
     session = null;

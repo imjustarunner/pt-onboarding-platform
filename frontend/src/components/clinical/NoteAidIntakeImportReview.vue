@@ -44,21 +44,12 @@
             </div>
 
             <div class="na-dx-justification">
-              <label class="na-label na-label--tight">
-                Diagnostic justification
-                <span class="hint">One narrative covering all diagnoses above</span>
-                <textarea
-                  v-model="diagnosticJustification"
-                  class="na-textarea"
-                  rows="5"
-                  placeholder="Describe how the presentation supports the diagnosis list…"
-                />
-              </label>
+              <ClinicalDiagnosisFields v-model="diagnoses" />
               <div class="na-eval-row">
                 <button
                   type="button"
                   class="na-btn-outline na-btn-outline--sm"
-                  :disabled="evaluating || !diagnoses[0]?.code || !diagnosticJustification.trim()"
+                  :disabled="evaluating || !diagnoses[0]?.code || diagnoses.some(d => !String(d.justification || '').trim())"
                   @click="evaluateJustification"
                 >
                   {{ evaluating ? 'Evaluating…' : 'AI evaluate justification' }}
@@ -90,6 +81,7 @@
 <script setup>
 import { ref, watch } from 'vue';
 import api from '../../services/api';
+import ClinicalDiagnosisFields from './ClinicalDiagnosisFields.vue';
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -173,13 +165,14 @@ function normalizeDiagnosesFromResponse(list, singleDx) {
     return list.map((d, i) => ({
       code: d.code || d.icd10Code || '',
       description: d.description || '',
+      justification: d.justification || '',
       isPrimary: i === 0
     }));
   }
   if (singleDx?.code) {
     return [{
       code: singleDx.code || singleDx.icd10Code || '',
-      description: singleDx.description || ''
+      description: singleDx.description || '', justification: singleDx.justification || ''
     }];
   }
   return [{ code: '', description: '' }];
@@ -220,7 +213,7 @@ async function doImport() {
 
 async function evaluateJustification() {
   const primary = diagnoses.value[0];
-  const just = String(diagnosticJustification.value || '').trim();
+  const just = diagnoses.value.map(d=>`${d.code}: ${d.justification || ''}`).join('\n\n');
   if (!primary?.code || !just) return;
   evaluating.value = true;
   error.value = '';
@@ -253,12 +246,11 @@ async function evaluateJustification() {
 }
 
 function diagnosesPayload() {
-  const just = String(diagnosticJustification.value || '').trim();
+  const just = diagnoses.value.map(d=>`${d.code}: ${d.justification || ''}`).join('\n\n');
   return diagnoses.value.map((d, i) => ({
     code: d.code,
     description: d.description,
-    // Shared justification lives on the primary diagnosis for API / chart storage.
-    justification: i === 0 ? just : '',
+    justification: String(d.justification || '').trim(),
     isPrimary: i === 0,
     evaluationScore: i === 0 ? evaluationScore.value : null,
     evaluationSummary: i === 0 ? (evaluationSummary.value || null) : null

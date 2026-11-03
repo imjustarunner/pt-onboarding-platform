@@ -12,16 +12,18 @@
           <h4>{{ client.clientName }}</h4>
           <p><strong>Responsible payer:</strong> {{ client.responsiblePayers.map(p => p.name).join(', ') || 'Not yet designated' }}</p>
           <p v-if="client.insuranceOnFile && client.insuranceApplicable !== false">Coverage is recorded for this client. Review the policies you hold below; policies held by another guardian remain private.</p>
-          <button v-if="section === 'authorization' && (client.canManageBilling || client.canAcceptResponsibility)" type="button" @click="openAuthorization(client,'responsibility')">Review and sign payment authorization</button>
+          <p v-if="client.medicaid" class="status">Medicaid coverage: a payment method is not required.</p>
+          <p v-else-if="client.paymentSetupRequested" role="status">Billing requested payment setup. In order to prevent interruption of services, please add a payment method below. Contact Billing if you need help or wish to discuss an arrangement.</p>
+          <button v-if="!client.medicaid && section === 'authorization' && (client.canManageBilling || client.canAcceptResponsibility)" type="button" @click="openAuthorization(client,'responsibility')">Review and sign payment authorization</button>
           <template v-else-if="client.canManageBilling">
-            <p class="status">{{ client.paymentCardId ? 'Your payment method is assigned' : 'Payment method required before paid services' }}</p>
+            <p v-if="!client.medicaid" class="status">{{ client.paymentCardId ? 'Your payment method is assigned' : 'Payment method required before paid services' }}</p>
             <label>Your card for this client<select v-model="cardSelections[client.clientId]"><option value="">Select a saved card</option><option v-for="card in data.cards" :key="card.id" :value="card.id" :disabled="card.verificationRequired">{{ card.card_brand }} •••• {{ card.card_last4 }}{{ card.verificationRequired ? ' — add again to verify' : '' }}</option></select></label>
             <button class="btn btn-secondary" type="button" :disabled="busy || !cardSelections[client.clientId]" @click="assign(client)">Apply card to this client</button>
             <p v-if="client.recurringEnabled">Recurring authorization active, up to {{ money(client.recurringLimitCents) }} per charge.</p>
             <button v-if="client.recurringEnabled" class="btn btn-secondary" type="button" :disabled="busy" @click="revoke(client)">Revoke recurring authorization</button>
-            <button v-else class="btn btn-secondary" type="button" :disabled="busy || !client.paymentCardId" @click="openAuthorization(client,'recurring')">Authorize recurring billing</button>
+            <button v-else-if="!client.medicaid" class="btn btn-secondary" type="button" :disabled="busy || !client.paymentCardId" @click="openAuthorization(client,'recurring')">Authorize recurring billing</button>
           </template>
-          <button v-else-if="client.canAcceptResponsibility" class="btn btn-secondary" type="button" @click="openAuthorization(client,'responsibility')">Accept financial responsibility</button>
+          <button v-else-if="!client.medicaid && client.canAcceptResponsibility" class="btn btn-secondary" type="button" @click="openAuthorization(client,'responsibility')">Accept financial responsibility</button>
         </article>
       </section>
       <form v-if="authorization" class="billing-card authorization" @submit.prevent="authorize">

@@ -1,3 +1,4 @@
+import { reactive } from 'vue';
 import { mount, shallowMount, flushPromises } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import BillingWorkspaceView from '../BillingWorkspaceView.vue';
@@ -5,19 +6,21 @@ import api from '../../../services/api';
 import { billingTotals } from '../../../utils/billingWorkspace';
 import { canAccessBillingWorkspace } from '../../../config/medicalBillingAccess';
 
-vi.mock('../../../services/api', () => ({ default: { get: vi.fn() } }));
+vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: { id: 1, name: 'Management Agency' } }) }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 5, role: 'support', first_name: 'Test', last_name: 'Biller' } }) }));
 const mockRoute = vi.hoisted(() => ({query:{},meta:{}}));
 vi.mock('vue-router', () => ({ useRoute: () => mockRoute, useRouter: () => ({ replace: vi.fn() }) }));
-vi.mock('../../../components/admin/ClaimMdWorkspace.vue', () => ({ default: { props: ['agencyId'], template: '<div data-testid="claim-tools">Claim tools for {{ agencyId }}</div>', methods: { showHistory: vi.fn() } } }));
+vi.mock('../../../components/admin/ClaimMdWorkspace.vue', () => ({ default: { props: ['agencyId'], template: '<div data-testid="claim-tools">Claim tools for {{ agencyId }}</div>', methods: { showHistory: vi.fn(), editClaim: vi.fn(), reviewClaim: vi.fn() } } }));
 vi.mock('../../../components/admin/MedicalBillingReportsPanel.vue', () => ({ default: { template: '<div>Company reports</div>' } }));
 vi.mock('../MedicalBillingView.vue', () => ({ default: { template: '<div>Company settings</div>' } }));
 vi.mock('../../../components/billing/RemittanceWorkspace.vue', () => ({default:{props:['agencyId','agencyName'],template:'<div data-testid="remittances">Payments for {{ agencyName }}</div>'}}));
 vi.mock('../../../components/admin/CallBillingQueue.vue', () => ({ default: { template: '<div />' } }));
 vi.mock('../../../components/admin/PlannedBillingServices.vue', () => ({ default: { template: '<div />' } }));
+vi.mock('../../../components/billing/ClientPendingTasks.vue',()=>({default:{template:'<div />'}}));
 vi.mock('../../../components/billing/PayerEftPanel.vue', () => ({ default: { template: '<div />' } }));
 vi.mock('../../../components/billing/BankFeedPanel.vue', () => ({ default: { template: '<div />' } }));
+vi.mock('../../../components/billing/InsuranceVerificationQueue.vue',()=>({default:{props:['agencyId','clientId'],template:'<div data-testid="insurance-verification">Coverage tasks for {{ agencyId }} client {{ clientId }}</div>'}}));
 vi.mock('../../../components/billing/InsuranceCardTasks.vue',()=>({default:{props:['agencyId'],template:'<div data-testid="insurance-followup">Insurance follow-up for {{ agencyId }}</div>'}}));
 const data = () => ({ organizations: [{ id: 1, name: 'Company One', colors: { primary: '#23564f' }, counts: { ready: 4, submitted: 2 }, connection: { configured: true, mode: 'disabled' }, enrollments: [] }, { id: 3, name: 'Company Three', counts: { rejected: 2 }, connection: { configured: false }, enrollments: [] }], claims: [{ id: 8, agency_id: 1, client_id: 12, clinical_note_id: 10, claim_lifecycle: 'submitted', amount_cents: 10000 }], total: 1, capabilities: { claims: true, enrollments: true, paymentPosting: false }, updatedAt: '2026-09-24T12:00:00Z' });
 const button = (w, text) => w.findAll('button').find(b => b.text() === text);
@@ -151,3 +154,36 @@ describe('billing workspace', () => {
     expect(canAccessBillingWorkspace({ role: 'provider_plus', billingAgencyIds: [377] })).toBe(false);
   });
 });
+
+
+describe('unified clinical and claim workflow', () => {
+  it('shows every lifecycle filter and sends organization sorting to the whole result set', async () => {
+    const w = mount(BillingWorkspaceView); await flushPromises();
+    expect(api.get.mock.calls[0][1].params.status).toBe('all');
+    const filters = w.findAll('.queue-tabs button').map(b=>b.text());
+    expect(filters).toEqual(expect.arrayContaining(['All claims','Note needed','Draft','Pending review','Revisions needed','Ready to submit','Submitted','Processing','Paid','Denied','On hold','Closed']));
+    await w.findAll('.claim-work-table th button').find(b=>b.text().startsWith('Organization')).trigger('click'); await flushPromises();
+    expect(api.get.mock.calls.filter(([url])=>url==='/medical-billing/workspace').at(-1)[1].params).toMatchObject({sortBy:'organization',direction:'asc'});
+    w.unmount();
+  });
+  it('opens an unsigned clinical draft in a visible read-only drawer', async () => {
+    const payload=data();payload.claims=[{id:null,key:'draft:16',source:'draft',agency_id:1,client_id:12,client_name:'DEMO QA Client',draft_id:16,stage:'draft',readOnly:true,canReviewClaim:false}];
+    api.get.mockResolvedValue({data:payload});const w=mount(BillingWorkspaceView);await flushPromises();
+    await button(w,'Draft #16').trigger('click');await flushPromises();
+    const drawer=w.find('[role="dialog"]');expect(drawer.exists()).toBe(true);expect(drawer.text()).toContain('The clinician’s note is in progress');
+    expect(drawer.text()).not.toContain('Edit billing fields');expect(drawer.text()).not.toContain('Review for submission');expect(drawer.find('[data-testid="claim-tools"]').exists()).toBe(false);expect(api.post).not.toHaveBeenCalled();
+    w.unmount();
+  });
+  it('opens an approved note as a claim for review without transmitting it', async () => {
+    const payload=data();payload.claims=[{id:null,key:'note:71',source:'note',agency_id:1,client_id:12,client_name:'DEMO QA Client',clinical_note_id:71,clinical_session_id:9,stage:'ready_to_submit',canPrepareClaim:true,readOnly:false}];
+    api.get.mockResolvedValue({data:payload});api.post.mockResolvedValue({data:{claim:{id:25,claim_lifecycle:'draft'}}});const w=mount(BillingWorkspaceView);await flushPromises();
+    await button(w,'Note #71').trigger('click');await flushPromises();await button(w,'Review ready claim').trigger('click');await flushPromises();
+    expect(api.post).toHaveBeenCalledWith('/medical-billing/claims',{agencyId:1,clientId:12,clinicalSessionId:9,clinicalNoteId:71},{skipGlobalLoading:true});expect(w.find('[role="dialog"]').text()).toContain('Claim #25');expect(api.post.mock.calls.some(([url])=>url.endsWith('/submit'))).toBe(false);
+    w.unmount();
+  });
+  it('opens insurance verification directly in the selected billing scope', async () => {
+    const w=mount(BillingWorkspaceView);await flushPromises();await w.find('[data-testid="organization-scope"]').setValue('3');await flushPromises();await button(w,'Insurance verification').trigger('click');await flushPromises();expect(w.find('[data-testid="insurance-verification"]').text()).toContain('for 3');w.unmount();
+  });
+});
+
+it('follows a task deep link without remounting the billing workspace',async()=>{mockRoute.query=reactive({});const w=mount(BillingWorkspaceView);await flushPromises();Object.assign(mockRoute.query,{billingSection:'insurance',agencyId:'3',clientId:'22'});await flushPromises();expect(w.find('h1').text()).toBe('Insurance verification');expect(w.find('[data-testid=insurance-verification]').text()).toContain('for 3 client 22');expect(api.get.mock.calls.filter(([path])=>path==='/medical-billing/workspace').at(-1)[1].params).toEqual(expect.objectContaining({agencyId:'3',clientId:'22'}));w.unmount();});

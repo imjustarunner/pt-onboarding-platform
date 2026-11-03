@@ -734,6 +734,11 @@ export async function processBulkClientUpload({ agencyId, userId, userRole, file
         const newProviderId = wantsAssignProvider ? providerUserId : (existing?.provider_id || null);
         const newDay = wantsAssignProvider ? (normalizedDay || null) : (existing?.service_day || null);
         const newSchoolId = schoolProvided ? schoolId : (existing?.organization_id || schoolId);
+        if (newProviderId) {
+          const { assertNewClientProviderCoverage, assertNewProviderCoverageAdmission } = await import('./clientCoverageAdmission.service.js');
+          if (existing?.id) await assertNewProviderCoverageAdmission(existing.id, newProviderId, { db: connection });
+          else await assertNewClientProviderCoverage({ agency_id: agencyId, organization_id: newSchoolId, client_type: 'school', provider_id: newProviderId, insurance_type_id: insuranceTypeId }, { db: connection });
+        }
 
         // Slot consumption only applies to CURRENT client status.
         const newIsCurrentStatus = currentStatusId

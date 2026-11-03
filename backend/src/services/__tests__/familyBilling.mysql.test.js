@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { splitSqlStatements, stripSqlLineComments } from '../../../../database/migrationSqlUtils.js';
 import { spawn } from 'node:child_process';
 // This test may only target the disposable fixture DB documented in
 // docs/security/family-billing.md. It never uses application/staging credentials.
@@ -14,6 +16,8 @@ test('MySQL: migrated family billing preserves encryption, isolation, consent, a
  const {decryptFamilyBilling}=await import('../familyBillingEncryption.service.js');
  const consent={accepted:true,version:BILLING_TERMS_VERSION,signatureName:'Synthetic Parent'};
  try {
+  const followups=await readFile(new URL('../../../../database/migrations/1736_payment_setup_followups.sql',import.meta.url),'utf8');
+  for(const statement of splitSqlStatements(stripSqlLineComments(followups)))await pool.query(statement);
   await assert.rejects(requireResponsiblePayer(10,101,1),e=>e.status===403);
   for(const [userId,clientId] of [[10,101],[10,102],[20,101]])await acceptPayer({userId,clientId,agencyId:1,consent});
   await assert.rejects(acceptPayer({userId:30,clientId:101,agencyId:1,consent}),e=>e.status===403);

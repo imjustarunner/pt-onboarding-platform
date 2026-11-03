@@ -1,3 +1,4 @@
+import clinicalAppointmentAlerts from '../services/clinicalAppointmentAlerts.service.js';
 import { withClinicalSigningToken } from '../services/clinicalNoteSigningToken.service.js';
 import { hasSchedulingBillingAccess, schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
 import { validationResult } from 'express-validator';
@@ -284,6 +285,7 @@ export const createSessionNote = async (req, res, next) => {
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: session.agency_id });
     await ClinicalEligibilityService.assertAgencyHasClinicalOrg(session.agency_id);
     await ClinicalEligibilityService.assertSessionNoteEligible(session);
+    await clinicalAppointmentAlerts.assertReviewed(req.user,{agencyId:session.agency_id,clientId:session.client_id,clinicalSessionId:session.id});
 
     const title = String(req.body?.title || '').trim();
     if (!title) return res.status(400).json({ error: { message: 'title is required' } });

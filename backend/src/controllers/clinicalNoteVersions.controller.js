@@ -1,3 +1,4 @@
+import { assertClientDiagnosisPolicy } from '../services/clinicalDiagnosisPolicy.service.js';
 import ClinicalNote from '../models/clinical/ClinicalNote.model.js';
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
@@ -208,8 +209,19 @@ async function attest(req, res, next, action, capability) {
     if (req.body.expectedEntryManifestHash !== undefined && !/^[a-f0-9]{64}$/i.test(String(req.body.expectedEntryManifestHash))) throw policyError(400, 'The reviewed entry manifest hash is invalid. Reopen this version.');
     const summary = await getRevisionSummary(context), revision = await getRevision({ ...context, revisionId });
     if (!revisionCapabilities(revision, summary, await contextForRevision(revision, context))[capability]) throw policyError(403, 'You are not the assigned clinical signer for this version or its approval step is not ready.');
+    if(action !== 'author_acknowledge' && !isNonBillableDocument(context.note)) {
+      const snapshot=revision.snapshot || {}, encounter=snapshot.encounterContext || {};
+      await assertClientDiagnosisPolicy({agencyId:context.agencyId,clientId:context.note.client_id,providerUserId:revision.originalAuthorUserId || context.note.created_by_user_id,
+        serviceCode:encounter.serviceCode,dateOfService:encounter.dateOfService,note:{...context.note,metadata_json:snapshot.metadataJson,primary_diagnosis_id:snapshot.primaryDiagnosisId,diagnostic_justification:snapshot.diagnosticJustification || null,clinical_version_id:revision.id,clinical_version_encounter_context:encounter},
+        diagnoses:snapshot.metadataJson?.structuredChart?.diagnoses || snapshot.metadataJson?.structuredChart?.intakeDiagnoses});
+    }
     const signedRevision = await signRevision({ ...context, revisionId, action, attested: true, expectedContentHash: req.body.expectedContentHash, expectedEntryManifestHash: req.body.expectedEntryManifestHash });
-    res.json({ ok: true, revision: signedRevision, ...await summaryResponse(context), claimTransmitted: false });
+    const finalSummary = await summaryResponse(context);
+    if (action !== 'author_acknowledge' && Number(finalSummary.effectiveRevisionId) === Number(signedRevision.id) && !finalSummary.pendingRevisionId) {
+      const { draftClaimAfterSignature } = await import('./medicalBilling.controller.js');
+      await draftClaimAfterSignature(req, await ClinicalNote.findById(context.noteId));
+    }
+    res.json({ ok: true, revision: signedRevision, ...finalSummary, claimTransmitted: false });
   } catch (error) { next(error); }
 }
 export const signClinicalNoteVersion = (req, res, next) => attest(req, res, next, 'author_sign', 'canSign');

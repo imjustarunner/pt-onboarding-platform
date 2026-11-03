@@ -15,7 +15,7 @@
     <ProviderBillingRollout v-if="section !== 'detail'" :key="agencyId" :fetch-policy="fetchRollout" :save-entry="saveRollout" />
     <p v-if="notice" role="status">{{ notice }}</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
-    <ClaimServiceChangesPanel v-if="historyClaimId || review?.claimId || draft?.claim?.id" :agency-id="agencyId" :claim-id="Number(historyClaimId || review?.claimId || draft?.claim?.id)" @updated="review=null; approved=false; emit('updated')" />
+    <ClaimServiceChangesPanel v-if="!readOnly && (historyClaimId || review?.claimId || draft?.claim?.id)" :agency-id="agencyId" :claim-id="Number(historyClaimId || review?.claimId || draft?.claim?.id)" @updated="review=null; approved=false; emit('updated')" />
 
     <template v-if="['all', 'claims'].includes(section)">
     <h3>Signed notes awaiting a claim</h3>
@@ -194,7 +194,7 @@ import ClientDocumentationReadiness from '../billing/ClientDocumentationReadines
 import ProviderBillingRollout from '../billing/ProviderBillingRollout.vue';
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
-const props = defineProps({ agencyId: { type: Number, required: true }, connection: { type: Object, required: true }, section: { type: String, default: 'all' } });
+const props = defineProps({ agencyId: { type: Number, required: true }, connection: { type: Object, required: true }, section: { type: String, default: 'all' }, readOnly: Boolean });
 const emit = defineEmits(['updated']);
 const fetchRollout = async () => (await api.get('/medical-billing/provider-rollout', { params: { agencyId: props.agencyId } })).data;
 const saveRollout = async input => (await api.put('/medical-billing/provider-rollout', { ...input, agencyId: props.agencyId })).data;
@@ -323,6 +323,7 @@ async function fetchHistory(claimId) {
 }
 const showHistory = claimId => run(() => fetchHistory(claimId));
 const editClaim = claimId => run(async () => {
+  if (props.readOnly) return;
   review.value = null; approved.value = false; draft.value = null; cancelReconciliation();
   const { data } = await api.get(`/medical-billing/claimmd/claims/${claimId}/draft`, { params: { agencyId: props.agencyId }, skipGlobalLoading: true });
   if (!active) return;
@@ -339,6 +340,7 @@ const saveCorrection = () => run(async () => {
   if (active) { draft.value = null; notice.value = data.message; emit('updated'); await fetchHistory(claim.id); }
 });
 const reviewClaim = claimId => run(async () => {
+  if (props.readOnly) return;
   review.value = null; approved.value = false;
   const { data } = await api.get(`/medical-billing/claimmd/claims/${claimId}/review`, { params: { agencyId: props.agencyId } });
   if (active) { review.value = data; historyClaimId.value = claimId; history.value = data.history || []; }

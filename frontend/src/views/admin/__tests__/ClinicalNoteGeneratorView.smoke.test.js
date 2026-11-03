@@ -223,10 +223,13 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     expect(state.scoreChartPlan({ id: 12, status: 'active', source_tool_id: 'note_aid_intake_generated' })).toBeGreaterThan(state.scoreChartPlan({ id: 11, status: 'active', source_tool_id: 'note_aid_plan_import' }));
     expect(vi.mocked(api.post).mock.calls.some(([url]) => url === '/medical-billing/diagnoses')).toBe(false);
     vi.mocked(api.post).mockImplementation(async (url, body) => ({ data: url === '/medical-billing/diagnoses' ? { id: body.icd10Code === 'F42.9' ? 11 : 12 } : {} }));
+    await expect(state.applyIntakeDiagnosesToChart()).rejects.toThrow('Every diagnosis');
+    state.intakeDiagnosisRecommendations[1].justification = 'Documented contextual support.';
     await state.applyIntakeDiagnosesToChart();
     expect(state.primaryChartDiagnosis.id).toBe(11);
     expect(state.intakeDiagnosesPending).toBe(false);
     const savedDx = vi.mocked(api.post).mock.calls.filter(([url]) => url === '/medical-billing/diagnoses');
+    expect(savedDx[1][1].justification).toBe('Documented contextual support.');
     expect(savedDx[0][1]).toMatchObject({ clientId: 202, agencyId: 7, icd10Code: 'F42.9', isPrimary: true, justification: 'Updated formulation.' });
     state.chartMentalStatus.domains.Mood = { status: 'selected', option: 'Anxious', detail: '' };
     const persisted = JSON.parse(JSON.stringify({ ...state.outputObj, meta: { ...state.outputObj.meta, structuredChart: state.draftStructuredChart() } }));

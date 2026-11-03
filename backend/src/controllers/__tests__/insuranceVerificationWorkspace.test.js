@@ -1,0 +1,14 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
+vi.mock('../../services/claimMdWorkspace.service.js',()=>({billingWorkspaceAgencies:vi.fn()}));
+vi.mock('../../services/clientCoverageAdmission.service.js',()=>({clientCoverageAdmission:vi.fn()}));
+vi.mock('../../services/clientInsurance.service.js',()=>({readClientInsurance:vi.fn()}));
+import db from '../../config/database.js';
+import {billingWorkspaceAgencies} from '../../services/claimMdWorkspace.service.js';
+import {clientCoverageAdmission} from '../../services/clientCoverageAdmission.service.js';
+import {readClientInsurance} from '../../services/clientInsurance.service.js';
+import {getInsuranceVerificationWorkspace} from '../insuranceVerificationWorkspace.controller.js';
+const response=()=>({set:vi.fn().mockReturnThis(),status:vi.fn().mockReturnThis(),json:vi.fn().mockReturnThis()});
+beforeEach(()=>{vi.clearAllMocks();billingWorkspaceAgencies.mockResolvedValue([{id:1,name:'DEMO QA'}]);clientCoverageAdmission.mockResolvedValue({required:true,ready:false,reason:'Needs verification'});readClientInsurance.mockResolvedValue({primary:{insurerName:'Primary',memberId:'PRIVATE'},secondary:{insurerName:'Secondary',memberId:'PRIVATE2'}});db.execute.mockImplementation(async sql=>sql.includes('COUNT(*)')?[[{total:1}]]:[[{id:2,agency_id:1,full_name:'DEMO QA Person',agency_name:'DEMO QA',task_id:7}]]);});
+it('denies unauthorized organization scope before reading clients',async()=>{const res=response();await getInsuranceVerificationWorkspace({user:{id:1},query:{agencyId:2}},res,vi.fn());expect(res.status).toHaveBeenCalledWith(403);expect(db.execute).not.toHaveBeenCalled();});
+it('returns primary and secondary review state without identifiers and supports exact client task links',async()=>{const res=response(),next=vi.fn();await getInsuranceVerificationWorkspace({user:{id:1},query:{agencyId:1,clientId:2}},res,next);expect(next).not.toHaveBeenCalled();const data=res.json.mock.calls[0][0];expect(data.items[0]).toMatchObject({clientId:2,primary:'Primary',secondary:'Secondary',taskId:7,ready:false});expect(JSON.stringify(data)).not.toMatch(/PRIVATE|memberId/);expect(db.execute.mock.calls[0][1]).toEqual([1,2]);});

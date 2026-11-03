@@ -1,12 +1,14 @@
 <template>
   <section class="abp" data-testid="appointment-billing-panel">
-    <header class="abp-heading"><div><h2>Appointment Billing</h2><p>{{ serviceLabel || primaryServiceCode || 'Service details pending' }}</p></div><button class="btn btn-secondary btn-sm" :disabled="loading || !clinicalSessionId" @click="load">Refresh status</button></header>
-    <p v-if="loading" role="status">Loading claim progress…</p>
+    <header class="abp-heading"><div><h2>{{ financialAccess ? 'Appointment billing' : 'Insurance & payment setup' }}</h2><p>{{ serviceLabel || primaryServiceCode || 'Service details pending' }}</p></div><button class="btn btn-secondary btn-sm" :disabled="loading || (!clinicalSessionId && !clientId)" @click="load">Refresh status</button></header>
+    <p v-if="loading" role="status">Loading billing information…</p>
     <p v-if="error" role="alert" class="abp-error">{{ error }}</p>
-    <section class="abp-card abp-overview" aria-label="Insurance and appointment">
-      <div><span class="abp-label">Primary policy</span><strong>{{ data?.primaryPolicy?.insurerName || 'Insurance not yet recorded' }}</strong><p v-if="data?.primaryPolicy?.memberId">Member {{ data.primaryPolicy.memberId }}</p><p v-if="data?.primaryPolicy?.planType">{{ data.primaryPolicy.planType }}</p><p v-if="data?.secondaryPolicy">Secondary: {{ data.secondaryPolicy.insurerName }}</p><small>Coverage and network participation require verification for the service date.</small></div>
-      <dl><div><dt>Service date</dt><dd>{{ serviceDateLabel || 'Not recorded' }}</dd></div><div><dt>Provider</dt><dd>{{ providerName || 'Not recorded' }}</dd></div><div><dt>Client</dt><dd>{{ clientName || 'Linked appointment client' }}</dd></div><div><dt>Service location</dt><dd>{{ locationLabel || modalityLabel || 'Needs confirmation' }}</dd></div><div><dt>Time</dt><dd>{{ timeRangeLabel || 'Not recorded' }}</dd></div></dl>
+    <section class="abp-card" :class="{'abp-overview':financialAccess}" aria-label="Insurance and appointment">
+      <div><span class="abp-label">Primary policy</span><strong>{{ data?.primaryPolicy?.insurerName || 'Insurance not yet recorded' }}</strong><p v-if="financialAccess && data?.primaryPolicy?.memberId">Member {{ data.primaryPolicy.memberId }}</p><p v-if="financialAccess && data?.primaryPolicy?.planType">{{ data.primaryPolicy.planType }}</p><p v-if="data?.secondaryPolicy">Secondary: {{ data.secondaryPolicy.insurerName }}</p><small v-if="financialAccess">Coverage and network participation require verification for the service date.</small></div>
+      <dl v-if="financialAccess"><div><dt>Service date</dt><dd>{{ serviceDateLabel || 'Not recorded' }}</dd></div><div><dt>Provider</dt><dd>{{ providerName || 'Not recorded' }}</dd></div><div><dt>Client</dt><dd>{{ clientName || 'Linked appointment client' }}</dd></div><div><dt>Service location</dt><dd>{{ locationLabel || modalityLabel || 'Needs confirmation' }}</dd></div><div><dt>Time</dt><dd>{{ timeRangeLabel || 'Not recorded' }}</dd></div></dl>
     </section>
+    <ClientPaymentSetupSummary v-if="data" class="abp-card" :setup="data.paymentSetup || null" />
+    <template v-if="financialAccess">
     <section v-for="(claim, index) in progress" :key="claim.claimId || index" class="abp-card" aria-label="Claim progress">
       <div class="abp-heading"><h3>{{ claim.payerSequence === 2 ? 'Secondary claim progress' : 'Claim progress' }}</h3><span class="abp-badge" :class="claim.status">{{ claim.label }}</span></div>
       <ol class="abp-progress"><li v-for="(step, i) in steps" :key="step" :class="{reached: i <= claim.step}" :aria-current="i === claim.step ? 'step' : undefined"><span>{{ i < claim.step ? '✓' : i + 1 }}</span>{{ step }}</li></ol>
@@ -15,7 +17,8 @@
       <button v-if="claim.actions?.length" type="button" class="btn btn-secondary btn-sm" @click="emit('open-note')">Open note / documentation</button>
       <p v-if="claim.correctionPending" class="abp-muted">Changes to a signed note use a signed amendment or addendum with supervisor approval.</p>
     </section>
-    <template v-if="data?.financialAccess === true && canViewFinancials">
+    </template>
+    <template v-if="financialAccess">
       <section class="abp-card" aria-label="Charge details"><h3>Charge details</h3><table v-if="financialClaims.length"><thead><tr><th>Claim</th><th>Service</th><th>Units / modifiers</th><th>Charge</th><th>Status</th></tr></thead><tbody><tr v-for="line in financialLines" :key="`${line.claimId}-${line.lineNumber}`"><td>#{{ line.claimId }} · {{ line.payerSequence === 2 ? 'Secondary' : 'Primary' }}</td><td>{{ line.serviceCode || 'Review claim lines' }}</td><td>{{ line.units ?? '—' }} · {{ modifiers(line.modifiers) }}</td><td>{{ money(line.chargeCents, line.currency) }}</td><td>{{ line.label }}</td></tr></tbody></table><p v-else>Charges will appear after the signed service note is used to prepare a claim.</p><p class="abp-muted">Primary and secondary charges represent the same service; they are not added together.</p></section>
       <section v-if="patientLedger" class="abp-card" aria-label="Patient payment breakdown"><h3>Patient payment breakdown</h3><dl><div><dt>Recorded responsibility</dt><dd>{{ money(patientLedger.responsibilityCents, patientLedger.currency) }}</dd></div><div><dt>Net payments recorded</dt><dd>{{ money(patientLedger.paidCents, patientLedger.currency) }}</dd></div><div><dt>Remaining patient balance</dt><dd>{{ money(patientLedger.balanceCents, patientLedger.currency) }}</dd></div></dl><p v-if="patientLedger.refundReviewCents">Refund review: {{ money(patientLedger.refundReviewCents, patientLedger.currency) }}. Patient responsibility is zero.</p><p v-if="patientLedger.held">Balance is on hold or disputed; review before collection.</p><p v-else>Ledger status: {{ patientLedger.status }}</p></section>
       <section class="abp-card"><h3>Reconciliation &amp; actions</h3><p>Review verified patient balances and posted payments in the billing workspace. Claim acceptance does not establish a payment or patient balance.</p><button type="button" class="btn btn-primary btn-sm" :disabled="!clinicalSessionId" @click="emit('open-claim', financialClaims[0]?.claimId || null)">Open claim and billing actions</button><p class="abp-muted">Billing edits, review, corrections and submission use the existing audited claim workflow.</p></section>
@@ -25,8 +28,9 @@
 <script setup>
 import { computed, ref, watch, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
+import ClientPaymentSetupSummary from '../billing/ClientPaymentSetupSummary.vue';
 const props = defineProps({
-  agencyId: {type:[Number,String],default:0}, clinicalSessionId:{type:[Number,String],default:0},
+  agencyId: {type:[Number,String],default:0}, clientId:{type:[Number,String],default:0}, clinicalSessionId:{type:[Number,String],default:0},
   canViewFinancials:{type:Boolean,default:false}, clientName:{type:String,default:''},
   serviceLabel:{type:String,default:''}, primaryServiceCode:{type:String,default:''},
   locationLabel:{type:String,default:''}, modalityLabel:{type:String,default:''}, providerName:{type:String,default:''},
@@ -34,7 +38,8 @@ const props = defineProps({
 });
 const emit=defineEmits(['open-claim','open-note']);
 const data=ref(null),loading=ref(false),error=ref(''); let request=0;
-const steps=['Planned / draft','Ready for review','Submitted','Accepted','Payment recorded'];
+const financialAccess=computed(()=>props.canViewFinancials && data.value?.financialAccess===true);
+const steps=['Note needed / draft','Ready to submit','Submitted','Accepted','Payment recorded'];
 const progress=computed(()=>data.value?.progress || [{status:'open',label:props.clinicalSessionId ? 'Status not yet loaded' : 'Planned — save session to track progress',step:0,actions:[]}]);
 const financialClaims=computed(()=>progress.value.filter(c=>c.financial));
 const financialLines=computed(()=>financialClaims.value.flatMap(c=>(c.financial.lines?.length ? c.financial.lines : [{lineNumber:0,serviceCode:props.primaryServiceCode,chargeCents:c.financial.chargeCents}]).map(line=>({...line,claimId:c.claimId,payerSequence:c.payerSequence,label:c.label,currency:c.financial.currency}))));
@@ -43,13 +48,13 @@ const patientLedger=computed(()=>financialClaims.value.find(c=>c.payerSequence !
 const money=(cents,currency)=>new Intl.NumberFormat('en-US',{style:'currency',currency:currency || 'USD'}).format(Number(cents)/100);
 async function load(){
   const id=++request; data.value=null; error.value=''; loading.value=false;
-  if(!Number(props.agencyId)||!Number(props.clinicalSessionId))return;
+  if(!Number(props.agencyId)||(!Number(props.clinicalSessionId)&&!Number(props.clientId)))return;
   loading.value=true;
-  try {const result=await api.get(`/medical-billing/sessions/${props.clinicalSessionId}/appointment-billing`,{params:{agencyId:Number(props.agencyId)}});if(id===request)data.value=result.data;}
-  catch {if(id===request)error.value='Claim progress could not be loaded. Refresh or ask the billing team to check this session.';}
+  try {if(Number(props.clinicalSessionId)){const result=await api.get(`/medical-billing/sessions/${props.clinicalSessionId}/appointment-billing`,{params:{agencyId:Number(props.agencyId)},skipGlobalLoading:true});if(id===request)data.value={...result.data,primaryPolicy:result.data.primaryPolicy||result.data.policies?.find(policy=>policy.position==='primary')||null,secondaryPolicy:result.data.secondaryPolicy||result.data.policies?.find(policy=>policy.position==='secondary')||null};}else{const result=await api.get(`/clients/${props.clientId}/care-billing-summary`,{skipGlobalLoading:true});if(id===request)data.value={financialAccess:false,primaryPolicy:result.data.policies?.find(policy=>policy.position==='primary')||null,secondaryPolicy:result.data.policies?.find(policy=>policy.position==='secondary')||null,paymentSetup:result.data.paymentSetup};}}
+  catch {if(id===request)error.value='Billing information could not be loaded. Refresh or ask the billing team to check this client.';}
   finally {if(id===request)loading.value=false;}
 }
-watch(()=>[props.agencyId,props.clinicalSessionId,props.canViewFinancials],load,{immediate:true});
+watch(()=>[props.agencyId,props.clientId,props.clinicalSessionId,props.canViewFinancials],load,{immediate:true});
 onBeforeUnmount(()=>{request++;});
 </script>
 <style scoped>

@@ -1,0 +1,98 @@
+BILLING WORKFLOW RELEASE — IMPLEMENTATION AND VERIFICATION
+November 3, 2026 / America/Denver
+
+Release/deployment evidence is maintained separately in the task deliverable.
+This file describes implementation; it is not evidence of live acceptance.
+
+REQUEST COVERAGE
+1–2. One server-scoped work queue joins claims, signed notes, note drafts and past
+sessions without notes. Stages: Note needed, Draft, Pending review, Revisions
+needed, Ready to submit, Submitted, Processing, Paid, Denied, On hold and Closed.
+Future scheduled visits remain in the selected client's history, outside the
+claim queue. Draft/review/revision items have no claim submission actions.
+Final eligible signatures, supervisor signatures and approved amended versions
+now hand off to billing. Approved historical notes missing a billing record can
+be reconciled with the idempotent dry-run/apply script. It never signs a note or
+transmits a claim. Clinical approval and payer/coverage readiness remain separate.
+
+3–6,18. All claims is the default across authorized organizations, with phase
+buttons, server sorting, search, selectable columns and tenant sorting. Default
+columns include service date, patient, service, clinician and supervisor/billed-as.
+Patient links open billing; provider links open the provider. POS, diagnoses,
+units and charge are available. Claim/progress review opens a visible dialog.
+Patient history is explicitly scoped; it does not repopulate the global queue
+with future scheduled services. Rejected-claim retry, payer replacement and void
+create linked claim records preserving the original. Official Claim.MD frequency
+values 1/7/8 and payer ICN/DCN are used with payer-specific readiness checks.
+
+7–10,14–15. Primary-code ranges, age/service coverage, bachelor F-code exclusion,
+supervisor authorization for non-F primary diagnoses, per-diagnosis justification,
+autism/ADHD evidence, persistent unspecified-code alerts and adjustment-disorder
+event-month review are enforced. Uploaded records OR a qualified clinician's own
+documented evaluation can support autism/ADHD. No diagnosis is silently replaced.
+90791/H0031 editors and generation preserve ordered diagnoses and their rationale.
+See ../clinical-diagnosis-billing-policy-2026-11-03.txt for primary sources,
+exceptions, catalog dates, audit/encryption and clinical-policy limits.
+
+11. Appointment alerts have encrypted revision history and actor-bound
+acknowledgements. Authorized billing/admin/supervisor/provider can set them.
+Current alerts must be acknowledged before starting/continuing note entry.
+They remain appointment information rather than claim metadata. Clinical
+diagnosis flags appear in the record, note workspace and appointment schedule.
+
+12–13. Providers see insurer names, responsible parties and payment-method
+status, without charges, balances, claim messages or financial actions. A branded
+FundThred QR links to authenticated, tenant-scoped Stripe setup when needed.
+Primary, secondary and legacy Medicaid signals suppress payment requests.
+Billing reviews actual recipients before explicitly sending a setup request.
+Email uses the organization's verified billing sender/reply address; family
+in-app notice and email precede the provider QR follow-up. Recipient and coverage
+state is rechecked during sending. Persistent request keys prevent duplicate
+messages on retry/reload. Sent, queued, held, test-redirected and unknown are
+distinct. A timeout is not permission to resend. Adding a card does not authorize
+a charge or recurring collection.
+
+16. Billing transaction history is searchable, sortable and linked to claims.
+17. Insurance-card requests collapse; View card opens a visible modal with its
+own loading state and cleanup rather than an off-screen preview.
+19–20. Insurance verification has a dedicated billing queue, exact-client task
+links and client-profile access. Primary and secondary coverage are reviewed.
+Existing OCR/eligibility intake automation is reused; saving changed insurance
+queues a new verification job when configured. Verification is required before a
+new provider assignment or Exchange posting. Authorized billers can verify from
+the warning; others receive an actionable message. Existing assignments are
+preserved. Public intake saves the request and provider preference while deferring
+assignment, instead of losing the request when verification is pending.
+
+LIVE CONFIGURATION OBSERVED BEFORE RELEASE
+ITSCO agency 2: intake eligibility worker and agency policy enabled; live payer
+mode; shared account and agency monthly caps both 1,000. Billing task list 16.
+23 stored intake jobs: 22 need review and 1 completed. This is not a statement
+that all clients are verified. New or changed evidence still needs coordination.
+Next Level Up: eligibility mode disabled; no intake automation policy observed.
+The Inner Strength Institute: live payer mode, but no intake automation policy;
+its billing sender provisioning is not ready. These account-specific limits are
+not bypassed by a software release. Google BAA execution was not verified here.
+
+PUBLISHED USAGE COSTS (USD; reviewed November 3, 2026)
+Google Vision Text/Document Text Detection: first 1,000 image units/month free;
+then $1.50/1,000 through 5 million units: $0.0015/image or about $0.003 for front
+and back of one card. PDF pages count separately; other cloud costs are separate.
+https://cloud.google.com/vision/pricing
+
+Claim.MD Unlimited: $120/month, 1,000 eligibility transactions included; additional
+Prime $0.02 and Non-Prime $0.10 each. Small Volume: $60/month, 100 included, then
+$0.50 each. Basic: $30/month, no included eligibility, $0.30 each. Primary and
+secondary usually require two transactions. The configured 1,000 usage cap does
+not establish the purchased plan; no subscription invoice was available here.
+https://www.claim.md/pricing/
+
+REQUIRED RELEASE CHECKS
+Apply primary migrations 1736/1737 and clinical migration 028 before new endpoints
+serve traffic. Preserve original notes, signatures and claims. Validate paired
+frontend/backend build IDs. Recovery first dry-runs, then applies only to approved
+notes without an existing claim. Investigate staged-record blockers without
+inventing diagnosis, insurance, service or clinical facts. Completion messages to
+configured billing mailboxes must describe actual deployed behavior and remaining
+account configuration. No live payer transmission or patient payment request is
+part of deployment validation.

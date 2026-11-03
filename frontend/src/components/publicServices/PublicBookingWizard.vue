@@ -13,6 +13,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
         </div>
         <h2>Request submitted!</h2>
+        <p v-if="assignmentDeferred" role="status">Your request is saved. Billing will verify coverage before provider assignment.</p>
         <p>We'll follow up at <strong>{{ form.email }}</strong> to confirm your appointment.</p>
         <div class="confirm-detail">
           <span class="confirm-appt-label">{{ form.hasRecentAssessment === false ? 'Tutoring session (pending eval)' : 'Session' }}</span>
@@ -676,6 +677,7 @@ const fieldErrors = ref({});
 const submitError = ref('');
 const submitting = ref(false);
 const submitted = ref(false);
+const assignmentDeferred = ref(false);
 const currentStepIdx = ref(0);
 
 const visibleSteps = computed(() => {
@@ -833,7 +835,8 @@ async function submit() {
         modality: f.intakeSlot.modality || (f.intakeSlot.programType === 'VIRTUAL' ? 'VIRTUAL' : 'IN_PERSON')
       } : null
     };
-    await api.post(`/public/agency-services/${encodeURIComponent(props.agencySlug)}/requests`, payload, { skipAuthRedirect: true });
+    const { data } = await api.post(`/public/agency-services/${encodeURIComponent(props.agencySlug)}/requests`, payload, { skipAuthRedirect: true });
+    assignmentDeferred.value = data?.request?.assignmentDeferred === true;
     submitted.value = true;
     emit('submitted');
   } catch (e) {

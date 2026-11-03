@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ poolExecute: vi.fn(), execute: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(), sync: vi.fn(), ensure: vi.fn(), track: vi.fn(), accepted: vi.fn(), profile: vi.fn(), facets: vi.fn() }));
+const mocks = vi.hoisted(() => ({ poolExecute: vi.fn(), execute: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(), sync: vi.fn(), ensure: vi.fn(), track: vi.fn(), accepted: vi.fn(), profile: vi.fn(), facets: vi.fn(),coverage:vi.fn() }));
+vi.mock('../clientCoverageAdmission.service.js',()=>({assertClientCoverageAdmission:mocks.coverage}));
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.poolExecute, getConnection: async () => ({ execute: mocks.execute, beginTransaction: mocks.begin, commit: mocks.commit, rollback: mocks.rollback, release: mocks.release }) } }));
 vi.mock('../clientProviderAssignmentSync.service.js', () => ({ afterLegacyProviderFieldsChanged: mocks.sync, ensureClientProviderAssignmentRow: mocks.ensure }));
 vi.mock('../officeClientAcceptance.service.js', () => ({ recordProviderAssignmentChange: mocks.track }));
@@ -13,6 +14,7 @@ import { createExchangeClaim, resolveExchangeClaim, withdrawExchangeListing } fr
 let listing, client, claims, eligible, waivers;
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.coverage.mockResolvedValue({ready:true});
   listing = { id: 1, agency_id: 2, client_id: 3, posted_by_user_id: 8, current_provider_user_id: 7, status: 'open' };
   client = { id: 3, agency_id: 2, organization_id: 2, provider_id: 7, client_type: 'clinical', status: 'CURRENT' };
   claims = []; eligible = true; waivers = []; mocks.facets.mockResolvedValue(new Map());
@@ -64,6 +66,13 @@ it('allows the posting team to assign an unassigned client', async () => {
   await createExchangeClaim({ listingId: 1, requestingProviderUserId: 10 });
   await resolveExchangeClaim({ requestId: 1, action: 'approve', actingUserId: 8, actingRole: 'support' });
   expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE clients SET provider_id'), [10, 8, 3]);
+});
+it('rechecks verified coverage on assignment and preserves the former provider if it changed',async()=>{
+ await createExchangeClaim({listingId:1,requestingProviderUserId:10});vi.clearAllMocks();
+ mocks.coverage.mockRejectedValueOnce(Object.assign(Error('Current insurance needs verification'),{status:409,code:'INSURANCE_VERIFICATION_REQUIRED'}));
+ await expect(resolveExchangeClaim({requestId:1,action:'approve',actingUserId:7,actingRole:'provider'})).rejects.toMatchObject({code:'INSURANCE_VERIFICATION_REQUIRED'});
+ expect(mocks.execute.mock.calls.some(([sql])=>/\b(INSERT|UPDATE)\b/.test(sql)&&!sql.includes('FOR UPDATE'))).toBe(false);
+ expect(mocks.ensure).not.toHaveBeenCalled();expect(mocks.rollback).toHaveBeenCalledOnce();expect(mocks.commit).not.toHaveBeenCalled();expect(client.provider_id).toBe(7);
 });
 it('rejects unauthorized resolution, stale assignments, and inactive/out-of-agency recipients', async () => {
   await createExchangeClaim({ listingId: 1, requestingProviderUserId: 10 });

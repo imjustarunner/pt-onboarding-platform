@@ -191,6 +191,7 @@ export async function createListing(req, res, next) {
     res.status(201).json({ listing });
   } catch (e) {
     if (e?.code === 'ER_DUP_ENTRY') return res.status(409).json({error:{message:'This client already has an open referral for this service'}});
+    if (e?.code === 'INSURANCE_VERIFICATION_REQUIRED') return next(e);
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     const msg = e?.message || 'Failed to create listing';
     if (/not found|already belongs|already has an open listing|does not belong/i.test(msg)) {

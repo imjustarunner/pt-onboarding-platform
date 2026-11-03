@@ -1,3 +1,5 @@
+import {assertClientDiagnosisPolicy} from '../../services/clinicalDiagnosisPolicy.service.js';
+vi.mock('../../services/clinicalDiagnosisPolicy.service.js',()=>({assertClientDiagnosisPolicy:vi.fn(async()=>({ready:true})),listClientDiagnosisAlerts:vi.fn(async()=>[])}));
 import { beforeEach, expect, it, vi } from 'vitest';
 const mocks=vi.hoisted(()=>({execute:vi.fn(),connection:vi.fn(),clinical:vi.fn(),access:vi.fn(),client:vi.fn(),plan:vi.fn(),planById:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:mocks.execute,getConnection:mocks.connection},onTableWrite:vi.fn()}));

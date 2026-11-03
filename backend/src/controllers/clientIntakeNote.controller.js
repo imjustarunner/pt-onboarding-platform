@@ -1,3 +1,4 @@
+import { assertClientDiagnosisPolicy } from '../services/clinicalDiagnosisPolicy.service.js';
 import { withIntakeDraftMutationLock } from '../services/intakeDraftMutationLock.service.js';
 import { logNoteAidChartEvent } from '../services/noteAidChartAudit.service.js';
 import pool from '../config/database.js';
@@ -893,7 +894,7 @@ export const generateClientIntakeNote = async (req, res, next) => {
       '',
       'After the clinical note sections, include a structured diagnosis block in exactly this format:',
       'Diagnosis: <ICD-10 code> — <description>',
-      'Justification: <1-3 sentence clinical rationale>',
+      'Justification: <1-3 sentence clinical rationale unique to this diagnosis; repeat Diagnosis and Justification for every supported diagnosis. Do not invent supporting findings, medical records, diagnostic criteria or evaluations. Clearly identify missing evidence.>',
       '',
       'Intake Summary (scrubbed — do NOT add any identifying information):',
       scrubbedText
@@ -1179,6 +1180,10 @@ export const finalizeClientIntakeNote = async (req, res, next) => {
           error: { message: `Draft must be in 'ready' status before finalizing (current: ${draftNow.status})` }
         });
       }
+
+      const reviewedDiagnosis = JSON.parse(draftNow.confirmed_dx_json || draftNow.suggested_dx_json || '{}');
+      const reviewedDiagnoses = reviewedDiagnosis.diagnoses?.length ? reviewedDiagnosis.diagnoses : reviewedDiagnosis.code ? [reviewedDiagnosis] : [];
+      await assertClientDiagnosisPolicy({agencyId,clientId,providerUserId:draftNow.provider_user_id || req.user.id,serviceCode:draftNow.service_code || '90791',dateOfService:reviewedContext?.dateOfService,diagnoses:reviewedDiagnoses});
 
       await ClientIntakeNoteDraft.updateContent({ draftId, sessionContextEnc: maybeEncryptNotePayload(JSON.stringify(reviewedContext)) });
 
@@ -1772,9 +1777,7 @@ export const updateClientIntakeNoteSections = async (req, res, next) => {
           .map((d, i) => ({
             code: String(d.code || d.icd10Code || d.icd10_code || '').trim(),
             description: String(d.description || '').trim(),
-            justification: i === 0
-              ? (sharedJustification || String(d.justification || '').trim())
-              : '',
+            justification: String(d.justification || '').trim() || (i === 0 ? sharedJustification : ''),
             isPrimary: d.isPrimary != null ? !!d.isPrimary : i === 0,
             evaluationScore: d.evaluationScore ?? null,
             evaluationSummary: d.evaluationSummary || null

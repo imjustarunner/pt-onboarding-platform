@@ -262,6 +262,9 @@ async function ensureClientProviderLinkedForRequest({ requestRow, actorUserId })
   const client = clientRows?.[0] || null;
   if (!client) return;
 
+  const { assertNewProviderCoverageAdmission } = await import('../services/clientCoverageAdmission.service.js');
+  await assertNewProviderCoverageAdmission(clientId, providerUserId);
+
   const serviceDay = dayNameFromDateLike(mysqlDateTimeToIso(requestRow?.requested_start_at) || requestRow?.requested_start_at);
   await pool.execute(
     `UPDATE clients

@@ -1,4 +1,6 @@
+import { listClientDiagnosisAlerts } from '../services/clinicalDiagnosisPolicy.service.js';
 import { clinicalNoteSnapshotHash, ensureOriginalRevision, appendOriginalSignature, hasPendingRevision, getRevisionSummary, listPendingRevisionWork, appendRevisionAddendum } from '../services/clinicalNoteVersion.service.js';
+import { assertClientDiagnosisPolicy } from '../services/clinicalDiagnosisPolicy.service.js';
 import { assertClinicalSigner, CLINICAL_SIGNER_ROLES } from '../services/clinicalNoteSigningToken.service.js';
 import { getApprovedClinicalContext, assertClinicalVersionSubmission, clinicalVersionReference, approvedVersionBillingBlockers } from '../services/clinicalNoteVersionBilling.service.js';
 import { screeningEncounterProposal } from '../services/h0002EncounterDetails.js';
@@ -808,11 +810,11 @@ export const listClientChart = async (req, res, next) => {
       diagnoses = (diagnoses || []).map((d) => ({
         ...d,
         is_primary: Number(d.id) === primaryId ? 1 : 0,
-        // One justification for the diagnosis set — keep it on primary only.
+        // Each diagnosis retains its own justification.
         justification:
           Number(d.id) === primaryId
             ? (resolvedPrimary.justification || d.justification)
-            : null
+            : d.justification
       }));
     }
 
@@ -940,6 +942,7 @@ export const listClientChart = async (req, res, next) => {
       plans: (plans || []).filter((p) => !isIntakeAutoTreatmentPlan(p)),
       latestPlan: latestPlan || null,
       diagnoses: diagnoses || [],
+      diagnosisAlerts: await listClientDiagnosisAlerts({agencyId,clientId}),
       presentingProblem: presentingProblem || null,
       sessions: sessions || [],
       billingEncounters,
@@ -1812,15 +1815,17 @@ export const attachTreatmentSummaryPrintUpload = async (req, res, next) => {
   }
 };
 
-async function draftClaimAfterSignature(req, note) {
+const clinicalSignatureHandoff = Symbol('authorized-clinical-signature-handoff');
+export async function draftClaimAfterSignature(req, note) {
   // Derive lines from the saved clinical record, not a second browser request.
   // Failed drafts remain visible in the billing desk's missing-claim queue.
-  const metadata=typeof note.metadata_json==='string'?JSON.parse(note.metadata_json||'{}'):note.metadata_json||{};
-  if (!note.clinical_session_id || !(note.service_code || metadata.serviceCode)) return;
+  if (!note.clinical_session_id) return;
+  // This symbol can only be supplied by the already-authorized signature paths;
+  // a public request body cannot impersonate the final clinical signer.
   let code = 200;
   const response = { status(value) { code = value; return this; }, json() { return this; } };
   try {
-    await createMedicalClaim({ ...req, body: { agencyId: note.agency_id, clientId: note.client_id,
+    await createMedicalClaim({ ...req, [clinicalSignatureHandoff]: true, body: { agencyId: note.agency_id, clientId: note.client_id,
       clinicalSessionId: note.clinical_session_id, clinicalNoteId: note.id } }, response, error => { throw error; });
     if (code >= 400) console.warn('[claim-draft] Signed note awaits billing preparation', { noteId: note.id, status: code });
   } catch {
@@ -2010,6 +2015,7 @@ export const signClinicalNote = async (req, res, next) => {
     };
     const documentationPolicy = await resolveNoteDocumentationPolicy(note,pool,signingDb);
     const nonBillable = isNonBillableDocument(note);
+    if (!nonBillable) await assertClientDiagnosisPolicy({ agencyId: note.agency_id, clientId: note.client_id, providerUserId: note.provider_signed_by_user_id || note.created_by_user_id || lockedSession?.provider_user_id, serviceCode: lockedSession?.service_code || meta.serviceCode, dateOfService: meta.dateOfService || parseObject(lockedSession?.metadata_json).serviceDate, note });
     const mandatoryTypes = nonBillable ? await requiredDocumentReviewTypes(note.agency_id, note.client_id, note.created_at) : [];
     const wantsReview = hasClinicalAmendments(note) || !nonBillable || mandatoryTypes.includes(normalizeNoteType(note.note_type || meta.noteType)) || documentationPolicy.nonBillableReview === 'all'
       || (documentationPolicy.nonBillableReview === 'selected' && documentationPolicy.noteTypes.includes(normalizeNoteType(note.note_type || meta.noteType)));
@@ -2145,6 +2151,8 @@ export const cosignClinicalNote = async (req, res, next) => {
     if (Number((await resolveNoteDocumentationPolicy(note,pool,cosignDb)).supervisorUserId) !== Number(req.user.id)) throw Object.assign(new Error('The responsible supervisor changed. Refresh the note.'),{status:403});
     if (note.supervisor_cosigned_at) {
       await cosignDb.commit();
+      cosignDb.release(); cosignDb = null;
+      if (!isNonBillableDocument(note)) await draftClaimAfterSignature(req, note);
       return res.json({ok:true,noteId,cosignedAt:note.supervisor_cosigned_at,revisionId:originalRevision.id,isBillable:!isNonBillableDocument(note)});
     }
     if (req.body.reviewSnapshotToken !== reviewSnapshotToken(note,reviewSession || {})) throw Object.assign(new Error('The review details changed. Open the current note before approval.'),{status:409});
@@ -2216,6 +2224,7 @@ export const cosignClinicalNote = async (req, res, next) => {
     assertNoUnresolvedChanges(meta);
     if (!nonBillable) {
       assertServiceDetailsComplete(note, reviewSession || {});
+      await assertClientDiagnosisPolicy({ agencyId: note.agency_id, clientId: note.client_id, providerUserId: note.provider_signed_by_user_id || note.created_by_user_id || reviewSession?.provider_user_id, serviceCode: reviewSession?.service_code || meta.serviceCode, dateOfService: meta.dateOfService || parseObject(reviewSession?.metadata_json).serviceDate, note });
     }
     const cosignedAtIso = new Date().toISOString();
     const approvalPurpose = nonBillable ? 'clinical documentation' : 'clinical documentation and documented services for billing review';
@@ -2251,6 +2260,7 @@ export const cosignClinicalNote = async (req, res, next) => {
     await cosignDb.commit();
     cosignDb.release(); cosignDb = null;
     const queueSynchronized = await synchronizeSupervisorQueue({...note,supervisor_cosigned_at:cosignedAtIso},queueMarker);
+    if (!nonBillable) await draftClaimAfterSignature(req, persistedCosign);
     return res.json({ ok: true, noteId, cosignedAt: cosignedAtIso, isBillable: !nonBillable, queueSynchronizationPending:!queueSynchronized });
   } catch (e) {
     if(cosignDb) { await cosignDb.rollback(); cosignDb.release(); cosignDb=null; }
@@ -2404,7 +2414,7 @@ export const createMedicalClaim = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Session not found for this client and agency' } });
     }
     const billingAccess = await hasSchedulingBillingAccess(req.user, agencyId);
-    if (!billingAccess && Number(session.provider_user_id) !== Number(req.user.id)) {
+    if (!billingAccess && Number(session.provider_user_id) !== Number(req.user.id) && req[clinicalSignatureHandoff] !== true) {
       return res.status(403).json({ error: { message: 'Only the session provider or billing team can prepare this claim' } });
     }
     if (!billingAccess) {
@@ -2694,10 +2704,13 @@ export const createMedicalClaim = async (req, res, next) => {
     const clinicalVersion = clinicalVersionReference(approvedNote);
     const amountCents = lines.reduce((s, l) => s + Number(l.chargeCents || 0), 0);
     let claim;
-    const draftDb = await clinicalPool.getConnection();
     // Clinical checks alone do not establish insurance, intake documentation,
     // payer enrollment or submission readiness. Full review runs before upload.
-    const claimLifecycle = 'draft';
+    const approvalPolicy = await resolveNoteDocumentationPolicy(approvedNote);
+    const approvedForBilling = !!approvedNote.provider_signed_at && !approvedNote.clinical_version_pending_id && !isNonBillableDocument(approvedNote) &&
+      (!approvalPolicy.supervisorUserId || hasCurrentSupervisorCosign(approvedNote, approvalPolicy.supervisorUserId, approvedNote.clinical_version_content_hash));
+    const claimLifecycle = approvedForBilling ? 'ready' : 'draft';
+    const draftDb = await clinicalPool.getConnection();
     try {
       await draftDb.beginTransaction();
       await draftDb.execute('SELECT id FROM clinical_sessions WHERE id = ? AND agency_id = ? FOR UPDATE', [sessionId, agencyId]);

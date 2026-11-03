@@ -1,0 +1,30 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+vi.mock('../../config/database.js',()=>({default:{}}));
+vi.mock('../../config/clinicalDatabase.js',()=>({default:{}}));
+vi.mock('../appointmentStaffTools.service.js',()=>({default:{}}));
+vi.mock('../clientRecordAccess.service.js',()=>({resolveClientRecordAccess:vi.fn()}));
+vi.mock('../clinicalEligibility.service.js',()=>({default:{ensureAgencyAccess:vi.fn()}}));
+vi.mock('../clinicalNoteCrypto.service.js',()=>({maybeDecryptNotePayload:vi.fn()}));
+vi.mock('../clinicalDiagnosisPolicy.service.js',()=>({listClientDiagnosisAlerts:vi.fn()}));
+import {createClinicalAppointmentAlerts,appointmentDate} from '../clinicalAppointmentAlerts.service.js';
+let db,clinical,tools,clientAccess,agencyAccess,decrypt,diagnosisAlerts,conn,service,rows;
+const user={id:9,role:'provider'},input={agencyId:2,clientId:31,dateOfService:'2026-11-03'};
+beforeEach(()=>{rows=[{id:12,client_id:31,provider_user_id:9,start_at:'2026-11-03 18:00:00',source_timezone:'America/Denver',alert_text:'ciphertext',revision:2,acknowledged_at:null}];conn={beginTransaction:vi.fn(),execute:vi.fn(async sql=>sql.includes('SELECT revision')?[[{revision:2,alert_text:'ciphertext'}]]:[{affectedRows:1}]),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()};db={execute:vi.fn(async()=>[rows]),getConnection:vi.fn(async()=>conn)};clinical={execute:vi.fn(async()=>[[{id:50,agency_id:2,client_id:31,appointment_id:12,scheduled_start_at:'2026-11-03 18:00:00'}]])};tools={get:vi.fn(async()=>({appointmentId:12}))};clientAccess=vi.fn(async()=>({ok:true}));agencyAccess=vi.fn();decrypt=vi.fn(()=> 'Review payment arrangements before the visit.');diagnosisAlerts=vi.fn(async()=>[{code:'diagnosis_unspecified_90_days',message:'Review diagnostic specificity.'}]);service=createClinicalAppointmentAlerts({db,clinical,tools,clientAccess,agencyAccess,decrypt,diagnosisAlerts});});
+it('blocks note mutations until this actor acknowledges the current appointment alert',async()=>{await expect(service.assertReviewed(user,input)).rejects.toMatchObject({status:409,code:'APPOINTMENT_ALERT_REVIEW_REQUIRED'});expect(db.execute.mock.calls[0][1].slice(0,3)).toEqual([9,2,31]);rows[0].acknowledged_at='2026-11-03 17:00:00';await expect(service.assertReviewed(user,input)).resolves.toMatchObject({appointments:[{needsAcknowledgement:false}]});});
+it('records only the explicit current revision and actor; changed alerts reject stale acknowledgements',async()=>{await expect(service.acknowledge(user,12,1)).rejects.toMatchObject({status:409});expect(conn.commit).not.toHaveBeenCalled();await service.acknowledge(user,12,2);expect(conn.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT IGNORE'),[12,2,9]);expect(conn.commit).toHaveBeenCalledOnce();});
+it('keeps diagnosis alerts visible even after appointment acknowledgement',async()=>{rows[0].acknowledged_at='2026-11-03 17:00:00';const result=await service.context(user,input);expect(result.diagnosisAlerts[0].code).toBe('diagnosis_unspecified_90_days');});
+it('does not leak private alerts from another provider for a shared client',async()=>{tools.get.mockRejectedValue({status:403});const result=await service.context(user,input);expect(result.appointments).toEqual([]);expect(decrypt).not.toHaveBeenCalled();});
+it('rejects cross-client clinical session IDs before reading alerts',async()=>{clinical.execute.mockResolvedValue([[]]);await expect(service.context(user,{...input,clinicalSessionId:500})).rejects.toMatchObject({status:404});expect(db.execute).not.toHaveBeenCalled();});
+it('requires record and agency authorization',async()=>{clientAccess.mockResolvedValue({ok:false});await expect(service.context(user,input)).rejects.toMatchObject({status:403});expect(db.execute).not.toHaveBeenCalled();});
+it('matches the appointment date in the actual timezone, including midnight offsets',async()=>{expect(appointmentDate('2026-11-04 01:00:00','America/Denver')).toBe('2026-11-03');rows[0].start_at='2026-11-04 01:00:00';expect((await service.context(user,input)).appointments).toHaveLength(1);rows[0].start_at='2026-11-04 18:00:00';expect((await service.context(user,input)).appointments).toHaveLength(0);});
+it('does not force a client attachment for a standalone unsaved aid',async()=>{await service.assertReviewed(user,{agencyId:2,clientId:null});expect(db.execute).not.toHaveBeenCalled();});
+it('does not block an exact encounter on another same-client same-day appointment alert',async()=>{
+ rows=[{...rows[0],id:99,clinical_session_id:88}];
+ const result=await service.context(user,{...input,clinicalSessionId:50});expect(result.appointments).toEqual([]);expect(tools.get).not.toHaveBeenCalled();
+ expect(db.execute.mock.calls[0][0]).not.toContain('a.start_at >=');
+});
+it('keeps the date fallback for a standalone note-aid session without an appointment link',async()=>{
+ clinical.execute.mockResolvedValue([[{id:50,agency_id:2,client_id:31,metadata_json:{source:'note_aid_draft'},scheduled_start_at:'2026-11-03 18:00:00',source_timezone:'America/Denver'}]]);
+ await expect(service.assertReviewed(user,{...input,clinicalSessionId:50})).rejects.toMatchObject({code:'APPOINTMENT_ALERT_REVIEW_REQUIRED'});
+ expect(db.execute.mock.calls[0][0]).toContain('a.start_at >=');
+});

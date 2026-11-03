@@ -17,7 +17,12 @@ export function intakeDiagnoses(sections) {
     const match = lines[i].match(/^(?:[-•]\s*|\d+[.)]\s*)?(?:(?:primary|secondary|diagnosis)\s*:\s*)?([A-TV-Z]\d[\dA-Z](?:\.[A-Z0-9]{1,4})?)\b[\s:–—-]*(.*)$/i);
     if (!match || rows.some((d) => d.icd10_code === match[1].toUpperCase())) continue;
     const description = match[2] || (lines[i + 1] && !/^[A-TV-Z]\d/.test(lines[i + 1]) ? lines[++i] : '');
-    rows.push({ icd10_code: match[1].toUpperCase(), description, is_primary: rows.length ? 0 : 1, is_active: 1, justification });
+    rows.push({ icd10_code: match[1].toUpperCase(), description, is_primary: rows.length ? 0 : 1, is_active: 1, justification: '' });
+  }
+  for (const [index,row] of rows.entries()) {
+    const escaped = row.icd10_code.replace('.', '\\.');
+    const match = justification.match(new RegExp(`(?:^|\\n)\\s*(?:[0-9]+[.)]\\s*)?${escaped}\\s*[:–—-]\\s*([\\s\\S]*?)(?=\\n\\s*(?:[0-9]+[.)]\\s*)?[A-TV-Z][0-9][0-9A-Z](?:\\.[0-9A-Z]{1,4})?\\s*[:–—-]|$)`, 'i'));
+    row.justification = match?.[1]?.trim() || (index === 0 && !rows.some(r => justification.includes(`${r.icd10_code}:`)) ? justification : '');
   }
   return rows;
 }
@@ -109,7 +114,7 @@ export function generatedTreatmentPlan(sections, { effectiveDate, diagnoses = []
   }
   return {
     effectiveDate,
-    diagnoses: diagnoses.map((d) => ({ icd10Code: d.icd10_code, description: d.description, isPrimary: !!Number(d.is_primary) })),
+    diagnoses: diagnoses.map((d) => ({ icd10Code: d.icd10_code, description: d.description, justification: d.justification || '', isPrimary: !!Number(d.is_primary) })),
     diagnosticJustification,
     presentingProblem: intakeSection(sections, 'Presenting Problem'),
     prescribedFrequency: intakeSection(sections, 'Prescribed Frequency of Treatment', 'Prescribed Treatment Frequency', 'Prescribed Frequency'),
@@ -141,7 +146,7 @@ export function intakeSectionsForRecord(sections, { mentalStatusExam, riskAssess
   }
   if (diagnoses?.length) {
     set(['Diagnosis', 'Diagnoses'], diagnoses.map((d) => `${d.icd10_code} ${d.description || ''}`.trim()).join('\n'));
-    set(['Diagnostic Justification'], diagnosticJustification || '');
+    set(['Diagnostic Justification'], diagnoses.map(d => `${d.icd10_code || d.code}: ${d.justification || ''}`.trim()).join('\n\n'));
   }
   return result;
 }

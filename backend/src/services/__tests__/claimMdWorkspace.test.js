@@ -1,9 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { billingWorkspace } from '../claimMdWorkspace.service.js';
+import { billingWorkspace, billingWorkspaceTransactions } from '../claimMdWorkspace.service.js';
 
 const agency = id => ({ id, organization_type: 'agency', name: `Company ${id}`, feature_flags: { medicalBillingEnabled: true } });
 function fixture() {
   const deps = {
+    loadWorkItems: vi.fn(async ids => ({items:ids.map(id=>({id:12+id,claimId:12+id,key:`claim:${12+id}`,agency_id:id,stage:'ready_to_submit',client_id:4,client_name:'Demo Client',date_of_service:'2026-11-03'})),draftsAvailable:true,appointmentsAvailable:true})),
     managed: vi.fn(async () => []),
     eftList: vi.fn(async () => ({items:[]})),
     main: { execute: vi.fn(async () => [[agency(1), agency(2), agency(3)]]) },
@@ -52,12 +53,13 @@ describe('cross-company billing scope', () => {
   });
   it('applies scope, search, status and pagination on the server', async () => {
     const deps = fixture(); await billingWorkspace(user, { agencyId: '3', status: 'attention', search: "' OR 1=1", page: '2' }, deps);
-    const [sql, params] = deps.clinical.execute.mock.calls.at(-1);
-    expect(sql).toContain('agency_id IN (?)'); expect(sql).toContain('LIMIT 30 OFFSET 30'); expect(sql).not.toContain("' OR 1=1");
-    expect(params.slice(0, 3)).toEqual([3, 'rejected', 'denied']);
+    expect(deps.loadWorkItems).toHaveBeenCalledWith([1,3],deps);
+    const data=await billingWorkspace(user,{agencyId:'3',status:'ready_to_submit',search:'Demo',sortBy:'client_name',direction:'asc'},deps);
+    expect(data.claims.map(row=>row.agency_id)).toEqual([3]);expect(data.total).toBe(1);
+    expect((await billingWorkspace(user,{agencyId:3,status:'all',page:2},deps)).claims).toEqual([]);
   });
   it('reports unavailable schemas instead of inventing zero balances or connected payers', async () => {
-    const deps = fixture(); deps.clinical.execute.mockRejectedValue({ code: 'ER_NO_SUCH_TABLE' });
+    const deps = fixture(); deps.clinical.execute.mockRejectedValue({ code: 'ER_NO_SUCH_TABLE' }); deps.loadWorkItems.mockRejectedValue({code:'ER_NO_SUCH_TABLE'});
     const data = await billingWorkspace(user, {}, deps);
     expect(data.capabilities.paymentPosting).toBe(false); expect(data.organizations[0].payments).toBeNull();
     expect(data.capabilities.claims).toBe(false); expect(data.capabilities.enrollments).toBe(false);
@@ -84,3 +86,28 @@ it('limits preview organization metadata, balances and claims before any financi
 });
 
 it('excludes programs, demos, and disabled billing accounts and resolves shared agency icons',async()=>{const deps=fixture();deps.memberships.mockResolvedValue([{...agency(1),icon_file_path:'icons/practice.svg'},{...agency(2),organization_type:'program'},{...agency(3),feature_flags:{medicalBillingEnabled:true,billingAccountExcluded:true}}]);const data=await billingWorkspace(user,{},deps);expect(data.organizations.map(a=>a.id)).toEqual([1]);expect(data.organizations[0].logoUrl).toBe('icons/practice.svg');await expect(billingWorkspace(user,{agencyId:3},deps)).rejects.toMatchObject({status:403});});
+
+describe('sortable billing transaction history',()=>{
+ function transactionFixture(){const deps=fixture();deps.clinical.execute.mockResolvedValue([[{id:8,agency_id:1,client_id:4,claimId:10,kind:'era',paid_cents:20000,adjustment_cents:3000,responsibility_cents:2000,posted_at:'2026-11-01'}]]);deps.main.execute.mockImplementation(async sql=>{
+  if(sql.includes('FROM family_ledger_payments'))return [[{id:9,agency_id:1,client_id:4,claimId:10,processor:'STRIPE',status:'succeeded',amount_cents:2000,posted_at:'2026-11-02'}]];
+  if(sql.includes('FROM family_payment_refunds'))return [[{id:9,agency_id:1,client_id:4,claimId:10,status:'succeeded',amount_cents:500,posted_at:'2026-11-03'}]];
+  if(sql.includes('FROM clients'))return [[{id:4,agency_id:1,full_name:'DEMO Patient'}]];
+  return [[]];
+ });return deps;}
+ it('retains ERA, payment and refund identities with signed amounts and linked clients',async()=>{
+  const deps=transactionFixture(),result=await billingWorkspaceTransactions(user,{agencyId:1,sortBy:'amount_cents',direction:'asc'},deps);
+  expect(result.total).toBe(3);expect(result.transactions.map(r=>r.id)).toEqual(['refund:9','payment:9','payer:8']);
+  expect(result.transactions[0]).toMatchObject({paid_cents:-500,amount_cents:-500,client_name:'DEMO Patient',claimId:10});
+  expect(result.familyPaymentsAvailable).toBe(true);for(const [,params] of deps.clinical.execute.mock.calls)expect(params).toEqual([1]);
+ });
+ it('searches by patient and status and rejects an unauthorized company before financial reads',async()=>{
+  const deps=transactionFixture();expect((await billingWorkspaceTransactions(user,{search:'DEMO Patient',clientId:4},deps)).total).toBe(3);
+  expect((await billingWorkspaceTransactions(user,{search:'succeeded'},deps)).total).toBe(2);
+  deps.clinical.execute.mockClear();await expect(billingWorkspaceTransactions(user,{agencyId:2},deps)).rejects.toMatchObject({status:403});expect(deps.clinical.execute).not.toHaveBeenCalled();
+ });
+ it('sorts MySQL Date values chronologically rather than by weekday name',async()=>{
+  const deps=transactionFixture(),clinical=deps.clinical.execute.getMockImplementation(),main=deps.main.execute.getMockImplementation();
+  for(const [db,run] of [[deps.clinical,clinical],[deps.main,main]])db.execute.mockImplementation(async(...args)=>{const [rows]=await run(...args);return [rows.map(row=>row.posted_at?{...row,posted_at:new Date(`${row.posted_at}T12:00:00Z`)}:row)];});
+  expect((await billingWorkspaceTransactions(user,{sortBy:'posted_at',direction:'desc'},deps)).transactions.map(row=>row.id)).toEqual(['refund:9','payment:9','payer:8']);
+ });
+});

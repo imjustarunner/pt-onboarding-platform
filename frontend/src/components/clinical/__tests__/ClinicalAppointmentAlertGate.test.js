@@ -1,0 +1,10 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+import {mount,flushPromises} from '@vue/test-utils';
+import Gate from '../ClinicalAppointmentAlertGate.vue';
+import api from '../../../services/api';
+vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn()}}));
+const props={agencyId:2,clientId:31,dateOfService:'2026-11-03'};
+beforeEach(()=>{vi.resetAllMocks();api.get.mockResolvedValue({data:{appointments:[{appointmentId:12,text:'Review payment arrangements.',revision:2,needsAcknowledgement:true}],diagnosisAlerts:[{code:'review',diagnosisId:4,message:'Review unspecified diagnosis.'}]}});api.post.mockResolvedValue({data:{}});});
+it('blocks before note input, acknowledges the displayed revision, and retains diagnosis flags',async()=>{const wrapper=mount(Gate,{props});await flushPromises();expect(wrapper.emitted('blocked').at(-1)).toEqual([true]);expect(wrapper.text()).toContain('Review payment arrangements.');api.get.mockResolvedValue({data:{appointments:[{appointmentId:12,text:'Review payment arrangements.',revision:2,needsAcknowledgement:false,acknowledgedAt:'2026-11-03'}],diagnosisAlerts:[{code:'review',diagnosisId:4,message:'Review unspecified diagnosis.'}]}});await wrapper.find('button').trigger('click');await flushPromises();expect(api.post).toHaveBeenCalledWith('/clinical-notes/appointment-alerts/12/acknowledge',{revision:2},expect.anything());expect(wrapper.emitted('blocked').at(-1)).toEqual([false]);expect(wrapper.text()).toContain('Review unspecified diagnosis.');});
+it('leaves signed historical viewing available without requiring acknowledgement',async()=>{const wrapper=mount(Gate,{props:{...props,readOnly:true}});await flushPromises();expect(wrapper.emitted('blocked').at(-1)).toEqual([false]);expect(wrapper.find('button').exists()).toBe(false);});
+it('keeps writing blocked on an alert fetch failure and provides retry',async()=>{api.get.mockRejectedValue(new Error('Unable to check session alerts'));const wrapper=mount(Gate,{props});await flushPromises();expect(wrapper.emitted('blocked').at(-1)).toEqual([true]);expect(wrapper.text()).toContain('Retry');});

@@ -1386,6 +1386,7 @@
 
         <!-- Billing import tab (financial — admin / support only) -->
         <div v-if="showPanel('client-billing') && canViewClientBillingImport && !['provider', 'provider_plus'].includes(roleNorm)" class="detail-section">
+          <ClientPaymentFollowup :client-id="client.id" />
           <ClientBillingImportTab
             :agency-id="Number(props.client?.agency_id || 0) || null"
             :client-id="Number(props.client?.id || 0) || null"
@@ -2796,6 +2797,7 @@ import { canAccessMedicalBilling, canAccessClientAccountSupport } from '../../co
 import ClientPendingTasks from '../billing/ClientPendingTasks.vue';
 import ClientInsuranceEditor from '../billing/ClientInsuranceEditor.vue';
 import ClientCareCoverageSummary from '../billing/ClientCareCoverageSummary.vue';
+import ClientPaymentFollowup from '../billing/ClientPaymentFollowup.vue';
 import ClientAccountSupport from '../billing/ClientAccountSupport.vue';
 import ClientSchoolRoiAccessTab from './ClientSchoolRoiAccessTab.vue';
 import ClientRenewalPushModal from './ClientRenewalPushModal.vue';

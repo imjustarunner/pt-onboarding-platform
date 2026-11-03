@@ -1,17 +1,24 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ execute: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() }));
+const mocks = vi.hoisted(() => ({ execute: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(), coverage:vi.fn() }));
+vi.mock('../clientCoverageAdmission.service.js',()=>({assertClientCoverageAdmission:mocks.coverage}));
 vi.mock('../../config/database.js', () => ({ default: { getConnection: async () => ({ execute: mocks.execute, beginTransaction: mocks.begin, commit: mocks.commit, rollback: mocks.rollback, release: mocks.release }) } }));
 import { insertExchangeListing } from '../clientExchangePosting.service.js';
 let client, existing, assignments;
 const args = { agencyId: 2, clientId: 12, postedByUserId: 7, onlyUnassigned: true, summary: { preferences: {modality:'virtual',insurance:'Medicaid',schedule:{days:['Monday'],periods:['morning']}}, diagnoses: ['F41.1'], presentingProblems: ['Concern'] } };
 beforeEach(() => {
   vi.clearAllMocks(); client = { id: 12, agency_id: 2, provider_id: null, status: 'ACTIVE' }; existing = []; assignments = [];
+  mocks.coverage.mockResolvedValue({ready:true});
   mocks.execute.mockImplementation(async sql => {
     if (sql.startsWith('SELECT id, agency_id')) return [[client]];
     if (sql.includes('SELECT id FROM client_exchange_listings')) return [existing];
     if (sql.includes('SELECT id FROM client_provider_assignments')) return [assignments];
     return [{ insertId: 5 }];
   });
+});
+it('blocks a new Exchange listing before inserts when current insurance is not verified',async()=>{
+ mocks.coverage.mockRejectedValueOnce(Object.assign(Error('Insurance verification required'),{status:409,code:'INSURANCE_VERIFICATION_REQUIRED'}));
+ await expect(insertExchangeListing(args)).rejects.toMatchObject({status:409,code:'INSURANCE_VERIFICATION_REQUIRED'});
+ expect(mocks.execute.mock.calls.some(([sql])=>/^\s*(INSERT|UPDATE)\b/.test(sql))).toBe(false);expect(mocks.rollback).toHaveBeenCalledOnce();expect(mocks.commit).not.toHaveBeenCalled();
 });
 it('locks the client and commits the clinical snapshot with its audit record', async () => {
   expect(await insertExchangeListing(args)).toMatchObject({ listingId: 5, created: true });

@@ -170,7 +170,7 @@ export function formatMentalStatusContent(content) {
 /**
  * Parse ICD-10 diagnosis lines from a diagnosis block or full note.
  * Supports "F41.1 GAD" on one line or code on one line and description on the next.
- * Shared diagnostic justification is stored on the first (primary) diagnosis only.
+ * Per-code justifications are preserved; legacy shared text is retained on primary only.
  * @returns {Array<{ code: string, description: string, justification: string, isPrimary: boolean }>}
  */
 export function parseIntakeDiagnoses(rawText) {
@@ -242,6 +242,12 @@ export function parseIntakeDiagnoses(rawText) {
     diagnoses[0].justification = sharedJustification;
   }
 
+  for (const diagnosis of diagnoses) {
+    const escaped = diagnosis.code.replace('.', '\\.');
+    const own = raw.match(new RegExp(`(?:^|\\n)\\s*(?:Diagnosis:\\s*)?${escaped}[^\\n]*\\n\\s*Justification:\\s*([\\s\\S]*?)(?=\\n\\s*(?:Diagnosis:|[A-TV-Z][0-9][0-9A-Z](?:\\.[0-9A-Z]{1,4})?\\s)|\\n\\s*\\n[A-Z][A-Za-z ]+:|$)`, 'i'));
+    const separate = sharedJustification.match(new RegExp(`(?:^|\\n)\\s*${escaped}\\s*[:–—-]\\s*([\\s\\S]*?)(?=\\n\\s*[A-TV-Z][0-9][0-9A-Z](?:\\.[0-9A-Z]{1,4})?\\s*[:–—-]|$)`, 'i'));
+    if (own?.[1] || separate?.[1]) diagnosis.justification = (own?.[1] || separate?.[1]).trim();
+  }
   return diagnoses;
 }
 

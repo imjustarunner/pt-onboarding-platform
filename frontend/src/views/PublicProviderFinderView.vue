@@ -431,11 +431,13 @@ async function submitRequest() {
       guardianPhone: requestForm.value.guardianPhone || null,
       guardianRelationship: requestForm.value.guardianRelationship || null
     };
-    await api.post(`/public/provider-availability/${agencyId.value}/requests`, payload, {
+    const { data } = await api.post(`/public/provider-availability/${agencyId.value}/requests`, payload, {
       params: { key: accessKey.value },
       skipAuthRedirect: true
     });
-    requestSuccess.value = 'Request submitted successfully. Our team will follow up shortly.';
+    requestSuccess.value = data?.request?.assignmentDeferred
+      ? 'Your request is saved. Billing will verify coverage before provider assignment.'
+      : 'Request submitted successfully. Our team will follow up shortly.';
     await loadProviders();
   } catch (e) {
     requestError.value = e?.response?.data?.error?.message || 'Failed to submit request.';

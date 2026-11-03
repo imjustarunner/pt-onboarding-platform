@@ -323,7 +323,7 @@ async function runIntakeGemini({ scrubbedText, toolId }) {
     '',
     'Also include a structured diagnosis block:',
     'Diagnosis: <ICD-10 code> — <description>',
-    'Justification: <1-3 sentence clinical rationale>',
+    'Justification: <1-3 sentence rationale unique to this diagnosis; repeat for every supported diagnosis. Do not invent findings or supporting records. Identify missing evidence.>',
     '',
     'Intake Summary (scrubbed — do NOT add any identifying information):',
     scrubbedText

@@ -4,6 +4,7 @@ export function notificationDestination(notification, { organizationSlug = null,
   if (n.type === 'employee_award_eligible') return `${base}/admin/employee-relations?agencyId=${Number(n.agency_id)}&status=owed`;
   const entityType = String(n.related_entity_type || '').toLowerCase();
   const entityId = Number(n.related_entity_id || 0);
+  if(n.type === 'payment_setup_required' && entityId) return {path:`${base}/guardian`,query:{panel:'payment_methods',clientId:String(entityId)}};
   if (entityType === 'meeting_reservation_invitation' && entityId) return `${base}/meeting-times?invitation=${entityId}&agencyId=${Number(n.agency_id)}`;
   if (n.type === 'team_meeting_scheduled' && ['provider_schedule_event', 'provider_schedule_events'].includes(entityType) && entityId) {
     let audience = n.audience_json || n.audienceJson || {};

@@ -141,14 +141,16 @@ function buildMimeMessage({
     ];
 
     attachments.forEach((att) => {
-      const filename = normalizeHeaderValue(att.filename || 'attachment');
+      const filename = normalizeHeaderValue(att.filename || 'attachment').replace(/["\\]/g, '_');
       const contentType = normalizeHeaderValue(att.contentType || 'application/octet-stream');
       const content = att.contentBase64 || '';
+      const contentId = /^[a-zA-Z0-9_.@-]{1,100}$/.test(String(att.contentId || '')) ? String(att.contentId) : null;
       parts.push(
         `--${boundary}`,
         `Content-Type: ${contentType}; name="${filename}"`,
         'Content-Transfer-Encoding: base64',
-        `Content-Disposition: attachment; filename="${filename}"`,
+        `Content-Disposition: ${contentId ? 'inline' : 'attachment'}; filename="${filename}"`,
+        ...(contentId ? [`Content-ID: <${contentId}>`] : []),
         '',
         content,
         ''

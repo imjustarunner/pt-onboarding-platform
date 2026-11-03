@@ -1552,6 +1552,7 @@ export const createBookingRequest = async (req, res, next) => {
 
     let createdClientId = null;
     let createdGuardianUserId = null;
+    let assignmentDeferred = false;
     if (bookingMode === 'NEW_CLIENT') {
       const fullName = String(req.body?.clientFullName || name).trim();
       const guardianEmail = String(req.body?.guardianEmail || email).trim();
@@ -1593,7 +1594,9 @@ export const createBookingRequest = async (req, res, next) => {
             createdClientId = Number(result?.clients?.[0]?.id || 0) || null;
             createdGuardianUserId = Number(result?.guardianUser?.id || 0) || null;
             if (createdClientId) {
-              await pool.execute(`UPDATE clients SET provider_id = ? WHERE id = ?`, [providerId, createdClientId]);
+              const { assignPublicIntakeProviderWhenVerified } = await import('../services/clientCoverageAdmission.service.js');
+              const assignment = await assignPublicIntakeProviderWhenVerified(createdClientId, providerId);
+              assignmentDeferred = assignment.assignmentDeferred;
             }
           }
         } catch (err) {
@@ -1809,6 +1812,7 @@ export const createBookingRequest = async (req, res, next) => {
         subjectArea,
         clientGradeLevel,
         appointmentRole: 'session',
+        assignmentDeferred,
         evalRequired,
         requestedStartAt: created?.requested_start_at ?? null,
         requestedEndAt: created?.requested_end_at ?? null,

@@ -18,6 +18,8 @@ export async function insertExchangeListing({ agencyId, clientId, postedByUserId
       await connection.commit();
       return { listingId: existing[0].id, created: false, currentProviderId: client.provider_id };
     }
+    const { assertClientCoverageAdmission } = await import('./clientCoverageAdmission.service.js');
+    await assertClientCoverageAdmission(clientId, { db: connection });
     assertExchangeEssentials(summary);
     if (onlyUnassigned) {
       const [assignments] = await connection.execute('SELECT id FROM client_provider_assignments WHERE client_id = ? AND is_active = TRUE LIMIT 1', [clientId]);

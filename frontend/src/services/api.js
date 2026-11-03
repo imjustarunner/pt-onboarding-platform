@@ -289,6 +289,9 @@ api.interceptors.response.use(
     return response;
   },
   async (error) => {
+    if (error.response?.data?.error?.code === 'INSURANCE_VERIFICATION_REQUIRED' && Number(error.response.data.error.clientId)>0) {
+      window.dispatchEvent(new CustomEvent('pt:insurance-verification-required', { detail: error.response.data.error }));
+    }
     if (['KIOSK_LOCKED', 'KIOSK_WRONG_OFFICE'].includes(error.response?.data?.error?.code)) {
       window.dispatchEvent(new CustomEvent('auricwell:kiosk-locked'));
     }

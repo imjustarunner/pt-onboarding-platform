@@ -3,7 +3,7 @@ import mysql from 'mysql2/promise';
 import fs from 'node:fs/promises';
 import {splitSqlStatements,stripSqlLineComments} from '../../../../database/migrationSqlUtils.js';
 const state=vi.hoisted(()=>({db:null}));
-vi.mock('../../config/database.js',()=>({default:{execute:(...args)=>state.db.execute(...args),getConnection:()=>state.db.getConnection()}}));
+vi.mock('../../config/database.js',()=>({onTableWrite:vi.fn(),default:{execute:(...args)=>state.db.execute(...args),getConnection:()=>state.db.getConnection()}}));
 vi.mock('../clinicalEligibility.service.js',()=>({default:{ensureAgencyAccess:async()=>{}}}));
 import {saveFamilyInsurance,getFamilyBillingSummary} from '../familyBilling.service.js';
 import {readClientInsurance} from '../clientInsurance.service.js';
@@ -18,20 +18,30 @@ describe.skipIf(!socket)('independent guardian policies with real SQL and encryp
  const secondary={insurerName:'Second holder coverage',memberId:'SYNTHETIC-TWO',subscriberName:'Second Parent',relationshipToSubscriber:'child'};
  let first,second;
  beforeAll(async()=>{
-  if(!/^\/private\/tmp\/pt-security-evidence-db\.[^/]+\/mysql\.sock$/.test(socket))throw Error('Use a disposable local test database');
+  if(!/^\/private\/tmp\/(?:pt-security-evidence-db\.[^/]+|pt-billing-workflow-mysql-[^/]+)\/mysql\.sock$/.test(socket))throw Error('Use a disposable local test database');
   vi.stubEnv('FAMILY_BILLING_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,5).toString('base64'));vi.stubEnv('FAMILY_BILLING_ENCRYPTION_KEY_ID','test');
   const root=await mysql.createConnection({socketPath:socket,user:'root'});await root.query('CREATE DATABASE guardian_insurance_readiness_test');await root.end();
   state.db=mysql.createPool({socketPath:socket,user:'root',database:'guardian_insurance_readiness_test',timezone:'Z',connectionLimit:4});
   let fixture=await fs.readFile(new URL('../../../fixtures/family-billing-security.sql',import.meta.url),'utf8');fixture=fixture.slice(fixture.indexOf('CREATE TABLE agencies'));
-  const migrations=['613_guardian_insurance_payment.sql','1413_private_family_billing.sql','1687_dependent_portal_access.sql','1688_client_portal_independence.sql'];
+  const migrations=['613_guardian_insurance_payment.sql','1413_private_family_billing.sql','1687_dependent_portal_access.sql','1688_client_portal_independence.sql','1736_payment_setup_followups.sql','1486_client_coverage_verification.sql'];
   for(const statement of splitSqlStatements(stripSqlLineComments(fixture)))await state.db.query(statement);
   for(const name of migrations){const sql=await fs.readFile(new URL(`../../../../database/migrations/${name}`,import.meta.url),'utf8');for(const statement of splitSqlStatements(stripSqlLineComments(sql)))await state.db.query(statement);}
   const followups=await fs.readFile(new URL('../../../../database/migrations/1640_insurance_followups_and_payer_shares.sql',import.meta.url),'utf8');
   for(const statement of splitSqlStatements(stripSqlLineComments(followups)).filter(s=>s.startsWith('CREATE TABLE')))await state.db.query(statement);
-  await state.db.query("ALTER TABLE clients ADD date_of_birth DATE,ADD gender VARCHAR(20),ADD address_street VARCHAR(255),ADD address_apt VARCHAR(50),ADD address_city VARCHAR(50),ADD address_state VARCHAR(10),ADD address_zip VARCHAR(20),ADD status VARCHAR(20) DEFAULT 'ACTIVE',ADD compliance_archived_at DATETIME");
+  await state.db.query("ALTER TABLE clients ADD client_type VARCHAR(30) DEFAULT 'clinical',ADD insurance_type_id INT,ADD date_of_birth DATE,ADD gender VARCHAR(20),ADD address_street VARCHAR(255),ADD address_apt VARCHAR(50),ADD address_city VARCHAR(50),ADD address_state VARCHAR(10),ADD address_zip VARCHAR(20),ADD status VARCHAR(20) DEFAULT 'ACTIVE',ADD compliance_archived_at DATETIME");
   await state.db.query("UPDATE clients SET date_of_birth='2017-02-03',gender='F',address_street='Original address'");
   await state.db.query('ALTER TABLE agencies ADD slug VARCHAR(80),ADD portal_url VARCHAR(255),ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0');
-  await state.db.query("ALTER TABLE users ADD email VARCHAR(255),ADD status VARCHAR(30) DEFAULT 'ACTIVE',ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0");
+  await state.db.query("ALTER TABLE users ADD is_demo BOOLEAN DEFAULT 0,ADD email VARCHAR(255),ADD status VARCHAR(30) DEFAULT 'ACTIVE',ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0");
+  for(const sql of [
+    'CREATE TABLE insurance_types(id INT PRIMARY KEY,insurance_key VARCHAR(80),label VARCHAR(120))',
+    'CREATE TABLE intake_links(id INT PRIMARY KEY,form_type VARCHAR(40),master_channel VARCHAR(40),scope_type VARCHAR(40),organization_id INT)',
+    'CREATE TABLE intake_submissions(id INT PRIMARY KEY,intake_link_id INT,status VARCHAR(40),submitted_at DATETIME,guardian_user_id INT,client_id INT)',
+    'CREATE TABLE intake_submission_clients(intake_submission_id INT,client_id INT)',
+    'CREATE TABLE organization_affiliations(organization_id INT,agency_id INT,is_active BOOLEAN)',
+    'CREATE TABLE agency_schools(school_organization_id INT,agency_id INT,is_active BOOLEAN)',
+    "INSERT INTO intake_links VALUES(1,'intake','office','agency',1)",
+    "INSERT INTO intake_submissions VALUES(1,1,'submitted',NOW(),10,101),(2,1,'submitted',NOW(),20,101)"
+  ])await state.db.query(sql);
   first=await saveFamilyInsurance({userId:10,agencyId:1,clientIds:[101],primary,coverageScope:'client',coverageConfirmed:true});
   second=await saveFamilyInsurance({userId:20,agencyId:1,clientIds:[101],primary:secondary,coverageScope:'client',coverageConfirmed:true});
  });

@@ -48,6 +48,10 @@ export async function assertExchangeRequestEligible({ listing, userId, database 
     client = { ...client, insurance_type_label: rows[0]?.label || client.insurance_type_label };
   }
   if (!client) throw Object.assign(new Error('Client no longer belongs to this exchange'), { status: 409 });
+  if (forAssignment) {
+    const { assertClientCoverageAdmission } = await import('./clientCoverageAdmission.service.js');
+    await assertClientCoverageAdmission(client.id, { db: database, client });
+  }
   if (['ARCHIVED', 'DECLINED'].includes(String(client.status || '').toUpperCase())) throw Object.assign(new Error('This client is no longer available for requests'), { status: 409 });
   const provider = await loadExchangeProvider({ userId, agencyId: listing.agency_id, database });
   const current = exchangeListingForEvaluation(listing, client);

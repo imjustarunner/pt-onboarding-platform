@@ -165,7 +165,8 @@
     <div v-if="loading" class="pb-state">Loading booking…</div>
     <div v-else-if="error" class="pb-state error">{{ error }}</div>
     <div v-else-if="submitted" class="pb-state success">
-      <h2>You're all set!</h2>
+      <h2>Your request is saved.</h2>
+      <p v-if="assignmentDeferred" role="status">Billing will verify coverage before provider assignment.</p>
       <p>We've received your {{ selectedService?.isDiscovery ? 'discovery' : 'session' }} request. You'll get a confirmation email shortly.</p>
     </div>
 
@@ -562,6 +563,7 @@ const selectedSlot = ref(null);
 const step = ref(1);
 const submitting = ref(false);
 const submitted = ref(false);
+const assignmentDeferred = ref(false);
 const submitError = ref('');
 const findingFirst = ref(false);
 const firstAvailableHint = ref('');
@@ -1043,7 +1045,7 @@ async function submitBooking() {
         : 'Requested: Free discovery'
     ].filter(Boolean);
 
-    await api.post(
+    const { data } = await api.post(
       `/public/agency-services/${encodeURIComponent(slug.value)}/requests`,
       {
         serviceType: serviceType.value,
@@ -1066,6 +1068,7 @@ async function submitBooking() {
       },
       { skipAuthRedirect: true }
     );
+    assignmentDeferred.value = data?.request?.assignmentDeferred === true;
     submitted.value = true;
   } catch (e) {
     submitError.value = e.response?.data?.error?.message || e.message || 'Could not submit booking.';

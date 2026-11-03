@@ -1,0 +1,97 @@
+CLINICAL DIAGNOSIS CONTROLS AND SESSION ALERTS
+Implementation reference — November 3, 2026
+
+IMPLEMENTED BEHAVIOR
+Every entered diagnosis requires its own provider-reviewed clinical justification.
+The final note keeps the diagnoses in order and a separate rationale for each.
+90791/H0031 generation asks for source-supported rationale for every diagnosis;
+missing source facts and supporting records must not be invented. Import/review
+screens preserve each diagnosis rationale instead of assigning one paragraph to
+all diagnoses. Existing signed versions are not rewritten.
+
+Primary diagnosis coverage uses the requested covered MH/SUD ranges. SDOH primary
+codes require age under 21 and a verified eligible service, including the separate
+assessment/screening exception. Other valid billable ICD-10-CM codes may be used
+secondarily. Bachelor/QBHA providers cannot author or bill F diagnoses, including
+secondary F diagnoses. An assigned licensed supervisor must explicitly authorize
+non-F primary diagnoses for their supervisee; changes retain actor, reason, time.
+H0002 screening retains its existing R69 exception and does not require an invented
+mental-disorder diagnosis or block signed-note visibility.
+
+Primary autism/ADHD requires reviewed supporting medical documents belonging to
+that client/agency OR a qualified licensed clinician's own documented evaluation.
+Lack of evidence creates a review blocker; it does not silently replace diagnoses.
+The evidence panel preserves prior clinician identity/date when a later reviewer
+records follow-up. Reviews and permissions append to history; free-text evidence
+and reasons use clinical payload encryption. New checks run before initial note
+signature, cosignature, exact-version attestation, intake finalization, claim
+readiness and transmission. A clinically approved row remains visible in billing;
+policy blockers are not permission to submit an unsupported claim.
+
+Unspecified codes are identified from the official catalog, not merely a user-
+entered description. After more than 90 days, they remain flagged while active,
+even if a review has been recorded. Flags display in the clinical record, note
+workspace, appointment detail, and schedule for authorized providers/supervisors.
+Adjustment disorder requires an event month. At six months from that recorded
+month, the organization's requested review/billing hold applies. This is a strict
+organization rule, not a claim that all clinical adjustment-disorder diagnoses
+universally expire six months after an event; ongoing stressors need clinical
+review. The system does not manufacture a new event date or alternative diagnosis.
+
+Appointment alerts remain on the appointment and its encrypted history, not on a
+claim. Authorized billing, admin, assigned supervisor, or the scheduled provider
+can create an alert. The note author must acknowledge the exact alert revision
+before starting/continuing a draft or generation. New alert revisions require a
+fresh acknowledgement; actor/revision/time are retained. Historical signed notes
+remain readable. Diagnosis flags remain visible after acknowledgement.
+
+VERIFIED PRIMARY SOURCES
+1. HCPF Behavioral Health Policies, Standards, and Billing References:
+   https://hcpf.colorado.gov/bh-policies
+   Accessible indexed state mirror used for the diagnosis tables:
+   https://hcpf.test.colorado.gov/bh-policies
+   Covered MH: F20.0–F69; F90.0–F98.4; F98.8–F99;
+   R45.1–R45.2; R45.5–R45.82. Covered SUD: F10.10–F19.99.
+   Autism F84.0–F84.9 only for members under 21 and the published psychotherapy
+   service-code list. Screening/assessment/crisis/prevention have documented
+   exceptions; R69/Z03.89 may be appropriate when no diagnosis has been determined.
+
+2. HCPF January 2026 State Behavioral Health Services Billing Manual:
+   https://hcpf.colorado.gov/sites/hcpf/files/January%202026%20SBHS%20Billing%20Manual1.13.26.pdf
+   Appendix I explains blue SDOH service highlights and yellow assessment/
+   screening/crisis/prevention exceptions. Indexed text was readable; direct PDF
+   image download was denied by the state server (403), so the service allowlist
+   was independently checked against the explicit state lists below.
+
+3. HCPF Services/Codes Included in SB23-174 Coverage Policy, revised March 1, 2024:
+   https://hcpf.colorado.gov/sites/hcpf/files/Revised%20Services_Codes%20to%20Include%20in%20the%20SB23-174%20Coverage%20Policy_0.pdf
+   Lists 18 services. Later official annual report Appendix A lists 20:
+   https://hcpf.colorado.gov/sites/hcpf/files/HCPF%20174%20Annual%20Report.pdf
+   Verified list used: 90785,90791,90832,90834,90837,90846,90847,90849,90853,
+   90875,90876,H0004,H0005,H0038,H2014,H2017,H2023,H2027,S9445,T1017.
+   H0002/H0031 assessment handling is a separate exception; they are not mislabeled
+   as blue-highlighted treatment codes. Agency policy may restrict the verified
+   SDOH service list through clinicalDiagnosisPolicy.verifiedSdohServiceCodes.
+
+4. CMS official ICD-10-CM release page and billable tabular-order code files:
+   https://www.cms.gov/medicare/coding-billing/icd-10-codes
+   https://www.cms.gov/files/zip/2026-code-descriptions-tabular-order.zip
+   https://www.cms.gov/files/zip/april-1-2026-code-descriptions-tabular-order.zip
+   https://www.cms.gov/files/zip/2027-code-descriptions-tabular-order.zip
+   Server-only catalog includes billable leaf codes and unspecified classification
+   for dates October 1, 2025 through September 30, 2027. File source URLs and SHA256
+   hashes are retained in backend/src/data/icd10cm-diagnosis-catalog.json.
+   Dates outside a verified edition require catalog verification before billing.
+   F84.9 is "Pervasive developmental disorder, unspecified"; F90.0/F90.1/F90.2
+   identify ADHD presentations, while F90.9 is unspecified. Those clinical meanings
+   are not interchangeable merely because outside documentation is missing.
+
+VALIDATION AND RELEASE REQUIREMENTS
+Clinical migration028 stores evidence reviews and supervisor permission history.
+Primary migration1737 stores appointment alert acknowledgements.
+Both migrations were applied successfully to an isolated local synthetic MySQL
+schema. Tests verify FK preservation, actor/revision acknowledgement, stale
+rejection, re-review after alert edits, authorization, code-specific rationale,
+evidence encryption/ownership, exact-version signing and claim blockers.
+No live patient data was changed or used for these tests. Live acceptance still
+requires deployed migrations and authenticated synthetic workflow testing.

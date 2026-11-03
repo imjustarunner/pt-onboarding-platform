@@ -1,5 +1,6 @@
 <template>
   <div class="detail-section cc-clinical-tab">
+    <ClinicalDiagnosisReviewPanel v-if="client?.id && client?.agency_id && canViewMedicalRecord && !isLearningClient" :agency-id="client.agency_id" :client-id="client.id" :provider-user-id="client.provider_id || client.provider_user_id || null" @changed="loadChartDiagnoses" />
     <div v-if="clinicalLoading" class="loading">Loading clinical chart…</div>
     <div v-else-if="clinicalError" class="error">{{ clinicalError }}</div>
 
@@ -92,12 +93,12 @@
                 </div>
                 <span v-if="isLearningClient && showConcernCode(dx)" class="small">{{ dx.description || '' }}</span>
                 <span v-else-if="!isLearningClient" class="small">{{ dx.description || '' }}</span>
-                <details v-if="isLearningClient && dx.justification" class="cc-dx-just">
-                  <summary>Notes</summary>
+                <details v-if="dx.justification" class="cc-dx-just">
+                  <summary>{{ isLearningClient ? 'Notes' : 'Justification' }}</summary>
                   <p>{{ dx.justification }}</p>
                 </details>
               </div>
-              <details v-if="sharedDxJustification && !isLearningClient" class="cc-dx-just">
+              <details v-if="sharedDxJustification && !isLearningClient && !displayConcerns.some(d => d.justification)" class="cc-dx-just">
                 <summary>Justification</summary>
                 <p>{{ sharedDxJustification }}</p>
               </details>
@@ -403,6 +404,7 @@ import { computed, onMounted, ref, toRef, watch } from 'vue';
 import { useClientClinicalResponses } from '../../../composables/useClientClinicalResponses.js';
 import { useClientEncounters } from '../../../composables/useClientEncounters.js';
 import api from '../../../services/api.js';
+import ClinicalDiagnosisReviewPanel from '../../clinical/ClinicalDiagnosisReviewPanel.vue';
 
 const props = defineProps({
   client: { type: Object, required: true },

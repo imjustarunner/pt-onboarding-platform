@@ -1,5 +1,6 @@
 import {it,expect,vi,beforeEach} from 'vitest';
-const h=vi.hoisted(()=>({execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),access:vi.fn(),adjust:vi.fn()}));
+const h=vi.hoisted(()=>({execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),access:vi.fn(),adjust:vi.fn(),coverage:vi.fn()}));
+vi.mock('../../services/clientCoverageAdmission.service.js',()=>({assertNewProviderCoverageAdmission:h.coverage}));
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(async()=>[[]]),getConnection:vi.fn(async()=>h)},onTableWrite:vi.fn()}));
 vi.mock('../../services/clientRecordAccess.service.js',()=>({resolveClientRecordAccess:h.access}));
 vi.mock('../../services/providerSlots.service.js',async importOriginal=>({...await importOriginal(),adjustProviderSlots:h.adjust}));
@@ -13,6 +14,7 @@ import {upsertClientProviderAssignment} from '../client.controller.js';
 let rows,req,res,next;
 beforeEach(()=>{
  vi.clearAllMocks();rows=[{id:2588,is_active:0,is_primary:0,service_day:'Tuesday'}];
+ h.coverage.mockResolvedValue({ready:true});
  req={params:{id:'2152'},body:{organization_id:237,provider_user_id:494,service_day:'Tuesday',is_primary:true},user:{id:501,role:'super_admin'}};
  res={status:vi.fn().mockReturnThis(),json:vi.fn()};next=vi.fn();
  h.access.mockResolvedValue({ok:true,client:{id:2152,agency_id:2,client_status_key:'being_seen'}});h.adjust.mockResolvedValue({ok:true});
@@ -23,6 +25,12 @@ beforeEach(()=>{
   if(sql.includes('COUNT(*)'))return [[{cnt:rows.filter(r=>r.is_active&&r.service_day!=='Tuesday').length}]];
   return [{affectedRows:1}];
  });
+});
+it('rejects a new school assignment before consuming a slot or altering its previous provider',async()=>{
+ h.coverage.mockRejectedValueOnce(Object.assign(Error('Insurance verification required'),{status:409,code:'INSURANCE_VERIFICATION_REQUIRED'}));
+ await upsertClientProviderAssignment(req,res,next);expect(next).toHaveBeenCalledWith(expect.objectContaining({code:'INSURANCE_VERIFICATION_REQUIRED'}));
+ expect(h.adjust).not.toHaveBeenCalled();expect(h.commit).not.toHaveBeenCalled();expect(h.rollback).toHaveBeenCalledOnce();
+ expect(h.execute.mock.calls.some(([sql])=>/\b(INSERT|UPDATE)\b/.test(sql)&&!sql.includes('FOR UPDATE'))).toBe(false);
 });
 it('reactivates the historical row without a duplicate insert and consumes one slot',async()=>{
  await upsertClientProviderAssignment(req,res,next);expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(201);

@@ -50,7 +50,7 @@
         </section>
         <section v-if="item.source_ref_type === 'insurance_verification'" class="client-action-banner">
           <p>Claim this task, verify the member identity and coverage, then update the secure insurance record. Keep claims on hold until the verification is documented.</p>
-          <router-link :to="{ path: `${route.params.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/clients`, query: { clientId: parseTaskMetadata(item).clientId } }">Open client insurance record</router-link>
+          <router-link :to="{ path: `${route.params.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/medical-billing`, query: { billingSection: 'insurance', agencyId: item.assigned_to_agency_id, clientId: parseTaskMetadata(item).clientId } }">Open insurance verification</router-link>
           <a href="https://colorado-hcp-portal.coxix.gainwelltechnologies.com/hcp/provider/Home/tabid/135/Default.aspx" target="_blank" rel="noopener noreferrer">Colorado Medicaid provider portal</a>
         </section>
         <section v-if="exchangeSetup" class="client-action-banner">

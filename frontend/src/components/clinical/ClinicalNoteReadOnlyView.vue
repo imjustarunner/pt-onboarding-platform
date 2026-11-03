@@ -80,7 +80,7 @@
       </dl>
     </section>
 
-    <section v-if="primaryDxLabel || diagnosticJustification" class="ccn-block" aria-label="Diagnosis">
+    <section v-if="diagnosisRows.length || diagnosticJustification" class="ccn-block" aria-label="Diagnosis">
       <div class="ccn-block-head">
         <h4 class="ccn-block-title">Diagnosis</h4>
         <button
@@ -92,14 +92,11 @@
           {{ copiedKey === 'dx' ? 'Copied' : 'Copy' }}
         </button>
       </div>
-      <p v-if="primaryDxLabel" class="ccn-dx-line">
-        <code v-if="note.primaryDiagnosis?.icd10Code">{{ note.primaryDiagnosis.icd10Code }}</code>
-        <strong>{{ note.primaryDiagnosis?.description || primaryDxLabel }}</strong>
-      </p>
-      <div v-if="diagnosticJustification" class="ccn-subblock">
-        <span class="ccn-sublabel">Justification</span>
-        <p class="ccn-prose">{{ diagnosticJustification }}</p>
+      <p v-if="diagnosisRows.length" class="ccn-dx-line"><strong>{{ diagnosisRows.map(d => [d.code,d.description].filter(Boolean).join(' — ')).join('; ') }}</strong></p>
+      <div v-for="diagnosis in diagnosisRows" :key="diagnosis.code" class="ccn-subblock">
+        <p class="ccn-prose"><strong>{{ diagnosis.code }}:</strong> {{ diagnosis.justification || 'Justification not recorded in this signed version.' }}</p>
       </div>
+      <p v-if="!diagnosisRows.length && diagnosticJustification" class="ccn-prose">{{ diagnosticJustification }}</p>
     </section>
 
     <section v-if="objectiveRatings.length" class="ccn-block" aria-label="Treatment objective ratings">
@@ -564,6 +561,12 @@ const diagnosticJustification = computed(() =>
   String(props.note?.diagnosticJustification || structuredChart.value?.diagnosticJustification || '').trim()
 );
 
+const diagnosisRows = computed(() => {
+  const source=structuredChart.value?.diagnoses || structuredChart.value?.intakeDiagnoses;
+  const rows=Array.isArray(source)&&source.length?source:props.note?.primaryDiagnosis?[props.note.primaryDiagnosis]:[];
+  return rows.map((d,index)=>({code:d.icd10_code || d.icd10Code || d.code,description:d.description || '',justification:d.justification || (rows.length===1?diagnosticJustification.value:'')}));
+});
+
 const primaryDxLabel = computed(() => {
   const dx = props.note?.primaryDiagnosis;
   if (!dx) return '';
@@ -668,8 +671,8 @@ const medCopyText = computed(() => formatMedicationsText(structuredChart.value?.
 
 const diagnosisCopyText = computed(() => {
   const bits = [];
-  if (primaryDxLabel.value) bits.push(primaryDxLabel.value);
-  if (diagnosticJustification.value) bits.push(`Justification: ${diagnosticJustification.value}`);
+  if(diagnosisRows.value.length) bits.push(...diagnosisRows.value.map(d=>`${d.code} ${d.description}\n${d.justification}`.trim()));
+  else if (diagnosticJustification.value) bits.push(`Justification: ${diagnosticJustification.value}`);
   return bits.join('\n\n');
 });
 

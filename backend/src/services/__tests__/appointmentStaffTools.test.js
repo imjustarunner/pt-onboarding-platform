@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: {} }));
 vi.mock('../../models/Appointment.model.js', () => ({ default: {} }));
 vi.mock('../../models/User.model.js', () => ({ default: {} }));
+vi.mock('../clinicalDiagnosisPolicy.service.js', () => ({ listClientDiagnosisAlerts: vi.fn(async () => []) }));
+vi.mock('../schedulingBillingAccess.service.js', () => ({ hasSchedulingBillingAccess: vi.fn(async () => false) }));
 vi.mock('../clientRecordAccess.service.js', () => ({ resolveClientRecordAccess: vi.fn() }));
 vi.mock('../clinicalNoteCrypto.service.js', () => ({ maybeEncryptNotePayload: vi.fn(), maybeDecryptNotePayload: vi.fn() }));
 import { createAppointmentStaffTools } from '../appointmentStaffTools.service.js';
@@ -23,7 +25,7 @@ describe('private appointment staff tools', () => {
     await expect(service.get({ id: 9, role }, 12)).rejects.toMatchObject({ status: 403 });
     expect(db.execute).not.toHaveBeenCalled(); expect(decrypt).not.toHaveBeenCalled();
   });
-  it.each(['agency_admin', 'backoffice_admin', 'scheduler', 'front_desk', 'staff'])('preserves %s appointment operations without broadening private alert visibility', async role => {
+  it.each(['scheduler', 'front_desk', 'staff'])('preserves %s appointment operations without broadening private alert visibility', async role => {
     expect(await service.authorize({ id: 80, role }, 12)).toMatchObject({ id: 12 });
     expect(db.execute).not.toHaveBeenCalled();
     await expect(service.get({ id: 80, role }, 12)).rejects.toMatchObject({ status: 403 });
@@ -83,3 +85,8 @@ describe('private appointment staff tools', () => {
     await expect(service.list(provider, { providerId: 9, agencyId: 2, windowStart: '2020-01-01', windowEnd: '2027-01-01' })).rejects.toMatchObject({ status: 400 });
   });
 });
+
+it('lets agency-authorized billing staff manage internal appointment alerts',async()=>{service=createAppointmentStaffTools({db,appointments,users,clientAccess,encrypt,decrypt,billingAccess:vi.fn(async(user,agencyId)=>user.id===88&&agencyId===2)});expect((await service.get({id:88,role:'billing'},12)).canEdit).toBe(true);expect(await service.save({id:88,role:'billing'},12,{text:'Please review payment arrangements.',revision:2})).toMatchObject({revision:3});});
+
+it.each(['agency_admin','backoffice_admin'])('allows %s alert management only within their agency',async role=>{expect((await service.get({id:80,role},12)).canEdit).toBe(true);users.getAgencies.mockResolvedValue([{id:99}]);await expect(service.get({id:80,role},12)).rejects.toMatchObject({status:403});});
+it('adds persistent diagnosis flags to scheduled sessions even without a manual alert',async()=>{db.execute.mockResolvedValue([[{appointment_id:12,client_id:31,alert_text:null,revision:0}]]);service=createAppointmentStaffTools({db,appointments,users,clientAccess,encrypt,decrypt,diagnosisAlerts:vi.fn(async()=>[{code:'diagnosis_unspecified_90_days',diagnosisId:4,message:'Review diagnosis specificity.'}])});const alerts=await service.list(provider,{providerId:9,agencyId:2,windowStart:'2026-11-01',windowEnd:'2026-11-08'});expect(alerts[0]).toMatchObject({text:'Review diagnosis specificity.',diagnosisAlerts:[{clientId:31,code:'diagnosis_unspecified_90_days'}]});});

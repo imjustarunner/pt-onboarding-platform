@@ -1452,6 +1452,8 @@ export const setClientAssignedDay = async (req, res, next) => {
     const existingActive = existing && (existing.is_active === true || existing.is_active === 1 || existing.is_active === '1');
 
     if (assigned) {
+      const { assertNewProviderCoverageAdmission } = await import('../services/clientCoverageAdmission.service.js');
+      await assertNewProviderCoverageAdmission(clientId, providerUserId, { db: connection });
       if (existingActive) {
         // Idempotent: already assigned to this day.
       } else if (existing?.id) {

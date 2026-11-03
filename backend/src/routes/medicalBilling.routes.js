@@ -1,3 +1,4 @@
+import { getDiagnosisReview, postDiagnosisReview, getSupervisorDiagnosisPolicy, putSupervisorDiagnosisPolicy } from '../controllers/clinicalDiagnosisPolicy.controller.js';
 import { postSupervisorReview, acknowledgeNoteReview, listMyNoteReviewWork, correctNoteServiceDetails } from '../controllers/clinicalSupervisorReview.controller.js';
 import { listClinicalNoteVersions, getClinicalNoteVersion, createClinicalNoteVersion, updateClinicalNoteVersion, signClinicalNoteVersion, cosignClinicalNoteVersion, acknowledgeClinicalNoteVersion } from '../controllers/clinicalNoteVersions.controller.js';
 import { setTreatmentGoalProgress, getTreatmentGoalProgressHistory } from '../controllers/treatmentGoalProgress.controller.js';
@@ -14,14 +15,15 @@ import { getTreatmentPlanRenewalPolicy, saveTreatmentPlanRenewalPolicy } from '.
 import { getClientInsurance, saveClientInsurance } from '../controllers/clientInsurance.controller.js';
 import { getCoverageEvidence, checkClientCoverage, reviewClientCoverage } from '../controllers/coverageVerification.controller.js';
 import { getDocumentationReadiness, reviewDocumentationReadiness } from '../controllers/clientDocumentationReadiness.controller.js';
-import { createSecondaryClaim } from '../controllers/claimMdWorkflow.controller.js';
+import { createSecondaryClaim, prepareClaimResubmission } from '../controllers/claimMdWorkflow.controller.js';
 import express from 'express';
 import { getProviderBillingRollout, putProviderBillingRollout } from '../controllers/providerBillingRollout.controller.js';
 import { getAppointmentBilling, getPlannedBillingServices } from '../controllers/appointmentBilling.controller.js';
 import { payerSetupRequests } from '../controllers/payerSetupRequest.controller.js';
 import { listSupervisedPayerPolicies, saveSupervisedPayerPolicy, supervisedProviderReadiness } from '../controllers/supervisedBilling.controller.js';
 import { runClaimAiReview, resolveClaimAiFinding } from '../controllers/claimMdWorkflow.controller.js';
-import { getBillingWorkspace } from '../controllers/claimMdWorkspace.controller.js';
+import { getBillingWorkspace, getBillingWorkspaceTransactions } from '../controllers/claimMdWorkspace.controller.js';
+import { getInsuranceVerificationWorkspace } from '../controllers/insuranceVerificationWorkspace.controller.js';
 import { reviewClaim, claimHistory, claimDraft, listUndraftedNotes, correctClaim, searchClaimMdPayers, startClaimMdEnrollment, listClaimMdEnrollments, listClaimMdOffices } from '../controllers/claimMdWorkflow.controller.js';
 import { getClaimServiceChanges,resolveClaimServiceChange } from '../controllers/claimMdWorkflow.controller.js';
 import { body, param, query } from 'express-validator';
@@ -114,6 +116,8 @@ router.get('/planned-services', ...claimsGate, requireMedicalBillingFinancialAcc
 router.get('/payer-setup-requests', ...claimsGate, requireMedicalBillingFinancialAccess, payerSetupRequests);
 router.post('/payer-setup-requests', ...claimsGate, requireMedicalBillingFinancialAccess, payerSetupRequests);
 router.get('/workspace', getBillingWorkspace);
+router.get('/workspace/transactions', getBillingWorkspaceTransactions);
+router.get('/workspace/insurance-verification', getInsuranceVerificationWorkspace);
 router.get('/provider-rollout', ...claimMdGate, getProviderBillingRollout);
 router.put('/provider-rollout', ...claimMdGate, putProviderBillingRollout);
 router.get('/screening-sessions/:sessionId/documents', requireClinicalChart, getH0002SourceDocuments);
@@ -517,6 +521,11 @@ router.get(
   listNotesForSigning
 );
 
+router.get('/diagnoses/review', requireClinicalChart, getDiagnosisReview);
+router.post('/diagnoses/:diagnosisId/review', requireClinicalChart, postDiagnosisReview);
+router.get('/providers/:providerUserId/diagnosis-policy', requireClinicalChart, getSupervisorDiagnosisPolicy);
+router.put('/providers/:providerUserId/diagnosis-policy', requireClinicalChart, putSupervisorDiagnosisPolicy);
+
 router.post(
   '/diagnoses',
   requireClinicalChart,
@@ -630,6 +639,7 @@ router.post(
 
 router.post('/claimmd/responses/sync', ...claimMdGate, refreshClaimMdResponses);
 router.get('/claims/undrafted-notes', ...claimMdGate, listUndraftedNotes);
+router.post('/claimmd/claims/:claimId/resubmissions', ...claimMdGate, prepareClaimResubmission);
 router.get('/claimmd/claims/:claimId/review', ...claimMdGate, reviewClaim);
 router.post('/claimmd/claims/:claimId/ai-review', ...claimMdGate, runClaimAiReview);
 router.post('/claimmd/claims/:claimId/ai-findings/resolve', ...claimMdGate, resolveClaimAiFinding);

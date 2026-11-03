@@ -1,3 +1,4 @@
+import clinicalAppointmentAlerts from '../services/clinicalAppointmentAlerts.service.js';
 import { resolveClinicalDraftSessionContext } from '../services/clinicalDraftSessionContext.service.js';
 import { readStaffCareEligibility, requireStaffCareEligibility } from '../services/staffCareEligibility.service.js';
 import { maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
@@ -733,6 +734,8 @@ export const createClinicalNoteDraft = async (req, res, next) => {
       }
     }
 
+    if (!isTerminationDraft) await clinicalAppointmentAlerts.assertReviewed(req.user,{agencyId,clientId,clinicalSessionId,officeEventId,dateOfService});
+
     if (!isTerminationDraft) {
       const session = await resolveClinicalDraftSessionContext({ agencyId, clientId, providerUserId: req.user.id,
         clinicalSessionId, officeEventId, dateOfService, serviceCode });
@@ -811,6 +814,8 @@ export const createClinicalNoteDraft = async (req, res, next) => {
           { status: Number(sessErr?.status) || 503, code: 'NOTE_SESSION_CONTEXT_UNAVAILABLE', cause: sessErr });
       }
     }
+
+    if (!isTerminationDraft) await clinicalAppointmentAlerts.assertReviewed(req.user,{agencyId,clientId,clinicalSessionId,officeEventId,dateOfService});
 
     const draft = await ClinicalNoteDraft.create({
       allowReuse: !isTerminationDraft,
@@ -894,6 +899,11 @@ export const patchClinicalNoteDraft = async (req, res, next) => {
         return res.status(403).json({ error: { message: 'Draft belongs to a different organization' } });
       }
     }
+
+    let savedToolId = '';
+    try { const savedOutput=maybeDecryptText(existing.output_json); savedToolId=(typeof savedOutput==='string' ? JSON.parse(savedOutput) : savedOutput)?.meta?.toolId || ''; } catch { /* Unknown drafts retain the alert check. */ }
+    const standaloneTermination = savedToolId === 'clinical_termination' && !existing.clinical_session_id && !existing.office_event_id && !req.body?.clinicalSessionId && !req.body?.officeEventId;
+    if (!standaloneTermination) await clinicalAppointmentAlerts.assertReviewed(req.user,{agencyId,clientId:nextClientId,clinicalSessionId:req.body?.clinicalSessionId || existing.clinical_session_id,officeEventId:req.body?.officeEventId || existing.office_event_id,dateOfService:req.body?.dateOfService || existing.date_of_service});
 
     const patch = {};
     // Bind drafts to the resolved client-owned tenant (corrects workspace mis-stamps).
@@ -1214,6 +1224,7 @@ export const generateClinicalNote = async (req, res, next) => {
     const autoSelectCode = parseBool(req.body?.autoSelectCode);
     const transcriptSource = String(req.body?.transcriptSource || '').trim().toLowerCase();
     const terminationRequested = req.body?.toolId === 'clinical_termination';
+    if (!terminationRequested) await clinicalAppointmentAlerts.assertReviewed(req.user,{agencyId,clientId,clinicalSessionId,officeEventId,dateOfService});
     let inputText = String(req.body?.inputText || '').trim();
     if (terminationRequested && inputText.length > 1500000) return res.status(413).json({ error: { message: 'The supplied treatment history exceeds the generation limit.' } });
     if (!terminationRequested) inputText = inputText.slice(0, 12000);
@@ -1384,6 +1395,9 @@ export const generateClinicalNote = async (req, res, next) => {
     }
 
     let prompt = buildPromptForTool({ tool, inputText });
+    if (['90791','90792','H0031'].includes(String(serviceCode || '').toUpperCase()) || /diagnosis|intake/i.test(String(tool?.id || ''))) {
+      prompt += '\n\nDiagnosis documentation: List each supported diagnosis in order, primary first. For each code provide its own source-grounded clinical justification; never reuse a generic paragraph for different diagnoses. In Diagnostic Justification, format one paragraph per code as ICD10: rationale. Document findings, duration, impairment, differential/uncertainty and any missing evidence; never invent medical records, neuropsychological evaluations or diagnostic criteria. For an adjustment disorder include the documented precipitating event month/year when known, otherwise explicitly state missing. Do not substitute another diagnosis merely because supporting documentation is missing. The clinician must review and supply missing evidence before signing.';
+    }
     if (customAidRow) {
       const customBits = [
         customAidRow.system_prompt ? String(customAidRow.system_prompt).trim() : '',

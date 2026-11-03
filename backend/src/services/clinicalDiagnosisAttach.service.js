@@ -1,4 +1,5 @@
 import clinicalPool from '../config/clinicalDatabase.js';
+import { validateDiagnosisWrite } from './clinicalDiagnosisPolicy.service.js';
 
 function safeInt(v) {
   const n = Number(v);
@@ -39,6 +40,8 @@ export async function upsertClinicalDiagnosis({
   if (!agency || !client || !code || !actor) {
     throw new Error('agencyId, clientId, icd10Code (or learning description), and createdByUserId are required');
   }
+
+  await validateDiagnosisWrite({agencyId:agency,clientId:client,createdByUserId:actor,icd10Code:code,justification,concernKind:kind});
 
   const conn = await clinicalPool.getConnection();
   try {
