@@ -15,7 +15,7 @@
         <span class="note-provider">{{ note.provider_first_name }} {{ note.provider_last_name }}</span>
         <span class="note-meta">Submitted {{ formatDate(note.provider_signed_at) }}</span>
         <span v-if="note.client_code">{{ note.client_code }} · {{ note.service_code }}</span>
-        <ClinicalNoteCosignReview :note-id="note.clinical_note_id" :agency-id="note.agency_id" :provider-id="note.provider_user_id" @signed="onNoteSigned(note)" />
+        <ClinicalNoteCosignReview :note-id="note.clinical_note_id" :agency-id="note.agency_id" :provider-id="note.provider_user_id" @signed="onNoteSigned(note)" @returned="fetchNotes" />
       </li>
     </ul>
     <p v-else class="notes-empty">No notes pending. Count will refresh shortly.</p>

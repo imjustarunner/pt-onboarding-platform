@@ -2,12 +2,12 @@
   <div class="cndf">
     <div v-if="loading" class="cndf-muted">Loading clinical note…</div>
     <div v-else-if="error" class="cndf-error">{{ error }}</div>
-    <ClinicalNoteReadOnlyView v-else-if="note" :note="note" :compact="compact" />
+    <ClinicalNoteReadOnlyView v-else-if="note" :note="note" :compact="compact" @amended="onAmended" />
   </div>
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from 'vue';
+import { onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../services/api.js';
 import ClinicalNoteReadOnlyView from './ClinicalNoteReadOnlyView.vue';
 
@@ -17,11 +17,17 @@ const props = defineProps({
   compact: { type: Boolean, default: false }
 });
 
+const emit = defineEmits(['amended']);
+async function onAmended(result) { emit('amended', result); await load(); }
+
 const loading = ref(false);
 const error = ref('');
 const note = ref(null);
 
+let generation = 0;
+onBeforeUnmount(() => { generation++; });
 async function load() {
+  const seq = ++generation;
   const nid = Number(props.noteId || 0);
   if (!nid) {
     error.value = 'Missing note id.';
@@ -30,6 +36,7 @@ async function load() {
   }
   loading.value = true;
   error.value = '';
+  note.value = null;
   const agencyCandidates = [];
   const aid = Number(props.agencyId || 0);
   if (aid > 0) agencyCandidates.push(aid);
@@ -43,26 +50,29 @@ async function load() {
           params: aid ? { agencyId: aid } : undefined,
           skipGlobalLoading: true
         });
+        if (seq !== generation) return;
         loaded = res?.data?.note || null;
         if (loaded) break;
       } catch (e) {
+        if (seq !== generation) return;
         lastErr = e;
       }
     }
+    if (seq !== generation) return;
     note.value = loaded;
     if (!note.value) {
       error.value = lastErr?.response?.data?.error?.message || lastErr?.message || 'Note not found.';
     }
   } catch (e) {
+    if (seq !== generation) return;
     error.value = e.response?.data?.error?.message || e.message || 'Could not load note.';
     note.value = null;
   } finally {
-    loading.value = false;
+    if (seq === generation) loading.value = false;
   }
 }
 
-onMounted(load);
-watch(() => [props.noteId, props.agencyId], load);
+watch(() => [props.noteId, props.agencyId], load, { immediate: true });
 </script>
 
 <style scoped>

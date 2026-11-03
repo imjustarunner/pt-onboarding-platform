@@ -1,3 +1,4 @@
+vi.mock('../clinicalNoteCrypto.service.js',()=>({maybeEncryptNotePayload:v=>`encrypted:${v}`,maybeDecryptNotePayload:v=>String(v || '').replace(/^encrypted:/,'')}));
 import { beforeEach,describe,it,expect,vi } from 'vitest';
 const m=vi.hoisted(()=>({policy:vi.fn(),document:vi.fn(),event:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));

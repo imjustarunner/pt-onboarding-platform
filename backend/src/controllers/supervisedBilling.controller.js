@@ -1,3 +1,4 @@
+import { reviewSnapshotToken, effectiveServiceDetails, pendingServiceDetails, reviewRequestsForDisplay } from '../services/clinicalSupervisorReview.service.js';
 import pool from '../config/database.js';
 import {providerBillingNpi} from '../services/providerBillingNpi.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
@@ -25,7 +26,7 @@ export async function documentationScope(req, { write = false, supervisorOnly = 
     noteId = Number(activity?.note_id || 0);
   }
   if (noteId) {
-    const [[note]] = await clinicalPool.execute('SELECT * FROM clinical_notes WHERE id=? AND agency_id=? AND created_by_user_id=? AND is_deleted=0', [noteId, agencyId, providerUserId]);
+    const [[note]] = await clinicalPool.execute('SELECT * FROM clinical_notes WHERE id=? AND agency_id=? AND COALESCE(provider_signed_by_user_id,created_by_user_id)=? AND is_deleted=0', [noteId, agencyId, providerUserId]);
     if (!note) throw policyError(404, 'Note not found for this provider.');
     policy = await resolveNoteDocumentationPolicy(note);
   }
@@ -151,7 +152,14 @@ export async function getSuperviseeReviewDocument(req,res,next) {
     const d=await loadReviewDocument(s,req.params.type,Number(req.params.documentId));
     const cosignCurrent=hasCurrentSupervisorCosign(d.row,s.policy.supervisorUserId,d.hash);
     await pool.execute(`INSERT INTO supervision_case_review_events (agency_id,provider_user_id,reviewer_user_id,client_id,event_type,content_hash) VALUES (?,?,?,?,'view',?)`,[s.agencyId,s.providerUserId,req.user.id,d.row.client_id,d.hash]);
-    res.json({canCosign:s.canAttest,canTrackCosignTime:req.params.type==='note'&&s.canAttest&&Number(req.user.id)!==s.providerUserId&&Number(d.row.provider_signed_by_user_id)!==Number(req.user.id)&&!!d.row.provider_signed_at&&!cosignCurrent,content:clinicalReviewContent(d.content),contentHash:d.hash,cosignedAt:cosignCurrent?d.row.supervisor_cosigned_at:null,amendmentSignoffRequired:!cosignCurrent && Number(d.row.addendum_count || 0)>0});
+    let reviewSnapshot = null, snapshotToken = null;
+    if (req.params.type === 'note') {
+      const metadata = parseObject(d.row.metadata_json);
+      const [[session]] = d.row.clinical_session_id ? await clinicalPool.execute('SELECT * FROM clinical_sessions WHERE id=? AND agency_id=?',[d.row.clinical_session_id,s.agencyId]) : [[{}]];
+      snapshotToken = reviewSnapshotToken(d.row,session || {});
+      reviewSnapshot = {serviceTimeZone:session?.source_timezone || 'America/Denver',effectiveServiceDetails:effectiveServiceDetails(d.row,session || {}),pendingServiceDetails:pendingServiceDetails(metadata),serviceDetailAmendments:metadata.serviceDetailAmendments || [],reviewRequests:reviewRequestsForDisplay(metadata),dateOfService:metadata.dateOfService || null,serviceCode:metadata.serviceCode || session?.service_code || null,providerSignedAt:d.row.provider_signed_at,isBillable:!isNonBillableDocument(d.row)};
+    }
+    res.json({reviewSnapshotToken:snapshotToken,reviewSnapshot,canCosign:s.canAttest,canTrackCosignTime:req.params.type==='note'&&s.canAttest&&Number(req.user.id)!==s.providerUserId&&Number(d.row.provider_signed_by_user_id)!==Number(req.user.id)&&!!d.row.provider_signed_at&&!cosignCurrent,content:clinicalReviewContent(d.content),contentHash:d.hash,cosignedAt:cosignCurrent?d.row.supervisor_cosigned_at:null,amendmentSignoffRequired:!cosignCurrent && Number(d.row.addendum_count || 0)>0});
   }catch(e){next(e);}
 }
 export async function listSuperviseeDocumentReviews(req,res,next) {

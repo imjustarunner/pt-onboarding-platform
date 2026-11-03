@@ -1,3 +1,5 @@
+import { reconcileSupervisorQueue } from '../services/clinicalSupervisorReview.service.js';
+import { parseObject } from '../services/supervisedBillingPolicy.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { cosignClinicalNote } from './medicalBilling.controller.js';
 /**
@@ -17,6 +19,7 @@ import User from '../models/User.model.js';
 export const listNotesToSign = async (req, res, next) => {
   try {
     const userId = req.user.id;
+    await reconcileSupervisorQueue(userId,req.auricwellPreview?.agencyId || null);
 
     const [[pending]] = await pool.execute("SELECT id FROM clinical_note_signoffs WHERE supervisor_user_id=? AND status='awaiting_supervisor' LIMIT 1", [userId]);
     const isSupervisor = !!pending || await SupervisorAssignment.hasSupervisees(userId);
@@ -24,27 +27,31 @@ export const listNotesToSign = async (req, res, next) => {
       return res.json({ notes: [], count: 0, isSupervisor: false });
     }
 
-    const [rows] = await pool.execute(
+    let [rows] = await pool.execute(
       `SELECT cns.id,cns.clinical_note_id,cns.provider_user_id,cns.supervisor_user_id,cns.status,cns.created_at,cns.provider_signed_at,cns.agency_id,
         u.first_name AS provider_first_name,u.last_name AS provider_last_name
        FROM clinical_note_signoffs cns JOIN users u ON u.id=cns.provider_user_id
        JOIN user_agencies ua ON ua.user_id=cns.supervisor_user_id AND ua.agency_id=cns.agency_id AND ua.is_active=1
        WHERE cns.supervisor_user_id=? AND cns.status='awaiting_supervisor'
        ${req.auricwellPreview ? 'AND cns.agency_id=?' : ''}
-       ORDER BY cns.provider_signed_at DESC,cns.created_at DESC LIMIT 50`,
+       ORDER BY cns.provider_signed_at DESC,cns.created_at DESC ${req.notesCountOnly ? '' : 'LIMIT 50'}`,
       req.auricwellPreview ? [userId,req.auricwellPreview.agencyId] : [userId]
     );
     if (rows.length) {
-      const [notes] = await clinicalPool.execute(`SELECT id,agency_id,client_id,title,JSON_UNQUOTE(JSON_EXTRACT(metadata_json,'$.serviceCode')) AS service_code FROM clinical_notes WHERE id IN (${rows.map(()=>'?').join(',')}) AND is_deleted=0`,rows.map(r=>r.clinical_note_id));
+      const [notes] = await clinicalPool.execute(`SELECT id,agency_id,client_id,title,provider_signed_at,supervisor_cosigned_at,supervisor_cosigned_by_user_id,metadata_json,JSON_UNQUOTE(JSON_EXTRACT(metadata_json,'$.serviceCode')) AS service_code FROM clinical_notes WHERE id IN (${rows.map(()=>'?').join(',')}) AND is_deleted=0`,rows.map(r=>r.clinical_note_id));
       const ids=[...new Set(notes.map(n=>n.client_id))];
-      const [clients]=ids.length ? await pool.execute(`SELECT id,agency_id,initials FROM clients WHERE id IN (${ids.map(()=>'?').join(',')})`,ids) : [[]];
+      const [clients]=ids.length && !req.notesCountOnly ? await pool.execute(`SELECT id,agency_id,initials,full_name FROM clients WHERE id IN (${ids.map(()=>'?').join(',')})`,ids) : [[]];
       for (const row of rows) {
         const note=notes.find(n=>Number(n.id)===Number(row.clinical_note_id)&&Number(n.agency_id)===Number(row.agency_id));
         if (note) {
-          const client=clients.find(c=>Number(c.id)===Number(note.client_id)&&Number(c.agency_id)===Number(row.agency_id));
-          Object.assign(row,{title:note.title,service_code:note.service_code,client_code:client?.initials || null});
+          const client=clients.find(c=>Number(c.id)===Number(note.client_id));
+          Object.assign(row,{title:note.title,service_code:note.service_code,client_id:note.client_id,client_name:client?.full_name || client?.initials || null,client_code:client?.initials || null,date_of_service:parseObject(note.metadata_json).dateOfService || null});
         }
       }
+      rows = rows.filter(row => {
+        const note = notes.find(n => Number(n.id) === Number(row.clinical_note_id) && Number(n.agency_id) === Number(row.agency_id));
+        return note && !(note.supervisor_cosigned_at && Number(note.supervisor_cosigned_by_user_id)===Number(userId)) && !(parseObject(note.metadata_json).reviewRequests || []).some(r => r.action === 'changes_needed' && !r.resolvedAt);
+      });
     }
 
     res.json({
@@ -62,28 +69,7 @@ export const listNotesToSign = async (req, res, next) => {
  * Count for Momentum List badge.
  */
 export const getNotesToSignCount = async (req, res, next) => {
-  try {
-    const userId = req.user.id;
-
-    const [[pending]] = await pool.execute("SELECT id FROM clinical_note_signoffs WHERE supervisor_user_id=? AND status='awaiting_supervisor' LIMIT 1", [userId]);
-    const isSupervisor = !!pending || await SupervisorAssignment.hasSupervisees(userId);
-    if (!isSupervisor) {
-      return res.json({ count: 0, isSupervisor: false });
-    }
-
-    const [[row]] = await pool.execute(
-      `SELECT COUNT(*) AS c
-       FROM clinical_note_signoffs
-       WHERE supervisor_user_id = ?
-         AND status = 'awaiting_supervisor'
-         ${req.auricwellPreview ? 'AND agency_id = ?' : ''}`,
-      req.auricwellPreview ? [userId, req.auricwellPreview.agencyId] : [userId]
-    ).catch(() => [[{ c: 0 }]]);
-
-    res.json({ count: Number(row?.c || 0), isSupervisor: true });
-  } catch (err) {
-    next(err);
-  }
+  return listNotesToSign({...req,notesCountOnly:true},{json:data=>res.json({count:data.count,isSupervisor:data.isSupervisor}),status:code=>res.status(code)},next);
 };
 
 /**

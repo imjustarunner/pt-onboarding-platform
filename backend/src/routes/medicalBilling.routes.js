@@ -1,3 +1,4 @@
+import { postSupervisorReview, acknowledgeNoteReview, listMyNoteReviewWork, correctNoteServiceDetails } from '../controllers/clinicalSupervisorReview.controller.js';
 import { setTreatmentGoalProgress, getTreatmentGoalProgressHistory } from '../controllers/treatmentGoalProgress.controller.js';
 import { excludeSupportClinicalContent } from '../middleware/supportContentAccess.middleware.js';
 import { getH0002SourceDocuments, closeH0002RoiTask, getH0002ScreeningReview, signH0002ScreeningReview, saveH0002ScreeningDraft, forwardH0002Screening, translateH0002Screening } from '../controllers/h0002Screening.controller.js';
@@ -439,6 +440,11 @@ router.patch(
   [param('sessionId').isInt({ min: 1 }), body('agencyId').isInt({ min: 1 })],
   updateEncounter
 );
+
+router.get('/notes/review-work', excludeSupportClinicalContent, listMyNoteReviewWork);
+router.post('/notes/:noteId/supervisor-review', requireClinicalNoteSigning, postSupervisorReview);
+router.post('/notes/:noteId/service-details', requireClinicalNoteSigning, correctNoteServiceDetails);
+router.post('/notes/:noteId/review-requests/:requestId/acknowledge', requireClinicalChart, acknowledgeNoteReview);
 
 router.get(
   '/notes/:noteId',

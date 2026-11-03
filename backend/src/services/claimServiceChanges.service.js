@@ -1,3 +1,4 @@
+import { queueBillingAcknowledgement } from './clinicalSupervisorReview.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { policyError, parseObject, resolveNoteDocumentationPolicy, hasCurrentSupervisorCosign } from './supervisedBillingPolicy.service.js';
@@ -54,7 +55,7 @@ export async function resolveServiceChange({agencyId,claimId,requestId,actorUser
     if(!['pending','reconciliation_required'].includes(request.status))throw policyError(409,'This change has already been resolved');
     if(Number(revision)!==Number(claim.billing_revision))throw policyError(409,'Claim changed. Refresh before resolving');
     const policy=await resolveNoteDocumentationPolicy(note);
-    const document=await loadReviewDocument({agencyId,providerUserId:note.created_by_user_id},'note',note.id,db);
+    const document=await loadReviewDocument({agencyId,providerUserId:note.provider_signed_by_user_id || note.created_by_user_id},'note',note.id,db);
     if(!hasCurrentSupervisorCosign(document.row,policy.supervisorUserId,document.hash))throw policyError(409,'Supervisor must approve the current note and all amendments first');
     const proposed=normalizeClinicalServiceLines(decryptFamilyBilling(request.proposed_lines_encrypted,context(request)));
     let status='no_claim_change';
@@ -81,6 +82,7 @@ export async function resolveServiceChange({agencyId,claimId,requestId,actorUser
       await recordClaimEvent({agencyId,claimId,connectionId:claim.claimmd_connection_id||`agency:${agencyId}`,eventKey:`service-resolution:${requestId}:${Number(claim.billing_revision)+1}`,eventType:'service_change_resolution',actorUserId,payload:{requestId,status,reason,reference:reference||null,sourceHash:document.hash}},db);
     }
     await db.execute('UPDATE clinical_claim_change_requests SET status=?,resolved_by_user_id=?,resolution_encrypted=? WHERE id=? AND agency_id=?',[status,actorUserId,encryptFamilyBilling({action,reason,reference:reference||null,claimId,sourceHash:document.hash},`${context(request)}:resolution`),requestId,agencyId]);
+    await queueBillingAcknowledgement(db,{noteId:note.id,agencyId,actorUserId,message:`Billing reviewed the service amendment for claim #${claimId}: ${reason}`,source:'billing_service_resolution'});
     await db.commit();return {status,message:status==='applied'?'Existing draft updated. Review modifiers, diagnosis pointers, AI findings and charges before separate submission approval.':status==='reconciliation_required'?'Claim remains paused for payer correction and payment reconciliation. No claim was transmitted.':status==='reconciled'?'External reconciliation attestation recorded. No claim was transmitted or payment posted by the app.':'No claim change recorded. No claim was created or transmitted.'};
   }catch(e){await db.rollback();throw e;}finally{db.release();}
 }

@@ -11,16 +11,16 @@
         ‹
       </button>
       <div class="na-wq-rail-tabs">
-        <button type="button" class="na-wq-rail-tab" title="Not started" @click="$emit('update:collapsed', false)">
+        <button v-if="pendingCount" type="button" class="na-wq-rail-tab" title="Not started" @click="$emit('update:collapsed', false)">
           <span class="na-wq-rail-dot na-wq-rail-dot--pending" />
           <em>{{ pendingCount }}</em>
         </button>
-        <button type="button" class="na-wq-rail-tab" title="In progress" @click="$emit('update:collapsed', false)">
+        <button v-if="startedCount" type="button" class="na-wq-rail-tab" title="In progress" @click="$emit('update:collapsed', false)">
           <span class="na-wq-rail-dot na-wq-rail-dot--started" />
           <em>{{ startedCount }}</em>
         </button>
         <button
-          v-if="showCosignMode"
+          v-if="showCosignMode && cosignCount"
           type="button"
           class="na-wq-rail-tab"
           title="Notes to co-sign"
@@ -28,6 +28,9 @@
         >
           <span class="na-wq-rail-dot na-wq-rail-dot--cosign" />
           <em>{{ cosignCount }}</em>
+        </button>
+        <button v-for="status in nonemptyReviewStatuses" :key="status.key" type="button" class="na-wq-rail-tab" :title="status.label" @click="openReviewWork">
+          <span class="na-wq-rail-dot na-wq-rail-dot--review" /><em>{{ status.count }}</em>
         </button>
       </div>
     </template>
@@ -86,8 +89,9 @@
 
     <template v-if="queueMode === 'notes'">
       <div class="na-wq-legend">
-        <span class="na-wq-chip na-wq-chip--pending">{{ pendingCount }} Not started</span>
-        <span class="na-wq-chip na-wq-chip--started">{{ startedCount }} In progress</span>
+        <span v-if="pendingCount" class="na-wq-chip na-wq-chip--pending">{{ pendingCount }} Not started</span>
+        <span v-if="startedCount" class="na-wq-chip na-wq-chip--started">{{ startedCount }} In progress</span>
+        <span v-for="status in nonemptyReviewStatuses" :key="status.key" class="na-wq-chip na-wq-chip--review">{{ status.count }} {{ status.label }}</span>
       </div>
 
       <div class="na-wq-sort">
@@ -117,12 +121,22 @@
         <button type="button" class="na-wq-undo-btn" @click="$emit('undo-import')">Undo</button>
       </div>
 
+      <div v-if="reviewError" class="na-wq-empty" role="alert">{{ reviewError }} <button type="button" @click="$emit('refresh-review')">Retry</button></div>
+      <ul v-if="reviewItems.length" class="na-wq-list na-wq-review-list" aria-label="Returned notes and feedback">
+        <li v-for="item in reviewItems" :key="item.id" class="na-wq-item na-wq-item--review" :class="`na-wq-item--${item.status}`">
+          <button type="button" class="na-wq-item-btn" @click="$emit('select-review', item)">
+            <div class="na-wq-item-top"><strong>{{ item.clientName || `Note #${item.clinicalNoteId}` }}</strong><span>{{ NOTE_REVIEW_STATUS[item.status] }}</span></div>
+            <div class="na-wq-item-meta">{{ formatQueueDate(item.date) }}<template v-if="item.serviceCode"> · {{ item.serviceCode }}</template></div>
+            <p class="na-wq-review-message">{{ item.message }}</p>
+          </button>
+        </li>
+      </ul>
       <div v-if="loading" class="na-wq-empty" role="status">Loading My Work…</div>
       <div v-else-if="error" class="na-wq-empty" role="alert">{{ error }}</div>
-      <div v-else-if="!visibleItems.length" class="na-wq-empty">
+      <div v-else-if="!visibleItems.length && !reviewItems.length" class="na-wq-empty">
         Session notes that need documentation appear here automatically.
       </div>
-      <ul v-else class="na-wq-list">
+      <ul v-else-if="visibleItems.length" class="na-wq-list">
         <li
           v-for="item in visibleItems"
           :key="item.id"
@@ -186,6 +200,7 @@
         </label>
       </div>
       <div v-if="cosignLoading" class="na-wq-empty">Loading notes awaiting co-sign…</div>
+      <div v-else-if="cosignError" class="na-wq-empty" role="alert">{{ cosignError }} <button type="button" @click="$emit('refresh-cosign')">Retry</button></div>
       <div v-else-if="!sortedCosignItems.length" class="na-wq-empty">
         No supervisee notes are waiting for your co-signature.
       </div>
@@ -217,6 +232,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
+import { NOTE_REVIEW_STATUS } from '../../utils/noteReviewWork.js';
 import {
   DOC_STATUS,
   deriveWorkQueueDocStatus,
@@ -236,6 +252,9 @@ const SORT_DIR_KEY = 'noteAidWorkQueueSortDir';
 const MODE_KEY = 'noteAidWorkQueueMode';
 
 const props = defineProps({
+  reviewItems: { type: Array, default: () => [] },
+  reviewError: { type: String, default: '' },
+  cosignError: { type: String, default: '' },
   allowAdd: { type: Boolean, default: false },
   openable: { type: Boolean, default: false },
   allowRemove: { type: Boolean, default: true },
@@ -261,12 +280,15 @@ const emit = defineEmits([
   'open-work',
   'select',
   'select-cosign',
+  'select-review',
+  'refresh-review',
   'delete',
   'undo-import',
   'update:collapsed',
   'update:sortBy',
   'update:sortDir',
   'update:queueMode',
+  'cosign-order',
   'refresh-cosign'
 ]);
 
@@ -387,6 +409,14 @@ const visibleItems = computed(() =>
   )
 );
 
+const nonemptyReviewStatuses = computed(() => Object.entries(NOTE_REVIEW_STATUS).map(([key, label]) => ({
+  key, label, count: props.reviewItems.filter(item => item.status === key).length
+})).filter(item => item.count > 0));
+function openReviewWork() {
+  emit('update:collapsed', false);
+  setQueueMode('notes');
+}
+
 const cosignCount = computed(() => (props.cosignItems || []).length);
 
 const sortedCosignItems = computed(() => {
@@ -403,6 +433,8 @@ const sortedCosignItems = computed(() => {
   });
   return list;
 });
+
+watch(() => sortedCosignItems.value.map(item => item.id), ids => emit('cosign-order', ids), { immediate: true });
 
 const pendingCount = computed(
   () => visibleItems.value.filter((i) => docStatus(i) === DOC_STATUS.NOT_STARTED).length
@@ -542,6 +574,12 @@ function removeQueueTitle(item) {
 </script>
 
 <style scoped>
+.na-wq-review-message { margin: 7px 0 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: .78rem; color: #475569; }
+.na-wq-item--review { border-left: 3px solid #6366f1; }
+.na-wq-item--changes_needed { border-left-color: #d97706; }
+.na-wq-chip--review { color: #4338ca; background: #eef2ff; }
+.na-wq-rail-dot--review { background: #6366f1; }
+
 .na-wq-title-link { border: 0; padding: 0; background: none; color: inherit; font: inherit; font-weight: 700; cursor: pointer; text-align: left; }
 .na-wq {
   width: 300px;

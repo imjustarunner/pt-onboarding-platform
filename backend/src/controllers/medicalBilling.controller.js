@@ -1,5 +1,7 @@
 import { logNoteAidChartEvent } from '../services/noteAidChartAudit.service.js';
 import { assertLiveClearinghouseAgency } from '../services/syntheticClearinghouseGuard.service.js';
+import { parseObject } from '../services/supervisedBillingPolicy.service.js';
+import { reviewSnapshotToken, reviewRequestsForDisplay, effectiveServiceDetails, pendingServiceDetails, assertNoUnresolvedChanges, assertServiceDetailsComplete, applyApprovedServiceDetails, markSupervisorQueue, synchronizeSupervisorQueue } from '../services/clinicalSupervisorReview.service.js';
 import { validateScreeningSignature, completeH0002Screening, H0002_SOURCE } from '../services/h0002ScreeningWorkflow.service.js';
 import { providerBillingNpi } from '../services/providerBillingNpi.service.js';
 import { buildNoteAidLocationChoices } from '../services/noteAidLocations.service.js';
@@ -164,7 +166,7 @@ async function listNoteAddenda(noteId) {
        ORDER BY created_at ASC, id ASC`,
       [noteId]
     );
-    return rows || [];
+    return (rows || []).map(row => ({...row,body:maybeDecryptNotePayload(row.body)}));
   } catch (e) {
     if (e?.code === 'ER_NO_SUCH_TABLE') return [];
     throw e;
@@ -1324,6 +1326,10 @@ export const updateEncounter = async (req, res, next) => {
       } else vals.push(String(req.body[bodyKey]));
     }
     if (!fields.length) return res.status(400).json({ error: { message: 'No encounter fields to update' } });
+    if (Object.keys(map).some(key => key !== 'encounterStatus' && req.body?.[key] !== undefined)) {
+      const [[signed]] = await clinicalPool.execute('SELECT id FROM clinical_notes WHERE clinical_session_id=? AND agency_id=? AND is_deleted=0 AND provider_signed_at IS NOT NULL LIMIT 1',[sessionId,session.agency_id]);
+      if (signed) return res.status(409).json({error:{message:'Correct signed encounter details through an attributed service-detail amendment and supervisor approval.'}});
+    }
     vals.push(sessionId);
     await clinicalPool.execute(
       `UPDATE clinical_sessions SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
@@ -1437,7 +1443,7 @@ export const getClinicalNoteById = async (req, res, next) => {
       || null;
 
     let providerSigner = null;
-    const signerId = note.created_by_user_id || metadata?.signedByUserId || metadata?.providerUserId || null;
+    const signerId = note.provider_signed_by_user_id || note.created_by_user_id || metadata?.signedByUserId || metadata?.providerUserId || null;
     if (signerId) {
       try {
         const pool = (await import('../config/database.js')).default;
@@ -1465,7 +1471,7 @@ export const getClinicalNoteById = async (req, res, next) => {
     if (clinicalSessionId) {
       try {
         const [sessRows] = await clinicalPool.execute(
-          `SELECT id, appointment_id, source_timezone, scheduled_start_at, scheduled_end_at, duration_minutes, service_code, location_label, provider_user_id
+          `SELECT id, appointment_id, source_timezone, scheduled_start_at, scheduled_end_at, duration_minutes, service_code, location_label, place_of_service, service_location_id, provider_user_id
            FROM clinical_sessions WHERE id = ? AND agency_id = ? AND client_id = ? LIMIT 1`,
           [clinicalSessionId, note.agency_id, note.client_id]
         );
@@ -1474,9 +1480,12 @@ export const getClinicalNoteById = async (req, res, next) => {
           sessionTiming = {
             appointmentId: s.appointment_id || null,
             sourceTimezone: s.source_timezone || 'UTC',
+            serviceLocationId: s.service_location_id || null,
+            placeOfService: s.place_of_service || null,
+            timeZone: s.source_timezone || null,
             startAt: s.scheduled_start_at || null,
             endAt: s.scheduled_end_at || null,
-            durationMinutes: s.duration_minutes ?? structuredChart?.durationMinutes ?? null,
+            durationMinutes: s.duration_minutes ?? null,
             serviceCode: s.service_code || null,
             locationLabel: s.location_label || null,
             providerUserId: s.provider_user_id || null
@@ -1548,11 +1557,33 @@ export const getClinicalNoteById = async (req, res, next) => {
     }
 
     await logNoteAidChartEvent(req, { clientId: note.client_id, agencyId: note.agency_id, action: 'clinical_note_viewed', metadata: { noteId: note.id, clinicalSessionId: note.clinical_session_id || null } });
+    const serviceDetailSession = {
+      duration_minutes: sessionTiming?.durationMinutes, location_label: sessionTiming?.locationLabel,
+      scheduled_start_at: sessionTiming?.startAt, scheduled_end_at: sessionTiming?.endAt, source_timezone: sessionTiming?.timeZone, place_of_service: sessionTiming?.placeOfService,service_location_id:sessionTiming?.serviceLocationId
+    };
+    const serviceDetailView = effectiveServiceDetails(note,serviceDetailSession);
+    let canSuperviseReview = false;
+    try { canSuperviseReview = Number((await resolveNoteDocumentationPolicy(note)).supervisorUserId) === Number(req.user.id) && Number(note.provider_signed_by_user_id || note.created_by_user_id) !== Number(req.user.id); } catch { /* Authorization fails closed. */ }
+    let clientName = metadata.clientName || null;
+    if (note.client_id) {
+      const [[client]] = await pool.execute('SELECT full_name,initials FROM clients WHERE id=?',[note.client_id]);
+      clientName = client?.full_name || client?.initials || clientName;
+    }
+
     return res.json(await schedulingResponseForUser(req.user, note.agency_id, {
       note: {
         id: note.id,
         agencyId: note.agency_id,
         clientId: note.client_id,
+        clientName,
+        canSuperviseReview,
+        reviewSnapshotToken: reviewSnapshotToken(note,serviceDetailSession),
+        isBillable: !isNonBillableDocument(note),
+        reviewRequests: reviewRequestsForDisplay(metadata),
+        serviceDetailAmendments: metadata.serviceDetailAmendments || [],
+        serviceTimeZone: sessionTiming?.timeZone || 'America/Denver',
+        effectiveServiceDetails: serviceDetailView,
+        pendingServiceDetails: pendingServiceDetails(metadata),
         title: note.title,
         noteType: note.note_type || metadata?.noteType || null,
         serviceCode: metadata?.serviceCode || sessionTiming?.serviceCode || null,
@@ -1580,10 +1611,10 @@ export const getClinicalNoteById = async (req, res, next) => {
         providerSigner,
         linkedClaim,
         clientPayer,
-        locationLabel: structuredChart?.locationLabel || sessionTiming?.locationLabel || metadata?.locationLabel || null,
-        startTime: structuredChart?.startTime || null,
-        endTime: structuredChart?.endTime || null,
-        durationMinutes: structuredChart?.durationMinutes ?? sessionTiming?.durationMinutes ?? null,
+        locationLabel: serviceDetailView.locationLabel,
+        startTime: serviceDetailView.startTime,
+        endTime: serviceDetailView.endTime,
+        durationMinutes: serviceDetailView.durationMinutes,
         primaryDiagnosis: primaryDiagnosis
           ? {
               id: primaryDiagnosis.id,
@@ -1601,6 +1632,8 @@ export const getClinicalNoteById = async (req, res, next) => {
           goalText: r.goal_text || null,
           goalIndex: r.goal_index,
           objectiveIndex: r.objective_index,
+          scaleStart: r.scale_start ?? null,
+          scalePrevious: r.scale_previous ?? null,
           scaleValue: r.scale_value,
           scaleTarget: r.scale_target_at_rating ?? r.scale_target,
           disposition: r.disposition,
@@ -2033,28 +2066,35 @@ export const cosignClinicalNote = async (req, res, next) => {
     const [rows] = await clinicalPool.execute(`SELECT * FROM clinical_notes WHERE id = ? LIMIT 1`, [noteId]);
     const note = rows?.[0];
     if (!note || note.is_deleted) return res.status(404).json({ error: { message: 'Note not found' } });
+    if (Number(req.body.agencyId || req.medicalBillingAgencyId) !== Number(note.agency_id)) return res.status(404).json({error:{message:'Note not found in this agency.'}});
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: note.agency_id });
     if (!note.provider_signed_at) {
       return res.status(400).json({ error: { message: 'Provider must sign before supervisor cosign' } });
     }
 
+    if (Number(req.user.id) === Number(note.provider_signed_by_user_id || note.created_by_user_id)) return res.status(403).json({error:{message:'The note author cannot provide their own supervisor cosignature.'}});
     const documentationPolicy = await resolveNoteDocumentationPolicy(note);
     if (!documentationPolicy.supervisorUserId || Number(documentationPolicy.supervisorUserId) !== Number(req.user.id)) {
       return res.status(403).json({ error: { message: 'Only the assigned responsible supervisor can cosign this note' } });
     }
     cosignDb = await clinicalPool.getConnection();
     await cosignDb.beginTransaction();
+    if (note.clinical_session_id) {
+      await cosignDb.execute('SELECT id FROM clinical_sessions WHERE id=? AND agency_id=? FOR UPDATE',[note.clinical_session_id,note.agency_id]);
+      await cosignDb.execute('SELECT id FROM clinical_claims WHERE clinical_session_id=? AND agency_id=? ORDER BY id FOR UPDATE',[note.clinical_session_id,note.agency_id]);
+    }
     await cosignDb.execute('SELECT id FROM clinical_notes WHERE id = ? AND agency_id = ? FOR UPDATE',[noteId,note.agency_id]);
     await cosignDb.execute('SELECT id FROM clinical_note_addenda WHERE clinical_note_id = ? AND agency_id = ? FOR UPDATE',[noteId,note.agency_id]);
-    const current = await loadReviewDocument({ agencyId:note.agency_id, providerUserId:note.created_by_user_id }, 'note', noteId, cosignDb);
+    const current = await loadReviewDocument({ agencyId:note.agency_id, providerUserId:note.provider_signed_by_user_id || note.created_by_user_id }, 'note', noteId, cosignDb);
     Object.assign(note,current.row);
+    const [[reviewSession]] = note.clinical_session_id ? await cosignDb.execute('SELECT * FROM clinical_sessions WHERE id=? AND agency_id=?',[note.clinical_session_id,note.agency_id]) : [[{}]];
+    if (Number((await resolveNoteDocumentationPolicy(note,pool,cosignDb)).supervisorUserId) !== Number(req.user.id)) throw Object.assign(new Error('The responsible supervisor changed. Refresh the note.'),{status:403});
+    if (req.body.reviewSnapshotToken !== reviewSnapshotToken(note,reviewSession || {})) throw Object.assign(new Error('The review details changed. Open the current note before approval.'),{status:409});
     if (hasCurrentSupervisorCosign(note, documentationPolicy.supervisorUserId, current.hash)) {
       await cosignDb.commit();
       return res.json({ ok:true,noteId,cosignedAt:note.supervisor_cosigned_at,isBillable:!isNonBillableDocument(note) });
     }
-    if (req.body.contentHash || hasClinicalAmendments(note)) {
-      if (current.hash !== req.body.contentHash || req.body.reviewedAndApproved !== true) throw Object.assign(new Error('Read the current note and addenda before cosigning.'),{status:409});
-    }
+    if (current.hash !== req.body.contentHash || req.body.reviewedAndApproved !== true) throw Object.assign(new Error('Read the current note and addenda and attest approval before cosigning.'),{status:409});
     let meta = {};
     try {
       meta =
@@ -2112,12 +2152,19 @@ export const cosignClinicalNote = async (req, res, next) => {
       signerLabel = null;
     }
 
+    assertNoUnresolvedChanges(meta);
+    if (!nonBillable) {
+      assertServiceDetailsComplete(note, reviewSession || {});
+    }
     const cosignedAtIso = new Date().toISOString();
+    await applyApprovedServiceDetails(cosignDb, note, meta, req.user.id, cosignedAtIso);
+    const approvalPurpose = nonBillable ? 'clinical documentation' : 'clinical documentation and documented services for billing review';
     const statement = signerLabel
-      ? `${signerLabel}, reviewed and signed this note and all attached amendments/addenda and approved them for clinical documentation under their license on ${formatAttestationClock(cosignedAtIso)}.`
-      : `Supervisor reviewed and signed this note and all attached amendments/addenda and approved them for clinical documentation on ${formatAttestationClock(cosignedAtIso)}.`;
+      ? `${signerLabel}, reviewed and signed this note and all attached amendments/addenda and approved their ${approvalPurpose} under their license on ${formatAttestationClock(cosignedAtIso)}.`
+      : `Supervisor reviewed and signed this note and all attached amendments/addenda and approved their ${approvalPurpose} on ${formatAttestationClock(cosignedAtIso)}.`;
 
     if (meta.supervisorCosign) meta.supervisorCosignHistory = [...(meta.supervisorCosignHistory || []),meta.supervisorCosign];
+    const queueMarker = markSupervisorQueue(meta,note,req.user.id,'signed');
     meta.supervisorCosign = {
       ...(meta.supervisorCosign || {}),
       contentHash: current.hash,
@@ -2140,13 +2187,10 @@ export const cosignClinicalNote = async (req, res, next) => {
        WHERE id = ?`,
       [req.user.id, nonBillable ? 0 : 1, JSON.stringify(meta), noteId]
     );
-    await pool.execute(
-      `UPDATE clinical_note_signoffs SET status = 'signed', supervisor_signed_at = NOW()
-       WHERE clinical_note_id = ? AND supervisor_user_id = ? AND agency_id = ?`,
-      [noteId, req.user.id, note.agency_id]
-    );
     await cosignDb.commit();
-    return res.json({ ok: true, noteId, cosignedAt: cosignedAtIso, isBillable: !nonBillable });
+    cosignDb.release(); cosignDb = null;
+    const queueSynchronized = await synchronizeSupervisorQueue({...note,supervisor_cosigned_at:cosignedAtIso},queueMarker);
+    return res.json({ ok: true, noteId, cosignedAt: cosignedAtIso, isBillable: !nonBillable, queueSynchronizationPending:!queueSynchronized });
   } catch (e) {
     if(cosignDb) await cosignDb.rollback();
     next(e);
@@ -2161,7 +2205,7 @@ export const listNotesForSigning = async (req, res, next) => {
     const mode = String(req.query.mode || 'cosign').toLowerCase();
     let sql = `
       SELECT id, clinical_session_id, client_id, title, note_type, provider_signed_at, supervisor_cosigned_at,
-             is_billable, created_by_user_id, created_at, metadata_json,
+             is_billable, created_by_user_id, provider_signed_by_user_id, created_at, metadata_json,
              (SELECT COUNT(*) FROM clinical_note_addenda a WHERE a.clinical_note_id=n.id AND a.agency_id=n.agency_id) AS addendum_count
       FROM clinical_notes n
       WHERE agency_id = ? AND is_deleted = 0`;
@@ -2175,7 +2219,9 @@ export const listNotesForSigning = async (req, res, next) => {
     const notes=[];
     for (const row of rows || []) {
       if (mode !== 'unsigned') {
+        if ((parseObject(row.metadata_json).reviewRequests || []).some(r=>r.action==='changes_needed'&&!r.resolvedAt)) continue;
         const policy = await resolveNoteDocumentationPolicy({ ...row, agency_id: agencyId });
+        if (Number(policy.supervisorUserId) !== Number(req.user.id)) continue;
         const requiredTypes = isNonBillableDocument(row) ? await requiredDocumentReviewTypes(agencyId,row.client_id,row.created_at) : [];
         if (!documentReviewRequirement(row,policy,requiredTypes).reviewRequested) continue;
       }
@@ -2448,7 +2494,8 @@ export const createMedicalClaim = async (req, res, next) => {
             .trim()
             .toUpperCase();
         let primaryUnits = Number(meta.billingPrimaryUnits || req.body.primaryUnits || 0) || 0;
-        const durationMins = Number(meta.structuredChart?.durationMinutes || meta.durationMinutes || sessionDurationMinutes || 0) || 0;
+        const approvedDetails = (meta.serviceDetailAmendments || []).filter(a => a.approvedAt).at(-1)?.serviceDetails;
+        const durationMins = Number(approvedDetails?.durationMinutes ?? meta.structuredChart?.durationMinutes ?? meta.durationMinutes ?? sessionDurationMinutes ?? 0) || 0;
 
         // Resolve units / overflow from agency medical service codes when duration is known.
         if (primary && durationMins > 0) {
@@ -3617,7 +3664,7 @@ export const createClinicalNoteAddendum = async (req, res, next) => {
     if(req.body.serviceLines!==undefined && isNonBillableDocument(note))return res.status(400).json({error:{message:'Non-service notes remain non-billable. Request a code correction on the signed service note.'}});
     if(req.body.serviceLines!==undefined && req.body.serviceChangeAttested!==true) return res.status(400).json({error:{message:'Attest that the corrected service codes and units accurately describe the care delivered'}});
     await appendClinicalNoteAmendment({ noteId, agencyId: note.agency_id, body: bodyText, actorUserId: req.user.id,
-      entryKind: req.body.entryKind, reason: req.body.reason, authorAttested: req.body.authorAttested,
+      entryKind: req.body.entryKind, reason: req.body.reason, authorAttested: req.body.authorAttested, supervisorUserId:policy.supervisorUserId,
       serviceLines:req.body.serviceLines, requestSignoff: async () => {
       if (!policy.supervisorUserId) return;
       await pool.execute(`INSERT INTO clinical_note_signoffs (agency_id,clinical_note_id,provider_user_id,supervisor_user_id,provider_signed_at,status)

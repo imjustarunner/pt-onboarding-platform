@@ -8,6 +8,7 @@ export function normalizeCosignQueueItems(notes) {
     clientId: n.client_id || n.clientId || null,
     clientName: n.client_name || n.clientName
       || [n.client_first_name, n.client_last_name].filter(Boolean).join(' ').trim() || null,
+    providerId: n.provider_user_id || n.providerUserId || n.provider_signed_by_user_id || null,
     providerName: [n.provider_first_name, n.provider_last_name].filter(Boolean).join(' ').trim()
       || n.provider_name || 'Provider',
     serviceCode: n.service_code || n.serviceCode || null,

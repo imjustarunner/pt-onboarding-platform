@@ -77,17 +77,19 @@ describe('Note Workspace queue deep links', () => {
     wrapper.unmount();
   });
 
-  it('reads the noteId used by Tasks co-sign links and opens the signed chart note', async () => {
+  it('opens Tasks cosign links in focused review with the work queue visible', async () => {
     const { wrapper, router, state } = await workspace({ noteId: '77', agencyId: '7', launchIntent: 'cosign' });
-    expect(state.signedNoteViewerId).toBe(77);
-    expect(api.get).toHaveBeenCalledWith('/medical-billing/notes/77', expect.objectContaining({ params: { agencyId: 7 } }));
+    expect(state.supervisorReviewItem).toMatchObject({ clinicalNoteId: 77, agencyId: 7 });
+    expect(state.workQueueCollapsed).toBe(false);
+    expect(wrapper.findComponent({ name: 'ClinicalNoteSupervisorReview' }).props()).toMatchObject({ noteId: 77, agencyId: 7 });
+    expect(state.signedNoteViewerId).toBeNull();
     expect(api.post.mock.calls.some(([url]) => url === '/clinical-notes/drafts')).toBe(false);
     expect(loadWorkQueue(501)[0].status).toBe('not_started');
     state.startNewNote();
     await flushPromises();
     expect(router.currentRoute.value.query.noteId).toBeUndefined();
     expect(state.signedNoteViewerId).toBeNull();
-    expect(api.get.mock.calls.filter(([url]) => url === '/medical-billing/notes/77')).toHaveLength(1);
+    expect(state.supervisorReviewItem).toBeNull();
     wrapper.unmount();
   });
 

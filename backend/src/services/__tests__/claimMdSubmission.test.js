@@ -1,5 +1,6 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ selfPayCheck: vi.fn(), prepare: vi.fn(), upload: vi.fn(), event: vi.fn(), connection: vi.fn(), execute: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() }));
+const mocks = vi.hoisted(() => ({ liveAgency: vi.fn(), selfPayCheck: vi.fn(), prepare: vi.fn(), upload: vi.fn(), event: vi.fn(), connection: vi.fn(), execute: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() }));
+vi.mock('../syntheticClearinghouseGuard.service.js',()=>({assertLiveClearinghouseAgency:mocks.liveAgency}));
 vi.mock('../familyLedger/serviceCharges.js',()=>({assertNoSelfPayBalance:mocks.selfPayCheck}));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: mocks.execute, getConnection: async () => ({ execute: mocks.execute, beginTransaction: mocks.begin, commit: mocks.commit, rollback: mocks.rollback, release: mocks.release }) } }));
 vi.mock('../../controllers/claimMdWorkflow.controller.js', () => ({ prepareClaimReview: mocks.prepare }));
@@ -13,12 +14,19 @@ const response = () => ({ code: 200, body: null, status(code) { this.code = code
 const request = () => ({ user: { id: 9, role: 'admin' }, params: { claimId: '11' }, body: { agencyId: 1, approved: true, reviewHash: 'a'.repeat(64), accountMode: 'test' } });
 const prepared = () => ({ claim: { id: 11, client_id: 7, clinical_session_id: 71, claim_lifecycle: 'ready', billing_revision: 0 }, readiness: { ready: true }, insurance: {}, payload: { remote_claimid: '11' }, reviewHash: 'a'.repeat(64) });
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.selfPayCheck.mockResolvedValue(undefined); mocks.prepare.mockResolvedValue(prepared());
+  vi.clearAllMocks(); mocks.liveAgency.mockResolvedValue(undefined); mocks.selfPayCheck.mockResolvedValue(undefined); mocks.prepare.mockResolvedValue(prepared());
   mocks.connection.mockResolvedValue({ accountKey: 'synthetic', mode: 'test', connectionId: 'account:100' });
   mocks.execute.mockImplementation(async sql=>sql.startsWith('SELECT')?[[]]:[{affectedRows:1}]);
   mocks.upload.mockResolvedValue({ claim: [{ remote_claimid: '11', claimmd_id: '800', status: 'A' }] });
 });
 describe('reviewed claim transmission', () => {
+  it('stops before preparing or uploading when the agency transmission guard rejects', async () => {
+    mocks.liveAgency.mockRejectedValueOnce(Object.assign(new Error('Synthetic agency cannot transmit'), {status:403}));
+    const next=vi.fn(); await submitClaimToClaimMd(request(),response(),next);
+    expect(mocks.liveAgency).toHaveBeenCalledWith(1);
+    expect(next.mock.calls[0][0].status).toBe(403);
+    expect(mocks.prepare).not.toHaveBeenCalled(); expect(mocks.upload).not.toHaveBeenCalled();
+  });
   it('holds insurance submission for an existing self-pay balance under the visit lock',async()=>{
     mocks.selfPayCheck.mockRejectedValueOnce(Object.assign(new Error('Reconcile self-pay'),{status:409}));
     const next=vi.fn();await submitClaimToClaimMd(request(),response(),next);

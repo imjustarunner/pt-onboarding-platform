@@ -67,7 +67,7 @@ describe('Tasks and Note Workspace share the ToDo Queue', () => {
     await flushPromises();
     for (const panel of panels) {
       expect(panel.findAll('.na-wq-item')).toHaveLength(1);
-      expect(panel.get('.na-wq-chip--pending').text()).toBe('0 Not started');
+      expect(panel.find('.na-wq-chip--pending').exists()).toBe(false);
       expect(panel.get('.na-wq-chip--started').text()).toBe('1 In progress');
     }
     await panels[0].find('select').setValue('client');

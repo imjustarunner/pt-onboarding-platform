@@ -1,3 +1,5 @@
+import { appendReviewRequest, noteAuthorId, serviceDetailBillingBlockers } from '../services/clinicalSupervisorReview.service.js';
+import { parseObject } from '../services/supervisedBillingPolicy.service.js';
 import { checkSuperviseePayerEligibility } from '../services/credentialPayerEligibility.service.js';
 import { screeningClaimBlockers } from '../services/h0002ScreeningRules.js';
 import crypto from 'node:crypto';
@@ -52,7 +54,7 @@ export async function prepareClaimReview(agencyId, claimId) {
   const documentation = await claimDocumentation(agencyId, claim);
   readiness.blockers.push(...screeningClaimBlockers(documentation.note,claim,lines));
   documentation.note.latest_addendum_at = documentation.addenda.at(-1)?.created_at || null;
-  const [[session]] = await clinicalPool.execute('SELECT provider_user_id, rendering_provider_user_id FROM clinical_sessions WHERE id = ? AND agency_id = ?', [claim.clinical_session_id,agencyId]);
+  const [[session]] = await clinicalPool.execute('SELECT provider_user_id, rendering_provider_user_id,service_location_id,place_of_service FROM clinical_sessions WHERE id = ? AND agency_id = ?', [claim.clinical_session_id,agencyId]);
   const providerId = Number(session?.provider_user_id || session?.rendering_provider_user_id);
   const rollout = await providerBillingRolloutReview({ agencyId, providerUserId: providerId, payerId: insurance?.primary?.payerId, serviceDate: claim.date_of_service });
   if (!rollout.ready) readiness.blockers.push(rollout.reason);
@@ -85,6 +87,7 @@ export async function prepareClaimReview(agencyId, claimId) {
   const effective = { ...claim, rendering_npi: supervision.renderingProvider?.npi || claim.rendering_npi, rendering_first_name: supervision.renderingProvider?.firstName, rendering_last_name: supervision.renderingProvider?.lastName,
     supervising_provider: supervision.emitSupervisor ? supervision.supervisingProvider : null,
     place_of_service: overrides?.placeOfService || claim.place_of_service, billing_npi: overrides?.billingNpi || claim.billing_npi, taxonomy_code: overrides?.taxonomyCode || claim.taxonomy_code };
+  readiness.blockers.push(...await serviceDetailBillingBlockers(documentation.note,effective,lines,undefined,session));
   assertClaimBillingNpi(billingProfile, effective.billing_npi);
   const effectiveLines = overrides?.modifiers ? lines.map(line => ({ ...line, modifiers_json: String(overrides.modifiers).split(/[,\s]+/).filter(Boolean) })) : lines;
   const basePayload = buildClaimMdJsonClaim(effective, effectiveLines, { insurance, practice });
@@ -281,7 +284,15 @@ export async function correctClaim(req, res, next) {
       eventType: 'correction', actorUserId: req.user.id, payload: { reason,
         before: { placeOfService: claim.place_of_service, billingNpi: claim.billing_npi, renderingNpi: claim.rendering_npi, taxonomyCode: claim.taxonomy_code, lines: originalLines },
         after: { placeOfService: pos, billingNpi, renderingNpi, taxonomyCode: taxonomy, lines } } }, db);
+    if (claim.clinical_note_id) {
+      const [[note]] = await db.execute('SELECT * FROM clinical_notes WHERE id=? AND agency_id=? FOR UPDATE',[claim.clinical_note_id,agencyId]);
+      if (note && Number(req.user.id) !== noteAuthorId(note)) {
+        const meta = parseObject(note.metadata_json);
+        appendReviewRequest(meta,{action:'review_acknowledge',message:`Billing amended claim #${claimId} linked to your note. ${reason}`,actorUserId:req.user.id,source:'billing_correction'});
+        await db.execute('UPDATE clinical_notes SET metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND agency_id=?',[JSON.stringify(meta),note.id,agencyId]);
+      }
+    }
     await db.commit();
-    res.json({ ok: true, message: 'Claim corrected. Review the refreshed claim before submitting.' });
+    res.json({ ok: true, message: 'Claim corrected. The note author has a review/acknowledgement request. Review the refreshed claim before submitting.' });
   } catch (e) { if (db) await db.rollback(); next(e); } finally { db?.release(); }
 }

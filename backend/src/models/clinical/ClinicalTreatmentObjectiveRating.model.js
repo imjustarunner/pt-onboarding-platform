@@ -278,16 +278,22 @@ class ClinicalTreatmentObjectiveRating {
       params.push(nid);
     }
     if (did) {
-      orParts.push('r.draft_id = ?');
+      orParts.push('(r.clinical_note_id IS NULL AND r.draft_id = ?)');
       params.push(did);
     }
     if (dos) {
-      orParts.push('r.date_of_service = ?');
+      orParts.push('(r.clinical_note_id IS NULL AND r.draft_id IS NULL AND r.date_of_service = ?)');
       params.push(dos);
     }
     if (!orParts.length) return [];
     const [rows] = await clinicalPool.execute(
-      `SELECT r.*, o.objective_text, o.scale_target, g.goal_text, g.goal_index, o.objective_index
+      `SELECT r.*, o.objective_text, o.scale_target, o.scale_start, g.goal_text, g.goal_index, o.objective_index,
+       (SELECT prior.scale_value FROM clinical_treatment_objective_ratings prior
+        WHERE prior.agency_id=r.agency_id AND prior.client_id=r.client_id AND prior.objective_id=r.objective_id
+        AND prior.rater_kind=r.rater_kind AND COALESCE(prior.rater_label,'')=COALESCE(r.rater_label,'')
+        AND prior.disposition='rated' AND prior.scale_value IS NOT NULL AND prior.rated_at<r.rated_at
+        AND (r.date_of_service IS NULL OR prior.date_of_service<r.date_of_service)
+        ORDER BY prior.date_of_service DESC,prior.rated_at DESC,prior.id DESC LIMIT 1) AS scale_previous
        FROM clinical_treatment_objective_ratings r
        LEFT JOIN clinical_treatment_plan_objectives o ON o.id = r.objective_id
        LEFT JOIN clinical_treatment_plan_goals g ON g.id = COALESCE(r.goal_id, o.goal_id)

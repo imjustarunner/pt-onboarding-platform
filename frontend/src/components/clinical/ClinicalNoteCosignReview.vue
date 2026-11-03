@@ -1,52 +1,34 @@
 <template>
-  <div class="cosign-review">
-    <button type="button" :disabled="busy" @click="open">Review &amp; cosign</button>
-    <p v-if="error" role="alert">{{ error }}</p>
-    <section v-if="document" aria-label="Review note and amendments before signing">
-      <CosignReviewTimer v-if="document.canTrackCosignTime && reviewProviderId" :key="`${noteId}-${document.contentHash}`" :agency-id="agencyId" :provider-id="reviewProviderId" :note-id="noteId" :content-hash="document.contentHash" />
-      <ClinicalReviewContent :content="document.content" />
-      <p>Sign-off covers this note and every attached amendment/addendum.</p>
-      <label><input v-model="attested" type="checkbox" :disabled="busy" /> I reviewed and approve this version and all amendments.</label>
-      <button type="button" :disabled="busy || !attested" @click="sign">Sign off</button>
-      <button type="button" :disabled="busy" @click="document = null">Cancel</button>
-    </section>
+  <div class="cosign-review-launcher">
+    <button v-if="!opened" type="button" @click="opened = true">Review &amp; cosign</button>
+    <ClinicalNoteSupervisorReview
+      v-else
+      :note-id="noteId"
+      :agency-id="agencyId"
+      :provider-id="providerId"
+      full-page
+      @signed="onSigned"
+      @returned="onReturned"
+      @close="opened = false"
+    />
   </div>
 </template>
+
 <script setup>
-import { ref, watch, onBeforeUnmount } from 'vue';
-import api from '../../services/api.js';
-import CosignReviewTimer from './CosignReviewTimer.vue';
-import ClinicalReviewContent from './ClinicalReviewContent.vue';
-const reviewProviderId=ref(null);
-const props=defineProps({noteId:{type:[Number,String],required:true},agencyId:{type:[Number,String],required:true},providerId:{type:[Number,String],default:null}});
-const emit=defineEmits(['signed']);
-const document=ref(null),busy=ref(false),error=ref(''),attested=ref(false);
-let generation=0;
-watch(()=>[props.noteId,props.agencyId],()=>{generation++;document.value=null;attested.value=false;busy.value=false;error.value='';});
-onBeforeUnmount(()=>{generation++;});
-async function open(){
-  if(busy.value)return;
-  const g=generation;busy.value=true;error.value='';attested.value=false;document.value=null;
-  try{
-    let providerId=props.providerId;
-    if(!providerId){const {data}=await api.get(`/medical-billing/notes/${props.noteId}`,{params:{agencyId:props.agencyId}});providerId=data.note?.providerSignedByUserId;}
-    if(g!==generation)return;
-    if(!providerId)throw new Error('The signed note author is required for supervisor review.');
-    const {data}=await api.get(`/supervision/supervisee/${providerId}/document-reviews/note/${props.noteId}`,{params:{agencyId:props.agencyId}});
-    if(g===generation){reviewProviderId.value=providerId;document.value=data;}
-  }catch(e){if(g===generation)error.value=e.response?.data?.error?.message||e.message||'Unable to load the current note.';}
-  finally{if(g===generation)busy.value=false;}
-}
-async function sign(){
-  if(busy.value||!attested.value||!document.value)return;
-  const g=generation;busy.value=true;error.value='';
-  try{
-    await api.post(`/medical-billing/notes/${props.noteId}/cosign`,{agencyId:Number(props.agencyId),contentHash:document.value.contentHash,reviewedAndApproved:true});
-    if(g===generation){document.value=null;emit('signed');}
-  }catch(e){if(g===generation){error.value=e.response?.data?.error?.message||e.message||'Unable to sign off.';attested.value=false;}}
-  finally{if(g===generation)busy.value=false;}
+import { ref, watch } from 'vue';
+import ClinicalNoteSupervisorReview from './ClinicalNoteSupervisorReview.vue';
+
+const props = defineProps({ noteId: { type: [Number, String], required: true }, agencyId: { type: [Number, String], required: true }, providerId: { type: [Number, String], default: null } });
+const emit = defineEmits(['signed', 'returned']);
+const opened = ref(false);
+watch(() => [props.noteId, props.agencyId, props.providerId], () => { opened.value = false; });
+function onSigned(result) { opened.value = false; emit('signed', result); }
+function onReturned(result) {
+  if (result.action === 'changes_needed') opened.value = false;
+  emit('returned', result);
 }
 </script>
+
 <style scoped>
-pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:24rem;overflow:auto}section{padding:1rem;border:1px solid var(--border-color,#ccd5df);border-radius:8px}button{margin:.35rem;padding:.5rem .75rem}label{display:block;margin:.75rem 0}[role=alert]{color:#a32121}
+.cosign-review-launcher>button{margin:.35rem;padding:.5rem .75rem;border:1px solid var(--border-color,#ccd5df);border-radius:7px;background:white;color:#254e6a;font:inherit;cursor:pointer}
 </style>

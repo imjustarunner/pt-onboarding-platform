@@ -1,7 +1,7 @@
 <template>
-  <ClinicalWorkspaceFrame :enabled="canUseTool && clinicalWorkspaceBranding" :immersive="!isEmbedded" :compact="isEmbedded" :show-back="!isEmbedded" :tenant-id="noteAidAgencyId || currentAgencyId" :context-label="noteWorkspaceLabel" return-label="Back to app">
+  <ClinicalWorkspaceFrame :enabled="canUseTool && clinicalWorkspaceBranding" :immersive="!isEmbedded" :compact="isEmbedded" :show-back="!isEmbedded" :tenant-id="supervisorReviewItem?.agencyId || noteAidAgencyId || currentAgencyId" :context-label="noteWorkspaceLabel" return-label="Back to app">
   <div class="na-app" :class="{ 'na-app--embedded': isEmbedded }">
-    <header v-if="!isEmbedded" class="na-topbar">
+    <header v-if="!isEmbedded" v-show="!supervisorReviewItem" class="na-topbar">
       <div class="na-brand">
         <img v-if="clinicalWorkspaceBranding" class="na-brand-mark" :src="AURICWELL_MARK_URL" alt="AuricWell" />
         <div>
@@ -14,9 +14,9 @@
       <router-link class="na-archive-btn na-nav-link" :to="orgTo('/dashboard')">My Dashboard</router-link>
       <router-link class="na-archive-btn na-nav-link" :to="orgTo('/tasks')">Tasks</router-link>
       <div class="na-topbar-counts" aria-live="polite">
-        <span><strong>{{ workQueueTodoCount + contactDocumentationCount }}</strong> to do</span>
-        <span class="na-topbar-counts__sep" aria-hidden="true">·</span>
-        <span><strong>{{ inProgressDraftCount }}</strong> in progress</span>
+        <span v-if="workQueueTodoCount + contactDocumentationCount"><strong>{{ workQueueTodoCount + contactDocumentationCount }}</strong> to do</span>
+        <span v-if="(workQueueTodoCount + contactDocumentationCount) && inProgressDraftCount" class="na-topbar-counts__sep" aria-hidden="true">·</span>
+        <span v-if="inProgressDraftCount"><strong>{{ inProgressDraftCount }}</strong> in progress</span>
       </div>
       <button
         type="button"
@@ -78,7 +78,9 @@
         'na-shell--library-expanded': libraryExpanded && !libraryCollapsed,
         'na-shell--queue-collapsed': workQueueCollapsed || isEmbedded,
         'na-shell--note-focused': hasOpenNote && !isEmbedded,
-        'na-shell--embedded': isEmbedded
+        'na-shell--embedded': isEmbedded,
+        'na-shell--supervisor-review': !!supervisorReviewItem,
+        'na-shell--supervisor-full': !!supervisorReviewItem && supervisorReviewFullPage
       }"
     >
       <ClinicalNoteLibrarySidebar
@@ -112,6 +114,27 @@
         class="na-main"
         :class="{ 'na-main--start': showStartPage, 'na-main--library': showAidPicker }"
       >
+        <ClinicalNoteSupervisorReview
+          v-if="supervisorReviewItem"
+          :key="`${supervisorReviewItem.agencyId}-${supervisorReviewItem.clinicalNoteId}`"
+          :note-id="supervisorReviewItem.clinicalNoteId"
+          :agency-id="supervisorReviewItem.agencyId"
+          :provider-id="supervisorReviewItem.providerId || null"
+          :client-name="supervisorReviewItem.clientName || ''"
+          :full-page="supervisorReviewFullPage"
+          class="na-supervisor-review"
+          @signed="onSupervisorReviewCompleted"
+          @returned="onSupervisorReviewReturned"
+          @open-full="supervisorReviewFullPage = true"
+          @close="closeSupervisorReview"
+        />
+        <div v-show="!supervisorReviewItem">
+        <ClinicalNoteReviewRequests
+          v-if="signedNoteViewerId && activeNoteReviewRequests.length"
+          :requests="activeNoteReviewRequests"
+          @acknowledged="loadNoteReviewWork"
+          @correct="beginAmendmentFromSignedNote"
+        />
         <NoteAidIntakeDraftEditor
           v-if="showIntakeDraftEditor && effectiveClientId"
           :client-id="effectiveClientId"
@@ -1092,6 +1115,7 @@
           <ClinicalNoteDetailFetcher
             :note-id="signedNoteViewerId"
             :agency-id="signedNoteViewerAgencyId || noteAidAgencyId || currentAgencyId"
+            @amended="loadNoteReviewWork"
           />
         </section>
 
@@ -1453,6 +1477,7 @@
         </div>
         </template>
         </div>
+        </div>
       </main>
 
       <NoteAidWorkQueuePanel
@@ -1469,12 +1494,19 @@
         :cosign-items="cosignQueueItems"
         :cosign-loading="cosignQueueLoading"
         :active-cosign-id="activeCosignQueueId"
+        :review-items="noteReviewQueueItems"
+        :review-error="noteReviewWorkError"
+        :cosign-error="cosignQueueError"
+        :mode="supervisorReviewItem ? 'cosign' : ''"
         @add-todo="showTodoImportModal = true"
         @select="activateWorkQueueItem"
         @select-cosign="activateCosignQueueItem"
+        @select-review="activateNoteReviewItem"
+        @refresh-review="loadNoteReviewWork"
         @delete="onWorkQueueDeleteDraft"
         @undo-import="undoLastTodoImport"
         @refresh-cosign="loadCosignQueue"
+        @cosign-order="cosignVisibleOrder = $event"
         @update:collapsed="workQueueCollapsed = $event"
         @update:sort-by="workQueueSortBy = $event"
         @update:sort-dir="workQueueSortDir = $event"
@@ -1482,7 +1514,7 @@
     </div>
 
     <div
-      v-if="canUseTool && hasOpenNote && !isEmbedded"
+      v-if="canUseTool && hasOpenNote && !isEmbedded && !supervisorReviewItem"
       class="na-fab-wrap"
       @keydown.escape="newNoteMenuOpen = false"
     >
@@ -1594,6 +1626,9 @@
 </template>
 
 <script setup>
+import ClinicalNoteSupervisorReview from '../../components/clinical/ClinicalNoteSupervisorReview.vue';
+import ClinicalNoteReviewRequests from '../../components/clinical/ClinicalNoteReviewRequests.vue';
+import { groupNoteReviewWork } from '../../utils/noteReviewWork.js';
 import { isMentalHealthWorkspace } from '../../utils/clinicalWorkspace.js';
 import { noteDraftAttendanceNotice } from '../../utils/noteDraftAttendance.js';
 import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
@@ -2153,6 +2188,7 @@ async function refreshWorkspace() {
   // Library reconciliation writes queue status, so load the server queue first.
   await fetchWorkQueueFromApi(authStore.user?.id);
   await loadRecent();
+  await Promise.all([loadNoteReviewWork(), canSuperviseCosign.value ? loadCosignQueue() : Promise.resolve()]);
 }
 const workQueueSortBy = ref('');
 const workQueueSortDir = ref('');
@@ -2183,6 +2219,18 @@ async function onScreeningReviewSigned(_result, { openNext = false } = {}) {
 
 const cosignQueueItems = ref([]);
 const cosignQueueLoading = ref(false);
+const cosignQueueError = ref('');
+const supervisorReviewItem = ref(null);
+const supervisorReviewFullPage = ref(false);
+let supervisorReviewSelectionSeq = 0;
+const cosignVisibleOrder = ref([]);
+const noteReviewWork = ref([]);
+const noteReviewWorkError = ref('');
+const noteReviewQueueItems = computed(() => groupNoteReviewWork(noteReviewWork.value));
+const activeNoteReviewRequests = computed(() => noteReviewWork.value.filter(item =>
+  Number(item.clinicalNoteId) === Number(signedNoteViewerId.value)
+  && Number(item.agencyId) === Number(signedNoteViewerAgencyId.value || noteAidAgencyId.value || currentAgencyId.value)
+));
 const activeCosignQueueId = ref(null);
 const canSuperviseCosign = ref(false);
 /** Session preference: after signing, open the next not-started queue item (default on). */
@@ -3212,6 +3260,7 @@ function clearSignedNoteViewer() {
 }
 
 async function openSignedClinicalNote(noteId, { agencyId = null, preserveWorkQueueId = null } = {}) {
+  closeSupervisorReview();
   const nid = Number(noteId || 0);
   if (!nid) return false;
   collapseSidebarsForNote();
@@ -3967,6 +4016,7 @@ function cancelAidPicker() {
 }
 
 async function closeNoteWorkspace() {
+  closeSupervisorReview();
   if (draftId.value && !chartNoteReadOnly.value) {
     try { await autosave(); } catch { /* ignore */ }
   }
@@ -7711,28 +7761,97 @@ async function refreshCosignCapability() {
   }
 }
 
+let cosignQueueLoadSeq = 0;
 async function loadCosignQueue() {
+  const seq = ++cosignQueueLoadSeq;
   cosignQueueLoading.value = true;
+  cosignQueueError.value = '';
   try {
     const { data } = await api.get('/me/notes-to-sign', { skipGlobalLoading: true });
+    if (seq !== cosignQueueLoadSeq) return;
     const notes = Array.isArray(data?.notes) ? data.notes : [];
     if (data?.isSupervisor != null) canSuperviseCosign.value = !!data.isSupervisor;
     else if (notes.length) canSuperviseCosign.value = true;
     cosignQueueItems.value = normalizeCosignQueueItems(notes);
-  } catch {
-    cosignQueueItems.value = [];
+  } catch (e) {
+    if (seq === cosignQueueLoadSeq) cosignQueueError.value = e.response?.data?.error?.message || 'Could not refresh notes to cosign. Refresh to retry.';
   } finally {
-    cosignQueueLoading.value = false;
+    if (seq === cosignQueueLoadSeq) cosignQueueLoading.value = false;
   }
 }
 
-async function activateCosignQueueItem(item) {
-  if (!item?.clinicalNoteId) return;
+let noteReviewWorkSeq = 0;
+async function loadNoteReviewWork() {
+  const seq = ++noteReviewWorkSeq;
+  noteReviewWorkError.value = '';
+  try {
+    const { data } = await api.get('/medical-billing/notes/review-work', { skipGlobalLoading: true });
+    if (seq === noteReviewWorkSeq) noteReviewWork.value = Array.isArray(data?.items) ? data.items : [];
+  } catch (e) {
+    if (seq === noteReviewWorkSeq) noteReviewWorkError.value = e.response?.data?.error?.message || 'Could not load note review requests.';
+  }
+}
+
+async function activateNoteReviewItem(item) {
+  closeSupervisorReview();
+  await openSignedClinicalNote(item.clinicalNoteId, { agencyId: item.agencyId });
+  await nextTick();
+  if (Number(signedNoteViewerId.value) === Number(item.clinicalNoteId) && !supervisorReviewItem.value) workQueueCollapsed.value = false;
+}
+
+function activateCosignQueueItem(item, { fullPage = false } = {}) {
+  if (!item?.clinicalNoteId || !item.agencyId) return;
+  supervisorReviewSelectionSeq++;
+  clientHydrateSeq++;
   activeCosignQueueId.value = item.id;
-  await openSignedClinicalNote(item.clinicalNoteId, {
-    agencyId: Number(item.agencyId || 0) || null
-  });
-  approvalMessage.value = 'Opened note for supervisor co-signature.';
+  supervisorReviewItem.value = { ...item };
+  supervisorReviewFullPage.value = fullPage;
+  libraryExpanded.value = false;
+  libraryCollapsed.value = true;
+  workQueueCollapsed.value = false;
+}
+
+function closeSupervisorReview() {
+  supervisorReviewSelectionSeq++;
+  clientHydrateSeq++;
+  supervisorReviewItem.value = null;
+  supervisorReviewFullPage.value = false;
+  activeCosignQueueId.value = null;
+  if (String(route.query?.launchIntent || '') === 'cosign') {
+    const query = { ...route.query };
+    for (const key of ['noteId', 'clinicalNoteId', 'clinical_note_id', 'launchIntent']) delete query[key];
+    router.replace({ query }).catch(() => {});
+  }
+}
+
+function matchesSupervisorSelection(result) {
+  if (!supervisorReviewItem.value) return false;
+  return (!result?.noteId || Number(result.noteId) === Number(supervisorReviewItem.value.clinicalNoteId))
+    && (!result?.agencyId || Number(result.agencyId) === Number(supervisorReviewItem.value.agencyId));
+}
+
+async function onSupervisorReviewCompleted(result) {
+  if (!matchesSupervisorSelection(result)) return;
+  const completedId = activeCosignQueueId.value;
+  const ids = cosignVisibleOrder.value.length ? cosignVisibleOrder.value : cosignQueueItems.value.map(item => item.id);
+  const position = ids.indexOf(completedId);
+  const nextIds = [...ids.slice(position + 1), ...ids.slice(0, Math.max(0, position))];
+  // Close the signed version immediately. Do not interrupt later user navigation.
+  closeSupervisorReview();
+  const seq = supervisorReviewSelectionSeq;
+  await loadCosignQueue();
+  if (seq !== supervisorReviewSelectionSeq || cosignQueueError.value) return;
+  const next = nextIds.map(id => cosignQueueItems.value.find(item => item.id === id)).find(Boolean)
+    || cosignQueueItems.value.find(item => item.id !== completedId);
+  if (next) activateCosignQueueItem(next);
+}
+
+async function onSupervisorReviewReturned(result) {
+  if (!matchesSupervisorSelection(result)) return;
+  // Author inbox refresh is independent of selection and must not delay advancement.
+  void loadNoteReviewWork();
+  if (result?.action === 'changes_needed' || result?.status === 'changes_needed') await onSupervisorReviewCompleted(result);
+  else await loadCosignQueue();
 }
 
 async function onTodoListBuilt({ items }) {
@@ -7859,6 +7978,7 @@ async function openNextInQueue() {
 }
 
 async function onLibrarySidebarSelect(row) {
+  closeSupervisorReview();
   if (!row) return;
   libraryExpanded.value = false;
   collapseSidebarsForNote();
@@ -7897,6 +8017,7 @@ async function onLibrarySidebarSelect(row) {
 }
 
 async function activateWorkQueueItem(item) {
+  closeSupervisorReview();
   if (!item) return;
   if (item.noteKind === 'h0002_screening' && item.clinicalSessionId) { activeWorkQueueItemId.value = item.id || null; activeScreeningReview.value = item; return; }
   collapseSidebarsForNote();
@@ -8491,6 +8612,7 @@ const persistSessionObjectiveRatings = async () => {
 };
 
 const startNewNote = () => {
+  closeSupervisorReview();
   draftId.value = null;
   viewingChartNote.value = null;
   clearSignedNoteViewer();
@@ -8871,6 +8993,12 @@ const loadClinicalNoteIntoWorkspace = async (
   collapseSidebarsForNote();
   const nid = Number(noteId || 0);
   if (!nid) return;
+  const loadSeq = ++draftLoadSeq;
+  const activationSeq = workQueueActivateSeq;
+  const reviewSeq = supervisorReviewSelectionSeq;
+  const isCurrentLoad = () => loadSeq === draftLoadSeq && activationSeq === workQueueActivateSeq
+    && reviewSeq === supervisorReviewSelectionSeq && Number(signedNoteViewerId.value) === nid;
+  cancelPendingAutosave();
   signedNoteViewerId.value = nid;
   if (preferredAgencyId) {
     signedNoteViewerAgencyId.value = Number(preferredAgencyId) || null;
@@ -8896,12 +9024,15 @@ const loadClinicalNoteIntoWorkspace = async (
           params: aid ? { agencyId: aid } : undefined,
           skipGlobalLoading: true
         });
+        if (!isCurrentLoad()) return;
         note = res?.data?.note;
         if (note) break;
       } catch (e) {
+        if (!isCurrentLoad()) return;
         lastErr = e;
       }
     }
+    if (!isCurrentLoad()) return;
     if (!note) {
       throw lastErr || new Error('Clinical note not found.');
     }
@@ -8926,6 +9057,7 @@ const loadClinicalNoteIntoWorkspace = async (
       selectedClientId.value = cid;
       selectedClient.value = { id: cid, initials: '' };
       await hydrateSelectedClient(cid);
+      if (!isCurrentLoad()) return;
     } else {
       selectedClientId.value = null;
       selectedClient.value = null;
@@ -8970,6 +9102,7 @@ const loadClinicalNoteIntoWorkspace = async (
     approvalMessage.value = '';
     approvalError.value = '';
   } catch (e) {
+    if (!isCurrentLoad()) return;
     viewingChartNote.value = null;
     // Keep signedNoteViewerId so ClinicalNoteDetailFetcher can still load / retry.
     approvalError.value =
@@ -9096,6 +9229,7 @@ onMounted(async () => {
   await loadClinicalCosignSupervisor();
   await refreshCosignCapability();
   if (canSuperviseCosign.value) await loadCosignQueue();
+  await loadNoteReviewWork();
 
   if (String(route.query?.noteAidReset || '') === '1') {
     await clearWorkQueueOnApi(authStore.user?.id).catch(() => clearAllWorkQueues(authStore.user?.id));
@@ -9414,6 +9548,14 @@ async function openWorkspaceRouteSelection() {
   const qNote = String(route.query?.noteId || route.query?.clinicalNoteId || route.query?.clinical_note_id || '').trim();
   const qDraft = String(route.query?.draftId || route.query?.draft_id || '').trim();
   if (qNote) {
+    if (String(route.query?.launchIntent || '') === 'cosign') {
+      const queued = cosignQueueItems.value.find(item => Number(item.clinicalNoteId) === Number(qNote));
+      const agencyId = qAgency || queued?.agencyId || currentAgencyId.value;
+      if (Number(supervisorReviewItem.value?.clinicalNoteId) !== Number(qNote)) {
+        activateCosignQueueItem(queued || { id: `cosign_note_${qNote}`, clinicalNoteId: Number(qNote), agencyId }, { fullPage: false });
+      }
+      return;
+    }
     if (String(signedNoteViewerId.value || '') !== qNote) await openSignedClinicalNote(qNote, { agencyId: qAgency });
   } else if (qDraft) {
     const hit = recentDrafts.value.find((d) => String(d.id) === qDraft);
@@ -9762,6 +9904,27 @@ onBeforeUnmount(() => {
 
 .na-shell--note-focused.na-shell--library-collapsed.na-shell--queue-collapsed {
   grid-template-columns: 56px minmax(0, 1fr) 56px;
+}
+
+.na-shell--supervisor-review .na-main {
+  padding: 16px 0 16px 16px;
+  overflow: hidden;
+}
+.na-supervisor-review {
+  height: 100%;
+  max-height: calc(100dvh - 150px);
+  min-height: 0;
+  border-right: 4px solid #7c3aed;
+  border-radius: 12px 0 0 12px;
+}
+.na-shell--supervisor-review .na-wq { border-left-color: #7c3aed; }
+.na-shell--supervisor-full .na-main { overflow: auto; padding-right: 16px; }
+.na-shell--supervisor-full .na-supervisor-review { height: auto; max-height: none; border-radius: 12px; }
+@media (max-width: 900px) {
+  .na-shell.na-shell--supervisor-review { grid-template-columns: minmax(0, 1fr); overflow: auto; }
+  .na-shell--supervisor-review .cnl { display: none; }
+  .na-shell--supervisor-review .na-main { padding: 8px; }
+  .na-supervisor-review { max-height: calc(100dvh - 110px); min-height: 460px; border-radius: 12px; }
 }
 
 .na-main--start {
@@ -11869,5 +12032,13 @@ a.na-chip--link {
   .na-date-grid {
     grid-template-columns: 1fr;
   }
+}
+@media (max-width: 900px) {
+  .na-app .na-shell.na-shell--supervisor-review:not(.na-shell--embedded):not(.na-shell--library-expanded) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    overflow: auto;
+  }
+  .na-shell--supervisor-review .na-main { min-height: 0; padding: 8px; }
 }
 </style>

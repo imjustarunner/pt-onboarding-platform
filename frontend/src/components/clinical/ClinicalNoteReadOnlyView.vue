@@ -399,7 +399,7 @@ const props = defineProps({
   compact: { type: Boolean, default: false }
 });
 
-const emit = defineEmits(['open-claim']);
+const emit = defineEmits(['open-claim', 'amended']);
 
 const authStore = useAuthStore();
 const copiedKey = ref('');
@@ -708,6 +708,7 @@ async function saveAddendum() {
       createdAt: a.created_at || a.createdAt
     }));
     amendedNoteId.value = noteId;
+    emit('amended', { noteId, agencyId: props.note?.agencyId, addenda: rows });
     addendumDraft.value = '';
     entryReason.value='';authorAttested.value=false;
     serviceCorrection.value=false;serviceChangeAttested.value=false;correctedServices.value=[{procedureCode:'',units:1}];

@@ -98,7 +98,7 @@
         <ul v-if="signingNotes.length" class="mb-list">
           <li v-for="n in signingNotes" :key="n.id">
             #{{ n.id }} — {{ n.title }}
-            <ClinicalNoteCosignReview :note-id="n.id" :agency-id="agencyId" :provider-id="n.created_by_user_id" @signed="loadSigningNotes" />
+            <ClinicalNoteCosignReview :note-id="n.id" :agency-id="agencyId" :provider-id="n.created_by_user_id" @signed="loadSigningNotes" @returned="loadSigningNotes" />
           </li>
         </ul>
         <p v-else class="muted">No notes waiting for cosign.</p>

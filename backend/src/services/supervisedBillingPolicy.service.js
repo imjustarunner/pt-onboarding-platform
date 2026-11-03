@@ -138,6 +138,9 @@ export async function requiredDocumentReviewTypes(agencyId, clientId, documentDa
 }
 export function evaluateSupervisedBilling({ policy, payerPolicy, dateOfService, serviceProvider, supervisor, note, claimDate = new Date().toISOString().slice(0,10) }) {
   const blockers = [], warnings = [];
+  const reviewMetadata = parseObject(note.metadata_json);
+  if ((reviewMetadata.reviewRequests || []).some(r => r.action === 'changes_needed' && !r.resolvedAt)) blockers.push('The note author must address the supervisor’s requested changes before billing.');
+  if ((reviewMetadata.serviceDetailAmendments || []).some(a => !a.approvedAt)) blockers.push('Service-detail corrections require supervisor approval before billing.');
   const dos = dateOnly(dateOfService);
   const rule = payerPolicy?.rules?.find(r => r.effectiveFrom <= dos && r.effectiveThrough >= dos) || null;
   const supervised = policy.billingMode === 'billing_supervisor';

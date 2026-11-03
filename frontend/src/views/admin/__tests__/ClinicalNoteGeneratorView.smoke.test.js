@@ -693,6 +693,123 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     wrapper.unmount();
   });
 
+  it('opens supervisor review without replacing the author draft and restores it on close', async () => {
+    const { wrapper, state } = await workspace();
+    try {
+      state.draftId = 88;
+      state.inputText = 'Synthetic unsaved author draft';
+      state.sessionDurationMinutes = 45;
+      state.activateCosignQueueItem({ id: 'cosign_71', clinicalNoteId: 71, agencyId: 7 });
+      await nextTick();
+      expect(state.workQueueCollapsed).toBe(false);
+      expect(state.draftId).toBe(88);
+      expect(state.inputText).toBe('Synthetic unsaved author draft');
+      expect(state.sessionDurationMinutes).toBe(45);
+      expect(wrapper.find('.na-shell--supervisor-review').exists()).toBe(true);
+      state.closeSupervisorReview();
+      await nextTick();
+      expect(state.inputText).toBe('Synthetic unsaved author draft');
+      expect(state.draftId).toBe(88);
+      expect(wrapper.find('.na-shell--supervisor-review').exists()).toBe(false);
+    } finally { wrapper.unmount(); }
+  });
+
+  it('advances to the next remaining note in the displayed cosign order', async () => {
+    const { wrapper, state } = await workspace();
+    try {
+      const first = { id: 'cosign_1', clinicalNoteId: 71, agencyId: 7 };
+      const second = { id: 'cosign_2', clinicalNoteId: 72, agencyId: 7 };
+      const third = { id: 'cosign_3', clinicalNoteId: 73, agencyId: 7 };
+      state.cosignQueueItems = [first, second, third];
+      state.cosignVisibleOrder = [first.id, third.id, second.id];
+      state.activateCosignQueueItem(first);
+      vi.mocked(api.get).mockImplementation(async url => ({ data: url === '/me/notes-to-sign' ? {
+        isSupervisor: true,
+        notes: [{ id: 2, clinical_note_id: 72, agency_id: 7 }, { id: 3, clinical_note_id: 73, agency_id: 7 }]
+      } : {} }));
+      await state.onSupervisorReviewCompleted({ noteId: 71, agencyId: 7 });
+      expect(state.supervisorReviewItem.clinicalNoteId).toBe(73);
+      expect(state.workQueueCollapsed).toBe(false);
+    } finally { wrapper.unmount(); }
+  });
+
+  it('does not reopen a cosign review after the user leaves during queue refresh', async () => {
+    const { wrapper, state } = await workspace();
+    try {
+      const first = { id: 'cosign_1', clinicalNoteId: 71, agencyId: 7 };
+      const second = { id: 'cosign_2', clinicalNoteId: 72, agencyId: 7 };
+      state.cosignQueueItems = [first, second];
+      state.activateCosignQueueItem(first);
+      let resolveQueue;
+      vi.mocked(api.get).mockImplementation(url => url === '/me/notes-to-sign'
+        ? new Promise(resolve => { resolveQueue = resolve; }) : Promise.resolve({ data: {} }));
+      const completed = state.onSupervisorReviewCompleted({ noteId: 71, agencyId: 7 });
+      state.closeSupervisorReview();
+      resolveQueue({ data: { isSupervisor: true, notes: [{ id: 2, clinical_note_id: 72, agency_id: 7 }] } });
+      await completed;
+      expect(state.supervisorReviewItem).toBeNull();
+    } finally { wrapper.unmount(); }
+  });
+
+  it('a returned note cannot close a newer selected note or accept a different tenant result', async () => {
+    const { wrapper, state } = await workspace();
+    try {
+      const first = { id: 'cosign_1', clinicalNoteId: 71, agencyId: 7 };
+      const second = { id: 'cosign_2', clinicalNoteId: 72, agencyId: 7 };
+      state.cosignQueueItems = [first, second];
+      state.activateCosignQueueItem(first);
+      let resolveQueue;
+      vi.mocked(api.get).mockImplementation(url => url === '/me/notes-to-sign'
+        ? new Promise(resolve => { resolveQueue = resolve; }) : Promise.resolve({ data: { items: [] } }));
+      const returned = state.onSupervisorReviewReturned({ noteId: 71, agencyId: 7, action: 'changes_needed' });
+      state.activateCosignQueueItem(second);
+      resolveQueue({ data: { isSupervisor: true, notes: [{ id: 2, clinical_note_id: 72, agency_id: 7 }] } });
+      await returned;
+      expect(state.supervisorReviewItem.clinicalNoteId).toBe(72);
+      vi.mocked(api.get).mockClear();
+      await state.onSupervisorReviewCompleted({ noteId: 72, agencyId: 8 });
+      await state.onSupervisorReviewReturned({ noteId: 71, agencyId: 7, action: 'changes_needed' });
+      expect(api.get).not.toHaveBeenCalled();
+      expect(state.supervisorReviewItem.clinicalNoteId).toBe(72);
+    } finally { wrapper.unmount(); }
+  });
+
+  it('a delayed returned-note load cannot overwrite a newly selected author draft', async () => {
+    const { wrapper, state } = await workspace();
+    try {
+      let resolveNote;
+      vi.mocked(api.get).mockImplementation(url => url === '/medical-billing/notes/71'
+        ? new Promise(resolve => { resolveNote = resolve; }) : Promise.resolve({ data: {} }));
+      const loading = state.activateNoteReviewItem({ clinicalNoteId: 71, agencyId: 7 });
+      state.clearSignedNoteViewer();
+      state.draftId = 88;
+      state.inputText = 'New author draft must survive';
+      resolveNote({ data: { note: { id: 71, agencyId: 7, serviceCode: '90834', outputJson: { sections: { Subjective: 'Older returned note' } } } } });
+      await loading;
+      expect(state.signedNoteViewerId).toBeNull();
+      expect(state.draftId).toBe(88);
+      expect(state.inputText).toBe('New author draft must survive');
+      expect(state.viewingChartNote).toBeNull();
+    } finally { wrapper.unmount(); }
+  });
+
+  it('only the latest returned-note selection can populate the author workspace', async () => {
+    const { wrapper, state } = await workspace();
+    try {
+      let resolveFirst;
+      vi.mocked(api.get).mockImplementation(url => url === '/medical-billing/notes/71'
+        ? new Promise(resolve => { resolveFirst = resolve; })
+        : Promise.resolve({ data: url === '/medical-billing/notes/72' ? { note: { id: 72, agencyId: 7, serviceCode: '90834', outputJson: { sections: { Subjective: 'Latest selected note' } } } } : {} }));
+      const first = state.activateNoteReviewItem({ clinicalNoteId: 71, agencyId: 7 });
+      await state.activateNoteReviewItem({ clinicalNoteId: 72, agencyId: 7 });
+      resolveFirst({ data: { note: { id: 71, agencyId: 7, outputJson: { sections: { Subjective: 'Stale note response' } } } } });
+      await first;
+      expect(state.signedNoteViewerId).toBe(72);
+      expect(state.viewingChartNote.id).toBe(72);
+      expect(state.outputObj.sections.Subjective).toBe('Latest selected note');
+    } finally { wrapper.unmount(); }
+  });
+
   it('mounts without throwing', async () => {
     const ClinicalNoteGeneratorView = (await import('../ClinicalNoteGeneratorView.vue')).default;
     const router = createRouter({
