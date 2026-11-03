@@ -1,6 +1,6 @@
 <template>
   <span v-if="eligible || savedListing" class="quick-exchange">
-    <button v-if="!savedListing" type="button" class="btn btn-secondary btn-xs" @click.stop="reviewOpen = true">Post to exchange</button>
+    <button v-if="!savedListing" type="button" class="btn btn-secondary btn-xs" @click.stop="reviewOpen = true">Refer through Client Exchange</button>
     <router-link v-else :to="listingLink" @click.stop>Open referral #{{ savedListing.id }}</router-link>
     <span v-if="error" role="alert" class="error">{{ error }}</span>
     <Teleport to="body">

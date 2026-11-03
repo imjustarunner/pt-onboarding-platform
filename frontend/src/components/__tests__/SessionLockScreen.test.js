@@ -81,6 +81,19 @@ describe('Quick View unlock screen', () => {
     await flushPromises();
     expect(mocks.refresh).toHaveBeenCalledTimes(1);
   });
+  it('shows the chart-reading wait instead of a generic connection failure', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-03T09:18:00Z'));
+    const store = useSessionLockStore();
+    store.setLockConfig(null);
+    store.verificationFailed = true;
+    store.rateLimitedUntil = Date.now() + 125000;
+    wrapper = mount(SessionLockScreen, { props: { isLocked: true }, global: { stubs: { teleport: true, BrandingLogo: true } } });
+    expect(wrapper.text()).toContain('Please wait before trying again');
+    expect(wrapper.text()).toContain('You can try again in 3 minutes');
+    expect(wrapper.text()).not.toContain('We’ll keep trying');
+    expect(wrapper.get('.session-recovery-actions .btn').attributes('disabled')).toBeDefined();
+  });
   it('does not show failure controls just because a successful request is slow', async () => {
     vi.useFakeTimers();
     useSessionLockStore().setLockConfig(null);

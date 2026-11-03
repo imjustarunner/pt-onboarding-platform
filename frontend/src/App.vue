@@ -4,7 +4,7 @@
     <OfficeArrivalSplash v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :key="user.id" />
     <BillingFollowupSplash v-if="!route.meta?.auricwellPreview && canSeeMedicalBilling && isAuthenticated && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :key="`billing-followup-${user.id}`" />
     <SchoolContactPlanSplash
-      v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && !isLoginEntry && !isImmersiveJoinRoute && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred"
+      v-if="isAuthenticated && !isFamilyPortalAccount && user?.id && !isLoginEntry && !isImmersiveJoinRoute && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred && route.name !== 'AccountSecurity'"
       :agency-id="agencyStore.currentAgency?.id"
       :user-id="user.id"
       :provider-name="[user.firstName || user.first_name, user.lastName || user.last_name].filter(Boolean).join(' ')"

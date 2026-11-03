@@ -59,6 +59,20 @@ export async function queueSchoolClientStatusEmails(database=pool,{clientId,wait
   }catch(error){if(owned)await db.rollback();throw error;}finally{if(owned)db.release();}
 }
 
+function schoolStatusHold(message) {
+  const error = new Error(message);
+  error.schoolStatusHold = true;
+  return error;
+}
+
+function schoolStatusPermanentReason(error) {
+  if (error?.schoolStatusHold) return String(error.message || '').slice(0, 500);
+  const raw = String(error?.sqlMessage || error?.message || '');
+  if (/assigned_by/i.test(raw)) return 'The notice was not sent because no assigned-by user is recorded.';
+  if (/^ER_/.test(String(error?.code || '')) && /foreign key|cannot be null/i.test(raw)) return 'The notice was not sent because a required record is missing.';
+  return '';
+}
+
 export async function sendPendingSchoolClientStatusEmails() {
   const [jobs]=await pool.execute("SELECT * FROM school_client_status_emails WHERE delivery_status='pending' AND next_attempt_at<=UTC_TIMESTAMP() ORDER BY id LIMIT 30");
   const results=[];
@@ -78,12 +92,12 @@ export async function sendPendingSchoolClientStatusEmails() {
         if(client)await queueSchoolClientStatusEmails(pool,{clientId:client.id});
         continue;
       }
-      const schoolEmail=String(school.itsco_email||'').trim();if(!schoolEmail)throw new Error('School group email is not configured');
+      const schoolEmail=String(school.itsco_email||'').trim();if(!schoolEmail)throw schoolStatusHold('This school has no school email set, so the notice was not sent.');
       const identities=await EmailSenderIdentity.list({agencyId:job.agency_id,includePlatformDefaults:false,onlyActive:true});
       const identity=identities.find(i=>String(i.identity_key).toLowerCase()==='schools'&&String(i.from_email).toLowerCase().startsWith('schools@'));
-      if(!identity)throw new Error('Schools sender identity is not configured');
+      if(!identity)throw schoolStatusHold('The Schools sender is not set up, so the notice was not sent.');
       const providerEmails=[];
-      for(const provider of providers){const recipient=await resolveMeetingRecipient({agencyId:job.agency_id,user:provider});if(!recipient.email)throw new Error('Assigned provider work email is not configured');providerEmails.push(recipient.email);}
+      for(const provider of providers){const recipient=await resolveMeetingRecipient({agencyId:job.agency_id,user:provider});if(!recipient.email)throw schoolStatusHold('An assigned provider has no work email, so the notice was not sent.');providerEmails.push(recipient.email);}
       if(state.kind==='assigned')await syncClientProviderLifecycleTasks({clientId:client.id,providerUserIds:providers.map(p=>p.id)});
       const schoolUrl=await schoolEmailPortalUrl({schoolOrganizationId:job.school_organization_id,agencyId:job.agency_id});
       const providerUrl=buildPublicAppUrl(await Agency.findById(job.agency_id),'dashboard');
@@ -96,7 +110,13 @@ export async function sendPendingSchoolClientStatusEmails() {
       await db.execute('UPDATE school_client_status_emails SET delivery_status=?,communication_id=?,sent_at=IF(?=\'sent\',UTC_TIMESTAMP(),NULL),last_error=? WHERE id=?',[status,result.communicationId||null,status,result.reason||null,job.id]);
       results.push({id:job.id,status});
     }catch(error){
-      await db.execute(`UPDATE school_client_status_emails SET delivery_status=?,attempts=attempts+?,last_error=?,next_attempt_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 5 MINUTE) WHERE id=?`,[sending?'review':'pending',sending?0:1,String(error.message||error).slice(0,500),job.id]);
+      const permanent=schoolStatusPermanentReason(error);
+      if(permanent){
+        await db.execute("UPDATE school_client_status_emails SET delivery_status='skipped',last_error=? WHERE id=? AND delivery_status='pending'",[permanent,job.id]);
+        results.push({id:job.id,status:'skipped',reason:permanent});
+      }else{
+        await db.execute(`UPDATE school_client_status_emails SET delivery_status=?,attempts=attempts+?,last_error=?,next_attempt_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 5 MINUTE) WHERE id=?`,[sending?'review':'pending',sending?0:1,String(error.message||error).slice(0,500),job.id]);
+      }
       console.warn('[School client status email]',job.id,error.code||error.message);
     }finally{if(locked)await db.execute('SELECT RELEASE_LOCK(?)',[lock]);db.release();}
   }

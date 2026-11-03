@@ -18,11 +18,11 @@
           <p class="session-arrival-message">{{ takingLonger ? 'This is taking a little longer. We’re still getting things ready.' : 'Getting everything ready for you…' }}</p>
         </template>
         <template v-else>
-          <h1 id="session-lock-title" class="session-arrival-title">We’re having trouble connecting</h1>
-          <p class="session-arrival-message">Your information is protected. We’ll keep trying to open your workspace.</p>
+          <h1 id="session-lock-title" class="session-arrival-title">{{ rateLimitMessage ? 'Please wait before trying again' : 'We’re having trouble connecting' }}</h1>
+          <p class="session-arrival-message">{{ rateLimitMessage || 'Your information is protected. We’ll keep trying to open your workspace.' }}</p>
           <p v-if="error" class="session-lock-error" role="alert">{{ error }}</p>
           <div class="session-recovery-actions">
-            <button type="button" class="btn btn-primary" :disabled="verifying" @click="retryVerification">{{ verifying ? 'Trying again…' : 'Try again' }}</button>
+            <button type="button" class="btn btn-primary" :disabled="verifying || rateLimitSeconds > 0" @click="retryVerification">{{ verifying ? 'Trying again…' : rateLimitSeconds > 0 ? `Try again in ${rateLimitSeconds}s` : 'Try again' }}</button>
             <button type="button" class="session-lock-logout" @click="logoutInstead">Sign out</button>
           </div>
         </template>
@@ -102,7 +102,16 @@ const sessionLockStore = useSessionLockStore();
 const isChecking = computed(() => !sessionLockStore.lockConfig);
 const takingLonger = ref(false);
 const recoveryDelayElapsed = ref(false);
-const showRecovery = computed(() => isChecking.value && sessionLockStore.verificationFailed && recoveryDelayElapsed.value);
+const now = ref(Date.now());
+let rateClock;
+const rateLimitSeconds = computed(() => Math.max(0, Math.ceil(((sessionLockStore.rateLimitedUntil || 0) - now.value) / 1000)));
+const showRecovery = computed(() => isChecking.value && sessionLockStore.verificationFailed && (recoveryDelayElapsed.value || rateLimitSeconds.value > 0));
+const rateLimitMessage = computed(() => {
+  const seconds = rateLimitSeconds.value;
+  if (!seconds) return '';
+  const wait = seconds < 90 ? `${seconds} second${seconds === 1 ? '' : 's'}` : `${Math.ceil(seconds / 60)} minutes`;
+  return `Chart reading is temporarily limited. You can try again in ${wait}.`;
+});
 let slowLoadingTimer;
 let recoveryTimer;
 function clearLoadingTimers() {
@@ -118,7 +127,7 @@ watch(() => props.isLocked && isChecking.value, (checking) => {
     recoveryTimer = setTimeout(() => { recoveryDelayElapsed.value = true; }, 15000);
   }
 }, { immediate: true });
-onUnmounted(clearLoadingTimers);
+onUnmounted(() => { clearInterval(rateClock); clearLoadingTimers(); });
 
 const mobileQuery = window.matchMedia?.('(max-width: 640px)');
 const isMobile = ref(mobileQuery?.matches ?? false);
@@ -136,7 +145,7 @@ const posterUrl = computed(() => getTimedownPosterUrl(tenantKey.value));
 const videoUrl = computed(() => getTimedownVideoUrl(tenantKey.value));
 const mobileBackgroundUrl = getMobileTimedownBgUrl();
 function onMobileChange(event) { isMobile.value = event.matches; }
-onMounted(() => mobileQuery?.addEventListener('change', onMobileChange));
+onMounted(() => { rateClock = setInterval(() => { now.value = Date.now(); }, 1000); mobileQuery?.addEventListener('change', onMobileChange); });
 onUnmounted(() => mobileQuery?.removeEventListener('change', onMobileChange));
 watch(tenantKey, () => { videoFailed.value = false; });
 const requiresPasscode = computed(() => sessionLockStore.useLockScreen);

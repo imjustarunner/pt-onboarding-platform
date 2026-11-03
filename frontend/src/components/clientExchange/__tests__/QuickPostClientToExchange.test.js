@@ -16,7 +16,7 @@ it('opens the ordinary locked-client review without posting and allows canceling
   expect(mocks.post).not.toHaveBeenCalled();
   review.vm.$emit('close'); await flushPromises();
   expect(wrapper.findComponent(PostListingModal).exists()).toBe(false);
-  expect(wrapper.text()).toContain('Post to exchange');
+  expect(wrapper.text()).toContain('Refer through Client Exchange');
 });
 it('hides the quick action for assigned clients and providers', () => {
   for (const extra of [{ provider_id: 9 }, { providers: [{ providerId: 9 }] }, { status: 'ARCHIVED' }]) {

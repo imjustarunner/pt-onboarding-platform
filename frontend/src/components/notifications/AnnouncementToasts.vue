@@ -82,7 +82,7 @@ onUnmounted(() => { generation++; clearInterval(poll); clearInterval(expiry); })
 </script>
 
 <style scoped>
-.announcement-toast { position: fixed; top: 88px; right: 20px; z-index: 1200; display: flex; align-items: flex-start; gap: 16px; width: min(430px, calc(100vw - 40px)); max-height: calc(100dvh - 120px); overflow: auto; padding: 20px; box-sizing: border-box; border: 1px solid #bdd0c8; border-left: 5px solid #356352; border-radius: 12px; background: #f8fcfa; color: #203b32; box-shadow: 0 8px 30px #102e2526; font: 14px/1.5 system-ui, sans-serif; }
+.announcement-toast { position: fixed; top: auto; bottom: 24px; left: 24px; right: auto; z-index: 1200; display: flex; align-items: flex-start; gap: 16px; width: min(430px, calc(100vw - 40px)); max-height: calc(100dvh - 120px); overflow: auto; padding: 20px; box-sizing: border-box; border: 1px solid #bdd0c8; border-left: 5px solid #356352; border-radius: 12px; background: #f8fcfa; color: #203b32; box-shadow: 0 8px 30px #102e2526; font: 14px/1.5 system-ui, sans-serif; }
 .announcement-toast strong, .announcement-toast small { display: block; }
 .announcement-toast p { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .announcement-toast button { flex: 0 0 32px; min-height: 32px; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; font-size: 24px; line-height: 1; padding: 2px; }

@@ -13,6 +13,12 @@ test('shows deliberately prepared matching details while preserving source narra
  const result=supportExchangeSummary({presentingProblems:['private intake excerpt'],diagnoses:['private diagnosis'],preferences:{sharedMatchingConcern:'Stress management',sharedSchedulingNotes:'After work',schedule:{days:['Monday'],notes:'private source note'}}});
  assert.deepEqual(result.presentingProblems,['Stress management']);assert.equal(result.preferences.schedule.notes,'After work');assert.equal(JSON.stringify(result).includes('private'),false);
 });
+test('shows a recognized concern category without the private narrative',()=>{
+ const result=supportExchangeSummary({presentingProblems:['anxiety'],diagnoses:['private diagnosis']});
+ assert.deepEqual(result.presentingProblems,[]);
+ assert.deepEqual(result.matchingTopics,['Anxiety']);
+ assert.equal(JSON.stringify(result).includes('private'),false);
+});
 test('marks withheld schedule notes so an unrelated edit can preserve them',()=>{
  const result=supportExchangeSummary({preferences:{schedule:{days:['Monday'],notes:'private source note'}}});
  assert.equal(result.preferences.scheduleNotesRestricted,true);assert.equal(Object.hasOwn(result.preferences.schedule,'notes'),false);

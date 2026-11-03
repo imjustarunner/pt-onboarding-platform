@@ -3,7 +3,7 @@ import { scheduleFromIntake } from '../utils/clientExchangeSchedule.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { summaryItems } from '../utils/clientExchangeSummary.js';
-import { intakeNotePresentingProblems, intakePresentingProblems, latestPresentingProblem, parseSummaryJson } from '../utils/clientCareSummary.js';
+import { explicitRecordedSex, intakeNotePresentingProblems, intakePresentingProblems, intakeRecordedSex, latestPresentingProblem, parseSummaryJson } from '../utils/clientCareSummary.js';
 import { listBillingDiagnosesForClient } from './billingReportIngest.service.js';
 import { decryptIntakeSubmissionRows } from './intakeResponsesEncryption.service.js';
 import { maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
@@ -30,10 +30,14 @@ async function intakeConcerns(clientId) {
   const ids = rows.map(row => row.id);
   const [associations] = await pool.execute(`SELECT intake_submission_id, client_id FROM intake_submission_clients
     WHERE intake_submission_id IN (${ids.map(() => '?').join(',')}) ORDER BY id ASC`, ids);
-  return rows.map(row => ({
-    values: intakePresentingProblems({ row, clientId, clientIds: associations.filter(a => Number(a.intake_submission_id) === Number(row.id)).map(a => a.client_id) }),
-    recordedAt: row.submitted_at || row.created_at
-  }));
+  return rows.map(row => {
+    const clientIds = associations.filter(a => Number(a.intake_submission_id) === Number(row.id)).map(a => a.client_id);
+    return {
+      values: intakePresentingProblems({ row, clientId, clientIds }),
+      sex: intakeRecordedSex({ row, clientId, clientIds }),
+      recordedAt: row.submitted_at || row.created_at
+    };
+  });
 }
 
 async function importedIntakeConcerns(clientId, agencyId) {
@@ -84,7 +88,7 @@ export async function loadClientExchangeSummary({ client, agencyId = client.agen
     problem.presentingProblemUpdatedAt = intake.exchangeMatchingConcernUpdatedAt || null;
   }
   return {
-    demographics: { ...(age == null ? (referral.age == null ? {} : { ageBand: String(referral.age) }) : { ageBand: String(age) }), ...(client.gender ? { gender: client.gender } : {}) },
+    demographics: { ...(age == null ? (referral.age == null ? {} : { ageBand: String(referral.age) }) : { ageBand: String(age) }), ...((explicitRecordedSex(client.gender) || intakes.find(row => row.sex)?.sex) ? { gender: explicitRecordedSex(client.gender) || intakes.find(row => row.sex).sex } : {}) },
     diagnoses: summaryItems(diagnoses.length ? diagnoses : billing.length ? billing : referral.diagnoses),
     ...problem,
     preferences: {

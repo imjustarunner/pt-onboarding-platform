@@ -61,6 +61,20 @@ it('does not automatically resend an ambiguous transport failure',async()=>{
  m.send.mockRejectedValue(new Error('Connection lost after send'));await sendPendingSchoolClientStatusEmails();
  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('next_attempt_at=DATE_ADD'),['review',0,'Connection lost after send',10]);
 });
+it('records a missing school email as a skip instead of a retried database error',async()=>{
+ const original=m.execute.getMockImplementation();
+ m.execute.mockImplementation(async (sql,args)=>sql.startsWith('SELECT a.name')?[[{name:'North',itsco_email:''}]]:original(sql,args));
+ await expect(sendPendingSchoolClientStatusEmails()).resolves.toEqual([{id:10,status:'skipped',reason:'This school has no school email set, so the notice was not sent.'}]);
+ expect(m.send).not.toHaveBeenCalled();
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining("delivery_status='skipped'"),['This school has no school email set, so the notice was not sent.',10]);
+});
+it('turns a missing assigned-by database error into a skip',async()=>{
+ const error=new Error("Cannot add or update a child row: CONSTRAINT `tasks_assigned_by_user_id`");
+ error.code='ER_NO_REFERENCED_ROW_2';
+ m.tasks.mockRejectedValueOnce(error);
+ await expect(sendPendingSchoolClientStatusEmails()).resolves.toEqual([{id:10,status:'skipped',reason:'The notice was not sent because no assigned-by user is recorded.'}]);
+ expect(m.send).not.toHaveBeenCalled();
+});
 it('retries preparation failures without sending, and never marks a blocked send successful',async()=>{
  m.tasks.mockRejectedValueOnce(new Error('Tasks unavailable'));await sendPendingSchoolClientStatusEmails();expect(m.send).not.toHaveBeenCalled();
  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('next_attempt_at=DATE_ADD'),['pending',1,'Tasks unavailable',10]);

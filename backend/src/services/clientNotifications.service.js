@@ -115,6 +115,14 @@ function isTestOrPlaceholderSenderDisplayName(name) {
   );
 }
 
+function readableEnrollmentSkip(reason) {
+  const raw = String(reason || 'not sent');
+  if (/assigned_by/i.test(raw)) return 'The enrollment notice was not sent because no assigned-by user is recorded.';
+  if (/no school|itsco_email|school email/i.test(raw)) return 'This school has no school email set, so the enrollment notice was not sent.';
+  if (/^ER_|foreign key constraint|cannot be null/i.test(raw)) return 'The enrollment notice was not sent because a required record is missing.';
+  return raw.slice(0, 500);
+}
+
 async function logSchoolStatusEmailSkip({
   agencyId = null,
   clientId = null,
@@ -143,9 +151,9 @@ async function logSchoolStatusEmailSkip({
       if (!comm?.id) return;
       await pool.execute(
         `UPDATE user_communications
-         SET delivery_status = 'failed', error_message = ?
+         SET delivery_status = 'skipped', error_message = ?
          WHERE id = ?`,
-        [String(reason || 'not sent').slice(0, 500), comm.id]
+        [readableEnrollmentSkip(reason), comm.id]
       ).catch(() => {});
     });
   } catch {

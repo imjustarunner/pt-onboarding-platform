@@ -12,6 +12,34 @@ const concernKeys = ['presenting_problem', 'presentingProblem', 'presentingConce
   'reasonForVisit', 'chief_complaint'];
 
 /** Read only the target child's answers; never fall back to a sibling's answers. */
+const SEX_KEYS = ['sex', 'gender', 'child_sex', 'child_gender', 'client_sex', 'client_gender'];
+export function explicitRecordedSex(value) {
+  const text = String(value ?? '').trim();
+  if (!text || /^(not set|prefer not to say|decline to answer|n\/a|na)$/i.test(text)) return '';
+  return text;
+}
+function sexFromBag(bag) {
+  if (!bag || typeof bag !== 'object' || Array.isArray(bag)) return '';
+  for (const key of SEX_KEYS) {
+    const found = explicitRecordedSex(bag[key]);
+    if (found) return found;
+  }
+  return '';
+}
+export function intakeRecordedSex({ row, clientId, clientIds = [] }) {
+  const data = parseSummaryJson(row?.intake_data);
+  const responses = data.responses || data;
+  const children = responses.clients || data.clients || [];
+  const multi = children.length > 1 || clientIds.length > 1;
+  const index = clientIds.findIndex(id => Number(id) === Number(clientId));
+  const child = children.find(c => Number(c.client_id || c.clientId) === Number(clientId))
+    || (index >= 0 ? children[index] : null)
+    || (!multi && children.length === 1 ? children[0] : null);
+  const fromChild = sexFromBag(child) || sexFromBag(child?.clinicalResponses) || sexFromBag(child?.demographics);
+  if (fromChild || multi) return fromChild;
+  return sexFromBag(responses) || sexFromBag(responses.demographicsInfo) || sexFromBag(data.demographicsInfo) || sexFromBag(data);
+}
+
 export function intakePresentingProblems({ row, clientId, clientIds = [] }) {
   const data = parseSummaryJson(row.intake_data);
   const responses = data.responses || data;

@@ -22,15 +22,24 @@ import ClientSchedulePreferences from './ClientSchedulePreferences.vue';
 const props=defineProps({listing:{type:Object,required:true}}),emit=defineEmits(['saved']);
 const form=ref({}),busy=ref(false),error=ref(''),saved=ref(false);
 const hasConcerns=computed(()=>!!props.listing.hasClinicalConcerns || !!props.listing.presentingProblems?.length);
-let syncing=false,dirty=false,editVersion=0;
-watch(form,()=>{if(!syncing){dirty=true;editVersion++;saved.value=false;}},{deep:true,flush:'sync'});
+let syncing=false,dirty=false,editVersion=0,savedForm=null;
+const formCopy=value=>JSON.parse(JSON.stringify(value||{}));
+const sameForm=(left,right)=>JSON.stringify(left)===JSON.stringify(right);
+watch(form,()=>{
+  if(syncing)return;
+  const matches=savedForm&&sameForm(form.value,savedForm);
+  dirty=!matches;
+  if(!matches)editVersion++;
+  saved.value=!!matches;
+},{deep:true,flush:'sync'});
 watch(()=>props.listing,(listing,previous)=>{
   const changed=previous?.id!==listing.id;
-  if(changed){saved.value=false;error.value='';dirty=false;editVersion++;}
+  if(changed){saved.value=false;savedForm=null;error.value='';dirty=false;editVersion++;}
   if(!changed&&dirty)return;
   const p=listing.preferences||{};
   syncing=true;
-  form.value={modality:p.modality||'',serviceLocation:p.serviceLocation||'',insurance:p.insurance||'',schedule:JSON.parse(JSON.stringify(p.schedule||{})),concerns:p.sharedMatchingConcern||''};
+  form.value={modality:p.modality||'',serviceLocation:p.serviceLocation||'',insurance:p.insurance||'',schedule:formCopy(p.schedule),concerns:p.sharedMatchingConcern||''};
+  if(saved.value)savedForm=formCopy(form.value);
   syncing=false;
 },{immediate:true});
 async function save(){
@@ -45,7 +54,9 @@ async function save(){
     if(unchangedUnsharedNotes||(preferences.scheduleNotesRestricted&&!schedule.notes))delete schedule.notes;
     await api.put(`/client-exchange/clients/${props.listing.clientId}/service-preferences`,{agencyId:props.listing.agencyId,...form.value,schedule});
     if(props.listing.id!==listingId)return;
-    dirty=editVersion!==version;saved.value=!dirty;
+    dirty=editVersion!==version;
+    saved.value=!dirty;
+    savedForm=saved.value?formCopy(form.value):savedForm;
     emit('saved');
   }catch(e){if(props.listing.id===listingId)error.value=e.response?.data?.error?.message||e.message;}finally{busy.value=false;}
 }

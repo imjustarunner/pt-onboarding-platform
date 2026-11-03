@@ -1582,6 +1582,7 @@
 
         <!-- Guardians Tab -->
         <div v-if="showPanel('guardians')" class="detail-section">
+          <h3>{{ isSelfIntakeContact ? 'Client (self)' : 'Guardians' }}</h3>
           <DependentPortalSharing :client-id="Number(client.id)" :agency-id="Number(selectedAgencyId || client.agency_id)" />
           <div class="phi-warning" style="margin-bottom: 12px;">
             <strong>Non-clinical portal access:</strong> Guardians can be given access to docs, links, and program materials.
@@ -1717,7 +1718,7 @@
                     <td>{{ g.first_name }} {{ g.last_name }}</td>
                     <td>{{ g.email }}</td>
                     <td style="min-width: 220px;">
-                      <span v-if="String(g.relationship_type || '').trim().toLowerCase() === 'self'">Client (self)</span>
+                      <span v-if="guardianRowIsSelf(g)">Client (self)</span>
                       <input
                         v-else-if="canManageGuardians"
                         v-model="g.relationship_title"
@@ -3139,6 +3140,13 @@ const guardianIntakeProfile = computed(() => {
   return props.client?.guardian_intake_profile || null;
 });
 const isSelfIntakeContact = computed(() => intakeContactIsSelf(props.client, guardians.value || []));
+function guardianRowIsSelf(row) {
+  if (String(row?.relationship_type || '').trim().toLowerCase() === 'self') return true;
+  if (!isSelfIntakeContact.value) return false;
+  const email = String(row?.email || '').trim().toLowerCase();
+  const profileEmail = String(guardianIntakeProfile.value?.email || '').trim().toLowerCase();
+  return !!email && email === profileEmail;
+}
 const intakeContactLabel = computed(() => isSelfIntakeContact.value ? 'Client (self)' : 'Guardian');
 const onGuardianContactSaved = (profile) => {
   emit('updated', { keepOpen: true, client: { ...props.client, guardian_intake_profile: profile } });
@@ -6458,6 +6466,12 @@ const demoSupplementalSections = computed(() => {
   ];
 });
 
+function intakeRecordedSex() {
+  const fields = (demoSections.value || []).flatMap((section) => section.fields || []);
+  const match = fields.find((field) => /^(sex|gender|child_sex|child_gender|client_sex|client_gender)$/i.test(String(field?.key || '')) && String(field?.value || '').trim());
+  return match ? String(match.value).trim() : '';
+}
+
 const clientDemoDisplayRows = computed(() => {
   const c = props.client || {};
   const rows = [
@@ -6476,7 +6490,7 @@ const clientDemoDisplayRows = computed(() => {
     {
       key: 'sex',
       label: 'Sex',
-      value: formatDemoLookupValue(c.gender, sexSelectOptions),
+      value: formatDemoLookupValue(c.gender || intakeRecordedSex(), sexSelectOptions),
       important: true
     },
     {

@@ -11,6 +11,19 @@ import { clinicalMatchingSpecialties, specialtiesOverlap, hasExcludedSpecialty }
 import { FOCUS_GROUPS } from '../../../frontend/src/navigation/providerFocus.js';
 import { specificExchangeInsurance } from '../../../frontend/src/navigation/clientExchangeEssentials.js';
 
+/** Hard exclusions use a shareable concern or diagnosis, not a hidden chart narrative. */
+export function exchangeExclusionConcerns(listing = {}) {
+  const shared = String(listing.preferences?.sharedMatchingConcern || '').trim();
+  const briefs = shared ? [shared] : [];
+  for (const item of listing.presentingProblems || []) {
+    const text = typeof item === 'string' ? item.trim() : '';
+    if (!text || text.length > 80 || briefs.includes(text)) continue;
+    const labels = clinicalMatchingSpecialties({ presentingProblems: [text] });
+    if (labels.length === 1) briefs.push(text);
+  }
+  return [...new Set(clinicalMatchingSpecialties({ presentingProblems: briefs, diagnoses: listing.diagnoses || [] }))];
+}
+
 export function ageRange(value) {
   const raw = String(canonicalAge(value) || value || '').trim().replace(/[–—]/g, '-');
   const range = raw.match(/(\d+)\s*-\s*(\d+)/);
@@ -101,12 +114,10 @@ export function evaluateExchangeMatch({ user, profile, facets = {}, listing, cli
     return range && range[0] <= requestedAge[0] && range[1] >= requestedAge[1];
   }) : [];
   check('age', coveringAges.length > 0, ageKnown ? `Provider has enabled these age ranges for consideration: ${coveringAges.join(', ')}. Top-three highlights do not exclude other enabled ages.` : 'Client age or provider age coverage is unknown.', `Client age: ${requestedAge && requestedAge[0] === requestedAge[1] ? requestedAge[0] : listing.demographics?.ageBand}. Provider age ranges: ${ages.join(', ') || 'none selected'}. You may request this client with support review of the age difference.`, ageKnown);
-  const concerns = [...new Set([
-    ...normalizeClinicalFacets({specialties:listing.presentingProblems||[]}).specialties,
-    ...clinicalMatchingSpecialties(listing)
-  ])];
+  const concerns = exchangeExclusionConcerns(listing);
+  const excludedConcerns = concerns.filter(need => hasExcludedSpecialty([need], focus?.excluded?.specialties || []));
   const specialties = normalizeClinicalFacets({specialties:known('specialties',facets.specialties)}).specialties;
-  check('clinical_exclusions', !hasExcludedSpecialty(concerns, focus?.excluded?.specialties||[]), 'No recognized clinical concern is explicitly excluded.', 'Provider explicitly excludes a recognized clinical concern.');
+  check('clinical_exclusions', excludedConcerns.length === 0, 'No recognized clinical concern is explicitly excluded.', `Provider explicitly excludes ${excludedConcerns.join(', ')}.`);
   const diagnosticConcerns=clinicalMatchingSpecialties({diagnoses:listing.diagnoses});
   const clinicalKnown = !!(specialties.length || focus?.reviewed);
   check('diagnoses', !diagnosticConcerns.some(need=>!specialtiesOverlap([need],specialties)),

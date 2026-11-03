@@ -16,6 +16,8 @@ it('does not treat an old attempt timestamp as a successful send',()=>{
 it('distinguishes not sent, held, accepted and bounced',()=>{
   expect(status({deliveryStatus:'skipped'}).key).toBe('skipped');
   expect(status({deliveryStatus:'flagged'}).key).toBe('review');
-  expect(status({deliveryStatus:'sent'}).key).toBe('sent');
+  expect(status({deliveryStatus:'sent'}).label).toBe('Delivery not recorded');
+  expect(status({deliveryStatus:'sent',recipientAddress:'parent@example.test'}).key).toBe('sent');
+  expect(status({deliveryStatus:'sent',openedAt:'2026-11-01',recipientAddress:'parent@example.test'}).label).toBe('Sent, then opened');
   expect(status({deliveryStatus:'bounced',externalMessageId:'accepted'}).key).toBe('failed');
 });

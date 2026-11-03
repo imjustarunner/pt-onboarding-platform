@@ -23,4 +23,9 @@ describe('self enrollment contact identity', () => {
     expect(intakeContactIsSelf(legacy, [{ relationship_type: 'self', email: 'adult@example.com' }])).toBe(true);
     expect(intakeContactIsSelf(legacy, [{ relationship_type: 'guardian', email: 'adult@example.com' }])).toBe(false);
   });
+  it('reads a self enrollment stored as Guardian when the intake says it is for myself', () => {
+    const enrolled = { ...adult, guardian_intake_profile: { ...adult.guardian_intake_profile, relationship: 'Guardian' },
+      adaptive_intake_meta_json: { whoFor: 'myself', respondent: { email: 'adult@example.com' } } };
+    expect(intakeContactIsSelf(enrolled, [{ relationship_type: 'guardian', email: 'adult@example.com', relationship_title: 'Guardian' }])).toBe(true);
+  });
 });

@@ -5,6 +5,7 @@ export const useSessionLockStore = defineStore('sessionLock', () => {
   const isLocked = ref(false);
   const lockConfig = ref(null);
   const verificationFailed = ref(false);
+  const rateLimitedUntil = ref(0);
 
   // Inactivity warning state (shown 10 min before Session Ended / logout)
   const warningActive = ref(false);
@@ -86,6 +87,7 @@ export const useSessionLockStore = defineStore('sessionLock', () => {
     isLocked,
     lockConfig,
     verificationFailed,
+    rateLimitedUntil,
     useLockScreen,
     effectiveTimeoutMs,
     warningActive,

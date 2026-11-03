@@ -251,6 +251,17 @@ test('day/time differences are requestable and a single opening must satisfy all
  assert.equal(exchangeSlotMatches({ ...slots[2], city: 'Colorado Springs' }, preferences, now), false);
  assert.equal(exchangeSlotMatches({ ...slots[2], format: 'VIRTUAL' }, preferences, now), false);
 });
+test('a hidden narrative does not create an unnamed clinical exclusion', () => {
+  const narrative = 'The family described a long private history. No single specialty label is being shared for matching. '.repeat(3);
+  const fit = evaluateExchangeListing({ ...base, profile: { ...base.profile, details: { clinicalFocus: { reviewed: true, excluded: { specialties: ['Anxiety', 'Depression', 'Trauma / PTSD'] } } } }, listing: { presentingProblems: [narrative], preferences: { modality: 'in_person', serviceLocation: 'Colorado Springs' } } });
+  assert.equal(fit.checks.find(c => c.field === 'clinical_exclusions').applicable, false);
+  assert.equal(fit.blockers.some(r => r.code === 'excluded_specialty'), false);
+});
+test('an explicit concern names the specialty a provider excludes', () => {
+  const fit = evaluateExchangeListing({ ...base, profile: { ...base.profile, details: { clinicalFocus: { reviewed: true, excluded: { specialties: ['Anxiety'] } } } }, listing: { ...base.listing } });
+  const block = fit.blockers.find(r => r.code === 'excluded_specialty');
+  assert.match(block.message, /Anxiety/);
+});
 test('clinical exclusions and insurance remain firm blocks alongside schedule differences', () => {
  const fit = evaluateExchangeListing({ ...base, profile: { ...base.profile, details: {typicalAvailability:['Monday mornings'], clinicalFocus: { reviewed: true, excluded: { specialties: ['Anxiety'] } } } }, listing: { ...base.listing, preferences: {modality:'in_person',serviceLocation:'Colorado Springs', insurance: 'Tricare', schedule: { days: ['Tuesday'] } } }, slots: [] });
  assert.equal(fit.canRequest, false);

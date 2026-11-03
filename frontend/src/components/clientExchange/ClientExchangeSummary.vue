@@ -1,14 +1,15 @@
 <template>
   <div class="exchange-summary">
-    <p v-if="hasAge || listing.demographics?.gender" class="summary-basics">
+    <p class="summary-basics">
       <span v-if="hasAge">Age: {{ listing.demographics.ageBand }}</span>
-      <span v-if="listing.demographics?.gender">Client gender: {{ clientGenderLabel }}</span>
+      <span>Client gender: {{ clientGenderLabel }}</span>
     </p>
     <p class="summary-location">{{ exchangeLocationLabel(listing.preferences) }}</p>
     <section>
       <strong>Presenting problems</strong>
       <p v-if="listing.presentingProblemSource" class="muted">{{ listing.presentingProblemSource }}<span v-if="listing.presentingProblemUpdatedAt"> · {{ new Date(listing.presentingProblemUpdatedAt).toLocaleDateString() }}</span></p>
       <ul v-if="problems.length"><li v-for="problem in problems" :key="problem"><template v-for="(part,index) in problem.split(/(\*\*[^]*?\*\*)/g)" :key="index"><strong v-if="part.startsWith('**') && part.endsWith('**')">{{ part.slice(2,-2) }}</strong><span v-else>{{ part }}</span></template></li></ul>
+      <p v-else-if="listing.matchingTopics?.length" class="muted">Clinical concerns used for matching: {{ listing.matchingTopics.join(', ') }}. The source narrative is restricted in this view.</p>
       <p v-else class="muted">{{ listing.hasClinicalConcerns ? 'Recorded clinical concerns are used for matching. The source narrative is restricted in this view.' : 'Not recorded' }}</p>
     </section>
     <section>
@@ -50,7 +51,7 @@ function items(value) {
   return [];
 }
 const hasAge = computed(() => props.listing.demographics?.ageBand != null && props.listing.demographics.ageBand !== '');
-const clientGenderLabel = computed(() => { const value = String(props.listing.demographics?.gender || ''); return value.charAt(0).toUpperCase() + value.slice(1); });
+const clientGenderLabel = computed(() => { const value = String(props.listing.demographics?.gender || '').trim(); if (!value) return 'Not recorded'; return value.charAt(0).toUpperCase() + value.slice(1); });
 const fitGroups=computed(()=>FOCUS_GROUPS.map(g=>({...g,values:props.listing.preferences?.matchingPreferences?.[g.key]||[]})).filter(g=>g.values.length));
 const suggestedSpecialties=computed(()=>clinicalMatchingSpecialties(props.listing));
 const scheduleLines = computed(() => exchangeScheduleLines(props.listing.preferences?.schedule));

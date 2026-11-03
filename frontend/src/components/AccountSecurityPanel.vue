@@ -5,6 +5,7 @@
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <p v-if="message" role="status">{{ message }}</p>
     <p v-if="loading">Loading your account security…</p>
+    <ActivityProtectionPanel v-if="!state?.guardianAccount" />
     <template v-if="state">
       <SignInPasswordSetup /><PasskeysPanel @changed="load" />
       <section class="security-card">
@@ -109,7 +110,6 @@
         <ol><li v-for="event in events" :key="event.id"><strong>{{ time(event.occurred_at) }}</strong> — {{ label(event.action) }} · {{ label(event.outcome) }}<small>{{ event.method }} {{ event.route }} · {{ event.phase }}<template v-if="event.response_bytes != null"> · {{ event.response_bytes }} response bytes</template></small><small v-if="transferDescription(event.transfer)">{{ transferDescription(event.transfer) }}</small></li></ol>
         <button v-if="eventCursor" :disabled="busy" @click="loadEvents(true)">Earlier activity</button>
       </section>
-      <ActivityProtectionPanel v-if="state && !state.guardianAccount" />
     </template>
   </section>
 </template>

@@ -51,8 +51,8 @@ export function enrollmentDemographicValues({ child = {}, responses = {}, demogr
   if (language) out.preferred_language = language;
   // Explicit client identifiers only: never copy a guardian's contact/address
   // into a child's chart merely because both appear in the same packet.
-  const extra={gender:['gender','client_gender'],grade:['grade','child_grade'],contact_phone:['phone','client_phone'],email:['email','client_email'],address_street:['addressStreet','client_address_street'],address_apt:['addressApt','client_address_apt'],address_city:['addressCity','client_address_city'],address_state:['addressState','client_address_state'],address_zip:['addressZip','client_address_zip'],ethnicity:['ethnicity','client_ethnicity']};
-  for(const [field,[childKey,responseKey]] of Object.entries(extra)){const value=child[childKey]||child[field]||responses[responseKey];if(typeof value==='string'&&value.trim())out[field]=value.trim();}
+  const extra={gender:['gender','client_gender','sex','child_sex','client_sex'],grade:['grade','child_grade'],contact_phone:['phone','client_phone'],email:['email','client_email'],address_street:['addressStreet','client_address_street'],address_apt:['addressApt','client_address_apt'],address_city:['addressCity','client_address_city'],address_state:['addressState','client_address_state'],address_zip:['addressZip','client_address_zip'],ethnicity:['ethnicity','client_ethnicity']};
+  for(const [field,keys] of Object.entries(extra)){const value=keys.map(key=>child[key]).find(item=>typeof item==='string'&&item.trim())||child[field]||keys.map(key=>responses[key]).find(item=>typeof item==='string'&&item.trim());if(typeof value==='string'&&value.trim())out[field]=value.trim();}
   return out;
 }
 

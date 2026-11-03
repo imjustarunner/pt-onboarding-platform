@@ -746,15 +746,20 @@ function formatDraftResponse(row) {
 }
 
 async function intakeAppointmentOptions({ agencyId, clientId, providerUserId, serviceCode }) {
-  if (!providerUserId) return [];
-  const [rows] = await clinicalPool.execute(`SELECT id, appointment_id, office_event_id, scheduled_start_at, source_timezone, service_code
-    FROM clinical_sessions
-    WHERE agency_id = ? AND client_id = ? AND provider_user_id = ? AND UPPER(TRIM(service_code)) = ?
-      AND (appointment_id IS NOT NULL OR office_event_id IS NOT NULL)
-      AND COALESCE(encounter_status, '') NOT IN ('cancelled', 'canceled', 'voided', 'no_show')
-    ORDER BY scheduled_start_at DESC, id DESC LIMIT 100`, [agencyId, clientId, providerUserId, serviceCode]);
-  return (rows || []).map(row => ({ clinicalSessionId: row.id, appointmentId: row.appointment_id || null,
+  const map = rows => (rows || []).map(row => ({ clinicalSessionId: row.id, appointmentId: row.appointment_id || null,
     officeEventId: row.office_event_id || null, startsAt: row.scheduled_start_at, timeZone: row.source_timezone || 'America/Denver', serviceCode: row.service_code }));
+  const base = `SELECT id, appointment_id, office_event_id, scheduled_start_at, source_timezone, service_code
+    FROM clinical_sessions
+    WHERE agency_id = ? AND client_id = ? AND UPPER(TRIM(service_code)) = ?
+      AND (appointment_id IS NOT NULL OR office_event_id IS NOT NULL)
+      AND COALESCE(encounter_status, '') NOT IN ('cancelled', 'canceled', 'voided', 'no_show')`;
+  const params = [agencyId, clientId, serviceCode];
+  if (providerUserId) {
+    const [matched] = await clinicalPool.execute(`${base} AND provider_user_id = ? ORDER BY scheduled_start_at DESC, id DESC LIMIT 100`, [...params, providerUserId]);
+    if (matched.length) return map(matched);
+  }
+  const [rows] = await clinicalPool.execute(`${base} ORDER BY scheduled_start_at DESC, id DESC LIMIT 100`, params);
+  return map(rows);
 }
 
 // ---------------------------------------------------------------------------

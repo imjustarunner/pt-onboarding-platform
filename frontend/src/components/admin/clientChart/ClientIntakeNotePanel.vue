@@ -82,6 +82,7 @@
         <div class="cin-client-bar__meta muted">
           <span v-if="clinicianLabel"><span class="cin-meta-label">Clinician</span> {{ clinicianLabel }}</span>
           <span v-if="intakeDateLabel"><span class="cin-meta-label">Intake date</span> {{ intakeDateLabel }}</span>
+          <span v-if="draft?.id"><span class="cin-meta-label">Draft</span> #{{ draft.id }}</span>
           <span v-if="draft?.serviceCode || suggestedCode">
             <span class="cin-meta-label">Service code</span>
             <code class="mono">{{ draft?.serviceCode || suggestedCode }}</code>
@@ -123,6 +124,7 @@
               <span v-if="draft.status !== 'final' && !draft.diagnosisAction" class="cin-chip cin-chip--warn">Needs confirmation</span>
               <span v-else-if="draft.confirmedDiagnosis" class="cin-chip cin-chip--ok">Confirmed</span>
             </div>
+            <p v-if="diagnosisUnsupported" class="cin-dx-rationale">This code is not in the intake source. It remains on the saved draft and is not a confirmed diagnosis.</p>
             <p class="cin-dx-code mono">
               {{ activeDiagnosis.code || '—' }}
               <span v-if="activeDiagnosis.description"> — {{ activeDiagnosis.description }}</span>
@@ -304,7 +306,7 @@
               <p v-if="appointmentOptionsUnavailable" class="error">Appointment information could not be loaded. Your draft is available to review; refresh before finalizing.</p>
               <select v-else-if="appointmentOptions.length" v-model="selectedClinicalSessionId" class="filters-input" :disabled="busy">
                 <option value="">Choose the matching appointment</option>
-                <option v-for="option in appointmentOptions" :key="option.clinicalSessionId" :value="option.clinicalSessionId">{{ appointmentLabel(option) }}</option>
+                <option v-for="option in appointmentOptions" :key="option.clinicalSessionId" :value="String(option.clinicalSessionId)">{{ appointmentLabel(option) }}</option>
               </select>
               <p v-else class="hint">No matching appointment is available. This intake remains a chart record without an appointment link.</p>
               <label class="cin-review-check"><input v-model="sourceCompared" type="checkbox" :disabled="busy" /> I reviewed all sections against their sources and removed unsupported claims.</label>
@@ -505,10 +507,20 @@ const clientAge = computed(() => {
   return age >= 0 && age < 130 ? String(age) : '';
 });
 
+const sourceSex = computed(() => {
+  const match = String(draft.value?.sourceReview?.sourceText || '').match(/\b(?:sex|gender)\s*[:\-]\s*(female|male|unknown|f|m)\b/i);
+  return match ? match[1].toLowerCase() : '';
+});
 const clientGenderLabel = computed(() => {
-  const g = String(props.client?.gender || '').trim().toLowerCase();
+  const g = String(props.client?.gender || sourceSex.value || '').trim().toLowerCase();
   if (!g) return '';
   return GENDER_LABELS[g] || g.charAt(0).toUpperCase() + g.slice(1);
+});
+const diagnosisUnsupported = computed(() => {
+  const code = String(activeDiagnosis.value?.code || '').trim();
+  const source = String(draft.value?.sourceReview?.sourceText || '');
+  if (!code || !source || draft.value?.diagnosisAction === 'confirmed') return false;
+  return !source.toUpperCase().includes(code.toUpperCase());
 });
 
 const clientDobLabel = computed(() => {
@@ -619,7 +631,13 @@ async function load(opts = {}) {
     history.value = r.data?.history || [];
     appointmentOptions.value = r.data?.appointmentOptions || [];
     appointmentOptionsUnavailable.value = r.data?.appointmentOptionsUnavailable === true;
-    selectedClinicalSessionId.value = draft.value?.sourceReview?.clinicalSessionId || '';
+    const savedSession = draft.value?.sourceReview?.clinicalSessionId;
+    const savedAppointment = draft.value?.sourceReview?.appointmentId;
+    const options = appointmentOptions.value;
+    const match = options.find(option => savedSession && String(option.clinicalSessionId) === String(savedSession))
+      || options.find(option => savedAppointment && String(option.appointmentId) === String(savedAppointment))
+      || (options.length === 1 ? options[0] : null);
+    selectedClinicalSessionId.value = match ? String(match.clinicalSessionId) : '';
     syncDxEditFromDraft();
     initExpandedSections();
 

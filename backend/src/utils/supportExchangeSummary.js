@@ -1,3 +1,4 @@
+import { exchangeExclusionConcerns } from './clientExchangeMatching.js';
 // Exchange operational staff need matching inputs, not excerpts automatically
 // extracted from screening, intake notes or treatment plans.
 export function supportExchangeSummary(summary = {}) {
@@ -6,8 +7,10 @@ export function supportExchangeSummary(summary = {}) {
   const sharedConcern = String(preferences.sharedMatchingConcern || '').trim();
   const sharedNotes = preferences.sharedSchedulingNotes;
   const scheduleNotesRestricted = Boolean(schedule?.notes && sharedNotes == null);
+  const matchingTopics = exchangeExclusionConcerns(summary);
   return {
     demographics: summary.demographics || {}, diagnoses: [], presentingProblems: sharedConcern ? [sharedConcern] : [],
+    matchingTopics,
     hasClinicalConcerns: Boolean(summary.presentingProblems?.length || summary.hasClinicalConcerns),
     presentingProblemSource: sharedConcern ? 'Matching concern' : null, presentingProblemUpdatedAt: sharedConcern ? summary.presentingProblemUpdatedAt : null,
     preferences: {

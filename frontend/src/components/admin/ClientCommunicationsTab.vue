@@ -83,7 +83,7 @@
       </p>
       <div v-if="auditError" class="error-box">{{ auditError }}</div>
       <div v-else-if="auditLoading && !auditItems.length" class="muted">Loading SMS audit…</div>
-      <div v-else-if="!auditItems.length" class="muted">No audited SMS for this profile yet.</div>
+      <div v-else-if="!auditItems.length" class="muted">No audited SMS for this profile yet. A skipped text is not an audited send.</div>
       <ul v-else class="sms-audit-list">
         <li v-for="row in auditItems" :key="row.id" class="sms-audit-row">
           <div class="sms-audit-meta">

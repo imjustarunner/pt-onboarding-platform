@@ -180,6 +180,7 @@
         <div class="cc-clinical-col cc-clinical-col--main">
           <section class="cc-card cc-clinical-card cc-clinical-summary">
             <h4 class="cc-clinical-card__title">{{ isLearningClient ? 'Student summary' : 'Clinical summary' }}</h4>
+            <p v-if="recordedSex" class="cc-clinical-summary__text">Sex: {{ recordedSex }}</p>
             <p v-if="clinicalSummaryText" class="cc-clinical-summary__text">{{ clinicalSummaryText }}</p>
             <p v-else class="muted small">
               {{
@@ -554,6 +555,19 @@ const {
   isInsuranceCardField
 } = clinical;
 
+const recordedSex = computed(() => {
+  const direct = String(props.client?.gender || '').trim();
+  if (direct) return direct;
+  for (const section of clinicalSections.value || []) {
+    for (const field of section.fields || []) {
+      if (/^(sex|gender|child_sex|child_gender|client_sex|client_gender)$/i.test(String(field?.key || '')) || /^(sex|gender)$/i.test(String(field?.label || '').trim())) {
+        const value = String(field?.value || '').trim();
+        if (value && value !== '—') return value;
+      }
+    }
+  }
+  return '';
+});
 const traumaSectionHasValues = computed(() => {
   const fields = traumaSection.value?.fields || [];
   return fields.some((f) => String(f?.value || '').trim() && String(f.value).trim() !== '—');

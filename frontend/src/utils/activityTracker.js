@@ -5,7 +5,8 @@ import { useAuthStore } from '../store/auth';
 import { useSessionLockStore } from '../store/sessionLock';
 import { usePresenceSessionStore } from '../store/presenceSession';
 import { useAgencyStore } from '../store/agency';
-import api, { isApiRateLimited } from '../services/api';
+import api, { apiRateLimitRetryAt, isApiRateLimited } from '../services/api';
+import { rateLimitRetryAt } from './rateLimitRetry';
 import { closeStatusPrompt } from './statusPromptBridge';
 import { isDemoWindowSession } from './demoWindowSession';
 import { sessionStorageKey, localSessionState, phaseAt, isNewerSession } from './sessionDeadline';
@@ -58,6 +59,7 @@ function applyServer(data, { broadcast = true } = {}) {
   if (initialized && !isNewerSession(next, state)) return;
   initialized = true;
   useSessionLockStore().verificationFailed = false;
+  useSessionLockStore().rateLimitedUntil = 0;
   clearTimeout(verificationRetry);
   verificationRetry = null;
   if (data?.policy) useSessionLockStore().setLockConfig(data.policy);
@@ -166,7 +168,12 @@ async function refresh({ broadcast = true } = {}) {
     if (!localSessionState(response.data?.session)) throw new Error('Session verification is unavailable.');
     applyServer({ policy: response.data, session: response.data.session }, { broadcast });
   }).catch(error => {
-    if (currentGeneration === generation && isTracking && !initialized) useSessionLockStore().verificationFailed = true;
+    if (currentGeneration === generation && isTracking && !initialized) {
+      const store = useSessionLockStore();
+      store.verificationFailed = true;
+      const limited = error?.response?.status === 429 || error?.code === 'ERR_RATE_LIMITED' || error?.__rateLimited;
+      store.rateLimitedUntil = limited ? Math.max(rateLimitRetryAt(error), apiRateLimitRetryAt() || 0) : 0;
+    }
     if (currentGeneration === generation && error.response?.data?.session) applyServer(error.response.data, { broadcast });
     if (currentGeneration === generation && error.response?.data?.error?.code === 'SESSION_EXPIRED' && !error.response.data.session) void handleTimeout();
     throw error;
@@ -180,11 +187,12 @@ function retryInitialVerification() {
   verificationRetry = setTimeout(async () => {
     verificationRetry = null;
     if (currentGeneration !== generation || !isTracking || initialized || timeoutInFlight) return;
-    if (document.visibilityState === 'visible' && !isApiRateLimited()) {
+    const waitMs = Math.max(0, (useSessionLockStore().rateLimitedUntil || 0) - Date.now());
+    if (document.visibilityState === 'visible' && !waitMs && !isApiRateLimited()) {
       try { await refresh(); } catch { /* The original recovery deadline still applies. */ }
     }
     if (currentGeneration === generation) retryInitialVerification();
-  }, 5000);
+  }, Math.max(5000, (useSessionLockStore().rateLimitedUntil || 0) - Date.now()));
 }
 function onStorage(event) {
   if (!isTracking || isDemoWindowSession()) return;

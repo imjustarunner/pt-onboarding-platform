@@ -5,7 +5,7 @@ import api from '../../../services/api';
 import History from '../ClientNotificationHistory.vue';
 beforeEach(()=>vi.clearAllMocks());
 it('shows invitation and SMS delivery progress for the selected dependent without claiming a read',async()=>{
- api.get.mockResolvedValue({data:{notifications:[{id:'invite-1',type:'guardian_enrollment_invitation',channel:'email',status:'sent',recipient:'parent@example.test',occurredAt:'2026-10-27T18:00:00Z'},{id:'sms-2',type:'session_reminder',channel:'sms',status:'delivered',occurredAt:'2026-10-27T18:00:00Z'}]}});
+ api.get.mockResolvedValue({data:{notifications:[{id:'invite-1',type:'guardian_enrollment_invitation',channel:'email',status:'sent',recipient:'parent@example.test',occurredAt:'2026-10-27T18:00:00Z'},{id:'sms-2',type:'session_reminder',channel:'sms',status:'delivered',recipient:'+15550001111',occurredAt:'2026-10-27T18:00:00Z'}]}});
  const w=mount(History,{props:{clientId:5,guardian:true}});await flushPromises();
  expect(api.get).toHaveBeenCalledWith('/guardian-portal/clients/5/notification-history',expect.anything());
  expect(w.text()).toContain('Guardian enrollment invitation');expect(w.text()).toContain('sms · Delivered');expect(w.text()).toContain('does not confirm that someone read it');w.unmount();
