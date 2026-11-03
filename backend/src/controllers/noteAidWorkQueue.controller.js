@@ -1,6 +1,8 @@
 import { validationResult } from 'express-validator';
 import NoteAidWorkQueueItem from '../models/NoteAidWorkQueueItem.model.js';
 import { linkImportedPlannedServices } from '../services/noteAidPlannedClaim.service.js';
+import { reconcileBookedSessionWork } from '../services/bookedSessionWorkQueue.service.js';
+import { logAuditEvent } from '../services/auditEvent.service.js';
 
 function safeInt(v) {
   const n = Number(v);
@@ -11,7 +13,10 @@ export async function listNoteAidWorkQueue(req, res) {
   try {
     const userId = safeInt(req.user?.id);
     if (!userId) return res.status(401).json({ error: { message: 'Unauthorized' } });
-    const items = await NoteAidWorkQueueItem.listForUser(userId, { agencyId: req.auricwellPreview?.agencyId || null });
+    const agencyId = req.auricwellPreview?.agencyId || null;
+    const added = await reconcileBookedSessionWork(req.user,{agencyId});
+    if (added.length) await logAuditEvent(req,{actionType:'booked_session_work_items_added',agencyId,metadata:{workItemIds:added.map(item=>item.serverId),clinicalSessionIds:added.map(item=>item.clinicalSessionId)}});
+    const items = await NoteAidWorkQueueItem.listForUser(userId, { agencyId });
     return res.json({ items });
   } catch (error) {
     console.error('listNoteAidWorkQueue:', error);

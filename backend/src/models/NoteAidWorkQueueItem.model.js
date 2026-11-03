@@ -118,6 +118,9 @@ function toApiItem(row) {
     durationMinutes: payload.durationMinutes != null ? Number(payload.durationMinutes) : null,
     scheduledStart: payload.scheduledStart || null,
     scheduledEnd: payload.scheduledEnd || null,
+    appointmentId: safeInt(payload.appointmentId),
+    sourceTimezone: payload.sourceTimezone || null,
+    addonServiceCodes: Array.isArray(payload.addonServiceCodes) ? payload.addonServiceCodes : [],
     startedAt: row.started_at || null,
     completedAt: row.completed_at || null,
     signedAt: row.signed_at || null,
@@ -136,7 +139,10 @@ function buildPayloadFromItem(item = {}) {
     clientDob: item.clientDob || item.client_dob || null,
     durationMinutes: item.durationMinutes ?? item.duration_minutes ?? null,
     scheduledStart: item.scheduledStart || item.scheduled_start || null,
-    scheduledEnd: item.scheduledEnd || item.scheduled_end || null
+    scheduledEnd: item.scheduledEnd || item.scheduled_end || null,
+    appointmentId: safeInt(item.appointmentId),
+    sourceTimezone: item.sourceTimezone || null,
+    addonServiceCodes: Array.isArray(item.addonServiceCodes) ? item.addonServiceCodes : []
   };
 }
 
@@ -375,6 +381,16 @@ class NoteAidWorkQueueItem {
       }
     }
     return out;
+  }
+
+  // Reconciliation must never reset an existing clinician's draft or task status.
+  static async ensureForUser(userId, item) {
+    const vals = rowValuesFromItem(safeInt(userId), item);
+    const find = () => this.findByClientKeyForUser({ clientKey: vals.clientKey, userId: vals.userId });
+    const existing = await find();
+    if (existing) return existing;
+    try { return await this.insertRow(vals); }
+    catch (error) { if (error.code === 'ER_DUP_ENTRY') return find(); throw error; }
   }
 
   static async patchForUser({ id, userId, patch = {} }) {

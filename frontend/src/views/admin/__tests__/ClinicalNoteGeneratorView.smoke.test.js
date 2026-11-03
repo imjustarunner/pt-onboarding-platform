@@ -149,6 +149,22 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     } finally { wrapper.unmount(); }
   });
 
+  it('opens booked work with its exact session and appointment without bootstrapping another encounter', async () => {
+    const {wrapper,state}=await workspace('90791_intake_plan');
+    try {
+      const item={id:'booked_session_214',agencyId:7,clientId:2104,clientName:'Example client',clinicalSessionId:214,appointmentId:132,
+        officeEventId:40,serviceCode:'90791',noteKind:'intake',date:'2026-09-05',timeLabel:'2:30 PM',sourceTimezone:'America/Denver',
+        scheduledStart:'2026-09-05T20:30:00Z',scheduledEnd:'2026-09-05T21:30:00Z',durationMinutes:60,status:'not_started'};
+      state.workQueueItems=[item];
+      await state.activateWorkQueueItem(item);await flushPromises();
+      expect(state.sessionClinicalSessionId).toBe(214);
+      expect(state.sessionAppointmentId).toBe(132);
+      expect(state.sessionSourceTimezone).toBe('America/Denver');
+      expect(state.sessionStartTimeLocal).toBe('14:30');
+      expect(api.post.mock.calls.some(([url])=>url==='/clinical-data/sessions/bootstrap')).toBe(false);
+    } finally {wrapper.unmount();}
+  });
+
   it('edits projected time with a dropdown and synchronizes only that goal’s objective deadlines', async () => {
     const { wrapper, state } = await workspace('90791_intake_plan');
     state.initials = 'TEST';

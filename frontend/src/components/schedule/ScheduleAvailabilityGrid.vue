@@ -7686,7 +7686,7 @@ const loadSelfScheduleAgencies = async () => {
     const seen = new Set();
     for (const row of rows) {
       const id = Number(row?.id || 0);
-      if (!id || seen.has(id)) continue;
+      if (!id || seen.has(id) || !isTenantOrganizationType(row)) continue;
       seen.add(id);
       deduped.push({
         ...row,
@@ -8782,7 +8782,7 @@ const mapAgencyOption = (row) => {
 };
 
 const agencyFilterOptions = computed(() => {
-  if (props.mode === 'self' && (selfScheduleAgencyOptions.value || []).length) {
+  if (props.mode === 'self') {
     return selfScheduleAgencyOptions.value
       .map((row) => mapAgencyOption(row))
       .filter(Boolean);
@@ -8997,6 +8997,8 @@ const mergeDiscoveredScheduleAgencies = (agencyIds = []) => {
       || (agencyStore.userAgencies || []).find((row) => Number(row?.id || 0) === id)
       || (Number(agencyStore.currentAgency?.id || 0) === id ? agencyStore.currentAgency : null);
     const source = fromBooking || fromStore;
+    // Inherited school access is navigation permission, not a personal booking tenant.
+    if (source && !isTenantOrganizationType(source.organizationType || source.organization_type)) continue;
     additions.push({
       id,
       name: String(source?.label || source?.name || agencyLabel(id) || `Agency ${id}`).trim(),
@@ -10239,17 +10241,35 @@ watch(hideWeekend, () => {
 // Staff alerts are fetched separately from calendar/public payloads and never block the schedule.
 const scheduleStaffAlerts = ref([]);
 let staffAlertLoadVersion = 0;
-const loadScheduleStaffAlerts = async () => {
-  const version = ++staffAlertLoadVersion;
+let staffAlertScope = '';
+let staffAlertAttemptAt = 0;
+let staffAlertInFlight = null;
+const loadScheduleStaffAlerts = async (event) => {
   const providerId = Number(props.userId || 0);
   const start = summary.value?.weekStart || weekStart.value;
-  if (!summary.value || !providerId || !start) { scheduleStaffAlerts.value = []; return; }
-  const agencies = effectiveAgencyIds.value.map(Number).filter(id => id > 0);
-  const results = await Promise.allSettled(agencies.map(agencyId => api.get('/appointments/staff-alerts', {
+  const agencies = [...new Set(effectiveAgencyIds.value.map(Number).filter(id => id > 0))].sort((a,b) => a-b);
+  if (!summary.value || !providerId || !start || !agencies.length || (summary.value.providerId && Number(summary.value.providerId) !== providerId)) {
+    staffAlertLoadVersion += 1; staffAlertScope = ''; staffAlertInFlight = null; scheduleStaffAlerts.value = []; return;
+  }
+  const scope = `${providerId}|${start}|${agencies.join(',')}`;
+  const force = event?.type === 'appointment-staff-alert-changed';
+  if (scope === staffAlertScope) {
+    if (staffAlertInFlight) return staffAlertInFlight;
+    if (!force && Date.now() - staffAlertAttemptAt < 30000) return;
+  } else {
+    scheduleStaffAlerts.value = [];
+  }
+  staffAlertScope = scope;
+  staffAlertAttemptAt = Date.now();
+  const version = ++staffAlertLoadVersion;
+  const request = Promise.allSettled(agencies.map(agencyId => api.get('/appointments/staff-alerts', {
     params: { providerId, agencyId, windowStart: new Date(`${start}T00:00:00`).toISOString(), windowEnd: new Date(`${addDaysYmd(start, 7)}T00:00:00`).toISOString() },
     skipGlobalLoading: true
   })));
+  staffAlertInFlight = request;
+  const results = await request;
   if (version !== staffAlertLoadVersion) return;
+  staffAlertInFlight = null;
   scheduleStaffAlerts.value = results.flatMap(result => result.status === 'fulfilled' && Array.isArray(result.value?.data?.alerts) ? result.value.data.alerts : []);
 };
 const scheduleStaffAlertLookup = computed(() => {
@@ -10264,7 +10284,7 @@ const scheduleStaffAlertLookup = computed(() => {
 });
 const staffAlertForBlock = block => scheduleStaffAlertLookup.value.get(`appointment:${block?.appointmentId}`)
   || scheduleStaffAlertLookup.value.get(`${block?.isOfficeBlock ? 'office' : block?.kind}:${block?.eventId}`) || '';
-watch([rawSummary, () => props.userId], () => { scheduleStaffAlerts.value = []; void loadScheduleStaffAlerts(); });
+watch([rawSummary, () => props.userId, () => effectiveAgencyIds.value.join(',')], () => { void loadScheduleStaffAlerts(); });
 onMounted(() => window.addEventListener('appointment-staff-alert-changed', loadScheduleStaffAlerts));
 onUnmounted(() => { staffAlertLoadVersion += 1; window.removeEventListener('appointment-staff-alert-changed', loadScheduleStaffAlerts); });
 

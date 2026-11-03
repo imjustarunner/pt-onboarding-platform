@@ -80,3 +80,39 @@ it('loads internal alert badges separately and clears them when switching provid
   await wrapper.setProps({ userId: 8 });
   expect(state.staffAlertForBlock({ kind: 'sevt', eventId: 72 })).toBe('');
 });
+
+it('keeps inherited school access out of personal appointment alert and waitlist requests', async () => {
+  const tenants=[{id:2,name:'Practice',organization_type:'agency'},{id:377,name:'Other practice',organization_type:'agency'}];
+  const schools=Array.from({length:300},(_,i)=>({id:1000+i,name:`School ${i}`,organization_type:'school'}));
+  const get=m.get.getMockImplementation();
+  m.get.mockImplementation(async(url,options)=>url==='/users/me/agencies'?{data:[...tenants,...schools]}:get(url,options));
+  m.summary.scheduleAgencyIds=[2,377];
+  const state=await mount();
+  expect(state.effectiveAgencyIds).toEqual([2,377]);
+  await wrapper.setProps({compactPageChrome:true});
+  const waitlist=wrapper.findComponent({name:'ProviderEnrollmentWaitlist'});
+  expect(waitlist.props('agencyIds')).toEqual([2,377]);
+  expect(m.get.mock.calls.filter(([url])=>url==='/appointments/staff-alerts').length).toBeLessThanOrEqual(2);
+  expect(m.get.mock.calls.filter(([url])=>/^\/agencies\//.test(url))).toHaveLength(0);
+});
+
+it('coalesces alerts when cached summaries are reapplied and refreshes after an alert edit', async () => {
+  const state=await mount();
+  for(let i=0;i<15;i++){await state.load();await flushPromises();}
+  expect(m.get.mock.calls.filter(([url])=>url==='/appointments/staff-alerts')).toHaveLength(1);
+  window.dispatchEvent(new Event('appointment-staff-alert-changed'));await flushPromises();
+  expect(m.get.mock.calls.filter(([url])=>url==='/appointments/staff-alerts')).toHaveLength(2);
+});
+
+it('does not overlap pending alert requests or let an old provider overwrite the new provider', async () => {
+  let finish;
+  const get=m.get.getMockImplementation();
+  m.get.mockImplementation((url,options)=>url==='/appointments/staff-alerts'&&options.params.providerId===7
+    ?new Promise(resolve=>{finish=resolve}):get(url,options));
+  const state=await mount();
+  for(let i=0;i<5;i++){await state.load();await flushPromises();}
+  expect(m.get.mock.calls.filter(([url])=>url==='/appointments/staff-alerts')).toHaveLength(1);
+  await wrapper.setProps({userId:8});await flushPromises();
+  finish({data:{alerts:[{appointmentId:91,text:'Other provider'}]}});await flushPromises();
+  expect(state.staffAlertForBlock({appointmentId:91})).toBe('');
+});

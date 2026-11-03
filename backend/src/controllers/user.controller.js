@@ -19,6 +19,7 @@ import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { reminderMinutes as normalizeMeetingReminder } from '../services/meetingInvitationPolicy.js';
 import { queueMeetingInvitations, sendMeetingScheduleChange } from '../services/meetingInvitations.service.js';
 import User from '../models/User.model.js';
+import { isTenantOrganizationType as isScheduleTenant } from '../utils/tenantOrganizations.js';
 import UserAccount from '../models/UserAccount.model.js';
 import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import OnboardingChecklist from '../models/OnboardingChecklist.model.js';
@@ -5799,6 +5800,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
     try {
       const targetAgencies = await getProviderAgencies();
       for (const a of targetAgencies || []) {
+        if (!isScheduleTenant(a.organization_type || a.organizationType)) continue;
         const aid = Number(a?.id || 0);
         if (aid > 0) scheduleAgencyIdSet.add(aid);
       }

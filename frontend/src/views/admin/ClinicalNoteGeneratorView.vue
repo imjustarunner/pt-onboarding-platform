@@ -8100,7 +8100,7 @@ async function activateWorkQueueItem(item) {
     scheduledStart = scheduledStartFromQueueDateAndTime(dosIso, item.timeLabel);
   }
   sessionSourceTimezone.value = item.sourceTimezone || '';
-  sessionAppointmentId.value = null;
+  sessionAppointmentId.value = item.appointmentId || null;
   sessionScheduledStart.value = scheduledStart;
   sessionScheduledEnd.value = scheduledEnd;
   sessionCodeSwitchBanner.value = '';
@@ -8333,7 +8333,7 @@ async function activateWorkQueueItem(item) {
   seedScheduleAddonCodes(item.addonServiceCodes || item.addon_service_codes || []);
   if (
     !scheduleSeededAddonCodes.value.length
-    && (item.officeEventId || item.clinicalSessionId)
+    && item.officeEventId && !item.clinicalSessionId
   ) {
     try {
       const boot = await api.post('/clinical-data/sessions/bootstrap', {
