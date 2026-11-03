@@ -60,8 +60,10 @@ try {
   const initialCounts = await libraryCounts();
   assert.equal(initialCounts.inProgress, 3);
   assert.equal(initialCounts.signed, 8);
+  await page.locator('.demo-doc-explanation > summary').click();
   assert.match(await page.locator('.demo-doc-context').innerText(), /optional AI assistance/);
   assert.match(await page.locator('.demo-doc-context').innerText(), /consented session transcript/);
+  await page.locator('.demo-doc-explanation > summary').click();
   await screenshot('initial');
   checks.push('Initial choose-note prompt, three My Work drafts, eight historical signed examples, optional AI and consent copy');
 
@@ -91,7 +93,8 @@ try {
   await screenshot('next-draft');
   checks.push('Save and sign-next show the explicit demo notice, preserve statuses and open the next optional-AI draft');
 
-  await page.getByRole('button', { name: 'Try supervisor review', exact: true }).click();
+  await page.getByRole('tab', { name: 'Notes to co-sign (2)', exact: true }).click();
+  await page.locator('[aria-label="My Work"] .na-wq-item--cosign').filter({hasText:'Finley Sage'}).locator('.na-wq-item-btn').click();
   const review = page.locator('.supervisor-review');
   await review.getByRole('heading', { name: 'Finley Sage', exact: true }).waitFor();
   assert.match(await review.innerText(), /Awaiting supervisor approval/);

@@ -14,7 +14,8 @@
       <div v-else-if="context.qaWorkspace" class="aw-identity" role="status"><strong>QA workspace · {{ actorName }} · {{ actor.role }}</strong><span>Fictional clients in {{ context.practice.name }}. Changes are saved for testing.</span></div>
       <div v-else class="aw-identity" role="status"><strong>Superadmin preview · {{ actorName }}</strong><span>Real {{ context.practice.name }} records. Saved drafts are live and attributed to you.</span><a :href="appBase">Switch practice</a></div>
       </template>
-        <slot v-if="demoContext && section === 'documentation' && $slots.documentation" name="documentation" />
+        <slot v-if="demoContext && section === 'tasks' && $slots.tasks" name="tasks" />
+        <slot v-else-if="demoContext && section === 'documentation' && $slots.documentation" name="documentation" />
         <slot v-else-if="demoContext && section === 'clients' && $slots.clients" name="clients" />
         <slot v-else-if="demoContext && section === 'providers' && $slots.providers" name="providers" />
         <Overview v-else-if="section === 'overview' || section === 'reports'" :key="context.practice.id" :agency="context.practice" :actor="actor" :slug="slug" :can-document="canDocument" :report="section === 'reports'" :demo="!!demoContext" />
@@ -64,7 +65,7 @@ const isLogin = computed(() => route.name === 'login');
 const loginUrl = computed(() => `${slug.value===QA_SLUG?`/${QA_SLUG}`:''}/login?redirect=${encodeURIComponent(isLogin.value ? appBase : window.location.pathname + window.location.search)}`);
 const canDocument=computed(()=>!context.value?.qaWorkspace||qaSections(actor.value?.role).includes('documentation'));
 const qaSectionAllowed = computed(()=>qaSections(actor.value?.role).includes(section.value));
-const navigation = computed(() => [{key:'overview',label:'Overview',icon:'dashboard'},{key:'appointments',label:'My Schedule',icon:'sessions'},{key:'clients',label:'Clients',icon:'people'},{key:'documentation',label:'Notes & Documentation',icon:'documents'},{key:'billing',label:'Billing',icon:'billing'},{key:'providers',label:'Providers',icon:'providers'},{key:'reports',label:'Reports',icon:'plan'}, ...(!props.demoContext ? [{key:'settings',label:'Settings',icon:'settings'}] : []), ...(!props.demoContext ? [{key:'announcements',label:'Announcements',icon:'notifications'}] : [])].filter(item=>!context.value?.qaWorkspace||qaSections(actor.value?.role).includes(item.key)));
+const navigation = computed(() => [{key:'overview',label:'Overview',icon:'dashboard'},{key:'appointments',label:'My Schedule',icon:'sessions'},{key:'clients',label:'Clients',icon:'people'},{key:'documentation',label:'Notes & Documentation',icon:'documents'},{key:'billing',label:'Billing',icon:'billing'},{key:'providers',label:'Providers',icon:'providers'},{key:'reports',label:'Reports',icon:'plan'}, ...(props.demoContext ? [{key:'tasks',label:'Tasks & To-do',icon:'tasks'}] : []), ...(!props.demoContext ? [{key:'settings',label:'Settings',icon:'settings'}] : []), ...(!props.demoContext ? [{key:'announcements',label:'Announcements',icon:'notifications'}] : [])].filter(item=>!context.value?.qaWorkspace||qaSections(actor.value?.role).includes(item.key)));
 const notificationItems=ref([]),unread=ref(null),notificationsLoading=ref(false),notificationsError=ref('');
 let notificationRequestId=0;
 async function loadNotifications(){

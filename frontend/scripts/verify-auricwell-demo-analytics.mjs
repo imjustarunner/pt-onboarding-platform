@@ -77,7 +77,7 @@ try {
     const search = run.page.getByLabel('Find a client');
     await search.fill(secrets[0]); await search.press('Tab');
     await search.fill(''); await search.press('Tab');
-    await run.page.getByRole('button', { name: 'Quick look for Emerson Cole', exact: true }).click();
+    await run.page.getByRole('link', { name: 'Emerson Cole', exact: true }).hover();
     await run.page.locator('[data-analytics-area="client-quick-look"]').waitFor({ state: 'visible' });
     await settleObservedLayout(run.page);
     // Probe unknown labels directly; the emitted label must come from the fixed generic action catalog.
@@ -85,12 +85,11 @@ try {
       const button = document.createElement('button');
       button.textContent = token; button.setAttribute('aria-label', token);
       button.dataset.analyticsId = token; button.dataset.analyticsLabel = token;
-      (document.querySelector('.aw-demo dialog[open]') || document.querySelector('.aw-demo')).append(button); button.click(); button.remove();
+      (document.querySelector('.aw-demo .cm-drawer') || document.querySelector('.aw-demo')).append(button); button.click(); button.remove();
     }, secrets[1]);
     await run.page.clock.runFor(16001);
     await until(() => run.events().some(event => event.kind === 'page_time') && run.events().some(event => event.kind === 'section_time'), 'Expected visible active page and section time after the 15-second heartbeat');
     assert(run.events().some(event => event.kind === 'page_view' && event.pagePath === '/p/auricwell/demo/clients'));
-    assert(run.events().some(event => event.targetKey === 'page/action/client-quick-look-open'));
     assert(run.events().some(event => event.kind === 'search' && event.targetKey === 'page/action/client-search'));
     assert(run.events().some(event => event.targetKey === 'page/action/demo-control' && event.label === 'Explore a demo control'));
     assert(run.events().some(event => event.kind === 'section_time' && event.targetKey === 'page/client-quick-look'),
@@ -124,7 +123,7 @@ try {
     try {
       await run.page.goto(`${base}/auricwell/demo#/meadowbrook/clients`);
       await run.page.locator('.client-table tbody tr').first().waitFor();
-      await run.page.getByRole('button', { name: 'Quick look for Emerson Cole', exact: true }).click();
+      await run.page.getByRole('link', { name: 'Emerson Cole', exact: true }).hover();
       await run.page.clock.runFor(16001);
       await run.page.goto(`${base}/auricwell/security`);
       await run.page.getByRole('heading', { level: 1 }).first().waitFor();

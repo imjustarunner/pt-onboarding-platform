@@ -7,8 +7,8 @@ import { DEMO_NOTE_NOTICE, createDemoNoteFixtures, demoNoteAction } from '../not
 const mutations = vi.hoisted(() => ({ sign: vi.fn(), save: vi.fn() }));
 vi.mock('../../../views/admin/ClinicalNoteGeneratorView.vue', () => ({ default: {
   props: ['demoPresentation'],
-  setup: () => ({ mutations }),
-  template: '<div><h1>{{ demoPresentation.heading }}</h1><button @click="mutations.sign()">Sign and open next in queue</button><button @click="mutations.save()">Save Draft</button><button @click="mutations.sign()">Cosign &amp; approve for billing review</button><button>Signature details</button></div>'
+  setup: props => ({ mutations, selectQueuedCosign:()=>props.demoPresentation.onSelection?.({kind:'cosign',id:990181}) }),
+  template: '<div><h1>{{ demoPresentation.heading }}</h1><button @click="selectQueuedCosign">Open queued co-sign</button><button @click="mutations.sign()">Sign and open next in queue</button><button @click="mutations.save()">Save Draft</button><button @click="mutations.sign()">Cosign &amp; approve for billing review</button><button>Signature details</button></div>'
 } }));
 import Documentation from '../DemoDocumentation.vue';
 
@@ -58,6 +58,10 @@ describe('demo action isolation', () => {
   it('does not block read-only review and navigation controls', () => {
     for (const textContent of ['Signature details', 'Notes to co-sign (2)', 'Select next in progress', 'Show library', 'Close', 'Return / provide feedback']) expect(demoNoteAction({ textContent })).toBeNull();
     for (const textContent of ['Sign', 'Sign and open next in progress', 'Cosign & approve for billing review', 'Save Draft', 'Send request', 'Start recording', 'Generate note']) expect(demoNoteAction({ textContent })).not.toBeNull();
+  });
+  it('advances the selected My Work co-sign even when no launch query exists', async () => {
+    const router=createRouter({history:createMemoryHistory(),routes:[{path:'/meadowbrook/documentation',component:{template:'<span />'}}]});await router.push('/meadowbrook/documentation');await router.isReady();
+    wrapper=mount(Documentation,{global:{plugins:[router]}});await wrapper.findAll('.demo-doc-workspace button').find(button=>button.text()==='Open queued co-sign').trigger('click');await wrapper.get('[data-analytics-id="demo-note-simulate-sign-next"]').trigger('click');await flushPromises();expect(router.currentRoute.value.query.noteId).toBe('990182');expect(router.currentRoute.value.query.launchIntent).toBe('cosign');expect(mutations.sign).not.toHaveBeenCalled();
   });
   it('advances from the viewed client when the shared workspace has consumed draftId', async () => {
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/meadowbrook/documentation', component: { template: '<span />' } }] });

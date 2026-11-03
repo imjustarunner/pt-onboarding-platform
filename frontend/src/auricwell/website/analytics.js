@@ -22,7 +22,7 @@ export const DEMO_ANALYTICS_ACTIONS = Object.freeze({
   'demo-search': 'Use demo search', 'demo-link': 'Explore a demo link',
   'nav-overview': 'Open demo overview', 'nav-appointments': 'Open demo schedule',
   'nav-clients': 'Open demo clients', 'nav-documentation': 'Open demo notes',
-  'nav-billing': 'Open demo billing', 'nav-providers': 'Open demo providers', 'nav-reports': 'Open demo reports'
+  'nav-billing': 'Open demo billing', 'nav-providers': 'Open demo providers', 'nav-reports': 'Open demo reports', 'nav-tasks':'Open demo tasks and to-do lists', 'workspace-back':'Return to demo overview'
 });
 export const DEMO_ANALYTICS_AREAS = Object.freeze({
   clients: 'Demo clients', 'client-quick-look': 'Client quick look', 'client-chart': 'Client chart',
@@ -30,10 +30,10 @@ export const DEMO_ANALYTICS_AREAS = Object.freeze({
   'my-work': 'My Work', 'note-editor': 'Note editor', 'note-library': 'Note drafts',
   documentation: 'Notes and documentation',
   'co-sign': 'Supervisor co-sign review', schedule: 'Practice schedule', billing: 'Demo billing',
-  overview: 'Practice overview', reports: 'Demo reports'
+  overview: 'Practice overview', reports: 'Demo reports', tasks:'Tasks and to-do lists'
 });
 const PAGES = new Set(['home', 'product', 'security', 'about', 'contact']);
-const DEMO_SECTIONS = new Set(['overview', 'appointments', 'clients', 'documentation', 'billing', 'providers', 'reports']);
+const DEMO_SECTIONS = new Set(['overview', 'appointments', 'clients', 'documentation', 'billing', 'providers', 'reports', 'tasks']);
 const ENDPOINT = '/api/public/marketing-pages/auricwell/analytics/events';
 const privacyRequested = browser => browser.navigator.globalPrivacyControl === true ||
   [browser.navigator.doNotTrack, browser.doNotTrack].includes('1');

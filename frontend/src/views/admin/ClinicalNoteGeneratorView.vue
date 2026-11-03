@@ -3272,6 +3272,7 @@ async function openSignedClinicalNote(noteId, { agencyId = null, preserveWorkQue
   if (!nid) return false;
   collapseSidebarsForNote();
   signedNoteViewerId.value = nid;
+  props.demoPresentation?.onSelection?.({kind:'signed',id:nid});
   signedNoteViewerAgencyId.value = Number(agencyId || 0) || null;
   noteWizardStep.value = 2;
   configExpanded.value = false;
@@ -7817,6 +7818,7 @@ function activateCosignQueueItem(item, { fullPage = false } = {}) {
   clientHydrateSeq++;
   activeCosignQueueId.value = item.id;
   supervisorReviewItem.value = { ...item };
+  props.demoPresentation?.onSelection?.({kind:'cosign',id:item.clinicalNoteId});
   supervisorReviewFullPage.value = fullPage;
   libraryExpanded.value = false;
   libraryCollapsed.value = true;
@@ -8798,6 +8800,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   viewingChartNote.value = null;
   clearSignedNoteViewer();
   draftId.value = d.id || null;
+  props.demoPresentation?.onSelection?.({kind:'draft',id:draftId.value});
   sessionClinicalSessionId.value = Number(d.clinical_session_id || d.clinicalSessionId || 0) || (preserveWorkQueue ? sessionClinicalSessionId.value : null);
   sessionOfficeEventId.value = Number(d.office_event_id || d.officeEventId || 0) || (preserveWorkQueue ? sessionOfficeEventId.value : null);
   const loadedSessionContext = preserveWorkQueue ? null : {
@@ -9012,6 +9015,7 @@ const loadClinicalNoteIntoWorkspace = async (
     && reviewSeq === supervisorReviewSelectionSeq && Number(signedNoteViewerId.value) === nid;
   cancelPendingAutosave();
   signedNoteViewerId.value = nid;
+  props.demoPresentation?.onSelection?.({kind:'signed',id:nid});
   if (preferredAgencyId) {
     signedNoteViewerAgencyId.value = Number(preferredAgencyId) || null;
   }

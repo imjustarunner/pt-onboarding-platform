@@ -1,5 +1,9 @@
 <template>
   <section class="demo-documentation" data-analytics-area="documentation" aria-label="Fictional Note Workspace">
+    <div class="demo-doc-workspace" @click.capture="interceptAction" @submit.capture.prevent="showDemoNotice">
+      <ClinicalNoteGeneratorView :key="workspaceKey" :demo-presentation="presentation" />
+    </div>
+    <details class="demo-doc-explanation"><summary>About this fictional workspace · Optional AI and consent</summary>
     <div class="demo-doc-intro">
       <div><p class="demo-doc-eyebrow">A clearer path from session to signed note</p><p>Drafts on the left. Your note in the center. Notes and supervisor reviews in <strong>My Work</strong>.</p></div>
       <div class="demo-doc-actions">
@@ -8,9 +12,7 @@
       </div>
     </div>
     <div class="demo-doc-context"><span>Fictional records</span><p>Write your own notes or choose optional AI assistance. A consented session transcript can become a draft for clinician review. Recording, generation and signatures are simulated here.</p></div>
-    <div class="demo-doc-workspace" @click.capture="interceptAction" @submit.capture.prevent="showDemoNotice">
-      <ClinicalNoteGeneratorView :key="workspaceKey" :demo-presentation="presentation" />
-    </div>
+    </details>
     <footer class="demo-doc-footer">
       <p><strong>Explore the full workflow.</strong> Open drafts, compare treatment objective ratings and review Milo’s notes with supervisor Dr. Tessa Brooks.</p>
       <button type="button" data-analytics-id="demo-note-simulate-sign-next" @click="simulateSignNext">Sign and open next (demo)</button>
@@ -26,11 +28,12 @@ import { DEMO_COSIGN_IDS, DEMO_DRAFT_IDS, DEMO_NOTE_NOTICE, demoNoteAction } fro
 import { drafts as demoDrafts } from './fixtures';
 
 const route = useRoute(), router = useRouter();
-const workspaceKey = ref(0);
+const workspaceKey = ref(0), selection=ref(null);
 const presentation = Object.freeze({
   heading: 'Please choose a draft or a note from your My Work.',
   description: 'Resume a draft from the Note Library on the left, or select a note or co-sign review from My Work on the right.',
-  keepSidebarsOpen: true
+  keepSidebarsOpen: true,
+  onSelection:value=>{selection.value=value;}
 });
 function showDemoNotice() {
   window.dispatchEvent(new CustomEvent('aw-demo-notice', { detail: DEMO_NOTE_NOTICE }));
@@ -41,7 +44,7 @@ async function openExample(kind, advance = false) {
   // The shared workspace consumes draftId after opening a My Work item. Its
   // remaining client context still identifies the seeded draft being viewed.
   const selectedDraft = demoDrafts.find(draft => Number(draft.client_id) === Number(route.query.clientId));
-  const current = Number(cosign ? route.query.noteId : route.query.draftId || selectedDraft?.id);
+  const current = Number(selection.value?.kind===kind ? selection.value.id : (cosign ? route.query.noteId : route.query.draftId || selectedDraft?.id));
   const index = advance ? (Math.max(-1, ids.indexOf(current)) + 1) % ids.length : 0;
   // Remove the previous client's launch context before opening the next example.
   const query = { agencyId: '990101', ...(cosign ? { noteId: String(ids[index]), launchIntent: 'cosign' } : { draftId: String(ids[index]) }) };
@@ -49,7 +52,7 @@ async function openExample(kind, advance = false) {
   workspaceKey.value++;
 }
 async function simulateSignNext() {
-  await openExample(route.query.launchIntent === 'cosign' ? 'cosign' : 'draft', true);
+  await openExample(selection.value?.kind==='cosign' || route.query.launchIntent === 'cosign' ? 'cosign' : 'draft', true);
   await nextTick();
   showDemoNotice();
 }

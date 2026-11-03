@@ -20,7 +20,7 @@ const shot=async name=>{if(screenshots)await page.screenshot({path:`${screenshot
 page.on('pageerror',e=>errors.push(e.message));
 await page.route('**/api/**',route=>{const r=route.request(),u=new URL(r.url());if(u.pathname==='/api/public/marketing-pages/auricwell/analytics/events'&&r.method()==='POST'&&!u.search){analytics.push(r.postDataJSON());return route.fulfill({status:204});}requests.push(r.url());return route.abort();});
 let visit=0;
-const open=async section=>{await page.goto(`${base}/auricwell/demo?verify=${++visit}#/meadowbrook/${section}`);await page.locator('.aw-nav').waitFor();};
+const open=async section=>{await page.goto(`${base}/auricwell/demo?verify=${++visit}#/meadowbrook/${section}`);await page.locator('#aw-main').waitFor();};
 try {
  await page.route('**/storage-sentinel',r=>r.fulfill({contentType:'text/html',body:'<p>Existing application storage</p>'}));
  await page.goto(`${base}/storage-sentinel`);
@@ -35,11 +35,11 @@ try {
  assert.equal(await page.locator('.client-table tbody tr').count(),1);
  await page.getByLabel('Find a client').fill('');
  await shot('clients-desktop');
- await page.getByRole('button',{name:'Quick look for Rowan Ellis',exact:true}).click();
- await page.getByRole('dialog').waitFor();
- assert.match(await page.getByRole('dialog').innerText(),/Drew Ellis.*Reese Ellis/s);
+ await page.getByRole('link',{name:'Rowan Ellis',exact:true}).hover();
+ await page.getByRole('complementary',{name:'Client detail panel'}).waitFor();
+ assert.match(await page.getByRole('complementary',{name:'Client detail panel'}).innerText(),/Drew Ellis.*Reese Ellis/s);
  await shot('client-quick-look');
- await page.keyboard.press('Escape');await page.getByRole('dialog').waitFor({state:'hidden'});
+ await page.keyboard.press('Escape');await page.getByRole('complementary',{name:'Client detail panel'}).waitFor({state:'hidden'});
  await page.getByLabel('Find a client').fill('Emerson');
  await page.getByRole('link',{name:'Open chart',exact:false}).click();
  await page.getByRole('heading',{name:'Emerson Cole',exact:true}).waitFor();

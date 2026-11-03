@@ -1,5 +1,6 @@
 import { demoClients, demoProviders, demoStaff } from './people.js';
 import { createDemoNoteFixtures } from './notes.js';
+import { createDemoTaskFixtures } from './tasks.js';
 import { zonedDatetimeLocalToIso } from '../../utils/timezones.js';
 // Fictional fixtures only. This adapter has no network fallback and never accepts writes.
 export const practice = { id: 990101, name: 'Meadowbrook Therapy', slug: 'meadowbrook', organization_type: 'agency', timezone: 'America/Denver', feature_flags: { noteAidEnabled: true, clinicalNoteGeneratorEnabled: true, medicalBillingEnabled: true } };
@@ -12,6 +13,8 @@ const monday = new Date(); monday.setDate(monday.getDate() - (monday.getDay() + 
 export const weekStart = ymd(monday);
 const noteFixtures = createDemoNoteFixtures({ practice, actor, clients, providers, weekStart });
 export const drafts = noteFixtures.drafts;
+const taskFixtures=createDemoTaskFixtures({practice,actor,staff,weekStart});
+export const demoTaskLists=taskFixtures.lists;
 const historicalNotes = noteFixtures.historicalNotes;
 const claims = clients.map((c,i)=>({id:990141+i,agency_id:practice.id,client_id:c.id,clinical_note_id:990171+i,claim_number:`DEMO-${101+i}`,payer_name:'Example Health Plan',date_of_service:weekStart,amount_cents:12500,currency_code:'USD',claim_lifecycle:['draft','ready','rejected'][i % 3],payer_sequence:1}));
 // Seed current display versions so shared-calendar migrations do not try to save
@@ -49,6 +52,8 @@ export function demoResponse(url, config={}) {
  for(const key of ['agencyId','agency_id','organizationId','organization_id']) if(q[key] && Number(q[key])!==practice.id) throw new Error('That practice is outside this fictional demo.');
  const clientMatch=p.match(/\/clients\/(\d+)(?:\/|$)/);if(clientMatch&&!clientFor(clientMatch[1]))throw new Error('That client is outside this fictional demo.');
  const userMatch=p.match(/\/users\/(\d+)(?:\/|$)/);if(userMatch&&!staff.some(u=>u.id===Number(userMatch[1])))throw new Error('That provider is outside this fictional demo.');
+ const taskResponse = taskFixtures.response(p,q);
+ if(taskResponse !== undefined)return taskResponse;
  const noteResponse = noteFixtures.response(p, q);
  if(noteResponse !== undefined) return noteResponse;
  if(p==='/clients') {const search=String(q.search||'').toLowerCase(),providerId=q.provider_id||q.providerId;if(providerId)requireProvider(providerId);const selected=clients.filter(c=>(!providerId||c.provider_id===Number(providerId))&&(!q.status||c.status===String(q.status).toUpperCase())&&`${c.full_name} ${c.initials}`.toLowerCase().includes(search));return {clients:Number(q.page||1)>1?[]:selected,total:selected.length};}
@@ -63,7 +68,7 @@ export function demoResponse(url, config={}) {
    return {items:items.slice(((Number(q.page)||1)-1)*50,(Number(q.page)||1)*50),total:items.length,timeZone:practice.timezone,page:Number(q.page)||1,pageSize:50};
  }
 
- if(p==='/auricwell-preview/tasks')return {tasks:[{id:990501,title:'Review treatment goal ratings',task_type:'clinical',status:'pending',due_date:weekStart},{id:990502,title:'Prepare for supervision',task_type:'review',status:'pending',due_date:weekStart}],total:2};
+ if(p==='/auricwell-preview/tasks'){const tasks=taskFixtures.tasks.filter(task=>task.assigned_to_user_id===actor.id&&task.status!=='completed');return {tasks,total:tasks.length};}
  if(p==='/appointments')return {appointments:schedule(q.windowStart,q.providerId||q.provider_id||actor.id).scheduleEvents.map(e=>({...e,serviceCode:clientFor(e.clientId)?.status==='INTAKE'?'90791':'90834'}))};
  if(p==='/appointments/booking-access'){requireProvider(q.providerUserId||actor.id);return {enabled:true};}
  if(p==='/appointments/staff-alerts'){requireProvider(q.providerId||actor.id);return {alerts:[]};}
@@ -102,6 +107,7 @@ export function demoResponse(url, config={}) {
  if(userMatch&&p===`/users/${userMatch[1]}/agencies/${practice.id}/practice-categories`){requireProvider(userMatch[1]);return [];}
  if(['/offices','/calendar-connections',`/agencies/${practice.id}/affiliated-organizations`].includes(p))return [];
  if(p==='/office-schedule/booking-metadata')return {serviceCodes:[{code:'90834',label:'Individual psychotherapy',durationMinutes:50}],serviceLocations:[{id:990151,name:'Telehealth',placeOfService:'10'}],appointmentTypes:[],appointmentSubtypes:[]};
+ if(p==='/communications/call-billing')return {items:[],total:0,hasMore:false};
  if(p==='/medical-billing/workspace') {const selected=claims.filter(c=>(!q.status||q.status==='all'||q.status===c.claim_lifecycle||q.status==='attention'&&c.claim_lifecycle==='rejected')&&(!q.search||`${c.claim_number} ${c.id}`.toLowerCase().includes(String(q.search).toLowerCase())));const counts=claims.reduce((result,claim)=>{result[claim.claim_lifecycle]=(result[claim.claim_lifecycle]||0)+1;return result;},{});return {organizations:[{...practice,counts,connection:{configured:false},enrollments:[],eft:[],payments:{postingCount:0,paidCents:0}}],claims:selected,total:selected.length,capabilities:{claims:true,enrollments:true},updatedAt:new Date().toISOString()};}
  const claimMatch=p.match(/^\/medical-billing\/claimmd\/claims\/(\d+)\/(history|draft|review)$/);
  if(claimMatch) {const claim=claims.find(c=>c.id===Number(claimMatch[1]));if(!claim)throw new Error('That claim is outside this fictional demo.');const history=[{id:990170,type:'draft_created',status:'draft',createdAt:`${weekStart}T17:00:00Z`,messages:[{message:'Fictional claim prepared for review. Nothing has been transmitted.'}]}];if(claimMatch[2]==='history')return {history};if(claimMatch[2]==='draft')return {claim:{...claim,billing_revision:1,place_of_service:'10'},lines:[{id:990180,procedure_code:'90834',units:1,charge_cents:12500,modifiers_json:[]}]};return {claimId:claim.id,lifecycle:claim.claim_lifecycle,readiness:{ready:false,blockers:['Demo only: clearinghouse and payer enrollment are not connected.'],warnings:[]},history,payload:{charge:[{from_date:weekStart,proc_code:'90834',units:1,place_of_service:'10',charge:'125.00'}],total_charge:'125.00'},reviewHash:'demo-only'};}

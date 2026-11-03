@@ -4,6 +4,7 @@
     <App :demo-context="{practice,actor}">
       <template #clients><DemoPeople section="clients" /></template>
       <template #providers><DemoPeople section="providers" /></template>
+      <template #tasks><DemoTasks /></template>
       <template #documentation><DemoDocumentation /></template>
       <template #appointments>
         <p class="aw-caption">The shared scheduling workspace · Fictional appointments and confirmation states. Try the calendar views or open Book session; bookings and notifications are not sent.</p>
@@ -16,6 +17,7 @@
 import {ref,onBeforeUnmount,defineAsyncComponent,watch,computed} from 'vue';
 import App from '../App.vue';
 import DemoPeople from './DemoPeople.vue';
+import DemoTasks from './DemoTasks.vue';
 import DemoDocumentation from './DemoDocumentation.vue';
 import {useRoute} from 'vue-router';
 const Schedule=defineAsyncComponent(()=>import('../../components/schedule/ScheduleAvailabilityGrid.vue'));
