@@ -2224,10 +2224,10 @@ export const postSupervisionConnectionEvent = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
     const event = req.body?.event;
-    if (!['connected', 'disconnected', 'reconnecting', 'reconnected', 'connect-failed', 'rejoin-requested', 'join-request-failed'].includes(event)) {
+    if (!['connected', 'disconnected', 'reconnecting', 'reconnected', 'connect-failed', 'rejoin-requested', 'join-request-failed', 'microphone-problem', 'microphone-recovery-started', 'microphone-source-reconnected', 'microphone-recovery-failed', 'microphone-recovered'].includes(event)) {
       return res.status(400).json({ error: { message: 'Invalid connection event' } });
     }
-    const reason = ['clientDisconnected', 'forceDisconnected', 'mediaIdle', 'networkDisconnected', 'serverRotation', 'alone-timeout'].includes(req.body?.reason)
+    const reason = ['clientDisconnected', 'forceDisconnected', 'mediaIdle', 'networkDisconnected', 'serverRotation', 'alone-timeout', 'capture-stalled', 'track-ended', 'track-muted', 'audio-flow-restored', 'automatic-reconnect', 'manual-reconnect'].includes(req.body?.reason)
       ? req.body.reason : 'unknown';
     const code = Number(req.body?.code);
     // A client report is diagnostic evidence, never authority to change access,
@@ -2235,6 +2235,8 @@ export const postSupervisionConnectionEvent = async (req, res, next) => {
     console.info(JSON.stringify({
       severity: 'INFO', type: 'supervision_video_connection', source: 'client_report',
       sessionId: id, userId, event, reason,
+      microphoneOn: typeof req.body?.microphoneOn === 'boolean' ? req.body.microphoneOn : null,
+      processingMode: ['basic', 'enhanced'].includes(req.body?.processingMode) ? req.body.processingMode : null,
       code: Number.isInteger(code) && code >= 0 && code <= 99999 ? code : null,
       online: typeof req.body?.online === 'boolean' ? req.body.online : null,
       requestId: req.evidenceContext?.requestId || null

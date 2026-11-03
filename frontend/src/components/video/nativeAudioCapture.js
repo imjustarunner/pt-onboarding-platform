@@ -1,14 +1,14 @@
-export function nativeAudioConstraints(mediaDevices = globalThis?.navigator?.mediaDevices, { autoGainControl = true } = {}) {
+export function nativeAudioConstraints(mediaDevices = globalThis?.navigator?.mediaDevices, { autoGainControl = true, noiseReduction = true } = {}) {
   // Speech calls need level adjustment as well as echo/noise reduction.
   // Disabling gain control globally leaves quieter microphones inaudible.
   const constraints = {
     echoCancellation: true,
-    noiseSuppression: true,
+    noiseSuppression: noiseReduction,
     autoGainControl
   };
   try {
     const supported = mediaDevices?.getSupportedConstraints?.() || {};
-    if (supported.voiceIsolation) constraints.voiceIsolation = true;
+    if (supported.voiceIsolation) constraints.voiceIsolation = noiseReduction;
   } catch { /* use broadly-supported native constraints */ }
   return constraints;
 }
@@ -33,10 +33,32 @@ function voiceIsolationEnabled(settings = {}) {
  * microphone track (e.g. the one Vonage created). Does not replace the track.
  * Preserve the chosen level adjustment when switching microphones or unmuting.
  */
-export async function enhancePublishedAudioTrack(
+const audioEnhancements = new WeakMap();
+
+export function enhancePublishedAudioTrack(
   track,
   mediaDevices = globalThis?.navigator?.mediaDevices,
-  { autoGainControl = true } = {}
+  { autoGainControl = true, noiseReduction = true } = {}
+) {
+  if (!track || typeof track.applyConstraints !== 'function') {
+    return Promise.resolve({ applied: false, voiceIsolation: false, constraints: null, settings: readTrackSettings(track) });
+  }
+  const key = `${autoGainControl}:${noiseReduction}`;
+  const previous = audioEnhancements.get(track);
+  // Joining, unmuting, and device callbacks can all reach this code. Reapplying
+  // unchanged constraints can restart native audio processing on a live track.
+  if (previous?.key === key) return previous.promise;
+  const promise = Promise.resolve(previous?.promise).catch(() => {}).then(() =>
+    applyAudioEnhancement(track, mediaDevices, { autoGainControl, noiseReduction })
+  );
+  audioEnhancements.set(track, { key, promise });
+  return promise;
+}
+
+async function applyAudioEnhancement(
+  track,
+  mediaDevices,
+  { autoGainControl, noiseReduction }
 ) {
   if (!track || typeof track.applyConstraints !== 'function') {
     return {
@@ -47,12 +69,12 @@ export async function enhancePublishedAudioTrack(
     };
   }
 
-  const constraints = nativeAudioConstraints(mediaDevices, { autoGainControl });
+  const constraints = nativeAudioConstraints(mediaDevices, { autoGainControl, noiseReduction });
   const before = readTrackSettings(track);
   // Chrome on macOS often exposes voiceIsolation in getSettings() even when
   // getSupportedConstraints() omits it. Request it whenever the key exists.
   if (!('voiceIsolation' in constraints) && ('voiceIsolation' in before)) {
-    constraints.voiceIsolation = true;
+    constraints.voiceIsolation = noiseReduction;
   }
 
   let applied = false;
@@ -63,8 +85,9 @@ export async function enhancePublishedAudioTrack(
     // Some engines reject voiceIsolation on the first pass; retry core processing.
     const fallback = {
       echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl
+      noiseSuppression: noiseReduction,
+      autoGainControl,
+      ...(!noiseReduction && 'voiceIsolation' in before ? { voiceIsolation: false } : {})
     };
     try {
       await track.applyConstraints(fallback);
@@ -75,7 +98,7 @@ export async function enhancePublishedAudioTrack(
   let settings = readTrackSettings(track);
   // Chromium sometimes accepts Voice Isolation only via the advanced form.
   // Restate all speech processing so the advanced retry preserves the choice.
-  if (!voiceIsolationEnabled(settings) && ('voiceIsolation' in constraints || 'voiceIsolation' in before)) {
+  if (noiseReduction && !voiceIsolationEnabled(settings) && ('voiceIsolation' in constraints || 'voiceIsolation' in before)) {
     try {
       await track.applyConstraints({
         echoCancellation: true,

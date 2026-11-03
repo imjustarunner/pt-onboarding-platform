@@ -6,6 +6,8 @@ export function reportSupervisionConnection(sessionId, event, detail = {}) {
   void api.post(`/supervision/sessions/${encodeURIComponent(sessionId)}/connection-events`, {
     event,
     reason: detail.reason,
+    microphoneOn: typeof detail.microphoneOn === 'boolean' ? detail.microphoneOn : undefined,
+    processingMode: ['basic', 'enhanced'].includes(detail.processingMode) ? detail.processingMode : undefined,
     code: Number.isInteger(Number(detail.code)) ? Number(detail.code) : undefined,
     online: typeof navigator === 'undefined' ? undefined : navigator.onLine
   }, { skipGlobalLoading: true, skipAuthRedirect: true }).catch(() => {
