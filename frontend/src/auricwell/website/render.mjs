@@ -6,8 +6,8 @@ import { homeStory, productStory } from './story.mjs';
 import { faqSection } from './compare.mjs';
 // Public content is rendered at build time. No clinical stores, cookies or API calls.
 export const pages = {
-  '': ['Less repeat work. More time for care.', 'AI-assisted documentation, treatment progress, supervision, client and guardian access, and connected practice workflows for therapy teams.'],
-  product: ['The work of care, connected.', 'Explore guided AI documentation, treatment-goal history, supervision, guardian access, enrollment and connected care workflows in AuricWell.'],
+  '': ['Less repeat work. More time for care.', 'Connect your therapy practice with in-app texting, individual guardian accounts, AI-assisted documentation, scheduling and supervision in AuricWell.'],
+  product: ['The work of care, connected.', 'Explore in-app SMS, multiple guardian accounts, guided AI documentation, supervision and connected scheduling for therapy practices in AuricWell.'],
   security: ['Trust starts with clear boundaries.', 'Learn how the AuricWell preview scopes practice records, identifies administrators and separates public information from clinical work.'],
   about: ['Built around the work you do.', 'AuricWell is a focused EHR experience for therapy practices, starting with Colorado therapy workflows.'],
   contact: ['Let’s talk about your practice.', 'Discuss AuricWell, your therapy practice and what you need from an EHR.']
