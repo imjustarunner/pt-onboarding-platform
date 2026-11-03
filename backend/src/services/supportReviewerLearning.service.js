@@ -37,8 +37,9 @@ export function buildReviewerLearning(context,rows,{decrypt=decryptChatText}={})
    reviewerNotes:historicalText(feedback.notes).slice(0,1600),
    approvedExample:row.draft_rating==='good'?historicalText(evidence.comparison?.generatedDraft).slice(0,1600)
     :row.actual_rating==='good'&&!feedback.preferredReply?historicalText(evidence.deliveries?.[0]?.body).slice(0,1600):null}));
- const sourceIds=new Set(records.map(r=>Number(r.row.id)));
- const standards=Number(context.agencyId)===2?RACHEL_SUPPORT_STANDARDS.filter(rule=>rule.entries.some(id=>sourceIds.has(id))):[];
+ // The reviewed general standards remain after their examples age out of the
+ // bounded retrieval window. New saved examples still refresh the fingerprint.
+ const standards=Number(context.agencyId)===2?RACHEL_SUPPORT_STANDARDS:[];
  return {version:'rachel-review-v1',fingerprint:hash(records.map(({row,feedback})=>[row.id,row.revision,row.actual_rating,row.draft_rating,feedback])),
   savedFeedbackCount:records.length,standards,examples,
   decision:decision?{action:'no_reply',reason:'reviewer_marked_no_reply',entryId:decision.row.id,sourceMessageId:decision.evidence.originalReceived?.sourceMessageId}:null};
