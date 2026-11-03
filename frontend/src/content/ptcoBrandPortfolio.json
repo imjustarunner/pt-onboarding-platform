@@ -115,15 +115,15 @@
     "category": "Business & technology",
     "website": "https://schoolcarebridge.org",
     "description": "Connecting schools, care teams, and families around student support.",
-    "logo": "/assets/schoolcarebridge/logo.png",
-    "icon": "/assets/schoolcarebridge/logo.png",
+    "logo": "/assets/schoolcarebridge/wordmark.svg",
+    "icon": "/assets/schoolcarebridge/wordmark.svg",
     "colors": [
       "#102E53",
       "#008C9A",
       "#F4BC41"
     ],
     "assets": [
-      "/assets/schoolcarebridge/logo.png"
+      "/assets/schoolcarebridge/wordmark.svg"
     ],
     "typography": "See the current website for typography",
     "source": "frontend/src/styles/schoolCareBridgeWebsite.css"

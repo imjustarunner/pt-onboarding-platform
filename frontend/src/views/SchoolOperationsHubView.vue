@@ -34,7 +34,7 @@
         </div>
       </div>
       <div class="hub-header-actions">
-        <router-link v-if="schoolCareBridgePartner" class="scb-hub-entry" :to="schoolCareBridgePartnerPath(schoolCareBridgePartner.slug)" :aria-label="`${schoolCareBridgePartner.name} SchoolCareBridge workspace`"><img src="/assets/schoolcarebridge/logo.png" alt="SchoolCareBridge"/><span>{{schoolCareBridgePartner.name}} · School portals →</span></router-link>
+        <router-link v-if="schoolCareBridgePartner" class="scb-hub-entry" :to="schoolCareBridgePartnerPath(schoolCareBridgePartner.slug)" :aria-label="`${schoolCareBridgePartner.name} SchoolCareBridge workspace`"><img src="/assets/schoolcarebridge/wordmark.svg" alt="SchoolCareBridge"/><span>{{schoolCareBridgePartner.name}} · School portals →</span></router-link>
         <nav class="hub-switcher" aria-label="Switch hub">
           <template v-for="item in hubSwitcherLinks" :key="item.key">
             <span

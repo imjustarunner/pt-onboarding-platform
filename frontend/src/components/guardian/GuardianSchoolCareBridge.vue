@@ -1,7 +1,7 @@
 <template>
   <section class="school-bridge" aria-label="SchoolCareBridge school connection">
     <header>
-      <img src="https://mh4kidz.org/assets/schoolcarebridge/logo.png" alt="SchoolCareBridge" />
+      <img src="https://mh4kidz.org/assets/schoolcarebridge/wordmark.svg" alt="SchoolCareBridge" />
       <div><p class="eyebrow">Your school connection</p><h2>{{ school?.name || 'SchoolCareBridge' }}</h2>
         <span v-if="school" class="school-status" :class="{ former: school.status === 'former' }">{{ school.status === 'former' ? 'Former school' : 'Current school' }}</span>
       </div>

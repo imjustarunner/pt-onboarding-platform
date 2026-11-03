@@ -4,7 +4,7 @@ import { URL as NodeURL } from 'node:url';
 import { pages, renderWebsite } from '../render.mjs';
 
 const approvedPartners = [
-  { slug: 'schoolcarebridge', logo: '/assets/schoolcarebridge/logo.png', site: 'https://schoolcarebridge.org', secondary: ['/partners', '/for-agencies'] },
+  { slug: 'schoolcarebridge', logo: '/assets/schoolcarebridge/wordmark.svg', site: 'https://schoolcarebridge.org', secondary: ['/partners', '/for-agencies'] },
   { slug: 'mh4kidz', logo: '/assets/mh4kidz/logo.png', site: 'https://mh4kidz.org', secondary: ['/about', '/contact'] },
   { slug: 'itsco', logo: '/assets/itsco/logo.png', site: 'https://www.itsco.health', secondary: ['/providers'] },
   { slug: 'nlu', logo: '/assets/nlu/logo.png', site: 'https://nextleveluplcc.com', secondary: ['/providers', '/nlu/find-counselor', '/nlu/find-tutor'] },

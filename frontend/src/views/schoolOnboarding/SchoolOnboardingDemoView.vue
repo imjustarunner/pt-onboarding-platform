@@ -1,7 +1,7 @@
 <template>
   <div class="so-demo-portal" :style="demoThemeVars">
     <header class="so-demo-banner">
-      <a href="https://schoolcarebridge.org"><img src="/assets/schoolcarebridge/logo.png" alt="SchoolCareBridge · Powered by MH4Kidz" style="width:190px;height:66px;object-fit:cover;background:white;border-radius:10px" /></a>
+      <a href="https://schoolcarebridge.org"><img src="/assets/schoolcarebridge/wordmark.svg" alt="SchoolCareBridge · Powered by MH4Kidz" style="width:190px;height:72px;object-fit:contain;background:white;border-radius:10px" /></a>
       <div>
         <strong>{{ schoolName }}</strong>
         <span class="muted">

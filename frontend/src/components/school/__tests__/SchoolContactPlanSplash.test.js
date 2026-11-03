@@ -33,7 +33,7 @@ it('asks eligible providers once and lets a saved decline be revisited', async (
 it('uses the existing SchoolCareBridge logo and product identity in the contact-plan header',async()=>{
  await open();
  const brand=dialog().querySelector('.contact-plan-brand');
- expect(brand.querySelector('img').getAttribute('src')).toBe('/assets/schoolcarebridge/logo.png');
+ expect(brand.querySelector('img').getAttribute('src')).toBe('/assets/schoolcarebridge/wordmark.svg');
  expect(brand.querySelector('img').getAttribute('alt')).toBe('SchoolCareBridge');
  expect(brand.textContent).toContain('Plot Twist Co.');
  expect(brand.textContent).not.toContain('SCHOOL CARE BRIDGE');
