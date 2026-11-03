@@ -268,10 +268,10 @@ export async function claimDraft(req, res, next) {
       catch(error) { if(error.status !== 409) throw error; billingOfficeError=error.message; }
     }
     const feeSnapshots = claimMetadata(claim).feeScheduleSnapshot || [];
-    const feeWarnings = lines.filter(line => {
+    const feeWarnings = [...new Set(lines.filter(line => {
       const evidence = feeSnapshots.find(item => item.serviceCode === line.procedure_code);
       return Number(line.charge_cents) === 0 && (!evidence || evidence.needsRate);
-    }).map(line => `${line.procedure_code} has a saved $0 charge without a confirmed fee. Enter the charge for this claim. Fee schedule changes apply to new claims and do not reprice this saved claim.`);
+    }).map(line => `${line.procedure_code} has a saved $0 charge without a confirmed fee. Enter the charge for this claim. Fee schedule changes apply to new claims and do not reprice this saved claim.`))];
     delete claim.metadata_json;
     res.json({ claim, lines, feeWarnings, billingOffices, billingOfficeId, billingOfficeError, approvedClinicalVersion, approvedClinicalVersionError, clinicalVersionChanged: !!approvedClinicalVersion && claimDiffersFromApprovedVersion(claim, lines, approvedClinicalVersion), previouslyTransmitted: previouslyTransmitted(claim) });
   } catch (e) { next(e); }
