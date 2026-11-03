@@ -1,12 +1,12 @@
 <template>
   <section v-if="!unavailable && agencyId" class="relay-settings" aria-labelledby="relay-title">
     <h3 id="relay-title">Provider text forwarding</h3>
-    <p>Receive client and guardian texts on your personal phone. Reply to the app number using the exact family code shown, followed by your message. Your name appears on replies sent to the family.</p>
+    <p>Receive client and guardian texts on your personal phone. Reply to the app number normally and confirm the recipient with Y, or use the short family code shown. Family replies include your name and organization. Reply SUPPORT for assistance or NOCLIENTS to stop personal-phone forwarding. Messages remain available in the app.</p>
     <p>Secure messages, group conversations and attachments stay in the app.</p>
     <p v-if="loading" role="status">Loading forwarding settings…</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <template v-if="settings">
-      <p role="status">{{ active ? 'Forwarding is enabled for this agency.' : 'Forwarding is off for this agency.' }}</p>
+      <p role="status">{{ active && settings.forwardingEnabled ? 'Forwarding is enabled for this agency.' : 'Forwarding is off for this agency.' }}</p>
       <p v-if="active && (!settings.textsEnabled || !settings.forwardingEnabled)">Text delivery is paused in notification preferences.</p>
       <label>Personal phone <input v-model="phone" type="tel" autocomplete="tel" :disabled="saving" /></label>
       <label>App number <select v-model="numberId" :disabled="saving"><option value="">Choose a number</option><option v-for="number in settings.numbers" :key="number.id" :value="number.id">{{ number.phone }}</option></select></label>

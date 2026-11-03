@@ -34,7 +34,7 @@ it.each([[10, 'Michael'], [11, 'Jamie']])('lets assigned provider %s send with t
  expect(Vonage.sendSms).toHaveBeenCalledWith(expect.objectContaining({ from: '+17195550200', body: `${name}: Sounds good, see you at 3pm.`, senderFirstName: name }));
  expect(MessageLog.createOutbound).toHaveBeenCalledWith(expect.objectContaining({ userId, clientId: 4, body: `${name}: Sounds good, see you at 3pm.` }));
  const sent = Vonage.sendSms.mock.calls[0][0];
- expect(formatRegisteredSms(sent.body, 'ITSCO', sent.senderFirstName)).toBe(`${name}: Sounds good, see you at 3pm.\nITSCO. Reply STOP to opt out.`);
+ expect(formatRegisteredSms(sent.body, 'ITSCO', sent.senderFirstName)).toBe(`Sounds good, see you at 3pm.\n— ${name} with ITSCO\nReply STOP to opt out.`);
 });
 it('rejects an unrelated provider before logging or sending', async () => {
  await expect(sendClinicalSms({ userId: 12, clientId: 4, body: 'Hi' })).rejects.toMatchObject({ status: 403 });

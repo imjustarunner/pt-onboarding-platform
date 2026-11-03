@@ -8,6 +8,7 @@ vi.mock('../../models/PhoneNumberAssignment.model.js', () => ({ default: { listE
 vi.mock('../sharedCareNumber.service.js', () => ({ sharedCareNumberId: vi.fn() }));
 vi.mock('../communicationRouting.service.js', () => ({ resolveClientCaregivers: vi.fn() }));
 vi.mock('../smsCompliance.service.js', () => ({ getSmsSender: vi.fn(), recordSmsPermission: vi.fn() }));
+vi.mock('../providerRelayPreference.service.js', () => ({ providerRelayOptedOut: vi.fn().mockResolvedValue(false), setProviderRelayPreference: vi.fn() }));
 import pool from '../../config/database.js';
 import User from '../../models/User.model.js';
 import Prefs from '../../models/UserPreferences.model.js';
@@ -17,6 +18,7 @@ import Assignments from '../../models/PhoneNumberAssignment.model.js';
 import { sharedCareNumberId } from '../sharedCareNumber.service.js';
 import { resolveClientCaregivers } from '../communicationRouting.service.js';
 import { getSmsSender, recordSmsPermission } from '../smsCompliance.service.js';
+import { providerRelayOptedOut, setProviderRelayPreference } from '../providerRelayPreference.service.js';
 import { saveRelaySettings, relayEnrollmentReady, assertRelaySettingsActor } from '../providerSmsRelaySettings.service.js';
 const user = { id:1433, role:'provider', is_active:1, personal_phone:'+17192172227' };
 const enrollment = { provider_user_id:1433, agency_id:450, number_id:6, phone:user.personal_phone, enabled:1 };
@@ -24,6 +26,7 @@ const save = { actor:{id:1,role:'super_admin'}, userId:1433, agencyId:450, enabl
 let otherUsers, owners;
 beforeEach(() => {
   vi.resetAllMocks(); otherUsers=[]; owners=[{provider_user_id:1433,agency_id:450}];
+  providerRelayOptedOut.mockResolvedValue(false);
   pool.execute.mockImplementation(async sql => {
     if(sql.includes('JOIN user_agencies')) return [[user]];
     if(sql.startsWith('SELECT id, phone_number')) return [otherUsers];
@@ -86,4 +89,9 @@ it('rechecks texting, forwarding, personal phone, number and current care assign
   expect(await relayEnrollmentReady(enrollment,2271)).toBe(false);
   resolveClientCaregivers.mockResolvedValue({caregiverIds:[]});
   expect(await relayEnrollmentReady(enrollment,2271)).toBe(false);
+});
+it('NOCLIENTS disables personal forwarding without changing app preferences', async () => {
+  providerRelayOptedOut.mockResolvedValue(true);
+  expect(await relayEnrollmentReady(enrollment,2271)).toBe(false);
+  expect(Prefs.update).not.toHaveBeenCalled();
 });
