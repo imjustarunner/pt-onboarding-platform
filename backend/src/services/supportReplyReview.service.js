@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { encryptChatText, decryptChatText } from './chatEncryption.service.js';
 import { decryptTicketRow, decryptTicketMessageRow } from '../utils/supportTicketCrypto.js';
 import {
-  assertReviewAccess, buildReviewNotice, deliveryState, hashReviewKey, latestDueReviewDate,
+  assertReviewAccess, buildReviewNotice, buildInteractiveReviewNotice, deliveryState, hashReviewKey, latestDueReviewDate,
   localParts, normalizePilotConfig, reviewError, reviewWindow, shiftDate, isWeekday
 } from '../utils/supportReplyReview.shared.js';
 
@@ -16,13 +16,18 @@ async function defaultSendNotice({ config, reviewer, notice, digestId }) {
   const { sendNotificationEmail } = await import('./unifiedEmail/unifiedEmailSender.service.js');
   return sendNotificationEmail({
     agencyId: config.agencyId, triggerKey: 'daily_digest', to: reviewer.email,
-    subject: notice.subject, text: notice.text, userId: config.reviewerUserId,
+    subject: notice.subject, text: notice.text, html: notice.html, userId: config.reviewerUserId,
     templateType: 'support_reply_pilot_review', templateId: digestId, source: 'auto'
   });
 }
 
+async function defaultCreateInteractiveReview({db,config,date,review}) {
+  const {createSupportReplyFeedbackService}=await import('./supportReplyFeedback.service.js');
+  return createSupportReplyFeedbackService({db}).ensureDailyBatch({config,date,report:review});
+}
+
 /** Dependency injection keeps all verification local: tests never open a DB or send email. */
-export function createSupportReplyReviewService({ db: injectedDb, encrypt = encryptChatText, decrypt = decryptChatText, sendNotice = defaultSendNotice, now = () => new Date() } = {}) {
+export function createSupportReplyReviewService({ db: injectedDb, encrypt = encryptChatText, decrypt = decryptChatText, sendNotice = defaultSendNotice, createInteractiveReview = defaultCreateInteractiveReview, now = () => new Date() } = {}) {
   const database = async () => injectedDb || (await import('../config/database.js')).default;
   const seal = (payload) => {
     try { return JSON.stringify(encrypt(JSON.stringify(payload))); }
@@ -411,15 +416,17 @@ export function createSupportReplyReviewService({ db: injectedDb, encrypt = encr
     if (!claim.affectedRows) return { id: digest.id, status: digest.status, duplicate: true };
     let attempted = false;
     try {
-      const review = await dailyReview({ agencyId: config.agencyId, date, config });
+      const review = await dailyReview({ agencyId: config.agencyId, date, config, includeAllStaff:true });
+      if(review.coverage.truncated)throw reviewError('Daily review coverage exceeds the safe limit',503,'support_review_truncated');
+      const interactive=await createInteractiveReview({db,config,date,review});
       const [[reviewer]] = await db.execute('SELECT u.id, u.email FROM users u JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ? AND ua.is_active = TRUE WHERE u.id = ? AND u.is_active = TRUE LIMIT 1', [config.agencyId, config.reviewerUserId]);
       const [[agency]] = await db.execute('SELECT slug FROM agencies WHERE id = ? LIMIT 1', [config.agencyId]);
       if (!reviewer?.email || !agency?.slug) throw reviewError('Reviewer membership, email, or agency route is unavailable', 409, 'support_review_recipient_unavailable');
       const base = String(process.env.FRONTEND_URL || 'https://app.itsco.health').replace(/\/$/, '');
-      const url = `${base}/${encodeURIComponent(agency.slug)}/admin/support-review?date=${encodeURIComponent(date)}&agencyId=${config.agencyId}`;
-      const notice = buildReviewNotice({ date, url, totals: review.totals, incomplete: review.coverage.truncated });
+      const url = `${base}/${encodeURIComponent(agency.slug)}/admin/support-review?batch=${interactive.id}&agencyId=${config.agencyId}`;
+      const notice = buildInteractiveReviewNotice({date,url,totals:interactive.totals,entries:interactive.entries});
       // Fence expired workers before either notification or transport side effect.
-      const [deliveryClaim] = await db.execute("UPDATE support_reply_review_digests SET counts_json = ?, status = 'sending', attempted_at = ? WHERE id = ? AND status = 'building' AND claim_token = ?", [JSON.stringify(review.totals), sqlDate(now()), digest.id, claimToken]);
+      const [deliveryClaim] = await db.execute("UPDATE support_reply_review_digests SET counts_json = ?, status = 'sending', attempted_at = ? WHERE id = ? AND status = 'building' AND claim_token = ?", [JSON.stringify(interactive.totals), sqlDate(now()), digest.id, claimToken]);
       if (!deliveryClaim.affectedRows) return { id: digest.id, status: 'lease_lost' };
       attempted = true;
       let notificationId = digest.notification_id;

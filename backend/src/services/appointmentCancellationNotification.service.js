@@ -71,8 +71,10 @@ export function buildCancellationNotification(appointment, facts, resolved = {})
   const reviewed = facts.reviewedMessage;
   if (reviewed) {
     paragraphs.splice(0, paragraphs.length, reviewed.text);
-    paragraphs.push(followUpText);
-    if (!['keep_next','keep_next_or_support','private_slots','portal_booking'].includes(details.followUpAction)) paragraphs.push(nextText);
+    if (facts.urgent !== false) {
+      paragraphs.push(followUpText);
+      if (!['keep_next','keep_next_or_support','private_slots','portal_booking'].includes(details.followUpAction)) paragraphs.push(nextText);
+    }
   }
   if (feeText) paragraphs.push(feeText);
   const text = [...paragraphs, ...(portalUrl ? [`Review the latest options: ${portalUrl}`] : [])].join('\n\n');
@@ -210,7 +212,10 @@ export function createCancellationNotificationService({ database = pool, appoint
 export const notifyAppointmentCancellation = async (appointmentId, facts, actorUserId = null) => {
   if (!['canceled', 'rescheduled', 'no_show'].includes(facts.eventType)) return null;
   if (facts.eventType === 'no_show' && facts.reviewedAttendanceOutcome !== true) return null;
-  return (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.queue(appointmentId, { eventType: facts.eventType, facts, actorUserId });
+  const notices = (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices;
+  const queued = await notices.queue(appointmentId, { eventType: facts.eventType, facts, actorUserId, sendImmediately: !!facts.absenceSource });
+  if (facts.absenceSource && facts.notificationMode !== 'none') { await notices.processDue({ appointmentId }); return notices.summary(appointmentId); }
+  return queued;
 };
 export const processDueCancellationNotifications = (...args) => createCancellationNotificationService().processDue(...args);
 export const retryCancellationNotification = (...args) => createCancellationNotificationService().retry(...args);

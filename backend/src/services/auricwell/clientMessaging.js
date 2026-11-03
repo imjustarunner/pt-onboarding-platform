@@ -5,8 +5,9 @@ import { patientAccess } from './clinical.js';
 import { platformIntegrations, recordNotifyreWebhookVerified } from './platformIntegrations.js';
 import { normalizeSessionPhone } from './integrationPolicy.js';
 import { notifyrePurposeOptedOut, declineNotifyrePurpose } from '../notifyreRecipientState.service.js';
+import { categoryRestartMessage } from '../../utils/smsCategoryRestart.js';
 import { notifyreRequest, notifyreReceipt } from './sessionTransports.js';
-import { SMS_CATEGORIES, emptyCategories, CATEGORY_COMMANDS, phoneKey, routeFor, assertMessagingReady,
+import { SMS_CATEGORIES, emptyCategories, CATEGORY_COMMANDS, categoryLabel, consentedSmsCategories, restartClientSmsCategories, phoneKey, routeFor, assertMessagingReady,
   smsCommand, smsFooter, verifyNotifyreSignature, normalizeNotifyreEvent, parseRelayReply, onRelayShift } from './clientMessagingPolicy.js';
 
 const now = () => new Date().toISOString();
@@ -102,6 +103,7 @@ export async function saveClientSmsPreferences(ctx, patientId, input) {
       evidence: newlyEnabled ? String(input.evidence).trim().slice(0, 1000) : prior?.data.evidence || '',
       conversationsDeclined: categories.conversations ? false : !!prior?.data.conversationsDeclined || prior?.data.categories?.conversations === true,
       consentActor: newlyEnabled ? ctx.accountId : prior?.data.consentActor || null, updatedAt: now() };
+    data.consentedCategories = consentedSmsCategories({ ...data, consentedCategories: prior?.data.accountId === data.accountId ? consentedSmsCategories(prior?.data) : emptyCategories() });
     let id = prior?.id || crypto.randomUUID();
     if (prior) {
       await writeContact(ctx, prior, data, db);
@@ -442,19 +444,42 @@ async function applyCommand(ctx, event, command, db) {
       await db.execute(`UPDATE auricwell_sms_outbox o JOIN auricwell_sms_contacts c ON c.id=o.contact_id SET o.status='suppressed',o.updated_at=UTC_TIMESTAMP(3)
         WHERE c.phone_key=? AND o.status='queued'`, [phoneKey(event.from)]);
     }
-    // Carrier handles the standard STOP/START confirmation. No duplicate SMS.
+    if (command.type === 'start' && !state.blocked && contact && event.carrier !== 'vonage') {
+      const next = restartClientSmsCategories(contact.data, event.at);
+      const { settings } = await platformIntegrations(db);
+      const route = routeFor(settings, ctx.practiceId);
+      // A category declined through the other Notifyre path may still be true
+      // in this contact. Its saved affirmative consent is required to restore it.
+      for (const [category, purpose] of [['reminders','reminders'],['conversations','care']]) {
+        if (route?.campaignId && next.data.consentedCategories[category] && event.at >= Number(contact.data.commandAt?.[category] || 0)
+            && await notifyrePurposeOptedOut(`campaign:${route.campaignId}`, event.from, purpose, db)) {
+          await db.execute("DELETE FROM sms_recipient_permissions WHERE scope_key=? AND phone=? AND purpose=? AND status='opted_out'", [`campaign:${route.campaignId}`, event.from, purpose]);
+          next.data.categories[category] = true;
+          next.data.commandAt[category] = event.at;
+          if (category === 'conversations') next.data.conversationsDeclined = false;
+          if (!next.restored.includes(category)) next.restored.push(category);
+        }
+      }
+      if (next.restored.length) await writeContact(ctx, contact, next.data, db);
+      if (route) await queueSms(ctx, { contactId: contact.id, category:'preference',
+        body:categoryRestartMessage(route.brand, next.restored), key:`category-restart:${event.key}`, expiresAt:Date.now()+3600000 }, db);
+    }
+    // The carrier owns the standard reply after account STOP. Only a category-
+    // only restart queues the additional, itemized category confirmation.
     return;
   }
-  if (command.type === 'category' && command.category === 'reminders' && event.carrier !== 'vonage') {
+  if (command.type === 'category' && ['reminders','conversations'].includes(command.category) && event.carrier !== 'vonage') {
     const { settings } = await platformIntegrations(db);
     const route = routeFor(settings, ctx.practiceId);
-    if (route?.campaignId) await declineNotifyrePurpose({scope:`campaign:${route.campaignId}`,phone:event.from,purpose:'reminders',
-      evidence:{source:'inbound_noremind',messageId:event.id,collectedAt:new Date(event.at).toISOString()}},db);
+    if (route?.campaignId) await declineNotifyrePurpose({scope:`campaign:${route.campaignId}`,phone:event.from,purpose:command.category === 'conversations' ? 'care' : 'reminders',
+      evidence:{source:command.category === 'conversations' ? 'inbound_noprovider' : 'inbound_noremind',messageId:event.id,collectedAt:new Date(event.at).toISOString()}},db);
   }
   if (command.type === 'category' && contact) {
     const changed = contact.data.commandAt?.[command.category] || 0;
     if (event.at >= changed) await writeContact(ctx, contact, { ...contact.data,
+      consentedCategories: consentedSmsCategories(contact.data),
       categories: { ...contact.data.categories, [command.category]: false },
+      conversationsDeclined: command.category === 'conversations' ? true : contact.data.conversationsDeclined,
       commandAt: { ...contact.data.commandAt, [command.category]: event.at } }, db);
   }
 }
@@ -576,7 +601,7 @@ export async function processSmsEvent(key) {
         if (contact) {
           const route = routeFor((await platformIntegrations(db)).settings, ctx.practiceId);
           const body = command.type === 'help' ? `${route.brand}: For help, contact ${route.support}.`
-            : `${route.brand}: ${command.category === 'forms' ? 'Form texts' : command.category === 'links' ? 'Session-link texts' : 'Appointment reminder texts'} are turned off. Other permitted messages remain available. You can change preferences in your portal.`;
+            : `${route.brand}: ${categoryLabel(command.category)} are turned off. Other permitted messages remain available. Reply START to restore previously consented categories, or change preferences in your portal.`;
           await queueSms(ctx, { contactId: contact.id, category: command.type === 'help' ? 'help' : 'preference', body, key: `command:${event.key}`, expiresAt: Date.now() + 3600000 }, db);
         }
       }

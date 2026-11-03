@@ -10,6 +10,7 @@ vi.mock('../../models/Notification.model.js', () => ({ default: { markAsResolved
 vi.mock('../../services/notificationDispatcher.service.js', () => ({ createNotificationAndDispatch: m.notify }));
 vi.mock('../../services/plannedOutPresence.service.js', () => ({ applyPlannedOutPresenceForUser: m.presence }));
 vi.mock('../../services/plannedOutScheduleSync.service.js', () => ({ syncScheduleEventFromPlannedOut: m.sync }));
+vi.mock('../../services/plannedOutCancellation.service.js',()=>({preparePlannedOutCancellation:vi.fn(async()=>null),completePlannedOutCancellation:vi.fn(async()=>null)}));
 import { createPlannedOut, reviewPlannedOut } from '../plannedOuts.controller.js';
 
 const response = () => ({ status: vi.fn().mockReturnThis(), json: vi.fn() });

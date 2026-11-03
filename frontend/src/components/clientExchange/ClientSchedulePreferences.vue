@@ -1,29 +1,30 @@
 <template>
   <fieldset class="client-schedule">
-    <legend>When does the client need a provider?</legend>
-    <p class="muted">{{ required ? 'Required. Choose available days and times, or specific day/time options.' : 'Optional. Select days, general times, or specific day/time options.' }} These details are shared in the exchange and matching emails.</p>
-    <div data-exchange-field="days" class="choices" :class="{ invalid: missingFields.includes('days') }" role="group" aria-label="Days that work" :aria-invalid="missingFields.includes('days') || undefined">
-      <label v-for="day in scheduleDays" :key="day"><input type="checkbox" :checked="value.days.includes(day)" @change="toggle('days', day)" />{{ day }}</label>
+    <legend>{{ tx('When does the client need a provider?') }}</legend>
+    <p class="muted">{{ tx(required ? 'Required. Choose available days and times, or specific day/time options.' : 'Optional. Select days, general times, or specific day/time options.') }} {{ tx('These details help our team match your availability.') }}</p>
+    <div data-exchange-field="days" class="choices" :class="{ invalid: missingFields.includes('days') }" role="group" :aria-label="tx('Days that work')" :aria-invalid="missingFields.includes('days') || undefined">
+      <label v-for="day in scheduleDays" :key="day"><input type="checkbox" :checked="value.days.includes(day)" @change="toggle('days', day)" />{{ tx(day) }}</label>
     </div>
-    <div data-exchange-field="times" class="choices" :class="{ invalid: missingFields.includes('times') }" role="group" aria-label="Times that work" :aria-invalid="missingFields.includes('times') || undefined">
-      <label v-for="(label, key) in schedulePeriods" :key="key"><input type="checkbox" :checked="value.periods.includes(key)" @change="toggle('periods', key)" />{{ label }}</label>
+    <div data-exchange-field="times" class="choices" :class="{ invalid: missingFields.includes('times') }" role="group" :aria-label="tx('Times that work')" :aria-invalid="missingFields.includes('times') || undefined">
+      <label v-for="(label, key) in schedulePeriods" :key="key"><input type="checkbox" :checked="value.periods.includes(key)" @change="toggle('periods', key)" />{{ tx(label) }}</label>
     </div>
-    <p v-if="missingFields.includes('times')" class="field-error">Select a time above or add a specific time range below. Notes such as “After 3 PM” do not select a time.</p>
+    <p v-if="missingFields.includes('times')" class="field-error">{{ tx('Select a time above or add a specific time range below. Notes such as “After 3 PM” do not select a time.') }}</p>
     <div v-for="(window, index) in value.windows" :key="index" class="time-row">
-      <label>Day<select :value="window.day" @change="changeWindow(index, 'day', $event.target.value)"><option value="">{{ value.days.length ? 'Selected days' : 'Any day' }}</option><option v-for="day in scheduleDays" :key="day">{{ day }}</option></select></label>
-      <label>Start time<input type="time" :value="window.start" @input="changeWindow(index, 'start', $event.target.value)" /></label>
-      <label>End time (optional)<input type="time" :value="window.end" @input="changeWindow(index, 'end', $event.target.value)" /></label>
-      <button type="button" class="btn btn-secondary btn-sm" :aria-label="`Remove time option ${index + 1}`" @click="set('windows', value.windows.filter((_, i) => i !== index))">Remove</button>
+      <label>{{ tx('Day') }}<select :value="window.day" @change="changeWindow(index, 'day', $event.target.value)"><option value="">{{ tx(value.days.length ? 'Selected days' : 'Any day') }}</option><option v-for="day in scheduleDays" :key="day" :value="day">{{ tx(day) }}</option></select></label>
+      <label>{{ tx('Start time') }}<input type="time" :value="window.start" @input="changeWindow(index, 'start', $event.target.value)" /></label>
+      <label>{{ tx('End time (optional)') }}<input type="time" :value="window.end" @input="changeWindow(index, 'end', $event.target.value)" /></label>
+      <button type="button" class="btn btn-secondary btn-sm" :aria-label="`${tx('Remove time option')} ${index + 1}`" @click="set('windows', value.windows.filter((_, i) => i !== index))">{{ tx('Remove') }}</button>
     </div>
-    <button type="button" class="btn btn-secondary btn-sm" :disabled="value.windows.length >= 14" @click="addWindow">Add specific time or range</button>
-    <small>Leave the end time blank for a specific start time. Add another option for different days or times.</small>
-    <label>Time zone<input :value="value.timezone" placeholder="America/Denver" @input="set('timezone', $event.target.value)" /></label>
-    <label>Scheduling notes (optional)<textarea :value="value.notes" rows="2" maxlength="1000" placeholder="For example: after dismissal at 3:30 PM; alternate Fridays only" @input="set('notes', $event.target.value)"></textarea></label>
-    <small v-if="required">Notes add detail to the days and times selected above; they do not replace them.</small>
+    <button type="button" class="btn btn-secondary btn-sm" :disabled="value.windows.length >= 14" @click="addWindow">{{ tx('Add specific time or range') }}</button>
+    <small>{{ tx('Leave the end time blank for a specific start time. Add another option for different days or times.') }}</small>
+    <label>{{ tx('Time zone') }}<input :value="value.timezone" placeholder="America/Denver" @input="set('timezone', $event.target.value)" /></label>
+    <label>{{ tx('Scheduling notes (optional)') }}<textarea :value="value.notes" rows="2" maxlength="1000" :placeholder="tx('For example: after dismissal at 3:30 PM; alternate Fridays only')" @input="set('notes', $event.target.value)"></textarea></label>
+    <small v-if="required">{{ tx('Notes add detail to the days and times selected above; they do not replace them.') }}</small>
   </fieldset>
 </template>
 <script setup>
-import { computed } from 'vue';
+import { computed, inject } from 'vue';
+const tx = inject('enrollmentTranslate', text => text);
 import { scheduleDays, schedulePeriods } from '../../utils/clientExchangeSchedule.js';
 const props = defineProps({ missingFields: { type: Array, default: () => [] }, required: { type: Boolean, default: false }, modelValue: { type: Object, default: () => ({}) } });
 const emit = defineEmits(['update:modelValue']);

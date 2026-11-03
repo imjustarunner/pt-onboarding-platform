@@ -2,14 +2,28 @@ name: SMS carrier and campaign boundaries
 on:
   push:
     branches: [main]
-    paths: ['backend/src/**/sms*', 'backend/src/**/notifyre*', 'backend/src/**/vonage*', 'backend/src/services/auricwell/**', 'backend/src/**/__tests__/messaging.*', 'backend/src/**/__tests__/enrollmentCompletion.*', 'backend/vitest.sms-carrier.config.js', '.github/workflows/sms-carrier-boundaries.yml']
+    paths: ['backend/src/**/sms*', 'backend/src/**/notifyre*', 'backend/src/**/vonage*', 'backend/src/**/providerSms*', 'backend/src/**/providerRelay*', 'backend/src/services/communicationRouting.service.js', 'backend/src/services/auricwell/**', 'backend/src/**/__tests__/messaging.*', 'backend/src/**/__tests__/enrollmentCompletion.*', 'backend/vitest.sms-carrier.config.js', '.github/workflows/sms-carrier-boundaries.yml']
   pull_request:
-    paths: ['backend/src/**/sms*', 'backend/src/**/notifyre*', 'backend/src/**/vonage*', 'backend/src/services/auricwell/**', 'backend/src/**/__tests__/messaging.*', 'backend/src/**/__tests__/enrollmentCompletion.*', 'backend/vitest.sms-carrier.config.js', '.github/workflows/sms-carrier-boundaries.yml']
+    paths: ['backend/src/**/sms*', 'backend/src/**/notifyre*', 'backend/src/**/vonage*', 'backend/src/**/providerSms*', 'backend/src/**/providerRelay*', 'backend/src/services/communicationRouting.service.js', 'backend/src/services/auricwell/**', 'backend/src/**/__tests__/messaging.*', 'backend/src/**/__tests__/enrollmentCompletion.*', 'backend/vitest.sms-carrier.config.js', '.github/workflows/sms-carrier-boundaries.yml']
 permissions:
   contents: read
 jobs:
   carrier-boundaries:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: stale_text_ci
+          MYSQL_ROOT_PASSWORD: stale_text_ci_only
+          MYSQL_ROOT_HOST: '%'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 --password=stale_text_ci_only"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -23,6 +37,15 @@ jobs:
       - run: npm ci --prefix frontend --ignore-scripts
       - name: Verify client, staff and campaign separation without real sends
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.sms-carrier.config.js
+      - name: Verify stale-text SQL with isolated synthetic fixtures
+        env:
+          STALE_TEXT_MYSQL_READONLY_TEST: '1'
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_USER: root
+          DB_PASSWORD: stale_text_ci_only
+          DB_NAME: stale_text_ci
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.messaging.config.js backend/src/services/__tests__/messaging.staleText.mysql.test.js
       - name: Verify AuricWell client and account verification settings
         env:
           NODE_ENV: test

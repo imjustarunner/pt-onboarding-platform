@@ -7,7 +7,7 @@ export async function isRequiredProviderWorkEmail({templateType,to,userId,agency
   const [rows] = await pool.execute('SELECT 1 FROM user_agencies WHERE user_id=? AND agency_id=? AND is_active=1 LIMIT 1',[uid,aid]);
   return {user,member:rows.length===1};
 }) {
-  if (templateType!=='client_appointment_reply' || !Number(userId) || !Number(agencyId) || typeof to!=='string') return false;
+  if (!['client_appointment_reply','provider_sms_stopped'].includes(templateType) || !Number(userId) || !Number(agencyId) || typeof to!=='string') return false;
   const {user,member}=await load(Number(userId),Number(agencyId));
   return !!member && !!user && ['provider','provider_plus','intern','intern_plus','supervisor'].includes(user.role)
     && user.is_active!==false && user.is_active!==0

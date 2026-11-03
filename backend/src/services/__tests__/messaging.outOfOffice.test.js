@@ -74,9 +74,11 @@ it('consumes a duplicate carrier reply without opening another ticket or confirm
  expect(await handleOutOfOfficeSupportReply(incoming)).toBe(true);
  expect(db.commit).not.toHaveBeenCalled();expect(Vonage.sendSms).not.toHaveBeenCalled();
 });
-it('does not create another ticket for a later SUPPORT on the completed offer', async () => {
+it('consumes later SUPPORT on an accepted offer without forwarding it or creating another ticket', async () => {
  offer.metadata.supportChoiceTicketId=60;offer.metadata.supportChoiceReplyId='old';
- expect(await handleOutOfOfficeSupportReply(incoming)).toBe(false);
+ expect(await handleOutOfOfficeSupportReply(incoming)).toBe(true);
+ expect(db.execute.mock.calls.some(([sql])=>sql.includes('INSERT INTO support_tickets'))).toBe(false);
+ expect(Vonage.sendSms).not.toHaveBeenCalled();
 });
 it('allows explicit SUPPORT despite a newer appointment request', async () => {
  newer=true; expect(await handleOutOfOfficeSupportReply({...incoming,body:'SUPPORT'})).toBe(true);expect(db.commit).toHaveBeenCalled();

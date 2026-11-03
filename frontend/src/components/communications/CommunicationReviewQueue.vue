@@ -2,6 +2,7 @@
   <section class="communication-review">
     <h3>Support review and Spam</h3>
     <p>Unknown senders, messages to departed providers, and overdue replies stay here for agency support. Unknown does not mean spam. Blocking a sender keeps future texts in Spam without notifying providers.</p>
+    <p>Stale texts need a staff reply. Their deadline starts with the first unanswered client text; follow-ups and read receipts do not restart it.</p>
     <p>Provider numbers stay with support until an administrator releases or reassigns them. Calls and new voicemail capture are not active yet.</p>
     <PhoneFollowupTicket v-if="agencyId" :key="agencyId" :agency-id="agencyId" />
     <label>Folder <select v-model="status"><option value="review">Needs review</option><option value="spam">Spam</option><option value="resolved">Resolved</option></select></label>
@@ -30,7 +31,7 @@ import PhoneFollowupTicket from './PhoneFollowupTicket.vue';
 const props=defineProps({agencyId:{type:[Number,String],default:null}});
 const items=ref([]),status=ref('review'),busy=ref(false),error=ref(''),nextBeforeId=ref(null);
 let generation=0;
-const reasonLabel = reason => ({unassigned_client:'Client needs a provider assignment',unlinked_sender:'Sender needs support routing',suspected_advertising:'Suspected advertising — reviewable',blocked_sender:'Blocked sender',unknown_sender:'Unknown sender',ambiguous_identity:'Shared phone — verify recipient',departed_provider:'Departed provider — support coverage',unapproved_for_provider:'Not assigned to this provider',main_number_inquiry:'Main number inquiry',unread_text:'Unread text',unanswered_text:'Unanswered text',unheard_voicemail:'Unheard voicemail'}[reason] || reason);
+const reasonLabel = reason => ({unassigned_client:'Client needs a provider assignment',unlinked_sender:'Sender needs support routing',suspected_advertising:'Suspected advertising — reviewable',blocked_sender:'Blocked sender',unknown_sender:'Unknown sender',ambiguous_identity:'Shared phone — verify recipient',departed_provider:'Departed provider — support coverage',unapproved_for_provider:'Not assigned to this provider',main_number_inquiry:'Main number inquiry',stale_text:'Stale text',unread_text:'Stale text — unread',unanswered_text:'Stale text — unanswered',unheard_voicemail:'Unheard voicemail'}[reason] || reason);
 async function load(append=false) {
   const current=++generation, agencyId=props.agencyId;
   if (!append) {items.value=[];nextBeforeId.value=null;}

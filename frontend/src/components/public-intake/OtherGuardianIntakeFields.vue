@@ -4,7 +4,8 @@
 
     <label class="ogi-rights">
       {{ copy.rightsLabel }}
-      <select v-model="model.hasLegalRights" :class="{ 'input-error': !!localError }">
+      <span v-if="required" class="df-field-required">*</span>
+      <select v-model="model.hasLegalRights" :required="required" :class="{ 'input-error': !!localError }">
         <option value="">{{ copy.selectOption }}</option>
         <option value="yes">{{ copy.yes }}</option>
         <option value="no">{{ copy.no }}</option>
@@ -114,6 +115,7 @@ const props = defineProps({
   agencySlug: { type: String, default: '' },
   locale: { type: String, default: 'en' },
   error: { type: String, default: '' },
+  required: { type: Boolean, default: false },
   intakeForDependent: { type: Boolean, default: true }
 });
 const emit = defineEmits(['saved']);

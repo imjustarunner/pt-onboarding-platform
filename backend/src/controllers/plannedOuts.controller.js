@@ -14,6 +14,8 @@ import {
 import { applyPlannedOutPresenceForUser } from '../services/plannedOutPresence.service.js';
 import { syncScheduleEventFromPlannedOut } from '../services/plannedOutScheduleSync.service.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
+import pool from '../config/database.js';
+import { preparePlannedOutCancellation, completePlannedOutCancellation } from '../services/plannedOutCancellation.service.js';
 
 function roleOf(req) {
   return String(req.user?.effectiveRole || req.user?.role || '').toLowerCase();
@@ -359,6 +361,7 @@ export const createPlannedOut = async (req, res, next) => {
       }
     }
 
+    const cancellationPlan = await preparePlannedOutCancellation({ payload,providerId:targetUserId,agencyId:access.agencyId },req.user);
     const event = await createScheduleBlockForOut({
       req,
       agencyId: access.agencyId,
@@ -376,6 +379,8 @@ export const createPlannedOut = async (req, res, next) => {
       scheduleEventId: event?.id || null
     });
 
+    if (cancellationPlan) await pool.execute('UPDATE planned_outs SET cancellation_review_token=? WHERE id=?', [cancellationPlan.token,created.id]);
+    const cancellation = await completePlannedOutCancellation(cancellationPlan,req.user);
     await syncScheduleEventFromPlannedOut(created?.id);
 
     const whenLabel = plannedOutWhenLabel(created, submitTz);
@@ -403,7 +408,7 @@ export const createPlannedOut = async (req, res, next) => {
       }
     });
 
-    return res.status(201).json({ plannedOut: serializePlannedOutForApi(created) });
+    return res.status(201).json({ plannedOut: serializePlannedOutForApi(created), cancellation });
   } catch (e) {
     return next(e);
   }
@@ -595,6 +600,7 @@ export const updatePlannedOut = async (req, res, next) => {
       return res.status(err.status || 400).json({ error: { message: err.message } });
     }
 
+    const cancellationPlan = await preparePlannedOutCancellation({ payload,providerId:Number(row.user_id),agencyId:access.agencyId },req.user);
     if (row.schedule_event_id) {
       await ProviderScheduleEvent.cancelByIds({
         eventIds: [row.schedule_event_id],
@@ -619,6 +625,8 @@ export const updatePlannedOut = async (req, res, next) => {
       reviewedByUserId: null,
       reviewedAt: null
     });
+    if (cancellationPlan) await pool.execute('UPDATE planned_outs SET cancellation_review_token=? WHERE id=?', [cancellationPlan.token,updated.id]);
+    const cancellation = await completePlannedOutCancellation(cancellationPlan,req.user);
     await syncScheduleEventFromPlannedOut(updated?.id);
 
     const whenLabel = plannedOutWhenLabel(updated, submitTz);
@@ -645,7 +653,7 @@ export const updatePlannedOut = async (req, res, next) => {
       }
     });
 
-    return res.json({ plannedOut: serializePlannedOutForApi(updated) });
+    return res.json({ plannedOut: serializePlannedOutForApi(updated), cancellation });
   } catch (e) {
     return next(e);
   }

@@ -6,6 +6,14 @@ import {
 } from '../supportReplyReview.shared.js';
 
 describe('support review calendar and policy', () => {
+  it('supports every calendar day at 6 PM Mountain, including the 25-hour fall-back Sunday',()=>{
+    const config={weekdaysOnly:false,timeZone:'America/Denver',sendTime:'18:00'};
+    const window=reviewWindow('2026-11-01',config);
+    assert.equal(window.start,'2026-11-01T00:00:00.000Z');assert.equal(window.end,'2026-11-02T01:00:00.000Z');
+    assert.equal(latestDueReviewDate('2026-11-02T00:59:00Z',config),'2026-10-31');
+    assert.equal(latestDueReviewDate('2026-11-02T01:00:00Z',config),'2026-11-01');
+  });
+
   it('uses a weekday 6 PM Mountain cutoff, including weekend activity on Monday', () => {
     const result = reviewWindow('2026-10-26');
     assert.equal(result.start, '2026-10-24T00:00:00.000Z');

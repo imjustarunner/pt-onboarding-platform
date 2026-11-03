@@ -3,12 +3,13 @@ import { shallowMount, flushPromises } from '@vue/test-utils';
 import { createRouter, createMemoryHistory } from 'vue-router';
 import Join from '../AdaptiveJoinView.vue';
 import api from '../../../services/api';
+import { setPublicLocale } from '../../../i18n';
 
 vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: null, isAuthenticated: false }) }));
 const config = { agency: { id: 2, name: 'ITSCO' }, activeService: { serviceType: 'counseling' }, intakeServices: [{ serviceType: 'counseling' }], pathways: { full: { enabled: true, publicKey: 'office-full' }, quick: { enabled: true } }, copy: {} };
 let wrapper;
-beforeEach(() => { sessionStorage.clear(); localStorage.clear(); vi.resetAllMocks(); });
+beforeEach(() => { sessionStorage.clear(); localStorage.clear(); setPublicLocale('en'); vi.resetAllMocks(); });
 afterEach(() => wrapper?.unmount());
 async function render({ status = { inPerson: { status: 'waitlist' }, virtual: { status: 'accepting' } }, full = config, path = '/join/itsco/counseling?enrollmentSource=provider&providerId=9&format=VIRTUAL', fail = false } = {}) {
   api.get.mockImplementation(async url => {
@@ -80,7 +81,7 @@ describe('provider profile entry redirects', () => {
     await wrapper.find('.provider-enrollment-entry .df-btn-secondary').trigger('click'); await flushPromises();
     expect(api.post).toHaveBeenCalledWith('/public/agency-services/itsco/release-hold', { token: 'opaque-hold' }, expect.any(Object));
     expect(sessionStorage.getItem('provider-hold:itsco')).toBeNull();
-    expect(router.currentRoute.value.query).toEqual({});
+    expect(router.currentRoute.value.query).toEqual({ lang: 'en' });
     expect(wrapper.findComponent({ name: 'AdaptiveJoinLanding' }).exists()).toBe(true);
   });
 
@@ -114,5 +115,12 @@ describe('provider profile entry redirects', () => {
     sessionStorage.setItem('provider-hold:itsco',JSON.stringify({providerId:10,serviceType:'counseling',modality:'VIRTUAL',preferenceOnly:true}));
     const router=await render();expect(router.currentRoute.value.path).toBe('/intake/office-full');
     expect(sessionStorage.getItem('provider-hold:itsco')).toBeNull();expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('preserves an explicit Spanish language choice when entering the full provider packet', async () => {
+    const router = await render({ path: '/join/itsco/counseling?providerId=9&format=VIRTUAL&lang=es' });
+    expect(router.currentRoute.value.path).toBe('/intake/office-full');
+    expect(router.currentRoute.value.query).toMatchObject({ providerId: '9', format: 'VIRTUAL', lang: 'es' });
+    expect(localStorage.getItem('preferredFormLanguage')).toBe('es');
   });
 });

@@ -1316,10 +1316,13 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
   try { replacementBookings = await (await import('./appointmentReplacementOffer.service.js')).replacementOffers.processBookings({limit:20, agencyId}); }
   catch (e) { replacementBookings = {failed:1}; console.warn('[replacement-offers] Automatic booking retry needs attention:',e.message); }
   const scheduleUpdates = await (await import('./appointmentScheduleNotice.service.js')).appointmentScheduleNotices.processDue({ limit: 20, agencyId });
+  let plannedOutCancellations;
+  try { plannedOutCancellations = await (await import('./plannedOutCancellation.service.js')).processPlannedOutCancellations({ agencyId,limit:10 }); }
+  catch (e) { plannedOutCancellations = { failed:1 }; console.warn('[planned-out] Cancellation processing needs attention:',e.message); }
   let replacementOutcomes;
   try { replacementOutcomes = await (await import('./replacementOfferEvents.service.js')).replacementOfferEvents.processDue({ limit: 20, agencyId }); }
   catch (e) { replacementOutcomes = { failed: 1 }; console.warn('[replacement-offers] Outcome processing needs attention:', e.message); }
-  return { ...results, processed: (rows || []).length, changeBuffer: bufferResult, cancellations, scheduleUpdates, replacementBookings, replacementOutcomes };
+  return { ...results, processed: (rows || []).length, changeBuffer: bufferResult, cancellations, scheduleUpdates, plannedOutCancellations, replacementBookings, replacementOutcomes };
 }
 
 // ── Provider-pushed buffered updates ─────────────────────────────────────────

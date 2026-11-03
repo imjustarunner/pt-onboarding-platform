@@ -135,7 +135,11 @@ const tr = (en, es) => (resolvedLocale.value === 'es' ? es : en);
 
 const restoreSaved = (key) => {
   const saved = props.savedCapture;
-  if (saved && String(saved.sectionKey || '') === key && saved.signatureData) {
+  if (saved && String(saved.sectionKey || '') === key && saved.signatureData
+    && saved.locale === props.sectionContext?.locale
+    && saved.contentHash === props.sectionContext?.contentHash
+    && saved.packetVersion === props.sectionContext?.packetVersion
+    && (saved.variant || 'self') === (props.sectionContext?.variant || 'self')) {
     acknowledged.value = true;
     signatureData.value = saved.signatureData;
     forceResign.value = false;
@@ -183,7 +187,8 @@ const complete = () => {
     sectionKey: sectionKey.value,
     acknowledged: true,
     signatureData: signatureData.value,
-    locale: resolvedLocale.value,
+    locale: props.sectionContext?.locale || resolvedLocale.value,
+    variant: props.sectionContext?.variant || 'self',
     contentHash: props.sectionContext?.contentHash || null,
     packetVersion: props.sectionContext?.packetVersion || null,
     snapshotHtml: sectionHtml.value,
@@ -212,8 +217,9 @@ const goNext = () => {
 defineExpose({ goNext });
 
 watch(
-  () => props.sectionContext?.sectionKey,
-  (key) => {
+  () => [props.sectionContext?.sectionKey, props.sectionContext?.locale,
+    props.sectionContext?.contentHash, props.sectionContext?.packetVersion, props.sectionContext?.variant],
+  ([key]) => {
     error.value = '';
     forceResign.value = false;
     if (restoreSaved(String(key || ''))) return;

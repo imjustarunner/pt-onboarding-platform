@@ -73,11 +73,13 @@ export async function handleOutOfOfficeSupportReply({ agencyId, numberId, client
     if(command==='NO'){await db.execute(`UPDATE message_logs SET metadata=JSON_SET(COALESCE(metadata,JSON_OBJECT()),'$.supportChoiceDeclinedAt',UTC_TIMESTAMP()) WHERE id=?`,[offer.id]);await db.commit();return true;}
     if (metadata.supportChoiceTicketId) {
       await db.rollback();
-      return !!messageId && metadata.supportChoiceReplyId === messageId;
+      // A later SUPPORT on an accepted offer is still a command, not a care
+      // message or appointment response. Keep its existing durable ticket.
+      return true;
     }
     originalId = Number(metadata.triggerInboundId);
     const handoff = await requestSmsSupportHandoff(db, { agencyId, numberId, clientId: offer.client_id,
-      inboundLogId: originalId, requestedByUserId: null, reason: 'provider_absence' });
+      inboundLogId: originalId, requestedByUserId: null, reason: 'provider_absence', expectedFromNumber: from });
     ticketId = handoff.ticketId;
     await markSmsSupportOfferAccepted(db, offer.id, ticketId, messageId, originalId);
     await db.execute(`INSERT INTO message_logs

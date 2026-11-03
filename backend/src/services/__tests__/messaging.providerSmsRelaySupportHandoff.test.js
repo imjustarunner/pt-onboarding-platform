@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), getConnection: vi.fn() } }));
 vi.mock('../../models/Client.model.js', () => ({ default: { findById: vi.fn() } }));
-vi.mock('../providerSmsRelayIdentity.service.js', () => ({ resolveRelayFamily: vi.fn() }));
+vi.mock('../providerSmsRelayIdentity.service.js', async importOriginal => ({ ...await importOriginal(), resolveRelayFamily: vi.fn() }));
 vi.mock('../providerSmsRelaySettings.service.js', () => ({ relayEnrollmentReady: vi.fn() }));
 vi.mock('../smsRequestedSupport.service.js', () => ({ alertRequestedSupport: vi.fn() }));
 import pool from '../../config/database.js';
@@ -49,14 +49,14 @@ beforeEach(() => {
   pool.getConnection.mockResolvedValue(db);
 });
 
-it('leaves normal replies for the family-code parser', async () => {
-  expect(await handleProviderSupportCommand({ ...input, body: `${code} I can help with that` })).toBeNull();
+it.each(['SUPPORT', '#1 SUPPORT', '#0 SUPPORT #40', `${code} SUPPORT`, `${code} I can help with that`])('leaves %s for the current confirmed or addressed reply flow', async body => {
+  expect(await handleProviderSupportCommand({ ...input, body })).toBeNull();
   expect(pool.execute).not.toHaveBeenCalled();
 });
 
 it.each([0, 2])('gives guidance instead of guessing when %i offers match', async count => {
   offers = Array.from({ length: count }, () => offers[0]);
-  expect(await handleProviderSupportCommand({ ...input, body: 'SUPPORT' })).toMatchObject({ status: 'guidance' });
+  expect(await handleProviderSupportCommand(input)).toMatchObject({ status: 'guidance' });
   expect(pool.getConnection).not.toHaveBeenCalled(); expect(alertRequestedSupport).not.toHaveBeenCalled();
 });
 
@@ -64,18 +64,13 @@ it('scopes an explicit command to the provider, agency, number, phone and origin
   const result = await handleProviderSupportCommand(input);
   expect(result).toMatchObject({ status: 'support_forwarded', ticketId: 60 });
   expect(result.body).toContain('No appointment has been changed');
-  expect(pool.execute.mock.calls[0][1]).toEqual([450, 6, 501, enrollment.phone, code, code, 40, 40, 40]);
+  expect(pool.execute.mock.calls[0][1]).toEqual([450, 6, 501, enrollment.phone, code, code, null, null, 40]);
   expect(db.execute).toHaveBeenCalledWith(expect.stringContaining("direction='INBOUND' FOR UPDATE"), [40, 450, 6, 2271]);
   expect(alertRequestedSupport).toHaveBeenCalledWith(40);
   expect(db.commit.mock.invocationCallOrder[0]).toBeLessThan(alertRequestedSupport.mock.invocationCallOrder[0]);
   const thread = db.execute.mock.calls.find(([sql]) => sql.includes('INSERT INTO sms_care_threads'));
   expect(thread[1]).toEqual([450, 6, 2271, 1433, 60, original.created_at]);
   expect(thread[0]).not.toContain('owner_user_id=VALUES');
-});
-
-it('accepts bare SUPPORT only for a single offered message', async () => {
-  expect(await handleProviderSupportCommand({ ...input, body: ' support ' })).toMatchObject({ status: 'support_forwarded' });
-  expect(ticketCount).toBe(1);
 });
 
 it.each(['agency', 'client', 'guardian', 'assignment'])('denies a handoff after %s access changes', async change => {
@@ -123,4 +118,13 @@ it.each(['Please cancel tomorrow', 'Can we reschedule?', 'I cannot attend', 'Mov
 
 it('does not offer a scheduling handoff for an ordinary care message', () => {
   expect(looksLikeSchedulingRequest('Thank you for your help')).toBe(false);
+});
+
+it.each(['#1 SUPPORT #40','#1: SUPPORT #40'])('accepts exact selector %s using the current reply parser',async body=>{
+ expect(await handleProviderSupportCommand({...input,body})).toMatchObject({status:'support_forwarded'});
+ expect(pool.execute.mock.calls[0][1]).toEqual([450,6,501,enrollment.phone,null,null,1,1,40]);
+});
+it.each(['SUPPORT #40',`${code} SUPPORT #oops`,'#1 SUPPORT #oops','#1: SUPPORT #oops',`${code} SUPPORT #0`])('clarifies malformed command %s without forwarding it to a family',async body=>{
+ expect(await handleProviderSupportCommand({...input,body})).toMatchObject({status:'guidance'});
+ expect(pool.getConnection).not.toHaveBeenCalled();expect(alertRequestedSupport).not.toHaveBeenCalled();
 });

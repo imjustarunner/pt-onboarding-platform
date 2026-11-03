@@ -44,7 +44,6 @@ function field({
   maxLength = 0,
   scope = 'client',
   instrument = '',
-  defaultValue = undefined,
   inputKind = '',
   denyAllKeys,
   denyAllValue
@@ -67,7 +66,6 @@ function field({
     maxLength: maxLength || undefined,
     category: 'clinical',
     instrument: instrument || undefined,
-    defaultValue,
     inputKind: inputKind || undefined,
     denyAllKeys: Array.isArray(denyAllKeys) ? denyAllKeys : undefined,
     denyAllValue: denyAllValue || undefined
@@ -674,7 +672,6 @@ function childDailyLife() {
         key: 'life_sleep',
         label: 'How is your child doing with: Sleep',
         type: 'radio',
-        defaultValue: 'going_well',
         options: [
           opt('going_well', 'Going well'),
           opt('some_difficulty', 'Some difficulty'),
@@ -701,7 +698,6 @@ function childDailyLife() {
         key: 'life_eating',
         label: 'Eating',
         type: 'radio',
-        defaultValue: 'going_well',
         options: [
           opt('going_well', 'Going well'),
           opt('some_concerns', 'Some concerns'),
@@ -712,7 +708,6 @@ function childDailyLife() {
         key: 'life_hygiene',
         label: 'Hygiene and self-care',
         type: 'radio',
-        defaultValue: 'age_appropriate',
         options: [
           opt('age_appropriate', 'Age appropriate'),
           opt('needs_more_help', 'Needs more help than expected'),
@@ -723,7 +718,6 @@ function childDailyLife() {
         key: 'life_responsibilities',
         label: 'Responsibilities',
         type: 'radio',
-        defaultValue: 'going_well',
         options: [
           opt('going_well', 'Going well'),
           opt('some_difficulty', 'Some difficulty'),
@@ -734,7 +728,6 @@ function childDailyLife() {
         key: 'life_family',
         label: 'Family relationships',
         type: 'radio',
-        defaultValue: 'going_well',
         options: [
           opt('going_well', 'Going well'),
           opt('some_difficulty', 'Some difficulty'),
@@ -745,7 +738,6 @@ function childDailyLife() {
         key: 'life_friendships',
         label: 'Friendships',
         type: 'radio',
-        defaultValue: 'going_well',
         options: [
           opt('going_well', 'Going well'),
           opt('some_difficulty', 'Some difficulty'),
@@ -756,7 +748,6 @@ function childDailyLife() {
         key: 'life_activities',
         label: 'Activities and hobbies',
         type: 'radio',
-        defaultValue: 'participating_normally',
         options: [
           opt('participating_normally', 'Participating normally'),
           opt('participating_less', 'Participating less'),
@@ -790,7 +781,6 @@ function childSchool() {
         label: 'How does your child generally feel about school?',
         type: 'radio',
         layout: 'cards',
-        defaultValue: 'mostly_okay',
         options: [
           opt('likes_it', 'Likes it'),
           opt('mostly_okay', 'Mostly okay'),
@@ -803,7 +793,6 @@ function childSchool() {
         key: 'school_attendance',
         label: 'How is attendance?',
         type: 'radio',
-        defaultValue: 'no_concerns',
         options: [
           opt('no_concerns', 'No concerns'),
           opt('some_absences', 'Some absences/tardiness'),
@@ -814,7 +803,6 @@ function childSchool() {
         key: 'academics',
         label: 'How are they doing academically?',
         type: 'radio',
-        defaultValue: 'meeting',
         options: [
           opt('above', 'Above expectations'),
           opt('meeting', 'Meeting expectations'),
@@ -827,7 +815,6 @@ function childSchool() {
         key: 'grades_changed',
         label: 'Have grades changed recently?',
         type: 'radio',
-        defaultValue: 'no',
         options: yesNoNotSure()
       }),
       field({
@@ -847,7 +834,6 @@ function childSchool() {
         type: 'checkbox',
         layout: 'cards',
         exclusiveValue: 'none',
-        defaultValue: ['none'],
         options: [
           opt('attention', 'Attention'),
           opt('completing_work', 'Completing work'),
@@ -869,7 +855,6 @@ function childSchool() {
         type: 'checkbox',
         layout: 'cards',
         exclusiveValue: 'none',
-        defaultValue: ['none'],
         options: [
           opt('iep', 'IEP'),
           opt('plan_504', '504 Plan'),
@@ -891,7 +876,6 @@ function childSchool() {
         key: 'teacher_concerns',
         label: 'Have teachers or school staff raised concerns?',
         type: 'radio',
-        defaultValue: 'no',
         options: yesNo()
       }),
       field({
@@ -947,7 +931,6 @@ function childDevelopmentHealth() {
         type: 'checkbox',
         layout: 'cards',
         exclusiveValue: 'none',
-        defaultValue: ['none'],
         options: [
           opt('significant_illness', 'Significant illness'),
           opt('surgery', 'Surgery'),
@@ -1058,7 +1041,6 @@ function childPreviousHelp() {
         type: 'checkbox',
         layout: 'cards',
         exclusiveValue: 'none',
-        defaultValue: ['none'],
         options: [
           opt('psychiatry', 'Psychiatry'),
           opt('psych_testing', 'Psychological testing'),
@@ -1182,7 +1164,6 @@ function childFamilyRelationships() {
         type: 'checkbox',
         layout: 'cards',
         exclusiveValue: 'none',
-        defaultValue: ['none'],
         options: [
           opt('parent_separation', 'Parent separation/divorce'),
           opt('move', 'Move'),
@@ -1279,7 +1260,6 @@ function childSubstance() {
         type: 'checkbox',
         layout: 'cards',
         exclusiveValue: 'none',
-        defaultValue: ['none'],
         options: [
           opt('alcohol', 'Alcohol'),
           opt('cannabis', 'Cannabis'),

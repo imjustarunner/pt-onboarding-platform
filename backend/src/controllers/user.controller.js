@@ -6048,6 +6048,16 @@ export const getUserScheduleSummary = async (req, res, next) => {
     if (detailLevel === 'typed') {
       return res.json(toTypedPeerScheduleSummary(fullPayload));
     }
+    const { schoolSoftScheduleCalendar } = await import('../services/schoolSoftScheduleCalendar.service.js');
+    const { default: Agency } = await import('../models/Agency.model.js');
+    fullPayload.schoolSoftSessions = [];
+    for (const aid of scheduleAgencyIdSet) {
+      const agency = await Agency.findById(aid);
+      const timeZone = agency?.timezone || 'America/Denver';
+      fullPayload.schoolSoftSessions.push(...await schoolSoftScheduleCalendar.list({
+        agencyId: aid, providerId, startDate: weekStart, endDate: weekEnd, timeZone
+      }));
+    }
     res.json(fullPayload);
   } catch (e) {
     next(e);

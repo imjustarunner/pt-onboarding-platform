@@ -26,11 +26,17 @@ beforeEach(() => {
     if(sql.includes('SELECT blocked,command_at')) return [[phoneState]];
     if(sql.startsWith('UPDATE auricwell_sms_phone_state')) {phoneState={blocked:values[0],command_at:values[1]};return [{affectedRows:1}];}
     if(sql.startsWith('INSERT IGNORE INTO sms_permission_events')) {
-      const key=JSON.stringify([values[0],values[1],values[2],values[4]]);
-      const affectedRows=permissionEvents.has(key)?0:1;permissionEvents.add(key);return [{affectedRows}];
+      // Match the database's unique provider event key, not the evidence JSON.
+      // Some inserts bind status while others put it directly in the SQL.
+      const messageId=values.at(-1);
+      const key=JSON.stringify([values[0],values[1],values[2],messageId]);
+      const affectedRows=messageId!=null&&permissionEvents.has(key)?0:1;permissionEvents.add(key);return [{affectedRows}];
     }
-    if(sql.includes("VALUES (?,?,?,'opted_out',?)")){const [scope,phone,purpose,evidence]=values;permissions=permissions.filter(p=>!(p.scope===scope&&p.phone===phone&&p.purpose===purpose));permissions.push({scope,phone,purpose,status:'opted_out',evidence});return [{affectedRows:1}];}
+    if(sql.includes("VALUES (?,?,?,'opted_out',?)")){const [scope,phone,purpose,evidence]=values;permissions=permissions.filter(p=>!(p.scope===scope&&p.phone===phone&&p.purpose===purpose));permissions.push({scope,phone,purpose,status:'opted_out',evidence_json:evidence});return [{affectedRows:1}];}
     if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
+    if (sql.startsWith('SELECT status,evidence_json,expires_at')) return pool.execute(sql, values);
+    if (sql.startsWith('SELECT evidence_json FROM sms_permission_events')) return [[]];
+    if (sql.startsWith("UPDATE sms_recipient_permissions SET status='opted_in'")) {const [evidence,expires_at,scope,phone,purpose]=values;permissions=permissions.filter(p=>!(p.scope===scope&&p.phone===phone&&p.purpose===purpose));permissions.push({scope,phone,purpose,status:'opted_in',evidence_json:evidence,expires_at});return [{affectedRows:1}];}
     if (sql.includes('INSERT INTO sms_recipient_permissions')) {
       const [scope, phone, purpose, status, evidence, expires] = values;
       permissions = permissions.filter((p) => !(p.scope === scope && p.phone === phone && p.purpose === purpose));
@@ -41,6 +47,7 @@ beforeEach(() => {
   pool.getConnection.mockResolvedValue(connection);
   pool.execute.mockImplementation(async (sql, args) => {
     if(sql.includes('SELECT blocked FROM auricwell_sms_phone_state')) return [[phoneState]];
+    if(sql.startsWith('SELECT status,evidence_json,expires_at')) return [permissions.filter(p=>p.scope===args[0]&&p.phone===args[1]&&p.purpose===args[2])];
     if(sql.includes('SELECT status FROM sms_recipient_permissions')) return [permissions.filter(p=>p.scope===args[0]&&p.phone===args[1]&&p.purpose===args[2])];
     if(sql.includes("SELECT status, expires_at FROM sms_recipient_permissions")) return [permissions.filter(p=>p.scope===args[0]&&p.phone===args[1]&&p.purpose==='care')];
     if (sql.includes('FROM twilio_numbers')) return [[sender]];
@@ -156,8 +163,8 @@ describe('campaign-wide SMS delivery gate', () => {
     await processSmsKeyword({ from: message.to, to: message.from, body: 'START', sendReply: vi.fn() });
     await expect(prepareSmsDelivery(message)).rejects.toMatchObject({ code: 'sms_consent_required' });
   });
-  it('NOREMIND stops reminders only, survives START, and confirms once per received message', async () => {
-    permissions.push(...['care','reminders'].map(purpose=>({scope:'campaign:C123',phone:message.to,purpose,status:'opted_in'})));
+  it('NOREMIND stops reminders only; category-only START restores prior consent and confirms once', async () => {
+    permissions.push(...['care','reminders'].map(purpose=>({scope:'campaign:C123',phone:message.to,purpose,status:'opted_in',evidence_json:{source:'web_form',reference:'original-consent'}})));
     const sendReply=vi.fn(async options=>prepareSmsDelivery(options));
     const command={from:message.to,to:message.from,body:' noremind ',messageId:'category-1',sendReply};
     await processSmsKeyword(command);
@@ -167,8 +174,9 @@ describe('campaign-wide SMS delivery gate', () => {
     await expect(prepareSmsDelivery(message)).rejects.toMatchObject({code:'sms_consent_required'});
     await expect(prepareSmsDelivery({...message,purpose:'care'})).resolves.toMatchObject({to:message.to});
     await processSmsKeyword({...command,body:'START',messageId:'start-category-1'});
-    await expect(prepareSmsDelivery(message)).rejects.toMatchObject({code:'sms_consent_required'});
-    expect(permissions.find(p=>p.purpose==='reminders').status).toBe('opted_out');
+    await expect(prepareSmsDelivery(message)).resolves.toMatchObject({to:message.to});
+    expect(permissions.find(p=>p.purpose==='reminders').status).toBe('opted_in');
+    expect(sendReply.mock.calls.at(-1)[0].body).toContain('NOREMIND (appointment reminders)');
   });
   it('declining provider texting preserves reminders and an inbound question cannot override that decline', async () => {
     permissions.push({scope:'campaign:C123',phone:message.to,purpose:'care',status:'opted_out'},
@@ -236,7 +244,7 @@ describe('submission and evidence validation', () => {
 
 it('preserves provider identity and brand without repeating opt-out on authored replies', async () => {
  permissions.push({scope:'campaign:C123',phone:message.to,purpose:'care',status:'opted_in'});
- expect(await prepareSmsDelivery({...message,purpose:'care',body:'Michael: Sounds good.',senderFirstName:'Michael'})).toMatchObject({body:'Michael: Sounds good.\nITSCO.'});
+ expect(await prepareSmsDelivery({...message,purpose:'care',body:'Michael: Sounds good.',senderFirstName:'Michael'})).toMatchObject({body:'Sounds good.\n— Michael with ITSCO'});
 });
 it('a provider name does not bypass consent or STOP', async () => {
  await expect(prepareSmsDelivery({...message,purpose:'care',senderFirstName:'Michael'})).rejects.toMatchObject({code:'sms_consent_required'});
@@ -256,4 +264,33 @@ it('allows one bounded staff request reply without changing recurring consent, b
  permissions.push({scope:'campaign:C123',phone:message.to,purpose:'suppression',status:'opted_out'});
  await expect(prepareSmsDelivery({...request,staffAssistantReply:staffAssistantReplyCapability({...request,messageId:'inbound-2'})})).rejects.toMatchObject({code:'sms_opted_out'});
  expect(connection.execute).not.toHaveBeenCalled();
+});
+
+function relayEnrollmentQueries() {
+ const original=connection.execute.getMockImplementation();
+ connection.execute.mockImplementation(async(sql,args)=>{
+  if(sql.startsWith('SELECT id FROM provider_sms_relay_enrollments')||sql.startsWith('SELECT e.id FROM provider_sms_relay_enrollments'))return [[{id:1}]];
+  if(sql.startsWith('SELECT status FROM sms_recipient_permissions'))return pool.execute(sql,args);
+  return original(sql,args);
+ });
+}
+it('NOCLIENTS consumes the command and changes only personal forwarding; repeated delivery does not resend confirmation',async()=>{
+ relayEnrollmentQueries();const sendReply=vi.fn();
+ const request={from:message.to,to:message.from,body:'NOCLIENTS',messageId:'relay-off',sendReply};
+ expect(await processSmsKeyword(request)).toBe(true);
+ await processSmsKeyword({...request,receivedAt:Date.now()+60000});
+ expect(sendReply).toHaveBeenCalledTimes(1);expect(sendReply.mock.calls[0][0].body).toContain('Your in-app messages and other text choices are unchanged');
+ expect(permissions).toContainEqual(expect.objectContaining({scope:'agency:2',purpose:'client_forwarding',status:'opted_out'}));
+ expect(permissions.some(p=>p.purpose==='suppression')).toBe(false);
+});
+it('START lists restored forwarding only for a category restart, while START after STOP preserves the category decline',async()=>{
+ relayEnrollmentQueries();const sendReply=vi.fn();
+ await processSmsKeyword({from:message.to,to:message.from,body:'NOCLIENTS',messageId:'relay-off-1',sendReply});
+ await processSmsKeyword({from:message.to,to:message.from,body:'START',messageId:'relay-start-1',sendReply});
+ expect(sendReply.mock.calls.at(-1)[0].body).toContain('NOCLIENTS (client text forwarding)');
+ await processSmsKeyword({from:message.to,to:message.from,body:'NOCLIENTS',messageId:'relay-off-2',sendReply});
+ phoneState.blocked=true;
+ await processSmsKeyword({from:message.to,to:message.from,body:'START',messageId:'relay-start-2',receivedAt:Date.now()+1,sendReply});
+ expect(sendReply.mock.calls.at(-1)[0].body).not.toContain('Turned back on:');
+ expect(permissions).toContainEqual(expect.objectContaining({purpose:'client_forwarding',status:'opted_out'}));
 });

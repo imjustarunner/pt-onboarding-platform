@@ -1,57 +1,57 @@
 <template>
   <section class="cpd" :class="[`cpd--${mode}`]">
     <header v-if="showHeader" class="cpd-header">
-      <h2 class="cpd-title">{{ title }}</h2>
-      <p v-if="lead" class="cpd-lead">{{ lead }}</p>
+      <h2 class="cpd-title">{{ tx(title) }}</h2>
+      <p v-if="lead" class="cpd-lead">{{ tx(lead) }}</p>
     </header>
 
-    <p v-if="mode === 'intake'" class="cpd-intake-note">{{ preferenceDisclaimer }}</p>
-    <p v-if="mode === 'intake'" class="cpd-selection-count" role="status">Choose up to three provider preferences · {{ selectedCount }} selected<span v-if="atSelectionLimit">. Remove a preference to choose someone else.</span></p>
+    <p v-if="mode === 'intake'" class="cpd-intake-note">{{ tx(preferenceDisclaimer) }}</p>
+    <p v-if="mode === 'intake'" class="cpd-selection-count" role="status">{{ txFmt('Choose up to three provider preferences · {count} selected', { count: selectedCount }) }}<span v-if="atSelectionLimit"> {{ tx('Remove a preference to choose someone else.') }}</span></p>
     <button
       v-if="mode === 'intake' && allowSkip"
       type="button"
       class="cpd-btn cpd-btn-secondary cpd-skip-top"
       @click="skipSelection"
-    >Skip provider choice — let our team help</button>
+    >{{ tx("Skip provider choice — let our team help") }}</button>
 
     <div class="cpd-toolbar">
       <input
         v-model="search"
         type="search"
         class="cpd-search"
-        :placeholder="searchPlaceholder"
-        aria-label="Search providers"
+        :placeholder="tx(searchPlaceholder)"
+        :aria-label="tx('Search providers')"
       />
-      <select v-model="sortKey" class="cpd-sort" aria-label="Sort providers">
-        <option v-if="mode === 'intake'" value="bestFit">Best fit</option>
-        <option value="openSlots">Openings first</option>
-        <option value="name">Name A–Z</option>
-        <option value="waitlist">Waitlist size</option>
+      <select v-model="sortKey" class="cpd-sort" :aria-label="tx('Sort providers')">
+        <option v-if="mode === 'intake'" value="bestFit">{{ tx("Best fit") }}</option>
+        <option value="openSlots">{{ tx("Openings first") }}</option>
+        <option value="name">{{ tx("Name A–Z") }}</option>
+        <option value="waitlist">{{ tx("Waitlist size") }}</option>
       </select>
       <label v-if="mode === 'intake'" class="cpd-rank-toggle">
         <input v-model="rankMode" type="checkbox" />
-        Choose and rank my top 3
+        {{ tx("Choose and rank my top 3") }}
       </label>
     </div>
 
-    <p v-if="loading" class="cpd-muted">Loading providers…</p>
+    <p v-if="loading" class="cpd-muted">{{ tx("Loading providers…") }}</p>
     <p v-else-if="error" class="cpd-error">{{ error }}</p>
-    <p v-else-if="!filtered.length" class="cpd-muted">No providers match your search right now.</p>
+    <p v-else-if="!filtered.length" class="cpd-muted">{{ tx("No providers match your search right now.") }}</p>
 
     <div v-else-if="mode === 'intake'" class="cpd-compact-list">
       <article v-for="p in filtered" :key="p.id" class="cpd-compact-row" :class="{ 'cpd-card--selected': isSelected(p.id) }" :data-provider-id="p.id">
         <img v-if="providerPhoto(p) && !photoFailures[p.id]" class="cpd-avatar" :src="providerPhoto(p)" alt="" loading="lazy" @error="photoFailures[p.id] = true" />
         <span v-else class="cpd-avatar cpd-avatar-fallback" aria-hidden="true">{{ providerInitials(p) }}</span>
         <div class="cpd-compact-summary">
-          <div class="cpd-compact-name"><h3 class="cpd-name">{{ p.displayName || p.name }}</h3><span class="cpd-badge" :class="isWaitlist(p) ? 'cpd-badge--wait' : 'cpd-badge--open'">{{ isWaitlist(p) ? 'Waitlist' : 'Open' }}</span></div>
+          <div class="cpd-compact-name"><h3 class="cpd-name">{{ p.displayName || p.name }}</h3><span class="cpd-badge" :class="isWaitlist(p) ? 'cpd-badge--wait' : 'cpd-badge--open'">{{ tx(isWaitlist(p) ? 'Waitlist' : 'Open') }}</span></div>
           <p v-if="p.credential || p.title || p.credentials" class="cpd-meta">{{ p.credential || p.title || p.credentials }}</p>
-          <p v-if="providerSessionFormats(p, modality).length" class="cpd-meta">{{ providerSessionFormats(p, modality).join(' · ') }}</p>
-          <p v-if="providerHighlights(p).length" class="cpd-compact-focus">{{ providerHighlights(p).join(' · ') }}</p>
+          <p v-if="providerSessionFormats(p, modality).length" class="cpd-meta">{{ providerSessionFormats(p, modality).map(tx).join(' · ') }}</p>
+          <p v-if="providerHighlights(p).length" class="cpd-compact-focus">{{ providerHighlights(p).map(tx).join(' · ') }}</p>
         </div>
         <div class="cpd-compact-actions">
-          <button type="button" class="cpd-btn cpd-btn-secondary cpd-view-profile" :aria-label="`View ${p.displayName || p.name}’s profile`" @click="profileProvider = p">View profile</button>
-          <button type="button" class="cpd-btn cpd-select-provider" :class="isSelected(p.id) ? 'cpd-btn-primary' : 'cpd-btn-secondary'" :aria-pressed="isSelected(p.id)" :disabled="atSelectionLimit && !isSelected(p.id)" :aria-label="`${isSelected(p.id) ? 'Remove' : 'Select'} ${p.displayName || p.name}${isWaitlist(p) ? ' waitlist preference' : ' preference'}`" @click="toggleMulti(p)">
-            {{ rankMode && rankOf(p.id) ? `#${rankOf(p.id)} Selected` : isSelected(p.id) ? 'Selected ✓' : isWaitlist(p) ? 'Choose waitlist' : 'Prefer provider' }}
+          <button type="button" class="cpd-btn cpd-btn-secondary cpd-view-profile" :aria-label="txFmt('View {name}’s profile', { name: p.displayName || p.name })" @click="profileProvider = p">{{ tx("View profile") }}</button>
+          <button type="button" class="cpd-btn cpd-select-provider" :class="isSelected(p.id) ? 'cpd-btn-primary' : 'cpd-btn-secondary'" :aria-pressed="isSelected(p.id)" :disabled="atSelectionLimit && !isSelected(p.id)" :aria-label="txFmt(isSelected(p.id) ? 'Remove {name} preference' : 'Select {name} preference', { name: p.displayName || p.name })" @click="toggleMulti(p)">
+            {{ rankMode && rankOf(p.id) ? txFmt('#{rank} Selected', { rank: rankOf(p.id) }) : tx(isSelected(p.id) ? 'Selected ✓' : isWaitlist(p) ? 'Choose waitlist' : 'Prefer provider') }}
           </button>
         </div>
       </article>
@@ -75,7 +75,7 @@
             </p>
           </div>
           <span class="cpd-badge" :class="p.waitlist ? 'cpd-badge--wait' : 'cpd-badge--open'">
-            {{ p.waitlist ? 'Waitlist' : 'Accepting' }}
+            {{ tx(p.waitlist ? 'Waitlist' : 'Accepting') }}
           </span>
         </div>
 
@@ -107,10 +107,10 @@
           target="_blank"
           rel="noopener noreferrer"
         >
-          Psychology Today profile
+          {{ tx("Psychology Today profile") }}
         </a>
 
-        <p class="cpd-disclaimer">{{ preferenceDisclaimer }}</p>
+        <p class="cpd-disclaimer">{{ tx(preferenceDisclaimer) }}</p>
 
         <div class="cpd-actions">
           <template v-if="mode === 'public'">
@@ -120,14 +120,14 @@
               class="cpd-btn cpd-btn-primary"
               @click="emitPrefer(p)"
             >
-              Prefer this provider
+              {{ tx("Prefer this provider") }}
             </button>
             <button
               type="button"
               class="cpd-btn cpd-btn-secondary"
               @click="emitWaitlist(p)"
             >
-              Add me to their waitlist
+              {{ tx("Add me to their waitlist") }}
             </button>
           </template>
 
@@ -138,7 +138,7 @@
               :class="isSelected(p.id) ? 'cpd-btn-primary' : 'cpd-btn-secondary'"
               @click="selectSingle(p)"
             >
-              {{ isSelected(p.id) ? 'Preferred ✓' : 'Choose' }}
+              {{ tx(isSelected(p.id) ? 'Preferred ✓' : 'Choose') }}
             </button>
           </template>
 
@@ -150,7 +150,7 @@
               @click="toggleMulti(p)"
             >
               <span v-if="rankMode && rankOf(p.id)">#{{ rankOf(p.id) }}</span>
-              <span v-else>{{ isSelected(p.id) ? 'Selected ✓' : 'Select' }}</span>
+              <span v-else>{{ tx(isSelected(p.id) ? 'Selected ✓' : 'Select') }}</span>
             </button>
           </template>
         </div>
@@ -182,7 +182,11 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, inject, ref, watch } from 'vue';
+import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
+const { tx: intakeTx } = useIntakeStepTx();
+const tx = inject('enrollmentTranslate', intakeTx);
+const txFmt = (text, vars) => Object.entries(vars).reduce((copy, [key, value]) => copy.replaceAll(`{${key}}`, String(value)), tx(text));
 import { psychologyTodayHref } from '../../utils/psychologyTodayUrl.js';
 import { publishedFocus } from '../../navigation/providerFocus.js';
 import EnrollmentProviderDetailsDialog from './EnrollmentProviderDetailsDialog.vue';

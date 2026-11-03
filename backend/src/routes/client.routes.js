@@ -1,4 +1,5 @@
 import {getStaffReminderConsent,saveStaffReminderConsent} from '../controllers/staffVerbalReminderConsent.controller.js';
+import { listSchoolAbsenceHistory } from '../controllers/schoolAbsenceHistory.controller.js';
 import * as clientPortalInvites from '../controllers/clientPortalInvites.controller.js';
 import { listClientNotificationHistory } from '../controllers/clientNotificationHistory.controller.js';
 import { listClientSecureMessages, getClientSecureMessage } from '../controllers/clientSecureMessages.controller.js';
@@ -242,6 +243,7 @@ router.get('/:id/access-log', getClientAccessLog);
 // including messages addressed to linked guardians).
 router.get('/:id/communications/conversations/:conversationId/attachments/:attachmentId', downloadClientConversationAttachment);
 router.get('/:id/communications', listClientCommunications);
+router.get('/:id/school-absence-history', listSchoolAbsenceHistory);
 router.get('/:id/communications/export', exportClientCommunications);
 router.get('/:id/communications/conversations/:conversationId', getClientEmailConversation);
 router.get('/:id/notification-history', listClientNotificationHistory);

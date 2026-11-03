@@ -28,6 +28,7 @@
       :help="choiceHelp"
       :optional-badge="showOptionalBadge"
       :required="required"
+      :translate-content="!preserveOriginalCopy"
       :multiple="isMulti"
       :exclusive-value="exclusiveValue"
       :layout="choiceLayout"
@@ -40,12 +41,13 @@
         :model-value="scalarValue"
         :type="resolvedInputType"
         :label="labelWithOptional"
+        :translate-content="!preserveOriginalCopy"
         :help="fieldHelp"
         :optional-badge="showOptionalBadge"
         :placeholder="placeholder"
         :required="required"
         :options="normalizedOptions"
-        :error="error ? 'Required' : ''"
+        :error="error ? tx('Required') : ''"
         :rows="textareaRows"
         :email-domain-hints="type === 'email'"
         @update:model-value="onScalarUpdate"
@@ -70,6 +72,8 @@ import DigitalFormField from './DigitalFormField.vue';
 import DigitalFormChoiceGroup from './DigitalFormChoiceGroup.vue';
 import { isCheckboxGroupField } from '../../utils/intakeShowIf.js';
 import api from '../../services/api.js';
+import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
+const { tx } = useIntakeStepTx();
 
 const props = defineProps({
   field: { type: Object, required: true },
@@ -81,6 +85,7 @@ const props = defineProps({
   required: { type: Boolean, default: false },
   // Office enrollment supplies its effective requirement rule through `required`.
   showOptional: { type: Boolean, default: false },
+  preserveOriginalCopy: { type: Boolean, default: false },
   error: { type: Boolean, default: false },
   namePrefix: { type: String, default: 'q_' }
 });

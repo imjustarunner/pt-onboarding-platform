@@ -48,6 +48,10 @@ function harness() {
 }
 
 describe('one durable schedule update per client after edits settle',()=>{
+  it('uses email only for day absences even when the tenant and recipient allow texts',async()=>{
+    const h=harness();await h.service.queue(1,{eventType:'canceled',sendImmediately:true,facts:{emailOnly:true,absenceSource:'cancel_day',clientFacingReason:'Weather conditions'}});
+    await h.service.process(1);expect(h.deps.sendEmail).toHaveBeenCalledTimes(1);expect(h.deps.sendSms).not.toHaveBeenCalled();
+  });
   it('combines a cancellation, a new booking five minutes later, and a subsequent move',async()=>{
     const h=harness();await h.service.queue(1,{eventType:'canceled',facts:{clientFacingReason:'Provider unavailable'}});
     h.advance(5);h.appointments.set(2,{...h.appointments.get(1),id:2,status:'scheduled',startAt:'2030-01-03T17:00:00Z',endAt:'2030-01-03T18:00:00Z'});

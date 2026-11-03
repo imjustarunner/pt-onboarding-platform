@@ -15,14 +15,15 @@ export async function alertRequestedSupport(offerId) {
     locked = Number(locks[0]?.acquired) === 1;
     if (!locked) return;
     const [rows] = await db.execute(`SELECT ml.id, ml.agency_id, t.id AS ticket_id,
-        t.status, t.claimed_by_user_id,
+        t.status, t.claimed_by_user_id, JSON_EXTRACT(ml.metadata, '$.supportRequestedByProvider') AS provider_requested,
         (JSON_EXTRACT(ml.metadata, '$.supportAlertAttemptAt') IS NULL OR
          CAST(JSON_UNQUOTE(JSON_EXTRACT(ml.metadata, '$.supportAlertAttemptAt')) AS DATETIME)
            <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 15 MINUTE)) AS alert_due
       FROM message_logs ml JOIN support_tickets t
         ON t.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(ml.metadata, '$.supportChoiceTicketId')) AS UNSIGNED)
         AND t.agency_id = ml.agency_id
-      WHERE ml.id = ? AND JSON_EXTRACT(ml.metadata, '$.supportChoiceOffer') = true`, [offerId]);
+      WHERE ml.id = ? AND (JSON_EXTRACT(ml.metadata, '$.supportChoiceOffer') = true
+        OR JSON_EXTRACT(ml.metadata, '$.supportRequestedByProvider') = true)`, [offerId]);
     const row = rows[0];
     if (!row || row.status !== 'open' || row.claimed_by_user_id || !Number(row.alert_due)) return;
     await db.execute(`UPDATE message_logs SET metadata = JSON_SET(COALESCE(metadata, JSON_OBJECT()),
@@ -53,8 +54,10 @@ export async function alertRequestedSupport(offerId) {
           AND related_entity_id = ? ORDER BY id DESC LIMIT 1`, [row.agency_id, user.id, row.ticket_id]);
         const notice = (prior[0] && !prior[0].is_resolved ? prior[0] : null) || await Notification.create({
           type: 'support_safety_net_alert', severity: 'urgent',
-          title: 'Forwarded SMS needs Support follow-up',
-          message: 'A client or provider requested Support help with a text. Open and claim the ticket, review the original SMS in Communication Hub, reply there, then close the ticket when handled.',
+          title: 'Urgent support request needs an owner',
+          message: row.provider_requested
+            ? 'A provider requested Support for a client SMS conversation. Open and claim the ticket, review the conversation in the app, and close the ticket when handled.'
+            : 'A client requested support while their providers are unavailable. Open and claim the ticket, reply in the secure app, then close the ticket when handled.',
           userId: user.id, agencyId: row.agency_id,
           relatedEntityType: 'support_ticket', relatedEntityId: row.ticket_id,
           actorSource: 'sms_support_request'
@@ -87,7 +90,8 @@ export async function retryRequestedSupportAlerts() {
   const [rows] = await pool.execute(`SELECT ml.id FROM message_logs ml JOIN support_tickets t
       ON t.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(ml.metadata, '$.supportChoiceTicketId')) AS UNSIGNED)
       AND t.agency_id = ml.agency_id
-    WHERE JSON_EXTRACT(ml.metadata, '$.supportChoiceOffer') = true
+    WHERE (JSON_EXTRACT(ml.metadata, '$.supportChoiceOffer') = true
+      OR JSON_EXTRACT(ml.metadata, '$.supportRequestedByProvider') = true)
       AND JSON_EXTRACT(ml.metadata, '$.supportCanonicalInboundId') IS NULL
       AND t.status = 'open' AND t.claimed_by_user_id IS NULL
       AND (JSON_EXTRACT(ml.metadata, '$.supportAlertAttemptAt') IS NULL OR

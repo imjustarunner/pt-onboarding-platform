@@ -35,7 +35,6 @@ function field({
   section = '',
   layout = '',
   maxLength = 0,
-  defaultValue = undefined,
   denyAllKeys,
   denyAllValue,
   denyAllOverrides
@@ -59,7 +58,6 @@ function field({
     section,
     layout: layout || undefined,
     maxLength: maxLength || undefined,
-    defaultValue,
     denyAllKeys: Array.isArray(denyAllKeys) ? denyAllKeys : undefined,
     denyAllValue: denyAllValue || undefined,
     denyAllOverrides:
@@ -458,7 +456,6 @@ function lifeArea(key, label) {
     type: 'radio',
     options: LIFE_AREA,
     section: 'How are things going in each area?',
-    defaultValue: 'going_well'
   });
 }
 
@@ -1255,7 +1252,7 @@ export function buildCounselingSelfEnSteps() {
     combineSteps(
       'symptoms_and_life',
       'How You Feel & How Life Is Going',
-      'Symptoms and how they show up day to day. Life-area ratings start as Going well for convenience — please update as needed.',
+      'Symptoms and how they show up day to day. Choose the ratings that reflect your experience, or leave them blank to discuss later.',
       'This helps us understand both what you are experiencing and how it is affecting daily life.',
       [howFeeling(), howLifeGoing()]
     ),

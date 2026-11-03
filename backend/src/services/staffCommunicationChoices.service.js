@@ -1,4 +1,5 @@
 import { queueStaffSmsEnrollment } from './staffSmsEnrollmentBridge.service.js';
+import { exchangeSmsOptedOut, setExchangeSmsPreference } from './exchangeSmsPreference.service.js';
 import { ITSCO_STAFF_ASSISTANT_NUMBER, STAFF_SMS_COMMAND_VERSION, STAFF_ASSISTANT_EXAMPLES } from '../utils/staffSmsAssistant.js';
 import { staffCommunicationAgreement } from '../utils/staffCommunicationAgreement.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -65,8 +66,9 @@ async function context(userId,agencyId) {
   const state=parse(prefs[0]?.notification_categories)[staffCommunicationKey(agencyId)]||null;
   const arrivalEmail=prefs[0]?.kiosk_email_enabled==null?(state?.arrivalEmail??null):Number(prefs[0].kiosk_email_enabled)===1;
   const exchangeEmail=prefs[0]?.exchange_email_enabled==null?(state?.exchangeEmail??null):Number(prefs[0].exchange_email_enabled)===1;
-  const exchangeSms=prefs[0]?.exchange_sms_enabled==null?state?.choices?.exchangeMatches:Number(prefs[0].exchange_sms_enabled)===1;
+  let exchangeSms=prefs[0]?.exchange_sms_enabled==null?state?.choices?.exchangeMatches:Number(prefs[0].exchange_sms_enabled)===1;
   const phone=normalizeSmsPhone(user.personal_phone||user.work_phone||user.phone_number)||'';
+  if (await exchangeSmsOptedOut({ agencyId, phone })) exchangeSms = false;
   return {user,programs,disclosure,disclosureHash:digest(disclosure),state,phone,arrivalEmail,exchangeEmail,exchangeSms};
 }
 export async function getStaffCommunicationChoices({userId,agencyId}) {
@@ -113,6 +115,8 @@ export async function saveStaffCommunicationChoices({userId,agencyId,input,sourc
       action:'staff_communication_choices_signed',outcome:'success',statusCode:200,details:{agencyId:Number(agencyId),reference,envelope}},connection,{mirror:false});
     state.evidenceId=evidenceId;
     await writeState(connection,userId,agencyId,state);
+    if (phone) await setExchangeSmsPreference({ agencyId, phone, enabled: input.choices.exchangeMatches,
+      evidence: { source: 'signed_staff_choices', reference, collectedAt: reviewedAt, userId: Number(userId) } }, connection);
     if(anyYes)await queueStaffSmsEnrollment({userId,agencyId,state,phone,programs:c.programs,database:connection});
     await connection.execute(`INSERT INTO user_notification_type_preferences (user_id,notification_type,in_app_enabled,email_enabled)
       VALUES (?,'kiosk_checkin',1,?) ON DUPLICATE KEY UPDATE in_app_enabled=1,email_enabled=VALUES(email_enabled)`,[userId,input.arrivalEmail?1:0]);

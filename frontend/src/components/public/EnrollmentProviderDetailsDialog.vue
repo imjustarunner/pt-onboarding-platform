@@ -5,22 +5,22 @@
         <header class="epd-header">
           <img v-if="providerPhoto(details) && !photoFailed" class="epd-avatar" :src="providerPhoto(details)" alt="" @error="photoFailed = true" />
           <span v-else class="epd-avatar epd-initials" aria-hidden="true">{{ providerInitials(details) }}</span>
-          <div><h2 :id="headingId">{{ details.displayName || details.name }}</h2><p>{{ details.credential || details.title || details.credentials }}</p><span class="epd-status">{{ status === 'waitlist' ? 'Waitlist' : status === 'closed' ? 'Closed to new clients' : 'Open to new clients' }}</span></div>
-          <button ref="closeButton" type="button" class="epd-close" aria-label="Close provider profile" @click="emit('close')">×</button>
+          <div><h2 :id="headingId">{{ details.displayName || details.name }}</h2><p>{{ details.credential || details.title || details.credentials }}</p><span class="epd-status">{{ tx(status === 'waitlist' ? 'Waitlist' : status === 'closed' ? 'Closed to new clients' : 'Open to new clients') }}</span></div>
+          <button ref="closeButton" type="button" class="epd-close" :aria-label="tx('Close provider profile')" @click="emit('close')">×</button>
         </header>
         <div class="epd-content">
-          <p v-if="loading" class="epd-muted" role="status">Loading profile details…</p>
-          <p v-if="error" class="epd-muted" role="status">{{ error }}</p>
-          <section class="epd-about"><h3>About {{ details.firstName || details.displayName || details.name }}</h3><p>{{ biography || 'Our care team can share more about this provider and help you decide whether they are a good fit.' }}</p></section>
+          <p v-if="loading" class="epd-muted" role="status">{{ tx("Loading profile details…") }}</p>
+          <p v-if="error" class="epd-muted" role="status">{{ tx(error) }}</p>
+          <section class="epd-about"><h3>{{ txFmt('About {name}', { name: details.firstName || details.displayName || details.name }) }}</h3><p>{{ biography || tx('Our care team can share more about this provider and help you decide whether they are a good fit.') }}</p></section>
           <div class="epd-facets">
-            <section v-for="group in groups" :key="group.title"><h3>{{ group.title }}</h3><ul><li v-for="value in group.values" :key="value">{{ value }}</li></ul></section>
+            <section v-for="group in groups" :key="group.title"><h3>{{ tx(group.title) }}</h3><ul><li v-for="value in group.values" :key="value">{{ tx(value) }}</li></ul></section>
           </div>
-          <a v-if="psychologyTodayHref(details.psychologyTodayUrl)" :href="psychologyTodayHref(details.psychologyTodayUrl)" target="_blank" rel="noopener noreferrer">Psychology Today profile ↗</a>
+          <a v-if="psychologyTodayHref(details.psychologyTodayUrl)" :href="psychologyTodayHref(details.psychologyTodayUrl)" target="_blank" rel="noopener noreferrer">{{ tx('Psychology Today profile') }} ↗</a>
         </div>
         <footer class="epd-footer">
-          <p>{{ disclaimer }}</p>
-          <p v-if="selectionDisabled">You have selected three preferences. Remove one before choosing another provider.</p>
-          <div><button type="button" class="epd-button" @click="emit('close')">Back to providers</button><button v-if="status !== 'closed'" type="button" class="epd-button epd-button-primary" :disabled="selectionDisabled" @click="emit('select')">{{ selected ? 'Remove preference' : status === 'waitlist' ? 'Choose this waitlist' : 'Prefer this provider' }}</button></div>
+          <p>{{ tx(disclaimer) }}</p>
+          <p v-if="selectionDisabled">{{ tx("You have selected three preferences. Remove one before choosing another provider.") }}</p>
+          <div><button type="button" class="epd-button" @click="emit('close')">{{ tx("Back to providers") }}</button><button v-if="status !== 'closed'" type="button" class="epd-button epd-button-primary" :disabled="selectionDisabled" @click="emit('select')">{{ tx(selected ? 'Remove preference' : status === 'waitlist' ? 'Choose this waitlist' : 'Prefer this provider') }}</button></div>
         </footer>
       </section>
     </div>
@@ -28,7 +28,11 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId } from 'vue';
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, useId } from 'vue';
+import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
+const { tx: intakeTx } = useIntakeStepTx();
+const tx = inject('enrollmentTranslate', intakeTx);
+const txFmt = (text, vars) => Object.entries(vars).reduce((copy, [key, value]) => copy.replaceAll(`{${key}}`, String(value)), tx(text));
 import api from '../../services/api';
 import { publishedFocus } from '../../navigation/providerFocus.js';
 import { sessionLanguageLabels } from '../../navigation/providerLanguages.js';

@@ -75,7 +75,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
     const clientIds = [...new Set((await d.participants(a.id)).map(p => Number(p.clientId)).filter(Boolean))];
     const tenant = suppressed ? null : await d.tenant(a.agencyId);
     const allowedChannels = ['email', ...(tenant?.channelsEnabled?.sms === true && tenant?.changeNotify?.channels?.includes('sms') ? ['sms'] : [])]
-      .filter(ch => !channels || channels.includes(ch));
+      .filter(ch => (!channels || channels.includes(ch)) && (!facts.emailOnly || ch === 'email'));
     for (const clientId of clientIds) {
       const selectedContacts = facts.notificationRecipients?.find(c => Number(c.clientId) === clientId);
       if (facts.reviewedCancellation && !selectedContacts) throw Object.assign(new Error('Appointment recipients changed. Review the cancellation emails again.'), { status: 409 });
@@ -200,7 +200,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
       }
       const selectedContacts = entries[0].payload.facts?.notificationRecipients?.find(c => Number(c.clientId) === Number(seed.client_id));
       const family = await d.familyRecipients(seed.client_id,seed.agency_id);
-      const targets = selectedContacts ? selectedContacts.recipients : family.hasRelationships ? family.recipients : [null];
+      const targets = selectedContacts ? (selectedContacts.recipients.length ? selectedContacts.recipients : [{ key: 'missing', email: '', phone: '', userId: null }]) : family.hasRelationships ? family.recipients : [null];
       const sentTargets = new Set();
       for (const target of targets) for (const channel of channels.length ? channels : ['in_app']) {
         let attempted = false, communication = null, recipient = null, externalId = null, status = 'failed', reason = null;
@@ -286,8 +286,8 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
     }
     return {canceled:cancel};
   }
-  async function processDue({limit=20, agencyId=null}={}) {
-    const [rows] = await db.execute(`SELECT id FROM appointment_schedule_notices WHERE status='pending' AND fire_at<=UTC_TIMESTAMP() AND (? IS NULL OR agency_id=?) ORDER BY fire_at,id LIMIT ${Math.min(100,Math.max(1,Number(limit)||20))}`, [agencyId,agencyId]);
+  async function processDue({limit=20, agencyId=null, appointmentId=null}={}) {
+    const [rows] = await db.execute(`SELECT id FROM appointment_schedule_notices WHERE status='pending' AND fire_at<=UTC_TIMESTAMP() AND (? IS NULL OR agency_id=?)${appointmentId ? ' AND appointment_id=?' : ''} ORDER BY fire_at,id LIMIT ${Math.min(100,Math.max(1,Number(limit)||20))}`, [agencyId,agencyId,...(appointmentId ? [appointmentId] : [])]);
     let failed=0;
     for (const row of rows) { try { await process(row.id); } catch (e) { failed++; console.warn('[schedule-notice] delivery requires review',row.id,e.message); } }
     return {processed:rows.length,failed};

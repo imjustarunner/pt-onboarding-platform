@@ -1,24 +1,26 @@
 <template>
   <section class="secure-card">
-    <p>Card details go directly to Stripe. Your selected clients and other guardians cannot view your card.</p>
-    <p v-if="loading" role="status">Preparing secure card form…</p>
+    <p>{{ tx("Card details go directly to Stripe. Your selected clients and other guardians cannot view your card.") }}</p>
+    <p v-if="loading" role="status">{{ tx("Preparing secure card form…") }}</p>
     <template v-else-if="ready && !saved">
-      <label>Cardholder name <input v-model="name" autocomplete="cc-name" maxlength="255" /></label>
+      <label>{{ tx("Cardholder name") }} <input v-model="name" autocomplete="cc-name" maxlength="255" /></label>
       <div ref="cardHost" class="card-host" />
-      <details open><summary>Card storage and billing authorization</summary><p>{{ terms }}</p></details>
-      <label class="check"><input v-model="accepted" type="checkbox" /> I have read and accept this authorization to store my card.</label>
-      <p>Saving a card does not enable recurring charges. You authorize recurring billing separately for each client in Billing.</p>
-      <button type="button" class="btn btn-primary" :disabled="busy || !accepted || !name.trim() || !complete" @click="save">{{ busy ? 'Saving…' : 'Save card securely' }}</button>
+      <details open><summary>{{ tx("Card storage and billing authorization") }}</summary><p>{{ tx(terms) }}</p></details>
+      <label class="check"><input v-model="accepted" type="checkbox" /> {{ tx("I have read and accept this authorization to store my card.") }}</label>
+      <p>{{ tx("Saving a card does not enable recurring charges. You authorize recurring billing separately for each client in Billing.") }}</p>
+      <button type="button" class="btn btn-primary" :disabled="busy || !accepted || !name.trim() || !complete" @click="save">{{ tx(busy ? 'Saving…' : 'Save card securely') }}</button>
     </template>
-    <p v-if="saved" role="status">{{ saved }}</p>
-    <p v-if="error" role="alert" class="error">{{ error }}</p>
-    <button v-if="!loading && !ready" type="button" class="btn btn-secondary" @click="initialize">Retry secure card setup</button>
+    <p v-if="saved" role="status">{{ txFmt('{brand} ending in {last4} saved.', saved) }}</p>
+    <p v-if="error" role="alert" class="error">{{ tx(error) }}</p>
+    <button v-if="!loading && !ready" type="button" class="btn btn-secondary" @click="initialize">{{ tx("Retry secure card setup") }}</button>
   </section>
 </template>
 <script setup>
 import { ref, nextTick, onMounted, onBeforeUnmount, inject } from 'vue';
 import { loadStripe } from '@stripe/stripe-js';
 import api from '../../services/api';
+import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
+const { tx, txFmt, intakeLocale } = useIntakeStepTx();
 const props = defineProps({ agencyId: [String, Number], publicKey: String, submissionId: [String, Number] });
 const emit = defineEmits(['saved', 'unavailable']);
 const intakeSession = inject('intakeSessionToken', ref(''));
@@ -38,7 +40,7 @@ async function initialize() {
     ready.value = true; loading.value = false;
     await nextTick();
     card?.destroy();
-    card = stripe.elements().create('card', { hidePostalCode: false });
+    card = stripe.elements({ locale: intakeLocale.value === 'es' ? 'es' : 'en' }).create('card', { hidePostalCode: false });
     card.mount(cardHost.value);
     card.on('change', event => { complete.value = event.complete; error.value = event.error?.message || ''; });
   } catch (e) { ready.value = false; error.value = e.response?.data?.error?.message || e.message || 'Secure card setup failed'; }
@@ -55,7 +57,7 @@ async function save() {
     const response = await api.post(intake() ? `/public-intake/${props.publicKey}/${props.submissionId}/payment-card` : '/guardian-billing/card-setup/complete', payload, requestOptions());
     if (disposed) return;
     const value = response.data.card || { id: response.data.cardId, card_brand: response.data.brand, card_last4: response.data.last4 };
-    saved.value = `${value.card_brand} ending in ${value.card_last4} saved.`;
+    saved.value = { brand: value.card_brand, last4: value.card_last4 };
     emit('saved', value);
   } catch (e) { error.value = e.response?.data?.error?.message || e.message || 'Card could not be saved'; }
   finally { busy.value = false; }

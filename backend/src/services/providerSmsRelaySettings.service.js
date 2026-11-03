@@ -9,9 +9,10 @@ import { resolveClientCaregivers } from './communicationRouting.service.js';
 import { isCommunicationStaffActive } from '../utils/communicationReceptionPolicy.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import { getSmsSender, recordSmsPermission } from './smsCompliance.service.js';
+import { providerRelayOptedOut, setProviderRelayPreference } from './providerRelayPreference.service.js';
 
-export const RELAY_DISCLOSURE_VERSION = 'provider-phone-relay-2026-11-02';
-export const RELAY_DISCLOSURE = 'I agree to receive forwarded client or guardian text messages on this personal phone and to reply through the app number. Each reply must start with the family code shown. Message frequency varies; message and data rates may apply. STOP stops texts across this messaging account. Sensitive information is best shared through the portal. I am responsible for protecting access to this phone.';
+export const RELAY_DISCLOSURE_VERSION = 'provider-phone-relay-2026-11-02.2';
+export const RELAY_DISCLOSURE = 'I agree to receive forwarded client or guardian text messages on this personal phone and to reply through the app number. Reply with the short family code shown, or confirm the recipient with Y when prompted. NOCLIENTS stops forwarding to this phone while in-app messages remain available. Reply SUPPORT for conversation assistance. Message frequency varies; message and data rates may apply. STOP stops texts across this messaging account. Sensitive information is best shared through the portal. I am responsible for protecting access to this phone.';
 const on = value => value === true || value === 1;
 const fail = (message, status = 403) => Object.assign(new Error(message), { status });
 export async function activeAgencyUser(userId, agencyId) {
@@ -29,6 +30,7 @@ export async function hasRelayNumberAccess(userId, agencyId, numberId) {
 }
 export async function relayEnrollmentReady(enrollment, clientId = null) {
   if (!on(enrollment.enabled)) return false;
+  if (await providerRelayOptedOut({ agencyId: enrollment.agency_id, phone: enrollment.phone })) return false;
   const user = await activeAgencyUser(enrollment.provider_user_id, enrollment.agency_id);
   if (!user || normalizeSmsPhone(user.personal_phone) !== enrollment.phone) return false;
   const prefs = await UserPreferences.findByUserId(user.id);
@@ -64,8 +66,9 @@ export async function readRelaySettings(userId, agencyId) {
     const sender = await getSmsSender(number.phone_number);
     if (sender.registration?.provider === 'notifyre') available.push({ id:number.id, phone:number.phone_number });
   }
+  const forwardingDeclined = user.personal_phone ? await providerRelayOptedOut({ agencyId, phone: user.personal_phone }) : false;
   return { enrollments, personalPhone:user.personal_phone || '', textsEnabled:on(prefs?.sms_enabled),
-    forwardingEnabled:on(prefs?.sms_forwarding_enabled), numbers:available,
+    forwardingEnabled:on(prefs?.sms_forwarding_enabled) && !forwardingDeclined, numbers:available,
     disclosure:RELAY_DISCLOSURE, disclosureVersion:RELAY_DISCLOSURE_VERSION };
 }
 export async function saveRelaySettings({ actor, userId, agencyId, enabled, phone, numberId, consent }) {
@@ -98,6 +101,8 @@ export async function saveRelaySettings({ actor, userId, agencyId, enabled, phon
       disclosureVersion:RELAY_DISCLOSURE_VERSION,disclosure:RELAY_DISCLOSURE}});
   await User.update(userId,{personalPhone:normalized});
   await UserPreferences.update(userId,{sms_enabled:true,sms_forwarding_enabled:true});
+  await setProviderRelayPreference({ sender, phone: normalized, enabled: true,
+    evidence: { source, actorUserId: actor.id, disclosureVersion: RELAY_DISCLOSURE_VERSION } });
   await pool.execute(`UPDATE provider_sms_relay_enrollments SET enabled=TRUE,consent_actor_id=?,
     consent_at=UTC_TIMESTAMP(6),consent_source=?,disclosure_version=?
     WHERE agency_id=? AND provider_user_id=? AND number_id=? AND phone=?`,

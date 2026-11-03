@@ -1,5 +1,6 @@
 <template>
   <div class="cc-enc-tab">
+    <SchoolAbsenceRecords :client-id="clientId" />
     <nav v-if="clientId" class="medical-document-tabs" aria-label="Medical documents"><button v-for="tab in documentTabs" :key="tab.key" :aria-pressed="documentTab===tab.key" @click="selectDocumentTab(tab.key)">{{ tab.label }}</button></nav>
     <EnrollmentPortalDocuments v-if="clientId&&documentTab==='portal'" ref="portalDocumentsRef" :key="`portal:${clientId}`" :client-id="clientId" :agency-id="agencyId" />
     <SafetyPlansPanel v-if="clientId&&documentTab==='clinical'" ref="clinicalDocumentsRef" :key="`safety:${clientId}`" :client-id="clientId" :agency-id="agencyId" />
@@ -234,6 +235,7 @@
 </template>
 
 <script setup>
+import SchoolAbsenceRecords from '../schedule/SchoolAbsenceRecords.vue';
 import SafetyPlansPanel from '../safetyPlans/SafetyPlansPanel.vue';
 import EnrollmentPortalDocuments from '../enrollment/EnrollmentPortalDocuments.vue';
 import PhiDocumentsPanel from './PhiDocumentsPanel.vue';

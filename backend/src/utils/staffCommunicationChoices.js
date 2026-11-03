@@ -13,7 +13,7 @@ export const STAFF_COMMUNICATION_CHOICES = [
   { key: 'messageAlerts', label: 'Message-waiting text alerts', description: 'A generic notice that a message is waiting in the app. Client names, initials, message contents and clinical details are not included.' },
   { key: 'appointmentReplies', label: 'Client cancellations and appointment replies', description: 'Choose cancellations only, confirmations only, or all appointment replies. Texts identify the appointment day and time, not the client—for example, “Your Tuesday 3 PM appointment requested cancellation.” School absence replies require review and do not automatically cancel a visit.' },
   { key: 'kioskArrivals', label: 'Client check-in at the office kiosk', description: 'Text me that my appointment has checked in, with its day and time and no client name. I can read the arrival notice without opening the app. Connection and progress scores remain in the authorized app/email workflow. The in-app arrival alert is always on.' },
-  { key: 'exchangeMatches', label: 'New matching clients in Client Exchange', description: 'Text me about possible matches only while I am open for new clients in the requested format. Waitlist and Closed do not receive match alerts. Unknown preferences may still match. The staff notifications number sends a generic sign-in link; client identities, demographics, clinical summaries and record identifiers stay in the app.' },
+  { key: 'exchangeMatches', label: 'New matching clients in Client Exchange', description: 'Text me about possible matches only while I am open for new clients in the requested format. Waitlist and Closed do not receive match alerts. Unknown preferences may still match. Reply NOEXCHANGE to stop Client Exchange texts from this agency without changing email or other text choices. If you have only turned off individual text categories, START restores previously consented categories and lists how to turn each off again. You can also choose Yes here and save your signed choices. The staff notifications number sends a generic sign-in link; client identities, demographics, clinical summaries and record identifiers stay in the app.' },
   { key: 'polling', label: 'Optional staff polls and voting', description: 'Attendance Y/N and numbered choices for dates or activities. Final totals are available in the app; a results text is a separate choice for each poll.' }
 ];
 export function validateStaffCommunicationInput(input, disclosureHash) {
@@ -29,9 +29,13 @@ export function validateStaffCommunicationInput(input, disclosureHash) {
 }
 export function staffDeliveryKinds(choices) { return STAFF_COMMUNICATION_CHOICES.filter(c=>c.key!=='polling'&&choices?.[c.key]===true).map(c=>c.key); }
 export function staffNotificationKind(type) { return type==='client_exchange_match'?'exchangeMatches':type==='kiosk_checkin'?'kioskArrivals':type==='client_appointment_reply'?'appointmentReplies':['inbound_client_message','support_safety_net_alert','client_note'].includes(type)?'messageAlerts':'notifications'; }
+export function withExchangeSmsOptOut(body) {
+  return /\bNOEXCHANGE\b/i.test(body) ? body : `${body} Reply NOEXCHANGE to stop Client Exchange texts only.`;
+}
 export function staffNotificationBody(type, portalUrl, { availabilityUrl } = {}) {
   const intro=type==='client_exchange_match'?'New client added to the exchange. A possible match is available.':type==='kiosk_checkin'?'Your client has just checked in!':type==='client_appointment_reply'?'A client replied about an appointment. Open the app to review any cancellation or scheduling concern.':staffNotificationKind(type)==='messageAlerts'?'You have a message waiting in the app.':'You have a staff update or reminder in the app.';
   const availability = type === 'client_exchange_match' && availabilityUrl
     ? ` Full? Turn off Accepting new clients and save: ${availabilityUrl}` : '';
-  return `${intro} Sign in to review: ${portalUrl}${availability}`;
+  const body = `${intro} Sign in to review: ${portalUrl}${availability}`;
+  return type === 'client_exchange_match' ? withExchangeSmsOptOut(body) : body;
 }
