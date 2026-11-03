@@ -134,3 +134,23 @@ describe('identified supervision room roles and attendance', () => {
     const res = await invoke(endSupervisionLiveSession); expect(res.status).toHaveBeenCalledWith(403);
   });
 });
+
+
+it('accepts microphone diagnostics from the actual participant and discards device/media payloads', async () => {
+ const log=vi.spyOn(console,'info').mockImplementation(()=>{});
+ const res=await invoke(postSupervisionConnectionEvent,request(8,{event:'microphone-problem',reason:'capture-stalled',microphoneOn:true,processingMode:'basic',deviceId:'private-device',deviceLabel:'Private headset',media:'private recording',userId:7}));
+ expect(res.json).toHaveBeenCalledWith({ok:true});
+ expect(JSON.parse(log.mock.calls[0][0])).toMatchObject({userId:8,sessionId:9,event:'microphone-problem',reason:'capture-stalled',microphoneOn:true,processingMode:'basic'});
+ expect(log.mock.calls[0][0]).not.toMatch(/private|headset/i);
+ expect(m.record).not.toHaveBeenCalled(); expect(m.rollup).not.toHaveBeenCalled(); expect(m.end).not.toHaveBeenCalled();
+ log.mockRestore();
+});
+it('sanitizes invalid microphone metadata and preserves the supervision access boundary', async () => {
+ const log=vi.spyOn(console,'info').mockImplementation(()=>{});
+ const res=await invoke(postSupervisionConnectionEvent,request(8,{event:'microphone-recovery-failed',reason:'private device label',microphoneOn:'yes',processingMode:'private input'}));
+ expect(res.json).toHaveBeenCalledWith({ok:true});
+ expect(JSON.parse(log.mock.calls[0][0])).toMatchObject({reason:'unknown',microphoneOn:null,processingMode:null});
+ const denied=await invoke(postSupervisionConnectionEvent,request(999,{event:'microphone-recovery-started',reason:'manual-reconnect'}));
+ expect(denied.status).toHaveBeenCalledWith(403);expect(log).toHaveBeenCalledOnce();
+ log.mockRestore();
+});

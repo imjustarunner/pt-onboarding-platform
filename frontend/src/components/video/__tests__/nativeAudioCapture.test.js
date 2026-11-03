@@ -146,3 +146,24 @@ describe('acquireNativeAudioSource', () => {
     expect(result).toMatchObject({ stream: audioStream, track: audioTrack });
   });
 });
+
+
+it('coalesces repeated microphone enhancement requests and serializes setting changes', async () => {
+ let finish; const track={getSettings:()=>({}),applyConstraints:vi.fn().mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;})).mockResolvedValue(undefined)};
+ const devices={getSupportedConstraints:()=>({})};
+ const first=enhancePublishedAudioTrack(track,devices);
+ const repeated=enhancePublishedAudioTrack(track,devices);
+ const changed=enhancePublishedAudioTrack(track,devices,{autoGainControl:false});
+ await Promise.resolve(); await Promise.resolve();
+ expect(track.applyConstraints).toHaveBeenCalledOnce();
+ finish(); await Promise.all([first,repeated,changed]);
+ expect(track.applyConstraints).toHaveBeenCalledTimes(2);
+ expect(track.applyConstraints.mock.calls[1][0]).toMatchObject({autoGainControl:false});
+ await enhancePublishedAudioTrack(track,devices,{autoGainControl:false});
+ expect(track.applyConstraints).toHaveBeenCalledTimes(2);
+});
+it('basic audio explicitly disables isolation and extra suppression while preserving echo and level controls', async () => {
+ const track={getSettings:()=>({voiceIsolation:true}),applyConstraints:vi.fn().mockResolvedValue(undefined)};
+ await enhancePublishedAudioTrack(track,{getSupportedConstraints:()=>({})},{noiseReduction:false,autoGainControl:false});
+ expect(track.applyConstraints).toHaveBeenCalledExactlyOnceWith({echoCancellation:true,noiseSuppression:false,autoGainControl:false,voiceIsolation:false});
+});

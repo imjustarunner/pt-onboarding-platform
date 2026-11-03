@@ -353,7 +353,11 @@
         {{ connectionNotice }}
       </div>
 
-      <div v-if="audioProblem" class="vsr__audio-problem" role="alert">{{ audioProblem }} Open Audio settings to reconnect or choose another input.</div>
+      <div v-if="audioProblem" class="vsr__audio-problem" role="alert">
+        {{ audioProblem }}
+        <button type="button" class="vsr__ctrl" :disabled="audioDeviceBusy || !sessionReady || micLockedByHost" @click="changeMicrophone(selectedMicrophoneId)">Reconnect microphone</button>
+        <button type="button" class="vsr__ctrl" :disabled="audioDeviceBusy || !sessionReady || micLockedByHost" @click="useBasicMicrophoneAudio">Use basic microphone audio</button>
+      </div>
       <div v-if="blockedAudioCount || playbackError || audioResumeNeeded" class="vsr__audio-problem" role="alert">
         {{ playbackError || (audioResumeNeeded ? 'Back from another app? Tap to resume meeting sound if it is paused.' : 'Your browser has paused meeting sound.') }}
         <button type="button" class="vsr__ctrl" :disabled="playbackBusy" @click="enableMeetingAudio">{{ audioResumeNeeded ? 'Resume meeting sound' : 'Enable meeting sound' }}</button>
@@ -372,7 +376,10 @@
           <input type="checkbox" :checked="automaticMicLevel" :disabled="audioProcessingBusy || audioDeviceBusy || !sessionReady" @change="changeAutomaticMicLevel($event.target.checked)" />
           Balance my microphone volume automatically
         </label>
-        <p>Keep this on for speech. Turn it off if it raises background noise. Echo and noise reduction remain on where supported.</p>
+        <p>Keep this on for speech. Turn it off if it raises background noise.</p>
+        <p v-if="basicMicrophoneAudio" role="status">Basic microphone audio is on. Speak and check the input level.</p>
+        <button v-else type="button" class="vsr__ctrl" :disabled="audioDeviceBusy || !sessionReady || micLockedByHost" @click="useBasicMicrophoneAudio">Use basic microphone audio</button>
+        <p>If your voice cuts out, try basic microphone audio or choose another input. Speak and check the input level after reconnecting.</p>
         <button type="button" class="vsr__ctrl" :disabled="audioDeviceBusy || !sessionReady || micLockedByHost" @click="changeMicrophone(selectedMicrophoneId)">{{ audioDeviceBusy ? 'Reconnecting…' : 'Reconnect microphone' }}</button>
         <p>If you cannot hear other participants, enable meeting sound and check your computer’s speaker or headphone output.</p>
         <button type="button" class="vsr__ctrl" :disabled="playbackBusy || !sessionReady" @click="enableMeetingAudio">Enable meeting sound</button>
@@ -728,6 +735,7 @@ const hideSelfView = ref(false);
 /** on | processing | unavailable | unsupported */
 const voiceIsolationStatus = ref('');
 const automaticMicLevel = ref(true);
+const basicMicrophoneAudio = ref(false);
 const audioProcessingBusy = ref(false);
 const listeningVolumes = ref(new Map());
 /** @type {import('vue').Ref<Array<{ streamId: string, connectionId: string, name: string, hasVideo: boolean, hasAudio: boolean, profilePhotoUrl: string }>>} */
@@ -1274,13 +1282,15 @@ async function applyVonageAdvancedNoiseSuppression(pub = publisher) {
 }
 
 async function enhanceLocalPublisherAudio() {
+  const activePublisher = publisher;
   const track = resolvePublisherAudioTrack(publisher);
   if (!track || track.readyState === 'ended') {
     refreshAudioEnhancementStatus(publisher);
     return null;
   }
   publisherAudioTrack = track;
-  const result = await enhancePublishedAudioTrack(track, navigator.mediaDevices, { autoGainControl: automaticMicLevel.value });
+  const result = await enhancePublishedAudioTrack(track, navigator.mediaDevices, { autoGainControl: automaticMicLevel.value, noiseReduction: !basicMicrophoneAudio.value });
+  if (publisher !== activePublisher) return null;
   // The unstable WASM noise model remains disabled by the capability policy.
   void applyVonageAdvancedNoiseSuppression(publisher).then(() => {
     refreshAudioEnhancementStatus(publisher);
@@ -2770,7 +2780,7 @@ async function connect() {
 
     const buildPublisherOpts = (withAudio, captureAudio) => {
       const mainRoom = !props.lobbyMode;
-      const audioProcessing = nativeAudioConstraints(navigator.mediaDevices, { autoGainControl: automaticMicLevel.value });
+      const audioProcessing = nativeAudioConstraints(navigator.mediaDevices, { autoGainControl: automaticMicLevel.value, noiseReduction: !basicMicrophoneAudio.value });
       const opts = {
         insertMode: 'append',
         width: '100%',
@@ -2888,15 +2898,13 @@ async function connect() {
     }
     monitorMicrophone();
     void refreshMicrophones();
+    monitorPublisherMicrophone(publisher, session);
     publisher?.on?.('audioInputDeviceChanged', () => { monitorMicrophone(); void refreshMicrophones(); });
     attachPublisherAudioLevel();
     voiceIsolationStatus.value = props.lobbyMode ? '' : 'processing';
     if (!props.lobbyMode) {
       await enhanceLocalPublisherAudio();
-      // Chrome sometimes finalizes Voice Isolation shortly after capture starts.
-      setTimeout(() => {
-        void enhanceLocalPublisherAudio();
-      }, 750);
+      // Keep the published track stable; processing is configured once per source.
     } else {
       refreshAudioEnhancementStatus(publisher);
     }
@@ -3116,6 +3124,9 @@ function disconnect(emitEvent = true) {
   waitPolicy.reset();
   aloneWait.value = { phase: 'inactive' };
   try {
+    clearTimeout(microphoneRecoveryTimer);
+    microphoneRecoveryTimer = null;
+    microphoneRecoveryAttempts = 0;
     stopMonitoringMicrophone();
     monitoredAudioTrack = null;
     audioProblem.value = '';
@@ -3215,18 +3226,69 @@ const selectedMicrophoneId = ref('default');
 const audioDeviceBusy = ref(false);
 const audioProblem = ref('');
 let monitoredAudioTrack = null;
+let microphoneRecoveryTimer = null;
+let microphoneRecoveryAttempts = 0;
+
+function reportMicrophone(event, reason) {
+  emit('connection-status', { event, reason, microphoneOn: !!publishAudio.value,
+    processingMode: basicMicrophoneAudio.value ? 'basic' : 'enhanced' });
+}
+
+function monitorPublisherMicrophone(activePublisher, owner) {
+  const current = () => publisher === activePublisher && session === owner;
+  let interrupted = false;
+  activePublisher?.on?.('audioAcquisitionProblem', () => {
+    if (!current() || props.lobbyMode || !publishAudio.value || micLockedByHost.value) return;
+    if (interrupted) return;
+    interrupted = true;
+    audioProblem.value = 'Your microphone stopped sending audio. Other participants may not hear you.';
+    reportMicrophone('microphone-problem', 'capture-stalled');
+    if (microphoneRecoveryTimer || microphoneRecoveryAttempts >= 1) return;
+    // Give transient device switches time to settle. Only one automatic attempt
+    // per publisher; persistent failures stay visible and require a user action.
+    microphoneRecoveryTimer = setTimeout(() => {
+      microphoneRecoveryTimer = null;
+      if (!current() || !publishAudio.value || micLockedByHost.value || audioDeviceBusy.value || micToggleInFlight) return;
+      microphoneRecoveryAttempts += 1;
+      void changeMicrophone(selectedMicrophoneId.value, { automatic: true });
+    }, 3000);
+  });
+  activePublisher?.on?.('audioAcquisitionProblemResolved', () => {
+    if (!current() || !interrupted) return;
+    interrupted = false;
+    clearTimeout(microphoneRecoveryTimer);
+    microphoneRecoveryTimer = null;
+    if (audioProblem.value.startsWith('Your microphone stopped sending audio')) audioProblem.value = '';
+    reportMicrophone('microphone-recovered', 'audio-flow-restored');
+  });
+}
+
+async function useBasicMicrophoneAudio() {
+  if (audioDeviceBusy.value || micToggleInFlight || micLockedByHost.value || !publisher) return;
+  const previous = basicMicrophoneAudio.value;
+  basicMicrophoneAudio.value = true;
+  if (!await changeMicrophone(selectedMicrophoneId.value)) basicMicrophoneAudio.value = previous;
+}
+
 function onMicrophoneEnded() {
   needsAudioSourceAttach.value = true;
   publishAudio.value = false;
   localMicLevel.value = 0;
   broadcastMicState(false);
   audioProblem.value = 'Microphone disconnected — others cannot hear you.';
+  reportMicrophone('microphone-problem', 'track-ended');
 }
 function onMicrophonePaused() {
-  if (publishAudio.value && !props.lobbyMode) audioProblem.value = 'Microphone input paused — check your device and browser permission.';
+  if (publishAudio.value && !props.lobbyMode) {
+    audioProblem.value = 'Microphone input paused — check your device and browser permission.';
+    reportMicrophone('microphone-problem', 'track-muted');
+  }
 }
 function onMicrophoneResumed() {
-  if (audioProblem.value.startsWith('Microphone input paused')) audioProblem.value = '';
+  if (audioProblem.value.startsWith('Microphone input paused')) {
+    audioProblem.value = '';
+    reportMicrophone('microphone-recovered', 'audio-flow-restored');
+  }
 }
 function stopMonitoringMicrophone() {
   monitoredAudioTrack?.removeEventListener?.('ended', onMicrophoneEnded);
@@ -3262,26 +3324,50 @@ async function addPublisherAudioWithoutRestartingCamera(deviceId = selectedMicro
   publisherAudioTrack = publisher?.getAudioSource?.() || null;
   needsAudioSourceAttach.value = false;
   audioProblem.value = '';
-  await enhanceLocalPublisherAudio();
+  const enhancement = await enhanceLocalPublisherAudio();
+  if (basicMicrophoneAudio.value && (!enhancement?.applied || enhancement.voiceIsolation || enhancement.settings?.noiseSuppression === true)) {
+    throw Object.assign(new Error('This browser could not enable basic microphone audio. Try another input.'), { name: 'BasicMicrophoneAudioError' });
+  }
   await syncLocalVideoPresentation();
 }
-async function changeMicrophone(deviceId) {
-  if (audioDeviceBusy.value || micToggleInFlight || micLockedByHost.value || !publisher) return;
+async function changeMicrophone(deviceId, { automatic = false } = {}) {
+  if (audioDeviceBusy.value || micToggleInFlight || micLockedByHost.value || !publisher) return false;
+  const activePublisher = publisher;
+  const owner = session;
   audioDeviceBusy.value = true;
+  reportMicrophone('microphone-recovery-started', automatic ? 'automatic-reconnect' : 'manual-reconnect');
   try {
     await addPublisherAudioWithoutRestartingCamera(deviceId);
+    if (publisher !== activePublisher || session !== owner) return false;
     selectedMicrophoneId.value = deviceId;
     // Switching inputs preserves mute, including a host mute received while waiting.
     publisher.publishAudio(publishAudio.value && !micLockedByHost.value);
     rebroadcastLocalMediaState();
     showMicHint(publishAudio.value ? 'Microphone reconnected. Speak and check the input level.' : 'Microphone reconnected. Unmute when ready.');
+    reportMicrophone('microphone-source-reconnected', automatic ? 'automatic-reconnect' : 'manual-reconnect');
+    return true;
   } catch (error) {
-    audioProblem.value = sanitizeVideoError(error).message || 'Could not connect to that microphone.';
+    if (publisher !== activePublisher || session !== owner) return false;
+    audioProblem.value = error?.name === 'BasicMicrophoneAudioError'
+      ? 'This browser could not enable basic microphone audio. Try another input.'
+      : sanitizeVideoError(error).message || 'Could not connect to that microphone.';
+    reportMicrophone('microphone-recovery-failed', automatic ? 'automatic-reconnect' : 'manual-reconnect');
+    return false;
   } finally { audioDeviceBusy.value = false; }
 }
 
 async function toggleMic() {
-  if (micToggleInFlight || audioDeviceBusy.value) return;
+  if (micToggleInFlight || audioDeviceBusy.value) {
+    // Recovery must never prevent someone from muting while a device is opening.
+    if (!props.lobbyMode && publishAudio.value) {
+      publishAudio.value = false;
+      localMicLevel.value = 0;
+      try { publisher?.publishAudio(false); } catch { /* the source may have ended */ }
+      broadcastMicState(false);
+      setSpeaking('local', false);
+    }
+    return;
+  }
   if (props.lobbyMode) {
     // Auto-muted participants may test/grant the mic in private, but a successful
     // test must not change the muted state they carry into the main room.
@@ -3375,7 +3461,7 @@ async function toggleMic() {
     if (next && (needsAudioSourceAttach.value || !publisher?.getAudioSource?.() || publisher.getAudioSource().readyState === 'ended')) {
       await addPublisherAudioWithoutRestartingCamera();
     }
-    if (next && micLockedByHost.value) {
+    if (next && (!publishAudio.value || micLockedByHost.value)) {
       publishAudio.value = false;
       publisher.publishAudio(false);
       return;
