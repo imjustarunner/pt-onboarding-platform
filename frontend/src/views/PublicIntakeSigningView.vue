@@ -697,7 +697,15 @@
             </div>
             <p v-if="reminderConsentError" class="error" style="margin-top: 8px;">{{ reminderConsentError }}</p>
           </section>
-          <p v-if="whoForError" class="error" style="margin: 0 0 8px;">{{ whoForError }}</p>
+          <div v-if="starterValidationShown && starterValidationIssues.length" class="error intake-start-validation" role="alert">
+            <p>{{ t('completeRequiredFields') }}</p>
+            <ul>
+              <li v-for="issue in starterValidationIssues" :key="issue.id">
+                <button type="button" @click="focusStarterField(issue.id)">{{ issue.label }}: {{ t('required') }}</button>
+              </li>
+            </ul>
+          </div>
+          <p v-else-if="whoForError" class="error" style="margin: 0 0 8px;">{{ whoForError }}</p>
           <button
             type="button"
             class="df-btn df-btn-primary intake-start-continue"
@@ -7531,6 +7539,39 @@ watch([serviceSubject, guardianFirstName, guardianMiddleName, guardianLastName, 
     lastName: guardianLastName.value, dateOfBirth: starterDob.value });
 }, { flush: 'sync' });
 const whoForError = ref('');
+const starterValidationShown = ref(false);
+const starterValidationIssues = computed(() => {
+  const issues = [];
+  for (const [key, label] of [
+    ['guardianFirstName', 'yourFirstName'], ['guardianLastName', 'yourLastName'],
+    ['guardianPhone', 'yourPhone'], ['guardianEmail', 'yourEmail'],
+    ['starterDob', 'dateOfBirth'], ['guardianRelationship', 'relationshipToClient']
+  ]) {
+    if (consentErrors[key]) issues.push({ id: key, label: t(label) });
+  }
+  startClientErrors.value.forEach((row, index) => {
+    if (serviceSubject.value === 'couple' && index === 0) return;
+    for (const [key, id, label] of [
+      ['firstName', 'clientFirstName', 'dependentFirstName'],
+      ['lastName', 'clientLastName', 'dependentLastName'],
+      ['dob', 'clientDob', 'dependentDateOfBirth']
+    ]) {
+      if (row[key]) issues.push({ id: `${id}_${index}`, label: `${index + 1}. ${t(label)}` });
+    }
+  });
+  if (serviceSubject.value === 'dependent' && !otherGuardianContactOk()) {
+    issues.push({ id: 'other-guardian-fields', label: otherGuardianBlockReason() });
+  }
+  return issues;
+});
+
+function focusStarterField(id) {
+  const host = document.getElementById(id);
+  const control = host?.matches('input, select, textarea, button')
+    ? host : host?.querySelector('input, select, textarea, button');
+  (control || host)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  control?.focus({ preventScroll: true });
+}
 
 function emptyOfficeClient() {
   return { firstName: '', middleName: '', lastName: '', dateOfBirth: '' };
@@ -7726,16 +7767,30 @@ function isEnrollmentOptionEnabled(subject) {
   );
 }
 
+// Keep each route's entered participants without carrying the signer into a
+// different route's dependent/family member fields.
+const starterParticipantsBySubject = new Map();
 function chooseServiceSubject(subject) {
   if (isCoGuardianInvitee.value) return;
   const next = String(subject || '').trim().toLowerCase();
   if (!isEnrollmentOptionEnabled(next)) return;
+  const previous = serviceSubject.value;
+  if (previous && previous !== next) {
+    starterParticipantsBySubject.set(previous, { clients: clients.value, responses: intakeResponses.clients });
+  }
+  if (previous !== next) {
+    const saved = starterParticipantsBySubject.get(next);
+    clients.value = saved?.clients || (next === 'couple'
+      ? [emptyOfficeClient(), emptyOfficeClient()] : [emptyOfficeClient()]);
+    intakeResponses.clients = saved?.responses || clients.value.map(() => ({}));
+  }
   if ((next === 'dependent' || next === 'family') && !clients.value.length) clients.value = [emptyOfficeClient()];
   if (next === 'couple' && clients.value.length < 2) clients.value = [emptyOfficeClient(), emptyOfficeClient()];
   serviceSubject.value = next;
   intakeResponses.submission.serviceSubject = next;
   intakeForSelf.value = next === 'self';
   whoForError.value = '';
+  starterValidationShown.value = false;
   if ((next === 'dependent' || next === 'family') && !clients.value.length) {
     clients.value = [emptyOfficeClient()];
   }
@@ -7842,23 +7897,13 @@ async function continueWhoFor() {
     || childFieldMissing
     || (requireOtherGuardian && !otherGuardianContactOk())
   ) {
-    whoForError.value = (requireOtherGuardian && otherGuardianBlockReason()) || t('requiredFields');
+    whoForError.value = '';
+    starterValidationShown.value = true;
     await nextTick();
-    const scrollId = requireOtherGuardian && !otherGuardianContactOk()
-      ? 'other-guardian-fields'
-      : (consentErrors.guardianFirstName
-        ? 'guardianFirstName'
-        : consentErrors.guardianLastName
-          ? 'guardianLastName'
-          : consentErrors.guardianEmail
-            ? 'guardianEmail'
-            : consentErrors.guardianPhone
-              ? 'guardianPhone'
-              : null);
-    const el = scrollId ? document.getElementById(scrollId) : null;
-    el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    focusStarterField(starterValidationIssues.value[0]?.id);
     return;
   }
+  starterValidationShown.value = false;
   if (subjectNow === 'dependent' && clients.value.length > 1 && !multiClientConsentAccepted.value) {
     multiClientPlanChoice.value = 'multiple';
     multiClientConsentDialogOpen.value = true;
@@ -9637,9 +9682,9 @@ const loadPdfPreview = async () => {
   }
 };
 
-const loadLink = async () => {
+const loadLink = async ({ background = false } = {}) => {
   try {
-    loading.value = true;
+    if (!background) loading.value = true;
     templateHtmlLoads.clear();
     packetSectionLoads.clear();
     disclosureContextLoads.clear();
@@ -10000,7 +10045,9 @@ const switchLinkedLanguage = async (target) => {
     try { localStorage.setItem('preferredFormLanguage', targetLang); } catch { /* ignore */ }
     linkedLanguageSwitching.value = true;
     try {
-      await loadLink();
+      // Keep the existing form and solved CAPTCHA mounted while replacing
+      // published EN/ES content. A loading screen destroys Google's widget.
+      await loadLink({ background: true });
     } finally {
       linkedLanguageSwitching.value = false;
     }
@@ -18110,11 +18157,20 @@ onBeforeUnmount(() => {
 .public-intake--compact-start .reminder-consent-title { font-size:15px; }
 .public-intake--compact-start .reminder-consent-lead { font-size:13px; }
 .public-intake--compact-start .intake-start-support { text-align:left; font-size:12px; margin-top:12px; }
+.intake-start-validation p { margin:0 0 8px; }
+.intake-start-validation ul { margin:0; padding-left:20px; }
+.intake-start-validation button { border:0; padding:4px 0; background:transparent; color:inherit; font:inherit; text-align:left; text-decoration:underline; cursor:pointer; }
+.public-intake--compact-start :deep(.office-enrollment-card) { container-type:inline-size; }
+@container (max-width:600px) {
+ .public-intake--compact-start .intake-identity-grid { grid-template-columns:minmax(0,1fr); }
+ .public-intake--compact-start .intake-identity-grid .form-group { grid-column:1 / -1; grid-row:auto; width:auto; min-width:0; }
+ .public-intake--compact-start .intake-start-child { display:grid; grid-template-columns:minmax(0,1fr); width:100%; }
+}
 @media(max-width:600px) {
  .public-intake--compact-start :deep(.df-main-header) { padding:10px 16px 0; }
  .public-intake.public-intake--compact-start :deep(.df-main-body--cover) { padding:12px 12px 28px; }
  .public-intake--compact-start .intake-who-stack { grid-template-columns:1fr 1fr; }
- .public-intake--compact-start .intake-identity-grid { grid-template-columns:1fr 1fr; gap:12px; }
+ .public-intake--compact-start .intake-identity-grid { grid-template-columns:minmax(0,1fr); gap:12px; }
  .public-intake--compact-start .intake-identity-grid .form-group { grid-column:1 / -1; grid-row:auto; }
  .public-intake--compact-start .intake-identity-grid input,
  .public-intake--compact-start .intake-identity-grid select { font-size:16px; }

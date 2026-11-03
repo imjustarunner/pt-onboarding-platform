@@ -211,7 +211,7 @@
                 @blur="validateBasicsField('phone')"
               />
             </div>
-            <div class="ai-span-4">
+            <div v-if="!isDependentWhoFor" class="ai-span-4">
               <DigitalFormField
                 v-model="form.birthdate"
                 type="date"
@@ -424,6 +424,9 @@
                   @click="form.client.lastName = form.respondent.lastName"
                 > {{ tx("Same as me") }} </button>
                 <DigitalFormField v-model="form.client.lastName" label="Last name" required />
+              </div>
+              <div class="ai-span-4">
+                <DigitalFormField v-model="form.birthdate" type="date" :label="whoForDobLabel" required />
               </div>
             </div>
           </section>
@@ -852,11 +855,11 @@ const form = reactive({
     phone: '',
     address: { street: '', apt: '', city: '', state: '', zip: '' }
   },
-  notifyPartner: 'not_yet',
-  partnersSameAddress: 'yes',
-  familyRole: 'parent',
-  sameHousehold: 'yes',
-  householdsInvolved: '2',
+  notifyPartner: '',
+  partnersSameAddress: '',
+  familyRole: '',
+  sameHousehold: '',
+  householdsInvolved: '',
   familyMembers: [
     {
       firstName: '',
@@ -864,7 +867,7 @@ const form = reactive({
       lastName: '',
       dateOfBirth: '',
       relationshipToPrimary: '',
-      participationStatus: 'participating',
+      participationStatus: '',
       email: '',
       phone: ''
     }
@@ -1280,11 +1283,13 @@ const basicsIssues = computed(() => {
     required('partnerLast', form.partner.lastName, 'Your partner’s last name is required.');
     required('partnerDob', form.partner.dateOfBirth, 'Your partner’s date of birth is required.');
     required('notifyPartner', form.notifyPartner, 'Choose whether to notify your partner.');
+    required('partnersSameAddress', form.partnersSameAddress, 'Choose whether you and your partner live at the same address.');
     if (form.partnersSameAddress === 'no' && ['street', 'city', 'state', 'zip'].some(key => !String(form.partner.address?.[key] || '').trim())) {
       issues.push({ key: 'partnerAddress', message: 'Complete your partner’s street address, city, state, and ZIP code.' });
     }
   } else if (form.whoFor === 'family') {
     required('familyRole', form.familyRole, 'Choose your role in the family.');
+    required('sameHousehold', form.sameHousehold, 'Choose whether everyone lives in the same household.');
     if (!form.familyMembers.length || form.familyMembers.some(member => ['firstName', 'lastName', 'dateOfBirth', 'relationshipToPrimary'].some(key => !String(member[key] || '').trim()))) {
       issues.push({ key: 'familyMembers', message: 'Each family member needs a first name, last name, date of birth, and relationship to you.' });
     }
@@ -1481,7 +1486,7 @@ function emptyFamilyMember() {
     lastName: '',
     dateOfBirth: '',
     relationshipToPrimary: '',
-    participationStatus: 'participating',
+    participationStatus: '',
     email: '',
     phone: ''
   };

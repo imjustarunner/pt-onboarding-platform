@@ -18,6 +18,8 @@ export const JOIN_ENROLLMENT_ES = {
   'Your partner’s last name is required.': 'El apellido de su pareja es obligatorio.',
   'Your partner’s date of birth is required.': 'La fecha de nacimiento de su pareja es obligatoria.',
   'Choose whether to notify your partner.': 'Elija si desea notificar a su pareja.',
+  'Choose whether you and your partner live at the same address.': 'Elija si usted y su pareja viven en la misma dirección.',
+  'Choose whether everyone lives in the same household.': 'Elija si todos viven en el mismo hogar.',
   'Complete your partner’s street address, city, state, and ZIP code.': 'Complete la dirección, ciudad, estado y código postal de su pareja.',
   'Choose your role in the family.': 'Elija su papel en la familia.',
   'Each family member needs a first name, last name, date of birth, and relationship to you.': 'Cada familiar necesita nombre, apellido, fecha de nacimiento y parentesco con usted.',
