@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { URL as NodeURL } from 'node:url';
 import { pages, renderWebsite } from '../render.mjs';
 
 const approvedPartners = [
@@ -15,6 +17,17 @@ const linksIn = element => [...element.querySelectorAll('a[href]')].map(a => nor
 const textIn = element => element.textContent.replace(/\s+/g, ' ').trim();
 
 describe('AuricWell website navigation and confirmed ecosystem', () => {
+  it('serves every public page through its legacy HQ route before the app fallback', () => {
+    const nginx = readFileSync(new NodeURL('../../../../nginx.conf', import.meta.url), 'utf8');
+    for (const section of Object.keys(pages)) {
+      const path = `/auricwell${section ? `/${section}` : ''}`;
+      const route = nginx.match(new RegExp(`location\\s*=\\s*${path}\\s*\\{([^}]*)\\}`));
+      expect(route?.[1], `Missing public HQ route: ${path}`).toContain(`try_files /auricwell/site/${section || 'home'}.html =404;`);
+    }
+    const trailingSlash = nginx.match(/rewrite\s+\^\/auricwell\/\(([^)]+)\)\/\$\s+\/auricwell\/\$1\s+permanent;/);
+    expect(trailingSlash?.[1].split('|')).toEqual(expect.arrayContaining(Object.keys(pages).filter(Boolean)));
+  });
+
   it('keeps public scripts and styles tied to the page build through edge caches', () => {
     for (const page of ['', 'product', 'partners', 'about', 'contact']) {
       const first = documentFor(page, { assetVersion: 'release-one' });
