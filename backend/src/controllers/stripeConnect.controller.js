@@ -13,30 +13,30 @@
  */
 
 import pool from '../config/database.js';
-import StripePaymentsService, { isStripeConfigured } from '../services/stripePayments.service.js';
+import StripePaymentsService, { isStripeConfigured, stripeConnectStatus } from '../services/stripePayments.service.js';
 import Agency from '../models/Agency.model.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-async function getBillingAccount(agencyId) {
-  const [rows] = await pool.query(
-    `SELECT agency_id, stripe_connect_account_id, stripe_connect_status
+async function getBillingAccount(agencyId, db = pool) {
+  const [rows] = await db.query(
+    `SELECT agency_id, billing_email, stripe_connect_account_id, stripe_connect_status
      FROM agency_billing_accounts WHERE agency_id = ? LIMIT 1`,
     [agencyId]
   );
   return rows[0] || null;
 }
 
-async function upsertBillingAccount(agencyId) {
-  await pool.query(
+async function upsertBillingAccount(agencyId, db = pool) {
+  await db.query(
     `INSERT INTO agency_billing_accounts (agency_id) VALUES (?)
      ON DUPLICATE KEY UPDATE agency_id = agency_id`,
     [agencyId]
   );
 }
 
-async function saveConnectAccount(agencyId, { accountId, status }) {
-  await pool.query(
+async function saveConnectAccount(agencyId, { accountId, status }, db = pool) {
+  await db.query(
     `UPDATE agency_billing_accounts
      SET stripe_connect_account_id = ?,
          stripe_connect_status     = ?,
@@ -57,6 +57,8 @@ async function saveConnectAccount(agencyId, { accountId, status }) {
  * back to STRIPE_CONNECT_RETURN_URL.
  */
 export const startConnect = async (req, res, next) => {
+  let connection, locked = false;
+  let lockName;
   try {
     if (!isStripeConfigured()) {
       return res.status(503).json({ error: { message: 'Stripe is not configured on this platform.' } });
@@ -68,29 +70,41 @@ export const startConnect = async (req, res, next) => {
     const agency = await Agency.findById(agencyId);
     if (!agency) return res.status(404).json({ error: { message: 'Agency not found' } });
 
-    // Ensure a billing account row exists for this agency
-    await upsertBillingAccount(agencyId);
-    const billingAccount = await getBillingAccount(agencyId);
+    // Concurrent admins/tabs must reuse one account for this tenant.
+    connection = await pool.getConnection();
+    lockName = `stripe-connect:${agencyId}`;
+    const [[lock]] = await connection.query('SELECT GET_LOCK(?, 10) acquired', [lockName]);
+    locked = Number(lock.acquired) === 1;
+    if (!locked) return res.status(409).json({ error: { message: 'Payment setup is already being opened. Please try again shortly.' } });
+    await upsertBillingAccount(agencyId, connection);
+    const billingAccount = await getBillingAccount(agencyId, connection);
 
     let stripeAccountId = billingAccount?.stripe_connect_account_id || null;
 
     // Create a new Express account if not already created
     if (!stripeAccountId) {
       const account = await StripePaymentsService.createConnectAccount({
+        email: billingAccount?.billing_email || req.user.email,
         businessName: agency.name || undefined,
+        businessUrl: agency.website_url || undefined,
+        idempotencyKey: `agency-connect-v2-${agencyId}`,
         metadata: {
           agency_id: String(agencyId),
           agency_name: agency.name || ''
         }
       });
       stripeAccountId = account.id;
-      await saveConnectAccount(agencyId, { accountId: stripeAccountId, status: 'pending' });
+      await saveConnectAccount(agencyId, { accountId: stripeAccountId, status: 'pending' }, connection);
     }
 
     // Generate a fresh account link (links expire after a few minutes)
     const portalPath = `/${encodeURIComponent(agency.slug)}/admin/family-billing?tab=setup&agencyId=${agencyId}`;
-    const returnUrl = process.env.STRIPE_CONNECT_RETURN_URL || `${process.env.FRONTEND_URL || ''}${portalPath}&stripe=connected`;
-    const refreshUrl = process.env.STRIPE_CONNECT_REFRESH_URL || `${process.env.FRONTEND_URL || ''}${portalPath}&stripe=refresh`;
+    // Global callback values may name another tenant. Keep their trusted origin,
+    // but always return to the organization whose account was opened.
+    const base = process.env.FRONTEND_URL || process.env.STRIPE_CONNECT_RETURN_URL;
+    const origin = new URL(base).origin;
+    const returnUrl = `${origin}${portalPath}&stripe=connected`;
+    const refreshUrl = `${origin}${portalPath}&stripe=refresh`;
 
     const accountLink = await StripePaymentsService.createAccountLink({
       connectedAccountId: stripeAccountId,
@@ -105,6 +119,11 @@ export const startConnect = async (req, res, next) => {
     });
   } catch (error) {
     next(error);
+  } finally {
+    if (connection) {
+      if (locked) await connection.query('SELECT RELEASE_LOCK(?)', [lockName]).catch(() => {});
+      connection.release();
+    }
   }
 };
 
@@ -146,7 +165,7 @@ export const getStripeStatus = async (req, res, next) => {
     }
 
     const chargesEnabled = !!stripeAccount.charges_enabled;
-    const newStatus = chargesEnabled ? 'active' : 'pending';
+    const newStatus = stripeConnectStatus(stripeAccount);
 
     // Sync status to DB if it changed
     if (newStatus !== billingAccount?.stripe_connect_status) {

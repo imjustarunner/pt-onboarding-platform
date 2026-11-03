@@ -46,6 +46,10 @@
           Stripe onboarding started but not yet complete. Click below to continue.
         </span>
       </div>
+      <div class="stripe-details" v-if="chargesEnabled !== null">
+        <div class="stripe-detail-item"><span class="label">Charges</span><span :class="['pill', chargesEnabled ? 'pill-on' : 'pill-warn']">{{ chargesEnabled ? 'Enabled' : 'Not yet enabled' }}</span></div>
+        <div class="stripe-detail-item"><span class="label">Payouts</span><span :class="['pill', payoutsEnabled ? 'pill-on' : 'pill-warn']">{{ payoutsEnabled ? 'Enabled' : 'Not yet enabled' }}</span></div>
+      </div>
       <div class="stripe-actions">
         <button class="btn btn-primary" :disabled="connecting || !canManageConnection" @click="connectStripe">
           <span v-if="connecting" class="spinner spinner--btn" />
