@@ -156,7 +156,7 @@ async function sendHeartbeats(force = false) {
     ...(sessionId ? [api.post('/auth/platform-session/heartbeat', { sessionId, agencyId, phase, meaningful: phase === 'active' && Date.now() - lastActivityTime < 60000 }, REQUEST_OPTIONS)] : [])
   ]);
 }
-async function refresh() {
+async function refresh({ broadcast = true } = {}) {
   if (!isTracking) return;
   if (refreshPromise && refreshGeneration === generation) return refreshPromise;
   const currentGeneration = generation;
@@ -164,10 +164,10 @@ async function refresh() {
   const request = api.get('/auth/session-lock-config', REQUEST_OPTIONS).then(response => {
     if (currentGeneration !== generation || !isTracking) return;
     if (!localSessionState(response.data?.session)) throw new Error('Session verification is unavailable.');
-    applyServer({ policy: response.data, session: response.data.session });
+    applyServer({ policy: response.data, session: response.data.session }, { broadcast });
   }).catch(error => {
     if (currentGeneration === generation && isTracking && !initialized) useSessionLockStore().verificationFailed = true;
-    if (currentGeneration === generation && error.response?.data?.session) applyServer(error.response.data);
+    if (currentGeneration === generation && error.response?.data?.session) applyServer(error.response.data, { broadcast });
     if (currentGeneration === generation && error.response?.data?.error?.code === 'SESSION_EXPIRED' && !error.response.data.session) void handleTimeout();
     throw error;
   }).finally(() => { if (refreshPromise === request) refreshPromise = null; });
@@ -208,7 +208,9 @@ function onStorage(event) {
   if (event.key !== storageKey) return;
   readShared(); reconcile();
   // Confirm unlocks with the server; no code/token is placed in shared storage.
-  if (state?.phase === 'active') void refresh().catch(() => {});
+  // A verification response must not echo a peer's storage update back to it.
+  // Otherwise two open tabs continuously verify and rebroadcast serverNow.
+  if (state?.phase === 'active') void refresh({ broadcast: false }).catch(() => {});
 }
 function onVisibility() {
   if (!isTracking || document.visibilityState !== 'visible') return;

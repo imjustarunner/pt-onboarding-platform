@@ -190,6 +190,24 @@ describe('shared activity tracking', () => {
     expect(useSessionLockStore().warningActive).toBe(false);
     expect(useSessionLockStore().isLocked).toBe(false);
   });
+  it('verifies another tab without rebroadcasting a new server timestamp back to it', async () => {
+    await startActivityTracking();
+    await vi.advanceTimersByTimeAsync(1000);
+    const key = sessionStorageKey(7, 'login-one');
+    const shared = JSON.stringify({ ...serverSession, serverNow: Date.now() });
+    localStorage.setItem(key, shared);
+    const writes = vi.spyOn(Storage.prototype, 'setItem');
+    try {
+      window.dispatchEvent(new StorageEvent('storage', { key, newValue: shared }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.get).toHaveBeenCalledTimes(2);
+      expect(writes.mock.calls.filter(([writtenKey]) => writtenKey === key)).toHaveLength(0);
+      expect(useSessionLockStore().warningActive).toBe(false);
+      // Verification is not activity and cannot extend the original deadline.
+      await vi.advanceTimersByTimeAsync(29000);
+      expect(useSessionLockStore().warningActive).toBe(true);
+    } finally { writes.mockRestore(); }
+  });
   it('synchronizes a PIN unlock without sharing the code', async () => {
     policy = { ...policy, useLockScreen: true, pinRequired: true, pinLength: 6 };
     await startActivityTracking(); await vi.advanceTimersByTimeAsync(30000);

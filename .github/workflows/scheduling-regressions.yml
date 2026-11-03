@@ -52,6 +52,9 @@ jobs:
           (cd frontend && node node_modules/vitest/vitest.mjs run --config vitest.qa-communications.config.js)
       - name: Clinical catalog, portal setup, and recipient reminder integration
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.clinical-integrations.config.js
+      - name: Session deadlines and cross-tab verification request bounds
+        working-directory: frontend
+        run: node node_modules/vitest/vitest.mjs run src/utils/__tests__/activityTracker.test.js src/utils/__tests__/sessionDeadline.test.js
       - name: Booked clinical sessions in My Work
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.booked-work.config.js
       - name: One-session guardian activity alerts and audit scope
