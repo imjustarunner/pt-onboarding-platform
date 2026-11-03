@@ -3,6 +3,7 @@ import { reconcileLedgerPayment } from '../services/familyLedger/payments.js';
 import { reconcileLedgerRefund } from '../services/familyLedger/refunds.js';
 import { reconcileFamilyPayment } from '../services/familyBillingPayment.service.js';
 import {reconcileDonationPayment,reconcileDonationRefund} from '../services/finance/donations.js';
+import {stripeConnectStatus} from '../services/stripePayments.service.js';
 /**
  * stripeWebhook.routes.js
  *
@@ -44,7 +45,7 @@ async function handleStripeEvent(event) {
       // Fired when the connected agency's account details change (e.g. completes onboarding)
       if (connectedAccountId) {
         const obj = event.data.object;
-        const newStatus = obj.charges_enabled ? 'active' : 'pending';
+        const newStatus = stripeConnectStatus(obj);
         await pool.query(
           `UPDATE agency_billing_accounts
            SET stripe_connect_status = ?, updated_at = CURRENT_TIMESTAMP

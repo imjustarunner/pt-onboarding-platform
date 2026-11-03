@@ -17,6 +17,13 @@
 import Stripe from 'stripe';
 import {quoteAgencyCardFee} from './medicalServiceFees.service.js';
 
+// Express with Stripe Managed Risk requires this documented preview version.
+// Keep it scoped to account creation; existing payment API calls retain theirs.
+export const CONNECT_ACCOUNT_API_VERSION = '2026-10-28.preview';
+export function stripeConnectStatus(account) {
+  return account?.charges_enabled && account?.payouts_enabled ? 'active' : 'pending';
+}
+
 function getStripe() {
   const key = process.env.STRIPE_SECRET_KEY || '';
   if (!key || key === 'sk_test_REPLACE_ME') {
@@ -50,19 +57,26 @@ class StripePaymentsService {
    * Create a Stripe Express connected account for an agency.
    * Called once during agency onboarding.
    */
-  static async createConnectAccount({ email = null, businessName = null, metadata = {} } = {}) {
+  static async createConnectAccount({ email = null, businessName = null, businessUrl = null, businessType = null, metadata = {}, idempotencyKey = null } = {}) {
     const stripe = getStripe();
-    const account = await stripe.accounts.create({
-      type: 'express',
-      email: email || undefined,
-      business_profile: businessName ? { name: businessName } : undefined,
-      capabilities: {
-        card_payments: { requested: true },
-        transfers: { requested: true }
+    if (!email) throw new Error('An administrator email is required to start Stripe setup.');
+    if (businessType && !['company','individual','non_profit','government_entity'].includes(businessType)) throw new Error('Invalid Stripe business type.');
+    const account = await stripe.v2.core.accounts.create({
+      contact_email: email,
+      display_name: businessName || undefined,
+      dashboard: 'express',
+      identity: { country: 'US', ...(businessType ? { entity_type: businessType } : {}) },
+      defaults: {
+        currency: 'usd',
+        ...(businessUrl ? { profile: { business_url: businessUrl } } : {}),
+        responsibilities: { fees_collector: 'stripe', losses_collector: 'stripe' }
       },
-      metadata
-    });
-    return account;
+      configuration: { merchant: { capabilities: { card_payments: { requested: true } } } },
+      metadata,
+      include: ['identity','configuration.merchant','requirements','defaults']
+    }, { apiVersion: CONNECT_ACCOUNT_API_VERSION, ...(idempotencyKey ? { idempotencyKey } : {}) });
+    // Accounts v2 IDs support this v1 view, used by existing status/payments code.
+    return stripe.accounts.retrieve(account.id);
   }
 
   /**

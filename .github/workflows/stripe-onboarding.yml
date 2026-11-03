@@ -1,0 +1,48 @@
+name: Stripe onboarding regressions
+on:
+  pull_request:
+    paths:
+      - 'backend/src/services/stripePayments.service.js'
+      - 'backend/src/controllers/stripeConnect.controller.js'
+      - 'backend/src/routes/stripeWebhook.routes.js'
+      - 'backend/src/services/__tests__/stripeConnectAccounts.test.js'
+      - 'backend/src/controllers/__tests__/stripeConnect.test.js'
+      - 'backend/vitest.stripe-connect.config.js'
+      - 'frontend/src/components/admin/AgencyStripeConnectSection.vue'
+      - 'frontend/src/components/admin/__tests__/AgencyStripeConnectSection.test.js'
+      - 'frontend/vitest.stripe-connect.config.js'
+      - '.github/workflows/stripe-onboarding.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'backend/src/services/stripePayments.service.js'
+      - 'backend/src/controllers/stripeConnect.controller.js'
+      - 'backend/src/routes/stripeWebhook.routes.js'
+      - 'backend/src/services/__tests__/stripeConnectAccounts.test.js'
+      - 'backend/src/controllers/__tests__/stripeConnect.test.js'
+      - 'backend/vitest.stripe-connect.config.js'
+      - 'frontend/src/components/admin/AgencyStripeConnectSection.vue'
+      - 'frontend/src/components/admin/__tests__/AgencyStripeConnectSection.test.js'
+      - 'frontend/vitest.stripe-connect.config.js'
+      - '.github/workflows/stripe-onboarding.yml'
+jobs:
+  onboarding:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+      SKIP_DB_CONNECT: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - run: npm ci --prefix backend
+      - run: npm ci --prefix frontend --ignore-scripts
+      - run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.stripe-connect.config.js
+      - run: node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.stripe-connect.config.js
