@@ -1586,6 +1586,12 @@ const routes = [
     meta: { requiresGuest: true, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/account-security',
+    name: 'OrganizationAccountSecurity',
+    component: () => import('../components/AccountSecurityPanel.vue'),
+    meta: { requiresAuth: true, organizationSlug: true, accountSecurity: true }
+  },
+  {
     path: '/:organizationSlug/change-password',
     name: 'OrganizationChangePassword',
     component: () => import('../views/ChangePasswordView.vue'),

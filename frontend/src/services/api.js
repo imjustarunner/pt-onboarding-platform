@@ -82,7 +82,9 @@ const _rateLimitError = (retryAt = _rateLimitedUntil) => {
   err.code = 'ERR_RATE_LIMITED';
   err.__rateLimited = true;
   err.retryAt = retryAt;
-  err.response = { status: 429, data: { error: { message: 'Too many requests — cooling down' } } };
+  const seconds = Math.max(1, Math.ceil((Number(retryAt) - Date.now()) / 1000) || 1);
+  const message = `The server is busy. Please wait ${seconds} second${seconds === 1 ? '' : 's'}, then try again.`;
+  err.response = { status: 429, data: { error: { message } } };
   return err;
 };
 

@@ -3,6 +3,22 @@ const object = value => {
   return value && typeof value === 'object' ? value : {};
 };
 
+const norm = value => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+const digits = value => String(value || '').replace(/\D/g, '').slice(-10);
+const day = value => String(value || '').slice(0, 10);
+
+// A matching name alone is not enough; one more identifier must also match.
+function sameNameAndIdentifier(profile, client) {
+  const profileName = norm(profile.fullName || `${profile.firstName || ''} ${profile.lastName || ''}`);
+  if (!profileName || profileName !== norm(client?.full_name)) return false;
+  const dob = day(profile.dateOfBirth);
+  if (dob && dob === day(client?.date_of_birth)) return true;
+  const email = norm(profile.email);
+  if (email && email === norm(client?.email || client?.contact_email)) return true;
+  const phone = digits(profile.phone);
+  return phone.length === 10 && phone === digits(client?.contact_phone || client?.phone);
+}
+
 // A self portal link is a storage relationship, not a guardian relationship.
 // Do not infer this from age or a matching name: adults can have real guardians.
 export function intakeContactIsSelf(client, links = []) {
@@ -22,6 +38,7 @@ export function intakeContactIsSelf(client, links = []) {
   // A self enrollment stored under the generic Guardian title is still the client.
   // A named relationship such as Mother stays a guardian even when emails match.
   if ((meta.whoFor || prefs.whoFor) === 'myself' && email && (!respondentEmail || respondentEmail === email)) return true;
+  if (sameNameAndIdentifier(profile, client)) return true;
   if (relationship) return false;
   return (meta.whoFor || prefs.whoFor) === 'myself' && !!email && email === respondentEmail;
 }

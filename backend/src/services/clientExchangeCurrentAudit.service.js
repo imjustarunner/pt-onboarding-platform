@@ -15,7 +15,9 @@ export async function currentExchangeAudit(audit, agencyId) {
   const agency = await Agency.findById(agencyId);
   const { users, facets } = await loadExchangeCandidates(agencyId);
   const providers = [];
-  const eligible = users.filter(user => eligibleExchangeProvider(user, agency));
+  const seen = new Set();
+  const eligible = users.filter(user => eligibleExchangeProvider(user, agency)
+    && !seen.has(Number(user.id)) && seen.add(Number(user.id)));
   // Keep a bounded number of reads moving; one slow calendar must not hold up
   // the next whole batch of providers. No matching results are cached across edits.
   let next = 0;

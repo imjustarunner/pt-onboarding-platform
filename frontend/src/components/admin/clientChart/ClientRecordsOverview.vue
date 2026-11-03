@@ -517,17 +517,26 @@ function openNoteAid(extra = {}) {
   router.push({ path, query }).catch(() => {});
 }
 
+function recordLoadNotice(failures) {
+  if (failures.some((e) => e?.response?.data?.error?.code === 'ACTIVITY_REVIEW_REQUIRED')) {
+    return 'Chart records are paused for security review on your account. Use Request access in the banner above to ask a privacy reviewer for access.';
+  }
+  if (failures.some((e) => e?.response?.status === 403)) return '';
+  return 'Some chart records could not be loaded. Refresh to try again.';
+}
+
 async function load() {
   const clientId = Number(props.clientId || 0);
   const agencyId = Number(props.agencyId || 0);
   if (!clientId) return;
   loading.value = true;
   error.value = '';
+  const failures = [];
   try {
     const jobs = [
       api.get(`/phi-documents/clients/${clientId}/chart-artifacts`, { skipGlobalLoading: true })
         .then((r) => { artifacts.value = Array.isArray(r.data?.artifacts) ? r.data.artifacts : []; })
-        .catch(() => { artifacts.value = []; })
+        .catch((e) => { artifacts.value = []; failures.push(e); })
     ];
     if (agencyId) {
       jobs.push(
@@ -539,7 +548,8 @@ async function load() {
           plans.value = Array.isArray(r.data?.plans) ? r.data.plans : [];
           sessions.value = Array.isArray(r.data?.sessions) ? r.data.sessions : [];
           encounters.value = Array.isArray(r.data?.billingEncounters) ? r.data.billingEncounters : [];
-        }).catch(() => {
+        }).catch((e) => {
+          failures.push(e);
           notes.value = [];
           plans.value = [];
           sessions.value = [];
@@ -548,6 +558,7 @@ async function load() {
       );
     }
     await Promise.all(jobs);
+    if (failures.length) error.value = recordLoadNotice(failures);
     lastLoadedAt.value = new Date();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Unable to load record center.';

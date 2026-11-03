@@ -18,6 +18,7 @@ import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import pool from '../config/database.js';
+import { explicitRecordedSex } from '../utils/clientCareSummary.js';
 import StorageService from '../services/storage.service.js';
 import DocumentEncryptionService from '../services/documentEncryption.service.js';
 import { adjustProviderSlots, clientStatusConsumesProviderSlot } from '../services/providerSlots.service.js';
@@ -1014,6 +1015,49 @@ async function attachDemographicsOnFileFlag(client) {
   return client;
 }
 
+const RECORDED_SEX_KEYS = ['client_sex', 'child_sex', 'sex', 'client_gender', 'child_gender', 'gender'];
+
+/** Read-only: show a sex answer recorded at intake when the client row has none. Never writes clients.gender. */
+async function attachRecordedIntakeSex(client) {
+  if (!client?.id || explicitRecordedSex(client.gender)) return client;
+  try {
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT s.id, s.intake_data, s.submitted_at,
+              s.payload_encrypted, s.payload_iv_b64, s.payload_auth_tag_b64, s.payload_key_id
+       FROM intake_submissions s
+       LEFT JOIN intake_submission_clients isc ON isc.intake_submission_id = s.id
+       WHERE (s.client_id = ? OR isc.client_id = ?)
+       ORDER BY s.submitted_at DESC, s.id DESC
+       LIMIT 1`,
+      [client.id, client.id]
+    );
+    decryptIntakeSubmissionRows(rows);
+    const sub = rows?.[0];
+    if (!sub) return client;
+    const submissionData = parseIntakeData(sub.intake_data);
+    const [iscRows] = await pool.execute(
+      'SELECT client_id FROM intake_submission_clients WHERE intake_submission_id = ? ORDER BY id ASC',
+      [sub.id]
+    );
+    const ids = (iscRows || []).map((r) => Number(r.client_id));
+    // In a multi-child packet only this child's own answers apply.
+    if (ids.length > 1 && !ids.includes(Number(client.id))) return client;
+    const clientResponses = pickClientResponseForId({ submissionData, clientIdsForSubmission: ids, targetClientId: client.id });
+    const bag = ids.length > 1 ? { ...clientResponses } : { ...getSubmissionBag(submissionData), ...clientResponses };
+    for (const key of RECORDED_SEX_KEYS) {
+      const found = explicitRecordedSex(bag[key]);
+      if (found) {
+        client.recorded_sex = found;
+        client.recorded_sex_source = 'intake';
+        break;
+      }
+    }
+  } catch (error) {
+    console.warn('[getClientById] recorded intake sex unavailable', { clientId: client.id, message: error?.message || String(error || '') });
+  }
+  return client;
+}
+
 export const getClientById = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -1063,6 +1107,7 @@ export const getClientById = async (req, res, next) => {
         if (refreshed) Object.assign(client, refreshed);
       }
       await attachDemographicsOnFileFlag(client);
+      await attachRecordedIntakeSex(client);
       await attachParentContactCounts([client]);
       return res.json(client);
     }
@@ -1182,6 +1227,7 @@ export const getClientById = async (req, res, next) => {
       if (refreshed) Object.assign(client, refreshed);
     }
     await attachDemographicsOnFileFlag(client);
+    await attachRecordedIntakeSex(client);
     // PII gating: strip full/first/last names for school_staff even when they
     // happen to also have agency access (defense-in-depth).
     await attachParentContactCounts([client]);

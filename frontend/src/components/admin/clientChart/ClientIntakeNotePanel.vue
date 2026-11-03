@@ -512,7 +512,7 @@ const sourceSex = computed(() => {
   return match ? match[1].toLowerCase() : '';
 });
 const clientGenderLabel = computed(() => {
-  const g = String(props.client?.gender || sourceSex.value || '').trim().toLowerCase();
+  const g = String(props.client?.gender || props.client?.recorded_sex || sourceSex.value || '').trim().toLowerCase();
   if (!g) return '';
   return GENDER_LABELS[g] || g.charAt(0).toUpperCase() + g.slice(1);
 });
@@ -635,8 +635,7 @@ async function load(opts = {}) {
     const savedAppointment = draft.value?.sourceReview?.appointmentId;
     const options = appointmentOptions.value;
     const match = options.find(option => savedSession && String(option.clinicalSessionId) === String(savedSession))
-      || options.find(option => savedAppointment && String(option.appointmentId) === String(savedAppointment))
-      || (options.length === 1 ? options[0] : null);
+      || options.find(option => savedAppointment && String(option.appointmentId) === String(savedAppointment));
     selectedClinicalSessionId.value = match ? String(match.clinicalSessionId) : '';
     syncDxEditFromDraft();
     initExpandedSections();
@@ -733,7 +732,7 @@ async function finalize() {
     const r = await api.post(`/clients/${id}/intake-note/${draftId}/finalize`, {
       sourceReview: { fingerprint: draft.value?.sourceReview?.fingerprint, sectionKeys: reviewedSections.value,
         sourceCompared: sourceCompared.value, unsupportedClaimsRemoved: sourceCompared.value, appointmentReviewed: appointmentReviewed.value,
-        clinicalSessionId: selectedClinicalSessionId.value || null }
+        clinicalSessionId: Number(selectedClinicalSessionId.value) || null }
     });
     draft.value = r.data?.draft || draft.value;
     treatmentPlan.value = r.data?.treatmentPlan || null;

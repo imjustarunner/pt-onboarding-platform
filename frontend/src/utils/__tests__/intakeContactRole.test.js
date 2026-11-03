@@ -28,4 +28,11 @@ describe('self enrollment contact identity', () => {
       adaptive_intake_meta_json: { whoFor: 'myself', respondent: { email: 'adult@example.com' } } };
     expect(intakeContactIsSelf(enrolled, [{ relationship_type: 'guardian', email: 'adult@example.com', relationship_title: 'Guardian' }])).toBe(true);
   });
+  it('treats a generic Guardian contact as the client only when the name and a second identifier match', () => {
+    const profile = { fullName: 'Demo Adult', relationship: 'Guardian', dateOfBirth: '1990-04-04', email: 'adult@example.com' };
+    expect(intakeContactIsSelf({ full_name: 'DEMO  Adult', date_of_birth: '1990-04-04T00:00:00Z', guardian_intake_profile: profile })).toBe(true);
+    expect(intakeContactIsSelf({ full_name: 'Demo Adult', email: 'ADULT@example.com', guardian_intake_profile: { ...profile, dateOfBirth: null } })).toBe(true);
+    expect(intakeContactIsSelf({ full_name: 'Demo Adult', date_of_birth: '2001-01-01', guardian_intake_profile: { ...profile, email: null } })).toBe(false);
+    expect(intakeContactIsSelf({ full_name: 'Demo Adult', date_of_birth: '1990-04-04', guardian_intake_profile: { ...profile, relationship: 'Mother' } })).toBe(false);
+  });
 });

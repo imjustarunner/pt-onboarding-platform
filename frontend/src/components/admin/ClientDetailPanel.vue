@@ -49,6 +49,7 @@
                 <span v-if="client.identifier_code" class="mono">ID {{ client.identifier_code }}</span>
                 <span v-else-if="client.id" class="mono">ID {{ client.id }}</span>
                 <span v-if="clientDobLabel">DOB {{ clientDobLabel }}</span>
+                <span v-if="recordedSexLabel">Sex {{ recordedSexLabel }}</span>
                 <span v-if="guardianIntakeName">{{ intakeContactLabel }}: {{ guardianIntakeName }}</span>
               </div>
               <div class="cdp-tenant-line">
@@ -554,7 +555,7 @@
                         <option v-for="o in sexSelectOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
                       </select>
                     </template>
-                    <template v-else>{{ formatDemoLookupValue(client.gender, sexSelectOptions) || '-' }}</template>
+                    <template v-else>{{ recordedSexLabel || '-' }}</template>
                   </div>
                 </div>
                 <div class="ov-row">
@@ -2990,6 +2991,7 @@ const chartSubnav = computed(() => {
   }
   return [];
 });
+const SUPPORT_HIDDEN_PANELS = ['clinical-notes', 'clinical', 'medical-record', 'intake-note', 'treatment-plans', 'phi', 'surveys'];
 const effectiveHubSub = computed(() => {
   const hub = chartHub.value;
   const navIds = new Set((chartSubnav.value || []).map((s) => s.id));
@@ -2999,11 +3001,13 @@ const effectiveHubSub = computed(() => {
     if (sub === 'skill-builders' || sub === 'home') return sub;
     return navIds.has('home') ? 'home' : '';
   }
-  if (sub && (navIds.has(sub) || (hub === 'records' && RECORDS_SECONDARY_SUBS.includes(sub)))) {
+  const secondaryOk = (id) => hub === 'records' && RECORDS_SECONDARY_SUBS.includes(id)
+    && !(roleNorm.value === 'support' && SUPPORT_HIDDEN_PANELS.includes(id));
+  if (sub && (navIds.has(sub) || secondaryOk(sub))) {
     return sub;
   }
   const fromTab = resolveChartTab(activeTab.value).sub;
-  if (fromTab && (navIds.has(fromTab) || (hub === 'records' && RECORDS_SECONDARY_SUBS.includes(fromTab)))) {
+  if (fromTab && (navIds.has(fromTab) || secondaryOk(fromTab))) {
     return fromTab;
   }
   if (hub === 'account') return 'profile';
@@ -3013,7 +3017,7 @@ const effectiveHubSub = computed(() => {
   return '';
 });
 function showPanel(legacyId) {
-  if (roleNorm.value === 'support' && ['clinical-notes','clinical','medical-record','intake-note','treatment-plans','phi','surveys'].includes(legacyId)) return false;
+  if (roleNorm.value === 'support' && SUPPORT_HIDDEN_PANELS.includes(legacyId)) return false;
   return panelVisible(legacyId, chartHub.value, effectiveHubSub.value);
 }
 function setChartNav(hubId, subId = '') {
@@ -3145,7 +3149,9 @@ function guardianRowIsSelf(row) {
   if (!isSelfIntakeContact.value) return false;
   const email = String(row?.email || '').trim().toLowerCase();
   const profileEmail = String(guardianIntakeProfile.value?.email || '').trim().toLowerCase();
-  return !!email && email === profileEmail;
+  if (email && email === profileEmail) return true;
+  const rowName = `${row?.first_name || ''} ${row?.last_name || ''}`.trim().toLowerCase().replace(/\s+/g, ' ');
+  return !!rowName && rowName === String(props.client?.full_name || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 const intakeContactLabel = computed(() => isSelfIntakeContact.value ? 'Client (self)' : 'Guardian');
 const onGuardianContactSaved = (profile) => {
@@ -6472,6 +6478,9 @@ function intakeRecordedSex() {
   return match ? String(match.value).trim() : '';
 }
 
+const recordedSexLabel = computed(() =>
+  formatDemoLookupValue(props.client?.gender || props.client?.recorded_sex || intakeRecordedSex(), sexSelectOptions) || '');
+
 const clientDemoDisplayRows = computed(() => {
   const c = props.client || {};
   const rows = [
@@ -6490,7 +6499,7 @@ const clientDemoDisplayRows = computed(() => {
     {
       key: 'sex',
       label: 'Sex',
-      value: formatDemoLookupValue(c.gender || intakeRecordedSex(), sexSelectOptions),
+      value: recordedSexLabel.value,
       important: true
     },
     {

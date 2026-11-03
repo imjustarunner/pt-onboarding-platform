@@ -2,7 +2,8 @@
   <aside class="account-security-notice" v-if="auth.user?.id && !auth.user?.demoMode && (needsVerification || protectionRequired || protectionUnavailable || summaryUnavailable || summary.alerts || summary.requests)">
     <p v-if="needsVerification">{{ state?.enabled ? 'Verify your sign-in to open protected client information.' : 'Protect client privacy: set up two-step verification to view full names and open client documents.' }}</p>
     <p v-else-if="state?.guardianAccount && !state?.enabled">Protect your family’s portal with a passkey, authenticator, or email verification. Each parent sets up their own sign-in protection.</p>
-    <p v-if="protectionRequired">{{ protectionMessage }} Open Security & sign-in activity to request access.</p>
+    <p v-if="protectionRequired">{{ protectionMessage }} <button type="button" class="request-toggle" :aria-expanded="showRequest" @click="showRequest = !showRequest">{{ showRequest ? 'Hide access request' : 'Request access' }}</button></p>
+    <ActivityProtectionPanel v-if="protectionRequired && showRequest" />
     <p v-if="protectionUnavailable">Access-review status could not be checked. Open Security &amp; sign-in activity for the current status.</p>
     <p v-if="summaryUnavailable">Security alert counts are unavailable. Open Privacy review to check the queue.</p>
     <p v-if="summary.alerts || summary.requests"><router-link to="/privacy-review">Review security activity: {{ summary.alerts }} unreviewed blocks · {{ summary.requests }} file-access requests</router-link></p>
@@ -14,7 +15,9 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useAuthStore } from '../store/auth';
 import api from '../services/api';
+import ActivityProtectionPanel from './ActivityProtectionPanel.vue';
 const auth = useAuthStore(), state = ref(null), protectionRequired = ref(false), summary = ref({}), summaryUnavailable = ref(false);
+const showRequest = ref(false);
 const protectionUnavailable = ref(false), protectionHolds = ref([]), unlimitedFileViews = ref(false);
 const protectionMessage = computed(() => unlimitedFileViews.value && protectionHolds.value.length && protectionHolds.value.every(hold => hold.kind === 'client_file')
   ? 'Download, export, and print access is paused for security review. Your role still permits audited document views.'
@@ -63,4 +66,5 @@ onBeforeUnmount(() => { clearInterval(summaryTimer);window.removeEventListener('
 <style scoped>
 .account-security-notice { padding: .7rem 1rem; border-bottom: 1px solid var(--border, #cbd5e1); background: var(--bg-secondary, #f1f5f9); color: var(--text-primary); font-size: .9rem; }
 p { margin: 0 0 .3rem; } a { font-weight: 600; color: var(--primary, #285d91); }
+.request-toggle { margin-left: .4rem; padding: .2rem .6rem; border: 1px solid var(--primary, #285d91); border-radius: 6px; background: transparent; color: var(--primary, #285d91); font-weight: 600; cursor: pointer; }
 </style>

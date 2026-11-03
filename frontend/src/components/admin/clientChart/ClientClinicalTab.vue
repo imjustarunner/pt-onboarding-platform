@@ -556,7 +556,7 @@ const {
 } = clinical;
 
 const recordedSex = computed(() => {
-  const direct = String(props.client?.gender || '').trim();
+  const direct = String(props.client?.gender || props.client?.recorded_sex || '').trim();
   if (direct) return direct;
   for (const section of clinicalSections.value || []) {
     for (const field of section.fields || []) {
