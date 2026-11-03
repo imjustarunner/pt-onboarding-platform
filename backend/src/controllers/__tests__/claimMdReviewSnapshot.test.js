@@ -81,7 +81,7 @@ it.skipIf(process.env.CLINICAL_REVIEW_MYSQL_TEST !== '1')('reads and approves co
     for (const file of ['002_medical_billing_foundations.sql', '003_session_service_code_location.sql', '015_appointment_clinical_sessions.sql']) {
       await connection.query((await readMigration(file)).match(/ALTER TABLE clinical_sessions\b[\s\S]*?;/)[0]);
     }
-    await connection.execute('INSERT INTO clinical_sessions (id,agency_id,client_id,office_event_id,provider_user_id,duration_minutes,source_timezone,metadata_json) VALUES (167,450,2297,999,7,60,?,?)', ['America/Denver', JSON.stringify({ unrelated: 'preserved' })]);
+    await connection.execute('INSERT INTO clinical_sessions (id,agency_id,client_id,office_event_id,provider_user_id,duration_minutes,source_timezone,metadata_json,is_telehealth) VALUES (167,450,2297,999,7,60,?,?,1)', ['America/Denver', JSON.stringify({ unrelated: 'preserved' })]);
     const fallback = m.clinical.getMockImplementation();
     m.clinical.mockImplementation((sql, values) => /(?:FROM|UPDATE) clinical_sessions\b/.test(sql) ? connection.execute(sql, values) : fallback(sql, values));
     const before = await readPair();
@@ -94,6 +94,7 @@ it.skipIf(process.env.CLINICAL_REVIEW_MYSQL_TEST !== '1')('reads and approves co
     await applyApprovedServiceDetails({ execute: m.clinical }, note, meta, 9, '2026-11-03T18:00:00Z');
     const [[updated]] = await connection.execute('SELECT * FROM clinical_sessions WHERE id=167');
     expect(updated).not.toHaveProperty('location_label');
+    expect(updated.is_telehealth).toBe(0);
     expect(updated.metadata_json).toMatchObject({ unrelated: 'preserved', locationLabel: location.name });
     expect(updated).toMatchObject({ service_location_id: 12, billing_office_location_id: 13, duration_minutes: 60, place_of_service: '11' });
     expect(meta.serviceDetailAmendments[0]).toMatchObject({ approvedByUserId: 9, approvedAt: '2026-11-03T18:00:00Z' });
