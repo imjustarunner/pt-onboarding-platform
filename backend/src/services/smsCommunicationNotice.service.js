@@ -5,7 +5,7 @@ import MessageLog from '../models/MessageLog.model.js';
 import VonageService from './vonage.service.js';
 import { buildPublicPortalBaseUrl } from '../utils/publicPortalUrl.js';
 
-export const OUT_OF_OFFICE_SMS = `I'm out of the office and will reply when I return. Texts don't replace a session. Emergencies: call 911; for suicide or emotional crisis, call/text 988. Reply NOOO ("No out-of-office notices") to stop away notices; direct texting stays on. STOP stops all texts.`;
+export const OUT_OF_OFFICE_SMS = `I'm out of the office; I'll reply when back. Reply SUPPORT for support review. Emergency: call 911. Suicide or emotional crisis: call/text 988. Reply NOOO ("No out-of-office notices") to stop away notices; direct texting stays on. STOP stops all texts.`;
 
 export function communicationRulesNotice(agency) {
   const url = new URL('/community-standards', buildPublicPortalBaseUrl(agency)).href;
@@ -50,7 +50,7 @@ export async function sendConversationStartNotice({ agencyId, numberId, clientId
       ? `${sendIntro ? communicationRulesNotice(agency) : (agency.name || 'Your care team') + ':'} ${OUT_OF_OFFICE_SMS}`
       : `${communicationRulesNotice(agency)} Reply STOP to stop all texts.`;
     const metadata = { communicationNotice: sendIntro, outOfOfficeNotice: sendAway,
-      ...(sendAway ? { absenceKey } : {}), triggerInboundId: inboundLogId };
+      ...(sendAway ? { absenceKey, supportChoiceOffer: true, supportHandoffReason: 'provider_absence' } : {}), triggerInboundId: inboundLogId };
     const log = await MessageLog.createOutbound({ agencyId, numberId, clientId, userId,
       fromNumber: from, toNumber: recipient, body, metadata });
     try {

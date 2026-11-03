@@ -289,10 +289,10 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
   const activePool = [];
   for (const id of poolEligible) if (await userHasAgency(id, agencyId)) activePool.push(id);
   poolEligible = activePool;
-  if (assignment && !(await userHasAgency(assignment.user_id,agencyId))) assignment=null;
+  if (assignment && (!poolEligible.map(Number).includes(Number(assignment.user_id)) || !(await userHasAgency(assignment.user_id,agencyId)))) assignment=null;
   if (ownerUser && !(await userHasAgency(ownerUser.id,agencyId))) ownerUser=null;
 
-  // Prefer CPA-based ownership over "first pool member owns everything".
+  // Client care assignments apply to both shared and dedicated care numbers.
   if (client?.id && agencyId) {
     const care = await resolveClientCaregivers(client.id, agencyId);
     if (care.ownerUserId) {

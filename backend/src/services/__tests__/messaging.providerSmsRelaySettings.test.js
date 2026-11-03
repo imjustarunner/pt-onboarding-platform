@@ -57,6 +57,25 @@ it('records administrator permission and enables only after preferences are save
   const index=pool.execute.mock.calls.findIndex(([sql])=>sql.includes('SET enabled=TRUE'));
   expect(pool.execute.mock.invocationCallOrder[index]).toBeGreaterThan(Prefs.update.mock.invocationCallOrder[0]);
 });
+it('enrolls existing owner account 501 through self-consent without changing Avery', async () => {
+  const owner = { ...user, id:501, role:'super_admin' };
+  const execute = pool.execute.getMockImplementation();
+  pool.execute.mockImplementation(async (...args) => args[0].includes('JOIN user_agencies') ? [[owner]] : execute(...args));
+  User.findById.mockResolvedValue(owner);
+  Assignments.listEligibleUserIdsForNumber.mockResolvedValue([501]);
+  owners=[{provider_user_id:501,agency_id:450}];
+  await saveRelaySettings({...save,userId:501,actor:{id:501,role:'super_admin'}});
+  expect(recordSmsPermission).toHaveBeenCalledWith(expect.objectContaining({evidence:expect.objectContaining({source:'provider_self_consent',actorUserId:501,providerUserId:501})}));
+  expect(User.update).toHaveBeenCalledExactlyOnceWith(501,{personalPhone:user.personal_phone});
+  expect(Prefs.update).toHaveBeenCalledExactlyOnceWith(501,{sms_enabled:true,sms_forwarding_enabled:true});
+});
+it('does not bypass phone ownership for a synthetic provider and a super-admin phone', async () => {
+  const execute = pool.execute.getMockImplementation();
+  pool.execute.mockImplementation(async (...args) => args[0].includes('JOIN user_agencies') ? [[{...user,is_demo:1}]] : execute(...args));
+  otherUsers=[{id:save.actor.id,personal_phone:user.personal_phone}];
+  await expect(saveRelaySettings(save)).rejects.toMatchObject({status:409});
+  expect(User.update).not.toHaveBeenCalled(); expect(recordSmsPermission).not.toHaveBeenCalled();
+});
 it('leaves forwarding disabled if saving preferences fails', async () => {
   Prefs.update.mockRejectedValue(new Error('storage unavailable'));
   await expect(saveRelaySettings(save)).rejects.toThrow('storage unavailable');

@@ -23,6 +23,7 @@ beforeEach(() => {
  vi.clearAllMocks(); newer = false; alertRequestedSupport.mockResolvedValue(undefined);
  offer = { id: 50, user_id: 10, client_id: 4, sms_thread_key: 'thread', metadata: { supportChoiceOffer: true, triggerInboundId: 40 } };
  db = { beginTransaction: vi.fn(), rollback: vi.fn(), commit: vi.fn(), release: vi.fn(), execute: vi.fn(async sql => {
+  if (sql.includes("direction='INBOUND' FOR UPDATE")) return [[{id:40,user_id:10,assigned_user_id:10,client_id:4,from_number:incoming.from,created_at:'2026-11-02 18:00:00',metadata:{}}]];
   if (sql.includes('FOR UPDATE')) return [offer ? [offer] : []];
   if (sql.includes('SELECT id FROM message_logs')) return [newer ? [{id:51}] : []];
   if (sql.includes('INSERT INTO support_tickets')) return [{insertId:60}];
@@ -81,7 +82,8 @@ it('allows explicit SUPPORT despite a newer appointment request', async () => {
  newer=true; expect(await handleOutOfOfficeSupportReply({...incoming,body:'SUPPORT'})).toBe(true);expect(db.commit).toHaveBeenCalled();
 });
 it('rolls back on ticket storage failure without claiming successful forwarding', async () => {
- db.execute.mockImplementation(async sql=>{if(sql.includes('FOR UPDATE'))return [[offer]];if(sql.includes('INSERT INTO support_tickets'))throw new Error('Storage down');return [[]];});
+ const execute=db.execute.getMockImplementation();
+ db.execute.mockImplementation(async (...args)=>{if(args[0].includes('INSERT INTO support_tickets'))throw new Error('Storage down');return execute(...args);});
  await expect(handleOutOfOfficeSupportReply(incoming)).rejects.toThrow('Storage down');
  expect(db.rollback).toHaveBeenCalled();expect(db.commit).not.toHaveBeenCalled();expect(Vonage.sendSms).not.toHaveBeenCalled();
 });
@@ -89,7 +91,7 @@ it('rolls back on ticket storage failure without claiming successful forwarding'
 it('alerts support only after persisting the high-priority ticket', async () => {
  await handleOutOfOfficeSupportReply(incoming);
  expect(db.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO support_tickets'))[0]).toContain("'open', 'high', 0");
- expect(alertRequestedSupport).toHaveBeenCalledWith(50);
+ expect(alertRequestedSupport).toHaveBeenCalledWith(40);
  expect(db.commit.mock.invocationCallOrder[0]).toBeLessThan(alertRequestedSupport.mock.invocationCallOrder[0]);
  expect(OUT_OF_OFFICE_SMS).toContain('Reply NOOO');
  expect(OUT_OF_OFFICE_SMS).toContain('988'); expect(OUT_OF_OFFICE_SMS).toContain('911');

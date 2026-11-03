@@ -7,6 +7,7 @@ vi.mock('../vonage.service.js', () => ({ default: { sendSms: vi.fn() } }));
 vi.mock('../providerSmsRelaySettings.service.js', () => ({ relayEnrollmentReady: vi.fn() }));
 vi.mock('../clinicalSmsSend.service.js', () => ({ sendClinicalSms: vi.fn() }));
 vi.mock('../smsCompliance.service.js', () => ({ isSmsSuppressed: vi.fn() }));
+vi.mock('../smsRequestedSupport.service.js', () => ({ alertRequestedSupport: vi.fn() }));
 import pool from '../../config/database.js';
 import Client from '../../models/Client.model.js';
 import ClientGuardian from '../../models/ClientGuardian.model.js';
@@ -50,6 +51,12 @@ it('forwards once to each eligible provider with guardian identity and an explic
   expect(Vonage.sendSms).toHaveBeenCalledTimes(2);
   expect(Vonage.sendSms.mock.calls.map(([r]) => r.to)).toEqual([staffPhone, '+12025550101']);
   expect(Vonage.sendSms.mock.calls[0][0].body).toContain(`Guardian of ROWQAO: QA question\nReply ${code}`);
+});
+it('offers provider SUPPORT for a cancellation without automatically creating a ticket', async () => {
+  await forwardClientSmsToProviders({...incoming,body:'Please cancel tomorrow'});
+  expect(Vonage.sendSms).toHaveBeenCalledWith(expect.objectContaining({to:staffPhone,body:expect.stringContaining(`${code} SUPPORT #40`)}));
+  expect(MessageLog.createOutbound).toHaveBeenCalledWith(expect.objectContaining({metadata:expect.objectContaining({providerSchedulingSupportOffer:true,originalInboundLogId:40,originalClientId:2271})}));
+  expect(pool.execute.mock.calls.some(([sql])=>sql.includes('support_tickets'))).toBe(false);
 });
 it('does not forward to disabled/unassigned providers, other tenants, revoked guardians, or MMS', async () => {
   relayEnrollmentReady.mockResolvedValue(false);

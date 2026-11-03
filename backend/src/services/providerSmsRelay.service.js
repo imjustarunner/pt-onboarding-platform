@@ -6,6 +6,8 @@ import { relayEnrollmentReady } from './providerSmsRelaySettings.service.js';
 import { resolveRelayFamily, familyReplyCode, parseProviderReply } from './providerSmsRelayIdentity.service.js';
 import { sendClinicalSms } from './clinicalSmsSend.service.js';
 import { isSmsSuppressed } from './smsCompliance.service.js';
+import { looksLikeSchedulingRequest } from './smsSupportHandoff.service.js';
+import { handleProviderSupportCommand } from './providerSmsSupportHandoff.service.js';
 
 async function claim(table, columns, values) {
   try {
@@ -44,8 +46,10 @@ export async function forwardClientSmsToProviders({route,from,to,body,messageId,
       if(!dispatchId) continue;
       try {
         const label=code.split('-')[0];
-        const outboundId=await sendProviderCopy(enrollment,to,`${family.guardian ? 'Guardian of ' : ''}${label}: ${body}\nReply ${code} followed by your message.`,
-          {providerSmsRelay:true,originalClientId:client.id,originalInboundLogId:inboundLogId,replyCode:code});
+        const schedulingOffer=Boolean(inboundLogId && looksLikeSchedulingRequest(body));
+        const handoffPrompt=schedulingOffer ? `\nScheduling request? Reply SUPPORT to forward this message to Support, or ${code} SUPPORT #${inboundLogId} to select it explicitly.` : '';
+        const outboundId=await sendProviderCopy(enrollment,to,`${family.guardian ? 'Guardian of ' : ''}${label}: ${body}\nReply ${code} followed by your message.${handoffPrompt}`,
+          {providerSmsRelay:true,originalClientId:client.id,originalInboundLogId:inboundLogId,replyCode:code,providerSchedulingSupportOffer:schedulingOffer});
         await pool.execute("UPDATE provider_sms_relay_dispatches SET status='sent',outbound_log_id=? WHERE id=?",[outboundId,dispatchId]);
       } catch(error) {
         await pool.execute("UPDATE provider_sms_relay_dispatches SET status='needs_review' WHERE id=?",[dispatchId]);
@@ -69,6 +73,12 @@ export async function handleProviderSmsReply({sender,from,to,body,messageId}) {
       userId:enrollment.provider_user_id,assignedUserId:enrollment.provider_user_id,ownerType:'staff',
       clientId:null,fromNumber:from,toNumber:to,body,providerMessageSid:messageId,
       metadata:{providerSmsRelayReply:true,relayReplyId:replyId}});
+    const support=await handleProviderSupportCommand({enrollment,body,messageId});
+    if(support) {
+      const logId=await sendProviderCopy(enrollment,to,support.body,{providerSmsSupportReply:true,supportTicketId:support.ticketId || null});
+      await pool.execute('UPDATE provider_sms_relay_replies SET status=?,outbound_log_id=? WHERE id=?',[support.status,logId,replyId]);
+      return true;
+    }
     const parsed=parseProviderReply(body);
     const [routes]=parsed ? await pool.execute('SELECT * FROM provider_sms_relay_routes WHERE enrollment_id=? AND reply_code=?',[enrollment.id,parsed.code]) : [[]];
     const route=routes[0];
