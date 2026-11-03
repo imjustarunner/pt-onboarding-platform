@@ -218,3 +218,9 @@ it('a demo dry run or disabled report cannot send a test report or notify a prov
  await notifyExchangeMatches({listing,client:{email:'demo@example.com'},send:false});
  expect(sendDemoExchangeReport).not.toHaveBeenCalled();expect(mocks.notify).not.toHaveBeenCalled();
 });
+
+it('holds per-listing report emails for an owner-requested staff demo digest and still exposes dry-run results',async()=>{
+ const result=await notifyExchangeMatches({listing,client:{email:'demo@example.com',intake_preferences_json:{exchangeReferral:{demoReportBatchId:'11111111-1111-4111-8111-111111111111'}}},preview:true});
+ expect(result.demoReport).toEqual({status:'batch_pending'});expect(result.demoPreview.providers).toHaveLength(3);
+ expect(sendDemoExchangeReport).not.toHaveBeenCalled();expect(mocks.send).not.toHaveBeenCalled();expect(mocks.notify).not.toHaveBeenCalled();
+});

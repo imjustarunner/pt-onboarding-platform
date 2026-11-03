@@ -15,7 +15,7 @@ import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service
 import { isNotificationChannelEnabled } from './notificationPreferences.service.js';
 import { buildPublicAppUrl, buildProviderAvailabilitySettingsUrl } from '../utils/publicPortalUrl.js';
 
-export async function notifyExchangeMatches({ listing, client, send = true, report = true }) {
+export async function notifyExchangeMatches({ listing, client, send = true, report = true, preview = false }) {
   const { withExchangeLock, startExchangeRun, finishExchangeRun, saveExchangeDecision, saveExchangeDelivery,
     exchangeDeliveryHistory, isExchangeListingOpen, terminalDelivery, enrollExchangeAuditClient, parseAuditJson } = await import('./clientExchangeAudit.service.js');
   const { loadExchangeCandidates, evaluateExchangeCandidate } = await import('./clientExchangeCandidates.service.js');
@@ -38,6 +38,7 @@ export async function notifyExchangeMatches({ listing, client, send = true, repo
       const config = parseAuditJson(agency?.feature_flags)?.clientExchangeAudit;
       const demo=await isDemoExchangeClient({client,agencyId});
       const demoProviders=[];
+      const demoBatch=parseAuditJson(client.intake_preferences_json)?.exchangeReferral?.demoReportBatchId;
       if(demo)await suppressDemoExchangeNotifications(listing);
       else await enrollExchangeAuditClient(listing, config);
       const identities = await EmailSenderIdentity.list({agencyId,includePlatformDefaults:false,onlyActive:true});
@@ -119,7 +120,9 @@ export async function notifyExchangeMatches({ listing, client, send = true, repo
         await saveExchangeDelivery(listing.id,userId,previous);
       }
       await finishExchangeRun(listing.id,summary.failed?'delivery_needs_review':null);
-      if(demo && send && report) {
+      if(demo && preview)summary.demoPreview={listing,providers:demoProviders};
+      if(demo && demoBatch)summary.demoReport={status:'batch_pending'};
+      if(demo && send && report && !demoBatch) {
         try { const receipt=await sendDemoExchangeReport({listing,agency,identities,providers:demoProviders});summary.demoReport=receipt;
           if(!['sent','redirected','queued'].includes(receipt.status))await finishExchangeRun(listing.id,'demo_report_needs_review');
         }catch(error){await finishExchangeRun(listing.id,'demo_report_needs_review');summary.demoReport={status:'failed',reason:error.code || 'demo_report_failed'};}

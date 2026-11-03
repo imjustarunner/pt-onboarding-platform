@@ -1,3 +1,4 @@
+import { isExampleEmail, canViewDemoExchange } from '../utils/clientExchangeDemo.js';
 import { normalizeExchangeLocation } from '../../../frontend/src/navigation/clientExchangeLocation.js';
 import { assertExchangeEssentials } from '../../../frontend/src/navigation/clientExchangeEssentials.js';
 import { normalizeExchangeQualification } from '../../../frontend/src/navigation/clientExchangePolicy.js';
@@ -17,17 +18,23 @@ export function validateExchangeReferral(input) {
   if (age != null && (!Number.isInteger(age) || age < 0 || age > 120)) throw invalid('Enter a valid age');
   const text = (key, max) => { const value = String(input[key] || '').trim(); if (value.length > max) throw invalid(`${key} is too long`); return value; };
   if (!/^[a-f0-9-]{36}$/i.test(input.requestId || '')) throw invalid('A referral request ID is required');
+  const email=text('email',254);
+  if(email && !isExampleEmail(email) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw invalid('Enter a valid contact email, or a reserved @example.com test email');
   const providerGender = text('providerGender', 40);
   if (!['', 'female', 'male', 'nonbinary'].includes(providerGender)) throw invalid('Select a valid provider gender preference');
   const modality = text('modality', 20);
   assertExchangeEssentials({preferences:{modality,serviceLocation:input.serviceLocation,insurance:input.insurance,schedule:normalizeExchangeSchedule(input.schedule || {})},presentingProblems:[input.presentingProblem]});
   const providerQualification=normalizeExchangeQualification(input.providerQualification);
   if (!['', 'in_person', 'virtual', 'either'].includes(modality)) throw invalid('Select a valid modality');
-  return { serviceLocation: normalizeExchangeLocation(input.serviceLocation, { required: ['in_person', 'either'].includes(modality) }), insurance: text('insurance', 200), matchingPreferences: validateMatchingPreferences(input.matchingPreferences,{maxSelections:0}), initials, age, fullName: text('fullName', 200), gender: text('gender', 64), diagnoses: text('diagnoses', 2000), presentingProblem: text('presentingProblem', 4000), providerGender, providerQualification, modality, ehrReference: text('ehrReference', 200), schedule: normalizeExchangeSchedule(input.schedule || {}), requestId: input.requestId };
+  return { email, serviceLocation: normalizeExchangeLocation(input.serviceLocation, { required: ['in_person', 'either'].includes(modality) }), insurance: text('insurance', 200), matchingPreferences: validateMatchingPreferences(input.matchingPreferences,{maxSelections:0}), initials, age, fullName: text('fullName', 200), gender: text('gender', 64), diagnoses: text('diagnoses', 2000), presentingProblem: text('presentingProblem', 4000), providerGender, providerQualification, modality, ehrReference: text('ehrReference', 200), schedule: normalizeExchangeSchedule(input.schedule || {}), requestId: input.requestId };
 }
 /** Create the minimum chart and a shared support follow-up together. Retried requests reuse both. */
-export async function createExchangeReferral({ agencyId, actor, input }) {
+export async function createExchangeReferral({ agencyId, actor, input, notificationBatchId = null }) {
   const data = validateExchangeReferral(input);
+  if(notificationBatchId){
+    if(!canViewDemoExchange(actor?.role) || !isExampleEmail(data.email) || !/^[a-f0-9-]{36}$/i.test(notificationBatchId))throw invalid('Only authorized staff demo batches may hold individual demo emails');
+    data.demoReportBatchId=notificationBatchId;
+  }
   const connection = await pool.getConnection();
   let result;
   try {
@@ -57,7 +64,7 @@ export async function createExchangeReferral({ agencyId, actor, input }) {
       client_type: 'clinical', source: 'ADMIN_CREATED', status: 'PENDING_REVIEW',
       submission_date: new Date().toISOString().slice(0, 10), created_by_user_id: actor.id }, { executor: connection, hydrate: false });
     const preferences = { serviceLocation: data.serviceLocation, insurance: data.insurance || null, matchingPreferences: data.matchingPreferences, exchangeReferral: data, exchangeSchedule: data.schedule, preferredModality: data.modality || null, preferredProviderGender: data.providerGender || null, providerQualification: data.providerQualification || null };
-    await connection.execute('UPDATE clients SET intake_preferences_json = ? WHERE id = ?', [JSON.stringify(preferences), client.id]);
+    await connection.execute('UPDATE clients SET intake_preferences_json = ?,email = ? WHERE id = ?', [JSON.stringify(preferences),data.email || null,client.id]);
     await connection.execute('INSERT INTO client_agency_assignments (client_id, agency_id, is_primary, is_active) VALUES (?, ?, TRUE, TRUE)', [client.id, agencyId]);
     const metadata = { source: 'client_exchange_setup', clientId: client.id, agencyId, subtasks: [
       { id: 'ehr', title: 'Locate and check the existing EHR record; check for duplicate clients', done: false },

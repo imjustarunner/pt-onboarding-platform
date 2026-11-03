@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { assertExchangePostingInsurance } from './clientExchangePostingInsurance.service.js';
 import { assertExchangeEssentials } from '../../../frontend/src/navigation/clientExchangeEssentials.js';
 const fail = message => Object.assign(new Error(message), { status: 409 });
 
@@ -7,7 +8,7 @@ export async function insertExchangeListing({ agencyId, clientId, postedByUserId
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const [clients] = await connection.execute('SELECT id, agency_id, provider_id, status FROM clients WHERE id = ? FOR UPDATE', [clientId]);
+    const [clients] = await connection.execute('SELECT id, agency_id, provider_id, status, source, intake_preferences_json FROM clients WHERE id = ? FOR UPDATE', [clientId]);
     const client = clients[0];
     if (!client || Number(client.agency_id) !== Number(agencyId)) throw fail('Client does not belong to this agency');
     if (['ARCHIVED', 'DECLINED'].includes(String(client.status || '').toUpperCase())) throw fail('Archived or declined clients cannot be posted to the exchange');
@@ -18,9 +19,8 @@ export async function insertExchangeListing({ agencyId, clientId, postedByUserId
       await connection.commit();
       return { listingId: existing[0].id, created: false, currentProviderId: client.provider_id };
     }
-    const { assertClientCoverageAdmission } = await import('./clientCoverageAdmission.service.js');
-    await assertClientCoverageAdmission(clientId, { db: connection });
     assertExchangeEssentials(summary);
+    await assertExchangePostingInsurance({client,summary,database:connection});
     if (onlyUnassigned) {
       const [assignments] = await connection.execute('SELECT id FROM client_provider_assignments WHERE client_id = ? AND is_active = TRUE LIMIT 1', [clientId]);
       if (client.provider_id || assignments.length) throw fail('This client is already assigned. Open their profile to post a transfer.');

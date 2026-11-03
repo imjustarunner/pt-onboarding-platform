@@ -73,3 +73,10 @@ it('keeps reviewed gender, format and license choices on the chart, including a 
   expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining("'$.preferredProviderGender'"), ['null',12,2]);
   expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining("'$.providerQualification'"), ['"independent"',12,2]);
 });
+
+it('does not require coverage verification for a persisted manual Exchange add',async()=>{
+ client.source='ADMIN_CREATED';client.intake_preferences_json={exchangeReferral:{requestId:'11111111-1111-4111-8111-111111111111'}};
+ mocks.coverage.mockRejectedValue(Error('Insurance not verified'));
+ await expect(insertExchangeListing(args)).resolves.toMatchObject({created:true});
+ expect(mocks.coverage).not.toHaveBeenCalled();
+});

@@ -11,6 +11,7 @@
             <label>Age *<input data-exchange-field="age" :aria-invalid="missingKeys.includes('age') || undefined" v-model="form.age" required type="number" min="0" max="120" step="1" /></label>
             <label>Client gender *<select data-exchange-field="gender" :aria-invalid="missingKeys.includes('gender') || undefined" v-model="form.gender" required><option value="">Choose…</option><option value="female">Female</option><option value="male">Male</option><option value="nonbinary">Nonbinary</option><option value="other">Another identity</option><option value="unknown">Unknown / not yet recorded</option></select></label>
           </div>
+          <label>Contact email (optional — chart and support only)<input v-model="form.email" :disabled="!!clientId" type="email" maxlength="254" placeholder="For testing: unique-name@example.com" /></label>
           <label>Full name (optional — chart and support only)<input v-model="form.fullName" maxlength="200" /></label>
           <p>Full names and contact information are not shown in Exchange listings or matching emails. Client gender does not set a therapist gender preference.</p>
           <label>Diagnosis / diagnoses (if known)<textarea v-model="form.diagnoses" rows="2" maxlength="2000" placeholder="Diagnosis name or code" /></label>
@@ -23,6 +24,7 @@
             <select data-exchange-field="location" :aria-invalid="missingKeys.includes('location') || undefined" v-model="form.serviceLocation" :required="['in_person', 'either'].includes(form.modality)"><option value="">Select a location…</option><option v-for="location in exchangeLocations" :key="location">{{ location }}</option></select>
           </label>
           <label>Insurance plan or self-pay *<input data-exchange-field="insurance" :aria-invalid="missingKeys.includes('insurance') || undefined" v-model="form.insurance" required maxlength="200" placeholder="e.g. Medicaid, Tricare, Aetna, or Self-pay" /></label>
+          <p>Manual adds require the insurance plan or self-pay choice above, but do not require insurance verification before posting. Existing chart/enrollment transfers require verification.</p>
           <p>If a therapist gender is selected, providers who do not match it cannot request this client.</p>
           <label>Provider license requirement<select v-model="form.providerQualification"><option value="">No requirement specified</option><option value="licensed_or_provisional">Licensed clinician (includes provisional licenses)</option><option value="independent">Independently licensed clinician — specifically requested</option></select></label>
           <ClientMatchingPreferences v-model="form.matchingPreferences" :max-selections="0" expanded />
@@ -59,7 +61,7 @@ import ClientEhrBringUpToDatePanel from '../admin/clientChart/ClientEhrBringUpTo
 import { normalizeExchangeSchedule } from '../../utils/clientExchangeSchedule.js';
 const props = defineProps({ agencyId: { type: Number, required: true } });
 const emit = defineEmits(['close', 'posted']);
-const form = reactive({ initials: '', age: '', gender: '', fullName: '', ehrReference: '', diagnoses: '', presentingProblem: '', providerGender: '', providerQualification: '', modality: '', serviceLocation: '', insurance: '', matchingPreferences: {}, schedule: {} });
+const form = reactive({ initials: '', age: '', gender: '', email: '', fullName: '', ehrReference: '', diagnoses: '', presentingProblem: '', providerGender: '', providerQualification: '', modality: '', serviceLocation: '', insurance: '', matchingPreferences: {}, schedule: {} });
 const validationAttempted = ref(false), requiredFields = ref(null);
 const missingFields = computed(() => validationAttempted.value ? missingManualReferralFields(form) : []);
 const missingKeys = computed(() => missingFields.value.map(field => field.key));

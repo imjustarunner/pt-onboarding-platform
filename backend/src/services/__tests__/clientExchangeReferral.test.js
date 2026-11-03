@@ -67,3 +67,9 @@ it('accepts an infant age and an explicitly unknown client gender without a ther
  expect(referral).toMatchObject({age:0,gender:'unknown',providerGender:'',fullName:'DEMO QA Client'});
  for(const age of ['', '  ',null,-1,121,'abc',1.5])expect(()=>validateExchangeReferral({...args.input,age})).toThrow();
 });
+
+it('saves a reserved demo contact email privately without marking insurance verified',async()=>{
+ await createExchangeReferral({...args,actor:{id:7,role:'support'},input:{...args.input,email:'demo@example.com'}});
+ expect(mocks.execute).toHaveBeenCalledWith('UPDATE clients SET intake_preferences_json = ?,email = ? WHERE id = ?',expect.arrayContaining(['demo@example.com',15]));
+ expect(mocks.execute.mock.calls.some(([sql])=>sql.includes('client_coverage_reviews'))).toBe(false);
+});

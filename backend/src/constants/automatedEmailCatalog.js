@@ -66,6 +66,7 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   client_exchange_match: ['client_exchange', 'notifications'],
   client_exchange_audit: ['client_exchange', 'notifications'],
   client_exchange_demo_audit: ['client_exchange', 'notifications'],
+  client_exchange_demo_preview: ['client_exchange', 'notifications'],
   unmonitored_mailbox_auto_reply: ['exchange_noreply', 'noreply'],
   client_terminated: ['notifications', 'people_operations', 'support'],
   client_checklist_updated: ['notifications', 'support'],

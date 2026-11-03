@@ -2,7 +2,7 @@ import {beforeEach,expect,it,vi} from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn(),send:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:m.send}));
-import {buildDemoExchangeReport,sendDemoExchangeReport} from '../clientExchangeDemoReport.service.js';
+import {buildDemoExchangeReport,sendDemoExchangeReport,demoExchangeReportKey} from '../clientExchangeDemoReport.service.js';
 const input={listing:{id:44,agencyId:2},agency:{id:2,name:'ITSCO',slug:'itsco',support_team_email:'support@itsco.health'},identities:[{id:7,identity_key:'client_exchange',from_email:'notifications@itsco.health'}],providers:[
  {userId:9,name:'Matching Provider',matched:true,canNotify:true,checks:[{status:'pass',reason:'Accepts the requested insurance'}]},
  {userId:10,name:'Other Provider',matched:false,checks:[{status:'fail',reason:'Does not accept the insurance'}]}]};
@@ -29,4 +29,10 @@ it('escapes provider data and avoids exposing client identity or implying histor
 it('holds the demo report when the agency has no Support mailbox instead of mailing providers',async()=>{
  await expect(sendDemoExchangeReport({...input,agency:{id:2}})).rejects.toMatchObject({code:'DEMO_EXCHANGE_SUPPORT_MISSING'});
  expect(m.send).not.toHaveBeenCalled();
+});
+it('deduplicates unchanged outcomes across property ordering, timestamps and clearing a private batch hold',()=>{
+ const a={listing:{...input.listing,preferences:{insurance:'Medicaid',modality:'virtual',presentingProblemUpdatedAt:'first',demoReportBatchId:'batch'}},providers:input.providers,to:'Support@ITSCO.health'};
+ const b={...a,listing:{...input.listing,preferences:{modality:'virtual',insurance:'Medicaid',presentingProblemUpdatedAt:'later'}},to:'support@itsco.health'};
+ expect(demoExchangeReportKey(a)).toBe(demoExchangeReportKey(b));
+ expect(demoExchangeReportKey({...b,listing:{...b.listing,preferences:{insurance:'Aetna',modality:'virtual'}}})).not.toBe(demoExchangeReportKey(a));
 });

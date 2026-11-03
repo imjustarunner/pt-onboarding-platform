@@ -2,7 +2,7 @@ import {beforeEach,expect,it,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 import pool from '../../config/database.js';
 import {canViewDemoExchange,hasDemoExchangeEmail,isExampleEmail} from '../../utils/clientExchangeDemo.js';
-import {isDemoExchangeClient,blockDemoExchangeEmail} from '../clientExchangeDemo.service.js';
+import {isDemoExchangeClient,blockDemoExchangeEmail,retireDemoExchangeNotifications} from '../clientExchangeDemo.service.js';
 beforeEach(()=>{vi.resetAllMocks();pool.execute.mockResolvedValue([[]]);});
 it.each(['QA@EXAMPLE.COM','Demo <qa@example.com>','demo@example','qa@sub.example.com'])('recognizes reserved demo email %s',email=>expect(isExampleEmail(email)).toBe(true));
 it.each(['real@example.com.evil.test','example.com@real.test','real@anotherexample.com','real@example.test','clinical note mentions @example.com'])('does not misclassify %s',email=>expect(isExampleEmail(email)).toBe(false));
@@ -31,4 +31,12 @@ it('does not classify a real client from demo provider addresses in organization
  expect(await isDemoExchangeClient({client:{id:3,agency_id:2,email:'real@family.test',
    organization_feature_flags:{qaSandbox:{exchangeProviders:[{email:'provider@example.com'}]}},
    intake_preferences_json:{preferredProvider:{email:'provider@example.com'},providerEmail:'provider@example.com'}}})).toBe(false);
+});
+it('retires old demo notifications including closed referrals while preserving real client notices',async()=>{
+ pool.execute.mockImplementation(async(sql,args)=>sql.startsWith('SELECT DISTINCT l.id')?[[{id:44,agency_id:2,client_id:3},{id:45,agency_id:2,client_id:4}]]
+   :sql.startsWith('SELECT c.id,c.email')?[[{id:args[0],email:args[0]===3?'qa@example.com':'real@family.test'}]]:[{affectedRows:1}]);
+ await retireDemoExchangeNotifications();
+ const updates=pool.execute.mock.calls.filter(([sql])=>sql.startsWith('UPDATE notifications'));
+ expect(updates).toHaveLength(1);expect(updates[0][1]).toEqual([2,44]);
+ expect(updates[0][0]).toContain('is_resolved=TRUE');
 });

@@ -282,7 +282,6 @@ export async function getMatchingAudit(listingId, { viewerUserId, viewerRole }) 
   if (!row || !isPrivilegedViewer({ viewerUserId, viewerRole, listing: row })) return null;
   await hydrateListingSummary(row);
   if (row.demo_exchange && !canViewDemoExchange(viewerRole)) return null;
-  await hydrateListingSummary(row);
   return exchangeProviderAudit({ listing: mapListingRow(row), agencyId: Number(row.agency_id) });
 }
 

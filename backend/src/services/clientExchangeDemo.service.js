@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import { hasClientDemoIdentity } from '../utils/clientExchangeDemo.js';
 
 const parse = value => { if (typeof value !== 'string') return value; try { return JSON.parse(value); } catch { return null; } };
+let noticeCursor=0;
 export async function isDemoExchangeClient({ clientId, agencyId, client, database = pool }) {
   if (hasClientDemoIdentity(client) || hasClientDemoIdentity(parse(client?.intake_preferences_json))) return true;
   const id = Number(clientId || client?.id), agency = Number(agencyId || client?.agency_id);
@@ -33,8 +34,26 @@ export async function blockDemoExchangeEmail({templateType,linkUrl,clientId,agen
 
 export async function suppressDemoExchangeNotifications(listing) {
   // Preserve historical records while removing old demo match notices from inboxes.
-  await pool.execute(`UPDATE notifications SET is_resolved=TRUE,is_read=TRUE,resolved_at=COALESCE(resolved_at,NOW())
+  await pool.execute(`UPDATE notifications SET is_resolved=TRUE,is_read=TRUE,resolved_at=COALESCE(resolved_at,NOW()),
+    audience_json=JSON_MERGE_PATCH(COALESCE(audience_json,JSON_OBJECT()),
+      CAST('{"provider":false,"clinicalPracticeAssistant":false,"supervisor":false,"guardian":false,"schoolStaff":false,"admin":false}' AS JSON))
     WHERE agency_id=? AND related_entity_type='client_exchange_listing' AND related_entity_id=?
       AND type IN ('client_exchange_match','client_exchange_shared','client_exchange_claim','client_exchange_assigned')`,
     [listing.agencyId,listing.id]);
+}
+
+export async function retireDemoExchangeNotifications({limit=50}={}) {
+  // Include closed listings: their old in-app notices must not remain visible
+  // merely because the matching monitor only evaluates open referrals.
+  const batch=Math.max(1,Math.min(100,Math.trunc(Number(limit)) || 50));
+  const [rows]=await pool.execute(`SELECT DISTINCT l.id,l.agency_id,l.client_id FROM notifications n
+    JOIN client_exchange_listings l ON l.id=n.related_entity_id AND l.agency_id=n.agency_id
+    WHERE n.related_entity_type='client_exchange_listing' AND n.is_resolved=FALSE AND l.id>?
+      AND n.type IN ('client_exchange_match','client_exchange_shared','client_exchange_claim','client_exchange_assigned')
+    ORDER BY l.id LIMIT ${batch}`,[noticeCursor]);
+  for(const row of rows){
+    if(await isDemoExchangeClient({clientId:row.client_id,agencyId:row.agency_id}))
+      await suppressDemoExchangeNotifications({id:row.id,agencyId:row.agency_id});
+  }
+  noticeCursor=rows.length===batch?Number(rows.at(-1).id):0;
 }

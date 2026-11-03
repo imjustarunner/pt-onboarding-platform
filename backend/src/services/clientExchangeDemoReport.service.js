@@ -4,6 +4,8 @@ import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 
 const escape = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const canonical=value=>value instanceof Date?value.toISOString():Array.isArray(value)?value.map(canonical):value&&typeof value==='object'
+  ?Object.fromEntries(Object.keys(value).sort().filter(key=>!['demoReportBatchId','presentingProblemUpdatedAt','evaluatedAt'].includes(key)).map(key=>[key,canonical(value[key])])):value;
 export function buildDemoExchangeReport({listing,providers,link}) {
   const matched=providers.filter(p=>p.matched);
   const details=providers.map(p=>({id:Number(p.userId),name:p.name || `Provider #${p.userId}`,
@@ -18,6 +20,10 @@ export function buildDemoExchangeReport({listing,providers,link}) {
     html:`<h1 style="font:700 26px/1.3 Arial">Demo Client Exchange matching report</h1><p>${escape(intro)}</p><p><a href="${escape(link)}">Open the staff matching audit</a></p>${details.map(p=>`<h2 style="font:700 19px/1.4 Arial">${escape(p.name)} — ${p.outcome}</h2><ul>${p.reasons.concat(p.confirmation.map(r=>`Needs confirmation: ${r}`),p.hold?[p.hold]:[]).map(r=>`<li>${escape(r)}</li>`).join('')}</ul>`).join('')}`};
 }
 
+export function demoExchangeReportKey({listing,providers,to}) {
+  return 'demo-v1:'+createHash('sha256').update(JSON.stringify(canonical({version:'demo-v1',to:String(to).trim().toLowerCase(),listingId:listing.id,demographics:listing.demographics,preferences:listing.preferences,presentingProblems:listing.presentingProblems,diagnoses:listing.diagnoses,providers:providers.map(p=>({id:p.userId,matched:p.matched,checks:p.checks,canNotify:p.canNotify,hold:p.notificationHold})).sort((a,b)=>a.id-b.id)}))).digest('hex').slice(0,32);
+}
+
 // Caller holds the listing lock. Changed matching outcomes get one report; a
 // retry never blindly repeats an accepted, queued or uncertain delivery.
 export async function sendDemoExchangeReport({listing,agency,identities,providers}) {
@@ -26,7 +32,7 @@ export async function sendDemoExchangeReport({listing,agency,identities,provider
   if(!to)throw Object.assign(new Error('Configure the agency Support mailbox for demo reports'),{code:'DEMO_EXCHANGE_SUPPORT_MISSING'});
   const sender=identities.find(i=>i.identity_key==='client_exchange') || identities.find(i=>i.identity_key==='notifications');
   if(!sender?.id)throw Object.assign(new Error('Configure a Client Exchange test-report sender'),{code:'DEMO_EXCHANGE_SENDER_MISSING'});
-  const key='demo-v1:'+createHash('sha256').update(JSON.stringify({version:'demo-v1',to,listingId:listing.id,demographics:listing.demographics,preferences:listing.preferences,presentingProblems:listing.presentingProblems,diagnoses:listing.diagnoses,providers:providers.map(p=>({id:p.userId,matched:p.matched,checks:p.checks,canNotify:p.canNotify,hold:p.notificationHold})).sort((a,b)=>a.id-b.id)})).digest('hex').slice(0,32);
+  const key=demoExchangeReportKey({listing,providers,to});
   const [[previous]]=await pool.execute('SELECT status FROM client_exchange_audit_reports WHERE listing_id=? AND report_key=?',[listing.id,key]);
   if(previous && ['sent','queued','sending','unknown','redirected'].includes(previous.status))return {status:previous.status,duplicate:true};
   const link=`${buildPublicAppUrl(agency,'client-exchange')}?listingId=${listing.id}&agencyId=${listing.agencyId}`;

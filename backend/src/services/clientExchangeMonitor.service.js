@@ -3,9 +3,11 @@ import Client from '../models/Client.model.js';
 import {getListingForMatching} from './clientExchange.service.js';
 import {notifyExchangeMatches} from './clientExchangeNotifications.service.js';
 import {processExchangeRequestNotices} from './clientExchangeRequestQueue.service.js';
+import {retireDemoExchangeNotifications} from './clientExchangeDemo.service.js';
 
 /** Retry interrupted evaluations and refresh pilot audits daily. Only changes are emailed. */
 export async function monitorClientExchange({limit=10}={}) {
+  await retireDemoExchangeNotifications();
   await processExchangeRequestNotices({limit});
   const batchSize=Math.max(1,Math.min(50,Number.isFinite(Number(limit))?Math.trunc(Number(limit)):10));
   const [rows]=await pool.execute(`SELECT l.id,l.posted_by_user_id,l.client_id FROM client_exchange_listings l
