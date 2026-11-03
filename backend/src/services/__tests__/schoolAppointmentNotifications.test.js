@@ -2,7 +2,9 @@ import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../guardianAppointments.service.js',()=>({authorizedAppointmentClient:vi.fn(async()=>({agency_id:2})),requireGuardianCancellation:vi.fn(async()=>({agency_id:2}))}));
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), query:vi.fn(), getConnection: vi.fn() } }));
 vi.mock('../../models/Appointment.model.js', () => ({ default: { findById: vi.fn(), listParticipants: vi.fn(), update: vi.fn(), mapRow: r => r } }));
-vi.mock('../../models/ClientGuardian.model.js', () => ({ default: { listForClient: vi.fn() } }));
+vi.mock('../../models/ClientGuardian.model.js', () => ({ default: { listForClient: vi.fn(),getLink:vi.fn(),
+  parsePermissions:raw=>typeof raw === 'string' ? JSON.parse(raw) : raw || null,
+  isNoView:p=>p?.noView === true || p?.noViewOtherGuardian === true } }));
 vi.mock('../../models/ClientContactAffiliation.model.js', () => ({ default: { listReminderRecipientsForClient: vi.fn() } }));
 vi.mock('../intakeCommunicationChoices.service.js', () => ({ latestIntakeCommunicationChoices: vi.fn(), INTAKE_COMMUNICATION_VERSION: 'v2' }));
 vi.mock('../appointmentServiceSetting.service.js', () => ({ resolveAppointmentServiceSetting: vi.fn(), buildSchoolReminder: () => 'School visit. No confirmation is needed. Let our team know about absences.' }));
@@ -30,6 +32,7 @@ beforeEach(() => {
   Appointment.listParticipants.mockResolvedValue([{ clientId: 4, receivesReminders: true }]);
   resolveAppointmentServiceSetting.mockResolvedValue({ isSchool: true });
   Guardians.listForClient.mockResolvedValue([]); Contacts.listReminderRecipientsForClient.mockResolvedValue([]);
+  Guardians.getLink.mockImplementation(async({clientId,guardianUserId})=>(await Guardians.listForClient(clientId)).find(g=>Number(g.guardian_user_id) === Number(guardianUserId)) || null);
   latestIntakeCommunicationChoices.mockImplementation(async () => choice);
   recordedReminderConsent.mockResolvedValue(null); resolveRegisteredSmsSender.mockResolvedValue('+17195550199'); Vonage.sendSms.mockResolvedValue({ messageId: 'test' });
   sendNotificationEmail.mockResolvedValue({ id: 'email' });
@@ -46,6 +49,7 @@ beforeEach(() => {
     if (sql.includes('FROM appointment_schedule_notices')) return [[]];
     if (sql.includes('SELECT DISTINCT a.id FROM appointments')) return [[]];
     if (sql.includes('FROM clients c LEFT JOIN client_statuses')) return [[client]];
+    if (sql.includes('SELECT c.id,c.date_of_birth FROM clients')) return [[{id:4,date_of_birth:'2015-01-01'}]];
     if (sql.includes('SELECT r.* FROM appointment_reminders')) return [due];
     if (sql.includes('FROM appointment_change_notification_queue')) return [[]];
     if (sql.includes('FROM appointment_cancellation_deliveries')) return [[]];
