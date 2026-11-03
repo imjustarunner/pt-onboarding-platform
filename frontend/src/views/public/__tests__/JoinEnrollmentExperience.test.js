@@ -19,6 +19,38 @@ async function render(slug='itsco', overrides={}) {
  await flushPromises();await wrapper.find('button').trigger('click');await flushPromises();return router;
 }
 describe('Shared enrollment experience',()=>{
+ it.each(['en', 'es'])('starts couple and family questions unanswered in %s and preserves explicit choices', async locale => {
+  setPublicLocale(locale); await render();
+  const form = wrapper.vm.form;
+  wrapper.vm.chooseWhoFor('couple'); await flushPromises();
+  expect(form.notifyPartner).toBe(''); expect(form.partnersSameAddress).toBe('');
+  expect(wrapper.findAll('select').map(select => select.element.value)).toEqual(['', '']);
+  expect(wrapper.vm.basicsIssues.map(issue => issue.key)).toEqual(expect.arrayContaining(['notifyPartner', 'partnersSameAddress']));
+  form.notifyPartner = 'not_yet'; form.partnersSameAddress = 'yes';
+  wrapper.vm.chooseWhoFor('family'); await flushPromises();
+  expect(form.familyRole).toBe(''); expect(form.sameHousehold).toBe('');
+  expect(form.familyMembers[0].participationStatus).toBe('');
+  wrapper.vm.addFamilyMember();
+  expect(form.familyMembers[1].participationStatus).toBe('');
+  expect(wrapper.vm.basicsIssues.map(issue => issue.key)).toContain('sameHousehold');
+  wrapper.vm.chooseWhoFor('couple'); await flushPromises();
+  expect(form.notifyPartner).toBe('not_yet'); expect(form.partnersSameAddress).toBe('yes');
+ });
+
+ it('shows the dependent birth date beside dependent names and only advances locally on the first Continue', async () => {
+  await render();
+  wrapper.vm.chooseWhoFor('child'); await flushPromises();
+  const dateField = wrapper.findAllComponents(DigitalFormField).find(field => field.props('type') === 'date');
+  expect(dateField.element.closest('section').textContent).toContain('Dependent information');
+  const form = wrapper.vm.form;
+  Object.assign(form.respondent, { firstName: 'Demo', lastName: 'Parent', email: 'demo@example.com', phone: '2025550123' });
+  Object.assign(form.client, { firstName: 'Demo', lastName: 'Child' });
+  form.birthdate = '2015-01-01'; form.otherGuardian.hasLegalRights = 'no';
+  Object.assign(form.address, { street: '123 Demo St', city: 'Denver', state: 'CO', zip: '80202' });
+  await wrapper.get('.ai-join-continue').trigger('click'); await flushPromises();
+  expect(wrapper.vm.quickStep).toBe(1);
+  expect(api.post.mock.calls.some(([url]) => /\/quick|draft|session|submission/.test(url))).toBe(false);
+ });
  it.each(['itsco','example'])('brands the brief form for %s and AuricWell without the old sidebar',async slug=>{
   await render(slug);expect(wrapper.find('.df-page--enrollment').exists()).toBe(true);expect(wrapper.find('.df-sidebar').exists()).toBe(false);
   expect(wrapper.find('.enrollment-brand').text()).toContain(slug==='itsco'?'ITSCO':'Example Care');expect(wrapper.find('.enrollment-brand').text()).toContain('AuricWell');
@@ -51,9 +83,12 @@ describe('Shared enrollment experience',()=>{
    if (subject === 'couple') {
     Object.assign(form.partner, { firstName: 'Demo', lastName: 'Partner', dateOfBirth: '1990-02-02' });
     form.partnersSameAddress = 'no';
+    form.notifyPartner = 'not_yet';
     Object.assign(form.partner.address, { street: '456 Demo St', city: 'Denver', state: 'CO', zip: '80202' });
    }
    if (subject === 'family') {
+    form.familyRole = 'parent';
+    form.sameHousehold = 'yes';
     Object.assign(form.familyMembers[0], { firstName: 'Demo', lastName: 'Member', dateOfBirth: '2015-01-01', relationshipToPrimary: 'Child' });
    }
    await flushPromises();

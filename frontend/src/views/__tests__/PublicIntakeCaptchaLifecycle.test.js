@@ -33,17 +33,19 @@ afterEach(() => {
   vi.restoreAllMocks(); setPublicLocale('en');
 });
 
-async function render({ language = 'en', captcha = false } = {}) {
+async function render({ language = 'en', captcha = false, publishedMaster = false, realShell = false } = {}) {
   const agency = { id: 2, name: 'Example Agency', slug: 'test' };
   const data = {
     link: { id: 1, form_type: 'intake', scope_type: 'agency', organization_id: 2,
       inherits_office_master: 1, language_code: language, master_channel: 'counseling',
+      has_spanish_master: publishedMaster, master_language_code: language,
       intake_fields: [], intake_steps: [{ id: 'questions', type: 'questions', label: 'Questions', fields: [{ key: 'notes', label: 'Notes', type: 'textarea' }] }] },
-    agency, organization: { ...agency, organization_type: 'agency' }, templates: []
+    agency, organization: { ...agency, organization_type: 'agency' }, templates: [],
+    recaptcha: captcha ? { siteKey: 'test-public-site-key', forceWidget: true } : {}
   };
   get.mockReset().mockImplementation(async url => ({ data: url === '/public-intake/office-captcha-test' ? data : {} }));
   wrapper = mount(PublicIntakeSigningView, { attachTo: document.body, global: {
-    plugins: [createPinia()], stubs: { DigitalFormShell: { template: '<main><slot/></main>' }, SignaturePad: true }
+    plugins: [createPinia()], stubs: { ...(!realShell && { DigitalFormShell: { template: '<main><slot/></main>' } }), SignaturePad: true }
   } });
   await flushPromises();
   wrapper.vm.step = 0.5;
@@ -87,6 +89,26 @@ it('keeps a visible solved widget usable across English and Spanish switches', a
   expect(wrapper.find('#recaptcha-widget-start iframe').exists()).toBe(true);
   expect(wrapper.vm.captchaToken).toBe('verified-token');
   expect(renderWidget).toHaveBeenCalledTimes(1);
+});
+
+it('keeps the same verified widget through a published-master reload in the real shell', async () => {
+  await render({ captcha: true, publishedMaster: true, realShell: true });
+  const host = wrapper.get('#recaptcha-widget-start').element;
+  callbacks[0].callback('verified-master-token');
+  wrapper.vm.guardianFirstName = 'Demo';
+  for (const language of ['es', 'en']) {
+    await wrapper.get(`button[aria-label="${language === 'es' ? 'Español' : 'English'}"]`).trigger('click');
+    await flushPromises();
+    await new Promise(resolve => setTimeout(resolve, 300));
+    expect(wrapper.get('#recaptcha-widget-start').element).toBe(host);
+    expect(wrapper.vm.captchaToken).toBe('verified-master-token');
+    expect(wrapper.vm.guardianFirstName).toBe('Demo');
+    expect(renderWidget).toHaveBeenCalledTimes(1);
+  }
+  callbacks[0]['expired-callback']();
+  expect(wrapper.vm.captchaToken).toBe('');
+  await wrapper.vm.switchLinkedLanguage('es'); await flushPromises();
+  expect(wrapper.vm.captchaToken).toBe('');
 });
 
 it('renders a replacement host and ignores callbacks from the discarded widget', async () => {

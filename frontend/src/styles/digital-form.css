@@ -1586,3 +1586,10 @@ main .df-page--full-bleed .df-shell {
   .df-page--billing .df-shell .df-sidebar { display: none; }
   .df-page--billing .df-shell .df-main-body { padding: 24px 16px; }
 }
+/* Public forms keep Google's full badge visible in document flow so a fixed
+   badge cannot cover questions when the viewport is narrow or zoomed. */
+body:has(.public-intake, .ai-shell-host--join-flow) .grecaptcha-badge {
+  position: static !important;
+  margin: 16px auto !important;
+  max-width: 100%;
+}

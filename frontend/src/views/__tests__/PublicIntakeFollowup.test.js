@@ -20,7 +20,7 @@ beforeEach(() => {
   vi.stubGlobal('CSS', { escape: value => String(value) });
   post.mockReset().mockResolvedValue({ data: {} });
 });
-afterEach(() => { wrapper?.unmount(); vi.unstubAllGlobals(); });
+afterEach(() => { wrapper?.unmount(); document.body.innerHTML = ''; vi.unstubAllGlobals(); });
 
 function question(id, key, extra = {}) {
   return { id, type: 'questions', label: id, fields: [{ key, label: key, type: 'text' }], ...extra };
@@ -37,7 +37,7 @@ async function render(steps, { subject = 'self', locale = 'en', clients = [], st
     agency, organization: { ...agency, organization_type: 'agency' }, templates: []
   };
   get.mockReset().mockImplementation(async url => ({ data: url === '/public-intake/office-followup-test' ? data : {} }));
-  wrapper = mount(PublicIntakeSigningView, { global: {
+  wrapper = mount(PublicIntakeSigningView, { attachTo: document.body, global: {
     plugins: [createPinia()],
     stubs: { DigitalFormShell: { template: '<main><slot/></main>' }, SignaturePad: true }
   } });
@@ -91,6 +91,44 @@ it.each(['en', 'es'])('Skip Now reaches required safety in %s without completing
   await wrapper.vm.handleCurrentFlowContinue();
   await flushPromises();
   expect(wrapper.vm.currentFlowStep.id).toBe('communications');
+});
+
+it('names the missing last name, focuses it and translates an existing error on a language switch', async () => {
+  await render([question('identity', 'legal_first_name')]);
+  wrapper.vm.step = 0.5;
+  Object.assign(wrapper.vm, { guardianFirstName: 'Demo', guardianLastName: '', guardianEmail: 'demo@example.com', guardianPhone: '2025550123', starterDob: '1990-01-01' });
+  await flushPromises();
+  post.mockClear();
+  await wrapper.get('.intake-start-continue').trigger('click'); await flushPromises();
+  expect(wrapper.get('.intake-start-validation').text()).toContain('Your last name');
+  expect(document.activeElement.id).toBe('guardianLastName');
+  expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+  await wrapper.vm.switchLinkedLanguage('es'); await flushPromises();
+  expect(wrapper.get('.intake-start-validation').text()).toContain('Su apellido');
+  expect(wrapper.get('.intake-start-validation').text()).toContain('Por favor complete todos los campos requeridos');
+  expect(wrapper.get('.intake-start-validation').text()).not.toContain('Required Fields');
+  expect(post.mock.calls.some(([url]) => /session|begin|finalize/.test(url))).toBe(false);
+});
+
+it.each(['en', 'es'])('focuses a missing dependent birth date before custody and keeps route participants separate in %s', async locale => {
+  await render([question('identity', 'legal_first_name')], { locale });
+  wrapper.vm.step = 0.5;
+  Object.assign(wrapper.vm, { guardianFirstName: 'Demo', guardianLastName: 'Parent', guardianEmail: 'demo@example.com', guardianPhone: '2025550123', starterDob: '1990-01-01' });
+  wrapper.vm.chooseServiceSubject('couple'); await flushPromises();
+  expect(wrapper.vm.clients[0].firstName).toBe('Demo');
+  wrapper.vm.chooseServiceSubject('family'); await flushPromises();
+  expect(wrapper.vm.clients[0].firstName).toBe('');
+  expect(wrapper.vm.clients[0].dateOfBirth).toBe('');
+  Object.assign(wrapper.vm.clients[0], { firstName: 'Family', lastName: 'Member', dateOfBirth: '1995-01-01' });
+  wrapper.vm.chooseServiceSubject('dependent'); await flushPromises();
+  expect(wrapper.vm.clients[0].firstName).toBe('');
+  Object.assign(wrapper.vm.clients[0], { firstName: 'Demo', lastName: 'Child', dateOfBirth: '' });
+  wrapper.vm.guardianRelationship = 'Mother';
+  await wrapper.get('.intake-start-continue').trigger('click'); await flushPromises();
+  expect(document.activeElement.id).toBe('clientDob_0');
+  wrapper.vm.chooseServiceSubject('family'); await flushPromises();
+  expect(wrapper.vm.clients[0].firstName).toBe('Family');
+  expect(wrapper.vm.clients[0].dateOfBirth).toBe('1995-01-01');
 });
 
 it('does not seed clinical answers from a retained legacy schema and preserves deliberate answers', async () => {
