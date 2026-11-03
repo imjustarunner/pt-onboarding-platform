@@ -45,6 +45,7 @@ describe('real task-tool fixture contract',()=>{
  it('supplies task/list data and the same Overview task links without mutating fixtures',()=>{
   const tasks=demoResponse('/tasks',{params:{view:'assigned'}});expect(tasks.filter(t=>t.status!=='completed')).toHaveLength(3);
   for(const list of demoTaskLists){const active=demoResponse(`/task-lists/${list.id}/tasks`,{params:{status:'open'}});expect(active).toHaveLength(list.task_count);expect(active.every(task=>task.task_list_id===list.id)).toBe(true);expect(demoResponse(`/task-lists/${list.id}`).members).not.toHaveLength(0);}
+  const billingTask=demoResponse('/tasks/990504');expect(billingTask.assigned_to_user_id).toBe(990115);expect(billingTask.assignee_first_name).toBe('Quinn');expect(demoResponse('/task-lists/990602').members.map(member=>member.first_name)).toEqual(['Avery','Quinn','Riley']);
   for(const method of ['post','put','patch','delete'])expect(()=>demoResponse('/tasks/990501/complete',{method})).toThrow(/nothing was saved/);
   expect(demoResponse('/tasks/990501').status).toBe('pending');expect(()=>demoResponse('/task-lists/1/tasks')).toThrow(/outside/);expect(()=>demoResponse('/me/tasks/1/comments')).toThrow(/outside/);
  });
