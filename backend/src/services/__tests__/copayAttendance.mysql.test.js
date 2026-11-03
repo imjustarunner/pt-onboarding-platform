@@ -6,10 +6,17 @@ test('attendance copays use real SQL locks and one payment through note retries 
   assert.ok(['family_billing_test','copay_attendance_review_test'].includes(process.env.DB_NAME));
   for(const prefix of ['DB','CLINICAL_DB'])for(const [key,value] of Object.entries({HOST:'127.0.0.1',PORT:'33316',NAME:process.env.DB_NAME,USER:'family_billing_test'}))assert.equal(process.env[`${prefix}_${key}`],value);
   assert.equal(process.env.FAMILY_BILLING_ENCRYPTION_KEY_BASE64,Buffer.alloc(32).toString('base64'));
+  // Keep Node and every disposable SQL connection on the same fixed Denver
+  // afternoon. A wall-clock "two hours ago" becomes yesterday after midnight
+  // and correctly trips the production next-day-charge protection.
+  const now = new Date('2026-11-03T19:00:00.000Z');
+  t.mock.timers.enable({apis:['Date'],now});
+  const sqlClock = `SET timestamp = ${Math.floor(+now / 1000)}`;
   const {default:mysql}=await import('mysql2/promise');
   const setup=await mysql.createConnection({host:'127.0.0.1',port:33316,user:'family_billing_test',password:process.env.DB_PASSWORD,database:process.env.DB_NAME,multipleStatements:true,timezone:'Z'});
   let pool,clinical;
   try {
+    await setup.query(sqlClock);
     // Disposable synthetic database only; never import any production environment.
     const [tables]=await setup.query('SHOW TABLES');await setup.query('SET FOREIGN_KEY_CHECKS=0');for(const table of tables)await setup.query(`DROP TABLE \`${Object.values(table)[0]}\``);await setup.query('SET FOREIGN_KEY_CHECKS=1');
     const fixture=await readFile(new URL('../../../fixtures/family-billing-security.sql',import.meta.url),'utf8');await setup.query(fixture.slice(fixture.indexOf('CREATE TABLE agencies')));
@@ -28,6 +35,11 @@ test('attendance copays use real SQL locks and one payment through note retries 
       INSERT INTO users(id,first_name,last_name,role,email) VALUES(45,'Synthetic','Provider','provider','provider@example.invalid');
       INSERT INTO user_agencies(user_id,agency_id,is_active) VALUES(45,1,1);`);
     pool=(await import('../../config/database.js')).default;clinical=(await import('../../config/clinicalDatabase.js')).default;
+    for (const database of [pool,clinical]) {
+      database.on('connection', connection => connection.query(sqlClock));
+      const [[clock]] = await database.query('SELECT UNIX_TIMESTAMP() AS seconds');
+      assert.equal(Number(clock.seconds), +now / 1000);
+    }
     const {default:Stripe}=await import('../stripePayments.service.js');
     const {default:Cards}=await import('../../models/GuardianPaymentCard.model.js');
     const {acceptPayer,assignCard}=await import('../familyBilling.service.js');
@@ -58,7 +70,6 @@ test('attendance copays use real SQL locks and one payment through note retries 
     await writeClientInsurance({...c,primary});
     await saveReadiness({...c,coverageMode:'insured',setupStatus:'ready',collectionPolicy:'verified_copay',reason:'Synthetic verified commercial copay'});
     await setup.execute("UPDATE client_billing_readiness SET automatic_from=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 2 DAY) WHERE agency_id=1 AND client_id=102");
-    const date=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(Date.now()-7200000));
     const term={clientId:102,serviceCode:'90834',paymentBasis:'copay',amountCents:2500,totalCents:2500,priceBasis:'visit',units:1,effectiveFrom:'2026-01-01',effectiveThrough:'2099-12-31',insuranceFingerprint:insuranceFingerprint(await readClientInsurance(102,1)),evidence:'Synthetic verified benefit reference'};
     const evidence=encryptFamilyBilling({waiver:{serviceTerms:[term]},signatureName:'Synthetic Parent'},'billing-task:1:10');
     await setup.execute("INSERT INTO family_billing_tasks(agency_id,guardian_user_id,client_ids_json,status,token_hash,expires_at,terms_version,waiver_encrypted,signed_evidence_encrypted,created_by_user_id,completed_at) VALUES(1,10,'[102]','completed',?,DATE_ADD(UTC_TIMESTAMP(),INTERVAL 1 DAY),?,?,?,99,UTC_TIMESTAMP())",['a'.repeat(64),BILLING_TERMS_VERSION,evidence,evidence]);
