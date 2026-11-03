@@ -13,7 +13,7 @@ beforeEach(()=>{
  connection={execute:vi.fn(async()=>[[{acquired:1}]]),release:vi.fn()};
  db={getConnection:vi.fn(async()=>connection),execute:vi.fn(async()=>[[appointment]])};
  clinical={execute:vi.fn(async()=>[[session]])};
- queue={ensureForUser:vi.fn(async(id,item)=>({...item,serverId:72}))};
+ queue={createIfMissingForUser:vi.fn(async(id,item)=>({...item,serverId:72}))};
  agencyAccess=vi.fn(async()=>{});clientAccess=vi.fn(async()=>({ok:true,client:{agency_id:377,initials:'Test client'}}));
 });
 const run=(actor=user,options={})=>reconcileBookedSessionWork(actor,{db,clinical,queue,agencyAccess,clientAccess,...options});
@@ -23,7 +23,7 @@ it('creates documentation work with the exact saved appointment/session and sour
  expect(db.execute.mock.calls[0][0]).toContain('NOT EXISTS');
  expect(clinical.execute.mock.calls[0][0]).toContain('n.provider_signed_at IS NOT NULL');
  expect(clinical.execute.mock.calls[0][1]).toEqual([501,214]);
- expect(connection.release).toHaveBeenCalledOnce();
+ expect(db.getConnection).not.toHaveBeenCalled();
 });
 it('uses MST after the clock change and reuses a saved draft',()=>{
  const item=bookedWorkItem({...appointment,start_at:'2026-11-01 18:00:00',end_at:'2026-11-01 19:00:00',service_code:'90837',draft_id:6,draft_created_at:'2026-11-02 14:05:00'},session,{initials:'Example'});
@@ -36,16 +36,16 @@ it('excludes signed/missing or mismatched session associations',async()=>{
  clinical.execute.mockResolvedValue([[]]);expect(await run()).toEqual([]);
  clinical.execute.mockResolvedValue([[{...session,appointment_id:999}]]);expect(await run()).toEqual([]);
  clinical.execute.mockResolvedValue([[{...session,agency_id:999}]]);expect(await run()).toEqual([]);
- expect(queue.ensureForUser).not.toHaveBeenCalled();
+ expect(queue.createIfMissingForUser).not.toHaveBeenCalled();
 });
 it('enforces agency/client authorization and preview scope',async()=>{
  await run(user,{agencyId:377});expect(db.execute.mock.calls[0][1]).toEqual([501,377]);
- queue.ensureForUser.mockClear();agencyAccess.mockRejectedValue(Object.assign(new Error('Denied'),{status:403}));
- expect(await run()).toEqual([]);expect(queue.ensureForUser).not.toHaveBeenCalled();
+ queue.createIfMissingForUser.mockClear();agencyAccess.mockRejectedValue(Object.assign(new Error('Denied'),{status:403}));
+ expect(await run()).toEqual([]);expect(queue.createIfMissingForUser).not.toHaveBeenCalled();
  agencyAccess.mockResolvedValue();clientAccess.mockResolvedValue({ok:false});expect(await run()).toEqual([]);
 });
-it('does not reconcile concurrently with another worker and releases its lock after errors',async()=>{
- connection.execute.mockResolvedValueOnce([[{acquired:0}]]);expect(await run()).toEqual([]);expect(db.execute).not.toHaveBeenCalled();
+it('does not count an existing concurrent task as newly created or reserve a database connection',async()=>{
+ queue.createIfMissingForUser.mockResolvedValue(null);expect(await run()).toEqual([]);
+ expect(db.getConnection).not.toHaveBeenCalled();
  db.execute.mockRejectedValue(new Error('Database unavailable'));await expect(run()).rejects.toThrow('Database unavailable');
- expect(connection.execute).toHaveBeenCalledWith('SELECT RELEASE_LOCK(?)',['booked_session_work:501']);
 });

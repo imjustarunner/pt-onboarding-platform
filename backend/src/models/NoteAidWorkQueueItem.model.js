@@ -384,13 +384,13 @@ class NoteAidWorkQueueItem {
   }
 
   // Reconciliation must never reset an existing clinician's draft or task status.
-  static async ensureForUser(userId, item) {
+  static async createIfMissingForUser(userId, item) {
     const vals = rowValuesFromItem(safeInt(userId), item);
     const find = () => this.findByClientKeyForUser({ clientKey: vals.clientKey, userId: vals.userId });
     const existing = await find();
-    if (existing) return existing;
+    if (existing) return null;
     try { return await this.insertRow(vals); }
-    catch (error) { if (error.code === 'ER_DUP_ENTRY') return find(); throw error; }
+    catch (error) { if (error.code === 'ER_DUP_ENTRY') return null; throw error; }
   }
 
   static async patchForUser({ id, userId, patch = {} }) {
