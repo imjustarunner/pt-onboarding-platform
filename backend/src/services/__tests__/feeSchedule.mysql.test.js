@@ -16,13 +16,14 @@ suite('canonical fee schedule against isolated MySQL', () => {
   let admin, db, d;
   const actor = { id: 501, role: 'super_admin' };
   beforeAll(async () => {
-    if (socket && !socket.startsWith('/private/tmp/pt-billing-fees-mysql-20261103/')) throw new Error('Only the owned socket-only synthetic MySQL instance may run this test');
+    if (socket && !/^\/private\/tmp\/pt-billing-fees-(?:h0002-)?mysql-20261103\//.test(socket)) throw new Error('Only the owned socket-only synthetic MySQL instance may run this test');
     admin = await mysql.createConnection(connection);
     await admin.query('DROP DATABASE IF EXISTS fee_schedule_qa');
     await admin.query('CREATE DATABASE fee_schedule_qa');
     db = mysql.createPool({ ...connection, database: 'fee_schedule_qa', connectionLimit: 8 });
     for (const sql of [
-      'CREATE TABLE agency_medical_service_codes (id INT PRIMARY KEY,agency_id INT,service_code VARCHAR(32),description VARCHAR(100),unit_calc_mode VARCHAR(32),unit_minutes INT,is_addon TINYINT,is_active TINYINT)',
+      'CREATE TABLE agencies (id INT PRIMARY KEY,feature_flags JSON)',
+      'CREATE TABLE agency_medical_service_codes (id INT AUTO_INCREMENT PRIMARY KEY,agency_id INT,service_code VARCHAR(32),description VARCHAR(100),unit_calc_mode VARCHAR(32),unit_minutes INT,is_addon TINYINT,is_active TINYINT,min_minutes INT,max_minutes INT,max_units_per_session INT,max_units_per_day INT,default_place_of_service CHAR(2),allowed_credential_tiers_json JSON,session_mode VARCHAR(20),created_by_user_id INT,UNIQUE(agency_id,service_code))',
       'CREATE TABLE users (id INT PRIMARY KEY,first_name VARCHAR(40),last_name VARCHAR(40),credential VARCHAR(80),title VARCHAR(50),role VARCHAR(30),is_hourly_worker TINYINT,is_active TINYINT,is_archived TINYINT,status VARCHAR(30))',
       'CREATE TABLE user_agencies (user_id INT,agency_id INT,is_active TINYINT)',
       'CREATE TABLE insurance_credentialing_definitions (id INT PRIMARY KEY,agency_id INT,name VARCHAR(80),logo_path VARCHAR(100),parent_id INT,sort_order INT)',
@@ -35,7 +36,11 @@ suite('canonical fee schedule against isolated MySQL', () => {
       'CREATE TABLE tenant_services (id INT PRIMARY KEY,agency_id INT,service_code VARCHAR(32),price_cents INT,default_duration_minutes INT,is_active TINYINT)',
       'CREATE TABLE self_pay_service_rates (agency_id INT,tenant_service_id INT,provider_user_id INT,rate_cents INT,rate_unit VARCHAR(16))',
       'CREATE TABLE historical_claim_lines (id INT PRIMARY KEY,charge_cents INT)',
-      "INSERT INTO agency_medical_service_codes VALUES (1,2,'90834','Saved therapy description','SINGLE',NULL,0,1),(2,2,'H0002','Saved screening rules','SINGLE',NULL,0,1),(3,2,'CUSTOM','Inactive service','SINGLE',NULL,0,0),(4,6,'90834','Other practice','SINGLE',NULL,0,1)",
+      'CREATE TABLE clinical_claims (id INT PRIMARY KEY,agency_id INT,clinical_session_id INT,is_deleted TINYINT)',
+      'CREATE TABLE clinical_claim_lines (id INT PRIMARY KEY,clinical_claim_id INT,procedure_code VARCHAR(32))',
+      'CREATE TABLE clinical_sessions (id INT PRIMARY KEY,agency_id INT,service_code VARCHAR(32))',
+      `INSERT INTO agencies VALUES (2,'{"medicalBillingEnabled":true}'),(6,'{"medicalBillingEnabled":true}'),(7,'{"medicalBillingEnabled":false}'),(8,'{"medicalBillingEnabled":true}')`,
+      "INSERT INTO agency_medical_service_codes (id,agency_id,service_code,description,unit_calc_mode,unit_minutes,is_addon,is_active) VALUES (1,2,'90834','Saved therapy description','SINGLE',NULL,0,1),(2,2,'H0002','Saved screening rules','SINGLE',NULL,0,1),(3,2,'CUSTOM','Inactive service','SINGLE',NULL,0,0),(4,6,'90834','Other practice','SINGLE',NULL,0,1),(5,7,'90834','Disabled billing practice','SINGLE',NULL,0,1)",
       "INSERT INTO users VALUES (8,'DEMO','Licensed','LPC','Therapist','provider',0,1,0,'ACTIVE'),(9,'DEMO','Candidate','LPCC','Therapist','provider',0,1,0,'ACTIVE'),(10,'DEMO','Other','LPC','Therapist','provider',0,1,0,'ACTIVE')",
       'INSERT INTO user_agencies VALUES (8,2,1),(9,2,1),(10,6,1)',
       "INSERT INTO insurance_credentialing_definitions VALUES (1,2,'Aetna',NULL,NULL,0),(2,6,'Other practice insurer',NULL,NULL,0)",
@@ -46,7 +51,10 @@ suite('canonical fee schedule against isolated MySQL', () => {
       "INSERT INTO medical_payer_setup_details VALUES (1,'AET','Aetna directory','id_match'),(2,'OTHER','Other insurer','id_match')",
       "INSERT INTO medical_fee_schedule_items VALUES (1,2,'H0002',NULL,NULL,3500,1)",
       "INSERT INTO tenant_services VALUES (1,2,'90834',NULL,45,1),(2,2,'H0002',4000,10,1)",
-      'INSERT INTO historical_claim_lines VALUES (1,7500)'
+      'INSERT INTO historical_claim_lines VALUES (1,7500)',
+      'INSERT INTO clinical_claims VALUES (1,2,1,0),(2,2,2,0),(3,6,3,0),(4,2,4,1)',
+      "INSERT INTO clinical_claim_lines VALUES (1,1,'MISSING'),(2,3,'OTHER'),(3,4,'DELETED')",
+      "INSERT INTO clinical_sessions VALUES (1,2,'90834'),(2,2,'CUSTOM'),(3,6,'OTHER'),(4,2,'DELETED')"
     ]) await db.query(sql);
     const source = await readFile(new URL('../../../../database/migrations/1740_canonical_fee_schedules.sql', import.meta.url), 'utf8');
     for (const statement of splitSqlStatements(stripSqlLineComments(source))) await db.query(statement);
@@ -59,6 +67,11 @@ suite('canonical fee schedule against isolated MySQL', () => {
   it('persists scoped rates, rejects stale edits, protects history and never edits existing claims or catalog rules', async () => {
     let view = await getCanonicalFeeSchedule(actor, { agencyId: 2 }, d);
     expect(view.rows).toHaveLength(2);
+    expect(view.missingServiceCodes).toEqual(['MISSING']);
+    expect(view.inactiveServiceCodes).toEqual(['CUSTOM']);
+    expect(view.warnings.join(' ')).toContain('Existing claims remain visible');
+    expect(await resolveCanonicalFeeQuote({ agencyId: 2, serviceCode: 'MISSING' }, d)).toMatchObject({ serviceCodeAvailable: false, inactiveService: false, rateCents: null, amountCents: null });
+    expect(await resolveCanonicalFeeQuote({ agencyId: 2, serviceCode: 'CUSTOM' }, d)).toMatchObject({ serviceCodeAvailable: false, inactiveService: true });
     expect(view.rows.find(r => r.serviceCode === 'H0002')).toMatchObject({ rateCents: 3500, source: 'legacy_practice', customRateCents: 3500 });
     expect(view.providers.find(p => p.id === 8).eligiblePayerIds).toEqual(['AET']);
     expect(view.providers.find(p => p.id === 9).eligiblePayerIds).toEqual([]);
@@ -96,4 +109,19 @@ suite('canonical fee schedule against isolated MySQL', () => {
     quote = await resolveCanonicalFeeQuote({ agencyId: 2, mode: 'self_pay', serviceCode: '90834', providerUserId: 9, durationMinutes: 45 }, d);
     expect(quote).toMatchObject({ source: 'category', rateUnit: 'hour', rateCents: 9000, amountCents: 6750 });
   }, 20000);
+  it('adds only missing H0002 to enabled existing medical catalogs and never overwrites even inactive custom screening rules', async () => {
+    await db.query("UPDATE agency_medical_service_codes SET is_active=0,max_units_per_session=7,allowed_credential_tiers_json=JSON_ARRAY('saved_custom_tier') WHERE agency_id=2 AND service_code='H0002'");
+    const [before] = await db.query('SELECT * FROM agency_medical_service_codes ORDER BY id');
+    const source = await readFile(new URL('../../../../database/migrations/1741_h0002_medical_catalog.sql', import.meta.url), 'utf8');
+    const statements = splitSqlStatements(stripSqlLineComments(source));
+    for (const sql of statements) await db.query(sql);
+    for (const sql of statements) await db.query(sql);
+    const [after] = await db.query('SELECT * FROM agency_medical_service_codes ORDER BY id');
+    expect(after.filter(row=>before.some(old=>old.id===row.id))).toEqual(before);
+    const added=after.filter(row=>!before.some(old=>old.id===row.id));
+    expect(added).toHaveLength(1);
+    expect(added[0]).toMatchObject({agency_id:6,service_code:'H0002',description:'Behavioral Health Screening',unit_calc_mode:'SINGLE',unit_minutes:null,min_minutes:null,max_minutes:null,max_units_per_session:1,max_units_per_day:null,default_place_of_service:null,created_by_user_id:null,session_mode:'individual'});
+    expect(added[0].allowed_credential_tiers_json).toEqual(['intern_plus']);
+    expect(await resolveCanonicalFeeQuote({agencyId:6,serviceCode:'H0002',units:1},d)).toMatchObject({serviceCodeAvailable:true,rateCents:3000,amountCents:3000,source:'platform_starter'});
+  });
 });

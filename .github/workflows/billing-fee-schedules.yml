@@ -3,9 +3,9 @@ name: Billing fee schedules
 on:
   push:
     branches: [main]
-    paths: ['backend/**', 'frontend/**', 'database/migrations/1740*', 'database/clinical_migrations/029*', '.github/workflows/billing-fee-schedules.yml']
+    paths: ['backend/**', 'frontend/**', 'database/migrations/1740*', 'database/migrations/1741*', 'database/clinical_migrations/029*', '.github/workflows/billing-fee-schedules.yml']
   pull_request:
-    paths: ['backend/**', 'frontend/**', 'database/migrations/1740*', 'database/clinical_migrations/029*', '.github/workflows/billing-fee-schedules.yml']
+    paths: ['backend/**', 'frontend/**', 'database/migrations/1740*', 'database/migrations/1741*', 'database/clinical_migrations/029*', '.github/workflows/billing-fee-schedules.yml']
   workflow_dispatch:
 
 permissions:

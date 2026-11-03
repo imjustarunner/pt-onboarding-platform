@@ -3,6 +3,10 @@ CANONICAL BILLING FEE SCHEDULES — November 3, 2026
 Entry: /<practice>/admin/medical-billing?agencyId=<id>&billingSection=fee-schedules
 Service catalog: /<practice>/admin/settings?agencyId=<id>&category=general&item=service-codes
 Existing agency_medical_service_codes and their unit/overflow/signature rules are unchanged.
+The user-authorized H0002 addition uses Behavioral Health Screening, one service
+per encounter and the $30 platform starter, with no preset duration or place of service.
+Migration1741 adds only missing H0002 entries to enabled existing medical catalogs;
+existing/custom/inactive H0002 rows are preserved.
 
 Insurance inheritance: editable platform billed-charge starter -> practice -> payer ->
 fully licensed/currently credentialed billing provider. Explicit zero is a saved rate;
@@ -49,6 +53,11 @@ by this release.
 Required database migrations before application release:
   primary1740_canonical_fee_schedules.sql
   clinical029_claim_display_references.sql
+  primary1741_h0002_medical_catalog.sql
 Use the production migration SQL parser. The trigger syntax deliberately does not
 contain mysql CLI DELIMITER directives. Real MySQL and CI tests cover immutability,
 concurrency, rollback, retained payer IDs and mixed-collation recovery.
+
+Missing or inactive codes used by claims produce setup warnings in Fee schedules.
+A saved zero claim charge without confirmed fee evidence is labeled for review in
+Edit billing fields. Clinical approval stays visible; no historical charge is inferred.

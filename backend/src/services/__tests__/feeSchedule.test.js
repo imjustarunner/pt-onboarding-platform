@@ -3,7 +3,7 @@ vi.mock('../../config/database.js', () => ({ default: {} }));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: {} }));
 vi.mock('../schedulingBillingAccess.service.js', () => ({ hasSchedulingBillingAccess: vi.fn() }));
 import { normalizeFeeMutation, normalizeFeeScope, latestFeeEntries, resolveFeeFromEntries, calculateFeeCharge, PLATFORM_STARTER_FEES } from '../../utils/feeScheduleRates.js';
-import { legacyFeeContext, assertFeeScheduleAccess, saveCanonicalFeeSchedule } from '../feeSchedule.service.js';
+import { legacyFeeContext, assertFeeScheduleAccess, saveCanonicalFeeSchedule, getCanonicalFeeSchedule, resolveCanonicalFeeQuote } from '../feeSchedule.service.js';
 
 const row = (id, scope_key, rate_cents, extra = {}) => ({ id, owner_key: 'agency:2', mode: 'insurance', record_type: 'rate', scope_key, service_code: '90834', rate_cents, rate_unit: 'unit', ...extra });
 const resolve = (rows, extra = {}) => resolveFeeFromEntries({ agencyId: 2, serviceCode: '90834', mode: 'insurance', payerId: 'AET', providerUserId: 8, entries: latestFeeEntries(rows), ...extra });
@@ -107,4 +107,51 @@ it('uses production migration parsing for both immutable fee triggers', async ()
   expect(statements.some(s=>s.includes('DELIMITER'))).toBe(false);
   expect(statements.filter(s=>s.startsWith('CREATE TRIGGER'))).toHaveLength(2);
   expect(statements.filter(s=>s.startsWith('CREATE TRIGGER')).every(s=>s.includes("SIGNAL SQLSTATE '45000'"))).toBe(true);
+});
+
+it('reports missing and inactive claim codes through the production fee overview without returning patient data or changing codes', async () => {
+  const codes = [{ service_code: '90834', is_active: 1 }, { service_code: 'CUSTOM', is_active: 0 }];
+  const main = { execute: vi.fn(async sql => [sql.includes('SELECT * FROM agency_medical_service_codes') ? codes : []]) };
+  const clinical = { execute: vi.fn(async (sql, args) => {
+    expect(args).toEqual([2]);
+    if (sql.includes('FROM clinical_claims c')) {
+      expect(sql).toContain('l.clinical_claim_id=c.id');
+      expect(sql).toContain('s.agency_id=c.agency_id');
+      expect(sql).toContain('WHERE c.agency_id=? AND COALESCE(c.is_deleted,0)=0');
+      expect(sql).toContain("COALESCE(NULLIF(TRIM(l.procedure_code),''),s.service_code)");
+      return [[{service_code:'H0002'}, {service_code:'CUSTOM'}, {service_code:'90834'}, {service_code:'h0002'}, {service_code:null}]];
+    }
+    return [[]];
+  }) };
+  const view = await getCanonicalFeeSchedule({id:501,role:'super_admin'}, {agencyId:2}, {main,clinical,access:async()=>true});
+  expect(view.missingServiceCodes).toEqual(['H0002']);
+  expect(view.inactiveServiceCodes).toEqual(['CUSTOM']);
+  expect(view.warnings).toContainEqual(expect.stringContaining('Claims use service codes missing'));
+  expect(view.warnings).toContainEqual(expect.stringContaining('Claims use inactive service codes'));
+  expect(view.rows.map(r=>r.serviceCode)).toEqual(['90834']);
+  const selfPay = await getCanonicalFeeSchedule({id:501,role:'super_admin'}, {agencyId:2,mode:'self_pay'}, {main,clinical,access:async()=>true});
+  expect(selfPay.warnings).not.toContainEqual(expect.stringContaining('Add and verify payers'));
+  expect([...main.execute.mock.calls,...clinical.execute.mock.calls].every(([sql])=>sql.trim().startsWith('SELECT'))).toBe(true);
+});
+
+it('keeps an unavailable code distinct from a free service without inventing a starter rate', async () => {
+  const d={main:{execute:vi.fn(async()=>[[]])},clinical:{execute:vi.fn(async()=>[[]])}};
+  expect(await resolveCanonicalFeeQuote({agencyId:2,serviceCode:'H0002'},d)).toMatchObject({serviceCodeAvailable:false,inactiveService:false,amountCents:null,rateCents:null});
+});
+
+it('seeds H0002 as one screening encounter without invented time, booking or expanded credential eligibility', async () => {
+  const {DEFAULT_MEDICAL_SERVICE_CODES}=await import('../medicalBillingDefaults.service.js');
+  const {eligibleServiceCodesForTier}=await import('../../utils/clinicalServiceCodeEligibility.js');
+  const def=DEFAULT_MEDICAL_SERVICE_CODES.find(d=>d.serviceCode==='H0002');
+  expect(def).toMatchObject({description:'Behavioral Health Screening',unitCalcMode:'SINGLE',maxUnitsPerSession:1,unitMinutes:null,minMinutes:null,maxMinutes:null,defaultDurationMinutes:null,defaultPlaceOfService:null,allowedCredentialTiers:['intern_plus'],isAddon:false});
+  expect(eligibleServiceCodesForTier('qbha')).not.toContain('H0002');
+  expect(eligibleServiceCodesForTier('bachelors')).not.toContain('H0002');
+  const {readFile}=await import('node:fs/promises');
+  const {splitSqlStatements,stripSqlLineComments}=await import('../../utils/migrationSql.js');
+  const sql=await readFile(new URL('../../../../database/migrations/1741_h0002_medical_catalog.sql',import.meta.url),'utf8');
+  const statements=splitSqlStatements(stripSqlLineComments(sql));
+  expect(statements).toHaveLength(1);
+  expect(statements[0]).toMatch(/^INSERT INTO agency_medical_service_codes/);
+  expect(statements[0]).toContain("e.service_code='H0002'");
+  expect(statements[0]).not.toMatch(/\bUPDATE\b|\bDELETE\b|tenant_services|payroll/);
 });

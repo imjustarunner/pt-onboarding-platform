@@ -85,6 +85,7 @@
     </template>
     <section v-if="draft" class="review" aria-label="Edit existing claim draft">
       <h3>Edit billing fields · {{ draft.claim.claim_reference || `Claim #${draft.claim.id}` }}</h3>
+      <p v-for="warning in draft.feeWarnings || []" :key="warning" class="error" role="status">{{ warning }}</p>
       <section v-if="draft.approvedClinicalVersion || draft.approvedClinicalVersionError" class="clinical-reconciliation" aria-label="Approved clinical version for this claim">
         <template v-if="draft.approvedClinicalVersion">
           <h4>Approved clinical version {{ draft.approvedClinicalVersion.revisionNumber }}</h4>

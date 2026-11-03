@@ -128,16 +128,29 @@ export async function getCanonicalFeeSchedule(user, input = {}, d = deps) {
   const scope = normalizeFeeScope(input);
   await assertFeeScheduleAccess(user, scope.agencyId, d);
   if (scope.scope === 'platform' && user.role !== 'super_admin') throw feeError(403, 'Only platform administrators can change platform defaults.');
-  const ctx = await context(scope.agencyId, scope.mode, d);
+  const [ctx, [usedCodes]] = await Promise.all([
+    context(scope.agencyId, scope.mode, d),
+    d.clinical.execute(`SELECT DISTINCT COALESCE(NULLIF(TRIM(l.procedure_code),''),s.service_code) AS service_code
+      FROM clinical_claims c
+      LEFT JOIN clinical_claim_lines l ON l.clinical_claim_id=c.id
+      LEFT JOIN clinical_sessions s ON s.id=c.clinical_session_id AND s.agency_id=c.agency_id
+      WHERE c.agency_id=? AND COALESCE(c.is_deleted,0)=0`, [scope.agencyId])
+  ]);
   assertSelection(scope, ctx);
   const revision = Number(ctx.state.find(s => s.owner_key === scope.ownerKey)?.revision || 0);
   const rows = ctx.codes.filter(c => bool(input.includeInactive) || bool(c.is_active)).map(c => displayRow(c, scope, ctx)).filter(r => bool(input.includeHidden) || !r.isHidden);
   const unlinkedCredentialCount = ctx.providers.reduce((sum, provider) => sum + provider.unlinkedCredentialCount, 0);
-  const warnings = ctx.payers.length ? [] : ['Add and verify payers in the practice payer list to configure insurance-specific rates.'];
+  const warnings = scope.mode === 'insurance' && !ctx.payers.length ? ['Add and verify payers in the practice payer list to configure insurance-specific rates.'] : [];
   if (scope.mode === 'insurance' && unlinkedCredentialCount) warnings.push(`${unlinkedCredentialCount} recorded payer credentials need a verified billing-payer link in Credentialing before provider insurance overrides can be configured.`);
+  const catalog = new Map(ctx.codes.map(code => [normalizeFeeCode(code.service_code), code]));
+  const used = [...new Set(usedCodes.map(code => normalizeFeeCode(code.service_code)).filter(Boolean))].sort();
+  const missingCodes = used.filter(code => !catalog.has(code));
+  const inactiveCodes = used.filter(code => catalog.has(code) && !bool(catalog.get(code).is_active));
+  if (missingCodes.length) warnings.push(`Claims use service codes missing from this practice's settings: ${missingCodes.join(', ')}. Review Service codes to configure them and their rates. Existing claims remain visible; no automatic rate is supplied.`);
+  if (inactiveCodes.length) warnings.push(`Claims use inactive service codes: ${inactiveCodes.join(', ')}. Review their status in Service codes. Existing claims remain visible; inactive codes have no automatic fee rate.`);
   return { ...scope, revision, readOnly: false, canManagePlatform: user.role === 'super_admin', rows,
     payers: ctx.payers.map(({ names, ...payer }) => payer), providers: ctx.providers, categories: SELF_PAY_CATEGORIES,
-    warnings, unlinkedCredentialCount, credentialingPath: `/admin/credentialing?agencyId=${scope.agencyId}`,
+    warnings, missingServiceCodes: missingCodes, inactiveServiceCodes: inactiveCodes, unlinkedCredentialCount, credentialingPath: `/admin/credentialing?agencyId=${scope.agencyId}`,
     starterRateNotice: 'Platform starters are editable billed-charge defaults. They are not payer reimbursement rates. Existing service-code and unit rules apply.' };
 }
 async function lockRevision(db, ownerKey, revision) {
@@ -205,7 +218,7 @@ export async function resolveCanonicalFeeQuote(input, d = deps) {
     d.main.execute('SELECT * FROM agency_medical_service_codes WHERE agency_id=? AND service_code=?', [agencyId, serviceCode]),
     ledgerRows(agencyId, d.main), billingPayers(agencyId, d.main), legacyRows(agencyId, mode, d)
   ]);
-  if (!codes[0] || !bool(codes[0].is_active)) return { rateCents: null, rateUnit: mode === 'insurance' ? 'unit' : 'session', amountCents: null, source: 'unset', sourceLabel: 'Rate not set', serviceCode, inactiveService: !!codes[0] };
+  if (!codes[0] || !bool(codes[0].is_active)) return { rateCents: null, rateUnit: mode === 'insurance' ? 'unit' : 'session', amountCents: null, source: 'unset', sourceLabel: 'Rate not set', serviceCode, serviceCodeAvailable: false, inactiveService: !!codes[0] };
   let categoryKey = null, providerRateEligible = false;
   if (providerUserId) {
     const [[provider]] = await d.main.execute(`SELECT u.* FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=?
@@ -221,7 +234,7 @@ export async function resolveCanonicalFeeQuote(input, d = deps) {
   }
   const rate = resolveFeeFromEntries({ agencyId, mode, serviceCode, payerId: input.payerId, providerUserId: providerRateEligible ? providerUserId : null,
     categoryKey, entries: latestFeeEntries(rateRows), legacy: legacyFeeContext(legacy, { mode, serviceCode, payer: payers.find(p => p.id === input.payerId), providerUserId: providerRateEligible ? providerUserId : null, tenantServiceId: input.tenantServiceId }) });
-  return { ...rate, amountCents: calculateFeeCharge(rate, { units: input.units ?? 1, durationMinutes: input.durationMinutes }), serviceCode,
+  return { ...rate, amountCents: calculateFeeCharge(rate, { units: input.units ?? 1, durationMinutes: input.durationMinutes }), serviceCode, serviceCodeAvailable: true,
     payerId: input.payerId || null, providerUserId, providerRateEligible, categoryKey };
 }
 

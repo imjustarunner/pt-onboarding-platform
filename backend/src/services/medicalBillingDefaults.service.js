@@ -27,7 +27,15 @@ const INTERN_ONLY = new Set([
 ]);
 
 function buildDefaultMedicalServiceCodes() {
-  const out = [];
+  // Screening is an encounter service, independent of booking/payroll duration.
+  // These tiers preserve the existing H0002 eligibility; payer policies still apply.
+  const out = [{
+    serviceCode: 'H0002', description: 'Behavioral Health Screening', unitCalcMode: 'SINGLE',
+    unitMinutes: null, minMinutes: null, maxMinutes: null, maxUnitsPerSession: 1,
+    maxUnitsPerDay: null, overflowServiceCode: null, overflowAtMinutes: null,
+    defaultPlaceOfService: null, allowedCredentialTiers: TIER_INTERN,
+    isAddon: false, sessionMode: 'individual', defaultDurationMinutes: null
+  }];
 
   // Explicit overflow ladder for psychotherapy (keeps prior Claim.MD behavior).
   const psychotherapy = [

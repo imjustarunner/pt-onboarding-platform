@@ -61,3 +61,15 @@ it('keeps a missing office draft editable and returns the scoped office list and
  const res=response(),next=vi.fn();await claimDraft({user:{id:99},params:{claimId:11},query:{agencyId:1}},res,next);expect(next).not.toHaveBeenCalled();
  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({claim:expect.objectContaining({claim_reference:'001-2026-11-001'}),billingOffices:[expect.objectContaining({id:8})],billingOfficeId:null,billingOfficeError:'Select a billing office for this agency.'}));expect(res.json.mock.calls[0][0].claim).not.toHaveProperty('metadata_json');
 });
+
+it('distinguishes an unset zero charge from an explicitly entered free rate without repricing',async()=>{
+ claim.clinical_note_id=null;
+ const prior=m.execute.getMockImplementation();
+ m.execute.mockImplementation(async(sql,args)=>sql.includes('FROM clinical_claim_lines')?[[{id:14,procedure_code:'H0002',charge_cents:0}]]:prior(sql,args));
+ const res=response(),next=vi.fn();await claimDraft({user:{id:99},params:{claimId:11},query:{agencyId:1}},res,next);
+ expect(next).not.toHaveBeenCalled();expect(res.json.mock.calls[0][0].feeWarnings[0]).toContain('H0002 has a saved $0 charge');
+ expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);
+ claim.metadata_json={feeScheduleSnapshot:[{serviceCode:'H0002',source:'entered',needsRate:false}]};
+ const second=response();await claimDraft({user:{id:99},params:{claimId:11},query:{agencyId:1}},second,next);
+ expect(second.json.mock.calls[0][0].feeWarnings).toEqual([]);
+});

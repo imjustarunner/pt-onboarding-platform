@@ -8,7 +8,7 @@ const connection = socket ? { socketPath: socket, user: 'root' } : { host: '127.
 (enabled ? describe : describe.skip)('credentialing payer synchronization against isolated MySQL', () => {
   let admin, db;
   beforeAll(async () => {
-    if (socket && !socket.startsWith('/private/tmp/pt-billing-fees-mysql-20261103/')) throw new Error('Only the task-owned local MySQL socket is supported');
+    if (socket && !/^\/private\/tmp\/pt-billing-fees-(?:h0002-)?mysql-20261103\//.test(socket)) throw new Error('Only the task-owned local MySQL socket is supported');
     admin = await mysql.createConnection(connection);
     await admin.query('DROP DATABASE IF EXISTS credentialing_payer_catalog_qa');
     await admin.query('CREATE DATABASE credentialing_payer_catalog_qa');
