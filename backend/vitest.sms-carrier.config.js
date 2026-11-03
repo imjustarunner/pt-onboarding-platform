@@ -7,6 +7,7 @@ export default {
       'src/services/__tests__/messaging.smsCarrierBoundary.test.js',
       'src/controllers/__tests__/messaging.smsCarrierInbound.test.js',
       'src/services/__tests__/messaging.compliance.test.js',
+      'src/services/__tests__/messaging.helpReply.test.js',
       'src/services/__tests__/messaging.exchangeOptOut.test.js',
       'src/services/__tests__/messaging.clinicalCategoryRestart.test.js',
       'src/services/__tests__/messaging.providerStopNotice.test.js',

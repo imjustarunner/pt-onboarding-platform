@@ -294,3 +294,12 @@ it('START lists restored forwarding only for a category restart, while START aft
  expect(sendReply.mock.calls.at(-1)[0].body).not.toContain('Turned back on:');
  expect(permissions).toContainEqual(expect.objectContaining({purpose:'client_forwarding',status:'opted_out'}));
 });
+
+it.each(['STOP','START'])('keeps Notifyre-owned %s replies unchanged with an app HELP override',async keyword=>{
+ phoneState.blocked=keyword==='START';
+ const execute=pool.execute.getMockImplementation();
+ pool.execute.mockImplementation(async(sql,args)=>sql.includes('FROM twilio_numbers')?[[{...sender,registration_json:{...registration,keywordOwner:'notifyre',helpKeywordOwner:'application'}}]]:execute(sql,args));
+ const sendReply=vi.fn();await processSmsKeyword({from:message.to,to:message.from,body:keyword,messageId:'help-override-'+keyword,sendReply});
+ expect(sendReply).not.toHaveBeenCalled();
+ expect(permissions.some(p=>p.purpose==='care'||p.purpose==='reminders')).toBe(false);
+});

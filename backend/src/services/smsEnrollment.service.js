@@ -129,6 +129,7 @@ export async function saveSmsRegistration({ numberId, registration, actorUserId 
   const [peers] = await pool.execute('SELECT registration_json FROM sms_sender_registrations WHERE campaign_id = ? AND number_id <> ?', [registration.campaignId, numberId]);
   const program = (value) => JSON.stringify([
     ...['provider', 'brandId', 'brandName', 'legalName', 'resellerId', 'website', 'privacyUrl', 'termsUrl', 'supportContact', 'keywordOwner'].map((key) => value[key]),
+    value.helpKeywordOwner || value.keywordOwner,
     value.allowRestart === true, value.verbalReminderConsentApproved === true, value.verbalReminderConsentVersion || null, [...value.purposes].sort()
   ]);
   if (peers.some((peer) => program(typeof peer.registration_json === 'string' ? JSON.parse(peer.registration_json) : peer.registration_json) !== program(registration))) {

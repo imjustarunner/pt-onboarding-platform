@@ -101,3 +101,10 @@ it('rejects a stale or wrong-carrier declaration of an approved verbal reminder 
  await expect(saveSmsRegistration({numberId:3,actorUserId:7,registration:{...registration,verbalReminderConsentApproved:true,verbalReminderConsentVersion:'old'}})).rejects.toMatchObject({code:'sms_verbal_program_invalid'});
  await expect(saveSmsRegistration({numberId:3,actorUserId:7,registration:{...registration,provider:'vonage',verbalReminderConsentApproved:true,verbalReminderConsentVersion:'2026-11-01.1'}})).rejects.toMatchObject({code:'sms_verbal_program_invalid'});
 });
+
+it('rejects inconsistent HELP ownership between numbers on one campaign',async()=>{
+ const peer={...registration,keywordOwner:'notifyre'};
+ pool.execute.mockResolvedValueOnce([[{id:7,agency_id:2}]]).mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{registration_json:peer}]]);
+ await expect(saveSmsRegistration({numberId:7,actorUserId:1,registration:{...peer,helpKeywordOwner:'application'}})).rejects.toMatchObject({code:'sms_campaign_inconsistent'});
+ expect(pool.execute.mock.calls.some(([sql])=>sql.includes('INSERT INTO sms_sender_registrations'))).toBe(false);
+});

@@ -1,4 +1,5 @@
 import { verbalReminderProgramReady } from '../utils/staffVerbalReminderConsent.js';
+import { sendApplicationHelpReply } from './smsHelpReply.service.js';
 import { contactReminderConsentLock } from '../utils/contactReminderConsent.js';
 import {ITSCO_STAFF_ASSISTANT_NUMBER} from '../utils/staffSmsAssistant.js';
 import { staffCommunicationKey, phoneFingerprint, STAFF_COMMUNICATION_CHOICES, withExchangeSmsOptOut } from '../utils/staffCommunicationChoices.js';
@@ -373,11 +374,15 @@ export async function processSmsKeyword({ from, to, body, messageId, receivedAt 
   } else {
     reply = `${brand}: For help, contact ${contact || 'your practice through its website'}. Message frequency varies. Message and data rates may apply. Reply STOP to opt out.`;
   }
-  if (categoryRestart || ['NOREMIND', 'NOPROVIDER', 'NOEXCHANGE', 'NOCLIENTS'].includes(keyword) || !['vonage', 'notifyre'].includes(registration?.keywordOwner)) {
+  const applicationHelp = keyword === 'HELP' && registration?.helpKeywordOwner === 'application';
+  const replyOwner = keyword === 'HELP' ? registration?.helpKeywordOwner || registration?.keywordOwner : registration?.keywordOwner;
+  if (applicationHelp || categoryRestart || ['NOREMIND', 'NOPROVIDER', 'NOEXCHANGE', 'NOCLIENTS'].includes(keyword) || !['vonage', 'notifyre'].includes(replyOwner)) {
     const capability = { to: phone, from: sender.phone_number, body: reply,
       ...((categoryRestart || ['NOREMIND', 'NOPROVIDER', 'NOEXCHANGE', 'NOCLIENTS'].includes(keyword)) ? { categoryReply: true } : {}) };
     controlReplies.add(capability);
-    await sendReply({ ...capability, complianceReply: capability });
+    const send = () => sendReply({ ...capability, complianceReply: capability });
+    if (applicationHelp) await sendApplicationHelpReply({ sender, recipient: phone, body: reply, messageId, send });
+    else await send();
   }
   return true;
   } finally {
