@@ -73,6 +73,12 @@ describe('Claim.MD office billing identity', () => {
     expect(params).toEqual([377]); expect(sql).toContain('use_as_billing_address = 1');
     expect(sql).not.toMatch(/SELECT \*|tax_id|account_key/);
   });
+  it('uses canonical group NPIs in the office selector and marks conflicting mappings unavailable',async()=>{
+    const base=mocks.main.getMockImplementation();mocks.main.mockImplementation(async(sql,args)=>sql.includes('FROM agency_group_npis')?[[{npi_number:'1306688650'}]]:sql.includes('FROM office_locations')?[[{...office,practice_npi:null}]]:base(sql,args));
+    expect(await listClaimMdBillingProfiles(377)).toEqual([expect.objectContaining({id:8,practice_npi:'1306688650'})]);
+    mocks.main.mockImplementation(async(sql,args)=>sql.includes('FROM agency_group_npis')?[[{npi_number:'1972246940'}]]:base(sql,args));
+    expect(await listClaimMdBillingProfiles(377)).toEqual([expect.objectContaining({id:8,practice_npi:'',configuration_error:expect.stringContaining('conflicting group NPIs')})]);
+  });
   it('recognizes the owner of an encrypted Tax ID for ERA isolation', async () => {
     mocks.main.mockResolvedValue([[{ id: 377, tax_id_ciphertext: 'ciphertext', decoded: '12-3456789' }]]);
     await expect(assertExclusiveClaimMdTaxId(377, '123456789')).resolves.toBeUndefined();

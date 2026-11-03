@@ -1,5 +1,5 @@
-import { credentialPayerRows } from './credentialPayerEligibility.service.js';
-import { superviseeBillingAllowed, defaultSuperviseeBillingAllowed } from '../utils/superviseePayerEligibility.js';
+import { credentialPayerRows, isActiveCredentialPayerRow } from './credentialPayerEligibility.service.js';
+import { superviseeBillingAllowed } from '../utils/superviseePayerEligibility.js';
 import pool from '../config/database.js';
 import {restrictPublicInsurances} from '../utils/publicProviderPresentation.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
@@ -14,6 +14,7 @@ async function listDirectAcceptedInsurances(userId, agencyId) {
   const rows = await credentialPayerRows(userId, agencyId);
   return (rows || []).map((r) => ({
     id: r.id,
+    ineligible_for_provider: !isActiveCredentialPayerRow(r, { requireVerifiedPayer: false }),
     insurance_definition_id: r.insurance_definition_id,
     allow_supervisee_billing: superviseeBillingAllowed(r),
     aliases: [r.name, r.parent_name, r.billing_payer_name, r.directory_name].filter(Boolean),
@@ -41,6 +42,7 @@ export async function listProviderAcceptedInsurances({ userId, agencyId, include
     const own = await listDirectAcceptedInsurances(uid, aid);
     const byDefId = new Map();
     for (const row of own) {
+      if (row.ineligible_for_provider && !includeIneligible) continue;
       byDefId.set(Number(row.insurance_definition_id), {
         ...row,
         source: 'self'
@@ -51,7 +53,7 @@ export async function listProviderAcceptedInsurances({ userId, agencyId, include
     if (billingSupervisorId && billingSupervisorId !== uid) {
       const inherited = await listDirectAcceptedInsurances(billingSupervisorId, aid);
       const payerKey = row => row.billing_payer_id || String(row.name).trim().toLowerCase();
-      const excludedPayers = new Set(inherited.filter(row => !row.allow_supervisee_billing).map(payerKey));
+      const excludedPayers = new Set(inherited.filter(row => row.ineligible_for_provider || !row.allow_supervisee_billing).map(payerKey));
       let billingSupervisorName = '';
       try {
         const [urows] = await pool.execute(
@@ -105,10 +107,10 @@ export function mapAcceptedInsuranceForDisplay(row) {
 
 export async function listProviderAcceptedInsurancesForDisplay({ userId, agencyId, forMatching = false }) {
   const allRows = await listProviderAcceptedInsurances({ userId, agencyId, includeIneligible: true });
-  const rows = allRows.filter(row => !row.ineligible_for_supervisee);
-  const excluded = allRows.filter(row => row.ineligible_for_supervisee);
-  // Agency acceptance is distinct from payer credentialing. Never manufacture a
-  // credentialing record or effective date merely to publish accepted coverage.
+  const rows = allRows.filter(row => !row.ineligible_for_supervisee && !row.ineligible_for_provider);
+  const excluded = allRows.filter(row => row.ineligible_for_supervisee || row.ineligible_for_provider);
+  // Credentialing owns accepted payers. A legacy visibility override may hide
+  // an insurance, but cannot publish acceptance without a current credential.
   let overrides = [];
   try {
     [overrides] = await pool.execute(
@@ -135,7 +137,6 @@ export async function listProviderAcceptedInsurancesForDisplay({ userId, agencyI
 
 export function mergeAgencyInsuranceAcceptance(rows, overrides, excluded = []) {
   const key = value => String(value || '').trim().toLowerCase();
-  const excludedNames = new Set(excluded.flatMap(row => [row.name, ...(row.aliases || [])]).map(key));
   const byName = new Map(rows.map(row => [key(row.name), row]));
   for (const override of overrides) {
     const name = key(override.label);
@@ -145,15 +146,7 @@ export function mergeAgencyInsuranceAcceptance(rows, overrides, excluded = []) {
         if (entryName === name || (row.aliases || []).some(alias => key(alias) === name)) byName.delete(entryName);
       }
     }
-    else if (!byName.has(name) && !excludedNames.has(name)
-      && defaultSuperviseeBillingAllowed(override.label)
-      && !rows.some(row => (row.aliases || []).some(alias => key(alias) === name))) byName.set(name, {
-      insurance_definition_id: null,
-      insurance_key: `type:${override.id}`,
-      name: override.label,
-      label: override.label,
-      source: 'agency_acceptance'
-    });
+
   }
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }

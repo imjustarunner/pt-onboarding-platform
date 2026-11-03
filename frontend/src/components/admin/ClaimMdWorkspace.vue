@@ -14,7 +14,7 @@
     </template>
     <ProviderBillingRollout v-if="section !== 'detail'" :key="agencyId" :fetch-policy="fetchRollout" :save-entry="saveRollout" />
     <p v-if="notice" role="status">{{ notice }}</p>
-    <p v-if="error" class="error" role="alert">{{ error }}</p>
+    <p v-if="error" class="error" role="alert">{{ error }} <button v-if="activeClaimId && /billing office/i.test(error) && !draft" type="button" :disabled="busy || readOnly" @click="editClaim(activeClaimId)">Select billing office</button></p>
     <ClaimServiceChangesPanel v-if="!readOnly && (historyClaimId || review?.claimId || draft?.claim?.id)" :agency-id="agencyId" :claim-id="Number(historyClaimId || review?.claimId || draft?.claim?.id)" @updated="review=null; approved=false; emit('updated')" />
 
     <template v-if="['all', 'claims'].includes(section)">
@@ -84,7 +84,7 @@
 
     </template>
     <section v-if="draft" class="review" aria-label="Edit existing claim draft">
-      <h3>Edit billing fields · Claim #{{ draft.claim.id }}</h3>
+      <h3>Edit billing fields · {{ draft.claim.claim_reference || `Claim #${draft.claim.id}` }}</h3>
       <section v-if="draft.approvedClinicalVersion || draft.approvedClinicalVersionError" class="clinical-reconciliation" aria-label="Approved clinical version for this claim">
         <template v-if="draft.approvedClinicalVersion">
           <h4>Approved clinical version {{ draft.approvedClinicalVersion.revisionNumber }}</h4>
@@ -116,6 +116,15 @@
       <p v-if="!canEditDraft && !reconciliationBlocked" class="error">This claim cannot be edited in its current clearinghouse state. Use the payer correction and follow-up workflow.</p>
       <form v-if="!reconciling && canEditDraft" @submit.prevent="saveCorrection">
       <p>Service codes and units come from the clinical record. Billing edits leave the signed note unchanged.</p>
+      <label class="claim-office-label">Billing office / group
+        <select v-model.number="draft.billingOfficeId" data-testid="claim-billing-office" required @change="selectClaimOffice">
+          <option :value="null">Select a billing office</option>
+          <option v-for="office in draft.billingOffices || []" :key="office.id" :value="office.id" :disabled="!!office.configuration_error">{{ office.name }} · {{ office.practice_name || 'Practice' }} · {{ office.configuration_error ? 'Group NPI mapping needs review' : `NPI ${office.practice_npi || 'Not configured'}` }}</option>
+        </select>
+      </label>
+      <p v-if="!(draft.billingOffices || []).length" class="error" role="status">No billing office is configured for this practice. Add an agency-owned billing office in Billing settings.</p>
+      <p v-else-if="draft.billingOfficeError && !draft.billingOfficeId" class="error" role="status">{{ draft.billingOfficeError }} Select the correct office for this claim.</p>
+      <p class="billing-office-help">The selected office supplies the claim's billing identity and address. Your correction reason is recorded with this claim.</p>
       <label>Place of service <input v-model="draft.claim.place_of_service" required pattern="[0-9]{2}" maxlength="2" /></label>
       <label>Billing NPI <input v-model="draft.claim.billing_npi" required pattern="[0-9]{10}" maxlength="10" /></label>
       <label>Rendering NPI <input v-model="draft.claim.rendering_npi" required pattern="[0-9]{10}" maxlength="10" /></label>
@@ -132,7 +141,7 @@
     </section>
 
     <section v-if="review" class="review" aria-label="Claim review">
-      <h3>Review claim #{{ review.claimId }}</h3>
+      <h3>Review {{ review.claimReference || `claim #${review.claimId}` }}</h3>
       <p>Session #{{ review.clinicalSessionId }} · Signed note #{{ review.clinicalNoteId }} · {{ review.lifecycle }}</p>
       <p><strong>{{ review.payload.pat_name_f }} {{ review.payload.pat_name_l }}</strong> · {{ review.payload.payer_name }} · Member {{ review.payload.ins_number }}</p>
       <p>Billing NPI {{ review.payload.bill_npi }} · Rendering NPI {{ review.payload.prov_npi }}</p>
@@ -198,7 +207,7 @@ const props = defineProps({ agencyId: { type: Number, required: true }, connecti
 const emit = defineEmits(['updated']);
 const fetchRollout = async () => (await api.get('/medical-billing/provider-rollout', { params: { agencyId: props.agencyId } })).data;
 const saveRollout = async input => (await api.put('/medical-billing/provider-rollout', { ...input, agencyId: props.agencyId })).data;
-const busy = ref(false), error = ref(''), notice = ref('');
+const busy = ref(false), error = ref(''), notice = ref(''), activeClaimId = ref(null);
 const payerRequests=ref([]), requestedPayer=ref(''), setupSearch=ref('');
 const decoded = (value, fallback) => { if (typeof value !== 'string') return value || fallback; try { return JSON.parse(value) || fallback; } catch { return fallback; } };
 const sourceAliases = request => decoded(request.source_names_json, []).filter(name => name !== request.payer_name);
@@ -324,16 +333,22 @@ async function fetchHistory(claimId) {
 const showHistory = claimId => run(() => fetchHistory(claimId));
 const editClaim = claimId => run(async () => {
   if (props.readOnly) return;
+  activeClaimId.value=claimId;
   review.value = null; approved.value = false; draft.value = null; cancelReconciliation();
   const { data } = await api.get(`/medical-billing/claimmd/claims/${claimId}/draft`, { params: { agencyId: props.agencyId }, skipGlobalLoading: true });
   if (!active) return;
   draft.value = { ...data, lines: data.lines.map(line => ({ ...line, dollars: (line.charge_cents / 100).toFixed(2), modifiers: (typeof line.modifiers_json === 'string' ? JSON.parse(line.modifiers_json || '[]') : line.modifiers_json || []).join(', ') })) };
   correctionReason.value = '';
 });
+function selectClaimOffice() {
+  const office=(draft.value?.billingOffices || []).find(item=>Number(item.id)===Number(draft.value?.billingOfficeId));
+  if(office)draft.value.claim.billing_npi=office.practice_npi || '';
+}
 const saveCorrection = () => run(async () => {
   const { claim, lines } = draft.value;
   const { data } = await api.patch(`/medical-billing/claimmd/claims/${claim.id}`, {
     agencyId: props.agencyId, revision: claim.billing_revision, reason: correctionReason.value,
+    ...(draft.value.billingOfficeId?{billingOfficeId:Number(draft.value.billingOfficeId)}:{}),
     placeOfService: claim.place_of_service, billingNpi: claim.billing_npi, renderingNpi: claim.rendering_npi, taxonomyCode: claim.taxonomy_code,
     lines: lines.map(line => ({ id: Number(line.id), chargeCents: Math.round(Number(line.dollars) * 100), modifiers: line.modifiers.split(/[,\s]+/).filter(Boolean).map(m => m.toUpperCase()) }))
   });
@@ -341,6 +356,7 @@ const saveCorrection = () => run(async () => {
 });
 const reviewClaim = claimId => run(async () => {
   if (props.readOnly) return;
+  activeClaimId.value=claimId;
   review.value = null; approved.value = false;
   const { data } = await api.get(`/medical-billing/claimmd/claims/${claimId}/review`, { params: { agencyId: props.agencyId } });
   if (active) { review.value = data; historyClaimId.value = claimId; history.value = data.history || []; }
@@ -374,6 +390,6 @@ label { display:block; margin:.75rem 0; } input, select, button { padding:.5rem;
 input, select { max-width:100%; box-sizing:border-box; } .actions > label { min-width:0; max-width:100%; }
 table { width:100%; border-collapse:collapse; margin:1rem 0; } th, td { padding:.6rem; border-bottom:1px solid #e2e8f0; text-align:left; }
 .review { margin-top:1.5rem; padding:1rem; border:1px solid #d6dfeb; border-radius:8px; } .error { color:#a32121; } pre { white-space:pre-wrap; overflow-wrap:anywhere; } article { padding:.75rem 0; border-bottom:1px solid #e2e8f0; }
-.clinical-reconciliation{margin:1rem 0;padding:1rem;background:#f5fafb;border:1px solid #bdd3dd;border-radius:8px}.clinical-reconciliation h4{margin:0 0 .75rem}.clinical-reconciliation fieldset{min-width:0;border:1px solid #c8dce5;border-radius:6px}.clinical-reconciliation input:not([type=checkbox]),.clinical-reconciliation textarea{display:block;width:100%;max-width:500px;padding:.5rem;box-sizing:border-box}.clinical-reconciliation .actions button{max-width:100%}@media(max-width:600px){.clinical-reconciliation{padding:.65rem}.clinical-reconciliation .actions{align-items:stretch;flex-direction:column}.clinical-reconciliation .actions button{width:100%;min-height:42px}}
+.clinical-reconciliation{display:block;clear:both;box-sizing:border-box;width:100%;min-width:0;text-align:left;margin:1rem 0;padding:1rem;background:#f5fafb;border:1px solid #bdd3dd;border-radius:8px}.clinical-reconciliation h4{display:block;margin:0 0 .75rem;line-height:1.4}.clinical-reconciliation p{margin:.5rem 0;line-height:1.5}.clinical-reconciliation ol,.clinical-reconciliation ul{margin:.5rem 0;padding-left:1.5rem}.claim-office-label select{display:block;width:100%;margin-top:.4rem}.billing-office-help{font-size:.9rem;color:#53657a}.clinical-reconciliation fieldset{min-width:0;border:1px solid #c8dce5;border-radius:6px}.clinical-reconciliation input:not([type=checkbox]),.clinical-reconciliation textarea{display:block;width:100%;max-width:500px;padding:.5rem;box-sizing:border-box}.clinical-reconciliation .actions button{max-width:100%}@media(max-width:600px){.clinical-reconciliation{padding:.65rem}.clinical-reconciliation .actions{align-items:stretch;flex-direction:column}.clinical-reconciliation .actions button{width:100%;min-height:42px}}
 .payer-catalog{overflow:auto;max-height:480px}.payer-catalog table{min-width:860px}.payer-catalog small{display:block;max-width:300px;margin-top:6px;color:var(--text-secondary,#536579);font-size:.8rem;line-height:1.4}.payer-catalog th{position:sticky;top:0;background:var(--bg-secondary,#eff4fa)}
 </style>

@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ clinical: vi.fn(), approval:vi.fn(), main: vi.fn(), session: vi.fn(), approved: vi.fn(), readiness: vi.fn(), diagnosis: vi.fn(), date: vi.fn(), create: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn() }));
+const m = vi.hoisted(() => ({ quote: vi.fn(), providers: vi.fn(), clinical: vi.fn(), approval:vi.fn(), main: vi.fn(), session: vi.fn(), approved: vi.fn(), readiness: vi.fn(), diagnosis: vi.fn(), date: vi.fn(), create: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.main }, onTableWrite: vi.fn() }));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: m.clinical, getConnection: async () => ({ execute: m.clinical, beginTransaction: m.begin, commit: m.commit, rollback: m.rollback, release: vi.fn() }) } }));
 vi.mock('../../models/clinical/ClinicalSession.model.js', () => ({ default: { findById: m.session } }));
@@ -14,6 +14,8 @@ vi.mock('../../services/claimMdBillingProfile.service.js', () => ({ resolveClaim
 vi.mock('../../services/applyBillingClaimOverrides.service.js', () => ({ applyBillingClaimOverrides: vi.fn(async () => null) }));
 vi.mock('../../services/familyBillingEncryption.service.js', () => ({ encryptFamilyBilling: vi.fn(() => 'synthetic encrypted insurance'), decryptFamilyBilling: vi.fn() }));
 vi.mock('../../services/supervisedBillingPolicy.service.js', async original => ({ ...await original(), resolveNoteDocumentationPolicy: vi.fn(async () => ({supervisorUserId:null})) }));
+vi.mock('../../services/feeSchedule.service.js', () => ({ resolveCanonicalFeeQuote: m.quote, getCanonicalFeeSchedule: vi.fn() }));
+vi.mock('../../services/resolveClaimProviders.service.js', () => ({ resolveClaimProviders: m.providers }));
 import { createMedicalClaim } from '../medicalBilling.controller.js';
 
 const hash = 'b'.repeat(64);
@@ -23,6 +25,8 @@ const request = (body = {}) => ({ user: { id: 22, role: 'staff' }, body: { agenc
 const response = () => ({ status: vi.fn().mockReturnThis(), json: vi.fn() });
 beforeEach(() => {
   vi.clearAllMocks();
+  m.providers.mockResolvedValue({mode:'billing_supervisor',billingUserId:90,renderingUserId:7});
+  m.quote.mockResolvedValue({amountCents:15000,rateCents:15000,rateUnit:'unit',source:'provider',sourceLabel:'Provider override',rateRevisionId:44,payerId:'SYNTH',providerUserId:90,providerRateEligible:true});
   m.main.mockResolvedValue([[{ feature_flags: { medicalBillingEnabled: true } }]]);
   const session = { id: 5, agency_id: 2, client_id: 3, provider_user_id: 7, service_code: '90834', duration_minutes: 30, place_of_service: '02' };
   m.session.mockResolvedValue(session);
@@ -67,4 +71,21 @@ it('rechecks the approved head under the note lock and rolls back a stale draft'
   m.approved.mockResolvedValueOnce({ note: approved, session: { place_of_service: '11', service_code: '90837', duration_minutes: 60 } }).mockResolvedValueOnce({ note: { ...approved, clinical_version_id: 13 }, session: {} });
   const next = vi.fn(); await createMedicalClaim(request(), response(), next);
   expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 409 })); expect(m.create).not.toHaveBeenCalled(); expect(m.rollback).toHaveBeenCalled();
+});
+
+it('uses the current payer and billing supervisor fee for a new approved claim and saves its provenance', async () => {
+  const next=vi.fn();await createMedicalClaim(request({primaryChargeCents:undefined}),response(),next);
+  expect(next).not.toHaveBeenCalled();
+  expect(m.quote).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,payerId:'SYNTH',providerUserId:90,serviceCode:'90837',units:1,dateOfService:'2026-10-02'}));
+  expect(m.create.mock.calls[0][0]).toMatchObject({amountCents:15000,metadataJson:{feeScheduleSnapshot:[{serviceCode:'90837',chargeCents:15000,rateRevisionId:44,source:'provider'}]}});
+});
+it('does not reprice a supplied zero charge', async () => {
+  const next=vi.fn();await createMedicalClaim(request({primaryChargeCents:0}),response(),next);
+  expect(next).not.toHaveBeenCalled();expect(m.quote).not.toHaveBeenCalled();expect(m.create.mock.calls[0][0].amountCents).toBe(0);
+});
+
+it('blocks automatic pricing when billing-provider resolution failed', async () => {
+  m.providers.mockRejectedValue(new Error('Provider configuration missing'));
+  const next=vi.fn();await createMedicalClaim(request({primaryChargeCents:undefined}),response(),next);
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));expect(m.quote).not.toHaveBeenCalled();expect(m.create).not.toHaveBeenCalled();
 });

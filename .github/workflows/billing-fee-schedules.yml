@@ -1,0 +1,59 @@
+name: Billing fee schedules
+
+on:
+  push:
+    branches: [main]
+    paths: ['backend/**', 'frontend/**', 'database/migrations/1740*', 'database/clinical_migrations/029*', '.github/workflows/billing-fee-schedules.yml']
+  pull_request:
+    paths: ['backend/**', 'frontend/**', 'database/migrations/1740*', 'database/clinical_migrations/029*', '.github/workflows/billing-fee-schedules.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  billing:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        timezone: [UTC, America/Denver]
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: synthetic-root-only
+        ports: ['33317:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -psynthetic-root-only"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      TZ: ${{ matrix.timezone }}
+      SKIP_DB_CONNECT: '1'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+      FEE_SCHEDULE_MYSQL_TEST: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Install test dependencies
+        run: |
+          npm ci --prefix backend
+          npm ci --prefix frontend --ignore-scripts
+      - name: Fee inheritance, payer links and immutable rate history
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.fee-schedule.config.js
+      - name: New claim pricing and public credentialing integration
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.fee-integration.config.js
+      - name: Concurrent claim references and retained payer identifiers
+        run: node --test backend/src/services/__tests__/clinicalClaimReferences.mysql.test.js
+      - name: Transaction filters and billing office review
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.billing-transactions.config.js
+      - name: Fee schedule controls
+        run: node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.fee-schedules.config.js
+      - name: Billing workspace and profile links
+        working-directory: frontend
+        run: node node_modules/vitest/vitest.mjs run src/views/admin/__tests__/BillingWorkspaceView.test.js src/composables/__tests__/ProviderBillingSettings.test.js src/components/billing/__tests__/BillingTransactionHistory.test.js

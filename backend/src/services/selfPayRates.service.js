@@ -4,6 +4,7 @@ import User from '../models/User.model.js';
 import TenantService from '../models/TenantService.model.js';
 import StaffServiceAssignment from '../models/StaffServiceAssignment.model.js';
 import { resolveEffectivePracticeCategories, serviceBusinessTypesForCategories } from './practiceCategories.service.js';
+import { canonicalSelfPayRatesForServices, resolveCanonicalFeeQuote } from './feeSchedule.service.js';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 export async function assertSelfPayRateAccess(actor, agencyId, providerId = 0) {
@@ -58,11 +59,18 @@ export async function getSelfPayRates(agencyId, providerId = 0) {
     pool.execute('SELECT * FROM self_pay_service_rates WHERE agency_id = ? AND provider_user_id IN (0, ?)', [agencyId, providerId])
   ]);
   const rate = r => r ? { rateCents: Number(r.rate_cents), rateUnit: r.rate_unit } : null;
+  const clinicalServices = services.filter(s => ['mental_health', 'healthcare'].includes(s.businessType) && s.serviceCode);
+  const canonical = clinicalServices.length ? await canonicalSelfPayRatesForServices({ agencyId, providerUserId: providerId, services: clinicalServices }) : new Map();
   return { agencyId: Number(agencyId), providerId: Number(providerId), selfPayOnly, services: services.map(s => {
     const agencyRate = rate(rates.find(r => Number(r.tenant_service_id) === s.id && Number(r.provider_user_id) === 0));
     const providerRate = providerId ? rate(rates.find(r => Number(r.tenant_service_id) === s.id && Number(r.provider_user_id) === Number(providerId))) : null;
-    return { serviceId: s.id, serviceCode: s.serviceCode || null, name: s.name, businessType: s.businessType, durationMinutes: s.defaultDurationMinutes,
-      agencyRate, providerRate, effectiveRate: providerRate || agencyRate || (s.priceCents == null ? null : { rateCents: s.priceCents, rateUnit: 'session' }),
+    return { serviceId: s.id, serviceCode: s.serviceCode || null, name: s.name, businessType: s.businessType, durationMinutes: s.defaultDurationMinutes, allowsIndividual: s.allowsIndividual, allowsGroup: s.allowsGroup,
+      agencyRate: canonical.get(s.id)?.practiceRate || agencyRate, providerRate,
+      effectiveRate: canonical.get(s.id) || providerRate || agencyRate || (s.priceCents == null ? null : { rateCents: s.priceCents, rateUnit: 'session' }),
+      canonicalFeeSchedule: ['mental_health', 'healthcare'].includes(s.businessType),
+      canonicalServiceAvailable: canonical.has(s.id),
+      canonicalServiceNotice: ['mental_health', 'healthcare'].includes(s.businessType) && !canonical.has(s.id)
+        ? 'Link this service to an active practice service code in Settings → Service codes, then manage its rate in Billing → Fee schedules → Self-pay.' : null,
       catalogRateCents: s.priceCents };
   }) };
 }
@@ -71,8 +79,11 @@ export async function saveSelfPayRates({ agencyId, providerId = 0, rows, selfPay
   if (!Array.isArray(rows) || rows.length > 500) throw fail('Supply up to 500 service rates');
   if (selfPayOnly !== undefined && (providerId || typeof selfPayOnly !== 'boolean')) throw fail('Self-pay-only is an agency setting');
   const normalized = rows.map(validateSelfPayRate);
-  const eligible = new Set((await eligibleSelfPayServices(agencyId, providerId)).map(s => s.id));
+  const services = await eligibleSelfPayServices(agencyId, providerId);
+  const eligible = new Set(services.map(s => s.id));
   if (normalized.some(r => !eligible.has(r.serviceId))) throw fail('A service is not eligible for this provider or agency', 403);
+  const clinicalIds = new Set(services.filter(s => ['mental_health', 'healthcare'].includes(s.businessType)).map(s => s.id));
+  if (normalized.some(r => clinicalIds.has(r.serviceId))) throw fail('Manage clinical self-pay rates in Billing → Fee schedules → Self-pay.', 409);
   if (new Set(normalized.map(r => r.serviceId)).size !== normalized.length) throw fail('Duplicate service');
   const conn = await pool.getConnection();
   try {
@@ -103,6 +114,11 @@ export function calculateSelfPayQuote({ rateCents, rateUnit = 'session', duratio
 
 export async function resolveSelfPayQuote({ agencyId, providerId, service, durationMinutes, modality, learningFormat }) {
   if (!service) return null;
+  if (['mental_health', 'healthcare'].includes(service.businessType) && service.serviceCode) {
+    const canonical = await resolveCanonicalFeeQuote({ agencyId, providerUserId: providerId, serviceCode: service.serviceCode,
+      mode: 'self_pay', tenantServiceId: service.id, durationMinutes });
+    if (canonical.rateCents != null || canonical.inactiveService) return canonical;
+  }
   const [rows] = await pool.execute(`SELECT rate_cents, rate_unit, provider_user_id FROM self_pay_service_rates
     WHERE agency_id = ? AND tenant_service_id = ? AND provider_user_id IN (0, ?) ORDER BY provider_user_id DESC`,
   [agencyId, service.id, providerId || 0]);

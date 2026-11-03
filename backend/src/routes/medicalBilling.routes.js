@@ -1,4 +1,5 @@
 import { getDiagnosisReview, postDiagnosisReview, getSupervisorDiagnosisPolicy, putSupervisorDiagnosisPolicy } from '../controllers/clinicalDiagnosisPolicy.controller.js';
+import { getFeeSchedule, postFeeSchedule, postFeeScheduleDefaults, postFeeSchedulePayerSync } from '../controllers/feeSchedule.controller.js';
 import { postSupervisorReview, acknowledgeNoteReview, listMyNoteReviewWork, correctNoteServiceDetails } from '../controllers/clinicalSupervisorReview.controller.js';
 import { listClinicalNoteVersions, getClinicalNoteVersion, createClinicalNoteVersion, updateClinicalNoteVersion, signClinicalNoteVersion, cosignClinicalNoteVersion, acknowledgeClinicalNoteVersion } from '../controllers/clinicalNoteVersions.controller.js';
 import { setTreatmentGoalProgress, getTreatmentGoalProgressHistory } from '../controllers/treatmentGoalProgress.controller.js';
@@ -536,6 +537,11 @@ router.post(
   ],
   upsertDiagnosis
 );
+
+router.get('/fee-schedule/canonical', ...masterGate, requireMedicalBillingFinancialAccess, getFeeSchedule);
+router.post('/fee-schedule/canonical', ...masterGate, requireMedicalBillingFinancialAccess, postFeeSchedule);
+router.post('/fee-schedule/canonical/defaults', ...masterGate, requireMedicalBillingFinancialAccess, postFeeScheduleDefaults);
+router.post('/fee-schedule/sync-payers', ...masterGate, requireMedicalBillingFinancialAccess, postFeeSchedulePayerSync);
 
 router.get(
   '/fee-schedule',

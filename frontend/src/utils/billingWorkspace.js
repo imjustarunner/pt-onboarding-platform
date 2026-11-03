@@ -9,7 +9,7 @@ export const claimStatusTone = status => ['rejected', 'denied', 'revisions_neede
 export const workStage = item => item.stage || ({ ready: 'ready_to_submit', queued: 'processing', rejected: 'on_hold', adjusted: 'closed', void: 'closed' }[item.claim_lifecycle] || item.claim_lifecycle || 'note_needed');
 export const workClaimId = item => Number(item?.claimId || (item?.source && item.source !== 'claim' ? 0 : item?.id) || 0);
 export const workItemKey = item => `${item.agency_id}:${item.key || (workClaimId(item) ? `claim:${workClaimId(item)}` : `${item.source || 'note'}:${item.clinical_note_id || item.draft_id || item.clinical_session_id}`)}`;
-export const workItemTitle = item => item.claim_number || (workClaimId(item) ? `Claim #${workClaimId(item)}` : item.clinical_note_id ? `Note #${item.clinical_note_id}` : item.draft_id ? `Draft #${item.draft_id}` : 'Note needed');
+export const workItemTitle = item => item.claim_reference || item.claim_number || (workClaimId(item) ? `Claim #${workClaimId(item)}` : item.clinical_note_id ? `Note #${item.clinical_note_id}` : item.draft_id ? `Draft #${item.draft_id}` : 'Note needed');
 export function billingDate(value) {
   const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!match) return '—';

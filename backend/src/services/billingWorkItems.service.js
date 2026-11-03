@@ -1,5 +1,7 @@
 import { decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
+import { syntheticBillingRow, includesDemoBilling } from './billingTransactionFilters.js';
+import { attachClaimReferences } from './clinicalClaimReferences.service.js';
 import { clinicalBillingStage, clinicalApprovalFields, clinicalApprovalJoins } from './billingClinicalApproval.service.js';
 
 const object = value => { try { return typeof value === 'string' ? JSON.parse(value) : value || {}; } catch { return {}; } };
@@ -108,16 +110,17 @@ export async function loadBillingWorkItems(agencyIds, deps) {
   }
   const items = rows.map(normalizeBillingWorkItem);
   await enrichBillingWorkNames(items, agencyIds, deps);
+  await attachClaimReferences(items, deps.clinical);
   return { items, draftsAvailable, appointmentsAvailable };
 }
 
 export async function enrichBillingWorkNames(items, agencyIds, deps) {
   const clientIds = [...new Set(items.map(row => row.client_id).filter(Boolean))];
-  const userIds = [...new Set(items.flatMap(row => [row.provider_user_id, row.billing_provider_user_id, row.rendering_provider_user_id, row.supervisor_user_id]).filter(Boolean))];
+  const userIds = [...new Set(items.flatMap(row => [row.provider_user_id, row.billing_provider_user_id, row.rendering_provider_user_id, row.supervisor_user_id, row.posted_by_user_id]).filter(Boolean))];
   const clients = new Map(), users = new Map();
   for (let start = 0; start < clientIds.length; start += 500) {
     const batch = clientIds.slice(start, start + 500);
-    const [rows] = await deps.main.execute(`SELECT id,agency_id,full_name,initials,billing_insurance_payload FROM clients WHERE agency_id IN (${marks(agencyIds)}) AND id IN (${marks(batch)})`, [...agencyIds, ...batch]);
+    const [rows] = await deps.main.execute(`SELECT id,agency_id,full_name,initials,is_demo,billing_insurance_payload FROM clients WHERE agency_id IN (${marks(agencyIds)}) AND id IN (${marks(batch)})`, [...agencyIds, ...batch]);
     for (const client of rows) clients.set(`${client.agency_id}:${client.id}`, client);
   }
   for (let start = 0; start < userIds.length; start += 500) {
@@ -128,7 +131,8 @@ export async function enrichBillingWorkNames(items, agencyIds, deps) {
   for (const row of items) {
     const client = clients.get(`${row.agency_id}:${row.client_id}`);
     row.client_name = client?.full_name || client?.initials || (row.client_id ? `Client #${row.client_id}` : 'Client not linked');
-    for (const type of ['provider', 'billing_provider', 'rendering_provider', 'supervisor']) row[`${type}_name`] = users.get(row[`${type}_user_id`]) || null;
+    row.is_demo_client = Number(client?.is_demo) === 1;
+    for (const type of ['provider', 'billing_provider', 'rendering_provider', 'supervisor', 'posted_by']) row[`${type}_name`] = users.get(row[`${type}_user_id`]) || null;
     if (!row.payer_name && client?.billing_insurance_payload) {
       try { row.payer_name = decryptFamilyBilling(client.billing_insurance_payload, `client-insurance:${row.agency_id}:${row.client_id}`)?.primary?.insurerName || null; }
       catch { row.insuranceUnavailable = true; }
@@ -142,9 +146,9 @@ export function filterBillingWorkItems(items, query = {}, organizations = []) {
   if (query.clientId != null && query.clientId !== '' && !id(query.clientId)) throw Object.assign(new Error('Invalid client filter.'), { status: 400 });
   const org = new Map(organizations.map(a => [Number(a.id), a.name]));
   const search = String(query.search || '').trim().slice(0, 100).toLowerCase();
-  let rows = items.filter(row => (!query.clientId || Number(row.client_id) === Number(query.clientId)) &&
+  let rows = items.filter(row => (includesDemoBilling(query) || !syntheticBillingRow(row)) && (!query.clientId || Number(row.client_id) === Number(query.clientId)) &&
     (status === 'all' || (status === 'attention' ? ['on_hold','denied','revisions_needed','note_needed'].includes(row.stage) : row.stage === status)) &&
-    (!search || [row.claim_number,row.claimId,row.client_id,row.client_name,row.provider_name,row.billing_provider_name,row.supervisor_name,row.payer_name,row.service_code,org.get(row.agency_id),...(row.diagnosis_codes || [])].some(value => String(value || '').toLowerCase().includes(search))));
+    (!search || [row.claim_reference,row.claim_number,row.claimId,row.client_id,row.client_name,row.provider_name,row.billing_provider_name,row.supervisor_name,row.payer_name,row.service_code,org.get(row.agency_id),...(row.diagnosis_codes || [])].some(value => String(value || '').toLowerCase().includes(search))));
   const allowed = ['organization','date_of_service','client_name','service_code','provider_name','billing_provider_name','supervisor_name','payer_name','amount_cents','place_of_service','diagnosis_codes','units','stage'];
   const sort = query.sortBy || 'date_of_service', direction = query.direction === 'asc' ? 1 : -1;
   if (!allowed.includes(sort)) throw Object.assign(new Error('Invalid claim sort column.'), { status: 400 });

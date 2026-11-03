@@ -8,6 +8,21 @@ const props = { agencyId: 1, connection: { configured: true, mode: 'test' } };
 const claim = { claimId: 11, clinicalSessionId: 3, clinicalNoteId: 7, lifecycle: 'ready', reviewHash: 'a'.repeat(64),
   readiness: { ready: true, blockers: [], warnings: [] }, history: [], payload: { pat_name_f: 'Test', pat_name_l: 'Patient', payer_name: 'Test Payer', ins_number: 'SYNTHETIC', total_charge: '125.00', charge: [{ proc_code: '90834', units: '1', charge: '125.00' }] } };
 const button = (wrapper, text) => wrapper.findAll('button').find(b => b.text().includes(text));
+
+it('edits the claim billing office visibly, keeps existing charges and submits the audited selection',async()=>{
+ api.get.mockImplementation(async url=>({data:url.endsWith('/draft')?{claim:{id:11,claim_reference:'001-2026-11-001',billing_revision:2,claim_lifecycle:'ready',place_of_service:'10',billing_npi:'',rendering_npi:'2222222222',taxonomy_code:'101Y00000X'},lines:[{id:14,procedure_code:'90834',units:1,charge_cents:12500,modifiers_json:[]}],billingOffices:[{id:8,name:'Saved billing office',practice_name:'QA practice',practice_npi:'1111111111'}],billingOfficeId:null,billingOfficeError:'Select a billing office for this agency.',approvedClinicalVersion:{revisionNumber:1,dateOfService:'2026-11-01',placeOfService:'10',diagnosisCodes:['F41.1'],lines:[{procedureCode:'90834',units:1}]}}:{items:[],history:[]}}));
+ api.patch.mockResolvedValue({data:{message:'Billing fields corrected.'}});
+ const w=mount(ClaimMdWorkspace,{props:{...props,section:'detail'}});await flushPromises();await w.vm.editClaim(11);await flushPromises();
+ expect(w.text()).toContain('Edit billing fields · 001-2026-11-001');expect(w.find('[aria-label="Approved clinical version for this claim"]').text()).toContain('Approved clinical version 1');
+ await w.find('[data-testid="claim-billing-office"]').setValue('8');await w.find('textarea').setValue('Choose saved agency billing office');await w.find('[aria-label="Edit existing claim draft"] form').trigger('submit');await flushPromises();
+ expect(api.patch).toHaveBeenCalledWith('/medical-billing/claimmd/claims/11',expect.objectContaining({agencyId:1,billingOfficeId:8,billingNpi:'1111111111',placeOfService:'10',reason:'Choose saved agency billing office',lines:[{id:14,chargeCents:12500,modifiers:[]}]}));expect(w.emitted('updated')).toHaveLength(1);w.unmount();
+});
+
+it('offers the billing office editor directly after a missing office review error',async()=>{
+ api.get.mockImplementation(async url=>{if(url.endsWith('/review'))throw {response:{data:{error:{message:'Select a billing office for this agency.'}}}};return {data:url.endsWith('/draft')?{claim:{id:11,claim_lifecycle:'draft'},lines:[],billingOffices:[]}:{items:[]}};});
+ const w=mount(ClaimMdWorkspace,{props:{...props,section:'detail'}});await flushPromises();await w.vm.reviewClaim(11);await flushPromises();await button(w,'Select billing office').trigger('click');await flushPromises();
+ expect(api.get).toHaveBeenCalledWith('/medical-billing/claimmd/claims/11/draft',expect.objectContaining({params:{agencyId:1}}));expect(w.text()).toContain('No billing office is configured');w.unmount();
+});
 beforeEach(() => {
   vi.resetAllMocks();
   api.get.mockImplementation(async url => ({ data: url.endsWith('/review') ? claim : url.endsWith('/history') ? { history: [] } : { items: [] } }));

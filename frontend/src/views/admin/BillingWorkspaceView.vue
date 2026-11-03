@@ -68,6 +68,10 @@
         <InsuranceVerificationQueue v-if="section === 'insurance'" :agency-id="scopeId === 'all' ? 0 : Number(scopeId)" :client-id="route.query.clientId" />
         <BillingTransactionHistory v-if="section === 'transactions'" :agency-id="scopeId" :client-id="route.query.clientId" @open-claim="openClaim" />
 
+        <template v-if="section === 'fee-schedules'">
+          <BillingFeeSchedule v-if="scopedOrganization" :key="`fee-schedule-${scopeId}`" :agency-id="scopedOrganization.id" :agency-name="scopedOrganization.name" :service-codes-path="serviceCodeSettingsPath" :initial-mode="route.query.feeMode === 'self_pay' ? 'self_pay' : 'insurance'" :initial-scope="String(route.query.feeScope || '')" :initial-provider-id="Number(route.query.feeProviderId || 0)" :initial-payer-id="String(route.query.feePayerId || '')" :initial-category-key="String(route.query.feeCategory || '')" @context-change="saveFeeContext" />
+          <section v-else class="panel empty-state"><h2>Select a practice</h2><p>Choose an organization above to manage its insurance and self-pay fee schedules.</p></section>
+        </template>
         <template v-if="section === 'reports'">
           <section class="panel"><div class="panel-heading"><div><h2>Claims by stage</h2><p>Current workload for {{ scopedOrganization?.name || 'all authorized companies' }}.</p></div></div><div v-if="totals" class="status-chart"><button v-for="bar in reportBars" :key="bar.status" @click="filterQueue(bar.status)"><span>{{ bar.label }}</span><span class="bar-track"><i :style="{ width: `${bar.value ? Math.max(2, bar.value / maxBar * 100) : 0}%` }"></i></span><strong>{{ bar.value }}</strong></button></div><p class="panel-note">ERA payment totals and patient balance reviews are available in Payments. Payment-speed analysis requires matched submission and adjudication history.</p></section>
           <MedicalBillingReportsPanel v-if="scopedOrganization" :key="`reports-${scopeId}`" :agency-id="scopedOrganization.id" />
@@ -75,7 +79,7 @@
           <section class="panel"><h2>Saved views</h2><p class="subtle">Save this scope and claim filter in this browser. Saved views contain no claim or patient data.</p><form class="panel-toolbar" @submit.prevent="saveView"><input v-model="savedViewName" maxlength="60" placeholder="View name" aria-label="Saved view name" required /><button class="secondary">Save current view</button></form><div v-for="view in savedViews" :key="view.id" class="saved-view"><button class="text-button" @click="restoreView(view)">{{ view.name }}</button><button class="icon-button" :aria-label="`Remove ${view.name}`" @click="removeView(view.id)">×</button></div><p class="panel-note">Scheduled report delivery is not enabled. Company reports can be exported on demand.</p></section>
         </template>
 
-        <template v-if="section === 'settings'"><ProviderBillingSettings v-if="scopedOrganization && ['admin','super_admin'].includes(authStore.user?.role)" :key="`self-pay-${scopeId}`" :agency-id="scopedOrganization.id" /><AuricwellCostPlanner /><AuricwellPracticePricing v-if="scopedOrganization" :key="`auric-pricing-${scopeId}`" :agency-id="scopedOrganization.id" /><BillingCostPlanner /><MedicalServiceFeesPanel v-if="scopedOrganization" :key="`fees-${scopeId}`" :agency-id="scopedOrganization.id" /><EligibilityAutomationPanel v-if="scopedOrganization" :key="`eligibility-${scopeId}`" :agency-id="scopedOrganization.id" /><section v-if="hasMultipleOrganizations" class="panel"><h2>Company billing settings</h2><p>Choose a company to manage service codes, billing locations, fees, and clearinghouse configuration.</p><select v-model="scopeId"><option value="all">Select a company</option><option v-for="org in organizations" :key="org.id" :value="String(org.id)">{{ org.name }}</option></select></section><SupervisedPayerPolicies v-if="scopedOrganization" :key="`policies-${scopeId}`" :agency-id="scopedOrganization.id" /><MedicalBillingView v-if="scopedOrganization" :key="`settings-${scopeId}`" :billing-agency-id="scopedOrganization.id" :billing-agency-slug="scopedOrganization.slug" /></template>
+        <template v-if="section === 'settings'"><section class="panel"><h2>Service rates</h2><p>Practice defaults, payer rates and provider overrides are managed in Fee schedules.</p><button class="secondary" @click="setSection('fee-schedules')">Open fee schedules</button></section><ProviderBillingSettings v-if="scopedOrganization && ['admin','super_admin'].includes(authStore.user?.role)" :key="`self-pay-settings-${scopeId}`" :agency-id="scopedOrganization.id" /><AuricwellCostPlanner /><AuricwellPracticePricing v-if="scopedOrganization" :key="`auric-pricing-${scopeId}`" :agency-id="scopedOrganization.id" /><BillingCostPlanner /><MedicalServiceFeesPanel v-if="scopedOrganization" :key="`fees-${scopeId}`" :agency-id="scopedOrganization.id" /><EligibilityAutomationPanel v-if="scopedOrganization" :key="`eligibility-${scopeId}`" :agency-id="scopedOrganization.id" /><section v-if="hasMultipleOrganizations" class="panel"><h2>Company billing settings</h2><p>Choose a company to manage service codes, billing locations, fees, and clearinghouse configuration.</p><select v-model="scopeId"><option value="all">Select a company</option><option v-for="org in organizations" :key="org.id" :value="String(org.id)">{{ org.name }}</option></select></section><SupervisedPayerPolicies v-if="scopedOrganization" :key="`policies-${scopeId}`" :agency-id="scopedOrganization.id" /><MedicalBillingView v-if="scopedOrganization" :key="`settings-${scopeId}`" :billing-agency-id="scopedOrganization.id" :billing-agency-slug="scopedOrganization.slug" /></template>
       </template>
     </main>
 
@@ -115,6 +119,7 @@ import AuricwellCostPlanner from '../../components/billing/AuricwellCostPlanner.
 import AuricwellPracticePricing from '../../components/billing/AuricwellPracticePricing.vue';
 import EligibilityAutomationPanel from '../../components/billing/EligibilityAutomationPanel.vue';
 import MedicalServiceFeesPanel from '../../components/billing/MedicalServiceFeesPanel.vue';
+import BillingFeeSchedule from '../../components/billing/BillingFeeSchedule.vue';
 import ProviderBillingSettings from '../../components/admin/ProviderBillingSettings.vue';
 import SecondaryClaimPanel from '../../components/admin/SecondaryClaimPanel.vue';
 import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue';
@@ -138,13 +143,14 @@ const navigation = [
   { id: 'workspace', label: 'Billing Workspace', icon: 'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z' },
   { id: 'claims', label: 'Claims', icon: 'M6 3h9l4 4v14H6z M14 3v5h5 M9 12h7 M9 16h7' },
   { id: 'payers', label: 'Payers & ERA', icon: 'M9 8H7a4 4 0 000 8h3 M15 8h2a4 4 0 010 8h-3 M8 12h8' },
+  { id: 'fee-schedules', label: 'Fee schedules', icon: 'M5 3h14v18H5z M8 7h8 M8 12h8 M8 17h5' },
   { id: 'payments', label: 'Payments', icon: 'M3 5h18v15H3z M3 10h18 M7 15h4' },
   { id: 'insurance', label: 'Insurance verification', icon: 'M5 3h14v18H5z M8 8h8 M8 12h8 M8 16h5' },
   { id: 'transactions', label: 'Transactions', icon: 'M4 5h16 M4 12h16 M4 19h16 M8 3v4 M16 10v4 M10 17v4' },
   { id: 'reports', label: 'Reports', icon: 'M4 3v18h17 M8 17v-6 M13 17V7 M18 17V4' },
   { id: 'settings', label: 'Settings', icon: 'M4 6h16 M4 12h16 M4 18h16 M8 3v6 M16 9v6 M10 15v6' }
 ];
-const descriptions = { workspace: 'Manage payer connections, claims, and follow-ups across your organizations.', claims: 'Work the queue, approve claims, and follow clearinghouse and payer responses.', payers: 'Track claims, ERA, eligibility, and EFT direct deposits for every billing company.', payments: 'Review remittances and prepare for verified payment reconciliation.', insurance: 'Verify primary and secondary coverage and resolve billing readiness tasks.', transactions: 'Search recorded payments, adjustments and responsibility across your billing scope.', reports: 'Explore claim performance and export company billing reports.', settings: 'Manage the billing setup for each organization.' };
+const descriptions = { 'fee-schedules': 'Manage practice, payer and provider rates, with a separate self-pay schedule.', workspace: 'Manage payer connections, claims, and follow-ups across your organizations.', claims: 'Work the queue, approve claims, and follow clearinghouse and payer responses.', payers: 'Track claims, ERA, eligibility, and EFT direct deposits for every billing company.', payments: 'Review remittances and prepare for verified payment reconciliation.', insurance: 'Verify primary and secondary coverage and resolve billing readiness tasks.', transactions: 'Search recorded payments, adjustments and responsibility across your billing scope.', reports: 'Explore claim performance and export company billing reports.', settings: 'Manage the billing setup for each organization.' };
 const section = ref(navigation.some(n => n.id === route.query.billingSection) ? route.query.billingSection : 'workspace');
 const scopeId = ref(String((route.meta?.auricwellPreview ? agencyStore.currentAgency?.id : null) || route.query.billingScope || route.query.agencyId || (route.query.claimId ? agencyStore.currentAgency?.id : '') || 'all')), status = ref('all'), page = ref(1), searchInput = ref(String(route.query.claimId || '')), search = ref(String(route.query.claimId || '')), companySearch = ref('');
 const organizations = ref([]), claims = ref([]), total = ref(0), capabilities = ref({}), updatedAt = ref(null), loading = ref(false), error = ref('');
@@ -155,6 +161,15 @@ let loadSequence = 0, active = true, priorFocus = null, initialClaimId = Number(
 onBeforeUnmount(() => { active = false; loadSequence++; });
 const hasMultipleOrganizations = computed(() => !route.meta?.auricwellPreview && organizations.value.length > 1);
 const scopedOrganization = computed(() => organizations.value.find(o => o.id === Number(scopeId.value)));
+const serviceCodeSettingsPath = computed(() => {
+  const org = scopedOrganization.value;
+  return `${org?.slug ? `/${org.slug}` : ''}/admin/settings?agencyId=${org?.id || ''}&category=general&item=service-codes`;
+});
+function saveFeeContext(context) {
+  router.replace({ query: { ...route.query, billingSection: 'fee-schedules', billingScope: scopeId.value,
+    feeMode: context.mode, feeScope: context.scope, feeProviderId: context.providerUserId || undefined,
+    feePayerId: context.payerId || undefined, feeCategory: context.categoryKey || undefined } });
+}
 const selectedOrganization = computed(() => organizations.value.find(o => o.id === selectedCompanyId.value));
 const claimOrganization = computed(() => organizations.value.find(o => o.id === Number(selectedClaim.value?.agency_id)));
 const scopedOrganizations = computed(() => scopedOrganization.value ? [scopedOrganization.value] : organizations.value);
@@ -256,7 +271,7 @@ async function prepareReadyClaim() {
 async function openResubmission(result) {
   if (!result?.claimId || !selectedClaim.value) return;
   const source = selectedClaim.value;
-  selectedClaim.value = { ...source, id: Number(result.claimId), claimId: Number(result.claimId), key: `claim:${result.claimId}`, source: 'claim', claim_number: null, claim_lifecycle: 'draft', stage: 'ready_to_submit', readOnly: false, canReviewClaim: true, canPrepareClaim: false, resubmission_type: result.kind, claim_frequency_code: result.frequencyCode, billing_revision: null };
+  selectedClaim.value = { ...source, id: Number(result.claimId), claimId: Number(result.claimId), key: `claim:${result.claimId}`, source: 'claim', claim_number: null, claim_reference: result.claimReference || result.claim_reference || null, claim_lifecycle: 'draft', stage: 'ready_to_submit', readOnly: false, canReviewClaim: true, canPrepareClaim: false, resubmission_type: result.kind, claim_frequency_code: result.frequencyCode, billing_revision: null };
   await nextTick(); await claimTools.value?.reviewClaim(Number(result.claimId)); await reload();
 }
 function trapClaimFocus(event) {

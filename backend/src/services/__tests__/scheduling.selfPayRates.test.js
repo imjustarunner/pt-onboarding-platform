@@ -9,7 +9,7 @@ import User from '../../models/User.model.js';
 import TenantService from '../../models/TenantService.model.js';
 import StaffServiceAssignment from '../../models/StaffServiceAssignment.model.js';
 import { resolveEffectivePracticeCategories } from '../practiceCategories.service.js';
-import { assertSelfPayRateAccess, eligibleSelfPayServices, validateSelfPayRate, calculateSelfPayQuote, resolveSelfPayQuote, saveSelfPayRates } from '../selfPayRates.service.js';
+import { assertSelfPayRateAccess, eligibleSelfPayServices, validateSelfPayRate, calculateSelfPayQuote, resolveSelfPayQuote, saveSelfPayRates, getSelfPayRates } from '../selfPayRates.service.js';
 describe('self-pay rate configuration and quoting', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -61,8 +61,16 @@ describe('self-pay rate configuration and quoting', () => {
   it('rolls back the entire rate sheet when persistence fails', async () => {
     const conn = { beginTransaction: vi.fn(), execute: vi.fn().mockRejectedValue(new Error('Storage unavailable')), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() };
     pool.getConnection.mockResolvedValue(conn);
-    await expect(saveSelfPayRates({ agencyId: 1, providerId: 8, actorUserId: 9, rows: [{ serviceId: 10, rateCents: 12000, rateUnit: 'session' }] })).rejects.toThrow('Storage unavailable');
+    await expect(saveSelfPayRates({ agencyId: 1, actorUserId: 9, rows: [{ serviceId: 11, rateCents: 12000, rateUnit: 'session' }] })).rejects.toThrow('Storage unavailable');
     expect(conn.rollback).toHaveBeenCalledOnce(); expect(conn.commit).not.toHaveBeenCalled(); expect(conn.release).toHaveBeenCalledOnce();
+  });
+  it('routes uncoded clinical services to canonical settings instead of allowing a second rate store', async () => {
+    pool.execute.mockResolvedValue([[]]);
+    const result = await getSelfPayRates(1);
+    expect(result.services.find(s => s.serviceId === 10)).toMatchObject({ canonicalFeeSchedule: true, canonicalServiceAvailable: false, canonicalServiceNotice: expect.stringContaining('active practice service code') });
+    expect(result.services.find(s => s.serviceId === 11)).toMatchObject({ canonicalFeeSchedule: false });
+    await expect(saveSelfPayRates({ agencyId: 1, actorUserId: 9, rows: [{ serviceId: 10, rateCents: 10000, rateUnit: 'session' }] })).rejects.toMatchObject({ status: 409 });
+    expect(pool.getConnection).not.toHaveBeenCalled();
   });
   it('rejects wrong-category writes before changing any rates', async () => {
     await expect(saveSelfPayRates({ agencyId: 1, providerId: 8, actorUserId: 9, rows: [{ serviceId: 11, rateCents: 10000, rateUnit: 'session' }] })).rejects.toMatchObject({ status: 403 });

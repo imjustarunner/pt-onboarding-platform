@@ -371,6 +371,7 @@ import BusinessOnboardingReview from './BusinessOnboardingReview.vue';
 import { isRootTenant } from '../../navigation/organizationKinds';
 import AgencyManagementTeamConfig from './AgencyManagementTeamConfig.vue';
 import TenantBookingSettings from './TenantBookingSettings.vue';
+import BillingServiceCodeSettings from '../billing/BillingServiceCodeSettings.vue';
 import BrandingConfig from './BrandingConfig.vue';
 import BrandingTemplatesManagement from './BrandingTemplatesManagement.vue';
 import EmailTemplateManagement from './EmailTemplateManagement.vue';
@@ -626,6 +627,7 @@ const allCategories = [
         excludeSupervisor: true,
         requiresAgency: true
       },
+      { id: 'service-codes', label: 'Service codes', icon: '📋', component: 'BillingServiceCodeSettings', roles: ['super_admin', 'admin', 'staff', 'support'], requiresAgency: true },
       {
         id: 'team-roles',
         label: 'Team & Roles',
@@ -1489,6 +1491,7 @@ const componentMap = {
   PlatformSettingsCardHub,
   AgencyManagementTeamConfig,
   TenantBookingSettings,
+  BillingServiceCodeSettings,
   BrandingConfig,
   BrandingTemplatesManagement,
   EmailTemplateManagement,

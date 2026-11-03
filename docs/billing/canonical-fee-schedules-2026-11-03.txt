@@ -1,0 +1,54 @@
+CANONICAL BILLING FEE SCHEDULES — November 3, 2026
+
+Entry: /<practice>/admin/medical-billing?agencyId=<id>&billingSection=fee-schedules
+Service catalog: /<practice>/admin/settings?agencyId=<id>&category=general&item=service-codes
+Existing agency_medical_service_codes and their unit/overflow/signature rules are unchanged.
+
+Insurance inheritance: editable platform billed-charge starter -> practice -> payer ->
+fully licensed/currently credentialed billing provider. Explicit zero is a saved rate;
+reset inherits. Payer rate selection uses verified electronic payer IDs. Payer/provider
+rows can update the practice default explicitly. Visibility hides the fee row only.
+Self-pay uses a separate mode: platform -> practice -> provider category -> provider,
+with per-session or prorated hourly rates. Coaching/tutoring retain their own systems.
+Missing/inactive service mappings need review in the existing service-code settings.
+
+All fee changes append an actor-attributed immutable revision (migration1740).
+Optimistic concurrency rejects a stale schedule. New claims and bookings capture
+rate provenance and charges; existing claims, payments and quotes are not repriced.
+Missing automatic claim billing-provider resolution blocks fee assignment.
+The former flat clinical fee write endpoint returns an actionable canonical-route
+error; its read endpoint reflects the canonical practice schedule. Clinical self-pay
+writes also use the canonical interface. The existing self-pay-only practice switch
+remains in billing settings.
+
+Verified payer catalog sync previews exact unique existing-name links or missing
+payer definitions. Apply requires the same plan token and an authorized billing
+actor. Ambiguous mappings remain manual. Sync never creates provider credentials
+or asserts their status. Newly saved verified directory payers sync their definitions
+in the same transaction. Existing current credential records with effective dates
+can continue to publish accepted coverage while unlinked; selecting provider fee
+overrides requires an exact verified payer route. Inactive/future/expired credentials
+are excluded; legacy visibility overrides can hide but cannot create acceptance.
+
+Transactions combine clinician, service-date range, code, payer, claim status,
+transaction type, posted-date range and search. Confirmed demo receipts/clients are
+excluded by default and their history remains inspectable. Claims associated with
+unflagged clients are retained. Reports and queue totals use the same demo boundary.
+
+Migration029 creates immutable company-YYYY-MM-sequence references for every claim,
+including existing claims. It retains internal and payer control IDs. An AFTER INSERT
+trigger allocates monthly counters under a transaction lock; issued month is Denver.
+The counter comparison explicitly handles legacy MySQL collation differences.
+
+Claim Edit billing fields supports an agency-owned billing office correction with
+reason/actor/time audit. Review and submission use that office and invalidate stale
+approval when its billing identity/address changes. Signed clinical location is not
+rewritten. No claim transmission, patient payment or clinical signature is performed
+by this release.
+
+Required database migrations before application release:
+  primary1740_canonical_fee_schedules.sql
+  clinical029_claim_display_references.sql
+Use the production migration SQL parser. The trigger syntax deliberately does not
+contain mysql CLI DELIMITER directives. Real MySQL and CI tests cover immutability,
+concurrency, rollback, retained payer IDs and mixed-collation recovery.

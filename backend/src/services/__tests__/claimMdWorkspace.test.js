@@ -76,6 +76,55 @@ describe('cross-company billing scope', () => {
   });
 });
 
+describe('combined transaction filters and retained synthetic evidence', () => {
+  function filteredFixture() {
+    const deps=fixture();
+    deps.clinical.execute.mockImplementation(async sql => {
+      if(sql.includes('FROM claimmd_payment_postings'))return [[
+        {id:1,agency_id:1,client_id:4,claimId:10,kind:'era',paid_cents:12000,posted_by_user_id:91,posted_at:'2026-11-04 01:30:00'},
+        {id:2,agency_id:1,client_id:5,claimId:11,kind:'era',paid_cents:3000,posted_by_user_id:91,posted_at:'2026-11-04 01:30:00'}
+      ]];
+      if(sql.includes('FROM clinical_claims c'))return [[
+        {claimId:10,agency_id:1,client_id:4,provider_user_id:22,claim_number:'KEEP-PAYER-10',claim_lifecycle:'paid',date_of_service:'2026-10-30',destination_payer_id:'PAYER1',payer_name:'Synthetic insurer',service_code:'90834',service_codes_json:'["90834","90785"]'},
+        {claimId:11,agency_id:1,client_id:5,provider_user_id:23,claim_number:'KEEP-PAYER-11',claim_lifecycle:'paid',date_of_service:'2026-10-30',destination_payer_id:'PAYER2',payer_name:'Hidden test insurer',service_code:'H0002',service_codes_json:'["H0002"]'}
+      ]];
+      if(sql.includes('FROM clinical_claim_references'))return [[{agency_id:1,clinical_claim_id:10,public_reference:'001-2026-10-001'}]];
+      return [[]];
+    });
+    deps.main.execute.mockImplementation(async sql => {
+      if(sql.includes('FROM family_ledger_payments'))return [[{id:3,agency_id:1,client_id:4,source_type:'guardian_demo_receipt',processor:'LEGACY',status:'succeeded',amount_cents:3000,posted_at:'2026-11-04 01:30:00'}]];
+      if(sql.includes('FROM clients'))return [[{id:4,agency_id:1,full_name:'DEMO is a real surname here',is_demo:0},{id:5,agency_id:1,full_name:'Retained fixture',is_demo:1}]];
+      if(sql.includes('FROM users'))return [[{id:22,name:'Treating clinician'},{id:23,name:'Test clinician'},{id:91,name:'Billing poster'}]];
+      return [[]];
+    });
+    return deps;
+  }
+  it('combines all filters with search and preserves clinician, poster, payer control and local posting date',async()=>{
+    const deps=filteredFixture(),query={agencyId:1,clinicianId:22,serviceFrom:'2026-10-30',serviceTo:'2026-10-30',postedFrom:'2026-11-03',postedTo:'2026-11-03',serviceCode:'90785',payer:'id:PAYER1',claimStatus:'paid',transactionType:'era',search:'001-2026-10-001'};
+    const result=await billingWorkspaceTransactions(user,query,deps);
+    expect(result.total).toBe(1);expect(result.hiddenTestRecords).toBe(2);
+    expect(result.transactions[0]).toMatchObject({provider_name:'Treating clinician',posted_by_name:'Billing poster',claim_reference:'001-2026-10-001',claim_number:'KEEP-PAYER-10',posted_date:'2026-11-03'});
+    expect(result.filterOptions.clinicians).toEqual([{value:'22',label:'Treating clinician'}]);
+    expect(result.filterOptions.payers).toEqual([{value:'id:PAYER1',label:'Synthetic insurer'}]);
+    expect((await billingWorkspaceTransactions(user,{...query,clinicianId:91},deps)).total).toBe(0);
+    expect((await billingWorkspaceTransactions(user,{...query,postedFrom:'2026-11-04',postedTo:'2026-11-04'},deps)).total).toBe(0);
+  });
+  it('keeps test evidence available explicitly and never guesses from a name',async()=>{
+    const deps=filteredFixture(),ordinary=await billingWorkspaceTransactions(user,{agencyId:1},deps),retained=await billingWorkspaceTransactions(user,{agencyId:1,includeDemo:'true'},deps);
+    expect(ordinary.transactions.map(row=>row.id)).toEqual(['payer:1']);
+    expect(retained.total).toBe(3);expect(retained.transactions.filter(row=>row.is_demo_source)).toHaveLength(2);
+    expect(deps.main.execute.mock.calls.every(([sql])=>!/^DELETE|^UPDATE/.test(sql))).toBe(true);
+  });
+  it('removes demo claim counts and payer payment totals while retaining real claims',async()=>{
+    const deps=filteredFixture();
+    deps.loadWorkItems.mockResolvedValue({items:[{id:10,claimId:10,agency_id:1,client_id:4,key:'claim:10',stage:'paid',is_demo_client:false},{id:11,claimId:11,agency_id:1,client_id:5,key:'claim:11',stage:'paid',is_demo_client:true}]});
+    deps.clinical.execute.mockImplementation(async sql=>sql.includes('FROM claimmd_payment_postings')?[[{agency_id:1,client_id:4,posting_count:1,paid_cents:12000},{agency_id:1,client_id:5,posting_count:1,paid_cents:3000}]]:[[]]);
+    const ordinary=await billingWorkspace(user,{agencyId:1},deps),retained=await billingWorkspace(user,{agencyId:1,includeDemo:true},deps);
+    expect(ordinary.claims.map(row=>row.claimId)).toEqual([10]);expect(ordinary.organizations[0].counts).toEqual({paid:1});expect(ordinary.organizations[0].payments).toEqual({postingCount:1,paidCents:12000});
+    expect(retained.total).toBe(2);expect(retained.organizations[0].payments).toEqual({postingCount:2,paidCents:15000});
+  });
+});
+
 it('limits preview organization metadata, balances and claims before any financial query', async () => {
   const deps = fixture(); deps.main.execute.mockResolvedValue([[agency(3)]]);
   const data = await billingWorkspace({id:10,role:'super_admin',auricwellPreviewAgencyId:3},{agencyId:'3'},deps);
@@ -98,7 +147,7 @@ describe('sortable billing transaction history',()=>{
   const deps=transactionFixture(),result=await billingWorkspaceTransactions(user,{agencyId:1,sortBy:'amount_cents',direction:'asc'},deps);
   expect(result.total).toBe(3);expect(result.transactions.map(r=>r.id)).toEqual(['refund:9','payment:9','payer:8']);
   expect(result.transactions[0]).toMatchObject({paid_cents:-500,amount_cents:-500,client_name:'DEMO Patient',claimId:10});
-  expect(result.familyPaymentsAvailable).toBe(true);for(const [,params] of deps.clinical.execute.mock.calls)expect(params).toEqual([1]);
+  expect(result.familyPaymentsAvailable).toBe(true);for(const [,params] of deps.clinical.execute.mock.calls)expect(params[0]).toBe(1);
  });
  it('searches by patient and status and rejects an unauthorized company before financial reads',async()=>{
   const deps=transactionFixture();expect((await billingWorkspaceTransactions(user,{search:'DEMO Patient',clientId:4},deps)).total).toBe(3);

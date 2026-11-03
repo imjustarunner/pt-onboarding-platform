@@ -1,22 +1,12 @@
-import pool from '../config/database.js';
+import { getSelfPayRates } from './selfPayRates.service.js';
 
-// Use the actual agency/provider service rate sheet, not the user's global profile.
-// Different individual counseling rates require a service-specific quote.
+// Public prices and actual booking quotes share the canonical practice/category/
+// provider schedule. Different service rates require a service-specific quote.
 export async function getPublicCounselingHourlyRate({ agencyId, providerUserId, serviceType = 'counseling' }) {
   if (serviceType !== 'counseling') return null;
-  try {
-    const [rows] = await pool.execute(
-      `SELECT DISTINCT r.rate_cents
-       FROM self_pay_service_rates r
-       JOIN tenant_services s ON s.id = r.tenant_service_id AND s.agency_id = r.agency_id
-       WHERE r.agency_id = ? AND r.provider_user_id = ? AND r.rate_unit = 'hour'
-         AND s.business_type = 'mental_health' AND s.is_active = 1
-         AND s.allows_individual = 1 AND s.allows_group = 0`,
-      [Number(agencyId), Number(providerUserId)]
-    );
-    return rows.length === 1 ? Number(rows[0].rate_cents) : null;
-  } catch (error) {
-    if (['ER_NO_SUCH_TABLE', 'ER_BAD_FIELD_ERROR'].includes(error.code)) return null;
-    throw error;
-  }
+  const { services } = await getSelfPayRates(Number(agencyId), Number(providerUserId));
+  const counseling = services.filter(s => s.businessType === 'mental_health' && s.allowsIndividual && !s.allowsGroup);
+  if (!counseling.length || counseling.some(s => s.effectiveRate?.rateCents == null || s.effectiveRate.rateUnit !== 'hour')) return null;
+  const rates = new Set(counseling.map(s => Number(s.effectiveRate.rateCents)));
+  return rates.size === 1 ? [...rates][0] : null;
 }

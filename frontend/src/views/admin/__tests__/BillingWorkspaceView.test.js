@@ -10,7 +10,9 @@ vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn()
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: { id: 1, name: 'Management Agency' } }) }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 5, role: 'support', first_name: 'Test', last_name: 'Biller' } }) }));
 const mockRoute = vi.hoisted(() => ({query:{},meta:{}}));
-vi.mock('vue-router', () => ({ useRoute: () => mockRoute, useRouter: () => ({ replace: vi.fn() }) }));
+const router=vi.hoisted(()=>({replace:vi.fn(),push:vi.fn()}));
+vi.mock('vue-router', () => ({ useRoute: () => mockRoute, useRouter: () => router }));
+vi.mock('../../../components/billing/BillingFeeSchedule.vue',()=>({default:{name:'BillingFeeSchedule',props:['agencyId','agencyName','serviceCodesPath','initialMode','initialScope','initialProviderId','initialPayerId','initialCategoryKey'],emits:['context-change'],template:'<section data-testid="fee-schedules">Fee schedules for {{ agencyName }}</section>'}}));
 vi.mock('../../../components/admin/ClaimMdWorkspace.vue', () => ({ default: { props: ['agencyId'], template: '<div data-testid="claim-tools">Claim tools for {{ agencyId }}</div>', methods: { showHistory: vi.fn(), editClaim: vi.fn(), reviewClaim: vi.fn() } } }));
 vi.mock('../../../components/admin/MedicalBillingReportsPanel.vue', () => ({ default: { template: '<div>Company reports</div>' } }));
 vi.mock('../MedicalBillingView.vue', () => ({ default: { template: '<div>Company settings</div>' } }));
@@ -26,6 +28,20 @@ const data = () => ({ organizations: [{ id: 1, name: 'Company One', colors: { pr
 const button = (w, text) => w.findAll('button').find(b => b.text() === text);
 beforeEach(() => { mockRoute.query={}; mockRoute.meta={}; vi.clearAllMocks(); localStorage.clear(); api.get.mockResolvedValue({ data: data() }); });
 describe('billing workspace', () => {
+  it('mounts the canonical fee schedule from a provider deep link with the correct practice and payer',async()=>{
+    mockRoute.query={billingSection:'fee-schedules',billingScope:'3',feeMode:'self_pay',feeScope:'provider',feeProviderId:'22',feePayerId:'SAVED',feeCategory:'licensed'};
+    const payload=data();payload.organizations[1].slug='practice-three';api.get.mockResolvedValue({data:payload});
+    const w=mount(BillingWorkspaceView);await flushPromises();const fees=w.findComponent({name:'BillingFeeSchedule'});
+    expect(fees.props()).toMatchObject({agencyId:3,agencyName:'Company Three',initialMode:'self_pay',initialScope:'provider',initialProviderId:22,initialPayerId:'SAVED',initialCategoryKey:'licensed',serviceCodesPath:'/practice-three/admin/settings?agencyId=3&category=general&item=service-codes'});
+    expect(api.get.mock.calls.filter(([path])=>path==='/medical-billing/workspace')[0][1].params.agencyId).toBe('3');
+    fees.vm.$emit('context-change',{mode:'insurance',scope:'payer',payerId:'COCHA',providerUserId:0,categoryKey:''});await flushPromises();
+    expect(router.replace).toHaveBeenLastCalledWith({query:expect.objectContaining({billingSection:'fee-schedules',billingScope:'3',feeMode:'insurance',feeScope:'payer',feePayerId:'COCHA',feeProviderId:undefined,feeCategory:undefined})});w.unmount();
+  });
+  it('requires a practice before mounting rates and resets the mounted fee schedule when practice changes',async()=>{
+    mockRoute.query={billingSection:'fee-schedules'};const w=mount(BillingWorkspaceView);await flushPromises();expect(w.findComponent({name:'BillingFeeSchedule'}).exists()).toBe(false);expect(w.text()).toContain('Select a practice');
+    await w.find('[data-testid="organization-scope"]').setValue('1');await flushPromises();const original=w.findComponent({name:'BillingFeeSchedule'});expect(original.props('agencyId')).toBe(1);
+    await w.find('[data-testid="organization-scope"]').setValue('3');await flushPromises();const changed=w.findComponent({name:'BillingFeeSchedule'});expect(changed.props('agencyId')).toBe(3);expect(changed.vm).not.toBe(original.vm);w.unmount();
+  });
   it('starts with all authorized companies and distinguishes accepted claims from payment', async () => {
     const w = mount(BillingWorkspaceView); await flushPromises();
     expect(api.get.mock.calls[0][1].params.agencyId).toBeUndefined();

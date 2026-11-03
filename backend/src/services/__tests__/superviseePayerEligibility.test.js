@@ -7,7 +7,7 @@ import UserInsuranceCredentialing from '../../models/UserInsuranceCredentialing.
 import { defaultSuperviseeBillingAllowed, superviseeBillingAllowed, validateSuperviseeBillingInput } from '../../utils/superviseePayerEligibility.js';
 import { evaluateCredentialPayerEligibility, credentialPayerRows } from '../credentialPayerEligibility.service.js';
 import { listProviderAcceptedInsurances, listProviderAcceptedInsurancesForDisplay, mergeAgencyInsuranceAcceptance } from '../providerAcceptedInsurance.service.js';
-const row=(name, flag=null, id=1)=>({id,insurance_definition_id:id,name,allow_supervisee_billing:flag,billing_payer_id:name==='Other'?'Aetna':name,billing_payer_name:name});
+const row=(name, flag=null, id=1)=>({id,effective_date:"2020-01-01",insurance_definition_id:id,name,allow_supervisee_billing:flag,billing_payer_id:name==='Other'?'Aetna':name,billing_payer_name:name});
 beforeEach(()=>vi.resetAllMocks());
 describe('supervisee payer defaults and decisions',()=>{
   it.each(['TRICARE','TriWest','TRICARE West Region','Tri-West Healthcare Alliance','Tri Care East','tri west'])('defaults %s off',name=>expect(defaultSuperviseeBillingAllowed(name)).toBe(false));
@@ -56,7 +56,12 @@ describe('website insurance inheritance',()=>{
     fixture([{...row('Aetna',1),name:'Aetna contract'}],[],[{id:1,label:'Aetna contract',is_allowed:1}]);
     expect(await listProviderAcceptedInsurancesForDisplay({userId:10,agencyId:2})).toHaveLength(1);
   });
-  it('preserves unrelated agency acceptance',()=>expect(mergeAgencyInsuranceAcceptance([],[{id:1,label:'Medicaid',is_allowed:1}])[0].source).toBe('agency_acceptance'));
+  it('requires credential evidence before publishing an allowed insurance',()=>expect(mergeAgencyInsuranceAcceptance([],[{id:1,label:'Medicaid',is_allowed:1}])).toEqual([]));
+  it('excludes inactive, future and expired credentials from public acceptance and matching',async()=>{
+    fixture([{...row('Aetna'),credential_status:'terminated'},{...row('Cigna',1,2),effective_date:'2099-01-01'},{...row('Medicaid',1,3),revalidation_due:'2020-12-31'}],[]);
+    const result=await listProviderAcceptedInsurancesForDisplay({userId:10,agencyId:2,forMatching:true});
+    expect(result.accepted).toEqual([]);expect(result.known).toBe(true);expect(result.excluded).toEqual(expect.arrayContaining(['Aetna','Cigna','Medicaid']));
+  });
 });
 describe('claim payer eligibility',()=>{
   it('requires an exact verified billing payer mapping',()=>{

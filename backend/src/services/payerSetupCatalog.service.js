@@ -1,3 +1,4 @@
+import { syncCredentialingPayerCatalog } from './credentialingPayerCatalog.service.js';
 const asList = value => Array.isArray(value) ? value : value ? [value] : [];
 const normalizedId = value => String(value || '').trim().toUpperCase();
 
@@ -29,6 +30,7 @@ export async function saveDirectoryPayer({agencyId,payer,actorUserId}, db) {
       claimmd_payer_id=VALUES(claimmd_payer_id),directory_name=VALUES(directory_name),directory_status='id_match',
       directory_snapshot_json=VALUES(directory_snapshot_json),directory_checked_at=UTC_TIMESTAMP()`,
       [requestId,payer.payerid,payer.payer_name,JSON.stringify(capabilities)]);
+    await syncCredentialingPayerCatalog({ agencyId, actorUserId, apply: true, onlyPayerId: payer.payerid, withinTransaction: true, trustedPayerWrite: true }, db);
     await db.commit();
     return requestId;
   } catch(error) { await db.rollback(); throw error; }

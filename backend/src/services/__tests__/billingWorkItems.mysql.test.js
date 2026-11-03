@@ -1,14 +1,16 @@
 import {it,expect,vi} from 'vitest';
 import mysql from 'mysql2/promise';
 import {randomUUID} from 'node:crypto';
+import fs from 'node:fs/promises';
+import {splitSqlStatements,stripSqlLineComments} from '../../utils/migrationSql.js';
 vi.mock('../claimMdWorkflow.service.js',()=>({recordClaimEvent:async({agencyId,claimId,eventType},db)=>{await db.execute('INSERT INTO test_events(agency_id,claim_id,event_type) VALUES(?,?,?)',[agencyId,claimId,eventType]);}}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{}}));
 import {loadBillingWorkItems} from '../billingWorkItems.service.js';
 import {loadClinicalBillingApproval} from '../billingClinicalApproval.service.js';
 import {createClaimResubmission} from '../claimResubmission.service.js';
 
-it.skipIf(!process.env.BILLING_TEST_MYSQL_SOCKET && process.env.BILLING_FOLLOWUP_MYSQL_TEST!=='1')('MySQL work queue and immutable follow-up claims retain source records and exact tenant/encounter links',async()=>{
- const db=await mysql.createConnection(process.env.BILLING_TEST_MYSQL_SOCKET?{socketPath:process.env.BILLING_TEST_MYSQL_SOCKET,user:'root',timezone:'+00:00'}:{host:'127.0.0.1',port:33316,user:'root',password:'synthetic-root-only',timezone:'+00:00'});
+it.skipIf(!process.env.BILLING_TEST_MYSQL_SOCKET && process.env.BILLING_FOLLOWUP_MYSQL_TEST!=='1' && process.env.FEE_SCHEDULE_MYSQL_TEST!=='1')('MySQL work queue and immutable follow-up claims retain source records and exact tenant/encounter links',async()=>{
+ const db=await mysql.createConnection(process.env.BILLING_TEST_MYSQL_SOCKET?{socketPath:process.env.BILLING_TEST_MYSQL_SOCKET,user:'root',timezone:'+00:00'}:{host:'127.0.0.1',port:process.env.FEE_SCHEDULE_MYSQL_TEST==='1'?33317:33316,user:'root',password:'synthetic-root-only',timezone:'+00:00'});
  const schema=`billing_work_${randomUUID().replaceAll('-','')}`;
  try{
   await db.query(`CREATE DATABASE ${schema}`);await db.query(`USE ${schema}`);
@@ -19,16 +21,18 @@ it.skipIf(!process.env.BILLING_TEST_MYSQL_SOCKET && process.env.BILLING_FOLLOWUP
    `CREATE TABLE clinical_note_revisions(id INT,agency_id INT,requires_supervisor_cosign INT,responsible_supervisor_user_id INT,snapshot_json JSON,origin VARCHAR(20))`,
    `CREATE TABLE clinical_note_revision_approvals(revision_id INT,agency_id INT,approved_at DATETIME)`,
    `CREATE TABLE clinical_note_revision_signatures(revision_id INT,signature_action VARCHAR(40))`,
-   `CREATE TABLE clinical_claims(id INT PRIMARY KEY AUTO_INCREMENT,clinical_session_id INT,agency_id INT,client_id INT,claim_status VARCHAR(20),amount_cents INT,currency_code VARCHAR(3),claim_payload TEXT,metadata_json JSON,created_by_user_id INT,clinical_note_id INT,payer_name VARCHAR(100),destination_payer_id VARCHAR(30),billing_npi VARCHAR(10),rendering_npi VARCHAR(10),taxonomy_code VARCHAR(10),place_of_service VARCHAR(3),date_of_service DATE,claim_lifecycle VARCHAR(30),diagnosis_codes_json JSON,payer_sequence INT DEFAULT 1,parent_claim_id INT,is_deleted INT DEFAULT 0,claim_number VARCHAR(30),billing_revision INT DEFAULT 0,claimmd_last_status VARCHAR(30),updated_at DATETIME)`,
+   `CREATE TABLE clinical_claims(id BIGINT PRIMARY KEY AUTO_INCREMENT,clinical_session_id INT,agency_id INT,client_id INT,claim_status VARCHAR(20),amount_cents INT,currency_code VARCHAR(3),claim_payload TEXT,metadata_json JSON,created_by_user_id INT,clinical_note_id INT,payer_name VARCHAR(100),destination_payer_id VARCHAR(30),billing_npi VARCHAR(10),rendering_npi VARCHAR(10),taxonomy_code VARCHAR(10),place_of_service VARCHAR(3),date_of_service DATE,claim_lifecycle VARCHAR(30),diagnosis_codes_json JSON,payer_sequence INT DEFAULT 1,parent_claim_id INT,is_deleted INT DEFAULT 0,claim_number VARCHAR(30),billing_revision INT DEFAULT 0,claimmd_last_status VARCHAR(30),updated_at DATETIME,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`,
    `CREATE TABLE clinical_claim_lines(id INT PRIMARY KEY AUTO_INCREMENT,clinical_claim_id INT,line_number INT,procedure_code VARCHAR(10),modifiers_json JSON,units DECIMAL(8,2),charge_cents INT,diagnosis_pointers JSON,clinical_note_id INT,service_date DATE)`,
    `CREATE TABLE clinical_claim_change_requests(agency_id INT,clinical_session_id INT,status VARCHAR(30))`,
    `CREATE TABLE clinical_note_drafts(id INT,agency_id INT,client_id INT,user_id INT,clinical_session_id INT,office_event_id INT,service_code VARCHAR(10),date_of_service DATE,updated_at DATETIME,archived_at DATETIME)`,
    `CREATE TABLE appointments(id INT,agency_id INT,clinical_session_id INT,office_event_id INT,provider_user_id INT,service_code VARCHAR(10),start_at DATETIME,end_at DATETIME,source_timezone VARCHAR(64),updated_at DATETIME,status VARCHAR(20))`,
    `CREATE TABLE appointment_participants(appointment_id INT,client_id INT,role VARCHAR(20))`,
-   `CREATE TABLE clients(id INT,agency_id INT,full_name VARCHAR(100),initials VARCHAR(10),billing_insurance_payload TEXT)`,
+   `CREATE TABLE clients(id INT,agency_id INT,full_name VARCHAR(100),initials VARCHAR(10),is_demo INT DEFAULT 0,billing_insurance_payload TEXT)`,
    `CREATE TABLE users(id INT,first_name VARCHAR(40),last_name VARCHAR(40))`,
    `CREATE TABLE test_events(agency_id INT,claim_id INT,event_type VARCHAR(40))`
   ])await db.query(ddl);
+  const referencesSql=await fs.readFile(new URL('../../../../database/clinical_migrations/029_claim_display_references.sql',import.meta.url),'utf8');
+  for(const statement of splitSqlStatements(stripSqlLineComments(referencesSql)))await db.query(statement);
   await db.query(`INSERT INTO clients(id,agency_id,full_name) VALUES(10,1,'DEMO One'),(20,2,'DEMO Other')`);
   await db.query(`INSERT INTO users VALUES(90,'DEMO','Provider'),(91,'DEMO','Supervisor')`);
   await db.query(`INSERT INTO clinical_sessions(id,agency_id,client_id,provider_user_id,service_code,scheduled_start_at,scheduled_end_at,encounter_status) VALUES(1,1,10,90,'H0002','2025-01-02','2025-01-02 01:00','completed'),(2,1,10,90,'90834','2025-01-03','2025-01-03 01:00','completed'),(3,1,10,90,'90834','2099-01-03','2099-01-03 01:00','scheduled'),(4,2,20,90,'H0002','2025-01-02','2025-01-02 01:00','completed')`);
@@ -63,7 +67,8 @@ it.skipIf(!process.env.BILLING_TEST_MYSQL_SOCKET && process.env.BILLING_FOLLOWUP
   const [[clone]]=await db.query('SELECT * FROM clinical_claims WHERE id=?',[created.claimId]);expect(clone.claim_lifecycle).toBe('draft');expect(clone.claim_number).toBe(null);expect(clone.metadata_json.clinicalVersion).toEqual(before.metadata_json.clinicalVersion);
   const [[lines]]=await db.query('SELECT COUNT(*) n FROM clinical_claim_lines WHERE clinical_claim_id=?',[created.claimId]);expect(lines.n).toBe(1);
   const [[events]]=await db.query('SELECT COUNT(*) n FROM test_events');expect(events.n).toBe(2);
-  result=await loadBillingWorkItems([1],deps);expect(result.items.find(r=>r.claimId===created.claimId)).toMatchObject({stage:'ready_to_submit',canReviewClaim:true,resubmission_type:'replacement',billing_revision:0});
+  result=await loadBillingWorkItems([1],deps);expect(result.items.find(r=>r.claimId===created.claimId)).toMatchObject({stage:'ready_to_submit',canReviewClaim:true,resubmission_type:'replacement',billing_revision:0,claim_reference:expect.stringMatching(/^001-\d{4}-\d{2}-\d+$/)});
+  expect(result.items.find(r=>r.claimId===created.claimId).claim_reference).not.toBe(result.items.find(r=>r.claimId===30).claim_reference);
   await expect(createClaimResubmission({...input,kind:'void'},pool)).rejects.toThrow('already exists');
  }finally{await db.query(`DROP DATABASE IF EXISTS ${schema}`);await db.end();}
 },20000);

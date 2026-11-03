@@ -1,3 +1,5 @@
+import { getCanonicalFeeSchedule } from '../services/feeSchedule.service.js';
+import { priceNewClaimLines } from '../services/newClaimFees.service.js';
 import { listClientDiagnosisAlerts } from '../services/clinicalDiagnosisPolicy.service.js';
 import { assertClinicalBillingApproval } from '../services/billingClinicalApproval.service.js';
 import { clinicalNoteSnapshotHash, ensureOriginalRevision, appendOriginalSignature, hasPendingRevision, getRevisionSummary, listPendingRevisionWork, appendRevisionAddendum } from '../services/clinicalNoteVersion.service.js';
@@ -2361,11 +2363,10 @@ export const listFeeSchedule = async (req, res, next) => {
     const agencyId = parseIntValue(req.query.agencyId);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
-    const [rows] = await clinicalPool.execute(
-      `SELECT * FROM medical_fee_schedule_items WHERE agency_id = ? AND is_active = 1 ORDER BY procedure_code ASC`,
-      [agencyId]
-    );
-    return res.json({ items: rows || [] });
+    const schedule = await getCanonicalFeeSchedule(req.user, { agencyId, mode: 'insurance', scope: 'practice' });
+    return res.json({ items: schedule.rows.map(row => ({ procedure_code: row.serviceCode, description: row.description,
+      unit_price_cents: row.rateCents, unit_minutes: row.unitMinutes, source: row.source, source_label: row.sourceLabel })),
+      canonical: true, revision: schedule.revision });
   } catch (e) {
     next(e);
   }
@@ -2379,21 +2380,7 @@ export const upsertFeeScheduleItem = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'agencyId and procedureCode are required' } });
     }
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
-    const [result] = await clinicalPool.execute(
-      `INSERT INTO medical_fee_schedule_items
-       (agency_id, payer_label, procedure_code, modifier, description, unit_price_cents, unit_minutes, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
-      [
-        agencyId,
-        req.body.payerLabel || null,
-        procedureCode,
-        req.body.modifier || null,
-        req.body.description || null,
-        Number(req.body.unitPriceCents || 0),
-        parseIntValue(req.body.unitMinutes)
-      ]
-    );
-    return res.status(201).json({ id: result.insertId });
+    return res.status(409).json({ error: { code: 'CANONICAL_FEE_SCHEDULE_REQUIRED', message: 'Manage service rates in Billing → Fee schedules. Reload that schedule before saving.' }, feeSchedulePath: `/admin/medical-billing?agencyId=${agencyId}&billingSection=fee-schedules` });
   } catch (e) {
     next(e);
   }
@@ -2509,7 +2496,8 @@ export const createMedicalClaim = async (req, res, next) => {
     let resolvedBillingNpi = req.body.billingNpi || null;
     let resolvedRenderingNpi = req.body.renderingNpi || null;
     let claimProviderMeta = null;
-    if (!resolvedBillingNpi || !resolvedRenderingNpi) {
+    let providerResolutionFailed = false;
+    {
       try {
         const { resolveClaimProviders } = await import('../services/resolveClaimProviders.service.js');
         const sess = approvedSession || {};
@@ -2526,6 +2514,7 @@ export const createMedicalClaim = async (req, res, next) => {
         if (!resolvedBillingNpi) resolvedBillingNpi = claimProviderMeta.billingNpi || null;
         if (!resolvedRenderingNpi) resolvedRenderingNpi = claimProviderMeta.renderingNpi || null;
       } catch (resolveErr) {
+        providerResolutionFailed = true;
         console.warn('[createMedicalClaim] resolveClaimProviders failed', resolveErr?.message || resolveErr);
       }
     }
@@ -2597,7 +2586,7 @@ export const createMedicalClaim = async (req, res, next) => {
           lines.push({
             procedureCode: primary,
             units: primaryUnits,
-            chargeCents: Number(req.body.primaryChargeCents || 0) || 0,
+            chargeCents: req.body.primaryChargeCents ?? undefined,
             diagnosisPointers: '1',
             serviceDate: dateOfService
           });
@@ -2609,7 +2598,6 @@ export const createMedicalClaim = async (req, res, next) => {
           lines.push({
             procedureCode: code,
             units: Number(a.units || 1) || 1,
-            chargeCents: 0,
             diagnosisPointers: '1',
             serviceDate: dateOfService
           });
@@ -2621,7 +2609,6 @@ export const createMedicalClaim = async (req, res, next) => {
           lines.push({
             procedureCode: code,
             units: 1,
-            chargeCents: 0,
             diagnosisPointers: '1',
             serviceDate: dateOfService
           });
@@ -2631,37 +2618,13 @@ export const createMedicalClaim = async (req, res, next) => {
       }
     }
 
-    // Fill missing unit charges from agency fee schedule (best-effort).
-    try {
-      const missingCharge = lines.some((l) => !Number(l.chargeCents || 0));
-      if (missingCharge && lines.length) {
-        const codes = [...new Set(lines.map((l) => String(l.procedureCode || '').toUpperCase()).filter(Boolean))];
-        if (codes.length) {
-          const ph = codes.map(() => '?').join(',');
-          const [feeRows] = await clinicalPool.execute(
-            `SELECT procedure_code, unit_price_cents
-             FROM medical_fee_schedule_items
-             WHERE agency_id = ? AND procedure_code IN (${ph}) AND is_active = 1`,
-            [agencyId, ...codes]
-          );
-          const feeByCode = new Map(
-            (feeRows || []).map((r) => [String(r.procedure_code || '').toUpperCase(), Number(r.unit_price_cents || 0)])
-          );
-          lines = lines.map((l) => {
-            if (Number(l.chargeCents || 0) > 0) return l;
-            const unitPrice = feeByCode.get(String(l.procedureCode || '').toUpperCase()) || 0;
-            if (!unitPrice) return l;
-            return { ...l, chargeCents: unitPrice * (Number(l.units || 1) || 1) };
-          });
-        }
-      }
-    } catch (feeErr) {
-      console.warn('[createMedicalClaim] fee schedule lookup skipped', feeErr?.message || feeErr);
-    }
-
     let placeOfService = req.body.placeOfService || sessionRow?.place_of_service || null;
     const insuranceSnapshot = await readClientInsurance(clientId, agencyId);
     const payerName = insuranceSnapshot?.primary?.insurerName || null;
+    if (providerResolutionFailed && lines.some(line => line.chargeCents == null || line.chargeCents === '')) throw Object.assign(new Error('Resolve the claim billing provider before applying its fee schedule.'), { status: 409 });
+    lines = await priceNewClaimLines({ lines, agencyId, payerId: insuranceSnapshot?.primary?.payerId || null,
+      providerUserId: claimProviderMeta?.billingUserId || claimProviderMeta?.renderingUserId || sessionRow?.rendering_provider_user_id || sessionRow?.provider_user_id || null,
+      dateOfService, durationMinutes: sessionDurationMinutes });
 
     // Seed line modifiers from office POS template (e.g. GT for Telehealth)
     try {
@@ -2740,6 +2703,7 @@ export const createMedicalClaim = async (req, res, next) => {
       }),
       metadataJson: {
         createdVia: 'medicalBilling.createMedicalClaim',
+        feeScheduleSnapshot: lines.map(line => ({ serviceCode: line.procedureCode, units: line.units, chargeCents: line.chargeCents, ...line.feeSource })),
         claimBillingMode: claimProviderMeta?.mode || null,
         clinicalVersion,
         billingUserId: claimProviderMeta?.billingUserId || null,

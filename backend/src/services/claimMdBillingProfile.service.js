@@ -21,7 +21,13 @@ async function credentialingGroupNpi(agencyId, officeId, officeNpi) {
 export async function listClaimMdBillingProfiles(agencyId) {
   const [rows] = await pool.execute(`SELECT id, name, practice_name, practice_npi, street_address, city, state, postal_code
     FROM office_locations WHERE agency_id = ? AND is_active = 1 AND use_as_billing_address = 1 ORDER BY name, id`, [agencyId]);
-  return rows;
+  return Promise.all(rows.map(async office => {
+    try { return { ...office, practice_npi: await credentialingGroupNpi(agencyId, office.id, office.practice_npi) }; }
+    catch(error) {
+      if(error.status !== 409)throw error;
+      return { ...office, practice_npi: '', configuration_error:error.message };
+    }
+  }));
 }
 
 export async function getClaimMdBillingProfile(agencyId, officeId, { requireComplete = true } = {}) {
@@ -65,7 +71,7 @@ export async function resolveClaimMdBillingProfile(agencyId, sessionId, { requir
 
 export function assertClaimBillingNpi(profile, billingNpi) {
   if (String(billingNpi || '') !== profile.billingNpi) {
-    throw fail('The claim billing NPI differs from its selected billing office. Correct the billing NPI or the session’s billing office before approval.');
+    throw fail('The claim billing NPI differs from its selected billing office. Select the correct billing office and NPI in Edit billing fields before approval.');
   }
 }
 

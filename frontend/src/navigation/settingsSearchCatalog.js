@@ -32,6 +32,7 @@ export const SETTINGS_DISPLAY_LABELS = {
 
 /** Short descriptions used for search + hub cards. */
 export const SETTINGS_SEARCH_DESCRIPTIONS = {
+  'service-codes': 'Shared service code catalog, CPT, HCPCS, units, time bands, modifiers, billing rules, fee schedules and practice charges.',
   'payment-setup': 'Stripe, bank account, client payments, family billing, copay, self-pay, service prices, receipts, and payment authorizations.',
   'business-journey': 'Step-by-step interview, agreement, setup, onboarding, training, launch, management, organizational interventions, and exit.',
   'business-commercial': 'Signed management terms, services, à-la-carte prices, revenue share, revenue reconciliation, and final service month.',

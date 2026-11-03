@@ -5,7 +5,9 @@ import {readFile} from 'node:fs/promises';
 import mysql from 'mysql2/promise';
 import {importPayerSetupCatalog,listPayerSetupRequests,saveDirectoryPayer} from '../payerSetupCatalog.service.js';
 test('payer imports are scoped, repeatable and do not create enrollment or claim records',{skip:process.env.PAYER_CATALOG_MYSQL_TEST!=='1'},async()=>{
- const db=await mysql.createConnection({host:'127.0.0.1',port:33316,user:'root',database:'mysql'});
+ const socketPath=process.env.PAYER_CATALOG_MYSQL_SOCKET;
+ if(socketPath)assert.ok(socketPath.startsWith('/private/tmp/pt-billing-fees-mysql-20261103/'));
+ const db=await mysql.createConnection(socketPath?{socketPath,user:'root',database:'mysql'}:{host:'127.0.0.1',port:33316,user:'root',database:'mysql'});
  const schema=`payer_catalog_test_${randomUUID().replaceAll('-','')}`;
  try {
   await db.query(`CREATE DATABASE ${schema}`);await db.query(`USE ${schema}`);
@@ -15,6 +17,9 @@ test('payer imports are scoped, repeatable and do not create enrollment or claim
   await db.query("INSERT INTO office_locations VALUES(1,2,'1972246940',1,1),(5,6,'1942945316',1,1),(8,377,'1306688650',1,1)");
   await db.query(`CREATE TABLE medical_payer_setup_requests(id BIGINT AUTO_INCREMENT PRIMARY KEY,agency_id INT,payer_name VARCHAR(120),created_by_user_id INT,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,UNIQUE KEY(agency_id,payer_name))`);
   await db.query(await readFile(new URL('../../../../database/migrations/1499_medical_payer_setup_details.sql',import.meta.url),'utf8'));
+  await db.query('CREATE TABLE insurance_credentialing_definitions(id INT AUTO_INCREMENT PRIMARY KEY,agency_id INT,name VARCHAR(120),sort_order INT DEFAULT 0)');
+  await db.query('CREATE TABLE credentialing_payer_links(agency_id INT,insurance_definition_id INT,payer_id VARCHAR(32),evidence_reference VARCHAR(500),updated_by_user_id INT,PRIMARY KEY(agency_id,insurance_definition_id))');
+  await db.query('CREATE TABLE credentialing_workflow_events(id INT AUTO_INCREMENT PRIMARY KEY,agency_id INT,subject_type VARCHAR(20),record_id INT,actor_user_id INT,before_json JSON,after_json JSON)');
   const catalog=JSON.parse(await readFile(new URL('../../../../docs/billing/payer-import-2026-09-26.json',import.meta.url),'utf8'));
   const input={...catalog,directory:[{payerid:'00050',payer_name:'CO BCBS','1500_claims':'yes'}]};
   await importPayerSetupCatalog(input,db);
@@ -34,6 +39,9 @@ test('payer imports are scoped, repeatable and do not create enrollment or claim
   assert.ok(added); assert.equal((await listPayerSetupRequests(377,db)).length,37);
   assert.equal((await listPayerSetupRequests(2,db)).length,36);
   assert.equal((await listPayerSetupRequests(377,db)).find(r=>r.id===original).directory_status,'id_match');
-  const [tables]=await db.query('SHOW TABLES');assert.equal(tables.length,4);
+  const [[links]]=await db.query('SELECT COUNT(*) AS n FROM credentialing_payer_links WHERE agency_id=377');assert.equal(links.n,2);
+  const [[events]]=await db.query('SELECT COUNT(*) AS n FROM credentialing_workflow_events WHERE agency_id=377');assert.equal(events.n,2);
+  const [[otherLinks]]=await db.query('SELECT COUNT(*) AS n FROM credentialing_payer_links WHERE agency_id=2');assert.equal(otherLinks.n,0);
+  const [tables]=await db.query('SHOW TABLES');assert.equal(tables.length,7);
  }finally{await db.query(`DROP DATABASE IF EXISTS ${schema}`);await db.end();}
 });

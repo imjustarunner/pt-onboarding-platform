@@ -146,6 +146,7 @@ const primarySections = computed(() => {
         fallbackIcon: '📅',
         description: `What this ${noun} sells (counseling, tutoring, coaching, consulting) — unlocks finders, packages, and matching notifications.`
       },
+      { category: 'general', item: 'service-codes', label: 'Service codes', fallbackIcon: '📋', description: 'Shared clinical service codes, unit calculations, time rules, allowed credentials and places of service. Billing fee schedules use this catalog.' },
       {
         category: 'general',
         item: 'tenant-features',

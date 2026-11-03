@@ -1,8 +1,8 @@
 <template>
   <section v-if="canManage" class="provider-billing">
     <header class="billing-header">
-      <div><h2>{{ providerId ? 'Billing' : 'Agency self-pay rates' }}</h2><p>Set service rates independently of insurance billing. New bookings keep a copy of their rate.</p></div>
-      <button class="btn btn-primary" :disabled="loading || saving || !loaded" @click="save">{{ saving ? 'Saving…' : 'Save Changes' }}</button>
+      <div><h2>{{ providerId ? 'Billing' : 'Self-pay settings' }}</h2><p>Set service rates independently of insurance billing. New bookings keep a copy of their rate.</p></div>
+      <button v-if="rows.length || scope === 'agency'" class="btn btn-primary" :disabled="loading || saving || !loaded" @click="save">{{ saving ? 'Saving…' : 'Save Changes' }}</button>
     </header>
     <label v-if="agencies.length" class="agency-select">Agency
       <select v-model="selectedAgency" :disabled="saving"><option v-for="agency in agencies" :key="agency.id" :value="Number(agency.id)">{{ agency.name }}</option></select>
@@ -15,11 +15,13 @@
     <p v-if="success" role="status" class="success">{{ success }}</p>
     <p v-if="loading">Loading rates…</p>
     <template v-else-if="loaded">
+      <div v-if="hasClinicalServices" class="billing-card"><h3>Clinical self-pay rates</h3><p>Clinical service rates use the practice fee schedule, including category defaults and individual provider overrides.</p><router-link v-if="isAdmin" :to="canonicalFeeLocation">Open self-pay fee schedule →</router-link><p v-else>Contact your billing team to update clinical service rates.</p></div>
+      <p v-for="notice in clinicalServiceNotices" :key="notice" class="clinical-service-notice" role="status">{{ notice }}</p>
       <div v-if="scope === 'agency'" class="billing-card">
         <label><input v-model="selfPayOnly" type="checkbox" :disabled="saving" /> This agency accepts self-pay and packages only</label>
         <p>Applies to new appointments. Clinical notes remain available; insurance claims are blocked for these appointments. Existing appointments keep their billing arrangement.</p>
       </div>
-      <div class="billing-card">
+      <div v-if="rows.length || !hasClinicalServices" class="billing-card">
         <h3>Self-Pay Rates <span class="currency">USD</span></h3>
         <p v-if="scope === 'provider'">Only this provider’s assigned practice categories and services appear. Blank overrides use the agency rate; $0 is an explicit free service.</p>
         <p v-else>Set a separate self-pay amount for each service code, such as 90832, 90834 and 90837. Agency rates apply unless a provider has a service override. A blank rate uses the catalog price; these changes do not edit insurance fees or existing appointment quotes.</p>
@@ -56,13 +58,19 @@ const isAdmin = computed(() => ['admin', 'super_admin'].includes(auth.user?.role
 const canManage = computed(() => isAdmin.value || Number(props.providerId)===Number(auth.user?.id));
 const selectedAgency = ref(Number(props.agencyId || props.agencies[0]?.id || 0));
 const scope = ref(props.providerId ? 'provider' : 'agency');
+const hasClinicalServices = ref(false);
+const clinicalServiceNotices = ref([]);
+const canonicalFeeLocation = computed(() => ({ path: `${organizationSlug.value ? `/${organizationSlug.value}` : ''}/admin/medical-billing`, query: { agencyId: String(selectedAgency.value), billingScope: String(selectedAgency.value), billingSection: 'fee-schedules', feeMode: 'self_pay', feeScope: scope.value === 'provider' ? 'provider' : 'practice', feeProviderId: scope.value === 'provider' ? String(props.providerId) : undefined } }));
 const rows = ref([]), selfPayOnly = ref(false), loading = ref(false), saving = ref(false), loaded = ref(false), error = ref(''), success = ref('');
 const endpoint = computed(() => `/tenant-booking/agencies/${selectedAgency.value}${scope.value === 'provider' ? `/providers/${props.providerId}` : ''}/self-pay-rates`);
 const money = cents => cents == null ? 'Not set' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
 let requestVersion = 0;
 function apply(data) {
   selfPayOnly.value = !!data.selfPayOnly;
-  rows.value = (data.services || []).map(row => {
+  hasClinicalServices.value = (data.services || []).some(row => row.canonicalFeeSchedule);
+  clinicalServiceNotices.value = [...new Set((data.services || []).filter(row => row.canonicalFeeSchedule)
+    .map(row => String(row.canonicalServiceNotice || '').trim()).filter(Boolean))];
+  rows.value = (data.services || []).filter(row => !row.canonicalFeeSchedule).map(row => {
     const rate = scope.value === 'provider' ? row.providerRate : row.agencyRate;
     return { ...row, dollars: rate ? (rate.rateCents / 100).toFixed(2) : '', unit: rate?.rateUnit || row.agencyRate?.rateUnit || 'session', useDefault: !rate };
   });
@@ -101,6 +109,7 @@ watch([endpoint, canManage], load, { immediate: true });
 .billing-header { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
 h2, h3 { margin: 0 0 8px; } p, small { color: var(--text-secondary, #64748b); } p { line-height: 1.5; }
 .billing-card { background: var(--bg-primary, white); border: 1px solid #dfe7ee; border-radius: 12px; padding: 22px; margin-top: 18px; }
+.clinical-service-notice { padding: 12px 16px; border-left: 3px solid #ba7a1b; background: #fff7e9; color: #69460f; }
 .billing-tabs { display: flex; gap: 20px; margin-top: 20px; border-bottom: 1px solid #dfe7ee; }
 .billing-tabs button { background: none; border: 0; padding: 14px 4px; font-weight: 600; cursor: pointer; }
 .billing-tabs .active { border-bottom: 3px solid #139b73; color: #08785a; }

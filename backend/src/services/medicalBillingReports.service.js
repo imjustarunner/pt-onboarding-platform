@@ -1,5 +1,6 @@
 import clinicalPool from '../config/clinicalDatabase.js';
 import pool from '../config/database.js';
+import { includesDemoBilling } from './billingTransactionFilters.js';
 
 const REPORT_CATALOG = [
   {
@@ -8,7 +9,7 @@ const REPORT_CATALOG = [
     description: 'Claim amounts, lifecycle, payer, procedures, and Claim.MD status.',
     filters: ['dateRange', 'clientId', 'status', 'serviceCode', 'payer', 'placeOfService', 'search'],
     columns: [
-      ['id', 'Claim ID', 'number'], ['claim_number', 'Claim number', 'text'],
+      ['id', 'Claim ID', 'number'], ['claim_reference', 'Claim reference', 'text'], ['claim_number', 'Payer claim number', 'text'],
       ['date_of_service', 'Service date', 'date'], ['client_display', 'Client', 'text'],
       ['client_id', 'Client ID', 'number'], ['payer_name', 'Payer', 'text'],
       ['procedure_codes', 'Service codes', 'text'], ['place_of_service', 'POS', 'text'],
@@ -25,6 +26,7 @@ const REPORT_CATALOG = [
     filters: ['dateRange', 'clientId', 'status', 'serviceCode', 'payer', 'placeOfService', 'search'],
     columns: [
       ['id', 'Line ID', 'number'], ['clinical_claim_id', 'Claim ID', 'number'],
+      ['claim_reference', 'Claim reference', 'text'], ['claim_number', 'Payer claim number', 'text'],
       ['service_date', 'Service date', 'date'], ['client_display', 'Client', 'text'],
       ['client_id', 'Client ID', 'number'], ['payer_name', 'Payer', 'text'],
       ['procedure_code', 'Service code', 'text'], ['modifiers', 'Modifiers', 'text'],
@@ -137,11 +139,11 @@ const REPORT_CATALOG = [
 
 const catalogByType = new Map(REPORT_CATALOG.map((report) => [report.type, report]));
 const CLINICAL_TABLES = [
-  'clinical_sessions', 'clinical_notes', 'clinical_claims', 'clinical_claim_lines',
+  'clinical_sessions', 'clinical_notes', 'clinical_claims', 'clinical_claim_lines', 'clinical_claim_references',
   'clinical_diagnoses', 'clinical_treatment_plans', 'clinical_treatment_plan_goals',
   'clinical_treatment_plan_objectives', 'medical_fee_schedule_items'
 ];
-const MAIN_TABLES = ['agency_medical_service_codes', 'agency_service_locations', 'office_locations'];
+const MAIN_TABLES = ['agency_medical_service_codes', 'agency_service_locations', 'office_locations', 'clients'];
 const REQUIRED_TABLE_BY_REPORT = {
   claims: ['clinical', 'clinical_claims'],
   claim_lines: ['clinical', 'clinical_claim_lines'],
@@ -250,6 +252,7 @@ async function fetchPaged({ db, select, from, where, params, orderBy, limit, off
 }
 
 async function queryClaims(agencyId, filters, page, schema) {
+  const hasReferences=hasColumn(schema,'clinical','clinical_claim_references','public_reference');
   const hasBillingFoundations = hasColumn(schema, 'clinical', 'clinical_claims', 'claim_lifecycle');
   const hasClaimLines = schema.clinical.has('clinical_claim_lines');
   const dateExpression = hasColumn(schema, 'clinical', 'clinical_claims', 'date_of_service')
@@ -259,6 +262,7 @@ async function queryClaims(agencyId, filters, page, schema) {
     dateExpression
   });
   where.push('c.is_deleted = 0');
+  excludeDemoClaimClients(where,params,filters);
   if (clean(filters.status)) {
     if (hasBillingFoundations) {
       where.push('(LOWER(c.claim_lifecycle) = LOWER(?) OR LOWER(c.claim_status) = LOWER(?))');
@@ -284,6 +288,7 @@ async function queryClaims(agencyId, filters, page, schema) {
     } else where.push('1 = 0');
   }
   const searchFields = ['c.claim_number', 'c.claim_status'];
+  if(hasReferences)searchFields.push('cr.public_reference');
   for (const column of ['payer_name', 'claim_lifecycle', 'claimmd_claim_id', 'claimmd_last_status']) {
     if (hasColumn(schema, 'clinical', 'clinical_claims', column)) searchFields.push(`c.${column}`);
   }
@@ -299,7 +304,7 @@ async function queryClaims(agencyId, filters, page, schema) {
     : `NULL AS procedure_codes, 0 AS line_count, 0 AS total_units`;
   return fetchPaged({
     db: clinicalPool,
-    select: `c.id, c.clinical_session_id, c.client_id, c.claim_number, c.claim_status, c.amount_cents,
+    select: `c.id, c.clinical_session_id, c.client_id, c.claim_number, ${hasReferences?'cr.public_reference':'NULL'} AS claim_reference, c.claim_status, c.amount_cents,
       c.currency_code, ${selectColumn(schema, 'clinical', 'clinical_claims', 'payer_name', 'c.payer_name')},
       ${selectColumn(schema, 'clinical', 'clinical_claims', 'place_of_service', 'c.place_of_service')},
       ${selectColumn(schema, 'clinical', 'clinical_claims', 'date_of_service', 'c.date_of_service')},
@@ -309,7 +314,7 @@ async function queryClaims(agencyId, filters, page, schema) {
       c.created_by_user_id, c.created_at, c.updated_at,
       (SELECT ${providerColumn} FROM clinical_sessions s WHERE s.id = c.clinical_session_id LIMIT 1) AS provider_user_id,
       ${claimLineSelect}`,
-    from: 'clinical_claims c', where, params, orderBy: `${dateExpression} DESC, c.id DESC`, ...page,
+    from: `clinical_claims c${hasReferences?' LEFT JOIN clinical_claim_references cr ON cr.clinical_claim_id=c.id AND cr.agency_id=c.agency_id':''}`, where, params, orderBy: `${dateExpression} DESC, c.id DESC`, ...page,
     summarySelect: `COUNT(*) AS record_count, COUNT(DISTINCT c.client_id) AS client_count,
       COALESCE(SUM(c.amount_cents), 0) AS total_amount_cents,
       SUM(CASE WHEN LOWER(${hasBillingFoundations ? 'c.claim_lifecycle' : 'c.claim_status'}) = 'paid' THEN 1 ELSE 0 END) AS paid_count,
@@ -317,20 +322,27 @@ async function queryClaims(agencyId, filters, page, schema) {
   });
 }
 
-async function queryClaimLines(agencyId, filters, page) {
-  const from = 'clinical_claim_lines l JOIN clinical_claims c ON c.id = l.clinical_claim_id';
+function excludeDemoClaimClients(where,params,filters) {
+  const ids=filters.excludedDemoClientIds || [];
+  if(ids.length){where.push(`c.client_id NOT IN (${ids.map(()=>'?').join(',')})`);params.push(...ids);}
+}
+
+async function queryClaimLines(agencyId, filters, page, schema) {
+  const hasReferences=hasColumn(schema,'clinical','clinical_claim_references','public_reference');
+  const from = `clinical_claim_lines l JOIN clinical_claims c ON c.id = l.clinical_claim_id${hasReferences?' LEFT JOIN clinical_claim_references cr ON cr.clinical_claim_id=c.id AND cr.agency_id=c.agency_id':''}`;
   const { where, params } = baseFilters('c', agencyId, filters, {
     dateExpression: 'COALESCE(l.service_date, c.date_of_service, c.created_at)'
   });
   where.push('c.is_deleted = 0');
+  excludeDemoClaimClients(where,params,filters);
   if (clean(filters.status)) { where.push('LOWER(c.claim_lifecycle) = LOWER(?)'); params.push(clean(filters.status)); }
   if (clean(filters.serviceCode)) { where.push('l.procedure_code = ?'); params.push(clean(filters.serviceCode).toUpperCase()); }
   if (clean(filters.payer)) { where.push('c.payer_name LIKE ?'); params.push(`%${clean(filters.payer)}%`); }
   if (clean(filters.placeOfService)) { where.push('c.place_of_service = ?'); params.push(clean(filters.placeOfService)); }
-  addLike(where, params, ['c.claim_number', 'c.payer_name', 'c.claim_lifecycle', 'l.procedure_code', 'l.diagnosis_pointers'], filters.search);
+  addLike(where, params, ['c.claim_number', 'c.payer_name', 'c.claim_lifecycle', 'l.procedure_code', 'l.diagnosis_pointers',...(hasReferences?['cr.public_reference']:[])], filters.search);
   return fetchPaged({
     db: clinicalPool,
-    select: `l.id, l.clinical_claim_id, c.client_id, c.claim_number, c.payer_name, c.place_of_service,
+    select: `l.id, l.clinical_claim_id, c.client_id, c.claim_number, ${hasReferences?'cr.public_reference':'NULL'} AS claim_reference, c.payer_name, c.place_of_service,
       c.claim_lifecycle, l.service_date, l.procedure_code,
       CASE WHEN l.modifiers_json IS NULL THEN NULL ELSE JSON_UNQUOTE(JSON_EXTRACT(l.modifiers_json, '$')) END AS modifiers,
       l.units, l.charge_cents, l.diagnosis_pointers, l.created_at`,
@@ -594,7 +606,12 @@ export async function runMedicalBillingReport({ agencyId, type, filters = {}, li
       notice: reportWithAvailability.unavailableReason
     };
   }
-  const result = await queryByType[report.type](Number(agencyId), filters, { limit: safeLimit, offset: safeOffset }, schema);
+  let excludedDemoClientIds=[];
+  if(['claims','claim_lines'].includes(report.type)&&!includesDemoBilling(filters)&&hasColumn(schema,'main','clients','is_demo')) {
+    const [clients]=await pool.execute('SELECT id FROM clients WHERE agency_id=? AND is_demo=1',[Number(agencyId)]);
+    excludedDemoClientIds=clients.map(client=>Number(client.id)).filter(Number.isSafeInteger);
+  }
+  const result = await queryByType[report.type](Number(agencyId), {...filters,excludedDemoClientIds}, { limit: safeLimit, offset: safeOffset }, schema);
   return {
     report: reportWithAvailability,
     rows: await enrichPeople(result.rows || [], Number(agencyId)),

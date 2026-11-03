@@ -1,9 +1,10 @@
 <template>
   <div v-if="canRunBillingReports" class="mb-page">
     <header class="mb-header">
-      <h1>Medical Billing</h1>
-      <router-link v-if="canRunBillingReports" :to="{name: 'FamilyBillingDesk',params:{organizationSlug:billingAgencySlug || agencyStore.currentAgency?.slug},query:{agencyId}}">Family balances, payment setup & collections →</router-link>
-      <p class="muted">
+      <h1>{{ serviceCodesOnly ? 'Service codes' : 'Medical Billing' }}</h1>
+      <router-link v-if="serviceCodesOnly" :to="feeScheduleLocation">Open fee schedules →</router-link>
+      <router-link v-else-if="canRunBillingReports" :to="{name: 'FamilyBillingDesk',params:{organizationSlug:billingAgencySlug || agencyStore.currentAgency?.slug},query:{agencyId}}">Family balances, payment setup & collections →</router-link>
+      <p v-if="!serviceCodesOnly" class="muted">
         {{ billingAgencyId ? 'Service codes, locations, claims, and clearinghouse settings for this company.' : 'Chart, signing, claims, and Claim.MD — available when enabled for this organization.' }}
       </p>
     </header>
@@ -16,6 +17,7 @@
       </p>
     </div>
     <template v-else>
+      <template v-if="!serviceCodesOnly">
       <section class="mb-card">
         <h2>Status</h2>
         <p>
@@ -104,8 +106,9 @@
         <p v-else class="muted">No notes waiting for cosign.</p>
       </section>
 
-      <section class="mb-card">
-        <h2>Service codes</h2>
+      </template>
+      <section v-if="serviceCodesOnly" class="mb-card">
+        <h2>Catalog and billing rules</h2>
         <p class="muted">
           Add codes missing from the catalog. Configure single-unit vs multi-unit, minutes per unit,
           Medicaid 8-minute bands, min/max time, and an overflow code when duration is too long.
@@ -194,7 +197,8 @@
         </ul>
         <p v-if="!serviceCodes.length" class="muted">No agency medical service codes yet.</p>
       </section>
-
+      <template v-if="!serviceCodesOnly">
+      <section class="mb-card"><h2>Service codes and fee schedules</h2><p>Manage the shared code catalog and unit rules in Settings. Set practice, payer, provider and self-pay charges in Fee schedules.</p><router-link :to="serviceCodeSettingsLocation">Service code settings →</router-link> · <router-link :to="feeScheduleLocation">Fee schedules →</router-link></section>
       <section class="mb-card">
         <h2>Service locations</h2>
         <p class="muted">
@@ -352,15 +356,6 @@
         </ul>
         <p v-if="!claimOverrides.length" class="muted">No claim overrides yet.</p>
 
-        <h3 style="margin-top: 1.25rem;">Fee schedule</h3>
-        <div class="mb-row">
-          <input v-model="feeCode" class="mb-input" placeholder="Procedure code" />
-          <input v-model.number="feeCents" class="mb-input" type="number" placeholder="Unit price (cents)" />
-          <button type="button" class="mb-btn" @click="addFeeItem">Add</button>
-        </div>
-        <ul class="mb-list">
-          <li v-for="f in feeItems" :key="f.id">{{ f.procedure_code }} — {{ formatCents(f.unit_price_cents) }}</li>
-        </ul>
       </section>
 
       <ClaimMdWorkspace v-if="canRunBillingReports" ref="claimMdWorkspace" :key="agencyId" :agency-id="agencyId" :connection="claimMd" @updated="loadClaims" />
@@ -379,6 +374,7 @@
         </div>
         <pre v-if="claimMdLog" class="mb-log">{{ claimMdLog }}</pre>
       </section>
+      </template>
     </template>
     <p v-if="error" class="mb-error">{{ error }}</p>
   </div>
@@ -394,10 +390,13 @@ import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import MedicalBillingReportsPanel from '../../components/admin/MedicalBillingReportsPanel.vue';
 
-const props = defineProps({ billingAgencyId: { type: Number, default: null }, billingAgencySlug: { type: String, default: '' } });
+const props = defineProps({ billingAgencyId: { type: Number, default: null }, billingAgencySlug: { type: String, default: '' }, serviceCodesOnly: { type: Boolean, default: false } });
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 const agencyId = computed(() => Number(props.billingAgencyId || agencyStore.currentAgency?.id || 0));
+const scopedSlug = computed(() => props.billingAgencySlug || (agencyStore.agencies || []).find(a => Number(a.id) === agencyId.value)?.slug || '');
+const feeScheduleLocation = computed(() => ({ path: scopedSlug.value ? `/${scopedSlug.value}/admin/medical-billing` : '/admin/medical-billing', query: { agencyId: String(agencyId.value), billingSection: 'fee-schedules' } }));
+const serviceCodeSettingsLocation = computed(() => ({ path: scopedSlug.value ? `/${scopedSlug.value}/admin/settings` : '/admin/settings', query: { agencyId: String(agencyId.value), category: 'general', item: 'service-codes' } }));
 const canRunBillingReports = computed(() => canAccessMedicalBilling(authStore.user, agencyId.value));
 const canManageCredentials = computed(() => ['admin', 'super_admin'].includes(authStore.user?.role));
 const claimMdWorkspace = ref(null);
@@ -430,9 +429,6 @@ const emptyOverride = () => ({
 });
 const overrideForm = ref(emptyOverride());
 const editOverride = o => { overrideForm.value = { id:o.id,isActive:true,scope:o.scope,fieldKey:o.field_key,payerId:o.payer_id || '',planType:o.plan_type || '',clientId:o.client_id,claimId:o.claim_id,fromValue:o.from_value || '',toValue:o.to_value,reason:'',policyReference:o.policy_reference || '',effectiveFrom:String(o.effective_from || '').slice(0,10),effectiveThrough:String(o.effective_through || '').slice(0,10) }; };
-const feeItems = ref([]);
-const feeCode = ref('');
-const feeCents = ref(0);
 const accountId = ref('');
 const accountKey = ref('');
 const claimMdLog = ref('');
@@ -822,9 +818,6 @@ const loadClaims = async () => {
     const res = await api.get('/medical-billing/claims', { params: { agencyId: agencyId.value } });
     if (requestedAgency !== agencyId.value) return;
     claims.value = res?.data?.claims || [];
-    const fee = await api.get('/medical-billing/fee-schedule', { params: { agencyId: agencyId.value } });
-    if (requestedAgency !== agencyId.value) return;
-    feeItems.value = fee?.data?.items || [];
     await loadClaimOverrides();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load claims';
@@ -882,21 +875,6 @@ const quickClaimPosOverride = async (claim) => {
   document.querySelector('[aria-label="Override reason"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 };
 
-const addFeeItem = async () => {
-  try {
-    await api.post('/medical-billing/fee-schedule', {
-      agencyId: agencyId.value,
-      procedureCode: feeCode.value,
-      unitPriceCents: feeCents.value
-    });
-    feeCode.value = '';
-    feeCents.value = 0;
-    await loadClaims();
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to add fee item';
-  }
-};
-
 const saveCredentials = async () => {
   try {
     await api.post('/medical-billing/claimmd/credentials', {
@@ -923,13 +901,14 @@ const loadEras = async () => {
 
 watch(agencyId, async () => {
   overrideForm.value = emptyOverride();
-  claims.value = []; feeItems.value = []; claimOverrides.value = []; claimMdLog.value = ''; chart.value = null;
+  claims.value = []; claimOverrides.value = []; claimMdLog.value = ''; chart.value = null;
   claimMd.value = { configured: false }; flags.value = { medicalBillingEnabled: false }; error.value = '';
   if (!canRunBillingReports.value) { loading.value = false; return; }
   const id = agencyId.value;
   await loadStatus();
   if (id !== agencyId.value) return;
-  await Promise.all([loadSigningNotes(), loadClaims(), loadServiceCodes(), loadServiceLocations()]);
+  if (props.serviceCodesOnly) await loadServiceCodes();
+  else await Promise.all([loadSigningNotes(), loadClaims(), loadServiceLocations()]);
 }, { immediate: true });
 
 </script>

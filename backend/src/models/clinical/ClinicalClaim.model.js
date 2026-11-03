@@ -1,3 +1,4 @@
+import { attachClaimReferences } from '../../services/clinicalClaimReferences.service.js';
 import clinicalPool from '../../config/clinicalDatabase.js';
 
 class ClinicalClaim {
@@ -51,6 +52,7 @@ class ClinicalClaim {
     );
     if (!result.affectedRows) throw Object.assign(new Error('Claim creation is blocked for this session or client'), { status: 409 });
     const [rows] = await db.execute('SELECT * FROM clinical_claims WHERE id = ?', [result.insertId]);
+    await attachClaimReferences(rows, db);
     return rows[0];
   }
 
@@ -64,6 +66,7 @@ class ClinicalClaim {
        LIMIT 1`,
       [cid]
     );
+    await attachClaimReferences(rows, clinicalPool);
     return rows?.[0] || null;
   }
 
@@ -81,6 +84,7 @@ class ClinicalClaim {
        ORDER BY created_at DESC`,
       [sid, includeDeleted ? 1 : 0]
     );
+    await attachClaimReferences(rows, clinicalPool);
     return rows || [];
   }
 
