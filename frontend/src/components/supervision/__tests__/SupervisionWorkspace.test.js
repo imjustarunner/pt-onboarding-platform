@@ -7,6 +7,8 @@ vi.mock('../../../services/api', () => ({ default: { get: m.get, post: vi.fn() }
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 10, role: 'super_admin' } }) }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: { id: 2 }, agencies: [] }) }));
 vi.mock('vue-router', () => ({ useRoute: () => m.route, useRouter: () => ({ push: m.push, replace: m.replace }) }));
+vi.mock('../SuperviseeWorkPanel.vue', () => ({ default: { name: 'SuperviseeWorkPanel', template: '<div />' } }));
+vi.mock('../SuperviseeSessionHistory.vue', () => ({ default: { name: 'SuperviseeSessionHistory', template: '<div />' } }));
 import SupervisionModal from '../SupervisionModal.vue';
 
 const assignment = { supervisee_id: 20, agency_id: 2, supervisee_first_name: 'DEMO', supervisee_last_name: 'Provider' };
@@ -28,7 +30,7 @@ beforeEach(() => {
     url.endsWith('/workspace') ? { items: [{ id: 6, document_title: 'Demo policy' }], total: 1 } : {}
   }));
 });
-afterEach(() => wrapper?.unmount());
+afterEach(async () => { wrapper?.unmount(); await vi.dynamicImportSettled(); });
 async function open() {
   wrapper = shallowMount(SupervisionModal, { global: { stubs: { RouterLink: true, SuperviseeSessionHistory: true, SuperviseeWorkPanel: true } } });
   await flushPromises();
