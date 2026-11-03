@@ -5,8 +5,9 @@ export const DEFAULT_STALE_TEXT_HOURS = 24;
 export const STALE_TEXT_QUERY = `WITH unanswered_texts AS (
   SELECT ml.id, ml.agency_id, ml.number_id, ml.client_id, ml.body,
     ml.from_number, ml.to_number, ml.is_read, ml.created_at, ml.sms_thread_key,
-    LEAST(168,GREATEST(1,COALESCE(CAST(JSON_UNQUOTE(
-      JSON_EXTRACT(a.feature_flags,'$.smsSupportEscalationHours')) AS UNSIGNED),${DEFAULT_STALE_TEXT_HOURS}))) AS stale_hours,
+    CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(a.feature_flags,'$.smsSupportEscalationHours')) REGEXP '^[1-9][0-9]*$'
+      THEN LEAST(168,CAST(JSON_UNQUOTE(JSON_EXTRACT(a.feature_flags,'$.smsSupportEscalationHours')) AS UNSIGNED))
+      ELSE ${DEFAULT_STALE_TEXT_HOURS} END AS stale_hours,
     ROW_NUMBER() OVER (PARTITION BY ml.agency_id,ml.number_id,ml.client_id,ml.sms_thread_key
       ORDER BY ml.created_at,ml.id) AS unanswered_position
   FROM message_logs ml JOIN agencies a ON a.id=ml.agency_id

@@ -80,4 +80,7 @@ it.runIf(enabled)('a same-second answer uses message order and an explicit agenc
   expect(await selected([{id:2},{id:1,direction:'OUTBOUND',delivery:'sent'}])).toEqual([2]);
   expect(await selected([{id:1,age:43200}],[],12)).toEqual([1]);
   expect(await selected([{id:1,thread:null}])).toEqual([]);
+  for (const invalid of [0,-1,'null','',false,'invalid']) {
+    expect(await selected([{id:1,age:43200}],[],invalid)).toEqual([]);
+  }
 });
