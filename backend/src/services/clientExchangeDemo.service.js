@@ -1,9 +1,9 @@
 import pool from '../config/database.js';
-import { hasDemoExchangeEmail } from '../utils/clientExchangeDemo.js';
+import { hasClientDemoIdentity } from '../utils/clientExchangeDemo.js';
 
 const parse = value => { if (typeof value !== 'string') return value; try { return JSON.parse(value); } catch { return null; } };
 export async function isDemoExchangeClient({ clientId, agencyId, client, database = pool }) {
-  if (hasDemoExchangeEmail(client) || hasDemoExchangeEmail(parse(client?.intake_preferences_json))) return true;
+  if (hasClientDemoIdentity(client) || hasClientDemoIdentity(parse(client?.intake_preferences_json))) return true;
   const id = Number(clientId || client?.id), agency = Number(agencyId || client?.agency_id);
   if (!id || !agency) return false;
   const [[row]] = await database.execute(`SELECT c.id,c.email,c.intake_preferences_json,
@@ -13,7 +13,7 @@ export async function isDemoExchangeClient({ clientId, agencyId, client, databas
         OR LOWER(TRIM(COALESCE(u.work_email,''))) REGEXP '@(.*[.])?example([.]com)?$')) AS demo_guardian_email
     FROM clients c WHERE c.id=? AND c.agency_id=? LIMIT 1`, [id,agency]);
   return Number(row?.id) === id && (Number(row.demo_guardian_email) === 1
-    || hasDemoExchangeEmail(row) || hasDemoExchangeEmail(parse(row.intake_preferences_json)));
+    || hasClientDemoIdentity(row) || hasClientDemoIdentity(parse(row.intake_preferences_json)));
 }
 
 export async function isDemoExchangeListing({ listingId, agencyId, database = pool }) {

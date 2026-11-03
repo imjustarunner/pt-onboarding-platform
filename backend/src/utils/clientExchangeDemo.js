@@ -14,3 +14,12 @@ export function hasDemoExchangeEmail(value) {
 }
 
 export const DEMO_EXCHANGE_REASON = 'Demo referral: provider visibility, email, text and push notifications are suppressed.';
+
+// Client.findById also carries organization settings and provider metadata.
+// Only client/family identity sections may determine this client's demo status.
+export function hasClientDemoIdentity(value) {
+  if (!value || typeof value !== 'object') return false;
+  const identity = Object.fromEntries(Object.entries(value).filter(([key]) =>
+    /^(?:(?:client|contact|parent|guardian|personal|work)?_?email|guardians?|contacts?|parents?|self|adult|primaryContact|contactDetails|registration|enrollment|exchangeReferral|demographics)$/i.test(key)));
+  return hasDemoExchangeEmail(identity);
+}

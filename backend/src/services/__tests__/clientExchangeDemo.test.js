@@ -26,3 +26,9 @@ it('blocks queued provider mail while allowing the dedicated staff-only report t
  expect(await blockDemoExchangeEmail({templateType:'client_exchange_shared',agencyId:2})).toBe(true);
  expect(await blockDemoExchangeEmail({templateType:'client_exchange_demo_audit',agencyId:2})).toBe(false);
 });
+it('does not classify a real client from demo provider addresses in organization settings or matching metadata',async()=>{
+ pool.execute.mockResolvedValue([[{id:3,email:'real@family.test',demo_guardian_email:0}]]);
+ expect(await isDemoExchangeClient({client:{id:3,agency_id:2,email:'real@family.test',
+   organization_feature_flags:{qaSandbox:{exchangeProviders:[{email:'provider@example.com'}]}},
+   intake_preferences_json:{preferredProvider:{email:'provider@example.com'},providerEmail:'provider@example.com'}}})).toBe(false);
+});
