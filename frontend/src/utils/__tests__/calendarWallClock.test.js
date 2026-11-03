@@ -24,3 +24,19 @@ it('keeps Voided distinct from the canceled calendar-event flag and retains miss
  expect(calendarSessionState({isCancelled:true,appointmentStatus:'late_canceled'})).toBe('Cancelled');
  expect(calendarSessionState({appointmentStatus:'no_show'})).toBe('Missed');
 });
+
+it('returns independent Dates and separates timezones and changed instants in the cache',()=>{
+ const raw='2027-02-04T18:15:00Z';
+ const first=calendarWallDate(raw,'America/Denver');first.setHours(23);
+ expect(calendarWallDate(raw,'America/Denver').getHours()).toBe(11);
+ expect(calendarWallDate(raw,'America/New_York').getHours()).toBe(13);
+ expect(calendarWallDate('2027-02-04T19:15:00Z','America/Denver').getHours()).toBe(12);
+ expect(calendarWallDate('invalid','America/Denver')).toBeNull();
+});
+it('formats a repeated instant once instead of once per calendar cell or hover',()=>{
+ const spy=vi.spyOn(Intl.DateTimeFormat.prototype,'formatToParts');
+ try {
+  for(let i=0;i<1000;i++)calendarWallDate('2028-03-04T19:15:00Z','America/Denver');
+  expect(spy).toHaveBeenCalledTimes(1);
+ }finally{spy.mockRestore()}
+});

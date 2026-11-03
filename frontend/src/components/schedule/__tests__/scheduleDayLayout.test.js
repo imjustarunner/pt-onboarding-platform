@@ -116,3 +116,18 @@ it('does not overlap pending alert requests or let an old provider overwrite the
   finish({data:{alerts:[{appointmentId:91,text:'Other provider'}]}});await flushPromises();
   expect(state.staffAlertForBlock({appointmentId:91})).toBe('');
 });
+
+it('reuses cell projections on hover and clock ticks but updates them after schedule changes', async () => {
+  m.summary.scheduleEvents=[{id:71,kind:'SCHEDULE_HOLD',agencyId:2,title:'Original',startAt:'2026-10-13T15:00:00Z',endAt:'2026-10-13T16:00:00Z'}];
+  const state=await mount();
+  const hour=state.parseGridEventDate(m.summary.scheduleEvents[0].startAt).getHours();
+  const before=state.cellBlocks('Tuesday',hour);
+  expect(before.some(b=>b.eventId===71)).toBe(true);
+  state.hoveredBlockKey='hover-test';state.joinPromptNowMs+=15000;await flushPromises();
+  expect(state.cellBlocks('Tuesday',hour)).toBe(before);
+  state.rawSummary.scheduleEvents[0].title='Changed';await flushPromises();
+  expect(state.cellBlocks('Tuesday',hour)).not.toBe(before);
+  expect(state.cellBlocks('Tuesday',hour).some(b=>b.title.includes('Changed'))).toBe(true);
+  state.rawSummary.scheduleEvents=[];await flushPromises();
+  expect(state.cellBlocks('Tuesday',hour).some(b=>b.eventId===71)).toBe(false);
+});

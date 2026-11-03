@@ -11617,7 +11617,19 @@ const shortOfficeLabel = (topEvent, fallback) => {
   return fallback;
 };
 
+// Each cell tracks only its display dependencies. Hover, scrolling and unrelated
+// API completions must not rebuild every event/timezone intersection in the grid.
+const cellBlockCache = new Map();
 const cellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = false) => {
+  const key = `${dayName}|${hour}|${minute}|${expanded}|${forLayout}`;
+  if (!cellBlockCache.has(key)) {
+    cellBlockCache.set(key, computed(() => buildCellBlocks(dayName, hour, minute, expanded, forLayout)));
+  }
+  return cellBlockCache.get(key).value;
+};
+onUnmounted(() => cellBlockCache.clear());
+
+const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout = false) => {
   const blocks = [];
   const singleDayFocused = visibleDays.value.length === 1;
   const unlimited = expanded || forLayout || scheduleSideBySide.value;
