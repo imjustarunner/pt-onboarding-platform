@@ -6,6 +6,10 @@ on:
       - main
     paths:
       - 'frontend/**'
+      # Frontend readiness binds to a backend release commit. Deploy both
+      # sides for backend-only changes so ordinary pushes keep build IDs paired.
+      - 'backend/**'
+      - 'database/clinical_migrations/**'
       - 'scripts/check-school-demo-release.test.mjs'
       - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:

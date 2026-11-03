@@ -1,11 +1,16 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import mysql from 'mysql2/promise';
 import crypto from 'node:crypto';
-const state = vi.hoisted(() => ({ pool: null }));
+const state = vi.hoisted(() => ({ pool: null, clinicalUnavailable: false }));
 vi.mock('../../config/database.js', () => ({ default: {
  execute: (...args) => state.pool.execute(...args), getConnection: () => state.pool.getConnection()
 }, onTableWrite: vi.fn() }));
-vi.mock('../../config/clinicalDatabase.js', () => ({ default: { getConnection: async () => { throw new Error('This fixture uses one database'); } } }));
+vi.mock('../../config/clinicalDatabase.js', () => ({ default: { getConnection: async () => {
+ if (state.clinicalUnavailable) throw new Error('Synthetic clinical store unavailable');
+ // A shared-database deployment still has an available clinical connection.
+ // Use a separate connection so each service retains its own transaction.
+ return state.pool.getConnection();
+} } }));
 import { mergeClients } from '../identityHygiene.service.js';
 import { enrollmentOptions } from '../guardianEnrollmentStart.service.js';
 import { CLIENT_MERGE_FIELDS } from '../../utils/identityHygiene.js';
@@ -29,6 +34,7 @@ describe.skipIf(!process.env.EVIDENCE_TEST_SOCKET && !process.env.EVIDENCE_TEST_
    CREATE TABLE co_guardian_invite_clients (invite_id INT, client_id INT, PRIMARY KEY(invite_id,client_id));
    CREATE TABLE client_guardian_intake_profiles (id INT PRIMARY KEY, client_id INT UNIQUE, profile_encrypted TEXT);
    CREATE TABLE client_status_history (id INT AUTO_INCREMENT PRIMARY KEY, client_id INT, changed_by_user_id INT, field_changed VARCHAR(64), from_value TEXT, to_value TEXT, note TEXT);
+   CREATE TABLE clinical_notes (id INT PRIMARY KEY,agency_id INT,client_id INT,provider_signed_at DATETIME NULL,is_deleted TINYINT NOT NULL DEFAULT 0);
    CREATE TABLE agencies (id INT PRIMARY KEY, name VARCHAR(255));
    CREATE TABLE user_agencies (user_id INT, agency_id INT);
    CREATE TABLE intake_links (id INT PRIMARY KEY, organization_id INT, language_code VARCHAR(3), scope_type VARCHAR(32), form_type VARCHAR(32), inherits_school_master INT DEFAULT 0, is_school_master INT DEFAULT 0, is_office_master INT DEFAULT 0, is_active INT DEFAULT 1);
@@ -44,7 +50,8 @@ describe.skipIf(!process.env.EVIDENCE_TEST_SOCKET && !process.env.EVIDENCE_TEST_
   `);
  });
  beforeEach(async () => {
-  for (const table of ['clients','client_guardians','intake_submissions','intake_submission_clients','intake_submission_documents','client_phi_documents','co_guardian_invite_clients','client_guardian_intake_profiles','client_status_history']) await state.pool.query(`DELETE FROM ${table}`);
+  state.clinicalUnavailable = false;
+  for (const table of ['clients','client_guardians','intake_submissions','intake_submission_clients','intake_submission_documents','client_phi_documents','co_guardian_invite_clients','client_guardian_intake_profiles','client_status_history','clinical_notes']) await state.pool.query(`DELETE FROM ${table}`);
   await state.pool.query(`
    INSERT INTO clients (id,agency_id,full_name,date_of_birth,status,identifier_code) VALUES (1,450,'Synthetic Child','2015-01-01','PACKET','100001'),(2,450,'Synthetic Child','2015-01-01','PACKET','100002');
    INSERT INTO client_guardians (client_id,guardian_user_id,relationship_type,access_enabled,permissions_json) VALUES (1,8,'guardian',1,'{}'),(2,8,'guardian',1,'{}'),(2,9,'guardian',1,'{}');
@@ -87,5 +94,20 @@ describe.skipIf(!process.env.EVIDENCE_TEST_SOCKET && !process.env.EVIDENCE_TEST_
   await state.pool.query('UPDATE clients SET agency_id=2 WHERE id=2');
   await expect(mergeClients({ keepId: 1, sourceIds: [2], actorUserId: 40 })).rejects.toThrow('different agencies');
   const [[client]] = await state.pool.query('SELECT status FROM clients WHERE id=2');expect(client.status).toBe('PACKET');
+ });
+ it('preserves enrollment, source identity and signed clinical records when a source note is signed', async () => {
+  await state.pool.query("INSERT INTO clinical_notes(id,agency_id,client_id,provider_signed_at,is_deleted) VALUES(7,450,2,'2026-10-01 12:00:00',1)");
+  await expect(mergeClients({ keepId: 1, sourceIds: [2], actorUserId: 40 })).rejects.toHaveProperty('status', 409);
+  const [[client]] = await state.pool.query('SELECT status,identifier_code FROM clients WHERE id=2');expect(client).toEqual({status:'PACKET',identifier_code:'100002'});
+  const [[copy]] = await state.pool.query('SELECT client_id,signed_pdf_path FROM intake_submission_documents WHERE id=1');expect(copy).toEqual({client_id:2,signed_pdf_path:'a-signed.pdf'});
+  const [[note]] = await state.pool.query('SELECT client_id,is_deleted FROM clinical_notes WHERE id=7');expect(note).toEqual({client_id:2,is_deleted:1});
+  const [[audit]] = await state.pool.query('SELECT COUNT(*) AS n FROM client_status_history');expect(audit.n).toBe(0);
+ });
+ it('fails closed without modifying enrollment when clinical storage is genuinely unavailable', async () => {
+  state.clinicalUnavailable = true;
+  await expect(mergeClients({ keepId: 1, sourceIds: [2], actorUserId: 40 })).rejects.toHaveProperty('status', 503);
+  const [[client]] = await state.pool.query('SELECT status,identifier_code FROM clients WHERE id=2');expect(client).toEqual({status:'PACKET',identifier_code:'100002'});
+  const [[copy]] = await state.pool.query('SELECT client_id FROM intake_submissions WHERE id=102');expect(copy.client_id).toBe(2);
+  const [[audit]] = await state.pool.query('SELECT COUNT(*) AS n FROM client_status_history');expect(audit.n).toBe(0);
  });
 });
