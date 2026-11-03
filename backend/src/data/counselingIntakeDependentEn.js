@@ -338,7 +338,7 @@ function partAFamilyContact() {
       }),
       field({
         key: 'emergency_contact_phone',
-        label: 'Phone',
+        label: 'Emergency contact phone',
         type: 'tel',
         scope: 'guardian',
         section: 'Emergency contact'

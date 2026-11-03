@@ -119,7 +119,7 @@ function primaryContact() {
       field({ key: 'pc_address_state', label: 'State', type: 'text', scope: 'guardian' }),
       field({ key: 'pc_emergency_name', label: 'Emergency contact — Name', type: 'text', scope: 'guardian' }),
       field({ key: 'pc_emergency_relationship', label: 'Relationship', type: 'text', scope: 'guardian' }),
-      field({ key: 'pc_emergency_phone', label: 'Phone', type: 'tel', scope: 'guardian' }),
+      field({ key: 'pc_emergency_phone', label: 'Emergency contact phone', type: 'tel', scope: 'guardian' }),
       field({
         key: 'pc_family_role',
         label: 'Your relationship to the family',

@@ -93,6 +93,45 @@ it.each(['en', 'es'])('Skip Now reaches required safety in %s without completing
   expect(wrapper.vm.currentFlowStep.id).toBe('communications');
 });
 
+it('keeps child safety when Skip Now drops optional questionnaires', async () => {
+  await render([
+    question('about', 'child_legal_first', { audience: 'dependent' }),
+    { id: 'counseling_dep_safety', type: 'questions', label: 'Safety', audience: 'dependent', fields: [
+      { key: 'asq_wish_dead', label: 'Have you wished you were dead?', type: 'radio', options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] }
+    ] },
+    { id: 'questionnaires', type: 'clinical_questions', label: 'Questionnaires', audience: 'dependent', fields: [
+      { key: 'psc_1', label: 'PSC', type: 'radio', instrument: 'psc17' }
+    ] }
+  ], { subject: 'dependent' });
+  const about = wrapper.vm.flowSteps.findIndex(step => String(step.id).startsWith('about'));
+  expect(about).toBeGreaterThanOrEqual(0);
+  wrapper.vm.currentFlowIndex = about;
+  await flushPromises();
+  await wrapper.vm.handleCurrentFlowContinue();
+  await flushPromises();
+  await wrapper.vm.onOfficeSkipNow();
+  await flushPromises();
+  const ids = wrapper.vm.flowSteps.map(step => step.id);
+  expect(ids.some(id => String(id).includes('safety'))).toBe(true);
+  expect(ids.some(id => String(id).includes('questionnaire'))).toBe(false);
+  expect(wrapper.vm.flowSteps.find(step => String(step.id).includes('safety')).fields.some(field => field.key === 'asq_wish_dead')).toBe(true);
+});
+
+it('copies the family opening contact onto Primary Contact', async () => {
+  const contact = buildCounselingFamilyEnSteps().find(step => step.id === 'counseling_family_primary_contact');
+  await render([contact], { subject: 'family', startId: 'counseling_family_primary_contact' });
+  Object.assign(wrapper.vm, {
+    guardianFirstName: 'Demo', guardianLastName: 'Parent', guardianEmail: 'demo@example.com',
+    guardianPhone: '2025550100', starterDob: '1984-05-20', serviceSubject: 'family', intakeForSelf: false
+  });
+  await wrapper.vm.applyStarterDataAndContinue();
+  await flushPromises();
+  expect(wrapper.vm.intakeResponses.guardian).toMatchObject({
+    pc_legal_first: 'Demo', pc_legal_last: 'Parent', pc_email: 'demo@example.com',
+    pc_phone: '2025550100', pc_date_of_birth: '1984-05-20'
+  });
+});
+
 it('names the missing last name, focuses it and translates an existing error on a language switch', async () => {
   await render([question('identity', 'legal_first_name')]);
   wrapper.vm.step = 0.5;

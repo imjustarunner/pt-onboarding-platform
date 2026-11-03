@@ -259,6 +259,7 @@ export const OFFICE_INTAKE_ES = {
   "Apt / unit": "Apartamento o unidad",
   "ZIP": "Código postal",
   "Emergency contact — Name": "Contacto de emergencia: nombre",
+  "Emergency contact phone": "Teléfono del contacto de emergencia",
   "Are there any practical issues that could make attending services difficult?": "¿Hay dificultades prácticas que puedan impedir la asistencia a los servicios?",
   "Family logistics": "Aspectos prácticos de la familia",
   "Work schedule": "Horario de trabajo",

@@ -108,7 +108,7 @@
             class="pi-ins-input"
             :class="{ 'pi-ins-input--err': !!validationErrorFor('memberId') && !String(local.primary.memberId || '').trim() }"
             type="text"
-            placeholder="e.g. COA123456789"
+            :placeholder="tx('e.g. COA123456789')"
           />
           <div v-if="validationErrorFor('memberId')" class="pi-ins-inline-error">
             {{ tx(validationErrorFor('memberId')) }}
@@ -123,7 +123,7 @@
         </div>
         <div v-if="!primaryIsMedicaid" class="form-group">
           <label class="pi-ins-lbl">{{ tx('Patient suffix') }}</label>
-          <input v-model="local.primary.patientSuffix" class="pi-ins-input" type="text" placeholder="e.g. -01, -02" />
+          <input v-model="local.primary.patientSuffix" class="pi-ins-input" type="text" :placeholder="tx('e.g. -01, -02')" />
           <div class="pi-ins-field-note">
             {{ tx('Common on private/commercial plans.') }}
           </div>
@@ -146,7 +146,7 @@
       >
         <div class="pi-ins-photo-slot">
           <label class="pi-ins-lbl">{{ tx('Insurance card – front (optional)') }}</label>
-          <div class="pi-ins-photo-area" role="button" tabindex="0" aria-label="Upload primary front of insurance card" @keydown.enter.prevent="triggerUpload('primary_front')" @keydown.space.prevent="triggerUpload('primary_front')" @dragover.prevent @drop.prevent="onPhotoSelected({ target: { files: $event.dataTransfer.files } }, 'primary_front')" @click="triggerUpload('primary_front')">
+          <div class="pi-ins-photo-area" role="button" tabindex="0" :aria-label="tx('Upload primary front of insurance card')" @keydown.enter.prevent="triggerUpload('primary_front')" @keydown.space.prevent="triggerUpload('primary_front')" @dragover.prevent @drop.prevent="onPhotoSelected({ target: { files: $event.dataTransfer.files } }, 'primary_front')" @click="triggerUpload('primary_front')">
             <span v-if="photoFiles.primary_front?.type === 'application/pdf'" class="pi-ins-file-name">{{ photoFiles.primary_front.name }}</span>
             <img v-else-if="primaryFrontPreview" :src="primaryFrontPreview" alt="Front of card" class="pi-ins-photo-img" />
             <div v-else class="pi-ins-photo-placeholder">
@@ -168,7 +168,7 @@
         </div>
         <div class="pi-ins-photo-slot">
           <label class="pi-ins-lbl">{{ tx('Insurance card – back (optional)') }}</label>
-          <div class="pi-ins-photo-area" role="button" tabindex="0" aria-label="Upload primary back of insurance card" @keydown.enter.prevent="triggerUpload('primary_back')" @keydown.space.prevent="triggerUpload('primary_back')" @dragover.prevent @drop.prevent="onPhotoSelected({ target: { files: $event.dataTransfer.files } }, 'primary_back')" @click="triggerUpload('primary_back')">
+          <div class="pi-ins-photo-area" role="button" tabindex="0" :aria-label="tx('Upload primary back of insurance card')" @keydown.enter.prevent="triggerUpload('primary_back')" @keydown.space.prevent="triggerUpload('primary_back')" @dragover.prevent @drop.prevent="onPhotoSelected({ target: { files: $event.dataTransfer.files } }, 'primary_back')" @click="triggerUpload('primary_back')">
             <span v-if="photoFiles.primary_back?.type === 'application/pdf'" class="pi-ins-file-name">{{ photoFiles.primary_back.name }}</span>
             <img v-else-if="primaryBackPreview" :src="primaryBackPreview" alt="Back of card" class="pi-ins-photo-img" />
             <div v-else class="pi-ins-photo-placeholder">
@@ -289,7 +289,7 @@
       <div v-if="!secondaryIsMedicaid" class="pi-ins-photos">
         <div class="pi-ins-photo-slot">
           <label class="pi-ins-lbl">{{ tx('Secondary card – front (optional)') }}</label>
-          <div class="pi-ins-photo-area" role="button" tabindex="0" aria-label="Upload secondary front of insurance card" @keydown.enter.prevent="triggerUpload('secondary_front')" @keydown.space.prevent="triggerUpload('secondary_front')" @dragover.prevent @drop.prevent="onPhotoSelected({ target: { files: $event.dataTransfer.files } }, 'secondary_front')" @click="triggerUpload('secondary_front')">
+          <div class="pi-ins-photo-area" role="button" tabindex="0" :aria-label="tx('Upload secondary front of insurance card')" @keydown.enter.prevent="triggerUpload('secondary_front')" @keydown.space.prevent="triggerUpload('secondary_front')" @dragover.prevent @drop.prevent="onPhotoSelected({ target: { files: $event.dataTransfer.files } }, 'secondary_front')" @click="triggerUpload('secondary_front')">
             <span v-if="photoFiles.secondary_front?.type === 'application/pdf'" class="pi-ins-file-name">{{ photoFiles.secondary_front.name }}</span>
             <img v-else-if="secondaryFrontPreview" :src="secondaryFrontPreview" alt="Front of secondary card" class="pi-ins-photo-img" />
             <div v-else class="pi-ins-photo-placeholder"><span aria-hidden="true">↑</span><span>{{ tx('Choose file or drop here') }}</span></div>
@@ -300,7 +300,7 @@
         </div>
         <div class="pi-ins-photo-slot">
           <label class="pi-ins-lbl">{{ tx('Secondary card – back (optional)') }}</label>
-          <div class="pi-ins-photo-area" role="button" tabindex="0" aria-label="Upload secondary back of insurance card" @keydown.enter.prevent="triggerUpload('secondary_back')" @keydown.space.prevent="triggerUpload('secondary_back')" @dragover.prevent @drop.prevent="onPhotoSelected({ target: { files: $event.dataTransfer.files } }, 'secondary_back')" @click="triggerUpload('secondary_back')">
+          <div class="pi-ins-photo-area" role="button" tabindex="0" :aria-label="tx('Upload secondary back of insurance card')" @keydown.enter.prevent="triggerUpload('secondary_back')" @keydown.space.prevent="triggerUpload('secondary_back')" @dragover.prevent @drop.prevent="onPhotoSelected({ target: { files: $event.dataTransfer.files } }, 'secondary_back')" @click="triggerUpload('secondary_back')">
             <span v-if="photoFiles.secondary_back?.type === 'application/pdf'" class="pi-ins-file-name">{{ photoFiles.secondary_back.name }}</span>
             <img v-else-if="secondaryBackPreview" :src="secondaryBackPreview" alt="Back of secondary card" class="pi-ins-photo-img" />
             <div v-else class="pi-ins-photo-placeholder"><span aria-hidden="true">↑</span><span>{{ tx('Choose file or drop here') }}</span></div>
@@ -374,7 +374,7 @@
       <div class="pi-ins-photos" style="grid-template-columns: 1fr;">
         <div class="pi-ins-photo-slot">
           <label class="pi-ins-lbl">{{ tx('Driver’s license or government ID (optional)') }}</label>
-          <div class="pi-ins-photo-area" role="button" tabindex="0" aria-label="Upload identification" @keydown.enter.prevent="triggerIdUpload" @keydown.space.prevent="triggerIdUpload" @dragover.prevent @drop.prevent="onIdSelected({ target: { files: $event.dataTransfer.files } })" @click="triggerIdUpload">
+          <div class="pi-ins-photo-area" role="button" tabindex="0" :aria-label="tx('Upload identification')" @keydown.enter.prevent="triggerIdUpload" @keydown.space.prevent="triggerIdUpload" @dragover.prevent @drop.prevent="onIdSelected({ target: { files: $event.dataTransfer.files } })" @click="triggerIdUpload">
             <span v-if="idFile?.type === 'application/pdf'" class="pi-ins-file-name">{{ idFile.name }}</span>
             <img v-else-if="idPreview" :src="idPreview" alt="ID" class="pi-ins-photo-img" />
             <div v-else class="pi-ins-photo-placeholder"><span aria-hidden="true">↑</span><span>{{ tx('Choose file or drop here') }}</span></div>
@@ -631,10 +631,7 @@ const identityVerified = ref(
 const identitySkipped = ref(!!props.modelValue?.identity?.skipped);
 const identityStatusMessage = ref(String(props.modelValue?.identity?.message || ''));
 const identityImageUrl = ref(props.modelValue?.identity?.imageUrl || '');
-const guarantorMode = ref(
-  props.modelValue?.guarantor?.mode
-    || (props.intakeForSelf ? 'self' : 'guardian')
-);
+const guarantorMode = ref(props.modelValue?.guarantor?.mode || '');
 const guarantorOtherName = ref(props.modelValue?.guarantor?.otherName || '');
 const guarantorOtherContact = ref(props.modelValue?.guarantor?.otherContact || '');
 
@@ -673,7 +670,7 @@ const showMultiClientMedicaidSection = computed(() =>
 
 const displayedSecondaryDisclaimer = computed(() => {
   const custom = String(props.stepConfig?.secondaryInsuranceDisclaimerText || '').trim();
-  return custom || DEFAULT_SECONDARY_INSURANCE_NOTICE;
+  return custom || tx(DEFAULT_SECONDARY_INSURANCE_NOTICE);
 });
 
 // ── Typeahead handlers ───────────────────────────────────────────────────────

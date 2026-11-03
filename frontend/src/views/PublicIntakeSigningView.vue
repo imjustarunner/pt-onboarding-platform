@@ -682,7 +682,7 @@
             <div class="reminder-consent-actions">
               <button
                 type="button"
-                class="btn btn-primary"
+                class="btn btn-outline"
                 :class="{ 'btn--selected': reminderChoice === 'agreed' }"
                 :disabled="reminderConsentLoading"
                 @click="reminderChoice = 'agreed'"
@@ -2333,7 +2333,6 @@
         </div>
 
         <div v-if="currentFlowStep?.type === 'child_review'" class="child-review-step intake-interview-page">
-          <p class="df-section-help" v-if="currentChildBanner">{{ currentChildBanner }}</p>
           <div class="child-review-card">
             <h4>{{ currentChildReviewName }}</h4>
             <dl class="child-review-summary">
@@ -2376,7 +2375,7 @@
               @click="addAnotherChildFromReview"
             >+ {{ t('addAnotherChild') }}</button>
             <p class="muted" style="margin-top: 8px;">
-              We'll ask the same questions about this dependent separately so each person has their own intake and care record.
+              {{ tx("We'll ask the same questions about this dependent separately so each person has their own intake and care record.") }}
             </p>
           </div>
         </div>
@@ -3303,6 +3302,7 @@ const INTAKE_TRANSLATIONS = {
     reminderConsentMoreInfoBody: 'If you agree, we may send up to three reminder emails over seven days with a secure link to continue. Your secure access link lasts up to 10 days. You can stop reminder emails using the link in each email. If you do not agree, your session lasts 12 hours with no reminder emails. Expiring access or stopping reminders does not delete saved records. Contact the organization for records or removal requests.',
     reminderConsentDeclineHint: 'If you do not agree, please close this page. You may still continue — your session will expire in 12 hours with no reminder emails.',
     reminderConsentRequired: 'Please choose Agree or I do not agree to continue.',
+    failedToCaptureConsent: 'Failed to capture consent',
     reminderConsentAgreeNeedsContact: 'Enter your first name and email to Agree.',
     reminderConsentSaving: 'Saving preference…',
     previous: 'Previous',
@@ -3724,6 +3724,7 @@ const INTAKE_TRANSLATIONS = {
     reminderConsentMoreInfoBody: 'Si acepta, podemos enviar hasta tres recordatorios en siete días con un enlace seguro para continuar. Su enlace de acceso seguro dura hasta 10 días. Puede detener los recordatorios mediante el enlace de cada correo. Si no acepta, su sesión dura 12 horas sin recordatorios. La caducidad del acceso o la cancelación de recordatorios no elimina los registros guardados. Contacte a la organización para solicitar registros o su eliminación.',
     reminderConsentDeclineHint: 'Si no acepta, cierre esta página. Aun así puede continuar: su sesión expirará en 12 horas sin correos de recordatorio.',
     reminderConsentRequired: 'Elija Acepto o No acepto para continuar.',
+    failedToCaptureConsent: 'No se pudo guardar el consentimiento',
     reminderConsentAgreeNeedsContact: 'Ingrese su nombre y correo para aceptar.',
     reminderConsentSaving: 'Guardando preferencia…',
     previous: 'Anterior',
@@ -6321,7 +6322,7 @@ const flowSteps = computed(() => {
               ...f,
               required: isOfficeRequiredQuestionField(f)
             }));
-            if (officeEssentialOnlyMode.value) {
+            if (officeEssentialOnlyMode.value && !isOfficeSafetyStep(s)) {
               fields = fields.filter(
                 (f) =>
                   !f
@@ -8056,6 +8057,14 @@ function applyStarterDataAndContinue() {
       guardian_relationship_to_child: guardianRelationship.value,
       ...otherGuardianFieldBag()
     };
+    if (serviceSubject.value === 'family') {
+      const contact = intakeResponses.guardian;
+      if (!contact.pc_legal_first && guardianFirstName.value) contact.pc_legal_first = guardianFirstName.value;
+      if (!contact.pc_legal_last && guardianLastName.value) contact.pc_legal_last = guardianLastName.value;
+      if (!contact.pc_email && guardianEmail.value) contact.pc_email = guardianEmail.value;
+      if (!contact.pc_phone && guardianPhone.value) contact.pc_phone = guardianPhone.value;
+      if (!contact.pc_date_of_birth && starterDob.value) contact.pc_date_of_birth = starterDob.value;
+    }
   }
   return submitConsent().finally(() => { consentLoading.value = false; });
 }
@@ -10851,7 +10860,7 @@ const submitConsent = async () => {
     }
     step.value = 2;
   } catch (e) {
-    stepError.value = e.response?.data?.error?.message || 'Failed to capture consent';
+    stepError.value = e.response?.data?.error?.message || t('failedToCaptureConsent');
   } finally {
     consentLoading.value = false;
   }
@@ -11006,7 +11015,7 @@ const missingQuestionFields = computed(() => visibleQuestionFields.value.filter(
 function focusQuestionField(key) {
   const container = Array.from(document.querySelectorAll('[data-question-key]')).find(element => element.dataset.questionKey === key);
   container?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
-  container?.querySelector('input, textarea, select, [tabindex], button')?.focus();
+  container?.querySelector('input, textarea, select')?.focus();
 }
 
 const isQuestionFieldMissing = (field) => {
@@ -11060,8 +11069,14 @@ function officeStepHasEssentialFields(step) {
   );
 }
 
+function isOfficeSafetyStep(step) {
+  const blob = `${step?.id || ''} ${step?.sourceId || ''} ${step?.label || ''}`.toLowerCase();
+  return blob.includes('safety') || blob.includes('seguridad');
+}
+
 function isOfficeEssentialFlowStep(step) {
   if (!step) return false;
+  if (isOfficeSafetyStep(step)) return true;
   const type = String(step.type || '').toLowerCase();
   if (
     [
@@ -13255,13 +13270,20 @@ watch(
       if (!sub.phone_number && guardianPhone.value) sub.phone_number = guardianPhone.value;
       return;
     }
-    if (stepId === 'counseling_dep_about_you') {
+    if (stepId === 'counseling_dep_about_you' || stepId === 'counseling_family_primary_contact') {
       const g = intakeResponses.guardian;
       if (!g || typeof g !== 'object') return;
       if (!g.guardian_legal_first && guardianFirstName.value) g.guardian_legal_first = guardianFirstName.value;
       if (!g.guardian_legal_last && guardianLastName.value) g.guardian_legal_last = guardianLastName.value;
       if (!g.guardian_email && guardianEmail.value) g.guardian_email = guardianEmail.value;
       if (!g.guardian_phone && guardianPhone.value) g.guardian_phone = guardianPhone.value;
+      if (stepId === 'counseling_family_primary_contact') {
+        if (!g.pc_legal_first && guardianFirstName.value) g.pc_legal_first = guardianFirstName.value;
+        if (!g.pc_legal_last && guardianLastName.value) g.pc_legal_last = guardianLastName.value;
+        if (!g.pc_email && guardianEmail.value) g.pc_email = guardianEmail.value;
+        if (!g.pc_phone && guardianPhone.value) g.pc_phone = guardianPhone.value;
+        if (!g.pc_date_of_birth && starterDob.value) g.pc_date_of_birth = starterDob.value;
+      }
       return;
     }
     if (stepId === 'counseling_dep_about_child') {
@@ -18137,8 +18159,9 @@ onBeforeUnmount(() => {
   margin-top: 1rem;
 }
 .reminder-consent-actions .btn--selected {
-  outline: 2px solid #1f6b4a;
-  outline-offset: 2px;
+  background: #1f6b4a;
+  color: #fff;
+  border-color: #1f6b4a;
 }
 .reminder-consent-decline-hint {
   margin: 0.75rem 0 0;

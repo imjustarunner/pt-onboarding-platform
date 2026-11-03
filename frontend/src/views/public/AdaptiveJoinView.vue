@@ -604,7 +604,7 @@
         <template v-if="isDependentWhoFor">
           <div v-if="!form.additionalDependent.enabled" class="ai-add-dependent">
             <button type="button" class="df-btn df-btn-secondary" @click="form.additionalDependent.enabled = true"> {{ tx("+ Add another dependent") }} </button>
-            <p> {{ tx("Only a few extra details — both dependents stay linked to this same contact.") }} </p>
+            <p> {{ tx("Only a few extra details — this dependent stays linked to this same contact.") }} </p>
           </div>
           <div v-else class="ai-add-dependent-form">
             <div class="ai-add-dependent-head">
@@ -1203,7 +1203,7 @@ async function selectPreferredProvider(id,skip=false) {
 
 const selectedLearningPackage=computed(()=>providers.value.find(p=>Number(p.id)===Number(form.preferredProviderUserId))?.tutoringProfile?.packages?.find(p=>p.id===learningForm.value.packageId));
 const preferredProviderLabel = computed(() => {
-  if (!form.preferredProviderUserId) return 'Let the team choose / first available';
+  if (!form.preferredProviderUserId) return tx('Let the team choose / first available');
   const match = (providers.value || []).find((p) => Number(p.id) === Number(form.preferredProviderUserId));
   return match?.displayName || match?.name || 'Preferred provider selected';
 });

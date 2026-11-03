@@ -86,7 +86,7 @@
 
       <section class="pi-ip-section">
         <h3>{{ tx('Your payment arrangement') }}</h3>
-        <p>{{ tx('Tell us what you propose for copays or other patient responsibility. This is a request for review, not permission to charge your card or change another parent’s agreement.') }}</p>
+        <p>{{ tx('Tell us what you propose for copays or other patient responsibility. This is a request for review, not permission to charge your card.') }}</p>
         <label>{{ tx('I am willing to') }}
           <select :value="paymentInfo.arrangement || 'discuss'" @change="emit('update:paymentInfo', { ...paymentInfo, arrangement: $event.target.value })">
             <option value="discuss">{{ tx('Discuss payment with the office') }}</option>
@@ -117,7 +117,7 @@
             <span class="pi-ip-choice-sub">{{ tx('Save card for payments.') }}</span>
           </button>
           <button
-            v-if="stepConfig.paymentRequired === false || insuranceOnFile"
+            v-if="allowsNoCardChoice"
             type="button"
             class="pi-ip-choice"
             :class="{ 'pi-ip-choice--active': paymentChoice === 'later' }"
@@ -128,7 +128,7 @@
             <span class="pi-ip-choice-sub">{{ tx('You can add a card anytime.') }}</span>
           </button>
           <button
-            v-if="stepConfig.paymentRequired === false || insuranceOnFile"
+            v-if="allowsNoCardChoice"
             type="button"
             class="pi-ip-choice"
             :class="{ 'pi-ip-choice--active': paymentChoice === 'na' }"
@@ -325,6 +325,10 @@ const payerChoice = computed(() => {
 const isMedicaid = computed(() => {
   return !props.paymentOnly && hasMedicaidCoverage(props.insuranceInfo);
 });
+
+const allowsNoCardChoice = computed(() => (
+  !props.paymentOnly || props.stepConfig?.paymentRequired === false || props.insuranceOnFile
+));
 
 const showPaymentSection = computed(() => {
   if (!props.paymentCollectionAvailable) return false;

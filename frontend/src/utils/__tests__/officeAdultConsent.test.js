@@ -15,6 +15,16 @@ describe('separate consent for adult office participants', () => {
   it('does not claim the missing couple-signing capability exists for an incomplete roster', () => {
     expect(check({ serviceSubject: 'couple', participants: [] })).not.toBe('');
   });
+  it.each(['en', 'es'])('asks to fill or remove a blank family row before the adult-consent stop in %s', locale => {
+    const message = check({
+      serviceSubject: 'family',
+      participants: [minor, { firstName: '', lastName: '', dateOfBirth: '' }],
+      primarySigner: parent,
+      locale
+    });
+    expect(message).toContain(locale === 'es' ? 'fila en blanco' : 'blank row');
+    expect(message).not.toContain(locale === 'es' ? 'Cada adulto' : 'Each adult');
+  });
   it('allows the existing family signing checks to handle verified minors and the primary signer', () => {
     expect(check({ serviceSubject: 'family', participants: [minor], primarySigner: parent })).toBe('');
     expect(check({ serviceSubject: 'family', participants: [parent, minor], primarySigner: parent })).toBe('');

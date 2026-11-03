@@ -73,6 +73,18 @@ describe('insurance enrollment', () => {
     expect(w.text()).toContain('Secondary subscriber');
     w.unmount();
   });
+  it('lets self-pay continue without a card after an explicit no-card choice', async () => {
+    const w = mountForm({ insuranceInfo: { isSelfPay: true, payerChoice: 'self_pay' } });
+    expect(w.text()).toContain('N/A — Not Paying Now');
+    expect(w.find('[data-card-form]').exists()).toBe(false);
+    expect(w.vm.validateAuthorization()).toBe(false);
+    await w.findAll('button').find(b => b.text().includes('Not Paying Now')).trigger('click');
+    await w.find('.pi-ip-auth-check input').setValue(true);
+    await w.find('.pi-ip-sign input').setValue('Sample Parent');
+    expect(w.vm.validateAuthorization()).toBe(true);
+    expect(w.find('[data-card-form]').exists()).toBe(false);
+    w.unmount();
+  });
   it('commercial, self-pay and nonclinical enrollment collect a card only after an explicit choice', async () => {
     for (const override of [{ insuranceInfo: { primary: { insurerName: 'Commercial' } } }, { insuranceInfo: { isSelfPay: true } }, { paymentOnly: true }]) {
       const w = mountForm(override);

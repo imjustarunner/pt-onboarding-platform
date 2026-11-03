@@ -3,6 +3,11 @@ const ADULT_CONSENT_MESSAGES = {
   es: 'Cada adulto debe dar su propio consentimiento. Este paquete compartido aún no permite recoger las firmas de cada adulto por separado. Guarde su progreso y comuníquese con la oficina para coordinar la inscripción y el consentimiento por separado.'
 };
 
+const BLANK_ROW_MESSAGES = {
+  en: 'Fill in this family member or remove the blank row before continuing.',
+  es: 'Complete los datos de este miembro de la familia o elimine la fila en blanco antes de continuar.'
+};
+
 function identityName(person = {}) {
   const name = person?.firstName && person?.lastName
     ? `${person.firstName} ${person.lastName}`
@@ -15,6 +20,15 @@ function dateOnly(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return '';
   const parsed = new Date(`${date}T12:00:00Z`);
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date ? date : '';
+}
+
+function isBlankRosterRow(person) {
+  if (!person || typeof person !== 'object') return false;
+  const name = identityName(person);
+  const dob = String(person.dateOfBirth || person.dob || person.date_of_birth || '').trim();
+  const email = String(person.email || '').trim();
+  const phone = String(person.phone || person.phoneNumber || '').trim();
+  return !name && !dob && !email && !phone;
 }
 
 function isVerifiedMinor(person, today) {
@@ -32,7 +46,10 @@ export function officeAdultConsentBlockMessage({
 } = {}) {
   const subject = String(serviceSubject || '').trim().toLowerCase();
   if (subject !== 'couple' && subject !== 'family') return '';
-  const message = ADULT_CONSENT_MESSAGES[String(locale).toLowerCase().startsWith('es') ? 'es' : 'en'];
+  const language = String(locale).toLowerCase().startsWith('es') ? 'es' : 'en';
+  const message = ADULT_CONSENT_MESSAGES[language];
+  const rows = Array.isArray(participants) ? participants : [];
+  if (subject === 'family' && rows.some(isBlankRosterRow)) return BLANK_ROW_MESSAGES[language];
   // The current couple packet has one signer, regardless of a caller's claimed
   // shared-signature consent or any unverified per-adult signature metadata.
   if (subject === 'couple') return message;
