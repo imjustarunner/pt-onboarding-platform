@@ -1,0 +1,9 @@
+{
+  "name": "workspace-mail-relay",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": { "start": "node server.js", "test": "node --test test/*.test.js" },
+  "dependencies": { "@google-cloud/storage": "7.18.0", "nodemailer": "9.0.6" }
+}

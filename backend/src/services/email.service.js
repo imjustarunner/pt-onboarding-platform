@@ -400,7 +400,8 @@ class EmailService {
         attachments,
         agencyId,
         userId: resolvedUserId,
-        clientId
+        clientId,
+        communicationId: comm?.id || null
       });
     } catch (sendErr) {
       // Mark the comm row as failed so it shows up as such instead of stuck "pending".
@@ -441,7 +442,7 @@ class EmailService {
         await CommunicationLoggingService.markAsSent(
           comm.id,
           sendResult?.id || null,
-          { threadId: sendResult?.threadId || null, source, ...redirectMeta }
+          { threadId: sendResult?.threadId || null, source, ...(sendResult?.relay ? { relay: sendResult.relay, internetMessageId: sendResult.internetMessageId } : {}), ...redirectMeta }
         );
       } catch (logErr) {
         console.warn('[EmailService] markAsSent failed', logErr?.message || logErr);
