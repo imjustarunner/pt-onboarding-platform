@@ -799,7 +799,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
 import ServiceUseNotice from '../../components/legal/ServiceUseNotice.vue';
-import { schoolCareBridgeUrl, schoolCareBridgePath } from '../../utils/schoolCareBridge';
+import { schoolCareBridgeOnboardingUrl, schoolCareBridgePath } from '../../utils/schoolCareBridge';
 import { useSchoolCareBridgeBranding } from '../../composables/useSchoolCareBridgeBranding';
 import { useAuthStore } from '../../store/auth';
 import {
@@ -1099,11 +1099,15 @@ const canSubmit = computed(() => {
   if (!identityReady.value) return false;
   return password.value.length >= 6 && password.value === passwordConfirm.value;
 });
+const submittedPortalUrl = ref('');
+const submittedLoginUrl = ref('');
 const schoolPortalSlug = computed(() => String(invite.value?.schoolSlug || invite.value?.school?.slug || '').trim().toLowerCase());
 const loginPath = computed(() => schoolCareBridgePath(schoolPortalSlug.value));
 const portalDashboardPath = loginPath;
-const absolutePortalUrl = computed(() => schoolPortalSlug.value ? schoolCareBridgeUrl(schoolPortalSlug.value) : '');
-const absoluteLoginUrl = absolutePortalUrl;
+const absolutePortalUrl = computed(() => schoolPortalSlug.value
+  ? schoolCareBridgeOnboardingUrl(submittedPortalUrl.value || invite.value?.portalUrl, schoolPortalSlug.value) : '');
+const absoluteLoginUrl = computed(() => schoolPortalSlug.value
+  ? schoolCareBridgeOnboardingUrl(submittedLoginUrl.value || invite.value?.loginUrl || absolutePortalUrl.value, schoolPortalSlug.value) : '');
 const loginHref = computed(() => absoluteLoginUrl.value || absolutePortalUrl.value || loginPath.value);
 const loginDisplayHost = computed(() => {
   try {
@@ -1463,6 +1467,8 @@ async function submit() {
         // ignore
       }
     }
+    if (res.data?.portalUrl) submittedPortalUrl.value = res.data.portalUrl;
+    if (res.data?.loginUrl) submittedLoginUrl.value = res.data.loginUrl;
     go('home');
   } catch (e) {
     actionError.value = e?.response?.data?.error?.message || 'Unable to submit';

@@ -16,3 +16,16 @@ export function schoolCareBridgeWorkflowPath(path, school) {
   if (/^(change-password|providers|tasks\/documents|school-reinit)(\/|[?#]|$)/.test(rest)) return schoolCareBridgePath(school, `/${rest}`);
   return null;
 }
+
+/** Honor the server's configured school origin while rejecting unrelated URLs. */
+export function schoolCareBridgeOnboardingUrl(value, school = '') {
+  const fallback = schoolCareBridgeUrl(school);
+  if (!value) return fallback;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.username || url.password || url.port || url.search || url.hash) return fallback;
+    const prefix = url.hostname === 'mh4kidz.org' ? SCB_PREFIX : isSchoolCareBridgeHost(url.hostname) ? '' : null;
+    if (prefix === null || url.pathname !== `${prefix}/app${school ? `/${encodeURIComponent(school)}` : ''}`) return fallback;
+    return url.href;
+  } catch { return fallback; }
+}

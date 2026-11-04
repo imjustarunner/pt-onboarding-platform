@@ -1,12 +1,14 @@
-import {beforeEach,it,expect,vi} from 'vitest';
+import {beforeEach,afterEach,it,expect,vi} from 'vitest';
 import crypto from 'node:crypto';
-const m=vi.hoisted(()=>({execute:vi.fn(),get:vi.fn(),update:vi.fn(),create:vi.fn(),list:vi.fn(),audit:vi.fn(),lock:vi.fn(),ctx:vi.fn(),send:vi.fn(),context:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),get:vi.fn(),update:vi.fn(),create:vi.fn(),list:vi.fn(),audit:vi.fn(),lock:vi.fn(),ctx:vi.fn(),send:vi.fn(),direct:vi.fn(),context:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
 vi.mock('../auricwell/repository.js',()=>({get:m.get,update:m.update,create:m.create,list:m.list,audit:m.audit,lockPractice:m.lock,transaction:fn=>fn({})}));
 vi.mock('../auricwell/clientMessaging.js',()=>({practiceMessagingContext:m.ctx}));
 vi.mock('../clientPortalEmail.service.js',()=>({clientEmailContext:m.context,sendClientPortalEmail:m.send}));
+vi.mock('../email.service.js',()=>({default:{sendEmail:m.direct}}));
 import {nativeResponseContext,applyNativeResponse,sendNativeAppointmentEmail} from '../auricwell/appointmentEmailResponse.js';
 let ctx,appointment,patient,row;
+afterEach(()=>vi.unstubAllEnvs());
 beforeEach(()=>{
  vi.resetAllMocks();
  ctx={practiceId:'practice',practiceName:'ITSCO',agencyId:2,settings:{phiActivatedAt:'2026-01-01'}};
@@ -14,6 +16,13 @@ beforeEach(()=>{
  patient={id:'patient',data:{email:'guardian@example.test'}};
  row={practice_id:'practice',native_appointment_id:'appointment',native_patient_id:'patient',recipient_hash:crypto.createHash('sha256').update(patient.data.email).digest('hex'),appointment_start:'2030-01-02 20:00:00',appointment_end:'2030-01-02 21:00:00'};
  m.ctx.mockResolvedValue(ctx);m.get.mockImplementation(async(_ctx,kind)=>kind==='patient'?patient:appointment);m.list.mockResolvedValue([]);m.context.mockResolvedValue({tenant:{name:'ITSCO'},brand:{clinical:true}});m.send.mockResolvedValue({id:'sent'});
+});
+it('uses the verified AuricWell address for native practices without an agency and rejects an unrelated sender',async()=>{
+ ctx.agencyId=null;vi.stubEnv('AURICWELL_ACCOUNT_EMAIL_FROM','notifications@unrelated.example');
+ await expect(sendNativeAppointmentEmail(ctx,patient.data.email,'Appointment',appointment)).rejects.toThrow('Configure');expect(m.direct).not.toHaveBeenCalled();
+ vi.stubEnv('AURICWELL_ACCOUNT_EMAIL_FROM','notifications@auricwell.com');
+ await sendNativeAppointmentEmail(ctx,patient.data.email,'Appointment',appointment);
+ expect(m.direct).toHaveBeenCalledWith(expect.objectContaining({fromAddress:'notifications@auricwell.com',fromName:'AuricWell Notifications'}));expect(m.send).not.toHaveBeenCalled();
 });
 it('stops native school email only and keeps office reminders available',async()=>{
  appointment.data.serviceSetting='school';
