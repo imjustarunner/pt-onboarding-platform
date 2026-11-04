@@ -61,14 +61,15 @@ export async function creditCancelledSession({agencyId,clientId,sessionId,actorU
 }
 
 export async function paymentCreditState(paymentId,db=pool) {
-  const [[row]]=await db.execute(`SELECT p.amount_cents,
+  const [[row]]=await db.execute(`SELECT p.amount_cents,r.disputed_at,
     EXISTS(SELECT 1 FROM family_copay_credits c WHERE c.payment_id=p.id) AS is_credit,
     COALESCE((SELECT SUM(f.amount_cents) FROM family_payment_refunds f WHERE f.payment_id=p.id AND f.status IN ('pending','unknown','succeeded')),0) AS refunds,
     COALESCE((SELECT SUM(a.amount_cents) FROM family_copay_credit_applications a WHERE a.payment_id=p.id AND a.status='applied'),0) AS applied,
     EXISTS(SELECT 1 FROM family_payment_refund_requests r WHERE r.payment_id=p.id AND r.status IN ('requested','processing','review')) AS refund_requested
-    FROM family_ledger_payments p WHERE p.id=?`,[paymentId]);
+    FROM family_ledger_payments p JOIN family_receivable_allocations original_allocation ON original_allocation.id=p.allocation_id
+    JOIN family_receivables r ON r.id=original_allocation.receivable_id WHERE p.id=?`,[paymentId]);
   if(!row)return null;
-  return {isCredit:!!row.is_credit,appliedCents:Number(row.applied),availableCents:row.is_credit&&!row.refund_requested?Math.max(0,Number(row.amount_cents)-Number(row.refunds)-Number(row.applied)):0,refundRequested:!!row.refund_requested};
+  return {isCredit:!!row.is_credit,appliedCents:Number(row.applied),availableCents:row.is_credit&&!row.refund_requested&&!row.disputed_at?Math.max(0,Number(row.amount_cents)-Number(row.refunds)-Number(row.applied)):0,refundRequested:!!row.refund_requested,billingReview:!!row.disputed_at};
 }
 
 /** All writers lock the client first, so credit applications, refund requests

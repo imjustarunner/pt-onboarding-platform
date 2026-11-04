@@ -243,6 +243,9 @@ test('attendance copays use real SQL locks and one payment through note retries 
       await recordCopayAttendance({...input(9072),occurred:false,source:'reviewed_note',noteId:99072});
       await creditCancelledSession({agencyId:1,clientId:102,sessionId:9072,actorUserId:45});
       assert.equal((await paymentCreditState(original.id)).availableCents,2500);
+      await setup.execute('UPDATE family_receivables r JOIN family_receivable_allocations a ON a.receivable_id=r.id SET r.disputed_at=UTC_TIMESTAMP() WHERE a.id=?',[original.allocation_id]);
+      assert.equal((await paymentCreditState(original.id)).availableCents,0);
+      await setup.execute('UPDATE family_receivables r JOIN family_receivable_allocations a ON a.receivable_id=r.id SET r.disputed_at=NULL WHERE a.id=?',[original.allocation_id]);
       const [[events]]=await setup.execute("SELECT COUNT(*) n FROM family_receipt_deliveries WHERE payment_id=? AND kind='credit_available'",[original.id]);assert.equal(events.n,1);
       // A full same-day credit completes the later copay without contacting Stripe.
       await visit(9073,{signed:false});await setup.execute('UPDATE clinical_sessions SET scheduled_start_at=?,scheduled_end_at=? WHERE id=9073',[new Date(Date.now()-4800000),new Date(Date.now()-3000000)]);
