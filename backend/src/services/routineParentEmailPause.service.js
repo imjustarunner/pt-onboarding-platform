@@ -3,7 +3,7 @@ import pool from '../config/database.js';
 import {familyNotificationDeliveryGate} from './familyNotificationChoices.service.js';
 import { reviewedDayCancellationContext } from './dayCancellationEmail.service.js';
 import { individualCancellationEmailContext } from './appointmentCancellationEmail.service.js';
-import { schoolFamilyStatusEmailContext } from './schoolFamilyStatusEmail.service.js';
+import {retiredSchoolFamilyStatusTemplate} from '../utils/schoolStatusEmailAudience.js';
 
 const email = value => String(value || '').trim().toLowerCase();
 function addresses(value) {
@@ -55,9 +55,9 @@ async function parentPauseGate({agencyId,to,cc,bcc,source='auto',templateType,cl
 }
 
 export async function routineParentEmailGate(input,db=pool) {
+  if(retiredSchoolFamilyStatusTemplate(input.templateType)||retiredSchoolFamilyStatusTemplate(input.triggerKey))return {allowed:false,reason:'school_family_assignment_notices_retired'};
   const operational=await reviewedDayCancellationContext(input,{database:db,verifyEnvelope:true})
-    || await individualCancellationEmailContext(input,{database:db,verifyEnvelope:true})
-    || await schoolFamilyStatusEmailContext(input,{database:db,verifyEnvelope:true});
+    || await individualCancellationEmailContext(input,{database:db,verifyEnvelope:true});
   const pause=operational ? {allowed:true} : await parentPauseGate(input,db);
   if(!pause.allowed)return pause;
   // Apply saved personal choices even to a staff-approved retry or demo send.

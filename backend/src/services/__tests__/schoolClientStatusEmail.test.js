@@ -43,20 +43,30 @@ it('writes the outbox on the supplied assignment transaction, allowing assignmen
  const transaction={execute:vi.fn(m.execute)};await queueSchoolClientStatusEmails(transaction,{clientId:1,assignmentChanged:true});
  expect(transaction.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO school_client_status_emails'),expect.any(Array));expect(m.commit).not.toHaveBeenCalled();expect(m.send).not.toHaveBeenCalled();
 });
-it('creates a separate future family event only for a new actor-backed transition, without backfilling old saves',async()=>{
- const original=m.execute.getMockImplementation();m.execute.mockImplementation(async(sql,args)=>sql.startsWith('INSERT INTO school_client_status_emails')?[{insertId:70,affectedRows:1}]:original(sql,args));
+it('queues only school/provider work, never a family outbox, for a new staff assignment',async()=>{
  await queueSchoolClientStatusEmails(pool,{clientId:1,assignmentChanged:true,actorUserId:555});
- await queueSchoolClientStatusEmails(pool,{clientId:1,assignmentChanged:true,actorUserId:555});
- expect(m.execute.mock.calls.filter(([sql])=>sql.includes('INSERT IGNORE INTO school_family_status_emails'))).toEqual([[expect.any(String),[70,2,3,1,555,1,hash(state),'{}']]]);
- prior={revision:0,state_hash:''};m.execute.mockClear();
- await queueSchoolClientStatusEmails(pool,{clientId:1,assignmentChanged:true});
  expect(m.execute.mock.calls.some(([sql])=>sql.includes('school_family_status_emails'))).toBe(false);
+ expect(m.execute.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO school_client_status_emails'))).toHaveLength(1);
 });
-it('cannot create family delivery from a nonstaff or unaffiliated actor even when an actor id is supplied',async()=>{
- const original=m.execute.getMockImplementation();m.execute.mockImplementation(async(sql,args)=>sql.startsWith('SELECT u.id AS actor_id')?[[]]
-  :sql.startsWith('INSERT INTO school_client_status_emails')?[{insertId:70,affectedRows:1}]:original(sql,args));
- await queueSchoolClientStatusEmails(pool,{clientId:1,assignmentChanged:true,actorUserId:555});
- expect(m.execute.mock.calls.some(([sql])=>sql.includes('INSERT IGNORE INTO school_family_status_emails'))).toBe(false);
+it('emits one persisted waitlist activation even after an assigned baseline was reconciled first',async()=>{
+ prior={revision:4,state_hash:hash(state)};client.client_status_id=11;let recorded=false;
+ const original=m.execute.getMockImplementation();m.execute.mockImplementation(async(sql,args)=>{
+  if(sql.startsWith('SELECT previous.status_key'))return [[{previous_status_key:'waitlist',status_key:'ready_to_schedule'}]];
+  if(sql.startsWith('SELECT id FROM school_client_status_emails'))return [recorded?[{id:70}]:[]];
+  if(sql.startsWith('INSERT INTO school_client_status_emails')){recorded=true;return [{insertId:70}];}
+  return original(sql,args);
+ });
+ await queueSchoolClientStatusEmails(pool,{clientId:1,actorUserId:555,statusChangeId:91});
+ await queueSchoolClientStatusEmails(pool,{clientId:1,actorUserId:555,statusChangeId:91});
+ const writes=m.execute.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO school_client_status_emails'));
+ expect(writes).toHaveLength(1);expect(JSON.parse(writes[0][1][5])).toMatchObject({kind:'assigned',statusChangeId:91});
+ expect(writes[0][1][3]).toBe(5);
+});
+it('does not turn stale or unverified status history into an assignment notice',async()=>{
+ prior={revision:4,state_hash:hash(state)};client.client_status_id=11;
+ const original=m.execute.getMockImplementation();m.execute.mockImplementation(async(sql,args)=>sql.startsWith('SELECT previous.status_key')?[[]]:original(sql,args));
+ await queueSchoolClientStatusEmails(pool,{clientId:1,actorUserId:555,statusChangeId:91});
+ expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO school_client_status_emails'))).toBe(false);
 });
 it('sends from Schools to both the school group and assigned provider after initializing the provider workflow',async()=>{
  expect(await sendPendingSchoolClientStatusEmails()).toEqual([{id:10,status:'sent'}]);
