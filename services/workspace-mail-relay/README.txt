@@ -38,6 +38,7 @@ Backend environment (OFF by default):
 WORKSPACE_EMAIL_RELAY_MODE=off | pilot | domains
 WORKSPACE_EMAIL_RELAY_SENDERS=comma-separated exact sender addresses for pilot
 WORKSPACE_EMAIL_RELAY_DOMAINS=comma-separated approved Workspace domains
+WORKSPACE_EMAIL_RELAY_GMAIL_SENDERS=explicitly retained existing Gmail addresses
 WORKSPACE_EMAIL_RELAY_URL=https://the-private-service.run.app
 WORKSPACE_EMAIL_RELAY_ADMIN_CONFIRMED=false (true only after administrator setup)
 
@@ -45,7 +46,11 @@ The backend still checks app/tenant staff permissions, approvals, activity holds
 recipient preferences, active sender registration, actual Workspace Group and
 active ai@plottwistco.com Group membership. Domain mode removes the per-address
 pilot restriction only after a successful pilot; it does not remove those checks.
-Selected relay senders never fall back to Gmail or another From on failure.
+In domain mode, pin the existing accepted Gmail addresses in GMAIL_SENDERS before
+expansion so established mailbox/alias behavior is retained. New Groups in the
+approved domains use relay automatically. An explicit sender pilot can migrate
+a pinned address later. Selected relay senders never fall back to Gmail or
+another From on failure.
 New staff provisioning validates Group readiness instead of adding a Gmail alias.
 
 Every relay send requires an existing communication record. A stable RFC Message-ID

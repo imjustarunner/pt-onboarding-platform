@@ -24,6 +24,15 @@ it('rejects missing administrator confirmation and unsafe dispatch URLs', () => 
   expect(() => relayConfiguration({ ...env, WORKSPACE_EMAIL_RELAY_ADMIN_CONFIRMED: 'false' })).toThrow('administrator');
   for (const url of ['http://workspace.run.app', 'https://evil.example', 'https://run.app.evil.example', 'https://x.run.app/send', 'https://user:pass@x.run.app/', 'https://x.run.app/?token=secret']) expect(() => relayConfiguration({ ...env, WORKSPACE_EMAIL_RELAY_URL: url })).toThrow('Cloud Run');
 });
+it('supports new Group addresses by domain while preserving explicitly pinned Gmail senders', () => {
+  const configured = { ...env, WORKSPACE_EMAIL_RELAY_MODE: 'domains', WORKSPACE_EMAIL_RELAY_GMAIL_SENDERS: 'billing@practice.example, existingstaff@practice.example' };
+  expect(relaySelected('billing@practice.example', configured)).toBe(false);
+  expect(relaySelected('ExistingStaff@practice.example', configured)).toBe(false);
+  expect(relaySelected('newstaff@practice.example', configured)).toBe(true);
+  expect(relaySelected('outsider@foreign.example', configured)).toBe(false);
+  // A deliberately selected pilot can migrate a pinned sender later.
+  expect(relaySelected('billing@practice.example', { ...configured, WORKSPACE_EMAIL_RELAY_MODE: 'pilot' })).toBe(true);
+});
 it('preserves the Gmail transport when a sender is outside the pilot', async () => {
   const d = dependencies();
   expect(await deliverWorkspaceMime({ ...input(), fromEmail: 'other@practice.example', gmail: d.gmail }, { ...d, env })).toEqual({ data: { id: 'gmail-existing' } });
