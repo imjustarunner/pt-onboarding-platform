@@ -3,6 +3,7 @@ import nodemailer from 'nodemailer';
 import addressparser from 'nodemailer/lib/addressparser/index.js';
 import { Storage } from '@google-cloud/storage';
 import { dispatchMessage, failure, prepareMessage } from './relay.js';
+import { smtpOptions } from './smtpOptions.js';
 
 const domains = String(process.env.WORKSPACE_EMAIL_RELAY_DOMAINS || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
 const bucketName = process.env.WORKSPACE_EMAIL_RELAY_BUCKET;
@@ -26,13 +27,7 @@ const store = {
     return { value, generation: metadata.generation };
   }
 };
-const smtp = nodemailer.createTransport({
-  host: 'smtp-relay.gmail.com', port: 587, secure: false, requireTLS: true,
-  name: 'mail.plottwistco.com', pool: true, maxConnections: 2, maxMessages: 50,
-  connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 20000,
-  tls: { servername: 'smtp-relay.gmail.com', minVersion: 'TLSv1.2', rejectUnauthorized: true },
-  disableFileAccess: true, disableUrlAccess: true, logger: false, debug: false
-});
+const smtp = nodemailer.createTransport(smtpOptions);
 
 // Cloud Run IAM, not a public shared secret, authenticates the app's service
 // account. Deployment must use --no-allow-unauthenticated and a narrow invoker.
