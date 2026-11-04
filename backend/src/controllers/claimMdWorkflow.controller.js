@@ -99,8 +99,21 @@ export async function prepareClaimReview(agencyId, claimId) {
   readiness.blockers.push(...approvedVersionBillingBlockers({ note: documentation.note, claim: effective, lines, session, diagnosisCodes: readiness.diagnosisCodes }));
   assertClaimBillingNpi(billingProfile, effective.billing_npi);
   const effectiveLines = overrides?.modifiers ? lines.map(line => ({ ...line, modifiers_json: String(overrides.modifiers).split(/[,\s]+/).filter(Boolean) })) : lines;
-  const basePayload = buildClaimMdJsonClaim(effective, effectiveLines, { insurance, practice });
-  const payload = secondary ? applySecondaryAdjudication(basePayload,cob) : basePayload;
+  let payload = null;
+  let payloadIssue = null;
+  try {
+    const basePayload = buildClaimMdJsonClaim(effective, effectiveLines, { insurance, practice });
+    payload = secondary ? applySecondaryAdjudication(basePayload,cob) : basePayload;
+  } catch (error) {
+    if (error.status !== 409) throw error;
+    payloadIssue = { message: error.message, fields: error.missingFields || [] };
+    readiness.blockers.push(error.message);
+  }
+  readiness.payloadIssue = payloadIssue;
+  readiness.coverageVerified = coverageReviewBlockers({insurance:sourceInsurance,...coverageEvidence}).length === 0;
+  readiness.insuranceIdentityVerified = sourceInsurance?.verifiedForClaims === true;
+  readiness.payerPolicyVerified = !!supervision.rule?.mappingVerified;
+  readiness.payer = { payerId: insurance?.primary?.payerId || '', planType: insurance?.primary?.planType || '' };
   const sourceHash = reviewSourceHash({ documentation, payload, supervision, overrides: overrides?.applied || [], revision:claim.billing_revision });
   const aiReview = await currentClaimContentReview(agencyId,claimId,sourceHash);
   const history = aiReview.id ? await claimEventHistory(agencyId,claimId) : [];
@@ -158,6 +171,7 @@ export async function reviewClaim(req, res, next) {
 export async function runClaimAiReview(req,res,next) {
   try {
     const agencyId=await agencyFor(req),claimId=Number(req.params.claimId),prepared=await prepareClaimReview(agencyId,claimId);
+    if(!prepared.payload)throw fail(409,'Complete the claim fields shown in review before running AI consistency review');
     if(!['draft','ready','rejected'].includes(prepared.claim.claim_lifecycle))throw fail(409,'Reconcile this submitted claim before reviewing a replacement');
     if(!prepared.documentation.note.provider_signed_at)throw fail(409,'Provider must sign before submission review');
     const result=await runClaimContentReview({agencyId,claimId,sourceHash:prepared.sourceHash,documentation:prepared.documentation,payload:prepared.payload,insurance:prepared.insurance,actorUserId:req.user.id});

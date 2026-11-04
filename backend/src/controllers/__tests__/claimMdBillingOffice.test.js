@@ -73,3 +73,15 @@ it('distinguishes an unset zero charge from an explicitly entered free rate with
  const second=response();await claimDraft({user:{id:99},params:{claimId:11},query:{agencyId:1}},second,next);
  expect(second.json.mock.calls[0][0].feeWarnings).toEqual([]);
 });
+
+it('returns an incomplete claim as a blocked actionable review using its actual service date',async()=>{
+ m.build.mockImplementationOnce(()=>{throw Object.assign(new Error('Claim is incomplete: payerid'),{status:409,missingFields:['payerid']});});
+ const result=await prepareClaimReview(1,11);
+ expect(result.payload).toBeNull();expect(result.readiness).toMatchObject({ready:false,payloadIssue:{message:'Claim is incomplete: payerid',fields:['payerid']}});
+ expect(result.readiness.blockers).toContain('Claim is incomplete: payerid');expect(result.claim.date_of_service).toBe('2026-11-01');
+ const {listCoverageEvidence}=await import('../../services/coverageVerification.service.js');expect(listCoverageEvidence).toHaveBeenCalledWith({agencyId:1,clientId:4,serviceDate:'2026-11-01'});
+ expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);
+});
+it('does not mask unexpected payload construction failures',async()=>{
+ m.build.mockImplementationOnce(()=>{throw new Error('Unexpected failure');});await expect(prepareClaimReview(1,11)).rejects.toThrow('Unexpected failure');
+});
