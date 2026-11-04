@@ -26,7 +26,7 @@ describe('school roster cancellation without appointments',()=>{
  it('records missing email as an actionable unsent result while preserving the cancellation',async()=>{
   const s=setup();s.contacts.mockResolvedValue({...client,contacts:[{...contact,email:''}],recipients:[{...contact,email:''}]});
   const item=await s.service.review(row,args);const result=await s.service.send('review',item,505);
-  expect(result).toMatchObject({sent:0,skipped:1});expect(result.deliveries[0].error_message).toContain('No family email');
+  expect(result).toMatchObject({sent:0,skipped:1});expect(result.deliveries[0].error_message).toContain('authorized contact has no email');
   expect(s.history.begin).toHaveBeenCalledBefore(s.history.finish);expect(s.sendEmail).not.toHaveBeenCalled();
  });
  it('records a deferred cancellation without sending and later preserves the reviewed recipient names',async()=>{

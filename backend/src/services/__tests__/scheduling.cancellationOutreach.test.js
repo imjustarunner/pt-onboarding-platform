@@ -9,15 +9,86 @@ function contacts() {
   const links = [
     { guardian_user_id: 11, relationship_type: 'self', access_enabled: 1, email: 'client@example.test', phone: '+15555550111' },
     { guardian_user_id: 12, relationship_type: 'guardian', access_enabled: 1, first_name: 'Parent', email: 'parent@example.test', phone: '+15555550112' },
-    { guardian_user_id: 13, relationship_type: 'guardian', access_enabled: 0, email: 'former@example.test' }
+    { guardian_user_id: 13, relationship_type: 'guardian', access_enabled: 0, email: 'former@example.test',permissions_json:{revoked:true} }
   ];
   const d = { database: { execute: vi.fn(async () => [[{ id: 8, full_name: 'Client', status: 'ACTIVE' }]]) }, guardians: async () => links,
     consent: vi.fn(async () => ({ email: true, emailAddress: 'client@example.test', phoneNumber: '+15555550111', sms:true })), preferences: vi.fn(async () => ({ isDefault: true })),
-    smsConsent: vi.fn(async () => null), gate: vi.fn(async () => ({ allowed: true })), normalizePhone: v => v };
+    smsConsent: vi.fn(async () => null), gate: vi.fn(async () => ({ allowed: true })),operational:vi.fn(async()=>null), normalizePhone: v => v };
   return { d, links, service: createCancellationRecipientService(d) };
 }
 
 describe('reviewed cancellation recipients', () => {
+  it('keeps a verified-enrollment caregiver address bound to its signed source during final review',async()=>{
+    const h=contacts();h.links.splice(0);
+    const service=createCancellationRecipientService({...h.d,caregivers:async()=>[{key:'enrollment:77',role:'guardian',name:'Caregiver',email:'signed@example.test',phone:'',userId:null,operationalOnly:true,intakeSubmissionId:77}]});
+    expect((await service.review(8,2,{mode:'guardian',channels:['email']},{required:true,allowMissingEmail:true})).recipients[0].email).toBe('signed@example.test');
+    await expect(service.review(8,2,{mode:'guardian',channels:['email'],recipients:[{key:'enrollment:77',email:'different@example.test'}]},{required:true,allowMissingEmail:true})).rejects.toThrow('comes from a saved guardian or enrollment record');
+  });
+  it('separates verified operational cancellation email from reminder-only channel preferences',async()=>{
+    const h=contacts(),recipient=(await h.service.review(8,2)).recipients[0];
+    h.d.consent.mockResolvedValue({email:false,emailAddress:'parent@example.test'});h.d.preferences.mockResolvedValue({isDefault:false,channels:{email:false}});
+    expect(await h.service.permitted(8,2,recipient,'email')).toBe(false);
+    h.d.operational.mockResolvedValue({providerId:7});
+    const proof={reviewedCancellationToken:'11111111-1111-4111-8111-111111111111',reviewedCancellationItemKey:'appointment:17',actorUserId:7};
+    expect(await h.service.permitted(8,2,recipient,'email',proof)).toBe(true);
+    h.d.gate.mockResolvedValue({allowed:false,reason:'enrollment_automatic_email_off'});
+    expect(await h.service.permitted(8,2,recipient,'email',proof)).toBe(false);
+    h.d.gate.mockResolvedValue({allowed:true});h.d.consent.mockResolvedValue({email:false,sms:false});
+    expect(await h.service.permitted(8,2,recipient,'email',proof)).toBe(false);
+    h.links[1].access_enabled=0;
+    h.d.consent.mockResolvedValue({email:false,emailAddress:null});
+    expect(await h.service.permitted(8,2,recipient,'email',proof)).toBe(true);
+    h.links[1].permissions_json={revoked:true};expect(await h.service.permitted(8,2,recipient,'email',proof)).toBe(false);
+  });
+  it('admits a revalidated enrollment-only contact without granting portal access or trusting edited source flags',async()=>{
+    const h=contacts();h.links.splice(1);
+    const caregiver={key:'enrollment:863',role:'guardian',userId:null,email:'parent@example.test',phone:'',operationalOnly:true,intakeSubmissionId:863};
+    const caregivers=vi.fn(async()=>[{...caregiver}]);h.d.consent.mockResolvedValue({email:false,emailAddress:null});
+    h.d.preferences.mockResolvedValue({isDefault:false,channels:{email:false}});h.d.operational.mockResolvedValue({providerId:7});
+    const service=createCancellationRecipientService({...h.d,caregivers});
+    const proof={reviewedCancellationToken:'11111111-1111-4111-8111-111111111111',reviewedCancellationItemKey:'appointment:17',actorUserId:7};
+    expect(await service.permitted(8,2,caregiver,'email')).toBe(false);
+    expect(await service.permitted(8,2,caregiver,'email',proof)).toBe(true);
+    expect(h.d.consent).toHaveBeenCalledWith(8,2,null);expect(h.links).toHaveLength(1);
+    expect(await service.permitted(8,2,{...caregiver,email:'edited@example.test'},'email',proof)).toBe(false);
+    expect(await service.permitted(8,2,{...caregiver,intakeSubmissionId:999},'email',proof)).toBe(false);
+    expect(await service.permitted(8,2,caregiver,'sms',proof)).toBe(false);
+    caregivers.mockResolvedValue([]);expect(await service.permitted(8,2,caregiver,'email',proof)).toBe(false);
+  });
+  it('emails an affiliated legacy disabled guardian regardless of account or portal-view flags, without activating access',async()=>{
+    const h=contacts();Object.assign(h.links[1],{access_enabled:0,is_active:0,status:'INACTIVE',permissions_json:{noView:true,canViewAppointments:false}});
+    const before=structuredClone(h.links[1]);h.d.operational.mockResolvedValue({providerId:7});h.d.consent.mockResolvedValue({email:false,emailAddress:null});
+    const reviewed=await h.service.review(8,2,{mode:'guardian',channels:['email']},{required:true,allowMissingEmail:true});
+    expect(reviewed.recipients).toEqual([expect.objectContaining({key:'guardian:12',email:'parent@example.test',operationalOnly:true,source:'affiliated_guardian'})]);
+    expect(await h.service.permitted(8,2,reviewed.recipients[0],'email')).toBe(false);
+    expect(await h.service.permitted(8,2,reviewed.recipients[0],'email',{reviewedCancellationToken:'11111111-1111-4111-8111-111111111111',reviewedCancellationItemKey:'appointment:17',actorUserId:7})).toBe(true);
+    expect(h.links[1]).toEqual(before);
+  });
+  it.each([{revoked:true},{noContact:true},{contactRestricted:true},{canReceiveNotifications:false}])('keeps actual relationship/contact denial authoritative even with enabled portal %j',async permissions=>{
+    const h=contacts();h.links[1].permissions_json=permissions;h.d.operational.mockResolvedValue({providerId:7});
+    expect((await h.service.review(8,2,{mode:'guardian',channels:['email']},{required:true,allowMissingEmail:true})).recipients).toEqual([]);
+    expect(await h.service.permitted(8,2,{key:'guardian:12',userId:12,email:'parent@example.test'},'email',
+      {reviewedCancellationToken:'11111111-1111-4111-8111-111111111111',reviewedCancellationItemKey:'appointment:17',actorUserId:7})).toBe(false);
+  });
+  it('includes every currently affiliated guardian rather than only the last signer or first disabled account',async()=>{
+    const h=contacts();h.links.splice(1,2,
+      {guardian_user_id:12,relationship_type:'guardian',access_enabled:0,is_active:0,status:'INACTIVE',email:'one@example.test'},
+      {guardian_user_id:14,relationship_type:'guardian',access_enabled:0,status:'PENDING_SETUP',permissions_json:{noView:true},email:'two@example.test'});
+    const reviewed=await h.service.review(8,2,{mode:'guardian',channels:['email']},{required:true,allowMissingEmail:true});
+    expect(reviewed.recipients.map(recipient=>recipient.email)).toEqual(['one@example.test','two@example.test']);
+    h.d.operational.mockResolvedValue({providerId:7});h.d.consent.mockResolvedValue({email:false,emailAddress:null});
+    for(const recipient of reviewed.recipients)expect(await h.service.permitted(8,2,recipient,'email',
+      {reviewedCancellationToken:'11111111-1111-4111-8111-111111111111',reviewedCancellationItemKey:'appointment:17',actorUserId:7})).toBe(true);
+  });
+  it('lets an email-only absence continue with no linked guardian or no selected contacts and keeps other workflows strict', async () => {
+    const h=contacts();h.links.splice(1);h.links[0].email='';
+    expect((await h.service.review(8,2,{mode:'guardian',channels:['email'],recipients:[]},{required:true,allowMissingEmail:true})).recipients).toEqual([]);
+    expect((await h.service.review(8,2,{mode:'client',channels:['email'],recipients:[{key:'client',enabled:false}]},{required:true,allowMissingEmail:true})).recipients).toEqual([]);
+    await expect(h.service.review(8,2,{mode:'guardian',channels:['email']},{required:true})).rejects.toThrow('Client: No authorized contacts');
+    const blank=await h.service.review(8,2,{mode:'client',channels:['email'],recipients:[{key:'client',email:'  '}]},{required:true,allowMissingEmail:true});
+    expect(blank.recipients[0].email).toBe('');
+    await expect(h.service.review(8,2,{mode:'client',channels:['email'],recipients:[{key:'client',email:'bad-address'}]},{required:true,allowMissingEmail:true})).rejects.toThrow('Client: Client: Enter one valid email');
+  });
   it('uses the chosen client/guardian scope, preserves reviewed addresses, and excludes revoked links', async () => {
     const h = contacts();
     const result = await h.service.review(8, 2, { mode: 'both', channels: ['email', 'sms'], recipients: [{ key: 'guardian:12', email: 'new@example.test' }] }, { required: true });

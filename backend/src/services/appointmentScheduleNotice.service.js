@@ -16,6 +16,7 @@ const defaults = {
   participants: async id => (await import('../models/Appointment.model.js')).default.listParticipants(id),
   tenant: async id => (await import('./sessionNotification.service.js')).getTenantSettings(id),
   reviewedRecipientAllowed: async (...args) => (await import('./cancellationRecipients.service.js')).cancellationRecipients.permitted(...args),
+  operational: async (...args) => (await import('./dayCancellationEmail.service.js')).reviewedDayCancellationContext(...args),
   familyRecipients: async (...args) => (await import('./appointmentFamilyRecipients.service.js')).appointmentFamilyRecipients(...args),
   consent: async (...args) => (await import('./sessionNotification.service.js')).loadClientConsent(...args),
   preferences: async (...args) => (await import('./sessionNotification.service.js')).getClientPreferences(...args),
@@ -223,9 +224,16 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
           communication = await d.communication({agencyId:seed.agency_id,clientId:seed.client_id,userId:consent.guardianUserId || null,
             templateType:'session_change',channel,subject:recipientMessage.subject,body,recipientAddress:recipient,generatedByUserId:seed.created_by_user_id,
             metadata:{appointmentIds:entries.map(e=>e.appointment.id),scheduleNoticeBatchId:batchId},deliveryStatus:'pending'});
-          const guardianAuthorized = !target?.userId || !family.hasRelationships || family.recipients.some(r => r.userId === Number(target.userId));
-          const permitted = guardianAuthorized && (!target || !selectedContacts || await d.reviewedRecipientAllowed(seed.client_id,seed.agency_id,target,channel)) && channel !== 'in_app' && recipient && consent[channel] && prefs.schedulingChangesEnabled !== false && prefs.providerPushedUpdatesEnabled !== false
-            && (prefs.isDefault || prefs.channels?.[channel] !== false)
+          const portalGuardianAuthorized = !target?.userId || !family.hasRelationships || family.recipients.some(r => r.userId === Number(target.userId));
+          const facts=entries[0].payload.facts || {};
+          const review={reviewedCancellationToken:facts.reviewedCancellationToken,reviewedCancellationItemKey:facts.reviewedCancellationItemKey,actorUserId:seed.created_by_user_id};
+          const operational=(portalGuardianAuthorized || target?.operationalOnly) && recipient && channel==='email' && entries.every(entry=>entry.payload.facts?.reviewedCancellationToken)
+            ? await d.operational({agencyId:seed.agency_id,clientId:seed.client_id,to:recipient,templateType:'day_cancellation',
+              ...review,generatedByUserId:seed.created_by_user_id},{database:db}) : null;
+          const guardianAuthorized=portalGuardianAuthorized || (!!operational && target?.operationalOnly === true);
+          const permitted = guardianAuthorized && (!target || !selectedContacts || await d.reviewedRecipientAllowed(seed.client_id,seed.agency_id,target,channel,review)) && channel !== 'in_app' && recipient
+            && (operational ? Object.hasOwn(consent,'emailAddress') : consent[channel]) && prefs.schedulingChangesEnabled !== false && prefs.providerPushedUpdatesEnabled !== false
+            && (operational || prefs.isDefault || prefs.channels?.[channel] !== false)
             && (channel !== 'sms' || (tenant?.channelsEnabled?.sms === true && tenant?.changeNotify?.channels?.includes('sms')));
           if (!permitted) {
             status='skipped';

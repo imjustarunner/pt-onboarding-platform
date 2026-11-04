@@ -6,6 +6,7 @@ vi.mock('../unifiedEmail/gmailClient.js',()=>({getGmailClient:async()=>({users:{
 vi.mock('../unifiedEmail/verifiedSender.js',()=>({assertVerifiedGmailSender:async()=>{}}));
 vi.mock('../googleWorkspaceEmail.service.js',()=>({default:{sendEmail:m.send,isConfigured:()=>true}}));
 vi.mock('../emailSettings.service.js',()=>({getEmailSendingMode:async()=> 'all',isEmailNotificationsEnabled:async()=>true,emailRequiresAdminApproval:m.approval}));
+vi.mock('../tenantMessageMailboxes.service.js',()=>({inferAgencyMailDomain:vi.fn(async()=> 'itsco.health')}));
 vi.mock('../emailComplianceFooter.service.js',()=>({assertRecipientAllowsEmail:m.opt,appendComplianceFooter:m.footer}));
 vi.mock('../activityProtection.service.js',()=>({protectOutboundEmail:async()=>{}}));
 vi.mock('../managedWorkspaceGroupAccess.service.js',()=>({managedGroupEnvelope:async x=>x}));
@@ -61,5 +62,27 @@ it.each([false,true])('saves provider CC, school scope and display identity befo
   .toMatchObject({pendingApproval:true});
  const metadata=preloggedReceipt?JSON.parse(m.execute.mock.calls.find(([sql])=>sql.includes('JSON_MERGE_PATCH'))[1][2]):m.log.mock.calls[0][0].metadata;
  expect(metadata).toMatchObject({senderIdentityId:1,cc,schoolSessionScopeKey:scope,fromDisplayName:'AuricWell Notifications',fromEmail:'contact@example.test'});
+ expect(m.send).not.toHaveBeenCalled();
+});
+it('delivers only signed reviewed cancellation proof past the rollout pause and second approval, and persists it',async()=>{
+ m.opt.mockResolvedValue({allowed:true});
+ const token='11111111-1111-4111-8111-111111111111',proof={reviewedCancellationToken:token,reviewedCancellationItemKey:'appointment:17'};
+ const plan={providerId:776,messagesReviewed:true,facts:{reasonCategory:'illness',notificationMode:'send'},scopes:[{agencyId:2}],
+  items:[{key:'appointment:17',kind:'appointment',agencyId:2,clients:[{clientId:8,mode:'guardian',recipients:[{email:input.to}]}]}]};
+ const prior=m.execute.getMockImplementation();
+ m.execute.mockImplementation((sql,args)=>{
+  if(sql.includes('FROM provider_day_cancellations'))return Promise.resolve([[{provider_id:776,actor_user_id:776,status:'completed',signed_at:'2026-11-04 15:00:00',plan_json:JSON.stringify(plan)}]]);
+  if(sql.includes('agency_parent_email_controls'))return Promise.resolve([[{routine_emails_paused:1}]]);
+  return prior(sql,args);
+ });
+ expect(await sendEmailFromIdentity({...input,...proof,source:'auto',clientId:8,generatedByUserId:776,
+  templateType:'day_cancellation',cc:['support@itsco.health']})).toMatchObject({id:'accepted'});
+ expect(m.send).toHaveBeenCalledOnce();expect(m.approval).not.toHaveBeenCalled();
+ expect(m.log.mock.calls[0][0].metadata).toMatchObject({...proof,source:'manual',cc:['support@itsco.health']});
+ m.send.mockClear();m.opt.mockResolvedValue({allowed:false,reason:'recipient_opted_out'});
+ expect(await sendEmailFromIdentity({...input,...proof,clientId:8,generatedByUserId:776,templateType:'day_cancellation',cc:['support@itsco.health']}))
+  .toMatchObject({skipped:true,reason:'recipient_opted_out'});
+ expect(m.send).not.toHaveBeenCalled();
+ m.send.mockClear();await expect(sendEmailFromIdentity({...input,templateType:'day_cancellation',clientId:8,generatedByUserId:776})).rejects.toThrow('signed recipient review');
  expect(m.send).not.toHaveBeenCalled();
 });

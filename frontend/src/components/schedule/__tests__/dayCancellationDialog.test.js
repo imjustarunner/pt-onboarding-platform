@@ -60,6 +60,57 @@ afterEach(() => {
 });
 
 describe('day cancellation review', () => {
+  it('opens an unsent-only email review explicitly and requires fresh approval without repeating the school cancellation',async()=>{
+    const key='school_roster:2:7:2026-10-15:8:4';
+    const family={key,kind:'school_roster',id:8,agencyId:2,date:'2026-10-15',title:'AB family notice',recipients:['AB'],clients:[{clientId:8,clientName:'AB',mode:'guardian',channels:['email'],emailOnly:true,contacts:[{key:'enrollment:77',role:'guardian',name:'Caregiver',email:'family@example.test',operationalOnly:true}],recipients:[{key:'enrollment:77',role:'guardian',name:'Caregiver',email:'family@example.test'}]}],message:{subject:'Family cancellation',text:'School session canceled'}};
+    const original={...fixture('completed'),token:'completed-review',unsentFamilyNotices:1,items:[family],results:{[key]:{status:'completed',notificationDelivery:{skipped:1}}}};
+    m.get.mockResolvedValue({data:{review:original}});
+    m.post.mockImplementation(async(url)=>({data:{...fixture(url.endsWith('/apply')?'completed':'preview'),token:'new-email-review',notificationsOnly:true,items:[family],results:url.endsWith('/apply')?{[key]:{status:'completed',notificationDelivery:{sent:1}}}:{}}}));
+    open();await flushPromises();expect(m.post).not.toHaveBeenCalled();
+    await button('Review unsent family emails').trigger('click');await flushPromises();
+    expect(m.post.mock.calls[0][1]).toMatchObject({unsentToken:'completed-review',messagesReviewed:false});
+    expect(wrapper.text()).toContain('These sessions are already canceled.');
+    expect(wrapper.find('input[aria-label="Caregiver email"]').element.readOnly).toBe(true);
+    expect(wrapper.text()).toContain('From verified enrollment. Update the authorized contact record');
+    await button('Review final cancellation').trigger('click');await flushPromises();
+    expect(button('Approve and send emails').element.disabled).toBe(true);
+    await wrapper.find('.day-signature input').setValue(true);
+    await button('Approve and send emails').trigger('click');await flushPromises();
+    expect(m.post.mock.calls.filter(([url])=>url.endsWith('/apply'))).toHaveLength(1);
+    expect(m.post.mock.calls.every(([url])=>url.endsWith('/preview')||url.endsWith('/new-email-review/apply'))).toBe(true);
+  });
+  it('keeps final-review failures beside the button and preserves both edited family and school notices for retry', async () => {
+    let rejectFinal = true;
+    const rosterKey='school_roster:2:7:2026-10-15:8:4', schoolKey='school:2:4:2026-10-15';
+    const schoolPlan=body=>{
+      const plan=fixture();
+      plan.items=[{key:rosterKey,kind:'school_roster',id:8,agencyId:2,date:'2026-10-15',title:'AB assigned-day notice',recipients:['AB'],clients:[{clientId:8,clientName:'AB',clientInitials:'AB',mode:'client',channels:['email'],emailOnly:true,contacts:[{key:'client',role:'client',name:'AB',email:''}],recipients:[{key:'client',role:'client',name:'AB',email:''}]}],message:body?.messages?.[rosterKey] || {subject:'Family subject',text:'Family message'}},
+        {key:schoolKey,kind:'school',id:4,agencyId:2,date:'2026-10-15',title:'School notice',recipients:body?.schoolChoices?.[schoolKey]?.recipients || ['school@example.test'],message:body?.schoolChoices?.[schoolKey]?.message || {subject:'School subject',text:'School message'}}];
+      return plan;
+    };
+    m.post.mockImplementation(async(url,body)=>{
+      if(url.endsWith('/apply'))return {data:{...schoolPlan(),status:'completed',results:{[rosterKey]:{status:'completed',notificationDelivery:{skipped:1}},[schoolKey]:{status:'completed'}}}};
+      if(body.messagesReviewed && rejectFinal)throw {response:{status:400,data:{error:{message:'AB: Enter one valid email address per recipient.'}}}};
+      return {data:schoolPlan(body)};
+    });
+    open();await review(false);
+    const input=value=>wrapper.findAll('input').find(node=>node.element.value===value);
+    await input('Family subject').setValue('Edited family subject');
+    await input('School subject').setValue('Edited school subject');
+    await button('Review final cancellation').trigger('click');await flushPromises();
+    expect(wrapper.find('footer [role="alert"]').text()).toContain('AB: Enter one valid email address');
+    expect(wrapper.find('footer [role="alert"]').text()).toContain('Your edits are preserved');
+    expect(input('Edited family subject').exists()).toBe(true);expect(input('Edited school subject').exists()).toBe(true);
+    rejectFinal=false;
+    await button('Review final cancellation').trigger('click');await flushPromises();
+    expect(wrapper.find('footer [role="alert"]').exists()).toBe(false);
+    expect(wrapper.text()).toContain('Edited family subject');expect(wrapper.text()).toContain('Edited school subject');
+    await signAndConfirm();
+    expect(wrapper.text()).toContain('The reviewed cancellations are complete.');
+    const final=m.post.mock.calls.findLast(([url,body])=>url.endsWith('/preview')&&body.messagesReviewed)[1];
+    expect(final.messages[rosterKey].subject).toBe('Edited family subject');
+    expect(final.schoolChoices[schoolKey].message.subject).toBe('Edited school subject');
+  });
   it('shows demo routing before final review and the actual per-recipient subject after edits without sending', async () => {
     m.post.mockImplementation(async (_url, body) => {
       const plan=fixture(), subject=body.messages?.['appointment:41']?.subject || 'Session canceled';
