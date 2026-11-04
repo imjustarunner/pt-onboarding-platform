@@ -19,6 +19,7 @@ import { saveReadiness } from '../services/familyLedger/readiness.js';
 import { runDueCopays } from '../services/familyLedger/copays.js';
 import { refundPayment } from '../services/familyLedger/refunds.js';
 import { receiptWorkspace,requestPaymentRefund,listRefundRequests,resolveRefundRequest } from '../services/familyLedger/refundRequests.js';
+import {retryHeldReceipt} from '../services/familyLedger/receiptDeliveryRetry.js';
 import { listBalances,listReceipts,receiptFor,renderReceiptPdf } from '../services/familyLedger/views.js';
 import { proposePlan,acceptPlan,cancelPlan,runDuePlans,PLAN_TERMS_VERSION } from '../services/familyLedger/plans.js';
 import { setStatementSharing,requestSplit,respondToSplit,listSplitRequests } from '../services/familyLedger/sharing.js';
@@ -103,6 +104,7 @@ router.post('/staff/payments/:id/refund',run(async(req,res)=>res.json(await refu
 router.get('/staff/refund-requests',run(async(req,res)=>res.json({requests:await listRefundRequests(context(req))})));
 router.post('/staff/refund-requests/:id/resolve',limited,run(async(req,res)=>res.json(await resolveRefundRequest({...req.body,...context(req),requestId:positiveId(req.params.id)}))));
 router.get('/staff/receipt-deliveries',run(async(req,res)=>{const [deliveries]=await pool.execute("SELECT d.id,d.payment_id AS paymentId,d.kind,d.status,d.communication_id AS communicationId,p.receipt_number AS receiptNumber FROM family_receipt_deliveries d JOIN family_ledger_payments p ON p.id=d.payment_id WHERE d.agency_id=? AND d.status<>'sent' ORDER BY d.id DESC LIMIT 100",[context(req).agencyId]);res.json({deliveries});}));
+router.post('/staff/receipt-deliveries/:id/retry',limited,run(async(req,res)=>res.json(await retryHeldReceipt({...context(req),deliveryId:positiveId(req.params.id)}))));
 router.post('/staff/allocations/:id/plan',run(async(req,res)=>res.json(await proposePlan({...req.body,...context(req),allocationId:positiveId(req.params.id)}))));
 router.post('/staff/plans/:id/cancel',run(async(req,res)=>{await cancelPlan({...context(req),planId:positiveId(req.params.id),staff:true});res.json({success:true});}));
 router.post('/staff/plans/collect-due',limited,run(async(req,res)=>res.json({results:await runDuePlans(context(req))})));

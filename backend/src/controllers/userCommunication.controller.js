@@ -1,3 +1,4 @@
+import {sendCommunicationRecord,recordCommunicationSent} from '../services/communicationRecordDelivery.service.js';
 import pool from '../config/database.js';
 import { appCommunicationVisibilitySql, isExternalTestingHistory } from '../utils/externalTestingEmail.js';
 import { activeCommunicationFailureSql } from '../utils/communicationFailureQueue.js';
@@ -6,10 +7,8 @@ import EmailTemplate from '../models/EmailTemplate.model.js';
 import EmailTemplateService from '../services/emailTemplate.service.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
-import EmailService from '../services/email.service.js';
 import StorageService from '../services/storage.service.js';
 import { maybeEncryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
-import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import {
   countMultiAgencyCommunicationQualityIssues,
   buildCommunicationListFilters,
@@ -143,49 +142,6 @@ function sortEnrichedCommunications(items, sort = 'newest', { reviewedLast = fal
   return list;
 }
 
-async function sendCommunicationRecord(comm, meta, userId) {
-  if (meta.isSiblingMirror) throw Object.assign(new Error('This is a history copy of the family email. Review or retry the original communication instead.'), { status: 409 });
-  const subject = String(comm.subject || '').trim();
-  const body = String(comm.body || '').trim();
-  const looksLikeHtml = /<[a-z][\s\S]*>/i.test(body);
-  const senderIdentityId = Number(meta.senderIdentityId || meta.sender_identity_id || 0) || null;
-  const linkUrl = meta.linkUrl || meta.link_url || null;
-
-  if (senderIdentityId) {
-    return sendEmailFromIdentity({
-      senderIdentityId,
-      to: comm.recipient_address,
-      subject: subject || 'Notification',
-      text: looksLikeHtml ? null : body,
-      html: looksLikeHtml ? body : null,
-      source: 'manual',
-      clientId: comm.client_id || null,
-      userId: comm.user_id || null,
-      templateType: comm.template_type || null,
-      templateId: comm.template_id || null,
-      generatedByUserId: userId || null,
-      linkUrl,
-      existingCommunicationId: comm.id,
-      internetMessageIdOverride: meta.internetMessageIdOverride || null,
-      replyToOverride: meta.replyTo || null
-    });
-  }
-  return EmailService.sendEmail({
-    to: comm.recipient_address,
-    subject: subject || 'Notification',
-    text: looksLikeHtml ? null : body,
-    html: looksLikeHtml ? body : null,
-    source: 'manual',
-    agencyId: comm.agency_id,
-    clientId: comm.client_id || null,
-    userId: comm.user_id || null,
-    templateType: comm.template_type || 'manual',
-    templateId: comm.template_id || null,
-    generatedByUserId: userId || null,
-    existingCommunicationId: comm.id,
-    linkUrl
-  });
-}
 
 function isTrackingPixelUrl(url) {
   const u = String(url || '').toLowerCase();
@@ -973,47 +929,8 @@ export const approveCommunication = async (req, res, next) => {
     }
 
     const meta = parseMetadata(comm.metadata);
-    const senderIdentityId = Number(meta.senderIdentityId || meta.sender_identity_id || 0) || null;
-    const looksLikeHtml = /<[a-z][\s\S]*>/i.test(body);
-
-    let result;
-    if (senderIdentityId) {
-      result = await sendEmailFromIdentity({
-        senderIdentityId,
-        to: comm.recipient_address,
-        subject: subject || 'Notification',
-        text: looksLikeHtml ? null : body,
-        html: looksLikeHtml ? body : null,
-        source: 'manual',
-        clientId: comm.client_id || null,
-        userId: comm.user_id || null,
-        templateType: comm.template_type || null,
-        templateId: comm.template_id || null,
-        generatedByUserId: req.user?.id || null,
-        linkUrl: meta.linkUrl || null,
-        existingCommunicationId: comm.id,
-        internetMessageIdOverride: meta.internetMessageIdOverride || null,
-        replyToOverride: meta.replyTo || null
-      });
-      if (result?.pendingApproval) {
-        return res.status(409).json({ error: { message: 'Approval send was blocked by email settings' } });
-      }
-    } else {
-      result = await EmailService.sendEmail({
-        to: comm.recipient_address,
-        subject: subject || 'Notification',
-        text: looksLikeHtml ? null : body,
-        html: looksLikeHtml ? body : null,
-        source: 'manual',
-        agencyId: comm.agency_id,
-        clientId: comm.client_id || null,
-        userId: comm.user_id || null,
-        templateType: comm.template_type || 'manual',
-        templateId: comm.template_id || null,
-        generatedByUserId: req.user?.id || null,
-        existingCommunicationId: comm.id
-      });
-    }
+    const result=await sendCommunicationRecord(comm,meta,req.user?.id);
+    if(result?.pendingApproval)return res.status(409).json({error:{message:'Approval send was blocked by email settings'}});
 
     if (result?.skipped) {
       return res.status(409).json({ error: { message: `Email send blocked: ${result.reason}` } });
@@ -1028,15 +945,7 @@ export const approveCommunication = async (req, res, next) => {
       });
     }
 
-    const providerMessageId = result?.id || result?.messageId || null;
-    const updated = await UserCommunication.updateDeliveryStatus(
-      comm.id,
-      'sent',
-      providerMessageId,
-      result?.threadId || null,
-      null,
-      { approvedByUserId: req.user.id }
-    );
+    const updated=await recordCommunicationSent(comm,meta,result,req.user.id,{approved:true});
     res.json(updated || null);
   } catch (error) {
     next(error);
@@ -1342,25 +1251,7 @@ export const retryCommunicationSend = async (req, res, next) => {
       });
     }
 
-    const providerMessageId = result?.id || result?.messageId || null;
-    const sentMeta = {
-      ...meta,
-      retriedByUserId: req.user.id,
-      retriedAt: new Date().toISOString()
-    };
-    delete sentMeta.qualityFlags;
-    delete sentMeta.qualityBlockedAt;
-    delete sentMeta.failedListRemovedAt;
-    delete sentMeta.failedListRemovedByUserId;
-
-    await UserCommunication.updateDeliveryStatus(
-      comm.id,
-      'sent',
-      providerMessageId,
-      result?.threadId || null,
-      null,
-      sentMeta
-    );
+    await recordCommunicationSent(comm,meta,result,req.user.id);
 
     const enriched = await fetchEnrichedCommunicationById(comm.id);
     res.json(enriched);
