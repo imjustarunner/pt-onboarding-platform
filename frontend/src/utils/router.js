@@ -94,6 +94,7 @@ export function getDashboardRoute() {
   }
   
   const userRole = String(user.role || '').toLowerCase();
+  if (userRole === 'assistant') return '/assistant';
   if (userRole !== 'super_admin' && isSchoolCareBridgeOnly(agencyStore.currentAgency)) {
     return schoolCareBridgePartnerPath(agencyStore.currentAgency.portal_url || agencyStore.currentAgency.slug);
   }

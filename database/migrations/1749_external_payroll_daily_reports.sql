@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS assistant_payroll_reports (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ ref CHAR(36) NOT NULL,
+ account_id BIGINT UNSIGNED NOT NULL,
+ agency_id INT NOT NULL,
+ report_day DATE NOT NULL,
+ source_hash CHAR(64) NOT NULL,
+ payload_ciphertext LONGTEXT NOT NULL,
+ approved_at DATETIME(3) NULL,
+ status ENUM('draft','pending','sending','sent','failed','delivery_unknown') NOT NULL DEFAULT 'draft',
+ message_id VARCHAR(255) NULL,
+ communication_id BIGINT NULL,
+ attempts INT NOT NULL DEFAULT 0,
+ next_attempt_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+ sent_at DATETIME(3) NULL,
+ created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+ updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+ UNIQUE KEY uq_assistant_payroll_report_ref(ref),
+ UNIQUE KEY uq_assistant_payroll_report_day(account_id,report_day),
+ KEY idx_assistant_payroll_report_delivery(status,next_attempt_at),
+ CONSTRAINT fk_assistant_payroll_report_account FOREIGN KEY(account_id) REFERENCES assistant_accounts(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

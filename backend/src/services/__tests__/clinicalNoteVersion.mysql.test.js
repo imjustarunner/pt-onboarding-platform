@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { splitSqlStatements, stripSqlLineComments } from '../../utils/migrationSql.js';
 
@@ -10,18 +11,22 @@ test('immutable clinical revisions enforce exact signatures, durable audit and b
 }, async t => {
   const socketPath = process.env.CLINICAL_NOTE_VERSION_MYSQL_SOCKET;
   const syntheticCi = process.env.CI === 'true' && process.env.CLINICAL_NOTE_VERSION_MYSQL_CI === '1';
-  assert.ok(syntheticCi || socketPath?.startsWith('/private/tmp/pt-immutable-note-mysql-20261103/'));
+  const localPort = process.env.CLINICAL_NOTE_VERSION_MYSQL_LOCAL_PORT;
+  if (localPort !== undefined) assert.equal(localPort, '33319', 'Only the explicitly isolated pilot server is allowed');
+  assert.ok(syntheticCi || localPort === '33319' || socketPath?.startsWith('/private/tmp/pt-immutable-note-mysql-20261103/'));
   const connection = syntheticCi
     ? { host: '127.0.0.1', port: 33316, user: 'root', password: 'synthetic-root-only', timezone: 'Z' }
-    : { socketPath, user: 'root', timezone: 'Z' };
-  // Imported application modules create default pools. Disable their eager
-  // probes and bind even accidental default use to this synthetic local port.
-  process.env.NODE_ENV='test';process.env.SKIP_DB_CONNECT='1';
-  for (const prefix of ['DB','CLINICAL_DB']) for (const [key,value] of Object.entries({HOST:'127.0.0.1',PORT:syntheticCi?'33316':'33427',NAME:'immutable_note_revision_test',USER:'root',PASSWORD:'synthetic-root-only'})) process.env[`${prefix}_${key}`]=value;
+    : localPort === '33319' ? { host: '127.0.0.1', port: 33319, user: 'root', password: '', timezone: 'Z' }
+      : { socketPath, user: 'root', timezone: 'Z' };
+  // Only the explicit test pool can access the disposable schema. Accidental
+  // default-pool use, including optional assistant queuing, fails on local port 1.
+  process.env.NODE_ENV='test';process.env.SKIP_DB_CONNECT='1';process.env.SKIP_CLINICAL_DB_CONNECT='1';
+  for (const prefix of ['DB','CLINICAL_DB']) for (const [key,value] of Object.entries({HOST:'127.0.0.1',PORT:'1',NAME:'never_production',USER:'assistant_tests_never_prod',PASSWORD:'unused'})) process.env[`${prefix}_${key}`]=value;
   process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64 = Buffer.alloc(32, 7).toString('base64');
   const { default: mysql } = await import('mysql2/promise');
   const admin = await mysql.createConnection(connection);
-  const database = 'immutable_note_revision_test';
+  const database = `immutable_note_revision_test_${process.pid}_${randomBytes(4).toString('hex')}`;
+  assert.match(database, /^immutable_note_revision_test_\d+_[a-f0-9]{8}$/);
   let pool;
   try {
     await admin.query(`DROP DATABASE IF EXISTS ${database}`);
@@ -31,7 +36,7 @@ test('immutable clinical revisions enforce exact signatures, durable audit and b
       const sql = await readFile(new URL(`../../../../database/clinical_migrations/${file}`, import.meta.url), 'utf8');
       for (const statement of splitSqlStatements(stripSqlLineComments(sql))) await pool.query(statement);
     };
-    for (const file of ['001_create_clinical_data_plane.sql', '002_medical_billing_foundations.sql', '003_session_service_code_location.sql', '006_diagnosis_justification_and_plan_note_links.sql', '013_addenda_interventions_billing_audit.sql', '021_typed_note_entries.sql']) await apply(file);
+    for (const file of ['001_create_clinical_data_plane.sql', '002_medical_billing_foundations.sql', '003_session_service_code_location.sql', '006_diagnosis_justification_and_plan_note_links.sql', '007_treatment_plan_effective_date_direction_diagnoses.sql', '013_addenda_interventions_billing_audit.sql', '018_claimmd_workflow.sql', '021_typed_note_entries.sql']) await apply(file);
     await pool.execute(`INSERT INTO clinical_sessions(id,agency_id,client_id,office_event_id,provider_user_id,source_timezone,scheduled_start_at,scheduled_end_at,duration_minutes,place_of_service,service_code,service_location_id,billing_office_location_id,metadata_json)
       VALUES(7,1,3,77,5,'America/Denver','2026-11-03 17:00:00','2026-11-03 17:45:00',45,'11','90834',10,11,?)`, [JSON.stringify({ locationLabel: 'Synthetic office' })]);
     const metadata = { serviceCode: '90834', dateOfService: '2026-11-03', clinicalValue: 'original', billingPrimaryUnits: 1, structuredChart: { durationMinutes: 45, startTime: '10:00', endTime: '10:45', locationLabel: 'Synthetic office', placeOfService: '11' } };
@@ -244,6 +249,27 @@ test('immutable clinical revisions enforce exact signatures, durable audit and b
       await sign(revision, 5, 'author_sign'); await sign(revision, 9, 'supervisor_sign');
       assert.equal((await note()).metadata_json.dateOfService, '2026-11-03');
     });
+    await t.test('assistant review reads current approved versions through SELECT-only adapters on actual MySQL', async () => {
+      const { buildClinicalReviewPacket, readSourceRevision } = await import('../assistantReviewPackets.service.js');
+      let sourceFailure;
+      const clinicalReader = { execute: async (sql, args) => { assert.match(sql.trim(), /^SELECT\b/i);
+        try { return await pool.execute(sql, args); } catch (error) { sourceFailure = { code: error.code, message: error.sqlMessage }; throw error; }
+      } };
+      const mainReader = { execute: async sql => {
+        assert.match(sql.trim(), /^SELECT\b/i);
+        return sql.includes('FROM clients c') ? [[{ id: 3, agency_id: 1, status: 'ACTIVE', full_name: 'Synthetic Client' }]] : [[]];
+      } };
+      const scope = { agencyId: 1, clientId: 3, subrole: 'clinical', privacyPolicy: { enabled: true, baaVerified: true,
+        approved: true, sampleReviewPassed: true, revision: 'synthetic-v1', externalService: 'Synthetic vendor', baaReference: 'synthetic-baa', sampleReviewReference: 'synthetic-sample' } };
+      const deps = { mainDb: mainReader, clinicalDb: clinicalReader, loadDocumentationPolicy: async () => ({ version: 'synthetic', supervisorUserId: 9 }),
+        createPrivacyContext: () => ({ redact: async value => value }) };
+      const packet = await buildClinicalReviewPacket(scope, deps);
+      assert.equal(packet.status, 'ready', JSON.stringify(sourceFailure || { reasonCode: packet.reasonCode }));
+      assert.ok(packet.packet.notes.length > 0);
+      assert.equal(await readSourceRevision(scope, deps), packet.sourceRevision);
+      assert.ok(packet.packet.notes.every(value => !Object.hasOwn(value, 'clinical_version_id')));
+    });
+
     await t.test('signature, approval and audit records reject update and delete', async () => {
       for (const table of ['clinical_note_revision_signatures', 'clinical_note_revision_approvals', 'clinical_note_revision_audit']) {
         await assert.rejects(pool.execute(`UPDATE ${table} SET content_hash=? LIMIT 1`, ['0'.repeat(64)]), /immutable|append-only/);

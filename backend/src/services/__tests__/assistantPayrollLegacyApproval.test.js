@@ -1,0 +1,16 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+const m=vi.hoisted(()=>({db:{execute:vi.fn()},claim:vi.fn(),approve:vi.fn(),period:vi.fn(),rate:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:m.db,onTableWrite:vi.fn()}));
+vi.mock('../../models/PayrollTimeClaim.model.js',()=>({default:{findById:m.claim,approve:m.approve}}));
+vi.mock('../../models/PayrollPeriod.model.js',()=>({default:{findById:m.period,findForAgencyByDate:m.period,findNextForAgencyAfter:vi.fn()}}));
+vi.mock('../../models/PayrollRateCard.model.js',()=>({default:{findForUser:vi.fn().mockResolvedValue({indirect_rate:20})}}));
+vi.mock('../../models/PayrollRate.model.js',()=>({default:{findBestRate:m.rate}}));
+vi.mock('../../services/paySystem.service.js',()=>({loadUserPaySystemContext:vi.fn().mockResolvedValue({enabled:false}),applyPaySystemToBreakdown:vi.fn(),classifyPayType:vi.fn()}));
+vi.mock('../../services/internMeetingPolicy.service.js',()=>({isUnpaidInternActivity:vi.fn().mockResolvedValue(false)}));
+import {patchTimeClaim} from '../../controllers/payroll.controller.js';
+import {invokeScopedPayrollCommand} from '../assistantPayrollCommand.service.js';
+let claim;
+beforeEach(()=>{vi.clearAllMocks();claim={id:12,agency_id:450,user_id:99,status:'submitted',claim_type:'indirect_time',claim_date:'2026-11-02',created_at:'2026-11-02T15:00:00Z',payload:{source:'supervision_session_finalize',sessionType:'individual',totalMinutes:45,serviceCode:'99415'}};m.claim.mockResolvedValue(claim);m.period.mockResolvedValue({id:7,agency_id:450,status:'draft',period_start:'2026-11-01',period_end:'2026-11-15'});m.db.execute.mockResolvedValue([[]]);m.rate.mockResolvedValue({rate_amount:60});m.approve.mockImplementation(async input=>({...claim,status:'approved',applied_amount:input.appliedAmount}));});
+it('uses existing assigned-rate calculation and scoped transaction without rewriting the tracked time',async()=>{const tx={execute:vi.fn()};const result=await invokeScopedPayrollCommand({account:{agency_id:450,user_id:80},kind:'individual_supervision',claimId:12,periodId:7,db:tx},patchTimeClaim);expect(result.applied_amount).toBe(45);expect(m.approve).toHaveBeenCalledWith(expect.objectContaining({db:tx,requireSubmitted:true,id:12,approverUserId:80,targetPayrollPeriodId:7,appliedAmount:45,creditsHours:.75}));expect(claim.payload).toEqual({source:'supervision_session_finalize',sessionType:'individual',totalMinutes:45,serviceCode:'99415'});expect(m.db.execute.mock.calls.every(([sql])=>!/^UPDATE/i.test(sql))).toBe(true);});
+it('a school-mileage authority cannot approve a time submission',async()=>{await expect(invokeScopedPayrollCommand({account:{agency_id:450,user_id:80},kind:'school_mileage',claimId:12,periodId:7,db:{}},patchTimeClaim)).rejects.toMatchObject({status:409});expect(m.approve).not.toHaveBeenCalled();});
+it('an agency-mismatched private command fails before the approval write',async()=>{await expect(invokeScopedPayrollCommand({account:{agency_id:453,user_id:80},kind:'individual_supervision',claimId:12,periodId:7,db:{}},patchTimeClaim)).rejects.toMatchObject({status:409});expect(m.approve).not.toHaveBeenCalled();});

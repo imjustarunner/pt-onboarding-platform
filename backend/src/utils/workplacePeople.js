@@ -6,3 +6,9 @@ export function isPrivateFamilyProfile(user) {
 export function workplacePersonSql(alias = 'u') {
   return `LOWER(TRIM(COALESCE(${alias}.email,''))) NOT LIKE '%@members.invalid'`;
 }
+
+// Identity lookups remain available to authentication and Assistant Accounts.
+export function humanRosterSql(alias = 'u') {
+  return `${workplacePersonSql(alias)} AND COALESCE(${alias}.role,'') <> 'assistant'
+    AND COALESCE(${alias}.is_assistant_account,0)=0`;
+}

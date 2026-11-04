@@ -5,6 +5,8 @@ import {financeAgencyIds} from '../services/finance/policy.js';
 import User from '../models/User.model.js';
 import { managedBillingAgencies } from '../services/managedBillingAccess.service.js';
 import { listAgencyIdsInTenantTree, resolveTenantRootAgencyId } from './meDashboardTenantScope.js';
+import { isAssistantIdentity, minimalAssistantCapabilities } from './assistantBoundaryPolicy.js';
+import { loadAssistantIdentity } from '../services/assistantIdentity.service.js';
 
 /**
  * Expand credentialed agency IDs to the full tenant tree (parent + affiliated orgs)
@@ -36,6 +38,12 @@ export async function expandCredentialingAgencyIds(agencyIds) {
  * Keeps payroll / budget / credentialing flags consistent across auth surfaces.
  */
 export async function buildAgencyAccessCaps(user, { effectiveRole } = {}) {
+  const assistant = isAssistantIdentity(user) || (user?.id && await loadAssistantIdentity(user.id));
+  if (assistant) return {
+    payrollAgencyIds: [], departmentAgencyIds: [], credentialingAgencyIds: [], billingAgencyIds: [],
+    billingManagementAgencyIds: [], managedBillingAgencyIds: [],
+    capabilities: minimalAssistantCapabilities()
+  };
   const roleForCaps = effectiveRole ?? user?.role ?? null;
   const userForCaps = user ? { ...user, role: roleForCaps } : null;
   const [payrollAgencyIds, departmentAgencyIds, rawCredentialingAgencyIds, billingAgencyIds] = userForCaps?.id
@@ -130,6 +138,7 @@ export function getUserCapabilities(user, { effectiveRole } = {}) {
 
   if (!user) return base;
   if (status === 'ARCHIVED') return base;
+  if (isAssistantIdentity(user)) return minimalAssistantCapabilities();
 
   // Guardian portal accounts: non-clinical access.
   // They should be able to access the platform shell + documents + links/materials, but not admin tooling.

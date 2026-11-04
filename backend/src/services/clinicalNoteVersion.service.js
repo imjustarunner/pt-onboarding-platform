@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import clinicalPool from '../config/clinicalDatabase.js';
+import { queueCommittedClinicalSourceChange } from './assistantClinicalSourceChange.service.js';
 import { maybeDecryptNotePayload, maybeEncryptNotePayload } from './clinicalNoteCrypto.service.js';
 import { zonedWallTimeToUtc } from '../utils/zonedWallTime.util.js';
 
@@ -289,6 +290,7 @@ export async function getEffectiveNote({ note, session = {} }, source = clinical
     metadata_json: effectiveMetadata,
     ...(supervisorSignature ? { supervisor_cosigned_at: supervisorSignature.signedAt, supervisor_cosigned_by_user_id: supervisorSignature.actorUserId } : {}),
     clinical_version_id: Number(row.id), clinical_version_number: Number(row.revision_number), clinical_version_content_hash: row.content_hash,
+    clinical_version_origin: row.origin, clinical_version_requires_supervisor_cosign: Boolean(row.requires_supervisor_cosign),
     clinical_version_encounter_context: snapshot.encounterContext || {},
     clinical_version_signatures: versionSignatures, clinical_version_provenance: object(row.provenance_json),
     clinical_version_pending_id: id(head.pending_revision_id), clinical_version_addenda: effectiveAddenda, clinical_version_signed_addenda: snapshot.addenda || [],clinical_version_entry_manifest:attachments.manifest,clinical_version_entry_manifest_hash:attachments.manifestHash };
@@ -399,7 +401,8 @@ export async function editRevision(input, source = clinicalPool) {
 export async function signRevision(input, source = clinicalPool) {
   if (input.attested !== true || !id(input.actorUserId)) throw fail(400, 'Review and attest to this exact clinical version before signing.');
   if (!['author_sign', 'supervisor_sign', 'author_acknowledge'].includes(input.action)) throw fail(400, 'Choose the required clinical signature action.');
-  return transaction(source, async db => {
+  let committedReference;
+  const result = await transaction(source, async db => {
     const note = await lockedNote(db, input.noteId, input.agencyId), head = await heads(db, note.id, note.agency_id);
     if (!head) throw fail(409, 'Clinical version history is unavailable.');
     const revision = await revisionRow(db, note.id, note.agency_id, input.revisionId);
@@ -453,8 +456,11 @@ export async function signRevision(input, source = clinicalPool) {
       }
     }
     await db.execute('UPDATE clinical_notes SET metadata_json=? WHERE id=? AND agency_id=?', [JSON.stringify(metadata), note.id, note.agency_id]);
+    committedReference = { agencyId: note.agency_id, clientId: note.client_id, sourceKind: 'note_revision', sourceId: revision.id };
     return getRevision({ noteId: note.id, agencyId: note.agency_id, revisionId: revision.id }, db);
   });
+  queueCommittedClinicalSourceChange(committedReference);
+  return result;
 }
 
 // Independent additions preserve both the signed original and current amendment
@@ -462,7 +468,8 @@ export async function signRevision(input, source = clinicalPool) {
 export async function appendRevisionAddendum(input, source = clinicalPool) {
   if (!['addendum', 'late_entry'].includes(input.entryKind) || input.authorAttested !== true || !id(input.actorUserId)) throw fail(400, 'Choose and attest to an independently signed addendum or late entry.');
   if (typeof input.body !== 'string' || !input.body.trim() || input.body.length > 20000 || typeof input.reason !== 'string' || !input.reason.trim() || input.reason.length > 2000) throw fail(400, 'Enter addition text and a reason.');
-  return transaction(source, async db => {
+  let committedReference;
+  const result = await transaction(source, async db => {
     const note = await lockedNote(db, input.noteId, input.agencyId);
     await ensureOriginalRevision({ db, note, session: await sessionFor(db, note) });
     const head = await heads(db, note.id, note.agency_id), revision = await revisionRow(db, note.id, note.agency_id, head.effective_revision_id);
@@ -472,6 +479,9 @@ export async function appendRevisionAddendum(input, source = clinicalPool) {
     const contentHash = hash({ body: input.body.trim(), reason: input.reason.trim(), entryKind: input.entryKind, actorUserId: id(input.actorUserId), authorSignedAt: iso(addition.author_signed_at), revisionId: Number(revision.id) });
     const signatureId = await insertSignature(db, { ...revision, content_hash: contentHash }, id(input.actorUserId), 'addendum_sign',
       { addendumId: Number(result.insertId), entryKind: input.entryKind, signedByUserId: id(input.actorUserId), signedAt: iso(addition.author_signed_at), boundRevisionContentHash: revision.content_hash });
+    committedReference = { agencyId: note.agency_id, clientId: note.client_id, sourceKind: 'note_entry', sourceId: result.insertId };
     return { id: Number(result.insertId), revisionId: Number(revision.id), signatureId, contentHash, signedAt: iso(addition.author_signed_at) };
   });
+  queueCommittedClinicalSourceChange(committedReference);
+  return result;
 }

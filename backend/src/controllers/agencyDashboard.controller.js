@@ -5,6 +5,7 @@ import ProgressCalculationService from '../services/progressCalculation.service.
 import { validationResult } from 'express-validator';
 import config from '../config/config.js';
 import EmailService from '../services/email.service.js';
+import { humanRosterSql } from '../utils/workplacePeople.js';
 
 export const getAgencyUsers = async (req, res, next) => {
   try {
@@ -26,6 +27,7 @@ export const getAgencyUsers = async (req, res, next) => {
        FROM users u
        JOIN user_agencies ua ON u.id = ua.user_id
        WHERE ua.agency_id = ?
+       AND ${humanRosterSql('u')}
        AND (u.is_archived = FALSE OR u.is_archived IS NULL)
        ORDER BY u.last_name, u.first_name`,
       [agencyIdInt]

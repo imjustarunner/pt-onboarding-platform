@@ -1,3 +1,5 @@
+import { humanRosterSql } from '../utils/workplacePeople.js';
+import { isAssistantIdentity } from '../utils/assistantBoundaryPolicy.js';
 import {loadUserPaySystemContext} from './paySystem.service.js';
 import {postSupplementalLeave,hasSchoolAssignment} from './supplementalLeave.service.js';
 import {approveLeaveAtomically} from './payrollLeaveApproval.service.js';
@@ -566,6 +568,7 @@ export function resolvePtoSheetDisplayEmail({ workEmail, personalEmail, email } 
 }
 
 function isPtoSheetEmployeeRow(row) {
+  if (isAssistantIdentity(row)) return false;
   const role = String(row?.role || '').trim().toLowerCase();
   if (NON_EMPLOYEE_ROLES.has(role)) return false;
   const status = String(row?.status || '').trim().toLowerCase();
@@ -605,7 +608,7 @@ export async function listAgencyPtoSheet({ agencyId }) {
      FROM users u
      INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
      LEFT JOIN payroll_pto_accounts a ON a.user_id = u.id AND a.agency_id = ?
-     WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
+     WHERE (u.is_archived = FALSE OR u.is_archived IS NULL) AND ${humanRosterSql('u')}
      ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
     [agencyId, agencyId]
   );
@@ -616,10 +619,10 @@ export async function listAgencyPtoSheet({ agencyId }) {
 /** True when a user may be edited on the agency PTO sheet. */
 export async function isPtoSheetEligibleUser({ agencyId, userId }) {
   const [rows] = await pool.execute(
-    `SELECT u.id, u.role, u.status, u.work_email, u.personal_email, u.email, u.is_archived
+    `SELECT u.id, u.role, u.status, u.work_email, u.personal_email, u.email, u.is_archived, u.is_assistant_account
      FROM users u
      INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
-     WHERE u.id = ?
+     WHERE u.id = ? AND ${humanRosterSql('u')}
      LIMIT 1`,
     [agencyId, userId]
   );

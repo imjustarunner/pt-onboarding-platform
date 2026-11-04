@@ -1,5 +1,6 @@
 import { requiresHireActivation } from './hirePortalToken.js';
 import { isAccountDisabled } from './accountAccess.js';
+import { isAssistantIdentity } from './assistantBoundaryPolicy.js';
 
 /**
  * Access Control Helper
@@ -83,6 +84,16 @@ export function checkAccess(user, { effectiveRole } = {}) {
   const status = user.status;
   // Use effectiveRole when provided (context-aware); fall back to stored role.
   const userRole = effectiveRole ?? user.role;
+
+  if (isAssistantIdentity(user)) return {
+    canAccessOnDemand: false,
+    canAccessDashboard: ![false, 0, '0'].includes(user.is_active)
+      && ![true, 1, '1'].includes(user.is_archived)
+      && !['ARCHIVED', 'INACTIVE_EMPLOYEE', 'TERMINATED_PENDING', 'TERMINATED'].includes(status),
+    canAccessTraining: false,
+    canAccessDocuments: false,
+    canAccessAdmin: false
+  };
 
   // Superadmins have full access regardless of status (except terminal states)
   if (userRole === 'super_admin' && status !== 'ARCHIVED' && status !== 'INACTIVE_EMPLOYEE') {

@@ -1,0 +1,51 @@
+name: Assistant teams boundaries and workflows
+on:
+  pull_request:
+    paths: ['backend/src/**', 'backend/vitest.assistant*.config.js', 'database/migrations/1747_external_assistant_teams.sql', 'database/migrations/1748_payroll_assistant_review_sources.sql', 'database/migrations/1749_external_payroll_daily_reports.sql', 'frontend/src/**', 'frontend/vitest.assistants.config.js', '.github/workflows/assistant-teams.yml']
+  workflow_dispatch:
+jobs:
+  assistant-boundaries:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0.44
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    env:
+      NODE_ENV: test
+      SKIP_DB_CONNECT: '1'
+      ASSISTANT_TEST_MYSQL_HOST: 127.0.0.1
+      ASSISTANT_TEST_MYSQL_PORT: '3306'
+      ASSISTANT_TEST_MYSQL_USER: root
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - run: npm ci --ignore-scripts
+        working-directory: backend
+      - run: npm rebuild bcrypt --no-fund --no-audit
+        working-directory: backend
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - run: node --test backend/src/middleware/__tests__/assistantBoundary.node.test.js backend/src/services/__tests__/assistantExecutionPolicy.node.test.js
+      - run: node ../frontend/node_modules/vitest/vitest.mjs run --config vitest.assistant-teams.config.js
+        working-directory: backend
+      - run: node ../frontend/node_modules/vitest/vitest.mjs run --config vitest.assistant-regression.config.js
+        working-directory: backend
+      - run: NODE_OPTIONS=--experimental-sqlite node ../frontend/node_modules/vitest/vitest.mjs run --config vitest.assistant-payroll.config.js
+        working-directory: backend
+      - run: node ../frontend/node_modules/vitest/vitest.mjs run --config vitest.assistant-mysql.config.js
+        working-directory: backend
+      - name: Preserve deployed role collation and live triggers on schema retries
+        env:
+          ASSISTANT_TEST_ROLE_COLLATION: utf8mb4_0900_ai_ci
+        run: node ../frontend/node_modules/vitest/vitest.mjs run --config vitest.assistant-mysql.config.js -t 'retries assistant schema|keeps trigger coverage|refuses mismatching installed trigger|validates installed trigger'
+        working-directory: backend
+      - run: NODE_ENV=test SKIP_DB_CONNECT=1 node --test --test-force-exit src/utils/__tests__/payrollSubmissionWindow.test.js
+        working-directory: backend
+      - run: npx vitest run --config vitest.assistants.config.js
+        working-directory: frontend

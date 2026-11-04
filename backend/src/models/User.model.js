@@ -1,7 +1,7 @@
 import { isSupervisionCandidate, isSupervisionPayEligibleHours } from '../utils/supervisionHoursGate.util.js';
 import { isStudentIntern } from '../utils/studentIntern.js';
 import { assertFullSuiteIdentity, fullSuiteIdentityAllowed } from '../services/productIdentity.service.js';
-import { workplacePersonSql } from '../utils/workplacePeople.js';
+import { workplacePersonSql, humanRosterSql } from '../utils/workplacePeople.js';
 import { isAssignableSupervisor, isStaffAccount } from '../utils/staffEligibility.js';
 import pool, { onTableWrite } from '../config/database.js';
 import crypto from 'crypto';
@@ -690,7 +690,7 @@ class User {
       LEFT JOIN user_agencies ua ON u.id = ua.user_id AND (ua.is_active = TRUE OR ua.is_active IS NULL)
       LEFT JOIN agencies a ON ua.agency_id = a.id
     `;
-    query += ` WHERE ${workplacePersonSql('u')}`;
+    query += ` WHERE ${humanRosterSql('u')}`;
     if (!includeArchived) {
       query += ' AND (u.is_archived = FALSE OR u.is_archived IS NULL)';
     }
@@ -811,6 +811,7 @@ class User {
 
     let query =
       'SELECT u.id, u.email, u.role, u.status, u.completed_at, u.terminated_at, u.status_expires_at, u.first_name, u.last_name, u.created_at, u.archived_at, u.archived_by_user_id FROM users u WHERE u.is_archived = TRUE';
+    query += ` AND ${humanRosterSql('u')}`;
     const params = [];
 
     // Filter by archived_by_agency_id

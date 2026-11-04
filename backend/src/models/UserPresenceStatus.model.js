@@ -1,3 +1,4 @@
+import { humanRosterSql } from '../utils/workplacePeople.js';
 import pool from '../config/database.js';
 
 const STATUS_ENUM = [
@@ -381,7 +382,7 @@ export default class UserPresenceStatus {
        FROM users u
        LEFT JOIN user_presence up ON up.user_id = u.id
        LEFT JOIN user_presence_status ps ON ps.user_id = u.id
-       WHERE u.role IN (${placeholders})
+       WHERE u.role IN (${placeholders}) AND ${humanRosterSql('u')}
          AND (u.is_archived = FALSE OR u.is_archived IS NULL)
        ORDER BY u.first_name ASC, u.last_name ASC`,
       STAFF_ROLES

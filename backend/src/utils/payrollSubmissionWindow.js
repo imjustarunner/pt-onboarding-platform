@@ -127,7 +127,7 @@ export async function computeSubmissionWindow({
   timeZone = DEFAULT_TIMEZONE,
   hardStopPolicy = '60_days', // '60_days' | 'in_school' | 'none'
   hardStopDays = 60
-}) {
+}, {periodReader=PayrollPeriod}={}) {
   // Validate timezone early so Intl calls never throw.
   const safeTimeZone = isValidTimeZone(timeZone) ? timeZone : DEFAULT_TIMEZONE;
   const eff = String(effectiveDateYmd || '').slice(0, 10);
@@ -145,7 +145,7 @@ export async function computeSubmissionWindow({
   }
 
   // Find pay period P that contains the effective date.
-  const period = await PayrollPeriod.findForAgencyByDate({ agencyId, dateYmd: eff });
+  const period = await periodReader.findForAgencyByDate({ agencyId, dateYmd: eff });
   if (!period) {
     return {
       ok: false,
@@ -211,7 +211,7 @@ export async function computeSubmissionWindow({
     (submitted.getTime() > cutoffSameUtc.getTime()) ||
     String(hardStopPolicy || '').toLowerCase() === 'in_school';
   const next = needsNext
-    ? await PayrollPeriod.findNextForAgencyAfter({ agencyId, afterDateYmd: periodEndYmd })
+    ? await periodReader.findNextForAgencyAfter({ agencyId, afterDateYmd: periodEndYmd })
     : null;
   const nextMissing = Boolean(needsNext && !next);
 
