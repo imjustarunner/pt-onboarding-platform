@@ -3,14 +3,14 @@ import pool from '../config/database.js';
 import { cancellationRecipients, reviewedMessage } from './cancellationRecipients.service.js';
 import { createCancellationSchoolNoticeService } from './cancellationSchoolNotice.service.js';
 import { hasTerminalClientStatus } from './clientTerminationRoster.service.js';
-import { dayAbsenceMessage } from './dayAbsencePolicy.service.js';
+import { dayAbsenceMessage, schoolAbsenceWhen } from './dayAbsencePolicy.service.js';
 import { schoolAbsenceHistory } from './schoolAbsenceHistory.service.js';
 import { cancellationEmailReceipts, needsCancellationReceipt, appendCancellationReceipt } from './cancellationEmailReceipt.service.js';
 import { notificationTransportReceipt } from '../utils/notificationTransportReceipt.js';
 
 const fail = message => Object.assign(new Error(message), { status: 409 });
 
-async function sendRosterEmail({ agencyId, clientId, ...message }) {
+export async function sendRosterEmail({ agencyId, clientId, ...message }) {
   const { clientEmailContext } = await import('./clientPortalEmail.service.js');
   const { resolveWaitlistMailboxes } = await import('./providerWaitlistEmail.service.js');
   const { renderPortalEmail } = await import('./portalEmailBranding.service.js');
@@ -23,9 +23,10 @@ async function sendRosterEmail({ agencyId, clientId, ...message }) {
   const optOut = await createSchoolSessionEmailOptOutLink(scope);
   const footer = schoolSessionEmailOptOutContent(optOut.url);
   const brand = { ...context.brand, replyTo: mailbox.support, displayName: `${context.tenant.name} Notifications` };
-  const text = `${message.text}\n\nReview upcoming changes to your schedule: ${context.url('login')}` + footer.text;
+  const appointmentsUrl = context.url(`guardian?panel=appointments&clientId=${encodeURIComponent(clientId)}`);
+  const text = `${message.text}\n\nReview my appointments: ${appointmentsUrl}` + footer.text;
   const { escapeNoticeHtml } = await import('./scheduleNoticeMessage.service.js');
-  const html = `${message.html || `<p>${escapeNoticeHtml(message.text).replaceAll('\n','<br>')}</p>`}<p><a href="${escapeNoticeHtml(context.url('login'))}">Review my appointments</a></p>${footer.html}`;
+  const html = `${message.html || `<p>${escapeNoticeHtml(message.text).replaceAll('\n','<br>')}</p>`}<p><a href="${escapeNoticeHtml(appointmentsUrl)}">Review my appointments</a></p>${footer.html}`;
   return sendEmailFromIdentity({ ...message, agencyId, clientId, text,
     html: renderPortalEmail({ brand, text, html }), portalEmailBrand: brand,
     senderIdentityId: mailbox.senderIdentityId, replyToOverride: mailbox.support, fromDisplayNameOverride: brand.displayName,
@@ -67,7 +68,7 @@ export function createCancellationSchoolRosterService(overrides = {}) {
   }
   const list = args => readRoster(args);
   const readMany = args => readRoster({ ...args, providerIds: args.providerIds });
-  async function review(row, { agencyId, providerId, date, reason, reasonCategory, providerAuthored = false, urgent = true, absenceSource = 'cancel_day', choices, message, required = false, followUpAction, followUpMessage = '' }) {
+  async function review(row, { agencyId, providerId, date, timeZone, windowStart, windowEnd, reason, reasonCategory, providerAuthored = false, urgent = true, absenceSource = 'cancel_day', choices, message, required = false, followUpAction, followUpMessage = '' }) {
     const clientId = Number(row.client_id);
     const client = await d.contacts(clientId, agencyId, choices, { required, allowMissingEmail: true });
     // Assigned-day notices have no appointment/portal session to attach texts or replacement offers to.
@@ -78,7 +79,7 @@ export function createCancellationSchoolRosterService(overrides = {}) {
       reason, reasonCategory, urgent, absenceSource, providerAuthored, emailOnly:true,
       title: `${client.clientName} — ${row.school_name} assigned-day notice`, clients: [{ ...client, emailOnly: true }],
       recipients: [client.clientName],
-      message: reviewedMessage(message, dayAbsenceMessage({ urgent, providerAuthored, providerName: row.provider_name, clientName:client.clientName, schoolName: row.school_name, date, reason, reasonCategory })),
+      message: reviewedMessage(message, dayAbsenceMessage({ urgent, providerAuthored, providerName: row.provider_name, clientName:client.clientName, schoolName: row.school_name, date, when: schoolAbsenceWhen({ date, slots: row.slots, timeZone, windowStart, windowEnd }), reason, reasonCategory })),
       source: { assignment: row, contacts: client.contacts } };
   }
   async function deliver(_token, item, actorUserId, historyId) {

@@ -1,4 +1,5 @@
 import { blockDemoExchangeEmail } from '../clientExchangeDemo.service.js';
+import { resolveRecipientUserIdByEmail } from '../emailRecipientLookup.service.js';
 import { isRequestedAccountEmail } from '../../utils/accountAccessEmail.js';
 import { isRequiredProviderWorkEmail } from '../requiredProviderWorkEmail.service.js';
 import { withSsoSenderCopy } from '../ssoEmailCopy.service.js';
@@ -355,27 +356,6 @@ export async function finalizeOutboundContent({
       || await isRequiredProviderWorkEmail({templateType,to,userId,agencyId:aid})
   });
   return { ...finalized, html:constrainPortalEmailLayout(finalized.html) };
-}
-
-/**
- * Best-effort lookup for a `users.id` matching the recipient email, so anonymous
- * sends (e.g., notification emails not initiated by a specific admin) can still
- * be attributed to the recipient's profile and surface in their Communications tab.
- * Returns null when no match (e.g., emailing a non-user contact address).
- */
-async function resolveRecipientUserIdByEmail(to) {
-  const email = String(to || '').trim().toLowerCase();
-  if (!email || !email.includes('@')) return null;
-  try {
-    const [rows] = await pool.execute(
-      'SELECT id FROM users WHERE LOWER(email) = ? LIMIT 1',
-      [email]
-    );
-    const id = Number(rows?.[0]?.id || 0);
-    return Number.isFinite(id) && id > 0 ? id : null;
-  } catch {
-    return null;
-  }
 }
 
 /**

@@ -29,6 +29,33 @@ describe('calendar overlap layout',()=>{
   expect(lanes.get('9:0:school')).toEqual({col:0,cols:1,background:true});expect(lanes.get('9:0:session')).toEqual({col:0,cols:1});
   const schoolOnly=layoutScheduleDayBlocks([{hour:11,blocks:[{key:'school',kind:'school'}]}]);expect(schoolOnly.get('11:0:school')).toEqual({col:0,cols:1});
  });
+ it('keeps virtual availability and school context behind overlapping clients while retaining their real appointment lanes',()=>{
+  const lanes=layoutScheduleDayBlocks([
+   {hour:10,blocks:[
+    {key:'school',kind:'school'},
+    {key:'virtual',kind:'portal',virtualSlice:{topPct:25,heightPct:75}},
+    {key:'student',kind:'school-soft',isClientSession:true,timedSlice:{topPct:28/60*100,heightPct:53/60*100}},
+    {key:'office',kind:'sevt',isClientSession:true,timedSlice:{topPct:75,heightPct:75}}
+   ]},
+   {hour:11,blocks:[{key:'school',kind:'school'},{key:'virtual',kind:'portal'}]},
+   {hour:12,blocks:[{key:'virtual',kind:'portal'}]}
+  ]);
+  for(const key of ['10:0:school','10:0:virtual','11:0:school','11:0:virtual'])expect(lanes.get(key)).toEqual({col:0,cols:1,background:true});
+  expect(lanes.get('10:0:student')).toEqual({col:0,cols:2});
+  expect(lanes.get('10:0:office')).toEqual({col:1,cols:2});
+  expect(lanes.get('12:0:virtual')).toEqual({col:0,cols:1});
+ });
+ it('keeps quarter-hour virtual context out of a short client slot without hiding an adjacent opening',()=>{
+  const lanes=layoutScheduleDayBlocks([
+   {hour:10,minute:15,blocks:[{key:'virtual',kind:'portal'},{key:'student',kind:'school-soft',timedSlice:{topPct:13/15*100,heightPct:53/15*100}}]},
+   {hour:10,minute:30,blocks:[{key:'virtual',kind:'portal'}]},
+   {hour:11,minute:30,blocks:[{key:'virtual',kind:'portal'}]}
+  ],15);
+  expect(lanes.get('10:15:student')).toEqual({col:0,cols:1});
+  expect(lanes.get('10:15:virtual').background).toBe(true);
+  expect(lanes.get('10:30:virtual').background).toBe(true);
+  expect(lanes.get('11:30:virtual')).toEqual({col:0,cols:1});
+ });
  it('gives intersecting intervals different lanes regardless of source order',()=>{
   const rows=Array.from({length:70},(_,i)=>({key:`item-${i}`,startMs:i*17%180,endMs:i*17%180+13+i%60}));
   const lanes=assignOverlapLanes(rows.reverse());

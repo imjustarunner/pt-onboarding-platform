@@ -1398,6 +1398,9 @@
             @keydown.enter.prevent="slot.minute === 0 && onCellClick(d, slot.hour, $event)"
             @keydown.space.prevent="slot.minute === 0 && onCellClick(d, slot.hour, $event)"
           >
+            <span v-if="!showQuarterDetail" class="sched-quarter-guides" aria-hidden="true">
+              <i v-for="minute in [15, 30, 45]" :key="minute" :style="{ top: `${minute / 60 * 100}%` }"></i>
+            </span>
             <div
               v-if="showScheduleNowInCell(slot, d)"
               class="sched-now-line"
@@ -1572,7 +1575,7 @@
                 </span>
                 <span v-else-if="b.kind === 'school-soft'" class="cell-block-text">
                   <span>{{ b.clientName }}{{ b.isCancelled ? ' · Canceled' : '' }}</span>
-                  <span class="cell-block-soft-status">{{ b.timeLabel }} · {{ b.isCancelled ? b.status.label.replace('Canceled · ', '') : b.schoolName }}</span>
+                  <span class="cell-block-soft-status"><span class="cell-block-soft-time">{{ b.timeLabel }}</span><span class="cell-block-soft-context"> · {{ b.isCancelled ? b.status.label.replace('Canceled · ', '') : b.schoolName }}</span></span>
                 </span>
                 <span v-else-if="b.shortLabel && b.kind !== 'peerbusy'" class="cell-block-text">
                   <span v-if="b.viewerIsPresenter" class="cell-block-presenter-badge">PRESENTER</span>
@@ -20457,7 +20460,13 @@ const cellBlockStyle = (b) => {
     });
   }
   if (b?.backgroundContext) {
-    Object.assign(style, {left:'2px', right:'auto', width:`calc(100% - ${(canBookFromGrid.value ? CELL_PLUS_HIT_RESERVE_PX : 0) + 4}px)`, zIndex:2, opacity:0.42});
+    const slice = b.timedSlice || b.virtualSlice || { topPct: 0, heightPct: 100 };
+    Object.assign(style, {
+      position:'absolute', left:'2px', right:'auto',
+      width:`calc(100% - ${(canBookFromGrid.value ? CELL_PLUS_HIT_RESERVE_PX : 0) + 4}px)`,
+      top:`${slice.topPct}%`, height:`calc(${slice.heightPct}% - 2px)`, bottom:'auto',
+      minHeight:'0', maxWidth:'none', flex:'none', boxSizing:'border-box', zIndex:2, opacity:0.42
+    });
   }
   return style;
 };
@@ -32422,6 +32431,8 @@ watch(()=>props.spanMode,value=>{
 .sched-wrap .sched-cell,
 .sched-wrap .cell-blocks { z-index:auto; overflow:visible; }
 .sched-wrap .cell-blocks { position:absolute; top:0; bottom:-1px; left:5px; right:5px; height:auto; }
+.sched-quarter-guides { position:absolute; inset:0; pointer-events:none; }
+.sched-quarter-guides > i { position:absolute; left:0; right:0; border-top:1px dotted var(--border-color, #d7dee7); opacity:.55; }
 .sched-wrap.sched-wrap-quarter .sched-cell {
   min-height:max(24px, calc(var(--sched-cell-min-height, 36px) * 0.7));
   padding-top:0; padding-bottom:0; box-sizing:border-box;
@@ -32435,6 +32446,9 @@ watch(()=>props.spanMode,value=>{
   box-shadow:inset 3px 0 0 var(--blockTypeStripe);
 }
 .cell-block--context { box-shadow:none !important; }
+/* Overlapping availability remains a background tint. Its full label and
+   controls are available in the cell's expanded list without obscuring clients. */
+.cell-block--context > * { visibility:hidden; }
 .cell-block--side-by-side { container-type:inline-size; overflow:hidden; padding:3px !important; gap:2px !important; margin:0 !important; }
 .cell-block--side-by-side.cell-block .cell-block-text,
 .cell-block--side-by-side .cell-block-office-status,
@@ -32443,6 +32457,12 @@ watch(()=>props.spanMode,value=>{
 .cell-block--side-by-side .cell-block-signup-host { font-size:clamp(9px, 16cqi, 12px); line-height:1.15; min-width:0; max-width:100%; overflow:hidden; overflow-wrap:anywhere; }
 .cell-block--side-by-side .cell-block-agency-icon { width:12px; height:12px; flex-basis:12px; margin:0; }
 .cell-block--side-by-side .cell-block-office-body { min-width:0; overflow:hidden; }
+/* Keep the saved time on its own line even when a long client name is shortened. */
+.cell-block-school-soft.cell-block-span .cell-block-text { display:block; flex:1; min-width:0; }
+.cell-block-school-soft.cell-block-span .cell-block-text > span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cell-block-school-soft.cell-block-span .cell-block-text > .cell-block-soft-status { display:flex; }
+.cell-block-soft-time { flex:none; }
+.cell-block-soft-context { overflow:hidden; text-overflow:ellipsis; }
 .sched-wrap--side-by-side .cell-multi-pick-badge { opacity:0; pointer-events:none; }
 .sched-wrap--side-by-side .cell-blocks:hover .cell-multi-pick-badge,
 .sched-wrap--side-by-side .cell-blocks:focus-within .cell-multi-pick-badge { opacity:1; pointer-events:auto; }

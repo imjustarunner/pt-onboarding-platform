@@ -60,6 +60,25 @@ afterEach(() => {
 });
 
 describe('day cancellation review', () => {
+  it('shows demo routing before final review and the actual per-recipient subject after edits without sending', async () => {
+    m.post.mockImplementation(async (_url, body) => {
+      const plan=fixture(), subject=body.messages?.['appointment:41']?.subject || 'Session canceled';
+      plan.items[0].message={subject,text:'Reviewed message body'};
+      plan.items[0].emailPreviews=[{clientId:8,intendedTo:'parent@example.com',deliveryTo:'testing@itsco.health',redirected:true,subject:`[Demo test → parent@example.com] ITSCO: ${subject}`}];
+      return {data:plan};
+    });
+    open();await review(false);
+    expect(wrapper.text()).toContain('Demo routing: intended for parent@example.com; delivery goes to testing@itsco.health.');
+    const subject=wrapper.findAll('.day-field input').find(input=>input.element.value==='Session canceled');
+    await subject.setValue('Updated subject');
+    await button('Review final cancellation').trigger('click');await flushPromises();
+    expect(wrapper.text()).toContain('Intended recipient: parent@example.com');
+    expect(wrapper.text()).toContain('Demo delivery to: testing@itsco.health');
+    expect(wrapper.text()).toContain('Subject at delivery: [Demo test → parent@example.com] ITSCO: Updated subject');
+    expect(wrapper.text()).toContain('Reviewed message body');
+    expect(m.post.mock.calls.every(([url])=>url.endsWith('/preview'))).toBe(true);
+    expect(button('Confirm cancellation').element.disabled).toBe(true);
+  });
   it('opens without network actions and requires a reason and an agency before review', async () => {
     open();
     expect(HTMLDialogElement.prototype.showModal).toHaveBeenCalledOnce();

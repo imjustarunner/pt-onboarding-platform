@@ -41,6 +41,7 @@ beforeEach(() => {
     contacts: vi.fn(async id => ({ clientId: id, clientName: 'Client One', mode:'guardian', channels:['email'], contacts:[], recipients:[] })),
     roster: vi.fn(async () => []), rosterReview: vi.fn(), notifyRoster: vi.fn(async () => ({ sent: 1 })),
     schools: vi.fn(async () => []), schoolReview: (item, edits) => ({ ...item, ...edits }), notifySchool: vi.fn(async () => ({sent:1})),
+    noticePreview: vi.fn(async () => []),
     cancellationMessage: vi.fn(() => ({ subject:'Canceled', text:'Canceled', when:'Wednesday' })), validateOffer: vi.fn(),
     plannedOutSaved:vi.fn(async()=>true),ensureTask: vi.fn(async () => 72), completeTask: vi.fn(), notifyAppointment: vi.fn(async () => ({ pending: 1 })), invalidate: vi.fn() };
   service = createDayCancellationService(dependencies); authorize = vi.fn(); appointmentAccess = vi.fn();
@@ -89,6 +90,16 @@ describe('reviewed provider-day cancellation', () => {
     expect(JSON.stringify(plan)).not.toContain(input.internalReason);
     expect(dependencies.encrypt).toHaveBeenCalled();
     expect(dependencies.completeAppointment).not.toHaveBeenCalled(); expect(blocks).toHaveLength(0);
+  });
+  it('returns recipient-specific envelope previews while preserving the reviewed message and refreshes edited subjects', async () => {
+    dependencies.noticePreview.mockImplementation(async item => item.message ? [{intendedTo:'parent@example.com',deliveryTo:'testing@itsco.health',redirected:true,subject:`ITSCO: ${item.message.subject}`}] : []);
+    const plan=await preview();
+    expect(plan.items[0].emailPreviews[0].subject).toBe(`ITSCO: ${plan.items[0].message.subject}`);
+    const message={subject:'Updated reviewed subject',text:'Updated reviewed body'};
+    const changed=await service.preview({...input,messages:{'appointment:1':message}},actor,authorize,appointmentAccess);
+    expect(changed.items[0].message).toEqual(message);
+    expect(changed.items[0].emailPreviews[0].subject).toBe('ITSCO: Updated reviewed subject');
+    expect(dependencies.completeAppointment).not.toHaveBeenCalled();expect(dependencies.notifyRoster).not.toHaveBeenCalled();
   });
   it('rejects access before reading or writing the plan', async () => {
     authorize.mockRejectedValue(new Error('Access denied'));

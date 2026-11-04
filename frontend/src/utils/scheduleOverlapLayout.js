@@ -32,7 +32,8 @@ export function layoutScheduleDayBlocks(cells, rowMinutes = 60) {
       const height=Number(slice?.heightPct ?? 100);
       const startMs=hour*60+minute+rowMinutes*top/100;
       intervals.push({key:scheduleBlockPlacementKey(hour,minute,block.key),startMs,endMs:startMs+rowMinutes*height/100,
-        context:block.kind==='school'||(block.kind==='sevt'&&block.eventKind==='SCHEDULE_HOLD'&&!block.isCancelled),
+        // Availability describes the day; it must not take a client appointment's lane.
+        context:block.kind==='school'||block.kind==='portal'||(block.kind==='sevt'&&block.eventKind==='SCHEDULE_HOLD'&&!block.isCancelled),
         cancelled:!!block.isCancelled,clientSession:!!block.isClientSession});
     }
   }

@@ -47,6 +47,33 @@ describe('school roster cancellation without appointments',()=>{
   expect(item.message.text).not.toContain('appointment scheduled');expect(s.sendEmail).not.toHaveBeenCalled();
   expect(item.clients[0].emailOnly).toBe(true);
  });
+ it('includes saved minute-accurate school slots in the reviewed body and sends that exact body',async()=>{
+  const s=setup();
+  s.setRows([{...row,slot_id:3,start_time:'10:28:00',end_time:'11:21:00'}]);
+  const [timed]=await s.service.list(args);
+  const item=await s.service.review(timed,{...args,timeZone:'America/Denver'});
+  expect(item.message.text).toContain('Wednesday, October 28, 2026 at 10:28 AM–11:21 AM (MDT)');
+  expect(item.source.assignment).toEqual(timed);
+  await s.service.send('review',item,505);
+  expect(s.sendEmail.mock.calls[0][0].text).toContain(item.message.text);
+ });
+ it('lists all saved ranges for a full day but only overlapping ranges for a timed Planned Out',async()=>{
+  const s=setup(), timed={...row,slots:[{id:3,startTime:'10:28:00',endTime:'11:21:00'},{id:4,startTime:'14:00:00',endTime:'14:45:00'}]};
+  const whole=await s.service.review(timed,{...args,timeZone:'America/Denver'});
+  expect(whole.message.text).toContain('10:28 AM–11:21 AM and 2:00 PM–2:45 PM (MDT)');
+  const partial=await s.service.review(timed,{...args,timeZone:'America/Denver',urgent:false,windowStart:'2026-10-28T08:00:00-06:00',windowEnd:'2026-10-28T12:00:00-06:00'});
+  expect(partial.message.text).toContain('10:28 AM–11:21 AM (MDT)');
+  expect(partial.message.text).not.toContain('2:00 PM');
+  expect(partial.source.assignment.slots).toHaveLength(2);
+ });
+ it('keeps untimed clients date-only and preserves an explicitly reviewed historical body',async()=>{
+  const s=setup();
+  const item=await s.service.review(row,{...args,timeZone:'America/Denver'});
+  expect(item.message.text).toContain('Wednesday, October 28, 2026');
+  expect(item.message.text).not.toMatch(/AM|PM|12:00/);
+  const message={subject:'Saved original subject',text:'Saved original body'};
+  expect((await s.service.review({...row,slots:[{startTime:'10:00:00',endTime:'11:00:00'}]},{...args,message,timeZone:'America/Denver'})).message).toEqual(message);
+ });
  it('sends once across retries AND separate review tokens',async()=>{
   const s=setup();const item=await s.service.review(row,args);
   expect((await s.service.send('review-one',item,505)).sent).toBe(1);
