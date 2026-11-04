@@ -41,8 +41,8 @@ const anchor = ref(null), trigger = ref(null), panel = ref(null), open = ref(fal
 const expanded = ref(new Set()), failedIcons = ref(new Set());
 let hoverTimer, closeTimer;
 const homeTarget = computed(() => ({ path: router.resolve(props.to).path, query: { tab: 'overview' } }));
-// The rail registers its full menu on the first dashboard visit. Keep useful,
-// working destinations available when someone first opens a different page.
+// App supplies the complete shared rail on every route. Retain basic links for
+// standalone callers without an authenticated navigation context.
 const availableItems = computed(() => props.items.length ? props.items : [
   { id: 'overview', label: 'Overview', destination: homeTarget.value },
   { id: 'my', label: 'My Account', destination: { path: homeTarget.value.path, query: { tab: 'my', my: 'account' } } },

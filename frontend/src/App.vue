@@ -2346,7 +2346,7 @@ import {
   getAssessmentPublicUrl,
   toolsAidsHubLocation
 } from './navigation/toolsCatalog.js';
-import { dashboardMobileNavItems as registeredDashboardNavItems, dashboardNavContext, dashboardNavigationContextKey } from './navigation/dashboardMobileNav.js';
+import { useDashboardNavigation } from './composables/useDashboardNavigation.js';
 import DashboardNavMenu from './components/DashboardNavMenu.vue';
 import { getToolOverrides, applyToolOverride } from './navigation/toolsCatalogOverrides.js';
 import { ensureHourlySessionForNoteAid } from './utils/noteAidIndirectSession.js';
@@ -2448,8 +2448,6 @@ const authStore = useAuthStore();
 const isFamilyPortalAccount = computed(() => ['client_guardian', 'guardian', 'client'].includes(String(authStore.user?.role || '').toLowerCase()));
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
-const dashboardMenuContextKey = computed(() => dashboardNavigationContextKey(authStore.user, agencyStore.currentAgency?.id));
-const dashboardMobileNavItems = computed(() => dashboardNavContext.value === dashboardMenuContextKey.value ? registeredDashboardNavItems.value : []);
 const indirectTimeSessionStore = useIndirectTimeSessionStore();
 const isSummitStatsChallengeChrome = useSummitStatsChallengeChrome();
 const summitTeamBrandLabel = SUMMIT_STATS_TEAM_CHALLENGE_NAME;
@@ -5771,6 +5769,18 @@ const myDashboardTo = computed(() => {
   // Keep existing behavior for non-portal roles (guardian, kiosk, etc.).
   return orgTo('/dashboard');
 });
+
+const dashboardNavigationEnabled = computed(() => isAuthenticated.value
+  && !hideGlobalNavForSchoolStaff.value && !isSscSstcTenant.value);
+const { items: dashboardMobileNavItems, contextKey: dashboardMenuContextKey } = useDashboardNavigation({
+  user: computed(() => authStore.user), agency: computed(() => agencyStore.currentAgency),
+  organizations: computed(() => agencyStore.userAgencies), brandingStore,
+  dashboardTo: myDashboardTo, momentumListEnabled, enabled: dashboardNavigationEnabled,
+  auricwell: computed(() => route.meta?.auricwellPreview === true)
+});
+watch(() => dashboardNavigationEnabled.value && brandingStore.dashboardIconOrganization?.id, id => {
+  if (id) void agencyStore.hydrateAgencyById(id);
+}, { immediate: true });
 
 /** Direct link to personal My Documents (dashboard account tab). */
 const myDocumentsTo = computed(() => {

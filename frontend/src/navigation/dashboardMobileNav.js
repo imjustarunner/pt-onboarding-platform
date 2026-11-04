@@ -6,8 +6,24 @@ import { ref } from 'vue';
 export const dashboardMobileNavItems = ref([]);
 export const dashboardNavContext = ref('');
 
-export function dashboardNavigationContextKey(user, agencyId) {
-  return JSON.stringify([user?.id || null, user?.role || '', agencyId || null, user?.capabilities || {}, user?.has_supervisor_privileges || false]);
+export function dashboardNavigationContextKey(user, agencyId, dashboardPath = '', agency = null, platform = null) {
+  // Stable keys avoid dropping the rail just because auth refreshed capability
+  // property order. Include every access gate and route scope so an old tenant's
+  // links or permissions cannot survive a context switch.
+  const stable = value => Array.isArray(value) ? value.map(stable)
+    : value && typeof value === 'object'
+      ? Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])])) : value;
+  return JSON.stringify(stable([
+    user?.id || null, user?.role || '', agencyId || null, dashboardPath,
+    user?.capabilities || {}, user?.status || '', user?.type || '',
+    user?.has_supervisor_privileges || user?.hasSupervisorPrivileges || false,
+    user?.has_clinical_supervision || false, user?.skill_builder_eligible || false,
+    user?.has_skill_builder_coordinator_access || false,
+    agency?.organization_type || agency?.organizationType || '',
+    agency?.feature_flags ?? agency?.featureFlags ?? {},
+    agency?.tenant_available_agency_features_json ?? agency?.tenantAvailableAgencyFeaturesJson ?? null,
+    platform?.available_agency_features_json ?? platform?.availableAgencyFeaturesJson ?? null
+  ]));
 }
 
 function copyCard(c) {

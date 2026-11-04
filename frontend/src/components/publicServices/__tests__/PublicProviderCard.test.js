@@ -3,6 +3,8 @@ import {mount} from '@vue/test-utils';
 import Card from '../PublicProviderCard.vue';
 const base={id:8,displayName:'Example Provider',acceptingNewClients:true,availability:{slots:[{startAt:'2030-01-01T16:00:00Z',endAt:'2030-01-01T17:00:00Z',programType:'IN_PERSON'}]}};
 describe('directory availability and online selection',()=>{
+ it('preserves the profile route for existing availability buttons',async()=>{const w=mount(Card,{props:{provider:base}});await w.find('.btn-book').trigger('click');expect(w.emitted('view-profile')).toEqual([[base]]);expect(w.emitted('view-availability')).toBeUndefined();w.unmount();});
+ it('separates availability from profile actions when requested',async()=>{const w=mount(Card,{props:{provider:base,separateAvailabilityAction:true}});await w.find('.btn-book').trigger('click');expect(w.emitted('view-availability')).toEqual([[base]]);expect(w.emitted('view-profile')).toBeUndefined();await w.find('.card-actions .btn-outline').trigger('click');expect(w.emitted('view-profile')).toEqual([[base]]);expect(w.emitted('book')).toBeUndefined();w.unmount();});
  it('displays a noninteractive time when selection is disabled',()=>{const w=mount(Card,{props:{provider:{...base,onlineScheduling:false}}});expect(w.findAll('.slot-chip')).toHaveLength(1);expect(w.find('button.slot-chip').exists()).toBe(false);expect(w.text()).toContain('work with you directly');w.unmount();});
  it('permits time requests only when enabled for this provider',async()=>{const w=mount(Card,{props:{provider:{...base,onlineScheduling:true}}});await w.find('button.slot-chip').trigger('click');expect(w.emitted('book')[0]).toEqual([{...base,onlineScheduling:true},base.availability.slots[0]]);w.unmount();});
 });

@@ -33,7 +33,7 @@ it.skipIf(!process.env.BILLING_TEST_MYSQL_SOCKET && process.env.BILLING_FOLLOWUP
   await db.query('CREATE TABLE client_coverage_reviews(id INT,agency_id INT,client_id INT,status VARCHAR(20),insurance_fingerprint VARCHAR(64),through_check_id INT,created_at DATETIME(6))');
   await db.query('CREATE TABLE client_coverage_checks(id INT,agency_id INT,client_id INT,completed_at DATETIME(6))');
   await db.query(`INSERT INTO agencies VALUES(1,'{"medicalBillingEnabled":true}','agency'),(2,NULL,'school')`);
-  await db.query(`INSERT INTO clients VALUES(10,1,2,'basic_nonclinical',NULL,NULL),(11,1,2,'school',90,NULL),(12,1,2,'school',NULL,NULL)`);
+  await db.query(`INSERT INTO clients(id,agency_id,organization_id,client_type,provider_id,insurance_type_id) VALUES(10,1,2,'basic_nonclinical',NULL,NULL),(11,1,2,'school',90,NULL),(12,1,2,'school',NULL,NULL)`);
   await db.query('INSERT INTO client_provider_assignments VALUES(1,12,90,1)');
   await expect(assertNewProviderCoverageAdmission(10,90,{db})).rejects.toMatchObject({status:409,code:'INSURANCE_VERIFICATION_REQUIRED'});
   expect(await clientCoverageAdmission(10,{db,client:{id:10,agency_id:1,client_type:'basic_nonclinical'}})).toMatchObject({ready:false,required:true});

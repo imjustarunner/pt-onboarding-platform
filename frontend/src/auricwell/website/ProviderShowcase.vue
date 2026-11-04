@@ -3,12 +3,18 @@
     <div class="showcase-label"><span>Try the provider finder</span><small>Fictional profiles · AI-generated portraits · No booking is created</small></div>
     <div class="showcase-layout">
       <div class="showcase-cards">
-        <PublicProviderCard v-for="provider in providers" :key="provider.id" :provider="provider" :class="{ 'is-selected': selected.id === provider.id }" @book="chooseTime" @view-profile="chooseProvider" />
+        <PublicProviderCard v-for="provider in providers" :key="provider.id" :provider="provider" separate-availability-action :class="{ 'is-selected': selected.id === provider.id }" @book="chooseTime" @view-profile="chooseProvider" @view-availability="showAvailability" />
       </div>
-      <section class="showcase-detail" aria-label="Example provider profile and availability">
-        <header><img :src="selected.profilePhotoUrl" :alt="`Fictional portrait of ${selected.displayName}`" width="56" height="56"><div><p>PROFILE & AVAILABILITY</p><h3 ref="detailHeading" tabindex="-1">{{ selected.displayName }}</h3><span>{{ selected.title }}</span></div></header>
-        <p class="showcase-bio">{{ selected.bio }}</p>
-        <div class="showcase-facts"><span>{{ selected.format === 'VIRTUAL' ? 'Virtual sessions' : 'In-person sessions' }}</span><span>Individual therapy · 50 minutes</span><span>Adults</span></div>
+      <section class="showcase-detail" :aria-label="view === 'profile' ? 'Example provider profile' : 'Example provider availability'">
+        <header><img :src="selected.profilePhotoUrl" :alt="`Fictional portrait of ${selected.displayName}`" width="56" height="56"><div><p>{{ view === 'profile' ? 'PROVIDER PROFILE' : 'APPOINTMENT AVAILABILITY' }}</p><h3 ref="detailHeading" tabindex="-1">{{ selected.displayName }}</h3><span>{{ selected.title }}</span></div></header>
+        <div class="showcase-view-switch" role="group" aria-label="Provider detail view"><button type="button" :aria-pressed="view === 'profile'" @click="chooseProvider(selected)">Profile</button><button type="button" :aria-pressed="view === 'availability'" @click="showAvailability(selected)">Availability</button></div>
+        <div v-if="view === 'profile'" class="showcase-full-profile">
+          <div class="showcase-profile-status"><span>Meadowbrook Therapy</span><strong>Accepting new clients · Fictional profile</strong></div>
+          <PublicProviderProfileDetails :key="selected.id" :provider="selected" :profile="selectedProfile" :practice="selected.practice" hide-unpublished />
+          <button type="button" class="showcase-profile-action" @click="showAvailability(selected)">View {{ selected.firstName }}’s availability →</button>
+        </div>
+        <div v-else class="showcase-availability">
+        <div class="showcase-facts"><span>{{ selected.format === 'VIRTUAL' ? 'Virtual sessions' : 'In-person sessions' }}</span><span>Individual therapy · 50 minutes</span><span>{{ selected.ageGroups.join(' · ') }}</span></div>
         <h4>Find a time that works</h4>
         <PublicProviderOpeningCalendar :days="days" :week="week" :min-date="today" :format="selected.format" fixed-format :time-zone="timeZone" @update:week="changeWeek" @select="time => chooseTime(selected, time, false)" />
         <p class="calendar-scroll-hint">Scroll to see more days.</p>
@@ -17,12 +23,15 @@
           <template v-if="chosenTime"><strong>{{ selected.displayName }} · {{ formatTime(chosenTime.startAt) }}</strong><p>{{ chosenTime.programType === 'VIRTUAL' ? 'Virtual' : 'In person' }} · Weekly · 50 minutes</p><span>Example only: no hold or appointment was created.</span><button type="button" @click="chosenTime = null">Clear selection</button></template>
           <template v-else>Select a sample opening. In the app, the care team confirms placement.</template>
         </div>
+        <button type="button" class="showcase-read-profile" @click="chooseProvider(selected)">Read {{ selected.firstName }}’s full profile →</button>
+        </div>
       </section>
     </div>
   </div>
 </template>
 <script setup>
 import { computed, nextTick, ref } from 'vue';
+import PublicProviderProfileDetails from '../../components/publicServices/PublicProviderProfileDetails.vue';
 import PublicProviderCard from '../../components/publicServices/PublicProviderCard.vue';
 import PublicProviderOpeningCalendar from '../../components/publicServices/PublicProviderOpeningCalendar.vue';
 const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -45,10 +54,19 @@ function openings(start, provider) {
   return result;
 }
 const providers = [
-  {id:901,displayName:'Avery Lane',title:'Licensed Professional Counselor',format:'VIRTUAL',profilePhotoUrl:'/auricwell/examples/avery-lane.jpg',acceptingNewClients:true,onlineScheduling:true,profile:{publicBlurb:'A thoughtful, practical approach to anxiety, life transitions, and feeling more like yourself.'},specialties:['Anxiety','Life transitions'],modalities:['CBT'],ageGroups:['Adults'],bio:'“We’ll make space for what feels difficult and work toward changes that fit your everyday life.” My approach combines cognitive behavioral strategies with a warm, collaborative space to understand patterns and practice new skills.'},
-  {id:902,displayName:'Jordan Reed',title:'Licensed Clinical Social Worker',format:'IN_PERSON',profilePhotoUrl:'/auricwell/examples/jordan-reed.jpg',acceptingNewClients:true,onlineScheduling:true,profile:{publicBlurb:'A welcoming space to navigate stress, build coping skills, and reconnect with what matters.'},specialties:['Stress','Coping skills'],modalities:['Individual therapy'],ageGroups:['Adults'],bio:'“You bring your experience; we’ll work together to find a way forward.” I help adults explore stress, strengthen coping skills, and turn therapy goals into manageable next steps.'}
+  {id:901,firstName:'Avery',displayName:'Avery Lane',credential:'LPC',title:'Licensed Professional Counselor',format:'VIRTUAL',profilePhotoUrl:'/auricwell/examples/avery-lane.jpg',acceptingNewClients:true,onlineScheduling:true,
+    profile:{publicBlurb:'A thoughtful, practical approach to anxiety, life transitions, and feeling more like yourself.',insurancesAccepted:['Example Health Plan (fictional)']},
+    specialties:['Anxiety','Life transitions','Stress management'],modalities:['Cognitive behavioral therapy (CBT)','Mindfulness-informed skills','Strengths-based care'],ageGroups:['Adults (18+)','Young Adults (18-25)'],focus:['Individuals','Adults navigating work and relationship changes','Young adults building confidence'],
+    bio:'“We’ll make space for what feels difficult and work toward changes that fit your everyday life.”\n\nI work with adults who want support with anxiety, periods of change, and the pressure of everyday responsibilities. Together, we explore patterns, identify what matters to you, and practice useful coping skills.\n\nMy approach combines cognitive behavioral strategies with a warm, collaborative space. We agree on goals, check in on how therapy is feeling, and review progress as we go.',
+    practice:{name:'Meadowbrook Therapy',description:'A fictional adult therapy practice centered on collaborative goals, practical skills and a welcoming relationship with your provider.',setting:'Virtual sessions',service:'Individual therapy · 50-minute appointments',location:'Online care in Colorado · Fictional practice',languages:'English',firstVisit:'Start by talking about what brings you to therapy, what you hope will change, and whether this approach feels like a good fit.'}},
+  {id:902,firstName:'Jordan',displayName:'Jordan Reed',credential:'LCSW',title:'Licensed Clinical Social Worker',format:'IN_PERSON',profilePhotoUrl:'/auricwell/examples/jordan-reed.jpg',acceptingNewClients:true,onlineScheduling:true,
+    profile:{publicBlurb:'A welcoming space to navigate stress, build coping skills, and reconnect with what matters.',insurancesAccepted:['Example Health Plan (fictional)']},
+    specialties:['Stress','Coping skills','Work–life balance'],modalities:['Individual therapy','Solution-focused strategies','Mindfulness-informed skills'],ageGroups:['Adults (18+)','Seniors (65+)'],focus:['Individuals','Adults balancing work and caregiving','Older adults navigating change'],
+    bio:'“You bring your experience; we’ll work together to find a way forward.”\n\nI help adults explore stress, strengthen coping skills, and turn therapy goals into manageable next steps. My practice includes adults balancing work, relationships and caregiving, as well as older adults navigating life changes.\n\nSessions make room for your story and for practical exercises we can work on together. We discuss what feels useful, adjust the plan when needed, and keep your goals at the center.',
+    practice:{name:'Meadowbrook Therapy',description:'A fictional adult therapy practice offering a calm, collaborative setting for reflection, skill building and ongoing care.',setting:'In-person sessions',service:'Individual therapy · 50-minute appointments',location:'Sample Denver office · Fictional location',languages:'English',firstVisit:'We can explore your current concerns, the supports you already use, and the goals you would like to work toward together.'}}
 ].map(provider => { const slots = openings(week.value,provider).slice(0,4); return {...provider,availability:{slots,nextAvailableAt:slots[0]?.startAt}}; });
-const selected = ref(providers[0]), chosenTime = ref(null), detailHeading = ref(null);
+const selected = ref(providers[0]), view = ref('profile'), chosenTime = ref(null), detailHeading = ref(null);
+const selectedProfile = computed(()=>({...selected.value.profile,publicBlurb:selected.value.bio}));
 const days = computed(() => {
   const grouped = new Map();
   for (const time of openings(week.value,selected.value)) {
@@ -60,8 +78,9 @@ const days = computed(() => {
 });
 const formatTime = value => new Date(value).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'});
 async function focusDetail() { await nextTick(); detailHeading.value?.focus({preventScroll:true}); if (window.innerWidth < 1100) detailHeading.value?.scrollIntoView({behavior:'smooth',block:'start'}); }
-function chooseProvider(provider) { selected.value=provider; chosenTime.value=null; week.value=ymd(initial); focusDetail(); }
-function chooseTime(provider,time,focus=true) { selected.value=provider; chosenTime.value=time; if (focus) {week.value=ymd(new Date(time.startAt)); focusDetail();} }
+function chooseProvider(provider) { selected.value=provider; view.value='profile'; chosenTime.value=null; week.value=ymd(initial); focusDetail(); }
+function showAvailability(provider) { selected.value=provider; view.value='availability'; chosenTime.value=null; week.value=ymd(initial); focusDetail(); }
+function chooseTime(provider,time,focus=true) { selected.value=provider; view.value='availability'; chosenTime.value=time; if (focus) {week.value=ymd(new Date(time.startAt)); focusDetail();} }
 function changeWeek(value) {week.value=value; chosenTime.value=null;}
 </script>
 <style scoped>
@@ -69,4 +88,5 @@ function changeWeek(value) {week.value=value; chosenTime.value=null;}
 @media(max-width:1099px){.showcase-layout{grid-template-columns:1fr}.showcase-cards{grid-template-columns:1fr 1fr}.showcase-cards :deep(.card-identity){flex-direction:column}.showcase-cards :deep(.card-actions button){flex:1}}
 @media(max-width:620px){.showcase-cards{grid-template-columns:1fr}.showcase-cards :deep(.card-identity){flex-direction:row;gap:12px}.showcase-cards :deep(.provider-card){padding:16px}.showcase-cards :deep(.avatar){width:72px;height:96px}.showcase-cards :deep(.card-name){font-size:18px}.showcase-cards :deep(.card-bio){-webkit-line-clamp:4}.showcase-detail{padding:18px}.showcase-detail :deep(.opening-days){grid-template-columns:repeat(2,minmax(0,1fr))}.showcase-detail :deep(.opening-controls){grid-template-columns:1fr}.showcase-label small{max-width:34ch}.showcase-detail h3{scroll-margin-top:16px}}
 .calendar-scroll-hint{display:none}@media(max-width:620px){.showcase-detail :deep(.opening-days){display:grid;grid-auto-flow:column;grid-auto-columns:140px;grid-template-columns:none;overflow-x:auto;padding:3px 3px 10px;scroll-snap-type:x proximity}.showcase-detail :deep(.opening-day){scroll-snap-align:start}.calendar-scroll-hint{display:block;font-size:11px;color:#64748b;margin:8px 0 0}}
+.showcase-detail{--profile-brand:var(--showcase-primary,#0649ce)}.showcase-view-switch{display:flex;gap:8px;padding:18px 0;margin:6px 0 0;border-bottom:1px solid #e3eaf3}.showcase-view-switch button{font:inherit;font-size:12px;padding:10px 16px;border:1px solid #c8d8eb;border-radius:7px;background:#fff;color:#526b88;cursor:pointer}.showcase-view-switch button[aria-pressed=true]{background:#eaf2ff;border-color:#9ebbe8;color:#184f99;font-weight:650}.showcase-profile-status{display:flex;justify-content:space-between;flex-wrap:wrap;gap:9px;font-size:11px;margin:20px 0;color:#60738d}.showcase-profile-status strong{font-size:10px;font-weight:600;color:#28734e}.showcase-full-profile :deep(.profile-panel){padding:20px;border-color:#e0e7f0;border-radius:10px;box-shadow:none}.showcase-full-profile :deep(.profile-panel h2){font-size:17px;margin-bottom:13px;letter-spacing:-.3px;line-height:1.4;color:#193755}.showcase-full-profile :deep(.profile-panel p){font-size:13px;line-height:1.85}.showcase-full-profile :deep(.profile-facets){gap:14px}.showcase-full-profile :deep(.profile-tags span){font-size:11px;background:#f0f5fc;color:#365b84;padding:6px 10px}.showcase-profile-action{display:block;font:inherit;font-size:13px;font-weight:600;width:100%;padding:14px 18px;margin-top:22px;border:1px solid var(--showcase-primary,#0649ce);border-radius:8px;color:white;background:var(--showcase-primary,#0649ce);cursor:pointer}.showcase-read-profile{font:inherit;font-size:12px;line-height:1.7;padding:12px 0 0;border:0;background:none;color:var(--showcase-primary,#0649ce);cursor:pointer}.showcase-availability .showcase-facts{padding-top:20px}.showcase-full-profile{min-width:0}
 </style>
