@@ -85,3 +85,10 @@ it('returns an incomplete claim as a blocked actionable review using its actual 
 it('does not mask unexpected payload construction failures',async()=>{
  m.build.mockImplementationOnce(()=>{throw new Error('Unexpected failure');});await expect(prepareClaimReview(1,11)).rejects.toThrow('Unexpected failure');
 });
+
+it('exposes saved coverage dates as context without claiming a different date was reviewed',async()=>{
+ const {listCoverageEvidence}=await import('../../services/coverageVerification.service.js');
+ listCoverageEvidence.mockResolvedValueOnce({review:null,latestReview:{id:7,status:'verified',service_date:'2026-11-04',created_at:'2026-11-04T20:24:26Z'}});
+ const result=await prepareClaimReview(1,11);
+ expect(result.readiness.coverageReview).toEqual({applicable:null,latest:{id:7,status:'verified',serviceDate:'2026-11-04',recordedAt:'2026-11-04T20:24:26Z'}});expect(result.claim.date_of_service).toBe('2026-11-01');expect(m.execute.mock.calls.some(([sql])=>/^UPDATE|^INSERT/.test(sql))).toBe(false);
+});

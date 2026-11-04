@@ -61,7 +61,11 @@ export async function getClientDocumentationReadiness({ agencyId, clientId, scop
   validScope(scope);
   const snapshot = await documentationSnapshot({ agencyId, clientId }, db);
   const [[review]] = await db.execute('SELECT * FROM client_documentation_reviews WHERE agency_id=? AND client_id=? AND review_scope=? ORDER BY id DESC LIMIT 1', [agencyId, clientId, scope]);
-  return { ...documentationReviewState({ scope, sourceHash: snapshot.sourceHash, review, serviceDate }), evidence: snapshot.evidence,
+  // Explain a review saved for another stage without treating it as verification of this stage.
+  const [[latest]] = review ? [[null]] : await db.execute('SELECT id,review_scope,status,effective_from,effective_through,created_at FROM client_documentation_reviews WHERE agency_id=? AND client_id=? ORDER BY id DESC LIMIT 1', [agencyId, clientId]);
+  const saved = review || latest;
+  const latestReview = saved ? { id: saved.id, scope: saved.review_scope, status: saved.status, effectiveFrom: saved.effective_from, effectiveThrough: saved.effective_through, recordedAt: saved.created_at } : null;
+  return { ...documentationReviewState({ scope, sourceHash: snapshot.sourceHash, review, serviceDate }), latestReview, evidence: snapshot.evidence,
     review: review ? decryptFamilyBilling(review.evidence_encrypted, context(agencyId, clientId)) : null };
 }
 

@@ -55,3 +55,15 @@ describe('agency-scoped client documentation readiness', () => {
     expect(() => decryptFamilyBilling(values[7], 'client-documentation:3:8')).toThrow(); expect(values[8]).toBe(9); expect(d.db.commit).toHaveBeenCalled();
   });
 });
+
+it('explains a treatment review without accepting it for an earlier screening claim',async()=>{
+ const {getClientDocumentationReadiness}=await import('../clientDocumentationReadiness.service.js');
+ const db={execute:vi.fn(async(sql,args)=>{
+  if(sql.includes('FROM clients'))return [[{id:8,agency_id:2,onboarding_docs_json:{}}]];
+  if(sql.includes('FROM client_documentation_reviews'))return [args.length===3?[]:[{id:6,review_scope:'treatment',status:'verified',effective_from:'2026-11-04',created_at:'2026-11-04T20:24:43Z'}]];
+  return [[]];
+ })};
+ const result=await getClientDocumentationReadiness({agencyId:2,clientId:8,scope:'screening',serviceDate:'2026-11-02'},db);
+ expect(result).toMatchObject({ready:false,scope:'screening',reviewId:null,review:null,latestReview:{id:6,scope:'treatment',effectiveFrom:'2026-11-04'}});expect(result.blockers).toEqual(['Review and verify the applicable screening documentation before claim submission']);
+ for(const [sql,args] of db.execute.mock.calls.filter(([sql])=>sql.includes('client_documentation_reviews'))){expect(args.slice(0,2)).toEqual([2,8]);expect(sql.startsWith('SELECT')).toBe(true);}
+});
