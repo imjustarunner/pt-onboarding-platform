@@ -103,6 +103,10 @@ test('finalize rejects missing shared-signature consent before updating the subm
   const deps = {
     ...signing,
     assertPortalEnrollmentIdentity,
+    // This fixture is ordinary school enrollment; client-update packet
+    // authority has its own persisted-key and guardian-permission tests.
+    isClientUpdatePacket: () => false,
+    assertClientUpdateSubmissionContext: async () => null,
     CoGuardianInvite: { assertCoGuardianSubmissionBinding: () => {} },
     validateIntakeMatchingPreferences: () => {},
     validateAndStampIntakeCommunications: async () => {},
