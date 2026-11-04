@@ -6,6 +6,7 @@ import { clientEmailContext, sendClientPortalEmail } from './clientPortalEmail.s
 import { resolveAppointmentServiceSetting } from './appointmentServiceSetting.service.js';
 import { buildScheduleNoticeMessage } from './scheduleNoticeMessage.service.js';
 import { createSchoolSessionEmailOptOutLink, isSchoolSessionEmailOptedOut, schoolSessionEmailOptOutContent, SCHOOL_EMAIL_TEMPLATE } from './schoolSessionEmailPreferences.service.js';
+import { resolveDayCancellationEmail, reviewedDayCancellationContext } from './dayCancellationEmail.service.js';
 
 async function scheduleMailboxes(agencyId) {
   try { return await resolveWaitlistMailboxes(pool, agencyId); }
@@ -21,6 +22,18 @@ export async function sendScheduleNotificationEmail({ agencyId, appointment = nu
     const items=entries || (appointment ? [{appointment}] : []);
     const learning=items.length>0 && items.every(item=>['learning','tutoring'].includes(String(item.appointment?.businessType||item.appointment?.business_type||'').toLowerCase()));
     const context=await clientEmailContext({agencyId,clientId:message.clientId,...(learning?{learning:true}: {})});
+    const reviewed=items.filter(item=>item.payload?.facts?.reviewedCancellationToken);
+    if(reviewed.length) {
+      if(reviewed.length!==items.length) throw new Error('Review the mixed schedule notices separately before sending this cancellation.');
+      const facts=reviewed[0].payload.facts;
+      const input={...message,agencyId,templateType:'day_cancellation',
+        reviewedCancellationToken:facts.reviewedCancellationToken,reviewedCancellationItemKey:facts.reviewedCancellationItemKey};
+      const proof=await reviewedDayCancellationContext(input);
+      const envelope=await resolveDayCancellationEmail({agencyId,providerId:proof.providerId,
+        providerAuthored:proof.plan.facts.providerAuthored,actorUserId:proof.actorUserId,
+        reviewedCancellationToken:proof.reviewedCancellationToken,reviewedCancellationItemKey:proof.reviewedCancellationItemKey});
+      return sendEmailFromIdentity({...input,...envelope,html:renderPortalEmail({brand:envelope.portalEmailBrand,...message})});
+    }
     const scope={agencyId,clientId:message.clientId,to:message.to};
     const settings=await Promise.all(items.map(item=>resolveAppointmentServiceSetting(item.appointment)));
     const hasSchool=settings.some(setting=>setting.isSchool);

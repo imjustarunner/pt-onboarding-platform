@@ -1,9 +1,39 @@
+import { wallMysqlToUtcMysql } from '../utils/zonedWallTime.util.js';
+
 // Shared by booked appointments and pre-EHR school schedule notices.
 export const DAY_ABSENCE_EXPLANATION = 'This session is displaying due to SCHOOL soft schedule. It does not currently reflect an EHR session. You may cancel your day and your clients/guardians will be notified by email. Use urgent Cancel day for weather, sickness, or unexpected absences.';
 
 export function absenceDate(date) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(date))
     ? new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`)) : String(date || '');
+}
+// Soft slots are local school times. Only show saved times; never invent a
+// midnight session for an assigned weekday, or include a slot outside a timed absence.
+export function schoolAbsenceWhen({ date, slots = [], timeZone, windowStart, windowEnd }) {
+  const clock = value => {
+    const match = /^(\d{2}):(\d{2})(?::\d{2})?$/.exec(String(value || ''));
+    if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) return null;
+    const hour = Number(match[1]);
+    return `${hour % 12 || 12}:${match[2]} ${hour < 12 ? 'AM' : 'PM'}`;
+  };
+  const utcMillis = value => {
+    const text = String(value).replace(' ', 'T');
+    return Date.parse(/[zZ]$|[+-]\d{2}:?\d{2}$/.test(text) ? text : `${text}Z`);
+  };
+  const selected = slots.filter(slot => {
+    if (!clock(slot.startTime) || !clock(slot.endTime)) return false;
+    if (!windowStart || !windowEnd || !timeZone) return true;
+    return utcMillis(wallMysqlToUtcMysql(`${date} ${slot.startTime}`, timeZone)) < utcMillis(windowEnd)
+      && utcMillis(wallMysqlToUtcMysql(`${date} ${slot.endTime}`, timeZone)) > utcMillis(windowStart);
+  }).sort((a, b) => a.startTime.localeCompare(b.startTime));
+  if (!selected.length) return absenceDate(date);
+  const ranges = [...new Set(selected.map(slot => `${clock(slot.startTime)}–${clock(slot.endTime)}`))];
+  let zone = '';
+  if (timeZone) {
+    const instant = new Date(utcMillis(wallMysqlToUtcMysql(`${date} ${selected[0].startTime}`, timeZone)));
+    zone = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'short' }).formatToParts(instant).find(p => p.type === 'timeZoneName')?.value || timeZone;
+  }
+  return `${absenceDate(date)} at ${ranges.join(' and ')}${zone ? ` (${zone})` : ''}`;
 }
 export function absenceCause(reasonCategory, reason = '') {
   return ({ weather: 'due to weather conditions', illness: 'because I am unwell', emergency: 'due to an unexpected emergency', facility: 'because the location is closed', provider_unavailable: 'due to an unexpected absence' })[reasonCategory]

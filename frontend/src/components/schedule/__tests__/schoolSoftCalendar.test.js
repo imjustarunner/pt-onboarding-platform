@@ -82,6 +82,45 @@ it('keeps timed children in quarter-hour agenda and phone lists, and packs overl
   s.scheduleSpanMode = 'agenda'; await flushPromises();
   expect(s.agendaItems.filter(b => b.kind === 'school-soft')).toHaveLength(1);
 });
+it('keeps availability behind client appointments in week and day views, with quarter guides and exact saved minutes', async () => {
+  m.summary.schoolSoftSessions = [student()];
+  m.summary.virtualWorkingHours = [{ id: 91, agencyId: 2, dayOfWeek: 'Tuesday', startTime: '10:15', endTime: '12:00', sessionType: 'BOTH' }];
+  m.summary.scheduleEvents = [{ id: 72, kind: 'SESSION', agencyId: 2, clientId: 200, title: 'Synthetic office session', startAt: '2026-10-13T16:45:00Z', endAt: '2026-10-13T17:30:00Z' }];
+  const s = await mount();
+  const hourCell = () => wrapper.find('[data-sched-cell][data-day="Tuesday"][data-hour="10"][data-minute="0"]');
+  expect(hourCell().findAll('.sched-quarter-guides > i').map(line => line.attributes('style'))).toEqual(['top: 25%;', 'top: 50%;', 'top: 75%;']);
+  for (const dayMode of [false, true]) {
+    if (dayMode) { s.focusedDays = ['Tuesday']; s.scheduleSpanMode = 'day'; await flushPromises(); }
+    const blocks = s.cellBlocks('Tuesday', 10);
+    const soft = blocks.find(b => b.kind === 'school-soft');
+    const office = blocks.find(b => b.eventId === 72);
+    expect(soft.sideBySideLane.cols).toBe(2); expect(office.sideBySideLane.cols).toBe(2);
+    expect(soft.sideBySideLane.col).not.toBe(office.sideBySideLane.col);
+    expect(soft.timedSlice.topPct).toBeCloseTo(28/60*100);
+    expect(soft.timedSlice.heightPct).toBeCloseTo(53/60*100);
+    for (const kind of ['school', 'portal']) {
+      const context = blocks.find(b => b.kind === kind);
+      expect(context.backgroundContext).toBe(true);
+      expect(s.cellBlockStyle(context).zIndex).toBeLessThan(s.cellBlockStyle(soft).zIndex);
+    }
+  }
+  await hourCell().find('.cell-multi-pick-badge').trigger('click');
+  expect(hourCell().find('.cell-expanded-item.cell-block-school').text()).toContain('School');
+  expect(hourCell().find('.cell-expanded-item.cell-block-portal').text()).toContain('Virtual');
+  expect(hourCell().findAll('.cell-expanded-item')).toHaveLength(4);
+  await hourCell().find('.cell-blocks').trigger('keydown', { key: 'Escape' });
+  s.scheduleSideBySide = false; await flushPromises();
+  const portal = s.cellBlocks('Tuesday', 10).find(b => b.kind === 'portal');
+  expect(s.cellBlockStyle(portal)).toMatchObject({ position: 'absolute', top: '25%', height: 'calc(75% - 2px)', flex: 'none' });
+  s.scheduleSideBySide = true; s.showQuarterDetail = true; await flushPromises();
+  expect(wrapper.find('.sched-quarter-guides').exists()).toBe(false);
+  const soft = s.cellBlocks('Tuesday', 10, 15).find(b => b.kind === 'school-soft');
+  expect(soft.timedSlice.topPct).toBeCloseTo(13/15*100);
+  expect(soft.timedSlice.heightPct).toBeCloseTo(53/15*100);
+  await wrapper.find('.cell-block-school-soft').trigger('click');
+  expect(wrapper.findComponent(SchoolSoftScheduleDialog).props('block').record.clientId).toBe(100);
+  expect(m.post).not.toHaveBeenCalled();
+});
 it('expands the calendar for early school times and preserves cancellation attention and receipt details on click', async () => {
   m.summary.schoolSoftSessions = [student({ canceled: true, slots: [{ startTime: '06:10', endTime: '06:50' }], reason: 'Weather', actorName: 'Synthetic support', delivery: { sent: 1, failed: 1, deliveries: [{ status: 'sent', recipient_address: 'qa@example.com', receiptRequired: true }] } })];
   const s = await mount();

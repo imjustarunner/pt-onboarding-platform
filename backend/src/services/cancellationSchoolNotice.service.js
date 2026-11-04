@@ -26,7 +26,8 @@ export function createCancellationSchoolNoticeService(overrides = {}) {
   function review(item, edits, required = false) {
     const recipients = edits?.recipients ?? item.recipients;
     if (!Array.isArray(recipients) || recipients.length > 20 || (required && !recipients.length)) throw fail('Add at least one school email recipient before confirming.');
-    return { ...item, recipients: [...new Set(recipients.map(reviewedEmail))], message: reviewedMessage(edits?.message, item.message) };
+    try { return { ...item, recipients: [...new Set(recipients.map(reviewedEmail))], message: reviewedMessage(edits?.message, item.message) }; }
+    catch(error) { throw fail(`${item.schoolName || item.title || 'School notice'}: ${error.message}`); }
   }
   async function send(token, item, actorUserId) {
     if (item.kind === 'school' && item.providerId) token = createHash('sha256').update(`school-day:${item.agencyId}:${item.providerId}:${item.date}:${item.notificationScope || 'days'}`).digest('hex').slice(0,36);
@@ -39,6 +40,7 @@ export function createCancellationSchoolNoticeService(overrides = {}) {
         let status = 'review', error = null, communicationId = null, externalId = null, actualTo = to;
         try {
           const result = await d.sendEmail({ agencyId: item.agencyId, providerId:item.providerId, providerAuthored:item.providerAuthored, schoolOrganizationId:item.kind === 'school' ? item.id : item.schoolId, to, subject: item.message.subject, text: item.message.text,
+            reviewedCancellationToken:item.reviewedCancellationToken, reviewedCancellationItemKey:item.reviewedCancellationItemKey,
             html: `<p>${escapeNoticeHtml(item.message.text).replaceAll('\n', '<br>')}</p>`, triggerKey: 'session_cancellation',
             templateType: 'school_day_cancellation', generatedByUserId: actorUserId, source: 'manual' });
           communicationId = result?.communicationId || null;

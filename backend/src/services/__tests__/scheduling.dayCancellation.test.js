@@ -41,6 +41,8 @@ beforeEach(() => {
     contacts: vi.fn(async id => ({ clientId: id, clientName: 'Client One', mode:'guardian', channels:['email'], contacts:[], recipients:[] })),
     roster: vi.fn(async () => []), rosterReview: vi.fn(), notifyRoster: vi.fn(async () => ({ sent: 1 })),
     schools: vi.fn(async () => []), schoolReview: (item, edits) => ({ ...item, ...edits }), notifySchool: vi.fn(async () => ({sent:1})),
+    noticePreview: vi.fn(async () => []),
+    contactFollowUp:vi.fn(async()=>({status:'not_needed',count:0})),
     cancellationMessage: vi.fn(() => ({ subject:'Canceled', text:'Canceled', when:'Wednesday' })), validateOffer: vi.fn(),
     plannedOutSaved:vi.fn(async()=>true),ensureTask: vi.fn(async () => 72), completeTask: vi.fn(), notifyAppointment: vi.fn(async () => ({ pending: 1 })), invalidate: vi.fn() };
   service = createDayCancellationService(dependencies); authorize = vi.fn(); appointmentAccess = vi.fn();
@@ -74,6 +76,29 @@ describe('urgent and nonurgent day policy',()=>{
 });
 
 describe('reviewed provider-day cancellation', () => {
+  it('binds delivery to the signed saved review and persists contact follow-up once after all items complete', async () => {
+    dependencies.contactFollowUp.mockImplementation(async args=>{
+      expect(JSON.parse(record.results_json)['contact_followup:2'].status).toBe('sending');
+      expect(args).toMatchObject({token:record.token,agencyId:2,actorUserId:actor.id});
+      return {status:'sent',count:4};
+    });
+    const plan=await preview();expect(dependencies.contactFollowUp).not.toHaveBeenCalled();
+    const result=await apply(plan);
+    expect(dependencies.completeAppointment.mock.calls[0][1]).toMatchObject({reviewedCancellationToken:plan.token,reviewedCancellationItemKey:'appointment:1'});
+    expect(result.contactFollowUps).toEqual([{status:'sent',count:4}]);
+    await apply(plan);expect(dependencies.contactFollowUp).toHaveBeenCalledOnce();expect(dependencies.completeAppointment).toHaveBeenCalledOnce();
+  });
+  it('does not send new follow-up emails for historical cancellation plans',async()=>{
+    const plan=await preview();
+    const saved=JSON.parse(dependencies.decrypt(record.plan_json));delete saved.contactFollowUpVersion;record.plan_json=dependencies.encrypt(JSON.stringify(saved));
+    await apply(plan);expect(dependencies.contactFollowUp).not.toHaveBeenCalled();
+  });
+  it('preserves cancellation completion when the separate contact follow-up needs delivery review',async()=>{
+    dependencies.contactFollowUp.mockRejectedValue(new Error('Transport interrupted'));
+    const plan=await preview(),result=await apply(plan);
+    expect(result.status).toBe('completed');expect(result.contactFollowUps[0]).toMatchObject({status:'held'});
+    await apply(plan);expect(dependencies.contactFollowUp).toHaveBeenCalledOnce();
+  });
   it('uses actual local midnight across DST rather than assuming a 24-hour day', () => {
     expect(dayBounds('2026-11-01', 'America/Denver')).toEqual({ start: '2026-11-01 06:00:00', end: '2026-11-02 07:00:00' });
     expect(() => dayBounds('2026-02-30', 'America/Denver')).toThrow('valid date');
@@ -89,6 +114,16 @@ describe('reviewed provider-day cancellation', () => {
     expect(JSON.stringify(plan)).not.toContain(input.internalReason);
     expect(dependencies.encrypt).toHaveBeenCalled();
     expect(dependencies.completeAppointment).not.toHaveBeenCalled(); expect(blocks).toHaveLength(0);
+  });
+  it('returns recipient-specific envelope previews while preserving the reviewed message and refreshes edited subjects', async () => {
+    dependencies.noticePreview.mockImplementation(async item => item.message ? [{intendedTo:'parent@example.com',deliveryTo:'testing@itsco.health',redirected:true,subject:`ITSCO: ${item.message.subject}`}] : []);
+    const plan=await preview();
+    expect(plan.items[0].emailPreviews[0].subject).toBe(`ITSCO: ${plan.items[0].message.subject}`);
+    const message={subject:'Updated reviewed subject',text:'Updated reviewed body'};
+    const changed=await service.preview({...input,messages:{'appointment:1':message}},actor,authorize,appointmentAccess);
+    expect(changed.items[0].message).toEqual(message);
+    expect(changed.items[0].emailPreviews[0].subject).toBe('ITSCO: Updated reviewed subject');
+    expect(dependencies.completeAppointment).not.toHaveBeenCalled();expect(dependencies.notifyRoster).not.toHaveBeenCalled();
   });
   it('rejects access before reading or writing the plan', async () => {
     authorize.mockRejectedValue(new Error('Access denied'));
@@ -245,6 +280,30 @@ describe('assigned-day clients without appointments',()=>{
     expect(dependencies.notifyRoster).not.toHaveBeenCalled();await apply(plan);expect(dependencies.notifyRoster).toHaveBeenCalledTimes(1);
     expect(dependencies.completeAppointment).not.toHaveBeenCalled();
   });
+  it('re-reviews only confirmed unsent school-family notices and never repeats a delivered school notice',async()=>{
+    appointments=[];roster();
+    dependencies.notifyRoster.mockResolvedValue({sent:0,skipped:1,deliveries:[{status:'skipped',recipient_address:'',error_message:'No eligible contact email.'}]});
+    dependencies.schools.mockResolvedValue([{key:'school:2:4:2026-11-04',kind:'school',agencyId:2,date:input.date,recipients:['school@example.test'],message:{subject:'School',text:'Canceled'}}]);
+    const original=await preview();let result=await apply(original);while(result.status==='processing')result=await apply(original);
+    expect(result.unsentFamilyNotices).toBe(1);expect(dependencies.notifySchool).toHaveBeenCalledOnce();
+    const originalRecord=structuredClone(record);
+    const next=await service.preview({...input,unsentToken:original.token,messagesReviewed:false},actor,authorize,appointmentAccess);
+    expect(next.notificationsOnly).toBe(true);expect(next.items.map(item=>item.kind)).toEqual(['school_roster']);
+    expect(dependencies.notifyRoster).toHaveBeenCalledOnce();expect(dependencies.notifySchool).toHaveBeenCalledOnce();
+    await expect(apply(next)).rejects.toThrow('Review the recipients');
+    record=originalRecord;
+    const final=await service.preview({...input,unsentToken:original.token,messagesReviewed:true},actor,authorize,appointmentAccess);
+    dependencies.notifyRoster.mockResolvedValue({sent:1,skipped:0});await apply(final);
+    expect(dependencies.notifyRoster).toHaveBeenCalledTimes(2);expect(dependencies.notifySchool).toHaveBeenCalledOnce();
+    expect(dependencies.notifyRoster.mock.lastCall[3]).toMatchObject({reviewedCancellationToken:final.token});
+    expect(blocks).toHaveLength(1);
+  });
+  it('does not offer automatic retries for uncertain or already accepted family delivery',async()=>{
+    appointments=[];roster();dependencies.notifyRoster.mockResolvedValue({sent:0,skipped:1,held:1,deliveries:[{status:'review'}]});
+    const original=await preview();const result=await apply(original);
+    expect(result.unsentFamilyNotices).toBe(0);
+    await expect(service.preview({...input,unsentToken:original.token,messagesReviewed:true},actor,authorize,appointmentAccess)).rejects.toThrow('No confirmed unsent');
+  });
   it('does not duplicate a booked client or include roster notices for selected sessions',async()=>{
     roster();recipients=[{clientId:12}];expect((await preview()).items.map(i=>i.kind)).toEqual(['appointment']);
     dependencies.roster.mockClear();await service.preview({...input,scopeMode:'sessions',appointmentIds:[1]},actor,authorize,appointmentAccess);
@@ -256,7 +315,7 @@ describe('assigned-day clients without appointments',()=>{
   });
   it('keeps deferred roster notices for later explicit approval',async()=>{
     appointments=[];roster();const plan=await service.preview({...input,notificationMode:'none',suppressionReason:'Review contacts'},actor,authorize,appointmentAccess);
-    await apply(plan);expect(dependencies.notifyRoster).toHaveBeenCalledWith(plan.token, expect.any(Object), actor.id, {suppressed:true});expect(dependencies.ensureTask).toHaveBeenCalled();
+    await apply(plan);expect(dependencies.notifyRoster).toHaveBeenCalledWith(plan.token, expect.any(Object), actor.id, expect.objectContaining({suppressed:true,reviewedCancellationToken:plan.token}));expect(dependencies.ensureTask).toHaveBeenCalled();
     const deferred=await service.preview({...input,deferredToken:plan.token},actor,authorize,appointmentAccess);
     expect(deferred.items[0].kind).toBe('school_roster');
   });

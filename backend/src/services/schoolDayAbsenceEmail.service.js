@@ -4,6 +4,7 @@ import { inferAgencyMailDomain } from './tenantMessageMailboxes.service.js';
 import { resolveEmailSendMailbox } from './emailSendMailbox.service.js';
 import { enrollmentMailBrand } from './portalEmailBranding.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
+import { resolveDayCancellationEmail } from './dayCancellationEmail.service.js';
 
 export async function schoolDayAbsenceSender({ agencyId, providerId, providerAuthored }, overrides = {}) {
   const d = { personal:resolveEmailSendMailbox, domain:inferAgencyMailDomain,
@@ -21,6 +22,12 @@ export async function schoolDayAbsenceSender({ agencyId, providerId, providerAut
   return { senderIdentityId:sender.id, replyToOverride:`schools@${domain}`, fromDisplayNameOverride:'Schools Team' };
 }
 export async function sendSchoolDayAbsenceEmail({ agencyId, providerId, providerAuthored, ...message }) {
+  if (message.reviewedCancellationToken) {
+    const envelope=await resolveDayCancellationEmail({agencyId,providerId,providerAuthored,
+      actorUserId:message.generatedByUserId,reviewedCancellationToken:message.reviewedCancellationToken,
+      reviewedCancellationItemKey:message.reviewedCancellationItemKey});
+    return sendEmailFromIdentity({...message,agencyId,...envelope,templateType:'day_cancellation'});
+  }
   const sender = await schoolDayAbsenceSender({agencyId,providerId,providerAuthored});
   const agency = await Agency.findById(agencyId);
   if (!agency) throw new Error('An owning agency is required for school absence email.');

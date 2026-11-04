@@ -1,6 +1,7 @@
 import { isRequestedAccountEmail } from '../utils/accountAccessEmail.js';
 import pool from '../config/database.js';
 import {familyNotificationDeliveryGate} from './familyNotificationChoices.service.js';
+import { reviewedDayCancellationContext } from './dayCancellationEmail.service.js';
 
 const email = value => String(value || '').trim().toLowerCase();
 function addresses(value) {
@@ -52,12 +53,14 @@ async function parentPauseGate({agencyId,to,cc,bcc,source='auto',templateType,cl
 }
 
 export async function routineParentEmailGate(input,db=pool) {
-  const pause=await parentPauseGate(input,db);
+  const operational=await reviewedDayCancellationContext(input,{database:db,verifyEnvelope:true});
+  const pause=operational ? {allowed:true} : await parentPauseGate(input,db);
   if(!pause.allowed)return pause;
   // Apply saved personal choices even to a staff-approved retry or demo send.
   // The pause and this preference gate both run before recipient redirection.
   for(const to of new Set([...addresses(input.to),...addresses(input.cc),...addresses(input.bcc)])) {
-    const choice=await familyNotificationDeliveryGate({...input,to,channel:'email'},db);
+    const choice=await familyNotificationDeliveryGate({...input,to,channel:'email',
+      ...(operational && input.templateType!=='day_cancellation_contact_followup' ? {notificationCategory:'schedule_changes'} : {})},db);
     if(!choice.allowed)return choice;
   }
   return pause;

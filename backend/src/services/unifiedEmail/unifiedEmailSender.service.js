@@ -1,10 +1,12 @@
 import { blockDemoExchangeEmail } from '../clientExchangeDemo.service.js';
+import { resolveRecipientUserIdByEmail } from '../emailRecipientLookup.service.js';
 import { isRequestedAccountEmail } from '../../utils/accountAccessEmail.js';
 import { isRequiredProviderWorkEmail } from '../requiredProviderWorkEmail.service.js';
 import { withSsoSenderCopy } from '../ssoEmailCopy.service.js';
 import { assertFreshCardEmail } from '../insuranceCards/scope.js';
 import { schoolSessionEmailDeliveryGate } from '../schoolSessionEmailPreferences.service.js';
 import { routineParentEmailGate } from '../routineParentEmailPause.service.js';
+import { reviewedDayCancellationContext } from '../dayCancellationEmail.service.js';
 import { isClinicalPortalIdentity, isPortalIdentity, portalSenderName, enrollmentMailBrand, renderPortalEmail } from '../portalEmailBranding.service.js';
 import { splitEmailHistory } from '../../utils/emailReplyContent.js';
 import { isSchoolCommunication } from '../schoolCommunicationContext.service.js';
@@ -355,27 +357,6 @@ export async function finalizeOutboundContent({
       || await isRequiredProviderWorkEmail({templateType,to,userId,agencyId:aid})
   });
   return { ...finalized, html:constrainPortalEmailLayout(finalized.html) };
-}
-
-/**
- * Best-effort lookup for a `users.id` matching the recipient email, so anonymous
- * sends (e.g., notification emails not initiated by a specific admin) can still
- * be attributed to the recipient's profile and surface in their Communications tab.
- * Returns null when no match (e.g., emailing a non-user contact address).
- */
-async function resolveRecipientUserIdByEmail(to) {
-  const email = String(to || '').trim().toLowerCase();
-  if (!email || !email.includes('@')) return null;
-  try {
-    const [rows] = await pool.execute(
-      'SELECT id FROM users WHERE LOWER(email) = ? LIMIT 1',
-      [email]
-    );
-    const id = Number(rows?.[0]?.id || 0);
-    return Number.isFinite(id) && id > 0 ? id : null;
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -1047,7 +1028,9 @@ export async function sendEmailFromIdentity({
   internetMessageIdOverride = null,
   afterHoursReplyContext = null,
   portalEmailBrand = null,
-  schoolSessionScopeKey = null
+  schoolSessionScopeKey = null,
+  reviewedCancellationToken = null,
+  reviewedCancellationItemKey = null
 }) {
   if (templateType === 'vacation_auto_reply' && (!afterHoursReplyContext || !await eligibleVacationReply({...afterHoursReplyContext,ownerUserId:generatedByUserId,fromEmail:to}))) return {skipped:true,reason:'vacation_reply_not_allowed'};
   if (templateType === 'client_ooo_auto_reply' && (!afterHoursReplyContext || !await eligibleClientAfterHoursReply({ ...afterHoursReplyContext, ownerUserId: generatedByUserId, fromEmail: to }))) return { skipped: true, reason: 'after_hours_reply_not_allowed' };
@@ -1055,6 +1038,11 @@ export async function sendEmailFromIdentity({
   await managedGroupEnvelope({ to, cc, bcc, actorUserId: generatedByUserId });
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
+  const operational=await reviewedDayCancellationContext({agencyId:identity.agency_id,clientId,to,cc,bcc,templateType,
+    reviewedCancellationToken,reviewedCancellationItemKey,existingCommunicationId,generatedByUserId},{verifyEnvelope:true});
+  if(operational) source='manual';
+  const operationalMetadata=operational?{reviewedCancellationToken:operational.reviewedCancellationToken,
+    reviewedCancellationItemKey:operational.reviewedCancellationItemKey}:{};
   if(await blockDemoExchangeEmail({templateType,linkUrl,clientId,agencyId:identity.agency_id})){
     if(existingCommunicationId)await pool.execute("UPDATE user_communications SET delivery_status='skipped',error_message='Demo Exchange provider notifications suppressed' WHERE id=?",[existingCommunicationId]);
     return {skipped:true,reason:'demo_exchange_provider_notifications_suppressed'};
@@ -1080,7 +1068,8 @@ export async function sendEmailFromIdentity({
   const eventDelivery=await priorityEventEmailRecipient({agencyId:identity.agency_id,userId,templateType,to,subject});
   to=eventDelivery.to; subject=eventDelivery.subject;
   const emailGate = await canSendEmail({ source, agencyId: identity?.agency_id || null });
-  const gate = emailGate.allowed ? await routineParentEmailGate({source,agencyId:identity.agency_id,to,cc,bcc,templateType,clientId,existingCommunicationId}) : emailGate;
+  const gate = emailGate.allowed ? await routineParentEmailGate({source,agencyId:identity.agency_id,to,cc,bcc,templateType,clientId,existingCommunicationId,
+    reviewedCancellationToken,reviewedCancellationItemKey,generatedByUserId}) : emailGate;
   if (!gate.allowed) {
     if (existingCommunicationId) {
       await pool.execute("UPDATE user_communications SET delivery_status='skipped',error_message=? WHERE id=? AND agency_id=?", [`send skipped — ${gate.reason}`, existingCommunicationId, identity.agency_id]);
@@ -1290,6 +1279,10 @@ export async function sendEmailFromIdentity({
   let comm = null;
   if (existingCommunicationId) {
     comm = { id: Number(existingCommunicationId) };
+    if(operational) await pool.execute(`UPDATE user_communications SET template_type=?,
+      metadata=JSON_MERGE_PATCH(COALESCE(metadata,JSON_OBJECT()),CAST(? AS JSON)) WHERE id=? AND agency_id=?`,
+    [templateType,JSON.stringify({...operationalMetadata,source:'manual',senderIdentityId:identity.id,
+      fromEmail:identity.from_email,fromDisplayName:effectiveDisplayName,replyTo,...(cc?{cc}:{})}),comm.id,identity.agency_id]);
     if (preloggedReceipt) {
       await pool.execute(`UPDATE user_communications SET subject=?,body=?,
         metadata=JSON_MERGE_PATCH(COALESCE(metadata,JSON_OBJECT()),CAST(? AS JSON)) WHERE id=? AND agency_id=?`,
@@ -1350,6 +1343,7 @@ export async function sendEmailFromIdentity({
           replyTo: replyToOverride || identity.reply_to || null,
           ...(cc ? {cc} : {}),
           ...(schoolSessionScopeKey ? {schoolSessionScopeKey} : {}),
+          ...operationalMetadata,
           ...(internetMessageIdOverride ? { internetMessageIdOverride } : {}),
           source,
           threadId,
@@ -1373,6 +1367,7 @@ export async function sendEmailFromIdentity({
   const isLoginRecoveryEmail = isRequestedAccountEmail(ttNorm);
   // Internal testing inbox redirects and login recovery must not sit in the approval queue.
   const needsApproval =
+    !operational &&
     !redirected.redirected &&
     (!existingCommunicationId || preloggedReceipt) &&
     !isLoginRecoveryEmail &&
