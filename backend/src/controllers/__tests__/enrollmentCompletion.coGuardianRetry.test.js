@@ -10,6 +10,15 @@ import {assertActiveCoGuardianInvite,assertCoGuardianSubmissionBinding} from '..
 // Run the actual finalize handler against synthetic persistence boundaries.
 // Stop at account acceptance so tests cannot generate documents or send mail.
 const source=fs.readFileSync(new URL('../publicIntake.controller.js',import.meta.url),'utf8');
+// These fixtures exercise ordinary enrollment. Client-update packet authority
+// is tested separately with real saved keys and current guardian permissions.
+const ordinaryPacketBoundary={
+ isClientUpdatePacket:()=>false,
+ assertClientUpdateSubmissionContext:async()=>null,
+ resolveClientUpdatePacketBinding:async()=>null
+};
+const extractedHandlerSource=(start,end)=>source.slice(start,end)
+ .replaceAll("await import('../services/clientUpdate.service.js')",'clientUpdatePacketService');
 function setup({allowResume=false,bundles=[],failed=false,templates=[],signedDocs=[],bindingClients=[{id:5}],requiredSteps=[],firstGuardian=false}={}) {
  bindingClients=bindingClients.map((c,i)=>({...c,full_name:`Child ${i} Example`,date_of_birth:'2015-01-01'}));
  const intakeData={clients:bindingClients.map(c=>({clientId:c.id,fullName:c.full_name,dateOfBirth:c.date_of_birth})),responses:{submission:{}}};
@@ -22,7 +31,7 @@ function setup({allowResume=false,bundles=[],failed=false,templates=[],signedDoc
  const reachedAcceptance=new Error('reached verified account acceptance');
  const accept=vi.fn(async()=>{throw reachedAcceptance;});
  const update=vi.fn(async(_id,updates)=>({...submission,...updates}));
- const deps={...signing,assertInvitedEnrollmentChildren,assertPortalEnrollmentIdentity,submittedChildCount,submissionArtifactsComplete,
+ const deps={...ordinaryPacketBoundary,clientUpdatePacketService:ordinaryPacketBoundary,...signing,assertInvitedEnrollmentChildren,assertPortalEnrollmentIdentity,submittedChildCount,submissionArtifactsComplete,
   restoreSubmissionRoster:async()=>{throw reachedAcceptance;},
   validationResult:()=>({isEmpty:()=>true}),
   resolvePublicIntakeContext:async()=>({link:{id:8,is_active:true,scope_type:'agency',form_type:'intake',organization_id:2,create_client:1,create_guardian:1,intake_steps:requiredSteps}}),
@@ -38,7 +47,7 @@ function setup({allowResume=false,bundles=[],failed=false,templates=[],signedDoc
   filterPacketDocumentTemplates:()=>templates,resolveRetentionPolicy:async()=>null,buildRetentionExpiresAt:()=>null,hashIntakeData:()=> 'synthetic'
  };
  const start=source.indexOf('export const finalizePublicIntake = '),end=source.indexOf('export const submitPublicIntake = ',start);
- const handler=new Function(...Object.keys(deps),`${source.slice(start,end).replace('export const','const')} return finalizePublicIntake;`)(...Object.values(deps));
+ const handler=new Function(...Object.keys(deps),`${extractedHandlerSource(start,end).replace('export const','const')} return finalizePublicIntake;`)(...Object.values(deps));
  const req={params:{publicKey:'packet',submissionId:'18'},headers:{},body:{sessionToken:'session',coGuardianToken:'accepted-token',guardian:{firstName:'Parent',email:'parent@example.test'},clients:intakeData.clients,intakeData}};
  if(firstGuardian)delete req.body.coGuardianToken;
  const output={};const res={status(code){output.status=code;return this;},json(value){output.body=value;return this;}};
@@ -113,7 +122,7 @@ it('rejects switching a durable invitation or its accepted guardian identity',()
 });
 it('stores only the server-resolved invitation when starting a session',async()=>{
  const create=vi.fn(async data=>({id:18,...data}));
- const deps={validationResult:()=>({isEmpty:()=>true}),resolvePublicIntakeContext:async()=>({link:{id:8,is_active:true}}),
+ const deps={...ordinaryPacketBoundary,validationResult:()=>({isEmpty:()=>true}),resolvePublicIntakeContext:async()=>({link:{id:8,is_active:true}}),
   CoGuardianInvite:{resolveCoGuardianIntakeBinding:async()=>({invite:{id:3}})},resolveAgencyIdForLink:async()=>2,
   resolveIntakeOrgContext:async()=>({organization:{},agency:{}}),isSmartSchoolRoiForm:()=>false,requiresCaptchaForLink:()=>false,
   config:{nodeEnv:'test',recaptcha:{}},isLocalRecaptchaBypassRequest:()=>false,getClientIpAddress:()=> '127.0.0.1',
@@ -128,7 +137,7 @@ it('stores only the server-resolved invitation when starting a session',async()=
  expect(create).toHaveBeenLastCalledWith(expect.objectContaining({coGuardianInviteId:null}));
 });
 it('blocks the legacy submit endpoint for a durable guardian session even when its token is omitted',async()=>{
- const deps={validationResult:()=>({isEmpty:()=>true}),resolvePublicIntakeContext:async()=>({link:{id:8,is_active:true}}),
+ const deps={...ordinaryPacketBoundary,validationResult:()=>({isEmpty:()=>true}),resolvePublicIntakeContext:async()=>({link:{id:8,is_active:true}}),
   applySmartRoiPayloadFallback:()=>{},IntakeSubmission:{findById:async()=>({id:18,intake_link_id:8,co_guardian_invite_id:3})},
   CoGuardianInvite:{assertCoGuardianSubmissionBinding}};
  const start=source.indexOf('export const submitPublicIntake = '),end=source.indexOf('\nexport const ',start+10);

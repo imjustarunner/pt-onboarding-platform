@@ -1,11 +1,14 @@
 import {shallowMount,flushPromises} from '@vue/test-utils';
 import {beforeEach,describe,it,expect,vi} from 'vitest';
-import {ref} from 'vue';
+import {reactive,ref} from 'vue';
 const mocks=vi.hoisted(()=>({push:vi.fn(),get:vi.fn(),user:{id:8,role:'provider'},queue:vi.fn()}));
 vi.mock('vue-router',()=>({useRoute:()=>({params:{organizationSlug:'agency'}}),useRouter:()=>({push:mocks.push})}));
 vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:mocks.user})}));
 vi.mock('../../../services/api',()=>({default:{get:mocks.get}}));
-vi.mock('../../../composables/useDashboardOverview',()=>({useDashboardOverview:()=>Object.fromEntries(Object.entries({loading:false,error:'',summary:{},todayScheduleItems:[],nextScheduleItem:null,notesStats:{},directIndirect:{},supervisionHours:{},payPeriod:{},paycheckCompare:null,upcomingEvents:[],featuredEvent:null,recentActivityItems:[],unreadCount:0,notesToSignCount:0,taskCount:0}).map(([k,v])=>[k,ref(v)]).concat([['refresh',vi.fn()]]))}));
+vi.mock('../../../composables/useDashboardOverview',()=>({useDashboardOverview:()=>Object.fromEntries(Object.entries({loading:false,error:'',summary:{},todayScheduleItems:[],nextScheduleItem:null,notesStats:{},directIndirect:{},supervisionHours:{},payPeriod:{},paycheckCompare:null,upcomingEvents:[],featuredEvent:null,recentActivityItems:[],unreadCount:0,notesToSignCount:0,taskCount:0}).map(([k,v])=>[k,ref(v)]).concat([
+ ['sectionState',reactive({schedule:{loading:false,error:''},pay:{loading:false,error:''},activity:{loading:false,error:''},events:{loading:false,error:''}})],
+ ['refresh',vi.fn()]
+]))}));
 vi.mock('../../../utils/noteAidWorkQueue.js',async importOriginal=>({...await importOriginal(),fetchWorkQueueFromApi:mocks.queue}));
 import Home from '../DashboardOverviewHome.vue';
 import Work from '../OverviewWorkCard.vue';
@@ -34,12 +37,14 @@ describe('dashboard work',()=>{
   expect(w.find('overview-pay-period-card-stub').exists()).toBe(true);
   expect(w.find('overview-events-card-stub').exists()).toBe(true);
   expect(w.find('.ov-header-actions .ov-customize').exists()).toBe(true);
+  const initialWorkOrder=Number(w.get('overview-work-card-stub').element.style.order);
   await w.get('.ov-customize').trigger('click');
   const editor=w.get('.ov-card-editor');
   await editor.findAll('label').find(l=>l.text().includes('Events for you')).get('input').setValue(false);
   await editor.get('[aria-label="Move My Work down"]').trigger('click');
-  await flushPromises();expect(w.find('overview-events-card-stub').exists()).toBe(false);expect(w.get('overview-work-card-stub').attributes('style')).toContain('order: 1');w.unmount();
-  w=shallowMount(Home,{global:{stubs:{DashboardOverviewSection:false,DashboardCardEditor:false},renderStubDefaultSlot:true},props:{agencyId:2,showNotes:true}});await flushPromises();expect(w.find('overview-events-card-stub').exists()).toBe(false);expect(w.get('overview-work-card-stub').attributes('style')).toContain('order: 1');w.unmount();
+  await flushPromises();expect(w.find('overview-events-card-stub').exists()).toBe(false);
+  const movedWorkOrder=Number(w.get('overview-work-card-stub').element.style.order);expect(movedWorkOrder).toBe(initialWorkOrder+1);w.unmount();
+  w=shallowMount(Home,{global:{stubs:{DashboardOverviewSection:false,DashboardCardEditor:false},renderStubDefaultSlot:true},props:{agencyId:2,showNotes:true}});await flushPromises();expect(w.find('overview-events-card-stub').exists()).toBe(false);expect(Number(w.get('overview-work-card-stub').element.style.order)).toBe(movedWorkOrder);w.unmount();
  });
  it('opens the selected exact work queue item in Note Workspace',async()=>{const w=shallowMount(Work);await flushPromises();w.findComponent({name:'NoteAidWorkQueuePanel'}).vm.$emit('select',{id:42,agencyId:2});await flushPromises();expect(mocks.push).toHaveBeenCalledWith(expect.objectContaining({query:expect.objectContaining({workQueueId:'42',agencyId:'2',launchIntent:'work_queue'})}));w.unmount();});
 });

@@ -71,6 +71,9 @@ jobs:
         run: |
           npm ci --prefix backend --ignore-scripts
           npm ci --prefix frontend --ignore-scripts
+      - name: Build bcrypt native test dependency
+        working-directory: backend
+        run: npm rebuild bcrypt --no-fund --no-audit
       - name: Personal credentials, signed callbacks, current permissions and isolated MySQL lifecycle
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.meeting-dial-in.config.js
       - name: Existing supervision and meeting receipt behavior
