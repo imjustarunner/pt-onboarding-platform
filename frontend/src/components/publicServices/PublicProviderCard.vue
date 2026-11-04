@@ -69,7 +69,7 @@
       <button
         class="btn-book"
         type="button"
-        @click="$emit('view-profile', provider)"
+        @click="separateAvailabilityAction ? $emit('view-availability', provider) : $emit('view-profile', provider)"
       >
         View availability
       </button>
@@ -86,10 +86,12 @@ const photoFailed = ref(false);
 const props = defineProps({
   provider: { type: Object, required: true },
   isBestMatch: { type: Boolean, default: false },
-  isFastest: { type: Boolean, default: false }
+  isFastest: { type: Boolean, default: false },
+  // Existing directories keep their profile-route action unless they opt in.
+  separateAvailabilityAction: { type: Boolean, default: false }
 });
 
-const emit = defineEmits(['book', 'view-profile', 'office-selected']);
+const emit = defineEmits(['book', 'view-profile', 'view-availability', 'office-selected']);
 
 const visibleAges=computed(()=>publishedFocus('ageGroups',props.provider.profile?.details?.clinicalFocus,props.provider.ageGroups||[]).top);
 const slots = computed(() => props.provider.availability?.slots || []);
