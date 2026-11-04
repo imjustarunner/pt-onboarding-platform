@@ -1,3 +1,4 @@
+import { relaySelected } from '../workspaceRelayConfig.js';
 const normalize = value => String(value || '').trim().toLowerCase();
 const verified = new WeakMap();
 /** Check Gmail's actual send-as resource, not just the app's identity row. An
@@ -6,6 +7,11 @@ export async function assertVerifiedGmailSender(gmail, fromEmail) {
   const address = normalize(fromEmail);
   if (!address || address.startsWith('ai@')) {
     throw Object.assign(new Error('The AI transport mailbox cannot be used as the visible email sender.'), { code: 'EMAIL_SENDER_FORBIDDEN' });
+  }
+  if (relaySelected(address)) {
+    const { verifyWorkspaceRelaySender } = await import('../workspaceRelaySender.js');
+    await verifyWorkspaceRelaySender(address);
+    return;
   }
   const cache=verified.get(gmail);
   if((cache?.get(address)||0)>Date.now())return;

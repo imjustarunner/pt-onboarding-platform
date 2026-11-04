@@ -1,4 +1,5 @@
 import { assertVerifiedGmailSender } from './unifiedEmail/verifiedSender.js';
+import { deliverWorkspaceMime } from './workspaceMimeDelivery.js';
 import { protectOutboundEmail } from './activityProtection.service.js';
 import { logGoogleUnauthorizedHint } from './googleWorkspaceAuth.service.js';
 import { getGmailClient, getImpersonatedUser } from './unifiedEmail/gmailClient.js';
@@ -51,7 +52,8 @@ class GoogleWorkspaceEmailService {
     agencyId = null,
     userId = null,
     clientId = null,
-    securityCode = false
+    securityCode = false,
+    communicationId = null
   }) {
     const redirected = await rewriteHogwartsOutboundRecipient({
       to,
@@ -111,12 +113,9 @@ class GoogleWorkspaceEmailService {
 
     await protectOutboundEmail({ to, cc, bcc });
     await assertVerifiedGmailSender(gmail, fromEmail);
-    const result = await gmail.users.messages.send({
-      userId: 'me',
-      requestBody: { raw }
-    });
+    const result = await deliverWorkspaceMime({ gmail, fromEmail, requestBody: { raw }, communicationId });
 
-    return { id: result.data?.id || null, threadId: result.data?.threadId || null };
+    return { id: result.data?.id || null, threadId: result.data?.threadId || null, ...(result.data?.relay ? { relay: result.data.relay, internetMessageId: result.data.relay.messageId } : {}) };
   }
 }
 

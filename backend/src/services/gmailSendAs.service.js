@@ -1,6 +1,7 @@
 import { ensureWorkspaceSenderGroup } from './workspaceSenderGroup.service.js';
 import { guardGmailClient } from './unifiedEmail/gmailTrafficGuard.js';
 import { resolveAppEmailTransport } from './unifiedEmail/transportMailbox.js';
+import { relaySelected } from './workspaceRelayConfig.js';
 /**
  * Gmail Send-as alias automation (impersonated mailbox).
  * Requires DWD scope: https://www.googleapis.com/auth/gmail.settings.sharing
@@ -29,6 +30,15 @@ export async function ensureSendAsAlias({
   if (!email.includes('@')) throw new Error('sendAsEmail is required');
   const addressType = await ensureWorkspaceSenderGroup({ email, displayName });
   if (addressType.group) treatAsAlias = false;
+
+  if (relaySelected(email)) {
+    const { verifyWorkspaceRelaySender } = await import('./workspaceRelaySender.js');
+    const relay = await verifyWorkspaceRelaySender(email);
+    // Compatibility result for provisioning callers. This does not create or
+    // claim to verify a Gmail alias: transport explicitly identifies the Group.
+    return { ok: true, created: false, updated: false, ...relay,
+      sendAs: { sendAsEmail: email, verificationStatus: 'accepted', transport: relay.transport } };
+  }
 
   const auth = await buildImpersonatedJwtClient({
     subjectEmail: subject,

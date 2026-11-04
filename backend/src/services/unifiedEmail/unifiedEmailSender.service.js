@@ -11,6 +11,7 @@ import { isSchoolCommunication } from '../schoolCommunicationContext.service.js'
 import { compactSchoolCareBridgeEmail } from '../schoolCareBridgeEmail.service.js';
 import { managedGroupEnvelope } from '../managedWorkspaceGroupAccess.service.js';
 import { assertVerifiedGmailSender } from './verifiedSender.js';
+import { deliverWorkspaceMime } from '../workspaceMimeDelivery.js';
 import { eligibleClientAfterHoursReply, eligibleVacationReply } from '../afterHoursEmailPolicy.service.js';
 import { priorityEventEmailRecipient, savePriorityEventInboxCopy, PRIORITY_EVENT_EMAILS } from '../priorityEventEmail.service.js';
 import { protectOutboundEmail } from '../activityProtection.service.js';
@@ -937,10 +938,7 @@ export async function sendNotificationEmail({
   try {
     await protectOutboundEmail({ ...groupEnvelope, actorUserId: generatedByUserId });
     await assertVerifiedGmailSender(gmail, identity.from_email);
-    result = await gmail.users.messages.send({
-      userId: 'me',
-      requestBody: { raw }
-    });
+    result = await deliverWorkspaceMime({ gmail, fromEmail: identity.from_email, requestBody: { raw }, communicationId: comm?.id });
   } catch (sendErr) {
     if (comm?.id) {
       await pool
@@ -974,6 +972,7 @@ export async function sendNotificationEmail({
       senderIdentityId: identity.id,
       fromEmail: identity.from_email,
       replyTo: String(replyToOverride || '').trim() || identity.reply_to || null,
+      ...(result.data?.relay ? { relay: result.data.relay, internetMessageId: result.data.relay.messageId } : {}),
       ...redirectMeta
     }).catch(() => {});
   }
@@ -997,6 +996,7 @@ export async function sendNotificationEmail({
   return {
     id: messageId,
     threadId,
+    ...(result.data?.relay ? { relay: result.data.relay, internetMessageId: result.data.relay.messageId } : {}),
     senderIdentityId: identity.id,
     communicationId: comm?.id || null,
     redirected: !!redirected.redirected,
@@ -1433,7 +1433,7 @@ export async function sendEmailFromIdentity({
   try {
     await protectOutboundEmail({ ...groupEnvelope, actorUserId: generatedByUserId });
     await assertVerifiedGmailSender(gmail, identity.from_email);
-    result = await gmail.users.messages.send({ userId: 'me', requestBody });
+    result = await deliverWorkspaceMime({ gmail, fromEmail: identity.from_email, requestBody, communicationId: comm?.id });
   } catch (sendErr) {
     const agencyIdForFail = identity?.agency_id || null;
     if (comm?.id) {
@@ -1461,9 +1461,10 @@ export async function sendEmailFromIdentity({
 
   const messageId = result.data?.id || null;
   const finalThreadId = result.data?.threadId || threadId || null;
+  if (result.data?.relay?.messageId) internetMessageId = result.data.relay.messageId;
   // Gmail may replace the supplied RFC Message-ID for a send-as alias. Persist
   // the delivered header so replies can be matched to the original app thread.
-  if (messageId) {
+  if (messageId && !result.data?.relay) {
     try {
       const delivered = await gmail.users.messages.get({ userId: 'me', id: messageId, format: 'metadata', metadataHeaders: ['Message-ID'] });
       const header = delivered.data?.payload?.headers?.find(h => String(h.name).toLowerCase() === 'message-id')?.value;
@@ -1477,6 +1478,7 @@ export async function sendEmailFromIdentity({
     await CommunicationLoggingService.markAsSent(comm.id, messageId, {
       threadId: finalThreadId,
       internetMessageId,
+      ...(result.data?.relay ? { relay: result.data.relay } : {}),
       impersonatedUser: getImpersonatedUser(),
       senderIdentityId: identity.id,
       fromEmail: identity.from_email,
@@ -1508,6 +1510,7 @@ export async function sendEmailFromIdentity({
     id: messageId,
     internetMessageId,
     threadId: finalThreadId,
+    ...(result.data?.relay ? { relay: result.data.relay } : {}),
     communicationId: comm?.id || null,
     redirected: !!redirected.redirected,
     testInboxRedirect: redirected.redirected ? { agencyId: Number(identity.agency_id), deliveredTo: extractEmailAddresses(redirected.to) } : null,

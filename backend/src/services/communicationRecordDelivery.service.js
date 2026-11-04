@@ -22,7 +22,7 @@ export async function recordCommunicationSent(comm,meta,result,actorUserId,{appr
   const providerMessageId=result?.id||result?.messageId||null;
   if(!providerMessageId||result.queued||result.pendingApproval||result.skipped||result.blocked)throw Object.assign(new Error('Delivery has not been confirmed. Review this communication before retrying.'),{status:409});
   const at=new Date().toISOString();
-  const sentMeta={...meta,...(approved?{approvedByUserId:actorUserId,approvedAt:at}:{retriedByUserId:actorUserId,retriedAt:at}),...(result.threadId?{threadId:result.threadId}:{})};
+  const sentMeta={...meta,...(approved?{approvedByUserId:actorUserId,approvedAt:at}:{retriedByUserId:actorUserId,retriedAt:at}),...(result.threadId?{threadId:result.threadId}:{}),...(result.relay?{relay:result.relay,internetMessageId:result.internetMessageId||result.relay.messageId}:{})};
   for(const key of ['qualityFlags','qualityBlockedAt','failedListRemovedAt','failedListRemovedByUserId'])delete sentMeta[key];
   // The fourth model argument is a delivery timestamp, never Gmail's thread ID.
   return UserCommunication.updateDeliveryStatus(comm.id,'sent',providerMessageId,null,null,sentMeta);

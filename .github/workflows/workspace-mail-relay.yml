@@ -1,0 +1,45 @@
+name: Workspace mail relay
+on:
+  pull_request:
+    paths:
+      - 'services/workspace-mail-relay/**'
+      - 'backend/src/services/workspaceRelay*'
+      - 'backend/src/services/workspaceMimeDelivery.js'
+      - 'backend/src/services/unifiedEmail/**'
+      - 'backend/src/services/googleWorkspaceEmail.service.js'
+      - 'backend/src/services/gmailSendAs.service.js'
+      - 'backend/src/services/email.service.js'
+      - 'backend/src/services/communicationRecordDelivery.service.js'
+      - 'backend/vitest.workspace-relay.config.js'
+      - 'backend/src/services/__tests__/workspaceRelay*'
+      - '.github/workflows/workspace-mail-relay.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'services/workspace-mail-relay/**'
+      - 'backend/src/services/workspaceRelay*'
+      - 'backend/src/services/workspaceMimeDelivery.js'
+      - '.github/workflows/workspace-mail-relay.yml'
+permissions:
+  contents: read
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm ci --ignore-scripts
+        working-directory: services/workspace-mail-relay
+      - run: npm test
+        working-directory: services/workspace-mail-relay
+      - run: npm ci
+        working-directory: backend
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - run: node ../frontend/node_modules/vitest/vitest.mjs run --config vitest.workspace-relay.config.js
+        working-directory: backend
+      - run: node ../frontend/node_modules/vitest/vitest.mjs run --config vitest.copay-receipts.config.js
+        working-directory: backend
+      - run: node ../frontend/node_modules/vitest/vitest.mjs run --config vitest.family-email.config.js
+        working-directory: backend
