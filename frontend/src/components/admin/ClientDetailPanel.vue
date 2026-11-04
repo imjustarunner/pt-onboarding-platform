@@ -148,7 +148,7 @@
         </div>
 
         <div class="cdp-header-actions">
-          <router-link v-if="canViewMedicalRecord && isClinicalLikeClientType" class="btn btn-secondary" :to="{path:'/assistant-reviews',query:{agencyId:selectedAgencyId || client.agency_id,sourceKind:'clinical_chart',sourceId:client.id}}">Assistant review</router-link>
+          <router-link v-if="canViewMedicalRecord && isClinicalLikeClientType && router.hasRoute?.('AssistantHumanReviews')" class="btn btn-secondary" :to="{path:'/assistant-reviews',query:{agencyId:selectedAgencyId || client.agency_id,sourceKind:'clinical_chart',sourceId:client.id}}">Assistant review</router-link>
           <button v-if="canPostClientToExchange" type="button" class="btn btn-secondary" @click="openPostToExchangeModal">Refer through Client Exchange</button>
           <button
             v-if="!props.fullPage && props.client?.id"
