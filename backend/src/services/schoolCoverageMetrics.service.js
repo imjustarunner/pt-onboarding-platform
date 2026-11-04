@@ -37,6 +37,7 @@ export async function listAffiliatedSchools(agencyId, { orgType = 'school' } = {
   const byId = new Map();
   const affiliated = await OrganizationAffiliation.listActiveOrganizationsForAgency(agencyId);
   for (const o of affiliated || []) {
+    if ([false, 0, '0'].includes(o?.is_active) || Number(o?.is_archived)) continue;
     if (!matchesFilter(o?.organization_type)) continue;
     const id = safeInt(o?.id);
     if (!id) continue;
@@ -47,6 +48,7 @@ export async function listAffiliatedSchools(agencyId, { orgType = 'school' } = {
   try {
     const legacy = await AgencySchool.listByAgency(agencyId, { includeInactive: false });
     for (const row of legacy || []) {
+      if ([false, 0, '0'].includes(row?.is_active) || [false, 0, '0'].includes(row?.school_is_active) || Number(row?.school_is_archived)) continue;
       const id = safeInt(row?.school_organization_id);
       if (!id || byId.has(id)) continue;
       const orgTypeRaw = row?.school_organization_type || 'school';
@@ -57,7 +59,8 @@ export async function listAffiliatedSchools(agencyId, { orgType = 'school' } = {
         slug: row?.school_slug || null,
         portal_url: row?.school_slug || null,
         organization_type: orgTypeRaw,
-        is_active: row?.school_is_active !== false && row?.is_active !== false,
+        is_active: true,
+        is_archived: false,
         logo_path: null,
         logo_url: null,
         icon_file_path: null,

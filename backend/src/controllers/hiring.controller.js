@@ -4669,7 +4669,7 @@ export const listPrehireCandidates = async (req, res, next) => {
 
     const [rows] = await pool.execute(
       `SELECT
-         u.id, u.first_name, u.last_name, u.email, u.personal_email,
+         u.id, u.first_name, u.last_name, u.email, u.personal_email, u.work_email,
          u.status, u.phone_number, u.hired_at, u.created_at,
          MIN(ua.agency_id) AS portal_agency_id,
          u.passwordless_token, u.passwordless_token_expires_at,

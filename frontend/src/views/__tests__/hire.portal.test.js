@@ -170,7 +170,7 @@ describe('candidate process interface', () => {
     expect(wrapper.text()).toContain('Your onboarding contact');
   });
   it('saves a custom work email while retaining suggested options', async () => {
-    const data = state(); data.workflow.steps.onboarding = [{ key: 'work-email', kind: 'work-email', title: 'Choose your work email' }];
+    const data = state(); data.candidate.workEmail=null; data.workflow.steps.onboarding = [{ key: 'work-email', kind: 'work-email', title: 'Choose your work email' }];
     await open(data);
     await wrapper.find('.hire-nav nav').findAll('button').find(b => b.text() === 'Onboarding').trigger('click'); await flushPromises();
     expect(wrapper.get('.work-email-picker').text()).toContain('devon@itsco.health');
@@ -178,6 +178,14 @@ describe('candidate process interface', () => {
     await wrapper.get('.work-email-picker input').setValue('devon.custom@itsco.health');
     await wrapper.get('.work-email-picker').element.closest('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await flushPromises();
     expect(http.post).toHaveBeenCalledWith('/prehire-portal/test-token/workflow/work-email', { email: 'devon.custom@itsco.health' });
+  });
+  it('lets a legacy closed pre-hire reserve its missing username without reopening signed documents',async()=>{
+    const data=state();data.candidate.status='PREHIRE_REVIEW';data.candidate.workEmail=null;data.portalPhase='prehire_review';
+    data.workflow.steps.pre_hire=[{key:'work-email',kind:'work-email',title:'Choose your work username'}];
+    await open(data);await wrapper.find('.hire-nav nav').findAll('button').find(b=>b.text()==='Pre-Hire').trigger('click');await flushPromises();
+    expect(wrapper.text()).toContain('does not create a Google Workspace account');
+    expect(wrapper.findAll('button').find(b=>b.text()==='Save my username').attributes('disabled')).toBeUndefined();
+    expect(wrapper.findAll('button').some(b=>b.text()==='Submit pre-hire for review')).toBe(false);
   });
   it('presents submitted onboarding as waiting for staff activation', async () => {
     const data = state(); data.journey.onboardingCompletedAt = '2026-09-11'; data.portalPhase = 'onboarding_review';

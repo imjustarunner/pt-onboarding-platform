@@ -29,11 +29,36 @@ async function loadProviders(database,client,schoolId) {
     [client.agency_id,client.id,schoolId,client.provider_id||null,schoolId,client.organization_id,client.id]);
   return rows;
 }
+export async function schoolClientStatusContext(database,{clientId,schoolId,reason=null}) {
+  const client=await loadClient(database,clientId);
+  if(!client)return null;
+  const [[school]]=await database.execute(`SELECT s.id,s.name FROM agencies s
+    JOIN agencies owner ON owner.id=? AND owner.is_active=1 AND COALESCE(owner.is_archived,0)=0
+    WHERE s.id=? AND s.organization_type='school' AND s.is_active=1 AND COALESCE(s.is_archived,0)=0
+      AND (EXISTS(SELECT 1 FROM organization_affiliations oa WHERE oa.organization_id=s.id AND oa.agency_id=? AND oa.is_active=1)
+        OR EXISTS(SELECT 1 FROM agency_schools legacy WHERE legacy.school_organization_id=s.id AND legacy.agency_id=? AND legacy.is_active=1))
+      AND (s.id=? OR EXISTS(SELECT 1 FROM client_organization_assignments a WHERE a.client_id=? AND a.organization_id=s.id AND a.is_active=1))`,
+  [client.agency_id,schoolId,client.agency_id,client.agency_id,client.organization_id,clientId]);
+  if(!school)return null;
+  const providers=await loadProviders(database,client,schoolId);
+  return {client,school,providers,state:schoolStatusEmailState(client,providers,reason)};
+}
+
+/** Only a current staff transition can create or release a family status notice. */
+export async function schoolFamilyStatusActorPermitted(database,{actorUserId,agencyId,schoolId}) {
+  if(!Number.isSafeInteger(Number(actorUserId)) || Number(actorUserId)<1)return false;
+  const [[actor]]=await database.execute(`SELECT u.id AS actor_id FROM users u WHERE u.id=? AND u.is_active=1
+    AND COALESCE(u.is_archived,0)=0
+    AND LOWER(u.role) IN ('super_admin','support','admin','staff','provider','provider_plus','school_staff','clinical_practice_assistant','intern','supervisor','schedule_manager','facilitator','tutor')
+    AND (LOWER(u.role) IN ('super_admin','support') OR EXISTS(SELECT 1 FROM user_agencies ua
+      WHERE ua.user_id=u.id AND ua.agency_id IN (?,?) AND ua.is_active=1)) LIMIT 1`,[actorUserId,agencyId,schoolId]);
+  return !!actor;
+}
 
 /** Assignment hooks explicitly opt in to assignment notices. Lifecycle updates
  * reconcile/cancel stale state and may notify waitlist changes, but never announce
  * an existing provider as newly assigned. Use the same transaction as assignment. */
-export async function queueSchoolClientStatusEmails(database=pool,{clientId,waitlistReason=null,assignmentChanged=false}={}) {
+export async function queueSchoolClientStatusEmails(database=pool,{clientId,waitlistReason=null,assignmentChanged=false,actorUserId=null}={}) {
   const owned=database===pool;
   const db=owned?await pool.getConnection():database;
   try {
@@ -53,7 +78,14 @@ export async function queueSchoolClientStatusEmails(database=pool,{clientId,wait
       await db.execute('UPDATE school_client_status_email_states SET state_hash=?,revision=? WHERE client_id=? AND school_organization_id=?',[hash,revision,clientId,school.id]);
       await db.execute("UPDATE school_client_status_emails SET delivery_status='obsolete' WHERE client_id=? AND school_organization_id=? AND delivery_status='pending'",[clientId,school.id]);
       // A lifecycle/date save establishes the baseline but cannot invent an assignment event.
-      if(state.kind && (state.kind!=='assigned' || assignmentChanged))await db.execute('INSERT INTO school_client_status_emails(agency_id,school_organization_id,client_id,revision,state_hash,state_json) VALUES(?,?,?,?,?,?)',[client.agency_id,school.id,clientId,revision,hash,JSON.stringify(state)]);
+      if(state.kind && (state.kind!=='assigned' || assignmentChanged)) {
+        const [event]=await db.execute('INSERT INTO school_client_status_emails(agency_id,school_organization_id,client_id,revision,state_hash,state_json) VALUES(?,?,?,?,?,?)',[client.agency_id,school.id,clientId,revision,hash,JSON.stringify(state)]);
+        // This independent outbox is populated only by new staff transitions;
+        // school mailbox failures and historical jobs never manufacture family mail.
+        if(event.insertId && await schoolFamilyStatusActorPermitted(db,{actorUserId,agencyId:client.agency_id,schoolId:school.id}))await db.execute(`INSERT IGNORE INTO school_family_status_emails
+          (school_status_email_id,agency_id,school_organization_id,client_id,actor_user_id,revision,state_hash,results_json)
+          VALUES(?,?,?,?,?,?,?,?)`,[event.insertId,client.agency_id,school.id,clientId,actorUserId,revision,hash,'{}']);
+      }
     }
     if(owned)await db.commit();
   }catch(error){if(owned)await db.rollback();throw error;}finally{if(owned)db.release();}

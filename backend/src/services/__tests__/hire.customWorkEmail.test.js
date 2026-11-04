@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+vi.mock('../workplaceHandbook.service.js',()=>({getPublishedHandbook:vi.fn()}));
 const mocks = vi.hoisted(() => ({ state: vi.fn(), save: vi.fn(), check: vi.fn(), agency: vi.fn() }));
 vi.mock('../../controllers/prehirePortal.controller.js', () => ({ portalStateForUser: mocks.state, getPortalTask: vi.fn(), viewPortalSignedFile: vi.fn() }));
 vi.mock('../hirePortalWorkflow.service.js', () => ({ savePortalStep: mocks.save, portalStepSubmissions: vi.fn(), validatePreemployment: vi.fn() }));
@@ -16,6 +17,11 @@ async function save(email) {
   return { next, res };
 }
 describe('custom onboarding work email', () => {
+  it('accepts a username preference during pre-hire without provisioning an SSO account',async()=>{
+    mocks.state.mockResolvedValue({candidate:{status:'PREHIRE_OPEN'},agency:{id:2},workflow:{steps:{pre_hire:[{key:'work-email',kind:'work-email'}]}}});
+    mocks.check.mockResolvedValue({available:true});const {next}=await save('preferred@itsco.health');
+    expect(next).not.toHaveBeenCalled();expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({phase:'pre_hire',value:{email:'preferred@itsco.health',preferenceOnly:true}}));
+  });
   it('accepts an available custom agency address without requiring it in the suggestions', async () => {
     mocks.check.mockResolvedValue({ available: true });
     const { next } = await save(' Devon.Custom@ITSCO.health ');

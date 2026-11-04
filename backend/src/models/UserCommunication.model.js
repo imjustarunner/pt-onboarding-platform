@@ -6,7 +6,7 @@ import { maybeEncryptNotePayload, maybeDecryptNotePayload } from '../services/cl
 
 class UserCommunication {
   static hydrateBody(row) {
-    return row?.template_type === 'session_cancellation' && row.body != null
+    return ['session_cancellation','school_family_status_update'].includes(row?.template_type) && row.body != null
       ? { ...row, body: maybeDecryptNotePayload(row.body) } : row;
   }
   /**
@@ -56,7 +56,7 @@ class UserCommunication {
         templateId || null,
         channel,
         subject || null,
-        templateType === 'session_cancellation' ? maybeEncryptNotePayload(body) : body,
+        ['session_cancellation','school_family_status_update'].includes(templateType) ? maybeEncryptNotePayload(body) : body,
         recipientAddress || null,
         deliveryStatus,
         externalMessageId || null,

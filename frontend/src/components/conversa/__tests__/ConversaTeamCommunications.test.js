@@ -9,9 +9,48 @@ import Team from '../ConversaTeamCommunications.vue';
 const users = [{ id: 2, name: 'Taylor Team', role: 'staff', pollingSms: { eligible: true, label: 'Polling SMS opted in' } }, { id: 3, name: 'Guardian', role: 'client_guardian' }];
 beforeEach(() => {
   vi.clearAllMocks(); auth.user.role = 'admin';
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
   api.get.mockImplementation(url => Promise.resolve({ data: url.endsWith('/audience-options') ? { users } : [] }));
   api.post.mockResolvedValue({ data: { id: 22 } });
   api.put.mockResolvedValue({ data: { id: 22 } });
+});
+
+const savedPoll = { id: 22, title: 'Team date', eventType: 'team_poll', votingConfig: { enabled: true, deliveryMode: 'both', viaSms: true } };
+function pollData(preview) {
+  api.get.mockImplementation(url => Promise.resolve({ data: url.endsWith('/audience-options') ? { users }
+    : url.endsWith('/poll-delivery-preview') ? preview : [savedPoll] }));
+}
+it('preflights saved poll delivery before confirmation and clearly reports zero SMS sent', async () => {
+  pollData({ canSend: true, internalCount: 2, smsEligibleCount: 1, smsSkippedCount: 1, answeredCount: 3,
+    smsSender: { ready: true, label: 'Staff polling SMS sender ready', fromNumber: '+13035550100' },
+    reasons: [{ code: 'sms_opted_out', label: 'SMS opted out', count: 1 }] });
+  api.post.mockResolvedValue({ data: { inAppCount: 2, sentCount: 0, skippedCount: 2, skippedReasons: [{ label: 'SMS opted out', count: 2 }] } });
+  const w = mount(Team, { props: { agencyId: 4 } }); await flushPromises();
+  await w.findAll('button').find(button => button.text() === 'Send poll').trigger('click'); await flushPromises();
+  expect(api.get).toHaveBeenCalledWith('/agencies/4/company-events/22/poll-delivery-preview');
+  expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('2 internal messages · 1 eligible texts · 1 SMS unavailable · 3 already answered'));
+  expect(api.post).toHaveBeenCalledWith('/agencies/4/company-events/22/send-poll', {});
+  expect(w.get('[role=status]').text()).toContain('No text messages were sent.');
+  expect(w.get('[role=status]').text()).toContain('2 sms opted out');
+  expect(w.get('[aria-label="Poll delivery preview"]').text()).toContain('1 · SMS opted out');
+  w.unmount();
+});
+it('shows a global sender setup issue without silently sending only internally', async () => {
+  pollData({ canSend: false, internalCount: 2, smsEligibleCount: 0, smsSkippedCount: 2,
+    smsSender: { ready: false, label: 'Configure an approved staff polling sender for this agency.' } });
+  const w = mount(Team, { props: { agencyId: 4 } }); await flushPromises();
+  await w.findAll('button').find(button => button.text() === 'Send poll').trigger('click'); await flushPromises();
+  expect(w.get('[role=alert]').text()).toContain('Configure an approved staff polling sender');
+  expect(window.confirm).not.toHaveBeenCalled(); expect(api.post).not.toHaveBeenCalled();
+  w.unmount();
+});
+it('leaves a read-only preview when the organizer cancels confirmation', async () => {
+  pollData({ canSend: true, internalCount: 2, smsEligibleCount: 0, smsSkippedCount: 2 });
+  window.confirm.mockReturnValue(false);
+  const w = mount(Team, { props: { agencyId: 4 } }); await flushPromises();
+  await w.findAll('button').find(button => button.text() === 'Send poll').trigger('click'); await flushPromises();
+  expect(w.get('[aria-label="Poll delivery preview"]').text()).toContain('0 eligible texts');
+  expect(api.post).not.toHaveBeenCalled(); w.unmount();
 });
 describe('Conversa team communications', () => {
   it.each(['staff', 'provider', 'client_guardian', 'clinical_practice_assistant'])('does not load management data or expose controls for %s', async role => {

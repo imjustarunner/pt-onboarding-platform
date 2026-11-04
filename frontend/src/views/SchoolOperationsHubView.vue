@@ -491,6 +491,12 @@ const allSections = computed(() => [
         count: 0
       },
       {
+        id: 'school-waitlists', title: 'School Waitlists', shortDesc: 'Demand, insurance, and staffing needs.',
+        desc: 'School waitlist counts, recorded insurance, and published staffing requirements.', cta: 'Open →',
+        to: orgTo('/admin/caseload-hub/schools-staff?tab=waitlists'), tone: 'teal', icon: icon.people,
+        tour: null, show: canSeeSchoolOpsContent.value, count: 0
+      },
+      {
         id: 'provider-year-update',
         title: 'Provider Fall Update',
         shortDesc: 'Fall update campaigns for providers.',

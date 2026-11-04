@@ -196,7 +196,7 @@ export async function setClientLifecycleStatus({
   // provider assignment. Only assignment hooks opt in to assignment notices.
   try {
     const { queueSchoolClientStatusEmails } = await import('./schoolClientStatusEmail.service.js');
-    await queueSchoolClientStatusEmails(pool, { clientId: cid,
+    await queueSchoolClientStatusEmails(pool, { clientId: cid,actorUserId,
       waitlistReason: key === 'waitlist' && /^waitlisted:\s*/i.test(String(note || ''))
         ? String(note).replace(/^waitlisted:\s*/i, '') : null });
   } catch (err) {

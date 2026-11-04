@@ -1,6 +1,6 @@
 import {describe,it,expect,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{}}));
-import {enrichAvailabilityRoster} from '../providerAvailabilityRoster.service.js';
+import {enrichAvailabilityRoster,providerSchoolPlacementSummary} from '../providerAvailabilityRoster.service.js';
 import {providerServiceSettings} from '../../utils/providerServiceOfferings.js';
 const types=[{service_type:'counseling',display_name:'Counseling'}];
 describe('provider management roster',()=>{
@@ -11,13 +11,24 @@ describe('provider management roster',()=>{
    if(sql.includes('FROM agency_public_service_types'))return [types];
    if(sql.includes('FROM provider_public_service_enrollments'))return [[{user_id:9,service_type:'counseling',is_active:1}]];
    if(sql.includes('FROM office_standing_assignments'))return [[{provider_id:9,id:7,name:'Windchime'}]];
+   if(sql.includes('FROM provider_school_assignments psa'))return [[{provider_user_id:9,school_organization_id:5,school_name:'Cedar',day_of_week:'Tuesday'}]];
    throw Error('Unexpected query');
   })};
   const [row]=await enrichAvailabilityRoster([{id:9,first_name:'Example'}],2,db);
   expect(row.preferences).toMatchObject({acceptingNewClients:false,virtual:false,inPerson:true,school:false,waitlistEnabled:true});
   expect(row.services).toEqual([{serviceType:'counseling',displayName:'Counseling',offered:true,onlineScheduling:true}]);
   expect(row.offices[0].name).toBe('Windchime');
+  expect(row.schoolAssignments).toEqual([{schoolOrganizationId:5,schoolName:'Cedar',days:['Tuesday']}]);
+  expect(row.unassignedSchoolDays).toEqual(['Monday','Wednesday','Thursday','Friday']);
   for(const [sql,args] of db.execute.mock.calls){expect(args[0]).toBe(2);if(!sql.includes('FROM agency_public_service_types'))expect(args.at(-1)).toBe(9);expect(sql).not.toMatch(/UPDATE|INSERT/);}
+ });
+ it('groups every current school and weekday without calling weekday gaps verified clinical openings',()=>{
+  const rows=[{provider_user_id:9,school_organization_id:5,school_name:'Cedar',day_of_week:'Friday'},
+   {provider_user_id:9,school_organization_id:5,school_name:'Cedar',day_of_week:'Monday'},
+   {provider_user_id:9,school_organization_id:5,school_name:'Cedar',day_of_week:'Monday'},
+   {provider_user_id:9,school_organization_id:6,school_name:'Maple',day_of_week:'Wednesday'},
+   {provider_user_id:10,school_organization_id:7,school_name:'Another provider',day_of_week:'Tuesday'}];
+  expect(providerSchoolPlacementSummary(rows,9)).toEqual({schoolAssignments:[{schoolOrganizationId:5,schoolName:'Cedar',days:['Monday','Friday']},{schoolOrganizationId:6,schoolName:'Maple',days:['Wednesday']}],unassignedSchoolDays:['Tuesday','Thursday']});
  });
  it('does not query an unscoped roster when no providers are authorized',async()=>{const db={execute:vi.fn()};expect(await enrichAvailabilityRoster([],2,db)).toEqual([]);expect(db.execute).not.toHaveBeenCalled();});
  it('uses agency roles and legacy coaching defaults consistently without enabling online booking',()=>{

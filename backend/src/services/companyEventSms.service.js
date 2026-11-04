@@ -1,5 +1,5 @@
 import pool from '../config/database.js';
-import { getSmsSender, isSmsSuppressed, prepareSmsDelivery } from './smsCompliance.service.js';
+import { getSmsSender, isSmsSuppressed, prepareSmsDelivery, resolveRegisteredSmsSender } from './smsCompliance.service.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import { readEventOperations } from '../utils/companyEventOperations.js';
 import { computeNextOccurrence } from './companyEvents.service.js';
@@ -31,13 +31,23 @@ export async function isCompanyEventSmsMuted(eventId, phone, db = pool) {
 export async function resolveCompanyEventSmsSender({ agencyId, audience = 'staff', purpose = 'workforce', from = null }) {
   const [agencies] = await pool.execute('SELECT feature_flags FROM agencies WHERE id = ?', [Number(agencyId)]);
   const flags = json(agencies[0]?.feature_flags);
-  if (flags.smsNumbersEnabled !== true || flags.companyEventsEnabled !== true) throw smsPolicyError('event_sms_disabled', 'Enable SMS and company event messaging in agency settings');
+  // Older staff campaigns predate these optional feature flags. Their current
+  // approved dedicated registration still authorizes sender selection; an
+  // explicit off/invalid setting always wins. Client/service SMS remains opt-in.
+  const toggles = [flags.smsNumbersEnabled, flags.companyEventsEnabled];
+  const enabled = audience === 'staff' ? toggles.every(value => value == null || value === true) : toggles.every(value => value === true);
+  if (!enabled) throw smsPolicyError('event_sms_disabled', 'Enable SMS and company event messaging in agency settings');
   let phone = normalizeSmsPhone(from);
   if (!phone) {
     const numberId = Number(audience === 'staff' ? flags.companyEventsSenderNumberId : flags.companyEventsServiceSenderNumberId);
     let numbers;
     if (numberId) {
       [numbers] = await pool.execute('SELECT phone_number FROM twilio_numbers WHERE id = ? AND agency_id = ? AND is_active = TRUE AND status <> \'released\'', [numberId, Number(agencyId)]);
+    } else if (audience === 'staff') {
+      // Use the agency's approved staff campaign when no event-specific override
+      // was set. The resolver and campaign check never borrow a service number.
+      const registered = await resolveRegisteredSmsSender({ agencyId, purpose, requiredPurpose: 'polling' });
+      numbers = registered ? [{ phone_number: registered }] : [];
     } else if (audience === 'participant') {
       // Existing service registration may already be available; never borrow staff polling.
       [numbers] = await pool.execute(`SELECT n.phone_number FROM twilio_numbers n JOIN sms_sender_registrations r ON r.number_id = n.id

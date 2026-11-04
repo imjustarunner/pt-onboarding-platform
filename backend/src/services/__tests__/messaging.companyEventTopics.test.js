@@ -1,17 +1,68 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
-vi.mock('../smsCompliance.service.js', () => ({ getSmsSender: vi.fn(), isSmsSuppressed: vi.fn(), prepareSmsDelivery: vi.fn() }));
+vi.mock('../smsCompliance.service.js', () => ({ getSmsSender: vi.fn(), isSmsSuppressed: vi.fn(), prepareSmsDelivery: vi.fn(), resolveRegisteredSmsSender: vi.fn() }));
 vi.mock('../smsConsentRequest.service.js', () => ({ createSmsConsentRequest: vi.fn() }));
 import pool from '../../config/database.js';
-import { getSmsSender, isSmsSuppressed, prepareSmsDelivery } from '../smsCompliance.service.js';
+import { getSmsSender, isSmsSuppressed, prepareSmsDelivery, resolveRegisteredSmsSender } from '../smsCompliance.service.js';
 import { createSmsConsentRequest } from '../smsConsentRequest.service.js';
 import { assertCompanyEventSmsCampaign, buildCompanyEventSms, parseCompanyEventSmsCommand, selectCompanyEventSmsReply, normalizeCompanyEventDeliveryStatus } from '../../utils/companyEventSms.js';
-import { handleCompanyEventTopicInbound, sendCompanyEventSms, recordCompanyEventSmsDeliveryStatus, listCompanyEventSmsAttendees, companyEventParticipantSmsAudience, enrollCompanyEventGuestSms, getCompanyEventSmsTopic } from '../companyEventSms.service.js';
+import { handleCompanyEventTopicInbound, sendCompanyEventSms, recordCompanyEventSmsDeliveryStatus, listCompanyEventSmsAttendees, companyEventParticipantSmsAudience, enrollCompanyEventGuestSms, getCompanyEventSmsTopic, resolveCompanyEventSmsSender } from '../companyEventSms.service.js';
 const registration = { brandId: 'B123', campaignId: 'C2', resellerId: 'R123', brandName: 'ITSCO', legalName: 'ITSCO, LLC', supportContact: 'support@itsco.health', website: 'https://www.itsco.health', privacyUrl: 'https://www.itsco.health/privacy', termsUrl: 'https://www.itsco.health/terms', evidenceUrl: 'https://www.itsco.health/proof', purposes: ['polling', 'workforce'], keywordOwner: 'application', approved: true, numberLinked: true };
 const sender = { id: 8, agency_id: 2, campaign_id: 'C2', scope: 'campaign:C2', phone_number: '+13035550100', registration };
 const delivery = { id: 20, code: 112, company_event_id: 4, agency_id: 2, user_id: 7, title: 'School fair', purpose: 'polling', dispatch_type: 'recruitment' };
 const incoming = { from: '+13035550101', to: sender.phone_number, body: 'Y', messageId: 'incoming-1' };
 beforeEach(() => { vi.resetAllMocks(); getSmsSender.mockResolvedValue(sender); isSmsSuppressed.mockResolvedValue(false); prepareSmsDelivery.mockResolvedValue({}); });
+
+describe('registered agency staff sender resolution', () => {
+  const agency = flags => ({ feature_flags: { smsNumbersEnabled: true, companyEventsEnabled: true, ...flags } });
+  it('reuses the registered staff polling sender when the optional event override is absent', async () => {
+    pool.execute.mockResolvedValue([[agency()]]);
+    resolveRegisteredSmsSender.mockResolvedValue(sender.phone_number);
+    expect(await resolveCompanyEventSmsSender({ agencyId: 2, purpose: 'polling' })).toMatchObject({ sender, campaignNumber: 2 });
+    expect(resolveRegisteredSmsSender).toHaveBeenCalledWith({ agencyId: 2, purpose: 'polling', requiredPurpose: 'polling' });
+    expect(prepareSmsDelivery).not.toHaveBeenCalled();
+    expect(pool.execute.mock.calls.every(([sql]) => sql.startsWith('SELECT'))).toBe(true);
+  });
+  it('requires polling registration for staff notification fallback too', async () => {
+    pool.execute.mockResolvedValue([[agency()]]); resolveRegisteredSmsSender.mockResolvedValue(sender.phone_number);
+    await resolveCompanyEventSmsSender({ agencyId: 2, purpose: 'workforce' });
+    expect(resolveRegisteredSmsSender).toHaveBeenCalledWith({ agencyId: 2, purpose: 'workforce', requiredPurpose: 'polling' });
+  });
+  it('honors an explicit agency sender and never silently replaces a stale override', async () => {
+    pool.execute.mockResolvedValueOnce([[agency({ companyEventsSenderNumberId: 8 })]]).mockResolvedValueOnce([[{ phone_number: sender.phone_number }]]);
+    expect(await resolveCompanyEventSmsSender({ agencyId: 2, purpose: 'polling' })).toMatchObject({ campaignNumber: 2 });
+    expect(resolveRegisteredSmsSender).not.toHaveBeenCalled();
+    pool.execute.mockResolvedValueOnce([[agency({ companyEventsSenderNumberId: 8 })]]).mockResolvedValueOnce([[]]);
+    await expect(resolveCompanyEventSmsSender({ agencyId: 2, purpose: 'polling' })).rejects.toHaveProperty('code', 'event_sms_sender_missing');
+  });
+  it('recognizes the approved legacy staff campaign when newer toggle keys were never stored', async () => {
+    pool.execute.mockResolvedValueOnce([[{ feature_flags: { companyEventsSenderNumberId: 8 } }]])
+      .mockResolvedValueOnce([[{ phone_number: sender.phone_number }]]);
+    expect(await resolveCompanyEventSmsSender({ agencyId: 2, purpose: 'polling' })).toMatchObject({ sender, campaignNumber: 2 });
+    expect(resolveRegisteredSmsSender).not.toHaveBeenCalled();
+  });
+  it.each([{ smsNumbersEnabled: false }, { companyEventsEnabled: false }, { smsNumbersEnabled: 'true' }])
+  ('retains explicit agency disable/invalid controls even with an approved staff sender %j', async flags => {
+    pool.execute.mockResolvedValue([[agency(flags)]]);
+    await expect(resolveCompanyEventSmsSender({ agencyId: 2, purpose: 'polling' })).rejects.toHaveProperty('code', 'event_sms_disabled');
+    expect(resolveRegisteredSmsSender).not.toHaveBeenCalled(); expect(getSmsSender).not.toHaveBeenCalled();
+  });
+  it('does not extend legacy staff toggle compatibility to participant/client messages', async () => {
+    pool.execute.mockResolvedValue([[{ feature_flags: { companyEventsServiceSenderNumberId: 1 } }]]);
+    await expect(resolveCompanyEventSmsSender({ agencyId: 2, audience: 'participant', purpose: 'reminders' }))
+      .rejects.toHaveProperty('code', 'event_sms_disabled');
+    expect(getSmsSender).not.toHaveBeenCalled();
+  });
+  it.each(['missing', 'other_agency', 'service_campaign', 'unapproved'])('rejects a %s fallback without changing configuration or sending', async state => {
+    pool.execute.mockResolvedValue([[agency()]]);
+    resolveRegisteredSmsSender.mockResolvedValue(state === 'missing' ? null : sender.phone_number);
+    if (state === 'other_agency') getSmsSender.mockResolvedValue({ ...sender, agency_id: 6 });
+    if (state === 'service_campaign') getSmsSender.mockResolvedValue({ ...sender, registration: { ...registration, purposes: ['care', 'reminders'] } });
+    if (state === 'unapproved') getSmsSender.mockResolvedValue({ ...sender, registration: { ...registration, approved: false } });
+    await expect(resolveCompanyEventSmsSender({ agencyId: 2, purpose: 'polling' })).rejects.toHaveProperty('status', 403);
+    expect(prepareSmsDelivery).not.toHaveBeenCalled();
+  });
+});
 
 describe('event SMS command boundaries', () => {
   it('reserves campaign control keywords and leaves unrelated care text alone', () => {

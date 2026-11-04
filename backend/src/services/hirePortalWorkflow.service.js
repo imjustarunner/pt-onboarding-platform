@@ -3,6 +3,7 @@ import { persistSchoolServiceAvailability } from './schoolServiceAvailability.se
 import {normalizeFocusAgeValues} from '../utils/providerFacetNormalization.js';
 import { FACET_FIELD_ALIASES } from '../constants/clinicalFacetFields.js';
 import pool from '../config/database.js';
+import {createHash} from 'node:crypto';
 import ProviderPublicProfile from '../models/ProviderPublicProfile.model.js';
 import { hiringCommunicationContext } from './hiringCommunication.service.js';
 import { getHireUserSetup, persistHireUserSetup } from './hireUserSetup.service.js';
@@ -48,13 +49,28 @@ export async function assertPortalStepCompletion(userId, phase, keys, db = pool)
 export async function savePortalStep({ userId, agencyId, phase, key, value, complete = true, profile = false, file = null }) {
   let encrypted = JSON.stringify(encryptGuardianIntake(JSON.stringify(value)));
   const db = await pool.getConnection();
+  const usernameEmail=key==='work-email' && complete ? String(value?.email || '').trim().toLowerCase() : null;
+  const usernameLock=usernameEmail?`hire-username:${createHash('sha256').update(usernameEmail).digest('hex').slice(0,40)}`:null;
+  let usernameLocked=false;
   try {
+    if(usernameLock){const [[lock]]=await db.execute('SELECT GET_LOCK(?,5) AS acquired',[usernameLock]);usernameLocked=!!lock?.acquired;if(!usernameLocked)throw Object.assign(new Error('This username is being selected. Please try again.'),{status:409});}
     await db.beginTransaction();
-    const [[user]] = await db.execute('SELECT status FROM users WHERE id = ? FOR UPDATE', [userId]);
+    const [[user]] = await db.execute('SELECT status,work_email FROM users WHERE id = ? FOR UPDATE', [userId]);
     const [[journey]] = await db.execute('SELECT prehire_completed_at, onboarding_completed_at FROM hire_journeys WHERE user_id = ?', [userId]);
-    const open = phase === 'pre_hire' ? ['PENDING_SETUP', 'PREHIRE_OPEN'].includes(user?.status) && !journey?.prehire_completed_at
-      : user?.status === 'ONBOARDING' && !journey?.onboarding_completed_at;
+    const missingUsername=usernameEmail && !String(user?.work_email || '').trim() && !journey?.onboarding_completed_at
+      && (phase==='pre_hire'?['PENDING_SETUP','PREHIRE_OPEN','PREHIRE_REVIEW'].includes(user?.status):user?.status==='ONBOARDING');
+    const open = missingUsername || (phase === 'pre_hire' ? ['PENDING_SETUP', 'PREHIRE_OPEN'].includes(user?.status) && !journey?.prehire_completed_at
+      : user?.status === 'ONBOARDING' && !journey?.onboarding_completed_at);
     if (!open) throw Object.assign(new Error('This package is closed. Contact People Operations to request a correction.'), { status: 409 });
+    if(usernameEmail) {
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(usernameEmail))throw Object.assign(new Error('Enter a valid work username.'),{status:400});
+      if(user.work_email && user.work_email.toLowerCase()!==usernameEmail)throw Object.assign(new Error('The work username is already set. Contact People Operations to change it.'),{status:409});
+      const [[other]]=await db.execute('SELECT id FROM users WHERE id<>? AND (LOWER(work_email)=? OR LOWER(email)=?) LIMIT 1',[userId,usernameEmail,usernameEmail]);
+      if(other)throw Object.assign(new Error('That work username was just reserved. Choose another address.'),{status:409});
+      // Reserve the chosen address only. SSO/Workspace provisioning, login email,
+      // Group membership, passwords and activation are separate staff processes.
+      await db.execute('UPDATE users SET work_email=? WHERE id=?',[usernameEmail,userId]);
+    }
     if(phase==='onboarding' && key==='staff-communications'){
       const saved=await saveStaffCommunicationChoices({userId,agencyId,input:value,source:'onboarding',database:db});
       value={choices:saved.choices,accessRequests:saved.accessRequests,reviewedAt:saved.reviewedAt};
@@ -114,7 +130,9 @@ export async function savePortalStep({ userId, agencyId, phase, key, value, comp
       }
     }
     await db.commit();
-  } catch (e) { await db.rollback(); throw e; } finally { db.release(); }
+  } catch (e) { await db.rollback(); throw e; } finally {
+    try { if(usernameLocked)await db.execute('SELECT RELEASE_LOCK(?)',[usernameLock]); } finally { db.release(); }
+  }
 }
 
 export function uniquePortalTasks(tasks = []) {
@@ -161,7 +179,11 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
   add('pre_hire', { key: 'job-description', kind: 'job-description', title: 'Your job description', complete: !!extras.jdAcknowledged });
   for (const task of contract) add('pre_hire', { key: `task-${task.id}`, kind: 'task', title: task.title, task, complete: task.status === 'completed' });
   if (!contract.length) add('pre_hire', { key: 'agreement', kind: 'unavailable', title: 'Employment agreement', complete: false, instructions: 'People Operations needs to prepare your employment agreement.' });
-  add('onboarding', { key: 'work-email', kind: 'work-email', title: 'Choose your work email', complete: !!user.work_email || !!stored('onboarding', 'work-email')?.completedAt });
+  const usernameComplete=!!user.work_email;
+  add('pre_hire', { key: 'work-email', kind: 'work-email', title: 'Choose your work username', complete: usernameComplete });
+  // Retain the setup step for hires already in onboarding without a username;
+  // new hires choose it before People Operations starts that phase.
+  if(user.status==='ONBOARDING' && !usernameComplete)add('onboarding',{key:'work-email',kind:'work-email',title:'Choose your work username',complete:false});
   if (!prehireClosed || stored('pre_hire', 'profile')) add('pre_hire', { key: 'profile', kind: 'profile', title: 'Pre-employment information', complete: !!stored('pre_hire', 'profile')?.completedAt });
   if (!prehireClosed || stored('pre_hire', 'headshot')) add('pre_hire', { key: 'headshot', kind: 'headshot', title: 'Your professional headshot', complete: !!stored('pre_hire', 'headshot')?.completedAt });
   const handbook = packet.handbookUrl || handbookUrl;
@@ -251,7 +273,7 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
   return { onboardingContact, config, assignedOffice: user.work_location || '', steps, progress: { pre_hire: summarizeSteps(steps.pre_hire), onboarding: summarizeSteps(steps.onboarding) },
     profile, profileFields: PREEMPLOYMENT_FIELDS, headshot: stored('pre_hire', 'headshot')?.value ? { uploaded: true, version: stored('pre_hire', 'headshot').completedAt } : null,
     resume: resume ? { uploaded: true, name: resume.original_name, documentId: resume.id } : stored('pre_hire', 'resume')?.value ? { uploaded: true, name: stored('pre_hire', 'resume').value.name } : null,
-    preferredWorkEmail: stored('onboarding', 'work-email')?.value?.email || '',
+    preferredWorkEmail: stored('pre_hire', 'work-email')?.value?.email || stored('onboarding', 'work-email')?.value?.email || '',
     supervisor: supervisor ? { id: supervisor.id, name: `${supervisor.first_name} ${supervisor.last_name}`, photoPath: supervisor.profile_photo_path || null } : { name: config.supervisorName || '' } };
 }
 

@@ -10,6 +10,7 @@ const auth = useAuthStore();
 const allowed = computed(() => canManageConversaTeam(auth.user));
 const events = ref([]), users = ref([]), loading = ref(false), busy = ref(false);
 const error = ref(''), notice = ref(''), reviewing = ref(null), delivery = ref(null);
+const smsSender = ref(null), pollPreview = ref(null);
 const blank = () => ({ kind: 'text', title: '', message: '', userIds: [], question: '', options: ['Yes', 'No'], deliveryMode: 'internal', shareResults: true, allowOther: false });
 const draft = ref(blank());
 const editing = ref(null);
@@ -32,6 +33,7 @@ async function load() {
     if (g !== generation) return;
     events.value = Array.isArray(list.data) ? list.data : [];
     users.value = (audience.data?.users || []).filter(u => !['client', 'client_guardian', 'guardian', 'school_staff'].includes(String(u.role).toLowerCase()));
+    smsSender.value = audience.data?.smsSender || null;
   } catch (e) { if (g === generation) error.value = e.response?.data?.error?.message || 'Could not load team communications.'; }
   finally { if (g === generation) loading.value = false; }
 }
@@ -66,11 +68,22 @@ async function create() {
 }
 async function action(event, kind) {
   if (!allowed.value || busy.value) return;
-  const confirmations = { send: `Send “${event.title}” to its selected team members in the app and by SMS where eligible?`, poll: `Send “${event.title}” using ${deliveryLabel(event)}? SMS goes only to members with polling consent. Answered polls are skipped.`, close: `Close “${event.title}” and send any requested final results texts?` };
+  const confirmations = { send: `Send “${event.title}” to its selected team members in the app and by SMS where eligible?`, close: `Close “${event.title}” and send any requested final results texts?` };
   if (confirmations[kind] && !window.confirm(confirmations[kind])) return;
   const g = generation, url = `${base()}/${event.id}`;
   busy.value = true; error.value = ''; notice.value = '';
   try {
+    if (kind === 'poll') {
+      const { data } = await api.get(`${url}/poll-delivery-preview`);
+      if (g !== generation) return;
+      pollPreview.value = { title: event.title, ...data };
+      if (!data.canSend) {
+        error.value = data.smsSender && !data.smsSender.ready ? data.smsSender.label : 'No unanswered recipients can receive this poll through its selected delivery methods.';
+        return;
+      }
+      const reasons = (data.reasons || []).map(reason => `${reason.count} ${reason.label.toLowerCase()}`).join('; ');
+      if (!window.confirm(`Send “${event.title}”?\n${pollPreviewSummary(data)}${reasons ? `\nSMS not sent: ${reasons}.` : ''}\nEligibility is checked again before each text.`)) return;
+    }
     if (kind === 'delivery') {
       const { data } = await api.get(`${url}/delivery-logs`);
       if (g === generation) delivery.value = { title: event.title, ...data };
@@ -82,11 +95,15 @@ async function action(event, kind) {
     if (g !== generation) return;
     notice.value = kind === 'close' ? 'Voting closed. Check delivery history for requested results texts.'
       : kind === 'send' ? `Sent: ${data.inAppCount || 0} in-app notifications, ${data.smsCount || 0} texts. Check delivery history for skipped or failed recipients.`
-      : `Poll sent: ${data.inAppCount || 0} internal, ${data.sentCount || 0} SMS · ${data.skippedCount || 0} skipped · ${data.failedCount || 0} failed. See delivery history for details.`;
+      : `Poll delivery: ${data.inAppCount || 0} internal, ${data.sentCount || 0} SMS · ${data.skippedCount || 0} skipped · ${data.failedCount || 0} failed.${data.sentCount ? '' : ' No text messages were sent.'}${(data.skippedReasons || []).map(reason => ` ${reason.count} ${reason.label.toLowerCase()}.`).join('')} See delivery history for details.`;
     await load();
   } catch (e) { if (g === generation) error.value = e.response?.data?.error?.message || 'Could not complete this action.'; }
   finally { busy.value = false; }
 }
+function pollPreviewSummary(preview) {
+  return `${preview.internalCount || 0} internal messages · ${preview.smsEligibleCount || 0} eligible texts · ${preview.smsSkippedCount || 0} SMS unavailable · ${preview.answeredCount || 0} already answered.`;
+}
+const selectedSms = computed(() => users.value.filter(user => draft.value.userIds.includes(user.id) && user.pollingSms?.eligible).length);
 function deliveryLabel(event) {
   const mode = event.votingConfig?.deliveryMode || (event.votingConfig?.viaSms ? 'both' : 'internal');
   return { internal: 'Internal message', sms: 'SMS', both: 'Internal message + SMS' }[mode];
@@ -96,7 +113,7 @@ watch(() => draft.value.deliveryMode, () => {
   if (smsOnly.value) draft.value.userIds = draft.value.userIds.filter(id => users.value.find(u => u.id === id)?.pollingSms?.eligible);
 });
 watch(() => [props.agencyId, allowed.value], () => {
-  events.value = []; users.value = []; cancelEdit(); reviewing.value = null; delivery.value = null; notice.value = ''; load();
+  events.value = []; users.value = []; smsSender.value = null; pollPreview.value = null; cancelEdit(); reviewing.value = null; delivery.value = null; notice.value = ''; load();
 }, { immediate: true });
 </script>
 
@@ -119,6 +136,8 @@ watch(() => [props.agencyId, allowed.value], () => {
             <button type="button" :disabled="draft.options.length >= 12" @click="draft.options.push('')">Add answer</button>
             <label>Poll delivery<select v-model="draft.deliveryMode" aria-label="Poll delivery"><option value="internal">Internal message</option><option value="sms">SMS only</option><option value="both">Both · Internal message + SMS</option></select></label>
             <p class="team-note">Internal polls appear on the team member’s dashboard. SMS requires separate polling opt-in. With Both, members who opted out of SMS still receive the internal poll. A reply through either method completes the same poll.</p>
+            <p v-if="draft.deliveryMode !== 'internal' && smsSender" :role="smsSender.ready ? undefined : 'alert'" class="team-note">{{ smsSender.label }}<span v-if="smsSender.ready"> · {{ smsSender.fromNumber }}</span></p>
+            <p v-if="draft.deliveryMode !== 'internal'" class="team-note">{{ selectedSms }} selected members currently eligible for SMS; {{ draft.userIds.length - selectedSms }} unavailable for SMS. Saving makes the poll available internally when selected; use Send poll below to review and send notifications.</p>
             <label class="team-check"><input v-model="draft.allowOther" type="checkbox" /> Allow written answers for review</label>
             <label class="team-check"><input v-model="draft.shareResults" type="checkbox" /> Share final totals with participants</label>
             <p class="team-note">Replies are identified to organizers. Participants see their own responses. New polls are available for 30 days. Close voting when you are ready to publish final totals.</p>
@@ -130,6 +149,7 @@ watch(() => [props.agencyId, allowed.value], () => {
         </fieldset>
       </form>
       <div class="team-header"><h3>Team communications</h3><button type="button" :disabled="busy || loading" @click="load">Refresh</button></div>
+      <section v-if="pollPreview" class="team-entry" aria-label="Poll delivery preview"><h3>{{ pollPreview.title }} · delivery preview</h3><p>{{ pollPreviewSummary(pollPreview) }}</p><p v-if="pollPreview.smsSender">{{ pollPreview.smsSender.label }}<span v-if="pollPreview.smsSender.ready"> · {{ pollPreview.smsSender.fromNumber }}</span></p><ul v-if="pollPreview.reasons?.length"><li v-for="reason in pollPreview.reasons" :key="reason.code">{{ reason.count }} · {{ reason.label }}</li></ul><p class="team-note">This preview sends nothing. Opt-outs and eligibility are checked again during delivery.</p></section>
       <p v-if="loading">Loading communications…</p><p v-else-if="!events.length">Your team texts and polls will appear here.</p>
       <article v-for="event in events" :key="event.id" class="team-entry">
         <span class="team-type">{{ event.votingConfig?.enabled ? 'Team poll' : 'Team text' }} · Conversa</span><h3>{{ event.title }}</h3><p>{{ event.votingConfig?.enabled ? event.votingConfig.question : event.splashContent || event.description }}</p>

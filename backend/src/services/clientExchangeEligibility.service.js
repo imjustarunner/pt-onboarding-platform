@@ -25,7 +25,7 @@ export async function loadExchangeProvider({ userId, agencyId, database = pool, 
   ]);
   return { user, agency, facets: facetMap.get(Number(userId)) || {}, profile: { ...profile,
     insurances: coverage.accepted.flatMap(row => [row.name, ...(row.aliases || [])]),
-    excludedInsurances: coverage.excluded, insuranceCredential: coverage.credential } };
+    excludedInsurances: coverage.excluded, insuranceReview:coverage.reviewRequired||[], insuranceCredential: coverage.credential } };
 }
 
 export function exchangeListingForEvaluation(row, client = {}) {

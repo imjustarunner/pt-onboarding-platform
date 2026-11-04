@@ -8,6 +8,7 @@ import { schoolSessionEmailDeliveryGate } from '../schoolSessionEmailPreferences
 import { routineParentEmailGate } from '../routineParentEmailPause.service.js';
 import { reviewedDayCancellationContext } from '../dayCancellationEmail.service.js';
 import { individualCancellationEmailContext } from '../appointmentCancellationEmail.service.js';
+import { schoolFamilyStatusEmailContext } from '../schoolFamilyStatusEmail.service.js';
 import { isClinicalPortalIdentity, isPortalIdentity, portalSenderName, enrollmentMailBrand, renderPortalEmail } from '../portalEmailBranding.service.js';
 import { splitEmailHistory } from '../../utils/emailReplyContent.js';
 import { isSchoolCommunication } from '../schoolCommunicationContext.service.js';
@@ -1042,6 +1043,8 @@ export async function sendEmailFromIdentity({
   const operational=await reviewedDayCancellationContext({agencyId:identity.agency_id,clientId,to,cc,bcc,templateType,
     reviewedCancellationToken,reviewedCancellationItemKey,existingCommunicationId,generatedByUserId},{verifyEnvelope:true})
     || await individualCancellationEmailContext({agencyId:identity.agency_id,clientId,to,cc,bcc,templateType,
+      existingCommunicationId,generatedByUserId},{verifyEnvelope:true})
+    || await schoolFamilyStatusEmailContext({agencyId:identity.agency_id,clientId,to,cc,bcc,templateType,
       existingCommunicationId,generatedByUserId},{verifyEnvelope:true});
   if(operational) source='manual';
   const operationalMetadata=operational?.reviewedCancellationToken?{reviewedCancellationToken:operational.reviewedCancellationToken,

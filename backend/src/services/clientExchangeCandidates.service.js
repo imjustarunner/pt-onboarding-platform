@@ -34,6 +34,6 @@ export async function evaluateExchangeCandidate({user,listing,client,facets,agen
   ]);
   return evaluateCurrentExchangeFit({context:{user,agency,profile:{...profile,
     insurances:coverage.accepted.flatMap(i=>[i.name,...(i.aliases||[])]),
-    insuranceEligibilityKnown:coverage.accepted.length>0,insuranceCredential:coverage.credential,excludedInsurances:coverage.excluded
+    insuranceEligibilityKnown:coverage.accepted.length>0,insuranceCredential:coverage.credential,excludedInsurances:coverage.excluded,insuranceReview:coverage.reviewRequired||[]
   },facets},listing,client});
 }

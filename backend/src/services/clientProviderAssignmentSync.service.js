@@ -208,7 +208,7 @@ export async function afterLegacyProviderFieldsChanged(
   if (cleared) {
     await resolveClientProviderHolds(connection,{clientId:cid,userId});
     await deactivateClientProviderAssignments(connection, { clientId: cid, userId });
-    await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentChanged: true });
+    await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentChanged: true,actorUserId:userId });
     return;
   }
 
@@ -223,7 +223,7 @@ export async function afterLegacyProviderFieldsChanged(
     serviceDay,
     isPrimary
   });
-  await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentChanged: true });
+  await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentChanged: true,actorUserId:userId });
   await queueInitialSchoolContact(connection, cid);
 }
 
@@ -237,7 +237,7 @@ export async function afterScopedProviderAssignmentChanged(connection, { clientI
   await resolveAssignedEnrollmentWaitlist(connection, cid);
   if (forceLegacy) {
     await syncPrimaryLegacyFromClientAssignments(connection, { clientId: cid, userId });
-    await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentChanged: true });
+    await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentChanged: true,actorUserId:userId });
     await queueInitialSchoolContact(connection, cid);
     return;
   }
@@ -247,7 +247,7 @@ export async function afterScopedProviderAssignmentChanged(connection, { clientI
   if (!hasLegacy) {
     await syncPrimaryLegacyFromClientAssignments(connection, { clientId: cid, userId });
   }
-  await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentChanged: true });
+  await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentChanged: true,actorUserId:userId });
   await queueInitialSchoolContact(connection, cid);
 }
 

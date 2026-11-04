@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
-import { isActiveTeamMember, listActiveTeamMembers, teamSmsEligibility } from '../conversaTeamRecipients.service.js';
+import { isActiveTeamMember, listActiveTeamMembers, teamSmsEligibility, teamMemberPhone } from '../conversaTeamRecipients.service.js';
 import { phoneFingerprint } from '../../utils/staffCommunicationChoices.js';
 import { pollDeliveryMode, pollUsesInternal, pollUsesSms } from '../../utils/teamPollDelivery.js';
 const staff = { id: 2, role: 'provider', status: 'ACTIVE_EMPLOYEE', is_active: 1, membership_active: 1, personal_phone: '+13035550101' };
@@ -48,6 +48,19 @@ describe('team recipient eligibility', () => {
     const prepare = vi.fn();
     expect(await teamSmsEligibility({ ...staff, personal_phone: null }, context, { prepare })).toMatchObject({ status: 'no_phone', eligible: false });
     expect(prepare).not.toHaveBeenCalled();
+  });
+  it('uses a valid saved alternate phone when the preferred field contains invalid legacy text', async () => {
+    const prepare = vi.fn().mockResolvedValue({});
+    const user = { ...staff, personal_phone: 'not supplied', work_phone: '+13035550109' };
+    expect(teamMemberPhone(user)).toBe(user.work_phone);
+    expect(await teamSmsEligibility(user, context, { prepare })).toMatchObject({ eligible: true });
+    expect(prepare).toHaveBeenCalledWith(expect.objectContaining({ to: user.work_phone, purpose: 'polling' }));
+  });
+  it('checks poll-specific opt-outs during preview and maps the actual event mute reason', async () => {
+    const prepare = vi.fn().mockRejectedValue(Object.assign(new Error('Muted'), { code: 'event_sms_muted' }));
+    expect(await teamSmsEligibility(staff, { ...context, eventId: 20 }, { prepare }))
+      .toMatchObject({ eligible: false, status: 'event_sms_muted', label: 'Texts for this poll turned off' });
+    expect(prepare).toHaveBeenCalledWith(expect.objectContaining({ companyEventId: 20, purpose: 'polling' }));
   });
   it.each([['internal',true,false],['sms',false,true],['both',true,true]])('respects %s delivery independently of the old checkbox', (deliveryMode, internal, sms) => {
     expect(pollUsesInternal({ deliveryMode, viaSms: !sms })).toBe(internal);

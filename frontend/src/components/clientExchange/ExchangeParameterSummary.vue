@@ -1,7 +1,9 @@
 <template>
   <section class="parameters" aria-label="Providers by matching parameter">
     <h4>Providers by matching parameter</h4>
-    <p>Related checks are combined. Missing referral details are shown as “Not specified” and do not lower a provider’s score. Select a count to see providers. Pass counts include staff waivers.</p>
+    <p>Each row counts a different parameter; passing several rows does not mean the same provider meets every requirement. Select one provider below to see their specific differences. Missing referral details are “Not specified” and do not lower the score. Pass counts include staff waivers.</p>
+    <label>Check one provider<select v-model="selectedProviderId"><option value="">Choose a provider…</option><option v-for="provider in providers" :key="provider.userId" :value="String(provider.userId)">{{provider.name}}</option></select></label>
+    <section v-if="selectedProvider" class="provider-result" aria-live="polite"><strong>{{selectedProvider.name}} · {{selectedProvider.matched?'Matched':selectedProvider.canRequest?'Can request with review':'Request blocked'}}</strong><ul v-if="providerDifferences.length"><li v-for="check in providerDifferences" :key="check.field"><strong>{{check.label||exchangeCheckLabel(check.field)}}:</strong> {{check.reason}}</li></ul><p v-else>No recorded parameter differences. Confirm an actual appointment time before assignment.</p></section>
     <label><input v-model="showEligibility" type="checkbox" /> Show account eligibility checks</label>
     <table>
       <thead><tr><th scope="col">Parameter</th><th v-for="state in states" :key="state.key" scope="col">{{ state.label }}</th></tr></thead>
@@ -24,10 +26,13 @@
 </template>
 <script setup>
 import { computed, ref } from 'vue';
-import { groupedExchangeParameters } from '../../navigation/clientExchangePolicy.js';
+import { groupedExchangeParameters, exchangeCheckLabel } from '../../navigation/clientExchangePolicy.js';
 const props = defineProps({ providers: { type: Array, default: () => [] } });
 const open = ref(null);
 const showEligibility=ref(false);
+const selectedProviderId=ref('');
+const selectedProvider=computed(()=>props.providers.find(provider=>String(provider.userId)===selectedProviderId.value));
+const providerDifferences=computed(()=>(selectedProvider.value?.checks||[]).filter(check=>check.applicable!==false&&check.status!=='pass'));
 const states = [{ key: 'pass', label: 'Pass' }, { key: 'fail', label: 'Does not meet' }, { key: 'unknown', label: 'Needs review' }, {key:'unspecified',label:'Not specified'}];
 const criteria = computed(() => {
   return groupedExchangeParameters(props.providers,showEligibility.value);
@@ -35,6 +40,7 @@ const criteria = computed(() => {
 </script>
 <style scoped>
 .parameters { margin: 18px 0; color: var(--text-primary, #263544); } h4 { margin-bottom: 6px; }
+.parameters select{display:block;margin:6px 0 12px;padding:8px;max-width:100%;font:inherit}.provider-result{padding:12px;border:1px solid #d5dfda;border-radius:8px;background:#f5faf7}.provider-result li{margin:8px 0;line-height:1.5}
 table { border-collapse: collapse; width: 100%; } th, td { padding: 8px; border-bottom: 1px solid var(--border, #ddd); text-align: left; }
 .provider-count { position: relative; display: inline-block; } button { cursor: pointer; border: 1px solid #cbd5e1; background: #f8fafc; color: #1e3a5f; border-radius: 6px; min-width: 36px; padding: 4px 8px; }
 .provider-popover { display: none; position: absolute; z-index: 5; top: 100%; right: 0; width: min(280px, 65vw); max-height: 240px; overflow: auto; padding: 12px; border: 1px solid #cbd5e1; border-radius: 6px; box-shadow: 0 4px 12px #0002; background: white; color: #263544; }

@@ -1,0 +1,14 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));
+vi.mock('../../services/providerYearUpdate.service.js',()=>({currentSchoolYear:()=> '2026-27'}));
+vi.mock('../../services/schoolStaffingWaitlists.service.js',()=>({getSchoolStaffingWaitlists:vi.fn()}));
+import pool from '../../config/database.js';
+import {getSchoolStaffingWaitlists} from '../../services/schoolStaffingWaitlists.service.js';
+import {listSchoolStaffingWaitlists} from '../schoolStaffingWaitlists.controller.js';
+const response=()=>({status:vi.fn().mockReturnThis(),json:vi.fn()});
+const request=(role='provider')=>({query:{agencyId:'2'},user:{id:40,role}});
+beforeEach(()=>{vi.clearAllMocks();pool.execute.mockResolvedValue([[{id:40}]]);getSchoolStaffingWaitlists.mockResolvedValue({schools:[{schoolId:7,waitlistCount:3,insuranceMix:[{name:'Cigna',count:3}]}]});});
+it.each(['guardian','client','school_staff','prospective'])('denies %s before reading any waitlist data',async role=>{const res=response();await listSchoolStaffingWaitlists(request(role),res,vi.fn());expect(res.status).toHaveBeenCalledWith(403);expect(pool.execute).not.toHaveBeenCalled();expect(getSchoolStaffingWaitlists).not.toHaveBeenCalled();});
+it('requires an active membership even for a provider who knows another agency ID',async()=>{pool.execute.mockResolvedValue([[]]);const res=response();await listSchoolStaffingWaitlists(request(),res,vi.fn());expect(res.status).toHaveBeenCalledWith(403);expect(getSchoolStaffingWaitlists).not.toHaveBeenCalled();});
+it('lets an active provider view only the aggregate agency service',async()=>{const res=response();await listSchoolStaffingWaitlists(request(),res,vi.fn());expect(getSchoolStaffingWaitlists).toHaveBeenCalledWith({agencyId:2,schoolYear:'2026-27'});expect(res.json).toHaveBeenCalledWith({schools:[{schoolId:7,waitlistCount:3,insuranceMix:[{name:'Cigna',count:3}]}]});});
+it('rejects malformed agency/year scope',async()=>{const req=request('admin');req.query.schoolYear='other';const res=response();await listSchoolStaffingWaitlists(req,res,vi.fn());expect(res.status).toHaveBeenCalledWith(400);expect(getSchoolStaffingWaitlists).not.toHaveBeenCalled();});

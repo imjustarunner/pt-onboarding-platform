@@ -1,4 +1,4 @@
-const ORDINALS = ['K', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th'];
+const ORDINALS = ['Pre-K', 'K', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th'];
 
 function ordinalForNum(n) {
   if (n < 1 || n > 12) return null;
@@ -7,7 +7,7 @@ function ordinalForNum(n) {
 }
 
 /**
- * Map free-text / legacy grade to K or 1st … 12th, or null if unknown.
+ * Map free-text / legacy grade to Pre-K, K or 1st … 12th.
  */
 export function normalizeGradeToStandard(raw) {
   if (raw == null) return null;
@@ -16,7 +16,7 @@ export function normalizeGradeToStandard(raw) {
 
   const tl = t.toLowerCase().replace(/\s+/g, ' ');
   if (/^(k|kindergarten|kg|kindergarden)$/.test(tl)) return 'K';
-  if (/^pre[-\s]?k$|^pk$|^prek$/.test(tl)) return 'K';
+  if (/^(pre[-\s]?(?:k|kindergarten)|pk)$/.test(tl)) return 'Pre-K';
 
   t = tl.replace(/\bgrade\b/gi, ' ').replace(/\s+/g, ' ').trim();
 
@@ -61,7 +61,7 @@ export function normalizeGradeForSave(raw) {
 }
 
 /**
- * Next grade for school-year rollover (K → 1st … 11th → 12th; 12th stays 12th).
+ * Next grade for school-year rollover (Pre-K → K → 1st … 12th).
  */
 export function bumpGradeCanonical(raw) {
   const canon = normalizeGradeToStandard(raw);

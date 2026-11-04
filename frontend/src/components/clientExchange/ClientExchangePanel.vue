@@ -83,11 +83,12 @@
         <button type="button" class="cep-tab" :class="{ active: activeTab === 'closed' }" @click="activeTab = 'closed'">
           Closed / withdrawn
         </button>
+        <button type="button" class="cep-tab" :class="{ active: activeTab === 'schools' }" :disabled="!agencyId" @click="activeTab = 'schools'">School opportunities</button>
       </div>
 
 
 
-      <div class="cep-search-wrap">
+      <div v-if="activeTab !== 'schools'" class="cep-search-wrap">
         <span class="cep-search-icon" aria-hidden="true">⌕</span>
         <input
           v-model="searchQuery"
@@ -103,7 +104,8 @@
     <div v-if="error" class="cep-banner cep-banner--warn">{{ error }}</div>
 
     <!-- Split layout -->
-    <div class="cep-layout" :class="{ 'cep-layout--split': !!selectedListing }">
+    <SchoolStaffingWaitlists v-if="activeTab === 'schools' && agencyId" :agency-id="Number(agencyId)" :allow-management="false" />
+    <div v-else class="cep-layout" :class="{ 'cep-layout--split': !!selectedListing }">
       <!-- Left: list -->
       <div class="cep-list-col">
         <!-- Open tab -->
@@ -337,6 +339,7 @@ import {exchangeRequestNeedsPlan,exchangeRequestPlanValid} from '../../navigatio
 import { exchangeStaffRole } from '../../navigation/clientExchangePolicy.js';
 import { rateLimitRetryAt } from '../../utils/rateLimitRetry.js';
 import ClientExchangeAuditPanel from './ClientExchangeAuditPanel.vue';
+import SchoolStaffingWaitlists from '../school/SchoolStaffingWaitlists.vue';
 import { computed, watch, ref, reactive } from 'vue';
 import { useRoute } from 'vue-router';
 import { useClientExchangeAgency } from '../../composables/useClientExchangeAgency';

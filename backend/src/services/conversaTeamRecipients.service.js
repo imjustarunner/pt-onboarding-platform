@@ -22,10 +22,10 @@ export async function listActiveTeamMembers(agencyId, db = pool, userId = null) 
     LEFT JOIN user_preferences p ON p.user_id = u.id WHERE ua.agency_id = ? ${userId ? 'AND u.id = ?' : ''} ORDER BY u.first_name, u.last_name`, userId ? [agencyId, userId] : [agencyId]);
   return rows.filter(isActiveTeamMember);
 }
-export const teamMemberPhone = user => normalizeSmsPhone(user.personal_phone || user.work_phone || user.phone_number);
+export const teamMemberPhone = user => [user.personal_phone, user.work_phone, user.phone_number].map(normalizeSmsPhone).find(Boolean) || null;
 
 // This is a read-only preview of the same policy enforced again by the SMS transport.
-export async function teamSmsEligibility(user, { agencyId, from, purpose = 'polling' }, dependencies = {}) {
+export async function teamSmsEligibility(user, { agencyId, from, purpose = 'polling', eventId = null }, dependencies = {}) {
   const prepare = dependencies.prepare || prepareSmsDelivery;
   const db = dependencies.db || pool;
   const senderLookup = dependencies.getSender || getSmsSender;
@@ -38,7 +38,8 @@ export async function teamSmsEligibility(user, { agencyId, from, purpose = 'poll
   if (preferences && preferences.phoneHash !== phoneFingerprint(phone)) return blocked('sms_consent_required', 'SMS consent needed for current number');
   if (!from) return blocked('sender_not_configured', 'SMS sender not configured');
   try {
-    await prepare({ to: phone, from, body: 'Team communication eligibility check', purpose, agencyId });
+    await prepare({ to: phone, from, body: 'Team communication eligibility check', purpose, agencyId,
+      ...(eventId ? { companyEventId: Number(eventId) } : {}) });
     return { eligible: true, status: 'opted_in', label: purpose === 'polling' ? 'Polling SMS opted in' : 'Team SMS opted in' };
   } catch (error) {
     if (error.code === 'sms_consent_required') {
@@ -46,8 +47,8 @@ export async function teamSmsEligibility(user, { agencyId, from, purpose = 'poll
       const [rows] = await db.execute("SELECT status FROM sms_recipient_permissions WHERE scope_key = ? AND phone = ? AND purpose = ? LIMIT 1", [sender.scope, phone, purpose]);
       if (rows[0]?.status === 'opted_out') return blocked('sms_opted_out', 'SMS opted out');
     }
-    const labels = { sms_opted_out: 'SMS opted out', sms_staff_choice_off: 'SMS category not enabled', sms_consent_required: 'SMS consent needed', sms_consent_review_required: 'SMS enrollment review needed', sms_campaign_not_ready: 'SMS sender not ready', sms_campaign_purpose_mismatch: 'SMS sender not enabled for this purpose', sms_unknown_sender: 'SMS sender not configured' };
-    if (!error.code?.startsWith('sms_')) throw error;
+    const labels = { sms_opted_out: 'SMS opted out', sms_staff_choice_off: 'SMS category not enabled', sms_consent_required: 'SMS consent needed', sms_consent_review_required: 'SMS enrollment review needed', sms_campaign_not_ready: 'SMS sender not ready', sms_campaign_purpose_mismatch: 'SMS sender not enabled for this purpose', sms_unknown_sender: 'SMS sender not configured', event_sms_muted: 'Texts for this poll turned off' };
+    if (!error.code?.startsWith('sms_') && error.code !== 'event_sms_muted') throw error;
     return blocked(error.code, labels[error.code] || 'SMS unavailable');
   }
 }

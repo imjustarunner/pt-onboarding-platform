@@ -79,6 +79,7 @@
     </div>
 
     <div v-if="error" class="phr-error">{{ error }}</div>
+    <p v-if="actionMsg && !selectedId" class="phr-action-msg" role="status">{{ actionMsg }}</p>
 
     <!-- No detail selected: full table view -->
     <div v-if="!selectedId" class="phr-table-section">
@@ -175,6 +176,7 @@
               </td>
               <td class="phr-td" @click.stop>
                 <div class="phr-row-actions"><router-link :to="packagesRoute(c.id)" class="phr-btn phr-btn-secondary phr-btn-sm">Manage hire packages</router-link>
+                  <button v-if="['PENDING_SETUP','PREHIRE_OPEN'].includes(c.status)" class="phr-promote-btn" :disabled="markingPrehireComplete || c.progress_pct < 100" @click.stop="markPrehireComplete(c)" :title="c.progress_pct < 100 ? 'Complete all required pre-hire items, including the work username, first.' : 'Mark completed requirements ready for People Operations review'">Mark pre-hire complete</button>
                   <button
                     v-if="c.status === 'PREHIRE_REVIEW'"
                     class="phr-promote-btn"
@@ -299,7 +301,10 @@
         </div>
         <div v-else-if="selectedUser.status === 'PREHIRE_OPEN'" class="phr-stage-banner phr-stage-info">
           <strong>Pre-hire in progress</strong>
-          <p>The candidate is completing their pre-hire documents and checklist items.</p>
+          <p>The candidate completes their documents, required items and work username in pre-hire. Password setup remains in onboarding.</p>
+          <button class="phr-btn phr-btn-primary phr-btn-sm" :disabled="markingPrehireComplete || selectedUser.progress_pct < 100" @click="markPrehireComplete(selectedUser)">{{ markingPrehireComplete ? 'Checking required items…' : 'Mark pre-hire complete' }}</button>
+          <p v-if="selectedUser.progress_pct < 100">Finish the remaining required items in the candidate’s personal portal before marking this phase complete.</p>
+          <p v-if="actionMsg" class="phr-action-msg" role="status">{{ actionMsg }}</p>
         </div>
         <div v-else-if="selectedUser.status === 'PREHIRE_REVIEW'" class="phr-stage-banner phr-stage-primary">
           <strong>Ready for review</strong>
@@ -668,6 +673,7 @@ const msgText = ref('');
 const msgSending = ref(false);
 const showPromoteModal = ref(false);
 const promoteCandidate = ref(null);
+const markingPrehireComplete = ref(false);
 const showAssignDoc = ref(false);
 const assignDocTemplates = ref([]);
 const assignDocTemplateId = ref('');
@@ -925,6 +931,17 @@ const saveNote = async () => {
 };
 
 // ── Actions ───────────────────────────────────────────────────────────────────
+const markPrehireComplete = async c => {
+  if(!c?.id || markingPrehireComplete.value)return;
+  markingPrehireComplete.value=true;actionMsg.value='';
+  try {
+    const params=selectedAgencyId.value?{agencyId:selectedAgencyId.value}:{};
+    await api.post(`/hiring/candidates/${c.id}/complete-prehire`,{}, {params});
+    await load();
+    actionMsg.value='Pre-hire is complete and ready for review. Use Move to Onboarding to review and start the next phase.';
+  } catch(error) {actionMsg.value=error.response?.data?.error?.message || 'Could not complete pre-hire. Review the remaining required items.';}
+  finally {markingPrehireComplete.value=false;}
+};
 const resendLink = async (c) => {
   actionLoading.value = true;
   actionMsg.value = '';
