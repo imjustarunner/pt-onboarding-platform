@@ -5,7 +5,7 @@ import { ensureSendAsAlias } from './gmailSendAs.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { enrollmentMailBrand, renderPortalEmail, escapePortalHtml } from './portalEmailBranding.service.js';
 
-export const CLINICAL_REMINDER_ADDRESS = 'notifications@auricwell.com';
+export const CLINICAL_REMINDER_ADDRESS = 'reminders@auricwell.com';
 export function clinicalReminderBrand({ agency, domain }) {
   const brand = enrollmentMailBrand({ agency, domain });
   if (!brand.clinical) throw new Error('AuricWell reminders are only available to agencies using the clinical chart.');

@@ -18,11 +18,11 @@ beforeEach(()=>{
  m.ctx.mockResolvedValue(ctx);m.get.mockImplementation(async(_ctx,kind)=>kind==='patient'?patient:appointment);m.list.mockResolvedValue([]);m.context.mockResolvedValue({tenant:{name:'ITSCO'},brand:{clinical:true}});m.send.mockResolvedValue({id:'sent'});
 });
 it('uses the verified AuricWell address for native practices without an agency and rejects an unrelated sender',async()=>{
- ctx.agencyId=null;vi.stubEnv('AURICWELL_ACCOUNT_EMAIL_FROM','notifications@unrelated.example');
+ ctx.agencyId=null;vi.stubEnv('AURICWELL_APPOINTMENT_EMAIL_FROM','notifications@unrelated.example');
  await expect(sendNativeAppointmentEmail(ctx,patient.data.email,'Appointment',appointment)).rejects.toThrow('Configure');expect(m.direct).not.toHaveBeenCalled();
- vi.stubEnv('AURICWELL_ACCOUNT_EMAIL_FROM','notifications@auricwell.com');
+ vi.stubEnv('AURICWELL_APPOINTMENT_EMAIL_FROM','reminders@auricwell.com');
  await sendNativeAppointmentEmail(ctx,patient.data.email,'Appointment',appointment);
- expect(m.direct).toHaveBeenCalledWith(expect.objectContaining({fromAddress:'notifications@auricwell.com',fromName:'AuricWell Notifications'}));expect(m.send).not.toHaveBeenCalled();
+ expect(m.direct).toHaveBeenCalledWith(expect.objectContaining({fromAddress:'reminders@auricwell.com',fromName:'AuricWell Notifications'}));expect(m.send).not.toHaveBeenCalled();
 });
 it('stops native school email only and keeps office reminders available',async()=>{
  appointment.data.serviceSetting='school';

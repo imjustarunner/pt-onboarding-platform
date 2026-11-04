@@ -8,7 +8,7 @@ import { clinicalReminderBrand, renderClinicalReminder } from '../clinicalRemind
 it('requires clinical chart access and does not brand tutoring as EHR reminders',()=>{
  expect(()=>clinicalReminderBrand({agency:{name:'Tutoring',feature_flags:{}},domain:'example.test'})).toThrow('clinical chart');
  const brand=clinicalReminderBrand({agency:{name:'ITSCO',slug:'itsco',feature_flags:{medicalBillingEnabled:true}},domain:'itsco.health'});
- expect(brand.fromEmail).toBe('notifications@auricwell.com');
+ expect(brand.fromEmail).toBe('reminders@auricwell.com');
  expect(brand.displayName).toBe('AuricWell Notifications');
  const html=renderClinicalReminder({brand,firstName:'Michael',date:'Monday, October 26',time:'2 PM',setting:'Virtual',confirmUrl:'https://example.test/confirm',cancelUrl:'https://example.test/cancel',rescheduleUrl:'https://example.test/change',preview:true});
  expect(html).toContain('Yes, I’m attending');expect(html).toContain('I can’t attend');expect(html).toContain('Request a new time');
