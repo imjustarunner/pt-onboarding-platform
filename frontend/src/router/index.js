@@ -1,5 +1,5 @@
 import { familyBillingRoutes } from './familyBillingRoutes.js';
-import { consumeSsoHandoff, isTokenAuthenticationRoute } from '../utils/loginHandoff';
+import { consumeSsoHandoff, isTokenAuthenticationRoute, auricwellLoginDestination } from '../utils/loginHandoff';
 import { isFundthredHost, fundthredLoginLocation, isFundthredLogin, isFundthredWorkspacePath } from '../utils/fundthred';
 import { isPlotlineHost } from '../utils/plotline';
 import { isSchoolCareBridgePath, schoolCareBridgePath, schoolCareBridgeWorkflowPath } from '../utils/schoolCareBridge.js';
@@ -5116,6 +5116,8 @@ function isFreshLoginWindow(now = Date.now()) {
 }
 
 router.beforeEach(async (to, from, next) => {
+  const auricwellDestination = auricwellLoginDestination(to.fullPath);
+  if (auricwellDestination) { window.location.assign(auricwellDestination); next(false); return; }
   const officeEntry = officeKioskEntryRedirect(window.location.hostname, to.path);
   if (officeEntry) {
     next({ path: officeEntry, replace: true });
@@ -6195,6 +6197,8 @@ router.beforeEach(async (to, from, next) => {
       next({ path: getDashboardRoute(), replace: true });
     }
   } else if (to.meta.requiresGuest && authStore.isAuthenticated && !isTokenAuthenticationRoute(to)) {
+    const returnTo = auricwellLoginDestination(to.query.redirect);
+    if (returnTo) { window.location.assign(returnTo); next(false); return; }
     if (isFundthredLogin(to)) { next({ path: '/fundthred/app', replace: true }); return; }
     if (isPlotlineHost(window.location.hostname) && to.name === 'Login') { next({ path: '/plotline/app', replace: true }); return; }
     if (window.location.hostname === 'auricwell.com' && to.name === 'Login') { window.location.assign('/app'); next(false); return; }

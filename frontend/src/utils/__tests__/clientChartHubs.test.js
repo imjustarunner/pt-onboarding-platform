@@ -132,3 +132,10 @@ describe('clientChartHubs Record Center', () => {
     expect(panelVisible('account', 'account', 'profile')).toBe(true);
   });
 });
+
+ it('keeps the shared Portal overview as its own profile tab',()=>{
+  expect(resolveChartTab('portal')).toEqual({hub:'portal',sub:null});
+  expect(chartNavTarget('portal')).toEqual({activeTab:'portal',hubSub:''});
+  expect(panelVisible('portal','portal','')).toBe(true);
+  expect(panelVisible('guardians','portal','')).toBe(false);
+ });

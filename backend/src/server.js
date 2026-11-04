@@ -15,6 +15,7 @@ import officeKioskAccessRoutes from './routes/officeKioskAccess.routes.js';
 import officeArrivalPublicRoutes from './routes/officeArrivalPublic.routes.js';
 import auricwellRecordsRoutes from './routes/auricwellRecords.routes.js';
 import auricwellPreviewRoutes from './routes/auricwellPreview.routes.js';
+import portalAdminRoutes from './routes/portalAdmin.routes.js';
 import { auricwellPreviewBoundary } from './middleware/auricwellPreview.middleware.js';
 import { protectTaxIdResponses } from './utils/privateTaxId.js';
 import meetingCalendarRoutes from './routes/meetingCalendar.routes.js';
@@ -468,6 +469,7 @@ app.use('/api', (req, res, next) => {
 });
 
 app.use('/api/auricwell-preview', auricwellPreviewRoutes);
+app.use('/api/portal-admin', portalAdminRoutes);
 app.use('/api/auricwell-records', auricwellRecordsRoutes);
 
 // Temporary diagnostics: logs high-signal details for unexpected 403s on key endpoints.

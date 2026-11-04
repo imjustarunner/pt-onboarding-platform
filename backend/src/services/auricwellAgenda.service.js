@@ -27,7 +27,9 @@ export function filterAgenda(items, input) {
   const field = {date:'date',client:'clientName',provider:'providerName',status:'status'}[sort];
   const direction = input.order==='desc' ? -1 : 1;
   filtered.sort((a,b) => direction*(String(a[field] || '').localeCompare(String(b[field] || '')) || String(a.startAt || `${a.date}T99`).localeCompare(String(b.startAt || `${b.date}T99`)) || a.key.localeCompare(b.key)));
-  const page = Math.max(1, Math.min(10000, Number.parseInt(input.page,10)||1)), pageSize=50;
+  const calendar=['day','week'].includes(input.view);
+  if(calendar && filtered.length>10000)throw previewError(400,'Choose one provider or a shorter calendar range.');
+  const page = calendar?1:Math.max(1, Math.min(10000, Number.parseInt(input.page,10)||1)), pageSize=calendar?10000:50;
   return {items:filtered.slice((page-1)*pageSize,page*pageSize),total:filtered.length,page,pageSize};
 }
 

@@ -1,5 +1,6 @@
 import { withToastLoginSession } from '../utils/toastLoginSession.js';
 import express from 'express';
+import auricwellPortalRoutes from './auricwellPortal.routes.js';
 import pool from '../config/database.js';
 import { auricwellAgenda } from '../services/auricwellAgenda.service.js';
 import Agency from '../models/Agency.model.js';
@@ -10,6 +11,7 @@ import { logAuditEvent } from '../services/auditEvent.service.js';
 import { listToasts, saveToast, deleteToast } from '../services/toastAnnouncements.service.js';
 const router = express.Router();
 router.use(authenticate, requireActiveStatus, requirePreviewAdmin);
+router.use('/portal',auricwellPortalRoutes);
 const practice = a => ({ id: a.id, name: a.name, slug: a.slug, organization_type: a.organization_type, feature_flags: a.feature_flags });
 router.get('/', async (req, res, next) => {
   try {

@@ -17,8 +17,9 @@ const router = createRouter({ history: createWebHistory(auricwellAppBase()), rou
 api.defaults.baseURL = '/api';
 api.interceptors.request.use(config => {
   const id = window.__auricwellPracticeId;
-  if (!id) throw new Error('Select a practice before opening its records.');
-  config.headers['X-AuricWell-Practice'] = String(id);
+  const sessionRequest = /^\/auth\/(?:session-lock-config|session-activity)$/.test(config.url);
+  if (!id && !sessionRequest) throw new Error('Select a practice before opening its records.');
+  if (!sessionRequest) config.headers['X-AuricWell-Practice'] = String(id);
   config.cookieAuthOnly = true;
   config.skipAuthRedirect = true;
   config.skipGlobalLoading = true;
@@ -33,7 +34,7 @@ api.interceptors.request.use(config => {
   return config;
 });
 api.interceptors.response.use(r => r, error => {
-  if ([401, 423].includes(error.response?.status)) window.dispatchEvent(new Event('auricwell-session-ended'));
+  if ([401, 423].includes(error.response?.status)) window.dispatchEvent(new CustomEvent('auricwell-session-ended',{detail:{status:error.response.status}}));
   return Promise.reject(error);
 });
 const app = createApp(App).use(createPinia()).use(router).use(i18n);

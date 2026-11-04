@@ -6,6 +6,7 @@
 export const CHART_HUBS = Object.freeze({
   overview: 'overview',
   account: 'account',
+  portal: 'portal',
   lifecycle: 'lifecycle',
   records: 'records',
   messages: 'messages'
@@ -15,6 +16,7 @@ export const CHART_HUBS = Object.freeze({
 export const LEGACY_TAB_ALIASES = Object.freeze({
   overview: { hub: 'overview', sub: null },
   account: { hub: 'account', sub: 'profile' },
+  portal: { hub: 'portal', sub: null },
   demographics: { hub: 'account', sub: 'demographics' },
   guardians: { hub: 'account', sub: 'guardians' },
   assignments: { hub: 'account', sub: 'assignments' },
@@ -191,6 +193,7 @@ export function chartNavTarget(hubId, subId = '') {
     if (sub === 'skill-builders') return { activeTab: 'skill-builders', hubSub: 'skill-builders' };
     return { activeTab: 'overview', hubSub: sub === 'home' ? 'home' : '' };
   }
+  if (hub === 'portal') return {activeTab:'portal',hubSub:''};
   if (hub === 'account') {
     if (sub === 'demographics') return { activeTab: 'demographics', hubSub: 'demographics' };
     if (sub === 'guardians') return { activeTab: 'guardians', hubSub: 'guardians' };

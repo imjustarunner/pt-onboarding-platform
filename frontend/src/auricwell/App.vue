@@ -3,6 +3,7 @@
     <header v-if="!context" class="aw-header"><a class="aw-brand" :href="websiteBase" aria-label="AuricWell website"><img :src="AURICWELL_MARK_URL" alt="" width="48" height="48"><span>AuricWell</span></a><div v-if="context"><strong>{{ context.practice.name }}</strong><small>Practice workspace</small></div><a class="aw-exit" :href="demoContext ? websiteBase : '/admin'">{{ demoContext ? 'AuricWell website ↗' : 'Return to full suite ↗' }}</a></header>
     <WorkspaceNavigation v-if="actor && !context" :actor="actor" interface-name="auricwell" :demo="!!demoContext" />
     <main v-if="isLogin" class="aw-welcome aw-login"><p class="aw-eyebrow">AURICWELL · PRACTICE ACCESS</p><h1>A clear place for your clinical work.</h1><p>Sign in with the account assigned to your practice workspace.</p><a class="aw-button" :href="loginUrl">Continue to secure sign-in →</a><p>Your account's practice access and permissions apply.</p><a :href="websiteBase">← Back to the AuricWell website</a></main>
+    <SessionRecovery v-else-if="locked" :login-url="loginUrl" @resumed="locked=false;load()" />
     <main v-else-if="error" class="aw-welcome"><h1>Practice access</h1><p role="alert">{{ error }}</p><a class="aw-button" :href="loginUrl">Sign in or unlock your account</a><p>Use your own practice account, then return here.</p></main>
     <main v-else-if="loading" class="aw-welcome" role="status">Opening AuricWell…</main>
     <main v-else-if="!context" class="aw-welcome"><p class="aw-eyebrow">AURICWELL · PRACTICE ACCESS</p><h1>Your care workspace.</h1><p>Choose a practice available to your account.</p><p v-if="actor">Signed in as <strong>{{ actorName }}</strong></p><div class="aw-practices"><a v-for="p in practices" :key="p.id" :href="`${appBase}/${p.slug === 'tisi' ? 'innerstrength' : p.slug}`"><strong>{{ p.name }}</strong><span>Open practice →</span></a></div></main>
@@ -26,6 +27,7 @@
         </section>
         <section v-else-if="section === 'documentation'"><p class="aw-caption">{{ demoContext ? 'Note Workspace · Open a fictional draft or explore a new note. Editing stays on this screen; saving, AI generation, signing and recording are unavailable in the demo.' : 'Note Workspace · Draft changes update the existing agency records. Signing and audio uploads are not enabled in this preview.' }}</p><ClinicalNoteGeneratorView :key="context.practice.id" /></section>
         <section v-else-if="section === 'billing'"><p class="aw-caption">{{ demoContext ? 'Fictional billing examples · Review the queue and claim details. No clearinghouse, payment or financial changes are connected.' : 'Shared billing records · Financial changes and live transmission remain in the full-suite billing workspace during preview.' }}</p><BillingWorkspaceView :key="context.practice.id" /></section>
+        <Portal v-else-if="section==='portal'" :key="context.practice.id" :agency="context.practice" :actor="actor" :slug="slug" />
         <Chart v-else-if="section === 'clients' && /^\d+$/.test(String(route.query.clientId || ''))" :key="`${context.practice.id}:${route.query.clientId}`" :client-id="String(route.query.clientId)" :agency="context.practice" :slug="slug" />
         <slot v-else-if="section === 'appointments' && $slots.appointments" name="appointments" />
         <Records v-else-if="['clients','providers','appointments'].includes(section)" :key="`${context.practice.id}:${section}`" :section="section" :agency="context.practice" :slug="slug" />
@@ -43,6 +45,8 @@ import { useRoute } from 'vue-router';
 import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
 import Records from './Records.vue';
+import Portal from './Portal.vue';
+import SessionRecovery from './SessionRecovery.vue';
 import WorkspaceShell from './WorkspaceShell.vue';
 import WorkspaceNavigation from '../components/WorkspaceNavigation.vue';
 import Overview from './Overview.vue';
@@ -57,15 +61,16 @@ const appBase = auricwellAppBase(), websiteBase = auricwellWebsiteBase();
 const ClinicalNoteGeneratorView = defineAsyncComponent(() => import('../views/admin/ClinicalNoteGeneratorView.vue'));
 const BillingWorkspaceView = defineAsyncComponent(() => import('../views/admin/BillingWorkspaceView.vue'));
 const route = useRoute(), agencyStore = useAgencyStore(), authStore = useAuthStore();
+const locked=ref(false);
 const context = ref(null), actor = ref(null), practices = ref([]), loading = ref(true), error = ref('');
 const slug = computed(() => String(route.params.organizationSlug || ''));
-const section = computed(() => String(route.params.section || 'overview'));
+const section = computed(() => route.params.section === 'my-schedule' ? 'appointments' : String(route.params.section || 'overview'));
 const actorName = computed(() => [actor.value?.first_name, actor.value?.last_name].filter(Boolean).join(' ') || actor.value?.email || 'Your account');
 const isLogin = computed(() => route.name === 'login');
-const loginUrl = computed(() => `${slug.value===QA_SLUG?`/${QA_SLUG}`:''}/login?redirect=${encodeURIComponent(isLogin.value ? appBase : window.location.pathname + window.location.search)}`);
+const loginUrl = computed(() => `${slug.value===QA_SLUG?`/${QA_SLUG}`:''}/login?redirect=${encodeURIComponent(isLogin.value ? appBase : window.location.pathname + window.location.search + window.location.hash)}`);
 const canDocument=computed(()=>!context.value?.qaWorkspace||qaSections(actor.value?.role).includes('documentation'));
 const qaSectionAllowed = computed(()=>qaSections(actor.value?.role).includes(section.value));
-const navigation = computed(() => [{key:'overview',label:'Overview',icon:'dashboard'},{key:'appointments',label:'My Schedule',icon:'sessions'},{key:'clients',label:'Clients',icon:'people'},{key:'documentation',label:'Notes & Documentation',icon:'documents'},{key:'billing',label:'Billing',icon:'billing'},{key:'providers',label:'Providers',icon:'providers'},{key:'reports',label:'Reports',icon:'plan'}, ...(props.demoContext ? [{key:'tasks',label:'Tasks & To-do',icon:'tasks'}] : []), ...(!props.demoContext ? [{key:'settings',label:'Settings',icon:'settings'}] : []), ...(!props.demoContext ? [{key:'announcements',label:'Announcements',icon:'notifications'}] : [])].filter(item=>!context.value?.qaWorkspace||qaSections(actor.value?.role).includes(item.key)));
+const navigation = computed(() => [{key:'overview',label:'Overview',icon:'dashboard'},{key:'appointments',label:'My Schedule',icon:'sessions'},{key:'clients',label:'Clients',icon:'people'},...(!props.demoContext?[{key:'portal',label:'Portal',icon:'documents'}]:[]),{key:'documentation',label:'Notes & Documentation',icon:'documents'},{key:'billing',label:'Billing',icon:'billing'},{key:'providers',label:'Providers',icon:'providers'},{key:'reports',label:'Reports',icon:'plan'}, ...(props.demoContext ? [{key:'tasks',label:'Tasks & To-do',icon:'tasks'}] : []), ...(!props.demoContext ? [{key:'settings',label:'Settings',icon:'settings'}] : []), ...(!props.demoContext ? [{key:'announcements',label:'Announcements',icon:'notifications'}] : [])].filter(item=>!context.value?.qaWorkspace||qaSections(actor.value?.role).includes(item.key)));
 const notificationItems=ref([]),unread=ref(null),notificationsLoading=ref(false),notificationsError=ref('');
 let notificationRequestId=0;
 async function loadNotifications(){
@@ -91,6 +96,7 @@ async function load() {
     } else {
     const response = await fetch(`/api/auricwell-preview${slug.value ? `/context?slug=${encodeURIComponent(slug.value)}` : ''}`, { credentials:'same-origin', cache:'no-store' });
     result = await response.json();
+    if(response.status===423){locked.value=true;throw new Error('Your session is locked.');}
     if (!response.ok) throw new Error(result.error?.message || 'Sign in with your practice account.');
     }
     if (id !== requestId) return;
@@ -107,7 +113,7 @@ async function load() {
   } catch (e) { if (id === requestId) error.value = e.message; }
   finally { if (id === requestId) loading.value = false; }
 }
-function endSession() { ++requestId; ++notificationRequestId; notificationItems.value=[]; unread.value=null; context.value = null; practices.value = []; error.value = 'Your session ended or is locked. Sign in or unlock before continuing.'; delete window.__auricwellPracticeId; }
+function endSession(event) { locked.value=event?.detail?.status===423; ++requestId; ++notificationRequestId; notificationItems.value=[]; unread.value=null; context.value = null; practices.value = []; error.value = 'Your session ended or is locked. Sign in or unlock before continuing.'; delete window.__auricwellPracticeId; }
 window.addEventListener('auricwell-session-ended', endSession);
 onBeforeUnmount(() => { ++requestId; ++notificationRequestId; window.removeEventListener('auricwell-session-ended', endSession); });
 watch(slug, (current, previous) => { if (!props.demoContext && previous && current !== previous) window.location.assign(`${appBase}/${encodeURIComponent(current)}`); else load(); }, { immediate:true });

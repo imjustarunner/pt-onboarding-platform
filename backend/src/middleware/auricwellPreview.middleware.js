@@ -32,6 +32,12 @@ export async function checkPreviewBody(req) {
   const agencyId = req.auricwellPreview?.agencyId;
   if (!agencyId) return;
   constrainPreviewInput(req.body, agencyId);
+  if (/^\/clients\/merge(?:\/preview)?\/?$/.test(req.path)) {
+    if (!['super_admin','admin','support'].includes(req.user?.role)) throw previewError(403,'Duplicate review requires administrative access.');
+    const sources = req.body?.sourceIds;
+    if (!Array.isArray(sources) || !sources.length || sources.length > 50) throw previewError(400,'Choose the records to merge.');
+    for (const id of [req.body.keepId,...sources,...Object.values(req.body.fieldChoices || {})]) await assertPreviewRecord(pool,'clients',id,agencyId);
+  }
   const keys = {
     clientId: [pool, 'clients'], client_id: [pool, 'clients'],
     clinicalSessionId: [clinicalPool, 'clinical_sessions'], clinical_session_id: [clinicalPool, 'clinical_sessions'],

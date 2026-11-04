@@ -3,6 +3,8 @@ import baseApi from '../services/api';
 // Each mounted client panel captures its selected agency/service. Family-wide
 // panels continue to use the ordinary API and aggregate authorized profiles.
 export function usePortalCareApi(){
+ const preview=inject('portalReadApi',null);
+ if(preview)return preview;
  const context=inject('portalCareContext',null);
  if(!context)return baseApi;
  const config=(url,options={})=>{
