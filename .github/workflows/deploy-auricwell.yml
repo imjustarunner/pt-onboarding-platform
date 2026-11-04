@@ -30,6 +30,12 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
+      - name: Identify this deployment candidate
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ && "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]]
+          echo "CANDIDATE_TAG=verify-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+          echo "CANDIDATE_SUFFIX=g${GITHUB_RUN_ID}a${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
       - name: Resolve existing backend
         run: |
           set -euo pipefail
@@ -42,7 +48,11 @@ jobs:
           gcloud auth configure-docker us-west3-docker.pkg.dev --quiet
           docker build -f auricwell/Dockerfile -t "$IMAGE_NAME:$GITHUB_SHA" .
           docker push "$IMAGE_NAME:$GITHUB_SHA"
-      - name: Deploy standalone service
+          digest=$(gcloud artifacts docker images describe "$IMAGE_NAME:$GITHUB_SHA" \
+            --project "$PROJECT_ID" --format='value(image_summary.digest)')
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          echo "CANDIDATE_IMAGE=$IMAGE_NAME@$digest" >> "$GITHUB_ENV"
+      - name: Deploy standalone candidate without moving traffic
         env:
           CLOUD_RUN_SA_EMAIL: ${{ secrets.CLOUD_RUN_SA_EMAIL }}
         run: |
@@ -50,18 +60,54 @@ jobs:
           test -n "$CLOUD_RUN_SA_EMAIL"
           gcloud run deploy "$SERVICE_NAME" \
             --project "$PROJECT_ID" --region "$REGION" --platform managed \
-            --image "$IMAGE_NAME:$GITHUB_SHA" \
+            --image "$CANDIDATE_IMAGE" \
+            --no-traffic --tag="$CANDIDATE_TAG" --revision-suffix="$CANDIDATE_SUFFIX" \
             --service-account "$CLOUD_RUN_SA_EMAIL" \
             --no-invoker-iam-check --port 8080 \
             --update-env-vars "NODE_ENV=production,AURICWELL_API_UPSTREAM=$AURICWELL_API_UPSTREAM" \
             --memory 256Mi --cpu 1 --min-instances 0 --max-instances 3 \
             --timeout 90
+      - name: Verify candidate and promote its exact revision
+        run: |
+          set -euo pipefail
+          revision="${SERVICE_NAME}-${CANDIDATE_SUFFIX}"
+          candidate_url=$(gcloud run services describe "$SERVICE_NAME" --project "$PROJECT_ID" --region "$REGION" --format=json \
+            | jq -er --arg tag "$CANDIDATE_TAG" --arg revision "$revision" \
+              '[.status.traffic[]? | select(.tag == $tag and .revisionName == $revision)]
+               | select(length == 1) | .[0].url | select(type == "string" and startswith("https://"))')
+          gcloud run revisions describe "$revision" --project "$PROJECT_ID" --region "$REGION" --format=json \
+            | jq -e --arg revision "$revision" --arg image "$CANDIDATE_IMAGE" \
+              '.metadata.name == $revision and .status.imageDigest == $image
+               and any(.status.conditions[]?; .type == "Ready" and .status == "True")' >/dev/null
+          # Probe the verified tag, never the service URL still serving the previous revision.
+          curl --fail --silent --show-error --retry 5 --retry-all-errors --max-time 30 "$candidate_url/app" --output /dev/null
+          gcloud run services update-traffic "$SERVICE_NAME" --project "$PROJECT_ID" --region "$REGION" \
+            --to-revisions="${revision}=100"
+          gcloud run services describe "$SERVICE_NAME" --project "$PROJECT_ID" --region "$REGION" --format=json \
+            | jq -e --arg revision "$revision" \
+              '([.status.traffic[]? | select((.percent // 0) > 0)] | length > 0)
+               and all(.status.traffic[]?; (.percent // 0) == 0 or .revisionName == $revision)
+               and ([.status.traffic[]? | .percent // 0] | add) == 100' >/dev/null
           url=$(gcloud run services describe "$SERVICE_NAME" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')
+          test -n "$url"
           curl --fail --silent --show-error --retry 5 --retry-all-errors --max-time 30 "$url/app" --output /dev/null
           {
             echo "Standalone AuricWell: $url"
+            echo "Verified revision: $revision"
+            echo "Verified image: $CANDIDATE_IMAGE"
             echo "Platform settings: $url/platform/settings"
             echo "Notifyre webhook: $url/api/auricwell-sms/webhook"
             echo "Next: add this origin to AURICWELL_ORIGINS on onboarding-backend."
             echo "This workflow does not change DNS, enable SMS, or port numbers."
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove only this run's temporary candidate URL
+        if: always() && env.CANDIDATE_TAG != ''
+        run: |
+          set -euo pipefail
+          revision="${SERVICE_NAME}-${CANDIDATE_SUFFIX}"
+          routes=$(gcloud run services describe "$SERVICE_NAME" --project "$PROJECT_ID" --region "$REGION" --format=json)
+          if jq -e --arg tag "$CANDIDATE_TAG" --arg revision "$revision" \
+            'any(.status.traffic[]?; .tag == $tag and .revisionName == $revision)' <<< "$routes" >/dev/null; then
+            gcloud run services update-traffic "$SERVICE_NAME" --project "$PROJECT_ID" --region "$REGION" \
+              --remove-tags="$CANDIDATE_TAG"
+          fi
