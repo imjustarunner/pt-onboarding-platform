@@ -91,6 +91,8 @@ try {
   assert(await checkIn.isDisabled(),'Check-in requires respondent selection');
   await kiosk.getByLabel('I’m answering for my dependent',{exact:true}).check();
   await checkIn.click();
+  assert.equal(await kiosk.locator('.kiosk-feedback-example .question').count(),3);
+  await kiosk.getByRole('button',{name:'Skip questionnaires & finish',exact:true}).click();
   assert.match(await kiosk.locator('.demo-local').innerText(), /No appointment was changed and no notification was sent/);
   assert.match(await kiosk.locator('.app-alert').innerText(), /Guardian report/);
   await kiosk.getByRole('button',{name:'Got it · I’ll meet them'}).click();

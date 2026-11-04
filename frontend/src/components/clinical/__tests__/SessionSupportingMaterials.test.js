@@ -110,3 +110,10 @@ describe('session supporting materials', () => {
     expect(w.text()).not.toContain('Portal access removed'); expect(w.text()).not.toContain('First Parent'); w.unmount();
   });
 });
+
+it('uses an explicitly supplied local transport without touching the authenticated API', async()=>{
+  vi.clearAllMocks();const local={get:vi.fn(async()=>({data:[]})),post:vi.fn(),put:vi.fn()};
+  const w=mount(SessionSupportingMaterials,{props:{clinicalSessionId:990701,transport:local}});
+  await open(w);expect(local.get).toHaveBeenCalledWith('/clinical-data/sessions/990701/materials');
+  expect(api.get).not.toHaveBeenCalled();expect(api.post).not.toHaveBeenCalled();w.unmount();
+});

@@ -22,13 +22,13 @@ const icon = name => `<img src="/assets/conversa/icons/message-types/${name}.svg
 export function conversaFeature({ product = 'ptco', ctaHref = CONVERSA_PRODUCT_URL, ctaLabel = '', heading = 'h2', id = 'conversa-features' } = {}) {
   const context = contexts[product] || contexts.ptco;
   const headingTag = heading === 'h1' ? 'h1' : 'h2';
-  return `<section class="conversa-feature" id="${esc(id)}" aria-labelledby="${esc(id)}-title">
+  return `<section class="conversa-feature${product === 'auricwell' ? ' conversa-feature--interactive' : ''}" id="${esc(id)}" aria-labelledby="${esc(id)}-title">
     <div class="conversa-feature__intro"><div>
       <img class="conversa-feature__logo" src="${CONVERSA_LOGO_URL}" width="680" height="176" alt="Conversa by Plot Twist Co." loading="lazy">
       <p class="conversa-feature__eyebrow">${context.eyebrow}</p>
       <${headingTag} id="${esc(id)}-title">Every conversation,<br>clearly connected.</${headingTag}><p class="conversa-feature__lead">${context.intro}</p>
       <a class="conversa-feature__cta" href="${esc(ctaHref)}">${esc(ctaLabel || context.cta)} <span aria-hidden="true">→</span></a>
-    </div><figure><img src="${CONVERSA_PREVIEW_URL}" width="1440" height="900" alt="Illustration of conversations organized by sender and channel, with a distinct secure-message reading area." loading="lazy"><figcaption>Conversa interface illustration · Example conversations</figcaption></figure></div>
+    </div><figure><div${product === 'auricwell' ? ' data-actual-example="conversa"' : ''}><img src="${CONVERSA_PREVIEW_URL}" width="1440" height="810" alt="Conversa therapy example with secure family messaging, supervisor review and appointment confirmation, using current app controls and fictional conversations." loading="lazy"></div><figcaption>Current app controls · Fictional therapy conversations · ${product === 'auricwell' ? 'Try the channels and example replies. Nothing is sent or saved.' : 'Interface example'}</figcaption></figure></div>
     <div class="conversa-feature__cards">${features.map(([type, title, body]) => `<article>${icon(type)}<h3>${title}</h3><p>${body}</p></article>`).join('')}</div>
     <ul class="conversa-feature__channels" aria-label="Conversa communication features">${conversaCapabilities.map(([type, name]) => `<li>${icon(type)}<span>${name}</span></li>`).join('')}</ul>
     <p class="conversa-feature__relationship">Conversa and AuricWell are wholly owned Plot Twist Co. products. Conversa is integrated with both AuricWell and Plot Twist HQ.</p>

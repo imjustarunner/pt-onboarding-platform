@@ -1,5 +1,7 @@
 <template>
   <NoteWorkspaceShowcase v-if="kind === 'note-workspace'" />
+  <ConversaShowcase v-else-if="kind === 'conversa'" />
+  <SessionMaterialsShowcase v-else-if="kind === 'session-materials'" />
   <WorkspaceShowcase v-else-if="kind === 'workspace'" />
   <ProviderShowcase v-else-if="kind === 'providers'" />
   <ScheduleShowcase v-else-if="kind === 'schedule'" />
@@ -13,6 +15,8 @@
 </template>
 <script setup>
 import { ref } from 'vue';
+import ConversaShowcase from './ConversaShowcase.vue';
+import SessionMaterialsShowcase from './SessionMaterialsShowcase.vue';
 import NoteWorkspaceShowcase from './NoteWorkspaceShowcase.vue';
 import WorkspaceShowcase from './WorkspaceShowcase.vue';
 import ProviderShowcase from './ProviderShowcase.vue';

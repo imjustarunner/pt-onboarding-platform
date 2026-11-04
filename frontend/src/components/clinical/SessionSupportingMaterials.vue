@@ -55,7 +55,9 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api.js';
-const props = defineProps({ clinicalSessionId: { type: [Number, String], required: true } });
+const props = defineProps({ clinicalSessionId: { type: [Number, String], required: true }, transport: { type: Object, default: null } });
+// A public fixture can supply local transport; production retains the authenticated API.
+const client = props.transport || api;
 const opened = ref(false), loaded = ref(false), loading = ref(false), busy = ref(false), materials = ref([]);
 const title = ref(''), file = ref(null), inputKey = ref(0), includeInDocuments = ref(false);
 const recipients = ref([]), recipientsLoading = ref(false), recipientIds = ref([]), reviewed = ref(false);
@@ -81,7 +83,7 @@ watch(includeInDocuments, async enabled => {
 async function loadRecipients() {
   const token = generation; recipientsLoading.value = true; error.value = '';
   try {
-    const response = await api.get(`${base()}/recipients`);
+    const response = await client.get(`${base()}/recipients`);
     if (token === generation && includeInDocuments.value) recipients.value = response.data || [];
   } catch (e) { if (token === generation) { recipients.value = []; error.value = message(e, 'Could not check document permissions.'); } }
   finally { if (token === generation) recipientsLoading.value = false; }
@@ -100,7 +102,7 @@ async function onToggle(event) {
 }
 async function load() {
   const token = generation; loading.value = true;
-  try { const response = await api.get(base()); if (token === generation) { materials.value = response.data || []; loaded.value = true; } }
+  try { const response = await client.get(base()); if (token === generation) { materials.value = response.data || []; loaded.value = true; } }
   catch (e) { if (token === generation) error.value = message(e, 'Could not load supporting materials.'); }
   finally { if (token === generation) loading.value = false; }
 }
@@ -112,14 +114,14 @@ async function upload() {
   let saved = false;
   try {
     const data = new FormData(); data.append('file', file.value); data.append('title', title.value.trim());
-    const response = await api.post(path, data);
+    const response = await client.post(path, data);
     saved = true;
     if (token !== generation) return;
     const material = response.data;
     materials.value.unshift(material);
     if (!material.available) notice.value = 'Saved encrypted and pending a private security scan. This file has not been shared and cannot be opened yet.';
     else if (share) {
-      const sharing = await api.put(`${path}/${material.id}/sharing`, { recipientIds: selected, reviewed: true });
+      const sharing = await client.put(`${path}/${material.id}/sharing`, { recipientIds: selected, reviewed: true });
       if (token !== generation) return;
       material.sharedWith = sharing.data.sharedWith;
       material.sharingRecipients = sharing.data.sharedWith;
@@ -134,7 +136,7 @@ async function shareExisting() {
   if (busy.value || !recipientIds.value.length || !reviewed.value || recipientsLoading.value) return;
   const token = generation, material = sharingMaterial.value; busy.value = true; error.value = ''; notice.value = '';
   try {
-    const response = await api.put(`${base()}/${material.id}/sharing`, { recipientIds: [...recipientIds.value], reviewed: true });
+    const response = await client.put(`${base()}/${material.id}/sharing`, { recipientIds: [...recipientIds.value], reviewed: true });
     if (token !== generation) return;
     material.sharedWith = response.data.sharedWith;
     material.sharingRecipients = response.data.sharedWith;
@@ -146,7 +148,7 @@ async function shareExisting() {
 async function retryScan(material) {
   const token = generation; busy.value = true; error.value = ''; notice.value = '';
   try {
-    const response = await api.post(`${base()}/${material.id}/scan`);
+    const response = await client.post(`${base()}/${material.id}/scan`);
     if (token !== generation) return;
     Object.assign(material, response.data);
     notice.value = material.available ? 'Security scan passed. You may now open or explicitly share this file.' : 'This file remains unavailable until its private security scan passes.';
@@ -157,7 +159,7 @@ async function removeAccess(material, person) {
   if (busy.value) return;
   const token = generation; busy.value = true; error.value = ''; notice.value = '';
   try {
-    await api.delete(`${base()}/${material.id}/sharing/${person.id}`);
+    await client.delete(`${base()}/${material.id}/sharing/${person.id}`);
     if (token !== generation) return;
     const grants = material.sharingRecipients || material.sharedWith || [];
     material.sharedWith = (material.sharedWith || []).filter(recipient => Number(recipient.id) !== Number(person.id));
@@ -169,7 +171,7 @@ async function removeAccess(material, person) {
 async function download(material) {
   const token = generation; error.value = '';
   try {
-    const response = await api.get(`${base()}/${material.id}/download`, { responseType: 'blob' });
+    const response = await client.get(`${base()}/${material.id}/download`, { responseType: 'blob' });
     if (token !== generation) return;
     const url = URL.createObjectURL(new Blob([response.data], { type: material.mimeType }));
     const extension = { 'application/pdf': '.pdf', 'image/jpeg': '.jpg', 'image/png': '.png' }[material.mimeType] || '';
