@@ -9,6 +9,8 @@ on:
       - 'backend/src/services/googleWorkspaceEmail.service.js'
       - 'backend/src/services/gmailSendAs.service.js'
       - 'backend/src/services/email.service.js'
+      - 'backend/src/services/communicationRecordDelivery.service.js'
+      - 'backend/vitest.workspace-relay.config.js'
       - 'backend/src/services/__tests__/workspaceRelay*'
       - '.github/workflows/workspace-mail-relay.yml'
   push:
@@ -31,7 +33,7 @@ jobs:
         working-directory: services/workspace-mail-relay
       - run: npm test
         working-directory: services/workspace-mail-relay
-      - run: npm ci --ignore-scripts
+      - run: npm ci
         working-directory: backend
       - run: npm ci --ignore-scripts
         working-directory: frontend
