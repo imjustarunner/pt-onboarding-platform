@@ -6,8 +6,9 @@ import { billingError, auditBilling } from '../familyBillingPolicy.service.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from '../familyBillingEncryption.service.js';
 import { cents, key, transaction } from './policy.js';
 import { lockAllocation } from './payments.js';
+import { prepareCreditRefund, queueReceiptEvent } from './copayCredits.js';
 
-export async function refundPayment({agencyId,paymentId,amountCents,idempotencyKey,actorUserId,reason}) {
+export async function refundPayment({agencyId,paymentId,amountCents,idempotencyKey,actorUserId,reason,refundRequestId=null}) {
   const amount=cents(amountCents), requestKey=key(idempotencyKey);
   if(!String(reason||'').trim())throw billingError(400,'A refund reason is required');
   const prepared=await transaction(async db=>{
@@ -22,9 +23,17 @@ export async function refundPayment({agencyId,paymentId,amountCents,idempotencyK
     }
     const [used]=await db.execute("SELECT COALESCE(SUM(amount_cents),0) AS amount FROM family_payment_refunds WHERE payment_id=? AND status IN ('pending','succeeded','unknown')",[paymentId]);
     if(amount>Number(payment.amount_cents)-Number(used[0].amount))throw billingError(409,'Refund exceeds the remaining refundable payment');
+    const [[request]]=await db.execute("SELECT * FROM family_payment_refund_requests WHERE payment_id=? AND status IN ('requested','processing','review') ORDER BY id DESC FOR UPDATE",[paymentId]);
+    if(request&&Number(request.id)!==Number(refundRequestId))throw billingError(409,'Review the linked payer refund request before issuing this refund.');
+    if(refundRequestId&&(!request||Number(request.amount_cents)!==amount||request.status!=='requested'))throw billingError(409,'The linked refund request is unavailable or already processing.');
+    await prepareCreditRefund(payment,amount,db);
     // Preserve the receivable. A refund reopens its payer share; cancelling a
     // service is a separate audited operation and must not invent a credit.
     const [result]=await db.execute('INSERT INTO family_payment_refunds (agency_id,payment_id,amount_cents,idempotency_key,reason_encrypted,created_by_user_id) VALUES (?,?,?,?,?,?)',[agencyId,paymentId,amount,requestKey,encryptFamilyBilling({reason:String(reason).slice(0,2000)},`refund:${agencyId}:${paymentId}`),actorUserId]);
+    if(refundRequestId){
+      await db.execute('UPDATE family_payment_refunds SET request_id=? WHERE id=?',[refundRequestId,result.insertId]);
+      await db.execute("UPDATE family_payment_refund_requests SET status='processing',reviewed_by_user_id=?,resolution_encrypted=? WHERE id=?",[actorUserId,encryptFamilyBilling({reason:String(reason).trim().slice(0,2000)},`refund-request:${agencyId}:${paymentId}`),refundRequestId]);
+    }
     await auditBilling({agencyId,clientId:receivable.client_id,userId:actorUserId,action:'refund_requested',objectId:result.insertId},db);
     return {refund:{id:result.insertId,agency_id:agencyId,payment_id:paymentId,amount_cents:amount,status:'pending'},payment};
   });
@@ -56,8 +65,11 @@ export async function finalizeRefund(refundId,agencyId,processorRefund,accountId
     await db.execute('UPDATE family_receivable_allocations SET paid_cents=paid_cents-? WHERE id=?',[row.amount_cents,allocation.id]);
     await db.execute("UPDATE family_payment_refunds SET status='succeeded',completed_at=CURRENT_TIMESTAMP WHERE id=?",[refundId]);
     const responsibility = sourcePayload(receivable);
-    if (responsibility.zeroResponsibilityClosed && responsibility.finalPatientResponsibilityCents === 0) await closeZeroClaimResponsibility(receivable,responsibility,row.created_by_user_id,db);
+    if(responsibility.cancelledCopayCredit)await db.execute("UPDATE family_receivables SET status='void',hold_reason='cancelled_copay_credit' WHERE id=?",[receivable.id]);
+    else if (responsibility.zeroResponsibilityClosed && responsibility.finalPatientResponsibilityCents === 0) await closeZeroClaimResponsibility(receivable,responsibility,row.created_by_user_id,db);
     else await db.execute("UPDATE family_receivables SET status='review',hold_reason='refund_review' WHERE id=?",[receivable.id]);
+    if(row.request_id)await db.execute("UPDATE family_payment_refund_requests SET status='completed',resolved_at=CURRENT_TIMESTAMP WHERE id=?",[row.request_id]);
+    await queueReceiptEvent({agencyId,paymentId:row.payment_id,kind:'refund',eventKey:`refund:${refundId}`},db);
     await auditBilling({agencyId,clientId:receivable.client_id,userId:row.created_by_user_id,action:'payment_refunded',objectId:refundId},db);
     await reconcileMissedFeePayroll(receivable, db);
   });

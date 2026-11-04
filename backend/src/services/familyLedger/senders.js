@@ -26,7 +26,7 @@ export async function managedWorkspaceAddress(email){
   const user=await Directory.getUser({primaryEmail:email});
   return user&&!user.suspended&&!user.archived?String(user.primaryEmail||'').trim().toLowerCase():'';
 }
-export async function billingSenderMembers(agencyId,domain,{db=pool,authorize=requireBillingStaff,managedDomains=[],resolveAddress=async email=>email,memberUserIds=null,actorUserId=0}={}) {
+export async function billingSenderMembers(agencyId,domain,{db=pool,authorize=requireBillingStaff,managedDomains=[],resolveAddress=async email=>email,allowManagedWorkspaceAddresses=false,memberUserIds=null,actorUserId=0}={}) {
   const [users]=await db.execute(`SELECT u.* FROM users u
     WHERE COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND u.status IN ('ACTIVE','ACTIVE_EMPLOYEE')
       AND EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.is_active=1
@@ -39,11 +39,21 @@ export async function billingSenderMembers(agencyId,domain,{db=pool,authorize=re
     try{await authorize(user,agencyId,db);}catch(e){if(e.status===403)continue;throw e;}
     const address=String(user.work_email||user.email||'').trim().toLowerCase();
     const email=address?await resolveAddress(address):'';
-    if([domain,...managedDomains].some(d=>d&&email.endsWith(`@${d}`)))members.push(email);
+    // Staff may work from another verified domain in the same Workspace. Their
+    // explicit tenant billing grant and Directory-verified identity authorize
+    // membership; the address suffix alone must not exclude them.
+    if(email&&(allowManagedWorkspaceAddresses||[domain,...managedDomains].some(d=>d&&email.endsWith(`@${d}`))))members.push(email);
   }
   return [...new Set(members)];
 }
-export async function ensureBillingGroup({email,name,agencyId,groupId,adoptExisting,members,transport},{directory=Directory}={}) {
+export async function existingBillingMemberAuthorized(agencyId,address,db=pool){
+  const canonical=await managedWorkspaceAddress(address);
+  if(!canonical)return false;
+  const [users]=await db.execute("SELECT * FROM users WHERE (LOWER(email) IN (?,?) OR LOWER(work_email) IN (?,?)) AND is_active=1 AND COALESCE(is_archived,0)=0 AND status IN ('ACTIVE','ACTIVE_EMPLOYEE')",[address.toLowerCase(),canonical,address.toLowerCase(),canonical]);
+  for(const user of users)try{await requireBillingStaff(user,agencyId,db);return true;}catch(error){if(error.status!==403)throw error;}
+  return false;
+}
+export async function ensureBillingGroup({email,name,agencyId,groupId,adoptExisting,members,transport},{directory=Directory,authorizeExistingMember=null}={}) {
   // Canonical account IDs handle Workspace aliases without granting outside users access.
   const allowedEmails=new Set(),allowedIds=new Set();
   for(const address of [...new Set([...members,transport,APP_GROUP_OWNER])]){
@@ -55,6 +65,13 @@ export async function ensureBillingGroup({email,name,agencyId,groupId,adoptExist
   if(group&&!groupId&&!adoptExisting)throw billingError(409,'Review ownership before adopting this existing billing group');
   if(groupId&&(!group||String(group.id)!==String(groupId)))throw billingError(409,'Workspace group ownership changed');
   const existing=group?await directory.listGroupMembers(email,{maxResults:5000}):[];
+  // Existing verified global/managed billers need not be newly selected mailbox
+  // members. Recheck their actual tenant permission before preserving access.
+  if(authorizeExistingMember)for(const member of existing){
+    if(member.type==='USER'&&!allowedIds.has(String(member.id))&&!allowedEmails.has(String(member.email).toLowerCase())&&await authorizeExistingMember(member.email)){
+      allowedEmails.add(String(member.email).toLowerCase());allowedIds.add(String(member.id));
+    }
+  }
   if(existing.length>=5000||existing.some(m=>m.type!=='USER'||!(allowedIds.has(String(m.id))||allowedEmails.has(String(m.email).toLowerCase()))))throw billingError(409,'The group has members outside authorized billing staff. Review its membership before activating it.');
   // Existing posting/access settings are preserved. New groups start private.
   if(!group){
@@ -73,7 +90,7 @@ export async function provisionBillingSenders({agencyId,actorUserId,adoptExistin
   // Membership comes only from active, authorized agency billing staff. No guardians.
   const [managers]=await pool.execute('SELECT a.feature_flags FROM agency_billing_management bm JOIN agencies a ON a.id=bm.manager_agency_id WHERE bm.agency_id=? AND bm.is_active=1 AND a.is_active=1 AND COALESCE(a.is_archived,0)=0',[agencyId]);
   const managedDomains=managers.map(a=>workspaceDomain(a));
-  const members=await billingSenderMembers(agencyId,domain,{managedDomains,resolveAddress:managedWorkspaceAddress,memberUserIds,actorUserId});
+  const members=await billingSenderMembers(agencyId,domain,{managedDomains,resolveAddress:managedWorkspaceAddress,allowManagedWorkspaceAddresses:true,memberUserIds,actorUserId});
   if(!members.length)throw billingError(409,'Assign an active billing staff member with a Workspace address before creating financial mailboxes');
   const transport=String(getImpersonatedUser()||'').trim().toLowerCase();
   const results=[];
@@ -81,7 +98,7 @@ export async function provisionBillingSenders({agencyId,actorUserId,adoptExistin
     const expected=definition.email;
     if(row.email_address!==expected)throw billingError(409,'The Workspace domain changed. Review the existing billing mailbox before reprovisioning.');
     try{
-      const group=await ensureBillingGroup({email:expected,name:definition.name,agencyId,groupId:row.google_group_id,adoptExisting,members,transport});
+      const group=await ensureBillingGroup({email:expected,name:definition.name,agencyId,groupId:row.google_group_id,adoptExisting,members,transport},{authorizeExistingMember:address=>existingBillingMemberAuthorized(agencyId,address)});
       await pool.execute('UPDATE family_billing_sender_provisioning SET google_group_id=? WHERE agency_id=? AND identity_key=?',[group.id,agencyId,row.identity_key]);
       let identity=await EmailSenderIdentity.findByAgencyAndIdentityKey(agencyId,row.identity_key);
       if(identity&&identity.from_email.toLowerCase()!==expected)throw billingError(409,'Review the existing sender address before changing it');

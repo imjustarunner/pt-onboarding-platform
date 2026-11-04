@@ -8,6 +8,13 @@ function directory(members=[]){return {
  setGroupMemberDeliverySettings:vi.fn(async()=>({delivery_settings:'ALL_MAIL'}))
 };}
 describe('practice billing and FundThred sender boundaries',()=>{
+ it('preserves an existing managed billing administrator only after a fresh permission check',async()=>{
+  const d=directory([{type:'USER',id:'existing@platform.invalid',email:'existing@platform.invalid'}]);
+  const authorizeExistingMember=vi.fn(async()=>true);
+  await ensureBillingGroup(args,{directory:d,authorizeExistingMember});expect(authorizeExistingMember).toHaveBeenCalledWith('existing@platform.invalid');
+  expect(d.addGroupMember.mock.calls.some(([member])=>member.memberEmail==='existing@platform.invalid')).toBe(false);
+  await expect(ensureBillingGroup(args,{directory:d,authorizeExistingMember:async()=>false})).rejects.toThrow('outside authorized billing staff');
+ });
  it('keeps billing on the practice and FundThred under PlotTwistCo only',()=>{
   expect(billingSenderDefinition(agency).email).toBe('billing@practice.invalid');
   expect(()=>billingSenderDefinition(agency,'fundthred_collections')).toThrow();

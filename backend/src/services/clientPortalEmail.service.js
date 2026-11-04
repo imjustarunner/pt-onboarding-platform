@@ -43,8 +43,8 @@ export async function sendClientPortalEmail({ agencyId, clientId = null, context
   context ||= await clientEmailContext({agencyId,clientId});
   const identity = await clientPortalSender(context,{billing});
   const brand = {...context.brand,replyTo:billing ? identity.from_email : context.brand.replyTo,
-    displayName:billing ? `${context.tenant.name} Billing` : context.clinical ? 'AuricWell Portal' : `${context.tenant.name} Notifications`};
+    displayName:billing ? context.clinical ? 'AuricWell Billing' : `${context.tenant.name} Billing` : context.clinical ? 'AuricWell Portal' : `${context.tenant.name} Notifications`};
   return sendEmailFromIdentity({...message,clientId,agencyId,senderIdentityId:identity.id,
-    replyToOverride:brand.replyTo,fromDisplayNameOverride:brand.displayName,portalEmailBrand:brand,
+    replyToOverride:brand.replyTo,fromDisplayNameOverride:billing?`${context.tenant.name} Billing`:brand.displayName,portalEmailBrand:brand,
     html:renderPortalEmail({brand,...message}),usedFallbackSender:false});
 }

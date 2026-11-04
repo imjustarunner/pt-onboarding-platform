@@ -25,9 +25,11 @@ test('staged estimates and welcome/benefit reservations work with real MySQL', {
    'CREATE TABLE IF NOT EXISTS user_info_field_definitions(id INT PRIMARY KEY,field_key VARCHAR(100))',
    'CREATE TABLE IF NOT EXISTS user_info_values(user_id INT,field_definition_id INT,value VARCHAR(255))',
    'CREATE TABLE IF NOT EXISTS office_locations(id INT PRIMARY KEY,agency_id INT,name VARCHAR(100),practice_name VARCHAR(100),practice_npi VARCHAR(20),street_address VARCHAR(150),city VARCHAR(80),state VARCHAR(2),postal_code VARCHAR(20),phone VARCHAR(30),is_active BOOLEAN,use_as_billing_address BOOLEAN)',
-   'CREATE TABLE IF NOT EXISTS agency_group_npis(id INT PRIMARY KEY,agency_id INT,office_location_id INT,npi_number VARCHAR(20),is_active BOOLEAN)',
+   'CREATE TABLE IF NOT EXISTS agency_group_npis(id INT PRIMARY KEY,agency_id INT,office_location_id INT,npi_number VARCHAR(20),label VARCHAR(255),notes TEXT,is_active BOOLEAN)',
    'CREATE TABLE IF NOT EXISTS clinical_diagnoses(id INT PRIMARY KEY,agency_id INT,client_id INT,icd10_code VARCHAR(20),is_primary BOOLEAN,is_active BOOLEAN,created_at DATETIME)'
   ])await db.query(sql);
+  await addColumn('agency_group_npis','label','VARCHAR(255)');
+  await addColumn('agency_group_npis','notes','TEXT');
   await db.execute("INSERT INTO users(id,first_name,last_name,role,email,status) VALUES(40,'Estimate','Guardian','client_guardian','estimate@example.invalid','ACTIVE') ON DUPLICATE KEY UPDATE is_active=1,is_archived=0,status='ACTIVE',status_expires_at=NULL,terminated_at=NULL");
   await db.execute("INSERT INTO clients(id,agency_id,full_name,initials,date_of_birth,provider_id) VALUES(401,1,'Synthetic Estimate Child','SE','2018-01-01',45) ON DUPLICATE KEY UPDATE provider_id=45,billing_insurance_payload=NULL");
   const [[link]]=await db.execute('SELECT id FROM client_guardians WHERE client_id=401 AND guardian_user_id=40');

@@ -83,6 +83,14 @@ on:
       - 'frontend/src/views/admin/FamilyBillingDesk.vue'
       - 'backend/src/services/__tests__/copayAttendance*'
       - 'backend/vitest.attendance-copays.config.js'
+      - 'backend/vitest.copay-receipts.config.js'
+      - 'backend/src/services/__tests__/copayReceipts.test.js'
+      - 'backend/src/services/__tests__/billingSenderMembers.test.js'
+      - 'frontend/vitest.copay-receipts.config.js'
+      - 'frontend/src/views/PaymentReceiptView.vue'
+      - 'frontend/src/views/__tests__/PaymentReceiptView.test.js'
+      - 'frontend/src/components/billing/RefundRequestsPanel.vue'
+      - 'database/migrations/1745_copay_receipts_and_credits.sql'
       - 'database/migrations/1673_attendance_copays.sql'
       - 'frontend/src/components/provider/ProviderCopayAttendance.vue'
       - 'backend/src/services/clientPortal*.js'
@@ -220,6 +228,14 @@ on:
       - 'frontend/src/views/admin/FamilyBillingDesk.vue'
       - 'backend/src/services/__tests__/copayAttendance*'
       - 'backend/vitest.attendance-copays.config.js'
+      - 'backend/vitest.copay-receipts.config.js'
+      - 'backend/src/services/__tests__/copayReceipts.test.js'
+      - 'backend/src/services/__tests__/billingSenderMembers.test.js'
+      - 'frontend/vitest.copay-receipts.config.js'
+      - 'frontend/src/views/PaymentReceiptView.vue'
+      - 'frontend/src/views/__tests__/PaymentReceiptView.test.js'
+      - 'frontend/src/components/billing/RefundRequestsPanel.vue'
+      - 'database/migrations/1745_copay_receipts_and_credits.sql'
       - 'database/migrations/1673_attendance_copays.sql'
       - 'frontend/src/components/provider/ProviderCopayAttendance.vue'
       - 'backend/src/services/clientPortal*.js'
@@ -326,6 +342,10 @@ jobs:
         run: npm --prefix frontend test -- src/views/admin/__tests__/AccountSupportView.test.js src/composables/__tests__/useFamilyLocale.test.js src/components/guardian/__tests__/GuardianIntakeDocuments.test.js src/utils/__tests__/loginRemember.test.js
       - name: Native SQL workflow and policy checks
         run: node --test backend/src/services/__tests__/billingFollowup.mysql.test.js backend/src/services/__tests__/insuranceCards.policy.test.js backend/src/services/__tests__/familyLedger.policy.test.js backend/src/services/__tests__/familyLedger.planEligibility.test.js
+      - name: Branded payment receipts, linked refunds and billing sender boundaries
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.copay-receipts.config.js
+      - name: Payment-specific receipt and refund portal
+        run: node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.copay-receipts.config.js
       - name: Attendance copay authorization and timing
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.attendance-copays.config.js
       - name: Attendance copay SQL concurrency and final payer reconciliation

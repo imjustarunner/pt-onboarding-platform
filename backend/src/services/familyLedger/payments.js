@@ -10,11 +10,13 @@ import { findReceivable, allocationsFor, sourcePayload } from './receivables.js'
 import { responsibilityLabels } from './presentation.js';
 import { requireLiveGuardianBilling } from '../guardianTestAccess.service.js';
 import { reconcileMissedFeePayroll } from '../missedSessionFeePayroll.service.js';
+import { applyCopayCreditsLocked, queueReceiptEvent } from './copayCredits.js';
 
 const context = (agencyId, allocationId) => `ledger-payment:${agencyId}:${allocationId}`;
 export async function lockAllocation(agencyId, allocationId, db) {
-  const [lookup] = await db.execute('SELECT receivable_id FROM family_receivable_allocations WHERE id=? AND agency_id=?',[allocationId,agencyId]);
+  const [lookup] = await db.execute('SELECT a.receivable_id,r.client_id FROM family_receivable_allocations a JOIN family_receivables r ON r.id=a.receivable_id WHERE a.id=? AND a.agency_id=?',[allocationId,agencyId]);
   if(!lookup.length)throw billingError(404,'Payer balance not found');
+  await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE',[lookup[0].client_id,agencyId]);
   const receivable=await findReceivable(agencyId,lookup[0].receivable_id,db,true);
   const allocations=await allocationsFor(receivable.id,db,true);
   return {receivable,allocation:allocations.find(a=>Number(a.id)===Number(allocationId))};
@@ -34,18 +36,29 @@ async function assertRecurring({agencyId,userId,clientId,payer,card,amount},db) 
 }
 export async function payAllocation({agencyId,userId,allocationId,amountCents,idempotencyKey,automatic=false,planId=null}) {
   await requireLiveGuardianBilling(userId);
-  const amount=cents(amountCents), requestKey=key(idempotencyKey);
+  const requestedAmount=cents(amountCents), requestKey=key(idempotencyKey);
+  let amount=requestedAmount;
   const attempt=await transaction(async db=>{
     const {receivable,allocation}=await lockAllocation(agencyId,allocationId,db);
     await requireResponsiblePayer(userId,receivable.client_id,agencyId,db);
     if(Number(allocation.payer_user_id)!==Number(userId))throw billingError(403,'You can pay only your assigned share');
     const [same]=await db.execute('SELECT * FROM family_ledger_payments WHERE agency_id=? AND idempotency_key=?',[agencyId,requestKey]);
     if(same.length) {
-      if(Number(same[0].allocation_id)!==Number(allocationId)||Number(same[0].payer_user_id)!==Number(userId)||Number(same[0].amount_cents)!==amount)throw billingError(409,'This request key belongs to a different payment');
+      if(Number(same[0].allocation_id)!==Number(allocationId)||Number(same[0].payer_user_id)!==Number(userId))throw billingError(409,'This request key belongs to a different payment');
+      const priorSnapshot=decryptFamilyBilling(same[0].snapshot_encrypted,context(agencyId,allocationId));
+      if(Number(priorSnapshot.requestedAmountCents||same[0].amount_cents)!==requestedAmount)throw billingError(409,'This request key belongs to a different payment');
       if(same[0].status==='succeeded')return same[0];
+      amount=Number(same[0].amount_cents);
     }
     if(automatic){const {externallyManaged}=await import('./collectionHandoff.js');if(await externallyManaged(allocationId,db))throw billingError(409,'This balance is managed by collections; agency automatic payment is paused');}
     await assertCollectible(receivable,db);
+    if(!same.length){
+      const credited=await applyCopayCreditsLocked(receivable,allocation,db);
+      if(credited){
+        amount=Math.min(requestedAmount,allocationDue(allocation));
+        if(!amount)return {creditOnly:true,creditAppliedCents:credited};
+      }
+    }
     if(amount>allocationDue(allocation))throw billingError(409,'The amount exceeds your current unpaid share; refresh the balance');
     const {payer,card}=await activeCard(agencyId,receivable.client_id,userId,db);
     if(automatic && planId) {
@@ -83,10 +96,11 @@ export async function payAllocation({agencyId,userId,allocationId,amountCents,id
         return previous;
       }
     }
-    const snapshot={customerId:card.stripe_customer_id,paymentMethodId:card.stripe_payment_method_id,accountId:card.connected_account_id,amountCents:amount,currency:String(receivable.currency).toLowerCase(),brand:card.card_brand,last4:card.card_last4};
+    const snapshot={customerId:card.stripe_customer_id,paymentMethodId:card.stripe_payment_method_id,accountId:card.connected_account_id,amountCents:amount,requestedAmountCents:requestedAmount,automaticCopay:automatic&&!planId,currency:String(receivable.currency).toLowerCase(),brand:card.card_brand,last4:card.card_last4};
     const [result]=await db.execute("INSERT INTO family_ledger_payments (agency_id,allocation_id,payer_user_id,processor,amount_cents,currency,idempotency_key,snapshot_encrypted,created_by_user_id) VALUES (?,?,?,'STRIPE',?,?,?,?,?)",[agencyId,allocationId,userId,amount,receivable.currency,requestKey,encryptFamilyBilling(snapshot,context(agencyId,allocationId)),userId]);
     return {id:result.insertId,agency_id:agencyId,allocation_id:allocationId,payer_user_id:userId,amount_cents:amount,status:'pending',idempotency_key:requestKey,snapshot_encrypted:encryptFamilyBilling(snapshot,context(agencyId,allocationId))};
   });
+  if(attempt.creditOnly)return {paid:true,chargedCents:0,creditAppliedCents:attempt.creditAppliedCents};
   if(attempt.status==='succeeded')return {paid:true,alreadyPaid:true,paymentId:attempt.id};
   const snapshot=decryptFamilyBilling(attempt.snapshot_encrypted,context(agencyId,allocationId));
   if(!attempt.processor_intent_id){
@@ -124,7 +138,7 @@ async function receiptSnapshot(payment,receivable,allocation,snapshot,db,receive
   const [payers]=await db.execute('SELECT first_name,last_name FROM users WHERE id=?',[payment.payer_user_id]);
   const [clients]=await db.execute('SELECT full_name,initials FROM clients WHERE id=? AND agency_id=?',[receivable.client_id,payment.agency_id]);
   const responsibility=sourcePayload(receivable),type=responsibilityLabels[responsibility.responsibilityType]||'Service payment';
-  return {...(responsibility.serviceTerm?{serviceCode:responsibility.serviceTerm.serviceCode,serviceUnits:responsibility.serviceTerm.units,unitAmountCents:responsibility.serviceTerm.amountCents,priceBasis:responsibility.serviceTerm.priceBasis}:{}),clientName:clients[0]?.full_name||clients[0]?.initials||null,receiptNumber:`R-${payment.agency_id}-${payment.id}`,agencyName:agencies[0]?.name||'Organization',payerName:[payers[0]?.first_name,payers[0]?.last_name].filter(Boolean).join(' '),service:['mental_health','clinical','unknown'].includes(receivable.service_domain)?'Services':`${receivable.service_domain} services`,serviceDate:receivable.service_date?dateOnly(receivable.service_date):null,balanceReference:receivable.id,responsibilityType:type,verificationBasis:responsibility.responsibilityType==='missed_session_fee'?'Missed-appointment fee under existing client agreement; no service claim':responsibility.verificationBasis==='era'?'Payer remittance':responsibility.responsibilityType==='copay'?'Verified visit copay, subject to payer determination':'Verified patient responsibility / agreed service terms',shareCents:Number(allocation.amount_cents),previouslyPaidCents:Number(allocation.paid_cents),remainingAtPaymentCents:allocationDue(allocation)-Number(payment.amount_cents),amountCents:Number(payment.amount_cents),currency:payment.currency,receivedAt:new Date(receivedAt).toISOString(),method:payment.processor==='CASH'?'Cash':payment.processor==='LEGACY'?'Previously recorded payment':`${snapshot.brand||'Card'} ending in ${snapshot.last4||'••••'}`};
+  return {...(responsibility.serviceTerm?{serviceCode:responsibility.serviceTerm.serviceCode,serviceUnits:responsibility.serviceTerm.units,unitAmountCents:responsibility.serviceTerm.amountCents,priceBasis:responsibility.serviceTerm.priceBasis}:{}),portalBrand:['mental_health','clinical'].includes(receivable.service_domain)?'AuricWell':`${agencies[0]?.name||'Organization'} Portal`,clientName:clients[0]?.full_name||clients[0]?.initials||null,receiptNumber:`R-${payment.agency_id}-${payment.id}`,agencyName:agencies[0]?.name||'Organization',payerName:[payers[0]?.first_name,payers[0]?.last_name].filter(Boolean).join(' '),service:['mental_health','clinical','unknown'].includes(receivable.service_domain)?'Services':`${receivable.service_domain} services`,serviceDate:receivable.service_date?dateOnly(receivable.service_date):null,balanceReference:receivable.id,responsibilityType:type,verificationBasis:responsibility.responsibilityType==='missed_session_fee'?'Missed-appointment fee under existing client agreement; no service claim':responsibility.verificationBasis==='era'?'Payer remittance':responsibility.responsibilityType==='copay'?'Verified visit copay, subject to payer determination':'Verified patient responsibility / agreed service terms',shareCents:Number(allocation.amount_cents),previouslyPaidCents:Number(allocation.paid_cents),remainingAtPaymentCents:allocationDue(allocation)-Number(payment.amount_cents),amountCents:Number(payment.amount_cents),currency:payment.currency,receivedAt:new Date(receivedAt).toISOString(),method:payment.processor==='CASH'?'Cash':payment.processor==='LEGACY'?'Previously recorded payment':`${snapshot.brand||'Card'} ending in ${snapshot.last4||'••••'}`};
 }
 async function postCapture(payment,receivable,allocation,snapshot,db,receivedAt=new Date()) {
   if(payment.status==='succeeded')return;
@@ -132,6 +146,7 @@ async function postCapture(payment,receivable,allocation,snapshot,db,receivedAt=
   const receipt=await receiptSnapshot(payment,receivable,allocation,snapshot,db,receivedAt);
   await db.execute('UPDATE family_receivable_allocations SET paid_cents=paid_cents+? WHERE id=?',[payment.amount_cents,allocation.id]);
   await db.execute("UPDATE family_ledger_payments SET status='succeeded',received_at=?,receipt_number=?,receipt_encrypted=? WHERE id=?",[new Date(receivedAt),receipt.receiptNumber,encryptFamilyBilling(receipt,`receipt:${payment.agency_id}:${payment.payer_user_id}`),payment.id]);
+  if(payment.processor!=='LEGACY')await queueReceiptEvent({agencyId:payment.agency_id,paymentId:payment.id,kind:'payment',eventKey:`payment:${payment.id}`},db);
   const [remaining]=await db.execute('SELECT SUM(amount_cents-paid_cents) AS remaining FROM family_receivable_allocations WHERE receivable_id=?',[receivable.id]);
   if(Number(remaining[0].remaining)===0) {
     await db.execute("UPDATE family_receivables SET status='paid' WHERE id=?",[receivable.id]);
@@ -141,7 +156,7 @@ async function postCapture(payment,receivable,allocation,snapshot,db,receivedAt=
   await reconcileMissedFeePayroll(receivable, db);
 }
 export async function finalizePayment(paymentId,agencyId,intent,accountId) {
-  return transaction(async db=>{
+  const result=await transaction(async db=>{
     const [lookup]=await db.execute('SELECT * FROM family_ledger_payments WHERE id=? AND agency_id=?',[paymentId,agencyId]);
     if(!lookup.length)throw billingError(404,'Payment not found');
     const {receivable,allocation}=await lockAllocation(agencyId,lookup[0].allocation_id,db);
@@ -153,6 +168,11 @@ export async function finalizePayment(paymentId,agencyId,intent,accountId) {
     await postCapture(payment,receivable,allocation,snapshot,db);
     return {paid:true,paymentId};
   });
+  // Receipt failures never turn a captured payment into a failed payment. The
+  // durable outbox remains visible to billing and the scheduled dispatcher.
+  try{const {sendPendingReceiptEmails}=await import('./receiptEmails.js');await sendPendingReceiptEmails({agencyId,paymentId});}
+  catch{console.warn('[payment receipt] Delivery needs review',agencyId,paymentId);}
+  return result;
 }
 export async function reconcileLedgerPayment(intent,accountId) {
   if(!intent.metadata?.family_ledger_payment_id)return false;

@@ -37,6 +37,7 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   intake: ['school_intake', 'intake'],
   intake_summary_pdf_copy: ['school_intake', 'intake', 'notifications'],
   family_balance_due: ['billing'],
+  family_payment_receipt: ['billing'],
   co_guardian_invite: ['notifications'],
   adaptive_full_intake_invite: ['notifications'],
   guardian_portal_login_info: ['notifications'],
