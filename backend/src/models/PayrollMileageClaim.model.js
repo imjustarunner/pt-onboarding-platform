@@ -23,6 +23,7 @@ class PayrollMileageClaim {
     driveDate,
     claimType = 'school_travel',
     schoolOrganizationId = null,
+    tripStructure = 'unknown',
     officeLocationId = null,
     officeKey = null,
     homeSchoolRoundtripMiles = null,
@@ -63,14 +64,14 @@ class PayrollMileageClaim {
        (agency_id, user_id, submitted_by_user_id, status, claim_type, drive_date, school_organization_id, office_location_id, office_key,
         home_school_roundtrip_miles, home_office_roundtrip_miles, eligible_miles,
         miles, round_trip, start_location, end_location, trip_purpose, trip_approved_by, trip_preapproved, cost_center,
-        notes, attestation, suggested_payroll_period_id, tier_level,
+        notes, attestation, suggested_payroll_period_id, tier_level, trip_structure,
         attachment_file_path, attachment_original_name, attachment_mime_type, attachment_size_bytes)
        VALUES (
          ?, ?, ?, 'submitted',
          ?, ?, ?, ?, ?,
          ?, ?, ?,
          ?, ?, ?, ?, ?, ?, ?, ?,
-         ?, ?, ?, ?,
+         ?, ?, ?, ?, ?,
          ?, ?, ?, ?
        )`,
       [
@@ -97,6 +98,7 @@ class PayrollMileageClaim {
         attestation ? 1 : 0,
         resolvedSuggestedPayrollPeriodId,
         tierLevel,
+        ['single_school_round_trip','multiple_stops'].includes(tripStructure)?tripStructure:'unknown',
         attachmentFilePath,
         attachmentOriginalName,
         attachmentMimeType,
@@ -220,7 +222,9 @@ class PayrollMileageClaim {
     tierLevel,
     ratePerMile,
     appliedAmount,
-    eventTravelReviewedAt = null
+    eventTravelReviewedAt = null,
+    db = pool,
+    requireSubmitted = false
   }) {
     const persist = async (db) => {
       const [result] = await db.execute(
@@ -235,18 +239,19 @@ class PayrollMileageClaim {
              rejection_reason = NULL,
              rejected_by_user_id = NULL,
              rejected_at = NULL
-         WHERE id = ? ${eventTravelReviewedAt ? `AND EXISTS (
+         WHERE id = ? ${requireSubmitted ? "AND status='submitted'" : ''} ${eventTravelReviewedAt ? `AND EXISTS (
            SELECT 1 FROM company_event_travel_reports r WHERE r.id = payroll_mileage_claims.event_travel_report_id
            AND r.reviewed_at IS NOT NULL AND JSON_UNQUOTE(JSON_EXTRACT(r.report_json, '$.reviewedAt')) = ?)` : ''}
          LIMIT 1`,
         [targetPayrollPeriodId, tierLevel, ratePerMile, appliedAmount, approverUserId, id, ...(eventTravelReviewedAt ? [eventTravelReviewedAt] : [])]
       );
+      if (requireSubmitted && !result.affectedRows) throw Object.assign(new Error('Submission changed before approval.'),{status:409,code:'PAYROLL_SOURCE_CHANGED'});
       if (eventTravelReviewedAt && !result.affectedRows) throw Object.assign(new Error('The travel report changed. Refresh and review it before approval.'), { status: 409 });
       return PayrollMileageClaim.findById(id, db);
     };
     return eventTravelReviewedAt
       ? withReviewedEventTravelClaim({ table: 'payroll_mileage_claims', id, reviewedAt: eventTravelReviewedAt }, persist)
-      : persist(pool);
+      : persist(db);
   }
 
   static async reject({ id, rejectorUserId, rejectionReason }) {

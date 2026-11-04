@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
-import { splitSqlStatements, stripSqlLineComments, isIgnorableSchemaError } from '../migrationSql.js';
+import { splitSqlStatements, stripSqlLineComments, isIgnorableSchemaError, isAssistantTriggerMismatch } from '../migrationSql.js';
 import * as cli from '../../../../database/migrationSqlUtils.js';
 const migration = (name) => fs.readFileSync(new URL(`../../../../database/migrations/${name}`,import.meta.url),'utf8');
 describe('Cloud Run migration SQL', () => {
@@ -65,6 +65,12 @@ describe('Cloud Run migration SQL', () => {
   it('never treats missing security tables as successfully applied SQL', () => {
     expect(isIgnorableSchemaError({code:'ER_NO_SUCH_TABLE',message:"Table auth_session_security doesn't exist"})).toBe(false);
     expect(isIgnorableSchemaError({code:'ER_DUP_FIELDNAME'})).toBe(true);
+  });
+  it('classifies only named assistant trigger mismatches as fatal startup integrity errors', () => {
+    const error = { code:'ER_BAD_FIELD_ERROR', message:"Unknown column 'trigger_mismatch_assistant_membership_insert' in 'field list'" };
+    expect(isAssistantTriggerMismatch(error)).toBe(true);expect(isIgnorableSchemaError(error)).toBe(false);
+    expect(isAssistantTriggerMismatch({code:'ER_BAD_FIELD_ERROR',message:"Unknown column 'legacy_optional_column'"})).toBe(false);
+    expect(isAssistantTriggerMismatch({code:'ER_DUP_FIELDNAME',message:'Duplicate column name'})).toBe(false);
   });
   it('repairs dependent columns even if the old bootstrap falsely logged 1458 as successful', () => {
     const statements=splitSqlStatements(stripSqlLineComments(migration('1474_repair_auth_session_startup.sql')));

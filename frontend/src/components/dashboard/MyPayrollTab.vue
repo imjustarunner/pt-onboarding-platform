@@ -1236,6 +1236,7 @@
         </div>
       </div>
 
+      <div v-if="mileageForm.claimType === 'school_travel'" class="field" style="margin-top:10px"><label>Trip details</label><select v-model="mileageForm.tripStructure"><option value="" disabled>Choose the trip type…</option><option value="single_school_round_trip">One round trip to this school</option><option value="multiple_stops">Multiple stops or more than one trip — payroll review</option></select></div>
       <div
         v-if="mileageForm.claimType === 'school_travel'"
         class="field-row"
@@ -2998,6 +2999,7 @@ const mileageForm = ref({
   claimType: 'school_travel',
   driveDate: '',
   schoolOrganizationId: null,
+  tripStructure:'',
   officeLocationId: null,
   tierLevel: null,
   miles: '',
@@ -3608,6 +3610,7 @@ const openMileageModal = async (claimType = 'school_travel') => {
     claimType: String(claimType || 'school_travel'),
     driveDate: ymd,
     schoolOrganizationId: null,
+    tripStructure:'',
     officeLocationId: null,
     tierLevel: null,
     miles: mileageForm.value?.miles || '',
@@ -3668,6 +3671,7 @@ const openEditMileageClaim = async (c) => {
     claimType,
     driveDate: String(c.drive_date || '').slice(0, 10),
     schoolOrganizationId: c.school_organization_id ? Number(c.school_organization_id) : null,
+    tripStructure:c.trip_structure==='unknown'?'':c.trip_structure||'',
     officeLocationId: c.office_location_id ? Number(c.office_location_id) : null,
     tierLevel: c.tier_level === null || c.tier_level === undefined ? null : Number(c.tier_level),
     miles: String((c.miles ?? c.eligible_miles ?? '') || ''),
@@ -3832,6 +3836,7 @@ const submitMileage = async () => {
       }
     }
     if (mileageForm.value.claimType === 'school_travel') {
+      if(!['single_school_round_trip','multiple_stops'].includes(mileageForm.value.tripStructure)){submitMileageError.value='Choose whether this was one school round trip or multiple stops.';return;}
       if (!mileageForm.value.schoolOrganizationId) {
         submitMileageError.value = 'Choose a school.';
         return;
@@ -3853,6 +3858,7 @@ const submitMileage = async () => {
       claimType: mileageForm.value.claimType || 'school_travel',
       driveDate: mileageForm.value.driveDate,
       schoolOrganizationId: mileageForm.value.schoolOrganizationId,
+      tripStructure:mileageForm.value.tripStructure,
       officeLocationId: mileageForm.value.officeLocationId,
       tierLevel: mileageForm.value.tierLevel,
       miles: mileageForm.value.miles,

@@ -122,7 +122,13 @@ export function stripSqlLineComments(sql) {
     .join('\n');
 }
 
+export function isAssistantTriggerMismatch(err) {
+  return String(err?.code || '') === 'ER_BAD_FIELD_ERROR'
+    && /\btrigger_mismatch_[a-z0-9_]+\b/i.test(String(err?.message || ''));
+}
+
 export function isIgnorableSchemaError(err) {
+  if (isAssistantTriggerMismatch(err)) return false;
   const code = String(err?.code || '');
   const errno = Number(err?.errno || 0);
   const msg = String(err?.message || '');

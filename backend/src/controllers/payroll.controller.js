@@ -1,3 +1,5 @@
+import { scopedPayrollCommand } from '../services/assistantPayrollCommand.service.js';
+import { humanRosterSql } from '../utils/workplacePeople.js';
 import { extractBillingProfileFields } from '../services/billingClientProfileEnrichment.service.js';
 import { billingImportMetadata, copyBillingImportMetadata, getBillingImportMetadata } from '../utils/payrollBillingImportMetadata.js';
 import { enrichPayrollBillingImport } from '../services/payrollBillingClientImport.service.js';
@@ -1767,6 +1769,9 @@ async function userHasAgencyAccess({ userId, agencyId }) {
 }
 
 export async function requirePayrollAccess(req, res, agencyIdOrOrgId) {
+  const assistantCommand=scopedPayrollCommand(req);
+  if(assistantCommand){if(Number(agencyIdOrOrgId)!==assistantCommand.agencyId||Number(req.params?.id)!==assistantCommand.claimId||req.body?.action!=='approve'){res.status(403).json({error:{message:'Scoped payroll approval required'}});return null;}return assistantCommand.agencyId;}
+
   const resolvedAgencyId = await resolvePayrollAgencyId(agencyIdOrOrgId);
   if (!resolvedAgencyId) {
     res.status(400).json({ error: { message: 'agencyId is required' } });
@@ -1916,13 +1921,13 @@ async function getAgencyUsersForPayrollMatching(agencyId) {
     `SELECT DISTINCT u.id, u.first_name, u.last_name
      FROM users u
      JOIN user_agencies ua ON u.id = ua.user_id
-     WHERE ua.agency_id = ?
+     WHERE ua.agency_id = ? AND ${humanRosterSql('u')}
        AND (u.status IS NULL OR u.status NOT IN ('pending', 'ready_for_review'))
        AND (u.is_archived = FALSE OR u.is_archived IS NULL)
      UNION
      SELECT DISTINCT u.id, u.first_name, u.last_name
      FROM users u
-     WHERE u.role = 'super_admin'
+     WHERE u.role = 'super_admin' AND ${humanRosterSql('u')}
        AND (u.status IS NULL OR u.status NOT IN ('pending', 'ready_for_review'))
        AND (u.is_archived = FALSE OR u.is_archived IS NULL)`,
     [agencyId]
@@ -10835,6 +10840,7 @@ export const createPayrollManualBulk = async (req, res, next) => {
       `SELECT u.id, u.first_name, u.last_name
        FROM users u
        INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       WHERE ${humanRosterSql('u')}
        ORDER BY u.last_name, u.first_name`,
       [period.agency_id]
     );
@@ -15455,6 +15461,7 @@ export const createMyMileageClaim = [
     const startLocation = body.startLocation ? String(body.startLocation).slice(0, 255) : null;
     const endLocation = body.endLocation ? String(body.endLocation).slice(0, 255) : null;
     const notes = body.notes ? String(body.notes) : null;
+    const tripStructure=['single_school_round_trip','multiple_stops'].includes(body.tripStructure)?body.tripStructure:'unknown';
     const tripPurpose = body.tripPurpose ? String(body.tripPurpose).trim().slice(0, 255) : null;
     const tripApprovedBy = body.tripApprovedBy ? String(body.tripApprovedBy).trim().slice(0, 255) : null;
     const costCenter = body.costCenter ? String(body.costCenter).trim().slice(0, 255) : null;
@@ -15663,6 +15670,7 @@ export const createMyMileageClaim = [
       driveDate,
       claimType,
       schoolOrganizationId,
+      tripStructure,
       officeLocationId: effectiveOfficeLocationId,
       officeKey,
       homeSchoolRoundtripMiles: computedHomeSchoolRt,
@@ -19751,6 +19759,7 @@ export const patchTimeClaim = async (req, res, next) => {
     if (!claim) return res.status(404).json({ error: { message: 'Time claim not found' } });
     if (!(await requirePayrollAccess(req, res, claim.agency_id))) return;
 
+    if(scopedPayrollCommand(req)&&scopedPayrollCommand(req).kind!=='individual_supervision')return res.status(403).json({error:{message:'Approval duty does not match this submission.'}});
     const body = req.body || {};
     const action = String(body.action || '').toLowerCase();
     if (!action) return res.status(400).json({ error: { message: 'action is required' } });
@@ -19886,6 +19895,7 @@ export const patchTimeClaim = async (req, res, next) => {
       }
 
       const updated = await PayrollTimeClaim.approve({
+        ...(scopedPayrollCommand(req)?{db:scopedPayrollCommand(req).db,requireSubmitted:true}:{}),
         eventTravelReviewedAt,
         id,
         approverUserId: req.user.id,
@@ -19895,6 +19905,7 @@ export const patchTimeClaim = async (req, res, next) => {
         creditsHours: creditsHoursRaw
       });
 
+      if(scopedPayrollCommand(req))return res.json({claim:updated});
       if (!claim.event_travel_report_id) {
         // Keep payload in sync with admin hour/bucket overrides so recompute / display match pay.
         try {
@@ -21638,6 +21649,7 @@ export const patchMileageClaim = async (req, res, next) => {
     if (!claim) return res.status(404).json({ error: { message: 'Mileage claim not found' } });
     if (!(await requirePayrollAccess(req, res, claim.agency_id))) return;
 
+    if(scopedPayrollCommand(req)&&scopedPayrollCommand(req).kind!=='school_mileage')return res.status(403).json({error:{message:'Approval duty does not match this submission.'}});
     const body = req.body || {};
     const action = String(body.action || '').toLowerCase();
     if (!action) return res.status(400).json({ error: { message: 'action is required' } });
@@ -21833,6 +21845,7 @@ export const patchMileageClaim = async (req, res, next) => {
       const appliedAmount = Math.round((billableMiles * ratePerMile) * 100) / 100;
 
       const updated = await PayrollMileageClaim.approve({
+        ...(scopedPayrollCommand(req)?{db:scopedPayrollCommand(req).db,requireSubmitted:true}:{}),
         eventTravelReviewedAt,
         id,
         approverUserId: req.user.id,
@@ -21842,6 +21855,7 @@ export const patchMileageClaim = async (req, res, next) => {
         appliedAmount
       });
 
+      if(scopedPayrollCommand(req))return res.json({claim:updated});
       // If payroll has already been run for the target period, recompute immediately so totals reflect the approval.
       try {
         const period = await PayrollPeriod.findById(targetPayrollPeriodId);

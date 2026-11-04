@@ -159,7 +159,7 @@ class PayrollTimeClaim {
     return (rows || []).map((r) => this._normalize(r));
   }
 
-  static async approve({ id, approverUserId, targetPayrollPeriodId, appliedAmount, bucket = 'indirect', creditsHours = null, eventTravelReviewedAt = null }) {
+  static async approve({ id, approverUserId, targetPayrollPeriodId, appliedAmount, bucket = 'indirect', creditsHours = null, eventTravelReviewedAt = null, db = pool, requireSubmitted = false }) {
     const raw = String(bucket || 'indirect').trim().toLowerCase();
     const b = raw === 'direct'
       ? 'direct'
@@ -179,18 +179,19 @@ class PayrollTimeClaim {
              rejection_reason = NULL,
              rejected_by_user_id = NULL,
              rejected_at = NULL
-         WHERE id = ? ${eventTravelReviewedAt ? `AND EXISTS (
+         WHERE id = ? ${requireSubmitted ? "AND status='submitted'" : ''} ${eventTravelReviewedAt ? `AND EXISTS (
            SELECT 1 FROM company_event_travel_reports r WHERE r.id = payroll_time_claims.event_travel_report_id
            AND r.reviewed_at IS NOT NULL AND JSON_UNQUOTE(JSON_EXTRACT(r.report_json, '$.reviewedAt')) = ?)` : ''}
          LIMIT 1`,
         [targetPayrollPeriodId, b, safeHrs, appliedAmount, approverUserId, id, ...(eventTravelReviewedAt ? [eventTravelReviewedAt] : [])]
       );
+      if (requireSubmitted && !result.affectedRows) throw Object.assign(new Error('Submission changed before approval.'),{status:409,code:'PAYROLL_SOURCE_CHANGED'});
       if (eventTravelReviewedAt && !result.affectedRows) throw Object.assign(new Error('The travel report changed. Refresh and review it before approval.'), { status: 409 });
       return PayrollTimeClaim.findById(id, db);
     };
     return eventTravelReviewedAt
       ? withReviewedEventTravelClaim({ table: 'payroll_time_claims', id, reviewedAt: eventTravelReviewedAt }, persist)
-      : persist(pool);
+      : persist(db);
   }
 
   static async updateApproved({ id, bucket, creditsHours, appliedAmount, payload = null }) {

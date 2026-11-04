@@ -44,6 +44,7 @@
           <p>Review the employee’s signed document and add your agency signature. This task closes automatically after countersigning.</p>
           <router-link class="btn btn-primary" :to="{path:`${route.params.organizationSlug ? '/' + route.params.organizationSlug : ''}/tasks/documents/${item.reference_id}/sign`,query:{returnTo:route.fullPath}}">Review &amp; countersign</router-link>
         </section>
+        <section v-if="item.source_ref_type === 'assistant_proposal'" class="client-action-banner"><p>Review the assistant's source-linked recommendation before recording a human decision. The source record remains authoritative.</p><router-link class="btn btn-primary" :to="{path:'/assistant-reviews',query:{agencyId:props.agencyId || item.assigned_to_agency_id,ref:item.source_ref_id}}">Review assistant recommendation</router-link></section>
         <section v-if="item.source_ref_type === 'provider_update'" class="client-action-banner">
           <p>Complete and submit your Provider Update from its overview. This task updates automatically after submission.</p>
           <a v-if="providerUpdateLink" :href="providerUpdateLink" class="btn btn-primary">Open my Provider Update →</a>

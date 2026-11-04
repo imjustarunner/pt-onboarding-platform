@@ -12,7 +12,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { bootstrapResponse } from './utils/bootstrapHealth.js';
-import { splitSqlStatements, stripSqlLineComments, isIgnorableSchemaError } from './utils/migrationSql.js';
+import { splitSqlStatements, stripSqlLineComments, isIgnorableSchemaError, isAssistantTriggerMismatch } from './utils/migrationSql.js';
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const HOST = '0.0.0.0';
@@ -106,12 +106,19 @@ async function runStartupMigrations() {
            ON DUPLICATE KEY UPDATE executed_at = CURRENT_TIMESTAMP, execution_time_ms = ?, success = 0, error_message = ?`,
           [migrationName, ms, errorMsg, ms, errorMsg]
         ).catch(() => {});
+        // An incompatible installed security/history trigger needs reviewed
+        // repair. Never start application workers or pass readiness in that state.
+        if (isAssistantTriggerMismatch(err)) throw err;
         console.warn(`⚠️  Migration ${file} failed (non-fatal): ${errorMsg}`);
       }
     }
 
     console.log(`✅ Startup migrations complete — ${ran} applied, ${skipped} skipped (already run)`);
   } catch (err) {
+    if (isAssistantTriggerMismatch(err)) {
+      console.error('Assistant trigger definitions require reviewed repair; application startup is blocked.');
+      throw err;
+    }
     console.error('⚠️  Startup migrations failed (non-fatal):', err?.message || err);
   } finally {
     // Migration SET variables, prepared statements, and session flags must not

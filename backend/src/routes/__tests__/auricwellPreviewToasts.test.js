@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
+vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() }, onTableWrite: vi.fn() }));
 vi.mock('../../models/Agency.model.js', () => ({ default: {findBySlug:vi.fn()} }));
 vi.mock('../../middleware/auth.middleware.js', () => ({ authenticate: vi.fn(), requireActiveStatus: vi.fn() }));
 vi.mock('../../middleware/auricwellPreview.middleware.js', () => ({ requirePreviewAdmin: vi.fn() }));

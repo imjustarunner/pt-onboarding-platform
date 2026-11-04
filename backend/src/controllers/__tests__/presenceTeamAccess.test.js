@@ -6,7 +6,11 @@ vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: mocks.age
 vi.mock('../../models/Notification.model.js', () => ({ default: {} }));
 vi.mock('../../models/UserPresenceStatus.model.js', () => ({ default: {
   clearExpiredTimedAwayStatuses: mocks.clear,
-  findAllWithUsersForAgency: mocks.roster
+  findAllWithUsersForAgency: mocks.roster,
+  isTimedAwayExpired: () => false,
+  isReachableNote: () => false,
+  isAwayStatus: () => false,
+  labelForReason: () => null
 } }));
 vi.mock('../../utils/uploads.js', () => ({ publicUploadsUrlFromStoredPath: () => null }));
 vi.mock('../../services/calendarPresence.service.js', () => ({
@@ -58,5 +62,15 @@ describe('admin team presence access', () => {
     expect(mocks.agencies).not.toHaveBeenCalled();
     expect(mocks.roster).toHaveBeenCalledWith(7);
     expect(res.json).toHaveBeenCalledWith([]);
+  });
+  it('keeps machine identities out of the human team board even if a roster adapter returns them', async () => {
+    mocks.roster.mockResolvedValue([
+      { id: 2, role: 'support', first_name: 'Human', last_name: 'QA', agency_ids: '7' },
+      { id: 81, role: 'assistant', first_name: 'Scoped', last_name: 'Assistant', agency_ids: '7' },
+      { id: 82, role: 'support', is_assistant_account: 1, first_name: 'Marked', last_name: 'Assistant', agency_ids: '7' }
+    ]);
+    const res = response();
+    await listPresenceForAgency(request('support'), res, vi.fn());
+    expect(res.json.mock.calls[0][0].map(row => row.id)).toEqual([2]);
   });
 });

@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
+import { humanRosterSql } from '../utils/workplacePeople.js';
 
 const LIMIT = 60;
 
@@ -38,6 +39,7 @@ export const getTenantPeopleSnapshot = async (req, res, next) => {
       FROM users u
       INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
       WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
+        AND ${humanRosterSql('u')}
         AND LOWER(COALESCE(u.role, '')) NOT IN ('client', 'client_guardian')
     `;
 
@@ -100,6 +102,7 @@ export const getTenantPeopleSnapshot = async (req, res, next) => {
       FROM users u
       INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
       WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
+        AND ${humanRosterSql('u')}
         AND LOWER(COALESCE(u.role, '')) NOT IN ('client', 'client_guardian')
         AND LOWER(COALESCE(u.role, '')) NOT IN (${otherPh})
       ORDER BY u.role, u.last_name, u.first_name, u.id
