@@ -3319,7 +3319,7 @@ export const updateClient = async (req, res, next) => {
           const termNote = (newKey === 'terminated' || newLabel.includes('terminated'))
             ? (String(req.body.termination_reason || updatedClient.termination_reason || '').trim() || 'Terminated')
             : null;
-          await ClientStatusHistory.create({
+          const statusChange=await ClientStatusHistory.create({
             client_id: parseInt(id, 10),
             changed_by_user_id: userId,
             field_changed: 'client_status_id',
@@ -3327,6 +3327,8 @@ export const updateClient = async (req, res, next) => {
             to_value: newStatusId ? String(newStatusId) : null,
             note: termNote
           }).catch(() => {});
+          const {queueSchoolClientStatusEmails}=await import('../services/schoolClientStatusEmail.service.js');
+          await queueSchoolClientStatusEmails(pool,{clientId:parseInt(id,10),actorUserId:userId,statusChangeId:statusChange?.id || null});
         }
 
         if (!oldWasCurrent && newIsCurrent && newProviderId) {
@@ -3610,6 +3612,12 @@ export const updateClientStatus = async (req, res, next) => {
         });
         if (csId) {
           await Client.update(id, { client_status_id: csId }, userId);
+          if(Number(currentClient.client_status_id)!==Number(csId)){
+            const statusChange=await ClientStatusHistory.create({client_id:parseInt(id,10),changed_by_user_id:userId,
+              field_changed:'client_status_id',from_value:currentClient.client_status_id?String(currentClient.client_status_id):null,to_value:String(csId),note:note || 'Workflow status changed'});
+            const {queueSchoolClientStatusEmails}=await import('../services/schoolClientStatusEmail.service.js');
+            await queueSchoolClientStatusEmails(pool,{clientId:parseInt(id,10),actorUserId:userId,statusChangeId:statusChange?.id || null});
+          }
         }
       }
     } catch {

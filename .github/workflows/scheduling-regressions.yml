@@ -373,6 +373,6 @@ jobs:
           backend/src/services/__tests__/scheduling.supervisionTimeCorrection.mysql.test.js
           backend/src/services/__tests__/scheduling.supervisionScheduleActions.mysql.test.js
           backend/src/services/__tests__/scheduling.schoolSupport.mysql.test.js
-          backend/src/services/__tests__/scheduling.schoolFamilyStatus.mysql.test.js
+          backend/src/services/__tests__/scheduling.schoolStatusTransitions.mysql.test.js
       - name: Work username reservation transactions
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.hire.config.js backend/src/services/__tests__/hire.username.mysql.test.js
