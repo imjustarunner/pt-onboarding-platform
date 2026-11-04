@@ -1,12 +1,13 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import crypto from 'node:crypto';
-const m=vi.hoisted(()=>({execute:vi.fn(),send:vi.fn(),opt:vi.fn(),footer:vi.fn(),approval:vi.fn(),log:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),send:vi.fn(),opt:vi.fn(),footer:vi.fn(),approval:vi.fn(),log:vi.fn(),currentRecipient:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute},onTableWrite:vi.fn()}));
 vi.mock('../unifiedEmail/gmailClient.js',()=>({getGmailClient:async()=>({users:{messages:{send:m.send,get:async()=>({data:{}})}}}),getImpersonatedUser:()=> 'sender@example.test'}));
 vi.mock('../unifiedEmail/verifiedSender.js',()=>({assertVerifiedGmailSender:async()=>{}}));
 vi.mock('../googleWorkspaceEmail.service.js',()=>({default:{sendEmail:m.send,isConfigured:()=>true}}));
 vi.mock('../emailSettings.service.js',()=>({getEmailSendingMode:async()=> 'all',isEmailNotificationsEnabled:async()=>true,emailRequiresAdminApproval:m.approval}));
 vi.mock('../tenantMessageMailboxes.service.js',()=>({inferAgencyMailDomain:vi.fn(async()=> 'itsco.health')}));
+vi.mock('../cancellationRecipients.service.js',()=>({cancellationRecipients:{permitted:m.currentRecipient}}));
 vi.mock('../emailComplianceFooter.service.js',()=>({assertRecipientAllowsEmail:m.opt,appendComplianceFooter:m.footer}));
 vi.mock('../activityProtection.service.js',()=>({protectOutboundEmail:async()=>{}}));
 vi.mock('../managedWorkspaceGroupAccess.service.js',()=>({managedGroupEnvelope:async x=>x}));
@@ -28,7 +29,7 @@ import {sendEmailFromIdentity} from '../unifiedEmail/unifiedEmailSender.service.
 import {REQUESTED_ACCOUNT_EMAIL_TYPES} from '../../utils/accountAccessEmail.js';
 const input={agencyId:2,senderIdentityId:1,userId:20,to:'parent@example.test',fromAddress:'contact@example.test',usedFallbackSender:false,text:'Open your requested account link.',html:'<p>Requested account link</p>',subject:'Your requested link'};
 beforeEach(()=>{
- vi.clearAllMocks();m.log.mockResolvedValue({id:100});m.opt.mockResolvedValue({allowed:false,reason:'recipient_opted_out'});m.approval.mockResolvedValue(true);
+ vi.clearAllMocks();m.currentRecipient.mockResolvedValue(true);m.log.mockResolvedValue({id:100});m.opt.mockResolvedValue({allowed:false,reason:'recipient_opted_out'});m.approval.mockResolvedValue(true);
  m.footer.mockImplementation(async x=>({text:x.text,html:x.html}));m.send.mockResolvedValue({id:'accepted',data:{id:'accepted'}});
  m.execute.mockImplementation(async sql=>sql.includes('agency_parent_email_controls')?[[{routine_emails_paused:0}]]:sql.startsWith('SELECT')?[[]]:[{affectedRows:1}]);
 });
@@ -72,6 +73,7 @@ it('delivers only signed reviewed cancellation proof past the rollout pause and 
  const prior=m.execute.getMockImplementation();
  m.execute.mockImplementation((sql,args)=>{
   if(sql.includes('FROM provider_day_cancellations'))return Promise.resolve([[{provider_id:776,actor_user_id:776,status:'completed',signed_at:'2026-11-04 15:00:00',plan_json:JSON.stringify(plan)}]]);
+  if(sql==='SELECT metadata,agency_id,recipient_address FROM user_communications WHERE id=?')return Promise.resolve([[{agency_id:2,recipient_address:input.to,metadata:{...proof,cc:['support@itsco.health']}}]]);
   if(sql.includes('agency_parent_email_controls'))return Promise.resolve([[{routine_emails_paused:1}]]);
   return prior(sql,args);
  });
@@ -79,6 +81,12 @@ it('delivers only signed reviewed cancellation proof past the rollout pause and 
   templateType:'day_cancellation',cc:['support@itsco.health']})).toMatchObject({id:'accepted'});
  expect(m.send).toHaveBeenCalledOnce();expect(m.approval).not.toHaveBeenCalled();
  expect(m.log.mock.calls[0][0].metadata).toMatchObject({...proof,source:'manual',cc:['support@itsco.health']});
+ // A queued manual receipt must pass fresh contact admission before transport,
+ // even though its original signed plan and saved envelope still match.
+ m.send.mockClear();m.currentRecipient.mockResolvedValue(false);
+ await expect(sendEmailFromIdentity({...input,existingCommunicationId:77,clientId:8,generatedByUserId:99,
+  templateType:'day_cancellation',cc:['support@itsco.health']})).rejects.toThrow('contact or notification permission has changed');
+ expect(m.send).not.toHaveBeenCalled();m.currentRecipient.mockResolvedValue(true);
  m.send.mockClear();m.opt.mockResolvedValue({allowed:false,reason:'recipient_opted_out'});
  expect(await sendEmailFromIdentity({...input,...proof,clientId:8,generatedByUserId:776,templateType:'day_cancellation',cc:['support@itsco.health']}))
   .toMatchObject({skipped:true,reason:'recipient_opted_out'});

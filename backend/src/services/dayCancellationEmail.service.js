@@ -6,8 +6,14 @@ const email = value => String(value || '').trim().toLowerCase();
 const validEmail = value => /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(value);
 const fail = message => Object.assign(new Error(message), { status: 403, code: 'DAY_CANCELLATION_PROOF_REQUIRED' });
 const operationalTypes = new Set(['day_cancellation', 'day_cancellation_contact_followup']);
+const validatedContexts = new WeakSet();
 const parse = value => typeof value === 'string' ? JSON.parse(value) : value;
 export const isDayCancellationEmail = templateType => operationalTypes.has(String(templateType || '').replace(/^trigger:/, ''));
+export function validatedDayCancellationContext(context,{agencyId,clientId,to}) {
+  return context && validatedContexts.has(context) && Number(context.agencyId)===Number(agencyId)
+    && context.destinations.includes(email(to))
+    && (!clientId || context.item.clients?.some(client=>Number(client.clientId)===Number(clientId))) ? context : null;
+}
 function addresses(value) {
   if (Array.isArray(value)) return value.flatMap(addresses);
   if (value && typeof value === 'object') return addresses(value.email || value.address);
@@ -53,7 +59,10 @@ export async function resolveDayCancellationEmail({ agencyId, providerId, provid
 export async function reviewedDayCancellationContext(input, overrides = {}) {
   if (!isDayCancellationEmail(input.templateType)) return null;
   const d = { database: pool, decrypt: maybeDecryptNotePayload,
-    domain: async id => (await import('./tenantMessageMailboxes.service.js')).inferAgencyMailDomain(id), ...overrides };
+    domain: async id => (await import('./tenantMessageMailboxes.service.js')).inferAgencyMailDomain(id),
+    currentRecipient: async (clientId,agencyId,recipient,context) => (await import('./cancellationRecipients.service.js')).cancellationRecipients.permitted(
+      clientId,agencyId,recipient,'email',{actorUserId:context.actorUserId,reviewedCancellationToken:context.reviewedCancellationToken,
+        reviewedCancellationItemKey:context.reviewedCancellationItemKey,validatedContext:context}), ...overrides };
   let proof = input, persisted = false;
   if (input.existingCommunicationId) {
     const [[communication]] = await d.database.execute('SELECT metadata,agency_id,recipient_address FROM user_communications WHERE id=?', [input.existingCommunicationId]);
@@ -86,6 +95,9 @@ export async function reviewedDayCancellationContext(input, overrides = {}) {
   }
   const destinations = addresses(input.to);
   if (!destinations.length || destinations.some(address => !validEmail(address) || !permitted.includes(address))) throw fail('This recipient was not included in the signed cancellation review.');
+  const context={row,plan,item,agencyId:Number(input.agencyId),destinations,providerId:Number(plan.providerId),actorUserId:Number(row.actor_user_id),
+    reviewedCancellationToken:token,reviewedCancellationItemKey:itemKey};
+  validatedContexts.add(context);
   if(overrides.verifyEnvelope) {
     const support=`support@${email(await d.domain(input.agencyId))}`;
     if(!validEmail(support)) throw fail('Configure the approved agency support mailbox before sending.');
@@ -97,7 +109,24 @@ export async function reviewedDayCancellationContext(input, overrides = {}) {
     };
     verifyCopies(input);
     if(persisted)verifyCopies(proof);
+    if(!report && item.kind==='school') {
+      const date=String(item.date || plan.date || '').slice(0,10);
+      const weekday=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date(`${date}T12:00:00Z`).getUTCDay()];
+      const [schools]=await d.database.execute(`SELECT school.id FROM agencies school
+        JOIN organization_affiliations oa ON oa.organization_id=school.id AND oa.agency_id=? AND oa.is_active=1
+        JOIN provider_school_assignments psa ON psa.school_organization_id=school.id AND psa.provider_user_id=? AND psa.is_active=1 AND BINARY psa.day_of_week=BINARY ?
+        WHERE school.id=? AND school.organization_type='school' AND school.is_active=1 AND COALESCE(school.is_archived,0)=0 LIMIT 1`,
+      [input.agencyId,plan.providerId,weekday,item.id]);
+      if(!schools.length)throw fail('The provider or school is no longer affiliated for this cancellation notice.');
+    } else if(!report) for(const destination of destinations) {
+      let allowed=false;
+      for(const client of item.clients || []) {
+        if(client.mode==='none' || (input.clientId && Number(client.clientId)!==Number(input.clientId)))continue;
+        for(const recipient of client.recipients || []) if(email(recipient.email)===destination
+          && await d.currentRecipient(client.clientId,input.agencyId,recipient,context))allowed=true;
+      }
+      if(!allowed)throw fail('The reviewed family contact or notification permission has changed. Review the recipients again.');
+    }
   }
-  return { row, plan, item, providerId: Number(plan.providerId), actorUserId: Number(row.actor_user_id),
-    reviewedCancellationToken: token, reviewedCancellationItemKey: itemKey };
+  return context;
 }

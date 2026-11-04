@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: {} }));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: {} }));
 import { createCancellationRecipientService, reviewedEmail, reviewedMessage } from '../cancellationRecipients.service.js';
+import { reviewedDayCancellationContext } from '../dayCancellationEmail.service.js';
 import { createCancellationSchoolNoticeService } from '../cancellationSchoolNotice.service.js';
 import { createReplacementOfferEventService, replacementOutcome } from '../replacementOfferEvents.service.js';
 
@@ -120,6 +121,76 @@ describe('reviewed cancellation recipients', () => {
     expect(() => reviewedEmail('one@example.test,other@example.test')).toThrow('one valid');
     expect(() => reviewedMessage({ subject: 'Hi\nBcc: someone@example.test', text: 'Cancellation' })).toThrow('subject');
     expect(reviewedMessage({ subject: 'School update', text: 'Edited reason\nNext step' })).toEqual({ subject: 'School update', text: 'Edited reason\nNext step' });
+  });
+});
+
+describe('saved cancellation final-envelope recipient admission',()=>{
+  function retryFixture({enrollment=false,temporary=false,disabled=false}={}) {
+    const token='11111111-1111-4111-8111-111111111111',proof={reviewedCancellationToken:token,reviewedCancellationItemKey:'appointment:17'};
+    let guardian={guardian_user_id:12,relationship_type:'guardian',access_enabled:disabled?0:1,is_active:disabled?0:1,
+      status:disabled?'INACTIVE':'ACTIVE',permissions_json:disabled?{noView:true,canViewAppointments:false}:{},email:'source@example.test'};
+    let caregiver={key:'enrollment:77',role:'guardian',userId:null,email:'source@example.test',phone:'',operationalOnly:true,intakeSubmissionId:77,source:'submitted_school_enrollment'};
+    const contact=enrollment?{...caregiver}:{key:'guardian:12',role:'guardian',userId:12,email:guardian.email,
+      ...(disabled?{operationalOnly:true,source:'affiliated_guardian'}:{})};
+    const recipient={...contact,email:temporary?'reviewed@example.test':contact.email};
+    const plan={date:'2026-11-04',providerId:776,messagesReviewed:true,facts:{reasonCategory:'illness',notificationMode:'send'},scopes:[{agencyId:2}],items:[{
+      key:'appointment:17',kind:'appointment',agencyId:2,clients:[{clientId:8,mode:'guardian',contacts:[contact],recipients:[recipient]}]}]};
+    const row={provider_id:776,actor_user_id:776,status:'completed',signed_at:'2026-11-04 15:00:00',plan_json:JSON.stringify(plan)};
+    const communication={agency_id:2,recipient_address:recipient.email,metadata:{...proof,cc:['support@itsco.health'],source:'manual'}};
+    let schoolAffiliated=true;
+    const database={execute:vi.fn(async sql=>{
+      if(sql.includes('FROM provider_day_cancellations'))return [[{...row,plan_json:JSON.stringify(plan)}]];
+      if(sql.includes('FROM user_communications'))return [[communication]];
+      if(sql.includes('FROM clients c'))return [[{id:8,full_name:'Client',status:'ACTIVE'}]];
+      if(sql.includes('FROM agencies school'))return [schoolAffiliated?[{id:21}]:[]];
+      if(sql.includes('FROM users u JOIN user_agencies'))return [[{id:776,work_email:'provider@itsco.health'}]];
+      throw new Error(`Unexpected query: ${sql}`);
+    })};
+    const gate=vi.fn(async()=>({allowed:true})),preferences=vi.fn(async()=>({isDefault:false,channels:{email:false}}));
+    const service=createCancellationRecipientService({database,guardians:async()=>!enrollment&&guardian?[guardian]:[],
+      caregivers:async()=>enrollment&&caregiver?[caregiver]:[],consent:async()=>({email:false,emailAddress:null}),preferences,gate,
+      operational:reviewedDayCancellationContext,normalizePhone:x=>x});
+    const deps={database,decrypt:x=>x,domain:async()=> 'itsco.health',verifyEnvelope:true,
+      currentRecipient:(clientId,agencyId,value,context)=>service.permitted(clientId,agencyId,value,'email',{
+        ...proof,actorUserId:776,validatedContext:context})};
+    const input={...proof,agencyId:2,clientId:8,to:recipient.email,cc:['support@itsco.health'],templateType:'day_cancellation',generatedByUserId:776};
+    return {plan,contact,recipient,gate,preferences,initial:()=>reviewedDayCancellationContext(input,deps),
+      retry:()=>reviewedDayCancellationContext({...input,reviewedCancellationToken:null,reviewedCancellationItemKey:null,existingCommunicationId:91,generatedByUserId:99},deps),
+      removeGuardian:()=>{guardian=null;},revokeGuardian:()=>{guardian.permissions_json={revoked:true};},
+      changeGuardianEmail:()=>{guardian.email='changed@example.test';},changeEnrollmentEmail:()=>{caregiver.email='changed@example.test';},
+      replaceEnrollment:()=>{caregiver={...caregiver,key:'enrollment:88',intakeSubmissionId:88};},
+      school:()=>{input.clientId=null;plan.items[0]={key:'appointment:17',kind:'school',agencyId:2,id:21,date:'2026-11-04',recipients:[recipient.email]};},
+      revokeSchool:()=>{schoolAffiliated=false;},report:()=>reviewedDayCancellationContext({...input,clientId:null,templateType:'day_cancellation_contact_followup',to:['provider@itsco.health','support@itsco.health'],cc:null},deps)};
+  }
+  it.each(['removed','revoked'])('blocks a persisted retry when the guardian relationship is %s after queueing',async change=>{
+    const h=retryFixture();expect(await h.initial()).toBeTruthy();
+    change==='removed'?h.removeGuardian():h.revokeGuardian();
+    await expect(h.retry()).rejects.toThrow('contact or notification permission has changed');
+  });
+  it.each(['email changed','source replaced'])('blocks a persisted retry when the signed enrollment %s after queueing',async change=>{
+    const h=retryFixture({enrollment:true});expect(await h.initial()).toBeTruthy();
+    change==='email changed'?h.changeEnrollmentEmail():h.replaceEnrollment();
+    await expect(h.retry()).rejects.toThrow('contact or notification permission has changed');
+  });
+  it('allows the reviewed temporary destination only while its canonical source contact is unchanged',async()=>{
+    const h=retryFixture({temporary:true});expect(await h.initial()).toBeTruthy();expect(await h.retry()).toBeTruthy();
+    h.changeGuardianEmail();await expect(h.retry()).rejects.toThrow('contact or notification permission has changed');
+  });
+  it('retains current disabled affiliated guardian eligibility but rechecks actual category opt-outs',async()=>{
+    const h=retryFixture({disabled:true});expect(await h.initial()).toBeTruthy();expect(await h.retry()).toBeTruthy();
+    h.gate.mockResolvedValue({allowed:false,reason:'family_notification_category_off'});
+    await expect(h.retry()).rejects.toThrow('contact or notification permission has changed');
+  });
+  it('rechecks explicit schedule-change preferences on retry',async()=>{
+    const h=retryFixture();expect(await h.initial()).toBeTruthy();h.preferences.mockResolvedValue({schedulingChangesEnabled:false});
+    await expect(h.retry()).rejects.toThrow('contact or notification permission has changed');
+  });
+  it('keeps the internal contact follow-up available when a family relationship is removed',async()=>{
+    const h=retryFixture();h.removeGuardian();expect(await h.report()).toBeTruthy();
+  });
+  it('rechecks provider school agency affiliation while preserving a reviewed temporary school address',async()=>{
+    const h=retryFixture({temporary:true});h.school();expect(await h.initial()).toBeTruthy();expect(await h.retry()).toBeTruthy();
+    h.revokeSchool();await expect(h.retry()).rejects.toThrow('no longer affiliated');
   });
 });
 

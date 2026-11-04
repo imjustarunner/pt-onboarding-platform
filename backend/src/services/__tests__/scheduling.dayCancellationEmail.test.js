@@ -2,6 +2,8 @@ import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../tenantMessageMailboxes.service.js',()=>({inferAgencyMailDomain:async()=> 'itsco.health'}));
 vi.mock('../familyNotificationChoices.service.js',()=>({familyNotificationDeliveryGate:vi.fn(async()=>({allowed:true}))}));
+// Current-contact policy is covered with the real service in cancellationOutreach.
+vi.mock('../cancellationRecipients.service.js',()=>({cancellationRecipients:{permitted:vi.fn(async()=>true)}}));
 import { resolveDayCancellationEmail, reviewedDayCancellationContext } from '../dayCancellationEmail.service.js';
 import { routineParentEmailGate } from '../routineParentEmailPause.service.js';
 import { familyNotificationDeliveryGate } from '../familyNotificationChoices.service.js';

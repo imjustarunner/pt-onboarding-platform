@@ -3,7 +3,7 @@ import ClientGuardian from '../models/ClientGuardian.model.js';
 import PhoneNumber from '../models/PhoneNumber.model.js';
 import { hasTerminalClientStatus } from './clientTerminationRoster.service.js';
 import { schoolCancellationCaregiverContacts } from './schoolCancellationCaregiverContacts.service.js';
-import { reviewedDayCancellationContext } from './dayCancellationEmail.service.js';
+import { reviewedDayCancellationContext, validatedDayCancellationContext } from './dayCancellationEmail.service.js';
 
 const fail = message => Object.assign(new Error(message), { status: 400 });
 function notificationRelationshipDenied(link) {
@@ -86,8 +86,13 @@ export function createCancellationRecipientService(overrides = {}) {
     const current = await contacts(clientId, agencyId);
     const currentContact=current.contacts.find(c => c.key === recipient.key && Number(c.userId) === Number(recipient.userId));
     if (!currentContact) return false;
-    const operational=channel==='email' && review?.reviewedCancellationToken ? await d.operational({agencyId,clientId,to:recipient.email,
-      templateType:'day_cancellation',...review,generatedByUserId:review.actorUserId},{database:d.database}) : null;
+    const trustedContext=validatedDayCancellationContext(review?.validatedContext,{agencyId,clientId,to:recipient.email});
+    const operational=channel==='email' && review?.reviewedCancellationToken
+      ? trustedContext
+        || await d.operational({agencyId,clientId,to:recipient.email,templateType:'day_cancellation',...review,generatedByUserId:review.actorUserId},{database:d.database}) : null;
+    const sourceContact=operational?.item?.clients?.find(client=>Number(client.clientId)===Number(clientId))?.contacts
+      ?.find(contact=>contact.key===recipient.key && Number(contact.userId)===Number(recipient.userId));
+    if((trustedContext && !sourceContact) || (sourceContact && String(sourceContact.email || '').trim().toLowerCase()!==String(currentContact.email || '').trim().toLowerCase()))return false;
     if(currentContact.operationalOnly && !operational)return false;
     if(currentContact.operationalOnly && (String(currentContact.email || '').trim().toLowerCase()!==String(recipient.email || '').trim().toLowerCase()
         || (currentContact.source!=='affiliated_guardian' && Number(currentContact.intakeSubmissionId)!==Number(recipient.intakeSubmissionId))))return false;
