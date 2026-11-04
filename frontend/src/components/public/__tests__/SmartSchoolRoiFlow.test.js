@@ -80,12 +80,11 @@ describe('SmartSchoolRoiFlow', () => {
     const intakeChoiceRadios = wrapper.findAll('input[type="radio"]');
     await intakeChoiceRadios[1].setValue();
 
-    await wrapper.get('input[type="date"]').setValue('2016-04-05');
-    const textInputs = wrapper.findAll('input[type="text"]');
-    await textInputs[0].setValue('Test Client');
-    await textInputs[1].setValue('Jamie');
-    await textInputs[2].setValue('Parent');
-    await textInputs[3].setValue('Mother');
+    await wrapper.get('#roi-client-dob').setValue('04/05/2016');
+    await wrapper.get('#roi-client-full-name').setValue('Test Client');
+    await wrapper.get('#roi-signer-first-name').setValue('Jamie');
+    await wrapper.get('#roi-signer-last-name').setValue('Parent');
+    await wrapper.get('#roi-signer-relationship').setValue('Mother');
     await wrapper.get('input[type="email"]').setValue('jamie@example.com');
     await wrapper.get('input[type="tel"]').setValue('555-123-4567');
     await wrapper.get('button.btn-primary').trigger('click');

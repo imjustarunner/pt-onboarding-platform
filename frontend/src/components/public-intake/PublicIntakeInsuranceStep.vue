@@ -14,21 +14,22 @@
       to a short confirmation instead of asking for a carrier/member ID they
       don't have.
     -->
-    <div v-if="!hideSelfPayToggle" class="pi-ins-selfpay">
-      <label class="pi-ins-selfpay-row" :class="{ 'pi-ins-selfpay-row--active': isSelfPay }">
-        <input type="checkbox" :checked="isSelfPay" @change="toggleSelfPay($event.target.checked)" />
-        <span>
-          <strong>{{ tx('I am self-pay') }}</strong>
-          <span class="pi-ins-selfpay-sub">{{ tx('— I don\'t have insurance to bill, or I prefer to pay out of pocket.') }}</span>
-        </span>
-      </label>
-      <p v-if="isSelfPay" class="pi-ins-selfpay-note">
-        {{ tx('Thanks! We\'ll record this as self-pay. You can skip the insurance carrier / member ID fields below and proceed to sign the authorization at the bottom of this page.') }}
+    <div v-if="!hideSelfPayToggle && !coverageChosen" class="pi-ins-choice">
+      <p class="pi-ins-choice-lead">{{ tx('How will services be paid?') }}</p>
+      <div class="pi-ins-choice-actions">
+        <button type="button" class="btn btn-primary" @click="chooseInsurance">{{ tx('I have insurance') }}</button>
+        <button type="button" class="btn btn-secondary" @click="chooseSelfPay">{{ tx('I am self-pay') }}</button>
+      </div>
+    </div>
+    <div v-else-if="!hideSelfPayToggle && isSelfPay" class="pi-ins-selfpay">
+      <p class="pi-ins-selfpay-note">
+        {{ tx('Thanks! We\'ll record this as self-pay. Insurance details stay closed.') }}
       </p>
+      <button type="button" class="btn btn-secondary btn-sm" @click="chooseInsurance">{{ tx('I have insurance instead') }}</button>
     </div>
 
     <!-- PRIMARY INSURANCE -->
-    <div v-if="!isSelfPay" class="pi-ins-card">
+    <div v-if="showInsuranceForm" class="pi-ins-card">
       <h4 class="pi-ins-card-title">{{ tx('Primary Insurance') }}</h4>
       <p class="pi-ins-card-tip">
         {{ tx('Enter the policy details below. Our billing team will verify your coverage.') }}
@@ -133,7 +134,7 @@
       <div class="claim-fields">
         <h4>{{ tx("Primary subscriber") }}</h4>
         <label>{{ tx("Client’s relationship to subscriber") }}<select v-model="local.primary.relationshipToSubscriber" @change="push"><option value="">{{ tx("Select") }}</option><option value="self">{{ tx("Self (client is the subscriber)") }}</option><option value="child">{{ tx("Child") }}</option><option value="spouse">{{ tx("Spouse") }}</option><option value="other">{{ tx("Other") }}</option></select></label>
-        <label>{{ tx("Subscriber date of birth") }}<input v-model="local.primary.subscriberDob" type="date" @change="push" /></label>
+        <label>{{ tx("Subscriber date of birth") }}<BirthDateInput v-model="local.primary.subscriberDob" @blur="push" /></label>
         <label>{{ tx("Subscriber sex on policy") }}<select v-model="local.primary.subscriberSex" @change="push"><option value="">{{ tx("Select") }}</option><option>M</option><option>F</option><option>U</option></select></label>
         <label v-for="field in [{key:'subscriberFirstName',label:'Subscriber legal first name'},{key:'subscriberLastName',label:'Subscriber legal last name'},{key:'subscriberAddressLine1',label:'Subscriber address'},{key:'subscriberCity',label:'City'},{key:'subscriberState',label:'State'},{key:'subscriberPostalCode',label:'ZIP code'},{key:'payerId',label:'Electronic payer ID (if known)'},{key:'planType',label:'Plan type (if known)'}]" :key="field.key">{{ tx(field.label) }}<input v-model="local.primary[field.key]" maxlength="255" @input="push" /></label>
       </div>
@@ -218,19 +219,19 @@
       </div>
     </div>
 
-    <p v-if="!isSelfPay && displayedSecondaryDisclaimer" class="pi-ins-disclaimer pi-ins-secondary-notice">
+    <p v-if="showInsuranceForm && displayedSecondaryDisclaimer" class="pi-ins-disclaimer pi-ins-secondary-notice">
       {{ displayedSecondaryDisclaimer }}
     </p>
 
     <!-- SECONDARY INSURANCE (optional) -->
-    <div v-if="!isSelfPay" class="pi-ins-secondary-toggle">
+    <div v-if="showInsuranceForm" class="pi-ins-secondary-toggle">
       <label class="checkbox-row">
         <input v-model="hasSecondary" type="checkbox" />
         <span>{{ tx('I have secondary insurance to add') }}</span>
       </label>
     </div>
 
-    <div v-if="!isSelfPay && hasSecondary" class="pi-ins-card">
+    <div v-if="showInsuranceForm && hasSecondary" class="pi-ins-card">
       <h4 class="pi-ins-card-title">{{ tx('Secondary Insurance') }}</h4>
 
       <div class="form-group">
@@ -282,7 +283,7 @@
       <div class="claim-fields">
         <h4>{{ tx("Secondary subscriber") }}</h4>
         <label>{{ tx("Client’s relationship to subscriber") }}<select v-model="local.secondary.relationshipToSubscriber" @change="push"><option value="">{{ tx("Select") }}</option><option value="self">{{ tx("Self (client is the subscriber)") }}</option><option value="child">{{ tx("Child") }}</option><option value="spouse">{{ tx("Spouse") }}</option><option value="other">{{ tx("Other") }}</option></select></label>
-        <label>{{ tx("Subscriber date of birth") }}<input v-model="local.secondary.subscriberDob" type="date" @change="push" /></label>
+        <label>{{ tx("Subscriber date of birth") }}<BirthDateInput v-model="local.secondary.subscriberDob" @blur="push" /></label>
         <label>{{ tx("Subscriber sex on policy") }}<select v-model="local.secondary.subscriberSex" @change="push"><option value="">{{ tx("Select") }}</option><option>M</option><option>F</option><option>U</option></select></label>
         <label v-for="field in [{key:'subscriberFirstName',label:'Subscriber legal first name'},{key:'subscriberLastName',label:'Subscriber legal last name'},{key:'subscriberAddressLine1',label:'Subscriber address'},{key:'subscriberCity',label:'City'},{key:'subscriberState',label:'State'},{key:'subscriberPostalCode',label:'ZIP code'},{key:'payerId',label:'Electronic payer ID (if known)'},{key:'planType',label:'Plan type (if known)'}]" :key="field.key">{{ tx(field.label) }}<input v-model="local.secondary[field.key]" maxlength="255" @input="push" /></label>
       </div>
@@ -312,7 +313,7 @@
       </div>
     </div>
 
-    <div v-if="!isSelfPay && !hasAnyMedicaid" class="pi-ins-card pi-ins-guarantor-card">
+    <div v-if="showInsuranceForm && !hasAnyMedicaid" class="pi-ins-card pi-ins-guarantor-card">
       <h4 class="pi-ins-card-title">{{ tx('Responsible Party (Guarantor)') }}</h4>
       <template v-if="props.intakeForSelf">
         <div class="pi-ins-guarantor-choices">
@@ -349,7 +350,7 @@
       </template>
     </div>
 
-    <section v-if="!isSelfPay" class="pi-ins-claim-details">
+    <section v-if="showInsuranceForm" class="pi-ins-claim-details">
       <h4>{{ tx("Coverage and subscriber details") }}</h4>
       <p>{{ tx("The subscriber may be the parent or the child. Check the policy details and confirm who is covered. A matching name alone does not verify coverage.") }}</p>
       <label>{{ tx("Policy applies to") }} <select v-model="coverageScope" @change="push"><option value="client">{{ tx("One client") }}</option><option value="account_holder">{{ tx("Account holder with covered dependents") }}</option></select>
@@ -366,7 +367,7 @@
       <p v-if="coverageUploadError" role="alert">{{ tx(coverageUploadError) }}</p>
 
     </section>
-    <div class="pi-ins-card pi-ins-identity-card">
+    <div v-if="hideSelfPayToggle || coverageChosen" class="pi-ins-card pi-ins-identity-card">
       <h4 class="pi-ins-card-title">{{ tx('Identity verification') }}</h4>
       <p class="pi-ins-field-note">
         {{ tx('To help prevent insurance fraud and protect you, our organization, and our providers, we ask that you verify you are who you say you are. You can skip for now and may be asked later in the portal to provide or upload ID.') }}
@@ -394,7 +395,7 @@
     </div>
 
     <!-- Insurance disclaimer -->
-    <div v-if="!isSelfPay" class="pi-ins-footer-notice">
+    <div v-if="showInsuranceForm" class="pi-ins-footer-notice">
       <p>
         {{ tx('Our office will verify whether your plan covers the selected services. Insurance information is not a guarantee of coverage. We will explain any permitted patient responsibility after review.') }}
       </p>
@@ -402,7 +403,7 @@
 
     <!-- Insurance Authorization Acknowledgment -->
     <div
-      v-if="!hideAuthorization"
+      v-if="showInsuranceForm && !hideAuthorization"
       class="pi-ins-auth-block"
       :class="{ 'pi-ins-auth-block--err': !!validationErrorFor('authorization') }"
       ref="authBlockRef"
@@ -436,8 +437,8 @@
         <div v-if="!authorizationSignatureData" class="pi-ins-auth-apply-wrap">
           <button
             type="button"
-            class="btn btn-primary btn-sm pi-ins-auth-apply pi-ins-auth-apply--pulse"
-            @click="applySavedAuthSignature"
+            class="btn btn-primary btn-sm pi-ins-auth-apply"
+            @pointerdown.prevent="applySavedAuthSignature"
           >
             {{ tx('Apply my signature to this authorization') }}
           </button>
@@ -507,6 +508,7 @@ import { filterInsurances, isMedicaidInsurer } from '../../utils/coloradoInsuran
 import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
 import api from '../../services/api.js';
 import InsurancePolicyFields from '../billing/InsurancePolicyFields.vue';
+import BirthDateInput from './BirthDateInput.vue';
 
 const { tx, txFmt } = useIntakeStepTx();
 const intakeSessionToken = inject('intakeSessionToken', ref(''));
@@ -595,6 +597,18 @@ const isSelfPay = ref(
 );
 
 const hideSelfPayToggle = computed(() => !!props.hideSelfPayToggle || !!props.stepConfig?.hideSelfPayToggle);
+const coverageChosen = ref(
+  isSelfPay.value || String(props.modelValue?.primary?.insurerName || '').trim().length > 0
+);
+const showInsuranceForm = computed(() => hideSelfPayToggle.value || (coverageChosen.value && !isSelfPay.value));
+function chooseInsurance() {
+  coverageChosen.value = true;
+  if (isSelfPay.value) toggleSelfPay(false);
+}
+function chooseSelfPay() {
+  coverageChosen.value = true;
+  if (!isSelfPay.value) toggleSelfPay(true);
+}
 const hideAuthorization = computed(() => !!props.hideAuthorization);
 const medicaidByClient = ref(
   Array.isArray(props.modelValue?.medicaidByClient)
@@ -1444,13 +1458,17 @@ defineExpose({
   flex-direction: column;
   gap: 6px;
 }
-.pi-ins-auth-apply--pulse {
-  animation: piInsAuthPulse 1.6s ease-in-out infinite;
+.pi-ins-auth-apply {
+  min-height: 44px;
+  touch-action: manipulation;
 }
-@keyframes piInsAuthPulse {
-  0%   { box-shadow: 0 0 0 0   rgba(15, 118, 110, 0.55); transform: translateY(0); }
-  50%  { box-shadow: 0 0 0 10px rgba(15, 118, 110, 0);    transform: translateY(-1px); }
-  100% { box-shadow: 0 0 0 0   rgba(15, 118, 110, 0);    transform: translateY(0); }
+.pi-ins-choice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.pi-ins-choice-actions .btn {
+  min-height: 44px;
 }
 .pi-ins-auth-applied-wrap {
   display: flex;

@@ -37,6 +37,9 @@
           {{ tr('Continue to signature', 'Continuar a la firma') }}
         </button>
       </div>
+      <p v-if="sectionReady && !acknowledged" class="muted small">
+        {{ tr('Check the agreement box above to continue to the signature.', 'Marque la casilla de acuerdo de arriba para continuar a la firma.') }}
+      </p>
     </div>
 
     <div v-else-if="stage === 'sign'" class="packet-section-card">
@@ -72,6 +75,12 @@
           </button>
         </div>
         <div v-if="!sessionSavedSignature || forceResign" class="review-block">
+          <label for="packet-typed-signature">{{ tr('Type your full name', 'Escriba su nombre completo') }}</label>
+          <input id="packet-typed-signature" v-model="typedSignatureName" class="roi-input" type="text" autocomplete="name" />
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="!typedSignatureName.trim()" @click="applyTypedSignature">
+            {{ tr('Use typed signature', 'Usar firma escrita') }}
+          </button>
+          <p class="muted small">{{ tr('Or draw below.', 'O dibuje abajo.') }}</p>
           <SignaturePad
             compact
             :locale="resolvedLocale"
@@ -115,6 +124,7 @@ const stage = ref('review');
 const acknowledged = ref(false);
 const signatureData = ref(null);
 const forceResign = ref(false);
+const typedSignatureName = ref('');
 const error = ref('');
 
 const resolvedLocale = computed(() => {
@@ -153,8 +163,29 @@ const goToSign = () => {
   stage.value = 'sign';
   forceResign.value = false;
   if (!signatureData.value && sessionSavedSignature.value) {
-    // Offer apply buttons; do not auto-apply.
+    signatureData.value = sessionSavedSignature.value;
   }
+};
+
+const renderTypedSignature = (name) => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 640;
+  canvas.height = 160;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#1a2e24';
+  ctx.font = '48px "Segoe Script", "Bradley Hand", "Apple Chancery", cursive';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(name, 24, canvas.height / 2, canvas.width - 48);
+  return canvas.toDataURL('image/png');
+};
+
+const applyTypedSignature = () => {
+  const name = typedSignatureName.value.trim();
+  if (!name) return;
+  onSigned(renderTypedSignature(name));
 };
 
 const applySessionSignature = () => {

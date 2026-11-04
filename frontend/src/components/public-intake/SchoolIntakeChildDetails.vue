@@ -19,7 +19,7 @@
         </div>
         <div class="form-group">
           <label :for="`clientDob_${index}`">{{ es ? 'Fecha de nacimiento' : 'Date of birth' }} *</label>
-          <input :id="`clientDob_${index}`" :value="child.dateOfBirth" :readonly="identityReadonly" type="date" :max="today" :aria-invalid="!!errors[index]?.dob" @input="update(index, 'dateOfBirth', $event.target.value)" />
+          <BirthDateInput :id="`clientDob_${index}`" :model-value="child.dateOfBirth" :readonly="identityReadonly" :invalid="!!errors[index]?.dob" @update:model-value="update(index, 'dateOfBirth', $event)" />
           <span v-if="errors[index]?.dob" class="error-text">{{ es ? 'Ingrese una fecha de nacimiento válida.' : 'Enter a valid date of birth.' }}</span>
         </div>
         <IntakeQuestionField v-for="field in visiblePersonalFields(index)" :key="field.key" :field="field" :name-prefix="`child_${index}_`"
@@ -48,15 +48,34 @@
 <script setup>
 import { computed } from 'vue';
 import IntakeQuestionField from '../digital-form/IntakeQuestionField.vue';
+import BirthDateInput from './BirthDateInput.vue';
 import { matchesShowIf } from '../../utils/intakeShowIf.js';
 import { childDetailKind } from '../../utils/schoolIntakeChildren.js';
 const props = defineProps({ clients: { type: Array, required: true }, answers: { type: Array, required: true },
   fields: { type: Array, default: () => [] }, errors: { type: Array, default: () => [] }, locale: { type: String, default: 'en' }, allowRemove: Boolean, identityReadonly: Boolean });
 const emit = defineEmits(['identity', 'answer', 'remove']);
 const es = computed(() => props.locale === 'es');
-const today = new Date().toISOString().slice(0, 10);
+const gradeOptions = computed(() => [
+  { value: 'Pre-K', label: 'Pre-K' },
+  { value: 'K', label: es.value ? 'Kinder' : 'Kindergarten' },
+  ...Array.from({ length: 12 }, (_, i) => {
+    const n = String(i + 1);
+    const suffix = n === '1' ? 'st' : n === '2' ? 'nd' : n === '3' ? 'rd' : 'th';
+    return { value: n, label: es.value ? `Grado ${n}` : `${n}${suffix} grade` };
+  })
+]);
+const sexOptions = computed(() => [
+  { value: 'Female', label: es.value ? 'Femenino' : 'Female' },
+  { value: 'Male', label: es.value ? 'Masculino' : 'Male' }
+]);
+function fieldForEntry(field) {
+  const kind = childDetailKind(field);
+  if (kind === 'sex') return { ...field, type: 'select', options: sexOptions.value };
+  if (kind === 'grade') return { ...field, type: 'select', options: gradeOptions.value };
+  return field;
+}
 const addressFields = computed(() => props.fields.filter(f => childDetailKind(f).startsWith('address_')));
-const personalFields = computed(() => props.fields.filter(f => !childDetailKind(f).startsWith('address_')));
+const personalFields = computed(() => props.fields.filter(f => !childDetailKind(f).startsWith('address_')).map(fieldForEntry));
 const visiblePersonalFields = index => personalFields.value.filter(f => matchesShowIf(f.showIf, props.answers[index] || {}));
 const visibleAddressFields = index => addressFields.value.filter(f => matchesShowIf(f.showIf, props.answers[index] || {}));
 const addressSummary = computed(() => addressFields.value.map(f => props.answers[0]?.[f.key]).filter(Boolean).join(', '));

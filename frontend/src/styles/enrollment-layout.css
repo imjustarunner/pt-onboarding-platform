@@ -58,3 +58,7 @@
 .df-page.df-page--enrollment .df-shell .df-input { height:44px; min-height:44px; }
 .df-page.df-page--enrollment .df-shell .intake-identity-grid input { min-height:44px; }
 .ajl-boot[role=status] { display:grid; place-items:center; min-height:100vh; background:#f3f7f4; color:#244a38; font:16px/1.5 system-ui,sans-serif; }
+@media(max-width:720px){
+ .df-page.df-page--enrollment .df-enrollment-progress { flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+ .df-enrollment-progress button { flex:0 0 auto; min-height:44px; }
+}

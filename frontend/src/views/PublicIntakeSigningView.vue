@@ -507,7 +507,7 @@
             </div>
             <div v-if="intakeForSelf !== false || ['couple', 'family'].includes(serviceSubject)" class="form-group form-group--dob">
               <label for="starterDob">{{ t('dateOfBirth') }} <span class="required-indicator">*</span></label>
-              <input id="starterDob" v-model="starterDob" type="date" :class="{ 'input-error': !!consentErrors.starterDob }" />
+              <BirthDateInput id="starterDob" v-model="starterDob" :invalid="!!consentErrors.starterDob" />
             </div>
             <div v-if="intakeForSelf === false && (!serviceSubject || serviceSubject === 'dependent')" class="form-group form-group--rel">
               <label for="guardianRelationship">{{ t('relationshipToClient') }} <span class="required-indicator">*</span></label>
@@ -578,11 +578,11 @@
                   </div>
                   <div class="form-group form-group--dob">
                     <label>{{ t('dependentDateOfBirth') }} <span class="required-indicator">*</span></label>
-                    <input
+                    <BirthDateInput
                       :id="`clientDob_${idx}`"
-                      v-model="c.dateOfBirth" :readonly="isCoGuardianInvitee"
-                      type="date"
-                      :class="{ 'input-error': !!startClientErrors[idx]?.dob }"
+                      v-model="c.dateOfBirth"
+                      :readonly="isCoGuardianInvitee"
+                      :invalid="!!startClientErrors[idx]?.dob"
                     />
                   </div>
                   <button
@@ -2083,7 +2083,7 @@
               </div>
               <div class="form-group">
                 <label>{{ t('dateOfBirth') }} <span class="required-indicator">*</span></label>
-                <input v-model="member.dateOfBirth" type="date" />
+                <BirthDateInput v-model="member.dateOfBirth" />
               </div>
               <div class="form-group">
                 <label>{{ t('rosterSex') }} <span class="optional-indicator">{{ t('optional') }}</span></label>
@@ -2128,10 +2128,9 @@
           <div class="demographics-grid">
             <div v-if="currentFlowStep.showDob" class="form-group">
               <label>{{ tx('Date of Birth') }} <span class="required-indicator">*</span></label>
-              <input
-                type="date"
+              <BirthDateInput
                 v-model="demographicsData.dob"
-                :class="{ 'input-error': demographicsErrors.dob }"
+                :invalid="!!demographicsErrors.dob"
               />
               <span v-if="demographicsErrors.dob" class="field-error">{{ tx('Required') }}</span>
             </div>
@@ -2300,6 +2299,7 @@
                 <p v-if="group.sharedHelper" class="clinical-group-header">{{ group.fields.some(requiresOriginalInstrumentLanguage) ? group.sharedHelper : tx(group.sharedHelper) }}</p>
               </div>
               <button
+                v-if="isOfficeInDepthIntake"
                 type="button"
                 class="df-btn df-btn-secondary btn-sm"
                 @click="skipOfficeInstrument(group.instrument)"
@@ -2480,7 +2480,7 @@
               </label>
             </div>
             <input v-else-if="field.autoToday" v-model="currentFieldValues[field.id]" type="text" disabled />
-            <input v-else v-model="currentFieldValues[field.id]" type="date" :data-field-id="field.id" />
+            <BirthDateInput v-else v-model="currentFieldValues[field.id]" :data-field-id="field.id" />
           </div>
         </div>
 
@@ -2937,9 +2937,18 @@
           </div>
         </div>
         <div class="actions">
-          <button class="btn btn-secondary" type="button" @click="endSession">
+          <button v-if="!endSessionPrompt" class="btn btn-secondary" type="button" @click="endSessionPrompt = true">
             End session
           </button>
+          <div v-else class="end-session-confirm" role="group" aria-label="End session">
+            <p>{{ t('endSessionConfirm') }}</p>
+            <button class="btn btn-secondary" type="button" @click="confirmEndSession">
+              End session
+            </button>
+            <button class="btn btn-outline" type="button" @click="endSessionPrompt = false">
+              {{ t('keepWorking') || 'Keep working' }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -3019,7 +3028,7 @@
     <div v-if="returnLinkOpen" class="intake-return-modal" role="dialog" aria-modal="true">
       <div class="intake-return-card">
         <h3>{{ t('copyReturnLinkTitle') }}</h3>
-        <p>{{ t('copyReturnLinkBody') }}</p>
+        <p>{{ reminderConsentStatus === 'declined' ? t('copyReturnLinkBodyDeclined') : t('copyReturnLinkBodyAgreed') }}</p>
         <p class="intake-return-hipaa">{{ t('copyReturnLinkHipaa') }}</p>
         <input :value="returnLinkUrl" type="text" readonly class="intake-return-url" @focus="$event.target.select()" />
         <div class="intake-return-actions">
@@ -3084,6 +3093,7 @@ import PublicProviderSlotPicker from '../components/publicServices/PublicProvide
 import OfficeIntakeStartPage from '../components/office/OfficeIntakeStartPage.vue';
 import PDFPreview from '../components/documents/PDFPreview.vue';
 import PublicIntakeGuardianWaiverStep from '../components/public-intake/PublicIntakeGuardianWaiverStep.vue';
+import BirthDateInput from '../components/public-intake/BirthDateInput.vue';
 import PublicIntakeInsuranceStep from '../components/public-intake/PublicIntakeInsuranceStep.vue';
 import PublicIntakePaymentStep from '../components/public-intake/PublicIntakePaymentStep.vue';
 import PublicIntakeInsurancePaymentStep from '../components/public-intake/PublicIntakeInsurancePaymentStep.vue';
@@ -3291,7 +3301,7 @@ const INTAKE_TRANSLATIONS = {
     digitalIntakeRegistration: 'Smart Registration',
     digitalIntakeDisclosure: 'Smart Disclosure',
     welcome: 'Welcome',
-    formTimeLimit: 'This form must be completed within 1 hour. Each new page adds 5 minutes. In-progress answers are saved in this browser session for up to 1 hour in case you accidentally navigate away.',
+    formTimeLimit: 'You do not have to finish in one sitting. If you agree to reminder emails, this enrollment stays open for 10 days. If you do not, it stays open for 12 hours with no reminder emails. Saved answers stay with this enrollment until then.',
     reminderConsentTitle: 'Unfinished form reminders',
     reminderConsentLead: 'If you need to leave and come back, we can email you a private link to finish this enrollment form.',
     reminderConsentFirstName: 'First name',
@@ -3299,8 +3309,8 @@ const INTAKE_TRANSLATIONS = {
     reminderConsentAgree: 'Agree',
     reminderConsentDecline: 'I do not agree',
     reminderConsentMoreInfo: 'More info',
-    reminderConsentMoreInfoBody: 'If you agree, we may send up to three reminder emails over seven days with a secure link to continue. Your secure access link lasts up to 10 days. You can stop reminder emails using the link in each email. If you do not agree, your session lasts 12 hours with no reminder emails. Expiring access or stopping reminders does not delete saved records. Contact the organization for records or removal requests.',
-    reminderConsentDeclineHint: 'If you do not agree, please close this page. You may still continue — your session will expire in 12 hours with no reminder emails.',
+    reminderConsentMoreInfoBody: 'If you agree, we may send up to three reminder emails over seven days. That secure link lasts 10 days. You can stop reminder emails using the link in each email. Expiring access or stopping reminders does not delete saved records. Contact the organization for records or removal requests.',
+    reminderConsentDeclineHint: 'You can still continue if you do not agree. We will not send reminder emails, and this session stays open for 12 hours.',
     reminderConsentRequired: 'Please choose Agree or I do not agree to continue.',
     failedToCaptureConsent: 'Failed to capture consent',
     reminderConsentAgreeNeedsContact: 'Enter your first name and email to Agree.',
@@ -3489,7 +3499,8 @@ const INTAKE_TRANSLATIONS = {
     saveAndComeBackLater: 'Save & Come Back Later',
     progressSavedComeBack: 'Progress saved securely. Use this same link to pick up where you left off.',
     copyReturnLinkTitle: 'Copy your temporary return link',
-    copyReturnLinkBody: 'This private link lets you finish this enrollment on this or another device for the next 24 hours. After that, the link expires and you will need to start over. Saved records are retained.',
+    copyReturnLinkBodyAgreed: 'This private link lets you finish this enrollment on this or another device for 10 days, the same period as reminder access. After that, the link expires and you will need to start over. Saved records are retained.',
+    copyReturnLinkBodyDeclined: 'This private link lets you finish this enrollment on this or another device for 12 hours, the same period as a session without reminder emails. After that, the link expires and you will need to start over. Saved records are retained.',
     copyReturnLinkHipaa: 'Do not post this link, email it to a shared inbox, or text it to someone else. Anyone with the link can see the health information you have entered. We do not store this packet in your browser.',
     copyTemporaryLink: 'Copy temporary link',
     copied: 'Copied',
@@ -3512,7 +3523,7 @@ const INTAKE_TRANSLATIONS = {
     sectionsInThisPacket: '{count} sections in this packet',
     esignDisclosureTitle: 'ESIGN Act Disclosure',
     esignDisclosureBody: 'By continuing, you consent to electronically sign these documents and receive electronic records. You may request paper copies from the organization.',
-    formIdleClearHint: 'Most families complete this in about 15 minutes. To protect your information, the form clears itself after roughly an hour of inactivity and any unsaved entries are removed.',
+    formIdleClearHint: 'Most families spend about 15 minutes to get started. Saved answers stay with this enrollment for 10 days if you agree to reminders, or 12 hours if you do not.',
     sendAMessage: 'Send a message',
     needHelpSendMessage: 'Need help? Send a message',
     needHelp: 'Need help?',
@@ -3634,6 +3645,7 @@ const INTAKE_TRANSLATIONS = {
     cancelDeleteConfirm: 'Terminating stops this unfinished enrollment without submitting it. You will not receive reminders to finish it, and your return link will stop working. The organization retains saved records. To finish and submit instead, choose Keep completing enrollment.',
     restartConfirm: 'Restart this enrollment and clear all fields?',
     endSessionConfirm: 'End this session and clear this enrollment from this browser?',
+    keepWorking: 'Keep working',
     unableToStartSession: 'Unable to start a new enrollment session. Please try again.',
     dailyLimitReached: 'Daily enrollment start limit reached. Please try again tomorrow.',
     draftRestored: 'Picking up your saved progress.',
@@ -3713,7 +3725,7 @@ const INTAKE_TRANSLATIONS = {
     loadingLinkDisclosure: 'Cargando divulgación...',
     digitalIntakeDisclosure: 'Declaración de Divulgación',
     welcome: 'Bienvenido',
-    formTimeLimit: 'Este formulario debe completarse en 1 hora. Cada página nueva agrega 5 minutos. Las respuestas en progreso se guardan en esta sesión del navegador por hasta 1 hora por si sale accidentalmente.',
+    formTimeLimit: 'No tiene que terminarlo de una sola vez. Si acepta correos de recordatorio, esta inscripción permanece abierta 10 días. Si no acepta, permanece abierta 12 horas sin correos de recordatorio. Las respuestas guardadas permanecen con esta inscripción hasta entonces.',
     reminderConsentTitle: 'Recordatorios de formulario incompleto',
     reminderConsentLead: 'Si necesita salir y volver, podemos enviarle por correo un enlace privado para terminar este formulario de inscripción.',
     reminderConsentFirstName: 'Nombre',
@@ -3721,8 +3733,8 @@ const INTAKE_TRANSLATIONS = {
     reminderConsentAgree: 'Acepto',
     reminderConsentDecline: 'No acepto',
     reminderConsentMoreInfo: 'Más información',
-    reminderConsentMoreInfoBody: 'Si acepta, podemos enviar hasta tres recordatorios en siete días con un enlace seguro para continuar. Su enlace de acceso seguro dura hasta 10 días. Puede detener los recordatorios mediante el enlace de cada correo. Si no acepta, su sesión dura 12 horas sin recordatorios. La caducidad del acceso o la cancelación de recordatorios no elimina los registros guardados. Contacte a la organización para solicitar registros o su eliminación.',
-    reminderConsentDeclineHint: 'Si no acepta, cierre esta página. Aun así puede continuar: su sesión expirará en 12 horas sin correos de recordatorio.',
+    reminderConsentMoreInfoBody: 'Si acepta, podemos enviar hasta tres recordatorios en siete días. Ese enlace seguro dura 10 días. Puede detener los recordatorios mediante el enlace de cada correo. La caducidad del acceso o la cancelación de recordatorios no elimina los registros guardados. Contacte a la organización para solicitar registros o su eliminación.',
+    reminderConsentDeclineHint: 'Puede continuar aunque no acepte. No enviaremos correos de recordatorio, y esta sesión permanece abierta 12 horas.',
     reminderConsentRequired: 'Elija Acepto o No acepto para continuar.',
     failedToCaptureConsent: 'No se pudo guardar el consentimiento',
     reminderConsentAgreeNeedsContact: 'Ingrese su nombre y correo para aceptar.',
@@ -3911,7 +3923,8 @@ const INTAKE_TRANSLATIONS = {
     saveAndComeBackLater: 'Guardar y volver más tarde',
     progressSavedComeBack: 'Progreso guardado de forma segura. Use el mismo enlace para continuar.',
     copyReturnLinkTitle: 'Copie su enlace temporal de regreso',
-    copyReturnLinkBody: 'Este enlace privado le permite terminar esta admisión en este u otro dispositivo durante las próximas 24 horas. Después, el enlace caduca y tendrá que empezar de nuevo. Los registros guardados se conservan.',
+    copyReturnLinkBodyAgreed: 'Este enlace privado le permite terminar esta admisión en este u otro dispositivo durante 10 días, el mismo plazo del acceso con recordatorios. Después, el enlace caduca y tendrá que empezar de nuevo. Los registros guardados se conservan.',
+    copyReturnLinkBodyDeclined: 'Este enlace privado le permite terminar esta admisión en este u otro dispositivo durante 12 horas, el mismo plazo de una sesión sin correos de recordatorio. Después, el enlace caduca y tendrá que empezar de nuevo. Los registros guardados se conservan.',
     copyReturnLinkHipaa: 'No publique este enlace, no lo envíe a una bandeja compartida ni lo reenvíe a otra persona. Quien tenga el enlace puede ver la información de salud que usted escribió. No guardamos este paquete en el navegador.',
     copyTemporaryLink: 'Copiar enlace temporal',
     copied: 'Copiado',
@@ -3934,7 +3947,7 @@ const INTAKE_TRANSLATIONS = {
     sectionsInThisPacket: '{count} secciones en este paquete',
     esignDisclosureTitle: 'Divulgación de la Ley ESIGN',
     esignDisclosureBody: 'Al continuar, usted consiente firmar electrónicamente estos documentos y recibir registros electrónicos. Puede solicitar copias en papel a la organización.',
-    formIdleClearHint: 'La mayoría de las familias completan esto en unos 15 minutos. Para proteger su información, el formulario se borra después de aproximadamente una hora de inactividad y se eliminan las entradas no guardadas.',
+    formIdleClearHint: 'La mayoría de las familias tardan unos 15 minutos en empezar. Las respuestas guardadas permanecen con esta inscripción 10 días si acepta recordatorios, o 12 horas si no acepta.',
     sendAMessage: 'Enviar un mensaje',
     needHelpSendMessage: '¿Necesita ayuda? Enviar un mensaje',
     needHelp: '¿Necesita ayuda?',
@@ -4040,6 +4053,7 @@ const INTAKE_TRANSLATIONS = {
     cancelDeleteConfirm: 'Cancelar esta inscripción la detiene sin enviarla. No recibirá recordatorios para completarla y su enlace para continuar dejará de funcionar. La organización conserva los registros guardados. Para completarla y enviarla, elija Seguir completando la inscripción.',
     restartConfirm: '¿Reiniciar esta admisión y borrar todos los campos?',
     endSessionConfirm: '¿Terminar esta sesión y borrar esta admisión de este navegador?',
+    keepWorking: 'Seguir trabajando',
     unableToStartSession: 'No se pudo iniciar una nueva sesión de admisión. Por favor intente de nuevo.',
     dailyLimitReached: 'Se alcanzó el límite diario de inicio de admisión. Por favor intente mañana.',
     pressEnterToContinue: 'Presione Enter ↵ para continuar',
@@ -4487,7 +4501,7 @@ async function fetchStringTranslations() {
       'People we may contact if we cannot reach you.',
       'This program does not provide meals. Please plan to bring your own lunch or snacks as needed.',
       'ESIGN Act Disclosure',
-      'Most families complete this in about 15 minutes. To protect your information, the form clears itself after roughly an hour of inactivity and any unsaved entries are removed.',
+      'Most families spend about 15 minutes to get started. Saved answers stay with this enrollment for 10 days if you agree to reminders, or 12 hours if you do not.',
       'The following questions help your provider understand your needs. Your answers are confidential and only visible to your assigned provider.',
       'I agree',
     ];
@@ -5303,14 +5317,17 @@ const clinicalFieldGroups = computed(() => {
   let current = null;
   for (const f of fields) {
     const helper = String(f?.helperText || '').trim();
-    if (current && current.helperKey === helper) {
+    const instrument = instrumentIdForField(f);
+    if (current && current.instrument === instrument && (instrument || current.helperKey === helper)) {
       current.fields.push(f);
     } else {
-      current = { helperKey: helper, fields: [f] };
+      current = { helperKey: helper, instrument, fields: [f] };
       groups.push(current);
     }
   }
   return groups.map((g) => ({
+    instrument: g.instrument || '',
+    meta: g.instrument ? (OFFICE_INSTRUMENT_META[g.instrument] || null) : null,
     sharedHelper: g.fields.length > 1 ? g.helperKey : '',
     fields: g.fields
   }));
@@ -12532,9 +12549,9 @@ const restartIntake = () => {
   resetIntakeState();
 };
 
-const endSession = () => {
-  const ok = window.confirm(t('endSessionConfirm'));
-  if (!ok) return;
+const endSessionPrompt = ref(false);
+const confirmEndSession = () => {
+  endSessionPrompt.value = false;
   clearPersistedDraft();
   resetIntakeState();
 };

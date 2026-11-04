@@ -607,6 +607,10 @@ function applySessionSignature() {
   error.value = '';
 }
 
+watch(stage, (next) => {
+  if (next === 'sign' && !forceResign.value && !signatureData.value) applySessionSignature();
+});
+
 function resign() {
   signatureData.value = '';
   forceResign.value = true;

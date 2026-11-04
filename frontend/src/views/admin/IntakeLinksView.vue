@@ -606,7 +606,7 @@
                 <textarea
                   v-model="form.customMessages.formTimeLimit"
                   rows="2"
-                  placeholder="e.g., This form must be completed within 1 hour. Each new page adds 5 minutes. The session is unique and cannot be saved or resumed."
+                  placeholder="e.g., If you agree to reminder emails, this enrollment stays open for 10 days. If you do not, it stays open for 12 hours."
                 />
               </div>
               <div class="form-group" style="grid-column: 1 / -1;">

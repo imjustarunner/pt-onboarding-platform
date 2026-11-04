@@ -3,7 +3,7 @@
     <div v-if="error" class="error">{{ error }}</div>
 
     <div v-if="stage === 'intro'" class="smart-roi-card">
-      <div class="progress-label">{{ tr('Section', 'Sección') }} 1 {{ tr('of', 'de') }} {{ totalSteps }}</div>
+      <div class="progress-label">{{ releaseProgressLabel }}</div>
       <h3>{{ tr('Release of Information', 'Autorización de divulgación de información') }}</h3>
       <p>
         This release is specific to <strong>{{ schoolName }}</strong> and the currently active school staff who may need
@@ -74,7 +74,7 @@
             {{ subjectDobLabel }}
             <span v-if="!hasRequiredValue(form.clientDateOfBirth)" class="req-mark">*</span>
           </label>
-          <input id="roi-client-dob" name="clientDateOfBirth" v-model="form.clientDateOfBirth" :class="['roi-input', requiredFieldClass(form.clientDateOfBirth)]" type="date" />
+          <BirthDateInput id="roi-client-dob" name="clientDateOfBirth" v-model="form.clientDateOfBirth" :class="['roi-input', requiredFieldClass(form.clientDateOfBirth)]" :invalid="!hasRequiredValue(form.clientDateOfBirth)" />
         </div>
         <div>
           <label for="roi-signer-first-name">
@@ -184,7 +184,7 @@
     </div>
 
     <div v-else-if="stage === 'purpose'" class="smart-roi-card">
-      <div class="progress-label">{{ tr('Section', 'Sección') }} {{ stepNumber }} {{ tr('of', 'de') }} {{ totalSteps }}</div>
+      <div class="progress-label">{{ releaseProgressLabel }}</div>
       <h3>{{ tr('Purpose of release', 'Proposito de la autorizacion') }}</h3>
       <p>{{ tr('This authorization allows communication for school care coordination within the approved scope.', 'Esta autorizacion permite la comunicacion para la coordinacion de atencion escolar dentro del alcance aprobado.') }}</p>
       <div class="info-panel">
@@ -199,7 +199,7 @@
     </div>
 
     <div v-else-if="stage === 'ack'" class="smart-roi-card">
-      <div class="progress-label">{{ tr('Section', 'Sección') }} {{ stepNumber }} {{ tr('of', 'de') }} {{ totalSteps }}</div>
+      <div class="progress-label">{{ releaseProgressLabel }}</div>
       <section v-for="currentAck in ackItems" :key="currentAck.id" class="roi-decision-group">
       <h3>{{ currentAck?.title }}</h3>
       <p>{{ currentAck?.body }}</p>
@@ -225,7 +225,7 @@
     </div>
 
     <div v-else-if="stage === 'waiver'" class="smart-roi-card">
-      <div class="progress-label">{{ tr('Section', 'Sección') }} {{ stepNumber }} {{ tr('of', 'de') }} {{ totalSteps }}</div>
+      <div class="progress-label">{{ releaseProgressLabel }}</div>
       <section v-for="currentWaiver in waiverItems" :key="currentWaiver.id" class="roi-decision-group">
       <h3>{{ currentWaiver?.title }}</h3>
       <p>{{ currentWaiver?.body }}</p>
@@ -263,15 +263,15 @@
     </div>
 
     <div v-else-if="stage === 'staff'" class="smart-roi-card">
-      <div class="progress-label">{{ tr('Section', 'Sección') }} {{ stepNumber }} {{ tr('of', 'de') }} {{ totalSteps }}</div>
-      <section v-for="currentStaff in staffRoster" :key="currentStaff.schoolStaffUserId" class="roi-decision-group">
+      <div class="progress-label">{{ releaseProgressLabel }}</div>
       <h3>{{ tr('School staff approval', 'Aprobacion de personal escolar') }}</h3>
       <p>
         {{ tr(
-          'Choose this staff member’s ROI level. ROI (Speak) and ROI All Active open the same school portal as ROI Active. Referral documents stay off unless you choose ROI All Active.',
-          'Elija el nivel de ROI de este miembro del personal. ROI (Speak) y ROI All Active abren el mismo portal escolar que ROI Active. Los documentos de referencia permanecen ocultos salvo que elija ROI All Active.'
+          'Choose ROI All Active, ROI (Speak), or No ROI on file for each person. Referral documents stay off unless you choose ROI All Active.',
+          'Elija ROI All Active, ROI (Speak) o Sin ROI en archivo para cada persona. Los documentos de referencia permanecen ocultos salvo que elija ROI All Active.'
         ) }}
       </p>
+      <section v-for="currentStaff in staffRoster" :key="currentStaff.schoolStaffUserId" class="roi-decision-group">
       <div class="staff-card">
         <div class="staff-name">{{ currentStaff?.fullName }}</div>
         <div class="staff-meta">{{ currentStaff?.role || '—' }}</div>
@@ -290,27 +290,19 @@
           <span>
             <strong>{{ tr('ROI All Active', 'ROI All Active') }}</strong>
             <span class="choice-detail">{{ tr('Approve referral packet and speak about treatment goals and progress.', 'Aprobar el paquete de referencia y hablar sobre las metas y el progreso del tratamiento.') }}</span>
-            <ul class="choice-scope">
-              <li v-for="item in speakItems" :key="`all-${item.id}`">{{ item.body }}</li>
-              <li>{{ tr('This person may access this client’s referral documents, including files other staff upload.', 'Esta persona puede acceder a los documentos de referencia de este cliente, incluidos archivos que suba otro personal.') }}</li>
-            </ul>
           </span>
         </label>
         <label
           class="choice-card choice-card--detail"
           :title="tr(
-            'ROI (Speak): same portal access as ROI Active, and they may speak with the provider about treatment goals and progress. Referral documents stay hidden.',
-            'ROI (Speak): mismo acceso al portal que ROI Active, y pueden hablar con el proveedor sobre las metas y el progreso del tratamiento. Los documentos de referencia permanecen ocultos.'
+            'ROI (Speak): they may speak with the provider about treatment goals and progress. Referral documents stay hidden.',
+            'ROI (Speak): pueden hablar con el proveedor sobre las metas y el progreso del tratamiento. Los documentos de referencia permanecen ocultos.'
           )"
         >
           <input :name="`staffDecision_${currentStaff?.schoolStaffUserId || 'current'}`" v-model="form.staffDecisions[currentStaff.schoolStaffUserId]" value="roi" type="radio" />
           <span>
             <strong>{{ tr('ROI (Speak)', 'ROI (Speak)') }}</strong>
             <span class="choice-detail">{{ tr('Deny referral packet; approve speaking about treatment goals and progress.', 'Denegar el paquete de referencia; aprobar hablar sobre las metas y el progreso del tratamiento.') }}</span>
-            <ul class="choice-scope">
-              <li v-for="item in speakItems" :key="`speak-${item.id}`">{{ item.body }}</li>
-              <li>{{ tr('Referral documents stay hidden, including a printed packet they uploaded. They may still upload other files they add themselves.', 'Los documentos de referencia permanecen ocultos, incluido un paquete impreso que ellos subieron. Aun pueden subir otros archivos que ellos mismos agreguen.') }}</li>
-            </ul>
           </span>
         </label>
         <label
@@ -335,7 +327,7 @@
     </div>
 
     <div v-else-if="stage === 'third_party'" class="smart-roi-card">
-      <div class="progress-label">{{ tr('Section', 'Sección') }} {{ stepNumber }} {{ tr('of', 'de') }} {{ totalSteps }}</div>
+      <div class="progress-label">{{ releaseProgressLabel }}</div>
       <h3>{{ tr('Add third party / fill-in person', 'Agregar tercero / persona adicional') }}</h3>
       <p>
         {{ tr(
@@ -414,7 +406,7 @@
     </div>
 
     <div v-else-if="stage === 'external_programmed'" class="smart-roi-card">
-      <div class="progress-label">{{ tr('Section', 'Sección') }} {{ stepNumber }} {{ tr('of', 'de') }} {{ totalSteps }}</div>
+      <div class="progress-label">{{ releaseProgressLabel }}</div>
       <h3>{{ tr('Non-school recipient approval', 'Aprobacion de destinatario no escolar') }}</h3>
       <p>{{ tr('Choose what this pre-selected non-school recipient may receive — the same permission levels as school staff.', 'Elija que puede recibir este destinatario no escolar preseleccionado: los mismos niveles de permiso que el personal escolar.') }}</p>
       <div class="staff-card">
@@ -459,7 +451,7 @@
     </div>
 
     <div v-else-if="stage === 'external_parent'" class="smart-roi-card">
-      <div class="progress-label">{{ tr('Section', 'Sección') }} {{ stepNumber }} {{ tr('of', 'de') }} {{ totalSteps }}</div>
+      <div class="progress-label">{{ releaseProgressLabel }}</div>
       <h3>{{ tr('Non-school release recipients', 'Destinatarios de divulgacion no escolar') }}</h3>
       <p>{{ tr('Add each non-school person and choose what they may receive — the same permission levels as school staff.', 'Agregue cada persona no escolar y elija que puede recibir: los mismos niveles de permiso que el personal escolar.') }}</p>
       <div
@@ -535,7 +527,7 @@
     </div>
 
     <div v-else-if="stage === 'guidelines'" class="smart-roi-card">
-      <div class="progress-label">{{ tr('Section', 'Sección') }} {{ stepNumber }} {{ tr('of', 'de') }} {{ totalSteps }}</div>
+      <div class="progress-label">{{ releaseProgressLabel }}</div>
       <h3>{{ tr('Guidelines and limitations', 'Lineamientos y limitaciones') }}</h3>
       <p>{{ tr('These disclosures are limited and documented according to the terms below.', 'Estas divulgaciones son limitadas y documentadas segun los terminos a continuacion.') }}</p>
       <div class="info-panel">
@@ -550,7 +542,7 @@
     </div>
 
     <div v-else-if="stage === 'term'" class="smart-roi-card">
-      <div class="progress-label">{{ tr('Section', 'Sección') }} {{ stepNumber }} {{ tr('of', 'de') }} {{ totalSteps }}</div>
+      <div class="progress-label">{{ releaseProgressLabel }}</div>
       <h3>{{ tr('Term and revocation', 'Vigencia y revocacion') }}</h3>
       <div class="info-panel">
         <ul>
@@ -567,7 +559,7 @@
     </div>
 
     <div v-else-if="stage === 'review'" class="smart-roi-card">
-      <div class="progress-label">Final Step</div>
+      <div class="progress-label">{{ releaseProgressLabel }}</div>
       <h3>{{ tr('Review and sign', 'Revisar y firmar') }}</h3>
       <div class="review-block">
         <ul v-if="sharedChildren.length > 1"><li v-for="(child, i) in sharedChildren" :key="i">{{ child.fullName }} — {{ child.dateOfBirth }}</li></ul>
@@ -656,12 +648,17 @@
           <img :src="signatureData" :alt="tr('Your signature', 'Su firma')" style="max-width: 220px; max-height: 80px;" />
           <p>{{ tr('Signature applied to this release.', 'Firma aplicada a esta autorización.') }}</p>
         </div>
-        <button v-else-if="sessionSavedSignature && !forceResign" type="button" class="btn btn-primary" @click="onSigned(sessionSavedSignature)">
-          {{ tr('Apply my saved signature', 'Aplicar mi firma guardada') }}
-        </button>
-        <SignaturePad v-else compact @signed="onSigned" />
-        <button v-if="(signatureData || sessionSavedSignature) && !forceResign" type="button" class="btn btn-secondary" @click="signatureData = ''; forceResign = true">
-          {{ tr('Draw a new signature', 'Dibujar una firma nueva') }}
+        <div v-else class="typed-signature">
+          <label for="roi-typed-signature">{{ tr('Type your full name', 'Escriba su nombre completo') }}</label>
+          <input id="roi-typed-signature" v-model="typedSignatureName" class="roi-input" type="text" autocomplete="name" />
+          <button type="button" class="btn btn-secondary" :disabled="!typedSignatureName.trim()" @click="applyTypedSignature">
+            {{ tr('Use typed signature', 'Usar firma escrita') }}
+          </button>
+          <p class="muted">{{ tr('Or draw below.', 'O dibuje abajo.') }}</p>
+          <SignaturePad compact @signed="onSigned" />
+        </div>
+        <button v-if="signatureData && !forceResign" type="button" class="btn btn-secondary" @click="signatureData = ''; forceResign = true">
+          {{ tr('Sign again', 'Firmar de nuevo') }}
         </button>
       </div>
 
@@ -687,6 +684,7 @@
 import { computed, reactive, ref, watch, nextTick } from 'vue';
 import api from '../../services/api';
 import SignaturePad from '../SignaturePad.vue';
+import BirthDateInput from '../public-intake/BirthDateInput.vue';
 
 const props = defineProps({
   publicKey: {
@@ -900,6 +898,14 @@ const stageToken = computed(() => stageOrder.value[stageIndex.value] || 'intro')
 const stage = computed(() => stageToken.value.split(':')[0]);
 const totalSteps = computed(() => Math.max(stageOrder.value.length - 1, 1));
 const stepNumber = computed(() => Math.min(stageIndex.value + 1, totalSteps.value));
+const releaseProgressLabel = computed(() => {
+  const current = stepNumber.value;
+  const total = totalSteps.value;
+  if (props.mode === 'embedded') {
+    return tr(`Release part ${current} of ${total}`, `Parte ${current} de ${total} de esta autorización`);
+  }
+  return `${tr('Section', 'Sección')} ${current} ${tr('of', 'de')} ${total}`;
+});
 const schoolName = computed(() => props.roiContext?.school?.name || 'School');
 const schoolAddress = computed(() => String(props.roiContext?.school?.address || '').trim());
 const relationshipToParty = computed(() => String(props.roiContext?.school?.relationshipToParty || 'student'));
@@ -1401,6 +1407,32 @@ watch(() => props.savedCapture, saved => {
   stageIndex.value = stageOrder.value.indexOf('review');
 }, { immediate: true });
 
+const typedSignatureName = ref('');
+const renderTypedSignature = (name) => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 640;
+  canvas.height = 160;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#1a2e24';
+  ctx.font = '48px "Segoe Script", "Bradley Hand", "Apple Chancery", cursive';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(name, 24, canvas.height / 2, canvas.width - 48);
+  return canvas.toDataURL('image/png');
+};
+const applyTypedSignature = () => {
+  const name = typedSignatureName.value.trim();
+  if (!name) return;
+  onSigned(renderTypedSignature(name));
+};
+watch([stage, () => props.sessionSavedSignature], () => {
+  if (stage.value !== 'review' || forceResign.value || signatureData.value) return;
+  const saved = String(props.sessionSavedSignature || '').trim();
+  if (saved) signatureData.value = saved;
+}, { immediate: true });
+
 const onSigned = (dataUrl) => {
   signatureData.value = dataUrl;
   forceResign.value = false;
@@ -1710,6 +1742,11 @@ const submitRoi = async () => {
   display: grid;
   gap: 12px;
   margin-top: 14px;
+}
+@media (max-width: 720px) {
+  .summary-grid { grid-template-columns: 1fr; }
+  .actions .btn, .choice-card, .typed-signature .btn { min-height: 44px; }
+  .roi-input { font-size: 16px; }
 }
 
 .choice-card {
