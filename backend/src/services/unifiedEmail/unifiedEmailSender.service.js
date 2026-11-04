@@ -1274,7 +1274,9 @@ export async function sendEmailFromIdentity({
       await pool.execute(`UPDATE user_communications SET subject=?,body=?,
         metadata=JSON_MERGE_PATCH(COALESCE(metadata,JSON_OBJECT()),CAST(? AS JSON)) WHERE id=? AND agency_id=?`,
       [redirected.subject || subject, htmlWithPixel || signedContent.text || '', JSON.stringify({senderIdentityId:identity.id,
-        fromEmail:identity.from_email,replyTo,source,...(hasAttachments ? {hadAttachments:true,attachmentCount:attachments.length} : {}),...fallbackMeta,...redirectMeta}), comm.id,identity.agency_id]);
+        fromEmail:identity.from_email,fromDisplayName:effectiveDisplayName,replyTo,source,
+        ...(cc ? {cc} : {}),...(schoolSessionScopeKey ? {schoolSessionScopeKey} : {}),
+        ...(hasAttachments ? {hadAttachments:true,attachmentCount:attachments.length} : {}),...fallbackMeta,...redirectMeta}), comm.id,identity.agency_id]);
     }
     // Buffered schedule notices create their receipt before transport. Attach
     // the actual pixel token to that receipt, just as for newly logged mail.
@@ -1324,7 +1326,9 @@ export async function sendEmailFromIdentity({
         metadata: {
           senderIdentityId: identity.id,
           fromEmail: identity.from_email,
+          fromDisplayName: effectiveDisplayName,
           replyTo: replyToOverride || identity.reply_to || null,
+          ...(cc ? {cc} : {}),
           ...(schoolSessionScopeKey ? {schoolSessionScopeKey} : {}),
           ...(internetMessageIdOverride ? { internetMessageIdOverride } : {}),
           source,

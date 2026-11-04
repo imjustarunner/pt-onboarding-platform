@@ -1,4 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
+import crypto from 'node:crypto';
 const m=vi.hoisted(()=>({execute:vi.fn(),send:vi.fn(),opt:vi.fn(),footer:vi.fn(),approval:vi.fn(),log:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute},onTableWrite:vi.fn()}));
 vi.mock('../unifiedEmail/gmailClient.js',()=>({getGmailClient:async()=>({users:{messages:{send:m.send,get:async()=>({data:{}})}}}),getImpersonatedUser:()=> 'sender@example.test'}));
@@ -44,4 +45,21 @@ it('holds a newly reserved receipt for approval and saves its actual body and se
  const result=await sendEmailFromIdentity({...input,templateType:'enrollment_submission_confirmation',existingCommunicationId:77,preloggedReceipt:true,intakeSubmissionId:10});
  expect(result).toMatchObject({queued:true,communicationId:77});expect(m.send).not.toHaveBeenCalled();expect(m.log).not.toHaveBeenCalled();
  const update=m.execute.mock.calls.find(([q])=>q.includes('JSON_MERGE_PATCH'));expect(update[1][0]).toBe(input.subject);expect(JSON.parse(update[1][2]).senderIdentityId).toBe(1);expect(update[1].slice(-2)).toEqual([77,2]);
+});
+it.each([false,true])('saves provider CC, school scope and display identity before approval (prelogged=%s)',async preloggedReceipt=>{
+ m.opt.mockResolvedValue({allowed:true});
+ const scope='a'.repeat(64),cc=['provider@example.test'];
+ const prior=m.execute.getMockImplementation();
+ m.execute.mockImplementation((sql,args)=>{
+  if(sql==='SELECT metadata FROM user_communications WHERE id=?')return Promise.resolve([[{metadata:{schoolSessionScopeKey:scope}}]]);
+  if(sql==='SELECT * FROM school_session_email_preferences WHERE scope_key=?')return Promise.resolve([[{product:'auricwell',agency_id:2,
+   recipient_hash:crypto.createHash('sha256').update(input.to).digest('hex')}]]);
+  return prior(sql,args);
+ });
+ expect(await sendEmailFromIdentity({...input,templateType:'school_session_notice',cc,schoolSessionScopeKey:scope,
+  fromDisplayNameOverride:'AuricWell Notifications',...(preloggedReceipt?{existingCommunicationId:77,preloggedReceipt:true}:{})}))
+  .toMatchObject({pendingApproval:true});
+ const metadata=preloggedReceipt?JSON.parse(m.execute.mock.calls.find(([sql])=>sql.includes('JSON_MERGE_PATCH'))[1][2]):m.log.mock.calls[0][0].metadata;
+ expect(metadata).toMatchObject({senderIdentityId:1,cc,schoolSessionScopeKey:scope,fromDisplayName:'AuricWell Notifications',fromEmail:'contact@example.test'});
+ expect(m.send).not.toHaveBeenCalled();
 });

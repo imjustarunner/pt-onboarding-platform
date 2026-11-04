@@ -106,14 +106,14 @@ class EmailSenderIdentity {
     return { ...row, inbound_addresses: parseJsonMaybe(row.inbound_addresses_json) || [] };
   }
 
-  /** Active identity for an agency + stable identity_key (e.g. hiring_references, job_applications). */
-  static async findByAgencyAndIdentityKey(agencyId, identityKey) {
+  /** Agency identity; provisioning may include disabled rows to preserve an opt-out. */
+  static async findByAgencyAndIdentityKey(agencyId, identityKey, { includeInactive = false } = {}) {
     const aid = Number(agencyId);
     const key = String(identityKey || '').trim();
     if (!aid || !key) return null;
     const [rows] = await pool.execute(
       `SELECT * FROM email_sender_identities
-       WHERE agency_id = ? AND identity_key = ? AND is_active = TRUE
+       WHERE agency_id = ? AND identity_key = ? ${includeInactive ? '' : 'AND is_active = TRUE'}
        LIMIT 1`,
       [aid, key]
     );

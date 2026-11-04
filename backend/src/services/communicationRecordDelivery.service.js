@@ -12,11 +12,15 @@ export async function sendCommunicationRecord(comm,meta,userId,{attachments=null
   const subject=String(comm.subject||'').trim(),body=String(comm.body||'').trim(),looksLikeHtml=/<[a-z][\s\S]*>/i.test(body);
   const senderIdentityId=Number(meta.senderIdentityId||meta.sender_identity_id||0)||null,linkUrl=meta.linkUrl||meta.link_url||null;
   attachments||=await communicationRecordAttachments(comm,meta,userId);
-  const message={to:comm.recipient_address,subject:subject||'Notification',text:looksLikeHtml?null:body,html:looksLikeHtml?body:null,
+  const message={to:comm.recipient_address,cc:meta.cc||null,subject:subject||'Notification',text:looksLikeHtml?null:body,html:looksLikeHtml?body:null,
     source:'manual',clientId:comm.client_id||null,userId:comm.user_id||null,templateType:comm.template_type||null,templateId:comm.template_id||null,
-    generatedByUserId:userId||null,existingCommunicationId:comm.id,linkUrl,attachments};
-  if(senderIdentityId)return sendEmailFromIdentity({...message,senderIdentityId,internetMessageIdOverride:meta.internetMessageIdOverride||null,replyToOverride:meta.replyTo||null});
-  return EmailService.sendEmail({...message,agencyId:comm.agency_id,templateType:comm.template_type||'manual'});
+    generatedByUserId:userId||null,existingCommunicationId:comm.id,linkUrl,attachments,schoolSessionScopeKey:meta.schoolSessionScopeKey||null};
+  if(senderIdentityId)return sendEmailFromIdentity({...message,senderIdentityId,
+    fromDisplayNameOverride:meta.fromDisplayName||meta.fromName||null,
+    internetMessageIdOverride:meta.internetMessageIdOverride||null,replyToOverride:meta.replyTo||null});
+  return EmailService.sendEmail({...message,agencyId:comm.agency_id,templateType:comm.template_type||'manual',
+    fromAddress:meta.fromEmail||meta.from_email||null,fromName:meta.fromName||meta.fromDisplayName||null,
+    replyTo:meta.replyTo||meta.reply_to||null,usedFallbackSender:meta.usedFallbackSender===false?false:null});
 }
 export async function recordCommunicationSent(comm,meta,result,actorUserId,{approved=false}={}){
   const providerMessageId=result?.id||result?.messageId||null;
