@@ -47,8 +47,9 @@
       </button>
     </nav>
 
+    <SchoolStaffingWaitlists v-if="tab === 'waitlists' && agencyId" :agency-id="Number(agencyId)" />
     <!-- Additional school hours (provider requests) — independent of coverage load -->
-    <div v-if="tab === 'school-availability'" class="full-panel school-availability-tab" data-tour="school-availability-intake">
+    <div v-else-if="tab === 'school-availability'" class="full-panel school-availability-tab" data-tour="school-availability-intake">
       <div class="open-banner">
         <div>
           <h2>Additional school hours</h2>
@@ -988,6 +989,7 @@ import SchoolEventStaffingPanel from '../../../components/caseload-hub/SchoolEve
 import PostSchoolEventModal from '../../../components/school/PostSchoolEventModal.vue';
 import AvailabilityIntakeManagement from '../../../components/admin/AvailabilityIntakeManagement.vue';
 import ProviderYearUpdateAdminPanel from '../../../components/admin/ProviderYearUpdateAdminPanel.vue';
+import SchoolStaffingWaitlists from '../../../components/school/SchoolStaffingWaitlists.vue';
 import SchoolReinitAdminPanel from '../../../components/admin/SchoolReinitAdminPanel.vue';
 import MaterialsRequestsView from '../MaterialsRequestsView.vue';
 import { resolveScopedAgencyId } from '../../../utils/resolveScopedAgencyId.js';
@@ -1001,6 +1003,7 @@ const agencyStore = useAgencyStore();
 const baseTabs = [
   { id: 'by-school', label: 'By School' },
   { id: 'by-person', label: 'By Person' },
+  { id: 'waitlists', label: 'Waitlists & Staffing' },
   { id: 'events', label: 'Events & Important Dates' },
   { id: 'coverage-needs', label: 'Coverage Needs' },
   { id: 'school-availability', label: 'Additional School Hours' },

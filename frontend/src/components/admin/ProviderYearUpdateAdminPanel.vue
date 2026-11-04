@@ -115,7 +115,7 @@
           <h3>School Needs</h3>
           <p class="muted">
             Post schools that need an additional provider. Providers see these on the right side of their Year Update and can request placement.
-            Only affiliated schools with a logo on file can be posted.
+            Posts are limited to current affiliated schools.
           </p>
         </div>
         <button type="button" class="btn btn-secondary btn-sm" :disabled="needsLoading" @click="loadNeeds">
@@ -160,7 +160,7 @@
       </form>
 
       <div v-if="!needSchools.length && !needsLoading" class="muted small" style="margin-top: 8px;">
-        No affiliated schools with logos were found. Add school logos in Company Profile before posting needs.
+        No current affiliated schools were found. Connect the school to this agency before posting needs.
       </div>
 
       <div class="pyu-admin__needs-grid">

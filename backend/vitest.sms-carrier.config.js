@@ -5,6 +5,9 @@ export default {
     environment: 'node', restoreMocks: true,
     include: [
       'src/services/__tests__/messaging.smsCarrierBoundary.test.js',
+      'src/controllers/__tests__/messaging.teamPollDelivery.test.js',
+      'src/services/__tests__/messaging.teamRecipients.test.js',
+      'src/services/__tests__/messaging.companyEventTopics.test.js',
       'src/controllers/__tests__/messaging.smsCarrierInbound.test.js',
       'src/services/__tests__/messaging.compliance.test.js',
       'src/services/__tests__/messaging.helpReply.test.js',

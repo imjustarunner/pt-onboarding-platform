@@ -17,7 +17,7 @@ describe('clinical profile onboarding', () => {
   it('provides the four distinct catalogs, including school specialties', () => {
     const form = clinicalProfileForm({ specialties: ['Executive Functioning'], reviewNeeded: [{ value: 'Old narrative' }] });
     expect(form.fields.map(f => f.key)).toEqual(['specialties_general', 'age_specialty', 'groups', 'modality']);
-    expect(form.fields[0].options).toHaveLength(61);
+    expect(form.fields[0].options).toHaveLength(62);
     expect(form.fields[0].options).toContain('Transition to Adulthood');
     expect(form.fields[0].options).not.toContain('Play Therapy');
     expect(form.fields[2].options).not.toContain('Children');

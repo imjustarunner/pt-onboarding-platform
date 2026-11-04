@@ -80,6 +80,7 @@ import {
   listCompanyEventDeliveryLogs,
   closeCompanyEventVoting,
   sendCompanyEventVotingSms,
+  previewCompanyEventPollDelivery,
   sendCompanyEventDirectMessage,
   previewCompanyEventSms,
   listCompanyEventNeedList,
@@ -698,6 +699,7 @@ router.delete('/:id/company-events/:eventId/session-surveys/:attachmentId', auth
 router.post('/:id/company-events/:eventId/close-voting', authenticate, closeCompanyEventVoting);
 router.post('/:id/company-events/:eventId/send-sms-vote', authenticate, sendCompanyEventVotingSms);
 router.post('/:id/company-events/:eventId/send-poll', authenticate, sendCompanyEventVotingSms);
+router.get('/:id/company-events/:eventId/poll-delivery-preview', authenticate, previewCompanyEventPollDelivery);
 router.post('/:id/company-events/:eventId/send-direct-message', authenticate, sendCompanyEventDirectMessage);
 router.post('/:id/company-events/:eventId/sms-preview', authenticate, previewCompanyEventSms);
 router.get('/:id/company-events/:eventId/need-list', authenticate, listCompanyEventNeedList);

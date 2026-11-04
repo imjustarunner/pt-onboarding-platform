@@ -20,6 +20,7 @@ beforeEach(()=>{
  job={id:10,client_id:1,agency_id:2,school_organization_id:3,revision:1,state_hash:hash(state),state_json:state};prior={revision:0,state_hash:''};
  m.send.mockResolvedValue({id:'sent',communicationId:20});m.tasks.mockResolvedValue({synced:1});
  m.execute.mockImplementation(async (sql,args)=>{
+  if(sql.startsWith('SELECT u.id AS actor_id'))return [[{actor_id:555}]];
   if(sql.includes('SELECT GET_LOCK'))return [[{acquired:1}]];
   if(sql.startsWith('SELECT * FROM school_client_status_emails'))return [[job]];
   if(sql.startsWith('SELECT j.delivery_status'))return [[{delivery_status:'pending',revision:1}]];
@@ -41,6 +42,21 @@ it('queues one saved assignment, not a second notice for repeated saves or sched
 it('writes the outbox on the supplied assignment transaction, allowing assignment rollback to roll back the notice',async()=>{
  const transaction={execute:vi.fn(m.execute)};await queueSchoolClientStatusEmails(transaction,{clientId:1,assignmentChanged:true});
  expect(transaction.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO school_client_status_emails'),expect.any(Array));expect(m.commit).not.toHaveBeenCalled();expect(m.send).not.toHaveBeenCalled();
+});
+it('creates a separate future family event only for a new actor-backed transition, without backfilling old saves',async()=>{
+ const original=m.execute.getMockImplementation();m.execute.mockImplementation(async(sql,args)=>sql.startsWith('INSERT INTO school_client_status_emails')?[{insertId:70,affectedRows:1}]:original(sql,args));
+ await queueSchoolClientStatusEmails(pool,{clientId:1,assignmentChanged:true,actorUserId:555});
+ await queueSchoolClientStatusEmails(pool,{clientId:1,assignmentChanged:true,actorUserId:555});
+ expect(m.execute.mock.calls.filter(([sql])=>sql.includes('INSERT IGNORE INTO school_family_status_emails'))).toEqual([[expect.any(String),[70,2,3,1,555,1,hash(state),'{}']]]);
+ prior={revision:0,state_hash:''};m.execute.mockClear();
+ await queueSchoolClientStatusEmails(pool,{clientId:1,assignmentChanged:true});
+ expect(m.execute.mock.calls.some(([sql])=>sql.includes('school_family_status_emails'))).toBe(false);
+});
+it('cannot create family delivery from a nonstaff or unaffiliated actor even when an actor id is supplied',async()=>{
+ const original=m.execute.getMockImplementation();m.execute.mockImplementation(async(sql,args)=>sql.startsWith('SELECT u.id AS actor_id')?[[]]
+  :sql.startsWith('INSERT INTO school_client_status_emails')?[{insertId:70,affectedRows:1}]:original(sql,args));
+ await queueSchoolClientStatusEmails(pool,{clientId:1,assignmentChanged:true,actorUserId:555});
+ expect(m.execute.mock.calls.some(([sql])=>sql.includes('INSERT IGNORE INTO school_family_status_emails'))).toBe(false);
 });
 it('sends from Schools to both the school group and assigned provider after initializing the provider workflow',async()=>{
  expect(await sendPendingSchoolClientStatusEmails()).toEqual([{id:10,status:'sent'}]);

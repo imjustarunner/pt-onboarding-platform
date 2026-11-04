@@ -3,19 +3,26 @@ import { superviseeBillingAllowed } from '../utils/superviseePayerEligibility.js
 
 const clinicalDay = value => value instanceof Date ? Number.isFinite(value.getTime()) ? value.toISOString().slice(0, 10) : 'invalid' : String(value || '').slice(0, 10);
 const validClinicalDay = value => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
-export function isActiveCredentialPayerRow(row, { asOfDate, requireVerifiedPayer = true } = {}) {
+export function credentialPayerAcceptance(row, { asOfDate, requireVerifiedPayer = true } = {}) {
   const today = clinicalDay(asOfDate || new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Denver' }).format(new Date()));
   const status = row?.credential_status ?? row?.credentialStatus ?? row?.status;
   const effective = clinicalDay(row.effective_date ?? row.effectiveDate);
   const revalidation = clinicalDay(row.revalidation_due ?? row.revalidationDue);
-  if (!validClinicalDay(today) || !validClinicalDay(effective) || revalidation && !validClinicalDay(revalidation)) return false;
-  if (requireVerifiedPayer && (!row?.billing_payer_id || !row?.billing_payer_name)) return false;
+  const denied = reason => ({ eligible:false, reason });
+  if (!validClinicalDay(today)) return denied('The current credential date could not be checked.');
+  if (!validClinicalDay(effective)) return denied(effective ? 'Review the recorded effective date.' : 'An effective date has not been recorded.');
+  if (revalidation && !validClinicalDay(revalidation)) return denied('Review the recorded revalidation date.');
+  if (requireVerifiedPayer && (!row?.billing_payer_id || !row?.billing_payer_name)) return denied('A verified electronic billing payer is not linked.');
   // Existing credential records predate workflow tracking. Their recorded
   // effective date remains evidence; adding tracking must not silently remove
   // every established credential. An explicit later status always wins.
-  if (status ? status !== 'active' : !effective) return false;
-  return (!effective || effective <= today) && (!revalidation || revalidation >= today);
+  if (status && status !== 'active') return denied(`Credential status is ${String(status).replaceAll('_',' ')}.`);
+  if (effective > today) return denied('The recorded effective date is in the future.');
+  if (revalidation && revalidation < today) return denied('Credential revalidation is overdue.');
+  return { eligible:true, reason:'Current recorded network participation.' };
 }
+
+export function isActiveCredentialPayerRow(row, options) { return credentialPayerAcceptance(row, options).eligible; }
 
 // The billing catalog owns electronic routes. A credential can retain its
 // contract name while explicitly linking to the agency's verified billing payer.

@@ -10,7 +10,7 @@ import { candidatePrehireProgress } from '../hireCandidateProgress.service.js';
 let completed;
 beforeEach(() => {
   vi.clearAllMocks(); completed = ['profile', 'headshot'];
-  mocks.user.mockResolvedValue({ id: 1, status: 'PREHIRE_REVIEW' });
+  mocks.user.mockResolvedValue({ id: 1, status: 'PREHIRE_REVIEW',work_email:'candidate@agency.test' });
   mocks.tasks.mockResolvedValue([
     { id: 10, taskType: 'document', title: 'Employment agreement', phase: 'pre_hire', metadata: { contractGeneration: true }, status: 'completed', isRequired: true },
     { id: 11, taskType: 'document', title: 'Hiring: Authorization for Background Check', phase: 'pre_hire', status: 'pending', isRequired: true },
@@ -25,18 +25,22 @@ beforeEach(() => {
     : sql.includes('config_json FROM') ? [[{ config_json: { workflow: { resources: [] } } }]] : [[]]);
 });
 describe('staff progress uses the applicant required checklist', () => {
-  it('reports five of five, excluding duplicate background tasks, optional items and future onboarding', async () => {
-    expect(await candidatePrehireProgress(1, 2)).toEqual({ total: 5, completed: 5, percent: 100, allDone: true });
+  it('includes the reserved username while excluding duplicate background tasks, optional items and future onboarding', async () => {
+    expect(await candidatePrehireProgress(1, 2)).toEqual({ total: 6, completed: 6, percent: 100, allDone: true });
     expect(mocks.background).toHaveBeenCalledWith(1, 2);
     expect(mocks.extras).toHaveBeenCalledWith({ userId: 1, agencyId: 2, hiringProfile: undefined });
     expect(mocks.execute.mock.calls.some(([sql]) => sql.includes('encrypted_value'))).toBe(false);
   });
   it('does not assume 100 percent from PREHIRE_REVIEW when a required item is unfinished', async () => {
     completed = ['profile'];
-    expect(await candidatePrehireProgress(1, 2)).toMatchObject({ total: 5, completed: 4, percent: 80, allDone: false });
+    expect(await candidatePrehireProgress(1, 2)).toMatchObject({ total: 6, completed: 5, percent: 83, allDone: false });
   });
   it('includes extra required documents in the same denominator', async () => {
     mocks.extras.mockResolvedValue({ jdAcknowledged: true, prehireDocs: [{ id: 'additional', title: 'Additional form', kind: 'signature', signed: false }] });
-    expect(await candidatePrehireProgress(1, 2)).toMatchObject({ total: 6, completed: 5, percent: 83, allDone: false });
+    expect(await candidatePrehireProgress(1, 2)).toMatchObject({ total: 7, completed: 6, percent: 86, allDone: false });
+  });
+  it('keeps a missing username incomplete even after a legacy pre-hire submission closed',async()=>{
+    mocks.user.mockResolvedValue({id:1,status:'PREHIRE_REVIEW'});
+    expect(await candidatePrehireProgress(1,2)).toEqual({total:6,completed:5,percent:83,allDone:false});
   });
 });

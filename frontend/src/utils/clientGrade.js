@@ -1,5 +1,6 @@
 /** Canonical grade values shown in UI and stored after normalization. */
 export const STANDARD_GRADE_VALUES = [
+  'Pre-K',
   'K',
   '1st',
   '2nd',
@@ -17,7 +18,7 @@ export const STANDARD_GRADE_VALUES = [
 
 export const STANDARD_GRADE_VALUE_SET = new Set(STANDARD_GRADE_VALUES);
 
-/** First option empty, then K … 12th (for `<select>`). */
+/** First option empty, then Pre-K, K … 12th (for `<select>`). */
 export const STANDARD_GRADE_SELECT_OPTIONS = [
   { value: '', label: '—' },
   ...STANDARD_GRADE_VALUES.map((v) => ({ value: v, label: v }))
@@ -30,7 +31,7 @@ function ordinalForNum(n) {
 }
 
 /**
- * Map free-text / legacy grade to K or 1st … 12th, or null if unknown.
+ * Map free-text / legacy grade to Pre-K, K or 1st … 12th.
  */
 export function normalizeGradeToStandard(raw) {
   if (raw == null) return null;
@@ -39,7 +40,7 @@ export function normalizeGradeToStandard(raw) {
 
   const tl = t.toLowerCase().replace(/\s+/g, ' ');
   if (/^(k|kindergarten|kg|kindergarden)$/.test(tl)) return 'K';
-  if (/^pre[-\s]?k$|^pk$|^prek$/.test(tl)) return 'K';
+  if (/^(pre[-\s]?(?:k|kindergarten)|pk)$/.test(tl)) return 'Pre-K';
 
   t = tl.replace(/\bgrade\b/gi, ' ').replace(/\s+/g, ' ').trim();
 

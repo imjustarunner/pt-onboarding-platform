@@ -10468,6 +10468,7 @@ export const promoteToOnboarding = async (req, res, next) => {
       resources: [...(retainedPacket.workflow?.resources || []).filter(r => r.phase === 'pre_hire'), ...onboardingResources] } };
     const { portalStateForUser } = await import('./prehirePortal.controller.js');
     const state = await portalStateForUser(id);
+    if(!user.work_email)return res.status(409).json({error:{message:'Choose the employee’s work username in pre-hire before starting onboarding.'}});
     if (!state.journey?.prehireCompletedAt && !state.progress.allDone) return res.status(409).json({ error: { message: 'Required pre-hire items are incomplete. Reopen pre-hire and finish them before promotion.' } });
     const { closePrehire, startOnboarding } = await import('../services/hireJourney.service.js');
     const { assignPackageToUser } = await import('../services/packageAssignment.service.js');

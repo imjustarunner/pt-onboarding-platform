@@ -1,4 +1,4 @@
-import { credentialPayerRows, isActiveCredentialPayerRow } from './credentialPayerEligibility.service.js';
+import { credentialPayerRows, isActiveCredentialPayerRow, credentialPayerAcceptance } from './credentialPayerEligibility.service.js';
 import { superviseeBillingAllowed } from '../utils/superviseePayerEligibility.js';
 import pool from '../config/database.js';
 import {restrictPublicInsurances} from '../utils/publicProviderPresentation.js';
@@ -15,6 +15,7 @@ async function listDirectAcceptedInsurances(userId, agencyId) {
   return (rows || []).map((r) => ({
     id: r.id,
     ineligible_for_provider: !isActiveCredentialPayerRow(r, { requireVerifiedPayer: false }),
+    credential_review_reason: credentialPayerAcceptance(r, { requireVerifiedPayer:false }).reason,
     insurance_definition_id: r.insurance_definition_id,
     allow_supervisee_billing: superviseeBillingAllowed(r),
     aliases: [r.name, r.parent_name, r.billing_payer_name, r.directory_name].filter(Boolean),
@@ -129,7 +130,8 @@ export async function listProviderAcceptedInsurancesForDisplay({ userId, agencyI
   if (forMatching) return {
     accepted: accepted.map(row => ({ ...row, aliases: merged.find(source => source.name === row.name)?.aliases || [] })),
     known: allRows.length > 0 || overrides.length > 0,
-    excluded: [...excluded.flatMap(row=>[row.name,...(row.aliases||[])]), ...overrides.filter(row=>!Number(row.is_allowed)).map(row=>row.label)],
+    excluded: [...overrides.filter(row=>!Number(row.is_allowed)).map(row=>row.label)],
+    reviewRequired: excluded.map(row=>({name:row.name,aliases:row.aliases||[],reason:row.ineligible_for_supervisee?'The billing supervisor’s payer is not available for supervisee billing.':row.credential_review_reason})),
     credential: people[0] || {}
   };
   return accepted;

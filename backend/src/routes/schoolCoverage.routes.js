@@ -1,5 +1,6 @@
 import express from 'express';
 import { authenticate, requireAgencyAccess } from '../middleware/auth.middleware.js';
+import {listSchoolStaffingWaitlists} from '../controllers/schoolStaffingWaitlists.controller.js';
 import {
   getSummary,
   getProviders,
@@ -17,6 +18,7 @@ import {
 const router = express.Router();
 
 router.get('/summary', authenticate, requireAgencyAccess, getSummary);
+router.get('/waitlists', authenticate, requireAgencyAccess, listSchoolStaffingWaitlists);
 router.get('/providers', authenticate, requireAgencyAccess, getProviders);
 router.get('/warnings', authenticate, requireAgencyAccess, getWarnings);
 router.get('/open-days', authenticate, requireAgencyAccess, getOpenDays);

@@ -58,8 +58,9 @@
       <div v-else class="provider-credentialing">
         <h3 class="section-title">This provider's credentialing</h3>
         <p class="hint section-hint">
-          Each insurance below is available to every fully licensed provider. Check <strong>Credentialed</strong> when this provider is in-network, then fill in dates and reference numbers as needed.
+          A checked record is saved credentialing work, not confirmation of current acceptance. Record the effective date and current status before it appears as accepted insurance in the provider directory or Exchange.
         </p>
+        <p class="hint" role="status">{{ credentialing.filter(row=>row.acceptance?.eligible===true).length }} current own payer records · {{ credentialing.filter(row=>row.acceptance?.eligible!==true).length }} saved records need review. Insurance inherited from a billing supervisor is shown separately on the provider profile.</p>
 
         <div class="credentialing-cards">
           <div
@@ -76,17 +77,18 @@
                   :disabled="row.saving"
                   @change="toggleCredentialed(row, $event.target.checked)"
                 />
-                <span>Credentialed</span>
+                <span>Credential record saved</span>
               </label>
               <img v-if="row.logoUrl" :src="row.logoUrl" :alt="row.name" class="row-logo" />
               <h3>{{ row.name }}</h3>
-              <span v-if="row.credentialed && row.edit.effectiveDate" class="status-pill status-pill--active">
-                Active {{ formatDisplayDate(row.edit.effectiveDate) }}
+              <span v-if="row.credentialed && row.acceptance?.eligible" class="status-pill status-pill--active">
+                Current acceptance
               </span>
-              <span v-else-if="row.credentialed" class="status-pill">In progress</span>
+              <span v-else-if="row.credentialed" class="status-pill">Needs review</span>
             </div>
 
             <div v-if="row.credentialed" class="card-body">
+              <p class="hint">{{ row.acceptance?.reason || 'Current acceptance has not been verified.' }}</p>
               <div class="form-grid">
                 <div class="form-group">
                   <label>Credentialed / effective date</label>
@@ -250,7 +252,8 @@ const syncRowMetaFromCredentialing = () => {
         edit: existing?.recordId === cred.id ? existing.edit : mapRecordToEdit(cred),
         saving: existing?.saving || false,
         error: existing?.error || '',
-        hasUserCredentials: !!cred.has_user_credentials
+        hasUserCredentials: !!cred.has_user_credentials,
+        acceptance:cred.acceptance || null
       };
     } else if (!existing || existing.recordId) {
       next[defId] = {

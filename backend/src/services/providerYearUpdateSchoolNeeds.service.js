@@ -29,17 +29,6 @@ function parseDaysJson(raw) {
     .filter((d) => allowed.has(d));
 }
 
-function schoolHasLogo(school) {
-  return Boolean(
-    school?.logo_path ||
-      school?.logoPath ||
-      school?.logo_url ||
-      school?.logoUrl ||
-      school?.icon_file_path ||
-      school?.iconFilePath
-  );
-}
-
 function mapSchool(school) {
   if (!school) return null;
   const id = safeInt(school.id || school.schoolId);
@@ -120,8 +109,9 @@ export async function computeHomeSchoolRoundTripMiles(providerUserId, schoolOrga
 export async function listSchoolsForNeedsPicker(agencyId) {
   const schools = await listAffiliatedSchools(agencyId, { orgType: 'school' });
   return (schools || [])
+    .filter(school=>![false,0,'0'].includes(school.is_active)&&!Number(school.is_archived))
     .map(mapSchool)
-    .filter((s) => s && schoolHasLogo(s));
+    .filter(Boolean);
 }
 
 function mapNeedRow(row, schoolMap = new Map()) {
@@ -215,7 +205,7 @@ export async function createNeed({
   const school = picker.find((s) => s.schoolOrganizationId === schoolOrganizationId);
   if (!school) {
     const err = new Error(
-      'Select an affiliated school that has a logo on file. Schools without logos cannot be posted.'
+      'Select a current affiliated school for this agency.'
     );
     err.code = 'SCHOOL_NEEDS_INVALID_SCHOOL';
     throw err;

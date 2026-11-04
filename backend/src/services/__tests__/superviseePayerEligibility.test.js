@@ -60,7 +60,8 @@ describe('website insurance inheritance',()=>{
   it('excludes inactive, future and expired credentials from public acceptance and matching',async()=>{
     fixture([{...row('Aetna'),credential_status:'terminated'},{...row('Cigna',1,2),effective_date:'2099-01-01'},{...row('Medicaid',1,3),revalidation_due:'2020-12-31'}],[]);
     const result=await listProviderAcceptedInsurancesForDisplay({userId:10,agencyId:2,forMatching:true});
-    expect(result.accepted).toEqual([]);expect(result.known).toBe(true);expect(result.excluded).toEqual(expect.arrayContaining(['Aetna','Cigna','Medicaid']));
+    expect(result.accepted).toEqual([]);expect(result.known).toBe(true);expect(result.excluded).toEqual([]);
+    expect(result.reviewRequired.map(row=>row.name)).toEqual(expect.arrayContaining(['Aetna','Cigna','Medicaid']));
   });
 });
 describe('claim payer eligibility',()=>{

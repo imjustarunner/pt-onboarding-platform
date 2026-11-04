@@ -18,6 +18,7 @@ vi.mock('../../services/companyEventSms.service.js', () => ({
 }));
 vi.mock('../../utils/smsCompliancePolicy.js', () => ({ validateSmsRegistration: () => [] }));
 import * as controller from '../companyEvents.controller.js';
+import { resolveCompanyEventSmsSender } from '../../services/companyEventSms.service.js';
 let event, users, replies;
 const member = { id: 2, first_name: 'Taylor', role: 'provider', is_active: 1, membership_active: 1, status: 'ACTIVE_EMPLOYEE', personal_phone: '+13035550101' };
 const req = () => ({ user: { id: 2, role: 'admin' }, params: { id: '4', eventId: '20' }, query: {}, body: {}, path: '/4/company-events/20/send-poll' });
@@ -70,6 +71,38 @@ describe('team poll delivery and shared replies', () => {
     expect(mock.sms).toHaveBeenCalledWith(expect.objectContaining({ to: member.personal_phone, purpose: 'polling' }));
     expect(mock.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO company_event_dispatch_logs'), expect.arrayContaining(['skipped', 'SMS opted out']));
   });
+  it('previews the saved Both audience with honest channel counts and opt-out reasons without writes or sends', async () => {
+    const res = await invoke('previewCompanyEventPollDelivery');
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ deliveryMode: 'both', canSend: true,
+      audienceCount: 2, internalCount: 2, smsEligibleCount: 1, smsSkippedCount: 1, answeredCount: 0,
+      smsSender: expect.objectContaining({ ready: true, fromNumber: '+13035550100' }),
+      reasons: [{ code: 'sms_opted_out', label: 'SMS opted out', count: 1 }] }));
+    expect(mock.execute.mock.calls.every(([sql]) => sql.trim().startsWith('SELECT'))).toBe(true);
+    expect(mock.notification).not.toHaveBeenCalled(); expect(mock.sms).not.toHaveBeenCalled(); expect(mock.communication).not.toHaveBeenCalled();
+  });
+  it('excludes answered staff from preview and does not claim eligible SMS for an opted-out recipient', async () => {
+    replies.set(2, { id: 2, user_id: 2 });
+    event.voting_config_json.deliveryMode = 'sms';
+    const res = await invoke('previewCompanyEventPollDelivery');
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ answeredCount: 1, internalCount: 0, smsEligibleCount: 0, canSend: false }));
+  });
+  it('surfaces a global sender configuration problem before any partial delivery', async () => {
+    resolveCompanyEventSmsSender.mockRejectedValueOnce(Object.assign(new Error('Missing sender'), { code: 'event_sms_sender_missing' }));
+    let res = await invoke('previewCompanyEventPollDelivery');
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ canSend: false, smsEligibleCount: 0,
+      smsSender: expect.objectContaining({ ready: false, reason: 'event_sms_sender_missing' }) }));
+    resolveCompanyEventSmsSender.mockRejectedValueOnce(Object.assign(new Error('Missing sender'), { code: 'event_sms_sender_missing' }));
+    res = await invoke('sendCompanyEventVotingSms'); expect(res.status).toHaveBeenCalledWith(409);
+    expect(mock.sms).not.toHaveBeenCalled(); expect(mock.notification).not.toHaveBeenCalled();
+  });
+  it('rechecks opt-outs during actual dispatch after an earlier eligible preview', async () => {
+    await invoke('previewCompanyEventPollDelivery');
+    users[0] = { ...member, notification_categories: { staff_communications_4: { choices: { polling: false } } } };
+    const res = await invoke('sendCompanyEventVotingSms');
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ sentCount: 0, inAppCount: 2,
+      skippedReasons: [{ label: 'SMS opted out', count: 2 }] }));
+    expect(mock.sms).not.toHaveBeenCalled();
+  });
   it('delivers internal polls without an SMS sender or consent check', async () => {
     event.voting_config_json.deliveryMode = 'internal';
     const res = await invoke('sendCompanyEventVotingSms');
@@ -101,6 +134,14 @@ describe('team poll delivery and shared replies', () => {
     expect(replies.get(2).response_key).toBe('2');
     await controller.handleCompanyEventInbound({ from: member.personal_phone, to: '+13035550100', body: 'DATE 1' });
     expect(replies.size).toBe(1); expect(replies.get(2).response_key).toBe('1');
+  });
+  it('resolves inbound replies through the same current registered agency sender rather than missing legacy toggles', async () => {
+    const original = mock.execute.getMockImplementation();
+    mock.execute.mockImplementation((sql, args) => sql.includes('SELECT id, feature_flags FROM agencies')
+      ? Promise.resolve([[{ id: 4, feature_flags: { companyEventsSenderNumberId: 8 } }]]) : original(sql, args));
+    expect(await controller.handleCompanyEventInbound({ from: member.personal_phone, to: '+13035550100', body: 'DATE 1' })).toMatchObject({ handled: true });
+    expect(resolveCompanyEventSmsSender).toHaveBeenCalledWith({ agencyId: 4, audience: 'staff', purpose: 'polling', from: '+13035550100' });
+    expect(mock.execute).toHaveBeenCalledWith(expect.stringContaining('WHERE id = ? AND'), [4]);
   });
   it('does not expose or accept internal votes for SMS-only polls', async () => {
     event.voting_config_json.deliveryMode = 'sms';

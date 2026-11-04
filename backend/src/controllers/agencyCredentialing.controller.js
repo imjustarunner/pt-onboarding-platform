@@ -7,6 +7,7 @@ import InsuranceCredentialingDefinition from '../models/InsuranceCredentialingDe
 import InsuranceCredentialingContact from '../models/InsuranceCredentialingContact.model.js';
 import InsuranceCredentialingInteraction from '../models/InsuranceCredentialingInteraction.model.js';
 import { superviseeBillingAllowed, validateSuperviseeBillingInput } from '../utils/superviseePayerEligibility.js';
+import { credentialPayerAcceptance } from '../services/credentialPayerEligibility.service.js';
 import UserInsuranceCredentialing from '../models/UserInsuranceCredentialing.model.js';
 import CredentialingChangeLog from '../models/CredentialingChangeLog.model.js';
 import StorageService from '../services/storage.service.js';
@@ -1185,6 +1186,7 @@ export const listUserCredentialing = async (req, res, next) => {
       user_id: r.user_id,
       insurance_credentialing_definition_id: r.insurance_credentialing_definition_id,
       insurance_name: r.insurance_name,
+      acceptance: credentialPayerAcceptance(r, { requireVerifiedPayer:false }),
       allow_supervisee_billing: superviseeBillingAllowed(r),
       billing_payer_id: r.billing_payer_id || null,
       billing_payer_name: r.billing_payer_name || null,
