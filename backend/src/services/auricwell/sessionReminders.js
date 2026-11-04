@@ -5,19 +5,27 @@ import { patientAccess } from './clinical.js';
 import { platformIntegrations } from './platformIntegrations.js';
 import { ensureAppointmentVideo, clientVideoLink, appointmentVersion, requireTelehealthConsent, retireUnusedSessionRooms } from './appointmentVideo.js';
 import { queuePatientSms, patientSmsCategoryEnabled, clientSmsPreferences, saveClientSmsPreferences } from './clientMessaging.js';
+import { nativeSchoolAppointment, schoolAppointmentReminderWindow, schoolAppointmentReminderText } from '../../utils/schoolAppointmentReminder.js';
 
 // Preserve existing API URLs while using one authoritative preference model.
 export const sessionPreferences = clientSmsPreferences;
 export const saveSessionPreferences = saveClientSmsPreferences;
-export function reminderKinds(appointment, now = Date.now()) {
+export function reminderKinds(appointment, now = Date.now(), timeZone = 'America/Denver') {
   if (!['scheduled', 'confirmed'].includes(appointment.data.status)) return [];
   const remaining = Date.parse(appointment.data.start) - now;
   if (remaining <= 0 || remaining > 30 * 86400000) return [];
+  if (nativeSchoolAppointment(appointment)) {
+    const window = schoolAppointmentReminderWindow({ startAt: appointment.data.start, sourceTimezone: timeZone });
+    return window && now >= +window.scheduledAt && now < +window.deadline ? ['school_morning'] : [];
+  }
   // A late booking sends one message, not confirmation + both reminder windows.
   return [remaining <= 3600000 ? 'one_hour' : remaining <= 86400000 ? 'one_day' : 'confirmation'];
 }
-export function deliveryKey(appointment, kind, channel, recipient, room) {
-  return hash(JSON.stringify([appointmentVersion(appointment), kind, channel, recipient, room?.provider, room?.version]));
+export function deliveryKey(appointment, kind, channel, recipient, room, timeZone) {
+  const occurrence = kind === 'school_morning'
+    ? [appointment.id, schoolAppointmentReminderWindow({ startAt: appointment.data.start, sourceTimezone: timeZone }).dayStart.toISOString()]
+    : appointmentVersion(appointment);
+  return hash(JSON.stringify([occurrence, kind, channel, recipient, room?.provider, room?.version]));
 }
 async function sendEmail(ctx, to, text, appointment) {
   const {sendNativeAppointmentEmail}=await import('./appointmentEmailResponse.js');
@@ -28,21 +36,28 @@ async function sendEmail(ctx, to, text, appointment) {
   return { provider: 'email', status: 'submitted', id: result.id };
 }
 export async function deliverAppointment(ctx, appointment, settings, deps = {}) {
-  const remaining = Date.parse(appointment.data.start) - (deps.now || Date.now());
+  const currentTime = deps.now ?? Date.now();
+  const remaining = Date.parse(appointment.data.start) - currentTime;
   if (!['scheduled','confirmed'].includes(appointment.data.status) || remaining <= 0 || remaining > 30 * 86400000 || !ctx.settings.phiActivatedAt) return;
+  const school = nativeSchoolAppointment(appointment);
+  const [kind] = reminderKinds(appointment, currentTime, ctx.settings.timezone);
+  if (!kind) return;
+  const schoolWindow = school ? schoolAppointmentReminderWindow({ startAt: appointment.data.start, sourceTimezone: ctx.settings.timezone }) : null;
   const video = appointment.data.modality === 'video';
   if (video && (!ctx.settings.capabilities?.video || settings.videoProvider === 'disabled')) return;
   if (video) await requireTelehealthConsent(ctx, appointment);
   const patient = await get(ctx, 'patient', appointment.patientId);
   const prefs = await findSource(ctx, 'session_preferences', patient.id);
-  const kind = remaining <= 3600000 ? 'one_hour' : remaining <= 86400000 ? 'one_day' : 'confirmation';
   const when = new Intl.DateTimeFormat('en-US', { timeZone: ctx.settings.timezone || 'America/Denver', dateStyle: 'full', timeStyle: 'short' }).format(new Date(appointment.data.start));
-  const source = { kind: 'appointment', id: appointment.id, start: appointment.data.start, end: appointment.data.end, providerAccountId: appointment.data.providerAccountId };
+  const source = { kind: 'appointment', id: appointment.id, start: appointment.data.start, end: appointment.data.end,
+    providerAccountId: appointment.data.providerAccountId, ...(school ? { schoolReminderDay: schoolWindow.dayStart.toISOString() } : {}) };
   const current = await get(ctx, 'appointment', appointment.id);
   if (appointmentVersion(current) !== appointmentVersion(appointment)) return;
-  await queuePatientSms(ctx, patient.id, { category: 'reminders', key: `appointment:${appointment.id}:${appointmentVersion(appointment)}:${kind}`,
-    body: `${ctx.practiceName || 'AuricWell'}: Your appointment is ${when}. Reply Y to confirm attendance.`, source,
-    expiresAt: Date.parse(appointment.data.start) - (kind === 'confirmation' ? 86400000 : kind === 'one_day' ? 3600000 : 0) });
+  await queuePatientSms(ctx, patient.id, { category: 'reminders', key: `appointment:${appointment.id}:${school ? source.schoolReminderDay : appointmentVersion(appointment)}:${kind}`,
+    body: school ? `${ctx.practiceName || 'AuricWell'}: ${schoolAppointmentReminderText} Reply N to cancel this session.`
+      : `${ctx.practiceName || 'AuricWell'}: Your appointment is ${when}. Reply Y to confirm attendance.`, source,
+    expiresAt: school ? +schoolWindow.deadline
+      : Date.parse(appointment.data.start) - (kind === 'confirmation' ? 86400000 : kind === 'one_day' ? 3600000 : 0) });
   // Session access is independent of appointment reminder preferences.
   let room = null;
   if (video && remaining <= 5 * 60000 && await patientSmsCategoryEnabled(ctx, patient.id, 'links')) {
@@ -53,8 +68,9 @@ export async function deliverAppointment(ctx, appointment, settings, deps = {}) 
   }
   if (!settings.emailReminders || prefs?.data.emailEnabled === false || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(patient.data.email || '')) return;
   room ||= video ? await ensureAppointmentVideo(ctx, appointment, settings, deps) : null;
-  const body = `${ctx.practiceName || 'AuricWell'}: Your ${video ? 'virtual ' : ''}appointment is ${when}.${video ? ` Join your session: ${clientVideoLink(room)}` : ''}`;
-  const id = crypto.randomUUID(), key = deliveryKey(appointment, kind, 'email', patient.data.email, room);
+  const body = school ? `${ctx.practiceName || 'AuricWell'}: ${schoolAppointmentReminderText}`
+    : `${ctx.practiceName || 'AuricWell'}: Your ${video ? 'virtual ' : ''}appointment is ${when}.${video ? ` Join your session: ${clientVideoLink(room)}` : ''}`;
+  const id = crypto.randomUUID(), key = deliveryKey(appointment, kind, 'email', patient.data.email, room, ctx.settings.timezone);
   const [claim] = await pool.execute(`INSERT IGNORE INTO auricwell_session_deliveries (id,practice_id,appointment_id,delivery_key,channel,status)
     VALUES (?,?,?,?,?,'sending')`, [id, ctx.practiceId, appointment.id, key, 'email']);
   if (!claim.affectedRows) return;
@@ -101,7 +117,7 @@ export async function runSessionReminders() {
     ctx.settings.capabilities.video = settings.videoProvider !== 'disabled';
     if (!ctx.settings.phiActivatedAt) continue;
     for (const appointment of await list(ctx, 'appointment', { limit: 10000 })) {
-      if (!reminderKinds(appointment).length) continue;
+      if (!reminderKinds(appointment, Date.now(), ctx.settings.timezone).length) continue;
       const [[member]] = await pool.execute(`SELECT a.id FROM auricwell_accounts a JOIN auricwell_memberships m ON m.account_id=a.id
         WHERE a.id=? AND m.practice_id=? AND m.actor_type='staff' AND m.status='active' AND a.status='active'`, [appointment.data.providerAccountId, p.id]);
       if (!member) continue;

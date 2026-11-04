@@ -40,7 +40,14 @@ it('confirms under the practice lock and writes an audit record',async()=>{
 it.each(['cancel','reschedule','absence'])('routes %s to provider review without cancelling or charging',async action=>{
  await applyNativeResponse(await nativeResponseContext(row),action);
  expect(m.update).not.toHaveBeenCalled();expect(m.create).toHaveBeenCalledWith(ctx,'appointment_request',expect.objectContaining({requestType:action==='absence'?'cancel':action,status:'pending'}),{patientId:'patient'},expect.anything());
- if(action==='absence')expect(m.create.mock.calls[0][2].message).toContain('Do not assess a cancellation fee');
+ if(action==='absence')expect(m.create.mock.calls[0][2].message).toContain('No fee was authorized');
+});
+it('native school sessions expose cancellation only and never confirm on a stale confirmation link',async()=>{
+ appointment.data.serviceSetting='school';m.execute.mockImplementation(async sql=>sql.startsWith('SELECT')?[[]]:[{affectedRows:1}]);
+ const current=await nativeResponseContext(row);await expect(applyNativeResponse(current,'confirm')).rejects.toThrow('Only cancellation');
+ await sendNativeAppointmentEmail(ctx,patient.data.email,'School session',appointment);
+ const sent=m.send.mock.calls[0][0];expect(sent.appointments).toBe(true);expect(sent.html).toContain('Cancel school session');expect(sent.html).not.toContain('action=confirm');expect(sent.html).not.toContain('action=reschedule');
+ expect(sent.text).toContain('seen today at school');expect(sent.text).toContain('schedule changes');
 });
 it('rejects an appointment changed after the response page opened',async()=>{
  const current=await nativeResponseContext(row);m.get.mockResolvedValue({...appointment,data:{...appointment.data,status:'cancelled'}});

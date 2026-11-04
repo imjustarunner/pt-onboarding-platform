@@ -1,6 +1,7 @@
 <template>
   <div class="so-shell" :style="shellVars">
     <aside class="so-sidebar">
+      <SchoolCareBridgeBrand compact class="so-service-brand" />
       <div class="so-brand">
         <img v-if="agencyLogo" :src="agencyLogo" alt="" class="so-brand-logo" />
         <div v-else class="so-brand-mark">{{ agencyInitial }}</div>
@@ -586,7 +587,7 @@
             <p class="muted">
               Every new school receives a small <strong>welcome package</strong> with a few starter items.
               Let us know if you’d like anything extra, and how you’d like to handle paper referral packets
-              alongside your digital intake links.
+              alongside your digital enrollment link.
             </p>
 
             <div class="so-materials-block">
@@ -779,6 +780,7 @@
         </template>
       </template>
 
+      <ServiceUseNotice school-portal :organization-slug="agencySlug" />
       <footer class="so-footer muted">
         Questions? Contact
         <a v-if="supportEmail" :href="`mailto:${supportEmail}`">{{ supportEmail }}</a>
@@ -795,8 +797,11 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
+import ServiceUseNotice from '../../components/legal/ServiceUseNotice.vue';
+import { schoolCareBridgeUrl, schoolCareBridgePath } from '../../utils/schoolCareBridge';
+import { useSchoolCareBridgeBranding } from '../../composables/useSchoolCareBridgeBranding';
 import { useAuthStore } from '../../store/auth';
-import { useBrandingStore } from '../../store/branding';
 import {
   buildSchoolGroupEmail,
   parseSchoolGroupEmailLocal,
@@ -805,19 +810,11 @@ import {
   resolveSchoolOnboardingSupportPhone,
   suggestSchoolGroupEmails
 } from '../../utils/schoolGroupEmailSuggestions.js';
-import { buildOrgLoginPath } from '../../utils/orgLoginPath.js';
-import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath.js';
 import { checkPasswordBasics } from '../../utils/passwordPolicy.js';
 import PublicAgencySupportForm from '../../components/public/PublicAgencySupportForm.vue';
 import { GROUP_SUBSCRIPTION_OPTIONS } from '../../utils/schoolGroupSubscription.js';
 
-const DEDICATED_APP_HOSTS = Object.freeze({
-  itsco: 'app.itsco.health',
-  nextlevelup: 'app.nextleveluplcc.com',
-  nextleveluplcc: 'app.nextleveluplcc.com',
-  nlu: 'app.nextleveluplcc.com',
-  tisi: 'app.theinnerstrengthinstitute.com'
-});
+useSchoolCareBridgeBranding('School onboarding');
 
 const AGENCY_HELPER_ROLES = new Set([
   'admin',
@@ -832,7 +829,6 @@ const AGENCY_HELPER_ROLES = new Set([
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
-const brandingStore = useBrandingStore();
 const showSupportForm = ref(false);
 
 const steps = [
@@ -897,10 +893,6 @@ const showSchoolInfoValidation = ref(false);
 const personalPasswordForThankYou = ref('');
 const showThankYouPassword = ref(false);
 const copyFeedback = ref('');
-const submittedLoginPath = ref('');
-const submittedPortalPath = ref('');
-const submittedPortalUrl = ref('');
-const submittedLoginUrl = ref('');
 let copyFeedbackTimer = null;
 const schoolForm = reactive({
   schoolName: '',
@@ -1107,42 +1099,11 @@ const canSubmit = computed(() => {
   if (!identityReady.value) return false;
   return password.value.length >= 6 && password.value === passwordConfirm.value;
 });
-const loginPath = computed(() => {
-  if (submittedLoginPath.value) return submittedLoginPath.value;
-  const schoolSlug = invite.value?.schoolSlug || invite.value?.school?.slug;
-  const agencySlugVal = invite.value?.agency?.slug;
-  const hostImplied = resolveHostImpliedPortalSlug(brandingStore);
-  return buildOrgLoginPath(schoolSlug, agencySlugVal, hostImplied);
-});
-const portalDashboardPath = computed(() => {
-  if (submittedPortalPath.value) return submittedPortalPath.value;
-  const schoolSlug = invite.value?.schoolSlug || invite.value?.school?.slug;
-  return schoolSlug ? `/${String(schoolSlug).trim().toLowerCase()}/dashboard` : '/dashboard';
-});
-const absolutePortalUrl = computed(() => {
-  if (submittedPortalUrl.value) return submittedPortalUrl.value;
-  if (invite.value?.portalUrl) return invite.value.portalUrl;
-  const schoolSlug = String(invite.value?.schoolSlug || invite.value?.school?.slug || '')
-    .trim()
-    .toLowerCase();
-  const agency = String(agencySlug.value || '').trim().toLowerCase();
-  const host = DEDICATED_APP_HOSTS[agency];
-  if (host && schoolSlug) return `https://${host}/${schoolSlug}`;
-  if (typeof window !== 'undefined' && schoolSlug) {
-    return `${window.location.origin}/${schoolSlug}`;
-  }
-  return '';
-});
-const absoluteLoginUrl = computed(() => {
-  if (submittedLoginUrl.value) return submittedLoginUrl.value;
-  if (invite.value?.loginUrl) return invite.value.loginUrl;
-  const base = absolutePortalUrl.value;
-  if (!base) {
-    if (typeof window === 'undefined') return loginPath.value;
-    return `${window.location.origin}${loginPath.value}`;
-  }
-  return `${String(base).replace(/\/$/, '')}/login`;
-});
+const schoolPortalSlug = computed(() => String(invite.value?.schoolSlug || invite.value?.school?.slug || '').trim().toLowerCase());
+const loginPath = computed(() => schoolCareBridgePath(schoolPortalSlug.value));
+const portalDashboardPath = loginPath;
+const absolutePortalUrl = computed(() => schoolPortalSlug.value ? schoolCareBridgeUrl(schoolPortalSlug.value) : '');
+const absoluteLoginUrl = absolutePortalUrl;
 const loginHref = computed(() => absoluteLoginUrl.value || absolutePortalUrl.value || loginPath.value);
 const loginDisplayHost = computed(() => {
   try {
@@ -1383,10 +1344,10 @@ async function copyText(value, label = 'Value') {
 
 function goToLogin() {
   if (canEnterPortal.value) {
-    const dashAbs = invite.value?.portalDashboardUrl || submittedPortalUrl.value;
+    const dashAbs = absolutePortalUrl.value;
     if (dashAbs && typeof window !== 'undefined') {
       try {
-        const target = new URL(dashAbs.includes('/dashboard') ? dashAbs : `${dashAbs.replace(/\/$/, '')}/dashboard`);
+        const target = new URL(dashAbs);
         if (target.origin === window.location.origin) {
           router.push(`${target.pathname}${target.search}`);
           return;
@@ -1502,14 +1463,6 @@ async function submit() {
         // ignore
       }
     }
-    if (res.data?.portalDashboardPath) {
-      submittedPortalPath.value = res.data.portalDashboardPath;
-    }
-    if (res.data?.loginPath) {
-      submittedLoginPath.value = res.data.loginPath;
-    }
-    if (res.data?.portalUrl) submittedPortalUrl.value = res.data.portalUrl;
-    if (res.data?.loginUrl) submittedLoginUrl.value = res.data.loginUrl;
     go('home');
   } catch (e) {
     actionError.value = e?.response?.data?.error?.message || 'Unable to submit';
@@ -1702,6 +1655,8 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.so-service-brand{margin:0 auto 20px}
+
 .so-shell {
   --so-primary: #2d6a4f;
   --so-secondary: #2d6a4f;

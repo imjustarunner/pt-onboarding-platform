@@ -4,7 +4,6 @@ import { queueSchoolOnboardingWelcome } from './schoolOnboardingWelcome.service.
 import { deliverOnboardingEmail } from './schoolOnboardingReminder.service.js';
 import crypto from 'crypto';
 import pool from '../config/database.js';
-import config from '../config/config.js';
 import SchoolOnboardingInvite from '../models/SchoolOnboardingInvite.model.js';
 import SchoolOnboardingQrLink from '../models/SchoolOnboardingQrLink.model.js';
 import Agency from '../models/Agency.model.js';
@@ -17,7 +16,7 @@ import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service
 import { resolvePreferredSenderIdentityForAgency } from './emailSenderIdentityResolver.service.js';
 import { validatePasswordStrength, checkPasswordBasics } from '../utils/passwordValidation.js';
 import { ensureDigitalIntakeFormsForSchool } from './schoolOnboardingIntakeBootstrap.service.js';
-import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
+import { routingDestination, schoolCareBridgeDeployment } from './schoolCareBridgeRouting.service.js';
 import { normalizeGroupSubscription } from './schoolGroupSubscription.service.js';
 import { toStoredDistrictName, validateSchoolDistrictSelection } from '../utils/districtSlug.shared.js';
 
@@ -67,24 +66,14 @@ function applyAssistanceStamp(stepBody, actor, { draft = true } = {}) {
 
 function buildSchoolPortalUrls(invite) {
   const schoolSlug = String(invite?.school_slug || invite?.school_portal_url || '').trim().toLowerCase();
-  const agencySlug = String(invite?.agency_slug || invite?.agency_portal_url || '').trim().toLowerCase();
-  const schoolAgency = {
-    slug: schoolSlug,
-    portal_url: schoolSlug,
-    organization_type: 'school',
-    parent_slug: agencySlug || null,
-    parent_portal_url: agencySlug || null,
-    affiliated_agency_slug: agencySlug || null
-  };
-  const portalUrl = schoolSlug ? buildPublicAppUrl(schoolAgency, '') : null;
-  const loginUrl = schoolSlug ? buildPublicAppUrl(schoolAgency, 'login') : null;
-  const portalDashboardUrl = schoolSlug ? buildPublicAppUrl(schoolAgency, 'dashboard') : null;
+  const portalUrl = schoolSlug ? routingDestination(schoolSlug) : null;
+  const portalPath = schoolSlug ? `/schoolcarebridge/app/${schoolSlug}` : '/schoolcarebridge/app';
   return {
     portalUrl,
-    loginUrl,
-    portalDashboardUrl,
-    loginPath: buildSchoolLoginPath(agencySlug, schoolSlug),
-    portalDashboardPath: schoolSlug ? `/${schoolSlug}/dashboard` : '/dashboard'
+    loginUrl: portalUrl,
+    portalDashboardUrl: portalUrl,
+    loginPath: portalPath,
+    portalDashboardPath: portalPath
   };
 }
 
@@ -175,14 +164,6 @@ const REQUIRED_STEP_KEYS = [...REQUIRED_BEFORE_SUBMIT, 'review_submit'];
 
 const WELCOME_MATERIAL_KEYS = new Set(['trifolds', 'stress_balls', 'pens', 'other']);
 
-function buildSchoolLoginPath(agencySlug, schoolSlug) {
-  const school = String(schoolSlug || '').trim().toLowerCase();
-  const agency = String(agencySlug || '').trim().toLowerCase();
-  if (!school) return '/login';
-  if (agency && agency !== school) return `/${agency}/${school}/login`;
-  return `/${school}/login`;
-}
-
 function summarizeWelcomeMaterials(payload) {
   const body = payload?.welcome_materials;
   if (!body || typeof body !== 'object') return null;
@@ -223,7 +204,8 @@ function parseFlags(raw) {
 }
 
 function frontendBase() {
-  return String(config.frontendUrl || process.env.FRONTEND_URL || '').replace(/\/$/, '');
+  // Onboarding has its own root route on both supported public origins.
+  return schoolCareBridgeDeployment().origin;
 }
 
 export function buildOnboardingLink(token) {

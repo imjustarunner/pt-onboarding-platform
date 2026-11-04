@@ -6,6 +6,7 @@ export function emailActionButton(label,url,primary=false) {
 /** Restyle existing automated CTA buttons only; leave prose and footer links intact. */
 export function standardizeEmailButtons(html) {
  return typeof html !== 'string' ? html : html.replace(/<a\b[^>]*>/gi, tag => {
+  if (/\bdata-appointment-action="(?:primary|secondary)"/.test(tag)) return tag;
   const style=tag.match(/\bstyle\s*=\s*(["'])(.*?)\1/i);
   if(!style || !/\bpadding\s*:/i.test(style[2]) || !/\b(?:background(?:-color)?|border(?:-radius)?)\s*:/i.test(style[2]))return tag;
   const background=style[2].match(/(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/i)?.[1]?.trim();

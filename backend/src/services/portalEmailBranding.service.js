@@ -4,7 +4,7 @@ import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 
 export const isClinicalPortalIdentity = identity => ['clinical_enrollment_portal', 'clinical_appointment_reminders'].includes(identity?.identity_key);
 export const isPortalIdentity = identity => isClinicalPortalIdentity(identity) || identity?.identity_key === 'enrollment_portal';
-export const portalSenderName = identity => identity?.identity_key === 'clinical_appointment_reminders' ? 'AuricWell Reminders' : identity?.identity_key === 'clinical_enrollment_portal' ? 'AuricWell Portal' : identity?.display_name;
+export const portalSenderName = identity => identity?.identity_key === 'clinical_appointment_reminders' ? 'AuricWell Notifications' : identity?.identity_key === 'clinical_enrollment_portal' ? 'AuricWell Portal' : identity?.display_name;
 export const escapePortalHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const publicUrl = value => {
   try { const url = new URL(value); return url.protocol === 'https:' && !/^(localhost|127\.|\[::1\])/.test(url.hostname) ? url.href : ''; } catch { return ''; }

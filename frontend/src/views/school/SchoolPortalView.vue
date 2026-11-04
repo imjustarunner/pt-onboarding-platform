@@ -1105,9 +1105,9 @@
             </div>
           </div>
 
-          <!-- ── Enrollment & Intake ────────────────────────────────── -->
+          <!-- ── Enrollment ─────────────────────────────────────────── -->
           <div class="section-group">
-            <div class="section-group-label">Enrollment &amp; Intake</div>
+            <div class="section-group-label">Enrollment</div>
             <div class="dashboard-card-grid">
               <button
                 data-tour="school-home-card-digital-intake"
@@ -1120,13 +1120,13 @@
                   <img
                     v-if="brandingStore.getSchoolPortalCardIconUrl('parent_qr', cardIconOrg)"
                     :src="brandingStore.getSchoolPortalCardIconUrl('parent_qr', cardIconOrg)"
-                    alt="Digital intake icon"
+                    alt="Digital enrollment icon"
                     class="dash-card-icon-img"
                   />
                   <div v-else class="dash-card-icon-fallback" aria-hidden="true"><PortalIcon name="forms" /></div>
                 </div>
-                <div class="dash-card-title">Digital forms</div>
-                <div class="dash-card-desc">Replaces the paper intake packet. Share QR code or link for parents to complete forms.</div>
+                <div class="dash-card-title">Digital enrollment</div>
+                <div class="dash-card-desc">Share one link or QR code for families to enroll in English or Spanish.</div>
                 <div class="dash-card-meta">
                   <span class="dash-card-cta">Open ›</span>
                 </div>
@@ -2256,50 +2256,58 @@
             Coming soon.
           </div>
           <div class="muted">
-            This feature isn’t available yet, but it’s planned for the School Portal. For now, please use your existing intake / packet workflows.
+            This feature isn’t available yet, but it’s planned for the School Portal. For now, please use your existing enrollment / packet workflows.
           </div>
         </div>
       </div>
     </div>
 
     <div v-if="showIntakeModal" class="modal-overlay" @click.self="closeIntakeModal">
-      <div class="modal" data-tour="school-digital-forms-panel" @click.stop>
-        <div class="modal-header">
-          <strong>Digital forms</strong>
+      <div class="modal enrollment-modal" data-tour="school-digital-forms-panel" role="dialog" aria-modal="true" aria-labelledby="school-enrollment-title" @click.stop>
+        <div class="modal-header enrollment-modal-header">
+          <div>
+            <img class="enrollment-brand" src="/assets/schoolcarebridge/wordmark.svg" alt="SchoolCareBridge" />
+            <h2 id="school-enrollment-title">Digital enrollment</h2>
+            <p>One packet. English and Spanish. Ready to share with families.</p>
+          </div>
           <button class="btn btn-secondary btn-sm" type="button" @click="closeIntakeModal">Close</button>
         </div>
         <div class="modal-body">
-          <div v-if="intakeLinkLoading" class="muted">Loading form…</div>
+          <div v-if="intakeLinkLoading" class="muted">Loading enrollment…</div>
           <div v-else-if="intakeLinkError" class="error">{{ intakeLinkError }}</div>
-          <div v-else-if="!intakePacketLinks.length" class="muted">No intake packet forms configured for this school yet.</div>
+          <div v-else-if="!primaryIntakeLink" class="muted">No enrollment packet is configured for this school yet.</div>
           <div v-else class="intake-link-body">
-            <!-- URL + action row per language link -->
-            <div v-for="link in intakePacketLinks" :key="link.id" class="intake-link-block intake-link-block--url-only">
+            <div class="intake-link-block enrollment-share-card">
               <div class="intake-link-meta">
-                <span class="badge badge-outline">{{ getIntakeLanguageLabel(link.language_code) }}</span>
+                <strong>Family enrollment link</strong>
+                <span class="enrollment-language-badge">English / Español</span>
               </div>
+              <p class="enrollment-language-note">Families can switch languages using the flag button at the top of the form.</p>
               <div class="intake-link-row">
-                <input class="intake-link-input" :value="getIntakeLinkUrl(link)" readonly />
-                <button class="btn btn-secondary btn-sm" type="button" @click="copyIntakeLink(link)">Copy</button>
-                <button class="btn btn-primary btn-sm" type="button" @click="openIntakeApproval(link)">Approve & Launch</button>
+                <input class="intake-link-input" aria-label="Family enrollment link" :value="getIntakeLinkUrl(primaryIntakeLink)" readonly />
+                <button class="btn btn-secondary btn-sm" type="button" @click="copyIntakeLink(primaryIntakeLink)">Copy link</button>
+              </div>
+              <div class="enrollment-staff-action">
+                <span>Helping a family in person?</span>
+                <button class="btn btn-primary btn-sm" type="button" @click="openIntakeApproval(primaryIntakeLink)">Approve &amp; launch</button>
               </div>
             </div>
 
-            <!-- Single shared QR for the primary (English) form -->
             <div v-if="intakeModalMode === 'qr' && primaryIntakeLink" class="intake-qr intake-qr--standalone">
               <div class="intake-qr-note">
-                📱 Scan to open — the form includes a language toggle at the top to switch to Spanish.
+                <strong>Scan to enroll</strong>
+                <span>The same bilingual packet, on any device.</span>
               </div>
               <img
                 v-if="intakeQrFancyMode[primaryIntakeLink.public_key] && intakeQrFancyByKey[primaryIntakeLink.public_key]"
                 :src="intakeQrFancyByKey[primaryIntakeLink.public_key]"
-                alt="Intake QR code"
+                alt="Bilingual enrollment QR code"
                 class="intake-qr-img"
               />
               <img
                 v-else-if="!intakeQrFancyMode[primaryIntakeLink.public_key] && intakeQrByKey[primaryIntakeLink.public_key]"
                 :src="intakeQrByKey[primaryIntakeLink.public_key]"
-                alt="Intake QR code"
+                alt="Bilingual enrollment QR code"
                 class="intake-qr-img"
               />
               <div v-else class="muted">Generating QR…</div>
@@ -2307,7 +2315,7 @@
                 <button
                   class="btn btn-secondary btn-sm"
                   type="button"
-                  @click="() => { const src = (intakeQrFancyMode[primaryIntakeLink.public_key] && intakeQrFancyByKey[primaryIntakeLink.public_key]) ? intakeQrFancyByKey[primaryIntakeLink.public_key] : intakeQrByKey[primaryIntakeLink.public_key]; const a = document.createElement('a'); a.href = src; a.download = 'intake-qr.png'; a.click(); }"
+                  @click="downloadEnrollmentQr"
                 >↓ Download QR</button>
                 <button
                   class="btn btn-ghost btn-sm"
@@ -2320,6 +2328,7 @@
             </div>
           </div>
           <div class="intake-modal-footer">
+            <p class="enrollment-storage-note">Enrollment information is stored and protected through AuricWell for your care team.</p>
             <button class="btn btn-secondary btn-sm" type="button" @click="goToDocsPanel">
               View all docs &amp; links
             </button>
@@ -2431,7 +2440,7 @@
 
           <div class="intake-modal-footer">
             <button class="btn btn-secondary btn-sm" type="button" @click="showPrintableModal = false; openIntakeModal('qr')">
-              Looking for digital forms? Open ›
+              Looking for digital enrollment? Open ›
             </button>
           </div>
         </div>
@@ -2458,10 +2467,10 @@
         </div>
         <div class="modal-body">
           <div class="muted" style="margin-bottom: 10px;">
-            Approve &amp; Launch is for staff-assisted sessions where the parent/guardian completes the intake with you.
+            Approve &amp; Launch is for staff-assisted sessions where the parent/guardian completes enrollment with you.
           </div>
           <div class="muted" style="margin-bottom: 10px;">
-            We collect your last name to document who authorized the session and the client’s first name to note who the intake is for.
+            We collect your last name to document who authorized the session and the client’s first name to note who enrollment is for.
             This is recorded on a verification page in the final packet for auditing.
           </div>
           <div class="muted" style="margin-bottom: 10px;">
@@ -2477,7 +2486,7 @@
           </div>
           <label class="checkbox" style="margin-bottom: 12px;">
             <input v-model="intakeApprovalChecked" type="checkbox" />
-            I confirm I am approving this intake.
+            I confirm I am approving this enrollment.
           </label>
           <div v-if="intakeApprovalError" class="error" style="margin-bottom: 10px;">
             {{ intakeApprovalError }}
@@ -2615,7 +2624,8 @@ import TestAccountSwitcher from '../../components/TestAccountSwitcher.vue';
 import api from '../../services/api';
 import { messageFromBlobError } from '../../utils/apiBlobError';
 import { buildPublicSchoolPrintablePacketUrl } from '../../utils/publicSchoolPrintablePacketUrl';
-import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
+import { buildSchoolEnrollmentUrl } from '../../utils/publicIntakeUrl';
+import { selectSchoolEnrollmentLink } from '../../utils/schoolEnrollmentLink';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { isSupervisor } from '../../utils/helpers';
 import { getSchoolStaffWaiverStatus as getSchoolStaffWaiverStatusForGate } from '../../utils/schoolStaffWaiverGate';
@@ -3040,7 +3050,6 @@ const intakeModalMode = ref('qr'); // 'qr' | 'sign'
 const intakeLinkLoading = ref(false);
 const intakeLinkError = ref('');
 const intakeLink = ref(null);
-const intakeLinks = ref([]);
 const intakeQrDataUrl = ref('');
 const intakeQrByKey = ref({});
 const intakeQrFancyByKey = ref({});
@@ -3088,36 +3097,13 @@ const handleUploadSuccess = () => {
   // Keep the modal open so OCR + initials can be completed.
 };
 
-const intakeLinkUrl = computed(() => {
-  const key = intakeLink.value?.public_key || '';
-  if (!key) return '';
-  return buildPublicIntakeUrl(key);
-});
-
-const intakePacketLinks = computed(() =>
-  (intakeLinks.value || []).filter((l) => {
-    const ft = String(l?.form_type || '').trim().toLowerCase();
-    return ft !== 'smart_school_roi';
-  })
-);
-
-// Primary (English) link used for the single shared QR code
-const primaryIntakeLink = computed(() => {
-  const links = intakePacketLinks.value;
-  return links.find(l => (l.language_code || '').toLowerCase() === 'en') || links[0] || null;
-});
+// The API selects the current school packet. Its other active forms are not duplicates to display.
+const primaryIntakeLink = computed(() => intakeLink.value);
 
 const getIntakeLinkUrl = (link) => {
   const key = link?.public_key || '';
   if (!key) return '';
-  return buildPublicIntakeUrl(key);
-};
-
-const getIntakeLanguageLabel = (code) => {
-  const lang = String(code || '').toLowerCase();
-  if (lang === 'es' || lang.startsWith('es')) return 'Spanish';
-  if (lang === 'en' || lang.startsWith('en')) return 'English';
-  return lang ? lang.toUpperCase() : 'English';
+  return buildSchoolEnrollmentUrl(key);
 };
 
 const staffDisplayName = computed(() => {
@@ -3134,38 +3120,31 @@ const loadIntakeLink = async () => {
     intakeLinkLoading.value = true;
     intakeLinkError.value = '';
     const resp = await api.get(`/public-intake/school/${organizationId.value}`);
-    const links = Array.isArray(resp.data?.links) && resp.data.links.length
-      ? resp.data.links
-      : (resp.data?.link ? [resp.data.link] : []);
-    intakeLinks.value = links;
-    intakeLink.value = links[0] || null;
+    const link = selectSchoolEnrollmentLink(resp.data);
+    intakeLink.value = link;
     intakeQrByKey.value = {};
     intakeQrFancyByKey.value = {};
     intakeQrFancyMode.value = {};
-    if (links.length) {
-      for (const link of links) {
-        const url = getIntakeLinkUrl(link);
-        if (!url) continue;
-        intakeQrFancyMode.value[link.public_key] = true;
-        // Generate simple first so modal has something to show immediately
-        const simpleDataUrl = await QRCode.toDataURL(url, { width: 240, margin: 1 });
-        intakeQrByKey.value[link.public_key] = simpleDataUrl;
-        // Fancy QR in background
-        buildFancyQrDataUrl(url).then(({ simple, fancy }) => {
-          intakeQrByKey.value = { ...intakeQrByKey.value, [link.public_key]: simple };
-          intakeQrFancyByKey.value = { ...intakeQrFancyByKey.value, [link.public_key]: fancy };
-        }).catch(() => {});
-      }
-      intakeQrDataUrl.value = links[0] ? intakeQrByKey.value[links[0].public_key] || '' : '';
+    if (link) {
+      const url = getIntakeLinkUrl(link);
+      intakeQrFancyMode.value[link.public_key] = true;
+      // Generate simple first so modal has something to show immediately
+      const simpleDataUrl = await QRCode.toDataURL(url, { width: 240, margin: 1 });
+      intakeQrByKey.value[link.public_key] = simpleDataUrl;
+      // Fancy QR in background
+      buildFancyQrDataUrl(url, { schoolBrand: true }).then(({ simple, fancy }) => {
+        intakeQrByKey.value = { ...intakeQrByKey.value, [link.public_key]: simple };
+        intakeQrFancyByKey.value = { ...intakeQrFancyByKey.value, [link.public_key]: fancy };
+      }).catch(() => {});
+      intakeQrDataUrl.value = intakeQrByKey.value[link.public_key] || '';
     } else {
       intakeQrDataUrl.value = '';
     }
   } catch (e) {
     intakeLink.value = null;
-    intakeLinks.value = [];
     intakeQrByKey.value = {};
     intakeQrDataUrl.value = '';
-    intakeLinkError.value = e.response?.data?.error?.message || 'Failed to load intake link';
+    intakeLinkError.value = e.response?.data?.error?.message || 'Failed to load enrollment link';
   } finally {
     intakeLinkLoading.value = false;
   }
@@ -3240,6 +3219,17 @@ const copyIntakeLink = async (link) => {
   } catch {
     // ignore
   }
+};
+
+const downloadEnrollmentQr = () => {
+  const key = primaryIntakeLink.value?.public_key;
+  const src = intakeQrFancyMode.value[key] && intakeQrFancyByKey.value[key]
+    ? intakeQrFancyByKey.value[key] : intakeQrByKey.value[key];
+  if (!src) return;
+  const anchor = document.createElement('a');
+  anchor.href = src;
+  anchor.download = 'schoolcarebridge-enrollment-qr.png';
+  anchor.click();
 };
 
 const comingSoonTitle = computed(() => {
@@ -5376,7 +5366,7 @@ function downloadQr(locale) {
 }
 
 // Shared fancy QR builder — gradient + tenant logo center. Used by both modals.
-async function buildFancyQrDataUrl(url) {
+async function buildFancyQrDataUrl(url, { schoolBrand = false } = {}) {
   const size = 300;
   const simple = await QRCode.toDataURL(url, { width: size, margin: 2 });
 
@@ -5400,9 +5390,9 @@ async function buildFancyQrDataUrl(url) {
     gL.width = size; gL.height = size;
     const gCtx = gL.getContext('2d');
     const grad = gCtx.createLinearGradient(0, 0, size, size);
-    grad.addColorStop(0, '#14b8a6');
-    grad.addColorStop(0.5, '#22c55e');
-    grad.addColorStop(1, '#eab308');
+    grad.addColorStop(0, schoolBrand ? '#007bb5' : '#14b8a6');
+    grad.addColorStop(0.5, schoolBrand ? '#009bc1' : '#22c55e');
+    grad.addColorStop(1, schoolBrand ? '#31a947' : '#eab308');
     gCtx.fillStyle = grad;
     gCtx.fillRect(0, 0, size, size);
     gCtx.globalCompositeOperation = 'destination-in';
@@ -5422,7 +5412,7 @@ async function buildFancyQrDataUrl(url) {
     fCtx.arc(cx, cy, logoR + 6, 0, Math.PI * 2);
     fCtx.fillStyle = '#ffffff';
     fCtx.fill();
-    const logoSrc = homeIconUrl.value;
+    const logoSrc = schoolBrand ? '/assets/schoolcarebridge/logo.png' : homeIconUrl.value;
     if (logoSrc) {
       const logo = new Image();
       logo.crossOrigin = 'anonymous';
@@ -7942,20 +7932,113 @@ watch(() => store.selectedWeekday, async (weekday) => {
   color: #1e3a8a;
 }
 
-/* ── Digital forms modal tweaks ────────────────────────────────────────────── */
-.intake-link-block--url-only {
-  padding-bottom: 8px;
-  border-bottom: none;
+/* ── SchoolCareBridge digital enrollment ──────────────────────────────────── */
+.enrollment-modal {
+  max-width: 680px;
+  border: 1px solid #c8e5ed;
+  border-radius: 22px;
+  overflow: auto;
+  box-shadow: 0 24px 80px rgba(17, 67, 91, 0.2);
 }
-.intake-qr--standalone {
-  margin-top: 12px;
+.enrollment-modal-header {
+  align-items: flex-start;
+  background: linear-gradient(125deg, #f0fbff, #f3fbed);
+  padding: 24px;
+  border-bottom: 1px solid #cfe8e8;
+}
+.enrollment-brand {
+  display: block;
+  width: min(260px, 100%);
+  height: 60px;
+  object-fit: contain;
+  object-position: left center;
+  margin-bottom: 14px;
+}
+.enrollment-modal-header h2 {
+  margin: 0;
+  color: #174f70;
+  font-size: 1.35rem;
+}
+.enrollment-modal-header p {
+  margin: 8px 0 0;
+  color: #496a7c;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+.enrollment-modal .modal-body { padding: 24px; }
+.enrollment-share-card {
+  border-color: #cce5ec;
+  background: #f8fcfd;
+  padding: 18px;
+  gap: 12px;
+  border-radius: 16px;
+}
+.enrollment-share-card .intake-link-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #174f70;
+}
+.enrollment-language-badge {
+  color: #26694c;
+  background: #e8f6e9;
+  border-radius: 20px;
+  padding: 5px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.enrollment-language-note,
+.enrollment-storage-note {
+  margin: 0;
+  color: #526d7c;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.enrollment-share-card .intake-link-input {
+  min-width: 0;
+  background: #fff;
+  border-color: #d4e5eb;
+  color: #274d64;
+}
+.enrollment-staff-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  border-top: 1px solid #dcebed;
+  padding-top: 14px;
+  color: #526d7c;
+  font-size: 0.82rem;
+}
+.enrollment-modal .btn-primary { background: #007fb1; border-color: #007fb1; }
+.enrollment-modal .intake-qr--standalone {
+  margin-top: 0;
+  border-color: #cce5ec;
+  border-radius: 16px;
+  background: #fff;
+  padding: 20px 16px;
+  gap: 14px;
 }
 .intake-qr-note {
+  display: grid;
+  gap: 4px;
   font-size: 0.82rem;
-  color: #6b7280;
+  color: #526d7c;
   text-align: center;
-  line-height: 1.4;
-  padding: 0 8px 6px;
+  line-height: 1.5;
+}
+.intake-qr-note strong { color: #174f70; font-size: 1rem; }
+.enrollment-storage-note { margin-bottom: 14px; }
+@media (max-width: 480px) {
+  .enrollment-modal-header,
+  .enrollment-modal .modal-body { padding: 18px; }
+  .enrollment-brand { width: 200px; height: 46px; }
+  .enrollment-share-card { padding: 14px; }
+  .enrollment-share-card .intake-link-row { flex-wrap: wrap; }
+  .enrollment-share-card .intake-link-input { flex-basis: 100%; }
 }
 
 /* ── Printable Forms modal ─────────────────────────────────────────────────── */

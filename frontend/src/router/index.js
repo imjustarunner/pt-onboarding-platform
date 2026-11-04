@@ -1,3 +1,4 @@
+import { schoolCareBridgeRoutes } from './schoolCareBridgeRoutes.js';
 import { familyBillingRoutes } from './familyBillingRoutes.js';
 import { consumeSsoHandoff, isTokenAuthenticationRoute, auricwellLoginDestination } from '../utils/loginHandoff';
 import { isFundthredHost, fundthredLoginLocation, isFundthredLogin, isFundthredWorkspacePath } from '../utils/fundthred';
@@ -377,9 +378,7 @@ const routes = [
   { path: '/fundthred/login', redirect: () => fundthredLoginLocation() },
   { path: '/:organizationSlug/finance-operations',  name: 'OrganizationFinanceOperations', component: () => import('../views/FinanceOperationsView.vue'), meta: { requiresAuth: true, organizationSlug: true, hideNav: true, fundthred: true } },
   { path: '/finance-operations', name: 'FinanceOperations', component: () => import('../views/FinanceOperationsView.vue'), meta: { requiresAuth: true, hideNav: true, fundthred: true } },
-  { path: '/schoolcarebridge/session-ended', name: 'SchoolCareBridgeSessionEnded', component: () => import('../views/school/SchoolCareBridgeSessionEnded.vue'), meta: { requiresGuest: false } },
-  { path: '/schoolcarebridge/app', name: 'SchoolCareBridgeLogin', component: () => import('../views/school/SchoolCareBridgeEntryView.vue'), meta: { schoolCareBridgeEntry: true } },
-  { path: '/schoolcarebridge/app/:organizationSlug', name: 'SchoolCareBridgeSchool', component: () => import('../views/school/SchoolCareBridgeEntryView.vue'), meta: { schoolCareBridgeEntry: true, organizationSlug: true } },
+  ...schoolCareBridgeRoutes,
   { path: '/records-request', name: 'AuricWellRecordsRequest', component: () => import('../components/records/RecordsRequests.vue'), meta: { requiresGuest: false, publicMarketingHub: true } },
   { path: '/records-manager', name: 'AuricWellRecordsManager', component: () => import('../views/RecordsManagerView.vue'), meta: { requiresAuth: true } },
   { path: '/my-records', name: 'AuricWellMyRecords', component: () => import('../views/RecordsManagerView.vue'), props: { portal: true }, meta: { requiresAuth: true, requiresRole: ['client_guardian', 'client'] } },
@@ -5168,61 +5167,6 @@ router.beforeEach(async (to, from, next) => {
     return;
   }
 
-  if (isFundthredHost(window.location.hostname) && to.name === 'Login' && to.query.product !== 'fundthred') {
-    next({ ...fundthredLoginLocation(to.query.redirect), replace: true }); return;
-  }
-  if (to.meta.plotlineEntry) {
-    await tryBootstrapAuthFromCookie();
-    if (authStore.isAuthenticated && authStore.user?.requiresPasswordChange === true) {
-      next({ path: '/change-password', query: { redirect: '/plotline/app' }, replace: true }); return;
-    }
-    next(); return;
-  }
-  if (to.meta.fundthredEntry) {
-    await tryBootstrapAuthFromCookie();
-    if (authStore.isAuthenticated && authStore.user?.requiresPasswordChange === true) {
-      next({ path: '/change-password', query: { redirect: '/fundthred/app' }, replace: true }); return;
-    }
-    next(); return;
-  }
-  // Keep links emitted by the shared school components on the SchoolCareBridge surface.
-  if (isSchoolCareBridgePath(from.path) && !isSchoolCareBridgePath(to.path)) {
-    if (['OrganizationDashboard', 'OrganizationLogin'].includes(String(to.name)) && to.params.organizationSlug) {
-      next({ path: schoolCareBridgePath(String(to.params.organizationSlug)), query: to.query, hash: to.hash, replace: true }); return;
-    }
-    const school = String(from.params.organizationSlug || '');
-    const mapped = schoolCareBridgeWorkflowPath(to.path, school);
-    if (mapped) { next({ path: mapped, query: to.query, hash: to.hash, replace: true }); return; }
-    if (to.path === '/login') { next({ path: schoolCareBridgePath(school), query: to.query, replace: true }); return; }
-  }
-  if (to.meta.schoolCareBridgeEntry) {
-    await tryBootstrapAuthFromCookie();
-    if (authStore.isAuthenticated && authStore.user?.requiresPasswordChange === true) {
-      const school = String(to.params.organizationSlug || '');
-      next({ path: school ? schoolCareBridgePath(school, '/change-password') : '/change-password', query: { redirect: to.fullPath }, replace: true });
-      return;
-    }
-    // The entry component checks /schoolcarebridge/access before mounting any school workflows.
-    next(); return;
-  }
-  if (isSchoolCareBridgePath(to.path) && to.meta.requiresAuth && !authStore.isAuthenticated) {
-    await tryBootstrapAuthFromCookie();
-    if (!authStore.isAuthenticated) { next({ path: schoolCareBridgePath(String(to.params.organizationSlug || '')), query: { redirect: to.fullPath }, replace: true }); return; }
-  }
-
-  if (isFamilyHost() && !to.meta?.familyCommandCenter && !to.meta?.familyWebsite) {
-    next({ name: 'FamilyCommandCenter', query: to.query, hash: to.hash, replace: true });
-    return;
-  }
-  // Family devices use their own server session, independent of workplace timeout.
-  if (to.meta?.familyCommandCenter) { next(); return; }
-
-  // Dedicated Quick View hosts only serve QV routes (PIN gate / token bind).
-  if (isQuickViewHost() && !to.meta?.publicQuickView) {
-    next({ name: 'QuickViewLauncher', replace: true });
-    return;
-  }
-
   // Superadmin cross-host brand switch: consume one-time `bs` handoff before auth guards.
   // Cookies/localStorage do not carry across custom domains; this restores the session on the destination host.
   {
@@ -5272,6 +5216,64 @@ router.beforeEach(async (to, from, next) => {
       });
       return;
     }
+  }
+
+  if (isFundthredHost(window.location.hostname) && to.name === 'Login' && to.query.product !== 'fundthred') {
+    next({ ...fundthredLoginLocation(to.query.redirect), replace: true }); return;
+  }
+  if (to.meta.plotlineEntry) {
+    await tryBootstrapAuthFromCookie();
+    if (authStore.isAuthenticated && authStore.user?.requiresPasswordChange === true) {
+      next({ path: '/change-password', query: { redirect: '/plotline/app' }, replace: true }); return;
+    }
+    next(); return;
+  }
+  if (to.meta.fundthredEntry) {
+    await tryBootstrapAuthFromCookie();
+    if (authStore.isAuthenticated && authStore.user?.requiresPasswordChange === true) {
+      next({ path: '/change-password', query: { redirect: '/fundthred/app' }, replace: true }); return;
+    }
+    next(); return;
+  }
+  // Keep links emitted by the shared school components on the SchoolCareBridge surface.
+  if (isSchoolCareBridgePath(from.path) && !isSchoolCareBridgePath(to.path)) {
+    if (['OrganizationDashboard', 'OrganizationLogin'].includes(String(to.name)) && to.params.organizationSlug) {
+      next({ path: schoolCareBridgePath(String(to.params.organizationSlug)), query: to.query, hash: to.hash, replace: true }); return;
+    }
+    const school = String(from.params.organizationSlug || '');
+    const mapped = schoolCareBridgeWorkflowPath(to.path, school);
+    if (mapped) { next({ path: mapped, query: to.query, hash: to.hash, replace: true }); return; }
+    if (to.path === '/login') { next({ path: schoolCareBridgePath(school), query: to.query, replace: true }); return; }
+  }
+  if (to.meta.schoolCareBridgeEntry) {
+    await tryBootstrapAuthFromCookie();
+    if (to.meta.requiresAuth && !authStore.isAuthenticated) {
+      next({ path: schoolCareBridgePath(), query: { redirect: to.fullPath }, replace: true }); return;
+    }
+    if (authStore.isAuthenticated && authStore.user?.requiresPasswordChange === true) {
+      const school = String(to.params.organizationSlug || '');
+      next({ path: school ? schoolCareBridgePath(school, '/change-password') : '/change-password', query: { redirect: to.fullPath }, replace: true });
+      return;
+    }
+    // Each workspace checks server authorization before showing school information.
+    next(); return;
+  }
+  if (isSchoolCareBridgePath(to.path) && to.meta.requiresAuth && !authStore.isAuthenticated) {
+    await tryBootstrapAuthFromCookie();
+    if (!authStore.isAuthenticated) { next({ path: schoolCareBridgePath(String(to.params.organizationSlug || '')), query: { redirect: to.fullPath }, replace: true }); return; }
+  }
+
+  if (isFamilyHost() && !to.meta?.familyCommandCenter && !to.meta?.familyWebsite) {
+    next({ name: 'FamilyCommandCenter', query: to.query, hash: to.hash, replace: true });
+    return;
+  }
+  // Family devices use their own server session, independent of workplace timeout.
+  if (to.meta?.familyCommandCenter) { next(); return; }
+
+  // Dedicated Quick View hosts only serve QV routes (PIN gate / token bind).
+  if (isQuickViewHost() && !to.meta?.publicQuickView) {
+    next({ name: 'QuickViewLauncher', replace: true });
+    return;
   }
 
   // Navigation loop breaker: must run before any redirecting guard below.
@@ -5838,7 +5840,7 @@ router.beforeEach(async (to, from, next) => {
     to.path === '/notifications' ||
     to.path.startsWith('/notifications/') ||
     ['SupervisorNotifications', 'Notifications'].includes(String(to.name || ''));
-  const allowUnscopedDocumentSigning = ['DocumentSigning', 'DocumentReview', 'DocumentPrint'].includes(String(to.name || ''));
+  const allowUnscopedDocumentSigning = ['DocumentSigning', 'DocumentReview', 'DocumentPrint', 'SchoolCareBridgePartnerDocumentSigning'].includes(String(to.name || ''));
   // Users with affiliation (SSTC) access: redirect to club dashboard instead of platform /dashboard
   if (
     authStore.isAuthenticated &&
@@ -5946,6 +5948,7 @@ router.beforeEach(async (to, from, next) => {
     ]);
     const allowedUnscopedRouteNames = new Set([
       'DocumentSigning',
+      'SchoolCareBridgePartnerDocumentSigning',
       'DocumentReview',
       'SchoolReinitPublic',
       'SchoolVisitChange',
@@ -5983,6 +5986,7 @@ router.beforeEach(async (to, from, next) => {
   ) {
     const exemptRouteNames = new Set([
       'DocumentSigning',
+      'SchoolCareBridgePartnerDocumentSigning',
       'DocumentReview',
       'OrganizationDocumentSigning',
       'OrganizationDocumentReview',

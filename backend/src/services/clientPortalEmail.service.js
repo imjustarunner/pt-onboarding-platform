@@ -23,13 +23,17 @@ export async function clientEmailContext({ agencyId, clientId, client = null, le
     url:path=>clientPortalAppUrl({...portal,clinical_portal:isClinical},path)};
 }
 
-export async function clientPortalSender(context, { billing = false } = {}) {
+export async function clientPortalSender(context, { billing = false, appointments = false } = {}) {
   const agencyId = context.tenant.id;
   if (billing) {
     const {requireReadySender} = await import('./familyLedger/senders.js');
     return requireReadySender(agencyId,'billing');
   }
   if (!context.clinical) return (await ensureTenantNotificationsMailbox(agencyId)).notifications;
+  if (appointments) {
+    const { clinicalReminderSender, CLINICAL_REMINDER_ADDRESS } = await import('./clinicalReminderEmail.service.js');
+    return clinicalReminderSender(agencyId,{...context.brand,displayName:'AuricWell Notifications',fromEmail:CLINICAL_REMINDER_ADDRESS});
+  }
   const key = 'clinical_enrollment_portal';
   let identity = await EmailSenderIdentity.findByAgencyAndIdentityKey(agencyId,key);
   await ensurePortalGroupSender({address:'portal@auricwell.com',displayName:'AuricWell Portal'});
@@ -39,11 +43,11 @@ export async function clientPortalSender(context, { billing = false } = {}) {
 }
 
 /** Shared standard delivery for clinical and learning family correspondence. */
-export async function sendClientPortalEmail({ agencyId, clientId = null, context = null, billing = false, ...message }) {
+export async function sendClientPortalEmail({ agencyId, clientId = null, context = null, billing = false, appointments = false, ...message }) {
   context ||= await clientEmailContext({agencyId,clientId});
-  const identity = await clientPortalSender(context,{billing});
+  const identity = await clientPortalSender(context,{billing,appointments});
   const brand = {...context.brand,replyTo:billing ? identity.from_email : context.brand.replyTo,
-    displayName:billing ? context.clinical ? 'AuricWell Billing' : `${context.tenant.name} Billing` : context.clinical ? 'AuricWell Portal' : `${context.tenant.name} Notifications`};
+    displayName:billing ? context.clinical ? 'AuricWell Billing' : `${context.tenant.name} Billing` : context.clinical ? appointments ? 'AuricWell Notifications' : 'AuricWell Portal' : `${context.tenant.name} Notifications`};
   return sendEmailFromIdentity({...message,clientId,agencyId,senderIdentityId:identity.id,
     replyToOverride:brand.replyTo,fromDisplayNameOverride:billing?`${context.tenant.name} Billing`:brand.displayName,portalEmailBrand:brand,
     html:renderPortalEmail({brand,...message}),usedFallbackSender:false});

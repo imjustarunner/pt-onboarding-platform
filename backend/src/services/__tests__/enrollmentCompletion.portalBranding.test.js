@@ -66,7 +66,7 @@ it.each([{ client_id: 99 }, { status: 'draft' }, { co_guardian_invite_id: 7 }])(
 });
 
 it('keeps clinical reminders separate from nonclinical agency mail',()=>{
- expect(portalSenderName({identity_key:'clinical_appointment_reminders'})).toBe('AuricWell Reminders');
+ expect(portalSenderName({identity_key:'clinical_appointment_reminders'})).toBe('AuricWell Notifications');
  const brand=enrollmentMailBrand({agency,domain:'itsco.health'});
  const html=renderPortalEmail({brand:{...brand,displayName:'AuricWell Reminders'},text:'Your upcoming appointment.'});
  expect(html).toContain('AuricWell Reminders');

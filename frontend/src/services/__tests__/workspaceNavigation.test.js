@@ -45,4 +45,17 @@ describe('workspace transitions', () => {
     await navigateWorkspace({ hostname: 'plottwisthq.com', path: '/admin' }, router);
     expect(location.assign).toHaveBeenCalledWith('https://plottwisthq.com/admin');
   });
+  it('uses the clean destination path when switching into SchoolCareBridge from an agency host', async () => {
+    await navigateWorkspace({ hostname: 'schoolcarebridge.org',
+      path: '/schoolcarebridge/app/partners/itsco/schools', externalPath: '/app/partners/itsco/schools' }, router, { agencyId: 2 });
+    expect(location.assign).toHaveBeenCalledWith('https://schoolcarebridge.org/app/partners/itsco/schools?bs=one-time-code');
+  });
+  it('keeps local SchoolCareBridge navigation inside the development router', async () => {
+    location.hostname = 'localhost';
+    await navigateWorkspace({ hostname: 'schoolcarebridge.org',
+      path: '/schoolcarebridge/app/partners/itsco/schools', externalPath: '/app/partners/itsco/schools' }, router);
+    expect(router.push).toHaveBeenCalledWith({ path: '/schoolcarebridge/app/partners/itsco/schools' });
+    expect(location.assign).not.toHaveBeenCalled();
+  });
+
 });

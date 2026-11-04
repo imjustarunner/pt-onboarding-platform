@@ -24,20 +24,20 @@ beforeEach(()=>{
  m.log.mockResolvedValue({id:1});
  m.identities.mockResolvedValue([{id:12,agency_id:2,identity_key:'schools',from_email:'Schools@ITSCO.health'}]);
 });
-it('uses the school portal slug on the parent tenant host',async()=>{
- expect(await schoolEmailPortalUrl({schoolOrganizationId:20,agencyId:2})).toBe('https://app.itsco.health/galileo-school/dashboard');
+it('uses the school portal slug on the canonical SchoolCareBridge host',async()=>{
+ expect(await schoolEmailPortalUrl({schoolOrganizationId:20,agencyId:2})).toBe('https://schoolcarebridge.org/app/galileo-school');
 });
-it('honors the parent custom host without losing the school dashboard',async()=>{
+it('keeps custom-domain agency schools on the same SchoolCareBridge experience',async()=>{
  m.find.mockImplementation(async id=>Number(id)===20?school:{slug:'another-agency',custom_domain:'portal.example.org'});
- expect(await schoolEmailPortalUrl({schoolOrganizationId:20,agencyId:2})).toBe('https://portal.example.org/galileo-school/dashboard');
+ expect(await schoolEmailPortalUrl({schoolOrganizationId:20,agencyId:2})).toBe('https://schoolcarebridge.org/app/galileo-school');
 });
 it('does not silently send families to a general agency login when the school is missing',async()=>{
  m.find.mockResolvedValue(null);await expect(schoolEmailPortalUrl({schoolOrganizationId:20,agencyId:2})).rejects.toThrow('configured school portal');
 });
 it.each(['paper_upload','digital_submission'])('keeps the packet subject while using Schools for the signature and the school-specific links (%s)',async mode=>{
  await notifyNewPacketUploaded({agencyId:2,schoolOrganizationId:20,clientId:10,clientInitials:'ABC',mode});
- expect(m.send).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:12,fromDisplayNameOverride:'Schools',replyToOverride:'schools@itsco.health',cc:'support@itsco.health',to:'galileo@itsco.health',linkUrl:'https://app.itsco.health/galileo-school/dashboard'}));
- const mail=m.send.mock.calls[0][0];expect(mail.subject).toContain('Galileo -');expect(mail.html).toContain('href="https://app.itsco.health/galileo-school/dashboard"');expect(mail.text).toContain('https://app.itsco.health/galileo-school/dashboard');expect(mail.html).not.toContain('https://app.itsco.health/login');
+ expect(m.send).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:12,fromDisplayNameOverride:'Schools',replyToOverride:'schools@itsco.health',cc:'support@itsco.health',to:'galileo@itsco.health',linkUrl:'https://schoolcarebridge.org/app/galileo-school'}));
+ const mail=m.send.mock.calls[0][0];expect(mail.subject).toContain('Galileo -');expect(mail.html).toContain('href="https://schoolcarebridge.org/app/galileo-school"');expect(mail.text).toContain('https://schoolcarebridge.org/app/galileo-school');expect(mail.html).not.toContain('https://app.itsco.health/login');
 });
 
 it('routes full office enrollment to the same deduplicated Support notice as a brief inquiry',async()=>{

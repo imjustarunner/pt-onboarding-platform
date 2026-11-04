@@ -34,7 +34,7 @@
         </div>
       </div>
       <div class="hub-header-actions">
-        <router-link v-if="schoolCareBridgePartner" class="scb-hub-entry" :to="schoolCareBridgePartnerPath(schoolCareBridgePartner.slug)" :aria-label="`${schoolCareBridgePartner.name} SchoolCareBridge workspace`"><img src="/assets/schoolcarebridge/wordmark.svg" alt="SchoolCareBridge"/><span>{{schoolCareBridgePartner.name}} · School portals →</span></router-link>
+        <a v-if="schoolCareBridgePartner" class="scb-hub-entry" :href="schoolCareBridgePartnerUrl" @click.prevent="openSchoolCareBridge" :aria-label="`${schoolCareBridgePartner.name} SchoolCareBridge workspace`"><img src="/assets/schoolcarebridge/wordmark.svg" alt="SchoolCareBridge"/><span>{{schoolCareBridgePartner.name}} · School portals →</span></a>
         <nav class="hub-switcher" aria-label="Switch hub">
           <template v-for="item in hubSwitcherLinks" :key="item.key">
             <span
@@ -293,6 +293,8 @@
 
 <script setup>
 import { schoolCareBridgePartnerPath } from '../utils/schoolCareBridgeTenant';
+import { SCB_ORIGIN } from '../utils/schoolCareBridge';
+import { navigateWorkspace } from '../services/workspaceNavigation';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../store/auth';
@@ -314,6 +316,16 @@ const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const schoolCareBridgePartner = ref(null);
+const schoolCareBridgePartnerUrl = computed(() => schoolCareBridgePartner.value
+  ? `${SCB_ORIGIN}/app/partners/${encodeURIComponent(schoolCareBridgePartner.value.slug)}/schools` : '');
+function openSchoolCareBridge() {
+  const partner = schoolCareBridgePartner.value;
+  if (!partner) return;
+  return navigateWorkspace({ hostname: new URL(SCB_ORIGIN).hostname,
+    path: schoolCareBridgePartnerPath(partner.slug, 'schools'),
+    externalPath: new URL(schoolCareBridgePartnerUrl.value).pathname
+  }, router, { agencyId: partner.id });
+}
 async function loadSchoolCareBridgePartner() {
   try { const {data}=await api.get('/schoolcarebridge/my-partners',{skipGlobalLoading:true}); schoolCareBridgePartner.value=data.partners.find(p=>Number(p.id)===Number(agencyStore.currentAgency?.id))||null; } catch { schoolCareBridgePartner.value=null; }
 }
