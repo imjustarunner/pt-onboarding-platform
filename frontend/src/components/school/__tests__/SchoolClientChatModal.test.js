@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import SchoolClientChatModal from '../SchoolClientChatModal.vue';
 import { useAuthStore } from '../../../store/auth';
@@ -71,6 +71,27 @@ describe('SchoolClientChatModal', () => {
     const showBoth = wrapper.find('[data-tour="school-client-modal-messages"] .btn-link');
     await showBoth.trigger('click');
     expect(wrapper.find('.dual').classes()).toContain('dual-active-both');
+  });
+
+  it('opens a client-specific school consent on SchoolCareBridge from the agency app', async () => {
+    const originalUrl = window.location.href;
+    globalThis.jsdom.reconfigure({ url: 'https://app.itsco.health/itsco/dashboard' });
+    let wrapper;
+    try {
+      const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+      api.post.mockImplementation(async url => ({ data: String(url).endsWith('/smart-roi-link') ? { issued_link: { public_key: 'school-consent-key' } } : {} }));
+      wrapper = mount(SchoolClientChatModal, {
+        props: { client: { id: 10, initials: 'AB', school_staff_effective_access_state: 'roi' }, schoolOrganizationId: 123 },
+        global: { plugins: [pinia], stubs: { ClientTicketThreadPanel: true, WaitlistNoteModal: true } }
+      });
+      await flushPromises();
+      await wrapper.findAll('button').find(button => button.text() === 'Launch Smart ROI').trigger('click');
+      await flushPromises();
+      expect(open).toHaveBeenCalledWith('https://schoolcarebridge.org/intake/school-consent-key', '_blank', 'noopener');
+    } finally {
+      wrapper?.unmount();
+      globalThis.jsdom.reconfigure({ url: originalUrl });
+    }
   });
 });
 

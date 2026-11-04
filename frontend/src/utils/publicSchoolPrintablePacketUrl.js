@@ -1,3 +1,5 @@
+import { getSchoolPublicOrigin } from './publicIntakeUrl.js';
+
 function normalizeLocale(locale) {
   return String(locale || 'en').trim().toLowerCase().startsWith('es') ? 'es' : 'en';
 }
@@ -18,18 +20,24 @@ export function publicSchoolPrintablePacketApiPath(slugOrId, locale = 'en') {
 
 /**
  * Absolute public printable-packet URL.
- * Uses the same API host as other app calls (`api.defaults.baseURL`).
+ * School paper packets share the school public origin, including from tenant app hosts.
  */
 export function buildPublicSchoolPrintablePacketUrl(slugOrId, locale = 'en', { origin, apiBase } = {}) {
+  const publicOrigin = getSchoolPublicOrigin(origin);
   if (['juniper-lantern-demo', '990001'].includes(packetKey(slugOrId))) {
-    const base = origin || (typeof window !== 'undefined' ? window.location.origin : '');
-    return `${String(base).replace(/\/$/, '')}/downloads/demo-enrollment-${normalizeLocale(locale)}.pdf`;
+    return `${publicOrigin}/downloads/demo-enrollment-${normalizeLocale(locale)}.pdf`;
   }
   const path = publicSchoolPrintablePacketApiPath(slugOrId, locale);
   if (!path) return '';
   const base = String(apiBase || '').replace(/\/$/, '');
-  if (base.startsWith('http')) return `${base}${path}`;
-  const originClean = String(origin || (typeof window !== 'undefined' ? window.location.origin : '')).replace(/\/$/, '');
-  const prefix = base || '/api';
-  return `${originClean}${prefix}${path}`;
+  let prefix = base || '/api';
+  if (/^https?:\/\//.test(base)) {
+    try {
+      const apiUrl = new URL(base);
+      if (['localhost', '127.0.0.1', '[::1]'].includes(new URL(publicOrigin).hostname)) return `${apiUrl.origin}${apiUrl.pathname.replace(/\/$/, '')}${path}`;
+      prefix = apiUrl.pathname.replace(/\/$/, '') || '/api';
+    } catch { prefix = '/api'; }
+  }
+  if (!/^\/(?!\/)[^?#]*$/.test(prefix)) prefix = '/api';
+  return `${publicOrigin}${prefix}${path}`;
 }

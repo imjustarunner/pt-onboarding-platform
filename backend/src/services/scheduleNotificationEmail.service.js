@@ -3,10 +3,8 @@ import { renderPortalEmail } from './portalEmailBranding.service.js';
 import { resolveWaitlistMailboxes } from './providerWaitlistEmail.service.js';
 import { sendNotificationEmail, sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { clientEmailContext, sendClientPortalEmail } from './clientPortalEmail.service.js';
-import { resolveAppointmentServiceSetting } from './appointmentServiceSetting.service.js';
-import { buildScheduleNoticeMessage } from './scheduleNoticeMessage.service.js';
-import { createSchoolSessionEmailOptOutLink, isSchoolSessionEmailOptedOut, schoolSessionEmailOptOutContent, SCHOOL_EMAIL_TEMPLATE } from './schoolSessionEmailPreferences.service.js';
 import { resolveDayCancellationEmail, reviewedDayCancellationContext } from './dayCancellationEmail.service.js';
+import { individualCancellationEmailContext } from './appointmentCancellationEmail.service.js';
 
 async function scheduleMailboxes(agencyId) {
   try { return await resolveWaitlistMailboxes(pool, agencyId); }
@@ -34,23 +32,18 @@ export async function sendScheduleNotificationEmail({ agencyId, appointment = nu
         reviewedCancellationToken:proof.reviewedCancellationToken,reviewedCancellationItemKey:proof.reviewedCancellationItemKey});
       return sendEmailFromIdentity({...input,...envelope,html:renderPortalEmail({brand:envelope.portalEmailBrand,...message})});
     }
-    const scope={agencyId,clientId:message.clientId,to:message.to};
-    const settings=await Promise.all(items.map(item=>resolveAppointmentServiceSetting(item.appointment)));
-    const hasSchool=settings.some(setting=>setting.isSchool);
-    if(hasSchool) {
-      const disabled=await isSchoolSessionEmailOptedOut(scope);
-      const remaining=items.filter((_,i)=>!disabled || !settings[i].isSchool);
-      if(!remaining.length) return {skipped:true,reason:'school_session_email_opted_out'};
-      if(entries && remaining.length!==items.length) Object.assign(message,buildScheduleNoticeMessage(remaining,context.url(`guardian?panel=appointments&clientId=${message.clientId}`)));
-      if(!disabled) {
-        const link=await createSchoolSessionEmailOptOutLink(scope),footer=schoolSessionEmailOptOutContent(link.url);
-        message.text=(message.text||'')+footer.text;message.html=(message.html||'')+footer.html;
-        if(settings.every(setting=>setting.isSchool)) {
-          message.templateType=SCHOOL_EMAIL_TEMPLATE;message.schoolSessionScopeKey=link.scopeKey;
-          if(message.existingCommunicationId) await pool.execute("UPDATE user_communications SET template_type=?,metadata=JSON_SET(COALESCE(metadata,JSON_OBJECT()),'$.schoolSessionScopeKey',?) WHERE id=?",[SCHOOL_EMAIL_TEMPLATE,link.scopeKey,message.existingCommunicationId]);
-        }
-      }
+    if(items.length && items.every(item=>item.payload?.individualCancellationReview)) {
+      const input={...message,agencyId,templateType:'session_cancellation'};
+      const proof=await individualCancellationEmailContext(input);
+      if(!proof)throw new Error('The signed cancellation email is missing its persisted recipient review.');
+      const envelope=await resolveDayCancellationEmail({agencyId,providerId:proof.providerId,
+        providerAuthored:proof.plan.facts.providerAuthored,actorUserId:proof.actorUserId});
+      return sendEmailFromIdentity({...input,...envelope,html:renderPortalEmail({brand:envelope.portalEmailBrand,...message})});
     }
+    // These are booking/cancellation updates. The morning reminder preference is
+    // checked by the reminder senders, while these retain schedule_changes and
+    // global/confidential contact choices in the shared delivery gates.
+    message.templateType ||= 'session_change';
     if (items.some(item => item.payload?.facts?.reasonCategory)) {
       const mailboxes = await scheduleMailboxes(agencyId);
       const brand = { ...context.brand, replyTo: mailboxes.support, displayName: `${context.tenant.name} Notifications` };

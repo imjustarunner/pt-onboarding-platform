@@ -7,6 +7,7 @@ import { assertFreshCardEmail } from '../insuranceCards/scope.js';
 import { schoolSessionEmailDeliveryGate } from '../schoolSessionEmailPreferences.service.js';
 import { routineParentEmailGate } from '../routineParentEmailPause.service.js';
 import { reviewedDayCancellationContext } from '../dayCancellationEmail.service.js';
+import { individualCancellationEmailContext } from '../appointmentCancellationEmail.service.js';
 import { isClinicalPortalIdentity, isPortalIdentity, portalSenderName, enrollmentMailBrand, renderPortalEmail } from '../portalEmailBranding.service.js';
 import { splitEmailHistory } from '../../utils/emailReplyContent.js';
 import { isSchoolCommunication } from '../schoolCommunicationContext.service.js';
@@ -1039,9 +1040,11 @@ export async function sendEmailFromIdentity({
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
   const operational=await reviewedDayCancellationContext({agencyId:identity.agency_id,clientId,to,cc,bcc,templateType,
-    reviewedCancellationToken,reviewedCancellationItemKey,existingCommunicationId,generatedByUserId},{verifyEnvelope:true});
+    reviewedCancellationToken,reviewedCancellationItemKey,existingCommunicationId,generatedByUserId},{verifyEnvelope:true})
+    || await individualCancellationEmailContext({agencyId:identity.agency_id,clientId,to,cc,bcc,templateType,
+      existingCommunicationId,generatedByUserId},{verifyEnvelope:true});
   if(operational) source='manual';
-  const operationalMetadata=operational?{reviewedCancellationToken:operational.reviewedCancellationToken,
+  const operationalMetadata=operational?.reviewedCancellationToken?{reviewedCancellationToken:operational.reviewedCancellationToken,
     reviewedCancellationItemKey:operational.reviewedCancellationItemKey}:{};
   if(await blockDemoExchangeEmail({templateType,linkUrl,clientId,agencyId:identity.agency_id})){
     if(existingCommunicationId)await pool.execute("UPDATE user_communications SET delivery_status='skipped',error_message='Demo Exchange provider notifications suppressed' WHERE id=?",[existingCommunicationId]);

@@ -17,6 +17,8 @@ const defaults = {
   tenant: async id => (await import('./sessionNotification.service.js')).getTenantSettings(id),
   reviewedRecipientAllowed: async (...args) => (await import('./cancellationRecipients.service.js')).cancellationRecipients.permitted(...args),
   operational: async (...args) => (await import('./dayCancellationEmail.service.js')).reviewedDayCancellationContext(...args),
+  individualReview: async (...args) => (await import('./appointmentCancellationEmail.service.js')).prepareIndividualCancellationReview(...args),
+  individualRecipientAllowed: async (...args) => (await import('./cancellationRecipients.service.js')).cancellationRecipients.operationalEmailPermitted(...args),
   familyRecipients: async (...args) => (await import('./appointmentFamilyRecipients.service.js')).appointmentFamilyRecipients(...args),
   consent: async (...args) => (await import('./sessionNotification.service.js')).loadClientConsent(...args),
   preferences: async (...args) => (await import('./sessionNotification.service.js')).getClientPreferences(...args),
@@ -80,6 +82,8 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
     const allowedChannels = ['email', ...(tenant?.channelsEnabled?.sms === true && tenant?.changeNotify?.channels?.includes('sms') ? ['sms'] : [])]
       .filter(ch => (!channels || channels.includes(ch)) && (!facts.emailOnly || ch === 'email'));
     for (const clientId of clientIds) {
+      const individualCancellationReview=!suppressed && eventType==='canceled' && actorUserId && !facts.reviewedCancellation && !facts.notificationRecipients
+        ? await d.individualReview({appointment:a,clientId,actorUserId},{database:db}) : null;
       const selectedContacts = facts.notificationRecipients?.find(c => Number(c.clientId) === clientId);
       if (facts.reviewedCancellation && !selectedContacts) throw Object.assign(new Error('Appointment recipients changed. Review the cancellation emails again.'), { status: 409 });
       const clientSuppressed = suppressed || selectedContacts?.mode === 'none';
@@ -110,7 +114,8 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
         const prior = previous.filter(r => Number(r.appointment_id) === Number(a.id)).at(-1);
         const priorPayload = prior ? decode(prior.payload_json) : null;
         const payload = { eventType, facts, originalStartAt: priorPayload?.originalStartAt || before?.startAt || a.startAt,
-          initialBooking: eventType === 'created' || priorPayload?.initialBooking === true };
+          initialBooking: eventType === 'created' || priorPayload?.initialBooking === true,
+          ...(individualCancellationReview?{individualCancellationReview}:{}) };
         if (!clientSuppressed && ['private_slots','portal_booking'].includes(facts.followUpAction)) {
           // Reserve private openings immediately, before their invitation is sent.
           try { await (await d.offers()).ensure(a, clientId, facts, actorUserId); }
@@ -159,8 +164,9 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
     return lock(key(seed), async () => {
       const [allPending] = await db.execute("SELECT * FROM appointment_schedule_notices WHERE agency_id=? AND provider_id=? AND client_id=? AND status='pending' ORDER BY id", [seed.agency_id,seed.provider_id,seed.client_id]);
       // Reviewed correspondence stays scoped to its exact session and recipients.
-      const reviewed = decode(seed.payload_json).facts?.reviewedCancellation;
-      const pending = allPending.filter(r => reviewed ? Number(r.id) === Number(seed.id) : !decode(r.payload_json).facts?.reviewedCancellation);
+      const isolated=payload=>payload.facts?.reviewedCancellation || payload.individualCancellationReview;
+      const reviewed = isolated(decode(seed.payload_json));
+      const pending = allPending.filter(r => reviewed ? Number(r.id) === Number(seed.id) : !isolated(decode(r.payload_json)));
       if (!pending.length || pending.some(r => +parseUtcDate(r.fire_at) > +d.now())) return;
       const entries = [];
       for (const row of pending) {
@@ -204,16 +210,20 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
       const selectedContacts = entries[0].payload.facts?.notificationRecipients?.find(c => Number(c.clientId) === Number(seed.client_id));
       const family = await d.familyRecipients(seed.client_id,seed.agency_id);
       const targets = selectedContacts ? (selectedContacts.recipients.length ? selectedContacts.recipients : [{ key: 'missing', email: '', phone: '', userId: null }]) : family.hasRelationships ? family.recipients : [null];
+      const individualReview=entries.every(entry=>entry.payload.individualCancellationReview)
+        ? entries[0].payload.individualCancellationReview : null;
+      const individualTargets=individualReview?.recipients.length ? individualReview.recipients : [{key:'missing',email:'',userId:null}];
       const sentTargets = new Set();
-      for (const target of targets) for (const channel of channels.length ? channels : ['in_app']) {
+      for (const channel of channels.length ? channels : ['in_app']) for (const target of channel==='email' && individualReview ? individualTargets : targets) {
         let attempted = false, communication = null, recipient = null, externalId = null, status = 'failed', reason = null, receipt = null;
         let recipientMessage = buildScheduleNoticeMessage(entries,portalUrl,{recipientUserId:target?.userId || null});
         const body = channel === 'sms' ? recipientMessage.sms : recipientMessage.text;
         const [delivery] = await db.execute(`INSERT INTO appointment_schedule_notice_deliveries (batch_id,channel,message_json,recipient_key) VALUES (?,?,?,?)`, [batchId,channel,d.encrypt(JSON.stringify(recipientMessage)),target?.key || 'default']);
         try {
-          const consent = await d.consent(seed.client_id,seed.agency_id,target?.userId || null);
-          if (target && selectedContacts) { consent.emailAddress=target.email;consent.phoneNumber=target.phone; }
-          const prefs = await d.preferences(seed.agency_id,seed.client_id,consent.guardianUserId);
+          const individualEmail=channel==='email' && !!individualReview;
+          const consent = await d.consent(seed.client_id,seed.agency_id,individualEmail?null:target?.userId || null);
+          if (target && (selectedContacts || individualEmail)) { consent.emailAddress=target.email;consent.phoneNumber=target.phone; }
+          const prefs = await d.preferences(seed.agency_id,seed.client_id,individualEmail?target?.userId:consent.guardianUserId);
           const tenant = await d.tenant(seed.agency_id);
           recipient = channel === 'sms' ? await d.normalizePhone(consent.phoneNumber) : consent.emailAddress;
           const targetKey = `${channel}:${recipient || target?.key || 'default'}`.toLowerCase();
@@ -222,7 +232,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
             continue;
           }
           communication = await d.communication({agencyId:seed.agency_id,clientId:seed.client_id,userId:consent.guardianUserId || null,
-            templateType:'session_change',channel,subject:recipientMessage.subject,body,recipientAddress:recipient,generatedByUserId:seed.created_by_user_id,
+            templateType:individualEmail?'session_cancellation':'session_change',channel,subject:recipientMessage.subject,body,recipientAddress:recipient,generatedByUserId:seed.created_by_user_id,
             metadata:{appointmentIds:entries.map(e=>e.appointment.id),scheduleNoticeBatchId:batchId},deliveryStatus:'pending'});
           const portalGuardianAuthorized = !target?.userId || !family.hasRelationships || family.recipients.some(r => r.userId === Number(target.userId));
           const facts=entries[0].payload.facts || {};
@@ -230,10 +240,11 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
           const operational=(portalGuardianAuthorized || target?.operationalOnly) && recipient && channel==='email' && entries.every(entry=>entry.payload.facts?.reviewedCancellationToken)
             ? await d.operational({agencyId:seed.agency_id,clientId:seed.client_id,to:recipient,templateType:'day_cancellation',
               ...review,generatedByUserId:seed.created_by_user_id},{database:db}) : null;
-          const guardianAuthorized=portalGuardianAuthorized || (!!operational && target?.operationalOnly === true);
+          const individualAllowed=individualEmail && target && await d.individualRecipientAllowed(seed.client_id,seed.agency_id,target,individualReview.contacts);
+          const guardianAuthorized=portalGuardianAuthorized || individualAllowed || (!!operational && target?.operationalOnly === true);
           const permitted = guardianAuthorized && (!target || !selectedContacts || await d.reviewedRecipientAllowed(seed.client_id,seed.agency_id,target,channel,review)) && channel !== 'in_app' && recipient
-            && (operational ? Object.hasOwn(consent,'emailAddress') : consent[channel]) && prefs.schedulingChangesEnabled !== false && prefs.providerPushedUpdatesEnabled !== false
-            && (operational || prefs.isDefault || prefs.channels?.[channel] !== false)
+            && (individualEmail ? individualAllowed : operational ? Object.hasOwn(consent,'emailAddress') : consent[channel]) && prefs.schedulingChangesEnabled !== false && prefs.providerPushedUpdatesEnabled !== false
+            && (individualEmail || operational || prefs.isDefault || prefs.channels?.[channel] !== false)
             && (channel !== 'sms' || (tenant?.channelsEnabled?.sms === true && tenant?.changeNotify?.channels?.includes('sms')));
           if (!permitted) {
             status='skipped';
@@ -259,7 +270,7 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
               attempted = true;
               result = await d.sendEmail({agencyId:seed.agency_id,clientId:seed.client_id,userId:consent.guardianUserId || null,to:recipient,
                 entries,
-                subject:recipientMessage.subject,text:recipientMessage.text,html:recipientMessage.html,triggerKey:'session_change',templateType:'session_change',
+                subject:recipientMessage.subject,text:recipientMessage.text,html:recipientMessage.html,triggerKey:'session_change',templateType:individualEmail?'session_cancellation':'session_change',
                 generatedByUserId:seed.created_by_user_id,source:'auto',existingCommunicationId:communication.id});
             } else {
               const from = await d.smsSender({agencyId:seed.agency_id,purpose:'reminders'});

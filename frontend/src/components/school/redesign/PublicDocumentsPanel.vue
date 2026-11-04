@@ -655,7 +655,7 @@
             </button>
           </div>
           <div class="intake-qr">
-            <img v-if="qrModalDataUrl" :src="qrModalDataUrl" alt="Intake QR code" />
+            <img v-if="qrModalDataUrl" :src="qrModalDataUrl" alt="School form QR code" />
             <div v-else class="muted">Generating QR…</div>
           </div>
         </div>
@@ -669,7 +669,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import api from '../../../services/api';
 import { toUploadsUrl } from '../../../utils/uploadsUrl';
-import { buildPublicIntakeUrl } from '../../../utils/publicIntakeUrl';
+import { buildSchoolEnrollmentUrl } from '../../../utils/publicIntakeUrl';
 import { localizePublicIntakeTitle } from '../../../utils/publicIntakeTitle.js';
 import { buildPublicSchoolPrintablePacketUrl } from '../../../utils/publicSchoolPrintablePacketUrl';
 import QRCode from 'qrcode';
@@ -1281,7 +1281,7 @@ const load = async () => {
 const intakeLinkUrlFor = (link) => {
   const key = String(link?.public_key || '').trim();
   if (!key) return '';
-  return buildPublicIntakeUrl(key);
+  return buildSchoolEnrollmentUrl(key);
 };
 
 const copyRawText = async (text) => {

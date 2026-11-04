@@ -171,7 +171,7 @@ describe('PublicDocumentsPanel', () => {
     await flush();
 
     expect(wrapper.text()).toContain('Digital Forms');
-    expect(wrapper.text()).toContain('My intake link');
+    expect(wrapper.text()).toContain('My Enrollment link');
 
     const qrBtn = wrapper.findAll('button').find((b) => b.text().trim() === 'QR');
     expect(qrBtn).toBeTruthy();
@@ -179,7 +179,8 @@ describe('PublicDocumentsPanel', () => {
     await flush();
 
     expect(wrapper.text()).toContain('Scan or share the link below.');
-    expect(wrapper.find('img[alt="Intake QR code"]').exists()).toBe(true);
+    expect(wrapper.find('img[alt="School form QR code"]').exists()).toBe(true);
+    expect(wrapper.find('input.intake-link-input').element.value).toBe('https://schoolcarebridge.org/intake/abc123');
   });
 
   it('renders smart printable packet actions for virtual doc', async () => {

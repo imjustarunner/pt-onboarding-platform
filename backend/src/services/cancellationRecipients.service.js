@@ -109,6 +109,17 @@ export function createCancellationRecipientService(overrides = {}) {
     }
     return operational ? Object.hasOwn(consent,'emailAddress') : consent.email !== false;
   }
-  return { contacts, review, permitted };
+  async function operationalEmailPermitted(clientId,agencyId,recipient,snapshotContacts) {
+    const current=(await contacts(clientId,agencyId)).contacts.find(contact=>contact.key===recipient.key && Number(contact.userId)===Number(recipient.userId));
+    const original=snapshotContacts?.find(contact=>contact.key===recipient.key && Number(contact.userId)===Number(recipient.userId));
+    const normalized=value=>String(value || '').trim().toLowerCase();
+    if(!current || !original || normalized(current.email)!==normalized(original.email) || !recipient.email)return false;
+    if(current.operationalOnly && (normalized(current.email)!==normalized(recipient.email)
+      || (current.source!=='affiliated_guardian' && Number(current.intakeSubmissionId)!==Number(recipient.intakeSubmissionId))))return false;
+    const prefs=await d.preferences(agencyId,clientId,recipient.userId);
+    if(prefs.schedulingChangesEnabled===false || prefs.providerPushedUpdatesEnabled===false)return false;
+    return (await d.gate({agencyId,clientId,to:recipient.email,channel:'email',notificationCategory:'schedule_changes'})).allowed;
+  }
+  return { contacts, review, permitted, operationalEmailPermitted };
 }
 export const cancellationRecipients = createCancellationRecipientService();

@@ -38,8 +38,8 @@ export async function createSchoolSessionEmailOptOutLink(input, db = pool) {
 }
 
 export function schoolSessionEmailOptOutContent(url) {
-  const label = 'Stop in-school session emails for this child';
-  const detail = 'This affects only school session notices for this child, from this agency, sent to your email address. Other children, other recipients, office appointments, texts, billing and secure-message emails are unchanged.';
+  const label = 'Stop school appointment reminder emails for this child';
+  const detail = 'This stops only school appointment reminders for this child, from this agency, at your email address. Cancellations, reschedules and other schedule changes are unchanged, along with other children, other recipients, office appointments, texts, billing and secure-message emails.';
   return { text: `\n\n${label}:\n${url}\n${detail}`,
     html: `<p style="font-size:13px;margin-top:28px"><a href="${e(url)}">${label}</a><br>${e(detail)}</p>` };
 }

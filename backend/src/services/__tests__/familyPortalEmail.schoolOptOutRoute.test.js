@@ -13,6 +13,7 @@ beforeEach(()=>{
 it('renders the exact limits and requires a deliberate POST, including link prefetch',async()=>{
   await handler('get')(req,res);const html=res.send.mock.calls[0][0];
   expect(html).toContain('method="post"');expect(html).toContain('Other children, other recipients, office appointments');
+  expect(html).toContain('Stop school appointment reminder emails?');expect(html).toContain('Cancellations, reschedules and other schedule changes are unchanged.');
   expect(m.disable).not.toHaveBeenCalled();
 });
 it('rejects missing confirmation and a foreign origin without changing any preference',async()=>{

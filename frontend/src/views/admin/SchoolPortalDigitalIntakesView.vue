@@ -10,11 +10,11 @@
       <div class="scb-workspace-identity"><SchoolCareBridgeBrand compact/><p>School enrollment and digital forms</p></div>
       <header class="spd-header df-admin-header">
         <div>
-          <h1>Digital intakes for this school</h1>
+          <h1>Digital enrollment for this school</h1>
           <p class="muted spd-sub">
-            Create or copy <strong>English</strong> and <strong>Spanish</strong> shareable intake links scoped to
-            <strong>{{ schoolName }}</strong>. Families see your school branding; the questionnaire comes from the
-            agency Master School Form.
+            Manage <strong>English</strong> and <strong>Spanish</strong> enrollment packet versions for
+            <strong>{{ schoolName }}</strong>. Families can switch languages in the same packet.
+            The questionnaire comes from the agency Master School Form.
           </p>
         </div>
         <div class="spd-header-actions">
@@ -146,7 +146,7 @@
 import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
 import {useSchoolCareBridgeBranding} from '../../composables/useSchoolCareBridgeBranding';
 import '../../styles/schoolCareBridgeWorkspaceBrand.css';
-useSchoolCareBridgeBranding('School digital intakes');
+useSchoolCareBridgeBranding('School digital enrollment');
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
@@ -154,7 +154,7 @@ import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
 import { canAccessSchoolPortalsSurfaces } from '../../utils/schoolPortalsAccess.js';
 import { getDashboardRoute } from '../../utils/router';
-import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
+import { buildSchoolEnrollmentUrl } from '../../utils/publicIntakeUrl';
 
 const route = useRoute();
 const authStore = useAuthStore();
@@ -167,7 +167,7 @@ const canManageDigitalIntakes = computed(() => {
 });
 
 function publicUrlFor(link) {
-  return buildPublicIntakeUrl(link?.public_key || link?.publicKey || '');
+  return buildSchoolEnrollmentUrl(link?.public_key || link?.publicKey || '');
 }
 
 async function copyPublicUrl(link) {
