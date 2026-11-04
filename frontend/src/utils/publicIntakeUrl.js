@@ -1,3 +1,5 @@
+import { SCB_ORIGIN } from './schoolCareBridge.js';
+
 export const getPublicIntakeBaseUrl = () => {
   const raw = import.meta.env.VITE_PUBLIC_INTAKE_BASE_URL || '';
   const trimmed = String(raw || '').trim();
@@ -46,4 +48,13 @@ export const buildFormUrl = (publicKey, formType, query = {}) => {
     return buildLifeBalanceFormUrl(publicKey, query);
   }
   return buildPublicIntakeUrl(publicKey);
+};
+
+/** A school has one bilingual enrollment address, independent of its agency host. */
+export const buildSchoolEnrollmentUrl = (publicKey) => {
+  const key = String(publicKey || '').trim();
+  if (!key) return '';
+  const local = ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
+  const origin = local ? window.location.origin : SCB_ORIGIN;
+  return `${origin}/intake/${encodeURIComponent(key)}`;
 };

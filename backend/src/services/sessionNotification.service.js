@@ -1,4 +1,5 @@
 import { appointmentFamilyRecipients } from './appointmentFamilyRecipients.service.js';
+import { createHash } from 'node:crypto';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { contactReminderPhoneHash } from '../utils/contactReminderConsent.js';
 import { notificationTransportReceipt } from '../utils/notificationTransportReceipt.js';
@@ -17,6 +18,7 @@ import VonageService from './vonage.service.js';
 import PhoneNumber from '../models/PhoneNumber.model.js';
 import { resolveRegisteredSmsSender, recordedReminderConsent } from './smsCompliance.service.js';
 import { resolveAppointmentServiceSetting, buildSchoolReminder } from './appointmentServiceSetting.service.js';
+import { schoolAppointmentReminderWindow, schoolAppointmentReminderText } from '../utils/schoolAppointmentReminder.js';
 import {
   logCommunication,
   cancelPendingReminders
@@ -504,6 +506,18 @@ async function buildRecipientDeliveryPlan(appointmentId, recipientGuardianUserId
     return true;
   };
 
+  // School visits have a single morning notice per opted-in channel, independent
+  // of platform floors, booking confirmations or optional office cadences.
+  if (serviceSetting.isSchool) {
+    const window = schoolAppointmentReminderWindow(appt);
+    return { appointment: appt, start, clientId, prefs, consent, effectiveChannels,
+      deliveries: window ? ['email', 'sms'].filter(canUseChannel).map(channel => ({
+        kind: 'standard_reminder', ruleKey: 'school_morning', channel,
+        offsetMinutes: window.offsetMinutes, recipientRole: 'client',
+        requiresConfirmation: false, isRequired: true, messageBody: buildSchoolReminder(appt)
+      })) : [] };
+  }
+
   // Platform minimums
   for (const rule of platform.minRules || []) {
     const channel = rule.channel || 'email';
@@ -608,12 +622,7 @@ async function buildRecipientDeliveryPlan(appointmentId, recipientGuardianUserId
   const seen = new Set();
   const unique = [];
   for (const d of deliveries) {
-    if (serviceSetting.isSchool) {
-      d.requiresConfirmation = false;
-      d.messageBody = buildSchoolReminder(appt);
-      if (d.kind === 'confirmation') d.kind = 'school_booking_notice';
-    }
-    const key = serviceSetting.isSchool ? `${d.channel}|${d.offsetMinutes}|${!!d.sendImmediately}` : `${d.kind}|${d.channel}|${d.offsetMinutes}|${d.ruleKey}`;
+    const key = `${d.kind}|${d.channel}|${d.offsetMinutes}|${d.ruleKey}`;
     if (seen.has(key)) continue;
     seen.add(key);
     unique.push(d);
@@ -648,6 +657,11 @@ async function scheduleSessionNotificationsUnlocked(appointmentId, { replace = t
       when = new Date(Date.now() + 30 * 1000); // ~30s buffer after book
     } else {
       when = new Date(plan.start.getTime() - d.offsetMinutes * 60 * 1000);
+    }
+    if (d.ruleKey === 'school_morning') {
+      const window = schoolAppointmentReminderWindow(plan.appointment);
+      if (!window || Date.now() >= +window.deadline) continue;
+      if (+when < Date.now()) when = new Date(Date.now() + 30 * 1000);
     }
     if (when.getTime() <= Date.now() - 60 * 1000 && d.kind !== 'confirmation') continue;
     const scheduledFor = toMysqlDateTime(when);
@@ -953,6 +967,10 @@ export async function applyConfirmReply(appointmentId, {
 
 
 async function sendContactSessionEmail({ contact, appointment, clientId }) {
+  if ((await resolveAppointmentServiceSetting(appointment)).isSchool) {
+    return sendSessionEmail({ to: contact.contact_email, agencyId: appointment.agencyId,
+      clientId, appointment });
+  }
   const { sendNotificationEmail } = await import('./unifiedEmail/unifiedEmailSender.service.js');
   const text = minimalContactSessionReminder(appointment);
   const result = await sendNotificationEmail({ agencyId: appointment.agencyId, clientId, to: contact.contact_email,
@@ -1025,6 +1043,7 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
     // Recheck under the lock so overlapping workers cannot send the same row.
     const lock = await pool.getConnection();
     let acquired = false;
+    let schoolDeliveryLock = null;
     try {
       const [[result]] = await lock.execute('SELECT GET_LOCK(?, 0) AS acquired', [`session_reminder:${row.id}`]);
       acquired = Number(result?.acquired) === 1;
@@ -1043,6 +1062,38 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
       );
       results.skipped += 1;
       continue;
+    }
+
+    const serviceSetting = await resolveAppointmentServiceSetting(appt);
+    if (serviceSetting.isSchool) {
+      const window = schoolAppointmentReminderWindow(appt);
+      if (!window || Date.now() >= +window.deadline) {
+        await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason='school_morning_window_ended' WHERE id=?", [row.id]);
+        results.skipped++; continue;
+      }
+      // Old queued booking/24h/4h messages obey the current school policy too.
+      if (Date.now() < +window.scheduledAt) {
+        await pool.execute(`UPDATE appointment_reminders SET scheduled_for=?,offset_minutes=?,
+          kind='standard_reminder',rule_key='school_morning',requires_confirmation=0,message_body=? WHERE id=?`,
+        [toMysqlDateTime(window.scheduledAt), window.offsetMinutes, buildSchoolReminder(appt), row.id]);
+        continue;
+      }
+      // Rows from old cadences may overlap. Serialize the recipient/channel and
+      // check sent history, rather than only protecting one reminder row.
+      const recipient = `${row.recipient_client_id || 'legacy'}:${row.recipient_guardian_user_id || 0}:${row.recipient_affiliation_id || 0}`;
+      schoolDeliveryLock = `school-reminder:${createHash('sha256').update(`${appt.id}:${row.channel}:${recipient}`).digest('hex').slice(0, 40)}`;
+      const [[deliveryLock]] = await lock.execute('SELECT GET_LOCK(?, 0) AS acquired', [schoolDeliveryLock]);
+      if (Number(deliveryLock?.acquired) !== 1) { schoolDeliveryLock = null; continue; }
+      const [sent] = await pool.execute(`SELECT id FROM appointment_reminders
+        WHERE appointment_id=? AND channel=? AND status='sent'
+          AND recipient_client_id <=> ? AND recipient_guardian_user_id <=> ? AND recipient_affiliation_id <=> ?
+          AND sent_at >= ? LIMIT 1`,
+      [appt.id, row.channel, row.recipient_client_id || null, row.recipient_guardian_user_id || null, row.recipient_affiliation_id || null,
+        toMysqlDateTime(window.dayStart)]);
+      if (sent.length) {
+        await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason='school_morning_already_sent' WHERE id=?", [row.id]);
+        results.skipped++; continue;
+      }
     }
 
     const [pendingUpdates] = await pool.execute("SELECT id FROM appointment_schedule_notices WHERE appointment_id=? AND status IN ('pending','sending') LIMIT 1", [appt.id]);
@@ -1064,10 +1115,10 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
         await pool.execute("UPDATE appointment_reminders SET status='skipped',skip_reason='contact_access_removed' WHERE id=?", [row.id]);
         results.skipped++; continue;
       }
-      const text = minimalContactSessionReminder(appt);
+      const text = serviceSetting.isSchool ? `${schoolAppointmentReminderText} Please contact the account guardian if plans change.`
+        : minimalContactSessionReminder(appt);
       try {
-        const setting = await resolveAppointmentServiceSetting(appt);
-        const notificationCategory = setting.isSchool ? 'school_sessions' : 'appointments';
+        const notificationCategory = serviceSetting.isSchool ? 'school_sessions' : 'appointments';
         const { familyNotificationDeliveryGate } = await import('./familyNotificationChoices.service.js');
         const gate = await familyNotificationDeliveryGate({ agencyId: appt.agencyId, clientId, channel: row.channel,
           to: row.channel === 'sms' ? contact.contact_phone : contact.contact_email, notificationCategory });
@@ -1140,14 +1191,6 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
     let channel = String(row.channel || 'email');
     if (isInApp) channel = 'in_app';
 
-    let serviceSetting;
-    try { serviceSetting = await resolveAppointmentServiceSetting(appt); }
-    catch (error) {
-      await pool.execute("UPDATE appointment_reminders SET status = 'failed', error_message = ? WHERE id = ?",
-        ['Service location could not be verified; review before retrying', row.id]);
-      results.failed += 1;
-      continue;
-    }
     const body = serviceSetting.isSchool ? buildSchoolReminder(appt)
       : formatQueuedSessionMessage(appt, row.message_body) || defaultMessage(appt, kind.replace(':in_app', ''), !!row.requires_confirmation);
     const contactBody = minimalContactSessionReminder(appt);
@@ -1303,7 +1346,10 @@ export async function processDueSessionNotifications({ limit = 50, agencyId = nu
         [String(error?.message || 'Reminder could not be processed').slice(0, 500), row.id]);
       results.failed += 1;
     } finally {
-      try { if (acquired) await lock.execute('SELECT RELEASE_LOCK(?)', [`session_reminder:${row.id}`]); }
+      try {
+        if (schoolDeliveryLock) await lock.execute('SELECT RELEASE_LOCK(?)', [schoolDeliveryLock]);
+        if (acquired) await lock.execute('SELECT RELEASE_LOCK(?)', [`session_reminder:${row.id}`]);
+      }
       finally { lock.release(); }
     }
   }

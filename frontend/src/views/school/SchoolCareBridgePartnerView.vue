@@ -54,5 +54,5 @@ async function load(){loading.value=true;error.value='';try{if(!auth.isAuthentic
 async function saveSettings(){saving.value=true;notice.value='';try{const {supportEmail,welcomeMessage,description}=settings.value;await api.put(`/schoolcarebridge/tenants/${slug.value}/settings`,{supportEmail,welcomeMessage,description});notice.value='Settings saved.';}catch(e){notice.value=e.response?.data?.error?.message||'Could not save settings.';}finally{saving.value=false;}}
 async function createSchool(){saving.value=true;notice.value='';try{await api.post(`/schoolcarebridge/tenants/${slug.value}/schools`,schoolForm.value);addingSchool.value=false;schoolForm.value={name:'',slug:''};await load();notice.value='School portal created.';}catch(e){notice.value=e.response?.data?.error?.message||'Could not create this school.';}finally{saving.value=false;}}
 function printAgreement(){window.print();}
-watch(()=>auth.isAuthenticated,load);onMounted(load);
+watch(()=>[auth.isAuthenticated,slug.value,section.value],load);onMounted(load);
 </script>

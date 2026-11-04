@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../guardianAppointments.service.js',()=>({authorizedAppointmentClient:vi.fn(async()=>({agency_id:2})),requireGuardianCancellation:vi.fn(async()=>({agency_id:2}))}));
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), query:vi.fn(), getConnection: vi.fn() } }));
 vi.mock('../../models/Appointment.model.js', () => ({ default: { findById: vi.fn(), listParticipants: vi.fn(), update: vi.fn(), mapRow: r => r } }));
@@ -13,6 +13,8 @@ vi.mock('../vonage.service.js', () => ({ default: { sendSms: vi.fn() } }));
 vi.mock('../email.service.js', () => ({ default: { isConfigured: () => false } }));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendNotificationEmail: vi.fn() }));
 vi.mock('../notificationDispatcher.service.js', () => ({ default: { createNotificationAndDispatch: vi.fn() } }));
+vi.mock('../bookingCancellationPolicy.service.js', () => ({ evaluateCancel: vi.fn() }));
+vi.mock('../appointment.service.js', () => ({ cancelAppointment: vi.fn() }));
 import pool from '../../config/database.js';
 import Appointment from '../../models/Appointment.model.js';
 import Guardians from '../../models/ClientGuardian.model.js';
@@ -22,11 +24,16 @@ import { resolveAppointmentServiceSetting } from '../appointmentServiceSetting.s
 import { resolveRegisteredSmsSender, recordedReminderConsent } from '../smsCompliance.service.js';
 import Vonage from '../vonage.service.js';
 import { sendNotificationEmail } from '../unifiedEmail/unifiedEmailSender.service.js';
-import { buildDeliveryPlan, processDueSessionNotifications, applyConfirmReply, putClientPreferences, loadClientConsent } from '../sessionNotification.service.js';
+import { evaluateCancel } from '../bookingCancellationPolicy.service.js';
+import { cancelAppointment } from '../appointment.service.js';
+import { buildDeliveryPlan, scheduleSessionNotifications, processDueSessionNotifications, applyConfirmReply, putClientPreferences, loadClientConsent } from '../sessionNotification.service.js';
 import { applyAppointmentReply, resolveAppointmentForClientReply } from '../appointmentReply.service.js';
 let preferences, due, choice, client, lock;
 beforeEach(() => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-01T14:00:00Z'));
   vi.resetAllMocks(); preferences = []; due = []; choice = null;
+  evaluateCancel.mockResolvedValue({ allowed: true, recommendedFeeCents: 0 });
+  cancelAppointment.mockResolvedValue({ appointment: { status: 'canceled_by_client' } });
   client = { session_email_opt_in: 1, session_sms_opt_in: 1, guardian_phone: '+17195550100', guardian_email: 'guardian@example.test' };
   Appointment.findById.mockResolvedValue({ id: 12, agencyId: 2, providerUserId: 8, startAt: '2026-11-01 16:00:00', status: 'scheduled' });
   Appointment.listParticipants.mockResolvedValue([{ clientId: 4, receivesReminders: true }]);
@@ -53,14 +60,19 @@ beforeEach(() => {
     if (sql.includes('SELECT r.* FROM appointment_reminders')) return [due];
     if (sql.includes('FROM appointment_change_notification_queue')) return [[]];
     if (sql.includes('FROM appointment_cancellation_deliveries')) return [[]];
+    if (sql.includes("FROM appointment_reminders") && sql.includes("status='sent'")) return [[]];
     return [{ affectedRows: 1, insertId: 3 }];
   });
 });
-it('school plans replace even custom confirmation templates and deduplicate same-time school notices', async () => {
+afterEach(() => vi.useRealTimers());
+it('school plans replace custom confirmation templates with one morning notice per channel', async () => {
   const plan = await buildDeliveryPlan(12);
   expect(plan.deliveries.length).toBeGreaterThan(0);
   expect(plan.deliveries.every(d => !d.requiresConfirmation && d.messageBody.includes('No confirmation'))).toBe(true);
-  expect(plan.deliveries.filter(d => d.channel === 'email' && d.offsetMinutes === 1440)).toHaveLength(1);
+  expect(plan.deliveries.map(d => [d.channel, d.offsetMinutes, d.ruleKey])).toEqual([
+    ['email', 120, 'school_morning'], ['sms', 120, 'school_morning']
+  ]);
+  expect(plan.deliveries.every(d => !d.sendImmediately)).toBe(true);
 });
 it('recipient No choices beat mandatory email and SMS reminder rules', async () => {
   preferences = [{ agency_id: 2, client_id: 4, channels_json: { email: false, sms: false } }];
@@ -86,6 +98,38 @@ it('corrects already queued school messages and uses only the registered reminde
   expect(resolveRegisteredSmsSender).toHaveBeenCalledWith({ agencyId: 2, purpose: 'reminders' });
   expect(Vonage.sendSms).toHaveBeenCalledWith(expect.objectContaining({ to: '+17195550100', from: '+17195550199', body: expect.stringContaining('No confirmation') }));
 });
+it('moves old day-before school rows to the morning instead of sending immediately', async () => {
+  vi.setSystemTime(new Date('2026-10-31T14:00:00Z'));
+  due = [{ id: 5, appointment_id: 12, agency_id: 2, channel: 'sms', kind: 'confirmation' }];
+  await processDueSessionNotifications();
+  expect(Vonage.sendSms).not.toHaveBeenCalled();
+  expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining("rule_key='school_morning'"),
+    ['2026-11-01 14:00:00', 120, expect.any(String), 5]);
+});
+it('does not send a second school reminder from an older overlapping cadence', async () => {
+  due = [{ id: 5, appointment_id: 12, agency_id: 2, channel: 'sms', kind: 'reminder' },
+    { id: 6, appointment_id: 12, agency_id: 2, channel: 'sms', kind: 'confirmation' }];
+  const base = pool.execute.getMockImplementation(); let sent = false;
+  pool.execute.mockImplementation(async (sql, args) => {
+    if (sql.includes('FROM appointment_reminders') && sql.includes("status='sent'")) return [sent ? [{ id: 5 }] : []];
+    if (sql.includes("SET status = 'sent'")) sent = true;
+    return base(sql, args);
+  });
+  await processDueSessionNotifications();
+  expect(Vonage.sendSms).toHaveBeenCalledOnce();
+  expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('school_morning_already_sent'), [6]);
+});
+it('does not deliver an old school queue after the morning window', async () => {
+  vi.setSystemTime(new Date('2026-11-01T20:00:00Z'));
+  due = [{ id: 5, appointment_id: 12, agency_id: 2, channel: 'sms', kind: 'reminder' }];
+  await processDueSessionNotifications(); expect(Vonage.sendSms).not.toHaveBeenCalled();
+  expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining('school_morning_window_ended'), [5]);
+});
+it('schedules only the two school morning channel rows, with no booking notice', async () => {
+  const rows = await scheduleSessionNotifications(12);
+  expect(rows).toHaveLength(2);
+  expect(rows.every(row => row.ruleKey === 'school_morning' && row.scheduledFor === '2026-11-01 14:00:00')).toBe(true);
+});
 it('keeps delivery blocked when no approved number is linked', async () => {
   due = [{ id: 5, appointment_id: 12, agency_id: 2, channel: 'sms' }]; resolveRegisteredSmsSender.mockResolvedValue(null);
   expect((await processDueSessionNotifications()).skipped).toBe(1);
@@ -97,10 +141,22 @@ it('cannot bypass the central recipient permission or STOP gate', async () => {
   expect((await processDueSessionNotifications()).failed).toBe(1);
   expect(pool.execute.mock.calls.some(([sql]) => sql.includes("SET status = 'sent'"))).toBe(false);
 });
-it.each(['Y', 'N', 'R', 'Absent today'])('records school reply %s for review without changing the appointment or fee', async rawBody => {
+it.each(['Y', 'R', 'Absent today'])('records school reply %s for review without changing the appointment or fee', async rawBody => {
   const result = await applyAppointmentReply({ appointmentId: 12, agencyId: 2, clientId: 4, rawBody });
   expect(result.status).toBe('pending_review'); expect(result.ackMessage).toContain('No confirmation');
   expect(Appointment.update).not.toHaveBeenCalled();
+});
+it.each(['N', 'cancel'])('applies explicit school cancellation %s without confirmation or rescheduling', async rawBody => {
+  const result = await applyAppointmentReply({ appointmentId: 12, agencyId: 2, clientId: 4, rawBody });
+  expect(cancelAppointment).toHaveBeenCalledWith(12, expect.objectContaining({ expectedFeeCents: 0, actorRole: 'client' }));
+  expect(result).toMatchObject({ status: 'applied', clientReply: 'cancel' });
+  expect(result.ackMessage).toContain('school session has been canceled');
+});
+it('does not assess a fee or claim cancellation when school cancellation needs review', async () => {
+  evaluateCancel.mockResolvedValue({ allowed: true, recommendedFeeCents: 5000 });
+  const result = await applyAppointmentReply({ appointmentId: 12, agencyId: 2, clientId: 4, rawBody: 'N' });
+  expect(cancelAppointment).not.toHaveBeenCalled();
+  expect(result.status).toBe('pending_review'); expect(result.ackMessage).toContain('still scheduled');
 });
 it('does not start a confirmation follow-up cadence for school portal replies', async () => {
   await applyConfirmReply(12); expect(Appointment.update).not.toHaveBeenCalled();

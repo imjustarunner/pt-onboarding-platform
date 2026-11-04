@@ -14,7 +14,7 @@ vi.mock('../emailSenderIdentityResolver.service.js', () => ({ resolvePreferredSe
 vi.mock('../schoolOnboardingIntakeBootstrap.service.js', () => ({ ensureDigitalIntakeFormsForSchool: vi.fn() }));
 
 import SchoolOnboardingInvite from '../../models/SchoolOnboardingInvite.model.js';
-import { getPublicInvite, isInviteUsable, resendInvite, serializeInvite } from '../schoolOnboarding.service.js';
+import { buildOnboardingLink, buildQrStartLink, getPublicInvite, isInviteUsable, resendInvite, serializeInvite } from '../schoolOnboarding.service.js';
 
 const legacyInvite = (overrides = {}) => ({
   id: 12, agency_id: 2, school_organization_id: 430, primary_user_id: 123,
@@ -112,4 +112,25 @@ test('resending emails the original link without rotating its token', async () =
   expect(generateToken).not.toHaveBeenCalled();
   expect(update.mock.calls.every(([, patch]) => patch.token === undefined)).toBe(true);
   expect(update).toHaveBeenCalledWith(12, expect.objectContaining({ expiresAt: null }));
+});
+
+
+test('new and existing school onboarding links use SchoolCareBridge for every agency', () => {
+  expect(buildOnboardingLink('invite-token')).toBe('https://schoolcarebridge.org/school-onboarding/invite-token');
+  expect(buildQrStartLink('qr-token')).toBe('https://schoolcarebridge.org/school-onboarding/start/qr-token');
+  for (const agency_slug of ['itsco', 'another-agency']) {
+    const result = serializeInvite(legacyInvite({ agency_slug, school_slug: 'keller' }), { admin: true });
+    expect(result.portalUrl).toBe('https://schoolcarebridge.org/app/keller');
+    expect(result.loginUrl).toBe(result.portalUrl);
+    expect(result.portalDashboardUrl).toBe(result.portalUrl);
+  }
+});
+
+test('onboarding remains reachable on the supported MH4Kidz deployment origin', () => {
+  vi.stubEnv('SCHOOLCAREBRIDGE_PUBLIC_ORIGIN', 'https://mh4kidz.org');
+  try {
+    expect(buildOnboardingLink('invite-token')).toBe('https://mh4kidz.org/school-onboarding/invite-token');
+    const result = serializeInvite(legacyInvite({ school_slug: 'keller' }), { admin: true });
+    expect(result.portalUrl).toBe('https://mh4kidz.org/schoolcarebridge/app/keller');
+  } finally { vi.unstubAllEnvs(); }
 });

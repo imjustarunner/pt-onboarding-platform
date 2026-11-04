@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import AgencyServiceLocation from '../models/AgencyServiceLocation.model.js';
+import { schoolAppointmentReminderText } from '../utils/schoolAppointmentReminder.js';
 
 // The office used to bill a visit is not evidence of where the visit takes place.
 // Resolve only appointment/encounter-specific data, never a child's enrollment school.
@@ -51,5 +52,5 @@ export function formatAppointmentTime(appt) {
 }
 
 export function buildSchoolReminder(appt) {
-  return `Reminder: A school session is scheduled for ${formatAppointmentTime(appt)}. No confirmation is needed. If your child will be absent or plans change, please let our team know. Continue to report school absences to the school as usual.`;
+  return `${schoolAppointmentReminderText} Reply N to cancel this session. Continue to report school absences to the school as usual.`;
 }

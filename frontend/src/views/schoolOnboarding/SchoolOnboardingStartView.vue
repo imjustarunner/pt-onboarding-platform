@@ -1,6 +1,7 @@
 <template>
   <div class="so-start" :style="shellVars">
     <div class="so-start-card">
+      <SchoolCareBridgeBrand class="so-service-brand" />
       <div class="so-brand">
         <img v-if="agencyLogo" :src="agencyLogo" alt="" />
         <div v-else class="so-mark">{{ agencyInitial }}</div>
@@ -79,6 +80,7 @@
           {{ saving ? 'Starting…' : (affiliationConflict ? 'Continue with this choice →' : 'Start onboarding →') }}
         </button>
       </form>
+      <ServiceUseNotice school-portal :organization-slug="meta?.agency?.slug || ''" />
     </div>
   </div>
 </template>
@@ -87,7 +89,11 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
+import ServiceUseNotice from '../../components/legal/ServiceUseNotice.vue';
+import { useSchoolCareBridgeBranding } from '../../composables/useSchoolCareBridgeBranding';
 
+useSchoolCareBridgeBranding('School setup');
 const route = useRoute();
 const router = useRouter();
 
@@ -183,6 +189,8 @@ onMounted(load);
 </script>
 
 <style scoped>
+.so-service-brand{margin:0 auto 24px}
+
 .so-start {
   --so-primary: #1d4ed8;
   min-height: 100vh;
