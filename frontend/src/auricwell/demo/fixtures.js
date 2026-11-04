@@ -57,6 +57,7 @@ export function demoResponse(url, config={}) {
  if(taskResponse !== undefined)return taskResponse;
  const noteResponse = noteFixtures.response(p, q);
  if(noteResponse !== undefined) return noteResponse;
+ if(p==='/auricwell-preview/my-clients'){const selected=clients.filter(c=>c.provider_id===actor.id);return {clients:selected,total:selected.length,agencies:[{...practice,client_count:selected.length}],page:1,pageSize:50};}
  if(p==='/clients') {const search=String(q.search||'').toLowerCase(),providerId=q.provider_id||q.providerId;if(providerId)requireProvider(providerId);const selected=clients.filter(c=>(!providerId||c.provider_id===Number(providerId))&&(!q.status||c.status===String(q.status).toUpperCase())&&`${c.full_name} ${c.initials}`.toLowerCase().includes(search));return {clients:Number(q.page||1)>1?[]:selected,total:selected.length};}
  if(p==='/auricwell-preview/providers')return {providers};
  if(p==='/auricwell-preview/workspace-scope')return {actorId:actor.id,scopes:['mine','practice'],providers:providers.map(p=>({...p,name:`${p.first_name} ${p.last_name}`,active:true,canViewSchedule:true}))};

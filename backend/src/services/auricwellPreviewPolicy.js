@@ -54,7 +54,8 @@ export function constrainPreviewInput(input, agencyId) {
 export function previewRouteAllowed(method, path) {
   if (method === 'GET') return [
     /^\/(?:auricwell-preview\/portal|portal-admin)\/clients\/[1-9][0-9]*\/accounts(?:\/[1-9][0-9]*\/(?:read|activity))?$/,
-    /^\/auricwell-preview(?:\/context|\/providers|\/workspace-scope|\/agenda|\/directory|\/tasks|\/notifications|\/toasts(?:\/active)?)?$/,
+    /^\/auricwell-preview(?:\/context|\/providers|\/workspace-scope|\/agenda|\/directory|\/my-clients|\/tasks|\/notifications|\/toasts(?:\/active)?)?$/,
+    /^\/auricwell-preview\/my-clients\/[1-9][0-9]*\/preview$/,
     /^\/clients\/(?:duplicates|name-duplicates)$/ ,
     /^\/platform\/toast-announcements$/,
     /^\/clinical-notes\/(?:context|programs|recent|work-queue|termination-outcomes)$/,

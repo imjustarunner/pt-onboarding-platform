@@ -13,7 +13,7 @@
       <AnnouncementToasts v-if="!demoContext" :storage-key="`auricwell:${actor.id}:agency:${context.practice.id}`" :load-items="loadOfficeToasts" />
       <div v-if="demoContext" class="aw-identity" role="status"><strong>Interactive demo · Fictional practice</strong><span>Explore the actual EHR screens. Nothing is saved, signed, submitted or sent.</span><button type="button" data-analytics-id="demo-reset" @click="resetDemo">Reset demo</button></div>
       <div v-else-if="context.qaWorkspace" class="aw-identity" role="status"><strong>QA workspace · {{ actorName }} · {{ actor.role }}</strong><span>Fictional clients in {{ context.practice.name }}. Changes are saved for testing.</span></div>
-      <div v-else class="aw-identity" role="status"><strong>Superadmin preview · {{ actorName }}</strong><span>Real {{ context.practice.name }} records. Saved drafts are live and attributed to you.</span><a :href="appBase">Switch practice</a></div>
+      <div v-else class="aw-identity" role="status"><strong>Superadmin preview · {{ actorName }}</strong><span>Real {{ context.practice.name }} records. Changes are live and attributed to you.</span><a :href="appBase">Switch practice</a></div>
       </template>
         <slot v-if="demoContext && section === 'tasks' && $slots.tasks" name="tasks" />
         <slot v-else-if="demoContext && section === 'documentation' && $slots.documentation" name="documentation" />
@@ -30,7 +30,9 @@
         <Portal v-else-if="section==='portal'" :key="context.practice.id" :agency="context.practice" :actor="actor" :slug="slug" />
         <Chart v-else-if="section === 'clients' && /^\d+$/.test(String(route.query.clientId || ''))" :key="`${context.practice.id}:${route.query.clientId}`" :client-id="String(route.query.clientId)" :agency="context.practice" :slug="slug" />
         <slot v-else-if="section === 'appointments' && $slots.appointments" name="appointments" />
-        <Records v-else-if="['clients','providers','appointments'].includes(section)" :key="`${context.practice.id}:${section}`" :section="section" :agency="context.practice" :slug="slug" />
+        <Clients v-else-if="section==='clients'" :agency="context.practice" :actor="actor" :slug="slug" />
+        <ScheduleWorkspace v-else-if="section==='appointments'" :agency="context.practice" :actor="actor" />
+        <Records v-else-if="section==='providers'" :key="`${context.practice.id}:${section}`" :section="section" :agency="context.practice" :slug="slug" />
         <section v-else class="aw-welcome"><h1>Page unavailable</h1><RouterLink :to="`/${slug}`">Return to practice</RouterLink></section>
     </WorkspaceShell>
   </div>
@@ -45,6 +47,8 @@ import { useRoute } from 'vue-router';
 import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
 import Records from './Records.vue';
+import Clients from './Clients.vue';
+import ScheduleWorkspace from './ScheduleWorkspace.vue';
 import Portal from './Portal.vue';
 import SessionRecovery from './SessionRecovery.vue';
 import WorkspaceShell from './WorkspaceShell.vue';
@@ -116,7 +120,7 @@ async function load() {
 function endSession(event) { locked.value=event?.detail?.status===423; ++requestId; ++notificationRequestId; notificationItems.value=[]; unread.value=null; context.value = null; practices.value = []; error.value = 'Your session ended or is locked. Sign in or unlock before continuing.'; delete window.__auricwellPracticeId; }
 window.addEventListener('auricwell-session-ended', endSession);
 onBeforeUnmount(() => { ++requestId; ++notificationRequestId; window.removeEventListener('auricwell-session-ended', endSession); });
-watch(slug, (current, previous) => { if (!props.demoContext && previous && current !== previous) window.location.assign(`${appBase}/${encodeURIComponent(current)}`); else load(); }, { immediate:true });
+watch(slug, (current, previous) => { if (!props.demoContext && previous && current !== previous) window.location.assign(`${appBase}${route.fullPath}`); else load(); }, { immediate:true });
 </script>
 
 <style scoped>
