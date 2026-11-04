@@ -1,7 +1,7 @@
 import {describe,it,expect} from 'vitest';
 import {getCurrentPortalSlugFromPath,getLoginUrlForRedirect} from '../loginRedirect';
 import {publicSitePaths} from '../publicDomainRouting';
-import {schoolCareBridgePath,schoolCareBridgeExternalPath,schoolCareBridgeWorkflowPath,isSchoolCareBridgeHost} from '../schoolCareBridge';
+import {schoolCareBridgePath,schoolCareBridgeExternalPath,schoolCareBridgeWorkflowPath,isSchoolCareBridgeHost,schoolCareBridgeOnboardingUrl} from '../schoolCareBridge';
 import {buildShareMeta} from '../sharePreview';
 import {publicBrowserBranding} from '../publicBrowserBranding';
 describe('SchoolCareBridge address compatibility',()=>{
@@ -40,5 +40,18 @@ describe('SchoolCareBridge address compatibility',()=>{
   expect(getCurrentPortalSlugFromPath()).toBeNull();const target=getLoginUrlForRedirect(null,null,{timeout:true});
   expect(target).toContain('/schoolcarebridge/app?');expect(decodeURIComponent(target)).toContain('redirect=/schoolcarebridge/app/operations');expect(target).toContain('timeout=true');expect(target).not.toContain('must-not-transfer');
   window.history.replaceState(null,'',previous);
+ });
+});
+
+
+describe('onboarding completion destinations', () => {
+ it('honors the configured MH4Kidz origin and preserves its schoolcarebridge prefix', () => {
+  expect(schoolCareBridgeOnboardingUrl('https://mh4kidz.org/schoolcarebridge/app/keller','keller')).toBe('https://mh4kidz.org/schoolcarebridge/app/keller');
+ });
+ it.each(['https://mh4kidz.org/app/keller','https://app.itsco.health/keller/dashboard','https://example.com/app/keller','https://schoolcarebridge.org/app/another-school'])('uses canonical fallback for an unrelated destination: %s', value => {
+  expect(schoolCareBridgeOnboardingUrl(value,'keller')).toBe('https://schoolcarebridge.org/app/keller');
+ });
+ it('keeps the canonical configured destination', () => {
+  expect(schoolCareBridgeOnboardingUrl('https://schoolcarebridge.org/app/keller','keller')).toBe('https://schoolcarebridge.org/app/keller');
  });
 });

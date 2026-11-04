@@ -1,5 +1,6 @@
 import {beforeEach,it,expect,vi} from 'vitest';
 import crypto from 'node:crypto';
+import {standardizeEmailButtons} from '../../utils/emailActionButton.js';
 const m=vi.hoisted(()=>({execute:vi.fn(),connection:vi.fn(),appointment:vi.fn(),reply:vi.fn(),setting:vi.fn(),context:vi.fn(),send:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:m.connection}}));
 vi.mock('../../models/Appointment.model.js',()=>({default:{findById:m.appointment}}));
@@ -20,6 +21,7 @@ beforeEach(()=>{
   if(sql.includes('FROM appointment_email_actions'))return [[...(args[0]===hash(token)?[row]:[])]];
   if(sql.includes('SELECT u.email'))return [[...(access?[access]:[])]];
   if(sql.includes('FROM appointment_participants'))return [[{id:11}]];
+  if(sql.startsWith('SELECT'))return [[]];
   if(sql.includes("status='completed'")){row.status='completed';row.result_message=args[0];}
   return [{affectedRows:1}];
  });
@@ -56,11 +58,12 @@ it('records a response once and does not apply it again on duplicate submission'
  expect(await submitAppointmentEmailAction(token,'confirm')).toContain('confirmed');expect(m.reply).toHaveBeenCalledTimes(1);
  expect(m.reply).toHaveBeenCalledWith(expect.objectContaining({appointmentId:44,agencyId:2,clientId:22,channel:'email',rawBody:'Y'}));
 });
-it('routes school absence to staff review and rejects school cancellation/confirmation actions',async()=>{
+it('offers school cancellation only and preserves older absence links',async()=>{
  m.setting.mockResolvedValue({isSchool:true});
- await expect(submitAppointmentEmailAction(token,'cancel')).rejects.toMatchObject({status:400});
- expect(await submitAppointmentEmailAction(token,'absence')).toContain('care team');
- expect(m.reply).toHaveBeenCalledWith(expect.objectContaining({autoApply:false,rawBody:expect.stringContaining('miss school')}));
+ for(const action of ['confirm','reschedule'])await expect(submitAppointmentEmailAction(token,action)).rejects.toMatchObject({status:400});
+ m.reply.mockResolvedValue({ackMessage:'Your school session has been canceled.'});
+ expect(await submitAppointmentEmailAction(token,'absence')).toContain('canceled');
+ expect(m.reply).toHaveBeenCalledWith(expect.objectContaining({autoApply:true,rawBody:'N'}));
 });
 it('holds uncertain responses for review instead of repeating mutations',async()=>{
  m.reply.mockRejectedValue(new Error('Connection interrupted'));
@@ -69,11 +72,19 @@ it('holds uncertain responses for review instead of repeating mutations',async()
 });
 it('builds action buttons for email without SMS reply instructions or full names',async()=>{
  const message=await buildAppointmentEmail({appointment:appt,clientId:22,to:email,actionUrl:'https://example.test/respond/opaque'});
- expect(message.text).not.toContain('Reply Y');expect(message.html).toContain('Confirm appointment');expect(message.html).toContain('action=cancel');expect(message.html).toContain('copy and paste');
+ expect(message.text).not.toContain('Reply Y');expect(message.html).toContain('Confirm appointment');expect(message.html).toContain('action=cancel');
+ const formatted=standardizeEmailButtons(message.html);expect(formatted).toContain('data-appointment-action="primary"');expect(formatted).toContain('font-size:18px');expect(formatted.match(/font-size:13px/g)).toHaveLength(2);
  m.setting.mockResolvedValue({isSchool:true});
  const school=await buildAppointmentEmail({appointment:appt,clientId:22,to:email,actionUrl:'https://example.test/respond/opaque',schoolOptOut:{scopeKey:'a'.repeat(64),url:'https://auricwell.com/api/public/school-session-emails/example'}});
- expect(school.subject).toBe('ITSCO: School session notice');expect(school.html).toContain('My child will miss school');expect(school.html).not.toContain('action=confirm');
+ expect(school.subject).toBe('ITSCO: School session notice');expect(school.html).toContain('Cancel school session');expect(school.html).not.toContain('action=confirm');expect(school.html).not.toContain('action=reschedule');expect(school.text).toContain('seen today at school');expect(school.text).toContain('schedule changes');
  expect(school.html).toContain('Stop in-school session emails for this child');expect(school.templateType).toBe('school_session_notice');expect(message.html).not.toContain('school-session-emails');
+});
+it('copies the assigned active provider work account on school notices using the appointment sender',async()=>{
+ m.setting.mockResolvedValue({isSchool:true});appt.providerUserId=77;
+ const execute=m.execute.getMockImplementation();m.execute.mockImplementation((sql,args)=>sql.includes('SELECT u.work_email,u.email')?Promise.resolve([[{work_email:'provider@example.test',email:'login@example.test'}]]):execute(sql,args));
+ await sendAppointmentEmail({appointment:appt,clientId:22,to:email,actionUrl:null});
+ expect(m.send).toHaveBeenCalledWith(expect.objectContaining({appointments:true,cc:['provider@example.test']}));
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('ua.agency_id=?'),[2,77]);
 });
 it('routes virtual tutoring email joins through the appointment check, retaining the agency and student',async()=>{
  const message=await buildAppointmentEmail({appointment:{...appt,businessType:'learning',modality:'VIRTUAL'},clientId:22,to:email,actionUrl:null});

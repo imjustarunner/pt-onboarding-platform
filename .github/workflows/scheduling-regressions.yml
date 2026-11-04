@@ -40,6 +40,12 @@ jobs:
         run: |
           npm ci --prefix backend
           npm ci --prefix frontend --ignore-scripts
+      - name: School portals, enrollment, and appointment notice rules
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.family-email.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.school-onboarding.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.qa-sms.config.js schoolAppointment appointmentReplyFeeAcknowledgement scheduling.reminderUtc
+          npm test --prefix frontend -- src/router/__tests__/schoolCareBridgeRoutes.test.js src/utils/__tests__/schoolEnrollmentLink.test.js src/utils/__tests__/publicIntakeUrl.test.js src/utils/__tests__/serviceLegalContext.test.js src/services/__tests__/workspaceNavigation.test.js
       - name: School weekly booking, scheduling requests, and support drafts
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.school-weekly.config.js

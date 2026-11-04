@@ -356,6 +356,10 @@ jobs:
           ENV_VARS="${ENV_VARS}|NODE_OPTIONS=--max-old-space-size=1536"
           ENV_VARS="${ENV_VARS}|CORS_ORIGIN=https://fundthred.com,https://www.fundthred.com,https://plotlinepo.com,https://www.plotlinepo.com,https://schoolcarebridge.org,https://www.schoolcarebridge.org,https://app.schoolcarebridge.org,https://qv.app.schoolcarebridge.org,https://michaelvmendez.com,https://familycommandcenterhub.com,https://kiosk.auricwell.com,https://auricwell.com,https://mh4kidz.org,https://www.mh4kidz.org,https://plottwisthq.com,https://www.plottwisthq.com,https://onboarding-frontend-378990906760.us-west3.run.app,https://app.itsco.health,https://app.nextleveluplcc.com,https://app.mh4kidz.com,https://app.plottwistco.com,https://app.mentalrange.org,https://app.rockymountainmentors.org,https://app.risereviveco.com,https://app.rmmentors.com,https://app.theinnerstrengthinstitute.com"
           ENV_VARS="${ENV_VARS}|FRONTEND_URL=https://plottwisthq.com"
+          ENV_VARS="${ENV_VARS}|AURICWELL_APPOINTMENT_EMAIL_FROM=notifications@auricwell.com"
+          # AuricWell Groups use SMTP relay; existing accepted Gmail senders
+          # remain pinned by WORKSPACE_EMAIL_RELAY_GMAIL_SENDERS on the service.
+          ENV_VARS="${ENV_VARS}|WORKSPACE_EMAIL_RELAY_DOMAINS=innerstrengthin.com,itsco.health,mh4kidz.org,nextleveluplcc.com,plottwistco.com,auricwell.com"
           ENV_VARS="${ENV_VARS}|DB_HOST=/cloudsql/${CLOUD_SQL_CONNECTION_NAME}"
           ENV_VARS="${ENV_VARS}|DB_PORT=3306"
           ENV_VARS="${ENV_VARS}|DB_NAME=onboarding_stage"

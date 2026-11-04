@@ -4,7 +4,7 @@ import PhoneNumber from '../models/PhoneNumber.model.js';
 import { resolveAppointmentServiceSetting } from './appointmentServiceSetting.service.js';
 /**
  * Interactive appointment reminder replies: Y confirm / N cancel / R reschedule.
- * Office replies may update the booking; school replies always require staff review.
+ * School notices accept cancellation only; other school replies go to the team.
  */
 
 import pool from '../config/database.js';
@@ -173,7 +173,7 @@ export async function applyAppointmentReply({
     metadata: { intent, reviewId, guardianUserId, shortcut: 'Y/N/R' }
   });
 
-  if (serviceSetting.isSchool) {
+  if (serviceSetting.isSchool && (intent !== 'cancel' || !autoApply)) {
     await notifyProviderInApp(appt, 'School visit reply needs review',
       `A family replied about school visit #${appt.id}. Review the message in the app; no appointment or fee was changed.`);
     return { reviewId, intent, status: 'pending_review', appointmentId: appt.id, clientReply: null,
@@ -231,6 +231,7 @@ export async function applyAppointmentReply({
       const evaluation = await evaluateCancel({ appointment: appt, actorRole: 'client', clientId });
       if (!evaluation.allowed) throw new Error(evaluation.blockReason || 'Cancellation needs staff review.');
       if (Number(evaluation.recommendedFeeCents) > 0) {
+        if (serviceSetting.isSchool) throw new Error('The school cancellation needs staff review before a fee can be assessed.');
         const Agency = (await import('../models/Agency.model.js')).default;
         const { buildPublicAppUrl } = await import('../utils/publicPortalUrl.js');
         const agency = await Agency.findById(aid);
@@ -256,7 +257,9 @@ export async function applyAppointmentReply({
         [reviewId]
       );
       clientReply = 'cancel';
-      ackMessage = `Your appointment has been canceled. ${FAMILY_APPOINTMENT_LOGIN}`;
+      ackMessage = serviceSetting.isSchool
+        ? 'Your dependent’s school session has been canceled. Please also report school absences directly to the school.'
+        : `Your appointment has been canceled. ${FAMILY_APPOINTMENT_LOGIN}`;
       await notifyProviderInApp(
         appt,
         'Client canceled appointment',
@@ -269,7 +272,9 @@ export async function applyAppointmentReply({
       );
       clientReply = 'cancel_blocked';
       await notifyProviderInApp(appt, 'Cancellation reply needs review', 'A client requested a cancellation that could not be applied automatically. Review the appointment in the app.');
-      ackMessage = e?.message
+      ackMessage = serviceSetting.isSchool
+        ? 'Your cancellation request was sent to the care team for review. This school session is still scheduled until the team responds. Please also report school absences directly to the school.'
+        : e?.message
         ? `We could not cancel automatically (${e.message}). Staff will follow up.`
         : 'We could not cancel automatically. Staff will follow up.';
     }

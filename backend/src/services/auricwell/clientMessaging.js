@@ -6,6 +6,7 @@ import { platformIntegrations, recordNotifyreWebhookVerified } from './platformI
 import { normalizeSessionPhone } from './integrationPolicy.js';
 import { notifyrePurposeOptedOut, declineNotifyrePurpose } from '../notifyreRecipientState.service.js';
 import { categoryRestartMessage } from '../../utils/smsCategoryRestart.js';
+import { nativeSchoolAppointment, schoolAppointmentReminderWindow } from '../../utils/schoolAppointmentReminder.js';
 import { notifyreRequest, notifyreReceipt } from './sessionTransports.js';
 import { SMS_CATEGORIES, emptyCategories, CATEGORY_COMMANDS, categoryLabel, consentedSmsCategories, restartClientSmsCategories, phoneKey, routeFor, assertMessagingReady,
   smsCommand, smsFooter, verifyNotifyreSignature, normalizeNotifyreEvent, parseRelayReply, onRelayShift } from './clientMessagingPolicy.js';
@@ -185,6 +186,12 @@ export async function sendBillingNotice(ctx, patientId, input) {
 async function sourceStillCurrent(ctx, source, contact, db) {
   if (!source) return true;
   const record = await get(ctx, source.kind, source.id, db);
+  if (source.kind === 'appointment' && source.schoolReminderDay) {
+    const window = schoolAppointmentReminderWindow({ startAt: record.data.start, sourceTimezone: ctx.settings.timezone });
+    return nativeSchoolAppointment(record) && ['scheduled', 'confirmed'].includes(record.data.status)
+      && record.patientId === contact.patient_id && window?.dayStart.toISOString() === source.schoolReminderDay
+      && Date.now() >= +window.scheduledAt && Date.now() < +window.deadline;
+  }
   if (source.kind === 'appointment') return ['scheduled','confirmed'].includes(record.data.status)
     && record.data.start === source.start && record.data.end === source.end && record.data.providerAccountId === source.providerAccountId && record.patientId === contact.patient_id;
   if (source.kind === 'intake') return ['assigned','draft','needs_changes'].includes(record.data.status)
@@ -589,10 +596,25 @@ export async function processSmsEvent(key) {
         const contact = await incomingContact(ctx, event, db);
         const thread = await incomingThread(ctx, contact, event.line, event, db);
         await create(ctx, 'sms_message', { threadId: thread.id, body: event.body, at: new Date(event.at).toISOString(), origin: 'client_sms', attachment: event.attachment, providerId: event.id }, { patientId: thread.patientId, sourceKey: `${thread.id}:${event.key}` }, db);
-        if (command?.type === 'attendance' && contact.patient_id) {
+        if ((command?.type === 'attendance' || /^N$/i.test(event.body.trim())) && contact.patient_id) {
           const appointments = (await list(ctx, 'appointment', { patientId: contact.patient_id }, db)).filter(a => ['scheduled','confirmed'].includes(a.data.status)
             && Date.parse(a.data.start) >= event.at && Date.parse(a.data.start) < event.at + 2 * 86400000);
-          if (appointments.length === 1) await update(ctx, appointments[0], { ...appointments[0].data, status: 'confirmed', smsConfirmedAt: new Date(event.at).toISOString() }, db);
+          if (appointments.length === 1) {
+            const appointment = appointments[0];
+            if (nativeSchoolAppointment(appointment)) {
+              if (/^N$/i.test(event.body.trim())) {
+                const pending = (await list(ctx, 'appointment_request', { patientId: contact.patient_id }, db))
+                  .some(request => request.data.appointmentId === appointment.id && request.data.status === 'pending');
+                if (!pending) await create(ctx, 'appointment_request', { appointmentId: appointment.id,
+                  requestType: 'cancel', message: 'Family requested cancellation of the school session by text. Do not assess a cancellation fee.',
+                  requestedBy: null, requestedByName: 'Authorized text recipient', requestedStart: appointment.data.start,
+                  status: 'pending' }, { patientId: contact.patient_id }, db);
+                await audit(ctx, 'appointment.sms_change_requested', appointment.id, { action: 'cancel', channel: 'sms' }, db);
+              }
+            } else if (command?.type === 'attendance') {
+              await update(ctx, appointment, { ...appointment.data, status: 'confirmed', smsConfirmedAt: new Date(event.at).toISOString() }, db);
+            }
+          }
         }
         await queueRelays(ctx, thread, event, db);
         await queueFaq(ctx, thread, contact, event, db);

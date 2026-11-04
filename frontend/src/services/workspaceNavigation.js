@@ -10,10 +10,10 @@ import {
 } from '../utils/workspaceDestination';
 
 export async function navigateWorkspace(destination, router, { agencyId, replace = false } = {}) {
-  const { hostname, ...route } = destination;
+  const { hostname, externalPath, ...route } = destination;
   const here = window.location.hostname;
   if (isLocalWorkspaceHost(here)) return router[replace ? 'replace' : 'push'](route);
-  let url = new URL(router.resolve(route).href, `https://${hostname}`).toString();
+  let url = new URL(externalPath || router.resolve(route).href, `https://${hostname}`).toString();
   if (hostname !== here && isSuperadminRole(useAuthStore().user?.role)) {
     try {
       const { data } = await api.post('/auth/brand-switch/handoff', {

@@ -1,4 +1,5 @@
 import { isRequestedAccountEmail } from '../utils/accountAccessEmail.js';
+import { schoolSessionEmailDeliveryGate } from './schoolSessionEmailPreferences.service.js';
 import { routineParentEmailGate } from './routineParentEmailPause.service.js';
 import { isSchoolCommunication } from './schoolCommunicationContext.service.js';
 import { compactSchoolCareBridgeEmail } from './schoolCareBridgeEmail.service.js';
@@ -76,6 +77,7 @@ class EmailService {
    */
   static async sendEmail({
     to,
+    cc = null,
     subject,
     text = null,
     html = null,
@@ -93,7 +95,8 @@ class EmailService {
     generatedByUserId = null,
     existingCommunicationId = null,
     linkUrl = null,
-    usedFallbackSender = null
+    usedFallbackSender = null,
+    schoolSessionScopeKey = null
   }) {
     const isManual = String(source || '').trim().toLowerCase() === 'manual';
     const resolvedUserIdEarly = userId || null;
@@ -113,8 +116,22 @@ class EmailService {
         fromEmail: fromAddress || null
       })
       : {};
+    const senderMetadata = {
+      source,
+      fromEmail: fromAddress || process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+      ...(fromName ? { fromName } : {}),
+      ...(replyTo ? { replyTo } : {}),
+      ...(cc ? { cc } : {}),
+      ...(schoolSessionScopeKey ? { schoolSessionScopeKey } : {}),
+      ...(usedFallbackSender === false ? { usedFallbackSender: false } : {}),
+      ...(linkUrl ? { linkUrl } : {}),
+      ...fallbackMeta
+    };
     const emailGate = await this.canSend({ source, agencyId });
-    const gate = emailGate.allowed ? await routineParentEmailGate({source,agencyId,to,templateType,clientId,existingCommunicationId}) : emailGate;
+    const schoolGate = emailGate.allowed ? await schoolSessionEmailDeliveryGate({
+      templateType, schoolSessionScopeKey, existingCommunicationId, to, agencyId, clientId
+    }) : emailGate;
+    const gate = schoolGate.allowed ? await routineParentEmailGate({source,agencyId,to,cc,templateType,clientId,existingCommunicationId}) : schoolGate;
     if (!gate.allowed) {
       // Write a visible "skipped" row so the attempted send shows up on the
       // recipient/client Communications tab. Without this, a platform or
@@ -136,7 +153,8 @@ class EmailService {
               body: html || text || '',
               generatedByUserId: generatedByUserId || null,
               channel: 'email',
-              recipientAddress: to
+              recipientAddress: to,
+              metadata: senderMetadata
             });
         if (comm?.id) {
           await pool.execute(
@@ -248,7 +266,8 @@ class EmailService {
             body: outboundHtml || outboundText || '',
             generatedByUserId: generatedByUserId || null,
             channel: 'email',
-            recipientAddress: to
+            recipientAddress: to,
+            metadata: senderMetadata
           });
           if (comm?.id) {
             blockedCommId = comm.id;
@@ -286,6 +305,7 @@ class EmailService {
     const resolvedUserId = userId || await resolveUserIdByEmail(to);
     const redirectedPreview = await rewriteHogwartsOutboundRecipient({
       to,
+      cc,
       subject,
       agencyId,
       userId: resolvedUserId,
@@ -344,10 +364,7 @@ class EmailService {
           channel: 'email',
           recipientAddress: to,
           metadata: {
-            source,
-            ...(fromAddress ? { fromEmail: fromAddress } : {}),
-            ...(linkUrl ? { linkUrl } : {}),
-            ...fallbackMeta,
+            ...senderMetadata,
             ...redirectMeta
           }
         });
@@ -391,6 +408,7 @@ class EmailService {
     try {
       sendResult = await GoogleWorkspaceEmailService.sendEmail({
         to: redirectedPreview.to || to,
+        cc: redirectedPreview.cc || null,
         subject: redirectedPreview.subject || subject,
         text: outboundText,
         html: outboundHtml,

@@ -32,10 +32,12 @@ it('rejects cross-tenant service locations', async () => {
   Location.findById.mockResolvedValue({ agency_id: 3, name: 'Private school' });
   await expect(resolveAppointmentServiceSetting({ agencyId: 2, serviceLocationId: 7 })).rejects.toMatchObject({ code: 'SERVICE_LOCATION_INVALID' });
 });
-it('uses local time and a minimal absence notice without confirmation or private labels', () => {
+it('uses a minimal today-at-school notice with cancellation and no private labels', () => {
   const text = buildSchoolReminder({ startAt: '2026-10-07 16:00:00', sourceTimezone: 'America/Denver', title: 'Private diagnosis' });
-  expect(text).toContain('10:00 AM MDT');
+  expect(text).toContain('dependent will be seen today at school');
   expect(text).toContain('No confirmation is needed');
+  expect(text).toContain('provider’s schedule changes, we will notify you');
+  expect(text).toContain('Reply N to cancel');
   expect(text).toContain('report school absences to the school');
-  expect(text).not.toMatch(/Y to confirm|N to cancel|Private diagnosis/);
+  expect(text).not.toMatch(/Y to confirm|R to request|Private diagnosis/);
 });

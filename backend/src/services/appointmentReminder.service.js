@@ -152,6 +152,10 @@ export async function scheduleRemindersForAppointment(appointmentId, { replace =
   const appt = await Appointment.findById(appointmentId);
   if (!appt) return [];
   if (appt.productOrigin === 'auricwell_ehr') return [];
+  const { resolveAppointmentServiceSetting } = await import('./appointmentServiceSetting.service.js');
+  if ((await resolveAppointmentServiceSetting(appt)).isSchool) {
+    return (await import('./sessionNotification.service.js')).scheduleSessionNotifications(appointmentId, { replace });
+  }
   const start = parseStartAt(appt.startAt);
   if (!start) return [];
 

@@ -5,11 +5,11 @@ import { ensureSendAsAlias } from './gmailSendAs.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { enrollmentMailBrand, renderPortalEmail, escapePortalHtml } from './portalEmailBranding.service.js';
 
-export const CLINICAL_REMINDER_ADDRESS = 'reminders@auricwell.com';
+export const CLINICAL_REMINDER_ADDRESS = 'notifications@auricwell.com';
 export function clinicalReminderBrand({ agency, domain }) {
   const brand = enrollmentMailBrand({ agency, domain });
   if (!brand.clinical) throw new Error('AuricWell reminders are only available to agencies using the clinical chart.');
-  return { ...brand, displayName: 'AuricWell Reminders', fromEmail: CLINICAL_REMINDER_ADDRESS };
+  return { ...brand, displayName: 'AuricWell Notifications', fromEmail: CLINICAL_REMINDER_ADDRESS };
 }
 
 export function renderClinicalReminder({ brand, firstName, date, time, setting, provider, confirmUrl, rescheduleUrl, cancelUrl, preview = false }) {
@@ -28,17 +28,25 @@ ${preview ? '<p style="font-size:11px;color:#768496;border-top:1px solid #e6ebf1
 
 // Explicit EHR-only sender. Nonclinical and tutoring notifications continue to
 // use their agency identity. Callers supply existing authorized action URLs.
+export async function clinicalReminderSender(agencyId, brand) {
+  const identityKey = 'clinical_appointment_reminders';
+  const values = { displayName: brand.displayName, fromEmail: brand.fromEmail, replyTo: brand.replyTo, isActive: true };
+  let identity = await EmailSenderIdentity.findByAgencyAndIdentityKey(agencyId, identityKey,{includeInactive:true});
+  if (identity && !identity.is_active) throw new Error('The AuricWell appointment sender is disabled.');
+  if (!identity) identity = await EmailSenderIdentity.create({ agencyId, identityKey, ...values, inboundAddresses: [] });
+  else if (identity.from_email !== values.fromEmail || identity.display_name !== values.displayName || identity.reply_to !== values.replyTo) identity = await EmailSenderIdentity.update(identity.id, values);
+  // Relay verifies app registration as well as Group membership. Reconcile the
+  // scoped identity first; delivery still fails closed until transport is ready.
+  const sending = await ensureSendAsAlias({ sendAsEmail: brand.fromEmail, displayName: brand.displayName, treatAsAlias: false });
+  if (!sending.ok || sending.sendAs?.verificationStatus !== 'accepted') throw new Error('Clinical reminders Group is not verified for sending.');
+  return identity;
+}
+
 export async function sendClinicalReminderEmail({ agencyId, subject, ...message }) {
   const agency = await Agency.findById(agencyId);
   const domain = await inferAgencyMailDomain(agencyId);
   if (!agency || !domain) throw new Error('Clinical reminders require an agency and its support domain.');
   const brand = clinicalReminderBrand({ agency, domain });
-  const sending = await ensureSendAsAlias({ sendAsEmail: brand.fromEmail, displayName: brand.displayName, treatAsAlias: false });
-  if (!sending.ok || sending.sendAs?.verificationStatus !== 'accepted') throw new Error('Clinical reminders Group is not verified for sending.');
-  const identityKey = 'clinical_appointment_reminders';
-  const values = { displayName: brand.displayName, fromEmail: brand.fromEmail, replyTo: brand.replyTo, isActive: true };
-  let identity = await EmailSenderIdentity.findByAgencyAndIdentityKey(agencyId, identityKey);
-  if (!identity) identity = await EmailSenderIdentity.create({ agencyId, identityKey, ...values, inboundAddresses: [] });
-  else if (identity.from_email !== values.fromEmail || identity.display_name !== values.displayName || identity.reply_to !== values.replyTo) identity = await EmailSenderIdentity.update(identity.id, values);
+  const identity = await clinicalReminderSender(agencyId, brand);
   return sendEmailFromIdentity({ ...message, subject: subject.includes(brand.name) ? subject : `${brand.name}: ${subject}`, senderIdentityId: identity.id, replyToOverride: brand.replyTo });
 }

@@ -5,7 +5,7 @@ export default {
   'src/services/__tests__/qaSessionNotificationWorker.test.js',
   'src/services/__tests__/qaNotificationQueueScope.test.js',
   'src/services/__tests__/appointmentReplyFeeAcknowledgement.test.js',
-  'src/services/__tests__/schoolAppointmentNotifications.test.js',
+  'src/services/__tests__/schoolAppointment*.test.js',
   'src/services/__tests__/messaging.communicationReception.test.js',
   'src/services/__tests__/scheduling.*.test.js'
  ],restoreMocks:true}
