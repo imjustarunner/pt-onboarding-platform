@@ -1,10 +1,11 @@
-import { queueSchoolOnboardingWelcome } from './schoolOnboardingWelcome.service.js';
+import { getAnnualRules, getAnnualEligibility, getAnnualAccess, assertAnnualWrite, annualCohort, listAnnualSchools } from './schoolYearUpdateAccess.service.js';
+import { annualSchedule } from '../utils/schoolYearUpdatePolicy.js';
+import { queueAnnualCompletionReceipt } from './schoolYearUpdateAutomation.service.js';
 /**
  * Collaborative School Fall Re-Initiation Workflow
  */
 import crypto from 'crypto';
 import pool from '../config/database.js';
-import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import {
   listSchoolEventsForOrg,
@@ -365,6 +366,8 @@ export async function disableCampaign({ agencyId, schoolYear, userId }) {
  */
 export async function pushCampaign({ agencyId, schoolYear, userId }) {
   const year = schoolYear || currentSchoolYear();
+  const schedule = annualSchedule(year, await getAnnualRules(agencyId));
+  if (!['open', 'followup'].includes(schedule.phase)) throw Object.assign(new Error('The annual collection window is closed. Use a dated school extension for outstanding follow-up.'), { status: 409 });
   let campaign = await getCampaign(agencyId, year);
   if (campaignIsDisabled(campaign)) {
     const err = new Error('Re-enable School Year Update before pushing to schools.');
@@ -378,7 +381,7 @@ export async function pushCampaign({ agencyId, schoolYear, userId }) {
 
   await ensureDefaultQuestions(agencyId, year);
 
-  const affiliated = await OrganizationAffiliation.listActiveOrganizationsForAgency(agencyId);
+  const affiliated = await listAnnualSchools(agencyId);
   const schools = (affiliated || []).filter((o) => {
     const t = String(o.organization_type || o.type || '').toLowerCase();
     return !t || t === 'school' || t === 'program' || t === 'learning';
@@ -389,6 +392,9 @@ export async function pushCampaign({ agencyId, schoolYear, userId }) {
   for (const school of schools) {
     const schoolId = Number(school.id || school.organization_id);
     if (!schoolId) continue;
+    if (!(await getAnnualEligibility(agencyId, schoolId, year)).eligible) continue;
+    const existingCycle = await getCycle({ agencyId, schoolOrganizationId: schoolId, schoolYear: year });
+    if (!(await getAnnualAccess({ agencyId, schoolOrganizationId: schoolId, schoolYear: year, cycle: existingCycle })).canWrite) continue;
     const { cycle, tokenRow, created } = await ensureShareableToken({
       agencyId,
       schoolOrganizationId: schoolId,
@@ -491,6 +497,7 @@ export async function pushSchool({ agencyId, schoolOrganizationId, schoolYear, u
   }
 
   const cycle = await getOrCreateCycle({ agencyId, schoolOrganizationId, schoolYear: year });
+  await assertAnnualWrite(cycle);
   const [tokRows] = await pool.execute(
     `SELECT id FROM school_reinit_tokens
      WHERE cycle_id = ?
@@ -547,12 +554,15 @@ export function makeToken() {
 }
 
 export async function assertSchoolAffiliated(agencyId, schoolOrganizationId) {
-  const affiliated = await OrganizationAffiliation.listActiveOrganizationsForAgency(agencyId);
+  const affiliated = await listAnnualSchools(agencyId);
   return (affiliated || []).some((o) => Number(o.id || o.organization_id) === Number(schoolOrganizationId));
 }
 
 export async function getOrCreateCycle({ agencyId, schoolOrganizationId, schoolYear }) {
   const year = schoolYear || currentSchoolYear();
+  const eligibility = await getAnnualEligibility(agencyId, schoolOrganizationId, year);
+  if (!eligibility.eligible) throw Object.assign(new Error(eligibility.reason === 'first_year_onboarding'
+    ? 'New schools complete onboarding only in their first school year.' : 'This school is not eligible for the annual update.'), { status: 409 });
   const [existing] = await pool.execute(
     `SELECT * FROM school_reinit_cycles
      WHERE agency_id = ? AND school_organization_id = ? AND ${yearEq()}
@@ -580,6 +590,9 @@ export async function getCycleById(cycleId) {
 }
 
 export async function createToken({ cycleId, agencyId, schoolOrganizationId, createdByUserId, expiresAt }) {
+  const cycle = await getCycleById(cycleId);
+  if (!cycle || Number(cycle.agency_id) !== Number(agencyId) || Number(cycle.school_organization_id) !== Number(schoolOrganizationId)) throw Object.assign(new Error('Cycle not found'), {status:404});
+  await assertAnnualWrite(cycle);
   const token = makeToken();
   const expires =
     expiresAt ||
@@ -661,31 +674,11 @@ export async function validateToken(tokenRaw) {
   return { valid: true, row };
 }
 
-/** Move unlocked in-progress token links onto the active school year cycle. */
+/** Preserve the year associated with a shared link. */
 export async function resolveTokenCycle(tokenRow) {
   if (!tokenRow) return null;
-  const expectedYear = currentSchoolYear();
-  if (String(tokenRow.cycle_status) === 'finalized') {
-    return getCycleById(tokenRow.cycle_id);
-  }
-  if (String(tokenRow.school_year || '') === expectedYear) {
-    return getCycleById(tokenRow.cycle_id);
-  }
-  const cycle = await getOrCreateCycle({
-    agencyId: tokenRow.agency_id,
-    schoolOrganizationId: tokenRow.school_organization_id,
-    schoolYear: expectedYear,
-  });
-  if (!tokenRow.locked_at) {
-    await pool.execute(`UPDATE school_reinit_tokens SET cycle_id = ? WHERE id = ?`, [
-      cycle.id,
-      tokenRow.id,
-    ]);
-    tokenRow.cycle_id = cycle.id;
-    tokenRow.school_year = cycle.school_year;
-    tokenRow.cycle_status = cycle.status;
-  }
-  return cycle;
+  // A saved link always belongs to its original year. It cannot reopen or create a future update.
+  return getCycleById(tokenRow.cycle_id);
 }
 
 export async function recordTokenClick(tokenRow, actorDisplayName = null) {
@@ -924,6 +917,9 @@ export async function upsertSectionProgress({
   actor,
 }) {
   if (!SECTION_KEYS.includes(sectionKey)) throw new Error('Invalid section_key');
+  const cycle = await getCycleById(cycleId);
+  if (!cycle) throw Object.assign(new Error('Cycle not found'), {status:404});
+  await assertAnnualWrite(cycle);
   const [existing] = await pool.execute(
     `SELECT id FROM school_reinit_section_progress WHERE cycle_id = ? AND section_key = ? LIMIT 1`,
     [cycleId, sectionKey]
@@ -1533,6 +1529,7 @@ export async function finalizeCycle({ cycleId, actor }) {
   const cycle = await getCycleById(cycleId);
   if (!cycle) throw new Error('Cycle not found');
   if (cycle.status === 'finalized') throw new Error('Already finalized');
+  await assertAnnualWrite(cycle);
 
   const sections = await getSectionProgress(cycleId);
   const incomplete = sections.filter((s) => !s.reviewed && !s.completed);
@@ -1553,8 +1550,6 @@ export async function finalizeCycle({ cycleId, actor }) {
       throw new Error(`Required answer missing: ${q.label}`);
     }
   }
-
-  await queueSchoolOnboardingWelcome({ agencyId: cycle.agency_id, schoolOrganizationId: cycle.school_organization_id, sourceType: 'collaborative_update', sourceId: cycle.id });
 
   // Require booked check-in and invite all school_staff as of finalize time
   const Checkin = await import('./schoolReinitCheckin.service.js');
@@ -1592,6 +1587,8 @@ export async function finalizeCycle({ cycleId, actor }) {
   );
   await lockTokensForCycle(cycleId);
   const finalized = await getCycleById(cycleId);
+  try { await queueAnnualCompletionReceipt(finalized); }
+  catch (error) { console.warn('[school-annual-update] Completion receipt will be recovered by the worker:', error?.code || 'queue_unavailable'); }
   await notifySchoolCollaborativeYearUpdateCompleted({
     cycle: finalized,
     actorUserId: actor?.userId || null
@@ -1666,7 +1663,7 @@ export async function listAgencyReport(agencyId, schoolYear) {
   const year = schoolYear || currentSchoolYear();
   await ensureDefaultQuestions(agencyId, year);
 
-  const affiliated = await OrganizationAffiliation.listActiveOrganizationsForAgency(agencyId);
+  const affiliated = await listAnnualSchools(agencyId);
   const schools = (affiliated || []).filter((o) => {
     const t = String(o.organization_type || o.type || '').toLowerCase();
     return !t || t === 'school' || t === 'program' || t === 'learning';
@@ -1887,17 +1884,36 @@ export async function listAgencyReport(agencyId, schoolYear) {
     });
   }
 
+  const annualRules = await getAnnualRules(agencyId);
+  const schedule = annualSchedule(year, annualRules);
+  const cohort = await annualCohort(agencyId, year);
+  // Keep original records, while excluding first-year and test schools from annual obligations.
+  for (let i = out.length - 1; i >= 0; i -= 1) {
+    const item = cohort.find(r => Number(r.school.id) === Number(out[i].schoolOrganizationId));
+    if (!item || item.reason === 'test_school') { out.splice(i, 1); continue; }
+    const row = out[i];
+    row.annualEligible = item.eligible;
+    row.exemptionReason = item.reason;
+    row.recordedStatus = row.status;
+    if (!item.eligible) row.status = 'exempt';
+    row.outstanding = item.eligible ? item.outstanding : [];
+    row.followup = item.followup || null;
+    const extension = item.followup?.extension_until instanceof Date ? item.followup.extension_until.toISOString().slice(0,10) : item.followup?.extension_until;
+    row.annualPhase = annualSchedule(year, annualRules, new Date(), extension).phase;
+  }
   const satisfactionScores = out
+    .filter(r => r.annualEligible)
     .map((r) => r.scores?.overallSatisfaction)
     .filter((n) => n != null);
-  const npsScores = out.map((r) => r.scores?.recommendNps).filter((n) => n != null);
+  const npsScores = out.filter(r => r.annualEligible).map((r) => r.scores?.recommendNps).filter((n) => n != null);
   const satisfactionAtLeast4Count = satisfactionScores.filter((n) => n >= 4).length;
   const npsPromoters = npsScores.filter((n) => n >= 9).length;
   const npsPassives = npsScores.filter((n) => n >= 7 && n <= 8).length;
   const npsDetractors = npsScores.filter((n) => n <= 6).length;
 
   const summary = {
-    totalSchools: out.length,
+    totalSchools: out.filter(r => r.annualEligible).length,
+    exempt: out.filter(r => !r.annualEligible).length,
     finalized: out.filter((r) => r.status === 'finalized').length,
     inProgress: out.filter((r) => r.status === 'in_progress').length,
     notStarted: out.filter((r) => r.status === 'not_started' || !r.status).length,
@@ -1914,7 +1930,7 @@ export async function listAgencyReport(agencyId, schoolYear) {
 
   const campaign = await getOrCreateCampaign(agencyId, year);
   for (const row of out) {
-    row.isPushed = cycleIsPushed({ pushed_at: row.pushedAt, status: row.status }, campaign);
+    row.isPushed = row.annualEligible && ['open','followup'].includes(schedule.phase) && cycleIsPushed({ pushed_at: row.pushedAt, status: row.status }, campaign);
     if (campaignIsPushed(campaign) && !row.pushedAt && row.status !== 'finalized') {
       row.pushedAt = campaign.pushed_at || null;
     }
@@ -1924,7 +1940,9 @@ export async function listAgencyReport(agencyId, schoolYear) {
     schoolYear: year,
     schools: out,
     summary,
-    windowOpen: reinitWindowOpen(),
+    annualRules,
+    schedule,
+    windowOpen: ['open','followup'].includes(schedule.phase),
     campaign: {
       status: campaign.status,
       enabledAt: campaign.enabled_at,

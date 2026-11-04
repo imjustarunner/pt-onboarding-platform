@@ -1,3 +1,6 @@
+import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
+import { dialInAttendance } from './meetingDialInAttendance.service.js';
+import { unionAttendanceIntervals } from './meetingDialInPolicy.js';
 /**
  * Payable attendance segments for TEAM_MEETING / HUDDLE.
  * Segments sum leave/rejoin time; clamped to scheduled start through meeting_completed_at.
@@ -14,41 +17,8 @@ function toMysqlWall(d = new Date()) {
 }
 
 function parseMysqlDate(raw) {
-  if (!raw) return null;
-  if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
-    // mysql2 returns DATETIME as a Date with wall-clock fields in UTC getters.
-    const y = raw.getUTCFullYear();
-    const mo = raw.getUTCMonth() + 1;
-    const d = raw.getUTCDate();
-    const h = raw.getUTCHours();
-    const mi = raw.getUTCMinutes();
-    const se = raw.getUTCSeconds();
-    return {
-      ymd: `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
-      hm: `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`,
-      date: new Date(y, mo - 1, d, h, mi, se)
-    };
-  }
-  const s = String(raw || '').trim();
-  // Prefer ISO (…Z) wall fields via Date UTC getters; else naive local DATETIME.
-  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
-    const d = new Date(s);
-    if (!Number.isNaN(d.getTime())) return parseMysqlDate(d);
-  }
-  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/.exec(s);
-  if (!m) {
-    const d = new Date(s);
-    if (Number.isNaN(d.getTime())) return null;
-    return parseMysqlDate(d);
-  }
-  return {
-    ymd: `${m[1]}-${m[2]}-${m[3]}`,
-    hm: `${m[4]}:${m[5]}`,
-    date: new Date(
-      Number(m[1]), Number(m[2]) - 1, Number(m[3]),
-      Number(m[4]), Number(m[5]), Number(m[6] || 0)
-    )
-  };
+  const date = parseUtcDate(raw);
+  return date ? {ymd:date.toISOString().slice(0,10),hm:date.toISOString().slice(11,16),date} : null;
 }
 
 export const JOIN_PRESENCE_STALE_SECONDS = 45;
@@ -166,11 +136,12 @@ export async function loadJoinPresenceByUser(eventId, {
   const staleMs = Number(staleSeconds) * 1000;
   const now = Date.now();
   for (const row of rows || []) {
-    const uid = userIdFromJoinIdentity(row.join_identity);
+    const uid = Number(/^(?:user|dial)-(\d+)$/.exec(row.join_identity)?.[1] || 0);
     if (!uid) continue;
     const lastSeen = parseMysqlDate(row.last_seen_at)?.date?.getTime();
     const isFresh = Number.isFinite(lastSeen) && (now - lastSeen) <= staleMs;
     const isPresent = !row.left_at && isFresh;
+    if (out.get(uid)?.isPresent && !isPresent) continue;
     out.set(uid, {
       isPresent,
       leftAt: row.left_at || null,
@@ -378,6 +349,7 @@ export function computeSegmentSeconds(segments, event, {
   const asOfMs = (asOf instanceof Date ? asOf : new Date()).getTime();
   const hardEnd = completedMs != null ? Math.min(completedMs, asOfMs) : asOfMs;
   let total = 0;
+  const intervals = [];
   for (const seg of segments || []) {
     const sParts = parseMysqlDate(seg.started_at);
     const eParts = seg.ended_at ? parseMysqlDate(seg.ended_at) : { date: new Date(asOfMs) };
@@ -388,9 +360,9 @@ export function computeSegmentSeconds(segments, event, {
     let b = e0.getTime();
     if (clampToScheduledStart && startMs != null && a < startMs) a = startMs;
     if (b > hardEnd) b = hardEnd;
-    if (b > a) total += Math.floor((b - a) / 1000);
+    if (b > a) { total += Math.floor((b - a) / 1000); intervals.push([a,b]); }
   }
-  return Math.max(0, total);
+  return segments?.some(seg => seg.source === 'dial_in') ? unionAttendanceIntervals(intervals, { end: hardEnd }).seconds : Math.max(0, total);
 }
 
 export async function listSegmentsForEvent(eventId) {
@@ -404,7 +376,7 @@ export async function listSegmentsForEvent(eventId) {
      ORDER BY s.user_id ASC, s.started_at ASC`,
     [eid]
   );
-  return rows || [];
+  return [...(rows || []), ...await dialInAttendance('team-meeting', eid)];
 }
 
 /**

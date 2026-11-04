@@ -12,7 +12,9 @@
       <div class="ov-metric-body">
         <div class="ov-metric-label">Note Workspace</div>
         <div class="ov-metric-value">Open Note Workspace</div>
-        <div class="ov-metric-hint">
+        <div v-if="noteAidCountsLoading" class="ov-metric-hint">Checking your notes…</div>
+        <div v-else-if="noteAidCountsError" class="ov-metric-hint">View notes and drafts</div>
+        <div v-else class="ov-metric-hint">
           {{ noteAidQueueCount }} queue · {{ noteAidInProgressCount }} in progress
         </div>
       </div>
@@ -90,6 +92,8 @@ const props = defineProps({
   notesIncomplete: { type: Number, default: 0 },
   notesCompletedPct: { type: Number, default: null },
   notesPeriodLabel: { type: String, default: '' },
+  noteAidCountsLoading: { type: Boolean, default: false },
+  noteAidCountsError: { type: Boolean, default: false },
   noteAidQueueCount: { type: Number, default: 0 },
   noteAidInProgressCount: { type: Number, default: 0 },
   supervisionHours: { type: Object, default: null },

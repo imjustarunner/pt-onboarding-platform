@@ -758,32 +758,8 @@ export async function advanceCandidateStatus(userId,actorUserId=null) {
         ]
       );
 
-      // Also email admin users at this agency so they're notified immediately.
-      setImmediate(async () => {
-        try {
-          const [adminRows] = await pool.execute(
-            `SELECT u.email, u.first_name
-             FROM users u
-             INNER JOIN user_agencies ua ON u.id = ua.user_id
-             WHERE ua.agency_id = ?
-               AND u.role IN ('admin', 'super_admin')
-               AND u.is_active = TRUE
-               AND (u.is_archived = FALSE OR u.is_archived IS NULL)
-             LIMIT 10`,
-            [agencyId]
-          );
-          const candidateName = `${user.first_name || ''} ${user.last_name || ''}`.trim();
-          for (const admin of adminRows) {
-            await EmailService.sendEmail({
-              to: admin.email,
-              subject: `Pre-hire review needed: ${candidateName}`,
-              text: `Hi ${admin.first_name || 'there'},\n\n${candidateName} has completed all pre-hire documents and is ready for your review.\n\nLog in to People Ops → Pre-Hire to review their submission and promote them to onboarding.\n\nThis is an automated notification.`
-            }).catch(() => {});
-          }
-        } catch (emailErr) {
-          console.error('[prehirePortal] Admin notification email failed:', emailErr);
-        }
-      });
+      // Staff emails now use the saved reviewer settings and future-only outbox
+      // queued by closePrehire. Retain this review task without a duplicate email.
     }
   } catch (e) {
     console.error('[prehirePortal] Staff notification task creation failed:', e);

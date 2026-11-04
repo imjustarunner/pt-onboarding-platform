@@ -7,6 +7,8 @@ import { hasActiveMeetingMembership,roomUnavailable } from './meetingJoinPolicy.
 import Video from './vonageVideo.service.js';
 import { resolveVideoProjectId } from './video.service.js';
 import { parseMeetingSettings } from './meetingSettingsPolicy.js';
+import { dialInConfigured } from './meetingDialInPolicy.js';
+import { reserveSupervisionCalendarGuest } from './supervisionJoinCapacity.service.js';
 const fail=(status,message)=>Object.assign(new Error(message),{status});
 const hash=token=>crypto.createHash('sha256').update(String(token||'')).digest('hex');
 async function calendarGuestVideoPolicy(row) {
@@ -55,19 +57,31 @@ export async function calendarGuestStatus(type,ref,id,credential,{leave=false,vi
  if(!/^[\w-]{43}$/.test(String(credential||'')))throw fail(403,'Request admission again.');
  const [rows]=await pool.execute(`SELECT * FROM meeting_calendar_guests WHERE id=? AND meeting_type=? AND meeting_id=? AND credential_hash=? AND expires_at>UTC_TIMESTAMP()`,[id,type,row.id,hash(credential)]);
  const guest=rows[0];if(!guest)throw fail(403,'Request admission again.');
+ const sharedCapacity=type==='supervision'&&dialInConfigured();
+ if(sharedCapacity&&leave){
+  return reserveSupervisionCalendarGuest({sessionId:row.id,guestId:id,credentialHash:hash(credential),leave:true});
+ }
  // Ordinary meeting rooms retain their open-room behavior. Private offices use a separate service and never take this path.
  if(!leave&&guest.status==='waiting'&&row.twilio_room_sid&&[0,false,'0','false'].includes(row.waiting_room_enabled)){
-  await pool.execute("UPDATE meeting_calendar_guests SET status='admitted' WHERE id=? AND status='waiting'",[id]);
+  if(!sharedCapacity)await pool.execute("UPDATE meeting_calendar_guests SET status='admitted' WHERE id=? AND status='waiting'",[id]);
   guest.status='admitted';
  }
 
- await pool.execute(`UPDATE meeting_calendar_guests SET last_seen_at=UTC_TIMESTAMP(),status=? WHERE id=?`,[leave?'left':guest.status,id]);
+ const joinReservation=sharedCapacity&&guest.status==='admitted'?await reserveSupervisionCalendarGuest({sessionId:row.id,guestId:id,credentialHash:hash(credential)}):null;
+
+ if(sharedCapacity){
+  // Admitted/left state is owned by the shared reservation lock. A delayed
+  // waiting heartbeat must never undo a concurrent admission or departure.
+  if(guest.status==='waiting')await pool.execute("UPDATE meeting_calendar_guests SET last_seen_at=UTC_TIMESTAMP() WHERE id=? AND status='waiting'",[id]);
+ }else await pool.execute(`UPDATE meeting_calendar_guests SET last_seen_at=UTC_TIMESTAMP(),status=? WHERE id=?`,[leave?'left':guest.status,id]);
  if(leave)return {status:'left'};
  if(!video)return {status:guest.status,waitingRoomEnabled:![0,false,'0','false'].includes(row.waiting_room_enabled),...(guest.status==='admitted'?{videoPolicy:await calendarGuestVideoPolicy(row)}:{})};
  if(guest.status!=='admitted')throw fail(403,'Wait for the host to admit you.');
  if(!row.twilio_room_sid)throw fail(409,'The host is opening the meeting.');
  if(!Video.isVideoConfigured())throw fail(503,'Video unavailable.');
- return {sessionId:row.twilio_room_sid,applicationId:resolveVideoProjectId(),localName:`${guest.display_name} (Guest)`,...await calendarGuestVideoPolicy(row),token:Video.generateToken(row.twilio_room_sid,{expireTime:Math.floor(Date.now()/1000)+60,data:JSON.stringify({identity:`calendar-guest-${id}`,displayName:`${guest.display_name} (Guest)`,role:'participant',roleLabel:'Guest'})})};
+ const videoPolicy=await calendarGuestVideoPolicy(row);
+ if(joinReservation&&joinReservation.tokenExpiresAt<=Math.floor(Date.now()/1000))throw fail(409,'Your meeting reservation expired. Please join again.');
+ return {sessionId:row.twilio_room_sid,applicationId:resolveVideoProjectId(),localName:`${guest.display_name} (Guest)`,...videoPolicy,token:Video.generateToken(row.twilio_room_sid,{expireTime:joinReservation?joinReservation.tokenExpiresAt:Math.floor(Date.now()/1000)+60,data:JSON.stringify({identity:`calendar-guest-${id}`,displayName:`${guest.display_name} (Guest)`,role:'participant',roleLabel:'Guest'})})};
 }
 export async function listCalendarGuests(type,ref,userId){
  const row=await calendarMeeting(type,ref,{host:true});await assertCalendarHost(type,row,userId);
@@ -76,6 +90,10 @@ export async function listCalendarGuests(type,ref,userId){
 export async function admitCalendarGuest(type,ref,userId,id){
  const row=await calendarMeeting(type,ref,{host:true});await assertCalendarHost(type,row,userId);
  if(!row.twilio_room_sid)throw fail(409,'Open the meeting video before admitting guests.');
+ if(type==='supervision'&&dialInConfigured()){
+  await reserveSupervisionCalendarGuest({sessionId:row.id,guestId:id,hostUserId:userId});
+  return {ok:true};
+ }
  const [result]=await pool.execute(`UPDATE meeting_calendar_guests SET status='admitted' WHERE id=? AND meeting_type=? AND meeting_id=? AND status='waiting' AND expires_at>UTC_TIMESTAMP()`,[id,type,row.id]);
  if(!result.affectedRows)throw fail(409,'Guest is no longer waiting.');
  return {ok:true};

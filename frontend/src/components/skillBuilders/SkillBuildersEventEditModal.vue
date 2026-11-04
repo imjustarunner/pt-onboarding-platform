@@ -1398,6 +1398,7 @@
 <script setup>
 import { ref, watch, computed } from 'vue';
 import api from '../../services/api';
+import { getStartupData } from '../../services/startupRequests';
 import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
 import { buildEventKioskEntryPath } from '../../utils/orgScopedPath';
@@ -2473,7 +2474,7 @@ async function loadAffiliateProgramOrgs() {
       : Number(props.agencyId);
   if (!aid) return;
   try {
-    const res = await api.get('/availability/admin/skill-builders/options', {
+    const res = await getStartupData('/availability/admin/skill-builders/options', {
       params: { agencyId: aid },
       skipGlobalLoading: true
     });

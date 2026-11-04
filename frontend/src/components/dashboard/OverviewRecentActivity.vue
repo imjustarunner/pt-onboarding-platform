@@ -5,7 +5,8 @@
       <button type="button" class="ov-link" @click="$emit('navigate', 'notifications')">View All</button>
     </header>
 
-    <div v-if="!items.length" class="ov-empty">No recent notifications or open items.</div>
+    <DashboardCardStatus v-if="loading || error" :loading="loading" :error="error" label="Loading recent activity…" @retry="$emit('retry')" />
+    <div v-else-if="!items.length" class="ov-empty">No recent notifications or open items.</div>
     <ul v-else class="ov-list">
       <li
         v-for="item in items"
@@ -28,11 +29,14 @@
 </template>
 
 <script setup>
+import DashboardCardStatus from './DashboardCardStatus.vue';
 defineProps({
+  loading: { type: Boolean, default: false },
+  error: { type: String, default: '' },
   items: { type: Array, default: () => [] }
 });
 
-const emit = defineEmits(['navigate']);
+const emit = defineEmits(['retry', 'navigate']);
 
 const iconFor = (kind, status) => {
   if (kind === 'submission_update') {

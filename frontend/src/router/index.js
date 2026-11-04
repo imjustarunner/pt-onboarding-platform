@@ -1,4 +1,4 @@
-import { schoolCareBridgeRoutes } from './schoolCareBridgeRoutes.js';
+import { schoolCareBridgeRoutes, addSchoolCareBridgeWorkflowAliases } from './schoolCareBridgeRoutes.js';
 import { familyBillingRoutes } from './familyBillingRoutes.js';
 import { consumeSsoHandoff, isTokenAuthenticationRoute, auricwellLoginDestination } from '../utils/loginHandoff';
 import { isFundthredHost, fundthredLoginLocation, isFundthredLogin, isFundthredWorkspacePath } from '../utils/fundthred';
@@ -4998,12 +4998,7 @@ const routes = [
   }
 ];
 
-// Aliases retain existing route identity, role guards, and workflow components.
-for (const route of routes) {
-  if (['OrganizationResetPassword', 'OrganizationChangePassword', 'OrganizationSchoolProviderProfile', 'OrganizationDocumentSigning', 'OrganizationDocumentReview', 'OrganizationDocumentPrint', 'OrganizationSchoolReinitPublic'].includes(route.name)) {
-    route.alias = [...(Array.isArray(route.alias) ? route.alias : route.alias ? [route.alias] : []), route.path.replace('/:organizationSlug', '/schoolcarebridge/app/:organizationSlug')];
-  }
-}
+addSchoolCareBridgeWorkflowAliases(routes);
 routes.unshift({
   path: '/p/sstc/:section(features|how-it-works|groups|tour|pricing|faq|about|contact)?',
   name: 'SummitStatsWebsite',

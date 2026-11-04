@@ -34,7 +34,7 @@
           <template v-if="campaign.isDisabled">
             Disabled {{ formatDt(campaign.disabledAt) }} — splash and School Management tab are hidden. Re-enable to resume.
           </template>
-          <template v-else-if="campaign.isPushed">Pushed {{ formatDt(campaign.pushedAt) }} — all affiliated schools see the update on login (dismissible).</template>
+          <template v-else-if="campaign.isPushed">Pushed {{ formatDt(campaign.pushedAt) }} — eligible returning schools see the update during the collection window.</template>
           <template v-else-if="campaign.isEnabled">Enabled — generate links per school, push individually, or Push to Schools for everyone.</template>
           <template v-else>Not started — Enable Year Update to seed questions for {{ schoolYear }}.</template>
         </span>
@@ -66,7 +66,7 @@
         <button
           type="button"
           class="btn btn-push"
-          :disabled="campaignBusy || !campaign.isEnabled"
+          :disabled="campaignBusy || !campaign.isEnabled || !['open', 'followup'].includes(annualSchedule?.phase)"
           @click="pushToSchools"
         >
           {{ campaign.isPushed ? 'Pushed to Schools' : 'Push to Schools' }}
@@ -76,6 +76,9 @@
     </div>
 
     <div v-if="error" class="error-banner">{{ error }}</div>
+
+    <SchoolAnnualSchedule :agency-id="Number(agencyId)" :school-year="schoolYear" :rules="annualRules" :schedule="annualSchedule" :deliveries="annualDeliveries" :automation-held="annualAutomationHeld" @saved="load" />
+    <p v-if="summary.exempt" class="muted">{{ summary.exempt }} first-year schools are exempt from this annual update; their existing records are preserved.</p>
 
     <!-- Questionnaire editor -->
     <div v-if="showQuestions" class="reinit-admin__panel">
@@ -428,7 +431,7 @@
                     <button
                       type="button"
                       class="btn btn-secondary btn-sm"
-                      :disabled="!campaign.isEnabled || linkBusy"
+                      :disabled="linkBusy || !canShareAnnualLink(row)"
                       :title="shareLinkFor(row) ? 'Copy year update link' : 'Generate link first'"
                       @click="copyShareLink(row)"
                     >
@@ -517,7 +520,7 @@
             <button
               type="button"
               class="btn btn-primary btn-sm"
-              :disabled="linkBusy"
+              :disabled="linkBusy || !canShareAnnualLink(selectedRow)"
               @click="shareLinkFor(selectedRow) ? copyShareLink(selectedRow) : generateLink(selectedRow)"
             >
               {{
@@ -552,6 +555,7 @@
           <div v-if="detailLoading" class="muted">Loading…</div>
           <template v-else>
             <div v-show="detailTab === 'summary'" class="detail__summary">
+              <SchoolAnnualFollowup :key="selectedRow.schoolOrganizationId" :row="selectedRow" @saved="load" />
               <h4>Key information</h4>
               <div class="kv-grid">
                 <div><span>Satisfaction</span><strong>{{ scoreOrDash(selectedRow.scores?.overallSatisfaction, 5) }}</strong></div>
@@ -577,7 +581,7 @@
                 <div class="span-2"><span>Marketing quote</span><strong>{{ selectedRow.marketingQuote || (selectedRow.hasMarketingQuote ? 'Yes' : '—') }}</strong></div>
               </div>
               <div class="detail__token-actions">
-                <button type="button" class="btn btn-secondary btn-sm" :disabled="linkBusy" @click="generateLink(selectedRow)">
+                <button type="button" class="btn btn-secondary btn-sm" :disabled="linkBusy || !canShareAnnualLink(selectedRow)" @click="generateLink(selectedRow)">
                   {{ shareLinkFor(selectedRow) ? 'Refresh link' : 'Generate link' }}
                 </button>
                 <button
@@ -682,6 +686,8 @@
 </template>
 
 <script setup>
+import SchoolAnnualSchedule from './SchoolAnnualSchedule.vue';
+import SchoolAnnualFollowup from './SchoolAnnualFollowup.vue';
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -706,6 +712,10 @@ const campaignBusy = ref(false);
 const error = ref('');
 const pushFlash = ref('');
 const report = ref({ schools: [], summary: {} });
+const annualRules = ref({});
+const annualSchedule = ref(null);
+const annualDeliveries = ref([]);
+const annualAutomationHeld = ref(true);
 const campaign = ref({
   status: 'draft',
   isEnabled: false,
@@ -898,6 +908,7 @@ function toMysqlWallClock(date) {
 }
 
 function statusLabel(s) {
+  if (s === 'exempt') return 'First-year exemption';
   if (s === 'finalized') return 'Finalized';
   if (s === 'in_progress') return 'In Progress';
   return 'Not Started';
@@ -942,8 +953,12 @@ function shareLinkFor(row) {
   return token ? publicReinitUrl(token) : '';
 }
 
+function canShareAnnualLink(row) {
+  return Boolean(row?.annualEligible && campaign.value.isEnabled && (shareLinkFor(row) || (['open', 'followup'].includes(row.annualPhase) && row.status !== 'finalized')));
+}
+
 function canPushSchool(row) {
-  if (!row || !campaign.value.isEnabled || campaign.value.isDisabled) return false;
+  if (!row || !row.annualEligible || !['open','followup'].includes(row.annualPhase) || !campaign.value.isEnabled || campaign.value.isDisabled) return false;
   if (row.status === 'finalized') return false;
   if (row.isPushed) return false;
   return Boolean(shareLinkFor(row));
@@ -1202,6 +1217,10 @@ async function load() {
       api.get('/school-reinit/campaign', { params: { agencyId: props.agencyId, schoolYear: schoolYear.value } }),
     ]);
     report.value = rep.data;
+    annualRules.value = camp.data.annualRules || {};
+    annualSchedule.value = camp.data.schedule || null;
+    annualDeliveries.value = camp.data.deliveries || [];
+    annualAutomationHeld.value = camp.data.automationHeld !== false;
     campaign.value = camp.data?.campaign ||
       rep.data?.campaign || {
         status: 'draft',
@@ -1524,7 +1543,7 @@ async function selectRow(row) {
   selectedRow.value = row;
   detailTab.value = 'summary';
   // Ensure a shareable token exists so the copyable link is ready in the detail pane
-  if (campaign.value?.isEnabled && !shareLinkFor(row) && !linkBusy.value) {
+  if (canShareAnnualLink(row) && !shareLinkFor(row) && !linkBusy.value) {
     try {
       linkBusy.value = true;
       await api.post('/school-reinit/tokens', {

@@ -1,4 +1,5 @@
 <template>
+  <MeetingDialInPanel v-if="!isGuestSession" meeting-type="supervision" :meeting-id="Number(supervisionSessionId)" />
   <IndividualSupervisionLiveRoom
     v-if="isIndividual"
     ref="activeRoomRef"
@@ -22,6 +23,7 @@
 </template>
 
 <script setup>
+import MeetingDialInPanel from '../meetings/MeetingDialInPanel.vue';
 import { computed, ref, defineExpose } from 'vue';
 import IndividualSupervisionLiveRoom from './IndividualSupervisionLiveRoom.vue';
 import GroupSupervisionLiveRoom from './GroupSupervisionLiveRoom.vue';

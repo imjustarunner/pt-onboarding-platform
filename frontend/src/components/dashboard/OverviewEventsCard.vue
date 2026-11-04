@@ -7,7 +7,8 @@
 
     <div v-if="requestError" class="ov-request-error" role="alert">{{ requestError }}</div>
 
-    <div v-if="featured" class="ov-featured" :class="{ 'is-live': featured.isLive }">
+    <DashboardCardStatus v-if="loading || error" :loading="loading" :error="error" label="Loading events…" @retry="$emit('retry')" />
+    <div v-else-if="featured" class="ov-featured" :class="{ 'is-live': featured.isLive }">
       <div class="ov-featured-top">
         <span v-if="featured.isLive" class="ov-live">Live Now</span>
         <span class="ov-featured-title">{{ featured.title }}</span>
@@ -46,7 +47,7 @@
     </div>
     <div v-else class="ov-empty">No events coming up soon.</div>
 
-    <ul v-if="upcomingList.length" class="ov-event-list">
+    <ul v-if="!loading && !error && upcomingList.length" class="ov-event-list">
       <li v-for="ev in upcomingList" :key="ev.id" class="ov-event-row">
         <div class="ov-date-tile">
           <span class="ov-date-day">{{ dayNum(ev.startMs) }}</span>
@@ -81,6 +82,7 @@
 </template>
 
 <script setup>
+import DashboardCardStatus from './DashboardCardStatus.vue';
 import { computed, ref } from 'vue';
 import StaffPollsPanel from './StaffPollsPanel.vue';
 import api from '../../services/api';
@@ -92,13 +94,15 @@ import {
 } from '../../utils/companyEventStaffing';
 
 const props = defineProps({
+  loading: { type: Boolean, default: false },
+  error: { type: String, default: '' },
   agencyId: { type: [Number, String], default: null },
   featured: { type: Object, default: null },
   events: { type: Array, default: () => [] },
   isSupervisor: { type: Boolean, default: false }
 });
 
-const emit = defineEmits(['navigate', 'view-all', 'join', 'request-changed']);
+const emit = defineEmits(['retry', 'navigate', 'view-all', 'join', 'request-changed']);
 
 const supervisionTab = computed(() => (props.isSupervisor ? 'supervision' : 'my_supervision'));
 

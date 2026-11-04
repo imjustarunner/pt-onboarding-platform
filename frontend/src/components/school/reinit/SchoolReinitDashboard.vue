@@ -7,6 +7,14 @@
     <div v-if="loading" class="cua__muted">Loading collaborative update…</div>
     <div v-else-if="loadError" class="cua__error">{{ loadError }}</div>
 
+    <section v-else-if="annualUpdate && !annualUpdate.canWrite && !isFinalized" class="cua__closed">
+      <h2>{{ annualUpdate.reason === 'first_year_onboarding' ? 'Your onboarding covers this school year' : annualUpdate.phase === 'scheduled' ? 'Annual update opens soon' : 'Annual update collection has closed' }}</h2>
+      <p v-if="annualUpdate.reason === 'first_year_onboarding'">New schools complete onboarding during their first school year. You can continue using your school portal.</p>
+      <p v-else-if="annualUpdate.phase === 'scheduled'">The annual update opens {{ annualUpdate.opensOn }}.</p>
+      <p v-else>Your saved information is preserved. Contact your agency’s Schools team for help with outstanding items or a short extension.</p>
+      <button type="button" class="btn" @click="onExit">Return to portal</button>
+    </section>
+
     <template v-else-if="isFinalized && viewMode === 'hub'">
       <SchoolReinitReceipt
         :cycle="cycle"
@@ -22,6 +30,11 @@
     </template>
 
     <template v-else>
+      <div v-if="annualUpdate" class="cua__annual-deadline" role="status">
+        <strong>{{ annualUpdate.phase === 'followup' ? 'Complete outstanding information by' : 'Submit your annual update by' }} {{ annualUpdate.phase === 'followup' ? annualUpdate.closesOn : annualUpdate.dueOn }}</strong>
+        <p v-if="annualUpdate.phase === 'followup'">Your saved answers are preserved. Please complete the remaining items, then choose Finalize. Reply to your reminder email for help.</p>
+        <ul v-if="annualUpdate.phase === 'followup'"><li v-for="(item,index) in annualOutstanding" :key="index">{{ item.label }}</li></ul>
+      </div>
       <!-- Welcome / identity gate for token guests -->
       <div v-if="needsIdentity" class="welcome-shell">
         <header class="welcome__top">
@@ -1065,6 +1078,8 @@ const loadError = ref('');
 const bannerError = ref('');
 const sectionAlert = ref(null);
 const cycle = ref(null);
+const annualUpdate = ref(null);
+const annualOutstanding = ref([]);
 const agency = ref(null);
 const school = ref(null);
 const sections = ref([]);
@@ -1758,6 +1773,8 @@ function onExit() {
 }
 
 function applyPayload(data) {
+  annualUpdate.value = data.annualUpdate || null;
+  annualOutstanding.value = data.outstanding || [];
   cycle.value = data.cycle;
   agency.value = data.agency;
   school.value = data.school;
@@ -2448,6 +2465,8 @@ defineExpose({ reload: load, copyShareToken });
 </script>
 
 <style scoped>
+.cua__annual-deadline,.cua__closed{padding:18px;margin-bottom:16px;background:var(--bg-secondary,#f4f8fb);border:1px solid #dce7ec;border-radius:10px}
+
 .cua {
   --cua-primary: #0c4a6e;
   --cua-secondary: #15803d;

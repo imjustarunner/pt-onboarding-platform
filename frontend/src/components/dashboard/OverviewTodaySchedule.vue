@@ -16,7 +16,7 @@
       <button type="button" class="ov-tab" role="tab" @click="$emit('navigate', 'my_schedule')">Month</button>
     </div>
 
-    <div v-if="loading" class="ov-empty">Loading schedule…</div>
+    <DashboardCardStatus v-if="loading || error" :loading="loading" :error="error" label="Loading today’s schedule…" @retry="$emit('retry')" />
     <div v-else-if="!items.length" class="ov-empty ov-empty--cta">
       <p class="ov-empty-title">No appointments scheduled for today.</p>
       <p class="ov-empty-invite">Book a session — office or virtual — to get something on the calendar.</p>
@@ -107,7 +107,7 @@
     </ul>
 
     <footer class="ov-card-foot">
-      <span>{{ items.length }} appointment{{ items.length === 1 ? '' : 's' }} today</span>
+      <span v-if="!loading && !error">{{ items.length }} appointment{{ items.length === 1 ? '' : 's' }} today</span>
       <!-- Footer CTAs only when the timeline has items; empty state already shows Book / Book virtual. -->
       <div v-if="items.length" class="ov-foot-actions">
         <button type="button" class="ov-link" data-tour="dash-overview-book-foot" @click="$emit('book')">Book</button>
@@ -126,16 +126,18 @@
 </template>
 
 <script setup>
+import DashboardCardStatus from './DashboardCardStatus.vue';
 import { useBrandingStore } from '../../store/branding';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 defineProps({
+  error: { type: String, default: '' },
   items: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
   /** When true, show Book virtual (calendar telehealth booking) CTA. */
   showVirtualBook: { type: Boolean, default: false }
 });
-const emit = defineEmits(['navigate', 'book', 'book-virtual', 'join', 'open-focus']);
+const emit = defineEmits(['retry', 'navigate', 'book', 'book-virtual', 'join', 'open-focus']);
 
 const brandingStore = useBrandingStore();
 

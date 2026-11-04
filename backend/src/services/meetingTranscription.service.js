@@ -1,3 +1,4 @@
+import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import pool from '../config/database.js';
 import {requireSessionPrivacyConfiguration} from './sessionAiPrivacy.service.js';
 import {counselingClient} from './counselingInvitationAccess.service.js';
@@ -14,7 +15,11 @@ export async function transcriptionState(context,db=pool) {
   const table=type==='counseling'?'counseling_sessions':'supervision_sessions';
   const [current]=await db.execute(`SELECT * FROM ${table} WHERE id=?`,[session.id]);if(!current[0])fail('Session not found.',404);session=current[0];
   if(type==='counseling' && Number((await counselingClient(session,db)).id)!==Number(client.id))fail('The appointment client changed. Open the current session again.',409);
-  const closed=!!session.live_ended_at || ['ENDED','FINALIZED','CANCELLED','MISSED','RESCHEDULED','MANUAL_PENDING'].includes(String(session.status).toUpperCase());
+  const finalPhoneCapture = type === 'supervision' && Number.isFinite(context.dialInFinalCaptureAt) && session.live_ended_at
+    && context.dialInFinalCaptureAt <= parseUtcDate(session.live_ended_at).getTime()
+    && Date.now() - parseUtcDate(session.live_ended_at).getTime() < 120000
+    && !['CANCELLED','MISSED','RESCHEDULED'].includes(String(session.status).toUpperCase());
+  const closed=!finalPhoneCapture && (!!session.live_ended_at || ['ENDED','FINALIZED','CANCELLED','MISSED','RESCHEDULED','MANUAL_PENDING'].includes(String(session.status).toUpperCase()));
   const consent=type==='supervision'?await supervisionRecordingConsent(session,db):{allowed:!!(Number(session.recording_requested)&&await SessionRecordingConsent.findOnFile({agencyId:session.agency_id,clientId:client.id},db)),reason:'The provider must request recording and the client must sign the audio consent first.'};
   const [rows]=await db.execute('SELECT * FROM meeting_transcription_controls WHERE meeting_type=? AND meeting_id=?',[type,session.id]);
   const row=rows[0]||{};

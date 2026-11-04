@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import api from '../services/api';
+import { getStartupData, startupRequestScope } from '../services/startupRequests';
 import { useAuthStore } from './auth';
 import { useAgencyStore } from './agency';
 
@@ -23,12 +24,29 @@ export const useCommunicationsCountsStore = defineStore('communicationsCounts', 
       Number(pendingDeliveryCount.value || 0)
   );
 
-  const fetchCounts = async () => {
+  const pendingCounts = new Map();
+  let activeContext = null;
+  const contextKey = () => {
+    const user = useAuthStore().user;
+    return JSON.stringify([user?.id, user?.role, useAgencyStore().currentAgency?.id, startupRequestScope()]);
+  };
+  const clearCounts = () => {
+    pendingDeliveryCount.value = 0;
+    openTicketsCount.value = 0;
+    unreadMessagesCount.value = 0;
+    supportAttentionCount.value = 0;
+    qualityIssuesCount.value = 0;
+  };
+
+  const loadCounts = async (requestContext) => {
     try {
       const authStore = useAuthStore();
       const agencyStore = useAgencyStore();
       const role = String(authStore.user?.role || '').toLowerCase();
       const isFamilyAccount = ['client_guardian', 'client'].includes(role);
+      // Match the summary endpoint's narrower role check; staff ticket access
+      // alone does not authorize an organization-wide communications summary.
+      const canFetchCenterSummary = ['admin', 'support', 'super_admin'].includes(role);
       // Match GET /support-tickets/count authorization (avoid 403 noise for providers, etc.).
       const canFetchOpenTicketCount =
         role === 'school_staff' ||
@@ -57,20 +75,30 @@ export const useCommunicationsCountsStore = defineStore('communicationsCounts', 
         qualityIssuesCount.value = 0;
       }
 
-      const [pendingRes, centerRes, personalRes, ticketsRes] = await Promise.allSettled([
-        canFetchPendingDelivery
-          ? api.get('/communications/pending-count', { skipGlobalLoading: true, skipAuthRedirect: true })
+      let [pendingRes, centerRes, personalRes, ticketsRes] = await Promise.allSettled([
+        canFetchPendingDelivery && !canFetchCenterSummary
+          ? api.get('/communications/pending-count', { timeout: 30000, skipGlobalLoading: true, skipAuthRedirect: true })
           : Promise.resolve({ data: { count: 0 } }),
-        canFetchOpenTicketCount
-          ? api.get('/communications/center-summary', { params, skipGlobalLoading: true, skipAuthRedirect: true })
+        canFetchCenterSummary
+          ? getStartupData('/communications/center-summary', { params, skipGlobalLoading: true, skipAuthRedirect: true })
           : Promise.resolve({ data: {} }),
         agencyId && !isFamilyAccount
-          ? api.get('/communications/attention-summary', { params: { agencyId, hubScope: 1 }, skipGlobalLoading: true, skipAuthRedirect: true })
+          ? api.get('/communications/attention-summary', { params: { agencyId, hubScope: 1 }, timeout: 30000, skipGlobalLoading: true, skipAuthRedirect: true })
           : Promise.resolve({ data: { summary: { unread: 0 } } }),
         canFetchOpenTicketCount
-          ? api.get('/support-tickets/count', { params: { status: 'open' }, skipGlobalLoading: true, skipAuthRedirect: true })
+          ? api.get('/support-tickets/count', { params: { status: 'open' }, timeout: 30000, skipGlobalLoading: true, skipAuthRedirect: true })
           : Promise.resolve({ data: {} })
       ]);
+
+      // The center summary already includes delivery and quality counts. Only
+      // run the separate scan as a fallback when that shared request fails.
+      if (contextKey() !== requestContext) return;
+      if (canFetchPendingDelivery && centerRes.status === 'rejected') {
+        [pendingRes] = await Promise.allSettled([
+          api.get('/communications/pending-count', { timeout: 30000, skipGlobalLoading: true, skipAuthRedirect: true })
+        ]);
+      }
+      if (contextKey() !== requestContext) return;
 
       if (pendingRes.status === 'fulfilled' && pendingRes.value?.data) {
         pendingDeliveryCount.value = Number(pendingRes.value.data.count || 0);
@@ -107,6 +135,21 @@ export const useCommunicationsCountsStore = defineStore('communicationsCounts', 
     } catch (e) {
       // Silently ignore - counts are best-effort for badge display
     }
+  };
+
+  const fetchCounts = () => {
+    const key = contextKey();
+    if (key !== activeContext) {
+      clearCounts();
+      activeContext = key;
+    }
+    if (!useAuthStore().user?.id) return Promise.resolve();
+    if (pendingCounts.has(key)) return pendingCounts.get(key);
+    const request = loadCounts(key).finally(() => {
+      if (pendingCounts.get(key) === request) pendingCounts.delete(key);
+    });
+    pendingCounts.set(key, request);
+    return request;
   };
 
   return {

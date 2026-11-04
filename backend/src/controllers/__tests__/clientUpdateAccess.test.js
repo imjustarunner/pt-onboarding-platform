@@ -1,0 +1,14 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+const m=vi.hoisted(()=>({execute:vi.fn(),access:vi.fn(),catalog:vi.fn(),create:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
+vi.mock('../../models/Client.model.js',()=>({default:{findById:vi.fn()}}));
+vi.mock('../../services/clientRecordAccess.service.js',()=>({resolveClientRecordAccess:m.access}));
+vi.mock('../../services/clientUpdate.service.js',()=>({listUpdateCatalog:m.catalog,createClientUpdate:m.create}));
+import {getClientUpdateCatalog,createClientUpdate} from '../clientUpdate.controller.js';
+const response=()=>({status:vi.fn().mockReturnThis(),json:vi.fn()});
+const req=(role='admin')=>({params:{id:'5'},body:{agencyId:2},user:{id:1,role}});
+beforeEach(()=>{vi.clearAllMocks();m.access.mockResolvedValue({ok:true,client:{id:5,agency_id:2,organization_id:20}});m.execute.mockResolvedValue([[{user_id:1}]]);m.catalog.mockResolvedValue({enabled:false,documents:[]});m.create.mockResolvedValue({id:7});});
+it.each(['provider','guardian','client_guardian','school_staff'])('rejects %s before reading client update metadata',async role=>{const res=response();await getClientUpdateCatalog(req(role),res,vi.fn());expect(res.status).toHaveBeenCalledWith(403);expect(m.access).not.toHaveBeenCalled();expect(m.catalog).not.toHaveBeenCalled();});
+it('requires fresh active agency membership even when the client detail guard previously passed',async()=>{m.execute.mockResolvedValue([[]]);const res=response();await getClientUpdateCatalog(req(),res,vi.fn());expect(res.status).toHaveBeenCalledWith(403);expect(m.catalog).not.toHaveBeenCalled();expect(m.execute.mock.calls[0][0]).toContain('ua.is_active=1');});
+it('does not trust a caller-provided agency for a known client',async()=>{const r=req();r.body.agencyId=99;const res=response();await createClientUpdate(r,res,vi.fn());expect(res.status).toHaveBeenCalledWith(400);expect(m.create).not.toHaveBeenCalled();});
+it('exposes only the guarded update catalog for an authorized agency staff member',async()=>{const res=response();await getClientUpdateCatalog(req(),res,vi.fn());expect(m.catalog).toHaveBeenCalledWith(2);expect(res.json).toHaveBeenCalledWith({client_id:5,enabled:false,documents:[]});});

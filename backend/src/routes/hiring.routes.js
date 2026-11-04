@@ -1,5 +1,6 @@
 import {packetPreviewJobFile} from '../controllers/hirePacketPreview.controller.js';
 import {markPrehireComplete} from '../controllers/hirePrehireCompletion.controller.js';
+import {getPeopleOperationsNotificationRecipients,putPeopleOperationsNotificationRecipients} from '../controllers/peopleOperationsNotificationRecipients.controller.js';
 import {rehearsalBootstrap,rehearsalI9,rehearsalLink} from '../controllers/itscoRehearsal.controller.js';
 import { packetPreviewOptions, packetPreviewReference, packetPreviewContract } from '../controllers/hirePacketPreview.controller.js';
 import { getCandidateReferenceWorkspace, postCandidateReferenceContact } from '../controllers/hiring.controller.js';
@@ -144,6 +145,8 @@ const upload = multer({
 });
 
 router.get('/dashboard', getDashboardStats);
+router.get('/notification-recipients',getPeopleOperationsNotificationRecipients);
+router.put('/notification-recipients',putPeopleOperationsNotificationRecipients);
 router.get('/pipeline-board', getPipelineBoard);
 router.get('/candidates', listCandidates);
 router.post('/candidates', createCandidate);

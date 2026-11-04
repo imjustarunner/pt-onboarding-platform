@@ -97,7 +97,9 @@ it('recovers an old blocked draft without copying its first-child answers into t
   await flushPromises();
   expect(wrapper.vm.currentFlowStep.id).toBe('questions__c0');
   expect(wrapper.vm.schoolChildDetailsOpen).toBe(true);
-  expect(wrapper.get('#clientDob_0').element.value).toBe('2012-02-03');
+  expect(wrapper.get('#clientDob_0').element.value).toBe('02/03/2012');
+  expect(wrapper.vm.clients[0].dateOfBirth).toBe('2012-02-03');
+  expect(wrapper.vm.buildClientPayloads()[0].dateOfBirth).toBe('2012-02-03');
   expect(wrapper.get('#clientDob_1').element.value).toBe('');
   expect(wrapper.vm.intakeResponses.clients[0].psc_1).toBe('Often');
   expect(wrapper.vm.intakeResponses.clients[1].psc_1).toBeUndefined();

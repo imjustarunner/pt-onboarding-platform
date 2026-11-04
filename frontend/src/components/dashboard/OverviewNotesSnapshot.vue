@@ -5,7 +5,8 @@
       <span class="ov-pill">Last Pay Period</span>
     </header>
 
-    <div v-if="!directIndirect" class="ov-empty">
+    <DashboardCardStatus v-if="loading || error" :loading="loading" :error="error" label="Loading notes summary…" @retry="$emit('retry')" />
+    <div v-else-if="!directIndirect" class="ov-empty">
       <template v-if="notesIncomplete > 0">
         {{ notesIncomplete }} incomplete note{{ notesIncomplete === 1 ? '' : 's' }} in the last pay period.
       </template>
@@ -47,14 +48,17 @@
 </template>
 
 <script setup>
+import DashboardCardStatus from './DashboardCardStatus.vue';
 import { computed } from 'vue';
 
 const props = defineProps({
+  loading: { type: Boolean, default: false },
+  error: { type: String, default: '' },
   directIndirect: { type: Object, default: null },
   notesIncomplete: { type: Number, default: 0 }
 });
 
-defineEmits(['navigate']);
+defineEmits(['retry', 'navigate']);
 
 const fmtPct = (r) => {
   if (r == null || !Number.isFinite(Number(r))) return '—';

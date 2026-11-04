@@ -72,6 +72,8 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   unmonitored_mailbox_auto_reply: ['exchange_noreply', 'noreply'],
   client_terminated: ['notifications', 'people_operations', 'support'],
   client_checklist_updated: ['notifications', 'support'],
+  client_update: ['notifications', 'support'],
+  client_portal_share: ['notifications', 'support'],
   contact_reminder_assigned: ['notifications'],
   meeting_join_reminder: ['notifications', 'support', 'technology'],
   meeting_invited: ['notifications', 'support'],

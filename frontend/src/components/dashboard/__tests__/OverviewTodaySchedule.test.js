@@ -7,6 +7,19 @@ vi.mock('../../../store/branding', () => ({
 }));
 
 describe('OverviewTodaySchedule meeting rejoin', () => {
+  it('keeps navigation available but never presents a pending or failed request as an empty day', async () => {
+    const wrapper = mount(OverviewTodaySchedule, { props: { loading: true } });
+    expect(wrapper.text()).toContain('Loading today’s schedule');
+    expect(wrapper.text()).not.toContain('0 appointments');
+    expect(wrapper.text()).not.toContain('No appointments');
+    expect(wrapper.get('.ov-card-head button').text()).toBe('View Full Schedule');
+    await wrapper.setProps({ loading: false, error: 'Schedule unavailable' });
+    expect(wrapper.text()).not.toContain('No appointments');
+    await wrapper.get('.card-status button').trigger('click');
+    expect(wrapper.emitted('retry')).toHaveLength(1);
+    wrapper.unmount();
+  });
+
   it('shows Join for an in-progress platform meeting and emits the selected item', async () => {
     const meeting = {
       id: 'sched-team_meeting-42',

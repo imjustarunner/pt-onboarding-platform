@@ -148,10 +148,12 @@ server.listen(PORT, HOST, () => {
       console.log('[startup:app] Loading application modules');
       return import('./server.js');
     })
-    .then(({ app }) => {
+    .then(async ({ app }) => {
       if (typeof app !== 'function') throw new Error('server.js did not export a valid Express app');
       server.removeAllListeners('request');
       server.on('request', app);
+      const { attachMeetingDialInAudio } = await import('./services/meetingDialInTranscription.service.js');
+      attachMeetingDialInAudio(server);
       appLoaded = true;
       console.log('✅ Full application loaded — serving live traffic');
     })

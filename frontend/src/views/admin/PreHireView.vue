@@ -29,6 +29,7 @@
       </div>
     </div>
 
+    <PeopleOperationsNotificationRecipients :agency-id="selectedAgencyId" />
     <!-- Stats row -->
     <div class="phr-stats" data-tour="prehire-stats">
       <div class="phr-stat-card" :class="{ active: statusFilter === 'PENDING_SETUP' }" @click="toggleFilter('PENDING_SETUP')">
@@ -566,6 +567,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
 import PromoteToOnboardingModal from '../../components/hiring/PromoteToOnboardingModal.vue';
 import HiringHubSwitcher from '../../components/hiring/HiringHubSwitcher.vue';
+import PeopleOperationsNotificationRecipients from '../../components/hiring/PeopleOperationsNotificationRecipients.vue';
 import { pickDefaultAgencyChoiceId } from '../../utils/peopleOpsAgencyPicker.js';
 import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath.js';
 

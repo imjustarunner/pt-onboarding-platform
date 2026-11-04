@@ -146,6 +146,7 @@ import {
   createClientRenewal,
   sendClientRenewal
 } from '../controllers/clientRenewal.controller.js';
+import {getClientUpdateCatalog,listClientUpdates,createClientUpdate,sendClientUpdate} from '../controllers/clientUpdate.controller.js';
 import {
   listClientAffiliatedContacts,
   createClientAffiliatedContact,
@@ -375,6 +376,10 @@ router.post('/:id/school-roi-signing-link/copied', trackClientSchoolRoiSigningLi
 router.post('/:id/school-roi-signing-text', sendClientSchoolRoiSigningText);
 router.post('/:id/school-roi-signing-email', sendClientSchoolRoiSigningEmail);
 router.get('/:id/renewals', requireBackofficeAdmin, listClientRenewals);
+router.get('/:id/updates/catalog', requireBackofficeAdmin, getClientUpdateCatalog);
+router.get('/:id/updates', requireBackofficeAdmin, listClientUpdates);
+router.post('/:id/updates', requireBackofficeAdmin, createClientUpdate);
+router.post('/:id/updates/:requestId/send', requireBackofficeAdmin, sendClientUpdate);
 router.post('/:id/renewals/preview', requireBackofficeAdmin, previewClientRenewal);
 router.post('/:id/renewals', requireBackofficeAdmin, createClientRenewal);
 router.post('/:id/renewals/:renewalId/send', requireBackofficeAdmin, sendClientRenewal);

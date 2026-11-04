@@ -41,7 +41,6 @@
     </header>
 
     <slot name="search" />
-    <FundthredBalances v-if="showPayroll" :agency-id="agencyId" @submit="navigate('submit')" @request="navigate('payroll')" />
 
     <OverviewEmailDrafts v-if="showChats" :agency-id="agencyId" :enabled="enabled" />
 
@@ -72,6 +71,8 @@
         :notes-incomplete="notesStats.incomplete"
         :notes-completed-pct="notesStats.completedPct"
         :notes-period-label="notesStats.periodLabel"
+        :note-aid-counts-loading="noteAidCountsLoading"
+        :note-aid-counts-error="noteAidCountsError"
         :note-aid-queue-count="noteAidQueueCount"
         :note-aid-in-progress-count="noteAidInProgressCount"
         :supervision-hours="supervisionHours"
@@ -86,8 +87,6 @@
       </button>
     </div>
 
-    <div v-if="error" class="ov-error">{{ error }}</div>
-
     <div class="ov-mid">
       <DashboardOverviewSection v-if="availableCardKeys.includes('work') && !hiddenCards.includes('work')" v-show="!collapsedCards.includes('work')"
         :style="cardLayout.orderStyle('work')" :label="cardLabels.work" :section-id="'work'" @collapse="setCollapsed('work', true)">
@@ -96,11 +95,14 @@
       <DashboardOverviewSection v-if="availableCardKeys.includes('schedule') && !hiddenCards.includes('schedule')" v-show="!collapsedCards.includes('schedule')"
         :style="cardLayout.orderStyle('schedule')" :label="cardLabels.schedule" :section-id="'schedule'" @collapse="setCollapsed('schedule', true)">
       <OverviewTodaySchedule
+        :loading="sectionState.schedule.loading"
+        :error="sectionState.schedule.error"
+        @retry="refresh('schedule')"
 
         :style="cardLayout.orderStyle('schedule')"
         class="ov-mid-schedule"
         :items="todayScheduleItems"
-        :loading="loading"
+
         :show-virtual-book="showVirtualBook"
         @navigate="navigate"
         @book="onBookSchedule"
@@ -112,10 +114,13 @@
       <DashboardOverviewSection v-if="availableCardKeys.includes('pay') && !hiddenCards.includes('pay')" v-show="!collapsedCards.includes('pay')"
         :style="cardLayout.orderStyle('pay')" :label="cardLabels.pay" :section-id="'pay'" @collapse="setCollapsed('pay', true)">
       <OverviewPayPeriodCard
+        :loading="sectionState.pay.loading"
+        :error="sectionState.pay.error"
+        @retry="refresh('pay')"
 
         :style="cardLayout.orderStyle('pay')"
         class="ov-mid-pay"
-        :loading="loading"
+
         :period-start="payPeriod.periodStart || ''"
         :period-end="payPeriod.periodEnd || ''"
         :total-pay="payPeriod.totalPay"
@@ -135,6 +140,9 @@
       <DashboardOverviewSection v-if="availableCardKeys.includes('events') && !hiddenCards.includes('events')" v-show="!collapsedCards.includes('events')"
         :style="cardLayout.orderStyle('events')" :label="cardLabels.events" :section-id="'events'" @collapse="setCollapsed('events', true)">
       <OverviewEventsCard
+        :loading="sectionState.events.loading"
+        :error="sectionState.events.error"
+        @retry="refresh('events')"
 
         :style="cardLayout.orderStyle('events')"
         :agency-id="agencyId"
@@ -152,6 +160,9 @@
       <DashboardOverviewSection v-if="availableCardKeys.includes('notes') && !hiddenCards.includes('notes')" v-show="!collapsedCards.includes('notes')"
         :style="cardLayout.orderStyle('notes')" :label="cardLabels.notes" :section-id="'notes'" @collapse="setCollapsed('notes', true)">
       <OverviewNotesSnapshot
+        :loading="sectionState.pay.loading"
+        :error="sectionState.pay.error"
+        @retry="refresh('pay')"
 
         class="ov-bottom-notes"
         :direct-indirect="directIndirect"
@@ -162,6 +173,9 @@
       <DashboardOverviewSection v-if="availableCardKeys.includes('activity') && !hiddenCards.includes('activity')" v-show="!collapsedCards.includes('activity')"
         :style="cardLayout.orderStyle('activity')" :label="cardLabels.activity" :section-id="'activity'" @collapse="setCollapsed('activity', true)">
       <OverviewRecentActivity
+        :loading="sectionState.activity.loading"
+        :error="sectionState.activity.error"
+        @retry="refresh('activity')"
         class="ov-bottom-activity"
         :items="recentActivityItems"
         @navigate="navigate"
@@ -176,6 +190,11 @@
       />
       </DashboardOverviewSection>
     </div>
+
+    <details v-if="showPayroll" class="ov-balances" @toggle="balancesOpen = $event.target.open">
+      <summary>Leave balances and requests</summary>
+      <FundthredBalances v-if="balancesOpen" :agency-id="agencyId" @submit="navigate('submit')" @request="navigate('payroll')" />
+    </details>
 
     <div v-if="showTip" class="ov-tip" role="status">
       <span class="ov-tip-icon" aria-hidden="true">💡</span>
@@ -195,7 +214,7 @@
 
 <script setup>
 import FundthredBalances from './FundthredBalances.vue';
-import { computed, onMounted, ref, toRef, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, toRef, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useDashboardOverview } from '../../composables/useDashboardOverview';
@@ -259,21 +278,30 @@ const emit = defineEmits([
 
 const authStore = useAuthStore();
 const showTip = ref(true);
+const balancesOpen = ref(false);
 const focusCollapsed = ref(true);
 const focusBlock = ref(null);
 const focusDayBlocks = ref([]);
+const noteAidCountsLoading = ref(true);
+const noteAidCountsError = ref(false);
+let noteAidCountsGeneration = 0;
 const noteAidQueueCount = ref(0);
 const noteAidInProgressCount = ref(0);
 
 const userId = computed(() => authStore.user?.id || null);
 const agencyIdRef = toRef(props, 'agencyId');
-const cardLabels = { work: 'My Work', schedule: 'My Schedule', pay: 'Last pay overview', events: 'Events for you', notes: 'Notes Snapshot', activity: 'Recent Activity', actions: 'Quick Actions' };
+const cardLabels = { schedule: 'My Schedule', work: 'My Work', pay: 'Last pay overview', events: 'Events for you', notes: 'Notes Snapshot', activity: 'Recent Activity', actions: 'Quick Actions' };
 const cardLayout = useDashboardLayout({ kind: 'staff-overview', userId, agencyId: agencyIdRef, defaultOrder: Object.keys(cardLabels) });
 const availableCardKeys = computed(() => cardLayout.order.value.filter(key =>
   !(['work', 'notes'].includes(key) && !props.showNotes) && !(key === 'schedule' && !props.showSchedule) && !(key === 'pay' && !props.showPayroll)));
 const { collapsedCards, hiddenCards, setCollapsed, toggleCard, resetCards } = useDashboardCardState({ kind: 'staff-overview', userId, agencyId: agencyIdRef, cardIds: Object.keys(cardLabels) });
 const collapsedCardKeys = computed(() => availableCardKeys.value.filter(key => collapsedCards.value.includes(key) && !hiddenCards.value.includes(key)));
 function cardSummary(key) {
+  if (key === 'work' && noteAidCountsLoading.value) return 'Loading…';
+  if (key === 'work' && noteAidCountsError.value) return 'Open My Work';
+  const section = sectionState[key === 'notes' ? 'pay' : key];
+  if (section?.loading) return 'Loading…';
+  if (section?.error) return 'Could not load';
   return { work: `${noteAidQueueCount.value} not started · ${noteAidInProgressCount.value} in progress`, schedule: `${todayScheduleItems.value.length} today`,
     pay: payPeriod.value.tierLabel || 'Pay period', events: `${upcomingEvents.value.length} upcoming`, notes: `${notesStats.value.incomplete || 0} incomplete`,
     activity: `${recentActivityItems.value.length} updates`, actions: `${quickActions.value.length} shortcuts` }[key];
@@ -283,6 +311,7 @@ const companyEventsRef = toRef(props, 'companyEvents');
 const supervisionPromptsRef = toRef(props, 'supervisionPrompts');
 
 const {
+  sectionState,
   loading,
   error,
   summary,
@@ -550,18 +579,23 @@ function openNoteAid() {
 }
 
 async function loadNoteAidCounts() {
-  if (!props.showNotes || !props.enabled) return;
+  const generation = ++noteAidCountsGeneration;
+  noteAidQueueCount.value = 0;
+  noteAidInProgressCount.value = 0;
   const uid = userId.value;
   const agencyId = Number(props.agencyId);
-  if (!uid || !Number.isSafeInteger(agencyId) || agencyId < 1) return;
+  if (!props.showNotes || !props.enabled || !uid || !Number.isSafeInteger(agencyId) || agencyId < 1) { noteAidCountsLoading.value = false; return; }
+  noteAidCountsLoading.value = true;
+  noteAidCountsError.value = false;
   try {
     const [queue, recentRes] = await Promise.all([
-      fetchWorkQueueFromApi(uid).catch(() => []),
+      fetchWorkQueueFromApi(uid),
       api.get('/clinical-notes/recent', {
         params: { agencyId, allAccessible: 1, limit: 100, archiveStatus: 'active', days: 30 },
-        skipGlobalLoading: true
-      }).catch(() => ({ data: null }))
+        skipGlobalLoading: true, timeout: 12000
+      })
     ]);
+    if (generation !== noteAidCountsGeneration) return;
     const queueItems = Array.isArray(queue) ? queue : [];
     noteAidQueueCount.value = queueItems.filter(
       (i) => deriveWorkQueueDocStatus(i) === DOC_STATUS.NOT_STARTED
@@ -578,11 +612,13 @@ async function loadNoteAidCounts() {
     }).length;
     noteAidInProgressCount.value = startedQueue + startedDrafts;
   } catch {
-    noteAidQueueCount.value = 0;
-    noteAidInProgressCount.value = 0;
+    if (generation === noteAidCountsGeneration) noteAidCountsError.value = true;
+  } finally {
+    if (generation === noteAidCountsGeneration) noteAidCountsLoading.value = false;
   }
 }
 
+onBeforeUnmount(() => { noteAidCountsGeneration++; });
 onMounted(() => {
   void loadNoteAidCounts();
 });
@@ -612,6 +648,9 @@ const onQuickAction = (action) => {
 .ov-card-settings { display: flex; flex-wrap: wrap; gap: 16px; padding: 12px; }
 .ov-card-settings > div { display: flex; align-items: center; gap: 8px; }
 .ov-customize { align-self: flex-end; padding: 8px 12px; cursor: pointer; }
+.ov-balances { border: 1px solid var(--border-color, #e2e8f0); border-radius: 12px; padding: 14px; background: var(--bg-card, #fff); }
+.ov-balances summary { cursor: pointer; font-weight: 600; }
+.ov-balances summary:focus-visible { outline: 2px solid var(--agency-primary-color, #334155); outline-offset: 4px; }
 
 .ov-hello {
   margin: 0;
@@ -782,6 +821,10 @@ const onQuickAction = (action) => {
 .ov-collapsed-card span { font-weight: 700; }
 .ov-collapsed-card strong { font-size: 14px; overflow-wrap: anywhere; }
 .ov-collapsed-card small { color: var(--text-secondary); }
-@container (max-width: 540px) { .ov-mid { grid-template-columns: minmax(0, 1fr); } }
+@container (max-width: 540px) {
+  .ov-mid { grid-template-columns: minmax(0, 1fr); }
+  .ov-metric-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .ov-focus-slot { grid-column: 1 / -1; }
+}
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
 </style>

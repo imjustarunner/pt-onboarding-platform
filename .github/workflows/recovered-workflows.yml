@@ -1,0 +1,65 @@
+name: Recovered workflow boundaries
+
+on:
+  push:
+    branches: [main]
+    paths: ['backend/**', 'frontend/**', 'database/migrations/1750_people_operations_submission_notifications.sql', 'database/migrations/1751_school_annual_update_runtime.sql', 'database/migrations/1752_client_update_workflows.sql', '.github/workflows/recovered-workflows.yml']
+  pull_request:
+    paths: ['backend/**', 'frontend/**', 'database/migrations/1750_people_operations_submission_notifications.sql', 'database/migrations/1751_school_annual_update_runtime.sql', 'database/migrations/1752_client_update_workflows.sql', '.github/workflows/recovered-workflows.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recovered-workflows:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0.44
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+        ports: ['33316:3306']
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      TZ: America/Denver
+      SKIP_DB_CONNECT: '1'
+      SKIP_CLINICAL_DB_CONNECT: '1'
+      DB_HOST: 127.0.0.1
+      DB_PORT: '1'
+      DB_USER: workflow_tests_never_prod
+      DB_PASSWORD: unused
+      DB_NAME: never_production
+      RECOVERY_TEST_MYSQL_HOST: 127.0.0.1
+      RECOVERY_TEST_MYSQL_PORT: '33316'
+      RECOVERY_TEST_MYSQL_USER: root
+      RECOVERY_TEST_MYSQL_PASSWORD: ''
+      SCHEDULING_TEST_MYSQL_PORT: '33316'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Install test dependencies
+        run: |
+          npm ci --prefix backend
+          npm ci --prefix frontend --ignore-scripts
+      - name: Scoped People Operations and hiring source receipts
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.hire.config.js
+      - name: Fresh school annual and client update schemas and delivery boundaries
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.school-annual.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.client-updates.config.js
+      - name: Independent dashboard loading and scoped workflow interfaces
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.startup-recovery.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.school-annual.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.client-updates.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.people-operations-notifications.config.js

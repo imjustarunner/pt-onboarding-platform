@@ -5,7 +5,7 @@
       <span v-if="periodLabel" class="ov-muted">{{ periodLabel }}</span>
     </header>
 
-    <div v-if="loading" class="ov-empty">Loading…</div>
+    <DashboardCardStatus v-if="loading || error" :loading="loading" :error="error" label="Loading pay period…" @retry="$emit('retry')" />
     <template v-else>
       <div class="ov-kpis">
         <div class="ov-kpi ov-kpi--pay">
@@ -93,10 +93,12 @@
 </template>
 
 <script setup>
+import DashboardCardStatus from './DashboardCardStatus.vue';
 import { computed } from 'vue';
 import OverviewPaycheckCompare from './OverviewPaycheckCompare.vue';
 
 const props = defineProps({
+  error: { type: String, default: '' },
   loading: { type: Boolean, default: false },
   periodStart: { type: String, default: '' },
   periodEnd: { type: String, default: '' },
@@ -112,7 +114,7 @@ const props = defineProps({
   payrollPeriodId: { type: [Number, String], default: null }
 });
 
-defineEmits(['navigate', 'open-paycheck']);
+defineEmits(['retry', 'navigate', 'open-paycheck']);
 
 const periodLabel = computed(() => {
   if (props.periodStart && props.periodEnd) return `${props.periodStart} – ${props.periodEnd}`;

@@ -8,6 +8,7 @@ import { schoolSessionEmailDeliveryGate } from '../schoolSessionEmailPreferences
 import { routineParentEmailGate } from '../routineParentEmailPause.service.js';
 import { reviewedDayCancellationContext } from '../dayCancellationEmail.service.js';
 import { individualCancellationEmailContext } from '../appointmentCancellationEmail.service.js';
+import {assertPeopleOperationsSubmissionRecipient} from '../peopleOperationsSubmissionNotifications.service.js';
 import {assertSchoolStatusEmailAudience} from '../../utils/schoolStatusEmailAudience.js';
 import { isClinicalPortalIdentity, isPortalIdentity, portalSenderName, enrollmentMailBrand, renderPortalEmail } from '../portalEmailBranding.service.js';
 import { splitEmailHistory } from '../../utils/emailReplyContent.js';
@@ -622,6 +623,7 @@ export async function sendNotificationEmail({
   afterHoursReplyContext = null
 }) {
   assertSchoolStatusEmailAudience({templateType,triggerKey});
+  await assertPeopleOperationsSubmissionRecipient({templateType:templateType || triggerKey,agencyId,to});
   if (templateType === 'vacation_auto_reply' && (!afterHoursReplyContext || !await eligibleVacationReply({...afterHoursReplyContext,ownerUserId:generatedByUserId,fromEmail:to}))) return {skipped:true,reason:'vacation_reply_not_allowed'};
   if (templateType === 'client_ooo_auto_reply' && (!afterHoursReplyContext || !await eligibleClientAfterHoursReply({ ...afterHoursReplyContext, ownerUserId: generatedByUserId, fromEmail: to }))) return { skipped: true, reason: 'after_hours_reply_not_allowed' };
   if(await blockDemoExchangeEmail({templateType:templateType || triggerKey,clientId,agencyId}))return {skipped:true,reason:'demo_exchange_provider_notifications_suppressed'};
@@ -1042,6 +1044,7 @@ export async function sendEmailFromIdentity({
   await managedGroupEnvelope({ to, cc, bcc, actorUserId: generatedByUserId });
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
+  await assertPeopleOperationsSubmissionRecipient({templateType,agencyId:identity.agency_id,senderIdentityId:identity.id,to,cc,bcc,existingCommunicationId});
   const operational=await reviewedDayCancellationContext({agencyId:identity.agency_id,clientId,to,cc,bcc,templateType,
     reviewedCancellationToken,reviewedCancellationItemKey,existingCommunicationId,generatedByUserId},{verifyEnvelope:true})
     || await individualCancellationEmailContext({agencyId:identity.agency_id,clientId,to,cc,bcc,templateType,

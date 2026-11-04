@@ -1,5 +1,9 @@
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import * as S from '../services/schoolReinit.service.js';
+import annualDb from '../config/database.js';
+import { getAnnualAccess, assertAnnualWrite, getAnnualRules, saveAnnualRules, updateAnnualFollowup, canManageAnnualUpdate } from '../services/schoolYearUpdateAccess.service.js';
+import { annualSchedule, outstandingAnnualInfo } from '../utils/schoolYearUpdatePolicy.js';
+import {annualAutomationEnabled} from '../services/schoolYearUpdateAutomation.service.js';
 import * as Checkin from '../services/schoolReinitCheckin.service.js';
 import multer from 'multer';
 import StorageService from '../services/storage.service.js';
@@ -546,6 +550,7 @@ export async function bookCheckinSlot(req, res, next) {
       return res.status(403).json({ error: { message: 'Forbidden' } });
     }
 
+    await assertAnnualWrite(cycle);
     const booking = await Checkin.bookCheckinSlot({
       cycleId,
       slotId,
@@ -580,6 +585,7 @@ export async function bookPublicCheckinSlot(req, res, next) {
       return res.status(400).json({ error: { message: 'Identity (displayName) is required' } });
     }
     const cycle = await S.resolveTokenCycle(result.row);
+    await assertAnnualWrite(cycle);
     const booking = await Checkin.bookCheckinSlot({
       cycleId: cycle.id,
       slotId,
@@ -654,6 +660,8 @@ export async function getMyCycle(req, res, next) {
     }
 
     let cycle = await S.getCycle({ agencyId, schoolOrganizationId, schoolYear });
+    const annualUpdate = await getAnnualAccess({ agencyId, schoolOrganizationId, schoolYear, cycle });
+    if (!annualUpdate.canWrite && cycle?.status !== 'finalized') return res.json({ annualUpdate, campaign: {status:campaign?.status||'draft',isEnabled:false,isPushed:false}, splashEnabled:false,windowOpen:false,showReceiptButton:false,dismissed:false,cycle:null,actorType:'school_staff' });
     const schoolPushed = S.cycleIsPushed(cycle, campaign);
 
     // Until this school is pushed (individually or bulk), school staff do not get the splash/workflow.
@@ -770,7 +778,10 @@ export async function getCampaignStatus(req, res, next) {
     }
     const schoolYear = String(req.query.schoolYear || S.currentSchoolYear());
     const campaign = await S.getOrCreateCampaign(agencyId, schoolYear);
+    const annualRules = await getAnnualRules(agencyId);
+    const [deliveries] = await annualDb.execute('SELECT kind,status,COUNT(*) AS count FROM school_reinit_deliveries WHERE agency_id=? AND school_year=? GROUP BY kind,status',[agencyId,schoolYear]);
     res.json({
+      annualRules, schedule: annualSchedule(schoolYear,annualRules), deliveries, automationHeld:!annualAutomationEnabled(),
       agencyId,
       schoolYear,
       campaign: campaignPayload(campaign),
@@ -976,6 +987,8 @@ async function buildDashboardPayload(cycle) {
 
   return {
     cycle: parseSnapshot(cycle),
+    annualUpdate: await getAnnualAccess({ agencyId:cycle.agency_id, schoolOrganizationId:cycle.school_organization_id, schoolYear:cycle.school_year, cycle }),
+    outstanding: outstandingAnnualInfo(sections, questions, cycle.status === 'finalized'),
     sections,
     providers,
     staff,
@@ -1041,6 +1054,7 @@ export async function submitMyChangeRequest(req, res, next) {
     if (!(await assertSchoolStaffForOrg(req, cycle.school_organization_id))) {
       return res.status(403).json({ error: { message: 'Forbidden' } });
     }
+    await assertAnnualWrite(cycle);
     const actor = actorFromReq(req, req.body);
     if (!actor) return res.status(400).json({ error: { message: 'Identity required' } });
 
@@ -1192,6 +1206,7 @@ export async function submitPublicChangeRequest(req, res, next) {
       return res.status(400).json({ error: { message: 'Link locked' } });
     }
     const cycle = await S.resolveTokenCycle(result.row);
+    await assertAnnualWrite(cycle);
     const actor = actorFromReq(req, req.body);
     if (!actor) return res.status(400).json({ error: { message: 'Identity required' } });
 
@@ -1275,6 +1290,7 @@ async function resolveWritableCycleFromToken(token) {
     throw err;
   }
   const cycle = await S.resolveTokenCycle(result.row);
+    await assertAnnualWrite(cycle);
   if (cycle.status === 'finalized') {
     const err = new Error('Already finalized');
     err.status = 400;
@@ -1409,3 +1425,22 @@ export const uploadPublicSchoolEventFlier = [
     }
   },
 ];
+
+/** Annual schedule settings are agency-scoped; changing them never marks schools complete. */
+export async function updateAnnualSchedule(req,res,next) {
+  try {
+    const agencyId=safeInt(req.body?.agencyId);
+    if(!await canManageAnnualUpdate(req.user,agencyId)) return res.status(403).json({error:{message:'Forbidden'}});
+    const annualRules=await saveAnnualRules(agencyId,req.body,req.user?.id);
+    res.json({annualRules,schedule:annualSchedule(String(req.body.schoolYear||S.currentSchoolYear()),annualRules)});
+  } catch(error) { next(error); }
+}
+export async function manageAnnualFollowup(req,res,next) {
+  try {
+    const cycle=await S.getCycleById(safeInt(req.params.cycleId));
+    if(!cycle)return res.status(404).json({error:{message:'Cycle not found'}});
+    if(!await canManageAnnualUpdate(req.user,cycle.agency_id))return res.status(403).json({error:{message:'Forbidden'}});
+    const annualUpdate=await updateAnnualFollowup({cycle,input:req.body||{},userId:req.user?.id});
+    res.json({annualUpdate});
+  } catch(error) { next(error); }
+}

@@ -223,7 +223,8 @@ export async function assignAssessmentToClient({
   agencyId,
   clientId,
   coachUserId = null,
-  organizationSlug = ''
+  organizationSlug = '',
+  notify = true
 } = {}) {
   const familyKey = normalizeFamilyKey(family);
   const meta = getFamilyMeta(familyKey);
@@ -241,16 +242,22 @@ export async function assignAssessmentToClient({
       accessToken: cycle.accessToken,
       organizationSlug
     });
-    return {
-      family: familyKey,
-      catalogId: meta.catalogId,
-      title: meta.title,
-      kind: meta.kind,
-      assessment: cycle,
-      accessToken: cycle.accessToken,
-      inviteTokens: cycle.inviteTokens,
-      ...urls
-    };
+    return finishAssignment({
+      notify,
+      agencyId,
+      clientId,
+      familyKey,
+      assigned: {
+        family: familyKey,
+        catalogId: meta.catalogId,
+        title: meta.title,
+        kind: meta.kind,
+        assessment: cycle,
+        accessToken: cycle.accessToken,
+        inviteTokens: cycle.inviteTokens,
+        ...urls
+      }
+    });
   }
 
   const creator = SINGLE_CREATORS[familyKey];
@@ -271,13 +278,38 @@ export async function assignAssessmentToClient({
     organizationSlug
   });
 
-  return {
-    family: familyKey,
-    catalogId: meta.catalogId,
-    title: meta.title,
-    kind: meta.kind,
-    assessment,
-    accessToken,
-    ...urls
-  };
+  return finishAssignment({
+    notify,
+    agencyId,
+    clientId,
+    familyKey,
+    assigned: {
+      family: familyKey,
+      catalogId: meta.catalogId,
+      title: meta.title,
+      kind: meta.kind,
+      assessment,
+      accessToken,
+      ...urls
+    }
+  });
+}
+
+async function finishAssignment({ notify, agencyId, clientId, familyKey, assigned }) {
+  if (notify !== false && assigned.assessment?.id) {
+    try {
+      const { queuePortalShareForClient } = await import('./portalShareNotice.service.js');
+      await queuePortalShareForClient({
+        agencyId,
+        clientId,
+        kind: 'assessment',
+        familyKey,
+        referenceId: assigned.assessment.id,
+        href: assigned.brandedPath || assigned.shortPath
+      });
+    } catch (error) {
+      console.warn('[assessment assign] portal notice was not queued', error?.message || error);
+    }
+  }
+  return assigned;
 }

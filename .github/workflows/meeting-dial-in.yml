@@ -1,0 +1,85 @@
+name: Personal meeting dial-in
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/src/**/*meeting*'
+      - 'backend/src/**/*supervision*'
+      - 'backend/src/**/*Meeting*'
+      - 'backend/src/**/*Supervision*'
+      - 'backend/src/services/video.service.js'
+      - 'backend/src/server.js'
+      - 'backend/src/bootstrap.js'
+      - 'backend/vitest.meeting-dial-in.config.js'
+      - 'database/migrations/1753_meeting_personal_dial_in.sql'
+      - 'frontend/src/components/meetings/MeetingDialInPanel.vue'
+      - 'frontend/src/components/meetings/__tests__/MeetingDialInPanel.test.js'
+      - 'frontend/vitest.meeting-dial-in.config.js'
+      - 'frontend/src/components/schedule/ScheduleAvailabilityGrid.vue'
+      - 'frontend/src/components/supervision/SupervisionLiveRoom.vue'
+      - 'frontend/src/views/teamMeeting/JoinTeamMeetingView.vue'
+      - '.github/workflows/meeting-dial-in.yml'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'database/migrations/1753_meeting_personal_dial_in.sql'
+      - '.github/workflows/meeting-dial-in.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phone-meeting:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0.44
+        env:
+          MYSQL_ROOT_PASSWORD: isolated_phone_fixture
+        ports:
+          - 33316:3306
+        options: >-
+          --health-cmd="mysqladmin ping -pisolated_phone_fixture"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      TZ: America/Denver
+      SKIP_DB_CONNECT: '1'
+      SKIP_CLINICAL_DB_CONNECT: '1'
+      DB_HOST: 127.0.0.1
+      DB_PORT: '1'
+      DB_USER: assistant_tests_never_prod
+      DB_PASSWORD: unused
+      DB_NAME: never_production
+      DIAL_IN_TEST_MYSQL_HOST: 127.0.0.1
+      DIAL_IN_TEST_MYSQL_PORT: '33316'
+      DIAL_IN_TEST_MYSQL_USER: root
+      DIAL_IN_TEST_MYSQL_PASSWORD: isolated_phone_fixture
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Install test dependencies without build artifacts
+        run: |
+          npm ci --prefix backend --ignore-scripts
+          npm ci --prefix frontend --ignore-scripts
+      - name: Build bcrypt native test dependency
+        working-directory: backend
+        run: npm rebuild bcrypt --no-fund --no-audit
+      - name: Personal credentials, signed callbacks, current permissions and isolated MySQL lifecycle
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.meeting-dial-in.config.js
+      - name: Existing supervision and meeting receipt behavior
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.supervision-safety.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.meeting-followup.config.js
+      - name: Private phone invitation UI
+        working-directory: frontend
+        run: node node_modules/vitest/vitest.mjs run --config vitest.meeting-dial-in.config.js

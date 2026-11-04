@@ -5,6 +5,7 @@ import {buildPublicAppUrl} from '../utils/publicPortalUrl.js';
 import VonageService from './vonage.service.js';
 import {sendNotificationEmail} from './unifiedEmail/unifiedEmailSender.service.js';
 import {resolveRegisteredSmsSender} from './smsCompliance.service.js';
+import {queuePeopleOperationsSubmission,runPeopleOperationsSubmissionNotifications} from './peopleOperationsSubmissionNotifications.service.js';
 const parse=v=>typeof v==='string'?JSON.parse(v):v;
 export const HIRING_EVENT_TEXT = Object.freeze({
  prehire_invite:'Your private pre-hire portal is ready.',
@@ -32,7 +33,7 @@ export function hiringSnapshotEvents(previous,current) {
 }
 export async function hiringNotificationSnapshot(userId,agencyId,status,db=pool){
  const [[journey]]=await db.execute('SELECT prehire_completed_at,onboarding_started_at,onboarding_completed_at FROM hire_journeys WHERE user_id=? AND agency_id=?',[userId,agencyId]);
- const [tasks]=await db.execute(`SELECT id,task_type,title,metadata,reference_id FROM tasks WHERE assigned_to_user_id=?
+ const [tasks]=await db.execute(`SELECT id,task_type,title,metadata,reference_id,status,completed_at FROM tasks WHERE assigned_to_user_id=?
    AND task_type IN ('document','training','intake_form','custom')
    AND (task_type <> 'custom' OR JSON_EXTRACT(metadata,'$.checklistItemId') IS NOT NULL)
    AND (document_action_type IS NULL OR document_action_type <> 'countersignature')
@@ -42,13 +43,15 @@ export async function hiringNotificationSnapshot(userId,agencyId,status,db=pool)
  for(const task of tasks){const phase=taskPhase(task,status);if(steps[phase])steps[phase].push({key:`task-${task.id}`,kind:'task',taskType:task.task_type});}
  for(const doc of packet.documents||[])if(doc.kind!=='acknowledgement'&&!(doc.templateId&&tasks.some(t=>t.task_type==='document'&&Number(t.reference_id)===Number(doc.templateId))))steps.pre_hire.push({key:`doc-${doc.id}`,kind:'document'});
  for(const resource of packet.workflow?.resources||[])if(steps[resource.phase]&&resource.kind!=='document')steps[resource.phase].push({key:resource.id,kind:resource.kind});
- return {prehireCompletedAt:journey?.prehire_completed_at,onboardingStartedAt:journey?.onboarding_started_at,onboardingCompletedAt:journey?.onboarding_completed_at,steps};
+ const submittedDocuments=tasks.filter(task=>task.task_type==='document'&&task.status==='completed'&&task.completed_at).map(task=>({id:Number(task.id),version:new Date(task.completed_at).toISOString()}));
+ return {prehireCompletedAt:journey?.prehire_completed_at,onboardingStartedAt:journey?.onboarding_started_at,onboardingCompletedAt:journey?.onboarding_completed_at,steps,submittedDocuments};
 }
 export async function queueHiringNotification({userId,agencyId,key,type,emailAlreadyHandled=false,skipDelivery=false},db=pool){
  if(!HIRING_EVENT_TEXT[type])throw new Error('Unknown hiring notification event');
  await db.execute(`INSERT IGNORE INTO hire_communication_preferences(user_id,agency_id) VALUES (?,?)`,[userId,agencyId]);
  await db.execute(`INSERT IGNORE INTO hire_notification_events(user_id,agency_id,event_key,event_type,email_status,sms_status)
    VALUES (?,?,?,?,?,?)`,[userId,agencyId,key,type,emailAlreadyHandled||skipDelivery?'handled':'pending',skipDelivery?'skipped':'pending']);
+ if(['prehire_complete','onboarding_complete'].includes(type))await queuePeopleOperationsSubmission({agencyId,userId,kind:type,id:userId},db);
 }
 export async function runHiringNotifications(){
  const db=await pool.getConnection();let locked=false;
@@ -64,7 +67,13 @@ export async function runHiringNotifications(){
    try{
     const current=await hiringNotificationSnapshot(person.user_id,person.agency_id,person.status,db);
     await db.beginTransaction();
-    for(const event of hiringSnapshotEvents(parse(person.observed_snapshot),current))await queueHiringNotification({userId:person.user_id,agencyId:person.agency_id,...event},db);
+    const previous=parse(person.observed_snapshot);
+    for(const event of hiringSnapshotEvents(previous,current))await queueHiringNotification({userId:person.user_id,agencyId:person.agency_id,...event},db);
+    // The first observation establishes a baseline, never replays old documents.
+    if(Array.isArray(previous?.submittedDocuments)){
+     const seen=new Set(previous.submittedDocuments.map(doc=>`${doc.id}:${doc.version}`));
+     for(const doc of current.submittedDocuments)if(!seen.has(`${doc.id}:${doc.version}`))await queuePeopleOperationsSubmission({agencyId:person.agency_id,userId:person.user_id,kind:'task',id:doc.id},db);
+    }
     await db.execute('UPDATE hire_communication_preferences SET observed_snapshot=? WHERE user_id=? AND agency_id=?',[JSON.stringify(current),person.user_id,person.agency_id]);
     await db.commit();
    }catch(e){await db.rollback();console.warn('[hiring-notifications] Unable to observe journey',person.user_id,e.code||e.name);}
@@ -101,5 +110,6 @@ export async function runHiringNotifications(){
     await db.execute(`UPDATE hire_notification_events SET ${channel}_status=? WHERE id=?`,[status,event.id]);
    }
   }
+  await runPeopleOperationsSubmissionNotifications(db);
  }finally{try{if(locked)await db.execute("SELECT RELEASE_LOCK('hiring-notification-worker')");}finally{db.release();}}
 }

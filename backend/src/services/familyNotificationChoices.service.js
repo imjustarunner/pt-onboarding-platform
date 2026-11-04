@@ -116,6 +116,13 @@ export async function latestFamilyEmailSchedulingChoice({agencyId,clientId,to,af
 }
 // Restricts existing permitted delivery; never creates SMS consent or bypasses an agency pause.
 export async function familyNotificationDeliveryGate({agencyId,clientId,to,channel='email',templateType,notificationCategory},db=pool) {
+  if(['client_update','client_portal_share'].includes(String(templateType||'').replace(/^trigger:/,''))) {
+    if(channel!=='email')return {allowed:false,reason:'client_updates_email_only'};
+    try {
+      const {currentClientUpdateRecipient}=await import('./clientUpdate.service.js');
+      await currentClientUpdateRecipient({agencyId,clientId,to});
+    }catch{return {allowed:false,reason:'client_update_portal_access_changed'};}
+  }
   if (channel === 'email' && isRequestedAccountEmail(templateType)) return {allowed:true};
   // Confidential contact instructions cover automated notices as well as optional
   // categories. Only a specifically requested access email bypasses this choice.

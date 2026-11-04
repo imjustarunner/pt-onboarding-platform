@@ -12,3 +12,10 @@ export async function schoolEmailPortalUrl({ schoolOrganizationId }) {
   }
   return routingDestination(slug);
 }
+
+/** Keep the existing guarded annual-management view on the school host. */
+export function schoolEmailAdminOverviewUrl(agency) {
+  const slug = String(agency?.portal_url || agency?.slug || '').trim().toLowerCase();
+  if (!slug) throw new Error('School administration requires a configured agency portal');
+  return `${routingDestination(slug)}/admin/schools/overview?orgType=school&yearUpdate=1`;
+}
