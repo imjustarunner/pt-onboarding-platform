@@ -38,3 +38,10 @@ export async function consumeSsoHandoff(to, bootstrap) {
   const { sso, ssoOrg, ...query } = to.query;
   return { path: to.path, query, hash: to.hash, replace: true };
 }
+
+// AuricWell has its own HTML entry and router; hand off with a document navigation.
+export function auricwellLoginDestination(value, hostname = window.location.hostname) {
+  const safe = safeLoginDestination(value);
+  if (!safe || /[\u0000-\u0020]/.test(safe)) return null;
+  return /^\/auricwell\/app(?:[/?#]|$)/.test(safe) || (/^(www\.)?auricwell\.com$/i.test(hostname) && /^\/app(?:[/?#]|$)/.test(safe)) ? safe : null;
+}

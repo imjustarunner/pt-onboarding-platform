@@ -305,6 +305,7 @@ export const authenticate = async (req, res, next) => {
     await req.auditIdentify?.(req.user);
     return finishAuthentication(req, res, next);
   } catch (error) {
+    if (['ACCOUNT_DISABLED', 'ACCOUNT_UNAVAILABLE'].includes(error.code)) return res.status(error.status).json({ error: { code: error.code, message: error.message } });
     if (error.code === 'HIRE_ACTIVATION_REQUIRED') return res.status(403).json({ error: { code: error.code, message: error.message, usePortalLink: true } });
     if (error.code?.startsWith('SESSION_')) return res.status(error.status || 503).json({ error: { code: error.code, message: error.message } });
     if (!['TokenExpiredError', 'JsonWebTokenError', 'NotBeforeError'].includes(error.name)) return next(error);

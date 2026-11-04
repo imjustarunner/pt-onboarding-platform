@@ -457,7 +457,7 @@ class User {
   static async findById(id) {
     // Check which columns exist to avoid errors if migrations haven't been run
     // password_hash is required for login/password-policy and school-onboarding setPassword checks.
-    let query = 'SELECT id, email, phone_number, role, status, completed_at, terminated_at, status_expires_at, is_active, first_name, last_name, invitation_token, invitation_token_expires_at, password_hash, temporary_password_hash, temporary_password_expires_at, passwordless_token, passwordless_token_expires_at, created_at';
+    let query = 'SELECT id, email, phone_number, role, status, completed_at, terminated_at, status_expires_at, is_active, is_archived, first_name, last_name, invitation_token, invitation_token_expires_at, password_hash, temporary_password_hash, temporary_password_expires_at, passwordless_token, passwordless_token_expires_at, created_at';
     
     // Try to include pending fields if they exist (will be added by migrations)
     try {

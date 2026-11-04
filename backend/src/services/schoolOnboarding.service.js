@@ -10,6 +10,7 @@ import SchoolOnboardingQrLink from '../models/SchoolOnboardingQrLink.model.js';
 import Agency from '../models/Agency.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import User from '../models/User.model.js';
+import { assertCurrentAccountEnabled } from './accountAccess.service.js';
 import EmailTemplateService from './emailTemplate.service.js';
 import EmailService from './email.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
@@ -1350,6 +1351,7 @@ export async function setPassword(token, password, identity = {}) {
   if (!usable.ok) {
     throw Object.assign(new Error(usable.message), { status: usable.code === 'not_found' ? 404 : 410 });
   }
+  await assertCurrentAccountEnabled(invite.primary_user_id);
   if (usable.submitted) {
     throw Object.assign(new Error('Onboarding already submitted. Please log in.'), { status: 400 });
   }
@@ -1756,6 +1758,7 @@ export async function submitOnboarding(token) {
   if (!usable.ok) {
     throw Object.assign(new Error(usable.message), { status: usable.code === 'not_found' ? 404 : 410 });
   }
+  await assertCurrentAccountEnabled(invite.primary_user_id);
   if (usable.submitted) {
     const urls = buildSchoolPortalUrls(invite);
     const serialized = serializeInvite(invite, { publicView: true });
@@ -1805,11 +1808,6 @@ export async function submitOnboarding(token) {
   } catch (e) {
     console.warn('[schoolOnboarding] outreach partner sync on submit failed:', e?.message || e);
   }
-  try {
-    await User.update(invite.primary_user_id, { isActive: true });
-  } catch {
-    // ignore
-  }
 
   // Activate other school staff created during onboarding
   try {
@@ -1818,8 +1816,8 @@ export async function submitOnboarding(token) {
       const uid = Number(row?.userId || 0);
       if (!uid || uid === invite.primary_user_id) continue;
       try {
+        await assertCurrentAccountEnabled(uid);
         await User.updateStatus(uid, 'ACTIVE_EMPLOYEE', invite.primary_user_id);
-        await User.update(uid, { isActive: true });
       } catch {
         // ignore per-user failures
       }

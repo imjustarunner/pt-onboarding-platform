@@ -1583,6 +1583,8 @@
           <ClientCommunicationsTab :client-id="Number(props.client.id)" />
         </div>
 
+        <ClientPortalOverview v-if="chartHub==='portal' && canViewGuardians" :key="client.id" :client="client" :agency="{id:Number(selectedAgencyId||client.agency_id),name:primaryAgencyDisplayName}" :actor="authStore.user" @share-documents="goChartSub('documents')" @share-assessments="goChartSub('assessments')" @manage-access="goChartSub('guardians')" />
+
         <!-- Guardians Tab -->
         <div v-if="showPanel('guardians')" class="detail-section">
           <h3>{{ isSelfIntakeContact ? 'Client (self)' : 'Guardians' }}</h3>
@@ -2785,6 +2787,7 @@
 
 <script setup>
 import ClientOperationalStatus from '../clients/ClientOperationalStatus.vue';
+import ClientPortalOverview from '../clients/ClientPortalOverview.vue';
 import DependentPortalSharing from './DependentPortalSharing.vue';
 import ClientServiceEnrollments from './ClientServiceEnrollments.vue';
 import ClientFeedbackTrends from '../kiosk/ClientFeedbackTrends.vue';
@@ -4202,6 +4205,7 @@ const overviewAlertItems = computed(() => {
 const tabs = computed(() => ([
   { id: 'overview', label: 'Overview' },
   { id: 'account', label: 'Account' },
+  ...(canViewGuardians.value ? [{id:'portal',label:'Portal'}] : []),
   { id: 'lifecycle', label: 'Lifecycle' },
   { id: 'records', label: 'Records' },
   { id: 'messages', label: 'Messages' }

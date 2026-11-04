@@ -9,6 +9,22 @@ vi.mock('../../../services/api', () => ({ default: { get: mocks.get, post: mocks
 vi.mock('../../../composables/useClientDisplayMode', () => ({ useClientDisplayMode: () => ({ getClientLabel: () => 'Referral' }) }));
 import Panel from '../ClientExchangePanel.vue';
 const makeWrapper = () => mount(Panel, { global: { stubs: { RouterLink: true, ListingCard: true, ClientDisplayModeToggle: true, PostListingModal: true } } });
+it.each([false, true])('card requests preserve warning review before submission (warnings=%s)', async warnings => {
+  const listing = { id: 17, agencyId: 450, status: 'open', currentProviderUserId: 99,
+    viewerFit: { status: 'match', canRequest: true, blockers: [], adjustments: warnings ? [{ code: 'age', message: 'Review the age difference.', fingerprint: 'age-v1' }] : [] } };
+  mocks.user = { id: 7, role: 'provider' };
+  mocks.route.params = {}; mocks.route.query = {};
+  mocks.store = reactive({ currentAgency: { id: 450 }, userAgencies: [], agencies: [], fetchUserAgencies: vi.fn().mockResolvedValue([]) });
+  mocks.post.mockReset().mockResolvedValue({ data: {} });
+  mocks.get.mockReset().mockImplementation(async url => ({ data: url.endsWith('/17') ? { listing, requests: [] } : { listings: [listing], requests: [] } }));
+  const wrapper = makeWrapper(); await flushPromises();
+  wrapper.findComponent({ name: 'ListingCard' }).vm.$emit('request', listing); await flushPromises();
+  if (warnings) {
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain('Review the age difference.');
+  } else expect(mocks.post).toHaveBeenCalledWith('/client-exchange/listings/17/requests', { message: '' });
+  wrapper.unmount();
+});
 describe('exchange agency loading', () => {
   beforeEach(() => {
     mocks.store = reactive({ currentAgency: null, userAgencies: [], agencies: [], fetchUserAgencies: vi.fn().mockResolvedValue([]) });
@@ -84,6 +100,7 @@ it('lets a QA provider request a clean demo match and still hides staff-only dem
   mocks.get.mockImplementation(async url => ({ data: url.endsWith('/17') ? { listing: visible, requests: [] } : { listings: [visible], requests: [] } }));
   const wrapper = makeWrapper(); await flushPromises();
   expect(wrapper.text()).toContain('Match');
+  expect(wrapper.findComponent({ name: 'ListingCard' }).props('canRequest')).toBe(true);
   expect(wrapper.findAll('button').some(button => button.text() === 'Request this client')).toBe(true);
   wrapper.unmount();
 });

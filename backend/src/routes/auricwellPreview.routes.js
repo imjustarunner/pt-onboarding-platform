@@ -1,6 +1,10 @@
 import { withToastLoginSession } from '../utils/toastLoginSession.js';
 import express from 'express';
+import auricwellPortalRoutes from './auricwellPortal.routes.js';
 import pool from '../config/database.js';
+import {requireClinicalChart} from '../middleware/medicalBilling.middleware.js';
+import {readAssignedClientCare} from '../services/auricwellClientPreview.service.js';
+import {auricwellDirectory} from '../services/auricwellDirectory.service.js';
 import { auricwellAgenda } from '../services/auricwellAgenda.service.js';
 import Agency from '../models/Agency.model.js';
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
@@ -10,6 +14,7 @@ import { logAuditEvent } from '../services/auditEvent.service.js';
 import { listToasts, saveToast, deleteToast } from '../services/toastAnnouncements.service.js';
 const router = express.Router();
 router.use(authenticate, requireActiveStatus, requirePreviewAdmin);
+router.use('/portal',auricwellPortalRoutes);
 const practice = a => ({ id: a.id, name: a.name, slug: a.slug, organization_type: a.organization_type, feature_flags: a.feature_flags });
 router.get('/', async (req, res, next) => {
   try {
@@ -36,6 +41,21 @@ const toastAgency = req => {
   return id;
 };
 const run = fn => (req, res, next) => Promise.resolve().then(() => fn(req, res, next)).catch(next);
+router.get('/my-clients',run(async(req,res)=>{
+  res.set('Cache-Control','private, no-store');
+  res.json(await auricwellDirectory.mine({actor:req.previewActor,input:req.query,qaAgencyId:req.auricwellQaAgencyId}));
+}));
+router.get('/my-clients/:clientId/preview',run(async(req,res,next)=>{
+  // Re-resolve the assignment on every read. Caller-supplied tenant/provider IDs
+  // cannot expand the personal caseload; clinical flags use the owning agency.
+  req.assignedPreviewClient=await auricwellDirectory.assignedClient({actor:req.previewActor,clientId:req.params.clientId,qaAgencyId:req.auricwellQaAgencyId});
+  req.query.agencyId=String(req.assignedPreviewClient.agency_id);
+  req.query.agency_id=req.query.agencyId;
+  next();
+}),requireClinicalChart,run(async(req,res)=>{
+  res.set('Cache-Control','private, no-store');
+  res.json(await readAssignedClientCare(req.assignedPreviewClient));
+}));
 for (const [path,method] of [['workspace-scope','workspace'],['agenda','agenda'],['directory','clients']]) {
   router.get(`/${path}`,run(async(req,res)=>{
     const agencyId=req.auricwellPreview?.agencyId;

@@ -5,7 +5,7 @@ vi.mock('../../models/User.model.js',()=>({default:{findById:vi.fn()}}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:vi.fn()}}));
 vi.mock('../auth.middleware.js',()=>({authenticate:(q,s,n)=>n(),requireActiveStatus:(q,s,n)=>n()}));
 vi.mock('../../services/auditEvent.service.js',()=>({logAuditEvent:vi.fn()}));
-import { auricwellPreviewBoundary } from '../auricwellPreview.middleware.js';
+import { auricwellPreviewBoundary, checkPreviewBody } from '../auricwellPreview.middleware.js';
 import pool from '../../config/database.js';
 import clinical from '../../config/clinicalDatabase.js';
 import User from '../../models/User.model.js';
@@ -41,4 +41,18 @@ describe('QA staff practice boundary',()=>{
     pool.execute.mockImplementation(async sql=>sql.includes('JOIN user_agencies')?[[{id:450}]]:[[{agency_id:2}]]);
     expect((await run({get:()=> '450',path:'/clients/55',user:{id:1433,role:'provider'}})).error.status).toBe(404);
   });
+});
+
+describe('duplicate merge practice boundary',()=>{
+ const merge=body=>({path:'/clients/merge/preview',auricwellPreview:{agencyId:7},user:{id:9,role:'super_admin'},body});
+ it('checks every source, survivor, and chosen field against the current practice',async()=>{
+  await checkPreviewBody(merge({keepId:1,sourceIds:[2],fieldChoices:{full_name:3}}));
+  expect(pool.execute.mock.calls.map(call=>call[1][0])).toEqual([1,2,3]);
+  pool.execute.mockResolvedValueOnce([[{agency_id:8}]]);
+  await expect(checkPreviewBody(merge({keepId:1,sourceIds:[2]}))).rejects.toMatchObject({status:404});
+ });
+ it('does not allow provider merge or an empty source selection',async()=>{
+  await expect(checkPreviewBody({...merge({keepId:1,sourceIds:[2]}),user:{id:8,role:'provider'}})).rejects.toMatchObject({status:403});
+  await expect(checkPreviewBody(merge({keepId:1,sourceIds:[]}))).rejects.toMatchObject({status:400});
+ });
 });

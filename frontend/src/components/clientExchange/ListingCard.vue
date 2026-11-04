@@ -16,6 +16,10 @@
           {{ listing.pendingRequestCount }}
         </span>
       </div>
+      <div v-if="canRequest || requestPending" class="lc-actions" @click.stop>
+        <button v-if="canRequest" type="button" class="btn btn-primary btn-sm" @click="$emit('request', listing)">Request this client</button>
+        <p v-else class="muted">Your request is pending.</p>
+      </div>
     </template>
 
     <template v-else>
@@ -41,7 +45,9 @@
       </div>
 
       <div class="lc-actions" @click.stop>
-        <button type="button" class="btn btn-primary btn-sm" @click="$emit('select', listing)">{{ (listing.canViewAudit ?? isBackoffice) ? 'View client and matching audit' : 'View client' }}</button>
+        <button v-if="canRequest" type="button" class="btn btn-primary btn-sm" @click="$emit('request', listing)">Request this client</button>
+        <p v-else-if="requestPending" class="muted">Your request is pending.</p>
+        <button type="button" class="btn btn-sm" :class="canRequest ? 'btn btn-secondary' : 'btn btn-primary'" @click="$emit('select', listing)">{{ (listing.canViewAudit ?? isBackoffice) ? 'View client and matching audit' : 'View client' }}</button>
         <button
           v-if="canWithdraw"
           type="button"
@@ -104,9 +110,11 @@ const props = defineProps({
   requestsLoading: { type: Boolean, default: false },
   selected: { type: Boolean, default: false },
   clientLabel: { type: String, default: '' },
-  compact: { type: Boolean, default: false }
+  compact: { type: Boolean, default: false },
+  canRequest: { type: Boolean, default: false },
+  requestPending: { type: Boolean, default: false }
 });
-const emit = defineEmits(['withdraw', 'expand', 'approve', 'deny', 'select']);
+const emit = defineEmits(['withdraw', 'expand', 'approve', 'deny', 'select', 'request']);
 
 const expanded = ref(false);
 

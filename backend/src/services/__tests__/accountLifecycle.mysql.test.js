@@ -9,18 +9,22 @@ vi.mock('../../config/database.js', () => ({
 vi.mock('../hireGroupAccount.service.js', () => ({ removeHireGoogleGroupForUser: vi.fn() }));
 import User from '../../models/User.model.js';
 import ClientSchoolStaffRoiAccess from '../../models/ClientSchoolStaffRoiAccess.model.js';
+import { assertCurrentAccountEnabled } from '../accountAccess.service.js';
 import { changeAccountLifecycle } from '../accountLifecycle.service.js';
 import { restoreSchoolStaffAccess } from '../schoolStaffReactivation.service.js';
 
 describe.skipIf(process.env.ACCOUNT_LIFECYCLE_MYSQL_TEST !== '1')('account lifecycle with the real archive guard', () => {
   let db;
+  const socketPath = process.env.ACCOUNT_LIFECYCLE_TEST_SOCKET || '/private/tmp/school-roi-investigation/mysql.sock';
   const connection = process.env.SCHEDULING_TEST_MYSQL_PORT
     ? { host: '127.0.0.1', port: Number(process.env.SCHEDULING_TEST_MYSQL_PORT), user: 'root' }
-    : { socketPath: '/private/tmp/school-roi-investigation/mysql.sock', user: 'root' };
+    : { socketPath, user: 'root' };
   const current = async () => (await db.execute('SELECT * FROM users WHERE id = 42'))[0][0];
   const events = async () => (await db.execute('SELECT * FROM user_activity_log ORDER BY id'))[0];
   beforeAll(async () => {
     // Only isolated local/CI MySQL; never use application database credentials.
+    if (connection.socketPath && !/^\/private\/tmp\/(?:school-roi-investigation|pt-release-mysql-[^/]+)\/mysql\.sock$/.test(socketPath)) throw new Error('A disposable local socket is required.');
+    if (connection.port !== undefined && (!Number.isInteger(connection.port) || connection.port < 1 || connection.port > 65535)) throw new Error('A valid isolated test port is required.');
     const setup = await mysql.createConnection(connection);
     await setup.query('DROP DATABASE IF EXISTS account_lifecycle_test');
     await setup.query('CREATE DATABASE account_lifecycle_test CHARACTER SET utf8mb4');
@@ -69,11 +73,11 @@ describe.skipIf(process.env.ACCOUNT_LIFECYCLE_MYSQL_TEST !== '1')('account lifec
     expect(await User.hasAnySchoolAgencyMembership(42)).toBe(false);
     await User.disableSchoolStaffLogin(42, 3, 20);
     expect(await current()).toMatchObject({ status: 'ARCHIVED', is_active: 0, is_archived: 1, archived_by_user_id: 3 });
-    expect((await current()).is_active).toBe(0);
+    await expect(assertCurrentAccountEnabled(42)).rejects.toMatchObject({ code: 'ACCOUNT_DISABLED' });
     await db.execute('INSERT INTO user_agencies(user_id,agency_id) VALUES (42,20)');
     await User.updateStatus(42, 'ACTIVE_EMPLOYEE', 3, { source: 'school_portal_staff_added', agencyId: 20, reason: 'Staff added back to the school.' });
     expect(await current()).toMatchObject({ status: 'ACTIVE_EMPLOYEE', is_active: 1, is_archived: 0, archived_at: null, archived_by_user_id: null });
-    expect(await current()).toMatchObject({ is_active: 1, is_archived: 0 });
+    await expect(assertCurrentAccountEnabled(42)).resolves.toBeUndefined();
     expect(await ClientSchoolStaffRoiAccess.listSchoolStaffRosterForOrganization({ schoolOrganizationId: 20 }))
       .toEqual([expect.objectContaining({ school_staff_user_id: 42, phone_number: '303-555-0100' })]);
     const history = await events();
@@ -88,7 +92,7 @@ describe.skipIf(process.env.ACCOUNT_LIFECYCLE_MYSQL_TEST !== '1')('account lifec
 
   it('repairs a stale archive flag during explicit activation, including the existing ACTIVE_EMPLOYEE status', async () => {
     await db.execute("UPDATE users SET is_archived=1,archived_at=NOW() WHERE id=42");
-    expect((await current()).is_active).toBe(0);
+    await expect(assertCurrentAccountEnabled(42)).rejects.toMatchObject({ code: 'ACCOUNT_DISABLED' });
     await User.updateStatus(42, 'ACTIVE_EMPLOYEE', 3);
     expect(await current()).toMatchObject({ is_archived: 0, is_active: 1, status: 'ACTIVE_EMPLOYEE' });
   });
@@ -144,7 +148,7 @@ describe.skipIf(process.env.ACCOUNT_LIFECYCLE_MYSQL_TEST !== '1')('account lifec
     expect(history).toHaveLength(2);
     expect(history[1].metadata).toMatchObject({ source: 'user_archive_restored', before: { archivedByUserId: 3 }, after: { archivedByUserId: null } });
     // Restore from the archive alone does not grant login permission.
-    expect((await current()).is_active).toBe(0);
+    await expect(assertCurrentAccountEnabled(42)).rejects.toMatchObject({ code: 'ACCOUNT_DISABLED' });
   });
 
   it('labels automatic termination expiry as a system action with its actual reason', async () => {

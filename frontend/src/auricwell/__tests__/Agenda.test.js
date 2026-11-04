@@ -19,7 +19,7 @@ it('uses exact times, untimed school plans, visible source/status, and only read
 });
 it('keeps search, scope, sort and page in route state; Back reloads prior filters',async()=>{
  await mountPage();await wrapper.find('input[type=search]').setValue('DEMO QA');const selects=wrapper.findAll('select');await selects[0].setValue('supervisees');await flushPromises();expect(mocks.route.query.scope).toBe('supervisees');expect(mocks.route.query.search).toBe('DEMO QA');
- await wrapper.find('nav button:last-child').trigger('click');await flushPromises();expect(mocks.route.query.page).toBe('2');expect(mocks.get.mock.calls.at(-1)[1].params).toMatchObject({scope:'supervisees',page:'2'});
+ await wrapper.find('[aria-label="Results pages"] button:last-child').trigger('click');await flushPromises();expect(mocks.route.query.page).toBe('2');expect(mocks.get.mock.calls.at(-1)[1].params).toMatchObject({scope:'supervisees',page:'2'});
  mocks.route.query={scope:'mine',search:'prior',page:'1'};await flushPromises();expect(wrapper.find('input[type=search]').element.value).toBe('prior');expect(mocks.get.mock.calls.at(-1)[1].params.scope).toBe('mine');
 });
 it('defaults directory to active providers and keeps history searchable',async()=>{
@@ -34,3 +34,16 @@ it('routes another provider to their schedule without changing actor or practice
  expect(scheduleLink('itsco',9,rows[0])).toEqual({path:'/itsco/my-schedule',query:{weekStart:'2026-11-02',scheduleViewAs:'10'}});expect(scheduleLink('itsco',9,{...rows[0],providerId:9}).query).not.toHaveProperty('scheduleViewAs');expect(agendaTime(rows[1],'America/Denver')).toBe('Time not set');
 });
 it('filters history and sorts provider names without mutating the source',()=>{expect(providerRows(providers,{history:'all',search:'QA',order:'desc'}).map(p=>p.id)).toEqual([10,11,9]);expect(providers[0].id).toBe(9);});
+
+it('opens the old My Schedule URL as a week and switches to day or agenda without leaving AuricWell',async()=>{
+ mocks.route.params={section:'my-schedule'};mocks.route.query={weekStart:'2026-11-02'};await mountPage();expect(wrapper.find('[aria-label="Schedule calendar"]').exists()).toBe(true);
+ expect(mocks.get.mock.calls.at(-1)[1].params).toMatchObject({view:'week',start:'2026-11-02',end:'2026-11-09'});
+ await wrapper.findAll('[aria-label="Schedule view"] button').find(b=>b.text()==='Day').trigger('click');await flushPromises();expect(mocks.get.mock.calls.at(-1)[1].params).toMatchObject({view:'day',end:'2026-11-03'});
+ await wrapper.findAll('[aria-label="Schedule view"] button').find(b=>b.text()==='Agenda').trigger('click');await flushPromises();expect(wrapper.find('.aw-agenda-list').exists()).toBe(true);expect(wrapper.find('[aria-label="Schedule calendar"]').exists()).toBe(false);
+});
+
+it('opens legacy schedule links in the permitted supervisee scope',async()=>{
+ mocks.route.query={weekStart:'2026-11-02',scheduleViewAs:'10'};
+ await mountPage();
+ expect(mocks.get.mock.calls.at(-1)[1].params).toMatchObject({scope:'supervisees',providerId:'10'});
+});

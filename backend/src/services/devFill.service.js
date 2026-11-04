@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { changeAccountLifecycle } from './accountLifecycle.service.js';
 import Client from '../models/Client.model.js';
 import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
 import User from '../models/User.model.js';
@@ -221,16 +222,22 @@ export async function complianceArchiveGuardian({ guardianUserId, actorUserId, n
   if (Number(guardian.created_via_dev_fill) === 1) {
     throw Object.assign(new Error('Dev Fill guardians should be permanently deleted'), { status: 409 });
   }
-  await pool.execute(
-    `UPDATE users
-     SET is_archived = TRUE,
-         archived_at = COALESCE(archived_at, NOW()),
-         status = 'ARCHIVED',
-         compliance_archived_at = NOW(),
-         compliance_archived_by_user_id = ?
-     WHERE id = ?`,
-    [actorUserId || null, id]
-  );
+  await changeAccountLifecycle({
+    userId: id, actorUserId, source: 'guardian_compliance_archive',
+    reason: note || 'Guardian account compliance archive.',
+    mutate: async (conn) => (await conn.execute(
+      `UPDATE users
+       SET is_archived = TRUE,
+           is_active = FALSE,
+           archived_at = COALESCE(archived_at, NOW()),
+           archived_by_user_id = ?,
+           status = 'ARCHIVED',
+           compliance_archived_at = NOW(),
+           compliance_archived_by_user_id = ?
+       WHERE id = ?`,
+      [actorUserId || null, actorUserId || null, id]
+    ))[0]
+  });
   return User.findById(id);
 }
 

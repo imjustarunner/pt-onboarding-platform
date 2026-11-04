@@ -4,6 +4,7 @@ import { createRouter, createWebHistory } from 'vue-router';
 import { i18n } from '../i18n';
 import api from '../services/api';
 import App from './App.vue';
+import {usesSharedScheduleApi,fullSuiteDestination} from './sharedWorkspace';
 import { auricwellAppBase } from './paths';
 import '../style.css';
 import './style.css';
@@ -12,13 +13,21 @@ import './style.css';
 const router = createRouter({ history: createWebHistory(auricwellAppBase()), routes: [
   { path: '/login', name: 'login', component: { template: '<div />' } },
   { path: '/', component: { template: '<div />' } },
-  { path: '/:organizationSlug/:section?', component: { template: '<div />' }, meta: { auricwellPreview: true } }
+  { path: '/:organizationSlug/note-aid', redirect:to=>({path:`/${to.params.organizationSlug}/documentation`,query:to.query}) },
+  { path: '/note-aid', redirect:to=>({path:router.currentRoute.value.params.organizationSlug?`/${router.currentRoute.value.params.organizationSlug}/documentation`:'/',query:to.query}) },
+  { path: '/:organizationSlug/dashboard', redirect:to=>({path:`/${to.params.organizationSlug}/overview`,query:to.query}) },
+  { path: '/:organizationSlug/admin/clients/:clientId', redirect:to=>({path:`/${to.params.organizationSlug}/clients`,query:{...to.query,clientId:to.params.clientId}}) },
+  { path: '/:organizationSlug/:section?', component: { template: '<div />' }, meta: { auricwellPreview: true } },
+  { path: '/:pathMatch(.*)*', name:'full-suite', component:{template:'<div />'} }
 ] });
+router.beforeEach((to,from)=>{const destination=fullSuiteDestination(to,from);if(destination){window.location.assign(destination);return false;}});
 api.defaults.baseURL = '/api';
 api.interceptors.request.use(config => {
   const id = window.__auricwellPracticeId;
-  if (!id) throw new Error('Select a practice before opening its records.');
-  config.headers['X-AuricWell-Practice'] = String(id);
+  const sessionRequest = /^\/auth\/(?:session-lock-config|session-activity)$/.test(config.url);
+  if (!id && !sessionRequest) throw new Error('Select a practice before opening its records.');
+  if (!sessionRequest && !usesSharedScheduleApi(router.currentRoute.value,config.url)) config.headers['X-AuricWell-Practice'] = String(id);
+  else delete config.headers['X-AuricWell-Practice'];
   config.cookieAuthOnly = true;
   config.skipAuthRedirect = true;
   config.skipGlobalLoading = true;
@@ -33,7 +42,7 @@ api.interceptors.request.use(config => {
   return config;
 });
 api.interceptors.response.use(r => r, error => {
-  if ([401, 423].includes(error.response?.status)) window.dispatchEvent(new Event('auricwell-session-ended'));
+  if ([401, 423].includes(error.response?.status)) window.dispatchEvent(new CustomEvent('auricwell-session-ended',{detail:{status:error.response.status}}));
   return Promise.reject(error);
 });
 const app = createApp(App).use(createPinia()).use(router).use(i18n);

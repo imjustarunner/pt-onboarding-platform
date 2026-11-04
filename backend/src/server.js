@@ -15,6 +15,7 @@ import officeKioskAccessRoutes from './routes/officeKioskAccess.routes.js';
 import officeArrivalPublicRoutes from './routes/officeArrivalPublic.routes.js';
 import auricwellRecordsRoutes from './routes/auricwellRecords.routes.js';
 import auricwellPreviewRoutes from './routes/auricwellPreview.routes.js';
+import portalAdminRoutes from './routes/portalAdmin.routes.js';
 import { auricwellPreviewBoundary } from './middleware/auricwellPreview.middleware.js';
 import { protectTaxIdResponses } from './utils/privateTaxId.js';
 import meetingCalendarRoutes from './routes/meetingCalendar.routes.js';
@@ -468,6 +469,7 @@ app.use('/api', (req, res, next) => {
 });
 
 app.use('/api/auricwell-preview', auricwellPreviewRoutes);
+app.use('/api/portal-admin', portalAdminRoutes);
 app.use('/api/auricwell-records', auricwellRecordsRoutes);
 
 // Temporary diagnostics: logs high-signal details for unexpected 403s on key endpoints.
@@ -1227,7 +1229,7 @@ app.use((err, req, res, next) => {
       ...(err.code === 'PAYMENT_SETUP_REVIEW_REQUIRED' ? { code: err.code } : {}),
       ...(err.code === 'INSURANCE_VERIFICATION_REQUIRED' ? { code: err.code, clientId: Number(err.details?.clientId), agencyId: Number(err.details?.agencyId) } : {}),
       ...(err.code === 'RECIPIENT_AVAILABILITY_CHOICE_REQUIRED' ? { code: err.code, availability: err.availability } : {}),
-      ...(['ACTIVITY_REVIEW_REQUIRED','MFA_REQUIRED','MFA_FRESH_REQUIRED','SELF_APPROVAL_FORBIDDEN','INVALID_REVIEW_REQUEST','INVALID_REVIEW','LOGIN_PROTECTION_UNAVAILABLE','EMAIL_RECIPIENT_REQUIRED'].includes(err.code) ? { code: err.code } : {}),
+      ...(['ACTIVITY_REVIEW_REQUIRED','MFA_REQUIRED','MFA_FRESH_REQUIRED','SELF_APPROVAL_FORBIDDEN','INVALID_REVIEW_REQUEST','INVALID_REVIEW','LOGIN_PROTECTION_UNAVAILABLE','EMAIL_RECIPIENT_REQUIRED','ACCOUNT_DISABLED','ACCOUNT_UNAVAILABLE'].includes(err.code) ? { code: err.code } : {}),
       ...(config.nodeEnv === 'development' && { 
         stack: err.stack,
         code: err.code,

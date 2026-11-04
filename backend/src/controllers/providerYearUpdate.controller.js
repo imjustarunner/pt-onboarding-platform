@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import config from '../config/config.js';
 import User from '../models/User.model.js';
+import { assertAccountEnabled } from '../utils/accountAccess.js';
 import * as S from '../services/providerYearUpdate.service.js';
 import * as SchoolNeeds from '../services/providerYearUpdateSchoolNeeds.service.js';
 import { saveProviderLicenseUpload } from '../services/licenseCredentialSync.service.js';
@@ -69,6 +70,7 @@ async function attachUserIfPresent(req) {
     if (!userId) return null;
     const user = await User.findById(userId);
     if (!user) return null;
+    assertAccountEnabled(user);
     req.user = user;
     return user;
   } catch {

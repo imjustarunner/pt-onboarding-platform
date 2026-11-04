@@ -53,13 +53,13 @@ export async function listSharedFiles(userId,clientId,careContext={}){
  const [rows]=await pool.execute(`SELECT d.*,s.id AS share_id,s.shared_at,s.file_key_hash FROM family_portal_file_shares s JOIN client_phi_documents d ON d.id=s.document_id AND d.client_id=s.client_id AND d.agency_id=s.agency_id WHERE s.recipient_user_id=? AND s.client_id=? AND s.agency_id=? AND s.revoked_at IS NULL ORDER BY s.shared_at DESC`,[userId,clientId,client.agency_id]);
  return rows.filter(r=>shareableFile(r)&&r.file_key_hash===fileKeyHash(r)).map(r=>({id:r.share_id,title:r.document_title||r.original_name||'Shared document',type:r.document_type,mimeType:r.mime_type,sharedAt:r.shared_at}));
 }
-export async function sharedFile(userId,clientId,shareId,careContext={}){
+export async function sharedFile(userId,clientId,shareId,careContext={}, {auditActorUserId=userId}={}){
  const client=await recipientFileAccess(userId,clientId,careContext);
  const [[doc]]=await pool.execute(`SELECT d.*,s.file_key_hash FROM family_portal_file_shares s JOIN client_phi_documents d ON d.id=s.document_id AND d.client_id=s.client_id AND d.agency_id=s.agency_id WHERE s.id=? AND s.recipient_user_id=? AND s.client_id=? AND s.agency_id=? AND s.revoked_at IS NULL`,[shareId,userId,clientId,client.agency_id]);
  if(!shareableFile(doc)||doc.file_key_hash!==fileKeyHash(doc))fail(404,'Shared file is no longer available.');
  const stored=await StorageService.readObject(doc.storage_path);
  const body=doc.is_encrypted?await DocumentEncryptionService.decryptPhiDocumentBuffer(doc,stored,n=>StorageService.sanitizeFilename(n)):stored;
- await PhiDocumentAuditLog.create({documentId:doc.id,clientId,action:'portal_downloaded',actorUserId:userId});
+ await PhiDocumentAuditLog.create({documentId:doc.id,clientId,action:auditActorUserId===userId?'portal_downloaded':'portal_preview_downloaded',actorUserId:auditActorUserId});
  return {body,type:doc.mime_type,name:StorageService.sanitizeFilename(doc.original_name||`document-${doc.id}`)};
 }
 

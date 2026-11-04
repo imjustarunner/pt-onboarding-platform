@@ -19,7 +19,7 @@ it('requests only scoped availability and never displays arbitrary appointment t
   expect(mocks.get).toHaveBeenCalledWith('/users/8/schedule-summary', expect.objectContaining({ params: expect.objectContaining({ agencyId: 2, detailLevel: 'availability', skipOfficeMaterialize: 'true' }) }));
   expect(wrapper.text()).toContain('Session');
   expect(wrapper.html()).not.toMatch(/Private Client|Do not render|private.example|Book session|Cancel day/);
-  expect(wrapper.findAll('.team-calendar__day')).toHaveLength(7);
+  expect(wrapper.findAll('.record-day')).toHaveLength(7);
 });
 
 it('discards an old coworker response after switching people', async () => {

@@ -443,6 +443,55 @@
         </div>
       </div>
 
+          <div class="sched-toolbar-secondary">
+            <div v-if="agencyFilterOptions.length" class="sched-org-filters">
+              <div class="sched-calendars-label" title="Focus the calendar on one organization, or show all">Organization</div>
+              <select
+                class="sched-select" aria-label="Schedule organization"
+                :value="scheduleOrgScopeValue"
+                :disabled="loading"
+                title="Choose one organization to show, or All. Use Shown chips to combine several."
+                @change="onScheduleOrganizationChange($event)"
+              >
+                <option :value="0">All organizations</option>
+                <option
+                  v-if="scheduleOrgPartialScope"
+                  :value="-1"
+                  disabled
+                >Custom ({{ activeScheduleAgencyIdSet.size }} shown)</option>
+                <option v-for="opt in scheduleOrgSelectOptions" :key="`org-select-${opt.id}`" :value="Number(opt.id)">
+                  {{ opt.label }}
+                </option>
+              </select>
+              <template v-if="agencyFilterOptions.length > 1">
+                <div class="sched-calendars-label" style="margin-left: 8px;">Shown</div>
+                <div class="sched-calendars-actions">
+                  <button type="button" class="sched-chip" :class="{ on: scheduleOrgScopeAll }" :disabled="loading" title="Show events from every organization you belong to" @click="selectAllScheduleAgencies">All</button>
+                </div>
+                <button
+                  v-for="opt in agencyFilterOptions"
+                  :key="`org-chip-${opt.id}`"
+                  type="button"
+                  class="sched-chip"
+                  :class="{ on: activeScheduleAgencyIdSet.has(Number(opt.id)) }"
+                  :disabled="loading"
+                  @click="toggleScheduleAgencyFilter(Number(opt.id))"
+                  :title="activeScheduleAgencyIdSet.has(Number(opt.id)) ? `Hide ${opt.label} from this schedule` : `Show ${opt.label} on this schedule`"
+                  :style="activeScheduleAgencyIdSet.has(Number(opt.id)) ? { '--chipAccent': agencyBadgeColorById(opt.id) || undefined } : undefined"
+                >
+                  <span
+                    v-if="agencyBadgeColorById(opt.id)"
+                    class="sched-org-chip-dot"
+                    :style="{ background: agencyBadgeColorById(opt.id) }"
+                    aria-hidden="true"
+                  ></span>
+                  <img v-if="agencyIconUrlById(opt.id)" :src="agencyIconUrlById(opt.id)" alt="" class="sched-org-chip-icon">
+                  {{ opt.label }}
+                </button>
+              </template>
+            </div>
+          </div>
+
       <details
         class="sched-calendar-settings"
         :class="{ 'sched-calendar-settings--command': compactPageChrome, 'sched-calendar-settings--open': calendarSettingsOpen }"
@@ -740,54 +789,6 @@
             >
               Office at this time
             </button>
-          </div>
-
-          <div class="sched-toolbar-secondary">
-            <div v-if="agencyFilterOptions.length" class="sched-org-filters">
-              <div class="sched-calendars-label" title="Focus the calendar on one organization, or show all">Organization</div>
-              <select
-                class="sched-select"
-                :value="scheduleOrgScopeValue"
-                :disabled="loading"
-                title="Choose one organization to show, or All. Use Shown chips to combine several."
-                @change="onScheduleOrganizationChange($event)"
-              >
-                <option :value="0">All organizations</option>
-                <option
-                  v-if="scheduleOrgPartialScope"
-                  :value="-1"
-                  disabled
-                >Custom ({{ activeScheduleAgencyIdSet.size }} shown)</option>
-                <option v-for="opt in scheduleOrgSelectOptions" :key="`org-select-${opt.id}`" :value="Number(opt.id)">
-                  {{ opt.label }}
-                </option>
-              </select>
-              <template v-if="agencyFilterOptions.length > 1">
-                <div class="sched-calendars-label" style="margin-left: 8px;">Shown</div>
-                <div class="sched-calendars-actions">
-                  <button type="button" class="sched-chip" :class="{ on: scheduleOrgScopeAll }" :disabled="loading" title="Show events from every organization you belong to" @click="selectAllScheduleAgencies">All</button>
-                </div>
-                <button
-                  v-for="opt in agencyFilterOptions"
-                  :key="`org-chip-${opt.id}`"
-                  type="button"
-                  class="sched-chip"
-                  :class="{ on: activeScheduleAgencyIdSet.has(Number(opt.id)) }"
-                  :disabled="loading"
-                  @click="toggleScheduleAgencyFilter(Number(opt.id))"
-                  :title="activeScheduleAgencyIdSet.has(Number(opt.id)) ? `Hide ${opt.label} from this schedule` : `Show ${opt.label} on this schedule`"
-                  :style="activeScheduleAgencyIdSet.has(Number(opt.id)) ? { '--chipAccent': agencyBadgeColorById(opt.id) || undefined } : undefined"
-                >
-                  <span
-                    v-if="agencyBadgeColorById(opt.id)"
-                    class="sched-org-chip-dot"
-                    :style="{ background: agencyBadgeColorById(opt.id) }"
-                    aria-hidden="true"
-                  ></span>
-                  {{ opt.label }}
-                </button>
-              </template>
-            </div>
           </div>
 
           <details class="sched-color-key" data-testid="my-schedule-color-key">
@@ -5974,6 +5975,7 @@ const props = defineProps({
   mode: { type: String, default: 'self' }, // 'self' | 'admin'
   // Optional: parent-controlled weekStart (normalized to Sun or Mon per weekStartsOn).
   weekStartYmd: { type: String, default: null },
+  spanMode: { type: String, default: null },
   weekStartsOn: { type: String, default: 'monday' },
   /** When set (e.g. Staff schedules drill-in), open this schedule event once summary loads. */
   focusEventId: { type: Number, default: 0 },
@@ -5996,6 +5998,7 @@ const props = defineProps({
 });
 const emit = defineEmits([
   'update:weekStartYmd',
+  'update:spanMode',
   'open-skill-builders-programs',
   'open-company-events-calendar',
   'change-schedule-user',
@@ -6587,6 +6590,7 @@ const setScheduleSpanMode = (mode) => {
   const raw = String(mode || '').toLowerCase();
   const next = ['day', 'agenda', 'week'].includes(raw) ? raw : 'week';
   scheduleSpanMode.value = next;
+  emit('update:spanMode',next);
   if (next === 'day' || next === 'agenda') ensureSingleDayFocus();
   else focusedDays.value = [];
   saveDisplayPrefs();
@@ -6676,15 +6680,17 @@ const applyDisplayPrefs = (prefs = {}, { focusDay = true } = {}) => {
   if (!prefs || typeof prefs !== 'object') return;
   scheduleSideBySide.value = prefs.layoutDefaultsVersion === 2 ? prefs.scheduleSideBySide !== false : true;
   if (prefs.rowHeightMode != null) rowHeightMode.value = normalizeRowHeightMode(prefs.rowHeightMode);
-  // Each visit starts with the whole week; Day/Agenda remain available for this visit.
-  scheduleSpanMode.value = 'week';
-  focusedDays.value = [];
+  // An explicit parent view survives async preference hydration and session return.
+  // Callers without a view still start with the whole week.
+  scheduleSpanMode.value = normalizeSpanMode(props.spanMode);
+  if (!isDayOrAgendaSpan.value) focusedDays.value = [];
   if (prefs.weekStartsOn != null && props.mode === 'self') {
     weekStartsOnLocal.value = String(prefs.weekStartsOn).toLowerCase() === 'sunday' ? 'sunday' : 'monday';
   }
   hideWeekend.value = prefs.layoutDefaultsVersion === 2 ? !!prefs.hideWeekend : false;
   if (prefs.showAllHours != null) showAllHours.value = !!prefs.showAllHours;
   if (prefs.showOfficeQuickGlance != null) showOfficeQuickGlance.value = !!prefs.showOfficeQuickGlance;
+  if (focusDay && isDayOrAgendaSpan.value) ensureSingleDayFocus();
 };
 
 const collectDisplayPrefs = () => ({
@@ -7787,7 +7793,8 @@ onMounted(() => {
   }
   if (props.mode === 'self') {
     viewMode.value = 'open_finder';
-    scheduleSpanMode.value = 'week'; focusedDays.value = [];
+    scheduleSpanMode.value = ['day','agenda','week'].includes(props.spanMode)?props.spanMode:'week';
+    if(isDayOrAgendaSpan.value)ensureSingleDayFocus();else focusedDays.value = [];
     if (loadDisplayPrefsLocal()?.layoutDefaultsVersion !== 2) hideWeekend.value = false;
   }
   try {
@@ -27138,6 +27145,11 @@ const resetToOpenFinder = () => {
 };
 
 defineExpose({ resetToOpenFinder, openQuickBook });
+watch(()=>props.spanMode,value=>{
+  if(!['day','agenda','week'].includes(value))return;
+  scheduleSpanMode.value=value;
+  if(isDayOrAgendaSpan.value)ensureSingleDayFocus();else focusedDays.value=[];
+},{immediate:true});
 </script>
 
 <style scoped>
@@ -28757,6 +28769,7 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   background: color-mix(in srgb, var(--bg-alt) 88%, white);
   flex: 0 0 auto;
 }
+.sched-org-chip-icon { width: 18px; height: 18px; object-fit: contain; }
 .sched-org-filters {
   display: inline-flex;
   align-items: center;

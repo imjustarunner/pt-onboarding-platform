@@ -122,7 +122,10 @@
             :compact="!!selectedListing"
             :requests="requestsByListing[listing.id] || []"
             :requests-loading="requestsLoadingId === listing.id"
+            :can-request="canRequest(listing)"
+            :request-pending="hasPendingClaim(listing)"
             @select="selectListing(listing)"
+            @request="onCardRequest"
             @withdraw="onWithdraw"
             @expand="onExpand"
             @approve="onApprove"
@@ -147,7 +150,10 @@
             :compact="!!selectedListing"
             :requests="requestsByListing[listing.id] || []"
             :requests-loading="requestsLoadingId === listing.id"
+            :can-request="canRequest(listing)"
+            :request-pending="hasPendingClaim(listing)"
             @select="selectListing(listing)"
+            @request="onCardRequest"
             @withdraw="onWithdraw"
             @expand="onExpand"
             @approve="onApprove"
@@ -185,7 +191,10 @@
             :compact="!!selectedListing"
             :requests="requestsByListing[listing.id] || []"
             :requests-loading="requestsLoadingId === listing.id"
+            :can-request="canRequest(listing)"
+            :request-pending="hasPendingClaim(listing)"
             @select="selectListing(listing)"
+            @request="onCardRequest"
             @expand="onExpand"
           />
         </template>
@@ -457,6 +466,14 @@ function canWithdraw(listing) {
 function selectListing(listing) {
   selectedListingId.value = listing.id;
   onExpand(listing.id);
+}
+
+function onCardRequest(listing) {
+  if (exchangeRequestNeedsPlan(listing.viewerFit) || (listing.viewerFit?.adjustments || []).length > 0) {
+    selectListing(listing);
+    return;
+  }
+  submitRequest(listing);
 }
 
 let loadVersion = 0;

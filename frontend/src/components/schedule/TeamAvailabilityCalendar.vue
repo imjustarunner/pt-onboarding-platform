@@ -15,21 +15,14 @@
     </header>
     <p v-if="loading" role="status">Loading availability…</p>
     <p v-else-if="error" role="alert">{{ error }} <button type="button" @click="load">Try again</button></p>
-    <div v-else class="team-calendar__week">
-      <section v-for="day in days" :key="day.key" class="team-calendar__day" :class="{ 'is-today': day.key === ymd(new Date()) }">
-        <h3>{{ day.label }}</h3>
-        <ol v-if="day.blocks.length"><li v-for="(block, index) in day.blocks" :key="index" :class="`activity-${block.activityType}`">
-          <strong>{{ peerActivityLabel(block) }}</strong><time>{{ timeRange(block, day.date) }}</time>
-        </li></ol>
-        <p v-else class="muted">No events shown</p>
-      </section>
-    </div>
+    <ScheduleRecordCalendar v-else :start="week" :records="calendarRecords" :time-zone="timezone" />
   </section>
   </Teleport>
 </template>
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../services/api';
+import ScheduleRecordCalendar from './ScheduleRecordCalendar.vue';
 import { useScheduleFullscreen } from '../../composables/useScheduleFullscreen.js';
 import { peerActivityLabel } from '../../utils/teamScheduleAccess.js';
 const props = defineProps({ userId: Number, agencyId: Number, name: String, weekStartYmd: String });
@@ -51,6 +44,7 @@ const days = computed(() => Array.from({ length: 7 }, (_, i) => {
   const end = new Date(date); end.setDate(end.getDate() + 1);
   return { key: ymd(date), date, label: date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }), blocks: blocks.value.filter(b => +instant(b.startAt) < +end && +instant(b.endAt) > +date).sort((a, b) => +instant(a.startAt) - +instant(b.startAt)) };
 }));
+const calendarRecords=computed(()=>days.value.flatMap(day=>day.blocks.map((block,index)=>({key:`${day.key}:${index}`,date:day.key,title:peerActivityLabel(block),timeLabel:timeRange(block,day.date)}))));
 function timeRange(block, day) {
   const end = new Date(day); end.setDate(end.getDate() + 1);
   const startTime = new Date(Math.max(+instant(block.startAt), +day));

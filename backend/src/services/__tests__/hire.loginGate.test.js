@@ -34,8 +34,10 @@ describe('staff activation boundary', () => {
     expect(canLogin({ ...hire, login_is_group_email: 0 })).toBe(true);
     expect(requiresHireActivation({ ...hire, login_is_group_email: 0, passwordless_token_purpose: 'prehire_portal' })).toBe(true);
     await assertHireStaffAccess({ id: 1, type: 'approved_employee' });
-    await assertHireStaffAccess({ id: 1, demoMode: true });
     expect(mocks.execute).not.toHaveBeenCalled();
+    mocks.execute.mockResolvedValue([[{ ...hire, is_active: 1 }]]);
+    await assertHireStaffAccess({ id: 1, demoMode: true });
+    expect(mocks.execute).toHaveBeenCalledTimes(1);
   });
 });
 describe('password preparation', () => {

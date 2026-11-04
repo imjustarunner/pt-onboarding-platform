@@ -53,7 +53,10 @@ export function constrainPreviewInput(input, agencyId) {
 }
 export function previewRouteAllowed(method, path) {
   if (method === 'GET') return [
-    /^\/auricwell-preview(?:\/context|\/providers|\/workspace-scope|\/agenda|\/directory|\/tasks|\/notifications|\/toasts(?:\/active)?)?$/,
+    /^\/(?:auricwell-preview\/portal|portal-admin)\/clients\/[1-9][0-9]*\/accounts(?:\/[1-9][0-9]*\/(?:read|activity))?$/,
+    /^\/auricwell-preview(?:\/context|\/providers|\/workspace-scope|\/agenda|\/directory|\/my-clients|\/tasks|\/notifications|\/toasts(?:\/active)?)?$/,
+    /^\/auricwell-preview\/my-clients\/[1-9][0-9]*\/preview$/,
+    /^\/clients\/(?:duplicates|name-duplicates)$/ ,
     /^\/platform\/toast-announcements$/,
     /^\/clinical-notes\/(?:context|programs|recent|work-queue|termination-outcomes)$/,
     /^\/note-aid\/(?:catalog|tools)$/,
@@ -71,6 +74,7 @@ export function previewRouteAllowed(method, path) {
   // Live claim transmission and financial setup stay in the existing billing workspace
   // until the complete AuricWell revenue-cycle acceptance is finished.
   return [
+    ['POST', /^\/clients\/merge(?:\/preview)?$/],
     ['POST', /^\/clinical-notes\/(?:drafts|audit|generate|interactive-complexity)$/],
     ['POST', /^\/clinical-notes\/contact-documentation\/(?:email|secure)\/[1-9][0-9]*$/],
     ['PATCH', /^\/clinical-notes\/drafts\/\d+$/],

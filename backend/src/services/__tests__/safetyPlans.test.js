@@ -199,3 +199,11 @@ describe('server-owned enrollment documents',()=>{
   const list=await records.listPlans(staff,{clientId:41});expect(list.plans[0]).toMatchObject({sharedCount:1,signedCount:1,pendingSignatures:0});
  });
 });
+
+it('attributes portal preview to staff and constrains the selected practice and client before reading',async()=>{
+ await records.savePlan(staff,input());await records.addSigner(staff,1,{version:1,kind:"guardian",userId:20,authorityConfirmed:true});const before=state.events.length;
+ await expect(records.portalRead(guardian,1,{agencyId:999,clientId:input().clientId,auditActor:staff})).rejects.toMatchObject({status:404});
+ expect(state.events).toHaveLength(before);
+ await records.portalRead(guardian,1,{agencyId:input().agencyId,clientId:input().clientId,auditActor:staff});
+ expect(state.events.at(-1)[2]).toBe(staff.id);expect(state.events.at(-1)[3]).toBe('portal_previewed');
+});

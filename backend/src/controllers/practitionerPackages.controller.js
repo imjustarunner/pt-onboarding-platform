@@ -28,7 +28,7 @@ import StripePaymentsService, {
   isStripeConfigured,
   getStripePublishableKey
 } from '../services/stripePayments.service.js';
-import jwt from 'jsonwebtoken';
+import { signFullSuiteToken } from '../services/productIdentity.service.js';
 import config from '../config/config.js';
 import User from '../models/User.model.js';
 import crypto from 'crypto';
@@ -405,7 +405,7 @@ export const postPublicPacketCreateAccount = async (req, res, next) => {
 
     const user = await User.findById(result.userId);
     const sessionId = crypto.randomUUID();
-    const jwtToken = jwt.sign(
+    const jwtToken = await signFullSuiteToken(
       {
         id: user.id,
         email: user.username || user.email,
