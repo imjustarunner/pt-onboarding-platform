@@ -4,7 +4,7 @@
     <p>Prepare the employee’s account details here. These are also available in Lifecycle. Employees can view saved account passwords again in their onboarding portal and, after activation, My Dashboard → My Account → Accounts & access.</p>
     <p v-if="loading">Loading account details…</p>
     <form v-else-if="loaded" @submit.prevent="save" autocomplete="off">
-      <label>Platform work address<input :value="workspaceEmail || 'Employee chooses during onboarding'" disabled /></label>
+      <label>Platform work address<input :value="workspaceEmail || 'Employee chooses during pre-hire'" disabled /></label>
       <p>Employees use their personal portal link and set a platform password during onboarding.</p>
       <label class="access-toggle"><input v-model="values.workspaceEnabled" type="checkbox" />Include a Google Workspace / SSO account for this employee</label>
       <label class="access-toggle"><input v-model="values.therapynotesEnabled" type="checkbox" />Include TherapyNotes access while our agency uses it</label>

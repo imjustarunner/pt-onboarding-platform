@@ -2308,11 +2308,11 @@ if (!isBootstrap) {
 
   // School assignment/waitlist notices are individual transactional emails.
   const scheduleSchoolClientStatusEmails = async () => {
-    try {
-      const { sendPendingSchoolClientStatusEmails } = await import('./services/schoolClientStatusEmail.service.js');
-      await sendPendingSchoolClientStatusEmails();
-    } catch (error) {
-      console.error('Error in school client status email worker:', error?.message || error);
+    for(const [name,run] of [
+      ['school',async()=>(await import('./services/schoolClientStatusEmail.service.js')).sendPendingSchoolClientStatusEmails()],
+      ['family',async()=>(await import('./services/schoolFamilyStatusEmail.service.js')).sendPendingSchoolFamilyStatusEmails()]
+    ]) {
+      try{await run();}catch(error){console.error(`Error in ${name} client status email worker:`,error?.message || error);}
     }
   };
   scheduleSchoolClientStatusEmails();

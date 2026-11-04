@@ -5,6 +5,10 @@ export async function enforcePortalWritePhase(req, res, next) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
   const path = req.path;
   if (/^\/(messages|activity|complete|hiring-notifications|staff-enrollments)\/?$/.test(path)) return next();
+  // A legacy submitted pre-hire can still choose its missing username. This
+  // never reopens signatures or password/activation steps.
+  if(['PENDING_SETUP','PREHIRE_OPEN','PREHIRE_REVIEW','ONBOARDING'].includes(req.portalUser?.status) && req.method==='POST'
+    && (/^\/account\/(check-email|provision)\/?$/.test(path) || /^\/workflow\/work-email\/?$/.test(path)))return next();
   // Account details stay accessible while the submitted onboarding package awaits activation.
   if (req.portalUser?.status === 'ONBOARDING' && req.method === 'POST'
     && /^\/credential-packet\/(acknowledge|systems\/[^/]+\/reveal-temp-password)\/?$/.test(path)) return next();

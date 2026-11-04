@@ -153,8 +153,10 @@ export function evaluateExchangeMatch({ user, profile, facets = {}, listing, cli
     check('insurance_exclusions', !(profile?.excludedInsurances||[]).some(v=>norm(v)===insurance), 'Insurance is not explicitly excluded.', `Provider excludes ${insuranceLabel}; requests and assignment are blocked.`);
     check('insurance_credential', restrictPublicInsurances([insurance], profile?.insuranceCredential || {}).length > 0, 'Insurance credential rules allow this referral.', 'Provider credentials do not allow this insurance.');
     const insurances = profile?.insurances || [];
+    const unverified=(profile?.insuranceReview||[]).find(row=>[row.name,...(row.aliases||[])].some(name=>norm(name)===insurance));
     const coverageKnown = !categoryOnly;
-    check('insurance', insurances.some(v=>norm(v)===insurance), coverageKnown ? 'Provider accepts the client insurance.' : categoryOnly ? 'Only a commercial insurance category was supplied; the specific plan must be confirmed.' : 'Provider insurance acceptance is unknown.', `Provider is not verified to accept ${insuranceLabel}. Insurance eligibility must be confirmed before requesting or assigning this client.`, coverageKnown);
+    check('insurance', insurances.some(v=>norm(v)===insurance), coverageKnown ? 'Provider accepts the client insurance.' : categoryOnly ? 'Only a commercial insurance category was supplied; the specific plan must be confirmed.' : 'Provider insurance acceptance is unknown.',
+      unverified?`A ${insuranceLabel} credential record is saved, but it is not current acceptance. ${unverified.reason||'Credentialing needs review.'} Verify coverage before requesting or assigning this client.`:`Provider is not verified to accept ${insuranceLabel}. Insurance eligibility must be confirmed before requesting or assigning this client.`, coverageKnown);
   } else check('insurance', true, 'Client insurance is unspecified.', '', false);
   const schedule = listing.preferences?.schedule || {};
   const hasSchedule = schedule.days?.length || schedule.periods?.length || schedule.windows?.length;

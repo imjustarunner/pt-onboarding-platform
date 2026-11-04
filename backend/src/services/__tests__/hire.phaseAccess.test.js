@@ -10,6 +10,11 @@ async function request(path, status, tasks = []) {
   return { res, next };
 }
 describe('portal process permissions', () => {
+  it('lets legacy submitted prehire choose a missing username without reopening documents or password setup',async()=>{
+    for(const path of ['/account/provision','/account/check-email','/workflow/work-email'])expect((await request(path,'PREHIRE_REVIEW')).next).toHaveBeenCalledWith();
+    expect((await request('/account/set-password','PREHIRE_REVIEW')).res.status).toHaveBeenCalledWith(409);
+    expect((await request('/background-check','PREHIRE_REVIEW')).res.status).toHaveBeenCalledWith(409);
+  });
   it('rejects changing closed prehire submissions', async () => {
     const { res, next } = await request('/background-check', 'PREHIRE_REVIEW');
     expect(res.status).toHaveBeenCalledWith(409); expect(next).not.toHaveBeenCalled();

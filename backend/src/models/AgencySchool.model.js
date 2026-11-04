@@ -33,7 +33,8 @@ class AgencySchool {
          s.name as school_name,
          s.slug as school_slug,
          s.organization_type as school_organization_type,
-         s.is_active as school_is_active
+         s.is_active as school_is_active,
+         s.is_archived as school_is_archived
        FROM agency_schools asx
        INNER JOIN agencies s ON s.id = asx.school_organization_id
        ${where}

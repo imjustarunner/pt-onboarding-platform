@@ -3,7 +3,7 @@ import { onboardingPasswordReady } from '../utils/hirePortalWorkflow.js';
 import { applicantReferenceStatus } from '../models/HiringReferenceContact.model.js';
 import { handbookResponseForReader } from '../services/workplaceHandbookAccess.js';
 import { answerPublishedHandbook } from '../services/workplaceHandbookAnswer.service.js';
-import { buildPortalWorkflow, portalPacket, portalStepSubmissions, requiredSubmissionKeys, assertPortalStepCompletion } from '../services/hirePortalWorkflow.service.js';
+import { buildPortalWorkflow, portalPacket, portalStepSubmissions, requiredSubmissionKeys } from '../services/hirePortalWorkflow.service.js';
 import { findContractPlaceholders } from '../utils/contractPlaceholders.js';
 /**
  * Pre-hire candidate portal controller.
@@ -15,7 +15,7 @@ import pool from '../config/database.js';
 import { isItscoPacketChromeAgency } from '../services/packetBrandChrome.service.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import { savePrehireSignedReceipt } from '../services/prehireSignedReceipt.service.js';
-import { journeyTasks, getJourney, taskProgress, closePrehire, completeOnboarding, recordOnboardingActivity } from '../services/hireJourney.service.js';
+import { journeyTasks, getJourney, taskProgress, completeOnboarding, recordOnboardingActivity } from '../services/hireJourney.service.js';
 import User from '../models/User.model.js';
 import HiringNote from '../models/HiringNote.model.js';
 import EmailService from '../services/email.service.js';
@@ -680,22 +680,8 @@ export const portalComplete = async (req, res, next) => {
       const journey = await completeOnboarding(req.portalUser.id, requiredSubmissionKeys(state.workflow.steps.onboarding, !!state.candidate.workEmail));
       return res.json({ ok: true, journey, advancedTo: 'ONBOARDING', message: 'Onboarding submitted. People Operations will review and activate your account. Recorded time was submitted to payroll.' });
     }
-    if (state.candidate.status === 'PREHIRE_REVIEW') return res.json({ ok: true, advancedTo: 'PREHIRE_REVIEW' });
-    if (!state.progress.allDone) return res.status(400).json({ error: {
-      code: 'TASKS_INCOMPLETE', message: 'Complete the required documents, background authorization, and job description before submitting.'
-    } });
-    const db = await pool.getConnection();
-    try {
-      await db.beginTransaction();
-      const [[current]] = await db.execute('SELECT status, work_email FROM users WHERE id = ? FOR UPDATE', [req.portalUser.id]);
-      if (!['PENDING_SETUP', 'PREHIRE_OPEN', 'PREHIRE_REVIEW'].includes(current?.status)) throw Object.assign(new Error('Pre-hire is no longer open.'), { status: 409 });
-      await assertPortalStepCompletion(req.portalUser.id, 'pre_hire', requiredSubmissionKeys(state.workflow.steps.pre_hire, !!current.work_email), db);
-      await closePrehire(req.portalUser.id, { tasks: state.tasks, backgroundCheck: state.backgroundCheck,
-        jdAcknowledged: state.jdAcknowledged, checklist: state.checklistItems, prehireDocs: state.prehireDocs, workflow: { steps: state.workflow.steps.pre_hire.map(({ task, doc, ...step }) => step) } }, db);
-      await db.commit();
-    } catch (error) { await db.rollback(); throw error; } finally { db.release(); }
-    await advanceCandidateStatus(req.portalUser.id);
-    res.json({ ok: true, advancedTo: 'PREHIRE_REVIEW', message: 'Pre-hire submitted for review.' });
+    const {completePrehireForReview}=await import('../services/hirePrehireCompletion.service.js');
+    res.json(await completePrehireForReview({userId:req.portalUser.id}));
   } catch (e) { next(e); }
 };
 
@@ -729,7 +715,7 @@ async function maybeAdvanceCandidateStatus(userId) {
   setImmediate(() => syncLifecycleItems(userId).catch(() => {}));
 }
 
-async function advanceCandidateStatus(userId) {
+export async function advanceCandidateStatus(userId,actorUserId=null) {
   const user = await User.findById(userId);
   if (!user) return;
 
@@ -737,7 +723,7 @@ async function advanceCandidateStatus(userId) {
   if (user.status !== 'PENDING_SETUP' && user.status !== 'PREHIRE_OPEN') return;
 
   const targetStatus = 'PREHIRE_REVIEW';
-  await User.updateStatus(userId, targetStatus, null);
+  await User.updateStatus(userId, targetStatus, actorUserId,{source:actorUserId?'staff_prehire_review':'prehire_portal_submission'});
 
   // Sync lifecycle tab so status-based items reflect the completion
   setImmediate(() => syncLifecycleItems(userId).catch(() => {}));
@@ -1159,7 +1145,7 @@ export const getPortalAccountSuggestions = async (req, res, next) => {
       isGroupPasswordHireMode,
       suggestHireWorkEmails
     } = await import('../services/hireGroupAccount.service.js');
-    if (user.status !== 'ONBOARDING') return res.json({ enabled: false, suggestions: [] });
+    if (!['PENDING_SETUP','PREHIRE_OPEN','PREHIRE_REVIEW','ONBOARDING'].includes(user.status)) return res.json({ enabled: false, suggestions: [] });
     const result = await suggestHireWorkEmails({ user, agency });
     res.json({ enabled: true, ...result });
   } catch (e) { next(e); }
@@ -1182,10 +1168,11 @@ export const checkPortalAccountEmail = async (req, res, next) => {
 
 export const provisionPortalAccount = async (req, res, next) => {
   try {
-    if (req.portalUser.status !== 'ONBOARDING') return res.status(403).json({ error: { message: 'Work account setup opens during onboarding.' } });
     const workEmail = req.body?.workEmail || req.body?.email;
     const user = await User.findById(req.portalUser.id);
     if (!user) return res.status(404).json({ error: { message: 'User not found.' } });
+    if (!['PENDING_SETUP','PREHIRE_OPEN','PREHIRE_REVIEW','ONBOARDING'].includes(user.status)) return res.status(403).json({error:{message:'Work username selection is available during pre-hire and onboarding only.'}});
+    if((await getJourney(user.id))?.onboardingCompletedAt)return res.status(409).json({error:{message:'Onboarding is submitted. Contact People Operations to correct the work username.'}});
     const agency = await loadPortalAgency(user.id);
     if (!agency) return res.status(400).json({ error: { message: 'No organization found.' } });
     const { provisionHireGroupUsername } = await import('../services/hireGroupAccount.service.js');

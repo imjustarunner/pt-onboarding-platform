@@ -2,9 +2,9 @@ name: SMS carrier and campaign boundaries
 on:
   push:
     branches: [main]
-    paths: ['backend/src/**/sms*', 'backend/src/**/notifyre*', 'backend/src/**/vonage*', 'backend/src/**/providerSms*', 'backend/src/**/providerRelay*', 'backend/src/services/communicationRouting.service.js', 'backend/src/services/auricwell/**', 'backend/src/**/__tests__/messaging.*', 'backend/src/**/__tests__/enrollmentCompletion.*', 'backend/vitest.sms-carrier.config.js', '.github/workflows/sms-carrier-boundaries.yml']
+    paths: ['backend/src/**/sms*', 'backend/src/**/notifyre*', 'backend/src/**/vonage*', 'backend/src/**/providerSms*', 'backend/src/**/providerRelay*', 'backend/src/services/communicationRouting.service.js', 'backend/src/services/companyEventSms.service.js', 'backend/src/services/conversaTeamRecipients.service.js', 'backend/src/controllers/companyEvents.controller.js', 'backend/src/routes/agency.routes.js', 'frontend/src/components/conversa/ConversaTeamCommunications.vue', 'frontend/src/components/conversa/__tests__/ConversaTeamCommunications.test.js', 'backend/src/services/auricwell/**', 'backend/src/**/__tests__/messaging.*', 'backend/src/**/__tests__/enrollmentCompletion.*', 'backend/vitest.sms-carrier.config.js', '.github/workflows/sms-carrier-boundaries.yml']
   pull_request:
-    paths: ['backend/src/**/sms*', 'backend/src/**/notifyre*', 'backend/src/**/vonage*', 'backend/src/**/providerSms*', 'backend/src/**/providerRelay*', 'backend/src/services/communicationRouting.service.js', 'backend/src/services/auricwell/**', 'backend/src/**/__tests__/messaging.*', 'backend/src/**/__tests__/enrollmentCompletion.*', 'backend/vitest.sms-carrier.config.js', '.github/workflows/sms-carrier-boundaries.yml']
+    paths: ['backend/src/**/sms*', 'backend/src/**/notifyre*', 'backend/src/**/vonage*', 'backend/src/**/providerSms*', 'backend/src/**/providerRelay*', 'backend/src/services/communicationRouting.service.js', 'backend/src/services/companyEventSms.service.js', 'backend/src/services/conversaTeamRecipients.service.js', 'backend/src/controllers/companyEvents.controller.js', 'backend/src/routes/agency.routes.js', 'frontend/src/components/conversa/ConversaTeamCommunications.vue', 'frontend/src/components/conversa/__tests__/ConversaTeamCommunications.test.js', 'backend/src/services/auricwell/**', 'backend/src/**/__tests__/messaging.*', 'backend/src/**/__tests__/enrollmentCompletion.*', 'backend/vitest.sms-carrier.config.js', '.github/workflows/sms-carrier-boundaries.yml']
 permissions:
   contents: read
 jobs:
@@ -37,6 +37,8 @@ jobs:
       - run: npm ci --prefix frontend --ignore-scripts
       - name: Verify client, staff and campaign separation without real sends
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.sms-carrier.config.js
+      - name: Verify team poll preflight and channel results
+        run: node frontend/node_modules/vitest/vitest.mjs run --config frontend/vite.config.js frontend/src/components/conversa/__tests__/ConversaTeamCommunications.test.js
       - name: Verify stale-text SQL with isolated synthetic fixtures
         env:
           STALE_TEXT_MYSQL_READONLY_TEST: '1'

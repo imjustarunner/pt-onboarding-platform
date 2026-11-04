@@ -38,7 +38,7 @@ export async function saveWorkflowStep(req, res, next) {
       const groups=ctx.step.fields.map(f=>({key:f.group,label:f.label,options:f.options}));
       const clinicalFocus=validateFocus(req.body?.clinicalFocus,groups);
       value={clinicalFocus,values:Object.fromEntries(ctx.step.fields.map(f=>[f.key, f.options.filter(v=>!clinicalFocus.excluded[f.group].includes(v))])),reviewed:req.body?.reviewed===true};
-    } else if (ctx.phase === 'onboarding' && ctx.key === 'work-email') {
+    } else if (['pre_hire','onboarding'].includes(ctx.phase) && ctx.key === 'work-email' && ctx.step?.kind==='work-email') {
       const email = String(req.body?.email || '').trim().toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail('Enter your preferred work email.');
       if (ctx.state.hireAccountMode === 'group_password') fail('Select an available username using account setup.');

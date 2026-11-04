@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+vi.mock('../companyDocumentLearning.service.js',()=>({onboardingGuideSteps:vi.fn(async()=>[])}));
 const mocks = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn(), findUser: vi.fn(), journeyTasks: vi.fn(), getJourney: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: mocks, onTableWrite:vi.fn() }));
 vi.mock('../../models/User.model.js', () => ({ default: { findById: mocks.findUser } }));
@@ -53,7 +54,7 @@ describe('phase manifest', () => {
       : sql.includes('prehire_settings FROM') ? [[{ prehire_settings: { handbook_full_url: 'https://example.org/new-handbook' } }]] : [[]]);
     expect((await portalPacket(1, 2)).handbookUrl).toBe('https://example.org/retained-handbook');
   });
-  it('includes personal information and headshot only in prehire, account setup only in onboarding', async () => {
+  it('includes username, personal information and headshot in prehire, while password setup stays in onboarding', async () => {
     mocks.execute.mockImplementation(async (sql) => sql.includes('config_json FROM') ? [[{ config_json: { workflow: { resources: [] }, handbookUrl: 'https://drive.google.com/file/d/book/view' } }]] : [[]]);
     const manifest = await buildPortalWorkflow({ user: { id: 1, status: 'PREHIRE_OPEN', first_name: 'Taylor', sso_password_override: '0' }, agencyId: 2, tasks: [], prehireTasks: [], extras: {}, backgroundCheck: {}, hireAccountMode: 'group_password', journey: {} });
     expect(manifest.steps.pre_hire[0].kind).toBe('hiring-notifications');
@@ -61,8 +62,8 @@ describe('phase manifest', () => {
     expect(manifest.steps.pre_hire[1].kind).toBe('background');
     expect(manifest.steps.pre_hire.map(s => s.kind)).toEqual(expect.arrayContaining(['profile', 'headshot', 'handbook']));
     expect(manifest.steps.onboarding.map(s => s.kind)).not.toContain('profile');
-    expect(manifest.steps.pre_hire.map(s => s.kind)).not.toContain('work-email');
-    expect(manifest.steps.onboarding.map(s => s.kind)).toContain('work-email');
+    expect(manifest.steps.pre_hire.map(s => s.kind)).toContain('work-email');
+    expect(manifest.steps.onboarding.map(s => s.kind)).not.toContain('work-email');
     expect(manifest.steps.pre_hire.find(s => s.kind === 'handbook').required).toBe(false);
     expect(manifest.steps.onboarding.at(-2)).toMatchObject({ kind: 'account', complete: false });
     expect(manifest.steps.onboarding.at(-1).kind).toBe('review');
@@ -78,6 +79,38 @@ describe('phase manifest', () => {
   });
 });
 describe('persistent step writes', () => {
+  function usernameState({status='PREHIRE_REVIEW',work_email=null,closed=true,onboardingClosed=false,duplicate=false,failInsert=false,lock=true}={}) {
+    mocks.execute.mockImplementation(async sql=>{
+      if(sql.includes('GET_LOCK'))return [[{acquired:Number(lock)}]];
+      if(sql.startsWith('SELECT status'))return [[{status,work_email}]];
+      if(sql.includes('FROM hire_journeys'))return [[{prehire_completed_at:closed?'2026-09-01':null,onboarding_completed_at:onboardingClosed?'2026-10-01':null}]];
+      if(sql.startsWith('SELECT id FROM users'))return [duplicate?[{id:2}]:[]];
+      if(failInsert && sql.startsWith('INSERT INTO hire_portal_submissions'))throw new Error('submission failed');
+      return [[]];
+    });
+  }
+  const reserve=()=>savePortalStep({userId:1,agencyId:2,phase:'pre_hire',key:'work-email',value:{email:'newhire@agency.test',preferenceOnly:true}});
+  it('reserves a missing SSO username on a legacy closed pre-hire without provisioning or changing sign-in',async()=>{
+    usernameState();await reserve();
+    const updates=mocks.execute.mock.calls.filter(([sql])=>sql.startsWith('UPDATE users'));
+    expect(updates).toEqual([['UPDATE users SET work_email=? WHERE id=?',['newhire@agency.test',1]]]);
+    const write=mocks.execute.mock.calls.find(([sql])=>sql.startsWith('INSERT INTO hire_portal_submissions'));
+    expect(write[1][3]).not.toContain('newhire@agency.test');expect(db.commit).toHaveBeenCalled();
+    expect(mocks.execute.mock.calls[0][0]).toContain('GET_LOCK');expect(mocks.execute.mock.calls.at(-1)[0]).toContain('RELEASE_LOCK');
+  });
+  it.each([{work_email:'existing@agency.test',closed:false,status:'PREHIRE_OPEN'},{duplicate:true},{onboardingClosed:true},{status:'ACTIVE_EMPLOYEE'}])('does not overwrite or reserve an unavailable or closed username: %j',async settings=>{
+    usernameState(settings);await expect(reserve()).rejects.toMatchObject({status:409});
+    expect(mocks.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE users'))).toBe(false);expect(db.commit).not.toHaveBeenCalled();
+  });
+  it('rolls username reservation back if the encrypted step cannot be saved',async()=>{
+    usernameState({failInsert:true});await expect(reserve()).rejects.toThrow('submission failed');
+    expect(db.rollback).toHaveBeenCalled();expect(db.commit).not.toHaveBeenCalled();expect(db.release).toHaveBeenCalled();
+    expect(mocks.execute.mock.calls.at(-1)[0]).toContain('RELEASE_LOCK');
+  });
+  it('rejects a concurrent address claim before starting the transaction',async()=>{
+    usernameState({lock:false});await expect(reserve()).rejects.toMatchObject({status:409});expect(db.commit).not.toHaveBeenCalled();
+    expect(mocks.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE users'))).toBe(false);expect(db.release).toHaveBeenCalled();
+  });
   it('rechecks saved completion inside the closing transaction', async () => {
     mocks.execute.mockResolvedValue([[{ step_key: 'profile' }]]);
     await expect(assertPortalStepCompletion(1, 'pre_hire', ['profile', 'headshot'], db)).rejects.toThrow('required steps');

@@ -1,6 +1,8 @@
 import { expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() }, onTableWrite: () => {} }));
 vi.mock('../../models/User.model.js', () => ({ default: { findById: vi.fn(async () => ({ id: 5, role: 'provider', email: 'provider@itsco.health', personal_email: 'private@example.org', sso_password_override: 0, login_is_group_email: 0 })) } }));
+vi.mock('../../models/EmailSenderIdentity.model.js', () => ({ default: { findById: vi.fn(async () => ({ id: 8, agency_id: 2, from_email: 'messages@itsco.health' })) } }));
+vi.mock('../managedWorkspaceGroupAccess.service.js', () => ({ managedGroupEnvelope: vi.fn(async args => args) }));
 vi.mock('../unifiedEmail/gmailClient.js', () => ({ getGmailClient: vi.fn(), getImpersonatedUser: () => 'ai@example.org' }));
 import { getGmailClient } from '../unifiedEmail/gmailClient.js';
 import { sendEmailFromIdentity, sendNotificationEmail } from '../unifiedEmail/unifiedEmailSender.service.js';

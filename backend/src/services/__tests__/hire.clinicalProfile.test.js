@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+vi.mock('../companyDocumentLearning.service.js',()=>({onboardingGuideSteps:vi.fn(async()=>[])}));
 const mocks = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: mocks, onTableWrite:vi.fn() }));
 vi.mock('../hiringCommunication.service.js',()=>({hiringCommunicationContext:vi.fn(async()=>({channel:'email',available:false}))}));
@@ -17,7 +18,7 @@ describe('clinical profile onboarding', () => {
   it('provides the four distinct catalogs, including school specialties', () => {
     const form = clinicalProfileForm({ specialties: ['Executive Functioning'], reviewNeeded: [{ value: 'Old narrative' }] });
     expect(form.fields.map(f => f.key)).toEqual(['specialties_general', 'age_specialty', 'groups', 'modality']);
-    expect(form.fields[0].options).toHaveLength(61);
+    expect(form.fields[0].options).toHaveLength(62);
     expect(form.fields[0].options).toContain('Transition to Adulthood');
     expect(form.fields[0].options).not.toContain('Play Therapy');
     expect(form.fields[2].options).not.toContain('Children');

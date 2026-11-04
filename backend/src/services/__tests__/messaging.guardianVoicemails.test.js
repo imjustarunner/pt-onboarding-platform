@@ -3,6 +3,7 @@ vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../hubPeopleAccess.service.js',()=>({hubClientScope:()=>({sql:'c.id IN (?)',params:[8]}),canAccessHubClient:vi.fn()}));
 vi.mock('../clientConversationRecord.service.js',()=>({emailClientCandidates:vi.fn()}));
 vi.mock('../communicationAccess.service.js',()=>({requireConversationAccess:vi.fn()}));
+vi.mock('../intakeCommunicationChoices.service.js',()=>({latestIntakeCommunicationChoices:vi.fn(async()=>null)}));
 import pool from '../../config/database.js';
 import {requireConversationAccess} from '../communicationAccess.service.js';
 import {guardianVoicemailConversations} from '../guardianContactContext.service.js';
