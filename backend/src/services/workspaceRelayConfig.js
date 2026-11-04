@@ -10,7 +10,8 @@ export function relaySelected(address, env = process.env) {
   const from = normalizeRelayAddress(address);
   return mode === 'pilot'
     ? list(env.WORKSPACE_EMAIL_RELAY_SENDERS).includes(from)
-    : list(env.WORKSPACE_EMAIL_RELAY_DOMAINS).includes(from.split('@')[1]);
+    : list(env.WORKSPACE_EMAIL_RELAY_DOMAINS).includes(from.split('@')[1])
+      && !list(env.WORKSPACE_EMAIL_RELAY_GMAIL_SENDERS).includes(from);
 }
 
 export function relayConfiguration(env = process.env) {
