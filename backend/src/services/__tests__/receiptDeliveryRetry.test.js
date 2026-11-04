@@ -1,0 +1,25 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+const m=vi.hoisted(()=>({execute:vi.fn(),db:vi.fn(),authorize:vi.fn(),sender:vi.fn(),receipt:vi.fn(),pdf:vi.fn(),send:vi.fn(),event:null}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
+vi.mock('../familyLedger/policy.js',()=>({requireBillingStaff:m.authorize,transaction:async fn=>fn({execute:m.db})}));
+vi.mock('../familyLedger/senders.js',()=>({requireReadySender:m.sender}));
+vi.mock('../familyLedger/views.js',()=>({receiptFor:m.receipt,renderReceiptPdf:m.pdf}));
+vi.mock('../familyLedger/receiptEmails.js',()=>({sendPendingReceiptEmails:m.send}));
+import {receiptRetryAttachments,retryHeldReceipt} from '../familyLedger/receiptDeliveryRetry.js';
+const comm=()=>({id:100,agency_id:2,user_id:5,recipient_address:'payer@example.com'});
+beforeEach(()=>{vi.clearAllMocks();m.authorize.mockResolvedValue();m.sender.mockResolvedValue({id:7});m.receipt.mockResolvedValue({receiptNumber:'R-2-91'});m.pdf.mockResolvedValue(Buffer.from('%PDF-synthetic'));m.send.mockResolvedValue([]);m.event={id:1,agency_id:2,payment_id:91,status:'held',communication_id:null};
+ m.execute.mockImplementation(async(sql,args)=>{
+  if(sql.startsWith('SELECT id,role'))return [[{id:501,role:'super_admin'}]];
+  if(sql.startsWith('SELECT d.payment_id'))return [Number(args[1])===2?[{payment_id:91,payer_user_id:5,email:'payer@example.com'}]:[]];
+  if(sql.startsWith('SELECT status'))return [[{status:'sent',communicationId:100}]];
+  throw Error(sql);
+ });
+ m.db.mockImplementation(async sql=>sql.startsWith('SELECT *')?[[m.event]]:[{affectedRows:1}]);
+});
+it('regenerates the actual linked receipt PDF for an authorized approver',async()=>{const files=await receiptRetryAttachments({communication:comm(),actorUserId:501,senderIdentityId:7});expect(files).toEqual([{filename:'R-2-91.pdf',contentType:'application/pdf',contentBase64:Buffer.from('%PDF-synthetic').toString('base64')}]);expect(m.receipt).toHaveBeenCalledWith({agencyId:2,paymentId:91,userId:501,staff:true});expect(m.authorize).toHaveBeenCalledWith({id:501,role:'super_admin'},2);});
+it.each([{user_id:6},{recipient_address:'other@example.com'},{agency_id:3}])('rejects a modified owner, recipient or tenant before including its private PDF',async change=>{await expect(receiptRetryAttachments({communication:{...comm(),...change},actorUserId:501,senderIdentityId:7})).rejects.toMatchObject({status:409});expect(m.pdf).not.toHaveBeenCalled();});
+it('requires billing permission in addition to general email approval access',async()=>{m.authorize.mockRejectedValue(Object.assign(Error('Denied'),{status:403}));await expect(receiptRetryAttachments({communication:comm(),actorUserId:501,senderIdentityId:7})).rejects.toMatchObject({status:403});expect(m.pdf).not.toHaveBeenCalled();});
+it('cannot switch a receipt to another sender during approval',async()=>{await expect(receiptRetryAttachments({communication:comm(),actorUserId:501,senderIdentityId:99})).rejects.toMatchObject({status:409});expect(m.pdf).not.toHaveBeenCalled();});
+it('retries only the explicitly selected delivery before a communication exists',async()=>{expect(await retryHeldReceipt({agencyId:2,deliveryId:1,actorUserId:501})).toEqual({status:'sent',communicationId:100});expect(m.send).toHaveBeenCalledWith({agencyId:2,paymentId:91,deliveryId:1});});
+it.each([{status:'unknown'},{status:'sending'},{status:'held',communication_id:100}])('never blindly resends uncertain or already-queued delivery',async change=>{m.event={...m.event,...change};await expect(retryHeldReceipt({agencyId:2,deliveryId:1,actorUserId:501})).rejects.toMatchObject({status:409});expect(m.send).not.toHaveBeenCalled();});
+it('does not resend a confirmed event',async()=>{m.event.status='sent';await retryHeldReceipt({agencyId:2,deliveryId:1,actorUserId:501});expect(m.send).not.toHaveBeenCalled();});

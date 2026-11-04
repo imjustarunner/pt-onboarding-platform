@@ -30,11 +30,12 @@ export function buildReceiptEmail({receipt,kind='payment',url,refundUrl,credit})
 
 /** One durable event per settlement. A crash or ambiguous transport response
  * stays visible for review instead of automatically sending another copy. */
-export async function sendPendingReceiptEmails({agencyId=null,paymentId=null}={}) {
+export async function sendPendingReceiptEmails({agencyId=null,paymentId=null,deliveryId=null}={}) {
   await pool.execute("UPDATE family_receipt_deliveries d JOIN user_communications c ON c.id=d.communication_id SET d.status='sent',d.sent_at=c.sent_at WHERE d.status IN ('held','sending','unknown') AND c.delivery_status='sent'");
   const args=[];let filter='';
   if(agencyId){filter+=' AND d.agency_id=?';args.push(agencyId);}
   if(paymentId){filter+=' AND d.payment_id=?';args.push(paymentId);}
+  if(deliveryId){filter+=' AND d.id=?';args.push(deliveryId);}
   const [events]=await pool.execute(`SELECT d.* FROM family_receipt_deliveries d WHERE d.status='pending'${filter} ORDER BY d.id LIMIT 50`,args);
   const results=[];
   for(const event of events){
