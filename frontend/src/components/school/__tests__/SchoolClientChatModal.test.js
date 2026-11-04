@@ -74,17 +74,24 @@ describe('SchoolClientChatModal', () => {
   });
 
   it('opens a client-specific school consent on SchoolCareBridge from the agency app', async () => {
-    const open=vi.spyOn(window,'open').mockImplementation(()=>null);
-    api.post.mockImplementation(async url=>({data:String(url).endsWith('/smart-roi-link')?{issued_link:{public_key:'school-consent-key'}}:{}}));
-    const wrapper=mount(SchoolClientChatModal,{
-      props:{client:{id:10,initials:'AB',school_staff_effective_access_state:'roi'},schoolOrganizationId:123},
-      global:{plugins:[pinia],stubs:{ClientTicketThreadPanel:true,WaitlistNoteModal:true}}
-    });
-    await flushPromises();
-    await wrapper.findAll('button').find(button=>button.text()==='Launch Smart ROI').trigger('click');
-    await flushPromises();
-    expect(open).toHaveBeenCalledWith('https://schoolcarebridge.org/intake/school-consent-key','_blank','noopener');
-    wrapper.unmount();
+    const originalUrl = window.location.href;
+    globalThis.jsdom.reconfigure({ url: 'https://app.itsco.health/itsco/dashboard' });
+    let wrapper;
+    try {
+      const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+      api.post.mockImplementation(async url => ({ data: String(url).endsWith('/smart-roi-link') ? { issued_link: { public_key: 'school-consent-key' } } : {} }));
+      wrapper = mount(SchoolClientChatModal, {
+        props: { client: { id: 10, initials: 'AB', school_staff_effective_access_state: 'roi' }, schoolOrganizationId: 123 },
+        global: { plugins: [pinia], stubs: { ClientTicketThreadPanel: true, WaitlistNoteModal: true } }
+      });
+      await flushPromises();
+      await wrapper.findAll('button').find(button => button.text() === 'Launch Smart ROI').trigger('click');
+      await flushPromises();
+      expect(open).toHaveBeenCalledWith('https://schoolcarebridge.org/intake/school-consent-key', '_blank', 'noopener');
+    } finally {
+      wrapper?.unmount();
+      globalThis.jsdom.reconfigure({ url: originalUrl });
+    }
   });
 });
 
