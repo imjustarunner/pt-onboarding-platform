@@ -2,6 +2,7 @@ import {beforeEach,it,expect,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../familyBillingEncryption.service.js',()=>({decryptFamilyBilling:vi.fn(()=>({amountCents:1000,method:'card ending 0001'}))}));
 vi.mock('../familyLedger/receivables.js',()=>({findReceivable:vi.fn(),sourcePayload:vi.fn()}));
+vi.mock('../familyLedger/copayCredits.js',()=>({paymentCreditState:vi.fn(async()=>null)}));
 vi.mock('../familyLedger/policy.js',()=>({parseJson:(v,f)=>v||f,today:()=>'',assertCollectible:vi.fn()}));
 import pool from '../../config/database.js';import {receiptFor} from '../familyLedger/views.js';
 let payer,self;

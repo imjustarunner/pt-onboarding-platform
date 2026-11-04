@@ -20,7 +20,7 @@ test('attendance copays use real SQL locks and one payment through note retries 
     // Disposable synthetic database only; never import any production environment.
     const [tables]=await setup.query('SHOW TABLES');await setup.query('SET FOREIGN_KEY_CHECKS=0');for(const table of tables)await setup.query(`DROP TABLE \`${Object.values(table)[0]}\``);await setup.query('SET FOREIGN_KEY_CHECKS=1');
     const fixture=await readFile(new URL('../../../fixtures/family-billing-security.sql',import.meta.url),'utf8');await setup.query(fixture.slice(fixture.indexOf('CREATE TABLE agencies')));
-    for(const file of ['613_guardian_insurance_payment.sql','665_guardian_payment_cards_stripe.sql','1413_private_family_billing.sql','1687_dependent_portal_access.sql','1688_client_portal_independence.sql','1414_family_receivables_and_workflows.sql','1485_client_billing_readiness.sql','1486_client_coverage_verification.sql','1494_management_collections.sql','1520_guardian_shared_billing.sql','1640_insurance_followups_and_payer_shares.sql','1673_attendance_copays.sql'])await setup.query(await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8'));
+    for(const file of ['613_guardian_insurance_payment.sql','665_guardian_payment_cards_stripe.sql','1413_private_family_billing.sql','1687_dependent_portal_access.sql','1688_client_portal_independence.sql','1414_family_receivables_and_workflows.sql','1745_copay_receipts_and_credits.sql','1485_client_billing_readiness.sql','1486_client_coverage_verification.sql','1494_management_collections.sql','1520_guardian_shared_billing.sql','1640_insurance_followups_and_payer_shares.sql','1673_attendance_copays.sql'])await setup.query(await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8'));
     for(const file of ['family-ledger-workflows.sql','patient-service-billing.sql'])await setup.query(await readFile(new URL(`../../../fixtures/${file}`,import.meta.url),'utf8'));
     await setup.query(`ALTER TABLE agencies ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0;
       ALTER TABLE users ADD is_demo BOOLEAN DEFAULT 0,ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0,ADD status_expires_at DATETIME;
@@ -183,7 +183,7 @@ test('attendance copays use real SQL locks and one payment through note retries 
       // Even manually removing the visible hold cannot bypass the attendance gate.
       await setup.execute("UPDATE family_receivables SET status='open',hold_reason=NULL WHERE id=?",[balance.id]);
       const result=await runDueCopays({agencyId:1});
-      assert.ok(result.some(r=>r.paid===false&&/not occurring|canceled|cancelled|did not occur|visit or claim needs review/.test(r.message)),JSON.stringify(result));
+      assert.ok(result.some(r=>r.paid===false&&/not occurring|not been confirmed as occurring|canceled|cancelled|did not occur|visit or claim needs review/.test(r.message)),JSON.stringify(result));
       assert.equal(processorCharges,before);
     });
     await t.test('saved encrypted session draft collects once and a later note does not collect again',async()=>{
@@ -206,12 +206,12 @@ test('attendance copays use real SQL locks and one payment through note retries 
       assert.deepEqual(row,{collection_status:'review',collection_review_reason:'late_attendance',receivable_id:null});
       await assert.rejects(collectAttendanceCopay({agencyId:1,sessionId:9061}),/later day/);assert.equal(processorCharges,before);
     });
-    await t.test('unfinished negative choice can reset but a paid visit cannot silently be canceled',async()=>{
+    await t.test('unfinished negative choice resets and a successful copay permits an audited cancellation hold',async()=>{
       await visit(9062,{signed:false});await recordCopayAttendance({...input(9062),occurred:false});
       assert.equal((await resetPendingAttendance({agencyId:1,sessionId:9062,providerUserId:45})).reset,true);
       const [[negative]]=await setup.execute('SELECT COUNT(*) n FROM family_copay_attendance WHERE clinical_session_id=9062');assert.equal(negative.n,0);
-      await assert.rejects(suppressAppointmentAttendanceCopays({id:999,agencyId:1,clinicalSessionId:9060},45),/payment has already started/);
-      const [[paid]]=await setup.execute('SELECT attendance,collection_status FROM family_copay_attendance WHERE clinical_session_id=9060');assert.deepEqual(paid,{attendance:'occurred',collection_status:'paid'});
+      await suppressAppointmentAttendanceCopays({id:999,agencyId:1,clinicalSessionId:9060},45);
+      const [[paid]]=await setup.execute('SELECT attendance,collection_status FROM family_copay_attendance WHERE clinical_session_id=9060');assert.deepEqual(paid,{attendance:'did_not_occur',collection_status:'suppressed'});
       await suppressAppointmentAttendanceCopays({id:999,agencyId:1,clinicalSessionId:9062},45);
       const [[held]]=await setup.execute('SELECT attendance,collection_status FROM family_copay_attendance WHERE clinical_session_id=9062');assert.deepEqual(held,{attendance:'did_not_occur',collection_status:'suppressed'});
     });
@@ -226,6 +226,58 @@ test('attendance copays use real SQL locks and one payment through note retries 
       const [[row]]=await setup.execute('SELECT status,processor_intent_id,processor_dispatch_started_at FROM family_ledger_payments WHERE id=?',[inserted.insertId]);
       assert.equal(row.status,'cancelled');assert.equal(row.processor_intent_id,null);assert.ok(row.processor_dispatch_started_at);assert.equal(processorCharges,before);
       const [[audit]]=await setup.execute("SELECT COUNT(*) n FROM family_billing_audit WHERE agency_id=1 AND action='automatic_copay_stopped_before_dispatch' AND object_id=?",[inserted.insertId]);assert.equal(audit.n,1);
+    });
+
+    await t.test('late cancellation creates one owned credit, pays only the remainder next time, and reconciles a linked refund',async()=>{
+      const {creditCancelledSession,paymentCreditState}=await import('../familyLedger/copayCredits.js');
+      const {requestPaymentRefund,resolveRefundRequest}=await import('../familyLedger/refundRequests.js');
+      const {refundPayment}=await import('../familyLedger/refunds.js');
+      const {receiptFor}=await import('../familyLedger/views.js');
+      const {ledgerIntegrity}=await import('../familyLedger/integrity.js');
+      await visit(9072,{signed:false});await recordCopayAttendance(input(9072));
+      await suppressAppointmentAttendanceCopays({id:999,agencyId:1,clinicalSessionId:9072},45);
+      const [[original]]=await setup.execute("SELECT p.* FROM family_ledger_payments p JOIN family_receivable_allocations a ON a.id=p.allocation_id JOIN family_receivables r ON r.id=a.receivable_id WHERE r.source_type='clinical_copay' AND r.source_key='9072' AND p.status='succeeded'");
+      assert.ok(original);
+      assert.deepEqual(await creditCancelledSession({agencyId:1,clientId:102,sessionId:9072,actorUserId:45}),{awaitingDocumentation:true});
+      await setup.execute("INSERT INTO clinical_notes(id,clinical_session_id,agency_id,client_id,created_by_user_id,note_type,is_billable,content_review_source) VALUES(99072,9072,1,102,45,'MISSED_APPOINTMENT',0,'provider_review')");
+      await recordCopayAttendance({...input(9072),occurred:false,source:'reviewed_note',noteId:99072});
+      await creditCancelledSession({agencyId:1,clientId:102,sessionId:9072,actorUserId:45});
+      assert.equal((await paymentCreditState(original.id)).availableCents,2500);
+      const [[events]]=await setup.execute("SELECT COUNT(*) n FROM family_receipt_deliveries WHERE payment_id=? AND kind='credit_available'",[original.id]);assert.equal(events.n,1);
+      // A full same-day credit completes the later copay without contacting Stripe.
+      await visit(9073,{signed:false});await setup.execute('UPDATE clinical_sessions SET scheduled_start_at=?,scheduled_end_at=? WHERE id=9073',[new Date(Date.now()-4800000),new Date(Date.now()-3000000)]);
+      const noChargeBefore=processorCharges;const credited=await recordCopayAttendance(input(9073));assert.equal(credited.collection.paid,true);assert.equal(credited.collection.chargedCents,0);assert.equal(processorCharges,noChargeBefore);
+      assert.equal((await paymentCreditState(original.id)).appliedCents,2500);
+      // Canceling a visit paid entirely with credit restores its original pool.
+      await setup.execute("INSERT INTO clinical_notes(id,clinical_session_id,agency_id,client_id,created_by_user_id,note_type,is_billable,content_review_source) VALUES(99073,9073,1,102,45,'MISSED_APPOINTMENT',0,'provider_review')");
+      await recordCopayAttendance({...input(9073),occurred:false,source:'reviewed_note',noteId:99073});
+      assert.equal((await paymentCreditState(original.id)).availableCents,2500);assert.equal((await paymentCreditState(original.id)).appliedCents,0);
+      let refundCalls=0;
+      Stripe.refundPaymentIntent=async args=>{refundCalls++;return {id:`re_synthetic_${refundCalls}`,status:'succeeded',amount:args.amountCents,payment_intent:args.paymentIntentId,metadata:args.metadata};};
+      await refundPayment({...c,paymentId:original.id,amountCents:500,idempotencyKey:'synthetic-partial-cancel-refund',reason:'Synthetic partial refund of canceled visit'});
+      assert.equal((await paymentCreditState(original.id)).availableCents,2000);
+      await visit(9070,{signed:false});await setup.execute('UPDATE clinical_sessions SET scheduled_start_at=?,scheduled_end_at=? WHERE id=9070',[new Date(Date.now()-2700000),new Date(Date.now()-900000)]);
+      const before=processorCharges;
+      const next=await recordCopayAttendance(input(9070));assert.equal(next.collection.paid,true);assert.equal(processorCharges,before+1);
+      const [[nextBalance]]=await setup.execute("SELECT r.* FROM family_receivables r WHERE r.source_type='clinical_copay' AND source_key='9070'");
+      const [[charged]]=await setup.execute("SELECT p.amount_cents,p.id FROM family_ledger_payments p JOIN family_receivable_allocations a ON a.id=p.allocation_id WHERE a.receivable_id=? AND p.status='succeeded'",[nextBalance.id]);assert.equal(charged.amount_cents,500);
+      assert.equal((await paymentCreditState(original.id)).appliedCents,2000);
+      assert.equal((await ledgerIntegrity(1,nextBalance.id)).mismatch,false);
+      assert.equal((await collectAttendanceCopay({agencyId:1,sessionId:9070})).alreadyPaid,true);assert.equal(processorCharges,before+1);
+      await assert.rejects(requestPaymentRefund({agencyId:1,paymentId:original.id,userId:20,amountCents:2000,reason:'Wrong payer'}),e=>e.status===404);
+      const requests=await Promise.all([1,2].map(()=>requestPaymentRefund({agencyId:1,paymentId:original.id,userId:10,amountCents:500,reason:'The original session did not occur'})));
+      assert.equal(requests[0].requestId,requests[1].requestId);assert.equal((await paymentCreditState(original.id)).refundRequested,true);
+      const resolution={agencyId:1,requestId:requests[0].requestId,actorUserId:99,approve:true,reason:'Reviewed documented cancellation and previously applied credit'};
+      assert.equal((await resolveRefundRequest(resolution)).refunded,true);assert.equal((await resolveRefundRequest(resolution)).alreadyRefunded,true);assert.equal(refundCalls,2);
+      const partial=await paymentCreditState(original.id);assert.equal(partial.appliedCents,1500);assert.equal(partial.availableCents,0);
+      const remainingRequest=await requestPaymentRefund({agencyId:1,paymentId:original.id,userId:10,amountCents:1500,reason:'Refund the remaining canceled-session copay'});
+      await resolveRefundRequest({agencyId:1,requestId:remainingRequest.requestId,actorUserId:99,approve:true,reason:'Reviewed remaining canceled-session credit'});assert.equal(refundCalls,3);
+      const state=await paymentCreditState(original.id);assert.equal(state.availableCents,0);assert.equal(state.appliedCents,0);
+      const [[held]]=await setup.execute('SELECT status,hold_reason FROM family_receivables WHERE id=?',[nextBalance.id]);assert.deepEqual(held,{status:'review',hold_reason:'credit_refund_review'});
+      await assert.rejects(collectAttendanceCopay({agencyId:1,sessionId:9070}),e=>e.status===409);assert.equal(processorCharges,before+1);
+      const receipt=await receiptFor({agencyId:1,paymentId:original.id,userId:10});assert.equal(receipt.amountCents,2500);assert.equal(receipt.refundedCents,2500);assert.equal(receipt.netPaidCents,0);
+      assert.equal((await ledgerIntegrity(1,nextBalance.id)).mismatch,false);
+      const [[source]]=await setup.execute('SELECT r.* FROM family_receivables r JOIN family_receivable_allocations a ON a.receivable_id=r.id WHERE a.id=?',[original.allocation_id]);assert.equal(source.status,'void');assert.equal((await ledgerIntegrity(1,source.id)).mismatch,false);
     });
   } finally {await setup.end();if(pool)await pool.end();if(clinical)await clinical.end();}
 });

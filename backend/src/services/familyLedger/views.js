@@ -57,6 +57,8 @@ export async function receiptFor({agencyId,paymentId,userId,staff=false}) {
   if(!staff&&Number(row.payer_user_id)!==Number(userId))delete receipt.method;
   const [refunds]=await pool.execute("SELECT id,amount_cents AS amountCents,completed_at AS completedAt FROM family_payment_refunds WHERE payment_id=? AND status='succeeded' ORDER BY id",[row.id]);
   receipt.refunds=refunds;receipt.refundedCents=refunds.reduce((n,r)=>n+Number(r.amountCents),0);receipt.netPaidCents=Number(receipt.amountCents)-receipt.refundedCents;
+  const {paymentCreditState}=await import('./copayCredits.js');
+  receipt.credit=await paymentCreditState(row.id);
   await auditBilling({agencyId,clientId:row.client_id,userId,action:'receipt_viewed',objectId:row.id});
   return receipt;
 }
@@ -77,22 +79,8 @@ export async function renderPrivatePdf({title,agencyName,lines}) {
   return Buffer.from(await pdf.save());
 }
 export async function renderReceiptPdf(receipt) {
-  const money=v=>new Intl.NumberFormat('en-US',{style:'currency',currency:receipt.currency||'USD'}).format(Number(v)/100);
-  return renderPrivatePdf({title:'Payment receipt',agencyName:receipt.agencyName,lines:[
-    `Receipt: ${receipt.receiptNumber}`, `Received: ${String(receipt.receivedAt).slice(0,10)}`,
-    `Responsible payer: ${receipt.payerName}`, `Service: ${receipt.service}`,
-    ...(receipt.clientName?[`Client: ${receipt.clientName}`]:[]),
-    ...(receipt.serviceDate?[`Service date: ${receipt.serviceDate}`]:[]),
-    ...(receipt.balanceReference?[`Balance reference: ${receipt.balanceReference}`]:[]),
-    ...(receipt.responsibilityType?[`Charge type: ${receipt.responsibilityType}`,`Basis: ${receipt.verificationBasis}`]:[]),
-    ...(receipt.shareCents!=null?[`Assigned share: ${money(receipt.shareCents)}`,`Previously paid: ${money(receipt.previouslyPaidCents)}`]:[]),
-    ...(receipt.serviceCode?[`Service code: ${receipt.serviceCode}`,`Agreed price: ${money(receipt.unitAmountCents)} per ${receipt.priceBasis}${receipt.priceBasis==='unit'?` x ${receipt.serviceUnits} units`:''}`]:[]),
-    `Amount received: ${money(receipt.amountCents)}`,
-    ...(receipt.remainingAtPaymentCents!=null?[`Remaining at time of payment: ${money(receipt.remainingAtPaymentCents)}`]:[]),
-    ...(receipt.method?[`Payment method: ${receipt.method}`]:[]),
-    ...(receipt.refundedCents?[`Refunded: ${money(receipt.refundedCents)}`,`Net paid: ${money(receipt.netPaidCents)}`]:[]),
-    'This is a payment receipt, not a new bill or a superbill. See your portal for the current balance. Clinical notes and diagnoses are not included.'
-  ]});
+  const { brandedReceiptPdf } = await import('./receiptDocument.js');
+  return brandedReceiptPdf(receipt);
 }
 
 /** Downloadable service statement; includes only balances the signed-in payer may view. */

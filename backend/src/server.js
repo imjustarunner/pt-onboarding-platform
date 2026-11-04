@@ -2945,6 +2945,10 @@ const balanceNotificationTimer = setInterval(async () => {
   balanceNotificationsRunning = true;
   try {
     const { sendPendingBalanceNotifications } = await import('./services/familyLedger/balanceNotifications.js');
+    const { reconcileCopayCredits } = await import('./services/familyLedger/copayCredits.js');
+    const { sendPendingReceiptEmails } = await import('./services/familyLedger/receiptEmails.js');
+    await reconcileCopayCredits();
+    await sendPendingReceiptEmails();
     const outcomes = await sendPendingBalanceNotifications();
     for (const outcome of outcomes) if (outcome.status !== 'sent') console.warn('[guardian billing notifications]', outcome.agencyId, outcome.status);
   } catch (error) { console.warn('[guardian billing notifications] Needs review', error.code || 'delivery_configuration'); }

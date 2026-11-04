@@ -18,6 +18,7 @@ import { payAllocation,recordCash,reconcileSavedPayment } from '../services/fami
 import { saveReadiness } from '../services/familyLedger/readiness.js';
 import { runDueCopays } from '../services/familyLedger/copays.js';
 import { refundPayment } from '../services/familyLedger/refunds.js';
+import { receiptWorkspace,requestPaymentRefund,listRefundRequests,resolveRefundRequest } from '../services/familyLedger/refundRequests.js';
 import { listBalances,listReceipts,receiptFor,renderReceiptPdf } from '../services/familyLedger/views.js';
 import { proposePlan,acceptPlan,cancelPlan,runDuePlans,PLAN_TERMS_VERSION } from '../services/familyLedger/plans.js';
 import { setStatementSharing,requestSplit,respondToSplit,listSplitRequests } from '../services/familyLedger/sharing.js';
@@ -48,6 +49,8 @@ router.get('/statement.pdf',run(async(req,res)=>res.type('pdf').set('Content-Dis
 router.get('/payment-preference',run(async(req,res)=>res.json({preference:await guardianPaymentPreference({...context(req),clientId:positiveId(req.query.clientId)})})));
 router.put('/payment-preference',run(async(req,res)=>res.json(await saveGuardianPaymentPreference({...req.body,...context(req),clientId:positiveId(req.body.clientId)}))));
 router.get('/receipts/:id.pdf',run(async(req,res)=>{const receipt=await receiptFor({...context(req),paymentId:positiveId(req.params.id)});res.type('pdf').set('Content-Disposition',`attachment; filename="receipt-${req.params.id}.pdf"`).send(await renderReceiptPdf(receipt));}));
+router.get('/payments/:id',run(async(req,res)=>res.json(await receiptWorkspace({...context(req),paymentId:positiveId(req.params.id)}))));
+router.post('/payments/:id/refund-request',limited,run(async(req,res)=>res.json(await requestPaymentRefund({...req.body,...context(req),paymentId:positiveId(req.params.id)}))));
 router.get('/splits',run(async(req,res)=>res.json({requests:await listSplitRequests({...context(req),clientId:req.query.clientId?positiveId(req.query.clientId):null})})));
 router.post('/balances/:id/split',run(async(req,res)=>res.json(await requestSplit({...req.body,...context(req),receivableId:positiveId(req.params.id)}))));
 router.post('/splits/:id/respond',run(async(req,res)=>res.json(await respondToSplit({...req.body,...context(req),requestId:positiveId(req.params.id)}))));
@@ -97,6 +100,9 @@ router.post('/staff/clients/:id/rule',run(async(req,res)=>{await setBillingRule(
 router.post('/staff/clients/:id/sharing',run(async(req,res)=>{await setStatementSharing({...req.body,...context(req),clientId:positiveId(req.params.id)});res.json({success:true});}));
 router.post('/staff/allocations/:id/cash',run(async(req,res)=>{const result=await recordCash({...req.body,...context(req),allocationId:positiveId(req.params.id)});await fulfillPaidBalances(context(req));res.json(result);}));
 router.post('/staff/payments/:id/refund',run(async(req,res)=>res.json(await refundPayment({...req.body,...context(req),paymentId:positiveId(req.params.id)}))));
+router.get('/staff/refund-requests',run(async(req,res)=>res.json({requests:await listRefundRequests(context(req))})));
+router.post('/staff/refund-requests/:id/resolve',limited,run(async(req,res)=>res.json(await resolveRefundRequest({...req.body,...context(req),requestId:positiveId(req.params.id)}))));
+router.get('/staff/receipt-deliveries',run(async(req,res)=>{const [deliveries]=await pool.execute("SELECT d.id,d.payment_id AS paymentId,d.kind,d.status,d.communication_id AS communicationId,p.receipt_number AS receiptNumber FROM family_receipt_deliveries d JOIN family_ledger_payments p ON p.id=d.payment_id WHERE d.agency_id=? AND d.status<>'sent' ORDER BY d.id DESC LIMIT 100",[context(req).agencyId]);res.json({deliveries});}));
 router.post('/staff/allocations/:id/plan',run(async(req,res)=>res.json(await proposePlan({...req.body,...context(req),allocationId:positiveId(req.params.id)}))));
 router.post('/staff/plans/:id/cancel',run(async(req,res)=>{await cancelPlan({...context(req),planId:positiveId(req.params.id),staff:true});res.json({success:true});}));
 router.post('/staff/plans/collect-due',limited,run(async(req,res)=>res.json({results:await runDuePlans(context(req))})));
