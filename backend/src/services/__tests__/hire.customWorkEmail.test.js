@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+vi.mock('../workplaceHandbook.service.js',()=>({getPublishedHandbook:vi.fn()}));
 const mocks = vi.hoisted(() => ({ state: vi.fn(), save: vi.fn(), check: vi.fn(), agency: vi.fn() }));
 vi.mock('../../controllers/prehirePortal.controller.js', () => ({ portalStateForUser: mocks.state, getPortalTask: vi.fn(), viewPortalSignedFile: vi.fn() }));
 vi.mock('../hirePortalWorkflow.service.js', () => ({ savePortalStep: mocks.save, portalStepSubmissions: vi.fn(), validatePreemployment: vi.fn() }));

@@ -1,4 +1,6 @@
 import {beforeEach,it,expect,vi} from 'vitest';
+vi.mock('../workplaceHandbookAccess.js',()=>({handbookResponseForReader:vi.fn()}));
+vi.mock('../workplaceHandbookAnswer.service.js',()=>({answerPublishedHandbook:vi.fn()}));
 const m=vi.hoisted(()=>({execute:vi.fn(),find:vi.fn(),update:vi.fn(),suggest:vi.fn(),provision:vi.fn(),journey:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute},onTableWrite:vi.fn()}));
 vi.mock('../../models/User.model.js',()=>({default:{findById:m.find,updateStatus:m.update}}));

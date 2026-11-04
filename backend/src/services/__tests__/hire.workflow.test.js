@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+vi.mock('../companyDocumentLearning.service.js',()=>({onboardingGuideSteps:vi.fn(async()=>[])}));
 const mocks = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn(), findUser: vi.fn(), journeyTasks: vi.fn(), getJourney: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: mocks, onTableWrite:vi.fn() }));
 vi.mock('../../models/User.model.js', () => ({ default: { findById: mocks.findUser } }));
