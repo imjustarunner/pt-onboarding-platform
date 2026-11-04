@@ -76,6 +76,17 @@ it('shows the saved referral reference and opens its details after posting', asy
   expect(wrapper.find('.cep-detail-posted').text()).toContain('Referral #12');
 });
 
+it('lets a QA provider request a clean demo match and still hides staff-only demos', async () => {
+  const visible = { id: 17, agencyId: 450, status: 'open', isDemo: true, demoRequestAllowed: true, currentProviderUserId: 99, viewerFit: { status: 'match', canRequest: true, blockers: [], adjustments: [] } };
+  mocks.user = { id: 1438, role: 'provider' };
+  mocks.store = reactive({ currentAgency: { id: 450 }, userAgencies: [], agencies: [], fetchUserAgencies: vi.fn().mockResolvedValue([]) });
+  mocks.route.query = { listingId: '17' };
+  mocks.get.mockImplementation(async url => ({ data: url.endsWith('/17') ? { listing: visible, requests: [] } : { listings: [visible], requests: [] } }));
+  const wrapper = makeWrapper(); await flushPromises();
+  expect(wrapper.text()).toContain('Match');
+  expect(wrapper.findAll('button').some(button => button.text() === 'Request this client')).toBe(true);
+  wrapper.unmount();
+});
 
 it.each([
   { status: 'not_match', canRequest: false, blockers: [{ code: 'insurance', message: 'You are not verified to accept Tricare.' }], adjustments: [], label: 'Request blocked' },

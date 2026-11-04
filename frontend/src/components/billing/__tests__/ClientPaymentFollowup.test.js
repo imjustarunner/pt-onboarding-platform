@@ -10,7 +10,7 @@ beforeEach(()=>{vi.resetAllMocks();sessionStorage.clear();api.get.mockResolvedVa
 it('shows the exact recipients and billing identity before an explicit send, then reports sent versus held',async()=>{
  const w=mount(ClientPaymentFollowup,{props:{clientId:22}});expect(api.get).not.toHaveBeenCalled();expect(api.post).not.toHaveBeenCalled();
  await button(w,'Review payment request').trigger('click');await flushPromises();
- expect(w.text()).toContain('From and reply to: billing@example.com');expect(w.text()).toContain('family@example.com');expect(w.text()).toContain('provider@example.com');expect(api.post).not.toHaveBeenCalled();
+ expect(w.text()).toContain('Medicaid: not applicable for this client.');expect(w.text()).toContain('From and reply to: billing@example.com');expect(w.text()).toContain('family@example.com');expect(w.text()).toContain('provider@example.com');expect(api.post).not.toHaveBeenCalled();
  await button(w,'Send payment setup request').trigger('click');await flushPromises();
  expect(api.post).toHaveBeenCalledWith('/clients/22/payment-setup-followup',expect.objectContaining({requestKey:expect.any(String),reviewHash:'synthetic-review-hash'}),{skipGlobalLoading:true});
  expect(w.text()).toContain('DEMO QA Responsible Adult: Email sent');expect(w.text()).toContain('DEMO QA Provider: Held');expect(w.text()).toContain('Some messages were not confirmed sent');expect(sessionStorage.getItem('payment-setup-pending:22')).toBeNull();w.unmount();

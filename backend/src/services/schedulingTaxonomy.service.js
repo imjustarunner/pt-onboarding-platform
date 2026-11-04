@@ -3,6 +3,7 @@ import { resolveAgencySchedulingCatalog } from './agencySchedulingCatalog.servic
 import { readStaffCareEligibility } from './staffCareEligibility.service.js';
 import pool from '../config/database.js';
 import { deriveCredentialTier, eligibleServiceCodesForTier, isServiceCodeDeniedForTier } from '../utils/clinicalServiceCodeEligibility.js';
+import { filterServiceCodesForCredential, grantedServiceCodesForProvider, loadCredentialOverrides } from './billingRules.service.js';
 import { resolvePolicyRuleForServiceCode, isServiceCodeEnabledForAgency } from './billingPolicy.service.js';
 
 const FALLBACK_APPOINTMENT_TYPES = [
@@ -255,13 +256,16 @@ export async function getSchedulingBookingMetadata({ userRole, providerCredentia
   const eligibleServiceCodes = careEligibility.canProvideCare ? (await listEligibleServiceCodesForTier(credentialTier, agencyId)).filter(row => !isServiceCodeDeniedForTier(credentialTier, row.code)) : [];
 
   const catalog = await resolveAgencySchedulingCatalog({ agencyId, credentialTier, allServiceCodes, eligibleServiceCodes });
+  const credentialOverrides = await loadCredentialOverrides('CO');
+  const grantedServiceCodes = providerId ? await grantedServiceCodesForProvider(agencyId, providerId) : [];
+  const visibleServiceCodes = filterServiceCodesForCredential(catalog.eligibleServiceCodes, credentialTier, credentialOverrides, grantedServiceCodes);
   return {
     credentialTier,
     careEligibility,
     appointmentTypes,
     appointmentSubtypes,
     allServiceCodes: catalog.allServiceCodes,
-    eligibleServiceCodes: careEligibility.canProvideCare ? catalog.eligibleServiceCodes : []
+    eligibleServiceCodes: careEligibility.canProvideCare ? visibleServiceCodes : []
   };
 }
 

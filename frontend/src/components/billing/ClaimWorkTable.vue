@@ -8,7 +8,7 @@
       <template v-else-if="['provider_name', 'billing_provider_name', 'supervisor_name'].includes(column.id)"><a v-if="providerId(item, column.id) && organization(item)?.slug" :href="providerLink(item, column.id)">{{ providerName(item, column.id) || `Provider #${providerId(item, column.id)}` }}</a><span v-else>{{ providerName(item, column.id) || '—' }}</span></template>
       <template v-else-if="column.id === 'amount_cents'">{{ item.amount_cents == null ? 'Not set' : money(item.amount_cents, item.currency_code) }}</template>
       <template v-else-if="column.id === 'diagnosis_codes'">{{ diagnosisList(item.diagnosis_codes) || 'Not recorded' }}</template>
-      <template v-else-if="column.id === 'stage'"><span class="badge" :class="claimStatusTone(workStage(item))">{{ claimStatusLabel(workStage(item)) }}</span><small v-if="item.service_change_pending">Service correction pending</small></template>
+      <template v-else-if="column.id === 'stage'"><span class="badge" :class="claimStatusTone(workStage(item))">{{ claimStatusLabel(workStage(item)) }}</span><small v-if="clearinghouseStatusLabel(item.claimmd_last_status)">{{ clearinghouseStatusLabel(item.claimmd_last_status) }}</small><small v-if="item.service_change_pending">Service correction pending</small></template>
       <template v-else-if="column.id === 'submission_type'">{{ workClaimId(item) ? submissionTypeLabel(item) : 'Not submitted' }}</template>
       <template v-else>{{ item[column.id] ?? '—' }}</template>
     </td><td><button type="button" class="record-link action" @click="emit('open', item)">{{ workStage(item) === 'ready_to_submit' ? 'Review claim' : ['note_needed','draft','pending_review','revisions_needed'].includes(workStage(item)) ? 'View progress' : 'View claim' }} →</button></td></tr></tbody></table></div>
@@ -16,7 +16,7 @@
 </template>
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { billingDate, diagnosisList, claimStatusLabel, claimStatusTone, workStage, workClaimId, workItemKey, workItemTitle, submissionTypeLabel } from '../../utils/billingWorkspace.js';
+import { billingDate, diagnosisList, claimStatusLabel, claimStatusTone, clearinghouseStatusLabel, workStage, workClaimId, workItemKey, workItemTitle, submissionTypeLabel } from '../../utils/billingWorkspace.js';
 const props = defineProps({ items: { type: Array, default: () => [] }, organizations: { type: Array, default: () => [] }, multipleOrganizations: Boolean, sortBy: { type: String, default: 'date_of_service' }, direction: { type: String, default: 'desc' }, preferenceKey: { type: String, default: '' } });
 const emit = defineEmits(['open','sort']);
 const columns = [ ['organization','Organization'], ['date_of_service','Date of service'], ['client_name','Patient'], ['service_code','Service'], ['provider_name','Clinician'], ['billing_provider_name','Billed as provider'], ['supervisor_name','Supervisor / billed as'], ['amount_cents','Charge'], ['place_of_service','Place of service'], ['diagnosis_codes','Diagnoses'], ['units','Units'], ['stage','Stage'], ['payer_name','Payer'], ['submission_type','Submission type'] ].map(([id,label]) => ({ id,label }));

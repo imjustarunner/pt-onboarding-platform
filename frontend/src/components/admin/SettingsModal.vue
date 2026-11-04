@@ -372,6 +372,9 @@ import { isRootTenant } from '../../navigation/organizationKinds';
 import AgencyManagementTeamConfig from './AgencyManagementTeamConfig.vue';
 import TenantBookingSettings from './TenantBookingSettings.vue';
 import BillingServiceCodeSettings from '../billing/BillingServiceCodeSettings.vue';
+import BillingFeeScheduleSettings from '../billing/BillingFeeScheduleSettings.vue';
+import BillingRulesSettings from '../billing/BillingRulesSettings.vue';
+import BillingPracticeSettings from '../billing/BillingPracticeSettings.vue';
 import BrandingConfig from './BrandingConfig.vue';
 import BrandingTemplatesManagement from './BrandingTemplatesManagement.vue';
 import EmailTemplateManagement from './EmailTemplateManagement.vue';
@@ -628,6 +631,9 @@ const allCategories = [
         requiresAgency: true
       },
       { id: 'service-codes', label: 'Service codes', icon: '📋', component: 'BillingServiceCodeSettings', roles: ['super_admin', 'admin', 'staff', 'support'], requiresAgency: true },
+      { id: 'fee-schedule', label: 'Fee schedule', icon: '💵', component: 'BillingFeeScheduleSettings', roles: ['super_admin', 'admin', 'staff', 'support'], requiresAgency: true },
+      { id: 'billing-rules', label: 'Billing rules', icon: '📘', component: 'BillingRulesSettings', roles: ['super_admin', 'admin', 'staff', 'support'], requiresAgency: true },
+      { id: 'billing-settings', label: 'Billing settings', icon: '🏥', component: 'BillingPracticeSettings', roles: ['super_admin', 'admin', 'staff', 'support'], requiresAgency: true },
       {
         id: 'team-roles',
         label: 'Team & Roles',
@@ -1492,6 +1498,9 @@ const componentMap = {
   AgencyManagementTeamConfig,
   TenantBookingSettings,
   BillingServiceCodeSettings,
+  BillingFeeScheduleSettings,
+  BillingRulesSettings,
+  BillingPracticeSettings,
   BrandingConfig,
   BrandingTemplatesManagement,
   EmailTemplateManagement,

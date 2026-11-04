@@ -147,6 +147,9 @@ const primarySections = computed(() => {
         description: `What this ${noun} sells (counseling, tutoring, coaching, consulting) — unlocks finders, packages, and matching notifications.`
       },
       { category: 'general', item: 'service-codes', label: 'Service codes', fallbackIcon: '📋', description: 'Shared clinical service codes, unit calculations, time rules, allowed credentials and places of service. Billing fee schedules use this catalog.' },
+      { category: 'general', item: 'fee-schedule', label: 'Fee schedule', fallbackIcon: '💵', description: 'Billed charges by service, payer, provider category, and provider.' },
+      { category: 'general', item: 'billing-rules', label: 'Billing rules', fallbackIcon: '📘', description: 'Colorado defaults for which credential groups may use each service code, plus a person-by-person exception such as H0002.' },
+      { category: 'general', item: 'billing-settings', label: 'Billing settings', fallbackIcon: '🏥', description: 'Billing offices, practice NPIs, and places of service. Schools and telehealth stay service sites, not billing addresses.' },
       {
         category: 'general',
         item: 'tenant-features',

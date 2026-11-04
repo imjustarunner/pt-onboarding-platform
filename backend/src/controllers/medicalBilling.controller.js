@@ -3345,7 +3345,20 @@ export const listServiceLocations = async (req, res, next) => {
       const t = String(org.organization_type || '').toLowerCase();
       return !t || t === 'school' || t === 'program';
     }).map((org) => ({ id: org.id, name: org.name || `School #${org.id}` }));
-    return res.json({ items, billingOffices: offices || [], schools });
+    let groupNpis = [];
+    try {
+      const [npiRows] = await pool.execute(
+        `SELECT id, npi_number, label, taxonomy_code, office_location_id, notes, is_active
+         FROM agency_group_npis
+         WHERE agency_id = ? AND is_active = 1
+         ORDER BY office_location_id, id`,
+        [agencyId]
+      );
+      groupNpis = npiRows || [];
+    } catch {
+      groupNpis = [];
+    }
+    return res.json({ items, billingOffices: offices || [], schools, groupNpis });
   } catch (e) {
     next(e);
   }
@@ -3452,6 +3465,37 @@ export const ensureSchoolServiceLocation = async (req, res, next) => {
       isProviderVisible: true
     });
     return res.status(201).json({ item, created: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const updateBillingOffice = async (req, res, next) => {
+  try {
+    const id = parseIntValue(req.params.officeId);
+    const agencyId = parseIntValue(req.body.agencyId);
+    if (!id || !agencyId) return res.status(400).json({ error: { message: 'officeId and agencyId are required' } });
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const existing = await OfficeLocation.findById(id);
+    if (!existing || Number(existing.agency_id) !== agencyId) {
+      return res.status(404).json({ error: { message: 'This billing office belongs to the practice that owns the building.' } });
+    }
+    const practiceNpi = req.body.practiceNpi === undefined ? undefined : String(req.body.practiceNpi || '').replace(/\D/g, '');
+    if (practiceNpi !== undefined && practiceNpi && !/^\d{10}$/.test(practiceNpi)) {
+      return res.status(400).json({ error: { message: 'The practice NPI must be 10 digits.' } });
+    }
+    const updates = {};
+    if (req.body.name !== undefined) updates.name = String(req.body.name || '').slice(0, 255);
+    if (req.body.practiceName !== undefined) updates.practice_name = String(req.body.practiceName || '').slice(0, 255);
+    if (req.body.streetAddress !== undefined) updates.street_address = String(req.body.streetAddress || '').slice(0, 255);
+    if (req.body.city !== undefined) updates.city = String(req.body.city || '').slice(0, 128);
+    if (req.body.state !== undefined) updates.state = String(req.body.state || '').slice(0, 64);
+    if (req.body.postalCode !== undefined) updates.postal_code = String(req.body.postalCode || '').slice(0, 32);
+    if (req.body.phone !== undefined) updates.phone = String(req.body.phone || '').slice(0, 40);
+    if (practiceNpi !== undefined) updates.practice_npi = practiceNpi || null;
+    if (req.body.taxonomyCode !== undefined) updates.taxonomy_code = String(req.body.taxonomyCode || '').slice(0, 32);
+    const item = await OfficeLocation.update(id, updates);
+    return res.json({ item });
   } catch (e) {
     next(e);
   }

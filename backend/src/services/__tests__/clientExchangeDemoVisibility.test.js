@@ -26,7 +26,7 @@ it('lets the QA exchange roster open synthetic demo referrals and still hides th
  const demo={...row,id:17,agency_id:450,status:'closed'};
  m.client.mockResolvedValue({id:3,agency_id:450,email:'family@example.com'});
  m.execute.mockImplementation(async sql=>sql.includes('SELECT l.*')?[[demo]]:sql.startsWith('SELECT c.id,c.email')?[[{id:3,email:'family@example.com',demo_guardian_email:1}]]:sql.startsWith('SELECT id,email,role,is_demo')?[[{id:1438,email:'qa.provider.supervisor@example.com',role:'provider',is_demo:1}]]:[[]]);
- expect((await listListings({agencyId:450,viewerUserId:1438,viewerRole:'provider'})).map(item=>item.id)).toEqual([17]);
+ expect(await listListings({agencyId:450,viewerUserId:1438,viewerRole:'provider'})).toEqual([expect.objectContaining({id:17,isDemo:true,demoRequestAllowed:true})]);
  m.execute.mockImplementation(async sql=>sql.includes('SELECT l.*')?[[demo]]:sql.startsWith('SELECT c.id,c.email')?[[{id:3,email:'family@example.com',demo_guardian_email:1}]]:sql.startsWith('SELECT id,email,role,is_demo')?[[{id:9,email:'qa.provider.other@example.com',role:'provider',is_demo:1}]]:[[]]);
  expect(await listListings({agencyId:450,viewerUserId:9,viewerRole:'provider'})).toEqual([]);
 });

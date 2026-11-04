@@ -10,7 +10,7 @@ import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import ClinicalNoteDraft from '../models/ClinicalNoteDraft.model.js';
 import {draftAppointmentOptions,linkDraftAppointment} from '../services/clinicalDraftAppointmentRepair.service.js';
-import { deriveCredentialTier, eligibleServiceCodesForTier, assertServiceCodeAllowed, isServiceCodeDeniedForTier } from '../utils/clinicalServiceCodeEligibility.js';
+import { deriveCredentialTier, eligibleServiceCodesForTier, assertServiceCodeAllowed } from '../utils/clinicalServiceCodeEligibility.js';
 import { classifyHcbsCategory } from '../utils/credentialNormalization.js';
 import { getNoteAidToolById } from '../config/noteAidTools.js';
 import {
@@ -18,6 +18,13 @@ import {
   noteAidKnowledgeBaseOptions
 } from '../services/clinicalKnowledgeBase.service.js';
 import { listEligiblePolicyServiceCodes, resolvePolicyRuleForServiceCode } from '../services/billingPolicy.service.js';
+import {
+  OPT_IN_SERVICE_CODES,
+  credentialAllows,
+  filterServiceCodesForCredential,
+  grantedServiceCodesForProvider,
+  loadCredentialOverrides
+} from '../services/billingRules.service.js';
 import { callPrivateSessionText, createSessionPrivacyContext } from '../services/sessionAiPrivacy.service.js';
 import { buildPromptForTool, generateClinicalText } from '../services/clinicalNoteWriter.service.js';
 import { isTreatmentPlanToolId, isProgressNoteToolId, isCsNoteBuildToolId, TRANSCRIPT_FIDELITY_INSTRUCTIONS } from '../config/clinicalNotePlanOutput.js';
@@ -504,13 +511,20 @@ export const getClinicalNotesContext = async (req, res, next) => {
     const eligibleServiceCodes = policyEligibleCodes.length
       ? policyEligibleCodes
       : (serviceCodeCatalog.length ? serviceCodeCatalog : eligibleServiceCodesForTier(tier)); // null means "all"
+    const credentialOverrides = await loadCredentialOverrides('CO');
+    const grantedServiceCodes = await grantedServiceCodesForProvider(agencyId, req.user.id);
+    const visibleServiceCodes = Array.isArray(eligibleServiceCodes)
+      ? filterServiceCodesForCredential(eligibleServiceCodes, tier, credentialOverrides, grantedServiceCodes)
+      : eligibleServiceCodes;
     const audioAgreementTemplates = await listAgencyAudioAgreementTemplates({ agencyId });
     res.json({
       providerCredentialText: providerCredentialText || '',
       derivedTier: tier,
       hcbsCategory: hcbs.category || null,
       careEligibility,
-      eligibleServiceCodes: careEligibility.canProvideCare ? (Array.isArray(eligibleServiceCodes) ? eligibleServiceCodes.filter(code => !isServiceCodeDeniedForTier(tier, code)) : eligibleServiceCodes) : [],
+      eligibleServiceCodes: careEligibility.canProvideCare ? visibleServiceCodes : [],
+      restrictedServiceCodes: OPT_IN_SERVICE_CODES,
+      grantedServiceCodes,
       audioAgreementTemplates
     });
   } catch (e) {
@@ -1280,8 +1294,16 @@ export const generateClinicalNote = async (req, res, next) => {
     }
 
     if (!effectiveAutoSelect && serviceCode) {
+      const credentialOverrides = await loadCredentialOverrides('CO');
+      const grantedServiceCodes = await grantedServiceCodesForProvider(agencyId, req.user.id);
+      const grantedThisCode = grantedServiceCodes.includes(String(serviceCode).toUpperCase());
+      if (!credentialAllows(tier, serviceCode, credentialOverrides) && !grantedThisCode) {
+        return res.status(403).json({
+          error: { message: `Service code ${serviceCode} is not allowed for your credential. A practice administrator can turn on an opt-in code for you.` }
+        });
+      }
       const policyEligibleCodes = await listEligiblePolicyServiceCodes({ agencyId, credentialTier: tier });
-      if (policyEligibleCodes.length) {
+      if (!grantedThisCode && policyEligibleCodes.length) {
         if (!policyEligibleCodes.includes(serviceCode)) {
           return res.status(403).json({
             error: {
@@ -1289,11 +1311,11 @@ export const generateClinicalNote = async (req, res, next) => {
             }
           });
         }
-      } else {
+      } else if (!grantedThisCode) {
         assertServiceCodeAllowed({ tier, serviceCode, allowedCodes });
       }
       const policyRule = await resolvePolicyRuleForServiceCode({ agencyId, serviceCode, credentialTier: tier });
-      if (policyRule) {
+      if (!grantedThisCode && policyRule) {
         if (!policyRule.enabledForAgency) {
           return res.status(403).json({ error: { message: `Service code ${serviceCode} is disabled for this agency` } });
         }

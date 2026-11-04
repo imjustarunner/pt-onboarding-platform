@@ -5,6 +5,27 @@ export const billingStages = [
   ['denied', 'Denied'], ['on_hold', 'On hold'], ['closed', 'Closed']
 ].map(([id, label]) => ({ id, label }));
 export const claimStatusLabel = status => ({ ...Object.fromEntries(billingStages.map(stage => [stage.id, stage.label])), ready: 'Ready to submit', queued: 'Processing', rejected: 'On hold · rejected', adjusted: 'Closed · adjusted', void: 'Closed · voided' })[status] || status || 'Unknown';
+export const clearinghouseStatusLabel = status => {
+  const code = String(status || '').trim().toUpperCase();
+  if (!code) return '';
+  return {
+    A: 'Acknowledged by clearinghouse',
+    A1: 'Acknowledged by clearinghouse',
+    A2: 'Accepted for processing',
+    R: 'Rejected by clearinghouse',
+    P: 'Paid',
+    PRACTICE: 'Practice submit — not sent',
+    SUBMITTED: 'Submitted',
+    SENT: 'Sent'
+  }[code] || `Clearinghouse status ${code}`;
+};
+export const claimHistoryLabel = type => ({
+  approved_submission: 'Submitted',
+  acknowledgement: 'Acknowledged',
+  response: 'Update from clearinghouse',
+  status_changed: 'Status changed',
+  payer_claim_id: 'Payer claim ID'
+}[type] || String(type || 'Update').replaceAll('_', ' '));
 export const claimStatusTone = status => ['rejected', 'denied', 'revisions_needed'].includes(status) ? 'danger' : ['queued', 'draft', 'note_needed', 'on_hold', 'pending_review'].includes(status) ? 'warning' : status === 'paid' || status === 'ready_to_submit' ? 'success' : 'info';
 export const workStage = item => item.stage || ({ ready: 'ready_to_submit', queued: 'processing', rejected: 'on_hold', adjusted: 'closed', void: 'closed' }[item.claim_lifecycle] || item.claim_lifecycle || 'note_needed');
 export const workClaimId = item => Number(item?.claimId || (item?.source && item.source !== 'claim' ? 0 : item?.id) || 0);

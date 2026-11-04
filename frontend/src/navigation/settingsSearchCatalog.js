@@ -33,6 +33,9 @@ export const SETTINGS_DISPLAY_LABELS = {
 /** Short descriptions used for search + hub cards. */
 export const SETTINGS_SEARCH_DESCRIPTIONS = {
   'service-codes': 'Shared service code catalog, CPT, HCPCS, units, time bands, modifiers, billing rules, fee schedules and practice charges.',
+  'fee-schedule': 'Practice fee schedule. Charges by service, payer, provider category, and individual provider.',
+  'billing-rules': 'Colorado defaults for credential eligibility, and provider exceptions such as H0002.',
+  'billing-settings': 'Billing offices, practice NPI, taxonomy, and places of service.',
   'payment-setup': 'Stripe, bank account, client payments, family billing, copay, self-pay, service prices, receipts, and payment authorizations.',
   'business-journey': 'Step-by-step interview, agreement, setup, onboarding, training, launch, management, organizational interventions, and exit.',
   'business-commercial': 'Signed management terms, services, à-la-carte prices, revenue share, revenue reconciliation, and final service month.',

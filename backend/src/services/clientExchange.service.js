@@ -8,6 +8,7 @@ import { exchangeStaffRole, normalizeExchangeQualification } from '../../../fron
 import Agency from '../models/Agency.model.js';
 import { eligibleExchangeProvider, exchangeProviderSql } from '../utils/clientExchangeProvider.js';
 import { loadExchangeProvider, loadExchangeOpenings, evaluateCurrentExchangeFit, exchangeProviderAudit, exchangeListingForEvaluation } from './clientExchangeEligibility.service.js';
+import { loadExchangeOfficeCoverage } from './clientExchangeOfficeCoverage.service.js';
 import { evaluateExchangeListing, exchangeNeedsOpenings } from '../utils/clientExchangeMatching.js';
 import { normalizeExchangeLocation } from '../../../frontend/src/navigation/clientExchangeLocation.js';
 import { validateMatchingPreferences } from '../../../frontend/src/navigation/providerFocus.js';
@@ -135,6 +136,7 @@ function redactListing(listing, { viewerRole, viewerUserId, qaDemoViewer = false
   const mapped = mapListingRow(listing);
   if (!mapped) return null;
   if (String(viewerRole || '').toLowerCase() === 'support') Object.assign(mapped, supportExchangeSummary(mapped));
+  mapped.demoRequestAllowed = Boolean(listing.demo_exchange && qaDemoViewer);
   mapped.canViewAudit = exchangeStaffRole(viewerRole);
   mapped.canManageClaims = ['admin', 'super_admin', 'support', 'staff'].includes(String(viewerRole || '').toLowerCase())
     || Number(viewerUserId) === Number(listing.current_provider_user_id)
@@ -274,7 +276,21 @@ async function attachViewerFit(listings, { viewerUserId, viewerRole, agencyId, s
   for (const listing of listings) {
     const source = sourceRows.find(row => Number(row.id) === listing.id);
     const waivers = await loadExchangeWaivers({ listingId: listing.id, userId: viewerUserId });
-    listing.viewerFit = evaluateExchangeListing({ ...context, waivers, listing: source ? mapListingRow(source) : listing, ...openings });
+    const evaluated = source ? mapListingRow(source) : listing;
+    const modality = String(evaluated.preferences?.modality || evaluated.preferences?.preferredModality || '').toLowerCase();
+    let officeCoverage;
+    if (context.user && ['in_person', 'either'].includes(modality)) {
+      try {
+        officeCoverage = await loadExchangeOfficeCoverage({
+          userId: context.user.id,
+          agencyId,
+          officeIds: context.profile?.agencyAvailability?.officeIds
+        });
+      } catch {
+        officeCoverage = { known: false, cities: [], officeIds: [] };
+      }
+    }
+    listing.viewerFit = evaluateExchangeListing({ ...context, waivers, officeCoverage, listing: evaluated, ...openings });
     if (needsSchedule && !openings) listing.viewerFit.canNotify = false;
   }
 }

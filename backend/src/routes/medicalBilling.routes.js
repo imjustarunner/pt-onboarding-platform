@@ -6,6 +6,7 @@ import { setTreatmentGoalProgress, getTreatmentGoalProgressHistory } from '../co
 import { excludeSupportClinicalContent } from '../middleware/supportContentAccess.middleware.js';
 import { getH0002SourceDocuments, closeH0002RoiTask, getH0002ScreeningReview, signH0002ScreeningReview, saveH0002ScreeningDraft, forwardH0002Screening, translateH0002Screening } from '../controllers/h0002Screening.controller.js';
 import { getServiceBillingSupervisors, putServiceBillingSupervisor } from '../controllers/serviceBillingSupervisor.controller.js';
+import { getBillingRules, putBillingCredentialRule, putProviderServiceGrant } from '../controllers/billingRules.controller.js';
 import {indexRemittances,getRemittance,syncEras,retryBalances,matchEra,postEra} from '../controllers/remittance.controller.js';
 import { getBankFeeds, createBankSession, finishBankSession, removeBankFeed, importBankFeed, verifyEraDeposit } from '../controllers/bankFeed.controller.js';
 import {getMedicalServiceFees,saveMedicalServiceFees} from '../controllers/medicalServiceFees.controller.js';
@@ -92,6 +93,7 @@ import {
   createServiceLocation,
   ensureSchoolServiceLocation,
   updateServiceLocation,
+  updateBillingOffice,
   applyEncounterBilling,
   listClinicalInterventions,
   addClinicalInterventions,
@@ -129,6 +131,9 @@ router.post('/screening-sessions/:sessionId/sign', requireClinicalNoteSigning, s
 router.put('/screening-sessions/:sessionId/draft', requireClinicalNoteSigning, saveH0002ScreeningDraft);
 router.post('/screening-sessions/:sessionId/forward', requireClinicalNoteSigning, forwardH0002Screening);
 router.post('/screening-sessions/:sessionId/translate', requireClinicalChart, translateH0002Screening);
+router.get('/billing-rules', ...masterGate, [query('agencyId').isInt({ min: 1 })], getBillingRules);
+router.put('/billing-rules/credential', ...masterGate, [body('agencyId').isInt({ min: 1 }), body('serviceCode').isString(), body('credentialTier').isString()], putBillingCredentialRule);
+router.put('/billing-rules/provider-grant', ...masterGate, [body('agencyId').isInt({ min: 1 }), body('userId').isInt({ min: 1 }), body('serviceCode').isString()], putProviderServiceGrant);
 router.get('/service-supervisors', requireMedicalBillingFinancialAccess, getServiceBillingSupervisors);
 router.put('/service-supervisors', requireMedicalBillingFinancialAccess, putServiceBillingSupervisor);
 router.get('/supervised-payer-policies', requireMedicalBillingFinancialAccess, listSupervisedPayerPolicies);
@@ -767,6 +772,17 @@ router.post(
     body('schoolOrganizationId').isInt({ min: 1 })
   ],
   ensureSchoolServiceLocation
+);
+
+router.patch(
+  '/billing-offices/:officeId',
+  ...masterGate,
+  allowVerifiedBillingMetadataAccess,
+  [
+    param('officeId').isInt({ min: 1 }),
+    body('agencyId').isInt({ min: 1 })
+  ],
+  updateBillingOffice
 );
 
 router.patch(

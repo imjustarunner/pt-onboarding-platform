@@ -21,7 +21,7 @@ import { buildClaimMdJsonClaim, fetchPayers, requestEnrollment } from '../servic
 import { secondaryInsurance, readSecondaryAdjudication, applySecondaryAdjudication, prepareSecondaryClaim } from '../services/secondaryClaim.service.js';
 import { asList, claimReviewHash, claimEventHistory, safeEnrollmentUrl, taxIdHash, recordClaimEvent } from '../services/claimMdWorkflow.service.js';
 import { applyBillingClaimOverrides } from '../services/applyBillingClaimOverrides.service.js';
-import { listClaimMdBillingProfiles, getClaimMdBillingProfile, resolveClaimMdBillingProfile, assertClaimBillingNpi } from '../services/claimMdBillingProfile.service.js';
+import { listClaimMdBillingProfiles, getClaimMdBillingProfile, resolveClaimMdBillingProfile, describeClaimServiceSite, assertClaimBillingNpi } from '../services/claimMdBillingProfile.service.js';
 
 const claimMetadata = claim => { try { return typeof claim.metadata_json === 'string' ? JSON.parse(claim.metadata_json) || {} : claim.metadata_json || {}; } catch { return {}; } };
 const claimOfficeId = claim => Number(claimMetadata(claim).billingOfficeOverride?.officeId) || null;
@@ -120,7 +120,8 @@ export async function prepareClaimReview(agencyId, claimId) {
   if(previouslyTransmitted(claim))readiness.blockers.push('Previously transmitted claim: reconcile payer status and use the payer-specific correction workflow; do not send another original.');
   readiness.warnings.push(...supervision.warnings,...aiReview.findings.filter(f=>f.severity==='warning').map(f=>f.message));
   readiness.ready=readiness.blockers.length===0;
-  return { claim, lines, readiness, insurance, payload, documentation, supervision, aiReview, sourceHash, rollout, appliedOverrides:overrides?.applied || [],
+  const serviceSite = await describeClaimServiceSite(agencyId, session);
+  return { claim, lines, readiness, insurance, payload, documentation, supervision, aiReview, sourceHash, rollout, appliedOverrides:overrides?.applied || [], serviceSite,
     billingOffice: { id: billingProfile.officeId, name: billingProfile.officeName }, reviewHash: claimReviewHash({payload,sourceHash,rolloutRevision:rollout.revision,coverageReviewId:coverageEvidence.review?.id||null,clientDocumentation:{sourceHash:clientDocumentation.sourceHash,reviewId:clientDocumentation.reviewId,scope:clientDocumentation.scope},aiReviewId:aiReview.id || null,resolutions:resolutions.map(r=>r.id)}) };
 }
 
@@ -149,7 +150,7 @@ export async function reviewClaim(req, res, next) {
     const prepared = await prepareClaimReview(agencyId, claimId);
     const history = await claimEventHistory(agencyId, claimId);
     res.json({ claimId, claimReference: prepared.claim.claim_reference, clientId: prepared.claim.client_id, dateOfService: prepared.claim.date_of_service, clinicalSessionId: prepared.claim.clinical_session_id, clinicalNoteId: prepared.claim.clinical_note_id,
-      lifecycle: prepared.claim.claim_lifecycle, billingOffice: prepared.billingOffice, payload: prepared.payload, readiness: prepared.readiness, reviewHash: prepared.reviewHash,
+      lifecycle: prepared.claim.claim_lifecycle, billingOffice: prepared.billingOffice, serviceSite: prepared.serviceSite, payload: prepared.payload, readiness: prepared.readiness, reviewHash: prepared.reviewHash,
       supervision:prepared.supervision,clinicalVersion:clinicalVersionReference(prepared.documentation.note),aiReview:prepared.aiReview,appliedOverrides:prepared.appliedOverrides,history });
   } catch (e) { next(e); }
 }

@@ -5,8 +5,8 @@
     <p v-if="busy && !pendingRequest" role="status">Loading payment request…</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <div v-if="preview">
-      <p v-if="preview.summary?.medicaid">Medicaid: a payment method is not required.</p>
-      <template v-else>
+      <p>{{ preview.summary?.medicaid ? 'Medicaid: a payment method is not required.' : 'Medicaid: not applicable for this client.' }}</p>
+      <template v-if="!preview.summary?.medicaid">
         <p>From and reply to: {{ preview.from || 'Billing sender needs setup' }}</p>
         <p>This request asks the responsible payer to complete secure payment setup and sends the assigned provider a QR code to share.</p>
         <ul><li v-for="recipient in preview.recipients || []" :key="`${recipient.kind}:${recipient.userId}`">{{ recipient.kind === 'family' ? 'Responsible payer' : 'Provider' }}: {{ recipient.name }} · {{ recipient.email || 'Email missing' }}</li></ul>

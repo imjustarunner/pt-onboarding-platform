@@ -165,7 +165,7 @@ const DEFAULT_LOCATIONS = [
 function tierAllows(allowedTiers, providerTier) {
   if (!allowedTiers || !allowedTiers.length) return true;
   const t = String(providerTier || '').trim().toLowerCase();
-  if (!t || t === 'unknown') return true; // don't hide codes when tier unknown
+  if (!t || t === 'unknown') return false;
   if (t === 'intern_plus') return allowedTiers.includes('intern_plus');
   return allowedTiers.includes(t);
 }

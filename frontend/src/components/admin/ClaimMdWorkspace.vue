@@ -125,7 +125,7 @@
       </label>
       <p v-if="!(draft.billingOffices || []).length" class="error" role="status">No billing office is configured for this practice. Add an agency-owned billing office in Billing settings.</p>
       <p v-else-if="draft.billingOfficeError && !draft.billingOfficeId" class="error" role="status">{{ draft.billingOfficeError }} Select the correct office for this claim.</p>
-      <p class="billing-office-help">The selected office supplies the claim's billing identity and address. Your correction reason is recorded with this claim.</p>
+      <p class="billing-office-help">The selected office supplies the claim's billing identity and address. A school, home, or telehealth site is the place of service only. It is not the billing address. Your correction reason is recorded with this claim.</p>
       <label>Place of service <input v-model="draft.claim.place_of_service" required pattern="[0-9]{2}" maxlength="2" /></label>
       <label>Billing NPI <input v-model="draft.claim.billing_npi" required pattern="[0-9]{10}" maxlength="10" /></label>
       <label>Rendering NPI <input v-model="draft.claim.rendering_npi" required pattern="[0-9]{10}" maxlength="10" /></label>
@@ -174,6 +174,7 @@
         </form>
       </section>
       <details v-if="review.appliedOverrides?.length"><summary>Applied billing overrides</summary><p v-for="override in review.appliedOverrides" :key="override.overrideId">{{ override.field }}: {{ override.from }} → {{ override.to }} · {{ override.reason }} · {{ override.policyReference }}</p></details>
+      <p v-if="review.serviceSite?.name || review.serviceSite?.placeOfService">Service site: {{ review.serviceSite.name || 'Place of service' }}<template v-if="review.serviceSite.placeOfService"> · POS {{ review.serviceSite.placeOfService }}</template><template v-if="review.serviceSite.serviceAddress"> · {{ review.serviceSite.serviceAddress }}</template>. This is where the visit happened. The claim is billed from the office below.</p>
       <p v-if="review.billingOffice">Billing office: {{ review.billingOffice.name }} · {{ review.payload.bill_name }} · {{ review.payload.bill_addr_1 }}, {{ review.payload.bill_city }}, {{ review.payload.bill_state }} {{ review.payload.bill_zip }}</p>
       <table><thead><tr><th>Service date</th><th>Code</th><th>Modifiers</th><th>Units</th><th>POS</th><th>Charge</th></tr></thead>
         <tbody><tr v-for="(line, index) in review.payload.charge" :key="index"><td>{{ line.from_date }}</td><td>{{ line.proc_code }}</td><td>{{ [line.mod1,line.mod2,line.mod3,line.mod4].filter(Boolean).join(', ') }}</td><td>{{ line.units }}</td><td>{{ line.place_of_service }}</td><td>${{ line.charge }}</td></tr></tbody>
@@ -190,7 +191,7 @@
       <h3>Claim #{{ historyClaimId }} history and follow-up</h3>
       <p v-if="!history.length">No clearinghouse activity yet.</p>
       <article v-for="event in history" :key="event.id">
-        <strong>{{ event.type.replaceAll('_', ' ') }}</strong> · {{ event.status || '' }} · {{ event.createdAt }}
+        <strong>{{ claimHistoryLabel(event.type) }}</strong> · {{ clearinghouseStatusLabel(event.status) || event.status || 'Recorded' }} · {{ event.createdAt }}
         <p v-for="(message, i) in event.messages || []" :key="i">{{ message.message }} <small>{{ message.fields }}</small></p>
         <ul><li v-for="suggestion in event.suggestions || []" :key="suggestion">{{ suggestion }}</li></ul>
         <p v-if="event.reason">{{ event.reason }}</p>
@@ -205,6 +206,7 @@ import ClientDocumentationReadiness from '../billing/ClientDocumentationReadines
 import ProviderBillingRollout from '../billing/ProviderBillingRollout.vue';
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
+import { claimHistoryLabel, clearinghouseStatusLabel } from '../../utils/billingWorkspace.js';
 const props = defineProps({ agencyId: { type: Number, required: true }, connection: { type: Object, required: true }, section: { type: String, default: 'all' }, readOnly: Boolean });
 const emit = defineEmits(['updated']);
 const fetchRollout = async () => (await api.get('/medical-billing/provider-rollout', { params: { agencyId: props.agencyId } })).data;

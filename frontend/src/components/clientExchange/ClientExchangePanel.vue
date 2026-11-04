@@ -436,7 +436,7 @@ function hasPendingClaim(listing) {
 }
 function canRequest(listing) {
   const providerRole = ['provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'clinical_practice_assistant'].includes(authStore.user?.role) || authStore.user?.has_provider_access;
-  if (listing.isDemo || !providerRole || !['open', 'requested'].includes(listing.status) || listing.viewerFit?.canRequest !== true) return false;
+  if ((listing.isDemo && !listing.demoRequestAllowed) || !providerRole || !['open', 'requested'].includes(listing.status) || listing.viewerFit?.canRequest !== true) return false;
   return !isCurrentProviderFor(listing) && !hasPendingClaim(listing) && (!listing.targetProviderUserId || Number(listing.targetProviderUserId) === Number(currentUserId.value));
 }
 function clientRecordPath(listing) {

@@ -2104,6 +2104,8 @@ const providerCredentialText = ref('');
 const derivedTier = ref('unknown');
 const hcbsCategory = ref(null);
 const eligibleServiceCodes = ref(null); // array|null
+const restrictedServiceCodes = ref(['H0002']);
+const grantedServiceCodes = ref([]);
 const audioAgreementTemplates = ref([]);
 
 // Programs (for H2014)
@@ -3786,10 +3788,25 @@ const SERVICE_CODE_DESCRIPTIONS = {
 // Allow manual entry if a code isn't listed; backend still enforces eligibility.
 const canUseOtherCode = computed(() => true);
 
+function serviceCodeVisible(code) {
+  const normalized = String(code || '').trim().toUpperCase();
+  if (!normalized) return true;
+  const restricted = new Set((restrictedServiceCodes.value || []).map((item) => String(item || '').toUpperCase()));
+  const granted = new Set((grantedServiceCodes.value || []).map((item) => String(item || '').toUpperCase()));
+  return !restricted.has(normalized) || granted.has(normalized);
+}
+
 const rawEligibleServiceCodes = computed(() => {
   const raw = eligibleServiceCodes.value;
   const list = Array.isArray(raw) ? raw : STATIC_COMMON_CODES;
-  return Array.from(new Set(list.map((c) => String(c || '').trim().toUpperCase()).filter(Boolean))).sort();
+  const granted = new Set((grantedServiceCodes.value || []).map((item) => String(item || '').trim().toUpperCase()).filter(Boolean));
+  const visible = list
+    .map((code) => String(code || '').trim().toUpperCase())
+    .filter((code) => code && serviceCodeVisible(code));
+  granted.forEach((code) => {
+    if (code && !visible.includes(code)) visible.push(code);
+  });
+  return Array.from(new Set(visible)).sort();
 });
 
 /** @deprecated use noteTypeOptions — kept for any legacy references */
@@ -3862,6 +3879,7 @@ function aidIsEligible(aid) {
   const available = new Set(rawEligibleServiceCodes.value);
   const code = String(aid.serviceCode || '').toUpperCase();
   if (!code) return true;
+  if (!serviceCodeVisible(code)) return false;
   if (HIDDEN_ADDON_CODES.has(code)) return false;
   if (!Array.isArray(eligibleServiceCodes.value)) return true;
   if (!available.size) return true;
@@ -5093,6 +5111,8 @@ const loadContext = async () => {
     derivedTier.value = String(res?.data?.derivedTier || 'unknown');
     hcbsCategory.value = res?.data?.hcbsCategory ?? null;
     eligibleServiceCodes.value = res?.data?.eligibleServiceCodes ?? null;
+    restrictedServiceCodes.value = Array.isArray(res?.data?.restrictedServiceCodes) ? res.data.restrictedServiceCodes : ['H0002'];
+    grantedServiceCodes.value = Array.isArray(res?.data?.grantedServiceCodes) ? res.data.grantedServiceCodes : [];
     audioAgreementTemplates.value = Array.isArray(res?.data?.audioAgreementTemplates) ? res.data.audioAgreementTemplates : [];
   } catch (e) {
     contextError.value = e.response?.data?.error?.message || 'Failed to load user context';
@@ -5100,6 +5120,8 @@ const loadContext = async () => {
     derivedTier.value = 'unknown';
     hcbsCategory.value = null;
     eligibleServiceCodes.value = null;
+    restrictedServiceCodes.value = ['H0002'];
+    grantedServiceCodes.value = [];
     audioAgreementTemplates.value = [];
   } finally {
     loadingContext.value = false;
@@ -6750,6 +6772,8 @@ const bootstrapWorkspace = async ({ resetForm = false } = {}) => {
     derivedTier.value = 'unknown';
     hcbsCategory.value = null;
     eligibleServiceCodes.value = null;
+    restrictedServiceCodes.value = ['H0002'];
+    grantedServiceCodes.value = [];
     audioAgreementTemplates.value = [];
     programs.value = [];
     draftId.value = null;

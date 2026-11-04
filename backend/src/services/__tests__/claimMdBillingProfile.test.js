@@ -66,6 +66,23 @@ describe('Claim.MD office billing identity', () => {
   it('blocks NPI overrides that no longer match the selected billing identity', () => {
     expect(() => assertClaimBillingNpi({ billingNpi: '1306688650' }, '1972246940')).toThrow('differs');
     expect(() => assertClaimBillingNpi({ billingNpi: '1306688650' }, '1306688650')).not.toThrow();
+    expect(() => assertClaimBillingNpi({ billingNpi: '1972246940', overrideNpis: ['1215615711'] }, '1215615711')).not.toThrow();
+  });
+  it('keeps a payer-override NPI off the office identity', async () => {
+    const base = mocks.main.getMockImplementation();
+    mocks.main.mockImplementation(async (sql, args) => sql.includes('FROM agency_group_npis')
+      ? [[{ npi_number: '1972246940', label: 'ITSCO Windchime practice', notes: 'Primary practice NPI' }, { npi_number: '1215615711', label: 'ITSCO Medicaid billing NPI', notes: 'Payer override: Medicaid claims bill under this NPI' }]]
+      : sql.includes('FROM office_locations') ? [[{ ...office, practice_npi: '1972246940' }]] : base(sql, args));
+    const profile = await getClaimMdBillingProfile(377, 8);
+    expect(profile.billingNpi).toBe('1972246940');
+    expect(profile.overrideNpis).toEqual(['1215615711']);
+    expect(profile.practice.street_address).toBe('1 Test Lane');
+  });
+  it('uses the assigned office when the visit has no billing office and does not bill from the service site', async () => {
+    mocks.clinical.mockResolvedValue([[{ id: 10, provider_user_id: 8 }]]);
+    const base = mocks.main.getMockImplementation();
+    mocks.main.mockImplementation(async (sql, args) => sql.includes('FROM user_office_locations') ? [[{ office_location_id: 8, is_primary: 1 }]] : base(sql, args));
+    expect((await resolveClaimMdBillingProfile(377, 10)).officeId).toBe(8);
   });
   it('lists only owned billing offices and never selects tax ID or credential material', async () => {
     await listClaimMdBillingProfiles(377);
