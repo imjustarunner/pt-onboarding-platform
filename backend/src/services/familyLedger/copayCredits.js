@@ -78,6 +78,9 @@ export async function applyCopayCreditsLocked(receivable,allocation,db) {
   const payload=sourcePayload(receivable);
   if(payload.responsibilityType!=='copay'||!payload.serviceCompleted||!receivable.service_date)return 0;
   await assertCollectible(receivable,db);
+  const {getReadiness}=await import('./readiness.js');
+  const readiness=await getReadiness(receivable.agency_id,receivable.client_id,db);
+  if(readiness.collection_policy==='after_era'&&payload.verificationBasis!=='era')return 0;
   await requireResponsiblePayer(allocation.payer_user_id,receivable.client_id,receivable.agency_id,db);
   const [pending]=await db.execute("SELECT id FROM family_ledger_payments WHERE allocation_id=? AND status IN ('pending','requires_action','unknown') LIMIT 1",[allocation.id]);
   if(pending.length)return 0;
