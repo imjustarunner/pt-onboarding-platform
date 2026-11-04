@@ -1379,10 +1379,7 @@ import DashboardRailEditor from '../components/dashboard/DashboardRailEditor.vue
 import DashboardRailMoveButtons from '../components/dashboard/DashboardRailMoveButtons.vue';
 import { useDashboardRailOrder } from '../composables/useDashboardRailOrder';
 import {
-  isNoteAidEmployeeRole,
-  isNoteAidEnabledForAgencyFlags,
-  noteAidWorkspaceLabel,
-  workspaceNoteAidPath
+  noteAidWorkspaceLabel
 } from '../config/noteAidAccess';
 import SchoolMarketingSplash from '../components/marketing/SchoolMarketingSplash.vue';
 import AnnouncementMarquee from '../components/common/AnnouncementMarquee.vue';
@@ -1397,7 +1394,7 @@ import { useTutorialStore } from '../store/tutorial';
 import api from '../services/api';
 import { navigateToJoinLink } from '../utils/appJoinNavigation';
 import {
-  setDashboardMobileNavItems, dashboardNavigationContextKey
+  setDashboardMobileNavItems, clearDashboardMobileNavItems, dashboardNavContext, dashboardNavigationContextKey
 } from '../navigation/dashboardMobileNav.js';
 import DocumentsTab from '../components/dashboard/DocumentsTab.vue';
 import MomentumListTab from '../components/dashboard/MomentumListTab.vue';
@@ -1452,6 +1449,7 @@ import PlatformChatsView from './admin/PlatformChatsView.vue';
 import ContactsView from './admin/ContactsView.vue';
 import NotificationsHubView from './NotificationsHubView.vue';
 import { isSupervisor } from '../utils/helpers.js';
+import { buildDashboardCards, buildDashboardPortals, buildAssignedPortalCards, dashboardPortalsLabel, programPortalIconUrl, sortDashboardCards, dashboardOnboardingComplete, dashboardBaseTabs, dashboardCanAccessToolsAids } from '../navigation/dashboardCards.js';
 import { SKILL_BUILDERS_AVAILABILITY_ENABLED } from '../config/availabilityFeatures.js';
 import { getDashboardRailCardDescriptors } from '../tutorial/tours/dashboard.tour';
 import { toUploadsUrl } from '../utils/uploadsUrl';
@@ -3297,47 +3295,10 @@ const scheduleViewContextLine = computed(() => {
   return `Your calendar · ${you}`;
 });
 
-const tabs = computed(() => {
-  const list = [
-    { id: 'checklist', label: momentumListEnabled.value ? 'My Work' : 'Checklist', badgeCount: checklistCount.value },
-    { id: 'training', label: 'My Training', brandIconUrl: '/assets/plotline/icon.svg', badgeCount: trainingCount.value }
-  ];
-  // Documents live under My Account once onboarding is complete; keep rail access for pre-hire.
-  if (!isOnboardingComplete.value) {
-    list.push({ id: 'documents', label: 'Documents', badgeCount: documentsCount.value });
-  }
-  return list;
-});
-
-const isOnboardingComplete = computed(() => {
-  // Club context: no HR onboarding; treat as complete so club members see full dashboard
-  if (isClubContext.value) return true;
-  // Privileged roles should always have access to the "My" area (account + payroll),
-  // even if their lifecycle status doesn't match the employee workflow.
-  const role = authStore.user?.role;
-  const roleNorm = String(role || '').toLowerCase();
-  if (
-    role === 'super_admin' ||
-    role === 'admin' ||
-    role === 'support' ||
-    roleNorm === 'provider_plus' ||
-    roleNorm === 'clinical_practice_assistant'
-  ) {
-    return true;
-  }
-
-  const st = userStatus.value;
-  // Approved employees should always be able to access on-demand + prefs.
-  if (authStore.user?.type === 'approved_employee') return true;
-  const lower = String(st || '').toLowerCase();
-  return (
-    lower === 'active_employee' ||
-    lower === 'active' ||
-    lower === 'completed' ||
-    lower === 'terminated_pending' ||
-    lower === 'terminated'
-  );
-});
+const isOnboardingComplete = computed(() => dashboardOnboardingComplete(authStore.user, {
+  isClubContext: isClubContext.value,
+  status: userStatus.value
+}));
 
 async function loadClubManagerContextForShare() {
   const role = String(authStore.user?.role || '').toLowerCase();
@@ -3507,16 +3468,16 @@ const previewAgencyLogoUrl = computed(() => {
   return agencyStore.currentAgency?.logo_url || null;
 });
 
-const filteredTabs = computed(() => {
-  // Club context (SSTC/affiliation): hide Checklist and Training (Documents are under My Account)
-  if (isClubContext.value) return [];
-  // PREHIRE_OPEN, PREHIRE_REVIEW, and ONBOARDING users see limited tabs
-  if (isPending.value || userStatus.value === 'PREHIRE_REVIEW' || userStatus.value === 'ONBOARDING' ||
-      userStatus.value === 'ready_for_review') {
-    return tabs.value.filter(tab => tab.id !== 'training');
-  }
-  return tabs.value;
-});
+const filteredTabs = computed(() => dashboardBaseTabs({
+  userStatus: userStatus.value,
+  isPending: isPending.value,
+  isClubContext: isClubContext.value,
+  isOnboardingComplete: isOnboardingComplete.value,
+  momentumListEnabled: momentumListEnabled.value,
+  checklistCount: checklistCount.value,
+  trainingCount: trainingCount.value,
+  documentsCount: documentsCount.value
+}));
 
 const isSchoolStaff = computed(() => String(authStore.user?.role || '').toLowerCase() === 'school_staff');
 
@@ -3633,129 +3594,11 @@ const isAgencyDashboardContext = computed(() => {
   ).toLowerCase();
   return currentType === 'agency';
 });
-const canAccessToolsAids = computed(() => {
-  const role = String(authStore.user?.role || '').toLowerCase();
-  // All employee roles across tenants (excludes client / client_guardian).
-  return [
-    'admin',
-    'super_admin',
-    'support',
-    'provider',
-    'provider_plus',
-    'staff',
-    'clinical_practice_assistant',
-    'supervisor',
-    'intern',
-    'intern_plus',
-    'facilitator',
-    'school_staff'
-  ].includes(role);
-});
+const canAccessToolsAids = computed(() => dashboardCanAccessToolsAids(authStore.user));
 
-const isAgencyOrgType = (org) => String(org?.organization_type || org?.organizationType || 'agency').toLowerCase() === 'agency';
-/** School portal rail cards only: matches DB enum `agencies.organization_type = 'school'`. Program, learning, clinical, etc. are not schools. */
-const isSchoolPortalOrganization = (org) =>
-  String(org?.organization_type || org?.organizationType || '').toLowerCase() === 'school';
-
-/** Book Club lives in the top portals strip — never duplicate it on the left rail. */
-
-const portalOrgType = (org) =>
-  String(org?.organization_type || org?.organizationType || '').toLowerCase().trim();
-const portalShortTitle = (org) => {
-  return String(
-    org?.portal_short_title ||
-      org?.portalShortTitle ||
-      org?.short_title ||
-      org?.shortTitle ||
-      org?.portal_url ||
-      org?.portalUrl ||
-      org?.slug ||
-      org?.name ||
-      'Portal'
-  ).trim();
-};
-const portalLogoUrl = (org) => {
-  const candidates = [
-    org?.logo_path,
-    org?.logoPath,
-    org?.icon_file_path,
-    org?.iconFilePath,
-    org?.logo_url,
-    org?.logoUrl,
-    org?.icon_url,
-    org?.iconUrl
-  ];
-  const raw = candidates.find((v) => String(v || '').trim());
-  if (!raw) return null;
-  const value = String(raw).trim();
-  if (value.startsWith('http://') || value.startsWith('https://')) return value;
-  if (value.startsWith('/uploads/') || value.startsWith('uploads/')) return toUploadsUrl(value);
-  return value;
-};
-
-/** Program/school portal pills: prefer uploaded logo URL, then Program overview icon (Icons tab), then master org icon. */
-const programPortalRailIconUrl = (org) => {
-  const explicitBrand = [
-    org?.logo_path,
-    org?.logoPath,
-    org?.logo_url,
-    org?.logoUrl,
-    org?.icon_url,
-    org?.iconUrl
-  ].find((v) => String(v || '').trim());
-  if (explicitBrand) {
-    const value = String(explicitBrand).trim();
-    if (value.startsWith('http://') || value.startsWith('https://')) return value;
-    if (value.startsWith('/uploads/') || value.startsWith('uploads/')) return toUploadsUrl(value);
-    return value;
-  }
-  const programOverview = brandingStore.getAdminQuickActionIconUrl('program_overview', org);
-  if (programOverview) return programOverview;
-  const fromPortalLogo = portalLogoUrl(org);
-  if (fromPortalLogo) return fromPortalLogo;
-  return (
-    brandingStore.getDashboardCardIconUrl('my_schedule', org) ||
-    brandingStore.getDashboardCardIconUrl('my', org) ||
-    brandingStore.getDashboardCardIconUrl('my_schedule')
-  );
-};
-
-const providerPortalCards = computed(() => {
-  const list = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
-  return list
-    .filter((org) => !isAgencyOrgType(org) && !isBookClubPortalOrg(org))
-    .map((org) => {
-      const slug = String(org?.slug || org?.portal_url || org?.portalUrl || '').trim();
-      if (!slug) return null;
-      const label = portalShortTitle(org);
-      const orgType = portalOrgType(org);
-      return {
-        id: `portal_org_${String(org?.id || slug)}`,
-        label,
-        kind: 'link',
-        to: `/${slug}/dashboard`,
-        badgeCount: 0,
-        iconUrl: programPortalRailIconUrl(org),
-        isSchoolPortal: isSchoolPortalOrganization(org),
-        orgType,
-        description: `Open ${String(org?.name || label)} portal.`
-      };
-    })
-    .filter(Boolean);
-});
-
-/** Dynamic nest title: Schools / Programs / Learning / combinations. */
-const portalsNestLabel = computed(() => {
-  const types = new Set(providerPortalCards.value.map((c) => String(c.orgType || '')));
-  const parts = [];
-  if (types.has('school')) parts.push('Schools');
-  if (types.has('program')) parts.push('Programs');
-  if (types.has('learning')) parts.push('Learning');
-  if (!parts.length) return providerPortalCards.value.length ? 'Portals' : '';
-  if (parts.length === 1) return parts[0];
-  if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
-  return `${parts[0]}, ${parts[1]}, and ${parts[2]}`;
-});
+const programPortalRailIconUrl = (org) => programPortalIconUrl(org, brandingStore);
+const providerPortalCards = computed(() => buildAssignedPortalCards(agencyStore.userAgencies, programPortalRailIconUrl));
+const portalsNestLabel = computed(() => dashboardPortalsLabel(providerPortalCards.value));
 
 const portalsNestExpanded = ref(false);
 const toolsNestExpanded = ref(false);
@@ -3856,631 +3699,50 @@ function toggleNest(nestId) {
 }
 
 /** Admin / provider hub cards that belong under the portals nest (not top-level rail). */
-const portalsNestHubChildren = computed(() => {
-  if (isClubContext.value) return [];
-  const u = authStore.user;
-  const role = String(u?.role || '').toLowerCase();
-  const caps = u?.capabilities || {};
-  const isTrueAdmin = role === 'admin' || role === 'super_admin';
-  const isProviderLikeForSubmissions =
-    role === 'provider' ||
-    role === 'provider_plus' ||
-    role === 'intern' ||
-    role === 'intern_plus' ||
-    role === 'clinical_practice_assistant';
-  const isSup = isSupervisor(u);
-  const isLimitedAccessNonProvider =
-    !isTrueAdmin && !isProviderLikeForSubmissions && (isSup || !!caps?.canManageHiring || !!caps?.canManagePayroll);
-  const iconOrg = cardIconOrgOverride.value;
-  const children = [];
+const portalsNestCard = computed(() => buildDashboardPortals({
+  user: authStore.user,
+  brandingStore,
+  orgSlug: typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '',
+  agency: agencyStore.currentAgency?.value || agencyStore.currentAgency || null,
+  cardIconOrgOverride: cardIconOrgOverride.value,
+  isClubContext: isClubContext.value,
+  isProviderLikeForSkillBuildersSchedule: isProviderLikeForSkillBuildersSchedule.value,
+  isSkillBuilderCoordinator: isSkillBuilderCoordinator.value,
+  isSkillBuilderEligible: isSkillBuilderEligible.value,
+  canAccessSkillBuildersSchoolProgramTenantDashboard: canAccessSkillBuildersSchoolProgramTenantDashboard.value,
+  canSeeSchoolPortalsForCoordinator: canSeeSchoolPortalsForCoordinator.value,
+  hasSkillBuilderCoordinatorToolsAccess: hasSkillBuilderCoordinatorToolsAccess.value,
+  providerAssignedProgramOrgs: providerAssignedProgramOrgs.value,
+  providerPortalCards: providerPortalCards.value,
+  providerYearUpdateStatus: providerYearUpdateStatus.value,
+  subCoordinatorProgramOrgs: subCoordinatorProgramOrgs.value,
+  portalsNestLabel: portalsNestLabel.value,
+  programPortalRailIconUrl
+}));
 
-  if (!isLimitedAccessNonProvider) {
-    const pyu = providerYearUpdateStatus.value;
-    if (pyu?.available) {
-      children.push({
-        id: 'provider_year_update',
-        label: 'Provider Fall Update',
-        kind: 'link',
-        to: (() => {
-          const slug = String(route.params.organizationSlug || '').trim();
-          return slug ? `/${slug}/provider/year-update/flow` : '/provider/year-update/flow';
-        })(),
-        badgeCount: pyu.showPulse ? 1 : 0,
-        pulse: Boolean(pyu.showPulse),
-        iconUrl: brandingStore.getAdminQuickActionIconUrl('school_overview', iconOrg),
-        description: 'Fall reminders, school events, materials, and schedule review.',
-        highlight: true,
-      });
-    }
-    if (isSkillBuilderEligible.value) {
-      children.push({
-        id: 'skill_builders_provider_hub',
-        label: 'Skill Builders',
-        kind: 'modal',
-        badgeCount: 0,
-        iconUrl: brandingStore.getAdminQuickActionIconUrl('skill_builders_availability', iconOrg),
-        description: 'Availability, events, and Skill Builders work schedule.'
-      });
-    }
-    if (
-      caps.canAccessOutreach &&
-      !['admin', 'support', 'super_admin', 'provider_plus'].includes(role)
-    ) {
-      const slug = String(route.params.organizationSlug || '').trim();
-      children.push({
-        id: 'outreach_hub',
-        label: 'Outreach Hub',
-        kind: 'link',
-        to: slug ? `/${slug}/admin/outreach-hub` : '/admin/outreach-hub',
-        badgeCount: 0,
-        iconUrl: brandingStore.getAdminQuickActionIconUrl('school_overview', iconOrg),
-        description: 'Track school contacts, visits, and partnership stages.'
-      });
-    }
-    if (
-      isProviderLikeForSkillBuildersSchedule.value &&
-      providerAssignedProgramOrgs.value.length > 0
-    ) {
-      children.push({
-        id: 'provider_program_portals',
-        label: 'Program Portals',
-        kind: 'content',
-        badgeCount: 0,
-        iconUrl: brandingStore.getAdminQuickActionIconUrl('program_overview', iconOrg),
-        description: 'Programs you are assigned to — open one to access event portals.'
-      });
-    }
-  }
+const dashboardCards = computed(() => buildDashboardCards({
+  user: authStore.user,
+  brandingStore,
+  orgSlug: typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '',
+  agencyFlags: agencyFlags.value,
+  cardIconOrgOverride: cardIconOrgOverride.value,
+  filteredTabs: filteredTabs.value,
+  isOnboardingComplete: isOnboardingComplete.value,
+  isClubContext: isClubContext.value,
+  isSchoolStaff: isSchoolStaff.value,
+  isBookClubContext: isBookClubContext.value,
+  momentumListEnabled: momentumListEnabled.value,
+  portalsNestCard: portalsNestCard.value,
+  clientActionItemCount: clientActionItemCount.value,
+  swapClientsTabForFallUpdate: swapClientsTabForFallUpdate.value,
+  providerSurfacesEnabled: providerSurfacesEnabled.value,
+  shiftProgramsEnabledForAgency: shiftProgramsEnabledForAgency.value,
+  canAccessToolsAids: canAccessToolsAids.value,
+  hasClinicalSupervision: hasClinicalSupervision.value,
+  noteWorkspaceLabel: noteWorkspaceLabel.value
+}));
 
-  const sbSchoolProgramOn = canAccessSkillBuildersSchoolProgramTenantDashboard.value;
-  if (
-    !isSkillBuilderEligible.value &&
-    (role === 'super_admin' || (sbSchoolProgramOn && (role === 'admin' || isSkillBuilderCoordinator.value)))
-  ) {
-    const sbIconOrg = agencyStore.currentAgency?.value || agencyStore.currentAgency || null;
-    children.push({
-      id: 'skill_builders_availability',
-      label: 'Skill Builders',
-      kind: 'link',
-      to: '/admin/skill-builders-availability',
-      badgeCount: 0,
-      iconUrl: brandingStore.getAdminQuickActionIconUrl('skill_builders_availability', sbIconOrg),
-      description: 'Manage Skill Builder provider availability and settings.'
-    });
-  }
-
-  if (hasSkillBuilderCoordinatorToolsAccess.value) {
-    const orgOverride = agencyStore.currentAgency?.value || agencyStore.currentAgency || null;
-    if (canSeeSchoolPortalsForCoordinator.value) {
-      children.push({
-        id: 'sub_coordinator_school_portals',
-        label: 'SchoolCareBridge',
-        kind: 'link',
-        to: '/admin/school-portals-hub',
-        badgeCount: 0,
-        iconUrl: brandingStore.getAdminQuickActionIconUrl('school_overview', orgOverride),
-        description: 'School overview, all school portals, and add-school entry when enabled for this tenant.'
-      });
-    }
-    children.push({
-      id: 'sub_coordinator_program_overview',
-      label: 'Program Portals',
-      kind: 'link',
-      to: '/admin/schools/overview?orgType=program',
-      badgeCount: 0,
-      iconUrl: brandingStore.getAdminQuickActionIconUrl('program_overview', orgOverride),
-      description: 'Manage affiliated program + learning dashboards.'
-    });
-    for (const org of subCoordinatorProgramOrgs.value || []) {
-      const oid = Number(org.id);
-      if (!Number.isFinite(oid) || oid <= 0) continue;
-      const name = String(org.name || '').trim() || `Program ${oid}`;
-      children.push({
-        id: `sub_coord_program_${oid}`,
-        label: name,
-        kind: 'modal',
-        programOrganizationId: oid,
-        badgeCount: 0,
-        iconUrl: programPortalRailIconUrl(org),
-        description: `Portal, availability, events, enrollments, and work schedule for ${name}.`
-      });
-    }
-  }
-
-  return children;
-});
-
-const portalsNestCard = computed(() => {
-  if (isClubContext.value) return null;
-  const hub = portalsNestHubChildren.value || [];
-  const pyuFirst = hub.filter((c) => c.id === 'provider_year_update');
-  const hubRest = hub.filter((c) => c.id !== 'provider_year_update');
-  // Provider Fall Update always tops the nest when present; school/program portals follow.
-  const children = [...pyuFirst, ...providerPortalCards.value, ...hubRest];
-  if (!children.length) return null;
-  const totalBadgeCount = children.reduce((sum, child) => sum + (Number(child.badgeCount) || 0), 0);
-
-  return {
-    id: 'portals_nest',
-    label: portalsNestLabel.value || 'Portals',
-    kind: 'nest',
-    badgeCount: totalBadgeCount,
-    children,
-    iconUrl:
-      brandingStore.getAdminQuickActionIconUrl('school_overview', cardIconOrgOverride.value) ||
-      brandingStore.getDashboardCardIconUrl('my_schedule', cardIconOrgOverride.value) ||
-      brandingStore.getDashboardCardIconUrl('my', cardIconOrgOverride.value),
-    description: 'Assigned portals plus school/program hubs and Skill Builders.'
-  };
-});
-
-const dashboardCards = computed(() => {
-  const u = authStore.user;
-  const role = String(u?.role || '').toLowerCase();
-  const caps = u?.capabilities || {};
-  const isTrueAdmin = role === 'admin' || role === 'super_admin';
-  // Supervisors / hiring / payroll caps should still see provider submission surfaces when they
-  // are clinician-facing roles (provider_plus, CPA, interns)—not only literal `provider`.
-  const isProviderLikeForSubmissions =
-    role === 'provider' ||
-    role === 'provider_plus' ||
-    role === 'intern' ||
-    role === 'intern_plus' ||
-    role === 'clinical_practice_assistant';
-  const isSup = isSupervisor(u);
-  const isLimitedAccessNonProvider =
-    !isTrueAdmin && !isProviderLikeForSubmissions && (isSup || !!caps?.canManageHiring || !!caps?.canManagePayroll);
-
-  const iconOrg = cardIconOrgOverride.value;
-  const orgSlug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : '';
-  const tasksHubPath = orgSlug ? `/${orgSlug}/tasks` : '/tasks';
-  const cards = filteredTabs.value.map((t) => ({
-    ...t,
-    kind: 'content',
-    iconUrl: brandingStore.getDashboardCardIconUrl(
-      t.id === 'checklist' && momentumListEnabled.value ? 'momentum_list' : t.id,
-      iconOrg
-    ),
-    description:
-      t.id === 'checklist'
-        ? (momentumListEnabled.value ? 'Your focus digest, checklist, and actionable items.' : 'Training, documents, and custom checklist items.')
-        : t.id === 'training'
-          ? 'Assigned training modules and progress.'
-          : 'Documents that need review or signature.'
-  }));
-
-  // Promote Checklist/My Work into a nest: Focus (panel) + Tasks (hub route).
-  const checklistIdx = cards.findIndex((c) => String(c?.id) === 'checklist');
-  if (checklistIdx >= 0) {
-    const base = cards[checklistIdx];
-    const momentumIcon =
-      brandingStore.getDashboardCardIconUrl('momentum_list', iconOrg) || base.iconUrl;
-    cards.splice(checklistIdx, 1, {
-      id: 'momentum_nest',
-      label: momentumListEnabled.value ? 'My Work' : 'Checklist',
-      kind: 'nest',
-      badgeCount: base.badgeCount || 0,
-      iconUrl: momentumIcon,
-      description: momentumListEnabled.value
-        ? 'Focus digest and your Tasks hub.'
-        : 'Checklist and your Tasks hub.',
-      children: [
-        {
-          id: 'checklist',
-          label: momentumListEnabled.value ? 'Focus' : 'Checklist',
-          kind: 'content',
-          badgeCount: base.badgeCount || 0,
-          iconUrl: momentumIcon,
-          description: base.description
-        },
-        {
-          id: 'tasks_hub',
-          label: 'Tasks',
-          kind: 'link',
-          to: tasksHubPath,
-          badgeCount: 0,
-          iconUrl: brandingStore.getDashboardCardIconUrl('checklist', iconOrg) || momentumIcon,
-          description: 'Assigned tasks, shared lists, escalations, and meeting actions.'
-        }
-      ]
-    });
-  }
-
-  // Post-onboarding cards
-  if (isOnboardingComplete.value) {
-    // Overview landing — agency HR dashboard only (not club / Summit surfaces)
-    if (!isClubContext.value) {
-      cards.unshift({
-        id: 'overview',
-        label: 'Overview',
-        kind: 'content',
-        badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('my', iconOrg),
-        description: 'Your day at a glance: schedule, pay period, events, and quick actions.'
-      });
-    }
-    // School staff should not see payroll/claims submission surfaces.
-    if (!isSchoolStaff.value) {
-      // My Schedule is personal and should be visible to everyone using the dashboard.
-      cards.push({
-        id: 'my_schedule',
-        label: 'My Schedule',
-        kind: 'content',
-        badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', iconOrg),
-        description: 'View weekly schedule and request availability from the grid.'
-      });
-      if (!isClubContext.value) cards.push({
-        id: 'meetings', label: 'My Meetings', kind: 'content', badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('meetings', iconOrg) || brandingStore.getDashboardCardIconUrl('my_schedule', iconOrg),
-        description: 'Attended meetings, participants, chat, transcripts, and personal notes.'
-      });
-      if (!isClubContext.value && portalsNestCard.value) cards.push(portalsNestCard.value);
-      if (!isClubContext.value && ['provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant'].includes(String(authStore.user?.role||''))) cards.push({
-        id:'schools_programs',label:'Schools & Programs',kind:'content',badgeCount:0,
-        iconUrl:brandingStore.getDashboardCardIconUrl('clients',iconOrg),description:'Your assigned school portals, programs, and school hours requests.'
-      });
-
-      // Provider-only surfaces: hide these for limited-access non-provider users and club context.
-      if (!isLimitedAccessNonProvider && !isClubContext.value) {
-        cards.push({
-          id: 'clients',
-          label: 'My Clients',
-          kind: 'content',
-          badgeCount: clientActionItemCount.value || 0,
-          iconUrl: brandingStore.getDashboardCardIconUrl('clients', iconOrg),
-          description: swapClientsTabForFallUpdate.value
-            ? 'Complete fall client confirmation and assigned-day actions here until the Provider Fall Update is done.'
-            : 'Pending client action items — fall confirmation, new clients, and next steps.'
-        });
-        if (providerSurfacesEnabled.value && !isClubContext.value) {
-          cards.push({
-            id: 'submit',
-            label: 'Submit',
-            kind: 'content',
-            badgeCount: 0,
-            iconUrl: brandingStore.getDashboardCardIconUrl('submit', iconOrg),
-            description: 'Submit mileage, in-school claims, and more.'
-          });
-        }
-        if (shiftProgramsEnabledForAgency.value) {
-          cards.push({
-            id: 'program_shifts',
-            label: 'My Shifts',
-            kind: 'content',
-            badgeCount: 0,
-            iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', iconOrg),
-            description: 'Program shift schedule, sign up, and call-off.'
-          });
-        }
-      }
-      // Tools hub for My Dashboard rail (Assessments, Games, AI Tools).
-      // Top-nav Tools mega-menu is reserved for full portal roles; everyone else uses this nest.
-      if (canAccessToolsAids.value) {
-        const iconUrl = brandingStore.getDashboardCardIconUrl('tools_aids', iconOrg);
-        const children = [
-          {
-            id: 'tools_assessments',
-            label: 'Assessments & Evaluations',
-            kind: 'content',
-            toolsTab: 'assessments',
-            badgeCount: 0,
-            iconUrl,
-            description: 'Guest and assigned assessments for discovery and progress.'
-          },
-          {
-            id: 'tools_games',
-            label: 'Games and Activities',
-            kind: 'content',
-            toolsTab: 'games',
-            badgeCount: 0,
-            iconUrl,
-            description: 'Interactive games and session activities for practice and counseling.'
-          },
-          {
-            id: 'tools_ai',
-            label: 'AI Tools',
-            kind: 'content',
-            toolsTab: 'ai',
-            badgeCount: 0,
-            iconUrl,
-            description: 'Note Workspace and other AI documentation aids.'
-          }
-        ];
-        if (caps.canViewLibrary === true && !isSchoolStaff.value) {
-          const libraryPath = orgSlug ? `/${orgSlug}/library` : '/library';
-          children.unshift({
-            id: 'tools_library',
-            label: 'Library',
-            kind: 'link',
-            to: libraryPath,
-            badgeCount: 0,
-            iconUrl:
-              brandingStore.getDashboardCardIconUrl('library', iconOrg) ||
-              brandingStore.getDashboardCardIconUrl('documents', iconOrg) ||
-              iconUrl,
-            description: 'Guides, templates, care documents, forms, and shared links.'
-          });
-        }
-        cards.push({
-          id: 'tools_nest',
-          label: 'Tools and Resources',
-          kind: 'nest',
-          badgeCount: children.reduce((acc, c) => acc + (Number(c.badgeCount) || 0), 0),
-          iconUrl,
-          description: 'Library, assessments & evaluations, games and activities, and AI tools.',
-          children
-        });
-      }
-      // My Shifts: also show for staff/facilitator/intern (shift program participants) when agency has flag
-      if (shiftProgramsEnabledForAgency.value && ['staff', 'facilitator', 'intern'].includes(role)) {
-        if (!cards.some((c) => c?.id === 'program_shifts')) {
-          cards.push({
-            id: 'program_shifts',
-            label: 'My Shifts',
-            kind: 'content',
-            badgeCount: 0,
-            iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', iconOrg),
-            description: 'Program shift schedule, sign up, and call-off.'
-          });
-        }
-      }
-    } else if (canAccessToolsAids.value) {
-      // School staff and other employees still get the Tools hub when payroll surfaces are hidden.
-      const iconUrl = brandingStore.getDashboardCardIconUrl('tools_aids', iconOrg);
-      const children = [
-        {
-          id: 'tools_assessments',
-          label: 'Assessments & Evaluations',
-          kind: 'content',
-          toolsTab: 'assessments',
-          badgeCount: 0,
-          iconUrl,
-          description: 'Guest and assigned assessments for discovery and progress.'
-        },
-        {
-          id: 'tools_games',
-          label: 'Games and Activities',
-          kind: 'content',
-          toolsTab: 'games',
-          badgeCount: 0,
-          iconUrl,
-          description: 'Interactive games and session activities for practice and counseling.'
-        },
-        {
-          id: 'tools_ai',
-          label: 'AI Tools',
-          kind: 'content',
-          toolsTab: 'ai',
-          badgeCount: 0,
-          iconUrl,
-          description: 'Note Workspace and other AI documentation aids.'
-        }
-      ];
-      if (caps.canViewLibrary === true && !isSchoolStaff.value) {
-        const libraryPath = orgSlug ? `/${orgSlug}/library` : '/library';
-        children.unshift({
-          id: 'tools_library',
-          label: 'Library',
-          kind: 'link',
-          to: libraryPath,
-          badgeCount: 0,
-          iconUrl:
-            brandingStore.getDashboardCardIconUrl('library', iconOrg) ||
-            brandingStore.getDashboardCardIconUrl('documents', iconOrg) ||
-            iconUrl,
-          description: 'Guides, templates, care documents, forms, and shared links.'
-        });
-      }
-      cards.push({
-        id: 'tools_nest',
-        label: 'Tools and Resources',
-        kind: 'nest',
-        badgeCount: children.reduce((acc, c) => acc + (Number(c.badgeCount) || 0), 0),
-        iconUrl,
-        description: 'Library, assessments & evaluations, games and activities, and AI tools.',
-        children
-      });
-    }
-    cards.push({
-      id: 'my',
-      label: 'My Account',
-      kind: 'content',
-      badgeCount: 0,
-      iconUrl: brandingStore.getDashboardCardIconUrl('my', iconOrg),
-      description: 'Account info, credentials, and personal preferences.'
-    });
-
-    // Club admin: Start new season card (SSTC clubs only)
-    if (
-      !isBookClubContext.value &&
-      isClubContext.value &&
-      (role === 'admin' || role === 'super_admin')
-    ) {
-      cards.push({
-        id: 'start_new_season',
-        label: 'Start New Season',
-        kind: 'action',
-        badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('challenges', iconOrg),
-        description: 'Create a new season for your club.'
-      });
-    }
-
-    // Messages only on rail (Communications / Contacts / Feed / Seasons / My Learning removed).
-    if (!isLimitedAccessNonProvider) {
-      cards.push({
-        id: 'chats',
-        label: 'Messages',
-        kind: 'content',
-        badgeCount: 0,
-        brandIconUrl: CONVERSA_ICON_URL,
-        description: isClubContext.value ? 'Club members online.' : 'Direct messages, channels, threads, and mentions.'
-      });
-    }
-
-    if (!isClubContext.value && !isSchoolStaff.value && ['super_admin','admin','support','staff','provider','provider_plus','supervisor','clinical_practice_assistant','intern','intern_plus','facilitator','tutor','clinician','assistant_admin'].includes(role)) {
-      cards.push({ id: 'staff', label: 'Staff', kind: 'content', badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('staff', iconOrg),
-        description: 'Find staff, work numbers and extensions, assigned offices, and website profiles. Start a conversation directly.' });
-    }
-
-    // Notifications: embedded in dashboard
-    cards.push({
-      id: 'notifications',
-      label: 'Notifications',
-      kind: 'content',
-      badgeCount: 0,
-      iconUrl: brandingStore.getDashboardCardIconUrl('notifications', iconOrg),
-      description: 'Your recent notifications.'
-    });
-    // Supervision card (supervisors only) – hidden for clubs (no supervision)
-    if (!isClubContext.value && isSupervisor(authStore.user)) {
-      cards.push({
-        id: 'supervision',
-        label: 'Supervision',
-        kind: 'content',
-        badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('supervision', iconOrg),
-        description: 'View and support your supervisees.'
-      });
-    }
-    // My supervision card (supervisees – providers, interns, etc. who have supervision sessions) – hidden for clubs
-    if (!isClubContext.value && !isSupervisor(authStore.user) && hasClinicalSupervision.value) {
-      cards.push({
-        id: 'my_supervision',
-        label: 'My Supervision',
-        kind: 'content',
-        badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('supervision', iconOrg),
-        description: 'Your supervision sessions, transcripts, and summaries.'
-      });
-    }
-    // Providers card (provider_plus only) – view all providers as though supervising them
-    if (String(u?.role || '').toLowerCase() === 'provider_plus') {
-      cards.push({
-        id: 'providers',
-        label: 'Providers',
-        kind: 'content',
-        badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('clients', iconOrg)
-          || brandingStore.getDashboardCardIconUrl('staff', iconOrg),
-        description: 'View and support all providers in your organization.'
-      });
-    }
-
-    // Program coordinator + Skill Builders admin hubs live under portalsNestCard children.
-  }
-
-  const tools = cards.find((card) => card.id === 'tools_nest');
-  if (tools && isNoteAidEmployeeRole(role) && isNoteAidEnabledForAgencyFlags(agencyFlags.value)) {
-    cards.push({
-      id: 'documentation_hub', label: noteWorkspaceLabel.value, kind: 'link',
-      to: workspaceNoteAidPath(orgSlug), badgeCount: 0,
-      iconUrl: brandingStore.getDashboardCardIconUrl('clinical_note_generator', iconOrg)
-        || brandingStore.getDashboardCardIconUrl('documents', iconOrg),
-      description: `Open ${noteWorkspaceLabel.value.toLowerCase()} and documentation tools.`
-    });
-  }
-  return cards;
-});
-
-const defaultRailCards = computed(() => {
-  const cards = (dashboardCards.value || []).slice();
-  const hasMy = cards.some((c) => String(c?.id) === 'my');
-
-  const orderIndex = (id) => {
-    const k = String(id || '');
-    if (k === 'portals_nest') return hasMy ? 10 : 4;
-    if (hasMy && k.startsWith('portal_org_')) return 10.1;
-    if (!hasMy && k.startsWith('portal_org_')) return 4.1;
-    // Stable rail order:
-    // - Overview first when present (post-onboarding agency dashboard).
-    // - If My Account exists (post-onboarding), keep it near the top after Overview.
-    // - If My Account doesn't exist yet (during onboarding), Checklist stays first.
-    if (hasMy) {
-      if (k.startsWith('sub_coord_program_')) return 20;
-      // Core: Overview → My Account → My Schedule → Momentum → Messages → Submit → Tools →
-      // Notifications → Supervision → Training; gated extras below.
-      return ({
-        overview: -1,
-        my: 0,
-        my_schedule: 1,
-        meetings: 1.5,
-        momentum_nest: 2,
-        checklist: 2.1,
-        tasks_hub: 2.2,
-        documentation_hub: 2.3,
-        chats: 3,
-        submit: 4,
-        tools_nest: 5,
-        tools_assessments: 5.1,
-        tools_games: 5.2,
-        tools_ai: 5.3,
-        tools_aids: 5.4,
-        notifications: 6,
-        supervision: 7,
-        my_supervision: 7.5,
-        training: 8,
-        library: 8.5,
-        // Gated extras below core
-        portals_nest: 10,
-        program_shifts: 11,
-        clients: 12,
-        staff: 12.5,
-        providers: 13,
-        documents: 14,
-        skill_builders_provider_hub: 15,
-        provider_program_portals: 15.1,
-        skill_builders_availability: 15.2,
-        sub_coordinator_school_portals: 15.3,
-        sub_coordinator_program_overview: 15.4,
-        payroll: 16
-      })[k] ?? 999;
-    }
-    if (k.startsWith('sub_coord_program_')) return 6;
-    return ({
-      checklist: 0,
-      documentation_hub: 0.5,
-      documents: 1,
-      training: 2,
-      my_schedule: 3,
-      schools_programs: 3.2,
-      meetings: 3.5,
-      skill_builders_provider_hub: 3.7,
-      provider_program_portals: 3.8,
-      program_shifts: 4,
-      sub_coordinator_school_portals: 5,
-      sub_coordinator_program_overview: 5.5,
-      skill_builders_availability: 6,
-      clients: 7,
-      tools_nest: 7.1,
-      tools_assessments: 7.2,
-      tools_games: 7.3,
-      tools_ai: 7.4,
-      tools_aids: 7.5,
-      submit: 8,
-      payroll: 9,
-      my: 10,
-      on_demand_training: 11,
-      social_feeds: 12,
-      challenges: 12.5,
-      communications: 13,
-      chats: 14,
-      notifications: 15,
-      supervision: 16,
-      my_supervision: 16.5,
-      providers: 17
-    })[k] ?? 999;
-  };
-
-  return cards.sort((a, b) => {
-    const da = orderIndex(a?.id);
-    const db = orderIndex(b?.id);
-    if (da !== db) return da - db;
-    return String(a?.label || '').localeCompare(String(b?.label || ''));
-  });
-});
+const defaultRailCards = computed(() => sortDashboardCards(dashboardCards.value));
 
 const decorateRailCards = (cards) => applyRailOrder(cards).map(card => {
   const children = card.id === 'tools_library' ? libraryQuickLinks(card) : card.children;
@@ -4502,13 +3764,22 @@ const activeRailLabel = computed(() => {
   return active?.label || '';
 });
 
+let registeredDashboardContext = '';
 watch(
-  [railCardsForDisplay, () => dashboardNavigationContextKey(authStore.user, agencyStore.currentAgency?.id)],
+  [railCardsForDisplay, () => dashboardNavigationContextKey(authStore.user, agencyStore.currentAgency?.id, dashboardOrgTo('/dashboard'), agencyStore.currentAgency, brandingStore.platformBranding)],
   ([items, context]) => {
-    setDashboardMobileNavItems(items || [], context);
+    if (!props.previewMode) {
+      registeredDashboardContext = context;
+      setDashboardMobileNavItems(items || [], context);
+    }
   },
   { immediate: true, deep: true }
 );
+onBeforeUnmount(() => {
+  // Off-page navigation owns its metadata loading. Do not leave a partial rail
+  // snapshot authoritative after this page's async work has stopped.
+  if (registeredDashboardContext && dashboardNavContext.value === registeredDashboardContext) clearDashboardMobileNavItems();
+});
 
 const onMobileSectionPick = (card) => {
   // Keep the drawer open when expanding a nest so children (e.g. AI Tools) appear.
