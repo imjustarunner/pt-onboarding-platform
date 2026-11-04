@@ -62,6 +62,10 @@ on:
       - 'frontend/src/components/clinical/NoteAidWorkQueuePanel.vue'
       - 'backend/src/services/billingBenefitsEmail*.js'
       - 'backend/src/services/coverageVerification.service.js'
+      - 'backend/src/controllers/coverageVerification.controller.js'
+      - 'backend/src/services/__tests__/claimMdAssignmentCoverageReview*'
+      - 'backend/src/controllers/__tests__/claimMdAssignmentCoverageController.test.js'
+      - 'frontend/vitest.hannah-verification.config.js'
       - 'backend/src/services/messagesHub.service.js'
       - 'backend/src/services/familyNotification*.js'
       - 'backend/src/utils/familyNotificationChoices.js'
@@ -194,6 +198,10 @@ on:
       - 'frontend/src/components/clinical/NoteAidWorkQueuePanel.vue'
       - 'backend/src/services/billingBenefitsEmail*.js'
       - 'backend/src/services/coverageVerification.service.js'
+      - 'backend/src/controllers/coverageVerification.controller.js'
+      - 'backend/src/services/__tests__/claimMdAssignmentCoverageReview*'
+      - 'backend/src/controllers/__tests__/claimMdAssignmentCoverageController.test.js'
+      - 'frontend/vitest.hannah-verification.config.js'
       - 'backend/src/services/messagesHub.service.js'
       - 'backend/src/services/familyNotification*.js'
       - 'backend/src/utils/familyNotificationChoices.js'
@@ -303,6 +311,8 @@ jobs:
       - name: Claims, coverage and payment request interface
         working-directory: frontend
         run: node node_modules/vitest/vitest.mjs run src/components/billing/__tests__/ClaimWorkTable.test.js src/components/billing/__tests__/BillingTransactionHistory.test.js src/components/billing/__tests__/ClaimResubmissionPanel.test.js src/components/billing/__tests__/ClientPaymentFollowup.test.js src/components/billing/__tests__/ClientPaymentSetupSummary.test.js src/components/billing/__tests__/InsuranceVerificationQueue.test.js src/components/billing/__tests__/InsuranceVerificationGate.test.js
+      - name: School assignment coverage confirmation
+        run: node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.hannah-verification.config.js
       - name: Guardian invitation reminders and shared history
         run: node frontend/node_modules/vitest/vitest.mjs run backend/src/services/__tests__/coGuardianReminderPolicy.test.js backend/src/services/__tests__/enrollmentCompletion.guardianInvites.test.js backend/src/controllers/__tests__/guardianAccess.notificationHistory.test.js backend/src/services/__tests__/messaging.sharedNotifications.test.js
       - name: Guardian communication history interface

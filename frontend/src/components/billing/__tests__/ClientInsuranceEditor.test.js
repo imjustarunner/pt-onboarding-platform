@@ -49,3 +49,10 @@ it('hides insurance without billing or support access and discards data when sup
  await w.setProps({accountSupport:true});await w.find('button').trigger('click');await flushPromises();expect(w.find('form').exists()).toBe(true);
  await w.setProps({accountSupport:false});expect(w.find('form').exists()).toBe(false);w.unmount();
 });
+
+it('opens assignment corrections directly without separate claim, coverage or documentation review forms',async()=>{
+ const w=mount(ClientInsuranceEditor,{props:{clientId:5,agencyId:377,assignmentReview:true,startOpen:true},global:{stubs:{ClientCoverageVerification:true,ClientDocumentationReadiness:true}}});await flushPromises();
+ expect(w.find('form').exists()).toBe(true);expect(w.find('client-coverage-verification-stub').exists()).toBe(false);expect(w.find('client-documentation-readiness-stub').exists()).toBe(false);
+ expect(w.text()).not.toContain('verified coverage for claim preparation');expect(w.text()).not.toContain('Provider accepts assignment');
+ await w.find('form').trigger('submit');await flushPromises();expect(w.emitted('saved')).toHaveLength(1);expect(api.put.mock.calls[0][1].verifiedForClaims).toBe(false);w.unmount();
+});

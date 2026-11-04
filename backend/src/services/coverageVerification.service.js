@@ -10,6 +10,27 @@ import { queueInsuranceVerificationSafely } from './insuranceVerificationTask.se
 
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(k=>[k,canonical(value[k])])) : value;
 export const coverageFingerprint = insurance => crypto.createHash('sha256').update(JSON.stringify(canonical({primary:insurance?.primary||null,secondary:insurance?.secondary||null,patient:insurance?.patient||null}))).digest('hex');
+// Bind a manual review to the exact saved policies and evidence the reviewer saw.
+// The token carries no policy identifiers and cannot be reused for another client/date.
+export const coverageReviewToken = ({agencyId,clientId,serviceDate,insurance,latestCheckId=0,latestEvidenceAt=null,latestReview=null}) => crypto.createHash('sha256').update(JSON.stringify({
+ version:1,agencyId:Number(agencyId),clientId:Number(clientId),serviceDate:coverageDate(serviceDate),insurance:coverageFingerprint(insurance),
+ latestCheckId:Number(latestCheckId),latestEvidenceAt:latestEvidenceAt instanceof Date?latestEvidenceAt.toISOString():latestEvidenceAt||null,latestReviewId:Number(latestReview?.id||0)
+})).digest('hex');
+export function assignmentInsuranceSummary(insurance) {
+ const policy=value=>value?{insurerName:value.insurerName||'',memberId:value.memberId||''}:null;
+ return {patientName:[insurance?.patient?.firstName,insurance?.patient?.lastName].filter(Boolean).join(' '),primary:policy(insurance?.primary),secondary:policy(insurance?.secondary),hasMedicaidCoverage:hasMedicaidCoverage(insurance)};
+}
+export function assignmentCoverageIssues(insurance,serviceDate) {
+ const date=coverageDate(serviceDate),issues=[];
+ for(const slot of insurance?.secondary?['primary','secondary']:['primary']) {
+  const policy=insurance?.[slot],label=slot==='primary'?'Primary':'Secondary';
+  if(!String(policy?.insurerName||'').trim())issues.push(`${label} insurance carrier is missing`);
+  if(!String(policy?.memberId||'').trim())issues.push(`${label} member ID is missing`);
+  if(policy?.effectiveDate&&coverageDate(policy.effectiveDate)>date)issues.push(`${label} coverage starts after the verification date`);
+  if(policy?.terminationDate&&coverageDate(policy.terminationDate)<date)issues.push(`${label} coverage ended before the verification date`);
+ }
+ return issues;
+}
 export function coverageDate(value) {
  const s=(value instanceof Date?value.toISOString():String(value||'')).slice(0,10);
  if(!/^\d{4}-\d{2}-\d{2}$/.test(s)||!Number.isFinite(Date.parse(s))||new Date(s).toISOString().slice(0,10)!==s)throw billingError(400,'Choose a valid date of service');
@@ -70,9 +91,9 @@ export async function listCoverageEvidence({agencyId,clientId,serviceDate},db=po
  const date=coverageDate(serviceDate);
  const [checks]=await db.execute('SELECT * FROM client_coverage_checks WHERE agency_id=? AND client_id=? AND service_date=? ORDER BY id DESC LIMIT 100',[agencyId,clientId,date]);
  const [[review]]=await db.execute('SELECT r.*,EXISTS(SELECT 1 FROM client_coverage_checks c WHERE c.agency_id=r.agency_id AND c.client_id=r.client_id AND (c.id>r.through_check_id OR c.completed_at>r.created_at)) AS has_new_evidence FROM client_coverage_reviews r WHERE agency_id=? AND client_id=? AND service_date=? ORDER BY id DESC LIMIT 1',[agencyId,clientId,date]);
- const [[latest]]=await db.execute('SELECT COALESCE(MAX(id),0) AS latest_check_id FROM client_coverage_checks WHERE agency_id=? AND client_id=?',[agencyId,clientId]);
+ const [[latest]]=await db.execute("SELECT COALESCE(MAX(id),0) AS latest_check_id,DATE_FORMAT(MAX(completed_at),'%Y-%m-%dT%H:%i:%s.%f') AS latest_evidence_at FROM client_coverage_checks WHERE agency_id=? AND client_id=?",[agencyId,clientId]);
  const [[latestReview]]=await db.execute('SELECT id,status FROM client_coverage_reviews WHERE agency_id=? AND client_id=? ORDER BY id DESC LIMIT 1',[agencyId,clientId]);
- return {latestReview,latestCheckId:Number(latest.latest_check_id),checks:checks.map(row=>({...row,evidence:decryptFamilyBilling(row.evidence_encrypted,context(agencyId,clientId)),evidence_encrypted:undefined})),review:review?{...review,evidence:decryptFamilyBilling(review.evidence_encrypted,context(agencyId,clientId)),evidence_encrypted:undefined}:null};
+ return {latestReview,latestCheckId:Number(latest.latest_check_id),latestEvidenceAt:latest.latest_evidence_at||null,checks:checks.map(row=>({...row,evidence:decryptFamilyBilling(row.evidence_encrypted,context(agencyId,clientId)),evidence_encrypted:undefined})),review:review?{...review,evidence:decryptFamilyBilling(review.evidence_encrypted,context(agencyId,clientId)),evidence_encrypted:undefined}:null};
 }
 export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,requestKey,actorUserId,profile,accountKey,expectedFingerprint,lookupMode='member_id'},deps={}) {
  const db=deps.db||pool,date=coverageDate(serviceDate),insurance=await (deps.readInsurance||readClientInsurance)(clientId,agencyId,db);
@@ -107,18 +128,29 @@ export function validateCoverageReview(input,insurance) {
   if(policyIsMedicaid(insurance?.primary)&&insurance?.secondary&&!policyIsMedicaid(insurance.secondary))throw billingError(409,'Commercial coverage is recorded after Medicaid. Resolve payer order before verification');
  }
 }
-export async function saveCoverageReview(input) {
- const date=coverageDate(input.serviceDate),db=await pool.getConnection();
+export async function saveCoverageReview(input,deps={}) {
+ const date=coverageDate(input.serviceDate),db=await (deps.pool||pool).getConnection();
  try{
-  await db.beginTransaction();await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE',[input.clientId,input.agencyId]);
-  const insurance=await readClientInsurance(input.clientId,input.agencyId,db);validateCoverageReview(input,insurance);
+  await db.beginTransaction();const [[client]]=await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE',[input.clientId,input.agencyId]);
+  if(!client)throw billingError(404,'Client not found in this agency');
+  const insurance=await (deps.readInsurance||readClientInsurance)(input.clientId,input.agencyId,db);validateCoverageReview(input,insurance);
   if(!insurance?.primary?.memberId)throw billingError(409,'Save this client’s insurance first');
-  const {checks,latestCheckId}=await listCoverageEvidence({...input,serviceDate:date},db);
+  const currentEvidence=await (deps.listEvidence||listCoverageEvidence)({...input,serviceDate:date},db);
+  const {checks,latestCheckId}=currentEvidence;
+  if(input.assignmentReview===true||input.reviewToken!=null) {
+   const token=coverageReviewToken({...input,...currentEvidence,serviceDate:date,insurance});
+   if(typeof input.reviewToken!=='string'||input.reviewToken!==token)throw Object.assign(billingError(409,'Insurance or verification evidence changed. Refresh the saved coverage and check it again before marking verified'),{code:'COVERAGE_REVIEW_STALE'});
+  }
+  if(input.assignmentReview===true) {
+   if(input.status!=='verified')throw billingError(400,'Choose checked and verified to continue provider assignment');
+   const issues=assignmentCoverageIssues(insurance,date);
+   if(issues.length)throw billingError(409,issues.join('; '));
+  }
   if(input.source==='claimmd'&&input.status==='verified')for(const slot of insurance.secondary?['primary','secondary']:['primary']) {
    const check=checks.find(c=>c.policy_slot===slot);
    if(!check||check.status!=='returned'||check.insurance_fingerprint!==coverageFingerprint(insurance)||check.evidence?.summary?.status!=='active_reported'||check.evidence?.summary?.identityMatches===false)throw billingError(409,'Check each current policy and reconcile the returned identity, or document payer-portal/phone verification');
   }
-  const evidence={source:input.source,reference:input.reference.trim(),primaryChecked:input.primaryChecked===true,secondaryChecked:input.secondaryChecked===true,otherCoverageChecked:input.otherCoverageChecked===true,orderConfirmed:input.orderConfirmed===true,medicaidTplChecked:input.medicaidTplChecked===true};
+  const evidence={source:input.source,reference:input.reference.trim(),primaryChecked:input.primaryChecked===true,secondaryChecked:input.secondaryChecked===true,otherCoverageChecked:input.otherCoverageChecked===true,orderConfirmed:input.orderConfirmed===true,medicaidTplChecked:input.medicaidTplChecked===true,...(input.assignmentReview===true?{reviewPurpose:'provider_assignment',reviewToken:input.reviewToken}:{})};
   const [row]=await db.execute('INSERT INTO client_coverage_reviews (agency_id,client_id,service_date,insurance_fingerprint,status,through_check_id,evidence_encrypted,created_by_user_id) VALUES (?,?,?,?,?,?,?,?)',[input.agencyId,input.clientId,date,coverageFingerprint(insurance),input.status,latestCheckId,encryptFamilyBilling(evidence,context(input.agencyId,input.clientId)),input.actorUserId]);
   await auditBilling({agencyId:input.agencyId,clientId:input.clientId,userId:input.actorUserId,action:'insurance_coordination_reviewed',objectId:row.insertId},db);
   await db.commit();return {id:row.insertId,status:input.status};
