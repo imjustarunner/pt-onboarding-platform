@@ -19,6 +19,24 @@ function contacts() {
 }
 
 describe('reviewed cancellation recipients', () => {
+  it('validates signed individual cancellation email against current affiliations and source snapshots without portal activation',async()=>{
+    const h=contacts();Object.assign(h.links[1],{access_enabled:0,is_active:0,permissions_json:{noView:true}});
+    const recipient=(await h.service.review(8,2)).recipients[0],snapshot=[{...recipient}];
+    h.d.preferences.mockResolvedValue({isDefault:false,channels:{email:false}});
+    expect(await h.service.operationalEmailPermitted(8,2,recipient,snapshot)).toBe(true);
+    expect(h.d.gate).toHaveBeenCalledWith(expect.objectContaining({notificationCategory:'schedule_changes',to:recipient.email}));
+    expect(h.links[1].access_enabled).toBe(0);
+    h.links[1].email='changed@example.test';expect(await h.service.operationalEmailPermitted(8,2,recipient,snapshot)).toBe(false);
+    h.links[1].email=recipient.email;h.links[1].permissions_json={noContact:true};
+    expect(await h.service.operationalEmailPermitted(8,2,recipient,snapshot)).toBe(false);
+  });
+  it('retains explicit individual cancellation schedule/category declines and requires an actual saved contact snapshot',async()=>{
+    const h=contacts(),recipient=(await h.service.review(8,2)).recipients[0],snapshot=[{...recipient}];
+    expect(await h.service.operationalEmailPermitted(8,2,recipient,[])).toBe(false);
+    h.d.preferences.mockResolvedValue({schedulingChangesEnabled:false});expect(await h.service.operationalEmailPermitted(8,2,recipient,snapshot)).toBe(false);
+    h.d.preferences.mockResolvedValue({isDefault:true});h.d.gate.mockResolvedValue({allowed:false,reason:'enrollment_automatic_email_off'});
+    expect(await h.service.operationalEmailPermitted(8,2,recipient,snapshot)).toBe(false);
+  });
   it('keeps a verified-enrollment caregiver address bound to its signed source during final review',async()=>{
     const h=contacts();h.links.splice(0);
     const service=createCancellationRecipientService({...h.d,caregivers:async()=>[{key:'enrollment:77',role:'guardian',name:'Caregiver',email:'signed@example.test',phone:'',userId:null,operationalOnly:true,intakeSubmissionId:77}]});

@@ -37,7 +37,7 @@ function harness() {
     encrypt:s=>JSON.stringify({encrypted:Buffer.from(s).toString('base64')}),decrypt:s=>Buffer.from(JSON.parse(s).encrypted,'base64').toString(),
     appointment:vi.fn(async id=>appointments.get(Number(id))),participants:vi.fn(async()=>[{clientId:8}]),
     tenant:vi.fn(async()=>({channelsEnabled:{sms:true},changeNotify:{channels:['email','sms'],bufferMinutes:15}})),
-    reviewedRecipientAllowed:vi.fn(async()=>true),operational:vi.fn(async()=>null),consent:vi.fn(async()=>({email:true,sms:true,emailAddress:'client@example.test',phoneNumber:'+15555550100',guardianUserId:9})),
+    reviewedRecipientAllowed:vi.fn(async()=>true),operational:vi.fn(async()=>null),individualReview:vi.fn(async()=>null),individualRecipientAllowed:vi.fn(async()=>true),consent:vi.fn(async()=>({email:true,sms:true,emailAddress:'client@example.test',phoneNumber:'+15555550100',guardianUserId:9})),
     preferences:vi.fn(async()=>({isDefault:true})),normalizePhone:async p=>p,
     log:vi.fn(),communication:vi.fn(async()=>({id:10})),updateCommunication:vi.fn(),
     sendEmail:vi.fn(async()=>({id:'email-1'})),sendSms:vi.fn(async()=>({messageId:'sms-1'})),smsSender:async()=>'+15555550101',
@@ -48,6 +48,44 @@ function harness() {
 }
 
 describe('one durable schedule update per client after edits settle',()=>{
+  it('uses server-reviewed affiliated guardians for individual cancellation email without granting portal or SMS access',async()=>{
+    const h=harness();const recipients=[{key:'guardian:9',userId:9,email:'one@example.test',operationalOnly:true},{key:'guardian:10',userId:10,email:'two@example.test',operationalOnly:true}];
+    h.deps.individualReview.mockResolvedValue({appointmentId:1,signedAt:'2030-01-01 10:00:00',factsHash:'saved',providerId:5,clientId:8,contacts:recipients,recipients});
+    h.deps.familyRecipients.mockResolvedValue({hasRelationships:true,recipients:[]});
+    h.deps.consent.mockResolvedValue({email:false,emailAddress:null});h.deps.preferences.mockResolvedValue({isDefault:false,channels:{email:false}});
+    await h.service.queue(1,{eventType:'canceled',actorUserId:5,sendImmediately:true});await h.service.process(1);
+    expect(h.deps.sendEmail.mock.calls.map(([args])=>args.to)).toEqual(['one@example.test','two@example.test']);
+    expect(h.deps.sendEmail.mock.calls.every(([args])=>args.templateType==='session_cancellation')).toBe(true);
+    expect(JSON.parse(h.deps.decrypt(h.notices[0].payload_json)).individualCancellationReview.recipients).toEqual(recipients);
+    expect(h.deps.individualRecipientAllowed).toHaveBeenCalledTimes(2);expect(h.deps.sendSms).not.toHaveBeenCalled();
+    expect(h.deps.consent).toHaveBeenCalledWith(8,2,null);
+  });
+  it('rechecks individual cancellation current contact permission before attempting transport',async()=>{
+    const h=harness(),recipient={key:'guardian:9',userId:9,email:'parent@example.test',operationalOnly:true};
+    h.deps.individualReview.mockResolvedValue({appointmentId:1,contacts:[recipient],recipients:[recipient]});
+    h.deps.individualRecipientAllowed.mockResolvedValue(false);h.deps.familyRecipients.mockResolvedValue({hasRelationships:true,recipients:[]});
+    await h.service.queue(1,{eventType:'canceled',actorUserId:5,channels:['email'],sendImmediately:true});await h.service.process(1);
+    expect(h.deps.sendEmail).not.toHaveBeenCalled();expect(h.deliveries[0].status).toBe('skipped');
+  });
+  it('isolates an individual cancellation from other pending school/client updates in either processing order',async()=>{
+    for(const cancellationFirst of [false,true]) {
+      const h=harness(),recipient={key:'guardian:9',userId:9,email:'parent@example.test',operationalOnly:true};
+      h.appointments.set(2,{...h.appointments.get(1),id:2,status:'scheduled'});
+      await h.service.queue(2,{eventType:'created'});
+      h.deps.individualReview.mockResolvedValue({appointmentId:1,contacts:[recipient],recipients:[recipient]});
+      h.deps.familyRecipients.mockResolvedValue({hasRelationships:true,recipients:[]});
+      await h.service.queue(1,{eventType:'canceled',actorUserId:5,channels:['email'],sendImmediately:true});h.advance(15);
+      await h.service.process(cancellationFirst?2:1);await h.service.process(cancellationFirst?1:2);
+      expect(h.deps.sendEmail).toHaveBeenCalledOnce();expect(h.deps.sendEmail.mock.calls[0][0]).toMatchObject({to:recipient.email,templateType:'session_cancellation'});
+      expect(h.deps.sendEmail.mock.calls[0][0].entries.map(entry=>entry.appointment.id)).toEqual([1]);
+    }
+  });
+  it('does not derive operational authority from caller facts or broaden a normal reminder recipient selector',async()=>{
+    const h=harness();h.deps.familyRecipients.mockResolvedValue({hasRelationships:true,recipients:[]});
+    await h.service.queue(1,{eventType:'canceled',actorUserId:9,sendImmediately:true,facts:{individualCancellationReview:{recipients:[{email:'forged@example.test'}]}}});
+    await h.service.process(1);expect(h.deps.sendEmail).not.toHaveBeenCalled();
+    expect(JSON.parse(h.deps.decrypt(h.notices[0].payload_json)).individualCancellationReview).toBeUndefined();
+  });
   it('admits only verified operational email despite reminder-only email settings',async()=>{
     const h=harness();h.deps.operational.mockResolvedValue({providerId:5});
     h.deps.consent.mockResolvedValue({email:false,emailAddress:'parent@example.test'});

@@ -36,7 +36,7 @@ it('adds the scoped opt-out to native school mail before delivery',async()=>{
  appointment.data.serviceSetting='school';m.execute.mockImplementation(async sql=>sql.startsWith('SELECT')?[[]]:[{affectedRows:1}]);
  await sendNativeAppointmentEmail(ctx,patient.data.email,'School session',appointment);
  const sent=m.send.mock.calls[0][0];expect(sent.templateType).toBe('school_session_notice');expect(sent.schoolSessionScopeKey).toMatch(/^[a-f0-9]{64}$/);
- expect(sent.text).toContain('Stop in-school session emails for this child');expect(sent.html).toContain('/api/public/school-session-emails/');
+ expect(sent.text).toContain('Stop school appointment reminder emails for this child');expect(sent.html).toContain('/api/public/school-session-emails/');
 });
 it('carries the authorized provider CC and school-only scope into the direct native transport',async()=>{
  ctx.agencyId=null;appointment.data.serviceSetting='school';appointment.data.providerAccountId='provider-account';

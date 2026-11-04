@@ -77,7 +77,7 @@ it('builds action buttons for email without SMS reply instructions or full names
  m.setting.mockResolvedValue({isSchool:true});
  const school=await buildAppointmentEmail({appointment:appt,clientId:22,to:email,actionUrl:'https://example.test/respond/opaque',schoolOptOut:{scopeKey:'a'.repeat(64),url:'https://auricwell.com/api/public/school-session-emails/example'}});
  expect(school.subject).toBe('ITSCO: School session notice');expect(school.html).toContain('Cancel school session');expect(school.html).not.toContain('action=confirm');expect(school.html).not.toContain('action=reschedule');expect(school.text).toContain('seen today at school');expect(school.text).toContain('schedule changes');
- expect(school.html).toContain('Stop in-school session emails for this child');expect(school.templateType).toBe('school_session_notice');expect(message.html).not.toContain('school-session-emails');
+ expect(school.html).toContain('Stop school appointment reminder emails for this child');expect(school.templateType).toBe('school_session_notice');expect(message.html).not.toContain('school-session-emails');
 });
 it('copies the assigned active provider work account on school notices using the appointment sender',async()=>{
  m.setting.mockResolvedValue({isSchool:true});appt.providerUserId=77;

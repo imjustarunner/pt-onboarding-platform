@@ -208,7 +208,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
-import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
+import { buildSchoolEnrollmentUrl } from '../../utils/publicIntakeUrl';
 import {
   resolveSchoolOnboardingSupportEmail,
   resolveSchoolOnboardingSupportPhone
@@ -364,7 +364,7 @@ function initialsFor(name) {
 }
 
 function intakeUrlFor(school) {
-  return buildPublicIntakeUrl(school?.intakePublicKey);
+  return buildSchoolEnrollmentUrl(school?.intakePublicKey);
 }
 
 function openSupportModal(mode = 'want') {

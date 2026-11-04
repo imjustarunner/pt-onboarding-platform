@@ -19,7 +19,7 @@
           <h2>Public school finder</h2>
           <p class="muted">
             Share this link or QR so families can find their school and start the Digital Enrollment Packet.
-            Each school still uses its own intake link (with captcha / session protections).
+            Each school has one bilingual enrollment link.
           </p>
         </div>
         <div v-if="!publicFinderUrl" class="muted">
@@ -68,7 +68,7 @@
         <section class="srh-card">
           <div class="srh-card-head">
             <h2>Ready-to-share links</h2>
-            <p class="muted">Digital EN/ES intake forms and printable EN/ES packets for {{ selectedSchoolName }}.</p>
+            <p class="muted">One bilingual digital enrollment packet and English/Spanish printable packets for {{ selectedSchoolName }}.</p>
           </div>
 
           <div v-if="linksError" class="error">{{ linksError }}</div>
@@ -83,14 +83,14 @@
                 <a class="btn btn-primary btn-sm" :href="lane.url" target="_blank" rel="noreferrer">Open</a>
               </div>
               <div v-else-if="lane.kind === 'digital'" class="srh-link-missing">
-                <span class="muted">No {{ lane.short }} digital form yet.</span>
+                <span class="muted">No enrollment packet is configured yet.</span>
                 <button
                   class="btn btn-primary btn-sm"
                   type="button"
-                  :disabled="creatingLang === lane.lang"
-                  @click="createDigitalLink(lane.lang)"
+                  :disabled="creatingEnrollment"
+                  @click="createDigitalLink"
                 >
-                  {{ creatingLang === lane.lang ? 'Creating…' : `Create ${lane.short} form` }}
+                  {{ creatingEnrollment ? 'Creating…' : 'Create enrollment packet' }}
                 </button>
               </div>
             </div>
@@ -128,7 +128,8 @@ import { useRoute } from 'vue-router';
 import QRCode from 'qrcode';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
-import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
+import { buildSchoolEnrollmentUrl, buildSchoolReferralFinderUrl } from '../../utils/publicIntakeUrl';
+import { selectSchoolEnrollmentLink } from '../../utils/schoolEnrollmentLink';
 import { buildPublicSchoolPrintablePacketUrl } from '../../utils/publicSchoolPrintablePacketUrl';
 import SchoolPacketTemplateEditor from '../../components/school/redesign/SchoolPacketTemplateEditor.vue';
 
@@ -144,8 +145,8 @@ const packetLocale = ref('en');
 
 const loadingLinks = ref(false);
 const linksError = ref('');
-const intakeLinks = ref([]);
-const creatingLang = ref('');
+const enrollmentLink = ref(null);
+const creatingEnrollment = ref(false);
 
 const masterLoading = ref(false);
 const masterError = ref('');
@@ -168,8 +169,7 @@ const agencyPortalSlug = computed(() => {
 const publicFinderUrl = computed(() => {
   const slug = agencyPortalSlug.value;
   if (!slug) return '';
-  const origin = String(window.location.origin || '').replace(/\/$/, '');
-  return `${origin}/${slug}/school-referral`;
+  return buildSchoolReferralFinderUrl(slug);
 });
 const backTo = computed(() => (orgSlug.value ? `/${orgSlug.value}/school-operations` : '/school-operations'));
 const masterSchoolFormTo = computed(() =>
@@ -230,43 +230,14 @@ const publicPacketUrl = (lang) => buildPublicSchoolPrintablePacketUrl(
   }
 );
 
-const activeDigitalByLang = computed(() => {
-  const out = { en: null, es: null };
-  for (const link of intakeLinks.value || []) {
-    const lang = String(link.language_code || 'en').toLowerCase().startsWith('es') ? 'es' : 'en';
-    if (!link.is_active) continue;
-    if (!out[lang]) out[lang] = link;
-  }
-  // Prefer any link if none active
-  for (const link of intakeLinks.value || []) {
-    const lang = String(link.language_code || 'en').toLowerCase().startsWith('es') ? 'es' : 'en';
-    if (!out[lang]) out[lang] = link;
-  }
-  return out;
-});
-
 const linkLanes = computed(() => {
-  const en = activeDigitalByLang.value.en;
-  const es = activeDigitalByLang.value.es;
   return [
     {
-      key: 'digital-en',
-      title: 'Digital form — English',
-      short: 'English',
-      lang: 'en',
+      key: 'digital-enrollment',
+      title: 'Digital enrollment — English / Español',
       kind: 'digital',
-      desc: 'Shareable public intake link (EN)',
-      url: en ? buildPublicIntakeUrl(en.public_key || en.publicKey) : '',
-      openExternal: true
-    },
-    {
-      key: 'digital-es',
-      title: 'Digital form — Spanish',
-      short: 'Spanish',
-      lang: 'es',
-      kind: 'digital',
-      desc: 'Shareable public intake link (ES)',
-      url: es ? buildPublicIntakeUrl(es.public_key || es.publicKey) : '',
+      desc: 'Families can switch languages using the flag button at the top of the same packet.',
+      url: buildSchoolEnrollmentUrl(enrollmentLink.value?.public_key),
       openExternal: true
     },
     {
@@ -348,28 +319,26 @@ async function loadLinks() {
   loadingLinks.value = true;
   linksError.value = '';
   try {
-    const res = await api.get(`/school-portal/${selectedSchoolId.value}/intake-links`, {
-      params: { includeInactive: '1' }
-    });
-    intakeLinks.value = Array.isArray(res.data?.links) ? res.data.links : [];
+    const res = await api.get(`/public-intake/school/${selectedSchoolId.value}`);
+    enrollmentLink.value = selectSchoolEnrollmentLink(res.data);
   } catch (e) {
-    linksError.value = e?.response?.data?.error?.message || e.message || 'Failed to load links';
-    intakeLinks.value = [];
+    if (e?.response?.status !== 404) linksError.value = e?.response?.data?.error?.message || e.message || 'Failed to load enrollment link';
+    enrollmentLink.value = null;
   } finally {
     loadingLinks.value = false;
   }
 }
 
-async function createDigitalLink(lang) {
-  creatingLang.value = lang;
+async function createDigitalLink() {
+  creatingEnrollment.value = true;
   linksError.value = '';
   try {
-    await api.post(`/school-portal/${selectedSchoolId.value}/intake-links/create`, { languageCode: lang });
+    await api.post(`/school-portal/${selectedSchoolId.value}/intake-links/create`, { languageCode: 'en' });
     await loadLinks();
   } catch (e) {
     linksError.value = e?.response?.data?.error?.message || e.message || 'Failed to create form';
   } finally {
-    creatingLang.value = '';
+    creatingEnrollment.value = false;
   }
 }
 

@@ -1,0 +1,34 @@
+---
+description: Workspace Group SMTP senders, appointment reminders and cancellation email routing
+globs: backend/src/services/*Email*.js,backend/src/services/unifiedEmail/**/*.js,.github/workflows/deploy-backend.yml,docs/PLATFORM_EMAIL_SETUP.md
+alwaysApply: false
+---
+
+# Workspace outbound email
+
+Use the configured Workspace SMTP relay for eligible managed Group senders. A new
+Group does not require another Gmail Send mail as alias when relay verification
+accepts it. Preserve the existing Gmail exceptions; do not remove aliases or
+substitute another From address to work around the Gmail alias limit.
+
+- Verify the Group, app-manager membership, active tenant sender identity, domain
+  ownership and relay readiness. Never reactivate a deliberately disabled sender.
+- The backend and relay service must agree on domain mode, approved domains and
+  administrator confirmation. Creating a Group does not authorize its domain.
+  Preserve existing IAM, TLS, static egress and Gmail sender pins during changes.
+- Appointment reminders use `notifications@auricwell.com` / `AuricWell
+  Notifications`. Keep appointment sender configuration separate from account mail.
+- Provider-authored cancellation notices use the configured work mailbox resolver.
+  For Workspace SSO users this selects tenant `messages@`; Reply-To is the
+  provider's work email and support is copied. Preserve the envelope through
+  approval/retry and use the server-validated cancellation context.
+- Current affiliated guardian contacts remain eligible for operational notices
+  even when login/portal access is disabled or pending. Do not grant portal rights.
+  Respect actual revoked/no-contact relationships and explicit notification declines.
+- Reminder-only email preferences and `NOREMIND` stop reminders. They do not stop
+  signed cancellation or genuine schedule-change notices. Preserve separate global,
+  confidential-contact and schedule-change choices.
+- Verify readiness without sending DATA/mail. Actual notices require the intended
+  reviewed workflow; reopening a completed cancellation must not silently resend it.
+
+See [Platform Email Setup](../../docs/PLATFORM_EMAIL_SETUP.md) for relay settings.

@@ -2,7 +2,7 @@ import { beforeEach, it, expect, vi } from 'vitest';
 import crypto from 'node:crypto';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 import { schoolSessionEmailScope, createSchoolSessionEmailOptOutLink, schoolSessionEmailOptOutContext,
-  disableSchoolSessionEmails, isSchoolSessionEmailOptedOut, schoolSessionEmailDeliveryGate } from '../schoolSessionEmailPreferences.service.js';
+  disableSchoolSessionEmails, isSchoolSessionEmailOptedOut, schoolSessionEmailDeliveryGate, schoolSessionEmailOptOutContent } from '../schoolSessionEmailPreferences.service.js';
 const hash=v=>crypto.createHash('sha256').update(v).digest('hex');
 const base={agencyId:2,clientId:22,to:'Guardian@example.test'};
 let rows,tokens,db,communication;
@@ -58,7 +58,7 @@ it('rechecks a queued email at approval and leaves every other email category al
   communication.metadata=JSON.stringify({schoolSessionScopeKey:value.scopeKey});
   await disableSchoolSessionEmails(value.token,db);
   expect(await schoolSessionEmailDeliveryGate({...input,schoolSessionScopeKey:undefined,existingCommunicationId:8},db)).toMatchObject({allowed:false,reason:'school_session_email_opted_out'});
-  for(const templateType of ['session_reminder','session_confirmation','family_balance_due','secure_message_notification','guardian_plan_review'])
+  for(const templateType of ['session_change','session_cancellation','day_cancellation','session_reminder','session_confirmation','family_balance_due','secure_message_notification','guardian_plan_review'])
     expect(await schoolSessionEmailDeliveryGate({...input,templateType},db)).toEqual({allowed:true});
   for(const changed of [{to:'other@example.test'},{clientId:23},{agencyId:6},{schoolSessionScopeKey:'c'.repeat(64)}])
     await expect(schoolSessionEmailDeliveryGate({...input,...changed},db)).rejects.toMatchObject({status:409});
@@ -66,4 +66,9 @@ it('rechecks a queued email at approval and leaves every other email category al
 it('requires a valid explicit scope',()=>{
   for(const input of [{...base,clientId:null},{...base,agencyId:null},{...base,to:''},{practiceId:'practice',to:base.to}])
     expect(()=>schoolSessionEmailScope(input)).toThrow();
+});
+it('describes a reminder-only choice without changing the existing token scope',()=>{
+ const footer=schoolSessionEmailOptOutContent('https://auricwell.com/api/public/school-session-emails/example');
+ expect(footer.text).toContain('Stop school appointment reminder emails for this child');
+ expect(footer.html).toContain('Cancellations, reschedules and other schedule changes are unchanged');
 });

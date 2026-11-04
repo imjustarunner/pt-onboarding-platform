@@ -1,4 +1,4 @@
-import { SCB_ORIGIN } from './schoolCareBridge.js';
+import { SCB_ORIGIN, isSchoolCareBridgeHost } from './schoolCareBridge.js';
 
 export const getPublicIntakeBaseUrl = () => {
   const raw = import.meta.env.VITE_PUBLIC_INTAKE_BASE_URL || '';
@@ -50,11 +50,32 @@ export const buildFormUrl = (publicKey, formType, query = {}) => {
   return buildPublicIntakeUrl(publicKey);
 };
 
+/** School sharing uses its own public origin, separate from a tenant's app/API host. */
+export const getSchoolPublicOrigin = (origin = globalThis.window?.location?.origin || '') => {
+  let current;
+  try { current = new URL(origin); } catch { /* Use the canonical origin below. */ }
+  if (current && ['localhost', '127.0.0.1', '[::1]'].includes(current.hostname)) return current.origin;
+  const configured = import.meta.env.VITE_SCHOOLCAREBRIDGE_PUBLIC_ORIGIN || import.meta.env.VITE_PUBLIC_INTAKE_BASE_URL;
+  for (const candidate of [configured, current?.hostname === 'mh4kidz.org' ? current.origin : '']) {
+    if (!candidate) continue;
+    try {
+      const url = new URL(candidate);
+      if (url.protocol === 'https:' && !url.username && !url.password && !url.port
+          && url.pathname === '/' && !url.search && !url.hash
+          && (isSchoolCareBridgeHost(url.hostname) || url.hostname === 'mh4kidz.org')) return url.origin;
+    } catch { /* An unrelated or invalid override cannot move school links off the school service. */ }
+  }
+  return SCB_ORIGIN;
+};
+
 /** A school has one bilingual enrollment address, independent of its agency host. */
 export const buildSchoolEnrollmentUrl = (publicKey) => {
   const key = String(publicKey || '').trim();
   if (!key) return '';
-  const local = ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
-  const origin = local ? window.location.origin : SCB_ORIGIN;
-  return `${origin}/intake/${encodeURIComponent(key)}`;
+  return `${getSchoolPublicOrigin()}/intake/${encodeURIComponent(key)}`;
+};
+
+export const buildSchoolReferralFinderUrl = (agencySlug) => {
+  const slug = String(agencySlug || '').trim();
+  return slug ? `${getSchoolPublicOrigin()}/${encodeURIComponent(slug)}/school-referral` : '';
 };

@@ -531,7 +531,7 @@ import WaitlistNoteModal from './WaitlistNoteModal.vue';
 import ClientTicketThreadPanel from './ClientTicketThreadPanel.vue';
 import PhiDocumentsPanel from '../admin/PhiDocumentsPanel.vue';
 import { useAuthStore } from '../../store/auth';
-import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
+import { buildSchoolEnrollmentUrl } from '../../utils/publicIntakeUrl';
 import { formatSkillBuilderWallTime12h } from '../../utils/skillBuildersDisplay.js';
 import { formatGradeDisplay } from '../../utils/clientGrade.js';
 import { assignedDayDisplay, displaySchoolClientStatusLabel } from '../../utils/schoolClientStatusDisplay.js';
@@ -886,7 +886,7 @@ const launchSmartRoi = async () => {
     smartRoiError.value = '';
     const resp = await api.post(`/school-portal/${orgId}/clients/${clientId}/smart-roi-link`);
     const publicKey = String(resp.data?.issued_link?.public_key || '').trim();
-    const launchUrl = buildPublicIntakeUrl(publicKey);
+    const launchUrl = buildSchoolEnrollmentUrl(publicKey);
     if (!launchUrl) {
       smartRoiError.value = 'Unable to prepare Smart ROI link.';
       return;
