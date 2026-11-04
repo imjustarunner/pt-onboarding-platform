@@ -126,3 +126,9 @@ describe('reviewed claim transmission', () => {
     expect(next.mock.calls[0][0].status).toBe(502); expect(mocks.execute.mock.calls.filter(([sql]) => sql.startsWith('UPDATE clinical_claims'))).toHaveLength(1);
   });
 });
+
+it('cannot upload an incomplete payload even with explicit approval',async()=>{
+ mocks.prepare.mockResolvedValue({...prepared(),payload:null,readiness:{ready:false,blockers:['Claim is incomplete: payerid']}});
+ const res=response(),next=vi.fn();await submitClaimToClaimMd(request(),res,next);
+ expect(mocks.upload).not.toHaveBeenCalled();expect(mocks.event).not.toHaveBeenCalled();expect(res.code===409 || next.mock.calls[0]?.[0]?.status===409).toBe(true);
+});
