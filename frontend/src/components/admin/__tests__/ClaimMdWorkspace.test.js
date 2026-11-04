@@ -199,3 +199,31 @@ it('shows the recorded history actor and Denver date/time',async()=>{
  api.get.mockImplementation(async url=>({data:url.endsWith('/history')?{history:[{id:1,type:'correction',createdAt:'2026-11-04T20:17:33.000Z',actorUserId:9,actorName:'QA Biller',reason:'Modifier reviewed'}]}:{items:[]}}));
  const w=mount(ClaimMdWorkspace,{props:{...props,section:'detail'}});await flushPromises();await w.vm.showHistory(11);await flushPromises();expect(w.text()).toContain('QA Biller');expect(w.text()).toContain('11/04/2026, 1:17 PM MST');expect(w.text()).not.toContain('2026-11-04T20:17');w.unmount();
 });
+
+it('opens the exact missing review from each blocker, explains saved date/stage mismatches, and refreshes completed checks', async () => {
+ const coverage='Verify insurance and coordination of benefits for this date of service', documents='Review and verify the applicable screening documentation before claim submission', ai='Run the AI content and claim consistency review', policy='Verify the payer/product provider mapping for this date of service';
+ let current={...claim,clientId:7,dateOfService:'2026-11-02',supervision:{supervisingProvider:{id:22}},aiReview:{status:'required',findings:[]},readiness:{ready:false,blockers:[coverage,documents,ai,policy],warnings:['No active treatment plan on chart'],coverageBlockers:[coverage],coverageReview:{latest:{status:'verified',serviceDate:'2026-11-04'}},payer:{payerId:'QA-PAYER',planType:''},clientDocumentation:{scope:'screening',ready:false,blockers:[documents],latestReview:{scope:'treatment',status:'verified',effectiveFrom:'2026-11-04'}}}};
+ api.get.mockImplementation(async url=>({data:url.endsWith('/review')?current:{items:[]}}));
+ const scroll=vi.fn();Element.prototype.scrollIntoView=scroll;
+ const w=mount(ClaimMdWorkspace,{props:{...props,section:'detail'},attachTo:document.body,global:{stubs:{ClientInsuranceEditor:true,ClientCoverageVerification:{name:'ClientCoverageVerification',props:['clientId','agencyId','serviceDate'],emits:['saved'],template:'<button data-testid="save-coverage" @click="$emit(\'saved\')">Save coverage review</button>'},ClientDocumentationReadiness:true,SupervisedPayerPolicies:true}}});
+ await w.vm.reviewClaim(11);await flushPromises();
+ const checklist=()=>w.get('[aria-label="Remaining claim requirements"]');
+ expect(checklist().findAll('button')[0].text()).toBe('Add verified insurance plan type');expect(checklist().findAll('button').at(-1).text()).toBe('Open AI consistency review');
+ expect(checklist().text()).toContain('verified coverage review exists for 11/04/2026');expect(checklist().text()).toContain('saved treatment review covers 11/04/2026 onward');
+ expect(checklist().text()).not.toContain('No active treatment plan');expect(w.get('[aria-label="Claim advisories"]').text()).toContain('these do not block submission');
+ await button(checklist(),'Verify coverage for').trigger('click');await flushPromises();
+ expect(w.findComponent({name:'ClientCoverageVerification'}).props('serviceDate')).toBe('2026-11-02');expect(document.activeElement.getAttribute('aria-label')).toBe('Coverage for this service date');expect(scroll).toHaveBeenCalled();
+ await button(checklist(),'Review screening documents').trigger('click');await flushPromises();expect(w.findComponent({name:'ClientDocumentationReadiness'}).props('scope')).toBe('screening');
+ await button(checklist(),'Open AI').trigger('click');await flushPromises();expect(document.activeElement.getAttribute('aria-label')).toBe('AI content review');expect(api.post).not.toHaveBeenCalled();
+ await button(checklist(),'Add verified insurance plan type').trigger('click');await flushPromises();expect(w.findComponent({name:'ClientInsuranceEditor'}).exists()).toBe(true);
+ current={...current,readiness:{...current.readiness,payer:{payerId:'QA-PAYER',planType:'Verified QA plan'}}};await button(w,'Refresh claim requirements').trigger('click');await flushPromises();
+ await button(checklist(),'Configure payer/provider mapping').trigger('click');await flushPromises();expect(w.findComponent({name:'SupervisedPayerPolicies'}).props()).toMatchObject({agencyId:1,payerId:'QA-PAYER',planType:'Verified QA plan'});
+ await button(checklist(),'Verify coverage for').trigger('click');await flushPromises();
+ current={...current,aiReview:{status:'passed',findings:[]},readiness:{...current.readiness,blockers:[documents,policy],coverageBlockers:[],coverageVerified:true}};
+ await w.get('[data-testid="save-coverage"]').trigger('click');await flushPromises();expect(checklist().text()).not.toContain(coverage);expect(checklist().text()).not.toContain(ai);expect(w.text()).toContain('2 requirements remain');expect(w.text()).toContain('AI consistency review completed');expect(button(w,'Approve and submit').element.disabled).toBe(true);expect(api.post).not.toHaveBeenCalled();
+ w.unmount();delete Element.prototype.scrollIntoView;
+});
+it('preserves an unrecognized blocker and never offers an action that clears it locally',async()=>{
+ api.get.mockImplementation(async url=>({data:url.endsWith('/review')?{...claim,clientId:7,dateOfService:'2026-11-02',readiness:{ready:false,blockers:['Supervisor requested documentation changes; obtain review after the amendment'],warnings:[]}}:{items:[]}}));
+ const w=mount(ClaimMdWorkspace,{props:{...props,section:'detail'}});await w.vm.reviewClaim(11);await flushPromises();expect(w.get('[aria-label="Remaining claim requirements"]').text()).toContain('Supervisor requested');expect(w.get('[aria-label="Remaining claim requirements"]').findAll('button')).toHaveLength(0);expect(button(w,'Approve and submit').element.disabled).toBe(true);expect(api.post).not.toHaveBeenCalled();w.unmount();
+});

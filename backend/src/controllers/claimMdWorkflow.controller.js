@@ -110,7 +110,10 @@ export async function prepareClaimReview(agencyId, claimId) {
     readiness.blockers.push(error.message);
   }
   readiness.payloadIssue = payloadIssue;
-  readiness.coverageVerified = coverageReviewBlockers({insurance:sourceInsurance,...coverageEvidence}).length === 0;
+  readiness.coverageBlockers = coverageReviewBlockers({insurance:sourceInsurance,...coverageEvidence});
+  readiness.coverageVerified = readiness.coverageBlockers.length === 0;
+  const coverageSummary = row => row ? { id: row.id, status: row.status, serviceDate: row.service_date, recordedAt: row.created_at } : null;
+  readiness.coverageReview = { applicable: coverageSummary(coverageEvidence.review), latest: coverageSummary(coverageEvidence.latestReview) };
   readiness.insuranceIdentityVerified = sourceInsurance?.verifiedForClaims === true;
   readiness.payerPolicyVerified = !!supervision.rule?.mappingVerified;
   readiness.payer = { payerId: insurance?.primary?.payerId || '', planType: insurance?.primary?.planType || '' };
