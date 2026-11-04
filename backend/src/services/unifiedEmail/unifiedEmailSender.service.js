@@ -8,7 +8,7 @@ import { schoolSessionEmailDeliveryGate } from '../schoolSessionEmailPreferences
 import { routineParentEmailGate } from '../routineParentEmailPause.service.js';
 import { reviewedDayCancellationContext } from '../dayCancellationEmail.service.js';
 import { individualCancellationEmailContext } from '../appointmentCancellationEmail.service.js';
-import { schoolFamilyStatusEmailContext } from '../schoolFamilyStatusEmail.service.js';
+import {assertSchoolStatusEmailAudience} from '../../utils/schoolStatusEmailAudience.js';
 import { isClinicalPortalIdentity, isPortalIdentity, portalSenderName, enrollmentMailBrand, renderPortalEmail } from '../portalEmailBranding.service.js';
 import { splitEmailHistory } from '../../utils/emailReplyContent.js';
 import { isSchoolCommunication } from '../schoolCommunicationContext.service.js';
@@ -621,6 +621,7 @@ export async function sendNotificationEmail({
   replyToOverride = null,
   afterHoursReplyContext = null
 }) {
+  assertSchoolStatusEmailAudience({templateType,triggerKey});
   if (templateType === 'vacation_auto_reply' && (!afterHoursReplyContext || !await eligibleVacationReply({...afterHoursReplyContext,ownerUserId:generatedByUserId,fromEmail:to}))) return {skipped:true,reason:'vacation_reply_not_allowed'};
   if (templateType === 'client_ooo_auto_reply' && (!afterHoursReplyContext || !await eligibleClientAfterHoursReply({ ...afterHoursReplyContext, ownerUserId: generatedByUserId, fromEmail: to }))) return { skipped: true, reason: 'after_hours_reply_not_allowed' };
   if(await blockDemoExchangeEmail({templateType:templateType || triggerKey,clientId,agencyId}))return {skipped:true,reason:'demo_exchange_provider_notifications_suppressed'};
@@ -1036,6 +1037,7 @@ export async function sendEmailFromIdentity({
 }) {
   if (templateType === 'vacation_auto_reply' && (!afterHoursReplyContext || !await eligibleVacationReply({...afterHoursReplyContext,ownerUserId:generatedByUserId,fromEmail:to}))) return {skipped:true,reason:'vacation_reply_not_allowed'};
   if (templateType === 'client_ooo_auto_reply' && (!afterHoursReplyContext || !await eligibleClientAfterHoursReply({ ...afterHoursReplyContext, ownerUserId: generatedByUserId, fromEmail: to }))) return { skipped: true, reason: 'after_hours_reply_not_allowed' };
+  assertSchoolStatusEmailAudience({templateType});
   assertFreshCardEmail({ templateType, existingCommunicationId });
   await managedGroupEnvelope({ to, cc, bcc, actorUserId: generatedByUserId });
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
@@ -1043,8 +1045,6 @@ export async function sendEmailFromIdentity({
   const operational=await reviewedDayCancellationContext({agencyId:identity.agency_id,clientId,to,cc,bcc,templateType,
     reviewedCancellationToken,reviewedCancellationItemKey,existingCommunicationId,generatedByUserId},{verifyEnvelope:true})
     || await individualCancellationEmailContext({agencyId:identity.agency_id,clientId,to,cc,bcc,templateType,
-      existingCommunicationId,generatedByUserId},{verifyEnvelope:true})
-    || await schoolFamilyStatusEmailContext({agencyId:identity.agency_id,clientId,to,cc,bcc,templateType,
       existingCommunicationId,generatedByUserId},{verifyEnvelope:true});
   if(operational) source='manual';
   const operationalMetadata=operational?.reviewedCancellationToken?{reviewedCancellationToken:operational.reviewedCancellationToken,

@@ -164,7 +164,7 @@ export async function setClientLifecycleStatus({
   }
 
   await Client.update(cid, patch, actorUserId);
-  await ClientStatusHistory.create({
+  const statusChange=await ClientStatusHistory.create({
     client_id: cid,
     changed_by_user_id: actorUserId,
     field_changed: 'client_status_id',
@@ -196,7 +196,7 @@ export async function setClientLifecycleStatus({
   // provider assignment. Only assignment hooks opt in to assignment notices.
   try {
     const { queueSchoolClientStatusEmails } = await import('./schoolClientStatusEmail.service.js');
-    await queueSchoolClientStatusEmails(pool, { clientId: cid,actorUserId,
+    await queueSchoolClientStatusEmails(pool, { clientId: cid,actorUserId,statusChangeId:statusChange?.id || null,
       waitlistReason: key === 'waitlist' && /^waitlisted:\s*/i.test(String(note || ''))
         ? String(note).replace(/^waitlisted:\s*/i, '') : null });
   } catch (err) {

@@ -22,6 +22,17 @@ substitute another From address to work around the Gmail alias limit.
   For Workspace SSO users this selects tenant `messages@`; Reply-To is the
   provider's work email and support is copied. Preserve the envelope through
   approval/retry and use the server-validated cancellation context.
+- School waitlist-to-active/provider-assignment status notices go to the school
+  and assigned provider. Do not add automatic family assignment notices. The
+  withdrawn `school_family_status_update` template must remain blocked on retry.
+- The separate provider opt-in School Contact Plan is still QA-only. Preserve its
+  production hold and future-assignment cutoff; the presence of its source code
+  does not establish production readiness or authorize opting providers in.
+- People Operations submission notices use the explicitly selected, verified
+  tenant sender and reviewed staff recipients. ITSCO's dedicated SMTP Group is
+  `peopleops-notifications@itsco.health`, with Reply-To `PO@itsco.health`.
+  Preserve the existing `PO@` and `messages@` Gmail routes. Enabling this sender
+  must not enable notice settings or replay historical submissions.
 - Current affiliated guardian contacts remain eligible for operational notices
   even when login/portal access is disabled or pending. Do not grant portal rights.
   Respect actual revoked/no-contact relationships and explicit notification declines.

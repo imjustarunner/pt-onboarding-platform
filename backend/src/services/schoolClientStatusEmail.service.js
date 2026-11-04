@@ -29,42 +29,31 @@ async function loadProviders(database,client,schoolId) {
     [client.agency_id,client.id,schoolId,client.provider_id||null,schoolId,client.organization_id,client.id]);
   return rows;
 }
-export async function schoolClientStatusContext(database,{clientId,schoolId,reason=null}) {
-  const client=await loadClient(database,clientId);
-  if(!client)return null;
-  const [[school]]=await database.execute(`SELECT s.id,s.name FROM agencies s
-    JOIN agencies owner ON owner.id=? AND owner.is_active=1 AND COALESCE(owner.is_archived,0)=0
-    WHERE s.id=? AND s.organization_type='school' AND s.is_active=1 AND COALESCE(s.is_archived,0)=0
-      AND (EXISTS(SELECT 1 FROM organization_affiliations oa WHERE oa.organization_id=s.id AND oa.agency_id=? AND oa.is_active=1)
-        OR EXISTS(SELECT 1 FROM agency_schools legacy WHERE legacy.school_organization_id=s.id AND legacy.agency_id=? AND legacy.is_active=1))
-      AND (s.id=? OR EXISTS(SELECT 1 FROM client_organization_assignments a WHERE a.client_id=? AND a.organization_id=s.id AND a.is_active=1))`,
-  [client.agency_id,schoolId,client.agency_id,client.agency_id,client.organization_id,clientId]);
-  if(!school)return null;
-  const providers=await loadProviders(database,client,schoolId);
-  return {client,school,providers,state:schoolStatusEmailState(client,providers,reason)};
-}
-
-/** Only a current staff transition can create or release a family status notice. */
-export async function schoolFamilyStatusActorPermitted(database,{actorUserId,agencyId,schoolId}) {
-  if(!Number.isSafeInteger(Number(actorUserId)) || Number(actorUserId)<1)return false;
-  const [[actor]]=await database.execute(`SELECT u.id AS actor_id FROM users u WHERE u.id=? AND u.is_active=1
-    AND COALESCE(u.is_archived,0)=0
-    AND LOWER(u.role) IN ('super_admin','support','admin','staff','provider','provider_plus','school_staff','clinical_practice_assistant','intern','supervisor','schedule_manager','facilitator','tutor')
-    AND (LOWER(u.role) IN ('super_admin','support') OR EXISTS(SELECT 1 FROM user_agencies ua
-      WHERE ua.user_id=u.id AND ua.agency_id IN (?,?) AND ua.is_active=1)) LIMIT 1`,[actorUserId,agencyId,schoolId]);
-  return !!actor;
+async function currentWaitlistActivation(database,client,statusChangeId,actorUserId) {
+  if(!Number.isSafeInteger(Number(statusChangeId))||Number(statusChangeId)<1||!Number(actorUserId))return false;
+  const [[change]]=await database.execute(`SELECT previous.status_key AS previous_status_key,next.status_key AS status_key
+    FROM client_status_history h JOIN client_statuses previous ON previous.id=CAST(h.from_value AS UNSIGNED) AND previous.agency_id=?
+    JOIN client_statuses next ON next.id=CAST(h.to_value AS UNSIGNED) AND next.agency_id=?
+    JOIN users actor ON actor.id=h.changed_by_user_id AND actor.is_active=1 AND COALESCE(actor.is_archived,0)=0
+    WHERE h.id=? AND h.client_id=? AND h.field_changed='client_status_id' AND h.changed_by_user_id=?
+      AND CAST(h.to_value AS UNSIGNED)=? AND h.changed_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 5 MINUTE)
+      AND actor.role IN ('admin','super_admin','support','staff','provider','provider_plus','clinical_practice_assistant','schedule_manager','supervisor','intern','intern_plus')
+      AND (actor.role IN ('super_admin','support') OR EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=actor.id AND ua.agency_id=? AND ua.is_active=1))`,
+    [client.agency_id,client.agency_id,statusChangeId,client.id,actorUserId,client.client_status_id,client.agency_id]);
+  return change?.previous_status_key==='waitlist'&&['current','ready_to_schedule','needs_day_assignment','scheduled','onboarded','being_seen'].includes(change.status_key);
 }
 
 /** Assignment hooks explicitly opt in to assignment notices. Lifecycle updates
  * reconcile/cancel stale state and may notify waitlist changes, but never announce
  * an existing provider as newly assigned. Use the same transaction as assignment. */
-export async function queueSchoolClientStatusEmails(database=pool,{clientId,waitlistReason=null,assignmentChanged=false,actorUserId=null}={}) {
+export async function queueSchoolClientStatusEmails(database=pool,{clientId,waitlistReason=null,assignmentChanged=false,statusChangeId=null,actorUserId=null}={}) {
   const owned=database===pool;
   const db=owned?await pool.getConnection():database;
   try {
     if(owned)await db.beginTransaction();
     const client=await loadClient(db,clientId);
     if(!client){if(owned)await db.commit();return;}
+    const waitlistActivation=await currentWaitlistActivation(db,client,statusChangeId,actorUserId);
     const [schools]=await db.execute(`SELECT DISTINCT a.id FROM agencies a WHERE a.organization_type='school' AND a.is_active=1
       AND (a.id=? OR EXISTS(SELECT 1 FROM client_organization_assignments coa WHERE coa.client_id=? AND coa.organization_id=a.id AND coa.is_active=1)
       OR EXISTS(SELECT 1 FROM school_client_status_email_states old WHERE old.client_id=? AND old.school_organization_id=a.id)) ORDER BY a.id`,[client.organization_id,clientId,clientId]);
@@ -73,18 +62,19 @@ export async function queueSchoolClientStatusEmails(database=pool,{clientId,wait
       const state=schoolStatusEmailState(client,providers,waitlistReason), hash=hashState(state);
       await db.execute('INSERT IGNORE INTO school_client_status_email_states(client_id,school_organization_id) VALUES(?,?)',[clientId,school.id]);
       const [[prior]]=await db.execute('SELECT state_hash,revision FROM school_client_status_email_states WHERE client_id=? AND school_organization_id=? FOR UPDATE',[clientId,school.id]);
-      if(prior.state_hash===hash)continue;
+      const activation=waitlistActivation&&state.kind==='assigned';
+      if(activation){
+        const [[existing]]=await db.execute(`SELECT id FROM school_client_status_emails WHERE client_id=? AND school_organization_id=?
+          AND CAST(JSON_UNQUOTE(JSON_EXTRACT(state_json,'$.statusChangeId')) AS UNSIGNED)=? LIMIT 1 FOR UPDATE`,[clientId,school.id,statusChangeId]);
+        if(existing)continue;
+      }
+      if(prior.state_hash===hash&&!activation)continue;
       const revision=Number(prior.revision)+1;
       await db.execute('UPDATE school_client_status_email_states SET state_hash=?,revision=? WHERE client_id=? AND school_organization_id=?',[hash,revision,clientId,school.id]);
       await db.execute("UPDATE school_client_status_emails SET delivery_status='obsolete' WHERE client_id=? AND school_organization_id=? AND delivery_status='pending'",[clientId,school.id]);
       // A lifecycle/date save establishes the baseline but cannot invent an assignment event.
-      if(state.kind && (state.kind!=='assigned' || assignmentChanged)) {
-        const [event]=await db.execute('INSERT INTO school_client_status_emails(agency_id,school_organization_id,client_id,revision,state_hash,state_json) VALUES(?,?,?,?,?,?)',[client.agency_id,school.id,clientId,revision,hash,JSON.stringify(state)]);
-        // This independent outbox is populated only by new staff transitions;
-        // school mailbox failures and historical jobs never manufacture family mail.
-        if(event.insertId && await schoolFamilyStatusActorPermitted(db,{actorUserId,agencyId:client.agency_id,schoolId:school.id}))await db.execute(`INSERT IGNORE INTO school_family_status_emails
-          (school_status_email_id,agency_id,school_organization_id,client_id,actor_user_id,revision,state_hash,results_json)
-          VALUES(?,?,?,?,?,?,?,?)`,[event.insertId,client.agency_id,school.id,clientId,actorUserId,revision,hash,'{}']);
+      if(state.kind && (state.kind!=='assigned' || assignmentChanged || activation)) {
+        await db.execute('INSERT INTO school_client_status_emails(agency_id,school_organization_id,client_id,revision,state_hash,state_json) VALUES(?,?,?,?,?,?)',[client.agency_id,school.id,clientId,revision,hash,JSON.stringify({...state,...(activation?{statusChangeId:Number(statusChangeId)}:{})})]);
       }
     }
     if(owned)await db.commit();
