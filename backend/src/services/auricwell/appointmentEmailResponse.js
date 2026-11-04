@@ -60,7 +60,7 @@ export async function sendNativeAppointmentEmail(ctx,to,text,appointment) {
   const optOut=schoolOptOut ? schoolSessionEmailOptOutContent(schoolOptOut.url) : {text:'',html:''};
   const token=crypto.randomBytes(32).toString('hex'),expires=new Date(Math.min(Date.parse(appointment.data.end),Date.now()+30*86400000));
   if(!Number.isFinite(+expires)||+expires<=Date.now()) throw fail('This appointment has ended.');
-  if(!ctx.agencyId&&String(process.env.AURICWELL_ACCOUNT_EMAIL_FROM||'').trim().toLowerCase()!=='notifications@auricwell.com') throw fail('Configure the AuricWell notifications sender before sending.');
+  if(!ctx.agencyId&&String(process.env.AURICWELL_APPOINTMENT_EMAIL_FROM||'').trim().toLowerCase()!=='reminders@auricwell.com') throw fail('Configure the AuricWell notifications sender before sending.');
   await sharedPool.execute(`INSERT INTO appointment_email_actions(token_hash,agency_id,product,practice_id,native_appointment_id,native_patient_id,recipient_hash,appointment_start,appointment_end,expires_at)
     VALUES(?,?,'auricwell',?,?,?,?,?,?,?)`,[hash(token),ctx.agencyId||null,ctx.practiceId,appointment.id,appointment.patientId,emailHash(to),dateToMysqlUtcDateTime(new Date(appointment.data.start)),dateToMysqlUtcDateTime(new Date(appointment.data.end)),dateToMysqlUtcDateTime(expires)]);
   const url=appointmentResponseUrl(token,{clinical:true});
@@ -72,5 +72,5 @@ export async function sendNativeAppointmentEmail(ctx,to,text,appointment) {
   if(ctx.agencyId){const context=await clientEmailContext({agencyId:ctx.agencyId,clinical:true});return sendClientPortalEmail({agencyId:ctx.agencyId,context,appointments:true,...message});}
   const {default:Email}=await import('../email.service.js');
   const brand={...enrollmentMailBrand({agency:{name:ctx.practiceName},domain:'auricwell.com',clinicalOverride:true}),displayName:'AuricWell Notifications'};
-  return Email.sendEmail({...message,fromAddress:process.env.AURICWELL_ACCOUNT_EMAIL_FROM,fromName:'AuricWell Notifications',replyTo:'support@auricwell.com',html:renderPortalEmail({brand,html})});
+  return Email.sendEmail({...message,fromAddress:process.env.AURICWELL_APPOINTMENT_EMAIL_FROM,fromName:'AuricWell Notifications',replyTo:'support@auricwell.com',html:renderPortalEmail({brand,html})});
 }

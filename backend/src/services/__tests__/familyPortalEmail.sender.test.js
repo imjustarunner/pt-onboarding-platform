@@ -11,11 +11,11 @@ import {sendClientPortalEmail} from '../clientPortalEmail.service.js';
 const context={clinical:true,tenant:{id:2,name:'ITSCO'},brand:{clinical:true,name:'ITSCO',replyTo:'support@itsco.health',products:[]}};
 beforeEach(()=>{
  vi.resetAllMocks();m.alias.mockResolvedValue({ok:true,sendAs:{verificationStatus:'accepted'}});
- m.find.mockImplementation(async(_,key)=>({id:key==='clinical_appointment_reminders'?4:3,is_active:true,from_email:key==='clinical_appointment_reminders'?'notifications@auricwell.com':'portal@auricwell.com',display_name:'AuricWell Notifications',reply_to:'support@itsco.health'}));
+ m.find.mockImplementation(async(_,key)=>({id:key==='clinical_appointment_reminders'?4:3,is_active:true,from_email:key==='clinical_appointment_reminders'?'reminders@auricwell.com':'portal@auricwell.com',display_name:'AuricWell Notifications',reply_to:'support@itsco.health'}));
 });
 it('uses the verified AuricWell notifications identity for appointments and leaves portal messages on Portal',async()=>{
  await sendClientPortalEmail({agencyId:2,context,appointments:true,to:'parent@example.test',html:'<p>Reminder</p>'});
- expect(m.alias).toHaveBeenCalledWith(expect.objectContaining({sendAsEmail:'notifications@auricwell.com',displayName:'AuricWell Notifications'}));
+ expect(m.alias).toHaveBeenCalledWith(expect.objectContaining({sendAsEmail:'reminders@auricwell.com',displayName:'AuricWell Notifications'}));
  expect(m.send).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:4,fromDisplayNameOverride:'AuricWell Notifications'}));expect(m.portal).not.toHaveBeenCalled();
  await sendClientPortalEmail({agencyId:2,context,to:'parent@example.test',html:'<p>Welcome</p>'});
  expect(m.send.mock.lastCall[0]).toMatchObject({senderIdentityId:3,fromDisplayNameOverride:'AuricWell Portal'});
