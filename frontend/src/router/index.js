@@ -2320,7 +2320,7 @@ const routes = [
     component: () => import('../views/admin/UserProfileView.vue'),
     meta: {
       requiresAuth: true,
-      requiresRole: ['admin', 'super_admin', 'club_manager', 'clinical_practice_assistant'],
+      requiresRole: ['admin', 'super_admin', 'support', 'club_manager', 'clinical_practice_assistant'],
       organizationSlug: true
     }
   },
@@ -3797,7 +3797,7 @@ const routes = [
     component: () => import('../views/admin/UserProfileView.vue'),
     meta: {
       requiresAuth: true,
-      requiresRole: ['admin', 'super_admin', 'clinical_practice_assistant']
+      requiresRole: ['admin', 'super_admin', 'support', 'clinical_practice_assistant']
     }
   },
   {

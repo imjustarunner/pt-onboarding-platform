@@ -1,5 +1,5 @@
 import { canViewDemoExchange } from '../utils/clientExchangeDemo.js';
-import { isDemoExchangeClient } from './clientExchangeDemo.service.js';
+import { isDemoExchangeClient, viewerMayOpenDemoExchange } from './clientExchangeDemo.service.js';
 import { assertExchangeEssentials } from '../../../frontend/src/navigation/clientExchangeEssentials.js';
 import { resolveExchangeLocation } from '../../../frontend/src/navigation/clientExchangeLocation.js';
 import { scheduleFromIntake } from '../utils/clientExchangeSchedule.js';
@@ -130,8 +130,8 @@ function isPrivilegedViewer({ viewerRole, viewerUserId, listing }) {
   return uid === Number(listing.posted_by_user_id) || uid === Number(listing.current_provider_user_id || 0);
 }
 
-function redactListing(listing, { viewerRole, viewerUserId }) {
-  if (listing.demo_exchange && !canViewDemoExchange(viewerRole)) return null;
+function redactListing(listing, { viewerRole, viewerUserId, qaDemoViewer = false }) {
+  if (listing.demo_exchange && !canViewDemoExchange(viewerRole) && !qaDemoViewer) return null;
   const mapped = mapListingRow(listing);
   if (!mapped) return null;
   if (String(viewerRole || '').toLowerCase() === 'support') Object.assign(mapped, supportExchangeSummary(mapped));
@@ -185,7 +185,8 @@ export async function listListings({ agencyId, status, viewerUserId, viewerRole 
   for (let i = 0; i < (rows || []).length; i += 5) {
     await Promise.all(rows.slice(i, i + 5).map(hydrateListingSummary));
   }
-  const listings = (rows || []).map((row) => redactListing(row, { viewerUserId, viewerRole })).filter(Boolean);
+  const qaDemoViewer = await viewerMayOpenDemoExchange({ userId: viewerUserId, role: viewerRole, agencyId: aid });
+  const listings = (rows || []).map((row) => redactListing(row, { viewerUserId, viewerRole, qaDemoViewer })).filter(Boolean);
   await attachViewerFit(listings, { viewerUserId, viewerRole, agencyId: aid, sourceRows: rows });
   return listings;
 }
@@ -254,7 +255,8 @@ export async function getListingById(listingId, { viewerUserId, viewerRole } = {
   const row = await getRawListingById(listingId);
   if (!row) return null;
   await hydrateListingSummary(row);
-  const listing = redactListing(row, { viewerUserId, viewerRole });
+  const qaDemoViewer = await viewerMayOpenDemoExchange({ userId: viewerUserId, role: viewerRole, agencyId: row.agency_id });
+  const listing = redactListing(row, { viewerUserId, viewerRole, qaDemoViewer });
   if (listing) await attachViewerFit([listing], { viewerUserId, viewerRole, agencyId: listing.agencyId, sourceRows: [row] });
   return listing;
 }
@@ -410,7 +412,8 @@ export async function listRequestsForListing(listingId, { viewerUserId, viewerRo
   const listing = await getRawListingById(listingId);
   if (!listing) return [];
   await hydrateListingSummary(listing);
-  if (listing.demo_exchange && !canViewDemoExchange(viewerRole)) return [];
+  const qaDemoViewer = await viewerMayOpenDemoExchange({ userId: viewerUserId, role: viewerRole, agencyId: listing.agency_id });
+  if (listing.demo_exchange && !canViewDemoExchange(viewerRole) && !qaDemoViewer) return [];
   const privileged = isPrivilegedViewer({ viewerRole, viewerUserId, listing });
   const [rows] = await pool.execute(
     `SELECT r.*, u.first_name AS requesting_first_name, u.last_name AS requesting_last_name
@@ -445,9 +448,10 @@ export async function listMyRequests({ agencyId, requestingProviderUserId }) {
      ORDER BY r.created_at DESC`,
     [uid, aid]
   );
+  const qaDemoViewer = await viewerMayOpenDemoExchange({ userId: uid, agencyId: aid });
   const visible=[];
   for (const row of rows || []) {
-    if (await isDemoExchangeClient({clientId:row.listing_client_id,agencyId:aid})) continue;
+    if (!qaDemoViewer && await isDemoExchangeClient({clientId:row.listing_client_id,agencyId:aid})) continue;
     visible.push({...mapRequestRow(row),listingStatus:row.listing_status});
   }
   return visible;

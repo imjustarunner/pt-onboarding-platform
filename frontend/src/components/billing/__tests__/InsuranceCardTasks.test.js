@@ -43,6 +43,13 @@ it('does not reopen a closed preview when its late private-file response arrives
  let resolve;api.get.mockResolvedValueOnce({data:{tasks:[task()]}}).mockImplementationOnce(()=>new Promise(r=>resolve=r));URL.createObjectURL=vi.fn();URL.revokeObjectURL=vi.fn();
  const w=mount(InsuranceCardTasks,{props:{agencyId:1},attachTo:document.body});await flushPromises();await w.findAll('button').find(b=>b.text().startsWith('View primary card')).trigger('click');await flushPromises();document.querySelector('[aria-labelledby="insurance-preview-title"] button').click();await flushPromises();resolve({data:new Blob(['synthetic'],{type:'image/png'})});await flushPromises();expect(document.querySelector('[aria-labelledby="insurance-preview-title"]')).toBeNull();expect(URL.createObjectURL).not.toHaveBeenCalled();w.unmount();
 });
+it('tells billing staff when card images belong to the designated review team',async()=>{
+ api.get.mockResolvedValue({data:{rows:[],enabled:false,nextAfter:null}});
+ const w=mount(InsuranceCardTasks,{props:{agencyId:450,staff:true,collapsed:true}});await flushPromises();
+ expect(w.text()).toContain('designated review team');
+ expect(w.text()).not.toContain('Review insurance cards (0)');
+ w.unmount();
+});
 it('shows a card file error inside the preview instead of leaving a blank frame',async()=>{
  api.get.mockResolvedValueOnce({data:{tasks:[task()]}}).mockResolvedValueOnce({data:new Blob(['<html>not a card</html>'],{type:'text/html'})});const w=mount(InsuranceCardTasks,{props:{agencyId:1},attachTo:document.body});await flushPromises();await w.findAll('button').find(b=>b.text().startsWith('View primary card')).trigger('click');await flushPromises();expect(document.querySelector('[aria-labelledby="insurance-preview-title"] [role="alert"]').textContent).toContain('not an image or PDF');expect(document.querySelector('[aria-labelledby="insurance-preview-title"] iframe')).toBeNull();w.unmount();
 });

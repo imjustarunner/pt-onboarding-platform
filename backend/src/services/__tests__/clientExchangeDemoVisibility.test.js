@@ -1,6 +1,7 @@
 import {beforeEach,expect,it,vi} from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn(),client:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute},onTableWrite:vi.fn()}));
+vi.mock('../../models/Agency.model.js',()=>({default:{findById:async()=>({id:450,slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true,exchangeProviders:[{id:1438,email:'qa.provider.supervisor@example.com'}]}}})}}));
 vi.mock('../../models/Client.model.js',()=>({default:{findById:m.client}}));
 vi.mock('../clientExchangeEligibility.service.js',()=>({loadExchangeProvider:async()=>({}),loadExchangeOpenings:vi.fn(),evaluateCurrentExchangeFit:vi.fn(),exchangeProviderAudit:vi.fn(),exchangeListingForEvaluation:v=>v,assertExchangeRequestEligible:vi.fn()}));
 import {listListings,getListingById,getMatchingAudit,listMyRequests} from '../clientExchange.service.js';
@@ -20,4 +21,12 @@ it.each(['admin','super_admin','support'])('retains staff demo cards and explici
 });
 it('hides historical provider requests for a now-demo listing',async()=>{
  expect(await listMyRequests({agencyId:2,requestingProviderUserId:7})).toEqual([]);
+});
+it('lets the QA exchange roster open synthetic demo referrals and still hides them from other providers',async()=>{
+ const demo={...row,id:17,agency_id:450,status:'closed'};
+ m.client.mockResolvedValue({id:3,agency_id:450,email:'family@example.com'});
+ m.execute.mockImplementation(async sql=>sql.includes('SELECT l.*')?[[demo]]:sql.startsWith('SELECT c.id,c.email')?[[{id:3,email:'family@example.com',demo_guardian_email:1}]]:sql.startsWith('SELECT id,email,role,is_demo')?[[{id:1438,email:'qa.provider.supervisor@example.com',role:'provider',is_demo:1}]]:[[]]);
+ expect((await listListings({agencyId:450,viewerUserId:1438,viewerRole:'provider'})).map(item=>item.id)).toEqual([17]);
+ m.execute.mockImplementation(async sql=>sql.includes('SELECT l.*')?[[demo]]:sql.startsWith('SELECT c.id,c.email')?[[{id:3,email:'family@example.com',demo_guardian_email:1}]]:sql.startsWith('SELECT id,email,role,is_demo')?[[{id:9,email:'qa.provider.other@example.com',role:'provider',is_demo:1}]]:[[]]);
+ expect(await listListings({agencyId:450,viewerUserId:9,viewerRole:'provider'})).toEqual([]);
 });

@@ -9,7 +9,7 @@ const ymd = value => value instanceof Date ? value.toISOString().slice(0, 10) : 
 export function evaluateCoverageAdmission({ client, agency, insurance, review, latestCheckId = 0, hasNewEvidence = false, now = new Date() }) {
   if (!getMedicalBillingFlags(agency).medicalBillingEnabled || !medicalTypes.has(String(client?.client_type || 'clinical').toLowerCase())) return { ready: true, required: false, reason: null };
   const policy = insurance?.primary;
-  const selfPay = /^(self[ -]?pay|cash|private pay)$/i.test(String(policy?.insurerName || client?.insurance_type_label || '').trim());
+  const selfPay = /^(self[ -]?pay|cash|private pay)$/i.test(String(policy?.insurerName || client?.primary_insurer_name || client?.insurance_type_label || '').trim());
   if (selfPay && !insurance?.secondary) return { ready: true, required: false, reason: null, selfPay: true };
   let reason = null;
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Denver', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
@@ -25,7 +25,7 @@ export function evaluateCoverageAdmission({ client, agency, insurance, review, l
 export async function clientCoverageAdmission(clientId, { db = pool, client = null, now = new Date() } = {}) {
   // The stored organization is authoritative even when a caller supplies a
   // partial client row. Older school imports may still say basic_nonclinical.
-  const [[row]] = await db.execute(`SELECT c.id,c.agency_id,c.client_type,c.provider_id,i.label AS insurance_type_label,a.organization_type
+  const [[row]] = await db.execute(`SELECT c.id,c.agency_id,c.client_type,c.provider_id,c.primary_insurer_name,i.label AS insurance_type_label,a.organization_type
     FROM clients c LEFT JOIN insurance_types i ON i.id=c.insurance_type_id LEFT JOIN agencies a ON a.id=c.organization_id WHERE c.id=?`, [clientId]);
   client = row;
   if (!client) throw Object.assign(new Error('Client not found'), { status: 404 });

@@ -1,5 +1,5 @@
 import { canViewDemoExchange } from '../utils/clientExchangeDemo.js';
-import { isDemoExchangeClient } from './clientExchangeDemo.service.js';
+import { isDemoExchangeClient, viewerMayOpenDemoExchange } from './clientExchangeDemo.service.js';
 import {exchangeRequestPlanValid} from '../../../frontend/src/navigation/clientExchangePolicy.js';
 import { assertExchangeRequestEligible } from './clientExchangeEligibility.service.js';
 import pool from '../config/database.js';
@@ -37,7 +37,7 @@ async function eligibleProvider(connection, userId, agencyId) {
 
 export async function createExchangeClaim({ listingId, requestingProviderUserId, message, acknowledgedWarnings = [] }) {
   return withListing(listingId, async (connection, listing) => {
-    if (await isDemoExchangeClient({clientId:listing.client_id,agencyId:listing.agency_id,database:connection})) throw fail('Demo referrals are staff-only matching previews and cannot be requested',403);
+    if (await isDemoExchangeClient({clientId:listing.client_id,agencyId:listing.agency_id,database:connection}) && !await viewerMayOpenDemoExchange({ userId: requestingProviderUserId, agencyId: listing.agency_id, database: connection })) throw fail('Demo referrals are staff-only matching previews and cannot be requested',403);
     if (listing.target_provider_user_id && Number(listing.target_provider_user_id) !== Number(requestingProviderUserId)) throw fail('This referral is addressed to a different provider', 403);
     await eligibleProvider(connection, requestingProviderUserId, listing.agency_id);
     const [existing] = await connection.execute(`SELECT id FROM client_exchange_requests

@@ -1,5 +1,7 @@
 import pool from '../config/database.js';
-import { hasClientDemoIdentity } from '../utils/clientExchangeDemo.js';
+import Agency from '../models/Agency.model.js';
+import { hasClientDemoIdentity, canViewDemoExchange } from '../utils/clientExchangeDemo.js';
+import { allowQaExchangeRecipient, isAuricwellQaAgency } from '../utils/auricwellQaPolicy.js';
 
 const parse = value => { if (typeof value !== 'string') return value; try { return JSON.parse(value); } catch { return null; } };
 let noticeCursor=0;
@@ -15,6 +17,17 @@ export async function isDemoExchangeClient({ clientId, agencyId, client, databas
     FROM clients c WHERE c.id=? AND c.agency_id=? LIMIT 1`, [id,agency]);
   return Number(row?.id) === id && (Number(row.demo_guardian_email) === 1
     || hasClientDemoIdentity(row) || hasClientDemoIdentity(parse(row.intake_preferences_json)));
+}
+
+// Real providers never see example.com referrals. The AuricWell QA roster does,
+// so the synthetic exchange can be requested without opening it to other agencies.
+export async function viewerMayOpenDemoExchange({ userId, role, agencyId, database = pool } = {}) {
+  if (canViewDemoExchange(role)) return true;
+  if (Number(agencyId) !== 450 || !Number(userId)) return false;
+  const agency = await Agency.findById(agencyId);
+  if (!isAuricwellQaAgency(agency)) return false;
+  const [[user]] = await database.execute('SELECT id,email,role,is_demo FROM users WHERE id=? LIMIT 1', [userId]);
+  return allowQaExchangeRecipient(agency, user);
 }
 
 export async function isDemoExchangeListing({ listingId, agencyId, database = pool }) {

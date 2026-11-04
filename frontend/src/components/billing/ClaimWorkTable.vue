@@ -31,7 +31,7 @@ const prefix = item => organization(item)?.slug ? `/${encodeURIComponent(organiz
 const clientLink = item => `${prefix(item)}/admin/clients/${Number(item.client_id)}?tab=billing&agencyId=${Number(item.agency_id)}`;
 const providerId = (item, field) => field === 'supervisor_name' ? item.supervisor_user_id || item.billing_provider_user_id || item.provider_user_id : item[field.replace('_name','_user_id')];
 const providerName = (item, field) => field === 'supervisor_name' ? item.supervisor_name || item.billing_provider_name || item.provider_name : item[field];
-const providerLink = (item, field) => `${prefix(item)}/providers/${Number(providerId(item,field))}`;
+const providerLink = (item, field) => `${prefix(item)}/admin/users/${Number(providerId(item,field))}`;
 const money = (cents, currency = 'USD') => { try { return new Intl.NumberFormat('en-US',{style:'currency',currency:currency || 'USD'}).format(Number(cents)/100); } catch { return '—'; } };
 </script>
 <style scoped>

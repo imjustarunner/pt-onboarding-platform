@@ -12,6 +12,7 @@ beforeEach(()=>m.insurance.mockResolvedValue(insurance));
 it('uses the same seven-day review window as claim submission and invalidates changed primary/secondary evidence',()=>{
  const now=new Date('2026-11-03T18:00:00Z'),input={now,client:{client_type:'clinical'},agency:{feature_flags:{medicalBillingEnabled:true}},insurance,review:{status:'verified',insurance_fingerprint:coverageFingerprint(insurance),created_at:'2026-10-27T18:00:00Z'}};
  expect(evaluateCoverageAdmission(input).ready).toBe(true);
+ expect(evaluateCoverageAdmission({...input,insurance:{},client:{client_type:'clinical',primary_insurer_name:'Self Pay'}})).toMatchObject({ready:true,required:false,selfPay:true});
  for(const created_at of ['2026-10-27T17:59:59Z','2026-11-03T18:00:01Z','invalid'])expect(evaluateCoverageAdmission({...input,review:{...input.review,created_at}}).ready).toBe(false);
  expect(evaluateCoverageAdmission({...input,hasNewEvidence:true}).ready).toBe(false);
  const changed={...insurance,secondary:{insurerName:'Second synthetic plan'}};
@@ -27,7 +28,7 @@ it.skipIf(!process.env.BILLING_TEST_MYSQL_SOCKET && process.env.BILLING_FOLLOWUP
   await db.query(`CREATE DATABASE ${schema}`);await db.query(`USE ${schema}`);
   await db.query('CREATE TABLE agencies(id INT,feature_flags JSON,organization_type VARCHAR(30))');
   await db.query('CREATE TABLE insurance_types(id INT,agency_id INT,label VARCHAR(40))');
-  await db.query('CREATE TABLE clients(id INT,agency_id INT,organization_id INT,client_type VARCHAR(30),provider_id INT,insurance_type_id INT)');
+  await db.query('CREATE TABLE clients(id INT,agency_id INT,organization_id INT,client_type VARCHAR(30),provider_id INT,insurance_type_id INT,primary_insurer_name VARCHAR(80) NULL)');
   await db.query('CREATE TABLE client_provider_assignments(id INT,client_id INT,provider_user_id INT,is_active INT)');
   await db.query('CREATE TABLE client_coverage_reviews(id INT,agency_id INT,client_id INT,status VARCHAR(20),insurance_fingerprint VARCHAR(64),through_check_id INT,created_at DATETIME(6))');
   await db.query('CREATE TABLE client_coverage_checks(id INT,agency_id INT,client_id INT,completed_at DATETIME(6))');

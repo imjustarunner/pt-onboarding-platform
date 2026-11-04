@@ -2968,7 +2968,12 @@ const chartSubnav = computed(() => {
       'intern',
       'intern_plus'
     ].includes(roleNorm.value);
-    if (roleNorm.value === 'support') return [{ id: 'overview', label: 'Status' }, { id: 'audit', label: 'Access log' }];
+    if (roleNorm.value === 'support') {
+      const items = [{ id: 'overview', label: 'Status' }];
+      if (canViewClientBillingImport.value) items.push({ id: 'billing', label: 'Billing & claims' });
+      items.push({ id: 'audit', label: 'Access log' });
+      return items;
+    }
     return recordsSubnav({
       canViewClinical: isClinicalLikeClientType.value && clinicalRoleOk,
       canViewMedicalRecord: canViewMedicalRecord.value,
