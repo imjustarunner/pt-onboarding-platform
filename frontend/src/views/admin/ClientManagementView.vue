@@ -47,6 +47,7 @@
           @click="identityReviewMode = 'tests'"
         >Show Tests</button>
         <PostClientToExchangeButton />
+        <button v-if="canSeeRenewalFlags && activeAgencyId" type="button" class="cm-hbtn cm-hbtn--ghost" @click="clientUpdateOpen = true">Add client for selected updates</button>
         <button @click="openCreateClientModal" class="cm-hbtn cm-hbtn--primary">+ Add client</button>
       </div>
     </div>
@@ -680,6 +681,7 @@
       </table>
     </div>
 
+    <ClientUpdateModal :open="clientUpdateOpen" :agency-id="activeAgencyId" @close="clientUpdateOpen = false" @created="fetchClients" @sent="clientUpdateOpen = false" />
     <!-- Create Client Modal -->
     <div v-if="showCreateModal" class="modal-overlay" @click.self="closeCreateModal">
       <div class="modal-content" @click.stop>
@@ -1308,6 +1310,7 @@ import { normalizeExchangeSchedule } from '../../utils/clientExchangeSchedule.js
 import QuickPostClientToExchange from '../../components/clientExchange/QuickPostClientToExchange.vue';
 import { finishClientCreation } from '../../utils/clientCreationOutcome.js';
 import ClientRenewalPushModal from '../../components/admin/ClientRenewalPushModal.vue';
+import ClientUpdateModal from '../../components/admin/ClientUpdateModal.vue';
 import RenewalFlagsChips from '../../components/admin/RenewalFlagsChips.vue';
 
 const authStore = useAuthStore();
@@ -1613,6 +1616,7 @@ const WORKFLOW_STATUS_OPTIONS = [
   { value: 'DECLINED', label: 'Declined' }
 ];
 const showCreateModal = ref(false);
+const clientUpdateOpen = ref(false);
 const openCreateClientModal = async () => {
   showCreateModal.value = true;
   createOutcome.value = canBackofficeEdit.value ? 'unassigned' : 'assign';

@@ -9,6 +9,8 @@ router.get('/report', authenticate, ctrl.getReport);
 router.get('/campaign', authenticate, ctrl.getCampaignStatus);
 router.post('/campaign/enable', authenticate, ctrl.enableCampaign);
 router.post('/campaign/disable', authenticate, ctrl.disableCampaign);
+router.put('/campaign/annual-schedule', authenticate, ctrl.updateAnnualSchedule);
+router.put('/cycles/:cycleId/followup', authenticate, ctrl.manageAnnualFollowup);
 router.post('/campaign/push', authenticate, ctrl.pushCampaign);
 router.post('/schools/:schoolOrganizationId/push', authenticate, ctrl.pushSchool);
 router.put('/campaign/checkin-settings', authenticate, ctrl.updateCheckinSettings);

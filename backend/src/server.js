@@ -1,3 +1,5 @@
+import meetingDialInWebhookRoutes from './routes/meetingDialInWebhook.routes.js';
+import { attachMeetingDialInAudio } from './services/meetingDialInTranscription.service.js';
 import { publicRouter as publicMeetingReservationRoutes, staffRouter as meetingReservationRoutes } from './routes/meetingReservations.routes.js';
 import clientSupportRoutes from './routes/clientSupport.routes.js';
 import dependentPortalRoutes from './routes/dependentPortal.routes.js';
@@ -122,6 +124,7 @@ import unassignedDocumentsRoutes from './routes/unassignedDocuments.routes.js';
 import schoolPortalRoutes from './routes/schoolPortal.routes.js';
 import schoolContactPlanRoutes from './routes/schoolContactPlan.routes.js';
 import schoolReinitRoutes from './routes/schoolReinit.routes.js';
+import clientUpdatesRoutes from './routes/clientUpdates.routes.js';
 import publicSchoolReinitRoutes from './routes/publicSchoolReinit.routes.js';
 import schoolOnboardingRoutes from './routes/schoolOnboarding.routes.js';
 import materialsRequestsRoutes from './routes/materialsRequests.routes.js';
@@ -401,6 +404,7 @@ app.use('/api', protectTaxIdResponses);
 // Stripe webhooks MUST be mounted before express.json() so they receive the raw body.
 // Stripe's signature verification requires the exact raw bytes.
 // Handles both /api/stripe/webhook (direct) and /api/stripe/connect-webhook (Connect).
+app.use('/api/meeting-dial-in/voice', meetingDialInWebhookRoutes);
 app.use('/api/stripe', stripeWebhookRoutes);
 app.use('/api/claimmd/webhook', claimMdWebhookRoutes);
 app.use(clinicalVideoCallbackPaths, securityEvidenceMiddleware, clinicalVideoCallbackRoutes);
@@ -1031,6 +1035,7 @@ app.use('/api/unassigned-documents', unassignedDocumentsRoutes);
 app.use('/api/school-portal', schoolPortalRoutes); // School portal routes (restricted client views)
 app.use('/api/school-contact-plan', schoolContactPlanRoutes);
 app.use('/api/school-reinit', schoolReinitRoutes);
+app.use('/api/client-updates', clientUpdatesRoutes);
 app.use('/api/school-onboarding', schoolOnboardingRoutes);
 app.use('/api/materials-requests', materialsRequestsRoutes);
 app.use('/api/provider-year-update', providerYearUpdateRoutes);
@@ -1252,10 +1257,11 @@ const PORT = Number.parseInt(String(PORT_RAW), 10) || 8080;
 const HOST = '0.0.0.0';
 const isBootstrap = process.argv[1]?.includes('bootstrap');
 if (!isBootstrap) {
-  app.listen(PORT, HOST, () => {
+  const meetingHttpServer = app.listen(PORT, HOST, () => {
     console.log(`🚀 Server running on http://${HOST}:${PORT}`);
     console.log(`📝 Environment: ${config.nodeEnv}`);
   });
+  attachMeetingDialInAudio(meetingHttpServer);
 }
 
   // Run pending schema migrations on startup (safe/idempotent column additions)
@@ -3005,6 +3011,19 @@ if (process.env.CLAIM_MD_ELIGIBILITY_AUTOMATION_ENABLED === 'true' || process.en
   timer.unref();
 }
 
+// Recovery does not activate existing annual schedule rows or queued follow-ups.
+if (process.env.NODE_ENV !== 'test' && process.env.SCHOOL_YEAR_UPDATE_AUTOMATION_ENABLED === 'true') {
+  let annualUpdateRunning=false;
+  const annualUpdateTick=async()=>{
+    if(annualUpdateRunning)return;
+    annualUpdateRunning=true;
+    try { const {runSchoolYearUpdateAutomation}=await import('./services/schoolYearUpdateAutomation.service.js'); await runSchoolYearUpdateAutomation(); }
+    catch(error) { console.warn('[school-annual-update] Worker needs review',error?.code||'annual_update_failed'); }
+    finally { annualUpdateRunning=false; }
+  };
+  setInterval(annualUpdateTick,15*60*1000).unref();
+}
+
 // Exchange delivery receipts survive restarts; the monitor resumes unfinished pilot evaluations.
 if (process.env.NODE_ENV !== 'test') {
   let exchangeMonitorRunning=false;
@@ -3017,4 +3036,17 @@ if (process.env.NODE_ENV !== 'test') {
   };
   setTimeout(exchangeTick,90_000).unref();
   setInterval(exchangeTick,60*1000).unref();
+}
+
+// Dedicated telephone joining is dormant until its explicit Voice assets exist.
+if (process.env.MEETING_DIAL_IN_VOICE_APPLICATION_ID) {
+  let phoneTickRunning = false;
+  const phoneTick = async () => {
+    if (phoneTickRunning) return;
+    phoneTickRunning = true;
+    try { await (await import('./services/meetingDialIn.service.js')).runMeetingDialInTick(); }
+    catch (error) { console.warn('[meeting-dial-in] Reconciliation needs retry', error.code || 'storage_unavailable'); }
+    finally { phoneTickRunning = false; }
+  };
+  setInterval(phoneTick, 15000).unref();
 }

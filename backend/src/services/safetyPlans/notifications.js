@@ -8,6 +8,7 @@ import ClientGuardian from '../../models/ClientGuardian.model.js';
 import {resolveRegisteredSmsSender} from '../smsCompliance.service.js';
 import {normalizeSmsPhone} from '../../utils/smsThreadIdentity.js';
 import Vonage from '../vonage.service.js';
+import {shareEventStillOpen} from '../portalShareNotice.service.js';
 const escape=v=>String(v||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function clinicalPortalNotice({agencyName,portalUrl}) {
  const subject='Documents and forms are ready in your portal';
@@ -22,16 +23,44 @@ async function contextFor(batch,db) {
   AND s.portal_shared_at<FROM_UNIXTIME(?+1800)`,[batch.agency_id,batch.recipient_user_id,batch.batch_key,batch.batch_key]);
  let share;
  for(const candidate of shares){try{await recipientAccess(candidate,batch.recipient_user_id,candidate.signer_kind);share=candidate;break;}catch(e){if(![403,404].includes(e.status))throw e;}}
+ let shareEvent=null;
+ if(!share && process.env.CLIENT_UPDATE_WORKFLOWS_ENABLED==='true') {
+  const [events]=await main.execute(`SELECT * FROM client_portal_share_events WHERE agency_id=? AND recipient_user_id=?
+    AND created_at>=FROM_UNIXTIME(?) AND created_at<FROM_UNIXTIME(?+1800) ORDER BY id DESC`,[batch.agency_id,batch.recipient_user_id,batch.batch_key,batch.batch_key]);
+  const {currentClientUpdateRecipient}=await import('../clientUpdate.service.js');
+  const {familyNotificationDeliveryGate}=await import('../familyNotificationChoices.service.js');
+  const [[recipient]]=await main.execute('SELECT email FROM users WHERE id=? AND is_active=1',[batch.recipient_user_id]);
+  for(const event of events) {
+   if(!await shareEventStillOpen(event,main))continue;
+   try{await currentClientUpdateRecipient({agencyId:batch.agency_id,clientId:event.client_id,to:recipient?.email,guardianUserId:batch.recipient_user_id});
+    const gate=await familyNotificationDeliveryGate({agencyId:batch.agency_id,clientId:event.client_id,to:recipient?.email,channel:'email',templateType:'client_portal_share'});
+    if(!gate.allowed)continue;
+    shareEvent=event;share={client_id:event.client_id,agency_id:batch.agency_id};break;}
+   catch(error){if(![403,404,409].includes(error.status))throw error;}
+  }
+ }
  if(!share)return null;
  const [[recipient]]=await main.execute('SELECT email FROM users WHERE id=? AND is_active=1',[batch.recipient_user_id]);
  const [[agency]]=await main.execute('SELECT name,slug FROM agencies WHERE id=?',[batch.agency_id]);
  if(!recipient||!agency)return null;
  const base=String(process.env.APP_PUBLIC_URL||process.env.FRONTEND_URL||'https://plottwisthq.com').replace(/\/$/,'');
  const portalUrl=`${base}/${encodeURIComponent(agency.slug)}/guardian?panel=documents&clientId=${share.client_id}`;
+ if(shareEvent) {
+  const {clientEmailContext}=await import('../clientPortalEmail.service.js');
+  const mail=await clientEmailContext({agencyId:batch.agency_id,clientId:share.client_id});
+  const currentUrl=new URL(mail.url('guardian'));currentUrl.searchParams.set('panel','documents');currentUrl.searchParams.set('clientId',String(share.client_id));
+  return {share,recipient,agency,portalUrl:currentUrl.toString(),shareEvent,mail};
+ }
  return {share,recipient,agency,portalUrl};
 }
 async function deliverEmail(batch,context) {
  if(!context.recipient.email)return {skipped:true};
+ if(context.shareEvent) {
+  const {sendClientPortalEmail}=await import('../clientPortalEmail.service.js');
+  return sendClientPortalEmail({agencyId:batch.agency_id,clientId:context.share.client_id,context:context.mail,to:context.recipient.email,
+    ...clinicalPortalNotice({agencyName:context.agency.name,portalUrl:context.portalUrl}),userId:batch.recipient_user_id,
+    templateType:'client_portal_share',linkUrl:context.portalUrl,source:'auto'});
+ }
  const {forms,domain}=await ensureTenantFormsMailbox(batch.agency_id);
  return sendEmailFromIdentity({senderIdentityId:forms.id,to:context.recipient.email,
   ...clinicalPortalNotice({agencyName:context.agency.name,portalUrl:context.portalUrl}),
@@ -40,6 +69,7 @@ async function deliverEmail(batch,context) {
   linkUrl:context.portalUrl,source:'auto',usedFallbackSender:false});
 }
 async function deliverSms(batch,context) {
+ if(context.shareEvent)return {skipped:true,reason:'portal_share_email_only'};
  const preferences=await guardianReminderPreferences({userId:batch.recipient_user_id,clientId:context.share.client_id});
  if(preferences.channels?.sms!==true||preferences.providerPushedUpdatesEnabled===false)return {skipped:true};
  const contacts=await ClientGuardian.listForClient(context.share.client_id);

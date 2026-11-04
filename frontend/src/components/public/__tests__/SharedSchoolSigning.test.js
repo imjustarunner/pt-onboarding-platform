@@ -22,6 +22,7 @@ describe('shared school signing', () => {
     expect(w.text()).toContain('Actual agency terms');
     expect(w.get('input[type=checkbox]').attributes('disabled')).toBeUndefined();
     expect(w.findAll('button').find(b => b.text() === 'Continue to signature').attributes('disabled')).toBeDefined();
+    expect(w.text()).toContain('Check the agreement box above to continue to the signature.');
     w.unmount();
   });
   it('identifies both children and does not ask parents to reenter the first child’s DOB', () => {
@@ -35,11 +36,9 @@ describe('shared school signing', () => {
     w.vm.stageIndex = w.vm.stageOrder.indexOf('review');
     await w.vm.$nextTick();
     expect(w.find('[data-signature-pad]').exists()).toBe(false);
-    expect(w.vm.signatureData).toBe('');
-    await w.findAll('button').find(b => b.text() === 'Apply my saved signature').trigger('click');
     expect(w.vm.signatureData).toBe(signature);
     expect(w.text()).toContain('Blair Example');
-    await w.findAll('button').find(b => b.text() === 'Draw a new signature').trigger('click');
+    await w.findAll('button').find(b => b.text() === 'Sign again').trigger('click');
     expect(w.find('[data-signature-pad]').exists()).toBe(true);
     expect(w.vm.signatureData).toBe(''); w.unmount();
   });
@@ -51,7 +50,6 @@ describe('shared school signing', () => {
     const w = mount(PacketSectionConsentFlow, { ...options, props: { sectionContext: { sectionKey: 'policy_services', title: 'Policy', html: '<p>Terms</p>' }, sessionSavedSignature: signature } });
     await w.find('input[type=checkbox]').setValue(true);
     await w.findAll('button').find(b => b.text().includes('Continue to signature')).trigger('click');
-    await w.findAll('button').find(b => b.text().includes('Apply my signature')).trigger('click');
     expect(w.find('img').attributes('src')).toBe(signature); w.unmount();
   });
   it('keeps shared signatures separate from child-specific questions and demographic answers', () => {

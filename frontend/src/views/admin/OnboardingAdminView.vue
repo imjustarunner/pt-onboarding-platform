@@ -27,6 +27,7 @@
       </div>
     </div>
 
+    <PeopleOperationsNotificationRecipients :agency-id="selectedAgencyId" />
     <!-- Stats -->
     <div class="ona-stats">
       <div class="ona-stat-card">
@@ -201,6 +202,7 @@ import { useBrandingStore } from '../../store/branding';
 import { pickDefaultAgencyChoiceId } from '../../utils/peopleOpsAgencyPicker.js';
 import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath.js';
 import HiringHubSwitcher from '../../components/hiring/HiringHubSwitcher.vue';
+import PeopleOperationsNotificationRecipients from '../../components/hiring/PeopleOperationsNotificationRecipients.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();

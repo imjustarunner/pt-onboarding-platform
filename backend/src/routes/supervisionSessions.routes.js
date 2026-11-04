@@ -1,3 +1,4 @@
+import { meetingDialInController } from '../controllers/meetingDialIn.controller.js';
 import { getSuperviseeWorkspace } from '../controllers/superviseeWorkspace.controller.js';
 import { dismissSupervisionSignup } from '../services/supervisionSignup.service.js';
 import {startReviewActivity,pulseReviewActivity,submitReviewActivity,listReviewActivities} from '../controllers/cosignReviewActivity.controller.js';
@@ -90,6 +91,10 @@ router.post('/sessions/:id/join-presence', authenticateSupervisionSession, postS
 router.post('/sessions/:id/connection-events', authenticateSupervisionSession, postSupervisionConnectionEvent);
 
 router.use(authenticateSupervisionSession);
+const dialIn = meetingDialInController('supervision');
+router.get('/sessions/:id/dial-in', dialIn.details);
+router.post('/sessions/:id/dial-in/send', dialIn.send);
+router.post('/sessions/:id/dial-in/calls/:callId', dialIn.manage);
 router.get('/sessions/:id/record',getRecord);
 router.post('/sessions/:id/time-corrections',requireActiveStatus,submitCorrection);
 router.post('/sessions/:id/time-corrections/:correctionId/review',requireActiveStatus,reviewCorrection);

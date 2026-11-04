@@ -1,3 +1,4 @@
+import { optionalMeetingDialIn } from './meetingDialInDelivery.service.js';
 import { notificationTransportReceipt } from '../utils/notificationTransportReceipt.js';
 import { emailWorkerAccountSql } from '../utils/qaEmailPolicy.js';
 import { sendSupervisionRsvpSms } from './supervisionRsvpSms.service.js';
@@ -100,7 +101,7 @@ export async function prepareSupervisionEmail({session,user,joinUrl,kind='invita
  const replyMailbox=huddle ? await ensureSupervisionReplyMailbox(session.agency_id,{replyEmail:delivery.to}) : null;
  const leadershipReplyTo = !huddle ? `leadership@${mailboxes.domain || mailboxes.notifications.from_email.split('@')[1]}` : null;
  const detailsUrl=`${personal}?details=1&eventId=${session.id}`;
- const content=supervisionEmailBody({session:huddle?{...session,session_type:people.length>2?'group':'individual'}:session,meetingTitle:huddle?huddleTitle(session,hostRole):null,hostLabel:huddle?(huddleTitle(session,hostRole)==='CPA Meeting'?'Clinical Practice Assistant':'Internship Mentor'):null,people,recipientName:user.first_name||recipient.name,hostNames:hosts.map(p=>p.name),calendar,joinUrl:personal,
+ const content=supervisionEmailBody({dialIn:await optionalMeetingDialIn(session,user.id),session:huddle?{...session,session_type:people.length>2?'group':'individual'}:session,meetingTitle:huddle?huddleTitle(session,hostRole):null,hostLabel:huddle?(huddleTitle(session,hostRole)==='CPA Meeting'?'Clinical Practice Assistant':'Internship Mentor'):null,people,recipientName:user.first_name||recipient.name,hostNames:hosts.map(p=>p.name),calendar,joinUrl:personal,
  rsvpUrl:`${personal}?rsvp=1&eventId=${session.id}`,presentationUrl:`${base}/supervision/sessions/${session.id}/presentation`,detailsUrl,
  recipient,preparationComplete:['ready','presented'].includes(recipient.presentationStatus),
  isRequired:recipient.isPresenter || (recipient.is_required == null ? hostIds.includes(Number(user.id)) : !!Number(recipient.is_required)),isPresenter:recipient.isPresenter,isHost:hostIds.includes(Number(user.id)),kind,leadershipReplyTo});

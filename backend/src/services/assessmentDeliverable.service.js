@@ -161,7 +161,23 @@ export async function updateDeliverable({ id, title, htmlBody, plainSummary }) {
 }
 
 export async function shareDeliverable({ id, userId }) {
-  return ClientAssessmentDeliverable.setShared({ id, shared: true, userId });
+  const updated = await ClientAssessmentDeliverable.setShared({ id, shared: true, userId });
+  if (updated?.clientId && updated?.agencyId) {
+    try {
+      const { queuePortalShareForClient } = await import('./portalShareNotice.service.js');
+      await queuePortalShareForClient({
+        agencyId: updated.agencyId,
+        clientId: updated.clientId,
+        kind: 'deliverable',
+        familyKey: updated.assessmentFamily || null,
+        referenceId: updated.id,
+        href: null
+      });
+    } catch (error) {
+      console.warn('[assessment deliverable] portal notice was not queued', error?.message || error);
+    }
+  }
+  return updated;
 }
 
 export async function unshareDeliverable({ id }) {

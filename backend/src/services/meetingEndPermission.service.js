@@ -51,4 +51,8 @@ export async function closeMeetingAsHost(type, eventId, actorUserId) {
   if (!result.affectedRows) throw Object.assign(new Error('The meeting has ended or your permission to end it has changed.'), {
     status: 409, code: 'MEETING_END_UNAVAILABLE'
   });
+  // Closing remains authoritative even if the carrier is temporarily unavailable.
+  // The durable ended state prevents re-admission; reconciliation retries teardown.
+  try { const { endMeetingDialIn } = await import('./meetingDialIn.service.js'); await endMeetingDialIn(type, eventId); }
+  catch (error) { console.warn('[meeting-dial-in] Close needs retry', error.code || 'carrier_unavailable'); }
 }

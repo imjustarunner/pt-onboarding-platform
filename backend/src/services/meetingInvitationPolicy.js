@@ -1,3 +1,4 @@
+import { dialInEmailHtml } from '../utils/meetingDialInEmail.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { trainingReminderDescription } from './meetingReminderPolicy.js';
 
@@ -16,7 +17,7 @@ export function reminderMinutes(value) {
 export function invitationKey(event) {
   return `${event.meeting_type || 'team_meeting'}:${event.agency_id}:${event.provider_id}:${event.recurrence_series_id ? `series:${event.recurrence_series_id}` : `event:${event.id}`}`;
 }
-export function meetingInvitationContent({ events, joinUrl, hostName, participants = [], guest = false, details = '', recipientUserId = null, recipientRsvp = null, recipientRequired = null, finalOptionalReminder = false }) {
+export function meetingInvitationContent({ dialIn = null, events, joinUrl, hostName, participants = [], guest = false, details = '', recipientUserId = null, recipientRsvp = null, recipientRequired = null, finalOptionalReminder = false }) {
   const first = events[0];
   const training = first.meeting_subtype === 'training';
   const recipient = participants.find(p=>Number(p.id)===Number(recipientUserId));
@@ -44,7 +45,7 @@ export function meetingInvitationContent({ events, joinUrl, hostName, participan
   return {
     trainingRequirement: requirement,
     subject: training ? `${requirement} invitation: ${title}` : `${recurring ? 'Recurring meeting invitation' : 'Meeting invitation'}: ${title}`,
-    text: `${heading}\n\n${roster}\n${details}\n${rsvpEnabled ? `${rsvpLabel}: ${rsvpUrl}` : ''}\n\n${when}\n${seriesNote}\n\nJoin: ${joinUrl}\n\n${instructions}`,
-    html: `<h2>${escapeMeetingHtml(title)}</h2><p>${escapeMeetingHtml(roster)}</p><p>${escapeMeetingHtml(details).replace(/\n/g,'<br>')}</p>${rsvpEnabled ? `${emailActionButton(rsvpLabel,rsvpUrl)}` : ''}<p>${escapeMeetingHtml(heading)}</p><p>${escapeMeetingHtml(when)}</p><p>${escapeMeetingHtml(seriesNote)}</p>${emailActionButton(action,joinUrl,true)}<p>${escapeMeetingHtml(instructions)}</p><p>${escapeMeetingHtml(joinUrl)}</p>`
+    text: `${heading}\n\n${roster}\n${details}\n${rsvpEnabled ? `${rsvpLabel}: ${rsvpUrl}` : ''}\n\n${when}\n${seriesNote}\n\nJoin: ${joinUrl}\n\n${dialIn ? `${dialIn.text}\n\n` : ''}${instructions}`,
+    html: `<h2>${escapeMeetingHtml(title)}</h2><p>${escapeMeetingHtml(roster)}</p><p>${escapeMeetingHtml(details).replace(/\n/g,'<br>')}</p>${rsvpEnabled ? `${emailActionButton(rsvpLabel,rsvpUrl)}` : ''}<p>${escapeMeetingHtml(heading)}</p><p>${escapeMeetingHtml(when)}</p><p>${escapeMeetingHtml(seriesNote)}</p>${emailActionButton(action,joinUrl,true)}${dialInEmailHtml(dialIn)}<p>${escapeMeetingHtml(instructions)}</p><p>${escapeMeetingHtml(joinUrl)}</p>`
   };
 }

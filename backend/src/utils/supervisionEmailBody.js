@@ -1,9 +1,10 @@
+import { dialInEmailHtml } from './meetingDialInEmail.js';
 import { supervisionDisplayTitle } from './supervisionDisplayTitle.js';
 import { emailActionButton } from './emailActionButton.js';
 import { escapeMeetingHtml as esc } from '../services/meetingInvitationPolicy.js';
 import { supervisionAttendance, pendingOptionalSupervision } from '../services/supervisionAttendancePolicy.js';
 
-export function supervisionEmailBody({session,recipientName,hostNames,people,calendar,joinUrl,rsvpUrl,presentationUrl,detailsUrl,isRequired,isPresenter,isHost,kind='invitation',meetingTitle=null,hostLabel=null,leadershipReplyTo=null,preparationComplete=false,recipient={}}) {
+export function supervisionEmailBody({dialIn=null,session,recipientName,hostNames,people,calendar,joinUrl,rsvpUrl,presentationUrl,detailsUrl,isRequired,isPresenter,isHost,kind='invitation',meetingTitle=null,hostLabel=null,leadershipReplyTo=null,preparationComplete=false,recipient={}}) {
  const group=String(session.session_type).toLowerCase()==='group';
  const attendance=supervisionAttendance(session,{...recipient,is_required:isRequired == null ? (isHost ? 1 : 0) : Number(isRequired),isPresenter});
  const pendingOptional = pendingOptionalSupervision(session,{...recipient,is_required:isRequired == null ? (isHost ? 1 : 0) : Number(isRequired),isPresenter});
@@ -35,6 +36,7 @@ export function supervisionEmailBody({session,recipientName,hostNames,people,cal
  ${presentationAgenda.length ? `<h2 style="font-size:18px;color:#183d31;">Presentation schedule for ${esc(calendar.dateLabel)}</h2><ol>${presentationAgenda.map(item => `<li>${esc(item)}</li>`).join('')}</ol>` : ''}
  ${session.recurrence_series_id?'<p style="color:#53655e;">This is part of a recurring meeting series. This reminder and your RSVP apply to the date shown above. See your schedule for all dates.</p>':''}
  ${button(inPerson?'View session details':meetingTitle?`Join ${meetingTitle}`:group?'Join Group Supervision':'Join Supervision',inPerson?detailsUrl:joinUrl,true)}
+ ${dialInEmailHtml(dialIn)}
  <p><strong>Your email join link is personal. Do not share or forward it.</strong> It identifies you without signing in. Calendar links join as a guest unless you are signed in.</p>
  ${isPresenter?button(preparationComplete ? 'View Your Presentation' : 'Edit Your Presentation',presentationUrl):''}
  ${button(attendance?.tier === 'optional' ? 'RSVP · I’m attending' : 'RSVP · Attending or not attending',rsvpUrl)}
@@ -44,7 +46,7 @@ export function supervisionEmailBody({session,recipientName,hostNames,people,cal
  <p style="border-top:1px solid #dce7df;padding-top:18px;margin-top:24px;">${esc(replyInstructions)}</p>
  ${!isRequired&&group&&!isHost&&!isPresenter?'<p style="color:#63736b;">You’re welcome to attend if it fits your schedule. Please RSVP so we know who to expect.</p>':''}
  </div>`;
- const text=[!meetingTitle ? 'Supervision' : '',`Hi ${recipientName},`,title,status,intro,presentationAgenda.length ? `Presentation schedule for ${calendar.dateLabel}:\n${presentationAgenda.join('\n')}` : '',`${calendar.dateLabel}, ${calendar.timeLabel} (${session.event_timezone||'America/Denver'})`,`Frequency: ${frequency}`,`Supervisor / hosts: ${hostNames.join(', ')}`,!group&&supervisees.length?`Supervisee: ${supervisees.join(', ')}`:'',`Join: ${joinUrl}`,'Your email join link is personal and identifies you without signing in. Do not share or forward it. Calendar links join as a guest unless you are signed in.',!isHost?`RSVP: ${rsvpUrl}`:'',isPresenter?`${preparationComplete ? 'View' : 'Edit'} presentation: ${presentationUrl}`:'',`Confirmed: ${accepted.map(p=>p.name).join(', ')||'None yet'}`,`Google Calendar: ${calendar.googleUrl}`,`Outlook: ${calendar.outlookUrl}`,`Apple Calendar / iCal: ${calendar.downloadUrl}`,`Details: ${detailsUrl}`,replyInstructions].filter(Boolean).join('\n\n');
+ const text=[!meetingTitle ? 'Supervision' : '',`Hi ${recipientName},`,title,status,intro,presentationAgenda.length ? `Presentation schedule for ${calendar.dateLabel}:\n${presentationAgenda.join('\n')}` : '',`${calendar.dateLabel}, ${calendar.timeLabel} (${session.event_timezone||'America/Denver'})`,`Frequency: ${frequency}`,`Supervisor / hosts: ${hostNames.join(', ')}`,!group&&supervisees.length?`Supervisee: ${supervisees.join(', ')}`:'',`Join: ${joinUrl}`,dialIn?.text || '','Your email join link is personal and identifies you without signing in. Do not share or forward it. Calendar links join as a guest unless you are signed in.',!isHost?`RSVP: ${rsvpUrl}`:'',isPresenter?`${preparationComplete ? 'View' : 'Edit'} presentation: ${presentationUrl}`:'',`Confirmed: ${accepted.map(p=>p.name).join(', ')||'None yet'}`,`Google Calendar: ${calendar.googleUrl}`,`Outlook: ${calendar.outlookUrl}`,`Apple Calendar / iCal: ${calendar.downloadUrl}`,`Details: ${detailsUrl}`,replyInstructions].filter(Boolean).join('\n\n');
  const rsvpText=isHost ? `${text}\n\nRSVP: ${rsvpUrl}` : text;
  const attendanceText=attendance ? `${attendance.label}\n${attendance.description}\n${optionalReminderNote}\n\n${rsvpText}` : rsvpText;
  return {subject:`${attendance ? `[${attendance.tier === 'mandatory' ? 'Mandatory' : 'Optional'}] ` : ''}${kind.startsWith('presenter:')?'You’re presenting — reminder':kind==='invitation'?'Invitation':finalOptional?'Final reminder':'Reminder'}: ${title}${!group&&supervisees.length?' — '+supervisees.join(', '):''} with ${hostNames.join(' and ')}`,html,text:attendanceText};

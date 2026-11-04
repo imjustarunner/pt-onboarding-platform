@@ -421,6 +421,7 @@ import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
+import { getStartupData } from '../../services/startupRequests';
 import {
   formatBusinessDateTime,
   isoToZonedDatetimeLocal,
@@ -838,7 +839,7 @@ const loadAffiliateProgramOrgs = async () => {
   affiliateProgramOrgs.value = [];
   if (!props.agencyId) return;
   try {
-    const res = await api.get('/availability/admin/skill-builders/options', {
+    const res = await getStartupData('/availability/admin/skill-builders/options', {
       params: { agencyId: props.agencyId },
       skipGlobalLoading: true
     });

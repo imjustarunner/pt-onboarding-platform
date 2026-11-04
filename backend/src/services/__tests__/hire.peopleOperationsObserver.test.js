@@ -1,0 +1,23 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+const m=vi.hoisted(()=>({execute:vi.fn(),queue:vi.fn(),run:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{getConnection:async()=>({execute:m.execute,beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()})},onTableWrite:vi.fn()}));
+vi.mock('../peopleOperationsSubmissionNotifications.service.js',()=>({queuePeopleOperationsSubmission:m.queue,runPeopleOperationsSubmissionNotifications:m.run}));
+vi.mock('../hirePortalWorkflow.service.js',()=>({portalPacket:async()=>({workflow:{resources:[]}})}));
+vi.mock('../hireJourney.service.js',()=>({taskPhase:()=> 'pre_hire'}));
+vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendNotificationEmail:vi.fn()}));
+vi.mock('../vonage.service.js',()=>({default:{sendSms:vi.fn()}}));
+vi.mock('../smsCompliance.service.js',()=>({resolveRegisteredSmsSender:vi.fn()}));
+import {runHiringNotifications} from '../hiringNotification.service.js';
+let previous,task;
+beforeEach(()=>{vi.clearAllMocks();previous={steps:{pre_hire:[{key:'task-9'}]}};task={id:9,task_type:'document',status:'completed',completed_at:new Date('2026-11-04T15:00:00Z')};
+ m.execute.mockImplementation(async sql=>{
+  if(sql.includes('GET_LOCK'))return [[{acquired:1}]];
+  if(sql.startsWith('SELECT p.*'))return [[{user_id:31,agency_id:2,status:'PREHIRE_OPEN',observed_snapshot:previous}]];
+  if(sql.includes('FROM hire_journeys'))return [[{}]];
+  if(sql.includes('FROM tasks'))return [[task]];
+  return [[]];
+ });
+});
+it('establishes a baseline without replaying documents that were already submitted before rollout',async()=>{await runHiringNotifications();expect(m.queue).not.toHaveBeenCalled();expect(m.run).toHaveBeenCalledOnce();});
+it('queues a newly completed canonical document reference once an earlier baseline exists',async()=>{previous.submittedDocuments=[];await runHiringNotifications();expect(m.queue).toHaveBeenCalledWith({agencyId:2,userId:31,kind:'task',id:9},expect.anything());});
+it('does not recreate unchanged completed documents or email pending tasks',async()=>{previous.submittedDocuments=[{id:9,version:'2026-11-04T15:00:00.000Z'}];await runHiringNotifications();expect(m.queue).not.toHaveBeenCalled();task.status='pending';previous.submittedDocuments=[];await runHiringNotifications();expect(m.queue).not.toHaveBeenCalled();});

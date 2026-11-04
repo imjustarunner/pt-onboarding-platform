@@ -510,6 +510,7 @@ import {
 import { useDashboardLayout } from '../../composables/useDashboardLayout';
 import { useCommunicationsCountsStore } from '../../store/communicationsCounts';
 import api from '../../services/api';
+import { getStartupData } from '../../services/startupRequests';
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import FrequentPagesBar from '../../components/admin/FrequentPagesBar.vue';
 import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
@@ -1881,7 +1882,7 @@ const withTimeout = (promise, ms = 7000) =>
   ]);
 
 const safeGet = (url, config = {}, ms = 7000) =>
-  withTimeout(api.get(url, { ...config, skipGlobalLoading: true }), ms)
+  withTimeout(getStartupData(url, { ...config, skipGlobalLoading: true }), ms)
     .then((r) => r?.data ?? null)
     .catch(() => null);
 

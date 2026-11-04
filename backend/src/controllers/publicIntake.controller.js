@@ -195,6 +195,7 @@ import {
   sectionTitle
 } from '../services/schoolPacketSections.service.js';
 import { persistIntakeGuardianWaiversFromFinalize } from '../services/guardianWaivers.service.js';
+import {isClientUpdatePacket,resolveClientUpdatePacketBinding,assertClientUpdateSubmissionContext} from '../services/clientUpdate.service.js';
 import { persistIntakeClinicianSummaries } from '../services/intakeClinicianSummary.service.js';
 import { scheduleIntakePacketBootstraps } from '../services/intakePacketBootstrap.service.js';
 
@@ -842,6 +843,7 @@ const parseLinkIntakeSteps = (link) => {
 
 /** Smart registration, or standard intake that includes a Registration step (full paperwork + event enrollment). */
 const linkSupportsPublicRegistrationFeatures = (link) => {
+  if(isClientUpdatePacket(link))return false;
   const ft = String(link?.form_type || '').trim().toLowerCase();
   if (ft === 'smart_registration') return true;
   if (ft !== 'intake') return false;
@@ -2217,7 +2219,7 @@ const PER_PAGE_TTL_MS = 0;
 
 /** School or office full enrollment packets (not job/medical/registration/ROI/etc.). */
 const isEnrollmentReminderLink = (link) => {
-  if (!link) return false;
+  if (!link || isClientUpdatePacket(link)) return false;
   const formType = String(link.form_type || 'intake').trim().toLowerCase();
   if (isNonClientIntakeFormType(formType)) return false;
   const scope = String(link.scope_type || '').toLowerCase();
@@ -3086,6 +3088,10 @@ const resolvePublicIntakeContext = async (publicKey) => {
   if (!key) return { link: null, issuedRoiLink: null, boundClient: null };
   const directLink = await IntakeLink.findByPublicKey(key);
   if (directLink) {
+    // Saved update keys are authoritative even if a link marker was edited.
+    // Check before enrollment masters, invitations or roster paths can run.
+    const updateBinding=await resolveClientUpdatePacketBinding(directLink);
+    if(updateBinding)return {link:directLink,issuedRoiLink:null,boundClient:await Client.findById(updateBinding.attachClientId,{includeSensitive:true})};
     let boundClient = null;
     // Client Renewal disclosure/packet links should bind the existing client (no new enrollment).
     try {
@@ -3646,6 +3652,9 @@ async function computePublicIntakeClientMatch({ link, intakeData = null, payload
  * - Or consent-time single match (registration_client_match === 'existing') from computePublicIntakeClientMatch.
  */
 async function resolveIntakeExistingClientAttach({ link, intakeData, payload, submission }) {
+  const {resolveClientUpdatePacketBinding}=await import('../services/clientUpdate.service.js');
+  const clientUpdateBinding=await resolveClientUpdatePacketBinding(link);
+  if(clientUpdateBinding)return clientUpdateBinding;
   const empty = {
     attachClientId: null,
     attachSource: null,
@@ -5717,6 +5726,7 @@ const hydrateEmptyOfficeQuestionnaireSteps = (steps, link = null) => (
 );
 
 const applyOfficeMasterReadOnly = async (link, agency) => {
+  if(isClientUpdatePacket(link))return link;
   if (
     String(link?.scope_type || '').toLowerCase() !== 'agency'
     || String(link?.form_type || 'intake').toLowerCase() !== 'intake'
@@ -5777,6 +5787,7 @@ const applyOfficeMasterReadOnly = async (link, agency) => {
 };
 
 const applyChannelMasterReadOnly = async (link, agency) => {
+  if(isClientUpdatePacket(link))return link;
   const channel = String(link?.master_channel || '').toLowerCase();
   const formType = String(link?.form_type || 'intake').toLowerCase();
   const tutoringByTerm = formType === 'assessment' || formType === 'evaluation';
@@ -6024,6 +6035,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
     if (
       String(link.scope_type || '').toLowerCase() === 'school'
       && String(link.form_type || 'intake').toLowerCase() === 'intake'
+      && !isClientUpdatePacket(link)
       && !isSmartDisclosureForm(link)
       && !isSmartSchoolRoiForm(link)
       && !isNonClientIntakeFormType(link.form_type)
@@ -6090,7 +6102,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
       : null;
     // Hogwarts rollout: strip static disclosure PDF document steps and ensure a
     // programmed smart_disclosure step exists on the public payload.
-    if (organization && String(organization.organization_type || '').toLowerCase() === 'school') {
+    if (!isClientUpdatePacket(link) && organization && String(organization.organization_type || '').toLowerCase() === 'school') {
       const { isSmartDisclosureDemoSchool } = await import('../services/smartDisclosure.service.js');
       if (isSmartDisclosureDemoSchool(organization)) {
         const disclosureTemplateIds = new Set(
@@ -6594,6 +6606,7 @@ export const createPublicIntakeSession = async (req, res, next) => {
     if (!link.is_active && !issuedRoiLink) {
       return res.status(404).json({ error: { message: 'This link is no longer active. Please contact the school for a new link.' } });
     }
+    await assertClientUpdateSubmissionContext(link,{coGuardianToken:req.body?.coGuardianToken});
     const coGuardianBinding = req.body?.coGuardianToken ? await CoGuardianInvite.resolveCoGuardianIntakeBinding(req.body.coGuardianToken, {
       agencyId: await resolveAgencyIdForLink(link), publicKey
     }) : null;
@@ -6888,6 +6901,7 @@ const loadProgressSubmission = async (publicKey, sessionToken) => {
   if (!submission || submission.intake_link_id !== link.id) {
     return { error: { status: 404, message: 'Intake session not found' } };
   }
+  await assertClientUpdateSubmissionContext(link,{coGuardianInviteId:submission.co_guardian_invite_id});
   if (isSubmissionExpired(submission)) {
     await deleteSubmissionData(submission.id);
     return { error: { status: 410, message: 'This return link has expired. Please start a new intake.' } };
@@ -6966,6 +6980,7 @@ export const getPublicIntakeProgress = async (req, res, next) => {
       return res.status(loaded.error.status).json({ error: { message: loaded.error.message } });
     }
     const { submission, link } = loaded;
+    await assertClientUpdateSubmissionContext(link,{coGuardianToken:req.query?.coGuardianToken,coGuardianInviteId:submission.co_guardian_invite_id});
     let coGuardianInvite = null;
     // Do not restore an ordinary/first-parent draft into a second-parent URL,
     // even if a shared browser accidentally combines two otherwise valid links.
@@ -7028,6 +7043,7 @@ export const createPublicConsent = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'This link is no longer active. Please contact the school for a new link.' } });
     }
 
+    await assertClientUpdateSubmissionContext(link,{coGuardianToken:req.body?.coGuardianToken});
     let coGuardianBinding = req.body?.coGuardianToken ? await CoGuardianInvite.resolveCoGuardianIntakeBinding(req.body.coGuardianToken, {
       agencyId: await resolveAgencyIdForLink(link), publicKey
     }) : null;
@@ -7058,6 +7074,7 @@ export const createPublicConsent = async (req, res, next) => {
     const sessionToken = String(req.body?.sessionToken || '').trim();
     let submission = sessionToken ? await IntakeSubmission.findBySessionToken(sessionToken) : null;
     if (submission) {
+      await assertClientUpdateSubmissionContext(link,{coGuardianToken:req.body?.coGuardianToken,coGuardianInviteId:submission.co_guardian_invite_id});
       assertPortalEnrollmentIdentity(submission, req.body, sessionToken);
       if (Number(submission.intake_link_id) !== Number(link.id)) return res.status(403).json({ error: { message: 'This session belongs to a different enrollment packet.' } });
       if (!req.body?.coGuardianToken && submission.co_guardian_invite_id) {
@@ -7797,7 +7814,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'This link is no longer active. Please contact the school for a new link.' } });
     }
     try {
-      if (String(link.scope_type || '').toLowerCase() === 'school' && String(link.form_type || 'intake').toLowerCase() === 'intake') {
+      if (!isClientUpdatePacket(link) && String(link.scope_type || '').toLowerCase() === 'school' && String(link.form_type || 'intake').toLowerCase() === 'intake') {
         const agencyIdForMaster = await AgencySchoolIntakeMaster.resolveParentAgencyIdForSchool(link.organization_id);
         if (agencyIdForMaster) {
           const masterLang = resolveRequestedMasterLanguage(
@@ -7849,6 +7866,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Submission not found' } });
     }
     const coGuardianToken = String(req.body?.coGuardianToken || '').trim();
+    await assertClientUpdateSubmissionContext(link,{coGuardianToken,coGuardianInviteId:submission.co_guardian_invite_id});
     assertPortalEnrollmentIdentity(submission, req.body, req.body?.sessionToken || req.headers?.['x-intake-session']);
     const coGuardianScope = { agencyId: (coGuardianToken || submission.co_guardian_invite_id) ? await resolveAgencyIdForLink(link) : null, publicKey };
     const resumeSessionToken = String(req.body?.sessionToken || req.headers['x-intake-session'] || '').trim();
@@ -9007,7 +9025,13 @@ export const finalizePublicIntake = async (req, res, next) => {
     if (link.create_client && !createdClients.length) {
       // Restore every saved sibling before retrying document generation.
       if (updatedSubmission.client_id) {
-        createdClients = await restoreSubmissionRoster(updatedSubmission, submittedChildCount(intakeData), await resolveAgencyIdForLink(link));
+        const {resolveClientUpdatePacketBinding}=await import('../services/clientUpdate.service.js');
+        const binding=await resolveClientUpdatePacketBinding(link);
+        if(binding) {
+          if(Number(binding.attachClientId)!==Number(updatedSubmission.client_id))throw Object.assign(new Error('The update client binding changed.'),{status:409});
+          const existing=await Client.findById(binding.attachClientId,{includeSensitive:true});
+          createdClients=existing?[existing]:[];
+        }else createdClients = await restoreSubmissionRoster(updatedSubmission, submittedChildCount(intakeData), await resolveAgencyIdForLink(link));
       }
       if (!createdClients.length) {
       const attachInfo = await resolveIntakeExistingClientAttach({
@@ -9052,7 +9076,7 @@ export const finalizePublicIntake = async (req, res, next) => {
           // submission. See DIGITAL_FORMS_INTAKE_CONTRACT.md §11.
           const submittedClients = Array.isArray(req.body?.clients) ? req.body.clients : [];
           let newSiblings = [];
-          if (submittedClients.length > 1 && attachInfo.attachSource !== 'client_renewal') {
+          if (submittedClients.length > 1 && !['client_renewal', 'client_update'].includes(attachInfo.attachSource)) {
             try {
               const siblingResult = await PublicIntakeClientService.createAdditionalSiblingClients({
                 link,
@@ -9093,12 +9117,14 @@ export const finalizePublicIntake = async (req, res, next) => {
             newGuardianCreated: ngCreated,
             newGuardianTemporaryPassword: ngpw,
             newGuardianPasswordlessLoginUrl: ngMagic
-          } = await PublicIntakeClientService.provisionGuardianForIntakeClients({
-            link,
-            agencyId: attachInfo.agencyIdResolved,
-            clients: allClientsForGuardian,
-            payload: req.body
-          });
+          } = attachInfo.attachSource === 'client_update'
+            ? { guardianUser: { id: attachInfo.guardianUserId }, newGuardianCreated: false }
+            : await PublicIntakeClientService.provisionGuardianForIntakeClients({
+                link,
+                agencyId: attachInfo.agencyIdResolved,
+                clients: allClientsForGuardian,
+                payload: req.body
+              });
           createdClients = allClientsForGuardian;
           newGuardianCreated = !!ngCreated;
           newGuardianTemporaryPassword = ngpw || null;
@@ -10473,7 +10499,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       const cid = Number(row?.client_id || 0);
       if (cid) persistClientIds.add(cid);
     }
-    for (const clientId of persistClientIds) {
+    for (const clientId of isClientUpdatePacket(link) ? [] : persistClientIds) {
       try {
         const guardianProfile = extractGuardianProfileFromPayload({
           payload: req.body || {},
@@ -10502,7 +10528,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       }
     }
 
-    try {
+    if (!isClientUpdatePacket(link)) try {
       const latestSub = await IntakeSubmission.findById(submissionId);
       const orderedClientIds = rawClients.map((c) => Number(c?.id || 0)).filter((id) => id > 0);
       await persistIntakeGuardianWaiversFromFinalize({
@@ -10596,6 +10622,7 @@ export const submitPublicIntake = async (req, res, next) => {
     if (!submission || submission.intake_link_id !== link.id) {
       return res.status(404).json({ error: { message: 'Submission not found' } });
     }
+    await assertClientUpdateSubmissionContext(link,{coGuardianToken:req.body?.coGuardianToken,coGuardianInviteId:submission.co_guardian_invite_id});
     CoGuardianInvite.assertCoGuardianSubmissionBinding(submission, null);
     assertPortalEnrollmentIdentity(submission, req.body, req.body?.sessionToken || req.headers?.['x-intake-session']);
     const billingSteps = (Array.isArray(link.intake_steps) ? link.intake_steps : []).some(step => ['insurance_info','payment_collection'].includes(step.type));
@@ -10766,7 +10793,7 @@ export const submitPublicIntake = async (req, res, next) => {
           // DIGITAL_FORMS_INTAKE_CONTRACT.md §11.
           const submittedClients = Array.isArray(req.body?.clients) ? req.body.clients : [];
           let newSiblings = [];
-          if (submittedClients.length > 1 && attachInfo.attachSource !== 'client_renewal') {
+          if (submittedClients.length > 1 && !['client_renewal', 'client_update'].includes(attachInfo.attachSource)) {
             try {
               const siblingResult = await PublicIntakeClientService.createAdditionalSiblingClients({
                 link,
@@ -10801,12 +10828,14 @@ export const submitPublicIntake = async (req, res, next) => {
             newGuardianCreated: ngCreated,
             newGuardianTemporaryPassword: ngpw,
             newGuardianPasswordlessLoginUrl: ngMagic
-          } = await PublicIntakeClientService.provisionGuardianForIntakeClients({
-            link,
-            agencyId: attachInfo.agencyIdResolved,
-            clients: allClientsForGuardian,
-            payload: req.body
-          });
+          } = attachInfo.attachSource === 'client_update'
+            ? { guardianUser: { id: attachInfo.guardianUserId }, newGuardianCreated: false }
+            : await PublicIntakeClientService.provisionGuardianForIntakeClients({
+                link,
+                agencyId: attachInfo.agencyIdResolved,
+                clients: allClientsForGuardian,
+                payload: req.body
+              });
           createdClients = allClientsForGuardian;
           newGuardianCreated = !!ngCreated;
           newGuardianTemporaryPassword = ngpw || null;
@@ -11887,7 +11916,7 @@ export const submitPublicIntake = async (req, res, next) => {
       const cid = Number(c?.id || 0);
       if (cid) persistClientIds.add(cid);
     }
-    for (const clientId of persistClientIds) {
+    for (const clientId of isClientUpdatePacket(link) ? [] : persistClientIds) {
       try {
         const guardianProfile = extractGuardianProfileFromPayload({
           payload: req.body || {},
@@ -11916,7 +11945,7 @@ export const submitPublicIntake = async (req, res, next) => {
       }
     }
 
-    try {
+    if (!isClientUpdatePacket(link)) try {
       const latestSub = await IntakeSubmission.findById(submissionId);
       const orderedClientIds = rawClients.map((c) => Number(c?.id || 0)).filter((id) => id > 0);
       await persistIntakeGuardianWaiversFromFinalize({
@@ -12681,7 +12710,7 @@ export const saveInsuranceCardPhotos = async (req, res, next) => {
 
 /** Persist the desired provider for care coordination; attach only a proven hold. */
 async function attachSubmittedProviderHold(link, intakeData, clients, submission, token) {
-  if (!allowsProviderPreference(link)) return;
+  if (isClientUpdatePacket(link) || !allowsProviderPreference(link)) return;
   const agencyId = await resolveAgencyIdForLink(link);
   const clientIds = clients?.length ? clients.map(client => client.id) : [submission?.client_id];
   const preference = intakeData?.responses?.submission?.requested_opening_preference;

@@ -3,6 +3,7 @@ import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { randomUUID, createHash } from 'node:crypto';
 import pool from '../config/database.js';
 import StorageService from './storage.service.js';
+import {queuePeopleOperationsSubmission} from './peopleOperationsSubmissionNotifications.service.js';
 
 export async function buildSignedReceipt({ title, body, signerName, signatureData, source = null, sourceName = 'original-document', documentAnnotations = [], signedAt = new Date().toISOString() }) {
   if (!/^data:image\/(png|jpeg);base64,/.test(String(signatureData || ''))) {
@@ -41,14 +42,16 @@ export async function savePrehireSignedReceipt({ userId, agencyId, itemKey, titl
   try {
     await db.beginTransaction();
     await db.execute('SELECT id FROM users WHERE id = ? FOR UPDATE', [userId]);
-    await db.execute(
+    const [document]=await db.execute(
       `INSERT INTO user_admin_docs (user_id, title, doc_type, note_text, storage_path, original_name, mime_type, created_by_user_id, is_legal_hold)
        VALUES (?, ?, ?, ?, ?, ?, 'application/pdf', ?, 1)`,
       [userId, title, docType, `Signed by ${signerName}. ${itemKey}`, saved.relativePath, fileName, userId]);
     await db.execute(
-      `INSERT INTO hiring_prehire_checklist_items (user_id, agency_id, item_key, title, instructions, completed_on)
-       VALUES (?, ?, ?, ?, ?, CURDATE()) ON DUPLICATE KEY UPDATE completed_on = COALESCE(completed_on, CURDATE())`,
-      [userId, agencyId, itemKey, title, `Signed copy retained: ${fileName}`]);
+      `INSERT INTO hiring_prehire_checklist_items (user_id, agency_id, item_key, title, instructions, completed_on, submission_admin_doc_id)
+       VALUES (?, ?, ?, ?, ?, CURDATE(), ?) ON DUPLICATE KEY UPDATE completed_on = COALESCE(completed_on, CURDATE()),
+       submission_admin_doc_id = IF(agency_id=VALUES(agency_id),VALUES(submission_admin_doc_id),submission_admin_doc_id)`,
+      [userId, agencyId, itemKey, title, `Signed copy retained: ${fileName}`, document.insertId]);
+    await queuePeopleOperationsSubmission({agencyId,userId,kind:'receipt',id:document.insertId},db);
     await db.commit();
   } catch (e) { await db.rollback(); throw e; }
   finally { db.release(); }
@@ -86,18 +89,22 @@ export async function savePrehireDocumentReceipt({ userId, agencyId, doc, recipi
     }
     const [[existing]] = await db.execute('SELECT completed_on FROM hiring_prehire_checklist_items WHERE user_id = ? AND agency_id = ? AND item_key = ?', [userId, agencyId, itemKey]);
     if (!existing?.completed_on) {
+      let receiptDocumentId;
       for (const [bytes, name, mime, title] of [
         [source, doc.fileName || 'document.pdf', doc.mimeType || 'application/pdf', doc.title],
         [receipt, 'receipt.pdf', 'application/pdf', `${doc.title} — receipt acknowledged`]
       ]) {
         const saved = await StorageService.saveAdminDoc(bytes, `prehire-receipt-${userId}-${randomUUID()}-${name.replace(/[^a-zA-Z0-9._-]/g, '_')}`, mime);
-        await db.execute(`INSERT INTO user_admin_docs (user_id, title, doc_type, note_text, storage_path, original_name, mime_type, created_by_user_id, is_legal_hold)
+        const [document]=await db.execute(`INSERT INTO user_admin_docs (user_id, title, doc_type, note_text, storage_path, original_name, mime_type, created_by_user_id, is_legal_hold)
           VALUES (?, ?, 'prehire_document_receipt', ?, ?, ?, ?, ?, 1)`,
           [userId, String(title).slice(0, 255), `Receipt acknowledged by ${recipientName} at ${acknowledgedAt}. ${itemKey}`, saved.relativePath, name, mime, userId]);
+        receiptDocumentId=document.insertId;
       }
-      await db.execute(`INSERT INTO hiring_prehire_checklist_items (user_id, agency_id, item_key, title, instructions, completed_on)
-        VALUES (?, ?, ?, ?, ?, CURDATE()) ON DUPLICATE KEY UPDATE completed_on = COALESCE(completed_on, CURDATE())`,
-        [userId, agencyId, itemKey, doc.title, `Receipt acknowledged at ${acknowledgedAt}; original file and receipt retained.`]);
+      await db.execute(`INSERT INTO hiring_prehire_checklist_items (user_id, agency_id, item_key, title, instructions, completed_on, submission_admin_doc_id)
+        VALUES (?, ?, ?, ?, ?, CURDATE(), ?) ON DUPLICATE KEY UPDATE completed_on = COALESCE(completed_on, CURDATE()),
+        submission_admin_doc_id = IF(agency_id=VALUES(agency_id),VALUES(submission_admin_doc_id),submission_admin_doc_id)`,
+        [userId, agencyId, itemKey, doc.title, `Receipt acknowledged at ${acknowledgedAt}; original file and receipt retained.`, receiptDocumentId]);
+      await queuePeopleOperationsSubmission({agencyId,userId,kind:'receipt',id:receiptDocumentId},db);
     }
     await db.commit();
   } catch (e) { await db.rollback(); throw e; } finally { db.release(); }

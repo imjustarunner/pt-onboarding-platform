@@ -4983,7 +4983,8 @@ async function loadProgramWorkspaceOrgs() {
   const aid = Number(agencyStore.currentAgency?.id || 0);
   if (!aid) return;
   try {
-    const res = await api.get('/availability/admin/skill-builders/options', {
+    const { getStartupData } = await import('./services/startupRequests');
+    const res = await getStartupData('/availability/admin/skill-builders/options', {
       params: { agencyId: aid },
       skipGlobalLoading: true
     });

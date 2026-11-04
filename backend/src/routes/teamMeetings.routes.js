@@ -1,3 +1,4 @@
+import { meetingDialInController } from '../controllers/meetingDialIn.controller.js';
 import { trainingRsvp,trainingCalendar,getTrainingRoster,createTraining,getTraining,updateTraining,trainingHand,uploadTrainingAsset,downloadTrainingAsset,deleteTrainingAsset,trainingLogs } from '../controllers/scheduledTraining.controller.js';
 import { getManualMeetingOptions, previewManualMeetingLog, createManualMeetingLog, resolveManualMeetingLog } from '../controllers/manualMeetingLog.controller.js';
 import { listMyMeetings, getMyMeeting, saveMyMeetingNote, retryMyMeetingSummary, getMyMeetingActivity } from '../controllers/myMeetings.controller.js';
@@ -59,6 +60,10 @@ router.get('/:eventId/admission-status', authenticateTeamMeetingOptional, getTea
 router.get('/:eventId/calendar.ics', downloadInterviewCalendar);
 
 router.use(authenticateTeamMeeting);
+const dialIn = meetingDialInController('team-meeting');
+router.get('/:eventId/dial-in', dialIn.details);
+router.post('/:eventId/dial-in/send', dialIn.send);
+router.post('/:eventId/dial-in/calls/:callId', dialIn.manage);
 router.get('/:eventId/interview-chat', getInterviewSharedChat);
 router.post('/:eventId/interview-chat', postInterviewSharedChat);
 router.get('/:eventId/interview-question', getInterviewQuestion);

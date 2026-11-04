@@ -204,6 +204,7 @@
           </button>
         </div>
       </header>
+      <MeetingDialInPanel v-if="!videoFullscreen && !showEmployeeLogin && resolvedEventId" meeting-type="team-meeting" :meeting-id="Number(resolvedEventId)" />
       <div
         class="join-session-layout"
         :class="{
@@ -634,6 +635,7 @@
 
 <script setup>
 import ScheduledTrainingPanel from '../../components/meetings/ScheduledTrainingPanel.vue';
+import MeetingDialInPanel from '../../components/meetings/MeetingDialInPanel.vue';
 import { ref, onMounted, onUnmounted, computed, watch, provide, nextTick, inject } from 'vue';
 import { meetingViewportKey } from '../../utils/meetingMiniMode';
 import { t } from '../../composables/useMeetingI18n.js';

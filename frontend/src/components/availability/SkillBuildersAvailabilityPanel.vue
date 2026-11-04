@@ -205,6 +205,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
+import { getStartupData } from '../../services/startupRequests';
 
 const props = defineProps({
   agencyId: { type: [Number, String, null], default: null },
@@ -331,7 +332,7 @@ const loadScopeOptions = async () => {
   try {
     scopeLoading.value = true;
     const requestAgencyId = normalizeId(selectedAgencyId.value || props.agencyId);
-    const res = await api.get('/availability/admin/skill-builders/options', {
+    const res = await getStartupData('/availability/admin/skill-builders/options', {
       params: requestAgencyId ? { agencyId: Number(requestAgencyId) } : {}
     });
     const nextAgencies = Array.isArray(res.data?.agencies) ? res.data.agencies : [];

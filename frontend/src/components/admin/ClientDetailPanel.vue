@@ -1083,12 +1083,14 @@
                   <button type="button" class="cdp-btn-soft" @click="goChartSub('phi')">
                     Upload document
                   </button>
+                  <button v-if="canEditAccount && ['super_admin','admin','support'].includes(authStore.user?.role)" type="button" class="cdp-btn-soft" @click="clientUpdateModalOpen = true">Request selected updates</button>
                 </div>
               </section>
             </aside>
           </div>
         </div>
 
+        <ClientUpdateModal :open="clientUpdateModalOpen" :client-id="client?.id" :agency-id="client?.agency_id" :client-name="client?.full_name || client?.initials || ''" :guardian-email="guardianIntakeEmail || ''" :guardian-name="guardianIntakeName || ''" @close="clientUpdateModalOpen = false" @sent="clientUpdateModalOpen = false" />
         <ClientRenewalPushModal
           :open="clientRenewalModalOpen"
           :client-id="client?.id"
@@ -2804,6 +2806,7 @@ import ClientPaymentFollowup from '../billing/ClientPaymentFollowup.vue';
 import ClientAccountSupport from '../billing/ClientAccountSupport.vue';
 import ClientSchoolRoiAccessTab from './ClientSchoolRoiAccessTab.vue';
 import ClientRenewalPushModal from './ClientRenewalPushModal.vue';
+import ClientUpdateModal from './ClientUpdateModal.vue';
 import ClientCommunicationsTab from './ClientCommunicationsTab.vue';
 import GuardianBillingTab from '../guardian/GuardianBillingTab.vue';
 import GuardianDemographicReview from './GuardianDemographicReview.vue';
@@ -3221,6 +3224,7 @@ const availableProviders = ref([]); // used by other tabs (e.g., assignments) an
 const skillsValue = ref(false);
 const editingOverview = ref(false);
 const clientRenewalModalOpen = ref(false);
+const clientUpdateModalOpen = ref(false);
 const clientDisclosureStatus = ref('');
 
 const clientRenewalAgencyLabel = computed(() => {

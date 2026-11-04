@@ -1,3 +1,4 @@
+import { optionalMeetingDialIn } from './meetingDialInDelivery.service.js';
 import { emailActionButton } from '../utils/emailActionButton.js';
 import { supervisionDisplayTitle } from '../utils/supervisionDisplayTitle.js';
 import { createHash } from 'node:crypto';
@@ -198,7 +199,7 @@ export async function sendDueMeetingInvitations() {
         await db.execute("UPDATE meeting_email_invitations SET delivery_status='cancelled' WHERE id=?",[invitation.id]);
         continue;
       }
-      const content = meetingInvitationContent({events,joinUrl,recipientUserId:invitation.user_id,
+      const content = meetingInvitationContent({events,joinUrl,dialIn:await optionalMeetingDialIn(events[0],invitation.user_id),recipientUserId:invitation.user_id,
         recipientRsvp:preference?.rsvp,recipientRequired:Number(preference?.is_required ?? 1)===1,
         hostName:[host?.first_name,host?.last_name].filter(Boolean).join(' '),participants,details:await meetingEmailDetails(events[0])});
       const result = (invitation.meeting_type === 'supervision' || events[0].kind==='HUDDLE')

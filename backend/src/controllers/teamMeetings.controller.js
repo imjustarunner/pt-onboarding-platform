@@ -1,3 +1,6 @@
+import { dialInConfigured } from '../services/meetingDialInPolicy.js';
+import { createOrGetMeetingRoom } from '../services/video.service.js';
+import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { isJacquelyneHuddle, JACQUELYNE_TIME_START } from '../utils/jacquelyneTimePolicy.js';
 import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 import { teamMeetingSpeakerNames } from '../services/meetingSpeakerNames.service.js';
@@ -427,9 +430,10 @@ async function buildTeamMeetingHostStatus(row) {
          AND (
            join_identity = ?
            OR join_identity = CAST(? AS CHAR)
+           OR join_identity = ?
          )
        LIMIT 1`,
-      [eid, `user-${hostId}`, hostId]
+      [eid, `user-${hostId}`, hostId, `dial-${hostId}`]
     );
     hostPresent = !!(rows?.length);
   } catch {
@@ -518,7 +522,7 @@ function normalizeJoinIdentity(raw, { userId = null } = {}) {
 
 function userIdFromJoinIdentity(raw) {
   const identity = normalizeJoinIdentity(raw);
-  const m = String(identity || '').match(/^user-(\d+)$/);
+  const m = String(identity || '').match(/^(?:user|dial)-(\d+)$/);
   return m ? Number(m[1]) : null;
 }
 
@@ -552,6 +556,7 @@ async function listWaitingLobbyPresence(eventId, {
              AND (
                a.join_identity = p.join_identity
                OR (a.user_id IS NOT NULL AND CONCAT('user-', a.user_id) = p.join_identity)
+               OR (a.user_id IS NOT NULL AND CONCAT('dial-', a.user_id) = p.join_identity)
                OR (a.user_id IS NOT NULL AND CAST(a.user_id AS CHAR) = p.join_identity)
              )
          )
@@ -827,7 +832,7 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
       roomName = row.twilio_room_unique_name || (kindNorm === 'HUDDLE' ? `huddle-${eventId}` : `team-meeting-${eventId}`);
       vonageSessionId = String(row.twilio_room_sid || '').trim() || null;
       if (!vonageSessionId) {
-        const roomResult = await createOrGetRoomByUniqueName(roomName);
+        const roomResult = await (dialInConfigured() ? createOrGetMeetingRoom('team-meeting', eventId, roomName) : createOrGetRoomByUniqueName(roomName));
         vonageSessionId = roomResult?.sid || roomResult?.roomSid || null;
         if (vonageSessionId) {
           await ProviderScheduleEvent.setVideoRoom(eventId, {
@@ -1374,7 +1379,7 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
       || (kindNorm === 'HUDDLE' ? `huddle-${row.id}` : `team-meeting-${row.id}`);
     let vonageSessionId = String(row.twilio_room_sid || '').trim() || null;
     if (!vonageSessionId) {
-      const roomResult = await createOrGetRoomByUniqueName(roomName);
+      const roomResult = await (dialInConfigured() ? createOrGetMeetingRoom('team-meeting', eventId, roomName) : createOrGetRoomByUniqueName(roomName));
       vonageSessionId = roomResult?.sid || roomResult?.roomSid || null;
       if (vonageSessionId) {
         await ProviderScheduleEvent.setVideoRoom(row.id, {
@@ -2661,7 +2666,10 @@ async function secureTeamTranscriptionContext(req) {
     throw Object.assign(new Error('Meeting not found or access denied.'),{status:403});
   }
   requireSessionPrivacyConfiguration();
-  if (eventMeetingSettings(event)?.transcription === false || event.meeting_completed_at || String(event.status).toUpperCase()==='CANCELLED') {
+  const finalPhoneCapture = Number.isFinite(req.dialInFinalCaptureAt) && event.meeting_completed_at
+    && req.dialInFinalCaptureAt <= parseUtcDate(event.meeting_completed_at).getTime()
+    && Date.now() - parseUtcDate(event.meeting_completed_at).getTime() < 120000;
+  if (eventMeetingSettings(event)?.transcription === false || (event.meeting_completed_at && !finalPhoneCapture) || String(event.status).toUpperCase()==='CANCELLED') {
     throw Object.assign(new Error('Transcription is unavailable for this meeting.'),{status:409});
   }
   await ProviderScheduleEventArtifact.ensureTagged({eventId});
@@ -2690,9 +2698,16 @@ export const appendTeamMeetingAudio = async(req,res,next) => {
     const text=String(await transcribeLongAudio({buffer:req.file.buffer,mimeType:req.file.mimetype,languageCode:'en-US'})).trim();
     ensure((await secureTeamTranscriptionContext(req)).state);
     const speaker = await User.findById(applicant ? applicant.interview.candidate_user_id : req.user.id);
-    const name = `${displayNameFromUser(speaker) || 'Participant'}${applicant ? ' · Applicant' : ''}`;
+    const name = `${displayNameFromUser(speaker) || 'Participant'}${applicant ? ' · Applicant' : req.dialInFinalCaptureAt ? ' · Phone' : ''}`;
     if(text)await ProviderScheduleEventArtifact.appendTranscriptChunk({eventId:event.id,
       text:`[${name}] ${text}`,updatedByUserId:applicant ? null : req.user.id,expectedRevision:revision});
     res.json({ok:true,saved:true});
   }catch(error){next(error);}
 };
+
+// Internal stream adapter: HTTP request bodies never populate the capture time.
+export function appendPhoneTeamMeetingAudio({ eventId, userId, buffer, revision, capturedAt }) {
+  return new Promise((resolve, reject) => appendTeamMeetingAudio({ params: { eventId }, user: { id: userId },
+    body: { revision }, file: { buffer, mimetype: 'audio/wav' }, dialInFinalCaptureAt: capturedAt },
+    { json: resolve, status: status => ({ json: () => reject(Object.assign(new Error('Phone audio was rejected.'), { status })) }) }, reject));
+}

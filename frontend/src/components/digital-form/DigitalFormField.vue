@@ -58,8 +58,19 @@
       @blur="$emit('blur')"
     />
 
+    <BirthDateInput
+      v-else-if="type === 'date'"
+      :id="inputId"
+      class="df-input"
+      :model-value="String(modelValue || '')"
+      :invalid="!!error"
+      :readonly="disabled"
+      @update:model-value="$emit('update:modelValue', $event)"
+      @blur="$emit('blur')"
+    />
+
     <input
-      v-else-if="type === 'text' || type === 'date' || type === 'number'"
+      v-else-if="type === 'text' || type === 'number'"
       :id="inputId"
       class="df-input"
       :type="type === 'text' ? 'text' : type"
@@ -136,6 +147,7 @@
 import { inject } from 'vue';
 const translateEnrollment = inject('enrollmentTranslate', text => text);
 import { computed } from 'vue';
+import BirthDateInput from '../public-intake/BirthDateInput.vue';
 import { formatUsPhoneInput, applyEmailDomainHint, POPULAR_EMAIL_DOMAINS } from '../../utils/contactInput.js';
 
 const props = defineProps({

@@ -3,7 +3,7 @@
  * Composes existing endpoints (no aggregator API).
  */
 import { getScheduleSummaryResponse } from '../utils/scheduleSummaryRequests';
-import { computed, ref, watch } from 'vue';
+import { computed, ref, reactive, watch, onScopeDispose } from 'vue';
 import api from '../services/api';
 import { buildRecentSubmissionActivityItems } from '../utils/submitSubmissionHistory';
 import { shouldShowOnProviderDashboardEvents, companyEventDisplayWindow } from '../utils/companyEventStaffing';
@@ -80,8 +80,13 @@ function fallCheckinSchoolFromTitle(title) {
  * @param {import('vue').Ref|import('vue').ComputedRef} [opts.supervisionPrompts] — optional parent-supplied prompts
  */
 export function useDashboardOverview(opts = {}) {
-  const loading = ref(false);
-  const error = ref('');
+  const sectionState = reactive(Object.fromEntries(['schedule', 'pay', 'activity', 'events']
+    .map(key => [key, { loading: true, error: '' }])));
+  const loading = computed(() => Object.values(sectionState).some(state => state.loading));
+  const error = computed(() => Object.values(sectionState).find(state => state.error)?.error || '');
+  let contextGeneration = 0;
+  const runs = {};
+  onScopeDispose(() => { contextGeneration++; });
   const summary = ref(null);
   const tier = ref(null);
   const scheduleSummary = ref(null);
@@ -270,7 +275,7 @@ export function useDashboardOverview(opts = {}) {
     const amounts = (recentPayAmounts.value || [])
       .map((n) => Number(n))
       .filter((n) => Number.isFinite(n) && n >= 0);
-    const lastFromSummary = Number(summary.value?.lastPaycheck?.totalPay);
+    const lastFromSummary = summary.value?.lastPaycheck?.totalPay == null ? NaN : Number(summary.value.lastPaycheck.totalPay);
     let series = amounts.slice(0, 10);
     if (!series.length && Number.isFinite(lastFromSummary)) {
       series = [lastFromSummary];
@@ -437,175 +442,101 @@ export function useDashboardOverview(opts = {}) {
     return '';
   });
 
-  const load = async () => {
-    const enabled = resolve(opts.enabled);
-    if (enabled === false) return;
+  const reset = () => {
+    summary.value = tier.value = scheduleSummary.value = null;
+    localCompanyEvents.value = notifications.value = recentPayAmounts.value = submissionActivityItems.value = [];
+    calendarEventsById.value = new Map();
+    unreadCount.value = taskCount.value = ticketCount.value = notesToSignCount.value = 0;
+  };
 
+  const load = async (onlySection = null) => {
+    if (resolve(opts.enabled) === false) return;
     const uid = Number(resolve(opts.userId) || 0);
     const aid = Number(resolve(opts.agencyId) || 0);
     if (!uid || !aid) return;
-
-    loading.value = true;
-    error.value = '';
-    try {
-      const weekStart = startOfWeekMondayYmd(new Date());
-      const hasParentEvents = Array.isArray(resolve(opts.companyEvents));
-      const includeSubmissionUpdates = resolve(opts.includeSubmissionUpdates) !== false;
-
-      const requests = [
-        api.get('/payroll/me/dashboard-summary', { params: { agencyId: aid }, skipGlobalLoading: true })
-          .then((r) => { summary.value = r.data || null; })
-          .catch(() => { summary.value = null; }),
-        api.get('/payroll/me/current-tier', { params: { agencyId: aid }, skipGlobalLoading: true })
-          .then((r) => {
-            const t = r.data?.tier || null;
-            tier.value = t
-              ? {
-                  label: String(t.label || '').trim(),
-                  status: String(t.status || '').trim().toLowerCase(),
-                  periodStart: r.data?.periodStart || null,
-                  periodEnd: r.data?.periodEnd || null
-                }
-              : null;
-          })
-          .catch(() => { tier.value = null; }),
-        getScheduleSummaryResponse(`/users/${uid}/schedule-summary`, {
-          params: { agencyId: aid, weekStart, includeAllAgencies: 1 },
-          skipGlobalLoading: true
-        })
-          .then((r) => { scheduleSummary.value = r.data || null; })
-          .catch(() => { scheduleSummary.value = null; }),
-        api.get('/notifications', {
-          params: { agencyId: aid, limit: 10 },
-          skipGlobalLoading: true
-        })
-          .then((r) => {
-            notifications.value = Array.isArray(r.data) ? r.data : [];
-          })
-          .catch(() => { notifications.value = []; }),
-        api.get('/notifications/counts', { skipGlobalLoading: true })
-          .then((r) => {
-            const counts = r.data || {};
-            unreadCount.value = Number(counts[aid] ?? Object.values(counts).reduce((s, n) => s + Number(n || 0), 0)) || 0;
-          })
-          .catch(() => { unreadCount.value = 0; }),
-        api.get('/tasks', { skipGlobalLoading: true })
-          .then((r) => {
-            const rows = Array.isArray(r.data) ? r.data : (r.data?.tasks || []);
-            taskCount.value = rows.filter((t) => {
-              const st = String(t.status || t.task_status || '').toLowerCase();
-              return !st || st === 'open' || st === 'pending' || st === 'in_progress';
-            }).length;
-          })
-          .catch(() => { taskCount.value = 0; }),
-        api.get('/support-tickets/mine', { skipGlobalLoading: true })
-          .then((r) => {
-            const rows = Array.isArray(r.data) ? r.data : (r.data?.tickets || []);
-            ticketCount.value = rows.filter((t) => String(t.status || '').toLowerCase() !== 'closed').length;
-          })
-          .catch(() => { ticketCount.value = 0; }),
-        api.get('/me/notes-to-sign/count', { skipGlobalLoading: true })
-          .then((r) => { notesToSignCount.value = Number(r.data?.count || 0) || 0; })
-          .catch(() => { notesToSignCount.value = 0; }),
-        api.get('/payroll/me/periods', { params: { agencyId: aid }, skipGlobalLoading: true })
-          .then((r) => {
-            // /me/periods already returns posted/finalized only (newest first).
-            const rows = Array.isArray(r.data) ? r.data : [];
-            recentPayAmounts.value = rows
-              .map((p) => Number(p.total_amount ?? p.totalPay ?? p.total_pay ?? 0))
-              .filter((n) => Number.isFinite(n))
-              .slice(0, 10);
-          })
-          .catch(() => { recentPayAmounts.value = []; })
-      ];
-
-      if (includeSubmissionUpdates) {
-        requests.push(
-          Promise.all([
-            api.get('/payroll/me/time-claims', { params: { agencyId: aid }, skipGlobalLoading: true })
-              .then((r) => (Array.isArray(r.data) ? r.data : []))
-              .catch(() => []),
-            api.get('/payroll/me/mileage-claims', { params: { agencyId: aid }, skipGlobalLoading: true })
-              .then((r) => (Array.isArray(r.data) ? r.data : []))
-              .catch(() => []),
-            api.get('/payroll/me/pto-requests', { params: { agencyId: aid }, skipGlobalLoading: true })
-              .then((r) => (Array.isArray(r.data) ? r.data : []))
-              .catch(() => []),
-            api.get('/payroll/me/reimbursement-claims', { params: { agencyId: aid }, skipGlobalLoading: true })
-              .then((r) => (Array.isArray(r.data) ? r.data : []))
-              .catch(() => []),
-            api.get('/payroll/me/company-card-expenses', { params: { agencyId: aid }, skipGlobalLoading: true })
-              .then((r) => (Array.isArray(r.data) ? r.data : []))
-              .catch(() => []),
-            api.get('/payroll/me/medcancel-claims', { params: { agencyId: aid }, skipGlobalLoading: true })
-              .then((r) => (Array.isArray(r.data) ? r.data : []))
-              .catch(() => []),
-          ]).then(([timeClaims, mileageClaims, ptoRequests, reimbursementClaims, companyCardExpenses, medcancelClaims]) => {
-            submissionActivityItems.value = buildRecentSubmissionActivityItems({
-              timeClaims,
-              mileageClaims,
-              ptoRequests,
-              reimbursementClaims,
-              companyCardExpenses,
-              medcancelClaims,
-              limit: 6,
-            });
-          }).catch(() => { submissionActivityItems.value = []; })
-        );
-      } else {
-        submissionActivityItems.value = [];
+    const generation = contextGeneration;
+    const config = { timeout: 12000, skipGlobalLoading: true };
+    const get = (url, params) => api.get(url, { ...config, ...(params ? { params } : {}) }).then(r => r.data);
+    const list = data => Array.isArray(data) ? data : [];
+    const scoped = { agencyId: aid };
+    const groups = {
+      schedule: async (apply) => {
+        const { data } = await getScheduleSummaryResponse(`/users/${uid}/schedule-summary`, {
+          ...config, params: { agencyId: aid, weekStart: startOfWeekMondayYmd(), includeAllAgencies: 1 }
+        });
+        apply(() => { scheduleSummary.value = data || {}; });
+      },
+      pay: async (apply) => {
+        const [pay, currentTier, periods] = await Promise.all([
+          get('/payroll/me/dashboard-summary', scoped), get('/payroll/me/current-tier', scoped), get('/payroll/me/periods', scoped)
+        ]);
+        apply(() => {
+          summary.value = pay || null;
+          const t = currentTier?.tier;
+          tier.value = t ? { label: String(t.label || '').trim(), status: String(t.status || '').toLowerCase(),
+            periodStart: currentTier.periodStart, periodEnd: currentTier.periodEnd } : null;
+          recentPayAmounts.value = list(periods).map(p => Number(p.total_amount ?? p.totalPay ?? p.total_pay ?? 0))
+            .filter(Number.isFinite).slice(0, 10);
+        });
+      },
+      activity: async (apply) => {
+        const submissions = resolve(opts.includeSubmissionUpdates) !== false
+          ? Promise.all(['time-claims', 'mileage-claims', 'pto-requests', 'reimbursement-claims', 'company-card-expenses', 'medcancel-claims']
+            .map(path => get(`/payroll/me/${path}`, scoped).then(list))) : Promise.resolve(null);
+        const [notices, counts, tasks, tickets, notes, claims] = await Promise.all([
+          get('/notifications', { agencyId: aid, limit: 10 }), get('/notifications/counts'),
+          get('/tasks'), get('/support-tickets/mine'), get('/me/notes-to-sign/count'), submissions
+        ]);
+        apply(() => {
+          notifications.value = list(notices);
+          unreadCount.value = Number(counts?.[aid] ?? 0) || 0;
+          taskCount.value = list(tasks?.tasks || tasks).filter(t =>
+            ['', 'open', 'pending', 'in_progress'].includes(String(t.status || t.task_status || '').toLowerCase())).length;
+          ticketCount.value = list(tickets?.tickets || tickets).filter(t => String(t.status || '').toLowerCase() !== 'closed').length;
+          notesToSignCount.value = Number(notes?.count || 0);
+          if (claims) {
+            const [timeClaims, mileageClaims, ptoRequests, reimbursementClaims, companyCardExpenses, medcancelClaims] = claims;
+            submissionActivityItems.value = buildRecentSubmissionActivityItems({ timeClaims, mileageClaims, ptoRequests,
+              reimbursementClaims, companyCardExpenses, medcancelClaims, limit: 6 });
+          }
+        });
+      },
+      events: async (apply) => {
+        const [events, calendar] = await Promise.all([
+          Array.isArray(resolve(opts.companyEvents)) ? null : get('/me/company-events'), get('/me/company-events/calendar')
+        ]);
+        apply(() => {
+          localCompanyEvents.value = list(events).slice().sort((a, b) =>
+            new Date(a.nextOccurrenceStart || a.startsAt || 0) - new Date(b.nextOccurrenceStart || b.startsAt || 0)).slice(0, 20);
+          calendarEventsById.value = new Map(list(calendar).filter(row => Number(row.id)).map(row => [Number(row.id), row]));
+        });
       }
-
-      if (!hasParentEvents) {
-        requests.push(
-          api.get('/me/company-events', { skipGlobalLoading: true })
-            .then((r) => {
-              const rows = Array.isArray(r.data) ? r.data : [];
-              localCompanyEvents.value = rows
-                .slice()
-                .sort((a, b) => {
-                  const aTime = new Date(a?.nextOccurrenceStart || a?.startsAt || 0).getTime();
-                  const bTime = new Date(b?.nextOccurrenceStart || b?.startsAt || 0).getTime();
-                  return aTime - bTime;
-                })
-                .slice(0, 20);
-            })
-            .catch(() => { localCompanyEvents.value = []; })
-        );
-      }
-
-      requests.push(
-        api.get('/me/company-events/calendar', { skipGlobalLoading: true })
-          .then((r) => {
-            const rows = Array.isArray(r.data) ? r.data : [];
-            const map = new Map();
-            for (const row of rows) {
-              const id = Number(row?.id);
-              if (id) map.set(id, row);
-            }
-            calendarEventsById.value = map;
-          })
-          .catch(() => { calendarEventsById.value = new Map(); })
-      );
-
-      await Promise.all(requests);
-    } catch (e) {
-      error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load overview';
-    } finally {
-      loading.value = false;
-    }
+    };
+    // Schedule is dispatched first and each card settles independently. A retry
+    // refreshes only that card. Late replies from another tenant never paint here.
+    await Promise.all(Object.entries(groups).filter(([key]) => !onlySection || key === onlySection).map(async ([key, run]) => {
+      const runId = runs[key] = (runs[key] || 0) + 1;
+      const current = () => generation === contextGeneration && runs[key] === runId;
+      sectionState[key] = { loading: true, error: '' };
+      try { await run(update => { if (current()) update(); }); }
+      catch { if (current()) sectionState[key].error = 'This information could not be loaded. Please try again.'; }
+      finally { if (current()) sectionState[key].loading = false; }
+    }));
   };
 
   watch(
     () => [resolve(opts.userId), resolve(opts.agencyId), resolve(opts.enabled)],
-    ([uid, aid, en]) => {
-      if (en === false) return;
-      if (uid && aid) void load();
+    ([uid, aid, enabled]) => {
+      contextGeneration++;
+      reset();
+      for (const key of Object.keys(sectionState)) sectionState[key] = { loading: !!uid && !!aid && enabled !== false, error: '' };
+      if (uid && aid && enabled !== false) void load();
     },
     { immediate: true }
   );
 
   return {
+    sectionState,
     loading,
     error,
     summary,

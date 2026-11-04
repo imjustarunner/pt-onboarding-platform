@@ -1,0 +1,15 @@
+import {beforeEach,afterEach,expect,it,vi} from 'vitest';
+const m=vi.hoisted(()=>({execute:vi.fn(),contacts:vi.fn(),access:vi.fn(),queue:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
+vi.mock('../../config/clinicalDatabase.js',()=>({default:{}}));
+vi.mock('../../models/ClientGuardian.model.js',()=>({default:{listForClient:m.contacts}}));
+vi.mock('../assessmentDeliverable.service.js',()=>({assertClientCanViewOwnShared:m.access}));
+vi.mock('../safetyPlans/notificationQueue.js',()=>({queueClinicalFormNotification:m.queue}));
+import {queuePortalShareForClient,shareEventStillOpen} from '../portalShareNotice.service.js';
+const contact={guardian_user_id:8,is_active:1,access_enabled:1,role:'client_guardian',permissions_json:{}};
+beforeEach(()=>{vi.resetAllMocks();vi.stubEnv('CLIENT_UPDATE_WORKFLOWS_ENABLED','true');m.contacts.mockResolvedValue([contact]);m.access.mockResolvedValue({client_id:5,agency_id:2});m.execute.mockResolvedValue([{affectedRows:1}]);});
+afterEach(()=>vi.unstubAllEnvs());
+it('holds new share notifications before reads, queue writes or transport when rollout is off',async()=>{vi.stubEnv('CLIENT_UPDATE_WORKFLOWS_ENABLED','');expect(await queuePortalShareForClient({agencyId:2,clientId:5,kind:'deliverable',referenceId:12})).toMatchObject({queued:0,held:true});expect(await shareEventStillOpen({kind:'deliverable'})).toBe(false);expect(m.contacts).not.toHaveBeenCalled();expect(m.execute).not.toHaveBeenCalled();expect(m.queue).not.toHaveBeenCalled();});
+it('uses the existing coalescing queue only for current authorized portal document contacts',async()=>{m.contacts.mockResolvedValue([contact,{...contact,guardian_user_id:9,permissions_json:{noView:true}},{...contact,guardian_user_id:10,access_enabled:0}]);expect(await queuePortalShareForClient({agencyId:2,clientId:5,kind:'deliverable',referenceId:12,href:'/safe/report'})).toEqual({queued:1});expect(m.access).toHaveBeenCalledTimes(1);expect(m.queue).toHaveBeenCalledTimes(1);expect(m.execute.mock.calls[0][1]).toMatchObject([2,5,8,'deliverable',null,'12',expect.any(String)]);});
+it('does not queue for revoked clinical-document authority or a different client agency',async()=>{m.access.mockRejectedValueOnce(Object.assign(new Error('Access revoked'),{status:403}));expect(await queuePortalShareForClient({agencyId:2,clientId:5,kind:'assessment',referenceId:12})).toEqual({queued:0});m.access.mockResolvedValue({client_id:5,agency_id:99});expect(await queuePortalShareForClient({agencyId:2,clientId:5,kind:'assessment',referenceId:12})).toEqual({queued:0});expect(m.execute).not.toHaveBeenCalled();});
+it('rechecks the exact client and agency binding when a report is shared or unshared',async()=>{m.execute.mockResolvedValue([[{id:12}]]);expect(await shareEventStillOpen({kind:'deliverable',reference_id:12,agency_id:2,client_id:5})).toBe(true);expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('AND client_id=?'),[12,2,5]);m.execute.mockResolvedValue([[]]);expect(await shareEventStillOpen({kind:'deliverable',reference_id:12,agency_id:2,client_id:5})).toBe(false);});

@@ -1,4 +1,4 @@
-import {beforeEach,describe,it,expect,vi} from 'vitest';
+import {beforeEach,afterEach,describe,it,expect,vi} from 'vitest';
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../safetyPlans/access.js',()=>({recipientAccess:vi.fn()}));
@@ -8,6 +8,10 @@ vi.mock('../guardianAppointments.service.js',()=>({guardianReminderPreferences:v
 vi.mock('../../models/ClientGuardian.model.js',()=>({default:{listForClient:vi.fn()}}));
 vi.mock('../smsCompliance.service.js',()=>({resolveRegisteredSmsSender:vi.fn()}));
 vi.mock('../vonage.service.js',()=>({default:{sendSms:vi.fn()}}));
+vi.mock('../portalShareNotice.service.js',()=>({shareEventStillOpen:vi.fn()}));
+vi.mock('../clientUpdate.service.js',()=>({currentClientUpdateRecipient:vi.fn()}));
+vi.mock('../familyNotificationChoices.service.js',()=>({familyNotificationDeliveryGate:vi.fn()}));
+vi.mock('../clientPortalEmail.service.js',()=>({clientEmailContext:vi.fn(),sendClientPortalEmail:vi.fn()}));
 import main from '../../config/database.js';
 import {recipientAccess} from '../safetyPlans/access.js';
 import {ensureTenantFormsMailbox} from '../tenantMessageMailboxes.service.js';
@@ -16,6 +20,10 @@ import {guardianReminderPreferences} from '../guardianAppointments.service.js';
 import ClientGuardian from '../../models/ClientGuardian.model.js';
 import {resolveRegisteredSmsSender} from '../smsCompliance.service.js';
 import Vonage from '../vonage.service.js';
+import {shareEventStillOpen} from '../portalShareNotice.service.js';
+import {currentClientUpdateRecipient} from '../clientUpdate.service.js';
+import {familyNotificationDeliveryGate} from '../familyNotificationChoices.service.js';
+import {clientEmailContext,sendClientPortalEmail} from '../clientPortalEmail.service.js';
 import {createClinicalFormNotifier,clinicalPortalNotice} from '../safetyPlans/notifications.js';
 import {queueClinicalFormNotification} from '../safetyPlans/notificationQueue.js';
 let batches,db;
@@ -42,6 +50,7 @@ beforeEach(()=>{
  resolveRegisteredSmsSender.mockResolvedValue('+13035550124');
  Vonage.sendSms.mockResolvedValue({sid:'sms-1'});
 });
+afterEach(()=>vi.unstubAllEnvs());
 describe('grouped clinical portal notifications',()=>{
  it('sends co-branded email through the forms identity with support replies and consent-checked SMS',async()=>{
   await createClinicalFormNotifier({db})();
@@ -71,4 +80,17 @@ describe('grouped clinical portal notifications',()=>{
  it('escapes branding and uses generic notification wording',()=>{
   const notice=clinicalPortalNotice({agencyName:'A <script> & B',portalUrl:'https://example.test/portal'});expect(notice.html).not.toContain('<script>');expect(notice.html).toContain('A &lt;script&gt; &amp; B');expect(notice.text).toContain('AuricWell');expect(notice.subject).not.toMatch(/safety|suicide|screening|ROI/i);
  });
+});
+
+it('selects an email-eligible child in a shared batch when another child declined document notices',async()=>{
+ vi.stubEnv('CLIENT_UPDATE_WORKFLOWS_ENABLED','true');
+ const execute=db.execute.getMockImplementation();db.execute.mockImplementation(async(sql,p)=>sql.startsWith('SELECT p.*')?[[]]:execute(sql,p));
+ main.execute.mockImplementation(async sql=>sql.includes('FROM client_portal_share_events')?[[{id:1,kind:'deliverable',client_id:41,agency_id:2,reference_id:101},{id:2,kind:'deliverable',client_id:42,agency_id:2,reference_id:102}]]:sql.includes('FROM users')?[[{email:'example@example.test'}]]:[[{name:'Synthetic agency',slug:'synthetic'}]]);
+ shareEventStillOpen.mockResolvedValue(true);currentClientUpdateRecipient.mockResolvedValue({});
+ familyNotificationDeliveryGate.mockImplementation(async input=>({allowed:Number(input.clientId)===42}));
+ clientEmailContext.mockResolvedValue({url:path=>`https://example.test/synthetic/${path}`});sendClientPortalEmail.mockResolvedValue({id:'synthetic-share-email'});
+ await createClinicalFormNotifier({db})();
+ expect(sendClientPortalEmail).toHaveBeenCalledOnce();expect(sendClientPortalEmail).toHaveBeenCalledWith(expect.objectContaining({clientId:42,templateType:'client_portal_share',linkUrl:'https://example.test/synthetic/guardian?panel=documents&clientId=42'}));
+ expect(familyNotificationDeliveryGate).toHaveBeenCalledWith(expect.objectContaining({clientId:41}));expect(familyNotificationDeliveryGate).toHaveBeenCalledWith(expect.objectContaining({clientId:42}));
+ expect(Vonage.sendSms).not.toHaveBeenCalled();
 });

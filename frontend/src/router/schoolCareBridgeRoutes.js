@@ -8,3 +8,12 @@ export const schoolCareBridgeRoutes = [
   { path: '/schoolcarebridge/app/partners/:partnerSlug/tasks/documents/:taskId/sign', name: 'SchoolCareBridgePartnerDocumentSigning', component: () => import('../views/DocumentSigningView.vue'), meta: { requiresAuth: true, requiresCapability: 'canSignDocuments', hideNav: true } },
   { path: '/schoolcarebridge/app/:organizationSlug', name: 'SchoolCareBridgeSchool', component: () => import('../views/school/SchoolCareBridgeEntryView.vue'), meta: { schoolCareBridgeEntry: true, organizationSlug: true } }
 ];
+
+// Aliases retain each workflow's identity, role guards and component.
+const workflowAliases = new Set(['OrganizationResetPassword', 'OrganizationChangePassword', 'OrganizationSchoolProviderProfile', 'OrganizationDocumentSigning', 'OrganizationDocumentReview', 'OrganizationDocumentPrint', 'OrganizationSchoolReinitPublic', 'OrganizationSchoolOverviewDashboard']);
+export function addSchoolCareBridgeWorkflowAliases(routes) {
+  for (const route of routes) {
+    if (!workflowAliases.has(route.name)) continue;
+    route.alias = [...(Array.isArray(route.alias) ? route.alias : route.alias ? [route.alias] : []), route.path.replace('/:organizationSlug', '/schoolcarebridge/app/:organizationSlug')];
+  }
+}

@@ -1907,6 +1907,8 @@
               @join="startTrackedSupvMeet"
             />
             <AppointmentStaffTools v-if="Number(editorAppointmentId || 0) > 0" :appointment-id="Number(editorAppointmentId)" />
+            <MeetingDialInPanel v-if="editorIsMeeting && Number(scheduleEventEditId || 0) && editorWorkspaceTab === 'info'" meeting-type="team-meeting" :meeting-id="Number(scheduleEventEditId)" />
+            <MeetingDialInPanel v-if="editorIsSupervision && Number(selectedSupvSessionId || 0) && editorWorkspaceTab === 'info'" meeting-type="supervision" :meeting-id="Number(selectedSupvSessionId)" />
             <MeetingParticipantsDetails v-if="editorIsMeeting && Number(scheduleEventEditId || 0)" :event-id="scheduleEventEditId" />
             <aside
               v-if="showSupervisionAgendaWorkspace"
@@ -5894,6 +5896,7 @@ import {
 import OfficeWeeklyRoomGrid from './OfficeWeeklyRoomGrid.vue';
 import OfficeRoomPhotoButton from './OfficeRoomPhotoButton.vue';
 import OfficeRoomPhotoGalleryModal from './OfficeRoomPhotoGalleryModal.vue';
+import MeetingDialInPanel from '../meetings/MeetingDialInPanel.vue';
 import MeetingParticipantsDetails from '../meetings/MeetingParticipantsDetails.vue';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
 import SupervisionLiveRoom from '../supervision/SupervisionLiveRoom.vue';

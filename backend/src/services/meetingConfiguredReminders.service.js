@@ -1,3 +1,4 @@
+import { optionalMeetingDialIn } from './meetingDialInDelivery.service.js';
 import { resolveMeetingRecipient } from './meetingRecipientIdentity.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { meetingReplyTo, meetingParticipantRows, meetingEmailDetails } from './meetingParticipants.service.js';
@@ -25,7 +26,7 @@ export async function sendConfiguredMeetingReminders(now=new Date()) {
         const [locks]=await db.execute('SELECT GET_LOCK(?,0) acquired',[lock]);acquired=!!locks[0]?.acquired;if(!acquired)continue;
         const params=[event.id,user.id,reminder.key,event.start_at];const [sent]=await db.execute('SELECT 1 FROM meeting_reminder_deliveries WHERE event_id=? AND user_id=? AND reminder_key=? AND start_at=?',params);if(sent.length)continue;
         const finalOptionalReminder=event.meeting_subtype==='training' && Number(user.is_required)===0 && user.training_rsvp!=='accepted' && reminder.key==='4320';
-        const invite=user.guest_join_token ? {url:`${await tenantMeetingBase(event.agency_id)}/join/team-meeting/${user.guest_join_token}`} : await personalMeetingInvitation(event,user.id);const content=meetingInvitationContent({events:[event],recipientUserId:user.id,recipientRsvp:user.training_rsvp,recipientRequired:Number(user.is_required ?? 1)===1,finalOptionalReminder,joinUrl:invite.url,guest:!!user.guest_join_token,hostName:[host?.first_name,host?.last_name].filter(Boolean).join(' '),participants:await meetingParticipantRows(event,{resolveEmails:event.meeting_subtype!=='training'}),details:await meetingEmailDetails(event)});
+        const invite=user.guest_join_token ? {url:`${await tenantMeetingBase(event.agency_id)}/join/team-meeting/${user.guest_join_token}`} : await personalMeetingInvitation(event,user.id);const content=meetingInvitationContent({events:[event],dialIn:user.guest_join_token?null:await optionalMeetingDialIn(event,user.id),recipientUserId:user.id,recipientRsvp:user.training_rsvp,recipientRequired:Number(user.is_required ?? 1)===1,finalOptionalReminder,joinUrl:invite.url,guest:!!user.guest_join_token,hostName:[host?.first_name,host?.last_name].filter(Boolean).join(' '),participants:await meetingParticipantRows(event,{resolveEmails:event.meeting_subtype!=='training'}),details:await meetingEmailDetails(event)});
         const recipientIdentity=await resolveMeetingRecipient({agencyId:event.agency_id,user,guest:!!user.guest_join_token});
         const result=user.guest_join_token
           ? await sendHiringInterviewReminder(event,user)

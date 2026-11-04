@@ -25,6 +25,7 @@
       <p v-if="onboardingRequired && activePanel !== 'onboarding'" class="onboarding-prompt" role="status"><span class="onboarding-dot" aria-hidden="true"></span><span>Please complete onboarding for <strong>{{ profileLabel(selectedChild) }}</strong> so your new portal is accurate.</span><button type="button" @click="navigatePortal('onboarding')">Continue onboarding</button></p>
       <p v-if="onboardingBillingNotice" class="onboarding-billing-notice" role="status">Please complete the available onboarding steps before opening billing. Payment setup is included below.</p>
       <PortalMigrationChecklist :profiles="allFamilyProfiles" v-if="!isSuperadminPreview && selectedChildId" v-show="activePanel === 'onboarding'" :key="`${selectedChildAgencyId}:${selectedChildId}`" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :client-type="selectedChildClientType" :active="activePanel === 'onboarding'" @state="onMigrationState" @navigate="navigatePortal" @finished="navigatePortal('overview')" />
+      <ClientUpdateChecklist v-if="!isSuperadminPreview && selectedChildId && activePanel === 'updates'" :key="`updates:${selectedChildAgencyId}:${selectedChildId}`" :profiles="allFamilyProfiles" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :client-type="selectedChildClientType" />
       <AuricWellPortalGuide v-if="!isSuperadminPreview && activePanel === 'help'" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :brand-name="clinicalGuardianContext ? 'AuricWell' : careAgencyName || 'Your portal'" :learning="standardsLearningVisible" @navigate="navigatePortal" />
       <ClientSupportAccounts v-if="!isSuperadminPreview && activePanel === 'assistance'" />
       <GuardianEnrollmentStart v-if="!isSuperadminPreview && activePanel === 'enroll'" :agency-id="currentAgencyId" :language="familyLocale" />
@@ -654,6 +655,7 @@ import FamilyLedgerPanel from '../../components/billing/FamilyLedgerPanel.vue';
 import { tenantLegalProfiles } from '../../content/tenantLegalProfiles.js';
 import FamilyNotificationChoices from '../../components/guardian/FamilyNotificationChoices.vue';
 import PortalMigrationChecklist from '../../components/guardian/PortalMigrationChecklist.vue';
+import ClientUpdateChecklist from '../../components/guardian/ClientUpdateChecklist.vue';
 import AuricWellPortalGuide from '../../components/guardian/AuricWellPortalGuide.vue';
 import FamilyCostEstimates from '../../components/billing/FamilyCostEstimates.vue';
 import HistoricalBillingRequest from '../../components/billing/HistoricalBillingRequest.vue';
@@ -715,7 +717,7 @@ const registrationEnrollPayerType = ref('');
 const registrationEnrollSaving = ref(false);
 const registrationEnrollError = ref('');
 
-const activePanel = ref(['assistance','checkins','evaluations','overview','family','family_billing','family_messages','onboarding','help','schoolcarebridge','tutoring','registrations','appointments','documents','child','billing','payment_methods','messages','account','dependents','contact','plan','notifications','notification_history'].includes(route.query.panel) ? route.query.panel : 'family');
+const activePanel = ref(['assistance','checkins','evaluations','overview','family','family_billing','family_messages','onboarding','updates','help','schoolcarebridge','tutoring','registrations','appointments','documents','child','billing','payment_methods','messages','account','dependents','contact','plan','notifications','notification_history'].includes(route.query.panel) ? route.query.panel : 'family');
 const selectedChildId = computed({
   get: () => guardianStore.selectedChildId,
   set: (v) => guardianStore.setSelectedChild(v)
@@ -1003,6 +1005,7 @@ const portalNavigation = computed(() => {
   const icons = {overview:'dashboard',tutoring:'dashboard',registrations:'sessions',documents:'tasks',child:'child',dependents:'child',billing:'billing',payment_methods:'shield',account:'account',messages:'messages',notifications:'tasks',notification_history:'messages'};
   const labels = {overview:'Dashboard',documents:'Tasks & documents',billing:'Invoices & receipts',payment_methods:'Insurance & payments',child:selectedChild.value ? `${childDisplayName(selectedChild.value).split(' — ')[0]} · ${familyLocale.value === 'es' ? 'información' : 'information'}` : 'Client information'};
   const items = dashboardTabs.value.filter(t => !(standardsLearningVisible.value && t.key === 'overview')).map(t => ({...t,label:labels[t.key] || t.label,icon:icons[t.key]}));
+  if(!isSuperadminPreview.value && selectedChildId.value && items.some(item=>item.key==='documents'))items.push({key:'updates',label:'Selected updates',icon:'tasks'});
   items.push({key:'checkins',label:'Check-ins & trends',icon:'plan'},{key:'evaluations',label:'Evaluations',icon:'documents'});
   if (portalPlanAllowed.value) items.splice(3,0,{key:'plan',label:ft(standardsLearningVisible.value?'{name}’s learning plan':'{name}’s care plan',{name:selectedFirstName.value}),icon:'plan'});
 
@@ -1022,7 +1025,7 @@ function navigatePortal(key) {
   if (key === 'signout') { authStore.logout(); return; }
   if (key === 'dependents') key = 'family';
   if (key === 'records') { router.push({path:'/my-records',query:{agencyId:selectedChildAgencyId.value}}); return; }
-  if (!['onboarding','overview'].includes(key) && !portalNavigation.value.some(item => item.key === key)) return;
+  if (!['onboarding','updates','overview'].includes(key) && !portalNavigation.value.some(item => item.key === key)) return;
   if (key === 'waivers') { router.push(guardianWaiversLink.value); return; }
   onboardingBillingNotice.value = key === 'billing' && onboardingRequired.value;
   if (onboardingBillingNotice.value) key = 'onboarding';
@@ -1030,7 +1033,7 @@ function navigatePortal(key) {
   activePanel.value = key; selectedInlineEvent.value = null;
   router.replace({query:{...route.query,clientId:selectedChildId.value,panel:key}}); scrollPortalTop();
 }
-watch(() => route.query.panel, key => { if (['onboarding','family','help','overview'].includes(key) || portalNavigation.value.some(item => item.key === key)) { if(key==='billing' && onboardingRequired.value)navigatePortal('billing');else activePanel.value=key; } });
+watch(() => route.query.panel, key => { if (['onboarding','updates','family','help','overview'].includes(key) || portalNavigation.value.some(item => item.key === key)) { if(key==='billing' && onboardingRequired.value)navigatePortal('billing');else activePanel.value=key; } });
 watch(() => [currentAgencyId.value,selectedChildId.value,isSuperadminPreview.value], async () => {
   const request=++portalGrantRequest;portalGrants.value=[];
   if(!currentAgencyId.value||isSuperadminPreview.value)return;

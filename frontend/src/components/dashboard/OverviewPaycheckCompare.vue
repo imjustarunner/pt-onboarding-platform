@@ -46,6 +46,7 @@ const revealed = ref(false);
 const hasAmount = computed(() => props.amount != null && props.amount !== '' && Number.isFinite(Number(props.amount)));
 
 const ratioSafe = computed(() => {
+  if (props.ratio == null || props.ratio === '') return null;
   const r = Number(props.ratio);
   return Number.isFinite(r) && r >= 0 ? r : null;
 });

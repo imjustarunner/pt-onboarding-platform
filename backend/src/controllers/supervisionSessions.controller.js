@@ -1,3 +1,7 @@
+import { dialInConfigured } from '../services/meetingDialInPolicy.js';
+import {reserveSupervisionJoin,supervisionJoinOccupancy} from '../services/supervisionJoinCapacity.service.js';
+import { createOrGetMeetingRoom } from '../services/video.service.js';
+import { recomputeAttendanceRollupForUser } from '../services/supervisionAttendanceRollup.service.js';
 import { resolveHourlySuperviseePay } from '../services/hourlySupervisionPay.service.js';
 import { hasClinicalSupervisionHistory } from '../services/clinicalSupervisionHistory.service.js';
 import { makeSupervisionRecurring } from '../services/supervisionRecurrenceEdit.service.js';
@@ -56,7 +60,7 @@ import { isSupervisionPayEligibleHours, normalizeSupervisionStartDateYmd } from 
 const JOIN_PRESENCE_STALE_SECONDS = 25;
 
 function userIdFromSupervisionJoinIdentity(joinIdentity) {
-  const m = /^user-(\d+)$/i.exec(String(joinIdentity || '').trim());
+  const m = /^(?:user|dial)-(\d+)$/i.exec(String(joinIdentity || '').trim());
   return m ? Number(m[1]) : 0;
 }
 
@@ -395,6 +399,7 @@ async function syncSupervisionAttendanceWithPresence(sessionId, { sessionRow = n
 async function countActiveJoinPresence(sessionId) {
   const sid = Number(sessionId || 0);
   if (!sid) return 0;
+  if(dialInConfigured())return (await supervisionJoinOccupancy(sid)).size;
   try {
     await pruneStaleJoinPresence(sid);
     const [rows] = await pool.execute(
@@ -415,6 +420,7 @@ async function isJoinIdentityActive(sessionId, joinIdentity) {
   const sid = Number(sessionId || 0);
   const identity = String(joinIdentity || '').trim();
   if (!sid || !identity) return false;
+  if(dialInConfigured())return (await supervisionJoinOccupancy(sid)).has(`user-${userIdFromSupervisionJoinIdentity(identity)}`);
   try {
     const [mine] = await pool.execute(
       `SELECT 1 FROM supervision_session_join_presence
@@ -565,6 +571,10 @@ async function admitSupervisionJoinIdentity({ sessionId, userId = null, joinIden
   const uid = Number(userId || 0) || null;
   const identity = String(joinIdentity || (uid ? `user-${uid}` : '')).trim();
   if (!sid || !identity) return false;
+  if(dialInConfigured()){
+    await reserveSupervisionJoin({sessionId:sid,userId:uid,joinIdentity:identity,matchesOpenAudience:userMatchesSupervisionOpenAudience});
+    return true;
+  }
   try {
     await pool.execute(
       `INSERT INTO supervision_session_video_admissions (session_id, user_id, join_identity)
@@ -1105,91 +1115,6 @@ function parseAsDate(input) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-async function recomputeAttendanceRollupForUser({
-  sessionId,
-  userId,
-  closeOpenAt = null,
-  forceFinalize = false,
-  sessionStartAt = null
-} = {}) {
-  const sid = Number(sessionId || 0);
-  const uid = Number(userId || 0);
-  if (!sid || !uid) return null;
-
-  const events = await SupervisionSession.listAttendanceEventsForSessionUser({ sessionId: sid, userId: uid });
-  const openedStack = [];
-  let firstJoinedAt = null;
-  let lastLeftAt = null;
-  let totalSeconds = 0;
-  let segmentCount = 0;
-  const nowMs = Date.now();
-  const closeCapMs = closeOpenAt ? parseAsDate(closeOpenAt)?.getTime() : null;
-  // Payable / supervision time only accrues at or after the scheduled session start.
-  const sessionStartMs = parseAsDate(sessionStartAt)?.getTime();
-
-  function creditSegment(rawOpenMs, rawEndMs) {
-    if (!Number.isFinite(rawOpenMs) || !Number.isFinite(rawEndMs)) return;
-    let openMs = rawOpenMs;
-    if (Number.isFinite(sessionStartMs)) openMs = Math.max(openMs, sessionStartMs);
-    if (rawEndMs <= openMs) return;
-    totalSeconds += Math.round((rawEndMs - openMs) / 1000);
-    segmentCount += 1;
-    if (!lastLeftAt || rawEndMs > lastLeftAt.getTime()) lastLeftAt = new Date(rawEndMs);
-  }
-
-  for (const ev of events || []) {
-    const evType = String(ev?.event_type || '').trim().toLowerCase();
-    const atMs = parseAsDate(ev?.event_at)?.getTime();
-    if (!Number.isFinite(atMs)) continue;
-    if (evType === 'joined' || evType === 'opened') {
-      // Duplicate open/joined (e.g. mounted "opened" + connected "joined") used to leave
-      // unmatched opens that ballooned hours until finalize. Auto-close prior open first.
-      if (openedStack.length) {
-        const prevOpenMs = openedStack.pop();
-        creditSegment(prevOpenMs, atMs);
-      }
-      openedStack.push(atMs);
-      if (!firstJoinedAt || atMs < firstJoinedAt.getTime()) firstJoinedAt = new Date(atMs);
-      continue;
-    }
-    if ((evType === 'left' || evType === 'closed') && openedStack.length) {
-      const openedAtMs = openedStack.pop();
-      creditSegment(openedAtMs, atMs);
-    }
-  }
-
-  // Close leftover opens at session end (finalize) or cap provisional time at session end / now.
-  for (const openedAtMs of openedStack) {
-    const endMs = Number.isFinite(closeCapMs)
-      ? Math.min(nowMs, closeCapMs)
-      : nowMs;
-    creditSegment(openedAtMs, endMs);
-  }
-  if (forceFinalize) openedStack.length = 0;
-
-  // Hard sanity cap: never credit more than 8h for a single session attendance row.
-  const MAX_SESSION_SECONDS = 8 * 3600;
-  if (totalSeconds > MAX_SESSION_SECONDS) totalSeconds = MAX_SESSION_SECONDS;
-
-  await SupervisionSession.upsertAttendanceRollup({
-    sessionId: sid,
-    userId: uid,
-    firstJoinedAt: firstJoinedAt ? wallMysqlFromMs(firstJoinedAt.getTime()) : null,
-    lastLeftAt: lastLeftAt ? wallMysqlFromMs(lastLeftAt.getTime()) : null,
-    totalSeconds,
-    segmentCount,
-    isFinalized: forceFinalize || openedStack.length === 0
-  });
-  return {
-    sessionId: sid,
-    userId: uid,
-    firstJoinedAt: firstJoinedAt ? wallMysqlFromMs(firstJoinedAt.getTime()) : null,
-    lastLeftAt: lastLeftAt ? wallMysqlFromMs(lastLeftAt.getTime()) : null,
-    totalSeconds,
-    segmentCount,
-    isFinalized: forceFinalize || openedStack.length === 0
-  };
-}
 
 export async function finalizeSupervisionSession({
   sessionId,
@@ -2281,6 +2206,9 @@ export const postSupervisionJoinPresence = async (req, res, next) => {
         });
       }
     } else {
+      if(dialInConfigured()&&req.body?.inMainRoom===true&&await isUserAdmittedToSupervision({sessionId:id,userId,joinIdentity:identity})){
+        await reserveSupervisionJoin({sessionId:id,userId,joinIdentity:identity,displayName:req.body?.displayName || null,matchesOpenAudience:userMatchesSupervisionOpenAudience});
+      }
       await upsertJoinPresence({
         sessionId: id,
         joinIdentity: identity,
@@ -2616,7 +2544,7 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       roomName = row.twilio_room_unique_name || `supervision-${id}`;
       vonageSessionId = String(row.twilio_room_sid || '').trim() || null;
       if (!vonageSessionId) {
-        const roomResult = await createOrGetRoomByUniqueName(roomName);
+        const roomResult = await (dialInConfigured() ? createOrGetMeetingRoom('supervision', id, roomName) : createOrGetRoomByUniqueName(roomName));
         vonageSessionId = roomResult?.sid || null;
         if (vonageSessionId) {
           await SupervisionSession.setVideoRoom(id, {
@@ -2635,6 +2563,9 @@ export const getSupervisionVideoToken = async (req, res, next) => {
     }
 
     // Capacity lock applies to main-room joiners who are not already counted as present.
+    const role = isSupervisor ? 'supervisor' : (isPresenter ? 'presenter' : 'supervisee');
+    const roleLabel = isSupervisor ? 'Supervisor' : (isPresenter ? 'Presenter' : 'Supervisee');
+    const joinReservation=!useLobby&&dialInConfigured()?await reserveSupervisionJoin({sessionId:id,userId:actorUserId,joinIdentity:identity,displayName,matchesOpenAudience:userMatchesSupervisionOpenAudience,expectedRole:role}):null;
     const maxCapacity = maxJoinCapacityForSessionType(sessionType);
     const alreadyPresent = await isJoinIdentityActive(id, identity);
     const activeCount = await countActiveJoinPresence(id);
@@ -2649,12 +2580,12 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       });
     }
 
-    const role = isSupervisor ? 'supervisor' : (isPresenter ? 'presenter' : 'supervisee');
-    const roleLabel = isSupervisor ? 'Supervisor' : (isPresenter ? 'Presenter' : 'Supervisee');
+    if(joinReservation&&joinReservation.tokenExpiresAt<=Math.floor(Date.now()/1000))throw Object.assign(new Error('Your meeting reservation expired. Please join again.'),{status:409});
 
     const token = await createAccessTokenAsync({
       roomSid: vonageSessionId,
       identity,
+      ...(joinReservation?{expireTime:joinReservation.tokenExpiresAt}:{}),
       metadata: {
         role,
         roleLabel,
@@ -2911,7 +2842,7 @@ async function buildMainRoomAdmissionPayload({ row, identity, displayName, roleL
   const mainName = row.twilio_room_unique_name || `supervision-${id}`;
   let vonageSessionId = String(row.twilio_room_sid || '').trim() || null;
   if (!vonageSessionId) {
-    const roomResult = await createOrGetRoomByUniqueName(mainName);
+    const roomResult = await (dialInConfigured() ? createOrGetMeetingRoom('supervision', id, mainName) : createOrGetRoomByUniqueName(mainName));
     vonageSessionId = roomResult?.sid || null;
     if (vonageSessionId) {
       await SupervisionSession.setVideoRoom(id, {
@@ -2921,9 +2852,12 @@ async function buildMainRoomAdmissionPayload({ row, identity, displayName, roleL
     }
   }
   if (!vonageSessionId) return null;
+  const joinReservation=dialInConfigured()?await reserveSupervisionJoin({sessionId:id,userId:userIdFromSupervisionJoinIdentity(identity),joinIdentity:identity,displayName,matchesOpenAudience:userMatchesSupervisionOpenAudience,expectedRole:role}):null;
+  if(joinReservation&&joinReservation.tokenExpiresAt<=Math.floor(Date.now()/1000))throw Object.assign(new Error('Your meeting reservation expired. Please join again.'),{status:409});
   const token = await createAccessTokenAsync({
     roomSid: vonageSessionId,
     identity,
+    ...(joinReservation?{expireTime:joinReservation.tokenExpiresAt}:{}),
     metadata: {
       role,
       roleLabel,

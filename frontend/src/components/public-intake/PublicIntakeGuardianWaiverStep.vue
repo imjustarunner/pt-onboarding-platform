@@ -82,12 +82,12 @@
             <div v-if="savedSignatureData" class="pi-gw-sig-btn-wrap">
               <button
                 type="button"
-                class="btn btn-primary btn-sm pi-gw-sig-apply pi-gw-sig-apply--pulse"
-                @click="applySavedSignature(cIdx, def.key)"
+                class="btn btn-primary btn-sm pi-gw-sig-apply"
+                @pointerdown.prevent="applySavedSignature(cIdx, def.key)"
               >
                 {{ tx('Apply my signature to this section') }}
               </button>
-              <span class="muted small pi-gw-sig-hint">{{ tx('You must apply your signature here to record this waiver — it will be re-used from the signature you drew earlier.') }}</span>
+              <span class="muted small pi-gw-sig-hint">{{ tx('Press once to record this section. The same signature is reused. It does not need to be drawn again.') }}</span>
             </div>
             <div v-else class="pi-gw-inline-sign">
               <p class="muted small">{{ tx('Sign once below. Save & continue will apply this signature to each section.') }}</p>
@@ -96,10 +96,15 @@
         </div>
       </div>
     </div>
-    <div v-if="!savedSignatureData" class="pi-gw-pad">
+    <div v-if="savedSignatureData" class="pi-gw-apply-all">
+      <button type="button" class="btn btn-primary" @pointerdown.prevent="applySavedSignatureToAll">
+        {{ tx('Apply my signature to every section') }}
+      </button>
+    </div>
+    <div v-else class="pi-gw-pad">
       <h5>{{ tx('Electronic signature') }}</h5>
-      <p class="muted small">{{ tx('Sign here, then Save & continue. You do not need a separate Save Signature step.') }}</p>
-      <SignaturePad compact :locale="locale" @signed="onPadSigned" />
+      <p class="muted small">{{ tx('Type or draw once. Then apply that signature to each section, or apply it to every section at once.') }}</p>
+      <AdaptiveSignatureCapture :signer-name="signerDisplayName" @signed="onPadSigned" />
     </div>
   </div>
 </template>
@@ -108,7 +113,7 @@
 import { formatAuditTimestamp } from '../../utils/formatDate';
 import { unref } from 'vue';
 import { computed, inject, toRef } from 'vue';
-import SignaturePad from '../SignaturePad.vue';
+import AdaptiveSignatureCapture from '../adaptive-intake/AdaptiveSignatureCapture.vue';
 import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
 import GwvFieldsPickup from '../../views/guardian/waivers/GwvFieldsPickup.vue';
 import GwvFieldsEmergency from '../../views/guardian/waivers/GwvFieldsEmergency.vue';
@@ -153,7 +158,8 @@ const locale = inject('intakeLocale', 'en');
 const { tx, txFmt } = useIntakeStepTx();
 
 function onPadSigned(data) {
-  if (data) emit('signed', data);
+  const value = typeof data === 'string' ? data : data?.dataUrl || '';
+  if (value) emit('signed', value);
 }
 
 defineExpose({
@@ -327,6 +333,12 @@ function applySavedSignature(idx, key) {
     sectionKey: String(key || ''),
     clientIndex: Number(idx)
   };
+}
+
+function applySavedSignatureToAll() {
+  (props.clientLabels || []).forEach((_, idx) => {
+    activeSectionDefs.value.forEach((def) => applySavedSignature(idx, def.key));
+  });
 }
 
 function resignSection(idx, key) {
@@ -563,14 +575,13 @@ function copyFromPreviousChild(cIdx, key) {
 .pi-gw-sig-hint {
   max-width: 480px;
 }
-.pi-gw-sig-apply--pulse {
-  animation: piGwSigPulse 1.6s ease-in-out infinite;
-  box-shadow: 0 0 0 0 rgba(15, 118, 110, 0.55);
+.pi-gw-sig-apply,
+.pi-gw-apply-all .btn {
+  min-height: 44px;
+  touch-action: manipulation;
 }
-@keyframes piGwSigPulse {
-  0%   { box-shadow: 0 0 0 0   rgba(15, 118, 110, 0.55); transform: translateY(0); }
-  50%  { box-shadow: 0 0 0 10px rgba(15, 118, 110, 0);    transform: translateY(-1px); }
-  100% { box-shadow: 0 0 0 0   rgba(15, 118, 110, 0);    transform: translateY(0); }
+.pi-gw-apply-all {
+  margin-top: 16px;
 }
 .pi-gw-pad {
   margin-top: 16px;

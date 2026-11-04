@@ -247,6 +247,7 @@ import CommunicationReviewQueue from '../../components/communications/Communicat
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import { getStartupData } from '../../services/startupRequests';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import MessagesHubShell from '../../components/messages/MessagesHubShell.vue';
@@ -505,7 +506,7 @@ async function load() {
     if (combineAll) messageParams.allAgencies = 'true';
     else if (agencyId) messageParams.agencyId = agencyId;
     const [centerRes, personalRes, escRes] = await Promise.all([
-      api.get('/communications/center-summary', { params, skipGlobalLoading: true }),
+      getStartupData('/communications/center-summary', { params, skipGlobalLoading: true }),
       api.get('/messages/dashboard-summary', { params: messageParams, skipGlobalLoading: true }).catch(() => ({ data: {} })),
       agencyId
         ? api.get('/escalations/summary', { params: { agencyId }, skipGlobalLoading: true }).catch(() => ({ data: {} }))
