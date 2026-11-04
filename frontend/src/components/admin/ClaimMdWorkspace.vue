@@ -144,8 +144,8 @@
     <section v-if="review" class="review" aria-label="Claim review">
       <h3>Review {{ review.claimReference || `claim #${review.claimId}` }}</h3>
       <p>Session #{{ review.clinicalSessionId }} · Signed note #{{ review.clinicalNoteId }} · {{ review.lifecycle }}</p>
-      <p><strong>{{ review.payload.pat_name_f }} {{ review.payload.pat_name_l }}</strong> · {{ review.payload.payer_name }} · Member {{ review.payload.ins_number }}</p>
-      <p>Billing NPI {{ review.payload.bill_npi }} · Rendering NPI {{ review.payload.prov_npi }}</p>
+      <p v-if="review.payload"><strong>{{ review.payload.pat_name_f }} {{ review.payload.pat_name_l }}</strong> · {{ review.payload.payer_name }} · Member {{ review.payload.ins_number }}</p>
+      <p v-if="review.payload">Billing NPI {{ review.payload.bill_npi }} · Rendering NPI {{ review.payload.prov_npi }}<template v-if="review.payload.facility_npi"> · Service-facility NPI {{ review.payload.facility_npi }} (matches billing NPI for CCHA)</template></p>
       <section v-if="review.supervision" class="review">
         <h4>Who delivered and oversaw the service</h4>
         <p>Treating clinician: {{ providerLabel(review.supervision.serviceProvider) }}</p>
@@ -155,12 +155,31 @@
         <p v-if="review.supervision.npi2027">January 2027 individual service-provider NPI requirement applies.</p>
         <p v-if="review.supervision.rule">Policy basis: {{ review.supervision.rule.reference }} · {{ review.supervision.rule.effectiveFrom }}–{{ review.supervision.rule.effectiveThrough }}</p>
       </section>
-      <ClientDocumentationReadiness v-if="review.clientId && review.readiness.clientDocumentation" :agency-id="agencyId" :client-id="review.clientId" :scope="review.readiness.clientDocumentation.scope" :service-date="review.dateOfService" @saved="run(reloadReview)" />
+      <section v-if="review.clientId" class="review-tasks" aria-label="Complete claim requirements" @input="approved=false" @change="approved=false">
+        <h4>Complete review for service date {{ formatBillingDate(review.dateOfService) }}</h4>
+        <p>Saved insurance details, dated coverage verification and screening documents are separate checks. Each save rechecks this claim.</p>
+        <p v-if="review.readiness.payloadIssue" class="error" role="status">{{ claimIssueText(review.readiness.payloadIssue) }}</p>
+        <div class="actions">
+          <button type="button" :disabled="busy" :aria-expanded="reviewTask==='insurance'" @click="toggleReviewTask('insurance')">Insurance &amp; identity · {{ review.readiness.insuranceIdentityVerified ? 'Reviewed' : 'Needs review' }}</button>
+          <button type="button" :disabled="busy" :aria-expanded="reviewTask==='coverage'" @click="toggleReviewTask('coverage')">Coverage for {{ formatBillingDate(review.dateOfService) }} · {{ review.readiness.coverageVerified ? 'Verified' : 'Needs review' }}</button>
+          <button v-if="review.readiness.clientDocumentation" type="button" :disabled="busy" :aria-expanded="reviewTask==='documents'" @click="toggleReviewTask('documents')">{{ review.readiness.clientDocumentation.scope==='screening' ? 'Screening' : 'Treatment' }} documents · {{ review.readiness.clientDocumentation.ready ? 'Verified' : 'Needs review' }}</button>
+          <button v-if="review.supervision?.supervisingProvider" type="button" :disabled="busy" :aria-expanded="reviewTask==='policy'" @click="toggleReviewTask('policy')">Payer / product provider mapping · {{ review.readiness.payerPolicyVerified ? 'Verified' : 'Needs setup' }}</button>
+          <button type="button" :disabled="busy" @click="editClaim(review.claimId)">Edit claim billing fields</button>
+        </div>
+        <ClientInsuranceEditor v-if="reviewTask==='insurance'" :key="`${agencyId}:${review.clientId}`" :client-id="review.clientId" :agency-id="agencyId" start-open :show-related-reviews="false" @saved="run(reloadReview)" />
+        <ClientCoverageVerification v-if="reviewTask==='coverage'" :client-id="review.clientId" :agency-id="agencyId" :service-date="String(review.dateOfService).slice(0,10)" :billing-office-id="review.billingOffice?.id" @saved="run(reloadReview)" />
+        <ClientDocumentationReadiness v-if="reviewTask==='documents' && review.readiness.clientDocumentation" :agency-id="agencyId" :client-id="review.clientId" :scope="review.readiness.clientDocumentation.scope" :service-date="String(review.dateOfService).slice(0,10)" @saved="run(reloadReview)" />
+        <template v-if="reviewTask==='policy'">
+          <p>Match the policy to this client’s saved payer ID and plan type: {{ review.readiness.payer?.payerId || 'Payer ID missing' }} · {{ review.readiness.payer?.planType || 'Plan type missing — enter the verified plan type in Insurance & identity first.' }}. Confirm the applicable rule for {{ formatBillingDate(review.dateOfService) }}.</p>
+          <SupervisedPayerPolicies :agency-id="agencyId" :payer-id="review.readiness.payer?.payerId" :plan-type="review.readiness.payer?.planType" @saved="run(reloadReview)" />
+        </template>
+      </section>
       <section v-if="review.aiReview" class="review" aria-label="AI content review">
         <h4>AI content &amp; claim consistency</h4>
         <p>{{ { required: 'Review required for the current note and claim', needs_review: 'Findings need resolution', passed: 'Current review completed' }[review.aiReview.status] }}</p>
         <p>Checks clinical content against billing fields. Identity and insurance verification remain separate. Any relevant edit requires a fresh review.</p>
-        <button :disabled="busy" @click="runAiReview">{{ busy ? 'Working…' : 'Run AI consistency review' }}</button>
+        <p v-if="!review.payload">Complete the claim fields above before running AI review.</p>
+        <button :disabled="busy || !review.payload" @click="runAiReview">{{ busy ? 'Working…' : 'Run AI consistency review' }}</button>
         <article v-for="finding in review.aiReview.findings" :key="finding.id">
           <strong>{{ finding.severity }} · {{ finding.category.replaceAll('_', ' ') }}</strong><p>{{ finding.message }}</p>
           <p v-if="finding.resolution">Exception recorded: {{ finding.resolution.reason }} · {{ finding.resolution.policyReference }}</p>
@@ -175,12 +194,14 @@
       </section>
       <details v-if="review.appliedOverrides?.length"><summary>Applied billing overrides</summary><p v-for="override in review.appliedOverrides" :key="override.overrideId">{{ override.field }}: {{ override.from }} → {{ override.to }} · {{ override.reason }} · {{ override.policyReference }}</p></details>
       <p v-if="review.serviceSite?.name || review.serviceSite?.placeOfService">Service site: {{ review.serviceSite.name || 'Place of service' }}<template v-if="review.serviceSite.placeOfService"> · POS {{ review.serviceSite.placeOfService }}</template><template v-if="review.serviceSite.serviceAddress"> · {{ review.serviceSite.serviceAddress }}</template>. This is where the visit happened. The claim is billed from the office below.</p>
+      <template v-if="review.payload">
       <p v-if="review.billingOffice">Billing office: {{ review.billingOffice.name }} · {{ review.payload.bill_name }} · {{ review.payload.bill_addr_1 }}, {{ review.payload.bill_city }}, {{ review.payload.bill_state }} {{ review.payload.bill_zip }}</p>
       <table><thead><tr><th>Service date</th><th>Code</th><th>Modifiers</th><th>Units</th><th>POS</th><th>Charge</th></tr></thead>
         <tbody><tr v-for="(line, index) in review.payload.charge" :key="index"><td>{{ line.from_date }}</td><td>{{ line.proc_code }}</td><td>{{ [line.mod1,line.mod2,line.mod3,line.mod4].filter(Boolean).join(', ') }}</td><td>{{ line.units }}</td><td>{{ line.place_of_service }}</td><td>${{ line.charge }}</td></tr></tbody>
       </table>
       <p><strong>Total: ${{ review.payload.total_charge }}</strong></p>
       <details><summary>Full claim details</summary><pre>{{ JSON.stringify(review.payload, null, 2) }}</pre></details>
+      </template>
       <ul><li v-for="blocker in review.readiness.blockers" :key="blocker" class="error">{{ blocker }}</li><li v-for="warning in review.readiness.warnings" :key="warning">{{ warning }}</li></ul>
       <p v-if="connection.practiceSubmission">Practice submit records this claim in the app. Nothing is sent to Claim.MD or a payer.</p>
       <label><input v-model="approved" type="checkbox" /> {{ connection.practiceSubmission ? 'I reviewed the patient, coverage, providers, service lines and charges. This practice submit stays in the app.' : `I reviewed the patient, coverage, providers, service lines and charges for this ${connection.mode} account.` }}</label>
@@ -191,7 +212,7 @@
       <h3>Claim #{{ historyClaimId }} history and follow-up</h3>
       <p v-if="!history.length">No clearinghouse activity yet.</p>
       <article v-for="event in history" :key="event.id">
-        <strong>{{ claimHistoryLabel(event.type) }}</strong> · {{ clearinghouseStatusLabel(event.status) || event.status || 'Recorded' }} · {{ event.createdAt }}
+        <strong>{{ claimHistoryLabel(event.type) }}</strong> · {{ clearinghouseStatusLabel(event.status) || event.status || 'Recorded' }} · {{ formatBillingTimestamp(event.createdAt) }} · {{ event.actorName || (event.actorUserId ? `User #${event.actorUserId}` : 'System / clearinghouse') }}
         <p v-for="(message, i) in event.messages || []" :key="i">{{ message.message }} <small>{{ message.fields }}</small></p>
         <ul><li v-for="suggestion in event.suggestions || []" :key="suggestion">{{ suggestion }}</li></ul>
         <p v-if="event.reason">{{ event.reason }}</p>
@@ -201,6 +222,10 @@
 </template>
 
 <script setup>
+import ClientInsuranceEditor from '../billing/ClientInsuranceEditor.vue';
+import ClientCoverageVerification from '../billing/ClientCoverageVerification.vue';
+import SupervisedPayerPolicies from './SupervisedPayerPolicies.vue';
+import { formatBillingDate,formatBillingTimestamp,claimIssueText } from '../../utils/billingReviewDisplay.js';
 import ClaimServiceChangesPanel from './ClaimServiceChangesPanel.vue';
 import ClientDocumentationReadiness from '../billing/ClientDocumentationReadiness.vue';
 import ProviderBillingRollout from '../billing/ProviderBillingRollout.vue';
@@ -211,6 +236,8 @@ const props = defineProps({ agencyId: { type: Number, required: true }, connecti
 const emit = defineEmits(['updated']);
 const fetchRollout = async () => (await api.get('/medical-billing/provider-rollout', { params: { agencyId: props.agencyId } })).data;
 const saveRollout = async input => (await api.put('/medical-billing/provider-rollout', { ...input, agencyId: props.agencyId })).data;
+const reviewTask = ref('');
+const toggleReviewTask = task => { approved.value=false;reviewTask.value=reviewTask.value===task?'':task; };
 const busy = ref(false), error = ref(''), notice = ref(''), activeClaimId = ref(null);
 const payerRequests=ref([]), requestedPayer=ref(''), setupSearch=ref('');
 const decoded = (value, fallback) => { if (typeof value !== 'string') return value || fallback; try { return JSON.parse(value) || fallback; } catch { return fallback; } };
@@ -359,6 +386,7 @@ const saveCorrection = () => run(async () => {
   if (active) { draft.value = null; notice.value = data.message; emit('updated'); await fetchHistory(claim.id); }
 });
 const reviewClaim = claimId => run(async () => {
+  reviewTask.value='';
   if (props.readOnly) return;
   activeClaimId.value=claimId;
   review.value = null; approved.value = false;
@@ -396,4 +424,5 @@ table { width:100%; border-collapse:collapse; margin:1rem 0; } th, td { padding:
 .review { margin-top:1.5rem; padding:1rem; border:1px solid #d6dfeb; border-radius:8px; } .error { color:#a32121; } pre { white-space:pre-wrap; overflow-wrap:anywhere; } article { padding:.75rem 0; border-bottom:1px solid #e2e8f0; }
 .clinical-reconciliation{display:block;clear:both;box-sizing:border-box;width:100%;min-width:0;text-align:left;margin:1rem 0;padding:1rem;background:#f5fafb;border:1px solid #bdd3dd;border-radius:8px}.clinical-reconciliation h4{display:block;margin:0 0 .75rem;line-height:1.4}.clinical-reconciliation p{margin:.5rem 0;line-height:1.5}.clinical-reconciliation ol,.clinical-reconciliation ul{margin:.5rem 0;padding-left:1.5rem}.claim-office-label select{display:block;width:100%;margin-top:.4rem}.billing-office-help{font-size:.9rem;color:#53657a}.clinical-reconciliation fieldset{min-width:0;border:1px solid #c8dce5;border-radius:6px}.clinical-reconciliation input:not([type=checkbox]),.clinical-reconciliation textarea{display:block;width:100%;max-width:500px;padding:.5rem;box-sizing:border-box}.clinical-reconciliation .actions button{max-width:100%}@media(max-width:600px){.clinical-reconciliation{padding:.65rem}.clinical-reconciliation .actions{align-items:stretch;flex-direction:column}.clinical-reconciliation .actions button{width:100%;min-height:42px}}
 .payer-catalog{overflow:auto;max-height:480px}.payer-catalog table{min-width:860px}.payer-catalog small{display:block;max-width:300px;margin-top:6px;color:var(--text-secondary,#536579);font-size:.8rem;line-height:1.4}.payer-catalog th{position:sticky;top:0;background:var(--bg-secondary,#eff4fa)}
+.review-tasks .actions button{border:1px solid #abc1d4;border-radius:7px;background:#f6faff;color:#234f70;min-height:42px;text-align:left}.review-tasks .actions button[aria-expanded=true]{background:#e8f3ff;border-color:#3478b6}.review-tasks{min-width:0}.review-tasks h4{margin:1rem 0 .5rem}@media(max-width:600px){.review-tasks .actions{align-items:stretch;flex-direction:column}.review-tasks .actions button{width:100%}.claimmd-workspace,.review{padding:.7rem}}
 </style>

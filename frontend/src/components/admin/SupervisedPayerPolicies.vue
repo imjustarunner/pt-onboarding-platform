@@ -33,18 +33,19 @@
 <script setup>
 import { ref, watch, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
-const props=defineProps({agencyId:{type:Number,required:true}});
+const props=defineProps({agencyId:{type:Number,required:true},payerId:String,planType:String});
+const emit=defineEmits(['saved']);
 const noteTypes=['TERMINATION','TREATMENT_PLAN','CONTACT_NOTE','CONTACT','APPOINTMENT_WAIVER','APPOINTMENT_CHANGE'];
 const newRule=()=>({effectiveFrom:'',effectiveThrough:'',providerMapping:'supervisor_rendering',mappingVerified:false,deferredCosignAllowed:false,reference:'',requiredReviewTypes:[]});
-const empty=()=>({payerId:'',planType:'',coloradoMedicaid:false,rules:[newRule()],version:0});
+const empty=()=>({payerId:props.payerId || '',planType:props.planType || '',coloradoMedicaid:false,rules:[newRule()],version:0});
 const providers=ref([]);
 const policies=ref([]),form=ref(empty()),reason=ref(''),loading=ref(false),busy=ref(false),error=ref(''),notice=ref('');
 let generation=0,active=true;
 onBeforeUnmount(()=>{active=false;generation++;});
 function edit(p){form.value=p?JSON.parse(JSON.stringify(p)):empty();reason.value='';notice.value='';}
-async function load(){const g=++generation;policies.value=[];providers.value=[];edit();loading.value=true;error.value='';try{const {data}=await api.get('/medical-billing/supervised-payer-policies',{params:{agencyId:props.agencyId}});if(active&&g===generation)policies.value=data.items||[];const roster=await api.get('/medical-billing/supervised-provider-readiness',{params:{agencyId:props.agencyId}});if(active&&g===generation)providers.value=roster.data.providers||[];}catch(e){if(active&&g===generation)error.value=e.response?.data?.error?.message||'Payer policies are awaiting setup.';}finally{if(active&&g===generation)loading.value=false;}}
-async function save(){if(busy.value)return;const g=generation;busy.value=true;error.value='';try{await api.post('/medical-billing/supervised-payer-policies',{agencyId:props.agencyId,policy:form.value,version:form.value.version,reason:reason.value});if(active&&g===generation){await load();notice.value='New policy version saved. Claims require a fresh review.';}}catch(e){if(active&&g===generation)error.value=e.response?.data?.error?.message||'Unable to save policy';}finally{if(active)busy.value=false;}}
-watch(()=>props.agencyId,load,{immediate:true});
+async function load(){const g=++generation;policies.value=[];providers.value=[];edit();loading.value=true;error.value='';try{const {data}=await api.get('/medical-billing/supervised-payer-policies',{params:{agencyId:props.agencyId}});if(active&&g===generation){policies.value=data.items||[];if(props.payerId)edit(policies.value.find(p=>p.payerId===props.payerId && p.planType===props.planType));}const roster=await api.get('/medical-billing/supervised-provider-readiness',{params:{agencyId:props.agencyId}});if(active&&g===generation)providers.value=roster.data.providers||[];}catch(e){if(active&&g===generation)error.value=e.response?.data?.error?.message||'Payer policies are awaiting setup.';}finally{if(active&&g===generation)loading.value=false;}}
+async function save(){if(busy.value)return;const g=generation;busy.value=true;error.value='';try{await api.post('/medical-billing/supervised-payer-policies',{agencyId:props.agencyId,policy:form.value,version:form.value.version,reason:reason.value});if(active&&g===generation){await load();if(active&&g+1===generation){notice.value='New policy version saved. Claims require a fresh review.';emit('saved');}}}catch(e){if(active&&g===generation)error.value=e.response?.data?.error?.message||'Unable to save policy';}finally{if(active)busy.value=false;}}
+watch(()=>[props.agencyId,props.payerId,props.planType],load,{immediate:true});
 </script>
 <style scoped>
 .payer-policy{min-width:0;overflow-wrap:anywhere;background:var(--bg-primary,#fff);border:1px solid var(--border-color,#dce3eb);border-radius:12px;padding:1.25rem;margin:1rem 0;color:var(--text-primary,#172d45)}p{line-height:1.5;max-width:90ch}.fields>label{min-width:0;flex:1 1 180px}select{width:100%}.fields,.policy-list{display:flex;gap:1rem;flex-wrap:wrap}label{display:block;margin:.8rem 0}input:not([type=checkbox]),select,textarea{display:block;padding:.55rem;border:1px solid #bac6d5;border-radius:6px;max-width:100%;background:var(--bg-primary,#fff);color:inherit}textarea{width:100%}.rule{border-top:1px solid #dce3eb;margin:1rem 0;padding-top:.5rem}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:.6rem;border-bottom:1px solid #dce3eb}details{margin:1rem 0}fieldset{min-width:0;width:100%;border:0;padding:0}button{padding:.6rem;margin:.3rem;border:1px solid #b4c1d0;border-radius:6px;background:var(--bg-primary,#fff);color:inherit;cursor:pointer}button:disabled{opacity:.5}[role=alert]{color:#a32121}

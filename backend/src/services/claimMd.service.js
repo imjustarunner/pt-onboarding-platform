@@ -123,7 +123,7 @@ export function buildClaimMdJsonClaim(claim, lines = [], { insurance, practice =
   diagnoses = Array.isArray(diagnoses) ? diagnoses.map(d=>String(typeof d==='string'?d:d?.code || d?.diagnosisCode || '').replace(/\./g,'').toUpperCase()) : [];
   if(diagnoses.some(code=>! /^[A-Z][0-9][A-Z0-9]{1,5}$/.test(code))) missing.push('valid ICD-10 diagnosis codes');
   if (!['M','F','U'].includes(patient.sex) || !['M','F','U'].includes(primary.subscriberSex)) missing.push('valid policy sex codes');
-  if (missing.length) throw Object.assign(new Error(`Claim is incomplete: ${missing.join(', ')}`), {status:409});
+  if (missing.length) throw Object.assign(new Error(`Claim is incomplete: ${missing.join(', ')}`), {status:409,code:'CLAIM_FIELDS_INCOMPLETE',missingFields:missing});
   const date = value => value instanceof Date ? value.toISOString().slice(0,10) : String(value || '').slice(0,10);
   const validDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0,10) === value;
   if(!validDate(patient.dateOfBirth) || !validDate(primary.subscriberDob)) throw Object.assign(new Error('Patient or subscriber birth date is invalid'),{status:409});
@@ -150,6 +150,9 @@ export function buildClaimMdJsonClaim(claim, lines = [], { insurance, practice =
     ...(claim.rendering_first_name?{prov_name_f:claim.rendering_first_name}:{}),...(claim.rendering_last_name?{prov_name_l:claim.rendering_last_name}:{}),
     total_charge:(charge.reduce((sum,c)=>sum+Math.round(Number(c.charge)*100),0)/100).toFixed(2),
     ...Object.fromEntries(diagnoses.map((d,i)=>[`diag_${i+1}`,d])),charge};
+  // CCHA billing requires the service-facility identifier to match the effective
+  // billing group, including its saved payer override. Rendering stays separate.
+  if (String(primary.payerId || '').toUpperCase() === 'COCHA') payload.facility_npi = payload.bill_npi;
   const limits={payerid:32,payer_name:64,pcn:32,pat_name_l:35,pat_name_f:25,pat_addr_1:55,pat_addr_2:55,pat_city:30,pat_state:2,pat_zip:15,ins_number:32,bill_name:32,bill_addr_1:128,bill_addr_2:128,bill_city:32,bill_state:2,bill_zip:12,bill_phone:16};
   const oversized=Object.entries(limits).filter(([field,limit])=>String(payload[field] || "").length>limit).map(([field])=>field);
   if(oversized.length)throw Object.assign(new Error(`Claim fields exceed clearinghouse limits: ${oversized.join(", ")}`),{status:409});

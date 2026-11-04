@@ -56,3 +56,17 @@ it('opens assignment corrections directly without separate claim, coverage or do
  expect(w.text()).not.toContain('verified coverage for claim preparation');expect(w.text()).not.toContain('Provider accepts assignment');
  await w.find('form').trigger('submit');await flushPromises();expect(w.emitted('saved')).toHaveLength(1);expect(api.put.mock.calls[0][1].verifiedForClaims).toBe(false);w.unmount();
 });
+
+it('preserves a saved identity review when reopening unchanged insurance, but invalidates it after an edit',async()=>{
+ api.get.mockResolvedValue({data:{insurance:{patient:demographic,primary:{payerId:'COCHA',relationshipToSubscriber:'self',subscriberFirstName:'Test',subscriberLastName:'Patient',subscriberDob:demographic.dateOfBirth,subscriberSex:'F',subscriberAddressLine1:demographic.addressLine1,subscriberCity:demographic.city,subscriberState:'CO',subscriberPostalCode:demographic.postalCode},verifiedForClaims:true,acceptAssignment:true},demographics:demographic}});
+ const w=await setup();const confirmation=()=>w.findAll('label').find(l=>l.text().includes('I reviewed this client')).find('input');
+ expect(confirmation().element.checked).toBe(true);
+ await w.find('form').trigger('submit');await flushPromises();expect(api.put.mock.calls[0][1].verifiedForClaims).toBe(true);
+ await w.findAll('.identity-fields input')[0].setValue('Changed');expect(confirmation().element.checked).toBe(false);
+ await w.find('form').trigger('submit');await flushPromises();expect(api.put.mock.calls[1][1].verifiedForClaims).toBe(false);
+ await confirmation().setValue(true);await w.find('form').trigger('submit');await flushPromises();expect(api.put.mock.calls[2][1].verifiedForClaims).toBe(true);w.unmount();
+});
+it('requires a fresh review if demographics fill missing identity on an older verified record',async()=>{
+ api.get.mockResolvedValue({data:{insurance:{patient:{firstName:'Test'},primary:{},verifiedForClaims:true},demographics:demographic}});
+ const w=await setup();await w.find('form').trigger('submit');await flushPromises();expect(api.put.mock.calls[0][1].verifiedForClaims).toBe(false);w.unmount();
+});

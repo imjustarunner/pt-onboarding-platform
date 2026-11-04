@@ -20,3 +20,13 @@ describe('coverage and care-team views',()=>{
   api.get.mockResolvedValue({data:{claim:{parent_claim_id:7},lines:[{procedure_code:'90834'}]}});const w=mount(Secondary,{props:{agencyId:1,claimId:11}});await w.find('button').trigger('click');await flushPromises();expect(api.get).toHaveBeenCalledWith('/medical-billing/claimmd/claims/11/draft',{params:{agencyId:1}});expect(w.text()).toContain('already secondary');expect(w.find('form').exists()).toBe(false);expect(api.post).not.toHaveBeenCalled();w.unmount();
  });
 });
+
+it('keeps verification on the claim service date, displays the saved review, and notifies the claim after saving',async()=>{
+ api.get.mockImplementation(async url=>({data:url.endsWith('billing-offices')?{items:[{id:8,name:'QA office'}]}:{checks:[],blockers:[],review:{status:'verified',created_at:'2026-11-04T20:24:26.000Z',evidence:{reference:'Synthetic portal reference'}}}}));api.post.mockResolvedValue({data:{}});
+ const w=mount(Coverage,{props:{agencyId:1,clientId:2,serviceDate:'2026-11-02',billingOfficeId:8}});await flushPromises();
+ expect(w.find('input[type="date"]').element.value).toBe('2026-11-02');expect(w.find('input[type="date"]').attributes('disabled')).toBeDefined();
+ expect(api.get).toHaveBeenCalledWith('/medical-billing/clients/2/coverage',{params:{agencyId:1,serviceDate:'2026-11-02'}});expect(w.text()).toContain('Saved review: verified');expect(w.text()).toContain('11/02/2026');expect(w.text()).toContain('Synthetic portal reference');
+ expect(w.findAll('input[type="checkbox"]').every(input=>!input.element.checked)).toBe(true);
+ await w.find('form').trigger('submit');await flushPromises();expect(api.post).toHaveBeenCalledWith('/medical-billing/clients/2/coverage/review',expect.objectContaining({serviceDate:'2026-11-02'}));expect(w.emitted('saved')).toHaveLength(1);
+ await w.setProps({serviceDate:'2026-11-01',clientId:3});await flushPromises();expect(w.find('input[type="date"]').element.value).toBe('2026-11-01');w.unmount();
+});

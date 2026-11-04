@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { fetchResponses } from './claimMd.service.js';
@@ -48,8 +49,12 @@ export async function recordClaimEvent({ agencyId, claimId, connectionId, eventK
 
 export async function claimEventHistory(agencyId, claimId) {
   const [rows] = await clinicalPool.execute(`SELECT * FROM claimmd_claim_events WHERE agency_id = ? AND clinical_claim_id = ? ORDER BY id DESC LIMIT 100`, [agencyId, claimId]);
-  return rows.map(row => ({ id: row.id, type: row.event_type, status: row.status, createdAt: row.created_at,
-    actorUserId: row.actor_user_id, ...decryptFamilyBilling(row.payload_encrypted, `claimmd:${agencyId}:${claimId}:${row.event_key}`) }));
+  const actorIds = [...new Set(rows.map(row => Number(row.actor_user_id)).filter(id => Number.isSafeInteger(id) && id > 0))];
+  const [actors] = actorIds.length ? await pool.execute(`SELECT id,first_name,last_name FROM users WHERE id IN (${actorIds.map(() => '?').join(',')})`, actorIds) : [[]];
+  const names = new Map(actors.map(actor => [Number(actor.id), [actor.first_name, actor.last_name].filter(Boolean).join(' ')]));
+  return rows.map(row => ({ ...decryptFamilyBilling(row.payload_encrypted, `claimmd:${agencyId}:${claimId}:${row.event_key}`),
+    id: row.id, type: row.event_type, status: row.status, createdAt: row.created_at,
+    actorUserId: row.actor_user_id, actorName: names.get(Number(row.actor_user_id)) || null }));
 }
 
 export async function syncClaimMdResponses({ agencyId, connection, db = clinicalPool, download = fetchResponses }) {

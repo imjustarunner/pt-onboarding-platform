@@ -185,3 +185,17 @@ describe('approved clinical version reconciliation into an existing unsent draft
   api.patch.mockResolvedValue({data:{ok:true}});const wrapper=await openDraft();await fillReview(wrapper);await field(wrapper,'clinical-reconciliation-form').trigger('submit');await flushPromises();expect(wrapper.text()).toContain('did not confirm');expect(wrapper.emitted('updated')).toBeUndefined();expect(wrapper.find('[data-testid="clinical-reconciliation-form"]').exists()).toBe(true);wrapper.unmount();
  });
 });
+
+it('opens incomplete claims with actionable dated checks and refreshes after insurance saves without submitting',async()=>{
+ const incomplete={...claim,clientId:7,dateOfService:'2026-11-02',payload:null,readiness:{ready:false,blockers:['Claim is incomplete: payerid'],warnings:[],payloadIssue:{message:'Claim is incomplete: payerid'},coverageVerified:false,insuranceIdentityVerified:false,clientDocumentation:{scope:'screening',ready:false}},aiReview:{status:'required',findings:[]}};
+ api.get.mockImplementation(async url=>({data:url.endsWith('/review')?incomplete:{items:[]}}));
+ const w=mount(ClaimMdWorkspace,{props:{...props,section:'detail'},global:{stubs:{ClientInsuranceEditor:{props:['clientId','agencyId','showRelatedReviews'],emits:['saved'],template:'<button data-testid="save-insurance" @click="$emit(\'saved\')">Save synthetic insurance</button>'},ClientCoverageVerification:true,ClientDocumentationReadiness:true}}});await flushPromises();await w.vm.reviewClaim(11);await flushPromises();
+ expect(w.text()).toContain('Complete review for service date 11/02/2026');expect(button(w,'Approve and submit').attributes('disabled')).toBeDefined();expect(button(w,'Run AI consistency').attributes('disabled')).toBeDefined();
+ await button(w,'Coverage for').trigger('click');expect(w.findComponent({name:'ClientCoverageVerification'}).props()).toMatchObject({clientId:7,agencyId:1,serviceDate:'2026-11-02'});
+ await button(w,'Screening documents').trigger('click');expect(w.findComponent({name:'ClientDocumentationReadiness'}).props()).toMatchObject({scope:'screening',serviceDate:'2026-11-02'});
+ await button(w,'Insurance & identity').trigger('click');await w.find('[data-testid="save-insurance"]').trigger('click');await flushPromises();expect(api.get.mock.calls.filter(([url])=>url.endsWith('/review'))).toHaveLength(2);expect(api.post).not.toHaveBeenCalled();w.unmount();
+});
+it('shows the recorded history actor and Denver date/time',async()=>{
+ api.get.mockImplementation(async url=>({data:url.endsWith('/history')?{history:[{id:1,type:'correction',createdAt:'2026-11-04T20:17:33.000Z',actorUserId:9,actorName:'QA Biller',reason:'Modifier reviewed'}]}:{items:[]}}));
+ const w=mount(ClaimMdWorkspace,{props:{...props,section:'detail'}});await flushPromises();await w.vm.showHistory(11);await flushPromises();expect(w.text()).toContain('QA Biller');expect(w.text()).toContain('11/04/2026, 1:17 PM MST');expect(w.text()).not.toContain('2026-11-04T20:17');w.unmount();
+});
