@@ -5274,6 +5274,8 @@ const visibleClinicalFields = computed(() => {
   }
   return fields.filter((f) => {
     if (!f?.key) return false;
+    // A student enrolling themselves does not complete the parent PSC-17.
+    if (intakeForSelf.value && instrumentIdForField(f) === 'psc17') return false;
     return matchesShowIf(f.showIf, values);
   });
 });
@@ -12835,6 +12837,7 @@ const stepQuestionFields = computed(() => {
     if (intakeForSelf.value && scope === 'guardian') return false;
     if (intakeForSelf.value && scope === 'client') return false;
     if (!intakeForSelf.value && scope === 'self') return false;
+    if (intakeForSelf.value && instrumentIdForField(f) === 'psc17') return false;
     const collected = new Set([
       'legal_first_name',
       'legal_last_name',

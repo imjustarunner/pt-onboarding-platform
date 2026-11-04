@@ -37,6 +37,20 @@ async function setTwoChildren() {
   wrapper.vm.guardianFirstName = 'Pat'; wrapper.vm.guardianLastName = 'Example'; wrapper.vm.guardianEmail = 'pat@example.com'; wrapper.vm.guardianPhone = '3035550100'; wrapper.vm.otherGuardian.hasLegalRights = 'no'; await flushPromises();
 }
 describe('school enrollment parent journey', () => {
+  it('keeps the parent PSC-17 off a student who is enrolling themselves', async () => {
+    await render();
+    wrapper.vm.intakeForSelf = true;
+    wrapper.vm.step = 2;
+    const screener = () => wrapper.vm.flowSteps.findIndex((step) => step.type === 'clinical_questions');
+    wrapper.vm.currentFlowIndex = screener();
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('Feels sad');
+    wrapper.vm.intakeForSelf = false;
+    wrapper.vm.currentFlowIndex = screener();
+    await flushPromises();
+    expect(wrapper.vm.visibleClinicalFields.map((field) => field.key)).toContain('psc_1');
+    expect(wrapper.text()).toContain('Feels sad');
+  });
   it('keeps guardian accounts out of the automatic portal invitation flow', async () => {
     await render(); wrapper.vm.link.create_guardian = 1; wrapper.vm.step = 3; await flushPromises();
     expect(wrapper.vm.guardianPortalInvitationDeferred).toBe(true);
