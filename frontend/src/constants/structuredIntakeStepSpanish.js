@@ -385,8 +385,8 @@ export const STRUCTURED_INTAKE_STEP_ES = {
   'ESIGN Act Disclosure': 'Divulgación de la Ley ESIGN',
   'By continuing, you consent to electronically sign these documents and receive electronic records. You may request paper copies from the organization.':
     'Al continuar, usted consiente firmar electrónicamente estos documentos y recibir registros electrónicos. Puede solicitar copias en papel a la organización.',
-  'Most families complete this in about 15 minutes. To protect your information, the form clears itself after roughly an hour of inactivity and any unsaved entries are removed.':
-    'La mayoría de las familias completan esto en unos 15 minutos. Para proteger su información, el formulario se borra después de aproximadamente una hora de inactividad y se eliminan las entradas no guardadas.',
+  'Most families spend about 15 minutes to get started. Saved answers stay with this enrollment for 10 days if you agree to reminders, or 12 hours if you do not.':
+    'La mayoría de las familias tardan unos 15 minutos en empezar. Las respuestas guardadas permanecen con esta inscripción 10 días si acepta recordatorios, o 12 horas si no acepta.',
   'Tell us a bit about you so we can prepare the right forms.':
     'Cuéntenos un poco sobre usted para que podamos preparar los formularios correctos.',
   'I am completing this form for myself': 'Estoy completando este formulario para mí',
