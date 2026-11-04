@@ -15,7 +15,7 @@ const CATEGORY_DEFINITIONS = {
 const TYPES_BY_CATEGORY = {
   account_security: [
     'status_expired', 'temp_password_expired', 'invitation_expired', 'first_login_pending',
-    'first_login', 'password_changed', 'passwordless_token_expired', 'credential_expiring',
+    'first_login', 'password_changed', 'assistant_account_changed', 'passwordless_token_expired', 'credential_expiring',
     'credential_expired_blocking', 'emergency_broadcast', 'school_primary_password_reset_sent',
     'quick_view_login', 'quick_view_locked'
   ],
@@ -187,7 +187,7 @@ const LABEL_OVERRIDES = {
 const WORKFORCE_RELEVANT = new Set([
   'kiosk_checkin', 'client_appointment_reply', // Personal arrivals also apply to staff with provider duties.
   'client_exchange_match', 'client_exchange_claim', 'client_exchange_assigned', 'client_exchange_shared',
-  'temp_password_expired', 'invitation_expired', 'password_changed',
+  'temp_password_expired', 'invitation_expired', 'password_changed', 'assistant_account_changed',
   'passwordless_token_expired', 'credential_expiring', 'credential_expired_blocking',
   'emergency_broadcast', 'presence_return_overdue_nudge', 'task_overdue',
   'chat_message', 'task_comment_mention', 'voicemail_received',
@@ -289,7 +289,7 @@ const GUARDIAN_RELEVANT = new Set([
 const WORKFORCE_ESSENTIAL = new Set([
   'kiosk_checkin', 'client_appointment_reply',
   'client_exchange_match', 'client_exchange_claim', 'client_exchange_assigned', 'client_exchange_shared',
-  'temp_password_expired', 'invitation_expired', 'password_changed',
+  'temp_password_expired', 'invitation_expired', 'password_changed', 'assistant_account_changed',
   'passwordless_token_expired', 'credential_expiring', 'credential_expired_blocking',
   'emergency_broadcast', 'task_overdue', 'chat_message', 'task_comment_mention',
   'voicemail_received', 'quick_view_login', 'quick_view_locked',
@@ -463,7 +463,7 @@ const SMS_CAPABLE = new Set([
 ]);
 
 const EMAIL_CAPABLE = new Set([
-  ...SMS_CAPABLE, 'emergency_broadcast','password_changed','temp_password_expired',
+  ...SMS_CAPABLE, 'emergency_broadcast','password_changed', 'assistant_account_changed','temp_password_expired',
   'supervision_session_scheduled','team_meeting_scheduled','supervision_presenter_reminder',
   'training_assigned','training_due_soon','company_event_message','custom_task_assigned',
   'support_ticket_forwarded_to_provider','voicemail_received','chat_message'

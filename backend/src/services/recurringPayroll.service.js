@@ -1,3 +1,4 @@
+import { humanRosterSql } from '../utils/workplacePeople.js';
 import pool from '../config/database.js';
 export const day = value => value instanceof Date ? value.toISOString().slice(0,10) : String(value || '').slice(0,10);
 export function validDay(value) { return /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0,10) === value; }
@@ -35,7 +36,7 @@ export async function materializeRecurring({agencyId,payrollPeriodId}) {
     if(!period||['posted','finalized'].includes(period.status)){await db.rollback();return;}
     const [schedules]=await db.execute(`SELECT r.* FROM payroll_recurring_payments r JOIN users u ON u.id=r.user_id
       JOIN user_agencies ua ON ua.user_id=r.user_id AND ua.agency_id=r.agency_id
-      WHERE r.agency_id=? AND r.starts_on<=? AND (r.ends_on IS NULL OR r.ends_on>=?) AND COALESCE(u.is_active,1)=1 AND COALESCE(ua.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND u.status='ACTIVE_EMPLOYEE' FOR UPDATE`,[agencyId,day(period.period_end),day(period.period_start)]);
+      WHERE r.agency_id=? AND ${humanRosterSql('u')} AND r.starts_on<=? AND (r.ends_on IS NULL OR r.ends_on>=?) AND COALESCE(u.is_active,1)=1 AND COALESCE(ua.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND u.status='ACTIVE_EMPLOYEE' FOR UPDATE`,[agencyId,day(period.period_end),day(period.period_start)]);
     for(const s of schedules)for(const date of occurrenceDates(s,day(period.period_start),day(period.period_end))) {
       const [[existing]]=await db.execute('SELECT id FROM payroll_recurring_occurrences WHERE recurring_payment_id=? AND occurrence_date=?',[s.id,date]);
       if(existing)continue;

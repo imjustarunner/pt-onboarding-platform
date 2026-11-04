@@ -47,6 +47,7 @@
         <div class="pthq-nav-section">System</div>
         <router-link class="pthq-nav-item" to="/admin/settings?scope=platform&amp;category=platform&amp;item=platform-ws-home">Platform Settings</router-link>
         <router-link class="pthq-nav-item" to="/admin/audit-center">Audit Center</router-link>
+        <router-link v-if="Number(authStore.user?.id) === 501" class="pthq-nav-item" to="/admin/assistant-teams">Assistant Teams</router-link>
         <router-link class="pthq-nav-item" to="/admin/usage-analytics">Usage Analytics</router-link>
         <router-link class="pthq-nav-item" to="/admin/modules">Modules</router-link>
 

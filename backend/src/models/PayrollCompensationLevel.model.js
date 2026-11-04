@@ -1,3 +1,4 @@
+import { humanRosterSql } from '../utils/workplacePeople.js';
 import pool from '../config/database.js';
 
 export const COMPENSATION_CATEGORIES = Object.freeze({
@@ -208,7 +209,7 @@ const PayrollCompensationLevel = {
          INNER JOIN users us ON us.id = u.user_id
          LEFT JOIN payroll_compensation_levels c
            ON c.agency_id = u.agency_id AND c.category = u.category AND c.level = u.level
-         WHERE u.agency_id = ?
+         WHERE u.agency_id = ? AND ${humanRosterSql('us')}
          ORDER BY us.last_name ASC, us.first_name ASC`,
         [agencyId]
       );
@@ -226,7 +227,7 @@ const PayrollCompensationLevel = {
          INNER JOIN users us ON us.id = u.user_id
          LEFT JOIN payroll_compensation_levels c
            ON c.agency_id = u.agency_id AND c.category = u.category AND c.level = u.level
-         WHERE u.agency_id = ?
+         WHERE u.agency_id = ? AND ${humanRosterSql('us')}
          ORDER BY us.last_name ASC, us.first_name ASC`,
         [agencyId]
       );
@@ -245,7 +246,7 @@ const PayrollCompensationLevel = {
          INNER JOIN users us ON us.id = p.user_id
          LEFT JOIN payroll_user_compensation_levels cur
            ON cur.agency_id = p.agency_id AND cur.user_id = p.user_id
-         WHERE p.agency_id = ?
+         WHERE p.agency_id = ? AND ${humanRosterSql('us')}
          ORDER BY us.last_name ASC, us.first_name ASC`,
         [agencyId]
       );

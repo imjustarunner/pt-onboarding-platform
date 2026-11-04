@@ -16,12 +16,13 @@ import { getSessionSecurity, sessionRouteAllowed, invalidateSessionPolicyCache }
 import { enforceAccountSecurity } from './accountSecurity.middleware.js';
 import { enforceSchoolCareBridgeScope } from './schoolCareBridgeScope.middleware.js';
 import { recordAccountSession } from '../services/personalSessionHistory.service.js';
+import { assistantBoundary } from './assistantBoundary.middleware.js';
 
 const PROVIDER_LIKE_ROLES_MIDDLEWARE = new Set([
   'provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'
 ]);
 
-const finishAuthentication = (req,res,next) => requireUnexpiredGuardianTestAccess(req,res,error => error ? next(error) : enforceDependentPortalScope(req,res,error => error ? next(error) : enforceSchoolCareBridgeScope(req,res,error => error ? next(error) : enforceAccountSecurity(req,res,next))));
+const finishAuthentication = (req,res,next) => assistantBoundary(req,res,error => error ? next(error) : requireUnexpiredGuardianTestAccess(req,res,error => error ? next(error) : enforceDependentPortalScope(req,res,error => error ? next(error) : enforceSchoolCareBridgeScope(req,res,error => error ? next(error) : enforceAccountSecurity(req,res,next)))));
 
 /** Normalize role strings for authorization (JWT quirks / legacy variants). */
 function normalizeAuthRole(role) {
@@ -47,6 +48,11 @@ function isBackofficeAdminRole(role) {
  */
 async function resolveEffectiveRole(req) {
   if (!req.user) return;
+  if (req.assistantIdentity) {
+    req.user.role = 'assistant';
+    req.user.effectiveRole = 'assistant';
+    return;
+  }
 
   // Window-scoped / allowlist demo JWTs already carry the intended role — do not
   // remap from DB club/work roles or the demo view collapses back to super_admin.

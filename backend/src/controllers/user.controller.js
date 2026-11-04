@@ -2,7 +2,8 @@ import { listProvidersForSupport } from '../services/supportProviderDirectory.se
 import { getUserOnboardingChecklist } from '../services/userOnboardingChecklist.service.js';
 import { requireClientSessionBooking } from '../services/clientSessionBookingRollout.service.js';
 import { getSupervisionSignupWindow } from '../services/supervisionSignupWindow.js';
-import { isPrivateFamilyProfile, workplacePersonSql } from '../utils/workplacePeople.js';
+import { isPrivateFamilyProfile, workplacePersonSql, humanRosterSql } from '../utils/workplacePeople.js';
+import { filterAssistantIdentities } from '../services/assistantIdentity.service.js';
 import { supervisionParticipantDetails } from '../utils/supervisionParticipantDetails.js';
 import { cancelMeetingOccurrences } from '../services/recurringScheduleCancellation.service.js';
 import { isStaffCommunicationRole } from '../utils/staffCommunicationChoices.js';
@@ -443,7 +444,8 @@ export const getAllUsers = async (req, res, next) => {
         WHERE ua.agency_id = ? AND COALESCE(ua.is_active, 1) = 1 AND u.is_active = 1 AND u.role IN (${STAFF_ROLES.map(() => '?').join(',')})
         AND UPPER(COALESCE(u.status, '')) IN ('','ACTIVE','ACTIVE_EMPLOYEE')
         ORDER BY u.last_name, u.first_name`, [agencyId, ...STAFF_ROLES]);
-      return res.json(req.query.supervisorsOnly === 'true' ? rows.filter(isAssignableSupervisor) : rows);
+      const humanRows = await filterAssistantIdentities(rows);
+      return res.json(req.query.supervisorsOnly === 'true' ? humanRows.filter(isAssignableSupervisor) : humanRows);
     }
     const includeArchived = req.query.includeArchived === 'true';
     
@@ -876,7 +878,7 @@ export const getAllUsers = async (req, res, next) => {
       // Ignore if column doesn't exist yet.
     }
 
-    res.json(users.filter(user => !isPrivateFamilyProfile(user)));
+    res.json((await filterAssistantIdentities(users)).filter(user => !isPrivateFamilyProfile(user)));
   } catch (error) {
     next(error);
   }
@@ -7477,7 +7479,7 @@ export const listUserMeetingCandidates = async (req, res, next) => {
          LEFT JOIN provider_public_profiles p ON p.user_id = u.id
          WHERE ua.agency_id IN (${placeholders})
            AND ua.is_active = 1
-           AND ${workplacePersonSql('u')}
+           AND ${humanRosterSql('u')}
            AND u.id <> ?
            AND COALESCE(u.is_demo, 0) = 0
            AND (u.is_active IS NULL OR u.is_active = TRUE)

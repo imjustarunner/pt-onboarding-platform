@@ -1,3 +1,5 @@
+import { humanRosterSql } from '../utils/workplacePeople.js';
+import { isAssistantIdentity } from '../utils/assistantBoundaryPolicy.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Notification from '../models/Notification.model.js';
@@ -949,7 +951,7 @@ async function finalizeChatPresenceRows(rows, viewerUserId, viewerRole, agencyId
   } catch {
     /* ignore */
   }
-  const withSchools = await attachSchoolNames(rows);
+  const withSchools = await attachSchoolNames((rows || []).filter(row => !isAssistantIdentity(row)));
   const withShared = await attachSharedAgencyMemberships(withSchools, viewerUserId, { viewerRole });
   const mapped = mapChatPresenceRows(withShared, viewerRole);
   const withPlannedOuts = await attachPlannedOutsToPresenceRows(mapped, agencyId);
@@ -958,7 +960,7 @@ async function finalizeChatPresenceRows(rows, viewerUserId, viewerRole, agencyId
 
 function mapChatPresenceRows(rows, viewerRole) {
   const privilegedViewer = UserPresenceStatus.isPrivilegedRole(viewerRole);
-  return (rows || []).map((r) => {
+  return (rows || []).filter(row => !isAssistantIdentity(row)).map((r) => {
     const computed = computePresenceStatus(r, viewerRole);
     // Shared availability band for dots (Team Board + chat). Meal/reason detail stays
     // privileged-only so Messages peers see Available / Away · reachable / Unavailable.
@@ -1020,7 +1022,7 @@ async function listSchoolScopedPresence(viewerUserId) {
      INNER JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id IN (${placeholders})
      LEFT JOIN user_presence up ON up.user_id = u.id
      LEFT JOIN user_presence_status ps ON ps.user_id = u.id
-     WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
+     WHERE (u.is_archived = FALSE OR u.is_archived IS NULL) AND ${humanRosterSql('u')}
        AND u.role NOT IN ('client_guardian', 'kiosk')
      ORDER BY u.first_name ASC, u.last_name ASC`,
     schoolIds
@@ -1046,7 +1048,7 @@ async function listSchoolScopedPresence(viewerUserId) {
          AND psa.is_active = TRUE
        LEFT JOIN user_presence up ON up.user_id = u.id
        LEFT JOIN user_presence_status ps ON ps.user_id = u.id
-       WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
+       WHERE (u.is_archived = FALSE OR u.is_archived IS NULL) AND ${humanRosterSql('u')}
        ORDER BY u.first_name ASC, u.last_name ASC`,
       schoolIds
     );
@@ -1088,7 +1090,7 @@ async function listAgencySchoolStaff(agencyId, roleFilter = 'school_staff') {
          AND oa.is_active = 1
        LEFT JOIN user_presence up ON up.user_id = u.id
        LEFT JOIN user_presence_status ps ON ps.user_id = u.id
-       WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
+       WHERE (u.is_archived = FALSE OR u.is_archived IS NULL) AND ${humanRosterSql('u')}
          AND LOWER(COALESCE(u.role, '')) = ?
        ORDER BY u.first_name ASC, u.last_name ASC`,
       [agencyId, role]
@@ -1113,7 +1115,7 @@ async function listAgencySchoolStaff(agencyId, roleFilter = 'school_staff') {
          INNER JOIN agency_schools ash ON ash.school_id = ua.agency_id AND ash.agency_id = ?
          LEFT JOIN user_presence up ON up.user_id = u.id
          LEFT JOIN user_presence_status ps ON ps.user_id = u.id
-         WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
+         WHERE (u.is_archived = FALSE OR u.is_archived IS NULL) AND ${humanRosterSql('u')}
            AND LOWER(COALESCE(u.role, '')) = ?
          ORDER BY u.first_name ASC, u.last_name ASC`,
         [agencyId, role]
@@ -1174,7 +1176,7 @@ export const listAgencyPresence = async (req, res, next) => {
            LEFT JOIN user_presence up ON up.user_id = u.id
            LEFT JOIN user_presence_status ps ON ps.user_id = u.id
            WHERE ua.agency_id = ?
-             AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+             AND (u.is_archived = FALSE OR u.is_archived IS NULL) AND ${humanRosterSql('u')}
              AND LOWER(COALESCE(u.role, '')) = ?
            ORDER BY u.first_name ASC, u.last_name ASC`,
           [agencyId, filterRole]
@@ -1214,7 +1216,7 @@ export const listAgencyPresence = async (req, res, next) => {
        LEFT JOIN user_presence up ON up.user_id = u.id
        LEFT JOIN user_presence_status ps ON ps.user_id = u.id
        WHERE ua.agency_id = ?
-         AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+         AND (u.is_archived = FALSE OR u.is_archived IS NULL) AND ${humanRosterSql('u')}
          AND u.role IN (${teamPlaceholders})
        ORDER BY u.first_name ASC, u.last_name ASC`,
       [agencyId, ...TEAM_EMPLOYEE_ROLES]
@@ -1237,7 +1239,7 @@ export const listAgencyPresence = async (req, res, next) => {
          LEFT JOIN user_presence up ON up.user_id = u.id
          LEFT JOIN user_presence_status ps ON ps.user_id = u.id
          WHERE u.role = 'super_admin'
-           AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+           AND (u.is_archived = FALSE OR u.is_archived IS NULL) AND ${humanRosterSql('u')}
          ORDER BY u.first_name ASC, u.last_name ASC`
       );
       superAdmins = sa || [];
@@ -1286,7 +1288,7 @@ export const listAdminPresence = async (req, res, next) => {
        LEFT JOIN user_presence_status ps ON ps.user_id = u.id
        LEFT JOIN user_agencies ua ON ua.user_id = u.id
        LEFT JOIN agencies a ON a.id = ua.agency_id
-       WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
+       WHERE (u.is_archived = FALSE OR u.is_archived IS NULL) AND ${humanRosterSql('u')}
          AND u.role IN ('admin', 'support', 'super_admin')
        GROUP BY u.id, u.first_name, u.last_name, u.email, u.role,
                 up.last_heartbeat_at, up.last_activity_at, up.session_phase, up.availability_level,
@@ -1386,7 +1388,7 @@ export const listPrivilegedPresence = async (req, res, next) => {
        LEFT JOIN user_agencies ua ON ua.user_id = u.id ${membershipJoinSql}
        LEFT JOIN agencies a ON a.id = ua.agency_id AND COALESCE(a.is_active, 1) = 1
        WHERE LOWER(COALESCE(u.role, '')) IN ('admin', 'support', 'super_admin', 'superadmin')
-         AND COALESCE(u.is_archived, 0) = 0
+         AND COALESCE(u.is_archived, 0) = 0 AND ${humanRosterSql('u')}
          AND COALESCE(u.is_active, 1) = 1
          AND UPPER(COALESCE(u.status, 'ACTIVE_EMPLOYEE')) NOT IN ('INACTIVE', 'INACTIVE_EMPLOYEE', 'ARCHIVED')
          AND (u.id = ? OR up.last_heartbeat_at >= DATE_SUB(NOW(), INTERVAL 6 MINUTE))
@@ -1434,7 +1436,7 @@ export const listPrivilegedPresence = async (req, res, next) => {
  */
 
 const mapPresenceRows = (rows) => {
-  return (rows || []).map((r) => {
+  return (rows || []).filter(row => !isAssistantIdentity(row)).map((r) => {
     const firstName = r.first_name || '';
     const lastName = r.last_name || '';
     const preferredName = r.preferred_name || '';

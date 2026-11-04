@@ -32,6 +32,7 @@ import crypto from 'crypto';
 import { validationResult } from 'express-validator';
 import { logAuditEvent } from '../services/auditEvent.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
+import { queueCommittedClinicalSourceChange } from '../services/assistantClinicalSourceChange.service.js';
 import ClinicalSession from '../models/clinical/ClinicalSession.model.js';
 import ClinicalNote from '../models/clinical/ClinicalNote.model.js';
 import ClinicalClaim from '../models/clinical/ClinicalClaim.model.js';
@@ -2042,6 +2043,7 @@ export const signClinicalNote = async (req, res, next) => {
     const [[persisted]]=await signingDb.execute('SELECT * FROM clinical_notes WHERE id=? AND agency_id=?',[note.id,note.agency_id]);
     const originalRevision=await ensureOriginalRevision({db:signingDb,note:persisted,session:lockedSession || {},actorUserId:req.user.id,signatureEvent:true,responsibleSupervisorUserId:supervisor?.supervisor_id || null,requiresSupervisorCosign:!!supervisor});
     await signingDb.commit();signingDb.release();signingDb=null;
+    queueCommittedClinicalSourceChange({ agencyId: note.agency_id, clientId: note.client_id, sourceKind: 'note', sourceId: noteId });
     Object.assign(note,persisted);
     const queueSynchronized=!supervisor || await synchronizeSupervisorQueue(note,meta.supervisorQueue);
     try {
@@ -2262,6 +2264,7 @@ export const cosignClinicalNote = async (req, res, next) => {
     await appendOriginalSignature({db:cosignDb,note:persistedCosign,session:reviewSession || {},actorUserId:req.user.id,expectedContentHash:originalRevision.content_hash,expectedEntryManifestHash:req.body.expectedEntryManifestHash});
     await cosignDb.commit();
     cosignDb.release(); cosignDb = null;
+    queueCommittedClinicalSourceChange({ agencyId: note.agency_id, clientId: note.client_id, sourceKind: 'note', sourceId: noteId });
     const queueSynchronized = await synchronizeSupervisorQueue({...note,supervisor_cosigned_at:cosignedAtIso},queueMarker);
     if (!nonBillable) await draftClaimAfterSignature(req, persistedCosign);
     return res.json({ ok: true, noteId, cosignedAt: cosignedAtIso, isBillable: !nonBillable, queueSynchronizationPending:!queueSynchronized });

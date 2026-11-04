@@ -36,6 +36,8 @@ import requestLoggingMiddleware from './middleware/requestLogging.middleware.js'
 import securityEvidenceMiddleware from './middleware/securityEvidence.middleware.js';
 import { requireSecurityReadiness } from './services/securityEvidence.service.js';
 import securityEvidenceRoutes from './routes/securityEvidence.routes.js';
+import { assistantGlobalBoundary } from './middleware/assistantBoundary.middleware.js';
+import { assistantWorkRouter, assistantAccountsRouter, assistantReviewsRouter } from './routes/assistantTeams.routes.js';
 import privacyReviewRoutes from './routes/privacyReview.routes.js';
 import accountSecurityRoutes from './routes/accountSecurity.routes.js';
 import { accessDebugMiddleware } from './middleware/accessDebug.middleware.js';
@@ -423,8 +425,12 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Audit metadata before public clinical entry points; never record request bodies.
 app.use(securityEvidenceMiddleware);
+app.use(assistantGlobalBoundary);
 // Preserve the existing preview boundary on every public clinical entry point.
 app.use('/api', auricwellPreviewBoundary);
+app.use('/api/assistant-work', assistantWorkRouter);
+app.use('/api/assistant-accounts', assistantAccountsRouter);
+app.use('/api/assistant-reviews', assistantReviewsRouter);
 // Carrier callbacks authenticate with Vonage signatures, not staff login tokens.
 // Mount before catch-all API authentication and request-body logging.
 app.use('/api/vonage', vonageRoutes);

@@ -345,6 +345,9 @@ const flattenPathForHostPortal = (targetPath, brandingStore) => {
 };
 
 const routes = [
+  { path: '/assistant-reviews', name: 'AssistantHumanReviews', component: () => import('../views/assistants/AssistantHumanReviewView.vue'), meta: { requiresAuth: true } },
+  { path: '/assistant', name: 'AssistantDashboard', component: () => import('../views/assistants/AssistantDashboardView.vue'), meta: { requiresAuth: true, requiresRole: ['assistant'], assistantSurface: true } },
+  { path: '/admin/assistant-teams', name: 'AssistantTeams', component: () => import('../views/assistants/AssistantTeamsView.vue'), meta: { requiresAuth: true, requiresRole: ['super_admin'] } },
   {
     path: '/meeting-times',
     name: 'MeetingTimes',
@@ -5431,6 +5434,17 @@ router.beforeEach(async (to, from, next) => {
   // Use resolveHostPortalSlug so app.itsco.health ≡ itsco even when /agencies/resolve returns null.
   // Resolve cookie/SSO identity before workspace, branding, and role guards run.
   if (to.meta.requiresAuth) await tryBootstrapAuthFromCookie();
+  // Assistants have a separate, closed navigation surface. This runs before
+  // tenant routing and avoids hydrating staff organizations or employee widgets.
+  if (String(authStore.user?.role || '').toLowerCase() === 'assistant') {
+    if (to.name === 'AssistantDashboard' || to.meta.accountSecurity === true || to.name === 'SessionEnded') { next(); return; }
+    next({ path: '/assistant', replace: true }); return;
+  }
+  if (to.name === 'AssistantTeams') {
+    if (!authStore.isAuthenticated) { next({ path: '/login', query: { redirect: '/admin/assistant-teams' }, replace: true }); return; }
+    if (String(authStore.user?.role || '').toLowerCase() !== 'super_admin' || Number(authStore.user?.id) !== 501) { next({ path: getDashboardRoute(), replace: true }); return; }
+    next(); return;
+  }
   const hostPortalEarly = resolveHostPortalSlug(brandingStore);
   const workspaceHost = window.location.hostname;
   const platformHost = isPlatformWorkspaceHost(workspaceHost) || isLocalWorkspaceHost(workspaceHost);

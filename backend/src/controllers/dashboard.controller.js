@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { humanRosterSql } from '../utils/workplacePeople.js';
 import User from '../models/User.model.js';
 import Notification from '../models/Notification.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
@@ -65,7 +66,7 @@ export const getAgencySpecs = async (req, res, next) => {
                END) AS pendingEmployees
          FROM users u
          JOIN user_agencies ua ON ua.user_id = u.id
-         WHERE ua.agency_id IN (${tenantPlaceholders})`,
+         WHERE ua.agency_id IN (${tenantPlaceholders}) AND ${humanRosterSql('u')}`,
         [...tenantIds]
       );
       result.activeEmployees = Number(rows?.[0]?.activeEmployees || 0);
@@ -413,7 +414,7 @@ export const getPlatformTenantSummary = async (req, res, next) => {
       try {
         const [[er]] = await pool.execute(
           `SELECT SUM(CASE WHEN UPPER(COALESCE(u.status,'')) = 'ACTIVE_EMPLOYEE' THEN 1 ELSE 0 END) AS cnt
-           FROM users u JOIN user_agencies ua ON ua.user_id = u.id WHERE ua.agency_id = ?`,
+           FROM users u JOIN user_agencies ua ON ua.user_id = u.id WHERE ua.agency_id = ? AND ${humanRosterSql('u')}`,
           [aid]
         );
         activeEmployees = Number(er?.cnt || 0);
