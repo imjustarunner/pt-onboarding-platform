@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
 import {uploadClaims,requestEligibilityJson,requestEnrollment} from '../claimMd.service.js';
-import {assertLiveClearinghouseAgency} from '../syntheticClearinghouseGuard.service.js';
+import {assertLiveClearinghouseAgency,isSyntheticClearinghouseAgency} from '../syntheticClearinghouseGuard.service.js';
 beforeEach(()=>{vi.clearAllMocks();vi.stubGlobal('fetch',vi.fn());});
 it.each([450,451,452])('prevents any payer transmission for QA agency %s even if supplied live credentials',async agencyId=>{
  m.execute.mockResolvedValue([[{id:agencyId,slug:'changed',feature_flags:{}}]]);
@@ -16,4 +16,7 @@ it('fails closed on absent scope and synthetic flags; allows an ordinary real or
  await expect(assertLiveClearinghouseAgency(800)).rejects.toThrow();
  m.execute.mockResolvedValue([[{id:2,slug:'itsco',feature_flags:{}}]]);
  await expect(assertLiveClearinghouseAgency(2)).resolves.toBeUndefined();
+ await expect(isSyntheticClearinghouseAgency(2)).resolves.toBe(false);
+ m.execute.mockResolvedValue([[{id:450,slug:'auricwell-qa-demo',feature_flags:{qaSandbox:{syntheticOnly:true}}}]]);
+ await expect(isSyntheticClearinghouseAgency(450)).resolves.toBe(true);
 });

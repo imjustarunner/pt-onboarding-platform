@@ -181,8 +181,9 @@
       <p><strong>Total: ${{ review.payload.total_charge }}</strong></p>
       <details><summary>Full claim details</summary><pre>{{ JSON.stringify(review.payload, null, 2) }}</pre></details>
       <ul><li v-for="blocker in review.readiness.blockers" :key="blocker" class="error">{{ blocker }}</li><li v-for="warning in review.readiness.warnings" :key="warning">{{ warning }}</li></ul>
-      <label><input v-model="approved" type="checkbox" /> I reviewed the patient, coverage, providers, service lines and charges for this {{ connection.mode }} account.</label>
-      <div class="actions"><button :disabled="busy || !approved || !review.readiness.ready || !['draft','ready','rejected'].includes(review.lifecycle) || !['test','live'].includes(connection.mode)" @click="submit">Approve and submit {{ connection.mode === 'live' ? 'LIVE claim' : 'test claim' }}</button><button :disabled="busy" @click="review = null">Close review</button></div>
+      <p v-if="connection.practiceSubmission">Practice submit records this claim in the app. Nothing is sent to Claim.MD or a payer.</p>
+      <label><input v-model="approved" type="checkbox" /> {{ connection.practiceSubmission ? 'I reviewed the patient, coverage, providers, service lines and charges. This practice submit stays in the app.' : `I reviewed the patient, coverage, providers, service lines and charges for this ${connection.mode} account.` }}</label>
+      <div class="actions"><button :disabled="busy || !approved || !review.readiness.ready || !['draft','ready','rejected'].includes(review.lifecycle) || !(connection.practiceSubmission || ['test','live'].includes(connection.mode))" @click="submit">{{ connection.practiceSubmission ? 'Approve practice submit' : `Approve and submit ${connection.mode === 'live' ? 'LIVE claim' : 'test claim'}` }}</button><button :disabled="busy" @click="review = null">Close review</button></div>
     </section>
 
     <section v-if="historyClaimId" class="review">

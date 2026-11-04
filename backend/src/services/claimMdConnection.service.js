@@ -1,5 +1,12 @@
 import AgencyClaimMdCredentials from '../models/AgencyClaimMdCredentials.model.js';
 import { decryptChatText } from './chatEncryption.service.js';
+import { isSyntheticClearinghouseAgency } from './syntheticClearinghouseGuard.service.js';
+
+async function withPracticeSubmission(agencyId, meta) {
+  let practiceSubmission = false;
+  try { practiceSubmission = await isSyntheticClearinghouseAgency(agencyId); } catch { practiceSubmission = false; }
+  return { ...meta, practiceSubmission };
+}
 
 export function sharedClaimMdConnection(agencyId, env = process.env) {
   const ids = String(env.CLAIM_MD_AGENCY_IDS || '').split(',').map(s => Number(s.trim())).filter(n => Number.isSafeInteger(n) && n > 0);
@@ -24,8 +31,8 @@ export async function resolveClaimMdConnection(agencyId) {
 
 export async function claimMdConnectionMeta(agencyId) {
   const shared = sharedClaimMdConnection(agencyId);
-  if (shared) return { configured: true, accountId: shared.accountId, mode: shared.mode, source: shared.source };
-  return { ...await AgencyClaimMdCredentials.publicMeta(agencyId), mode: process.env[`CLAIM_MD_MODE_${agencyId}`] || 'disabled', source: 'encrypted_database' };
+  if (shared) return withPracticeSubmission(agencyId, { configured: true, accountId: shared.accountId, mode: shared.mode, source: shared.source });
+  return withPracticeSubmission(agencyId, { ...await AgencyClaimMdCredentials.publicMeta(agencyId), mode: process.env[`CLAIM_MD_MODE_${agencyId}`] || 'disabled', source: 'encrypted_database' });
 }
 
 export function requireClaimMdTransmission(connection) {

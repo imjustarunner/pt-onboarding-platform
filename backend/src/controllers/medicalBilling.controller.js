@@ -8,7 +8,7 @@ import { assertClinicalSigner, CLINICAL_SIGNER_ROLES } from '../services/clinica
 import { getApprovedClinicalContext, assertClinicalVersionSubmission, clinicalVersionReference, approvedVersionBillingBlockers } from '../services/clinicalNoteVersionBilling.service.js';
 import { screeningEncounterProposal } from '../services/h0002EncounterDetails.js';
 import { logNoteAidChartEvent } from '../services/noteAidChartAudit.service.js';
-import { assertLiveClearinghouseAgency } from '../services/syntheticClearinghouseGuard.service.js';
+import { assertLiveClearinghouseAgency, isSyntheticClearinghouseAgency } from '../services/syntheticClearinghouseGuard.service.js';
 import { parseObject } from '../services/supervisedBillingPolicy.service.js';
 import { sessionLocationLabel, reviewSnapshotToken, reviewRequestsForDisplay, effectiveServiceDetails, pendingServiceDetails, assertNoUnresolvedChanges, assertServiceDetailsComplete, markSupervisorQueue, synchronizeSupervisorQueue } from '../services/clinicalSupervisorReview.service.js';
 import { validateScreeningSignature, completeH0002Screening, loadScreeningSource, H0002_SOURCE } from '../services/h0002ScreeningWorkflow.service.js';
@@ -2912,6 +2912,40 @@ export const submitClaimToClaimMd = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Review and explicitly approve this claim before submitting' } });
     }
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    if (await isSyntheticClearinghouseAgency(agencyId)) {
+      const { claim, readiness, insurance, payload, reviewHash, supervision, documentation } = await prepareClaimReview(agencyId, claimId);
+      const clinicalVersion = clinicalVersionReference(documentation?.note);
+      if (!['ready', 'draft', 'rejected'].includes(claim.claim_lifecycle)) return res.status(409).json({ error: { message: 'This claim is already submitted, in progress, or needs reconciliation' } });
+      if (!readiness.ready) return res.status(409).json({ error: { message: 'Clinical documentation is not ready for submission' }, readiness });
+      if (reviewHash !== req.body.reviewHash) return res.status(409).json({ error: { message: 'Claim data changed since review. Review the updated claim before submitting.' } });
+      const attemptId = crypto.randomUUID();
+      const connectionId = `practice:${agencyId}`;
+      const db = await clinicalPool.getConnection();
+      try {
+        await db.beginTransaction();
+        await db.execute('SELECT id FROM clinical_sessions WHERE id=? AND agency_id=? FOR UPDATE', [claim.clinical_session_id, agencyId]);
+        await assertNoSelfPayBalance(agencyId, claim.clinical_session_id);
+        await db.execute('SELECT id FROM clinical_claims WHERE id = ? AND agency_id = ? FOR UPDATE', [claimId, agencyId]);
+        await db.execute('SELECT id FROM clinical_notes WHERE id = ? AND agency_id = ? FOR UPDATE', [claim.clinical_note_id || null, agencyId]);
+        await db.execute('SELECT id FROM clinical_note_addenda WHERE clinical_note_id = ? AND agency_id = ? FOR UPDATE', [claim.clinical_note_id || null, agencyId]);
+        const latestReview = await prepareClaimReview(agencyId, claimId);
+        if (!latestReview.readiness.ready || latestReview.reviewHash !== reviewHash) throw Object.assign(new Error('Documentation or billing policy changed. Review this claim again.'), { status: 409 });
+        await assertClinicalVersionSubmission({ noteId: claim.clinical_note_id, agencyId, expectedRevisionId: clinicalVersion.revisionId, expectedContentHash: clinicalVersion.contentHash }, db);
+        await assertOriginalTransmissionAllowed({ ...latestReview.claim, agency_id: agencyId }, db);
+        const practiceClaimId = `practice-${claimId}`;
+        const [queued] = await db.execute(`UPDATE clinical_claims SET claim_lifecycle = 'submitted', claim_status = 'SUBMITTED', member_id = NULL,
+          insurance_payload = ?, claimmd_connection_id = ?, rendering_npi = ?, destination_payer_id = ?,
+          claimmd_last_status = 'PRACTICE', claimmd_submitted_at = NOW(), claimmd_claim_id = ?
+          WHERE id = ? AND agency_id = ? AND is_deleted = 0
+          AND claim_lifecycle IN ('ready','draft','rejected') AND billing_revision = ?`,
+          [encryptFamilyBilling(insurance, `claim-insurance:${agencyId}:${claimId}`), connectionId, payload.prov_npi || null, payload.payerid || null, practiceClaimId, claimId, agencyId, claim.billing_revision]);
+        if (!queued.affectedRows) throw Object.assign(new Error('This claim changed or is already being submitted. Refresh its review.'), { status: 409 });
+        await recordClaimEvent({ agencyId, claimId, connectionId, eventKey: `practice:${attemptId}`, eventType: 'approved_submission', status: 'PRACTICE', actorUserId: req.user.id, payload: { reviewHash, clinicalVersion, mode: 'practice', practice: true, payload, supervision } }, db);
+        await recordClaimEvent({ agencyId, claimId, connectionId, eventKey: `practice-ack:${attemptId}`, eventType: 'acknowledgement', status: 'PRACTICE', actorUserId: req.user.id, payload: { messages: [{ message: 'Practice acknowledgement. This claim was not sent to Claim.MD or a payer.', status: 'PRACTICE' }], claimMdId: practiceClaimId } }, db);
+        await db.commit();
+      } catch (e) { await db.rollback(); throw e; } finally { db.release(); }
+      return res.json({ ok: true, accepted: true, practice: true, message: 'Practice submission recorded in this app. Nothing was sent to Claim.MD or a payer.' });
+    }
     await assertLiveClearinghouseAgency(agencyId);
     const connection = await resolveClaimMdConnection(agencyId);
     requireClaimMdTransmission(connection);

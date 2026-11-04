@@ -53,6 +53,16 @@ describe('Claim.MD billing desk', () => {
     expect(api.post).toHaveBeenCalledWith('/medical-billing/claimmd/claims/11/submit', { agencyId: 1, approved: true, reviewHash: 'a'.repeat(64), accountMode: 'test' });
     expect(w.text()).toContain('Acknowledged'); expect(w.emitted('updated')).toHaveLength(1); w.unmount();
   });
+  it('records a practice submit for a demo connection without a clearinghouse mode', async () => {
+    const w = mount(ClaimMdWorkspace, { props: { ...props, connection: { configured: false, mode: 'disabled', practiceSubmission: true } } }); await flushPromises();
+    await w.vm.reviewClaim(11); await flushPromises();
+    expect(w.text()).toContain('Nothing is sent to Claim.MD or a payer.');
+    expect(button(w, 'Approve practice submit').attributes('disabled')).toBeDefined();
+    await w.find('input[type="checkbox"]').setValue(true);
+    await button(w, 'Approve practice submit').trigger('click'); await flushPromises();
+    expect(api.post).toHaveBeenCalledWith('/medical-billing/claimmd/claims/11/submit', { agencyId: 1, approved: true, reviewHash: 'a'.repeat(64), accountMode: 'disabled' });
+    w.unmount();
+  });
   it('cannot submit when transmission is disabled', async () => {
     const w = mount(ClaimMdWorkspace, { props: { ...props, connection: { configured: true, mode: 'disabled' } } }); await flushPromises();
     await w.vm.reviewClaim(11); await flushPromises();

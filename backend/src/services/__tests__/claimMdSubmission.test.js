@@ -1,7 +1,7 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ liveAgency: vi.fn(), selfPayCheck: vi.fn(), prepare: vi.fn(), upload: vi.fn(), event: vi.fn(), connection: vi.fn(), execute: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(), versionGuard: vi.fn() }));
+const mocks = vi.hoisted(() => ({ liveAgency: vi.fn(), syntheticAgency: vi.fn(), selfPayCheck: vi.fn(), prepare: vi.fn(), upload: vi.fn(), event: vi.fn(), connection: vi.fn(), execute: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(), versionGuard: vi.fn() }));
 vi.mock('../clinicalNoteVersionBilling.service.js', async original => ({ ...await original(), assertClinicalVersionSubmission: mocks.versionGuard }));
-vi.mock('../syntheticClearinghouseGuard.service.js',()=>({assertLiveClearinghouseAgency:mocks.liveAgency}));
+vi.mock('../syntheticClearinghouseGuard.service.js',()=>({assertLiveClearinghouseAgency:mocks.liveAgency,isSyntheticClearinghouseAgency:mocks.syntheticAgency}));
 vi.mock('../familyLedger/serviceCharges.js',()=>({assertNoSelfPayBalance:mocks.selfPayCheck}));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: mocks.execute, getConnection: async () => ({ execute: mocks.execute, beginTransaction: mocks.begin, commit: mocks.commit, rollback: mocks.rollback, release: mocks.release }) } }));
 vi.mock('../../controllers/claimMdWorkflow.controller.js', () => ({ prepareClaimReview: mocks.prepare }));
@@ -15,12 +15,28 @@ const response = () => ({ code: 200, body: null, status(code) { this.code = code
 const request = () => ({ user: { id: 9, role: 'admin' }, params: { claimId: '11' }, body: { agencyId: 1, approved: true, reviewHash: 'a'.repeat(64), accountMode: 'test' } });
 const prepared = () => ({ claim: { id: 11, client_id: 7, clinical_note_id: 4, clinical_session_id: 71, claim_lifecycle: 'ready', billing_revision: 0 }, documentation: { note: { clinical_version_id: 12, clinical_version_number: 2, clinical_version_content_hash: 'b'.repeat(64) } }, readiness: { ready: true }, insurance: {}, payload: { remote_claimid: '11' }, reviewHash: 'a'.repeat(64) });
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.liveAgency.mockResolvedValue(undefined); mocks.selfPayCheck.mockResolvedValue(undefined); mocks.versionGuard.mockResolvedValue(undefined); mocks.prepare.mockResolvedValue(prepared());
+  vi.clearAllMocks(); mocks.liveAgency.mockResolvedValue(undefined); mocks.syntheticAgency.mockResolvedValue(false); mocks.selfPayCheck.mockResolvedValue(undefined); mocks.versionGuard.mockResolvedValue(undefined); mocks.prepare.mockResolvedValue(prepared());
   mocks.connection.mockResolvedValue({ accountKey: 'synthetic', mode: 'test', connectionId: 'account:100' });
   mocks.execute.mockImplementation(async sql=>sql.startsWith('SELECT')?[[]]:[{affectedRows:1}]);
   mocks.upload.mockResolvedValue({ claim: [{ remote_claimid: '11', claimmd_id: '800', status: 'A' }] });
 });
 describe('reviewed claim transmission', () => {
+  it('records a practice submission for a demo agency and does not upload', async () => {
+    mocks.syntheticAgency.mockResolvedValue(true);
+    const res = response();
+    await submitClaimToClaimMd(request(), res, e => { throw e; });
+    expect(res.body).toMatchObject({ ok: true, practice: true, accepted: true });
+    expect(res.body.message).toContain('Nothing was sent');
+    expect(mocks.connection).not.toHaveBeenCalled();
+    expect(mocks.upload).not.toHaveBeenCalled();
+    expect(mocks.liveAgency).not.toHaveBeenCalled();
+    const update = mocks.execute.mock.calls.find(([sql]) => sql.includes('claimmd_last_status'));
+    expect(update[0]).toContain("claimmd_last_status = 'PRACTICE'");
+    expect(update[0]).toContain("claim_lifecycle = 'submitted'");
+    expect(update[1]).toEqual(expect.arrayContaining(['practice:1', 'practice-11', 11, 1]));
+    expect(mocks.event).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'approved_submission', payload: expect.objectContaining({ mode: 'practice', practice: true }) }), expect.anything());
+    expect(mocks.event).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'acknowledgement', status: 'PRACTICE' }), expect.anything());
+  });
   it('stops before preparing or uploading when the agency transmission guard rejects', async () => {
     mocks.liveAgency.mockRejectedValueOnce(Object.assign(new Error('Synthetic agency cannot transmit'), {status:403}));
     const next=vi.fn(); await submitClaimToClaimMd(request(),response(),next);
