@@ -4,7 +4,8 @@ vi.mock('../email.service.js',()=>({default:{sendEmail:m.legacy}}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:m.identity}));
 vi.mock('../../models/UserCommunication.model.js',()=>({default:{updateDeliveryStatus:m.update}}));
 vi.mock('../familyLedger/receiptDeliveryRetry.js',()=>({receiptRetryAttachments:m.attachments}));
-import {sendCommunicationRecord,recordCommunicationSent} from '../communicationRecordDelivery.service.js';
+import {sendCommunicationRecord,recordCommunicationSent,communicationRecordAttachments} from '../communicationRecordDelivery.service.js';
+import {validateOutboundEmailQuality} from '../outboundEmailQuality.service.js';
 const comm={id:100,agency_id:2,user_id:5,client_id:8,recipient_address:'payer@example.com',subject:'Receipt R-2-91',body:'<p>Your receipt is attached.</p>',template_type:'family_payment_receipt'};
 beforeEach(()=>{vi.clearAllMocks();m.attachments.mockResolvedValue([{filename:'R-2-91.pdf',contentType:'application/pdf',contentBase64:'JVBERg=='}]);m.identity.mockResolvedValue({id:'gmail-91',threadId:'gmail-thread'});});
 it('preserves the real PDF when a queued receipt is approved or retried',async()=>{await sendCommunicationRecord(comm,{senderIdentityId:7,replyTo:'billing@example.com'},501);expect(m.attachments).toHaveBeenCalledWith({communication:comm,actorUserId:501,senderIdentityId:7});expect(m.identity).toHaveBeenCalledWith(expect.objectContaining({existingCommunicationId:100,to:'payer@example.com',senderIdentityId:7,attachments:[expect.objectContaining({filename:'R-2-91.pdf',contentBase64:'JVBERg=='})]}));});
@@ -15,3 +16,5 @@ it('stores the Gmail thread reference in metadata and leaves the delivery timest
 it.each([{queued:true},{id:'x',pendingApproval:true},{}])('does not mark an unconfirmed retry sent',async result=>{await expect(recordCommunicationSent(comm,{},result,501)).rejects.toMatchObject({status:409});expect(m.update).not.toHaveBeenCalled();});
 
 it('preserves sender metadata and returns the approved record without treating a thread ID as delivery time',async()=>{m.update.mockResolvedValue({id:100,delivery_status:'sent'});expect(await recordCommunicationSent(comm,{senderIdentityId:7,replyTo:'billing@example.com'},{id:'gmail-91',threadId:'gmail-thread'},501,{approved:true})).toEqual({id:100,delivery_status:'sent'});expect(m.update).toHaveBeenCalledWith(100,'sent','gmail-91',null,null,expect.objectContaining({senderIdentityId:7,replyTo:'billing@example.com',approvedByUserId:501,threadId:'gmail-thread'}));});
+
+it('uses the rebuilt PDF in retry quality review and then sends that same attachment',async()=>{const attachments=await communicationRecordAttachments(comm,{senderIdentityId:7},501);expect(validateOutboundEmailQuality({subject:comm.subject,html:comm.body,templateType:comm.template_type,attachments}).ok).toBe(true);await sendCommunicationRecord(comm,{senderIdentityId:7},501,{attachments});expect(m.attachments).toHaveBeenCalledTimes(1);expect(m.identity.mock.calls[0][0].attachments).toBe(attachments);});

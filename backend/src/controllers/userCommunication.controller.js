@@ -1,4 +1,4 @@
-import {sendCommunicationRecord,recordCommunicationSent} from '../services/communicationRecordDelivery.service.js';
+import {sendCommunicationRecord,recordCommunicationSent,communicationRecordAttachments} from '../services/communicationRecordDelivery.service.js';
 import pool from '../config/database.js';
 import { appCommunicationVisibilitySql, isExternalTestingHistory } from '../utils/externalTestingEmail.js';
 import { activeCommunicationFailureSql } from '../utils/communicationFailureQueue.js';
@@ -1216,13 +1216,15 @@ export const retryCommunicationSend = async (req, res, next) => {
     const meta = parseMetadata(comm.metadata);
     const linkUrl = meta.linkUrl || meta.link_url || null;
     const looksLikeHtml = /<[a-z][\s\S]*>/i.test(body);
+    const attachments=await communicationRecordAttachments(comm,meta,req.user.id);
     const previewQuality = validateOutboundEmailQuality({
       subject,
       text: looksLikeHtml ? null : body,
       html: looksLikeHtml ? body : null,
       linkUrl,
       templateType: comm.template_type,
-      clientId: comm.client_id
+      clientId: comm.client_id,
+      attachments
     });
     if (!previewQuality.ok) {
       return res.status(409).json({
@@ -1233,7 +1235,7 @@ export const retryCommunicationSend = async (req, res, next) => {
       });
     }
 
-    const result = await sendCommunicationRecord(comm, meta, req.user?.id);
+    const result = await sendCommunicationRecord(comm, meta, req.user?.id,{attachments});
 
     if (result?.pendingApproval) {
       return res.status(409).json({ error: { message: 'Send was blocked by email settings' } });
