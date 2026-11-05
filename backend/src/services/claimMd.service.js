@@ -155,12 +155,23 @@ export function buildClaimMdJsonClaim(claim, lines = [], { insurance, practice =
   if (String(primary.payerId || '').trim().toUpperCase() === 'COCHA') {
     payload.facility_npi = payload.bill_npi;
   }
-  // A facility identifier must travel with its configured name for any payer.
+  // Send the entire facility block together. For the CCHA mapping above, the
+  // facility is the selected billing office, including when its payer NPI differs
+  // from the office's default NPI. Never substitute a patient or school address.
   if (payload.facility_npi) {
     payload.facility_name = String(practice.claim_facility_name || '').trim() || String(practice.name || '').trim();
     if (!payload.facility_name) throw Object.assign(new Error('Save the service-facility name in Billing settings before submitting this claim.'), { status:409 });
+    payload.facility_addr_1 = String(practice.street_address || '').trim();
+    payload.facility_addr_2 = String(practice.street_address_2 || '').trim();
+    payload.facility_city = String(practice.city || '').trim();
+    payload.facility_state = String(practice.state || '').trim().toUpperCase();
+    const postalCode = String(practice.postal_code || '').trim();
+    if (!/^[A-Z]{2}$/.test(payload.facility_state) || !/^\d{5}(?:-?\d{4})?$/.test(postalCode)) {
+      throw Object.assign(new Error('Save a two-letter state and a valid ZIP or ZIP+4 for the billing office in Billing settings before submitting this claim.'), { status:409 });
+    }
+    payload.facility_zip = postalCode.replace('-', '');
   }
-  const limits={facility_name:35,payerid:32,payer_name:64,pcn:32,pat_name_l:35,pat_name_f:25,pat_addr_1:55,pat_addr_2:55,pat_city:30,pat_state:2,pat_zip:15,ins_number:32,bill_name:32,bill_addr_1:128,bill_addr_2:128,bill_city:32,bill_state:2,bill_zip:12,bill_phone:16};
+  const limits={facility_name:35,facility_addr_1:64,facility_addr_2:64,facility_city:35,facility_state:2,facility_zip:12,payerid:32,payer_name:64,pcn:32,pat_name_l:35,pat_name_f:25,pat_addr_1:55,pat_addr_2:55,pat_city:30,pat_state:2,pat_zip:15,ins_number:32,bill_name:32,bill_addr_1:128,bill_addr_2:128,bill_city:32,bill_state:2,bill_zip:12,bill_phone:16};
   const oversized=Object.entries(limits).filter(([field,limit])=>String(payload[field] || "").length>limit).map(([field])=>field);
   if(oversized.length)throw Object.assign(new Error(`Claim fields exceed clearinghouse limits: ${oversized.join(", ")}`),{status:409});
   return payload;
