@@ -79,7 +79,10 @@ export function auricwellPreviewBoundary(req, res, next) {
             [/^\/medical-billing\/(?:claimmd\/)?claims\/(\d+)/, clinicalPool, 'clinical_claims'],
             [/^\/clinical-notes\/drafts\/(\d+)/, pool, 'clinical_note_drafts'],
             [/^\/clinical-data\/sessions\/(\d+)/, clinicalPool, 'clinical_sessions'],
-            [/^\/appointments\/(\d+)/, pool, 'appointments']
+            [/^\/appointments\/(\d+)/, pool, 'appointments'],
+            [/^\/outcome-measures\/clients\/(\d+)/, pool, 'clients'],
+            [/^\/assessment-deliverables\/clients\/(\d+)/, pool, 'clients'],
+            [/^\/clinical-forms\/(\d+)/, pool, 'clinical_form_records']
           ]) {
             const match = path.match(pattern);
             if (match) await assertPreviewRecord(db, table, match[1], agencyId);

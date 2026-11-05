@@ -2,8 +2,11 @@ import pool from '../config/database.js';
 import { schoolSoftScheduleCalendar } from './schoolSoftScheduleCalendar.service.js';
 import { isValidTimeZone, wallMysqlToUtcMysql, utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 import { previewError } from './auricwellPreviewPolicy.js';
+import { letterMatchSql } from '../utils/letterMatch.js';
 
 const PRACTICE_ROLES = new Set(['super_admin','superadmin','admin','support','clinical_practice_assistant']);
+function practiceFilter(value){if(value==null||value===''||value==='all')return null;const id=Number(value);if(!Number.isInteger(id)||id<1)throw previewError(400,'Choose a practice.');return id;}
+function statusFilter(value){const status=String(value||'').trim();if(!status||status==='all')return '';if(status.length>80)throw previewError(400,'Choose a status.');return status;}
 const marks = ids => ids.map(() => '?').join(',');
 const name = r => [r.first_name,r.last_name].filter(Boolean).join(' ');
 const iso = value => value == null ? null : value instanceof Date ? value.toISOString() : new Date(/[zZ]|[+-]\d\d:\d\d$/.test(String(value)) ? value : String(value).replace(' ','T')+'Z').toISOString();
@@ -134,18 +137,37 @@ export function createAuricwellAgenda({database=pool, school=schoolSoftScheduleC
     return {...filterAgenda(items,input),scope,timeZone,start:range.start,end:range.end};
   }
   async function clients({agencyId,actor,input={}}) {
-    const ws=await workspace({agencyId,actor}),{scope,ids}=select(ws,input);
+    const role=String(actor.role||'').toLowerCase();
     const query=String(input.search||'').trim(), page=Math.max(1,Math.min(10000,parseInt(input.page,10)||1)),pageSize=50;
-    const filters=['c.agency_id=?'], params=[agencyId];
-    if(scope!=='practice'||input.providerId) { if(!ids.length) return {clients:[],total:0,page,pageSize};
-      filters.push(`(c.provider_id IN (${marks(ids)}) OR EXISTS (SELECT 1 FROM client_provider_assignments cpa WHERE cpa.client_id=c.id AND cpa.is_active=1 AND cpa.provider_user_id IN (${marks(ids)})))`);params.push(...ids,...ids); }
-    if(query) { filters.push('(LOCATE(LOWER(?),LOWER(COALESCE(c.full_name,\'\')))>0 OR LOCATE(LOWER(?),LOWER(COALESCE(c.initials,\'\')))>0)');params.push(query,query); }
-    const from=`FROM clients c LEFT JOIN client_statuses cs ON cs.id=c.client_status_id WHERE ${filters.join(' AND ')}`;
-    const [[count]]=await database.execute(`SELECT COUNT(*) AS total ${from}`,params);
-    const sort=input.sort==='status'?"COALESCE(cs.label,c.status)":"COALESCE(NULLIF(c.full_name,''),c.initials)";
-    const direction=input.order==='desc'?'DESC':'ASC';
-    const [rows]=await database.execute(`SELECT c.id,c.full_name,c.initials,c.status,cs.label AS status_label ${from} ORDER BY ${sort} ${direction},c.id ${direction} LIMIT ${pageSize} OFFSET ${(page-1)*pageSize}`,params);
-    return {clients:rows,total:Number(count.total),page,pageSize};
+    const practiceId=practiceFilter(input.filterAgencyId), status=statusFilter(input.status);
+    const base=[], baseParams=[];
+    if(['super_admin','superadmin'].includes(role)) base.push('1=1');
+    else if(['admin','support'].includes(role)){base.push('c.agency_id IN (SELECT ua.agency_id FROM user_agencies ua WHERE ua.user_id=? AND COALESCE(ua.is_active,1)=1)');baseParams.push(Number(actor.id));}
+    else {const ws=await workspace({agencyId,actor}),{ids}=select(ws,{...input,scope:'mine'});
+      if(!ids.length) return {clients:[],total:0,page,pageSize,practices:[],statuses:[],limitedBy:[]};
+      base.push(`(c.provider_id IN (${marks(ids)}) OR EXISTS (SELECT 1 FROM client_provider_assignments cpa WHERE cpa.client_id=c.id AND cpa.is_active=1 AND cpa.provider_user_id IN (${marks(ids)})))`);baseParams.push(...ids,...ids);}
+    if(query){const match=letterMatchSql(['c.full_name','c.initials','a.name'],query);base.push(match.sql);baseParams.push(...match.params);}
+    const extras=[];
+    if(practiceId) extras.push({key:'practice',sql:'c.agency_id=?',params:[practiceId]});
+    if(status) extras.push({key:'status',sql:`LOWER(COALESCE(cs.label,c.status,''))=?`,params:[status.toLowerCase()]});
+    const from=`FROM clients c JOIN agencies a ON a.id=c.agency_id LEFT JOIN icons ai ON ai.id=a.icon_id LEFT JOIN client_statuses cs ON cs.id=c.client_status_id`;
+    const where=parts=>`WHERE ${parts.join(' AND ')}`;
+    const countOf=async(parts,vals)=>{const [[row]]=await database.execute(`SELECT COUNT(*) AS total ${from} ${where(parts)}`,vals);return Number(row.total);};
+    const [practiceRows]=await database.execute(`SELECT DISTINCT a.id,a.name ${from} ${where(base)} ORDER BY a.name`,baseParams);
+    const [statusRows]=await database.execute(`SELECT DISTINCT COALESCE(cs.label,NULLIF(c.status,'')) AS status_label ${from} ${where(base)} ORDER BY status_label`,baseParams);
+    const facets={practices:practiceRows,statuses:statusRows.map(row=>row.status_label).filter(Boolean)};
+    if(!query && !extras.length) return {clients:[],total:0,page,pageSize,limitedBy:[],...facets};
+    const filters=[...base,...extras.map(item=>item.sql)], params=[...baseParams,...extras.flatMap(item=>item.params)];
+    const total=await countOf(filters,params);
+    let limitedBy=[];
+    if(!total && extras.length){
+      for(const extra of extras){const rest=extras.filter(item=>item!==extra);const count=await countOf([...base,...rest.map(item=>item.sql)],[...baseParams,...rest.flatMap(item=>item.params)]);if(count) limitedBy.push({key:extra.key,count});}
+      if(!limitedBy.length){const open=await countOf(base,baseParams);if(open) limitedBy=[{key:'filters',count:open}];}
+    }
+    const sorts={name:"COALESCE(NULLIF(c.full_name,''),c.initials)",status:"COALESCE(cs.label,c.status)",practice:'a.name'};
+    const sort=sorts[input.sort]||sorts.name, direction=input.order==='desc'?'DESC':'ASC';
+    const [rows]=await database.execute(`SELECT c.id,c.full_name,c.initials,c.status,c.agency_id,a.name AS agency_name,a.slug AS agency_slug,COALESCE(ai.file_path, NULLIF(a.logo_path,''), NULLIF(a.logo_url,'')) AS agency_icon,cs.label AS status_label ${from} ${where(filters)} ORDER BY ${sort} ${direction},c.id ${direction} LIMIT ${pageSize} OFFSET ${(page-1)*pageSize}`,params);
+    return {clients:rows,total,page,pageSize,limitedBy,...facets};
   }
   return {workspace,agenda,clients};
 }

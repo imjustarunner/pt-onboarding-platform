@@ -27,6 +27,13 @@ describe('AuricWell administrator preview', () => {
     expect(previewRouteAllowed('GET','/medical-billing/workspace')).toBe(true);
     expect(previewRouteAllowed('POST','/clinical-notes/drafts')).toBe(true);
     expect(previewRouteAllowed('PATCH','/clinical-notes/drafts/8')).toBe(true);
+    expect(previewRouteAllowed('GET','/outcome-measures/catalog')).toBe(true);
+    expect(previewRouteAllowed('POST','/outcome-measures/clients/9')).toBe(true);
+    expect(previewRouteAllowed('POST','/assessment-deliverables/assign')).toBe(true);
+    expect(previewRouteAllowed('POST','/assessment-deliverables/4/share')).toBe(true);
+    expect(previewRouteAllowed('GET','/clinical-forms/template')).toBe(true);
+    expect(previewRouteAllowed('POST','/clinical-forms')).toBe(true);
+    expect(previewRouteAllowed('POST','/clinical-forms/portal/3/sign')).toBe(false);
   });
 });
 describe('isolated QA practice access',()=>{

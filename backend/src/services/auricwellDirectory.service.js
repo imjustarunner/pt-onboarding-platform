@@ -1,5 +1,7 @@
 import pool from '../config/database.js';
 import {previewError} from './auricwellPreviewPolicy.js';
+import {letterMatchSql} from '../utils/letterMatch.js';
+const tenantIcon = (icon, agency) => `COALESCE(${icon}.file_path, NULLIF(${agency}.logo_path, ''), NULLIF(${agency}.logo_url, ''))`;
 
 // Personal caseload authority comes from the assignment itself. A clinician can
 // be assigned through a school whose parent tenant differs from user_agencies.
@@ -19,9 +21,13 @@ export function createAuricwellDirectory({database=pool}={}) {
       filters.push('c.agency_id=?');params.push(Number(requested));
     }
     const search=String(input.search||'').trim();
-    if(search){filters.push(`(LOCATE(LOWER(?),LOWER(CONCAT_WS(' ',c.full_name,c.initials,a.name,org.name)))>0
-      OR EXISTS (SELECT 1 FROM client_organization_assignments search_assignment JOIN agencies search_org ON search_org.id=search_assignment.organization_id
-        WHERE search_assignment.client_id=c.id AND search_assignment.is_active=1 AND LOCATE(LOWER(?),LOWER(search_org.name))>0))`);params.push(search,search);}
+    if(search){
+      const name=letterMatchSql(['c.full_name','c.initials','a.name','org.name'],search);
+      const affiliation=letterMatchSql(['search_org.name'],search);
+      filters.push(`(${name.sql} OR EXISTS (SELECT 1 FROM client_organization_assignments search_assignment JOIN agencies search_org ON search_org.id=search_assignment.organization_id
+        WHERE search_assignment.client_id=c.id AND search_assignment.is_active=1 AND ${affiliation.sql}))`);
+      params.push(...name.params,...affiliation.params);
+    }
     const page=Math.max(1,Math.min(10000,parseInt(input.page,10)||1)),pageSize=50;
     const from=`FROM clients c JOIN agencies a ON a.id=c.agency_id
       LEFT JOIN agencies org ON org.id=c.organization_id
@@ -34,8 +40,8 @@ export function createAuricwellDirectory({database=pool}={}) {
     const order=input.order==='desc'?'DESC':'ASC';
     const [clients]=await database.execute(`SELECT c.id,c.full_name,c.initials,c.status,c.client_type,c.identifier_code,
       c.cleared_to_start,c.guardian_portal_enabled,c.referral_date,c.source,
-      c.agency_id,a.name AS agency_name,a.slug AS agency_slug,ai.file_path AS agency_icon,
-      c.organization_id,org.name AS organization_name,oi.file_path AS organization_icon,
+      c.agency_id,a.name AS agency_name,a.slug AS agency_slug,${tenantIcon('ai','a')} AS agency_icon,
+      c.organization_id,org.name AS organization_name,${tenantIcon('oi','org')} AS organization_icon,
       cs.label AS status_label,ps.label AS paperwork_status_label,
       (SELECT GROUP_CONCAT(DISTINCT TRIM(CONCAT_WS(' ',p.first_name,p.last_name)) ORDER BY p.last_name SEPARATOR ', ')
        FROM users p WHERE p.id=c.provider_id OR EXISTS (SELECT 1 FROM client_provider_assignments team WHERE team.client_id=c.id AND team.provider_user_id=p.id AND team.is_active=1)) AS provider_name,
@@ -45,12 +51,12 @@ export function createAuricwellDirectory({database=pool}={}) {
       ${from} ORDER BY ${sort} ${order},COALESCE(NULLIF(c.full_name,''),c.initials) ASC,c.id ASC LIMIT ${pageSize} OFFSET ${(page-1)*pageSize}`,params);
     const agencyWhere=[assigned.sql],agencyParams=[...assigned.params];
     if(qaAgencyId){agencyWhere.push('c.agency_id=?');agencyParams.push(Number(qaAgencyId));}
-    const [agencies]=await database.execute(`SELECT a.id,a.name,a.slug,i.file_path AS icon_file_path,COUNT(*) AS client_count
+    const [agencies]=await database.execute(`SELECT a.id,a.name,a.slug,${tenantIcon('i','a')} AS icon_file_path,COUNT(*) AS client_count
       FROM clients c JOIN agencies a ON a.id=c.agency_id LEFT JOIN icons i ON i.id=a.icon_id
       WHERE ${agencyWhere.join(' AND ')} GROUP BY a.id,a.name,a.slug,i.file_path ORDER BY a.name,a.id`,agencyParams);
     if(clients.length){
       const ids=clients.map(c=>c.id);
-      const [affiliations]=await database.execute(`SELECT coa.client_id,a.id,a.name,i.file_path AS icon_file_path
+      const [affiliations]=await database.execute(`SELECT coa.client_id,a.id,a.name,${tenantIcon('i','a')} AS icon_file_path
         FROM client_organization_assignments coa JOIN agencies a ON a.id=coa.organization_id LEFT JOIN icons i ON i.id=a.icon_id
         WHERE coa.client_id IN (${ids.map(()=>'?').join(',')}) AND coa.is_active=1 ORDER BY a.name,a.id`,ids);
       for(const client of clients){

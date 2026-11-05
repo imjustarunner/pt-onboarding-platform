@@ -68,7 +68,10 @@ export function previewRouteAllowed(method, path) {
     /^\/appointments(?:\/\d+)?$/,
     /^\/users\/\d+\/preferences$/,
     /^\/agencies\/\d+$/,
-    /^\/clinical-data\/sessions\/\d+\/artifacts$/
+    /^\/clinical-data\/sessions\/\d+\/artifacts$/,
+    /^\/outcome-measures\/(?:catalog|clients\/[1-9][0-9]*)$/,
+    /^\/assessment-deliverables\/clients\/[1-9][0-9]*$/,
+    /^\/clinical-forms(?:\/template|\/[1-9][0-9]*)?$/
   ].some(pattern => pattern.test(path));
   // Reviewed documentation and toast announcements are enabled in the administrator preview.
   // Live claim transmission and financial setup stay in the existing billing workspace
@@ -80,6 +83,14 @@ export function previewRouteAllowed(method, path) {
     ['PATCH', /^\/clinical-notes\/drafts\/\d+$/],
     ['POST', /^\/(?:auricwell-preview\/toasts|platform\/toast-announcements)$/],
     ['PUT', /^\/(?:auricwell-preview\/toasts|platform\/toast-announcements)\/[1-9][0-9]*$/],
-    ['DELETE', /^\/(?:auricwell-preview\/toasts|platform\/toast-announcements)\/[1-9][0-9]*$/]
+    ['DELETE', /^\/(?:auricwell-preview\/toasts|platform\/toast-announcements)\/[1-9][0-9]*$/],
+    ['POST', /^\/outcome-measures\/clients\/[1-9][0-9]*$/],
+    ['POST', /^\/outcome-measures\/clients\/[1-9][0-9]*\/[1-9][0-9]*\/review$/],
+    ['POST', /^\/assessment-deliverables\/assign$/],
+    ['POST', /^\/assessment-deliverables\/[1-9][0-9]*\/share$/],
+    ['POST', /^\/clinical-forms$/],
+    ['PUT', /^\/clinical-forms\/[1-9][0-9]*$/],
+    ['POST', /^\/clinical-forms\/[1-9][0-9]*\/(?:review-update|revoke-authorization|link|signers)$/],
+    ['POST', /^\/clinical-forms\/[1-9][0-9]*\/signers\/[1-9][0-9]*\/(?:sign|revoke)$/]
   ].some(([verb, pattern]) => verb === method && pattern.test(path));
 }

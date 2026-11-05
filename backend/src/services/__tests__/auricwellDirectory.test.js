@@ -12,7 +12,7 @@ it('uses the authenticated assignment across tenants without a membership or ACT
 it('applies agency filtering before count and pagination without restricting agency choices',async()=>{
  await service.mine({actor:{id:7},input:{filterAgencyId:'3',sort:'agency',order:'desc',page:2,search:'Example'}});
  const [count,countArgs]=db.execute.mock.calls[0], [rows,args]=db.execute.mock.calls[1], [options,optionArgs]=db.execute.mock.calls[2];
- expect(count).toContain('c.agency_id=?');expect(countArgs).toEqual([7,7,3,'Example','Example']);expect(args).toEqual(countArgs);expect(rows).toContain('ORDER BY a.name DESC');expect(rows).toContain('LIMIT 50 OFFSET 50');expect(optionArgs).toEqual([7,7]);expect(options).not.toContain('c.agency_id=?');
+ expect(count).toContain('c.agency_id=?');expect(count).toContain('REPLACE');expect(countArgs.slice(0,3)).toEqual([7,7,3]);expect(countArgs).toContain('e');expect(countArgs).not.toContain('Example');expect(args).toEqual(countArgs);expect(rows).toContain('ORDER BY a.name DESC');expect(rows).toContain('COALESCE(ai.file_path');expect(rows).toContain('LIMIT 50 OFFSET 50');expect(optionArgs).toEqual([7,7]);expect(options).not.toContain('c.agency_id=?');
 });
 it('keeps QA caseloads inside the synthetic practice and binds all input values',async()=>{
  await service.mine({actor:{id:7},qaAgencyId:450,input:{filterAgencyId:3,sort:'name;DROP TABLE clients',order:'DESC;DROP'}});

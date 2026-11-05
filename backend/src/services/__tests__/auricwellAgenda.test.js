@@ -54,7 +54,14 @@ it('searches and sorts all rows before pagination',()=>{
 it('fails visibly at source safety limits',async()=>{appointmentRows=Array.from({length:10001},()=>({}));await expect(call()).rejects.toMatchObject({status:422});});
 it('counts and searches clients in the same scope with safe sorting',async()=>{
  const result=await service.clients({agencyId:450,actor,input:{search:'DEMO%',page:2,sort:'injection',order:'desc'}});expect(result.total).toBe(71);
- const [sql,params]=database.execute.mock.calls.find(([q])=>q.includes('SELECT c.id'));expect(sql).toContain('LIMIT 50 OFFSET 50');expect(sql).toContain('c.agency_id=?');expect(sql).toContain('cpa.is_active=1');expect(params).toEqual([450,9,9,'DEMO%','DEMO%']);expect(sql).not.toContain('injection');
+ const [sql,params]=database.execute.mock.calls.find(([q])=>q.includes('SELECT c.id'));expect(sql).toContain('LIMIT 50 OFFSET 50');expect(sql).not.toContain('c.agency_id=?');expect(sql).toContain('cpa.is_active=1');expect(sql).toContain('REPLACE');expect(params).toEqual([9,9,'d',1,'e',1,'m',1,'o',1]);expect(sql).not.toContain('injection');expect(sql).not.toContain('DEMO%');
+ const support=await service.clients({agencyId:450,actor:{...actor,role:'support'},input:{search:'qa'}});expect(support.total).toBe(71);
+ const supportSql=database.execute.mock.calls.filter(([q])=>q.includes('SELECT c.id')).at(-1)[0];expect(supportSql).toContain('user_agencies');expect(supportSql).not.toContain('c.provider_id IN');
+ const admin=await service.clients({agencyId:450,actor:{...actor,role:'admin'},input:{search:'qa',filterAgencyId:'12'}});
+ expect(admin.total).toBe(71);const adminSql=database.execute.mock.calls.filter(([q])=>q.includes('SELECT c.id')).at(-1)[0];expect(adminSql).toContain('user_agencies');expect(adminSql).toContain('c.agency_id=?');
+ const everyone=await service.clients({agencyId:450,actor:{...actor,role:'super_admin'},input:{search:'qa'}});
+ const everyoneSql=database.execute.mock.calls.filter(([q])=>q.includes('SELECT c.id')).at(-1)[0];expect(everyoneSql).toContain('1=1');expect(everyoneSql).not.toContain('user_agencies');expect(everyoneSql).not.toContain('c.agency_id=?');
+ await expect(service.clients({agencyId:450,actor,input:{filterAgencyId:'9 OR 1=1'}})).rejects.toMatchObject({status:400});
 });
 
 it('keeps attended meeting links on the selected schedule instead of switching to the host',async()=>{eventRows=[{id:3,provider_id:10,viewer_ids:'9',title:'DEMO QA Meeting',start_at:'2026-11-03 20:00:00',end_at:'2026-11-03 20:30:00'}];expect((await call()).items[0].providerId).toBe(9);});
