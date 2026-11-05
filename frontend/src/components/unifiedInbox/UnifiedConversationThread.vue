@@ -12,15 +12,19 @@ import { downloadAttachment, encodeEmailFiles } from '../../utils/communicationA
 import DOMPurify from 'dompurify';
 import { emailReplyRecipients } from '../../utils/messageThreads';
 import DirectoryRecipientInput from './DirectoryRecipientInput.vue';
+import GroupEmailBadge from './GroupEmailBadge.vue';
+import { isTicketedGroup, ticketHref } from '../../utils/groupEmailPresentation';
 
 const props = defineProps({
   detail: { type: Object, default: null },
   loading: { type: Boolean, default: false },
   inbox: { type: Object, default: null },
-  agencyId: { type: [Number, String], default: null }
+  agencyId: { type: [Number, String], default: null },
+  organizationSlug: { type: String, default: '' },
+  claimBusy: Boolean
 });
 
-const emit = defineEmits(['reply', 'patch', 'draft', 'spam', 'insight', 'open-sms-tools', 'refresh']);
+const emit = defineEmits(['reply', 'patch', 'draft', 'spam', 'insight', 'open-sms-tools', 'refresh', 'claim-ticket', 'open-ticket']);
 
 const attachments = ref([]);
 const composerMode = ref('reply'); // reply | reply_all | forward | internal
@@ -47,6 +51,10 @@ let undoTimer = null;
 let initializingDraft = false;
 
 const conv = computed(() => props.detail?.conversation || null);
+const ticketManaged = computed(() => conv.value?.channel === 'email' && (conv.value?.support_ticket_id || isTicketedGroup(conv.value)));
+const linkedTicket = computed(() => props.detail?.context?.linkedTo?.ticket || {});
+const claimedBy = computed(() => conv.value?.ticket_claimed_by_user_id || linkedTicket.value.claimed_by_user_id || null);
+const ticketUrl = computed(() => ticketHref(conv.value?.support_ticket_id || linkedTicket.value.id, props.agencyId || conv.value?.agency_id, props.organizationSlug));
 const olderMessages = ref([]);
 const olderCursor = ref(null);
 const loadingOlder = ref(false);
@@ -191,7 +199,7 @@ watch(
   { immediate: true }
 );
 
-watch(body, (v) => { if (!initializingDraft) emit('draft', v, conv.value?.id); }, { flush: 'sync' });
+watch(body, (v) => { if (!initializingDraft && !ticketManaged.value) emit('draft', v, conv.value?.id); }, { flush: 'sync' });
 onUnmounted(() => clearUndoBanner());
 
 function clearUndoBanner() {
@@ -220,6 +228,7 @@ function fromLabel(msg) {
 }
 
 async function send({ skipConfirm = false, deliveryChoice = null } = {}) {
+  if (ticketManaged.value) return;
   if (sending.value) return;
   if (!conv.value || sending.value) return;
   const conversationId = conv.value.id;
@@ -423,6 +432,7 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
           <h3>
             {{ conv.subject || '(no subject)' }}
             <ConversaBadge :type="conv.channel" />
+            <GroupEmailBadge v-if="isTicketedGroup(conv)" :mailbox="conv" />
           </h3>
           <p class="uc-meta">
             <template v-if="conv.inbox_from_email || conv.inbox_display_name">
@@ -435,11 +445,11 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
           </p>
         </div>
         <div class="uc-thread-actions">
-          <button type="button" class="uc-btn ghost" title="Star" @click="emit('patch', { starred: !conv.starred })">
+          <button v-if="!ticketManaged" type="button" class="uc-btn ghost" title="Star" @click="emit('patch', { starred: !conv.starred })">
             {{ conv.starred ? '★' : '☆' }}
           </button>
-          <button type="button" class="uc-btn ghost" @click="emit('patch', { markUnread: true })">Mark unread</button>
-          <button type="button" class="uc-btn ghost" @click="emit('patch', { archive: true })">Archive</button>
+          <button v-if="!ticketManaged" type="button" class="uc-btn ghost" @click="emit('patch', { markUnread: true })">Mark unread</button>
+          <button v-if="!ticketManaged" type="button" class="uc-btn ghost" @click="emit('patch', { archive: true })">Archive</button>
           <template v-if="conv.is_unknown_sender || conv.sender_trust === 'unknown'">
             <button type="button" class="uc-btn ghost" :disabled="trustBusy" @click="markKnown">Mark known</button>
             <button type="button" class="uc-btn primary" :disabled="trustBusy" @click="addContact">
@@ -457,8 +467,8 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
           </button>
           <button type="button" class="uc-btn ghost" @click="printThread">Print</button>
           <button type="button" class="uc-btn ghost" @click="downloadThread">Download</button>
-          <button v-if="!isTelephony" type="button" class="uc-btn ghost danger" @click="markSpam">Spam</button>
-          <div class="uc-snooze-wrap">
+          <button v-if="!isTelephony && !ticketManaged" type="button" class="uc-btn ghost danger" @click="markSpam">Spam</button>
+          <div v-if="!ticketManaged" class="uc-snooze-wrap">
             <button type="button" class="uc-btn ghost" @click="showSnooze = !showSnooze">Snooze</button>
             <div v-if="showSnooze" class="uc-snooze-menu">
               <button type="button" @click="emit('patch', { snoozePreset: '1h' }); showSnooze = false">1 hour</button>
@@ -470,6 +480,14 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
           </div>
         </div>
       </header>
+
+      <div v-if="ticketManaged" class="uc-ticket-summary" role="status">
+        <strong v-if="conv.support_ticket_id">Ticket #{{ conv.support_ticket_id }}</strong>
+        <span v-if="conv.ticket_replied">Replied · waiting for a response</span>
+        <span v-else-if="claimedBy">Claimed{{ conv.owner_first_name ? ` by ${conv.owner_first_name} ${conv.owner_last_name || ''}` : '' }} · managed in tickets</span>
+        <span v-else>Available to claim · unread until claimed</span>
+        <span v-if="conv.ticket_status">{{ conv.ticket_status.replace(/_/g, ' ') }}</span>
+      </div>
 
       <EmailSendReceipt v-if="undoBanner" :receipt="undoBanner" :check-status="checkSendStatus" :busy="sending" @undo="undoSend" @status="emit('refresh')" />
 
@@ -484,7 +502,7 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
         <p v-if="insight.suggestedAction" class="uc-insight-action">
           Next: {{ insight.suggestedAction }}
           <button
-            v-if="insight.suggestedStatus"
+            v-if="insight.suggestedStatus && !ticketManaged"
             type="button"
             class="uc-btn ghost"
             @click="applySuggestedStatus"
@@ -532,9 +550,11 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
         </article>
       </div>
 
-      <footer v-if="conv.support_ticket_id && conv.channel === 'email'" class="uc-composer">
-        <p>Continue with the assigned person and the shared school email address.</p>
-        <a class="uc-btn primary" :href="`/tickets?ticketId=${conv.support_ticket_id}`">Open conversation to reply</a>
+      <footer v-if="ticketManaged" class="uc-composer uc-ticket-actions">
+        <p>This message is read only. Claim the ticket to take ownership, then reply from {{ conv.inbox_from_email || inbox?.from_email || 'the group address' }} in tickets.</p>
+        <button v-if="conv.can_claim_ticket && !claimedBy" type="button" class="uc-btn primary" :disabled="claimBusy" @click="emit('claim-ticket')">{{ claimBusy ? 'Claiming…' : 'Claim ticket' }}</button>
+        <a v-if="conv.support_ticket_id" class="uc-btn primary" :href="ticketUrl" @click.prevent="emit('open-ticket', conv.support_ticket_id)">Open ticket #{{ conv.support_ticket_id }}</a>
+        <p v-else>Ticket intake is pending. Refresh to check its status.</p>
       </footer>
       <footer v-else class="uc-composer">
         <p v-if="isCallLike" class="uc-channel-hint">
@@ -631,6 +651,8 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
 </template>
 
 <style scoped>
+.uc-ticket-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 16px; background: var(--conversa-wash); border-bottom: 1px solid var(--conversa-border); font-size: 0.82rem; }
+.uc-ticket-actions p { font-size: 0.85rem; color: var(--conversa-muted); }
 .uc-thread {
   display: flex;
   flex-direction: column;

@@ -3,6 +3,21 @@ import pool from '../config/database.js';
 import CommunicationConversation from '../models/CommunicationConversation.model.js';
 import CommunicationInbox from '../models/CommunicationInbox.model.js';
 import { classifyTicketHistoryMessage, parseEmailList } from './supportTicketEmailPolicy.js';
+import { DEPARTMENTAL_GROUPS, groupKeyForIdentity } from './departmentalGroupAccess.service.js';
+
+export function resolveTicketInbox(ticket, inboxes) {
+  const recipients = new Set(parseEmailList(ticket.source_email_recipients));
+  const exact = inboxes.find((i) => recipients.has(String(i.from_email || '').toLowerCase()) && groupKeyForIdentity(i));
+  if (exact) return exact;
+  const department = inboxes.find((i) => {
+    const key = groupKeyForIdentity(i);
+    return key && DEPARTMENTAL_GROUPS[key]?.topic === ticket.topic && ticket.topic !== 'general';
+  });
+  if (department) return department;
+  return inboxes.find((i) => recipients.has(String(i.from_email || '').toLowerCase()))
+    || inboxes.find((i) => /schoolreply|school_reply|schools@/i.test(`${i.identity_key} ${i.from_email}`))
+    || inboxes.find((i) => /support@/i.test(i.from_email || '')) || null;
+}
 
 function previewFrom(text) {
   return String(text || '')
@@ -43,10 +58,7 @@ export async function syncEmailTicketsToInbox({ agencyId, ticketId = null, limit
       const [[lock]] = await db.execute('SELECT GET_LOCK(?,3) AS acquired', [lockName]);
       if (Number(lock?.acquired) !== 1) continue;
       locked = true;
-      const preferred = ticket.topic === 'technology'
-        ? inboxes.find((i) => i.identity_key === 'technology')
-        : inboxes.find((i) => /schoolreply|school_reply|schools@/i.test(`${i.identity_key} ${i.from_email}`))
-          || inboxes.find((i) => /support@/i.test(i.from_email || ''));
+      const preferred = resolveTicketInbox(ticket, inboxes);
       let conversation = await CommunicationConversation.findBySupportTicketId(ticket.id);
       if (!conversation) {
         conversation = await CommunicationConversation.create({ agencyId, inboxId: preferred?.id || null,
@@ -115,6 +127,7 @@ export async function syncEmailTicketsToInbox({ agencyId, ticketId = null, limit
       // The linked ticket owns status, claim, and the body. Metadata mirrors
       // cannot expose stale plaintext after deletion or turn a closure into mail.
       await CommunicationConversation.update(conversation.id, { status: mapTicketStatus(ticket),
+        inboxId: preferred?.id || conversation.inbox_id || null,
         ownerUserId: ticket.claimed_by_user_id || null, subject: ticket.source_email_subject || ticket.subject,
         externalThreadId: ticket.source_email_thread_id || null, lastMessageAt: lastAt,
         lastMessagePreview: ticket.source_email_subject || ticket.subject || 'Email conversation' });
@@ -213,7 +226,7 @@ export async function buildConversationContext(conversation) {
   if (ticketLink || conversation.support_ticket_id) {
     const tid = ticketLink?.entity_id || conversation.support_ticket_id;
     const [rows] = await pool.execute(
-      `SELECT id, subject, status, priority FROM support_tickets WHERE id = ? LIMIT 1`,
+      `SELECT id, subject, status, priority, topic, claimed_by_user_id, claimed_at FROM support_tickets WHERE id = ? LIMIT 1`,
       [tid]
     );
     if (rows[0]) ticket = rows[0];

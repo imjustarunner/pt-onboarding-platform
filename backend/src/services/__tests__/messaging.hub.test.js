@@ -3,7 +3,7 @@ vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
 vi.mock('../communicationDirectory.service.js', () => ({}));
 vi.mock('../personalMailbox.service.js', () => ({}));
 vi.mock('../secureMessagingPolicy.service.js', () => ({}));
-vi.mock('../unifiedInbox.service.js', () => ({}));
+vi.mock('../unifiedInbox.service.js', () => ({ loadGroupEmailInboxScope: vi.fn(async () => ({ groupInboxIds: [9, 10], allowedGroupInboxIds: [9] })) }));
 vi.mock('../../controllers/chat.controller.js', () => ({}));
 vi.mock('../chatEncryption.service.js', () => ({}));
 vi.mock('../hubMessageQueue.service.js', () => ({}));
@@ -40,5 +40,8 @@ describe('hub conversation boundaries', () => {
     expect(rows[0].bodyPreview).toBe(body.trim());
     expect(pool.execute.mock.calls[0][0]).toContain('AND c.id = 77');
     expect(pool.execute.mock.calls[0][0]).toContain('c.owner_user_id = ?');
+    expect(pool.execute.mock.calls[0][0]).toContain('AND c.agency_id = ?');
+    expect(pool.execute.mock.calls[0][0]).toContain('COALESCE(c.inbox_id,0) IN (9,10)');
+    expect(pool.execute.mock.calls[0][1][0]).toBe(2);
   });
 });

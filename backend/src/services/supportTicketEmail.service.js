@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import pool from '../config/database.js';
+import { groupKeyForIdentity, canAccessDepartmentalGroup } from './departmentalGroupAccess.service.js';
+import { ticketDepartmentKeys, canWorkDepartmentTicket } from './supportTicketDepartmentAccess.service.js';
 import { encryptSupportEmailText as prepareEncryptedTicketText } from './supportEmailEncryption.js';
 import { chooseCanonicalSupportTicket, classifySupportEmailResult, emailHash, emailKey, isManagedSupportIdentity, supportEmailError,
   supportReplyHeaders } from './supportTicketEmailPolicy.js';
@@ -15,7 +17,15 @@ async function senderOptions({ ticket, actorUserId }, db) {
   const staffName = [actor.first_name, actor.last_name].filter(Boolean).join(' ').trim();
   const agencyName = String(actor.agency_name || '').replace(/[\r\n<>]/g, ' ').trim();
   const seen = new Set();
-  return identities.filter((i) => isManagedSupportIdentity(i, { agencyId: ticket.agency_id, topic: ticket.topic,
+  const departments = await ticketDepartmentKeys(ticket, db);
+  const permitted = [];
+  for (const identity of identities) {
+    const key = groupKeyForIdentity(identity);
+    if (departments.length && (!key || !departments.includes(key))) continue;
+    if (key && !await canAccessDepartmentalGroup({ agencyId: ticket.agency_id, userId: actorUserId, groupKey: key, db })) continue;
+    permitted.push(identity);
+  }
+  return permitted.filter((i) => isManagedSupportIdentity(i, { agencyId: ticket.agency_id, topic: ticket.topic,
     schoolAddresses: schools.map((s) => s.itsco_email) })).filter((i) => !seen.has(i.id) && seen.add(i.id)).map((i) => ({
     id: Number(i.id), identityKey: i.identity_key, fromEmail: emailKey(i.from_email),
     teamDisplayName: String(i.display_name || agencyName || 'School support').replace(/[\r\n<>]/g, ' ').trim(),
@@ -94,6 +104,9 @@ export async function sendSupportTicketEmailReply(input, dependencies = {}) {
         (SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=? AND COALESCE(ua.is_active,1)=1))`,
     [actorUserId, ticket.agency_id]);
     if (!actor || ['school_staff', 'client_guardian'].includes(actor.role)) throw supportEmailError('Only agency staff can send this reply.', 403);
+    if ((await ticketDepartmentKeys(ticket, db)).length && !await canWorkDepartmentTicket({ ticket, userId: actorUserId, db })) {
+      throw supportEmailError('You do not have permission to reply from this agency group.', 403, 'DEPARTMENTAL_GROUP_ACCESS_REQUIRED');
+    }
     if (ticket.claimed_by_user_id && Number(ticket.claimed_by_user_id) !== Number(actorUserId)) {
       throw supportEmailError('This ticket is claimed by another staff member. Reassign it before replying.');
     }

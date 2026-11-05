@@ -1,3 +1,4 @@
+import { canAccessTicketDesk } from '../utils/ticketAccess.js';
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import api from '../services/api';
@@ -48,14 +49,7 @@ export const useCommunicationsCountsStore = defineStore('communicationsCounts', 
       // alone does not authorize an organization-wide communications summary.
       const canFetchCenterSummary = ['admin', 'support', 'super_admin'].includes(role);
       // Match GET /support-tickets/count authorization (avoid 403 noise for providers, etc.).
-      const canFetchOpenTicketCount =
-        role === 'school_staff' ||
-        role === 'admin' ||
-        role === 'super_admin' ||
-        role === 'support' ||
-        role === 'staff' ||
-        role === 'clinical_practice_assistant' ||
-        role === 'provider_plus';
+      const canFetchOpenTicketCount = role === 'school_staff' || canAccessTicketDesk(authStore.user, agencyStore.currentAgency?.id);
       
       const agencyId = agencyStore.currentAgency?.id;
       const params = agencyId ? { agencyId } : {};

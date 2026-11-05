@@ -3,6 +3,7 @@ import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import User from '../models/User.model.js';
 import { managedDomain } from './managedWorkspaceGroupPolicy.js';
 import { workspaceMailboxType } from './workspaceMailboxType.service.js';
+import { assertDepartmentalGroupAccess, groupKeyForIdentity } from './departmentalGroupAccess.service.js';
 
 /** Keep conversation ownership separate from the address used on the wire. */
 export async function resolveEmailSendMailbox({ agencyId, userId, inbox }) {
@@ -26,6 +27,8 @@ export async function resolveEmailSendMailbox({ agencyId, userId, inbox }) {
     throw Object.assign(new Error('Work mailbox sender identity is unavailable'), { status: 400 });
   }
   if(identity.identity_key==='spanish')await assertSpanishGroupSender(agencyId,userId);
+  const departmentalGroupKey = groupKeyForIdentity({ ...identity, kind: selected.kind, owner_user_id: selected.owner_user_id });
+  if (departmentalGroupKey) await assertDepartmentalGroupAccess({ agencyId, userId, groupKey: departmentalGroupKey });
   const personal = selected.kind === 'personal';
   const messages = ['messages', 'messages_at_tenant'].includes(identity.identity_key);
   const flags = typeof agency.feature_flags === 'string' ? JSON.parse(agency.feature_flags || '{}') : agency.feature_flags || {};

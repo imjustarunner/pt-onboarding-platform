@@ -56,6 +56,20 @@ async function render(props = {}) {
 }
 
 describe('TicketDeskView queue navigation', () => {
+  it('opens an embedded ticket without fetching a queue or changing the Messages URL', async () => {
+    mocks.route.query = { channel: 'groups', conversationId: '500' };
+    await render({ embedded: true, initialTicketId: 101, agencyId: 2, syncRoute: false });
+    expect(wrapper.find('.detail-id').text()).toBe('Ticket #101');
+    expect(wrapper.text()).toContain('Please help with this request');
+    expect(wrapper.find('.list-pane').exists()).toBe(false);
+    expect(wrapper.find('.desk-header').exists()).toBe(false);
+    expect(wrapper.find('.btn-exit-ticket').exists()).toBe(false);
+    expect(button('Previous')).toBeUndefined();
+    expect(queueCalls()).toHaveLength(0);
+    expect(mocks.router.replace).not.toHaveBeenCalled();
+    expect(mocks.route.query).toEqual({ channel: 'groups', conversationId: '500' });
+  });
+
   it('opens an assigned ticket from My tickets without switching to submitted tickets', async () => {
     await render();
     await button('My tickets').trigger('click');
@@ -135,6 +149,28 @@ function emailFixture() {
   });
 }
 describe('Support email composer safeguards', () => {
+  it('lets a payroll provider reply from the shared address in the ticket modal using the team display name', async () => {
+    mocks.auth.user = { id: 7, role: 'provider', payrollAgencyIds: [2], loginIsGroupEmail: true };
+    const payrollTicket = { ...emailTicket, topic: 'payroll' };
+    mocks.api.get.mockImplementation(async url => url === '/support-tickets/101/messages' ? { data: {
+      ticket: payrollTicket, messages: [], lastMessageId: 41,
+      senderOptions: [{ id: 22, identityKey: 'payroll', fromEmail: 'payroll@itsco.health', teamDisplayName: 'ITSCO Payroll', staffDisplayName: 'Sam · ITSCO' }]
+    } } : { data: {} });
+    mocks.api.post.mockResolvedValue({ data: { emailReply: { status: 'sent', sent: true } } });
+    await render({ embedded: true, initialTicketId: 101, agencyId: 2, syncRoute: false });
+    expect(wrapper.get('select[aria-label="Shared email address"]').text()).toContain('payroll@itsco.health');
+    expect(wrapper.get('select[aria-label="Email display name"]').element.value).toBe('team');
+    expect(button('AI draft')).toBeUndefined();
+    await wrapper.find('.composer-textarea').setValue('Payroll has reviewed your request.');
+    await button('Send reply').trigger('click');
+    await flushPromises();
+    expect(mocks.api.post).toHaveBeenCalledWith('/support-tickets/101/messages', expect.objectContaining({
+      senderIdentityId: 22, senderMode: 'team', expectedLastMessageId: 41, isInternal: false
+    }));
+    expect(mocks.router.replace).not.toHaveBeenCalled();
+    expect(wrapper.emitted('updated')).toHaveLength(1);
+  });
+
   it('keeps private notes separate from external replies across navigation and reload', async () => {
     emailFixture(); await render();
     await wrapper.find('.ticket-row').trigger('click'); await flushPromises();

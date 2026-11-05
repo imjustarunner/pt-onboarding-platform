@@ -13,7 +13,7 @@ export const CONVERSA_TAGLINE = 'Every conversation, clearly connected.';
 
 export const CONVERSA_TYPES = Object.freeze({
   secure: { label: 'Secure message', icon: 'LockKeyhole', tone: 'blue' },
-  internal: { label: 'Internal message', icon: 'UserRound', tone: 'slate' },
+  internal: { label: 'Direct message', icon: 'UserRound', tone: 'slate' },
   email: { label: 'Email', icon: 'Mail', tone: 'blue' },
   group: { label: 'Group message', icon: 'Users', tone: 'teal' },
   chat: { label: 'Chat', icon: 'MessageCircle', tone: 'blue' },

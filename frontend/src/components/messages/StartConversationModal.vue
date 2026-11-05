@@ -379,7 +379,7 @@ const props = defineProps({
   contactOnly: Boolean
 });
 
-const dialogTitle = computed(() => props.contactOnly ? 'Add contact' : ({email:'New email',internal:'New internal message',secure:'New secure message',group:'New group'})[props.channel] || 'Start a conversation');
+const dialogTitle = computed(() => props.contactOnly ? 'Add contact' : ({email:'New email',internal:'New direct message',secure:'New secure message',group:'New group'})[props.channel] || 'Start a conversation');
 const emit = defineEmits(['close', 'pick', 'open-group']);
 
 const previewCount = 3;

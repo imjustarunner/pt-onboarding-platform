@@ -3,6 +3,8 @@ import PersonalMessageDeliverySettings from '../messages/PersonalMessageDelivery
 import { computed, ref } from 'vue';
 const showPersonalDelivery = ref(false);
 import ConversaIcon from '../../components/conversa/ConversaIcon.vue';
+import GroupEmailBadge from './GroupEmailBadge.vue';
+import { isTicketedGroup } from '../../utils/groupEmailPresentation';
 
 const props = defineProps({
   inboxes: { type: Array, default: () => [] },
@@ -19,6 +21,7 @@ const emit = defineEmits([
   'update:selectedInboxId',
   'update:channel',
   'compose',
+  'open-tickets',
   'smartFilter',
   'update:prefs'
 ]);
@@ -32,6 +35,9 @@ const channels = [
   { id: 'mention', label: 'Mentions' },
   { id: 'internal', label: 'Team Discussions' }
 ];
+
+const groupInboxes = computed(() => props.inboxes.filter(isTicketedGroup));
+const otherInboxes = computed(() => props.inboxes.filter(box => !isTicketedGroup(box) && box.id !== 'group_email'));
 
 function channelCount(id, attention) {
   const c = attention?.channels || {};
@@ -57,6 +63,7 @@ function onInboxChange(e) {
   if (v === '' || v === 'null') emit('update:selectedInboxId', null);
   else if (v === 'assigned') emit('update:selectedInboxId', 'assigned');
   else if (v === 'my_inbox') emit('update:selectedInboxId', 'my_inbox');
+  else if (v === 'group_email') emit('update:selectedInboxId', 'group_email');
   else emit('update:selectedInboxId', parseInt(v, 10));
 }
 
@@ -68,6 +75,26 @@ function onInboxChange(e) {
       <ConversaIcon type="chat" :size="17" /> New message
     </button>
 
+    <nav class="uc-channels uc-mailboxes" aria-label="Inboxes">
+      <button type="button" :class="{ on: selectedInboxId == null }" @click="emit('update:selectedInboxId', null)">
+        <ConversaIcon type="all" :size="17" /> All inboxes
+      </button>
+      <button type="button" :class="{ on: selectedInboxId === 'assigned' }" @click="emit('update:selectedInboxId', 'assigned')">
+        <ConversaIcon type="ticket" :size="17" /> Assigned to me
+      </button>
+    </nav>
+
+    <section v-if="groupInboxes.length" class="uc-group-email" aria-label="Groups">
+      <button type="button" class="uc-section uc-group-heading" :class="{ on: selectedInboxId === 'group_email' }" @click="emit('update:selectedInboxId', 'group_email')">Groups</button>
+      <nav class="uc-channels" aria-label="Department group email">
+        <button v-for="box in groupInboxes" :key="box.id" type="button" :class="{ on: String(selectedInboxId) === String(box.id) }" :title="box.from_email" @click="emit('update:selectedInboxId', box.id)">
+          <GroupEmailBadge :mailbox="box" />
+        </button>
+      </nav>
+      <p class="uc-inbox-help">Unclaimed messages stay unread until someone claims the ticket.</p>
+      <button type="button" class="uc-tickets-link" @click="emit('open-tickets')"><ConversaIcon type="ticket" :size="16" /> Open tickets</button>
+    </section>
+
     <label class="uc-inbox-label">Inbox</label>
     <select
       class="uc-inbox-select"
@@ -76,7 +103,7 @@ function onInboxChange(e) {
       @change="onInboxChange"
     >
       <option
-        v-for="box in inboxes"
+        v-for="box in otherInboxes"
         :key="String(box.id) + (box.identity_key || '')"
         :value="box.id == null ? 'null' : String(box.id)"
       >
@@ -134,6 +161,11 @@ function onInboxChange(e) {
 </template>
 
 <style scoped>
+.uc-mailboxes { margin-top: 12px; }
+.uc-group-email { margin-top: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--conversa-border); }
+.uc-group-heading { width: 100%; text-align: left; border: 0; background: transparent; cursor: pointer; padding: 7px 6px; }
+.uc-group-heading.on { background: var(--conversa-blue-soft); border-radius: 6px; }
+.uc-tickets-link { display: flex; align-items: center; gap: 6px; margin-top: 10px; padding: 5px; border: 0; background: transparent; color: var(--conversa-blue); font-weight: 650; cursor: pointer; }
 .uc-side {
   background: var(--conversa-wash);
   border-right: 1px solid var(--conversa-border);

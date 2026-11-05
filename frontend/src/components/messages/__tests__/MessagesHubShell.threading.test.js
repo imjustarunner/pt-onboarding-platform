@@ -36,6 +36,60 @@ beforeEach(async () => {
 });
 afterEach(() => wrapper?.unmount());
 describe('Messages hub thread interactions', () => {
+  it('lets the ticket dialog own keyboard events while the email reader is full screen', () => {
+    state.readerFullscreen = true; state.activeTicketId = 4;
+    for (const key of ['Tab', 'Escape']) {
+      const event = new KeyboardEvent('keydown', { key, cancelable: true });
+      state.onReaderEscape(event);
+      expect(event.defaultPrevented).toBe(false);
+      expect(state.readerFullscreen).toBe(true);
+    }
+  });
+  it('updates a claim immediately even while a background refresh is active', async () => {
+    state.selected = null;
+    const conversation = { id: 20, agency_id: 2, channel: 'email', is_ticketed_group: true, support_ticket_id: 4, can_claim_ticket: true };
+    state.conversationPreview = { conversation, messages: [] }; state.conversations = [conversation]; state.refreshing = true;
+    api.post.mockResolvedValueOnce({ data: { claimedByUserId: 5 } });
+    api.get.mockResolvedValue({ data: { items: [] } });
+    await state.claimPreviewTicket();
+    expect(state.conversationPreview.conversation).toMatchObject({ ticket_claimed_by_user_id: 5, can_claim_ticket: false, is_unread: false });
+    expect(state.conversations).toHaveLength(0);
+  });
+  it('places Groups next to Email and includes departmental mail with internal group conversations', async () => {
+    state.selected = null;
+    state.inboxChannel = 'group';
+    state.departmentInboxes = [{ id: 7, kind: 'shared', group_key: 'payroll', is_ticketed_group: true, display_name: 'Payroll' }];
+    state.internalGroups = [{ groupId: 33, displayName: 'Office team' }];
+    state.conversations = [
+      { id: 20, inbox_id: 7, channel: 'email', is_ticketed_group: true, group_key: 'payroll', support_ticket_id: 4 },
+      { id: 'chat-33', channel: 'group', hubKind: 'group', threadId: 33 },
+      { id: 21, channel: 'email', kind: 'personal' },
+      { id: 22, channel: 'internal' }
+    ];
+    await nextTick();
+    const channels = wrapper.findAll('[data-channel]').map(button => button.attributes('data-channel'));
+    expect(channels.indexOf('group')).toBe(channels.indexOf('email') + 1);
+    expect(wrapper.get('[data-channel="internal"]').text()).toContain('Direct message');
+    expect(state.filteredConversations.map(row => row.id)).toEqual([20, 'chat-33']);
+    expect(wrapper.get('[aria-label="Your groups"]').text()).toContain('Office team');
+    state.selectedGroupInboxId = 7;
+    expect(state.filteredConversations.map(row => row.id)).toEqual([20]);
+    state.inboxChannel = 'email';
+    expect(state.filteredConversations.map(row => row.id)).toEqual([21]);
+  });
+  it('keeps a ticketed message read only and opens its ticket in a modal without navigating', async () => {
+    state.selected = null;
+    const conversation = { id: 20, agency_id: 2, channel: 'email', support_ticket_id: 4, is_ticketed_group: true, group_key: 'payroll', can_claim_ticket: true };
+    state.selectedConversation = conversation;
+    state.conversationPreview = { conversation, messages: [{ id: 200, body_text: 'Question' }] };
+    await nextTick();
+    expect(wrapper.findComponent({ name: 'EmailThreadReader' }).props('readOnly')).toBe(true);
+    expect(wrapper.find('.msg-hub-mark-unread').exists()).toBe(false);
+    await wrapper.findAll('button').find(button => button.text() === 'Open ticket #4').trigger('click');
+    expect(wrapper.findComponent({ name: 'TicketDetailModal' }).props()).toMatchObject({ ticketId: 4, agencyId: 2 });
+    expect(routing.push).not.toHaveBeenCalled();
+    expect(api.post.mock.calls.some(([url]) => url.endsWith('/reply') || url.endsWith('/messages'))).toBe(false);
+  });
   it('preserves an explicit new-text selection when the existing phone thread refreshes', async () => {
     state.selected = { ...person, methods: [{ id: 'sms', available: true }], preferredMethod: 'sms' };
     state.sendMethod = 'sms';
@@ -88,7 +142,7 @@ describe('Messages hub thread interactions', () => {
     expect(openEmailComposer).toHaveBeenCalledWith(expect.anything(), {mode:'new', agencyId:2, to:person.email});
     expect(api.post).not.toHaveBeenCalledWith('/messages/hub/send',expect.anything(),expect.anything());
   });
-  it.each([['all','New conversation'],['email','New email'],['internal','New internal message'],['secure','New secure message'],['sms','New SMS'],['calls','Calls / Voicemails'],['group','New group']])('matches the primary action to %s', async (channel, label) => {
+  it.each([['all','New conversation'],['email','New email'],['internal','New direct message'],['secure','New secure message'],['sms','New SMS'],['calls','Calls / Voicemails'],['group','New group']])('matches the primary action to %s', async (channel, label) => {
     state.inboxChannel = channel;
     await nextTick();
     const button = wrapper.find('.msg-hub-head-actions .btn-primary');

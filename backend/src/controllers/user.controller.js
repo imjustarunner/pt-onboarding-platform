@@ -3665,6 +3665,12 @@ export const updateUser = async (req, res, next) => {
       }
     }
 
+    if (hasPayrollAccess !== undefined || hasBillingAccess !== undefined || hasCredentialingAccess !== undefined || updateData.role !== undefined || hasHiringAccess !== undefined || hasMedicalRecordsReleaseAccess !== undefined) {
+      try {
+        const { queueDepartmentalGroupMembershipSync } = await import('../services/managedWorkspaceGroups.service.js');
+        await queueDepartmentalGroupMembershipSync({ userId: Number(id) });
+      } catch (error) { console.warn('[departmental-groups] Profile sync deferred:', error.message); }
+    }
     if (updateWarnings.length > 0) {
       return res.json({
         ...user,
@@ -8716,6 +8722,10 @@ export const assignUserToAgency = async (req, res, next) => {
       if (!hasDefault) await User.setDefaultAgency(uid, ids[0]);
     }
 
+    try {
+      const { queueDepartmentalGroupMembershipSync } = await import('../services/managedWorkspaceGroups.service.js');
+      await queueDepartmentalGroupMembershipSync({ agencyIds: ids });
+    } catch (error) { console.warn('[departmental-groups] Agency assignment sync deferred:', error.message); }
     res.json({ message: 'User assigned to agency successfully', agencyIds: ids });
   } catch (error) {
     next(error);
@@ -8786,6 +8796,10 @@ export const removeUserFromAgency = async (req, res, next) => {
       console.warn('[removeUserFromAgency] meeting invite detach failed', e?.message || e);
     }
 
+    try {
+      const { queueDepartmentalGroupMembershipSync } = await import('../services/managedWorkspaceGroups.service.js');
+      await queueDepartmentalGroupMembershipSync({ agencyIds: [aid] });
+    } catch (error) { console.warn('[departmental-groups] Agency removal sync deferred:', error.message); }
     res.json({ message: 'User removed from agency successfully' });
   } catch (error) {
     if (conn) {
@@ -8866,6 +8880,10 @@ export const setUserAgencyPayrollAccess = async (req, res, next) => {
       [userId, agencyIdNum]
     );
     await conn.commit();
+    try {
+      const { queueDepartmentalGroupMembershipSync } = await import('../services/managedWorkspaceGroups.service.js');
+      await queueDepartmentalGroupMembershipSync({ agencyIds: [agencyIdNum] });
+    } catch (error) { console.warn('[departmental-groups] Payroll sync deferred:', error.message); }
     res.json({
       userId,
       agencyId: agencyIdNum,
@@ -8949,6 +8967,10 @@ export const setUserAgencyBillingAccess = async (req, res, next) => {
       [userId, agencyIdNum]
     );
     await conn.commit();
+    try {
+      const { queueDepartmentalGroupMembershipSync } = await import('../services/managedWorkspaceGroups.service.js');
+      await queueDepartmentalGroupMembershipSync({ agencyIds: [agencyIdNum] });
+    } catch (error) { console.warn('[departmental-groups] Billing sync deferred:', error.message); }
     res.json({
       userId,
       agencyId: agencyIdNum,
@@ -9259,6 +9281,10 @@ export const setUserAgencyMembershipRole = async (req, res, next) => {
       agencyPosition,
       includeOnDisclosure
     });
+    try {
+      const { queueDepartmentalGroupMembershipSync } = await import('../services/managedWorkspaceGroups.service.js');
+      await queueDepartmentalGroupMembershipSync({ agencyIds: [agencyIdNum] });
+    } catch (error) { console.warn('[departmental-groups] Agency role sync deferred:', error.message); }
 
     res.json({
       userId,

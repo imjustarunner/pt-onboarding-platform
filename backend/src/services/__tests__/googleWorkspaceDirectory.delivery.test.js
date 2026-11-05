@@ -42,10 +42,16 @@ it('uses the group address for subscriptions when creation returns an opaque ID'
   Directory.getClient.mockResolvedValue(admin);
   vi.spyOn(Directory,'applyGroupAccessSettings').mockResolvedValue({});
   await Directory.createGroup({email:'support@innerstrengthin.com',name:'Support'});
-  expect(state.get('michael@plottwistco.com').delivery_settings).toBe('ALL_MAIL');
-  expect(admin.members.insert).toHaveBeenCalledWith(expect.objectContaining({groupKey:'support@innerstrengthin.com',requestBody:expect.objectContaining({email:'michael@plottwistco.com',delivery_settings:'ALL_MAIL'})}));
+  expect(state.get('michael@plottwistco.com').delivery_settings).toBe('NONE');
+  expect(admin.members.insert).toHaveBeenCalledWith(expect.objectContaining({groupKey:'support@innerstrengthin.com',requestBody:expect.objectContaining({email:'michael@plottwistco.com',delivery_settings:'NONE'})}));
 });
 it.each([undefined, '', 'bad'])('does not silently mute when delivery is %s', async deliverySettings => {
   await expect(Directory.setGroupMemberDeliverySettings({ groupEmail: 'school@example.org', memberEmail: 'staff@example.org', deliverySettings })).rejects.toThrow('explicit valid');
   expect(update).not.toHaveBeenCalled();
+});
+
+it('sets a nested member subscription atomically when joining a ticketed department', async () => {
+  const insert=vi.fn(async ({requestBody})=>({data:requestBody}));
+  await Directory.addGroupMember({groupEmail:'payroll@agency.test',memberEmail:'non-sso-person@agency.test',memberType:'GROUP',deliverySettings:'NONE',client:{members:{insert}}});
+  expect(insert).toHaveBeenCalledWith({groupKey:'payroll@agency.test',requestBody:{email:'non-sso-person@agency.test',role:'MEMBER',type:'GROUP',delivery_settings:'NONE'}});
 });

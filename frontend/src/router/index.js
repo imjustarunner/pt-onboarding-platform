@@ -1,3 +1,4 @@
+import { canAccessTicketDesk } from '../utils/ticketAccess.js';
 import { schoolCareBridgeRoutes, addSchoolCareBridgeWorkflowAliases } from './schoolCareBridgeRoutes.js';
 import { familyBillingRoutes } from './familyBillingRoutes.js';
 import { consumeSsoHandoff, isTokenAuthenticationRoute, auricwellLoginDestination } from '../utils/loginHandoff';
@@ -4248,7 +4249,7 @@ const routes = [
     component: () => import('../views/admin/SupportTicketsQueueView.vue'),
     meta: {
       requiresAuth: true,
-      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'],
+      requiresTicketDesk: true,
       platformCommandCenter: true
     }
   },
@@ -4256,7 +4257,7 @@ const routes = [
     path: '/:organizationSlug/admin/support-tickets',
     name: 'OrganizationSupportTicketsQueueLegacy',
     redirect: (to) => `/${to.params.organizationSlug}/tickets`,
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresTicketDesk: true, organizationSlug: true }
   },
   {
     path: '/tickets',
@@ -4264,7 +4265,7 @@ const routes = [
     component: () => import('../views/admin/SupportTicketsQueueView.vue'),
     meta: {
       requiresAuth: true,
-      requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'],
+      requiresTicketDesk: true,
       platformCommandCenter: true
     }
   },
@@ -4272,7 +4273,7 @@ const routes = [
     path: '/:organizationSlug/tickets',
     name: 'OrganizationTicketsQueue',
     component: () => import('../views/admin/SupportTicketsQueueView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresTicketDesk: true, organizationSlug: true }
   },
   {
     path: '/admin/escalations',
@@ -4347,7 +4348,7 @@ const routes = [
     path: '/:a/:b/tickets',
     name: 'OrganizationTicketsQueueRedirect',
     redirect: (to) => `/${to.params.a}/tickets`,
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant'] }
+    meta: { requiresAuth: true, requiresTicketDesk: true }
   },
   {
     path: '/admin/faqs',
@@ -6268,6 +6269,12 @@ router.beforeEach(async (to, from, next) => {
     next(scopedSchoolCareBridgeDestination(to, authStore.user?.agencies || [], agencyStore.currentAgency?.value ?? agencyStore.currentAgency));
   } else if (authStore.isAuthenticated && providerSchoolPortalDestination({role:authStore.user?.role,path:to.path,dashboardPath:getDashboardRoute()})) {
     next(providerSchoolPortalDestination({role:authStore.user?.role,path:to.path,dashboardPath:getDashboardRoute()}));
+  } else if (to.meta.requiresTicketDesk) {
+    const agency = agencyStore.currentAgency?.value ?? agencyStore.currentAgency;
+    const scopedAgencyId = String(to.params?.organizationSlug || '').trim()
+      ? agency?.id : (Number(to.query?.agencyId) || agency?.id || null);
+    if (canAccessTicketDesk(authStore.user, scopedAgencyId, currentEffectiveRoleNorm)) next();
+    else next(getDashboardRoute());
   } else if (to.meta.requiresRole) {
     if (authStore.isAuthenticated && routeRequiresSchoolPortalsFeature(to)) {
       const agency = agencyStore.currentAgency?.value ?? agencyStore.currentAgency ?? {};

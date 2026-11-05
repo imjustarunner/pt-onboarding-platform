@@ -26,6 +26,7 @@ import {
   getUnifiedConversation,
   patchUnifiedConversation,
   postUnifiedReply,
+  postClaimGroupEmail,
   postUnifiedCompose,
   postEnsurePersonalInbox,
   getUnifiedPrefs,
@@ -114,6 +115,7 @@ router.get('/conversations/:id/messages/:messageId/delivery', async(req,res,next
 router.get('/conversations/:id', getUnifiedConversation);
 router.patch('/conversations/:id', patchUnifiedConversation);
 router.post('/conversations/:id/reply', postUnifiedReply);
+router.post('/conversations/:id/claim', postClaimGroupEmail);
 router.post('/conversations/:id/mark-known', postMarkSenderKnown);
 router.post('/conversations/:id/resolve-unknown', postResolveUnknownSender);
 router.get('/conversations/:id/export', getConversationExport);

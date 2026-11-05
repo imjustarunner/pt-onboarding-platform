@@ -1,3 +1,5 @@
+import { ticketDepartmentKeys, canWorkDepartmentTicket, appendDepartmentTicketVisibility } from '../services/supportTicketDepartmentAccess.service.js';
+import { listUserDepartmentalGroupKeys } from '../services/departmentalGroupAccess.service.js';
 import { sendSupportTicketEmailReply, listSupportTicketSenderOptions, listTicketEmailDeliveryMetadata, resolveSupportTicketEmailThread } from '../services/supportTicketEmail.service.js';
 import { generateSupportEmailDraft } from '../services/supportEmailDraft.service.js';
 import { loadSchoolSupportDraftGrounding, schoolSupportRecordReply, validateSchoolSupportReply } from '../services/schoolSupportDraftGrounding.service.js';
@@ -171,6 +173,7 @@ async function hasSupportTicketPlatformHelpColumn() {
  * for that ticket's agency. General is visible to all queue collaborators in scope.
  */
 async function applyTopicAudienceVisibility({ req, where, params, topicFilter = null }) {
+  await appendDepartmentTicketVisibility({ userId: req.user.id, where, params, requireDepartment: !isAgencyAdminUser(req) && req.user?.role !== 'school_staff' });
   if (!(await hasSupportTicketTopicColumn())) return;
 
   const filter = topicFilter ? normalizeTicketTopic(topicFilter) : null;
@@ -180,6 +183,8 @@ async function applyTopicAudienceVisibility({ req, where, params, topicFilter = 
   }
 
   const role = String(req.user?.role || '').toLowerCase();
+  // Department-only collaborators were scoped to their permitted email queues above.
+  if (!isAgencyAdminUser(req) && role !== 'school_staff') return;
   // Queue collaborators can see every topic (including billing). Responsibility flags
   // make specialized tickets more obvious/sortable — they do not hide them.
   if (
@@ -233,6 +238,7 @@ async function applyTopicAudienceVisibility({ req, where, params, topicFilter = 
 
 /** Specialized topics: admin always; others need matching responsibility flag (or be creator/claimant). */
 async function actorCanAccessTicketTopic(req, ticket) {
+  if ((await ticketDepartmentKeys(ticket)).length) return canWorkDepartmentTicket({ ticket, userId: req.user.id });
   const role = String(req.user?.role || '').toLowerCase();
   if (
     role === 'super_admin'
@@ -434,6 +440,26 @@ async function ensureOrgAccess(req, schoolOrganizationId) {
   }
 
   return { ok: true, org, schoolOrganizationId: sid };
+}
+
+async function actorCanUseDepartmentTickets(req) {
+  if (!req.departmentTicketAccess) req.departmentTicketAccess = (async () => {
+    const agencies = await User.getAgencies(req.user.id);
+    for (const agency of agencies || []) {
+      if ((await listUserDepartmentalGroupKeys({ agencyId: agency.id, userId: req.user.id })).length) return true;
+    }
+    return false;
+  })();
+  return req.departmentTicketAccess;
+}
+
+async function ensureTicketScopeAccess(req, ticket) {
+  const access = ticket.school_organization_id
+    ? await ensureOrgAccess(req, ticket.school_organization_id)
+    : await ensureAgencyAccess(req, ticket.agency_id);
+  if (!access.ok) return access;
+  if (!(await actorCanAccessTicketTopic(req, ticket))) return { ok: false, status: 403, message: 'This ticket is routed to a different audience' };
+  return access;
 }
 
 async function ensureAgencyAccess(req, agencyId) {
@@ -1121,7 +1147,7 @@ export const listSupportTicketsQueue = async (req, res, next) => {
   try {
     const role = String(req.user?.role || '').toLowerCase();
     const canPlatform = await actorCanAccessPlatformSupportQueue(req);
-    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin' || canPlatform;
+    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin' || canPlatform || await actorCanUseDepartmentTickets(req);
     if (!canView) {
       return res.status(403).json({ error: { message: 'Only staff/admin/support can view the support ticket queue' } });
     }
@@ -1318,7 +1344,7 @@ export const listSupportTicketsQueue = async (req, res, next) => {
 export const getSupportTicketsCount = async (req, res, next) => {
   try {
     const role = String(req.user?.role || '').toLowerCase();
-    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin' || await actorCanUseDepartmentTickets(req);
     if (!canView) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
@@ -1385,7 +1411,7 @@ export const getSupportTicketsMetrics = async (req, res, next) => {
   try {
     const role = String(req.user?.role || '').toLowerCase();
     const canPlatform = await actorCanAccessPlatformSupportQueue(req);
-    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin' || canPlatform;
+    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin' || canPlatform || await actorCanUseDepartmentTickets(req);
     if (!canView) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
@@ -1452,7 +1478,7 @@ export const getSupportTicketsCountsByAgency = async (req, res, next) => {
   try {
     const role = String(req.user?.role || '').toLowerCase();
     const canPlatform = await actorCanAccessPlatformSupportQueue(req);
-    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin' || canPlatform;
+    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin' || canPlatform || await actorCanUseDepartmentTickets(req);
     if (!canView) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
@@ -1581,7 +1607,7 @@ export const updateSupportTicketPriority = async (req, res, next) => {
     const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
     const ticket = rows?.[0];
     if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
-    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    const access = await ensureTicketScopeAccess(req, ticket);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     await pool.execute(`UPDATE support_tickets SET priority = ? WHERE id = ?`, [priority, ticketId]);
     const [out] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
@@ -1748,7 +1774,7 @@ export const escalateSupportTicketToPlatform = async (req, res, next) => {
     const ticket = rows?.[0];
     if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
 
-    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    const access = await ensureTicketScopeAccess(req, ticket);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     const currentScope = String(ticket.target_scope || 'tenant').toLowerCase();
@@ -2226,7 +2252,7 @@ export const listSupportTicketMessages = async (req, res, next) => {
     const role = String(req.user?.role || '').toLowerCase();
     const isTicketCreatorEarly = Number(ticket?.created_by_user_id || 0) === Number(req.user?.id || 0);
     if (!(role === 'client_guardian' && isTicketCreatorEarly)) {
-      const access = await ensureOrgAccess(req, ticket.school_organization_id);
+      const access = await ensureTicketScopeAccess(req, ticket);
       if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     }
 
@@ -2252,7 +2278,7 @@ export const listSupportTicketMessages = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Limited ticket access only allows your own tickets' } });
     }
     const isTicketCreator = Number(ticket?.created_by_user_id || 0) === Number(req.user?.id || 0);
-    let canView = isAgencyAdminUser(req) || role === 'super_admin' || (role === 'client_guardian' && isTicketCreator);
+    let canView = isAgencyAdminUser(req) || role === 'super_admin' || (role === 'client_guardian' && isTicketCreator) || await canWorkDepartmentTicket({ ticket, userId: req.user.id });
     if (!canView && role === 'school_staff' && ticket.client_id) {
       canView = await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
         clientId: ticket.client_id,
@@ -2389,7 +2415,7 @@ export const createSupportTicketMessage = async (req, res, next) => {
         return res.status(403).json({ error: { message: 'Access denied' } });
       }
     } else {
-      access = await ensureOrgAccess(req, ticket.school_organization_id);
+      access = await ensureTicketScopeAccess(req, ticket);
       if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
       if (!(await actorCanAccessTicketTopic(req, ticket))) {
         return res.status(403).json({ error: { message: 'This ticket is routed to a different audience' } });
@@ -2422,7 +2448,7 @@ export const createSupportTicketMessage = async (req, res, next) => {
       if ((limitedStaffOwnTicketOnly || schedulerOwnOnly) && Number(ticket?.created_by_user_id || 0) !== Number(req.user?.id || 0)) {
         return res.status(403).json({ error: { message: 'Limited ticket access only allows replying to your own tickets' } });
       }
-      let canPost = isAgencyAdminUser(req) || role === 'super_admin';
+      let canPost = isAgencyAdminUser(req) || role === 'super_admin' || await canWorkDepartmentTicket({ ticket, userId: req.user.id });
       if (!canPost && role === 'school_staff') {
         canPost = await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
           clientId: ticket.client_id,
@@ -2469,7 +2495,7 @@ export const createSupportTicketMessage = async (req, res, next) => {
       }
     }
 
-    if (String(ticket.source_channel || '').toLowerCase() === 'email' && !wantInternal && isAgencyAdminUser(req)) {
+    if (String(ticket.source_channel || '').toLowerCase() === 'email' && !wantInternal && (isAgencyAdminUser(req) || await canWorkDepartmentTicket({ ticket, userId: req.user.id }))) {
       res.locals.emailReply = await sendSupportTicketEmailReply({
         ticketId, actorUserId: req.user.id, actorRole: role, body, parentMessageId: parentId,
         senderIdentityId: req.body?.senderIdentityId, senderMode: req.body?.senderMode || 'staff',
@@ -2486,7 +2512,7 @@ export const createSupportTicketMessage = async (req, res, next) => {
       authorRole: String(req.user?.role || ''),
       body,
       requireEncryption: ticket.created_by_source_key === 'office_kiosk_support',
-      isInternal: wantInternal && (isAgencyAdminUser(req) || role === 'super_admin' || role === 'staff' || role === 'clinical_practice_assistant')
+      isInternal: wantInternal && (isAgencyAdminUser(req) || role === 'super_admin' || role === 'staff' || role === 'clinical_practice_assistant' || await canWorkDepartmentTicket({ ticket, userId: req.user.id }))
     });
 
     // Mirror People Ops ticket replies into the candidate's pre-hire portal chat.
@@ -2600,7 +2626,7 @@ export const deleteSupportTicketMessage = async (req, res, next) => {
     const ticket = tRows?.[0] || null;
     if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
 
-    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    const access = await ensureTicketScopeAccess(req, ticket);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     if (!(await hasSupportTicketMessagesTable())) {
@@ -2691,7 +2717,7 @@ export const generateSupportTicketResponse = async (req, res, next) => {
     const ticket = rows?.[0] || null;
     if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
 
-    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    const access = await ensureTicketScopeAccess(req, ticket);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     if (ticket.client_id) {
@@ -2959,7 +2985,7 @@ export const reviewSupportTicketDraft = async (req, res, next) => {
     const ticket = rows?.[0] || null;
     if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
 
-    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    const access = await ensureTicketScopeAccess(req, ticket);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     await pool.execute(
@@ -3005,7 +3031,7 @@ export const markSupportTicketDraftSent = async (req, res, next) => {
     const ticket = rows?.[0] || null;
     if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
 
-    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    const access = await ensureTicketScopeAccess(req, ticket);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     if (String(ticket.source_channel || '').toLowerCase() === 'email') {
@@ -3063,7 +3089,7 @@ export const answerSupportTicket = async (req, res, next) => {
     const ticket = rows?.[0];
     if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
 
-    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    const access = await ensureTicketScopeAccess(req, ticket);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     if (!(await actorCanAccessTicketTopic(req, ticket))) {
@@ -3319,7 +3345,7 @@ export const answerSupportTicket = async (req, res, next) => {
 export const claimSupportTicket = async (req, res, next) => {
   try {
     const role = String(req.user?.role || '').toLowerCase();
-    const canClaim = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+    const canClaim = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin' || await actorCanUseDepartmentTickets(req);
     if (!canClaim) {
       return res.status(403).json({ error: { message: 'Only staff/admin/support can claim support tickets' } });
     }
@@ -3330,8 +3356,11 @@ export const claimSupportTicket = async (req, res, next) => {
     const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
     const ticket = rows?.[0];
     if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
+    if (!isAgencyAdminUser(req) && role !== 'school_staff' && !await canWorkDepartmentTicket({ ticket, userId: req.user.id })) {
+      return res.status(403).json({ error: { message: 'You can manage only tickets for your assigned agency groups' } });
+    }
 
-    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    const access = await ensureTicketScopeAccess(req, ticket);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
     if (!(await actorCanAccessTicketTopic(req, ticket))) {
       return res.status(403).json({ error: { message: 'This ticket is routed to a different audience' } });
@@ -3367,7 +3396,7 @@ export const claimSupportTicket = async (req, res, next) => {
 export const unclaimSupportTicket = async (req, res, next) => {
   try {
     const role = String(req.user?.role || '').toLowerCase();
-    const canUnclaim = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+    const canUnclaim = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin' || await actorCanUseDepartmentTickets(req);
     if (!canUnclaim) {
       return res.status(403).json({ error: { message: 'Only staff/admin/support can unclaim support tickets' } });
     }
@@ -3378,8 +3407,11 @@ export const unclaimSupportTicket = async (req, res, next) => {
     const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
     const ticket = rows?.[0];
     if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
+    if (!isAgencyAdminUser(req) && role !== 'school_staff' && !await canWorkDepartmentTicket({ ticket, userId: req.user.id })) {
+      return res.status(403).json({ error: { message: 'You can manage only tickets for your assigned agency groups' } });
+    }
 
-    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    const access = await ensureTicketScopeAccess(req, ticket);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     const claimedBy = ticket.claimed_by_user_id ? Number(ticket.claimed_by_user_id) : null;
@@ -3445,7 +3477,7 @@ export const listSupportTicketAssignees = async (req, res, next) => {
          FROM users u
          JOIN user_agencies ua ON ua.user_id = u.id
          WHERE (
-           (ua.agency_id = ? AND LOWER(COALESCE(u.role, '')) IN ('admin','support','staff','super_admin','clinical_practice_assistant','provider_plus'))
+           (ua.agency_id = ? AND (LOWER(COALESCE(u.role, '')) IN ('admin','support','staff','super_admin','clinical_practice_assistant','provider_plus') OR COALESCE(ua.has_billing_access,0)=1 OR COALESCE(ua.has_payroll_access,0)=1 OR COALESCE(ua.can_manage_credentialing,0)=1))
            OR
            (
              LOWER(COALESCE(u.role, '')) = 'school_staff'
@@ -3526,7 +3558,7 @@ export const assignSupportTicket = async (req, res, next) => {
     const ticket = rows?.[0];
     if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
 
-    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    const access = await ensureTicketScopeAccess(req, ticket);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     const [aRows] = await pool.execute(
@@ -3542,7 +3574,11 @@ export const assignSupportTicket = async (req, res, next) => {
       return res.status(409).json({ error: { message: 'Assignee is archived' } });
     }
 
-    if (!isTicketQueueCollaboratorRole(assignee.role)) {
+    const assigneeDepartmentAccess = await canWorkDepartmentTicket({ ticket, userId: assignee.id });
+    if ((await ticketDepartmentKeys(ticket)).length && !assigneeDepartmentAccess) {
+      return res.status(400).json({ error: { message: 'Assignee does not have permission for this agency group' } });
+    }
+    if (!isTicketQueueCollaboratorRole(assignee.role) && !assigneeDepartmentAccess) {
       return res.status(400).json({ error: { message: 'Assignee must be a ticket collaborator (school staff, admin, support, staff, CPA, or provider plus)' } });
     }
 
@@ -3586,7 +3622,7 @@ export const assignSupportTicket = async (req, res, next) => {
 export const closeSupportTicket = async (req, res, next) => {
   try {
     const role = String(req.user?.role || '').toLowerCase();
-    const canClose = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+    const canClose = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin' || await actorCanUseDepartmentTickets(req);
     if (!canClose) return res.status(403).json({ error: { message: 'Only staff/admin/support can close tickets' } });
 
     const ticketId = parseInt(req.params.id, 10);
@@ -3595,8 +3631,11 @@ export const closeSupportTicket = async (req, res, next) => {
     const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
     const ticket = rows?.[0];
     if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
+    if (!isAgencyAdminUser(req) && role !== 'school_staff' && !await canWorkDepartmentTicket({ ticket, userId: req.user.id })) {
+      return res.status(403).json({ error: { message: 'You can manage only tickets for your assigned agency groups' } });
+    }
 
-    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    const access = await ensureTicketScopeAccess(req, ticket);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     if (!(await actorCanAccessTicketTopic(req, ticket))) {
@@ -3685,7 +3724,7 @@ export const listClientAssignedProvidersForSupportTicket = async (req, res, next
       return res.status(400).json({ error: { message: 'Ticket has no linked client' } });
     }
 
-    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    const access = await ensureTicketScopeAccess(req, ticket);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     const providers = await listProvidersAssignedToClientInSchool({
@@ -3724,7 +3763,7 @@ export const forwardSupportTicketToProviders = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Forwarding is only available for client-linked tickets' } });
     }
 
-    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    const access = await ensureTicketScopeAccess(req, ticket);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     const claimedBy = ticket.claimed_by_user_id ? Number(ticket.claimed_by_user_id) : null;
@@ -3869,7 +3908,7 @@ async function loadTicketForActionAccess(req, ticketId) {
   const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
   const ticket = rows?.[0] || null;
   if (!ticket) return { ok: false, status: 404, message: 'Ticket not found' };
-  const access = await ensureOrgAccess(req, ticket.school_organization_id);
+  const access = await ensureTicketScopeAccess(req, ticket);
   if (!access.ok) return { ok: false, status: access.status, message: access.message, ticket };
   return { ok: true, ticket, access };
 }

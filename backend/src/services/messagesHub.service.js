@@ -366,7 +366,7 @@ function buildMethods({
     secureReason = 'Add an email on the client or guardian record to send a secure message';
   } else {
     secureReason = isStaffish
-      ? 'Use Internal for staff-to-staff chat'
+      ? 'Use Direct message for staff-to-staff chat'
       : 'Needs a client or guardian to message securely';
   }
 
@@ -388,11 +388,11 @@ function buildMethods({
 
   const internalReason = internalAvailable
     ? isSchoolStaff
-      ? 'Internal app chat — they can also use Email to reply from outside'
-      : 'Internal encrypted team chat'
+      ? 'Direct message in the app; Email also lets them reply from outside'
+      : 'Encrypted direct message'
     : isClientish
       ? 'Secure is the in-app channel for clients and guardians'
-      : 'Internal chat requires a staff/school user';
+      : 'Direct messages require a staff or school user';
 
   const canInviteToPortal =
     isClientish &&
@@ -1198,7 +1198,7 @@ export async function browseHubPeople({
           kinds,
           userId: u.id,
           email: u.email,
-          relationshipMeta: 'Internal message',
+          relationshipMeta: 'Direct message',
           title: u.title || null,
           photoUrl: publicUploadsUrlFromStoredPath(u.profile_photo_path) || null,
           portalAccess: true,
@@ -2096,6 +2096,13 @@ export function normalizeHubEmailSubjectKey(subject) {
   return s || '(no subject)';
 }
 
+async function hubDepartmentEmailScope({ agencyId, userId }) {
+  const [{ loadGroupEmailInboxScope }, { groupEmailConversationSql }] = await Promise.all([
+    import('./unifiedInbox.service.js'), import('./groupEmailConversationPolicy.js')
+  ]);
+  return groupEmailConversationSql(await loadGroupEmailInboxScope({ agencyId, userId }));
+}
+
 /**
  * Prior email messages for Hub outbound history (greyed quotes under the latest body).
  * Strictly scoped to the same subject thread (and optional conversation) — never all mail
@@ -2117,6 +2124,7 @@ export async function loadHubEmailHistoryForPerson({
   // No explicit conversation means new compose: never include earlier mail.
   if (!cid) return [];
   try {
+    const groupScope = await hubDepartmentEmailScope({ agencyId, userId: actorUserId });
     const { stripEmailHistoryBody } = await import('./hubBrandedEmail.service.js');
     const [rows] = await pool.execute(
       `SELECT m.id AS message_id, m.conversation_id, m.direction, m.body_text, m.body_html, m.subject,
@@ -2134,7 +2142,7 @@ export async function loadHubEmailHistoryForPerson({
            WHERE p.conversation_id = c.id
              AND LOWER(COALESCE(p.email, '')) = ?
          )
-         AND ${HUB_EMAIL_ACTOR_SCOPE_SQL}
+         AND ${groupScope.access} AND (${groupScope.allowedGroup} OR ${HUB_EMAIL_ACTOR_SCOPE_SQL})
          AND COALESCE(m.is_internal_note, 0) = 0
          AND COALESCE(m.send_status, 'sent') = 'sent'
        ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC
@@ -2187,12 +2195,13 @@ export async function resolveHubEmailReplyConversation({
   // including when a previous conversation has the same subject and recipients.
   const cid = Number(explicitConversationId || 0);
   if (!cid) return null;
+  const groupScope = await hubDepartmentEmailScope({ agencyId, userId: actorUserId });
   const [rows] = await pool.execute(
     `SELECT c.id FROM communication_conversations c
      WHERE c.id = ? AND c.agency_id = ? AND c.channel = 'email'
        AND EXISTS (SELECT 1 FROM communication_participants p
          WHERE p.conversation_id = c.id AND LOWER(p.email) = ?)
-       AND ${HUB_EMAIL_CONV_ACTOR_SCOPE_SQL}
+       AND ${groupScope.access} AND (${groupScope.allowedGroup} OR ${HUB_EMAIL_CONV_ACTOR_SCOPE_SQL})
      LIMIT 1`,
     [cid, agencyId, String(email || '').trim().toLowerCase(), actorUserId, actorUserId]
   );
@@ -2208,6 +2217,7 @@ export async function loadEmailTimeline({ agencyId, actorUserId, email, limit = 
   const uid = Number(actorUserId || 0);
   if (!uid) return [];
   try {
+    const groupScope = await hubDepartmentEmailScope({ agencyId, userId: uid });
     // Only this user's own mail to/from this address — never the shared mailbox dump.
     const [rows] = await pool.execute(
       `SELECT m.id AS message_id, m.conversation_id, m.direction, m.body_text, m.subject,
@@ -2241,19 +2251,20 @@ export async function loadEmailTimeline({ agencyId, actorUserId, email, limit = 
        JOIN communication_conversations c ON c.id = m.conversation_id
        LEFT JOIN communication_inboxes i ON i.id = c.inbox_id
        WHERE c.channel = 'email'
+         AND c.agency_id = ?
          ${Number(conversationId) > 0 ? 'AND c.id = ' + Number(conversationId) : ''}
          AND EXISTS (
            SELECT 1 FROM communication_participants p
            WHERE p.conversation_id = c.id
              AND LOWER(COALESCE(p.email, '')) = ?
          )
-         AND ${HUB_EMAIL_ACTOR_SCOPE_SQL}
+         AND ${groupScope.access} AND (${groupScope.allowedGroup} OR ${HUB_EMAIL_ACTOR_SCOPE_SQL})
          AND COALESCE(m.is_internal_note, 0) = 0
          AND COALESCE(m.send_status, 'sent') <> 'cancelled'
        ${Number.isSafeInteger(Number(beforeId)) && Number(beforeId) > 0 ? 'AND m.id < ' + Number(beforeId) : ''}
        ORDER BY m.id DESC
        LIMIT ${Math.min(Math.max(Number(limit) || 40, 1), 200)}`,
-      [normalized, uid, uid, uid]
+      [agencyId, normalized, uid, uid, uid]
     );
     const parseAddressJson = (raw, fallback) => {
       if (typeof raw !== 'string') return raw || fallback;
@@ -2362,6 +2373,7 @@ export async function markHubPersonRead({ agencyId, userId, person, includeEmail
   const addr = String(person.email || '').trim().toLowerCase();
   if (addr && includeEmail) {
     try {
+      const groupScope = await hubDepartmentEmailScope({ agencyId: aid, userId: uid });
       const CommunicationConversation = (await import('../models/CommunicationConversation.model.js'))
         .default;
       const params = [addr, uid, uid];
@@ -2371,6 +2383,7 @@ export async function markHubPersonRead({ agencyId, userId, person, includeEmail
         `SELECT DISTINCT c.id
          FROM communication_conversations c
          WHERE c.channel = 'email'
+           AND NOT (${groupScope.isGroup})
            AND c.archived_at IS NULL
            AND EXISTS (
              SELECT 1 FROM communication_participants p
@@ -2455,6 +2468,7 @@ export async function markHubPersonUnread({ agencyId, userId, person } = {}) {
   const addr = String(person.email || '').trim().toLowerCase();
   if (addr) {
     try {
+      const groupScope = await hubDepartmentEmailScope({ agencyId: aid, userId: uid });
       const CommunicationConversation = (await import('../models/CommunicationConversation.model.js'))
         .default;
       const params = [addr, uid, uid];
@@ -2464,6 +2478,7 @@ export async function markHubPersonUnread({ agencyId, userId, person } = {}) {
         `SELECT DISTINCT c.id
          FROM communication_conversations c
          WHERE c.channel = 'email'
+           AND NOT (${groupScope.isGroup})
            AND c.archived_at IS NULL
            AND EXISTS (
              SELECT 1 FROM communication_participants p
@@ -3143,7 +3158,7 @@ export async function ensureHubChatThread({ agencyId, userId, otherUserId, messa
     throw err;
   }
   if (Number(userId) === Number(otherUserId)) {
-    const err = new Error('You cannot send an internal message to yourself');
+    const err = new Error('You cannot send a direct message to yourself');
     err.status = 400;
     throw err;
   }
@@ -3971,6 +3986,7 @@ export async function listHubConversationFeed({
   const lim = Math.min(Math.max(Number(limit) || 60, 1), 120);
   const sortNewest = String(sort || 'newest').toLowerCase() !== 'oldest';
   const unreadOnly = String(mode || 'inbox').toLowerCase() === 'unread';
+  const assignedOnly = String(mode || '').toLowerCase() === 'assigned';
   if (!uid) {
     return {
       items: [],
@@ -3986,12 +4002,14 @@ export async function listHubConversationFeed({
 
   // Email / SMS / call conversations (personal-scoped like hubScope)
   try {
-    const CommunicationConversation = (await import('../models/CommunicationConversation.model.js'))
-      .default;
-    const emailRows = await CommunicationConversation.list({
+    const { listConversations } = await import('./unifiedInbox.service.js');
+    const emailRows = await listConversations({
       agencyId: aid,
-      filter: unreadOnly ? 'unread' : 'all',
-      channel: channelFilter === 'calls' ? 'call' : ['email','sms'].includes(channelFilter) ? channelFilter : null,
+      filter: assignedOnly ? 'assigned' : unreadOnly ? 'unread' : 'all',
+      channel: channelFilter === 'calls' ? 'call' : ['group','groups','email'].includes(channelFilter) ? 'email' : channelFilter === 'sms' ? 'sms' : null,
+      groupOnly: ['group','groups'].includes(channelFilter),
+      excludeGroup: channelFilter === 'email',
+      syncTickets: false,
       userId: uid,
       scopeToUserId: uid,
       limit: lim,
@@ -4085,12 +4103,18 @@ export async function listHubConversationFeed({
         starred: !!c.starred,
         snoozedUntil: c.snoozed_until || null,
         senderTrust: c.sender_trust || null,
-        isUnknownSender: !!c.is_unknown_sender
+        isUnknownSender: !!c.is_unknown_sender,
+        group_key: c.group_key || null,
+        is_group_email: !!c.is_group_email, is_ticketed_group: !!c.is_ticketed_group,
+        support_ticket_id: c.support_ticket_id || null, ticket_status: c.ticket_status || null,
+        ticket_claimed_by_user_id: c.ticket_claimed_by_user_id || null, ticket_replied: !!c.ticket_replied,
+        can_claim_ticket: !!c.can_claim_ticket,
+        inbox_from_email: c.inbox_from_email || null, inbox_display_name: c.inbox_display_name || null
       });
     }
   } catch (e) {
     console.warn('[listHubConversationFeed] email:', e?.code || 'load_failed');
-    if (['all', 'email', 'sms', 'calls'].includes(channelFilter)) {
+    if (['all', 'email', 'sms', 'calls', 'group', 'groups'].includes(channelFilter)) {
       const failure = new Error('Could not load your conversations. Please try Refresh.');
       failure.status = 503;
       throw failure;
@@ -4327,8 +4351,10 @@ export async function listHubConversationFeed({
     return sortNewest ? tb - ta : ta - tb;
   });
 
-  const sliced = collapsed.filter(item => channelFilter === 'all'
-    || (channelFilter === 'calls' ? ['call', 'voicemail'].includes(item.channel) : item.channel === channelFilter)).slice(0, lim);
+  const sliced = collapsed.filter(item => (!assignedOnly || ['email','sms','call','voicemail'].includes(item.channel)) && (channelFilter === 'all'
+    || (['group','groups'].includes(channelFilter) ? item.is_ticketed_group || ['group','channel'].includes(item.channel)
+      : channelFilter === 'email' ? item.channel === 'email' && !item.is_ticketed_group
+      : channelFilter === 'calls' ? ['call', 'voicemail'].includes(item.channel) : item.channel === channelFilter))).slice(0, lim);
   const emailCount = sliced.filter((i) => i.kind === 'email' || i.channel === 'email').length;
   const smsCount = sliced.filter((i) => i.channel === 'sms').length;
   const chatCount = sliced.filter((i) =>
@@ -4346,7 +4372,7 @@ export async function listHubConversationFeed({
       unread: unreadCount
     },
     sort: sortNewest ? 'newest' : 'oldest',
-    mode: unreadOnly ? 'unread' : 'inbox'
+    mode: assignedOnly ? 'assigned' : unreadOnly ? 'unread' : 'inbox'
   };
 }
 

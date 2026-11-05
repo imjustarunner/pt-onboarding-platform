@@ -6,7 +6,7 @@ vi.mock('../hubMessageReactions.service.js', () => ({ listMessageReactions: vi.f
 vi.mock('../communicationDirectory.service.js', () => ({ searchCommunicationDirectory: vi.fn(), listCommunicationDirectoryByKind: vi.fn() }));
 vi.mock('../personalMailbox.service.js', () => ({ findPersonalInbox: vi.fn(), ensurePersonalMailbox: vi.fn() }));
 vi.mock('../secureMessagingPolicy.service.js', () => ({ shouldDefaultToSecureMessage: vi.fn() }));
-vi.mock('../unifiedInbox.service.js', () => ({ composeNewEmail: vi.fn() }));
+vi.mock('../unifiedInbox.service.js', () => ({ composeNewEmail: vi.fn(), listConversations: mocks.list }));
 vi.mock('../../controllers/chat.controller.js', () => ({ findOrCreateDirectThread: vi.fn(), findExistingDirectThreadBetweenUsers: vi.fn() }));
 vi.mock('../chatEncryption.service.js', () => ({ decryptChatText: vi.fn(), isChatEncryptionConfigured: () => false }));
 vi.mock('../hubMessageQueue.service.js', () => ({ listHubQueuedForPerson: vi.fn() }));
@@ -64,4 +64,19 @@ it('queries both calls and voicemails before pagination and retains them in the 
 it.each(['sms', 'calls'])('reports %s loading failures instead of saying no saved conversations', async channel => {
   mocks.list.mockRejectedValueOnce(new Error('Database unavailable'));
   await expect(listHubConversationFeed({ agencyId: 2, userId: 1, channel })).rejects.toMatchObject({ status: 503 });
+});
+
+it.each(['group', 'groups'])('includes ticketed email in %s with claim metadata', async channel => {
+  mocks.list.mockResolvedValue([{ id: 8, channel: 'email', is_unread: true, is_ticketed_group: true,
+    is_group_email: true, group_key: 'payroll', support_ticket_id: 90, can_claim_ticket: true,
+    inbox_from_email: 'payroll@agency.test', ticket_replied: false }]);
+  const feed = await listHubConversationFeed({ agencyId: 2, userId: 1, channel });
+  expect(mocks.list).toHaveBeenCalledWith(expect.objectContaining({ groupOnly: true, channel: 'email' }));
+  expect(feed.items[0]).toMatchObject({ group_key: 'payroll', support_ticket_id: 90, can_claim_ticket: true });
+});
+
+it('excludes departmental email before pagination in the Email tab', async () => {
+  mocks.list.mockResolvedValue([]);
+  await listHubConversationFeed({ agencyId: 2, userId: 1, channel: 'email' });
+  expect(mocks.list).toHaveBeenCalledWith(expect.objectContaining({ excludeGroup: true }));
 });

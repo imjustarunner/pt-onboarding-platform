@@ -2,9 +2,11 @@ import { beforeEach,it,expect,vi } from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../googleWorkspaceDirectory.service.js',()=>({default:{isConfigured:()=>true,getClient:vi.fn(),listGroupMembers:vi.fn(),createGroup:vi.fn(),addGroupMember:vi.fn(),removeGroupMember:vi.fn(),applyGroupAccessSettings:vi.fn(),setGroupMemberDeliverySettings:vi.fn()}}));
 vi.mock('../personalMailbox.service.js',()=>({ensurePersonalMailboxForAddress:vi.fn()}));
+vi.mock('../departmentalSenderReadiness.service.js',()=>({ensureDepartmentalSenderReady:vi.fn(async()=>({ready:true,transport:'workspace_smtp_relay'}))}));
 import pool from '../../config/database.js';
 import Directory from '../googleWorkspaceDirectory.service.js';
 import {reconcileManagedWorkspaceGroups,retryNewGroupPropagation} from '../managedWorkspaceGroups.service.js';
+import {ensureDepartmentalSenderReady} from '../departmentalSenderReadiness.service.js';
 const staff={id:12,first_name:'Staff',email:'staff-person@itsco.health',personal_email:'personal@example.org',mailbox_emails:'staff-person@itsco.health',role:'provider',status:'ACTIVE_EMPLOYEE',is_active:1,is_archived:0,is_demo:0,membership_active:1,credential:'MA, LPCC'};
 let roster,client;
 beforeEach(()=>{
@@ -122,4 +124,75 @@ it('preserves existing active clinical recipients with conflicting care flags fo
  Directory.listGroupMembers.mockResolvedValue([{email:staff.email,role:'MEMBER'}]);
  const [report]=await reconcileManagedWorkspaceGroups({enrolledOnly:true});
  expect(report.groups[0]).toMatchObject({removed:[],preserved:[staff.email]});
+});
+
+it('automatically includes configured departments without enrolling unrelated managed groups', async () => {
+ const original=pool.execute.getMockImplementation();
+ pool.execute.mockImplementation(async sql=>sql.includes('FROM email_sender_identities esi')?[[{agency_id:2,identity_key:'payroll',from_email:'payroll@itsco.health'}]]:original(sql));
+ roster=[{...staff,has_payroll_access:1}];
+ const [report]=await reconcileManagedWorkspaceGroups({enrolledOnly:true});
+ expect(report.groups.map(g=>g.groupKey)).toEqual(['payroll']);
+ expect(report.groups[0]).toMatchObject({subscription:'NONE',added:[staff.email]});
+});
+
+it('removes a former payroll manager when their app permission is revoked', async () => {
+ const original=pool.execute.getMockImplementation();
+ pool.execute.mockImplementation(async sql=>sql.includes('FROM email_sender_identities esi')?[[{agency_id:2,identity_key:'payroll',from_email:'payroll@itsco.health'}]]:original(sql));
+ Directory.listGroupMembers.mockResolvedValue([{email:staff.email,role:'MANAGER'}]);
+ const [report]=await reconcileManagedWorkspaceGroups({enrolledOnly:true});
+ expect(report.groups[0].removed).toEqual([staff.email]);
+});
+
+it('never treats a personal login Group identity as permission to manage a department', async () => {
+ const original=pool.execute.getMockImplementation();
+ pool.execute.mockImplementation(async sql=>sql.includes('FROM email_sender_identities esi')?[[{agency_id:2,identity_key:'personal_12',from_email:'payroll@itsco.health',kind:'personal',owner_user_id:12}]]:original(sql));
+ expect(await reconcileManagedWorkspaceGroups({enrolledOnly:true})).toEqual([]);
+});
+
+it('adds a non-SSO login Group as a muted nested member and silences preserved legacy recipients', async () => {
+ const original=pool.execute.getMockImplementation();
+ pool.execute.mockImplementation(async sql=>sql.includes('FROM email_sender_identities esi')?[[{agency_id:2,identity_key:'payroll',from_email:'payroll@itsco.health'}]]:original(sql));
+ roster=[{...staff,has_payroll_access:1,login_is_group_email:1}];
+ client.users.get.mockRejectedValue(Object.assign(new Error('not a user'),{code:404}));
+ client.members={get:vi.fn(async ({memberKey})=>({data:{email:memberKey,role:memberKey==='michael@plottwistco.com'?'OWNER':memberKey==='ai@plottwistco.com'?'MANAGER':'MEMBER',delivery_settings:memberKey==='michael@plottwistco.com'?'NONE':'ALL_MAIL'}}))};
+ Directory.listGroupMembers.mockResolvedValue([{email:'legacy@example.org',role:'MEMBER'},{email:'ai@plottwistco.com',role:'MANAGER'}]);
+ pool.getConnection=vi.fn(async()=>({beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),execute:vi.fn(async sql=>sql.startsWith('SELECT * FROM managed_workspace_groups')?[[{id:4,contact_id:5,chat_thread_id:6,meeting_group_id:7}]]:[[]])}));
+ const [report]=await reconcileManagedWorkspaceGroups({apply:true,enrolledOnly:true,groupKeys:['payroll']});
+ expect(report.groups[0].error).toBeNull();
+ expect(Directory.addGroupMember).toHaveBeenCalledWith(expect.objectContaining({groupEmail:'payroll@itsco.health',memberEmail:staff.email,memberType:'GROUP',deliverySettings:'NONE'}));
+ expect(Directory.setGroupMemberDeliverySettings).toHaveBeenCalledWith(expect.objectContaining({memberEmail:staff.email,deliverySettings:'NONE'}));
+ expect(Directory.setGroupMemberDeliverySettings).toHaveBeenCalledWith(expect.objectContaining({memberEmail:'legacy@example.org',deliverySettings:'NONE'}));
+ expect(Directory.removeGroupMember).not.toHaveBeenCalledWith(expect.objectContaining({memberEmail:'legacy@example.org'}));
+ expect(ensureDepartmentalSenderReady).toHaveBeenCalledWith({email:'payroll@itsco.health',displayName:'Payroll'});
+ expect(report.groups[0].sender).toEqual({ready:true,transport:'workspace_smtp_relay'});
+});
+
+it('includes Technology and Compliance but leaves configured and previously managed People Operations alone', async () => {
+ const original=pool.execute.getMockImplementation();
+ pool.execute.mockImplementation(async sql=>{
+  if(sql.includes('FROM email_sender_identities esi'))return [[
+   {agency_id:2,identity_key:'technology',from_email:'technology@itsco.health'},
+   {agency_id:2,identity_key:'compliance',from_email:'compliance@itsco.health'},
+   {agency_id:2,identity_key:'po',from_email:'po@itsco.health'}
+  ]];
+  if(sql.startsWith('SELECT group_key,email,member_emails'))return [[{group_key:'people_operations',email:'po@itsco.health',member_emails:'[]'}]];
+  return original(sql);
+ });
+ const [report]=await reconcileManagedWorkspaceGroups({enrolledOnly:true});
+ expect(report.groups.map(group=>group.groupKey)).toEqual(['technology','compliance']);
+ expect(Directory.listGroupMembers.mock.calls.some(([email])=>email==='po@itsco.health')).toBe(false);
+ expect(ensureDepartmentalSenderReady).not.toHaveBeenCalled();
+});
+
+it('removes previously mirrored departmental members after their agency membership is deleted', async () => {
+ roster=[];
+ const original=pool.execute.getMockImplementation();
+ pool.execute.mockImplementation(async sql=>{
+  if(sql.includes('FROM email_sender_identities esi'))return [[{agency_id:2,identity_key:'payroll',from_email:'payroll@itsco.health'}]];
+  if(sql.startsWith('SELECT group_key,email,member_emails'))return [[{group_key:'payroll',email:'payroll@itsco.health',member_emails:JSON.stringify([staff.email])}]];
+  return original(sql);
+ });
+ Directory.listGroupMembers.mockResolvedValue([{email:staff.email,role:'MEMBER'}]);
+ const [report]=await reconcileManagedWorkspaceGroups({enrolledOnly:true});
+ expect(report.groups[0].removed).toEqual([staff.email]);
 });

@@ -1,0 +1,61 @@
+GROUP MESSAGING AND TICKETS — 2026-11-05
+
+Groups sits beside Email; the former Internal channel is labeled Direct message.
+Groups includes current departmental queues and member-created internal groups.
+Personal non-SSO login Groups remain personal inboxes.
+
+Ticketed departments: Payroll, Billing, Credentialing, Support, Administration,
+Technology, Compliance, and Medical Records where agency senders are configured.
+People Operations is explicitly excluded from this rollout. Its existing group,
+subscriptions, hiring permissions, and existing ticket workflows are not enrolled
+in the new departmental synchronization or sender provisioning.
+
+Agency payroll/billing/credentialing permissions grant the matching department;
+Support grants Support and Technology. Agency admins receive the departmental
+administrative queues, including Compliance. No rights come from a matching job
+title or personal email address. The API checks active agency grants on reads,
+claims, assignment, and sends; nested non-SSO Group accounts use the same grants.
+
+Departmental intake creates/attaches a ticket. The email reader stays read only
+and opens the existing ticket interface in a modal. Claiming removes shared
+unread attention and keeps the item in the claimant's Assigned to me view. The
+existing dedicated Technology intake/assignment rules remain in place.
+
+SENDING AS THE GROUP
+Membership sync uses NONE delivery for people and nested staff Groups; only the
+app transport continues ingesting department mail. It also provisions/verifies
+the exact department From address on the app's configured Gmail send-as or SMTP
+relay transport. This grants sending inside the app under current permissions,
+without adding aliases to individual members' personal Gmail accounts.
+Unaccepted/mismatched senders are reported as errors and retried by recurring
+reconciliation. The outbound verifier refuses unverified From addresses.
+
+ROLLOUT
+The existing membership worker reconciles configured departmental identities;
+role and agency changes queue prompt reconciliation. To review existing state,
+run from backend using the deployment's normal database/Workspace environment:
+  node src/scripts/reconcileDepartmentalGroups.js --agency=<agency-id>
+To apply membership plus transport authorization:
+  node src/scripts/reconcileDepartmentalGroups.js --agency=<agency-id> --apply
+The report includes sender.ready and sender.transport. Preview mode does not
+provision senders or change Google membership.
+
+Existing unticketed plaintext histories have a separate bounded preview/apply:
+  node src/scripts/backfillDepartmentalEmailTickets.js --agency=<agency-id>
+  node src/scripts/backfillDepartmentalEmailTickets.js --agency=<agency-id> --apply
+Use nextAfterId with --after=<id> for subsequent batches. Rich HTML, unfinished
+drafts, unsent mail, manually attached tickets, existing receipt/thread conflicts,
+and missing attachment storage are left untouched for review. Eligible migration
+verifies encrypted history before replacing plaintext mirror bodies. It retains
+claimants, sent history, internal notes, and attachment storage references.
+
+CHECKS
+  cd frontend
+  node_modules/.bin/vitest run --config vitest.group-email.config.js
+  cd ../backend
+  NODE_ENV=test ../frontend/node_modules/.bin/vitest run --config vitest.group-tickets.config.js
+  NODE_ENV=test node --test src/services/__tests__/groupEmailInbox.test.js src/services/__tests__/supportTicketEmailInbound.service.test.js src/services/__tests__/supportTicketEmail.service.test.js src/services/__tests__/supportTicketDepartmentAccess.service.test.js
+
+No real email send or production membership/backfill command was used in local
+validation. Deployment and external configuration readiness must be observed in
+the normal deployment environment; pushing code does not itself prove delivery.

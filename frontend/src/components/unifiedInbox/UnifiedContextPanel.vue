@@ -7,7 +7,7 @@ const props = defineProps({
   detail: { type: Object, default: null },
   agencyId: { type: [Number, String], default: null }
 });
-const emit = defineEmits(['patch', 'refresh']);
+const emit = defineEmits(['patch', 'refresh', 'open-ticket']);
 
 const router = useRouter();
 const route = useRoute();
@@ -57,7 +57,7 @@ function openSchool() {
 function openTicket() {
   const id = linked.value?.ticket?.id || conv.value?.support_ticket_id;
   if (!id) return;
-  router.push(`${prefix.value}/tickets?ticketId=${id}`);
+  emit('open-ticket', id);
 }
 
 async function runAction(key, fn) {
@@ -226,6 +226,7 @@ async function addSchoolNote() {
           <span>Status</span>
           <select
             :value="conv.status"
+            :disabled="!!conv.support_ticket_id"
             @change="emit('patch', { status: $event.target.value })"
           >
             <option value="new">New</option>
@@ -239,6 +240,7 @@ async function addSchoolNote() {
           <span>Priority</span>
           <select
             :value="conv.priority"
+            :disabled="!!conv.support_ticket_id"
             @change="emit('patch', { priority: $event.target.value })"
           >
             <option value="low">Low</option>
@@ -255,6 +257,7 @@ async function addSchoolNote() {
         <p v-if="conv.due_at" class="uc-muted">Due: {{ new Date(conv.due_at).toLocaleString() }}</p>
         <p v-if="conv.snoozed_until" class="uc-muted">Snoozed until: {{ new Date(conv.snoozed_until).toLocaleString() }}</p>
         <p v-if="conv.inbox_from_email" class="uc-muted">Inbox: {{ conv.inbox_from_email }}</p>
+        <p v-if="conv.support_ticket_id" class="uc-muted">Manage status, priority, and assignment in the linked ticket.</p>
         <p class="uc-muted">Channel: {{ conv.channel }}</p>
       </section>
 
@@ -264,9 +267,9 @@ async function addSchoolNote() {
           {{ busy === 'task' ? 'Creating…' : 'Create Task' }}
         </button>
         <button v-if="linked.ticket || conv.support_ticket_id" type="button" class="uc-action" @click="openTicket">
-          Open Support Ticket
+          Open Ticket
         </button>
-        <button type="button" class="uc-action" :disabled="!!busy" @click="showTicket = !showTicket">
+        <button v-if="!linked.ticket && !conv.support_ticket_id" type="button" class="uc-action" :disabled="!!busy" @click="showTicket = !showTicket">
           Create Support Ticket
         </button>
         <div v-if="showTicket" class="uc-mini-form">

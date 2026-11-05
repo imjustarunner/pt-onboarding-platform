@@ -1,6 +1,11 @@
 import {it,expect} from 'vitest';
 import {mount} from '@vue/test-utils';
 import Reader from '../EmailThreadReader.vue';
+it('uses the linked ticket to remove email reply controls even without an explicit read-only flag',()=>{
+ const wrapper=mount(Reader,{props:{conversation:{id:10,support_ticket_id:7},messages:[{id:1,body_text:'Payroll question'}]}});
+ expect(wrapper.findAll('button').some(button=>['Reply','Reply all','Forward','Keep unread'].includes(button.text()))).toBe(false);
+ wrapper.unmount();
+});
 it('prioritizes the latest email and keeps earlier emails expandable',async()=>{
  const wrapper=mount(Reader,{props:{conversation:{id:10,subject:'Conversation'},messages:[{id:1,body_text:'Earlier email'},{id:2,body_html:'<a href="https://example.org/join">Join meeting</a>'}]}});
  const items=wrapper.findAll('.email-message');expect(items[0].element.open).toBe(false);expect(items[1].element.open).toBe(true);

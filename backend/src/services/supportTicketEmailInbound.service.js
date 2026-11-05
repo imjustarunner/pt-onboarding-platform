@@ -123,12 +123,12 @@ export async function ingestSupportTicketEmail(input, dependencies = {}) {
             (agency_id,school_organization_id,created_by_user_id,created_by_source_key,source_channel,
              source_email_from,source_email_subject,source_email_message_id,source_email_thread_id,source_email_received_at,
              email_ingested_at,source_email_recipients,subject,question,question_ciphertext,question_iv,question_auth_tag,
-             question_encryption_key_id,status,ai_draft_status,ai_draft_review_state)
-            VALUES (?,?,?,'inbound_email','email',?,?,?,?,?,CURRENT_TIMESTAMP,?,?,?,?,?,?,?,'open','needs_review','pending')`,
+             question_encryption_key_id,topic,status,ai_draft_status,ai_draft_review_state)
+            VALUES (?,?,?,'inbound_email','email',?,?,?,?,?,CURRENT_TIMESTAMP,?,?,?,?,?,?,?,?,'open','needs_review','pending')`,
           [agencyId, schoolOrganizationId || agencyId, input.createdByUserId || null, from,
             String(input.subject || '').slice(0, 255), messageId.slice(0, 255), threadId, receivedAt,
             JSON.stringify(input.recipients || []), String(input.subject || 'School message').slice(0, 255),
-            enc.plain, enc.ciphertext, enc.iv, enc.authTag, enc.keyId]);
+            enc.plain, enc.ciphertext, enc.iv, enc.authTag, enc.keyId, input.topic || 'general']);
           [[ticket]] = await db.execute('SELECT * FROM support_tickets WHERE id=?', [created.insertId]);
         } else if (ticket.source_email_message_id === messageId) {
           // Register the existing original seed instead of duplicating old intake.
