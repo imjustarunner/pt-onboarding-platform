@@ -11,7 +11,7 @@ vi.mock('../AgencyStripeConnectSection.vue',()=>({default:{template:'<div />'}})
 import api from '../../../services/api';
 import BillingManagement from '../BillingManagement.vue';
 const documentId='60ab85c4-d937-4c0f-845a-3f306dba58a2';
-const invoice=()=>({id:123,agency_id:7001,total_cents:18000,status:'draft',payment_status:'unpaid',period_start:'2026-11-01',period_end:'2026-11-30',qbo_invoice_id:'synthetic-qbo',line_items_json:{chargeLines:[{key:'management',label:'Sample management service',amountCents:18000}],businessAgreement:{contractReference:documentId,requiresSignatures:true,signedOn:'',ready:false}}});
+const invoice=()=>({id:123,agency_id:7001,total_cents:18000,status:'draft',payment_status:'unpaid',period_start:'2026-11-01',period_end:'2026-11-30',qbo_invoice_id:null,line_items_json:{chargeLines:[{key:'management',label:'Sample management service',amountCents:18000}],businessAgreement:{contractReference:documentId,requiresSignatures:true,signedOn:'',ready:false}}});
 beforeEach(()=>{
   vi.clearAllMocks();state.agency=reactive({currentAgency:{id:7001,slug:'sample-coach',organization_type:'life_coach'},agencies:[{id:7001,slug:'sample-coach',organization_type:'life_coach'}],setCurrentAgency:vi.fn()});
   state.route=reactive({params:{organizationSlug:'sample-coach'},query:{agencyId:'7001',invoiceId:'123'},path:'/sample-coach/admin/business-account'});
@@ -24,6 +24,7 @@ it('auto-opens the linked review invoice, shows management lines and its exact d
   const contract=wrapper.findAllComponents(RouterLinkStub).find(link=>link.text()==='Open the exact management contract');
   expect(contract.props('to')).toEqual({path:'/sample-coach/admin/organization-agreements',query:{agencyId:'7001',document:documentId}});
   for(const title of ['Retry Autopay','Send Invoice'])expect(wrapper.findAll('button').find(button=>button.text()===title).attributes('disabled')).toBeDefined();
+  expect(wrapper.findAll('button').find(button=>button.text()==='Download Invoice').attributes('disabled')).toBeUndefined();
   expect(api.post).not.toHaveBeenCalled();expect(wrapper.text()).not.toContain('Go to Features');wrapper.unmount();
 });
 it('keeps finalized management invoices available to the existing payment controls',async()=>{

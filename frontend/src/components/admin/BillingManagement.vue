@@ -555,7 +555,7 @@
                   >
                     {{ sendingInvoiceId === inv.id ? 'Sending…' : 'Send Invoice' }}
                   </button>
-                  <button class="btn" @click="downloadPdf(inv.id)" :disabled="!inv.pdf_storage_path">
+                  <button class="btn" @click="downloadPdf(inv.id)" :disabled="!inv.pdf_storage_path && !invoiceReviewPdfAvailable(inv)">
                     {{ inv.payment_status === 'paid' ? 'Download Receipt' : 'Download Invoice' }}
                   </button>
                 </td>
@@ -752,7 +752,7 @@ import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import AgencyStripeConnectSection from './AgencyStripeConnectSection.vue';
-import { invoiceSnapshot, invoiceAgreementHeld, invoiceAgreementLocation } from '../../utils/invoiceAgreementDisplay.js';
+import { invoiceSnapshot, invoiceAgreementHeld, invoiceAgreementLocation, invoiceReviewPdfAvailable } from '../../utils/invoiceAgreementDisplay.js';
 
 const props = defineProps({ independentBusiness: { type: Boolean, default: false } });
 

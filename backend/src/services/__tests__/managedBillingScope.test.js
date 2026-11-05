@@ -68,4 +68,11 @@ it('rejects conflicting body/query scope but permits a different shell context h
   expect(hasVerifiedBillingScope(valid.user,2)).toBe(true);
 });
 
-it('does not grant family billing to an administrator without explicit access',async()=>{const db={execute:vi.fn(async sql=>sql.includes('agency_billing_management')?[[]]:[[{has_billing_access:0}]])};await expect(requireBillingStaff({id:555,role:'admin'},2,db)).rejects.toMatchObject({status:403});});
+it('does not grant family billing to an administrator without explicit access',async()=>{
+  const db={execute:vi.fn(async sql=>{
+    if(sql.includes('a.account_owner_user_id = ?') || sql.includes('agency_billing_management'))return [[]];
+    if(sql.includes('SELECT ua.has_billing_access'))return [[{has_billing_access:0}]];
+    throw new Error('Unexpected billing authority query in synthetic fixture');
+  })};
+  await expect(requireBillingStaff({id:555,role:'admin'},2,db)).rejects.toMatchObject({status:403});
+});

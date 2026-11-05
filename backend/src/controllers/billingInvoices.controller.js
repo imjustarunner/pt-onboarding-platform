@@ -7,6 +7,9 @@ import User from '../models/User.model.js';
 import pool from '../config/database.js';
 import { createBusinessLifecycleService } from '../services/businessLifecycle.service.js';
 import { isIndependentPracticeOwner } from '../utils/independentPracticeOwner.js';
+import { isUnsignedInvoiceProposal } from '../services/businessInvoiceHold.js';
+import BillingInvoicePdfService from '../services/billingInvoicePdf.service.js';
+import Agency from '../models/Agency.model.js';
 
 function hasManagementTerms(invoice) {
   const snapshot = typeof invoice?.line_items_json === 'string' ? JSON.parse(invoice.line_items_json) : invoice?.line_items_json;
@@ -94,6 +97,17 @@ export const downloadInvoicePdf = async (req, res, next) => {
     if (!hasAccess) return res.status(403).json({ error: { message: 'Access denied' } });
 
     if (!invoice.pdf_storage_path) {
+      if (isUnsignedInvoiceProposal(invoice)) {
+        const agency = await Agency.findById(invoice.agency_id);
+        if (!agency) return res.status(404).json({ error: { message: 'Invoice organization not available' } });
+        const bytes = await BillingInvoicePdfService.generateInvoicePdf({ agencyName: agency.name, invoice });
+        res.set({
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `inline; filename="invoice-${Number(invoice.id)}-review.pdf"`,
+          'Cache-Control': 'no-store'
+        });
+        return res.send(Buffer.from(bytes));
+      }
       return res.status(404).json({ error: { message: 'Invoice PDF not available' } });
     }
 
