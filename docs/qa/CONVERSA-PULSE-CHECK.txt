@@ -1,0 +1,36 @@
+Conversa Pulse — team message analytics
+
+Apply migration 1756_conversa_message_views.sql before releasing the backend
+and frontend. No historical views are inferred or backfilled.
+
+Use a team channel with a sender and at least two other current participants.
+Repeat with a direct conversation, group, and a reply in a thread.
+
+- Every participant can use the message's Pulse action, including a provider
+  who did not send it. Hover or keyboard focus previews recorded viewers.
+- Clicking Pulse opens Conversa Pulse. Check seen/recipient totals, people
+  without a recorded view, replies, and reaction totals. Check filters and
+  Refresh. The sender is excluded from the recipient denominator.
+- Leave a message visible in a focused Team chat for at least one second.
+  Refresh Pulse as another member; the viewer's name and first-view time appear.
+- Leave another message outside the viewport. It must not gain a recorded view.
+  Background tabs, unfocused windows, and content covered by a modal must not
+  gain views. Returning focus after a modal closes must resume tracking.
+- Sending, hiding, marking a thread read, and marking it unread must not invent
+  or remove message views. Repeated visibility must retain the first-view time.
+- Once someone views a message, the sender cannot unsend it even if the thread's
+  unread cursor has not advanced.
+- Counts refer to current conversation members. After membership changes, the
+  recipient list must match that roster. A removed member cannot fetch Pulse.
+- An outsider must receive access denied from the Pulse and views endpoints.
+  A message ID from another thread must not expose stats or record a view.
+  A message hidden for the requester must not expose its Pulse.
+- Secure care conversations retain their existing activity log; Pulse endpoints
+  deny access and the team Pulse action is absent.
+- Network failures show a retry state, without fabricated zero stats. Switching
+  messages must not display stale recipients from the previous message.
+- Escape and backdrop click close the modal. Tab stays inside, focus returns
+  to Pulse after closing, and the layout fits a narrow phone screen.
+
+Do not interpret "No view recorded" as proof that someone never read a message.
+Views made before rollout or from other chat surfaces may not be recorded.

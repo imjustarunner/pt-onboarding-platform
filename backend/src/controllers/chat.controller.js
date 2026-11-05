@@ -61,6 +61,16 @@ async function hasChatMessageReactionsTable() {
   }
 }
 
+async function loadViewedMessageIds(messageIds, senderUserId) {
+  if (!messageIds.length || !(await tableExists('chat_message_views'))) return new Set();
+  const [views] = await pool.execute(
+    `SELECT DISTINCT message_id FROM chat_message_views
+     WHERE message_id IN (${messageIds.map(() => '?').join(',')}) AND user_id <> ?`,
+    [...messageIds, senderUserId]
+  );
+  return new Set(views.map(view => Number(view.message_id)));
+}
+
 async function hasParentMessageColumn() {
   try {
     const [rows] = await pool.execute(
@@ -1337,18 +1347,19 @@ export const listMessages = async (req, res, next) => {
     const ordered = (rows || []).reverse();
     const me = Number(req.user.id);
     const messageIds = ordered.map((m) => Number(m.id)).filter(Boolean);
-    const [attachmentsByMessage, reactionsByMessage, mentionsByMessage, replyCounts] =
+    const [attachmentsByMessage, reactionsByMessage, mentionsByMessage, replyCounts, viewedMessageIds] =
       await Promise.all([
         loadAttachmentsForMessages(messageIds),
         loadReactionsForMessages(messageIds, me),
         loadMentionsForMessages(messageIds),
         // Reply counts only meaningful for root timeline
-        !parentMessageIdQ ? loadReplyCountsForRoots(messageIds) : Promise.resolve(new Map())
+        !parentMessageIdQ ? loadReplyCountsForRoots(messageIds) : Promise.resolve(new Map()),
+        loadViewedMessageIds(messageIds, me)
       ]);
     const enriched = ordered.map((m) => {
       const id = m?.id ? Number(m.id) : null;
       const isMine = Number(m?.sender_user_id) === me;
-      const isReadByOther = !!(isMine && id && otherLastReadMessageId && id <= otherLastReadMessageId);
+      const isReadByOther = !!(isMine && id && (viewedMessageIds.has(id) || (otherLastReadMessageId && id <= otherLastReadMessageId)));
       let body = m?.body;
       if (!body && m?.body_ciphertext && m?.body_iv && m?.body_auth_tag) {
         try {
@@ -1925,6 +1936,12 @@ export const unsendMessage = async (req, res, next) => {
     }
     if (otherLastReadMessageId && Number(messageId) <= Number(otherLastReadMessageId)) {
       return res.status(409).json({ error: { message: 'Cannot unsend: message was already read' } });
+    }
+
+    // A visible message may have arrived through polling without advancing the
+    // unread cursor. Its recorded view still prevents unsending it.
+    if ((await loadViewedMessageIds([messageId], req.user.id)).has(messageId)) {
+      return res.status(409).json({ error: { message: 'Cannot unsend: message was already seen' } });
     }
 
     await pool.execute('DELETE FROM chat_messages WHERE id = ? AND thread_id = ?', [messageId, threadId]);

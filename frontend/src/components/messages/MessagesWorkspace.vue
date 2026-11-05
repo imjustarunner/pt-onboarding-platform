@@ -879,14 +879,16 @@
                       >
                         Calendar
                       </button>
+                      <MessagePulse v-if="pulseEnabled" :thread-id="activeThreadId" :message-id="m.id" />
                     </span>
                   </div>
                   <div
                     class="msg-body"
                     :class="{ 'msg-highlight': highlightMessageId === m.id }"
                     :data-message-id="m.id"
+                    :data-pulse-message-id="m.id"
                   >{{ m.body }}</div>
-                  <div v-if="m.attachments?.length" class="msg-attachments">
+                  <div v-if="m.attachments?.length" class="msg-attachments" :data-pulse-message-id="!m.body ? m.id : undefined">
                     <template v-for="a in m.attachments" :key="a.id || a.file_path">
                       <button v-if="a.downloadPath" type="button" class="btn btn-secondary btn-sm" @click="downloadAttachment(a.downloadPath, a.original_filename)">{{ a.original_filename || 'Secure attachment' }}</button>
                       <a
@@ -964,10 +966,10 @@
                       <div v-for="r in replyMessages" :key="r.id" class="reply-item">
                         <div class="msg-meta">
                           <span class="msg-author">{{ r.sender_first_name }} {{ r.sender_last_name }}</span>
-                          <span class="msg-time">{{ formatTime(r.created_at) }}</span>
+                          <span class="msg-time">{{ formatTime(r.created_at) }} <MessagePulse v-if="pulseEnabled" :thread-id="activeThreadId" :message-id="r.id" /></span>
                         </div>
-                        <div class="msg-body">{{ r.body }}</div>
-                        <div v-if="r.attachments?.length" class="msg-attachments">
+                        <div class="msg-body" :data-pulse-message-id="r.id">{{ r.body }}</div>
+                        <div v-if="r.attachments?.length" class="msg-attachments" :data-pulse-message-id="!r.body ? r.id : undefined">
                           <template v-for="a in r.attachments" :key="a.id || a.file_path">
                             <button v-if="a.downloadPath" type="button" class="btn btn-secondary btn-sm" @click="downloadAttachment(a.downloadPath, a.original_filename)">{{ a.original_filename || 'Secure attachment' }}</button>
                             <a
@@ -1208,6 +1210,8 @@ import { usePresenceSessionStore } from '../../store/presenceSession';
 import CommunicationsHubView from '../../views/admin/CommunicationsHubView.vue';
 import AskAssistantPanel from '../assistant/AskAssistantPanel.vue';
 import PersonalMessageDeliverySettings from './PersonalMessageDeliverySettings.vue';
+import MessagePulse from './MessagePulse.vue';
+import { useMessageViews } from '../../composables/useMessageViews';
 const personalDeliveryOpen = ref(false);
 import PeerTenantMark from './PeerTenantMark.vue';
 import { useBrandingStore } from '../../store/branding';
@@ -1752,6 +1756,15 @@ const selectMode = ref(false);
 const selectedMessageIds = ref([]);
 
 const meId = computed(() => authStore.user?.id);
+const pulseEnabled = computed(() => !!activeThreadId.value && activeMessageChannel.value === 'internal'
+  && ['direct', 'group', 'channel', 'team', 'club'].includes(activeChannel.value?.thread_type
+    || threads.value.find(thread => Number(thread.thread_id) === Number(activeThreadId.value))?.thread_type || 'direct'));
+useMessageViews({
+  threadId: activeThreadId,
+  container: chatMessagesEl,
+  enabled: pulseEnabled,
+  messages: computed(() => [...chatMessages.value, ...replyMessages.value].filter(message => Number(message.sender_user_id) !== Number(meId.value)))
+});
 
 const activeIsChannel = computed(() => !!activeChannel.value && (!activeChannel.value.thread_type || activeChannel.value.thread_type === 'channel'));
 const activeConversationLabel = computed(() => activeChannel.value ? `${activeIsChannel.value ? '# ' : ''}${activeChannel.value.name}` : '');

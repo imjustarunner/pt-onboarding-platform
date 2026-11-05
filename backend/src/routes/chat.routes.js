@@ -3,6 +3,7 @@ import pool from '../config/database.js';
 import express from 'express';
 import multer from 'multer';
 import { authenticate } from '../middleware/auth.middleware.js';
+import { getMessagePulse, recordMessageViews } from '../controllers/chatPulse.controller.js';
 import {
   bulkDeleteForMe,
   createGroupThread,
@@ -118,6 +119,8 @@ router.post('/threads/group', createGroupThread);
 router.get('/threads/:threadId/meta', getThreadMeta);
 router.post('/threads/:threadId/delete-for-me', deleteThreadForMe);
 router.get('/threads/:threadId/messages', listMessages);
+router.get('/threads/:threadId/messages/:messageId/pulse', getMessagePulse);
+router.post('/threads/:threadId/views', recordMessageViews);
 router.post('/threads/:threadId/messages', sendMessage);
 router.post('/threads/:threadId/messages/delete-for-me', bulkDeleteForMe);
 router.delete('/threads/:threadId/messages/:messageId', unsendMessage);

@@ -1,0 +1,59 @@
+name: Conversa Pulse
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/src/controllers/chat*.js'
+      - 'backend/src/controllers/__tests__/chatPulse*.test.js'
+      - 'backend/src/routes/chat.routes.js'
+      - 'backend/vitest.conversa-pulse.config.js'
+      - 'frontend/src/components/messages/**'
+      - 'frontend/src/composables/useMessageViews.js'
+      - 'frontend/src/composables/__tests__/useMessageViews.test.js'
+      - 'frontend/vitest.conversa-pulse.config.js'
+      - 'database/migrations/1756_conversa_message_views.sql'
+      - '.github/workflows/conversa-pulse.yml'
+  pull_request:
+    paths:
+      - 'backend/src/controllers/chat*.js'
+      - 'backend/src/controllers/__tests__/chatPulse*.test.js'
+      - 'backend/src/routes/chat.routes.js'
+      - 'backend/vitest.conversa-pulse.config.js'
+      - 'frontend/src/components/messages/**'
+      - 'frontend/src/composables/useMessageViews.js'
+      - 'frontend/src/composables/__tests__/useMessageViews.test.js'
+      - 'frontend/vitest.conversa-pulse.config.js'
+      - 'database/migrations/1756_conversa_message_views.sql'
+      - '.github/workflows/conversa-pulse.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pulse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TZ: America/Denver
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+      SKIP_DB_CONNECT: '1'
+      SKIP_CLINICAL_DB_CONNECT: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/package-lock.json
+      - name: Install existing test dependencies without builds or downloads
+        run: |
+          npm ci --prefix frontend --ignore-scripts --no-audit --no-fund
+          npm ci --prefix backend --ignore-scripts --no-audit --no-fund
+      - name: Verify shared analytics, access, actual visibility, and unsend receipts
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.conversa-pulse.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.conversa-pulse.config.js
