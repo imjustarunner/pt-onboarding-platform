@@ -17,7 +17,7 @@ const response = () => ({ code: 200, body: null, status(n) { this.code = n; retu
 const request = role => ({ user: { id: 9, role }, params: { agencyId: '1', invoiceId: '2' }, query: {} });
 const invoice = { id: 2, agency_id: 1, line_items_json: { businessAgreement: { revenueCents: 1000000, contractReference: 'Private agreement' } } };
 test('ordinary company members cannot retrieve management revenue or generate its invoice', async t => {
-  t.mock.method(pool, 'execute', async () => [[{ state_json: { agreements: [{ status: 'active' }], revenue: [] } }]]);
+  t.mock.method(pool, 'execute', async sql => [sql.includes('a.account_owner_user_id = ?')?[]:[{ state_json: { agreements: [{ status: 'active' }], revenue: [] } }]]);
   const usage = t.mock.method(Usage, 'getUsage', async () => { throw new Error('Should not calculate private usage'); });
   const generator = t.mock.method(InvoiceService, 'generateForAgency', async () => invoice);
   for (const role of ['staff', 'support', 'provider', 'guardian']) {
@@ -27,6 +27,7 @@ test('ordinary company members cannot retrieve management revenue or generate it
   assert.equal(usage.mock.callCount(), 0); assert.equal(generator.mock.callCount(), 0);
 });
 test('management invoice history and PDFs require company administrator access', async t => {
+  t.mock.method(pool, 'execute', async()=>[[]]);
   t.mock.method(Invoice, 'listByAgency', async () => [invoice]); t.mock.method(Invoice, 'findById', async () => invoice);
   const reconcile = t.mock.method(Payments, 'reconcilePendingPayments', async () => []);
   t.mock.method(User, 'getAgencies', async () => [{ id: 1 }]);
@@ -35,6 +36,16 @@ test('management invoice history and PDFs require company administrator access',
   const allowed = response(); await listAgencyInvoices(request('admin'), allowed, e => { throw e; }); assert.equal(allowed.code, 200); assert.equal(allowed.body[0].id, 2);
   t.mock.method(User, 'getAgencies', async () => [{ id: 3 }]);
   const otherCompany = response(); await downloadInvoicePdf(request('admin'), otherCompany, e => { throw e; }); assert.equal(otherCompany.code, 403);
+});
+test('a provider owner can review their business invoice without gaining employer invoice access',async t=>{
+  t.mock.method(pool,'execute',async(sql,args)=>[sql.includes('a.account_owner_user_id = ?')&&Number(args[0])===7001&&Number(args[1])===4001?[{id:7001}]:[]]);
+  const ownInvoice={...invoice,agency_id:7001};
+  t.mock.method(Invoice,'listByAgency',async()=>[ownInvoice]);t.mock.method(Invoice,'findById',async()=>ownInvoice);
+  t.mock.method(Payments,'reconcilePendingPayments',async()=>[]);
+  const ownRequest={user:{id:4001,role:'provider'},params:{agencyId:'7001',invoiceId:'2'},query:{}};
+  const own=response();await listAgencyInvoices(ownRequest,own,e=>{throw e;});assert.equal(own.code,200);
+  const employer=response();await listAgencyInvoices({...ownRequest,params:{agencyId:'6'}},employer,e=>{throw e;});assert.equal(employer.code,403);
+  const pdf=response();await downloadInvoicePdf(ownRequest,pdf,e=>{throw e;});assert.equal(pdf.code,404); // authorized; no PDF exists in this fixture
 });
 test('the admin invoice endpoint uses the existing billing service', async t => {
   const generate = t.mock.method(InvoiceService, 'generateForAgency', async () => invoice);

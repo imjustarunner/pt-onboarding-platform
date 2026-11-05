@@ -3,6 +3,7 @@
     <header><p class="journey-eyebrow">A clear agreement from day one</p><h3>Services, app charges & revenue share</h3><p>Monthly PlotTwistHQ charges come from Features and Billing. Add PlotTwistCo management services below. One-time services are billed separately in their specified month.</p></header>
     <p v-if="!canEdit" class="journey-muted">PlotTwistCo maintains signed terms and confirms monthly revenue. Your company can review them here.</p>
     <div class="journey-actions"><label v-if="state.agreements.length">Agreement version<select v-model.number="selectedIndex"><option v-for="(a, i) in state.agreements" :key="i" :value="i">{{ a.startMonth }} · {{ a.status === 'active' ? 'Signed terms' : 'Draft' }}</option></select></label><button v-if="canEdit" class="btn btn-secondary" @click="addAgreement">{{ state.agreements.length ? 'Add future agreement version' : 'Draft an agreement' }}</button></div>
+    <ManagementServiceCatalog :can-select="canEdit && !!agreement" :management-selected="managementSelected" :service-month="agreement?.startMonth || currentMonth" @select="addCatalogService" />
     <p v-if="!agreement" class="journey-card">No management agreement has been recorded. Start with the interview and agree on services and pricing with the business owner.</p>
     <fieldset v-else class="journey-card" :disabled="!canEdit">
       <legend>Company-specific terms · USD</legend>
@@ -18,9 +19,10 @@
       </div>
       <label>What counts as revenue under this agreement?<textarea v-model="agreement.revenueBasis" maxlength="500" rows="2" placeholder="For example, cash collected during the calendar month, with the agreed exclusions." /></label>
       <p class="journey-explanation">{{ modeExplanation }}</p>
+      <label class="journey-check"><input v-model="agreement.platformIncluded" type="checkbox">Include the Organization Platform base fee in management</label><p v-if="agreement.platformIncluded" class="journey-muted">The base platform fee is included. Optional app modules and metered usage stay separate. Mark elected website or other services as separate below so the revenue replacement does not absorb them.</p>
       <h4>PlotTwistCo services</h4><p class="journey-muted">Use the agreed prices. Feature charges are already included through PlotTwistHQ billing; avoid adding the same app charges here.</p>
       <div v-for="(service, i) in agreement.services" :key="service.id" class="journey-service">
-        <label>Service<input v-model="service.name" maxlength="160" placeholder="Business setup, facilitation, training…"></label><label>Price ($)<input type="number" min="0" step="0.01" :value="service.amountCents / 100" @input="service.amountCents = cents($event)"></label><label>Frequency<select v-model="service.cadence"><option value="monthly">Monthly</option><option value="once">One-time</option></select></label><label v-if="service.cadence === 'once'">Bill in<input v-model="service.month" type="month"></label><button type="button" class="journey-link" :aria-label="`Remove ${service.name || 'service'}`" @click="agreement.services.splice(i, 1)">Remove</button>
+        <label>Service<input v-model="service.name" maxlength="160" placeholder="Business setup, facilitation, training…"></label><label>Price ($)<input type="number" min="0" step="0.01" :value="service.amountCents / 100" @input="service.amountCents = cents($event)"></label><label class="journey-check"><input v-model="service.separateFromManagement" type="checkbox">Separate from management revenue replacement</label><label>Frequency<select v-model="service.cadence"><option value="monthly">Monthly</option><option value="once">One-time</option></select></label><label v-if="service.cadence === 'once'">Bill in<input v-model="service.month" type="month"></label><button type="button" class="journey-link" :aria-label="`Remove ${service.name || 'service'}`" @click="agreement.services.splice(i, 1)">Remove</button>
       </div>
       <button class="btn btn-secondary" @click="addService">Add a service</button>
       <p class="journey-muted">Record an agreement only after it has been signed using your contract process. Invoiced months are locked. Add a later version when terms change.</p>
@@ -33,10 +35,12 @@
 </template>
 <script setup>
 import { computed, ref, watch } from 'vue';
+import ManagementServiceCatalog from './ManagementServiceCatalog.vue';
 const props = defineProps({ modelValue: { type: Object, required: true }, canEdit: Boolean, agencyId: { type: [Number, String], default: null }, quote: { type: Object, default: null }, quoteError: { type: String, default: '' } });
 const state = computed(() => props.modelValue), selectedIndex = ref(Math.max(0, props.modelValue.agreements.length - 1));
 watch(() => props.modelValue, s => { selectedIndex.value = Math.min(selectedIndex.value, Math.max(0, s.agreements.length - 1)); });
 const agreement = computed(() => state.value.agreements[selectedIndex.value]);
+const managementSelected = computed(() => agreement.value?.services.some(s => s.id === 'full-management' || s.id.startsWith('full-management-')) === true);
 const currentMonth = new Date().toISOString().slice(0, 7);
 const money = cents => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(cents || 0) / 100);
 const cents = event => Math.round(Number(event.target.value) * 100);
@@ -47,6 +51,21 @@ function addAgreement() {
   if (previous && previous.startMonth >= startMonth) { const d = new Date(`${previous.startMonth}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() + 1); startMonth = d.toISOString().slice(0, 7); }
   state.value.agreements.push(previous ? { ...JSON.parse(JSON.stringify(previous)), startMonth, endMonth: '', status: 'draft', signedOn: '', contractReference: '', services: previous.services.filter(s => s.cadence === 'monthly').map(s => ({ ...s })) } : { startMonth, endMonth: '', status: 'draft', signedOn: '', contractReference: '', revenueBasis: '', mode: 'higher_of', revenueShareBps: 1000, thresholdCents: 0, services: [] });
   selectedIndex.value = state.value.agreements.length - 1;
+}
+function addCatalogService(selection) {
+  if (!agreement.value || !props.canEdit) return;
+  const { catalogServiceId, catalogIncludedInManagement, includedCatalogIds, ...service } = selection;
+  if (managementSelected.value && catalogIncludedInManagement) return;
+  if (catalogServiceId === 'organization-platform') agreement.value.platformIncluded = true;
+  const fromCatalog = (row, id) => row.id === id || row.id.startsWith(`${id}-`);
+  agreement.value.services = agreement.value.services.filter(s => !fromCatalog(s, catalogServiceId));
+  if (catalogServiceId === 'full-management') {
+    agreement.value.platformIncluded = true;
+    agreement.value.mode = 'higher_of';
+    agreement.value.revenueShareBps = 1000;
+    agreement.value.services = agreement.value.services.filter(s => ![catalogServiceId, ...(includedCatalogIds || [])].some(id => fromCatalog(s, id)));
+  }
+  agreement.value.services.push(service);
 }
 function addService() { agreement.value.services.push({ id: crypto.randomUUID(), name: '', amountCents: 0, cadence: 'monthly', month: '' }); }
 </script>

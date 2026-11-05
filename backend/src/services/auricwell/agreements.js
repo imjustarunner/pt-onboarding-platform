@@ -14,6 +14,11 @@ import {
 } from "./repository.js";
 
 export const AGREEMENT_TEMPLATES = {
+  management_agreement: {
+    label: "Business Management Services Agreement",
+    patient: false,
+    body: "The Organization engages the Manager for the business support services described in the completed scope and pricing schedule. The parties must identify their actual legal names, authorized representatives, included services, fees, revenue definition, invoicing, service period and termination terms before approval.\n\nThe Organization retains control of its business and responsibility for professional services, client relationships, staff decisions and legal obligations. The Manager is an independent service provider. Clinical services, medical billing, credentialing and space are included only if separately agreed in writing.\n\nThis document does not authorize a payment-method charge. A draft invoice is a proposal pending the parties' signatures and the agreed service start. Changes to executed terms require a new reviewed version. Protected health information is governed by the parties' applicable Business Associate Agreement where that legal relationship applies.",
+  },
   service_agreement: {
     label: "AuricWell platform service agreement",
     patient: false,
@@ -130,6 +135,7 @@ export function agreementHash(data) {
       patientId: data.patientId,
       signers: data.signers,
       supersedesId: data.supersedesId || null,
+      ...(data.branding ? { branding: data.branding } : {}),
     }),
   );
 }
@@ -348,7 +354,8 @@ export async function agreementPdf(record) {
     ),
     { subset: true },
   );
-  const logo = await doc.embedPng(
+  const d = record.data;
+  const logo = d.branding ? null : await doc.embedPng(
     await fs.readFile(
       new URL("../../assets/auricwell/logo.png", import.meta.url),
     ),
@@ -357,17 +364,19 @@ export async function agreementPdf(record) {
   const addPage = () => {
     page = doc.addPage([612, 792]);
     y = 710;
-    page.drawImage(logo, { x: 45, y: 720, width: 65, height: 65 });
-    page.drawText("AuricWell", {
-      x: 124,
-      y: 746,
-      font,
-      size: 20,
-      color: rgb(0.02, 0.16, 0.43),
-    });
+    if (d.branding) {
+      page.drawRectangle({x:45,y:725,width:522,height:3,color:rgb(0.31,0.38,0.29)});
+      for (const [label,y,maximum] of [[d.branding.operator,758,18],[d.branding.practice,738,13]]) {
+        const name=String(label || '').slice(0,160); let size=maximum;
+        while(size>7 && font.widthOfTextAtSize(name,size)>510) size-=0.5;
+        page.drawText(name,{x:48,y,font,size,color:rgb(0.20,0.29,0.23)});
+      }
+    } else {
+      page.drawImage(logo, { x: 45, y: 720, width: 65, height: 65 });
+      page.drawText("AuricWell", { x: 124, y: 746, font, size: 20, color: rgb(0.02, 0.16, 0.43) });
+    }
   };
   addPage();
-  const d = record.data;
   const content = [
     d.status === "completed" ? "EXECUTED AGREEMENT" : "UNEXECUTED COPY",
     d.title,

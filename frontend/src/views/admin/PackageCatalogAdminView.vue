@@ -4,8 +4,8 @@
       <div>
         <h1>Package catalog</h1>
         <p class="subtitle">
-          Tenant-wide packages (coaching / individual tutoring) or program-scoped packages
-          (Summer Reading, small group). Wired for Stripe checkout and session entitlements.
+          Create coaching, consulting, or tutoring packages with session units, pricing,
+          and cancellation terms. Each completed session uses one unit.
         </p>
       </div>
       <button type="button" class="btn btn-primary" @click="startCreate">+ New package</button>
@@ -48,7 +48,7 @@
           <div>
             <h3>{{ pkg.name }}</h3>
             <p class="meta">
-              {{ pkg.sessionCount }} sessions · {{ pkg.domainConfig?.pricing?.mode==='provider-discount' ? `${pkg.domainConfig.pricing.discountPercent}% off provider hourly fee` : formatMoney(pkg.priceCents) }}
+              {{ pkg.sessionCount }} session {{ pkg.sessionCount === 1 ? 'unit' : 'units' }} · {{ pkg.domainConfig?.pricing?.minutes || pkg.domainConfig?.sessionMinutes || 60 }} minutes each · {{ pkg.domainConfig?.pricing?.mode==='provider-discount' ? `${pkg.domainConfig.pricing.discountPercent}% off provider hourly fee` : formatMoney(pkg.priceCents) }}
               · {{ pkg.businessType }}
               · {{ pkg.packageType }}
             </p>
@@ -59,6 +59,7 @@
           </div>
         </div>
         <p v-if="pkg.description" class="desc">{{ pkg.description }}</p>
+        <p class="policy-summary">{{ policySummary(pkg) }}</p>
         <div class="chips">
           <span>{{ pkg.learningProgramClassId ? (pkg.programName || `Program #${pkg.learningProgramClassId}`) : 'Tenant-wide' }}</span>
           <span v-if="pkg.policies?.bonusSessions">{{ pkg.policies.bonusSessions }} bonus sessions</span>
@@ -73,7 +74,7 @@
           <span v-if="!pkg.isActive">Inactive</span>
         </div>
         <div v-if="pkg.isPublic" class="preview">
-          <strong>Guardian preview:</strong>
+          <strong>Client preview:</strong>
           {{ pkg.name }} — {{ pkg.sessionCount }} sessions for {{ pkg.domainConfig?.pricing?.mode==='provider-discount' ? `${pkg.domainConfig.pricing.discountPercent}% off provider hourly fee` : formatMoney(pkg.priceCents) }}
         </div>
       </div>
@@ -117,17 +118,18 @@
         </label>
 
         <div class="row2">
-          <label># of sessions<input v-model.number="form.sessionCount" type="number" min="1" /></label>
+          <label>Session units included<input v-model.number="form.sessionCount" type="number" min="1" max="10000" step="1" /></label>
+          <label>Minutes per session<input v-model.number="form.minutes" type="number" min="15" max="480" step="1" /></label>
           <label v-if="form.pricingMode==='fixed'">List price ($)<input v-model.number="form.priceDollars" type="number" min="0" step="0.01" /></label>
         </div>
 
         <label>Pricing<select v-model="form.pricingMode"><option value="fixed">Fixed package total</option><option value="provider-discount">Discount from provider hourly fee</option></select></label>
-        <div v-if="form.pricingMode==='provider-discount'" class="row2"><label>Discount (%)<input v-model.number="form.discountPercent" type="number" min="0" max="100" step="0.1" /></label><label>Minutes per session<input v-model.number="form.minutes" type="number" min="15" max="480" /></label><label>Format<select v-model="form.format"><option value="virtual">Virtual</option><option value="in-person">In person</option><option value="small-group">Small group</option></select></label><p>The selected provider’s hourly client fee determines the total. Employee pay stays unchanged. The purchase is tied to that provider, service and session duration.</p></div>
+        <div v-if="form.pricingMode==='provider-discount'" class="row2"><label>Discount (%)<input v-model.number="form.discountPercent" type="number" min="0" max="100" step="0.1" /></label><label>Format<select v-model="form.format"><option value="virtual">Virtual</option><option value="in-person">In person</option><option value="small-group">Small group</option></select></label><p>The selected provider’s hourly client fee determines the total. Employee pay stays unchanged. The purchase is tied to that provider, service and session duration.</p></div>
         <div class="row2">
           <label>Included free misses<input v-model.number="form.freeMisses" type="number" min="0" max="10000" /></label>
           <label>Bonus sessions<input v-model.number="form.bonusSessions" type="number" min="0" max="10000" /></label>
         </div>
-        <p class="muted">These allowances apply to new purchases. Missed sessions use a free miss, then an available bonus credit, then a paid credit.</p>
+        <p class="muted">Each session uses one unit. Bonus sessions add units. These allowances apply to new purchases; when a missed-session policy uses a credit, it uses a free miss first, then an available bonus unit, then a paid unit.</p>
         <label v-if="form.businessType === 'coaching'">Website subtitle<input v-model="form.websiteSubtitle" /></label>
         <label v-if="form.businessType === 'coaching'">What’s included (one item per line)<textarea v-model="form.websiteItems" rows="4" /></label>
         <fieldset class="svc-fieldset">
@@ -188,13 +190,13 @@
         <label>No-show<select v-model="form.noShowPolicy"><option value="forfeit">Use free miss, then bonus, then paid credit</option><option value="free_rebook">Retain session credit</option><option value="fee">Charge fee; retain credit</option></select></label>
         <label v-if="form.latePolicy === 'fee' || form.noShowPolicy === 'fee'">Missed-appointment fee ($)<input v-model.number="form.missedFeeDollars" type="number" min="0.01" step="0.01" /></label>
         <div class="toggles">
-          <label><input v-model="form.isPublic" type="checkbox" /> Show in guardian / public catalog</label>
-          <label><input v-model="form.autoEnrollSubject" type="checkbox" /> Auto-enroll tutoring subject on purchase</label>
+          <label><input v-model="form.isPublic" type="checkbox" /> Show in client / public catalog</label>
+          <label v-if="form.businessType === 'tutoring'"><input v-model="form.autoEnrollSubject" type="checkbox" /> Auto-enroll tutoring subject on purchase</label>
           <label><input v-model="form.isActive" type="checkbox" /> Active</label>
         </div>
 
         <div v-if="form.isPublic" class="preview-box">
-          <strong>Guardian sees:</strong>
+          <strong>Client sees:</strong>
           <div>{{ form.name || 'Package name' }}</div>
           <div class="muted">{{ form.sessionCount || 0 }} sessions · {{ form.pricingMode==='provider-discount'?`${form.discountPercent}% off provider hourly fee`:formatMoney((form.priceDollars || 0) * 100) }}</div>
         </div>
@@ -264,6 +266,12 @@ const blankForm = () => ({
 const form = ref(blankForm());
 
 const formatMoney = unifiedPackages.formatMoney;
+
+function policySummary(pkg) {
+  const policy = pkg.policies || {};
+  const labels = { forfeit: 'use a session unit', free_rebook: 'keep the session unit', fee: 'charge the agreed fee and keep the unit' };
+  return `Cancel at least ${policy.cancellationNoticeHours ?? 24} hours ahead. Late cancellation: ${labels[policy.lateCancelPolicy || 'forfeit'] || 'review terms'}. No-show: ${labels[policy.noShowPolicy || 'forfeit'] || 'review terms'}.`;
+}
 
 const servicesForBusinessType = computed(() =>
   (tenantServices.value || []).filter(
@@ -344,6 +352,7 @@ function startCreate() {
   editingId.value = null;
   form.value = blankForm();
   if (businessTypes.value.length) form.value.businessType = businessTypes.value[0];
+  form.value.autoEnrollSubject = form.value.businessType === 'tutoring';
   if (filterProgramId.value) {
     form.value.scope = 'program';
     form.value.learningProgramClassId = filterProgramId.value;
@@ -375,7 +384,7 @@ function edit(pkg) {
     freeMisses: pkg.policies?.freeMisses || 0,
     bonusSessions: pkg.policies?.bonusSessions || 0,
     missedFeeDollars: Number(pkg.policies?.missedFeeCents || 0) / 100,
-    priceDollars: (pkg.priceCents || 0) / 100, pricingMode:pkg.domainConfig?.pricing?.mode||'fixed', discountPercent:pkg.domainConfig?.pricing?.discountPercent??10, minutes:pkg.domainConfig?.pricing?.minutes??60, format:pkg.domainConfig?.pricing?.format||'virtual', existingDomainConfig:pkg.domainConfig||{}, existingPolicies:pkg.policies||{},
+    priceDollars: (pkg.priceCents || 0) / 100, pricingMode:pkg.domainConfig?.pricing?.mode||'fixed', discountPercent:pkg.domainConfig?.pricing?.discountPercent??10, minutes:pkg.domainConfig?.pricing?.minutes??pkg.domainConfig?.sessionMinutes??60, format:pkg.domainConfig?.pricing?.format||'virtual', existingDomainConfig:pkg.domainConfig||{}, existingPolicies:pkg.policies||{},
     consumeOn: pkg.consumeOn || 'reserve',
     deliveryMode: pkg.domainConfig?.deliveryMode || '1:1',
     billingMode: (pkg.billingOptions?.modes || ['pay_in_full'])[0] || 'pay_in_full',
@@ -435,15 +444,15 @@ function buildPayload() {
       lateCancelPolicy: f.latePolicy,
       noShowPolicy: f.noShowPolicy,
       expirationDays: f.expirationDays ? Number(f.expirationDays) : null,
-      rolloverAllowed: false
+      rolloverAllowed: f.existingPolicies?.rolloverAllowed ?? false
     },
     domainConfig: {
       ...f.existingDomainConfig,
       website: {...f.existingDomainConfig?.website, subtitle: f.websiteSubtitle, items: String(f.websiteItems || '').split('\n').map(s => s.trim()).filter(Boolean)},
       pricing:f.pricingMode==='provider-discount'?{mode:f.pricingMode,discountPercent:f.discountPercent,minutes:f.minutes,format:f.format}:{mode:'fixed'},
-      sessionMinutes: f.pricingMode==='provider-discount'?f.minutes:60,
+      sessionMinutes: Number(f.minutes),
       deliveryMode: f.deliveryMode,
-      autoEnrollSubject: !!f.autoEnrollSubject,
+      autoEnrollSubject: f.businessType === 'tutoring' && !!f.autoEnrollSubject,
       engagementType: f.businessType === 'coaching' ? 'coaching' : undefined
     }
   };
@@ -455,6 +464,14 @@ async function save() {
   try {
     if (form.value.scope === 'program' && !form.value.learningProgramClassId) {
       saveError.value = 'Select a program for program-scoped packages';
+      return;
+    }
+    if (!Number.isInteger(form.value.sessionCount) || form.value.sessionCount < 1 || form.value.sessionCount > 10000) {
+      saveError.value = 'Enter 1–10000 whole session units.';
+      return;
+    }
+    if (!Number.isInteger(form.value.minutes) || form.value.minutes < 15 || form.value.minutes > 480) {
+      saveError.value = 'Enter a session duration from 15 to 480 whole minutes.';
       return;
     }
     if (form.value.isPublic && !(form.value.allowedTenantServiceIds || []).length) {
@@ -502,6 +519,7 @@ onMounted(async () => {
 .pkg-head { display: flex; justify-content: space-between; gap: 0.75rem; align-items: flex-start; }
 .pkg-actions { display: flex; gap: 0.4rem; }
 .meta, .muted, .desc { color: #64748b; margin: 0.2rem 0; }
+.policy-summary { color: #475569; font-size: 0.85rem; line-height: 1.5; }
 .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; }
 .chips span { background: #f1f5f9; border-radius: 999px; padding: 0.15rem 0.55rem; font-size: 0.75rem; }
 .preview, .preview-box { margin-top: 0.6rem; padding: 0.55rem 0.7rem; background: #f8fafc; border-radius: 8px; font-size: 0.85rem; }

@@ -17,6 +17,15 @@ import { computeFeatureBillingForPeriod } from './featureBilling.service.js';
 import pool from '../config/database.js';
 import { createBusinessLifecycleService } from './businessLifecycle.service.js';
 import { applyBusinessAgreement } from './businessLifecyclePolicy.js';
+import { isUnsignedInvoiceProposal, assertManagementBillingPeriodReady } from './businessInvoiceHold.js';
+import { managementInvoiceExecution, managementAgreementExecution } from './managementInvoiceFinalization.service.js';
+
+function requireManagementExecution(execution) {
+  if (!execution) throw Object.assign(new Error('The management agreement must have both verified signatures and active matching signed pricing before this invoice can be generated.'), {
+    status: 409, statusCode: 409, code: 'BUSINESS_AGREEMENT_SIGNATURES_REQUIRED'
+  });
+  return execution;
+}
 
 class BillingInvoiceService {
   static buildInvoiceStorageKey({ agencyId, periodStart }) {
@@ -43,7 +52,19 @@ class BillingInvoiceService {
       periodStart: periodStartStr,
       periodEnd: periodEndStr
     });
-    if (existing) return existing;
+    let lifecycle = null;
+    if (existing) {
+      if (!isUnsignedInvoiceProposal(existing)) return existing;
+      lifecycle = await createBusinessLifecycleService(pool).billingState(parsedAgencyId);
+      if (!await managementInvoiceExecution(existing, lifecycle, periodStartStr.slice(0, 7), pool)) return existing;
+    }
+
+    lifecycle ||= await createBusinessLifecycleService(pool).billingState(parsedAgencyId);
+    const requiredAgreement = assertManagementBillingPeriodReady(lifecycle, periodStartStr.slice(0, 7));
+    let requiredExecution = null;
+    if (!existing && requiredAgreement?.requiresSignatures === true) {
+      requiredExecution = requireManagementExecution(await managementAgreementExecution(parsedAgencyId, requiredAgreement, periodStartStr.slice(0, 7), pool));
+    }
 
     const pricingBundle = await getEffectiveBillingPricingForAgency(parsedAgencyId);
     await AgencyCommunicationBillingService.reconcileAgencyPeriod({
@@ -57,7 +78,6 @@ class BillingInvoiceService {
       periodEnd
     });
     const account = await AgencyBillingAccount.getByAgencyId(parsedAgencyId);
-    const lifecycle = await createBusinessLifecycleService(pool).billingState(parsedAgencyId);
     let featureBilling = null;
     try {
       featureBilling = await computeFeatureBillingForPeriod(
@@ -81,10 +101,20 @@ class BillingInvoiceService {
     let alreadyCreated = false;
     const invoice = await createBusinessLifecycleService(pool).withBillingLock(parsedAgencyId, lifecycle, async db => {
       const concurrentInvoice = await AgencyBillingInvoice.findByAgencyAndPeriod(parsedAgencyId, { periodStart: periodStartStr, periodEnd: periodEndStr }, db);
-      if (concurrentInvoice) { alreadyCreated = true; return concurrentInvoice; }
+      let execution = null;
+      if (concurrentInvoice) {
+        if (!existing || Number(concurrentInvoice.id) !== Number(existing.id) || !isUnsignedInvoiceProposal(concurrentInvoice)) {
+          alreadyCreated = true; return concurrentInvoice;
+        }
+        execution = await managementInvoiceExecution(concurrentInvoice, lifecycle, periodStartStr.slice(0, 7), db, { lock: true });
+        if (!execution) { alreadyCreated = true; return concurrentInvoice; }
+      } else if (requiredExecution) {
+        execution = requireManagementExecution(await managementAgreementExecution(parsedAgencyId, requiredAgreement, periodStartStr.slice(0, 7), db, { lock: true }));
+      }
       const serviceLines=await medicalServiceInvoiceLines(parsedAgencyId,periodStart,{db});
       const invoiceEstimate=appendMedicalServiceLines(estimate,serviceLines);
-      const created=await AgencyBillingInvoice.create({
+      if (execution) invoiceEstimate.businessAgreement = { ...invoiceEstimate.businessAgreement, requiresSignatures: true, executionEvidence: execution };
+      const invoiceData = {
         agencyId: parsedAgencyId,
         billingDomain: 'agency_subscription',
         merchantMode: merchantContext.merchantMode,
@@ -108,7 +138,10 @@ class BillingInvoiceService {
         status: 'draft',
         paymentStatus: 'unpaid',
         invoiceDeliveryMode
-      }, db);
+      };
+      const created = concurrentInvoice
+        ? await AgencyBillingInvoice.finalizeManagementProposal(concurrentInvoice.id, parsedAgencyId, invoiceData, db)
+        : await AgencyBillingInvoice.create(invoiceData, db);
       if(invoiceEstimate.medicalServiceLines)await attachMedicalServiceInvoice(parsedAgencyId,created.id,serviceLines,db);
       return created;
     });

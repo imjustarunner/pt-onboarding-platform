@@ -20,7 +20,7 @@ router.use('/:agencyId',async(req,res,next)=>{
   try { req.agreementScope=await archive.scopeFor(req.user.id,req.params.agencyId);next(); } catch(error) {next(error);}
 });
 router.get('/:agencyId',run(async(req,res)=>res.json({organization:req.agreementScope.organization,actor:{id:req.agreementScope.accountId,name:req.agreementScope.profile.name,operator:req.agreementScope.profile.operator},signers:await archive.signerOptions(req.agreementScope),documents:await archive.listArchive(req.agreementScope)})));
-router.post('/:agencyId/agreements',run(async(req,res)=>res.status(201).json(await archive.agreementActions.create(req.agreementScope,{type:'baa'}))));
+router.post('/:agencyId/agreements',run(async(req,res)=>res.status(201).json(await archive.agreementActions.create(req.agreementScope,{type:req.body?.type || 'baa'}))));
 router.put('/:agencyId/agreements/:id',run(async(req,res)=>res.json(await archive.agreementActions.save(req.agreementScope,req.params.id,req.body))));
 for(const action of ['approve','issue','sign','revise']) router.post(`/:agencyId/agreements/:id/${action}`,run(async(req,res)=>{
   req.agreementScope.signatureRequest={ipAddress:req.ip,userAgent:String(req.get('User-Agent') || '').slice(0,1000)};

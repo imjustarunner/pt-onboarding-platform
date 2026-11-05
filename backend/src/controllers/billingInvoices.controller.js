@@ -6,6 +6,10 @@ import QuickBooksBillingSyncService from '../services/quickbooksBillingSync.serv
 import User from '../models/User.model.js';
 import pool from '../config/database.js';
 import { createBusinessLifecycleService } from '../services/businessLifecycle.service.js';
+import { isIndependentPracticeOwner } from '../utils/independentPracticeOwner.js';
+import { isUnsignedInvoiceProposal } from '../services/businessInvoiceHold.js';
+import BillingInvoicePdfService from '../services/billingInvoicePdf.service.js';
+import Agency from '../models/Agency.model.js';
 
 function hasManagementTerms(invoice) {
   const snapshot = typeof invoice?.line_items_json === 'string' ? JSON.parse(invoice.line_items_json) : invoice?.line_items_json;
@@ -15,6 +19,7 @@ function hasManagementTerms(invoice) {
 async function ensureInvoiceAccess(req, invoice) {
   if (!invoice) return false;
   if (req.user?.role === 'super_admin') return true;
+  if (await isIndependentPracticeOwner(req.user?.id, invoice.agency_id)) return true;
   if (hasManagementTerms(invoice) && req.user?.role !== 'admin') return false;
   const agencies = await User.getAgencies(req.user.id);
   const ids = agencies.map(a => a.id);
@@ -25,7 +30,8 @@ export const listAgencyInvoices = async (req, res, next) => {
   try {
     const { agencyId } = req.params;
     const invoices = await AgencyBillingInvoice.listByAgency(agencyId, { limit: 100 });
-    if (!['super_admin', 'admin'].includes(req.user?.role) && invoices.some(hasManagementTerms)) return res.status(403).json({ error: { message: 'Company administrator access is required to review management invoices.' } });
+    if (!['super_admin', 'admin'].includes(req.user?.role) && invoices.some(hasManagementTerms)
+      && !await isIndependentPracticeOwner(req.user?.id,agencyId)) return res.status(403).json({ error: { message: 'Company administrator access is required to review management invoices.' } });
     await AgencyBillingPaymentService.reconcilePendingPayments({ agencyId: Number(agencyId || 0), limit: 25 });
     res.json(await AgencyBillingInvoice.listByAgency(agencyId, { limit: 100 }));
   } catch (error) {
@@ -36,7 +42,7 @@ export const listAgencyInvoices = async (req, res, next) => {
 export const generateAgencyInvoice = async (req, res, next) => {
   try {
     const { agencyId } = req.params;
-    if (!['super_admin', 'admin'].includes(req.user?.role)) {
+    if (!['super_admin', 'admin'].includes(req.user?.role) && !await isIndependentPracticeOwner(req.user?.id,agencyId)) {
       const lifecycle = await createBusinessLifecycleService(pool).billingState(Number(agencyId));
       if (lifecycle.agreements.length) return res.status(403).json({ error: { message: 'Company administrator access is required to generate management invoices.' } });
     }
@@ -91,6 +97,17 @@ export const downloadInvoicePdf = async (req, res, next) => {
     if (!hasAccess) return res.status(403).json({ error: { message: 'Access denied' } });
 
     if (!invoice.pdf_storage_path) {
+      if (isUnsignedInvoiceProposal(invoice)) {
+        const agency = await Agency.findById(invoice.agency_id);
+        if (!agency) return res.status(404).json({ error: { message: 'Invoice organization not available' } });
+        const bytes = await BillingInvoicePdfService.generateInvoicePdf({ agencyName: agency.name, invoice });
+        res.set({
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `inline; filename="invoice-${Number(invoice.id)}-review.pdf"`,
+          'Cache-Control': 'no-store'
+        });
+        return res.send(Buffer.from(bytes));
+      }
       return res.status(404).json({ error: { message: 'Invoice PDF not available' } });
     }
 

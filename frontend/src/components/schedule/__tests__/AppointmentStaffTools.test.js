@@ -13,7 +13,7 @@ describe('appointment staff tools', () => {
     const wrapper = mount(StaffTools, { props: { appointmentId: 12 } });
     await flushPromises(); await wrapper.find('button').trigger('click');
     await wrapper.find('textarea').setValue('Prepare paperwork'); await wrapper.find('form').trigger('submit'); await flushPromises();
-    expect(api.put).toHaveBeenCalledWith('/appointments/12/staff-alert', { text: 'Prepare paperwork', revision: 0 }, { skipGlobalLoading: true });
+    expect(api.put).toHaveBeenCalledWith('/appointments/12/staff-alert', { text: 'Prepare paperwork', revision: 0, showOnSchedule: false }, { skipGlobalLoading: true });
     expect(wrapper.text()).toContain('Never sent to clients'); expect(api.post).not.toHaveBeenCalled();
   });
   it('renders no internal content for a denied viewer', async () => {

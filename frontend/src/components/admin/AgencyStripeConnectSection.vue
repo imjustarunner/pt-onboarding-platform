@@ -8,6 +8,7 @@
         <h4>Stripe Connect — Client Payments</h4>
       </div>
       <p v-if="paymentContext === 'consulting'" class="stripe-connect-desc">Connect the payment account for this consulting practice. Stripe securely collects legal business and payout details. Client package payments stay with this tenant’s configured merchant; no account is connected automatically.</p>
+      <p v-else-if="paymentContext === 'coaching'" class="stripe-connect-desc">Connect your coaching business’s payment account. Stripe securely collects your legal business details and payout bank account for client sessions and packages.</p>
       <p v-else class="stripe-connect-desc">
         Set up this organization’s payment account so clients and guardians can pay verified copays and self-pay balances. Stripe collects the legal business details, owners, statement descriptor, and payout bank account securely.
       </p>

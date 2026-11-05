@@ -1,23 +1,24 @@
 import {beforeEach,expect,it,vi} from 'vitest';
-const mocks=vi.hoisted(()=>({query:vi.fn(),connectionQuery:vi.fn(),release:vi.fn(),getConnection:vi.fn(),agency:vi.fn(),create:vi.fn(),link:vi.fn(),retrieve:vi.fn(),configured:vi.fn()}));
+const mocks=vi.hoisted(()=>({query:vi.fn(),connectionQuery:vi.fn(),release:vi.fn(),getConnection:vi.fn(),agency:vi.fn(),create:vi.fn(),link:vi.fn(),retrieve:vi.fn(),configured:vi.fn(),owner:vi.fn()}));
+vi.mock('../../utils/independentPracticeOwner.js',()=>({isIndependentPracticeOwner:mocks.owner}));
 vi.mock('../../config/database.js',()=>({default:{query:mocks.query,getConnection:mocks.getConnection}}));
 vi.mock('../../models/Agency.model.js',()=>({default:{findById:mocks.agency}}));
 vi.mock('../../services/stripePayments.service.js',()=>({default:{createConnectAccount:mocks.create,createAccountLink:mocks.link,retrieveConnectAccount:mocks.retrieve},isStripeConfigured:mocks.configured,stripeConnectStatus:a=>a.charges_enabled&&a.payouts_enabled?'active':'pending'}));
 import {startConnect,getStripeStatus} from '../stripeConnect.controller.js';
 const response=()=>{const res={status:vi.fn(),json:vi.fn()};res.status.mockReturnValue(res);return res;};
-const request=(id=6)=>({user:{id:538,role:'admin',email:'admin@example.com'},params:{agencyId:String(id)}});
+const request=(id=7002)=>({user:{id:4002,role:'admin',email:'admin@example.com'},params:{agencyId:String(id)}});
 beforeEach(()=>{
- vi.clearAllMocks();vi.stubEnv('FRONTEND_URL','https://portal.example.com');vi.stubEnv('STRIPE_CONNECT_RETURN_URL','https://wrong.example.com/other-tenant');mocks.configured.mockReturnValue(true);
- mocks.agency.mockResolvedValue({id:6,name:'Example agency',slug:'example',website_url:'https://example.com'});
+ vi.clearAllMocks();mocks.owner.mockResolvedValue(false);vi.stubEnv('FRONTEND_URL','https://portal.example.com');vi.stubEnv('STRIPE_CONNECT_RETURN_URL','https://wrong.example.com/other-tenant');mocks.configured.mockReturnValue(true);
+ mocks.agency.mockResolvedValue({id:7002,name:'Example agency',slug:'example',website_url:'https://example.com'});
  mocks.getConnection.mockResolvedValue({query:mocks.connectionQuery,release:mocks.release});
  mocks.connectionQuery.mockImplementation(async sql=>sql.includes('GET_LOCK')?[[{acquired:1}]]:sql.includes('SELECT agency_id')?[[]]:[{affectedRows:1}]);
  mocks.create.mockResolvedValue({id:'acct_new'});mocks.link.mockResolvedValue({url:'https://connect.stripe.com/setup/synthetic'});
 });
 it('creates a tenant-bound account with stable retry identity and returns to that tenant',async()=>{
  const res=response(),next=vi.fn();await startConnect(request(),res,next);expect(next).not.toHaveBeenCalled();
- expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({email:'admin@example.com',metadata:{agency_id:'6',agency_name:'Example agency'},idempotencyKey:'agency-connect-v2-6'}));
- expect(mocks.link).toHaveBeenCalledWith({connectedAccountId:'acct_new',returnUrl:'https://portal.example.com/example/admin/family-billing?tab=setup&agencyId=6&stripe=connected',refreshUrl:'https://portal.example.com/example/admin/family-billing?tab=setup&agencyId=6&stripe=refresh'});
- expect(mocks.connectionQuery).toHaveBeenCalledWith('SELECT RELEASE_LOCK(?)',['stripe-connect:6']);expect(mocks.release).toHaveBeenCalledOnce();
+ expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({email:'admin@example.com',metadata:{agency_id:'7002',agency_name:'Example agency'},idempotencyKey:'agency-connect-v2-7002'}));
+ expect(mocks.link).toHaveBeenCalledWith({connectedAccountId:'acct_new',returnUrl:'https://portal.example.com/example/admin/family-billing?tab=setup&agencyId=7002&stripe=connected',refreshUrl:'https://portal.example.com/example/admin/family-billing?tab=setup&agencyId=7002&stripe=refresh'});
+ expect(mocks.connectionQuery).toHaveBeenCalledWith('SELECT RELEASE_LOCK(?)',['stripe-connect:7002']);expect(mocks.release).toHaveBeenCalledOnce();
 });
 it('resumes an existing account without creating or replacing it',async()=>{
  mocks.connectionQuery.mockImplementation(async sql=>sql.includes('GET_LOCK')?[[{acquired:1}]]:sql.includes('SELECT agency_id')?[[{stripe_connect_account_id:'acct_retained'}]]:[{affectedRows:1}]);
@@ -30,5 +31,17 @@ it('releases the tenant lock on processor failure without recording a made-up ac
  const error=Error('Processor unavailable');mocks.create.mockRejectedValue(error);const next=vi.fn();await startConnect(request(),response(),next);expect(next).toHaveBeenCalledWith(error);expect(mocks.connectionQuery.mock.calls.some(([sql])=>sql.includes('SET stripe_connect_account_id'))).toBe(false);expect(mocks.release).toHaveBeenCalledOnce();
 });
 it('keeps a charges-only account pending so payout verification can continue',async()=>{
- mocks.query.mockResolvedValue([[{stripe_connect_account_id:'acct_retained',stripe_connect_status:'active'}]]);mocks.retrieve.mockResolvedValue({charges_enabled:true,payouts_enabled:false,details_submitted:true});const res=response();await getStripeStatus(request(),res,vi.fn());expect(res.json).toHaveBeenCalledWith(expect.objectContaining({status:'pending',chargesEnabled:true,payoutsEnabled:false}));expect(mocks.query).toHaveBeenCalledWith(expect.stringContaining('SET stripe_connect_account_id'),['acct_retained','pending',6]);
+ mocks.query.mockResolvedValue([[{stripe_connect_account_id:'acct_retained',stripe_connect_status:'active'}]]);mocks.retrieve.mockResolvedValue({charges_enabled:true,payouts_enabled:false,details_submitted:true});const res=response();await getStripeStatus(request(),res,vi.fn());expect(res.json).toHaveBeenCalledWith(expect.objectContaining({status:'pending',chargesEnabled:true,payoutsEnabled:false}));expect(mocks.query).toHaveBeenCalledWith(expect.stringContaining('SET stripe_connect_account_id'),['acct_retained','pending',7002]);
+});
+it('returns an independent business to its owner account page after bank setup',async()=>{
+ mocks.agency.mockResolvedValue({id:7001,name:'Sample Coach Practice',slug:'sample-coach',organization_type:'life_coach'});
+ await startConnect({...request(7001),user:{id:4001,role:'provider'}},response(),vi.fn());
+ expect(mocks.link.mock.calls[0][0].returnUrl).toBe('https://portal.example.com/sample-coach/admin/business-account?agencyId=7001&stripe=connected');
+});
+it('shows bank management to the verified owner while retaining their employee role',async()=>{
+ mocks.owner.mockImplementation(async(uid,aid)=>uid===4001&&Number(aid)===7001);mocks.query.mockResolvedValue([[]]);
+ const own=response();await getStripeStatus({...request(7001),user:{id:4001,role:'provider'}},own,vi.fn());
+ expect(own.json).toHaveBeenCalledWith(expect.objectContaining({canManageConnection:true}));
+ const employer=response();await getStripeStatus({...request(7002),user:{id:4001,role:'provider'}},employer,vi.fn());
+ expect(employer.json).toHaveBeenCalledWith(expect.objectContaining({canManageConnection:false}));
 });

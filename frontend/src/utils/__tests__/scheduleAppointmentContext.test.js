@@ -3,8 +3,13 @@ import { scheduleAppointmentContext } from '../scheduleAppointmentContext.js';
 
 it('preserves explicit clinical source identifiers independently from the provider calendar event id', () => {
   expect(scheduleAppointmentContext({ id: 80, appointmentId: 20, officeEventId: 83, clinicalSessionId: 167, clientId: 2273, tenantServiceId: 34, serviceCode: '90834', serviceLocationId: 125, modality: 'IN_PERSON', appointmentStatus: 'SCHEDULED' })).toEqual({
-    appointmentId: 20, officeEventId: 83, clinicalSessionId: 167, clinicalNoteId: null, clientId: 2273, tenantServiceId: 34, serviceCode: '90834', serviceLocationId: 125, modality: 'IN_PERSON', appointmentStatus: 'scheduled'
+    appointmentId: 20, officeEventId: 83, clinicalSessionId: 167, clinicalNoteId: null, clientId: 2273, tenantServiceId: 34, serviceCode: '90834', serviceLocationId: 125, schoolOrganizationId: null, modality: 'IN_PERSON', appointmentStatus: 'scheduled'
   });
+});
+
+it.each(['schoolOrganizationId','school_organization_id','schoolOrgId','school_org_id'])('retains %s so a school session stays beside its assignment rail',field=>{
+  expect(scheduleAppointmentContext({appointmentId:20,[field]:'451'})).toMatchObject({appointmentId:20,schoolOrganizationId:451});
+  expect(scheduleAppointmentContext({[field]:-451})).toMatchObject({schoolOrganizationId:null});
 });
 
 it('does not use generic calendar identifiers as appointment or office identifiers', () => {

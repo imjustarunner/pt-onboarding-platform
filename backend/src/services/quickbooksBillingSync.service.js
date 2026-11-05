@@ -5,6 +5,7 @@ import BillingProviderConnection from '../models/BillingProviderConnection.model
 import QuickBooksTokenManager from './quickbooksTokenManager.service.js';
 import Agency from '../models/Agency.model.js';
 import BillingMerchantContextService from './billingMerchantContext.service.js';
+import { assertAgreementInvoiceReady } from './businessInvoiceHold.js';
 
 function dollars(cents) {
   return Number((Number(cents || 0) / 100).toFixed(2));
@@ -185,6 +186,7 @@ class QuickBooksBillingSyncService {
   static async syncInvoiceToQuickBooks(invoiceId) {
     const invoice = await AgencyBillingInvoice.findById(invoiceId);
     if (!invoice) throw new Error('Invoice not found');
+    assertAgreementInvoiceReady(invoice);
 
     const merchantContext = await BillingMerchantContextService.getAgencySubscriptionContext(invoice.agency_id);
     const providerConnectionId = Number(invoice.provider_connection_id || merchantContext.providerConnectionId || 0);
@@ -272,6 +274,7 @@ class QuickBooksBillingSyncService {
   static async syncInvoicePaymentToQuickBooks(invoiceId) {
     const invoice = await AgencyBillingInvoice.findById(invoiceId);
     if (!invoice) throw new Error('Invoice not found');
+    assertAgreementInvoiceReady(invoice);
     if (!invoice.qbo_invoice_id) return invoice;
 
     const merchantContext = await BillingMerchantContextService.getAgencySubscriptionContext(invoice.agency_id);
@@ -316,6 +319,7 @@ class QuickBooksBillingSyncService {
   static async sendInvoiceToQuickBooks(invoiceId, { sendTo = null } = {}) {
     const invoice = await AgencyBillingInvoice.findById(invoiceId);
     if (!invoice) throw new Error('Invoice not found');
+    assertAgreementInvoiceReady(invoice);
     if (!invoice.qbo_invoice_id) throw new Error('QuickBooks invoice has not been created yet');
 
     const account = await AgencyBillingAccount.getByAgencyId(invoice.agency_id);
