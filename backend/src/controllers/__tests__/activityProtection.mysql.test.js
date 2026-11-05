@@ -20,17 +20,44 @@ describe.skipIf(!socket)('shared activity protection integration',()=>{
   if(!/^\/private\/tmp\/pt-security-evidence-db\.[^/]+\/mysql\.sock$/.test(socket))throw new Error('Use the isolated test socket');
   const db=await mysql.createConnection({socketPath:socket,user:'root'});await db.query('CREATE DATABASE activity_protection_test');await db.end();
   state.db=mysql.createPool({socketPath:socket,user:'root',database:'activity_protection_test',timezone:'Z',connectionLimit:12});
-  await state.db.query('CREATE TABLE users (id INT PRIMARY KEY,email VARCHAR(255),role VARCHAR(64),status VARCHAR(64),failed_login_attempts INT DEFAULT 0,locked_until DATETIME)');
+  await state.db.query('CREATE TABLE users (id INT PRIMARY KEY,email VARCHAR(255),role VARCHAR(64),status VARCHAR(64),failed_login_attempts INT DEFAULT 0,locked_until DATETIME,is_demo BOOLEAN DEFAULT FALSE,is_active BOOLEAN DEFAULT TRUE,is_archived BOOLEAN DEFAULT FALSE)');
   await state.db.query("INSERT INTO users (id,email,role) VALUES (1,'one@example.invalid','super_admin'),(2,'two@example.invalid','super_admin')");
+  await state.db.query("INSERT INTO users (id,email,role,is_demo) VALUES (1433,'qa.provider.auricwell@example.com','provider',TRUE)");
+  await state.db.query('CREATE TABLE agencies (id INT PRIMARY KEY,slug VARCHAR(255),is_active BOOLEAN DEFAULT TRUE,feature_flags JSON)');
+  await state.db.query(`INSERT INTO agencies (id,slug,feature_flags) VALUES (450,'auricwell-qa-demo','{"qaSandbox":{"syntheticOnly":true}}'),(456,'scb-qa-company','{}'),(2,'real-company','{}')`);
+  await state.db.query('CREATE TABLE user_agencies (user_id INT,agency_id INT,is_active BOOLEAN DEFAULT TRUE)');
   await state.db.query('CREATE TABLE account_mfa_sessions (session_key VARCHAR(64) PRIMARY KEY,verified_at DATETIME(3),device_id VARCHAR(36))');
   for(const name of ['1456_security_evidence.sql','1459_activity_protection.sql'])for(const sql of splitSqlStatements(stripSqlLineComments(await fs.readFile(new URL(`../../../../database/migrations/${name}`,import.meta.url),'utf8'))))await state.db.query(sql);
  });
  beforeEach(async()=>{state.verification={verified:true,required:true};vi.spyOn(console,'info').mockImplementation(()=>{});vi.stubEnv('AUDIT_PROXY_MODE','direct');
   for(const table of ['activity_protection_tickets','activity_protection_alerts','activity_protection_usage','activity_protection_state','auth_attempt_windows','account_mfa_sessions','privacy_reviewers'])await state.db.query(`DELETE FROM ${table}`);
   await state.db.query('UPDATE users SET failed_login_attempts=0,locked_until=NULL');
+  await state.db.query('UPDATE users SET is_demo=TRUE WHERE id=1433');
+  await state.db.query('DELETE FROM user_agencies');
+  await state.db.query('INSERT INTO user_agencies (user_id,agency_id) VALUES (1433,450),(1433,456)');
   await state.db.query("INSERT INTO account_mfa_sessions VALUES ('key-1',UTC_TIMESTAMP(3),NULL),('key-2',UTC_TIMESTAMP(3),NULL)");
  });
  afterAll(async()=>{if(state.db){await state.db.query('DROP DATABASE activity_protection_test');await state.db.end();}});
+ it('gives only the verified Avery demo account audited permanent file access while retaining its historical hold evidence',async()=>{
+  await state.db.query("INSERT INTO activity_protection_state (user_id,kind,held_at) VALUES (1433,'client_file',UTC_TIMESTAMP(3))");
+  const avery=()=>({...req(1433),user:{...req(1433).user,role:'provider'}});
+  for(let i=0;i<30;i++)await file(avery(),`demo-${i}`,{forceReview:i===29});
+  const own=await call(ownProtection,avery());expect(own.demoFileAccessExempt).toBe(true);expect(own.holds).toEqual([]);
+  const [[usage]]=await state.db.query('SELECT COUNT(*) n FROM activity_protection_usage WHERE user_id=1433');expect(Number(usage.n)).toBe(0);
+  const [[audit]]=await state.db.query("SELECT COUNT(*) n FROM security_evidence WHERE user_id=1433 AND action='demo_file_access_authorized'");expect(Number(audit.n)).toBe(30);
+  const [[hold]]=await state.db.query("SELECT held_at FROM activity_protection_state WHERE user_id=1433 AND kind='client_file'");expect(hold.held_at).not.toBeNull();
+  await state.db.query('UPDATE users SET is_demo=FALSE WHERE id=1433');
+  await expect(file(avery(),'after-demo-removed')).rejects.toHaveProperty('code','ACTIVITY_REVIEW_REQUIRED');
+  expect((await call(ownProtection,avery())).demoFileAccessExempt).toBe(false);
+ });
+ it('withdraws Avery exemption immediately if a real organization membership is added',async()=>{
+  const avery={...req(1433),user:{...req(1433).user,role:'provider'}};
+  await file(avery,'demo-file');
+  await state.db.query('INSERT INTO user_agencies (user_id,agency_id) VALUES (1433,2)');
+  expect((await call(ownProtection,avery)).demoFileAccessExempt).toBe(false);
+  for(let i=0;i<5;i++)await file(avery,`normal-${i}`);
+  await expect(file(avery,'sixth-normal-file')).rejects.toHaveProperty('code','ACTIVITY_REVIEW_REQUIRED');
+ });
  it('allows five distinct downloads and records a persistent block for the sixth, including superadmins',async()=>{
   for(let i=0;i<5;i++)await file(req(),`first-${i}`);await expect(file(req(),'file-two')).rejects.toMatchObject({code:'ACTIVITY_REVIEW_REQUIRED'});
   await expect(file(req(1,'new-session'),'file-three')).rejects.toMatchObject({code:'ACTIVITY_REVIEW_REQUIRED'});

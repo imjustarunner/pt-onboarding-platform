@@ -1,11 +1,10 @@
 Family Welcome tour screenshots — November 5, 2026
 
-SIX CAPTURES ADDED; PDF CAPTURE PENDING
+ALL SEVEN IMAGES ADDED
 
 The splash uses the four message images in step 2, a PDF image in step 3,
 and the two search images in step 4. Images live in frontend/public/family-welcome/.
-Missing or failed images retain the existing usable previews. Adding the PDF
-image at the path below enables it without another component change.
+Missing or failed images retain the existing usable previews.
 
 Captured from a signed-in Avery Morgan QA session in demo agency 450 on the
 deployed frontend build fb4d7ccd9fc51bb737edbe4a613e97d37255be94:
@@ -25,20 +24,23 @@ The crops exclude account details, credentials, tokens, and other client records
 The signed-in browser session was kept in memory, not exported to a file.
 Each PNG is below 300,000 bytes; the largest is 110,564 bytes.
 
-PENDING: introduction-pdf-p1.png
+COMPLETED: introduction-pdf-p1.png
 
-Avery's real PDF preview endpoint returned HTTP 403, ACTIVITY_REVIEW_REQUIRED:
-additional file access is paused pending review in Security & sign-in activity.
-No PDF was retrieved, and the access guard was not changed. After an authorized
-administrator restores access, sign in as Avery, select demo agency 450, open
-"View my PDF", and capture page 1. Confirm only fictional staff/provider/school
-names are visible, then save it as:
+Avery's PDF originally returned HTTP 403, ACTIVITY_REVIEW_REQUIRED. On November
+5 the owner explicitly authorized clearing that demo account's file hold and
+permanently exempting only its verified identity. The clearance was audited as
+event 7b805dd8-194c-4dc0-9282-ff61a8cebc37; historical activity was preserved.
+The signed-in Avery request then returned HTTP 200. Its actual PDF page 1 was
+rasterized on white paper at 612 x 792 and saved as:
 
   frontend/public/family-welcome/introduction-pdf-p1.png
 
-Keep it below 300,000 bytes. Do not substitute a recreated PDF for the live
-capture. The existing FamilyWelcomePdfButton still requests the current user's
-personalized PDF; the screenshot is explicitly labeled as an example.
+The page shows the fictional Cedar Grove school, QA staff, and Avery. It
+truthfully says no short introduction is on file; the profile was not edited
+for this image. The existing FamilyWelcomePdfButton still requests the current
+user's personalized PDF; the screenshot is explicitly labeled as an example.
+All seven PNGs are below 300,000 bytes. The permanent demo-account policy and
+its boundaries are described in docs/qa/AVERY-DEMO-FILE-ACCESS.txt.
 
 The optional settings-card image was not added.
 

@@ -61,6 +61,9 @@ it('walks through example emails, the PDF, and where to find the settings', asyn
   const pdfImage = dialog().querySelector('.fw-shot img');
   expect(pdfImage.getAttribute('src')).toBe('/family-welcome/introduction-pdf-p1.png');
   expect(pdfImage.getAttribute('alt')).toContain('Page 1');
+  pdfImage.dispatchEvent(new Event('load')); await flushPromises();
+  expect(pdfImage.style.display).not.toBe('none');
+  expect(dialog().querySelector('.fw-pdf-card')).toBeNull();
   expect(findButton('View my PDF')).toBeTruthy();
   await click('Next');
   for (const [label, filename, query] of [

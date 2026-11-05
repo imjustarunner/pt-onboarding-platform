@@ -7,6 +7,16 @@ import Assignments from '../admin/PrivacyReviewerAssignments.vue';
 const ticket={id:'ticket-1',actor_email:'staff@example.invalid',user_id:1,reason:'Prepare care coordination documents.',requested_units:2,status:'pending',created_at:'2026-09-16T18:00:00Z'};
 beforeEach(()=>{vi.resetAllMocks();api.get.mockResolvedValue({data:{required:true,tickets:[],alerts:[],holds:[]}});});
 describe('activity protection workflow',()=>{
+ it('explains the approved demo exception without offering unnecessary file-access tickets',async()=>{
+  api.get.mockResolvedValue({data:{demoFileAccessExempt:true,tickets:[],holds:[{kind:'email'}]}});
+  const w=mount(Panel);await flushPromises();
+  expect(w.text()).toContain('Demo file access');
+  expect(w.text()).toContain('Every file operation is logged. Your existing record permissions still apply.');
+  expect(w.find('form').exists()).toBe(false);
+  expect(w.text()).not.toContain('five distinct client files');
+  expect(w.text()).toContain('Email delivery is paused for security review.');
+  w.unmount();
+ });
  it('explains that a staff download hold does not prevent audited document views',async()=>{
   api.get.mockResolvedValue({data:{unlimitedFileViews:true,tickets:[],holds:[{kind:'client_file'}]}});
   const w=mount(Panel);await flushPromises();

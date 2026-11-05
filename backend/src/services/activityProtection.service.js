@@ -4,6 +4,7 @@ import { evidenceRequestContext } from '../utils/evidenceRequestContext.js';
 import { networkEvidence, safeRequestPath, sessionReference, resourceEvidence } from '../utils/securityEvidence.js';
 import { appendSecurityEvidence, mirrorSecurityEvidence } from './securityEvidence.service.js';
 import { hasUnlimitedFileViews, isClientFileView } from '../utils/fileAccessPolicy.js';
+import { hasAveryDemoFileAccess } from './demoFileAccess.service.js';
 
 export const PROTECTION_POLICY = Object.freeze({ fileWindowMinutes: 15, filesPerWindow: 5, filesPerDay: 25, emailPerMessage: 50, emailPerWindow: 50, emailPerDay: 200, approvalMaxUnits: 20, approvalMinutes: 60 });
 export const resourceReference = value => crypto.createHash('sha256').update(String(value)).digest('hex');
@@ -35,6 +36,11 @@ export async function authorizeProtectedActivity(req,{kind,resource,units=1,forc
   if(!['client_file','email'].includes(kind) || !Number.isSafeInteger(units) || units<1) throw protectionError('Invalid protected operation.');
   const userId=protectionActor(req), ref=resourceReference(resource), event=protectionEvent(req,'activity_reserved','allowed',{kind,resourceRef:ref,units});
   if(!userId && !hardLimit) return; // Background per-account limits require an explicit initiating identity.
+  if(kind==='client_file' && !hardLimit && await hasAveryDemoFileAccess(req)) {
+    await appendSecurityEvidence({...event,action:'demo_file_access_authorized',details:{...event.details,
+      exception:'avery_demo_file_access_2026_11_05',forcedReviewOperation:forceReview}});
+    return;
+  }
   if(kind==='client_file' && !hardLimit && hasUnlimitedFileViews(req) && isClientFileView(req)) {
     // Keep durable evidence before serving a view, including storage reads for
     // the packet. Views neither spend download allowances nor release holds.

@@ -6,12 +6,14 @@ import { appendSecurityEvidence, mirrorSecurityEvidence } from '../services/secu
 import { MFA_STAFF_ROLES } from '../utils/accountSecurity.js';
 import { sessionReference } from '../utils/securityEvidence.js';
 import { hasUnlimitedFileViews } from '../utils/fileAccessPolicy.js';
+import { hasAveryDemoFileAccess } from '../services/demoFileAccess.service.js';
 
 export const ownProtection = async(req,res,next)=>{try{
  requireAccountSession(req);res.setHeader('Cache-Control','no-store');
  const [tickets]=await pool.execute('SELECT * FROM activity_protection_tickets WHERE user_id=? ORDER BY created_at DESC LIMIT 50',[req.user.id]);
  const [holds]=await pool.execute('SELECT kind,held_at FROM activity_protection_state WHERE user_id=? AND held_at IS NOT NULL',[req.user.id]);
- res.json({tickets,holds,policy:PROTECTION_POLICY,unlimitedFileViews:hasUnlimitedFileViews(req)});
+ const demoFileAccessExempt=await hasAveryDemoFileAccess(req);
+ res.json({tickets,holds:demoFileAccessExempt?holds.filter(hold=>hold.kind!=='client_file'):holds,policy:PROTECTION_POLICY,unlimitedFileViews:hasUnlimitedFileViews(req),demoFileAccessExempt});
 }catch(e){next(e);}};
 export const requestFileAccess=async(req,res,next)=>{let db;try{
  requireAccountSession(req);
