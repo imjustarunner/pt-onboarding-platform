@@ -1,8 +1,8 @@
 import {mount,flushPromises} from '@vue/test-utils';
 import {reactive} from 'vue';
 import {beforeEach,afterEach,it,expect,vi} from 'vitest';
-const mocks=vi.hoisted(()=>({get:vi.fn(),auth:null}));
-vi.mock('../../services/api',()=>({default:{get:mocks.get}}));
+const mocks=vi.hoisted(()=>({get:vi.fn(),post:vi.fn(),auth:null}));
+vi.mock('../../services/api',()=>({default:{get:mocks.get,post:mocks.post}}));
 vi.mock('../../store/auth',()=>({useAuthStore:()=>mocks.auth}));
 import Notice from '../AccountSecurityNotice.vue';
 let wrapper;
@@ -23,4 +23,16 @@ it('keeps a known hold when status refresh fails and clears it only after succes
 it('does not let an earlier request clear a newly raised hold',async()=>{
  let resolveOld; mocks.get.mockImplementation(url=>url.endsWith('/activity-protection')?new Promise(resolve=>{resolveOld=resolve;}):Promise.resolve({data:{verified:true}}));mountNotice();await flushPromises();
  mocks.get.mockRejectedValue(new Error('offline'));window.dispatchEvent(new Event('activity-protection-required'));await flushPromises();resolveOld({data:{holds:[]}});await flushPromises();expect(wrapper.text()).toContain('Additional access is paused');
+});
+
+it('sends the hold request with one click and never claims the hold is cleared',async()=>{
+ mocks.post.mockResolvedValue({data:{id:'request-a',pending:true}});mountNotice();await flushPromises();
+ await wrapper.find('button.request-toggle').trigger('click');await flushPromises();
+ expect(mocks.post).toHaveBeenCalledWith('/account-security/activity-protection/requests',{reviewHold:true},{headers:{'X-Account-Security':'1'}});
+ expect(wrapper.text()).toContain('Request sent to your privacy reviewer');expect(wrapper.text()).toContain('Additional access is paused');
+});
+it('shows a failed submission and allows retry without claiming a request was sent',async()=>{
+ mocks.post.mockRejectedValue(new Error('offline'));mountNotice();await flushPromises();
+ await wrapper.find('button.request-toggle').trigger('click');await flushPromises();expect(wrapper.find('[role="alert"]').text()).toContain('could not be sent');
+ expect(wrapper.text()).not.toContain('Request sent to your privacy reviewer');
 });

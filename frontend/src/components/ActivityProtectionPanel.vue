@@ -20,7 +20,7 @@
    </form>
    <p v-if="!data.demoFileAccessExempt">Approved access lasts one hour, applies to this sign-in only, and has a limited quantity. <template v-if="data.unlimitedFileViews">Saving from the browser’s document viewer cannot be distinguished from viewing by the app.</template><template v-else>Opening a file can also allow saving or printing it, so file views count toward the limit.</template></p>
    <article v-for="ticket in data.tickets || []" :key="ticket.id">
-    <strong>Request {{ ticket.id.slice(0,8) }} · {{ ticket.status }}</strong><p>{{ ticket.reason }}</p>
+    <strong>Request {{ ticket.id.slice(0,8) }} · {{ label(ticket.status) }}</strong><p>{{ ticket.reason }}</p>
     <p>Requested: {{ ticket.requested_units }} · Used: {{ ticket.used_units }} of {{ ticket.allowed_units }} approved<span v-if="ticket.expires_at"> · Expires {{ time(ticket.expires_at) }}</span></p>
     <p v-if="ticket.review_note">Reviewer: {{ ticket.review_note }}</p>
    </article>

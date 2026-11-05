@@ -388,7 +388,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { isPasswordRecoveryAudit, formatPasswordRecoveryAudit } from '../../utils/passwordRecoveryAudit.js';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
@@ -425,7 +425,7 @@ const activityNotice = ref('');
 const loading = ref(false);
 const exporting = ref(false);
 const error = ref('');
-const viewMode = ref(isSupportReviewer.value ? 'table' : 'activity');
+const viewMode = ref(route.query.view === 'table' || isSupportReviewer.value ? 'table' : 'activity');
 
 const emptyActivitySummary = () => ({
   userCount: 0,
@@ -440,9 +440,9 @@ const emptyActivitySummary = () => ({
 const activitySummary = ref(emptyActivitySummary());
 
 const filters = reactive({
-  source: 'all',
+  source: ['user_activity', 'phi_document'].includes(route.query.source) ? route.query.source : 'all',
   search: '',
-  userId: '',
+  userId: /^\d+$/.test(String(route.query.userId || '')) ? String(route.query.userId) : '',
   clientId: '',
   category: '',
   actionType: '',
@@ -837,6 +837,14 @@ const shortenSession = (sessionId) => {
   const s = String(sessionId);
   return s.length > 10 ? `${s.slice(0, 10)}...` : s;
 };
+
+watch(() => [route.query.userId, route.query.source, route.query.view], () => {
+  if (!/^\d+$/.test(String(route.query.userId || ''))) return;
+  filters.userId = String(route.query.userId);
+  if (['user_activity', 'phi_document'].includes(route.query.source)) filters.source = route.query.source;
+  if (route.query.view === 'table') viewMode.value = 'table';
+  reload();
+});
 
 onMounted(async () => {
   // Ensure agency options are loaded.

@@ -28,6 +28,12 @@ export async function recordProtectionAlert(db, req, {kind,reason,units}) {
 export async function lockProtectionState(db,userId,kind) {
   await db.execute('INSERT INTO activity_protection_state (user_id,kind) VALUES (?,?) ON DUPLICATE KEY UPDATE user_id=VALUES(user_id)',[userId,kind]);
   const [[state]]=await db.execute('SELECT held_at FROM activity_protection_state WHERE user_id=? AND kind=? FOR UPDATE',[userId,kind]);
+  if(kind==='client_file') {
+    // Read the reset only after acquiring the per-user lock. A locking read
+    // sees a review that committed while this operation waited for that lock.
+    const [[reset]]=await db.execute("SELECT reviewed_at reset_at FROM activity_protection_tickets WHERE user_id=? AND kind=? AND status='reset' ORDER BY reviewed_at DESC,id DESC LIMIT 1 FOR UPDATE",[userId,kind]);
+    state.reset_at=reset?.reset_at||null;
+  }
   return state;
 }
 // Reservations are committed BEFORE data/link delivery or email dispatch. Failed
@@ -53,10 +59,10 @@ export async function authorizeProtectedActivity(req,{kind,resource,units=1,forc
     const state=userId ? await lockProtectionState(db,userId,kind) : {};
     let duplicate=false;
     if(kind==='client_file' && !forceReview && !state.held_at) {
-      const [[row]]=await db.execute('SELECT id FROM activity_protection_usage WHERE user_id=? AND kind=? AND resource_ref=? AND occurred_at>UTC_TIMESTAMP(3)-INTERVAL 15 MINUTE LIMIT 1',[userId,kind,ref]);
+      const [[row]]=await db.execute('SELECT id FROM activity_protection_usage WHERE user_id=? AND kind=? AND resource_ref=? AND occurred_at>UTC_TIMESTAMP(3)-INTERVAL 15 MINUTE AND (? IS NULL OR occurred_at>?) LIMIT 1',[userId,kind,ref,state.reset_at||null,state.reset_at||null]);
       duplicate=!!row;
     }
-    const [[usage]]=await db.execute(`SELECT COALESCE(SUM(CASE WHEN occurred_at>UTC_TIMESTAMP(3)-INTERVAL 15 MINUTE THEN units ELSE 0 END),0) recent,COALESCE(SUM(units),0) daily FROM activity_protection_usage WHERE user_id=? AND kind=? AND occurred_at>UTC_TIMESTAMP(3)-INTERVAL 1 DAY`,[userId || 0,kind]);
+    const [[usage]]=await db.execute(`SELECT COALESCE(SUM(CASE WHEN occurred_at>UTC_TIMESTAMP(3)-INTERVAL 15 MINUTE THEN units ELSE 0 END),0) recent,COALESCE(SUM(units),0) daily FROM activity_protection_usage WHERE user_id=? AND kind=? AND occurred_at>UTC_TIMESTAMP(3)-INTERVAL 1 DAY AND (? IS NULL OR occurred_at>?)`,[userId || 0,kind,state.reset_at||null,state.reset_at||null]);
     const limit=kind==='email'?PROTECTION_POLICY.emailPerWindow:PROTECTION_POLICY.filesPerWindow;
     const daily=kind==='email'?PROTECTION_POLICY.emailPerDay:PROTECTION_POLICY.filesPerDay;
     let needsReview=hardLimit || !!state.held_at || forceReview || (!duplicate && (Number(usage.recent)+units>limit || Number(usage.daily)+units>daily));

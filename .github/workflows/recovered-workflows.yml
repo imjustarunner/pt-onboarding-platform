@@ -63,3 +63,8 @@ jobs:
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.school-annual.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.client-updates.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.people-operations-notifications.config.js
+
+      - name: Audited packet views and persistent file-access review
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.security-evidence.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.file-review.config.js
