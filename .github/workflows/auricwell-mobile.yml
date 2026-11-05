@@ -45,3 +45,8 @@ jobs:
       - name: Build the bundled mobile interface
         working-directory: frontend
         run: npm run build:mobile
+      - name: Verify the generated public-domain nginx routes
+        working-directory: frontend
+        env:
+          MOBILE_NGINX_TEST: '1'
+        run: node --test scripts/check-mobile-host-routes.test.mjs
