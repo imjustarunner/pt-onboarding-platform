@@ -7,11 +7,16 @@
 .df-page.df-page--enrollment .df-main-header .df-btn { border:0; background:transparent; box-shadow:none; padding:8px 0; min-height:36px; font-size:13px; }
 .df-page.df-page--enrollment .df-enrollment-brand { box-sizing:border-box; max-width:1000px; padding:16px 24px; margin:auto; }
 .df-page.df-page--enrollment .df-main-body { box-sizing:border-box; width:100%; max-width:1000px; padding:0 24px 24px; margin:0 auto; text-align:left; }
-.df-page.df-page--enrollment .df-enrollment-progress { display:flex; flex-wrap:wrap; gap:8px; max-width:952px; margin:0 auto 16px; padding:0 24px; }
-.df-enrollment-progress button { display:flex; align-items:center; gap:6px; padding:6px 10px; background:transparent; border:1px solid transparent; border-radius:8px; font:inherit; font-size:12px; color:#617469; }
+.df-page.df-page--enrollment .df-enrollment-progress { box-sizing:border-box; display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:8px; width:100%; max-width:1000px; margin:0 auto 18px; padding:0 24px; }
+.df-enrollment-progress button { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:6px; min-width:0; padding:10px 8px 12px; background:transparent; border:1px solid transparent; border-radius:10px; font:inherit; font-size:12.5px; line-height:1.3; text-align:center; color:#617469; cursor:pointer; }
+.df-enrollment-progress button::after { content:''; position:absolute; left:10px; right:10px; bottom:4px; height:3px; border-radius:3px; background:#dfe9e2; }
+.df-enrollment-progress button.is-done::after,.df-enrollment-progress button[aria-current=step]::after { background:#3f7d5c; }
 .df-enrollment-progress button:disabled { opacity:1; cursor:default; }
-.df-enrollment-progress button[aria-current=step] { background:white; border-color:#cdded3; color:#244a38; font-weight:650; }
-.df-enrollment-progress button span { display:grid; place-items:center; width:20px; height:20px; border-radius:50%; background:#e1ece5; }
+.df-enrollment-progress button:not(:disabled):hover { background:rgba(255,255,255,.7); }
+.df-enrollment-progress button[aria-current=step] { background:white; border-color:#cdded3; color:#244a38; font-weight:650; box-shadow:0 4px 14px rgba(34,60,46,.06); }
+.df-enrollment-progress button span { display:grid; place-items:center; flex:0 0 auto; width:24px; height:24px; border-radius:50%; background:#e1ece5; font-size:12px; }
+.df-enrollment-progress button.is-done span { background:#3f7d5c; color:white; }
+.df-enrollment-progress button[aria-current=step] span { background:#244a38; color:white; }
 .df-enrollment-progress button:focus-visible { outline:2px solid #246346; outline-offset:2px; }
 .df-page.df-page--enrollment .ai-pathway-badge { display:none; }
 .df-page.df-page--enrollment .ai-join-stage { width:100%; max-width:none; padding:0; margin:0; }
@@ -59,6 +64,6 @@
 .df-page.df-page--enrollment .df-shell .intake-identity-grid input { min-height:44px; }
 .ajl-boot[role=status] { display:grid; place-items:center; min-height:100vh; background:#f3f7f4; color:#244a38; font:16px/1.5 system-ui,sans-serif; }
 @media(max-width:720px){
- .df-page.df-page--enrollment .df-enrollment-progress { flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; }
- .df-enrollment-progress button { flex:0 0 auto; min-height:44px; }
+ .df-page.df-page--enrollment .df-enrollment-progress { display:flex; flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+ .df-enrollment-progress button { flex:0 0 auto; min-height:44px; min-width:96px; }
 }

@@ -25,7 +25,7 @@ export function schoolClientStatusEmailBody({schoolName,clientLabel,providers,ki
     </div><h2 style="font-size:19px;color:#123f2d;">${waitlist?'What happens next':'Next steps for the provider'}</h2>
     <p>${esc(next)}</p>${button('Open school portal',schoolUrl)}${providers.length?button('Open provider portal',providerUrl):''}
     <p style="border-top:1px solid #dce7df;padding-top:18px;">Questions or an update to share? Reply to this email so the Schools team can help.</p>
-    <p>Thank you,<br><strong>Schools</strong></p></div>`;
-  const text=[heading,'',summary,waitlist?`Waitlist reason: ${reasonText}`:'',next,`School portal: ${schoolUrl}`,providers.length?`Provider portal: ${providerUrl}`:'','Questions? Reply to the Schools team.','Thank you,','Schools'].filter(Boolean).join('\n\n');
+    <p>Thank you,<br><strong>Schools Team</strong></p></div>`;
+  const text=[heading,'',summary,waitlist?`Waitlist reason: ${reasonText}`:'',next,`School portal: ${schoolUrl}`,providers.length?`Provider portal: ${providerUrl}`:'','Questions? Reply to the Schools team.','Thank you,','Schools Team'].filter(Boolean).join('\n\n');
   return {subject:`${schoolName} — ${waitlist?'Waitlist update':'Provider assignment'}: ${clientLabel}`,html,text};
 }

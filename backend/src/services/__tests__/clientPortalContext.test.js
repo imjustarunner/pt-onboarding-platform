@@ -61,11 +61,11 @@ it('uses the counseling or tutoring enrollment context before a session exists',
  expect(intakeClientPortal(mixed,{channel:'office',clients:[{client_type:'learning'}]}).clinical_portal).toBe(false);
 });
 
-it('keeps the ITSCO QA clinical family on the same full-platform tenant host',()=>{
+it('sends the QA clinical family to AuricWell like every other EHR enrollment',()=>{
  const portal={id:450,slug:'auricwell-qa-demo',clinical_portal:true,feature_flags:{qaSandbox:{syntheticOnly:true}}};
- expect(clientPortalAppUrl(portal,'reset-password/opaque')).toBe('https://app.itsco.health/auricwell-qa-demo/reset-password/opaque');
- expect(clientPortalInviteUrl({portal,existingAccount:true})).toContain('https://app.itsco.health/auricwell-qa-demo/login?');
- expect(clientPortalAppUrl(portal,'billing/complete/opaque')).toBe('https://app.itsco.health/billing/complete/opaque?portal=auricwell-qa-demo');
+ expect(clientPortalAppUrl(portal,'reset-password/opaque')).toBe('https://auricwell.com/auricwell-qa-demo/reset-password/opaque');
+ expect(clientPortalInviteUrl({portal,existingAccount:true})).toContain('https://auricwell.com/auricwell-qa-demo/login?');
+ expect(clientPortalAppUrl(portal,'billing/complete/opaque')).toBe('https://auricwell.com/billing/complete/opaque?portal=auricwell-qa-demo');
 });
 
 it('keeps NLU synthetic tutoring setup, recovery, parent and session links on the NLU host',()=>{

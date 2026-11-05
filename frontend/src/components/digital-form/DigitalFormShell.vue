@@ -223,7 +223,7 @@
 
         <EnrollmentBrand :branding="branding" v-if="enrollmentLayout && !billingLayout" class="df-enrollment-brand" :agency-name="programTitle" :logo-url="resolvedLogo" :language="language" />
         <nav v-if="enrollmentLayout && !coverMode && progressSteps.length && !billingLayout" class="df-enrollment-progress" :aria-label="language === 'es' ? 'Progreso de inscripción' : 'Enrollment progress'">
-          <button v-for="(item, index) in progressSteps" :key="item.id || index" type="button" :aria-current="index === progressIndex ? 'step' : undefined" :disabled="!intakeSidebarInteractive || index > intakeSidebarMaxReachable" @click="$emit('select-step', index)">
+          <button v-for="(item, index) in progressSteps" :key="item.id || index" type="button" :aria-current="index === progressIndex ? 'step' : undefined" :class="{ 'is-done': index < progressIndex }" :disabled="!intakeSidebarInteractive || index > intakeSidebarMaxReachable" @click="$emit('select-step', index)">
             <span>{{ index < progressIndex ? '✓' : index + 1 }}</span>{{ item.label }}
           </button>
         </nav>

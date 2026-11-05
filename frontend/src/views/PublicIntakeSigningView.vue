@@ -12965,7 +12965,16 @@ const visibleStandaloneQuestionFields = computed(() => []);
 const currentQuestionRows = computed(() => {
   const rows = [];
   let lastSection = '';
+  let lastScreen = '';
   for (const field of visibleQuestionFields.value || []) {
+    const screen = /^(psc|phqa|phq9|gad7)_\d+$/i.test(String(field?.key || ''))
+      ? (OFFICE_INSTRUMENT_META[instrumentIdForField(field)]?.title || '')
+      : '';
+    if (screen && screen !== lastScreen) {
+      rows.push({ section: screen, field: null, screen: true });
+      lastSection = screen;
+    }
+    lastScreen = screen;
     const section = String(field?.section || '').trim();
     if (section && section !== lastSection) {
       rows.push({ section, field: null });

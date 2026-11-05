@@ -235,7 +235,7 @@ export function buildIntakeSummaryDocumentHtml({
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>${escapeHtml(title || 'Intake packet')}</title>
+    <title>${escapeHtml(title || 'Enrollment packet')}</title>
     <style>
 ${buildPacketStyleBlock(brand)}
 ${SUMMARY_EXTRA_CSS}
@@ -248,7 +248,7 @@ ${SUMMARY_EXTRA_CSS}
         ${toolbarHtml}
         ${brandHtml}
         ${kicker ? `<p class="intake-summary-kicker">${escapeHtml(kicker)}</p>` : ''}
-        <h1>${escapeHtml(title || 'Intake packet')}</h1>
+        <h1>${escapeHtml(title || 'Enrollment packet')}</h1>
         ${agencyName ? `<p class="intake-summary-agency"><strong>${escapeHtml(agencyName)}</strong></p>` : ''}
         ${metaHtml ? `<p class="intake-summary-meta">${metaHtml}</p>` : ''}
         ${sectionHtml}
@@ -450,7 +450,7 @@ async function renderCompletedIntakePdf(spec = {}) {
   };
 
   drawLines([spec.agencyName || ''], { size: 11, type: bold, color: green, gap: 16 });
-  drawLines([spec.title || 'Completed intake packet'], { size: 16, type: bold, gap: 18 });
+  drawLines([spec.title || 'Completed enrollment packet'], { size: 16, type: bold, gap: 18 });
   if (spec.metaLines?.length) {
     drawLines([spec.metaLines.filter(Boolean).join('  -  ')], { size: 9, color: gray, gap: 16 });
   }

@@ -2650,7 +2650,7 @@ export const resolvePacketCompletionEmailContent = async ({
                }).join('')}</ul>`
              : '';
            const bundleBtn = bundle.downloadUrl
-             ? `<p style="margin:8px 0;"><a href="${escapeHtml(bundle.downloadUrl)}" style="display:inline-block;padding:8px 12px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;font-size:13px;">View ${escapeHtml(label)}'s intake packet</a></p>`
+             ? `<p style="margin:8px 0;"><a href="${escapeHtml(bundle.downloadUrl)}" style="display:inline-block;padding:8px 12px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;font-size:13px;">View ${escapeHtml(label)}'s enrollment packet</a></p>`
              : '';
            return `<div style="margin:8px 0;padding:12px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
                      <p style="margin:0;font-weight:600;">${escapeHtml(label)}</p>
@@ -4934,8 +4934,8 @@ const createIntakePiecePdfDocuments = async ({
         clientId,
         link: null,
         storagePath: storageResult.relativePath,
-        originalName: 'Intake Responses (Answers).pdf',
-        documentTitle: 'Intake Responses (Answers)',
+        originalName: 'Enrollment Responses (Answers).pdf',
+        documentTitle: 'Enrollment Responses (Answers)',
         documentType: 'Intake Responses',
         intakeSubmissionId: submissionId,
         expiresAt: expiresAt || null,
@@ -5017,8 +5017,8 @@ const createIntakePacketDocument = async ({
   link,
   clientRow,
   storagePath,
-  originalName: 'Intake Packet (Signed)',
-  documentTitle: 'Intake Packet',
+  originalName: 'Enrollment Packet (Signed)',
+  documentTitle: 'Enrollment Packet',
   documentType: 'Intake Packet',
   intakeSubmissionId: submissionId,
   expiresAt: expiresAt || null,

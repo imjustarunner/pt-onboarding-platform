@@ -7,6 +7,14 @@ function isEnrollmentReceiptFile(doc) {
   return !mime && /intake packet|intake responses/i.test(String(doc?.document_type || ''));
 }
 
+// Charts created before November 5, 2026 stored the older "Intake" titles.
+function receiptTitle(doc) {
+  const raw = String(doc?.document_title || doc?.document_type || '').trim();
+  if (/^intake packet\b/i.test(raw)) return raw.replace(/^intake packet/i, 'Enrollment Packet');
+  if (/^intake responses\b/i.test(raw)) return raw.replace(/^intake responses/i, 'Enrollment Responses');
+  return raw || 'Enrollment receipt';
+}
+
 export function enrollmentReceiptCards(docs) {
   return (Array.isArray(docs) ? docs : [])
     .filter(isEnrollmentReceiptFile)
@@ -14,7 +22,7 @@ export function enrollmentReceiptCards(docs) {
       id: `receipt-${doc.id}`,
       kind: 'packet',
       kindLabel: 'Signed enrollment',
-      title: doc.document_title || doc.document_type || 'Enrollment receipt',
+      title: receiptTitle(doc),
       viewKey: `receipt-${doc.id}`,
       missing: false,
       signedAt: doc.created_at || doc.uploaded_at || null,

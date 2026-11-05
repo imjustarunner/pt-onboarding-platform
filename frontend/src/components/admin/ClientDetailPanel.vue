@@ -224,6 +224,10 @@
           v-if="showPanel('records')"
           class="detail-section"
         >
+          <p v-if="chartReceiptError" class="error" role="alert">
+            {{ chartReceiptError }}
+            <a v-if="chartReceiptFallbackUrl" :href="chartReceiptFallbackUrl" target="_blank" rel="noopener">Open the enrollment receipt</a>
+          </p>
           <ClientRecordsOverview
             :client-id="client.id"
             :client="client"
@@ -2799,6 +2803,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } f
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
+import { openEnrollmentReceipt } from '../../utils/openEnrollmentReceipt.js';
 import { canAccessMedicalBilling, canAccessClientAccountSupport } from '../../config/medicalBillingAccess';
 import ClientPendingTasks from '../billing/ClientPendingTasks.vue';
 import ClientInsuranceEditor from '../billing/ClientInsuranceEditor.vue';
@@ -3097,8 +3102,21 @@ function goChartSub(subOrLegacy) {
   setChartNav(chartHub.value, key);
 }
 
-function openChartDocument(viewKey) {
+const chartReceiptError = ref('');
+const chartReceiptFallbackUrl = ref('');
+async function openChartDocument(viewKey) {
   const key = String(viewKey || '').trim();
+  // Support cannot open the Documents tab, so receipts open directly from Records.
+  if (key.startsWith('receipt-')) {
+    chartReceiptError.value = '';
+    chartReceiptFallbackUrl.value = '';
+    const result = await openEnrollmentReceipt(key.slice(8));
+    if (!result.ok) {
+      chartReceiptError.value = result.error;
+      chartReceiptFallbackUrl.value = result.fallbackUrl || '';
+    }
+    return;
+  }
   pendingChartViewKey.value = key;
   setChartNav('records', 'documents');
   if (key) {
