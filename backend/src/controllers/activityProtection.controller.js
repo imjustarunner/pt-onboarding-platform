@@ -18,9 +18,11 @@ export const ownProtection = async(req,res,next)=>{try{
 export const requestFileAccess=async(req,res,next)=>{let db;try{
  requireAccountSession(req);
  const state=await accountSecurityState(req);if(state.required && !state.verified)throw protectionError('Verify your sign-in before requesting additional file access.','MFA_REQUIRED');
- const reason=String(req.body?.reason||'').trim(), units=Number(req.body?.units);
+ const reviewHold=req.body?.reviewHold===true;
+ const reason=reviewHold?'Review the existing file-access hold so routine work can continue.':String(req.body?.reason||'').trim(), units=reviewHold?1:Number(req.body?.units);
  if(reason.length<20||reason.length>2000||!Number.isInteger(units)||units<1||units>PROTECTION_POLICY.approvalMaxUnits)throw protectionError('Explain the work purpose in 20–2000 characters and request 1–20 file operations. Do not include client names.','INVALID_REVIEW_REQUEST');
- db=await pool.getConnection();await db.beginTransaction();await lockProtectionState(db,req.user.id,'client_file');
+ db=await pool.getConnection();await db.beginTransaction();const hold=await lockProtectionState(db,req.user.id,'client_file');
+ if(reviewHold&&!hold.held_at)throw protectionError('There is no active file-access hold to review.','NO_FILE_HOLD');
  const [[pending]]=await db.execute("SELECT id FROM activity_protection_tickets WHERE user_id=? AND kind='client_file' AND status='pending' LIMIT 1",[req.user.id]);
  if(pending){await db.commit();return res.json({id:pending.id,pending:true,message:'You already have a request awaiting review.'});}
  const [[rate]]=await db.execute('SELECT COUNT(*) n FROM activity_protection_tickets WHERE user_id=? AND created_at>UTC_TIMESTAMP(3)-INTERVAL 1 DAY',[req.user.id]);
@@ -38,6 +40,11 @@ export const reviewQueue=async(req,res,next)=>{try{
  const [tickets]=await pool.execute("SELECT t.*,u.email actor_email FROM activity_protection_tickets t LEFT JOIN users u ON u.id=t.user_id WHERE t.status='pending' ORDER BY t.created_at LIMIT 100");
  res.json({alerts:alerts.slice(0,100),tickets,policy:PROTECTION_POLICY,nextCursor:alerts.length>100?Buffer.from(JSON.stringify({at:new Date(alerts[99].occurred_at).toISOString(),id:alerts[99].id})).toString('base64url'):null});
 }catch(e){next(e);}};
+export const pendingFileRequests=async(req,res,next)=>{try{
+ res.setHeader('Cache-Control','no-store');
+ const [tickets]=await pool.execute("SELECT t.id,t.user_id,t.reason,t.created_at,t.requested_units,u.email actor_email FROM activity_protection_tickets t LEFT JOIN users u ON u.id=t.user_id WHERE t.kind='client_file' AND t.status='pending' ORDER BY t.created_at,t.id LIMIT 100");
+ res.json({tickets});
+}catch(e){next(e);}};
 async function freshReviewer(req){
  const state=await accountSecurityState(req);
  if(!state.required)return; // Optional rollout also applies to reviewers; role and self-approval checks remain.
@@ -47,16 +54,17 @@ async function freshReviewer(req){
 }
 export const reviewTicket=async(req,res,next)=>{let db;try{
  await freshReviewer(req);
- const decision=req.body?.decision,note=String(req.body?.note||'').trim(),units=Number(req.body?.units);
- if(!['approved','denied'].includes(decision)||note.length<10||note.length>1000)throw protectionError('Add a review explanation (10–1000 characters).','INVALID_REVIEW');
+ const decision=req.body?.decision, defaults={keep_holding:'Reviewed request; keep the existing file-access hold.',dismissed:'Dismissed this request; the file-access hold remains.',reset:'Reviewed routine work; reset the file-access hold and usage window.'};
+ const note=String(req.body?.note||defaults[decision]||'').trim(),units=Number(req.body?.units);
+ if(!['approved','denied','keep_holding','dismissed','reset'].includes(decision)||note.length<10||note.length>1000)throw protectionError('Add a review explanation (10–1000 characters).','INVALID_REVIEW');
  const [[target]]=await pool.execute('SELECT user_id FROM activity_protection_tickets WHERE id=?',[req.params.id]);if(!target)throw protectionError('Request not found.');
  if(Number(target.user_id)===protectionActor(req))throw protectionError('Another designated privacy reviewer must review your request.','SELF_APPROVAL_FORBIDDEN');
  db=await pool.getConnection();await db.beginTransaction();await lockProtectionState(db,target.user_id,'client_file');
- const [[ticket]]=await db.execute("SELECT * FROM activity_protection_tickets WHERE id=? AND status='pending' FOR UPDATE",[req.params.id]);if(!ticket)throw protectionError('This request has already been reviewed.');
+ const [[ticket]]=await db.execute("SELECT * FROM activity_protection_tickets WHERE id=? AND kind='client_file' AND status='pending' FOR UPDATE",[req.params.id]);if(!ticket)throw protectionError('This request has already been reviewed.');
  if(decision==='approved'&&(!Number.isInteger(units)||units<1||units>Math.min(ticket.requested_units,PROTECTION_POLICY.approvalMaxUnits)))throw protectionError('The approved quantity must be within the requested limit.');
- await db.execute('UPDATE activity_protection_tickets SET status=?,reviewer_id=?,reviewed_at=UTC_TIMESTAMP(3),review_note=?,allowed_units=?,expires_at=UTC_TIMESTAMP(3)+INTERVAL 60 MINUTE WHERE id=?',[decision,req.user.id,note,decision==='approved'?units:0,ticket.id]);
- if(decision==='approved')await db.execute("UPDATE activity_protection_state SET held_at=NULL WHERE user_id=? AND kind='client_file'",[ticket.user_id]);
- const event=protectionEvent(req,'file_access_reviewed',decision,{ticketId:ticket.id,targetUserId:ticket.user_id,units:decision==='approved'?units:0});const eventId=await appendSecurityEvidence(event,db,{mirror:false});await db.commit();mirrorSecurityEvidence(event,eventId);
+ await db.execute(`UPDATE activity_protection_tickets SET status=?,reviewer_id=?,reviewed_at=UTC_TIMESTAMP(3),review_note=?,allowed_units=?,expires_at=CASE WHEN ?='approved' THEN UTC_TIMESTAMP(3)+INTERVAL 60 MINUTE ELSE NULL END WHERE id=?`,[decision,req.user.id,note,decision==='approved'?units:0,decision,ticket.id]);
+ if(decision==='approved'||decision==='reset')await db.execute("UPDATE activity_protection_state SET held_at=NULL WHERE user_id=? AND kind='client_file'",[ticket.user_id]);
+ const event=protectionEvent(req,'file_access_reviewed',decision,{ticketId:ticket.id,targetUserId:ticket.user_id,units:decision==='approved'?units:0,usageWindowReset:decision==='reset'});const eventId=await appendSecurityEvidence(event,db,{mirror:false});await db.commit();mirrorSecurityEvidence(event,eventId);
  res.json({reviewed:true,decision});
 }catch(e){if(db)await db.rollback();next(e);}finally{db?.release();}};
 export const reviewAlert=async(req,res,next)=>{let db;try{

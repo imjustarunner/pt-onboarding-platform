@@ -8,7 +8,7 @@ vi.mock('../../config/database.js',()=>({default:{execute:(...a)=>state.db.execu
 vi.mock('../../services/accountSecurity.service.js',()=>({accountSecurityState:async()=>state.verification,requireAccountSession:req=>{if(!req.user?.sessionId)throw new Error('Sign in');}}));
 import {authorizeProtectedActivity,protectOutboundEmail,protectFileResource,protectStorageResource} from '../../services/activityProtection.service.js';
 import {reserveLoginAttempts,recordPasswordResult} from '../../middleware/loginProtection.middleware.js';
-import {requestFileAccess,reviewTicket,reviewAlert,ownProtection,reviewQueue,requirePrivacyReviewer,assignPrivacyReviewer} from '../activityProtection.controller.js';
+import {requestFileAccess,reviewTicket,reviewAlert,ownProtection,reviewQueue,pendingFileRequests,requirePrivacyReviewer,assignPrivacyReviewer} from '../activityProtection.controller.js';
 import {evidenceRequestContext} from '../../utils/evidenceRequestContext.js';
 import {enforceActivityProtection} from '../../middleware/activityProtection.middleware.js';
 const socket=process.env.EVIDENCE_TEST_SOCKET;
@@ -116,6 +116,56 @@ describe.skipIf(!socket)('shared activity protection integration',()=>{
   await expect(protectOutboundEmail({to:Array.from({length:600},(_,i)=>`r${i}@example.invalid`)})).rejects.toHaveProperty('code','ACTIVITY_REVIEW_REQUIRED');
   const request=req(2);await evidenceRequestContext.run(request,async()=>{for(let i=0;i<50;i++)await protectOutboundEmail({to:`r${i}@example.invalid`});await expect(protectOutboundEmail({to:'last@example.invalid'})).rejects.toHaveProperty('code','ACTIVITY_REVIEW_REQUIRED');});
   const [[usage]]=await state.db.query("SELECT SUM(units) n FROM activity_protection_usage WHERE user_id=2 AND kind='email'");expect(Number(usage.n)).toBe(50);
+ });
+ it('queues a one-click hold request once and rejects requests without a hold',async()=>{
+  const owner=req();owner.body={reviewHold:true};
+  await expect(call(requestFileAccess,owner)).rejects.toHaveProperty('code','NO_FILE_HOLD');
+  for(let i=0;i<6;i++)await file(req(),`held-${i}`).catch(()=>{});
+  const [a,b]=await Promise.all([call(requestFileAccess,owner),call(requestFileAccess,owner)]);
+  expect(a.id).toBe(b.id);expect((await call(pendingFileRequests,req(2))).tickets).toHaveLength(1);
+  const [[hold]]=await state.db.query("SELECT held_at FROM activity_protection_state WHERE user_id=1 AND kind='client_file'");expect(hold.held_at).not.toBeNull();
+ });
+ it.each(['keep_holding','dismissed'])('persists %s and retains the existing hold and all evidence',async decision=>{
+  for(let i=0;i<6;i++)await file(req(),`held-${i}`).catch(()=>{});
+  const owner=req();owner.body={reviewHold:true};const ticket=await call(requestFileAccess,owner);
+  const reviewer=req(2);reviewer.params={id:ticket.id};reviewer.body={decision};await call(reviewTicket,reviewer);
+  expect((await call(pendingFileRequests,reviewer)).tickets).toHaveLength(0);
+  const [[hold]]=await state.db.query("SELECT held_at FROM activity_protection_state WHERE user_id=1 AND kind='client_file'");expect(hold.held_at).not.toBeNull();
+  await expect(file(req(),'still-held')).rejects.toHaveProperty('code','ACTIVITY_REVIEW_REQUIRED');
+  const [[row]]=await state.db.query('SELECT status,reviewer_id FROM activity_protection_tickets WHERE id=?',[ticket.id]);expect(row.status).toBe(decision);expect(row.reviewer_id).toBe(2);
+ });
+ it('resets only reviewed file usage, preserves historical logs and email holds, and allows one decision',async()=>{
+  for(let i=0;i<6;i++)await file(req(),`held-${i}`).catch(()=>{});
+  await state.db.query("INSERT INTO activity_protection_state (user_id,kind,held_at) VALUES (1,'email',UTC_TIMESTAMP(3))");
+  const owner=req();owner.body={reviewHold:true};const ticket=await call(requestFileAccess,owner);
+  owner.params={id:ticket.id};owner.body={decision:'reset'};
+  await expect(call(reviewTicket,owner)).rejects.toHaveProperty('code','SELF_APPROVAL_FORBIDDEN');
+  const reviewer=req(2);reviewer.params={id:ticket.id};reviewer.body={decision:'reset'};
+  await call(reviewTicket,reviewer);await expect(call(reviewTicket,reviewer)).rejects.toThrow('already been reviewed');
+  const [[counts]]=await state.db.query("SELECT (SELECT COUNT(*) FROM activity_protection_usage WHERE user_id=1) usageCount,(SELECT COUNT(*) FROM activity_protection_alerts WHERE user_id=1) alertCount,(SELECT COUNT(*) FROM security_evidence WHERE user_id=1) auditCount");
+  expect(Number(counts.usageCount)).toBe(5);expect(Number(counts.alertCount)).toBe(1);expect(Number(counts.auditCount)).toBeGreaterThan(0);
+  const [[email]]=await state.db.query("SELECT held_at FROM activity_protection_state WHERE user_id=1 AND kind='email'");expect(email.held_at).not.toBeNull();
+  for(let i=0;i<5;i++)await file(req(),`fresh-${i}`);
+  await expect(file(req(),'fresh-sixth')).rejects.toHaveProperty('code','ACTIVITY_REVIEW_REQUIRED');
+  const [[allUsage]]=await state.db.query('SELECT COUNT(*) n FROM activity_protection_usage WHERE user_id=1');expect(Number(allUsage.n)).toBe(10);
+ });
+ it('commits only one concurrent decision on a request',async()=>{
+  for(let i=0;i<6;i++)await file(req(),`held-${i}`).catch(()=>{});
+  const owner=req();owner.body={reviewHold:true};const ticket=await call(requestFileAccess,owner);
+  const review=()=>{const r=req(2);r.params={id:ticket.id};r.body={decision:'reset'};return call(reviewTicket,r);};
+  const results=await Promise.allSettled([review(),review()]);expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(1);
+  const [[audit]]=await state.db.query("SELECT COUNT(*) n FROM security_evidence WHERE action='file_access_reviewed' AND outcome='reset' AND JSON_UNQUOTE(JSON_EXTRACT(details,'$.ticketId'))=?",[ticket.id]);expect(Number(audit.n)).toBe(1);
+ });
+ it('rolls back reset and ticket resolution when the audit insert fails',async()=>{
+  for(let i=0;i<6;i++)await file(req(),`held-${i}`).catch(()=>{});
+  const owner=req();owner.body={reviewHold:true};const ticket=await call(requestFileAccess,owner);
+  await state.db.query("CREATE TRIGGER fail_reset_audit BEFORE INSERT ON security_evidence FOR EACH ROW BEGIN IF NEW.action='file_access_reviewed' AND NEW.outcome='reset' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='synthetic audit failure'; END IF; END");
+  try{
+   const reviewer=req(2);reviewer.params={id:ticket.id};reviewer.body={decision:'reset'};
+   await expect(call(reviewTicket,reviewer)).rejects.toThrow('synthetic audit failure');
+   const [[hold]]=await state.db.query("SELECT held_at FROM activity_protection_state WHERE user_id=1 AND kind='client_file'");expect(hold.held_at).not.toBeNull();
+   const [[row]]=await state.db.query('SELECT status FROM activity_protection_tickets WHERE id=?',[ticket.id]);expect(row.status).toBe('pending');
+  }finally{await state.db.query('DROP TRIGGER fail_reset_audit');}
  });
  it('requires another fresh reviewer and bounds approval to session, quantity and expiry',async()=>{
   const owner=req();owner.body={reason:'Prepare the requested care coordination records.',units:2};const ticket=await call(requestFileAccess,owner);

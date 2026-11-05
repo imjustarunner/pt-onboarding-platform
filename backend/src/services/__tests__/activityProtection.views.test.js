@@ -33,6 +33,13 @@ describe('audited staff document viewing', () => {
     expect(mocks.append).toHaveBeenCalledTimes(2);
     expect(mocks.getConnection).not.toHaveBeenCalled();
   });
+  it.each(['admin', 'support', 'super_admin'])('keeps enrollment receipt views unlimited and audited for %s', async role => {
+    await evidenceRequestContext.run(request(role, '/api/phi-documents/enrollment-receipts/12/view'), async () => {
+      for (let id = 1; id <= 30; id++) await protectStorageResource(`intake_signed/bundle/receipt-${id}.pdf`);
+    });
+    expect(mocks.append).toHaveBeenCalledTimes(30);
+    expect(mocks.getConnection).not.toHaveBeenCalled();
+  });
   it('refuses to serve a view when its durable audit cannot be recorded', async () => {
     mocks.append.mockRejectedValue(new Error('Audit unavailable'));
     await expect(view(request())).rejects.toThrow('Audit unavailable');
@@ -52,7 +59,7 @@ describe('audited staff document viewing', () => {
   ])('keeps download/print reservation controls on %s', async url => {
     await expect(view(request('admin', url))).rejects.toThrow('reservation boundary');
   });
-  it.each(['/api/phi-documents/12/view?theme=dark', '/api/phi-documents/signed-school-packets/3', '/api/phi-documents/clients/1/chart-artifacts/clinical-summary/view'])('recognizes established view endpoint %s', url => {
+  it.each(['/api/phi-documents/12/view?theme=dark', '/api/phi-documents/enrollment-receipts/12/view', '/api/phi-documents/signed-school-packets/3', '/api/phi-documents/clients/1/chart-artifacts/clinical-summary/view'])('recognizes established view endpoint %s', url => {
     expect(isClientFileView(request('admin', url))).toBe(true);
     expect(isClientFileView({ ...request('admin', url), method: 'POST' })).toBe(false);
     expect(responseEvidence(request('admin', url), { statusCode: 200 })).toMatchObject({ fileAccessIntent: 'view' });
