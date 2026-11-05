@@ -1,9 +1,13 @@
 import { expect, it, vi } from 'vitest';
+import crypto from 'node:crypto';
 vi.mock('../../config/database.js', () => ({ default: { execute: () => { throw Error('Default application pool forbidden'); } }, onTableWrite: vi.fn() }));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: () => { throw Error('Default clinical pool forbidden'); } } }));
 import { buildClinicalReviewPacket, readSourceRevision, inventoryEligibleCharts } from '../assistantReviewPackets.service.js';
 const privacyPolicy = { enabled: true, baaVerified: true, approved: true, sampleReviewPassed: true, revision: 'synthetic-v1', externalService: 'Synthetic vendor', baaReference: 'Synthetic evidence', sampleReviewReference: 'Synthetic review' };
 const input = { agencyId: 2, clientId: 99, subrole: 'clinical', privacyPolicy };
+// Match complete JSON values, including quoted IDs and array entries. Digits
+// inside an opaque source reference do not disclose the underlying record ID.
+const privateRecordIdValue = /(?:[:,\[])\s*(?:"(?:401|102)"|(?:401|102))(?=\s*[,}\]])/;
 function fixture() {
   const note = { id: 21, agency_id: 2, client_id: 99, created_by_user_id: 5, provider_signed_by_user_id: 5,
     provider_signed_at: '2026-11-01', note_type: 'PROGRESS_NOTE', metadata_json: {}, note_payload: 'OBSOLETE original clinical text', encounter_at: '2026-11-01T16:00:00Z' };
@@ -39,11 +43,26 @@ it('reads the current effective linked revision and signed additions without exp
   expect(result.status).toBe('ready');
   const external = JSON.stringify(result.packet);
   expect(external).toContain('CURRENT approved clinical content'); expect(external).toContain('Approved independent addition');
-  expect(external).not.toMatch(/OBSOLETE|PENDING|Private title|current-hash|401|102/);
+  expect(external).not.toMatch(/OBSOLETE|PENDING|Private title|current-hash/);
+  expect(external).not.toMatch(privateRecordIdValue);
   expect(result.packet.notes[0].signature).toMatchObject({ providerSigned: true, cosignRequired: false, signedEntriesPresent: true, status: 'not_required' });
   expect(f.clinical.execute.mock.calls.every(([sql]) => sql.trim().startsWith('SELECT'))).toBe(true);
   expect(f.main.execute.mock.calls.every(([sql]) => sql.trim().startsWith('SELECT'))).toBe(true);
   expect(f.clinical.execute.mock.calls.find(([sql]) => sql.includes('FROM clinical_notes n LEFT JOIN'))[0]).toContain('v.snapshot_json');
+});
+it('allows private-ID digits inside opaque references while still rejecting actual numeric or quoted ID values', async () => {
+  const random = vi.spyOn(crypto, 'randomUUID').mockReturnValueOnce('00000000-0000-4000-8102-000000000401');
+  try {
+    const result = await buildClinicalReviewPacket(input, fixture().deps);
+    const external = JSON.stringify(result.packet);
+    expect(result.status).toBe('ready');
+    expect(external).toContain('src_00000000000040008102000000000401');
+    expect(external).not.toMatch(privateRecordIdValue);
+    for (const recordId of [401, 102, '401', '102']) {
+      expect(JSON.stringify({ recordId })).toMatch(privateRecordIdValue);
+      expect(JSON.stringify({ recordIds: [recordId] })).toMatch(privateRecordIdValue);
+    }
+  } finally { random.mockRestore(); }
 });
 it('does not claim original-author signing or require new approval for an independent entry on a supervisor amendment', async () => {
   const f = fixture(); f.revision.origin = 'supervisor'; f.revision.requires_supervisor_cosign = 1;

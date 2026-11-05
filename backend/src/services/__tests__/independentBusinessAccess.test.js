@@ -31,3 +31,11 @@ it('rejects a stale owner when membership or business is no longer active',async
   expect(await isIndependentPracticeOwner(4001,7001)).toBe(false);
   await expect(requireBillingStaff({id:4001,role:'provider'},7001)).rejects.toMatchObject({status:403});
 });
+it.each(['super_admin','superadmin'])('retains active-agency %s billing access without probing owner memberships',async role=>{
+  const db={execute:vi.fn(async(sql,args)=>{
+    expect(sql).toBe('SELECT id FROM agencies WHERE id = ? AND is_active = 1 AND COALESCE(is_archived, 0) = 0');
+    expect(args).toEqual([7001]);return [[{id:7001}]];
+  })};
+  await expect(requireBillingStaff({id:4003,role},7001,db)).resolves.toBeUndefined();
+  expect(db.execute).toHaveBeenCalledOnce();expect(pool.execute).not.toHaveBeenCalled();
+});
