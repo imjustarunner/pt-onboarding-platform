@@ -44,7 +44,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('isolated MySQL device sessi
       CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,provider_id INT);
       CREATE TABLE client_provider_assignments(client_id INT,provider_user_id INT,is_active BOOLEAN);
       CREATE TABLE twilio_number_assignments(number_id INT,user_id INT,is_active BOOLEAN,sms_access_enabled BOOLEAN);`);
-    const migration=await readFile(new URL('../../../../../database/migrations/1761_auricwell_mobile_device_sessions.sql',import.meta.url),'utf8');
+    const migration=await readFile(new URL('../../../../../database/migrations/1762_auricwell_mobile_device_sessions.sql',import.meta.url),'utf8');
     await db.query(migration);
   });
   afterAll(async()=>{await db?.end();if(admin){await admin.query(`DROP DATABASE ${name}`);await admin.end();}});
