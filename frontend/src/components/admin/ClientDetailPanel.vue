@@ -1600,7 +1600,7 @@
 
         <!-- Messages/Notes Tab -->
         <ClientMessagesTab
-          v-if="showPanel('messages') && !['school_staff', 'client_guardian', 'client'].includes(roleNorm)"
+          v-if="showPanel('messages') && canSeeClientMessages"
           :client-id="Number(client.id)"
           :is-backoffice-role="isBackofficeRole"
         />
@@ -2490,6 +2490,17 @@
                     <input v-model="addProviderMakePrimary" type="checkbox" />
                     Make primary
                   </label>
+                  <div class="filters-group" style="min-width: 280px; flex: 1 1 100%;">
+                    <label class="filters-label" for="add-provider-client-alert">Client Alert <span class="hint">(optional)</span></label>
+                    <textarea
+                      id="add-provider-client-alert"
+                      v-model="addProviderClientAlert"
+                      class="filters-select"
+                      rows="3"
+                      maxlength="2000"
+                      placeholder="Optional referral note for the assignee. Example: no contact info, please inquire with school client or referral contact for contact info."
+                    />
+                  </div>
                   <div class="actions" style="align-self: end;">
                     <button
                       type="button"
@@ -2768,6 +2779,7 @@
     </template>
 
     <template #modals>
+      <ClientAlertDialog :client-id="client?.id" />
       <!-- Terminate client modal -->
       <div v-if="terminateModalOpen" class="modal-overlay" style="z-index: 10000;" @click.self="closeTerminateModal">
         <div class="modal-content" style="max-width: 480px;" @click.stop>
@@ -2872,6 +2884,8 @@ import ClientClinicalTab from './clientChart/ClientClinicalTab.vue';
 import ClientClinicalNotesFeed from './clientChart/ClientClinicalNotesFeed.vue';
 import ClientDocumentsTab from './clientChart/ClientDocumentsTab.vue';
 import ClientMessagesTab from './clientChart/ClientMessagesTab.vue';
+import ClientAlertDialog from '../clients/ClientAlertDialog.vue';
+import { canSeeClientMessagesWindow } from '../../utils/clientAlertAccess';
 import { useClientEncounters } from '../../composables/useClientEncounters.js';
 import { useClientBillingDiagnoses } from '../../composables/useClientBillingDiagnoses.js';
 import { useClientPaperwork } from '../../composables/useClientPaperwork.js';
@@ -3188,6 +3202,7 @@ const currentClientPositionLabel = computed(() => {
   return `${idx + 1} of ${count}`;
 });
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
+const canSeeClientMessages = computed(() => canSeeClientMessagesWindow(roleNorm.value));
 const isSuperAdmin = computed(() => roleNorm.value === 'super_admin');
 const isBackofficeRole = computed(() => ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value));
 
@@ -4344,6 +4359,7 @@ const providerClinicalFacets = ref({});
 const addProviderUserId = ref('');
 const addProviderDay = ref('');
 const addProviderMakePrimary = ref(true);
+const addProviderClientAlert = ref('');
 const savingProviderAssignment = ref(false);
 const editingProviderAssignmentId = ref(null);
 const editProviderUserId = ref('');
@@ -6244,15 +6260,18 @@ const addProviderAssignment = async () => {
   try {
     savingProviderAssignment.value = true;
     assignmentsError.value = '';
+    const clientAlert = addProviderClientAlert.value.trim();
     await api.post(`/clients/${props.client.id}/provider-assignments`, {
       organization_id: orgId,
       provider_user_id: providerUserId,
       service_day: day,
-      is_primary: addProviderMakePrimary.value === true
+      is_primary: addProviderMakePrimary.value === true,
+      ...(clientAlert ? { client_alert: clientAlert } : {})
     });
     addProviderUserId.value = '';
     addProviderDay.value = '';
     addProviderMakePrimary.value = true;
+    addProviderClientAlert.value = '';
     await reloadProviderAssignments();
     await refreshOverviewProviders();
     emit('updated', { keepOpen: true });

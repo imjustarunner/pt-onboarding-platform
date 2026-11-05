@@ -1638,11 +1638,13 @@
     />
 
   </div>
+  <ClientAlertDialog :client-id="selectedClientId" :disabled="!!demoPresentation" />
   </ClinicalWorkspaceFrame>
 </template>
 
 <script setup>
 import ClinicalNoteSupervisorReview from '../../components/clinical/ClinicalNoteSupervisorReview.vue';
+import ClientAlertDialog from '../../components/clients/ClientAlertDialog.vue';
 import ClinicalNoteReviewRequests from '../../components/clinical/ClinicalNoteReviewRequests.vue';
 import { groupNoteReviewWork } from '../../utils/noteReviewWork.js';
 import { isMentalHealthWorkspace } from '../../utils/clinicalWorkspace.js';

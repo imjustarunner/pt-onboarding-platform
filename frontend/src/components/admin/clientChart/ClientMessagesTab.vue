@@ -52,6 +52,49 @@
           <p><strong>{{ isBackofficeRole ? 'No internal notes yet.' : 'No contact documentation yet.' }}</strong></p>
         </div>
       </section>
+
+      <section class="cc-messages-card" data-testid="client-alerts">
+        <div class="cc-messages-card__head">
+          <div>
+            <h3 class="cc-messages-card__title">Client Alerts</h3>
+            <p class="cc-messages-card__sub">Referral notes for staff who open this client. Each person dismisses the popup on their own. Not sent to the client or family.</p>
+          </div>
+        </div>
+        <form class="cc-messages-compose" @submit.prevent="createAlert">
+          <textarea
+            v-model="alertDraft"
+            class="cc-messages-textarea"
+            rows="3"
+            maxlength="2000"
+            placeholder="Add a client alert…"
+            aria-label="Client Alert"
+          />
+          <div class="cc-messages-compose__foot">
+            <span class="cc-messages-char">{{ alertDraft.length }}/2000</span>
+            <button
+              type="submit"
+              class="cc-btn-primary"
+              style="width: auto;"
+              :disabled="creatingAlert || !alertDraft.trim()"
+            >
+              {{ creatingAlert ? 'Saving…' : 'Save client alert' }}
+            </button>
+          </div>
+        </form>
+        <div v-if="alerts.length" class="cc-messages-list">
+          <article v-for="alert in alerts" :key="alert.id" class="cc-messages-item">
+            <div class="cc-messages-item__meta">
+              <span class="cc-messages-item__author">{{ alert.author_name || 'Staff' }}</span>
+              <span class="cc-messages-item__date">{{ formatDateTime(alert.created_at) }}</span>
+              <span class="cc-messages-pill">Client Alert</span>
+            </div>
+            <div class="cc-messages-item__body">{{ alert.body }}</div>
+          </article>
+        </div>
+        <div v-else class="cc-messages-empty">
+          <p><strong>No client alerts yet.</strong></p>
+        </div>
+      </section>
     </div>
 
     <div v-if="showInternalComposer" class="cc-messages-modal" @click.self="closeInternalComposer">
@@ -106,6 +149,9 @@ const notes = ref([]);
 const showInternalComposer = ref(false);
 const internalNoteMessage = ref('');
 const creatingInternal = ref(false);
+const alerts = ref([]);
+const alertDraft = ref('');
+const creatingAlert = ref(false);
 
 const sharedMessages = computed(() => (notes.value || []).filter((n) => !n?.is_internal_only && String(n?.category || '').toLowerCase() !== 'comment'));
 const internalNotes = computed(() => (notes.value || []).filter((n) => !!n?.is_internal_only));
@@ -135,6 +181,12 @@ async function loadNotes() {
   try {
     const response = await api.get(`/clients/${props.clientId}/notes`);
     notes.value = response.data || [];
+    try {
+      const alertsResponse = await api.get(`/clients/${props.clientId}/client-alerts`);
+      alerts.value = Array.isArray(alertsResponse.data?.alerts) ? alertsResponse.data.alerts : [];
+    } catch {
+      alerts.value = [];
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load contact documentation';
     notes.value = [];
@@ -150,6 +202,22 @@ function openInternalComposer() {
 
 function closeInternalComposer() {
   showInternalComposer.value = false;
+}
+
+async function createAlert() {
+  const text = alertDraft.value.trim();
+  if (!text || !props.clientId) return;
+  creatingAlert.value = true;
+  error.value = '';
+  try {
+    await api.post(`/clients/${props.clientId}/client-alerts`, { body: text });
+    alertDraft.value = '';
+    await loadNotes();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to save client alert';
+  } finally {
+    creatingAlert.value = false;
+  }
 }
 
 async function createInternalNote() {

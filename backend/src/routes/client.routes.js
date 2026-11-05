@@ -1,3 +1,9 @@
+import {
+  createClientAlertHandler,
+  dismissClientAlertHandler,
+  listClientAlertsHandler,
+  listPendingClientAlertsHandler
+} from '../controllers/clientAlerts.controller.js';
 import { getClientChartSetup } from '../controllers/chartSetup.controller.js';
 import {getStaffReminderConsent,saveStaffReminderConsent} from '../controllers/staffVerbalReminderConsent.controller.js';
 import { listSchoolAbsenceHistory } from '../controllers/schoolAbsenceHistory.controller.js';
@@ -293,6 +299,12 @@ router.put('/:id/admin-note', upsertClientAdminNote);
 // Client identifier code (6-digit, permanent)
 router.put('/:id/identifier-code', setClientIdentifierCode);
 router.post('/:id/identifier-code/generate', generateClientIdentifierCode);
+
+// Staff client alerts (messages window). School staff, guardians, and clients are rejected.
+router.get('/:id/client-alerts', listClientAlertsHandler);
+router.post('/:id/client-alerts', createClientAlertHandler);
+router.get('/:id/client-alerts/pending', listPendingClientAlertsHandler);
+router.post('/:id/client-alerts/:alertId/dismiss', dismissClientAlertHandler);
 
 // Get notes
 router.get('/:id/notes', getClientNotes);

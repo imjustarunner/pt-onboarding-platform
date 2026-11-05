@@ -788,6 +788,16 @@
             </small>
             <small v-else>Days are sourced from the provider’s schedule for this organization.</small>
           </div>
+          <div v-if="newClient.provider_id" class="form-group">
+            <label for="create-client-alert">Client Alert <span class="hint">(optional)</span></label>
+            <textarea
+              id="create-client-alert"
+              v-model="newClient.client_alert"
+              rows="3"
+              maxlength="2000"
+              placeholder="Optional referral note for the assignee. Example: no contact info, please inquire with school client or referral contact for contact info."
+            />
+          </div>
           <div class="form-group">
             <label>Client Status</label>
             <select v-model="newClient.client_status_id">
@@ -1908,6 +1918,7 @@ const newClient = ref({
   initials: '',
   full_name: '',
   provider_id: null,
+  client_alert: '',
   provider_make_primary: true,
   service_day: '',
   client_status_id: null,
@@ -3099,7 +3110,7 @@ const createClient = async ({ forceCreate = false } = {}) => {
     }
     const listing = await finishClientCreation({ api, clientId: created.id, agencyId, organizationId: orgId,
       schedule, matchingPreferences: createMatchingPreferences.value, outcome: createOutcome.value, providerId: newClient.value.provider_id,
-      serviceDay: newClient.value.service_day, isSchool: selectedOrgIsSchool.value });
+      serviceDay: newClient.value.service_day, isSchool: selectedOrgIsSchool.value, clientAlert: newClient.value.client_alert });
     await fetchClients();
     if (listing?.notifications?.failed) {
       error.value = 'Client saved and posted, but some notification emails could not be sent. The listing is available in Client Exchange.';
@@ -3154,6 +3165,7 @@ const closeCreateModal = () => {
     initials: '',
     full_name: '',
     provider_id: null,
+    client_alert: '',
     provider_make_primary: true,
     service_day: '',
     client_status_id: null,

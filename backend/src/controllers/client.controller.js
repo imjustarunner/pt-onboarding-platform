@@ -32,6 +32,8 @@ import {
 } from '../services/clientRecordAccess.service.js';
 import Notification from '../models/Notification.model.js';
 import NotificationDispatcherService from '../services/notificationDispatcher.service.js';
+import { findProviderAssignmentId, saveClientAlert } from '../services/clientAlerts.service.js';
+import { readClientAlertText } from '../utils/clientAlertText.js';
 import crypto from 'crypto';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 import { isSkillsClientFlag } from '../utils/skillsClientFlag.js';
@@ -3975,6 +3977,8 @@ export const assignProvider = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { provider_id, service_day, note } = req.body;
+    const alertInput = readClientAlertText(req.body);
+    if (!alertInput.ok) return res.status(400).json({ error: { message: alertInput.error } });
     const userId = req.user.id;
     const userRole = req.user.role;
 
@@ -4217,6 +4221,21 @@ export const assignProvider = async (req, res, next) => {
            VALUES (?, ?, 'service_day', ?, ?, ?)`,
           [parseInt(id, 10), userId, oldDay || null, finalDay || null, note || null]
         );
+      }
+
+      if (alertInput.text && finalProviderId) {
+        const assignmentId = await findProviderAssignmentId(connection, {
+          clientId: parseInt(id, 10),
+          organizationId: schoolId || null,
+          providerUserId: finalProviderId,
+          serviceDay: finalDay
+        });
+        await saveClientAlert(connection, {
+          clientId: parseInt(id, 10),
+          body: alertInput.text,
+          createdByUserId: userId,
+          assignmentId
+        });
       }
 
       await connection.commit();
@@ -8349,6 +8368,8 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'organization_id, provider_user_id, and valid service_day are required (Unknown or weekday)' } });
     }
     const serviceDay = rawDay === 'Unknown' ? null : rawDay;
+    const alertInput = readClientAlertText(req.body);
+    if (!alertInput.ok) return res.status(400).json({ error: { message: alertInput.error } });
 
     const userId = req.user.id;
     const role = req.user.role;
@@ -8541,6 +8562,23 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
         forceLegacy: requestedPrimary
       });
 
+      let savedAlertText = '';
+      if (alertInput.text) {
+        const assignmentId = await findProviderAssignmentId(connection, {
+          clientId,
+          organizationId: orgId,
+          providerUserId,
+          serviceDay
+        });
+        const saved = await saveClientAlert(connection, {
+          clientId,
+          body: alertInput.text,
+          createdByUserId: userId,
+          assignmentId
+        });
+        if (saved) savedAlertText = alertInput.text;
+      }
+
       await connection.commit();
 
       // Best-effort: in-app notify assigned provider. Email follows after 24h if unread.
@@ -8563,7 +8601,8 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
             audienceJson: {
               schoolName: orgName,
               serviceDay: serviceDay || null,
-              deferEmailFollowup: true
+              deferEmailFollowup: true,
+              ...(savedAlertText ? { clientAlert: savedAlertText } : {})
             },
             userId: providerUserId,
             agencyId: client?.agency_id || null,

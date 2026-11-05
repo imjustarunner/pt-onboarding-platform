@@ -9,7 +9,7 @@ import Agency from '../models/Agency.model.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { resolvePreferredSenderIdentityForAgency } from './emailSenderIdentityResolver.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
-import { buildClientAssignedEmailHtml } from './brandedNotificationEmail.service.js';
+import { composeClientAssignedAssigneeEmail } from './brandedNotificationEmail.service.js';
 import { publicAppBaseUrl } from './contactReminderToken.service.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 
@@ -157,23 +157,13 @@ export async function processClientAssignmentFollowupEmails({ now = new Date() }
         appUrl = `${String(publicAppBaseUrl() || '').replace(/\/+$/, '')}/login`;
       }
 
-      const dayPhrase = serviceDay ? ` on ${serviceDay}` : '';
       const subject = 'A new client has been added to your caseload';
-      const text = [
-        'A new client has been added to your caseload and you have new tasks waiting in the app.',
-        `School: ${schoolName}${dayPhrase}.`,
-        '',
-        'Please sign in to review and complete your new client tasks:',
-        appUrl,
-        '',
-        'This is an automated message. Replies are not monitored.'
-      ].join('\n');
-
-      const html = buildClientAssignedEmailHtml({
+      const { text, html } = composeClientAssignedAssigneeEmail({
         agencyName: schoolName,
         serviceDay: serviceDay || '',
+        appUrl,
         colorPalette: null,
-        appUrl
+        clientAlert: meta.clientAlert
       });
 
       const sendResult = await sendEmailFromIdentity({

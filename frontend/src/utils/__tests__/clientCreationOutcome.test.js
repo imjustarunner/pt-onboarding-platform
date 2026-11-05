@@ -15,6 +15,12 @@ it('uses the school assignment API with Unknown day and makes the provider prima
   const a = args(); a.api.get.mockResolvedValueOnce({ data: {} });
   await finishClientCreation({ ...a, outcome: 'assign', isSchool: true });
   expect(a.api.post).toHaveBeenCalledWith('/clients/12/provider-assignments', expect.objectContaining({ service_day: 'Unknown', is_primary: true }));
+  expect(a.api.post.mock.calls[0][1].client_alert).toBeUndefined();
+});
+it('sends a client alert with the assignment only when the assigner wrote one', async () => {
+  const a = args(); a.api.get.mockResolvedValueOnce({ data: { provider_id: null } });
+  await finishClientCreation({ ...a, outcome: 'assign', clientAlert: '  no contact info  ' });
+  expect(a.api.put).toHaveBeenCalledWith('/clients/12/provider', { provider_id: 9, client_alert: 'no contact info' });
 });
 it('saves unassigned without assignment and posts only the saved client for exchange', async () => {
   const a = args(); await finishClientCreation({ ...a, outcome: 'unassigned' }); expect(a.api.put).not.toHaveBeenCalled(); expect(a.api.post).not.toHaveBeenCalled();

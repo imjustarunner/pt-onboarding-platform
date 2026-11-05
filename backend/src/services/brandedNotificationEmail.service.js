@@ -8,6 +8,7 @@ import {
   applyTenantEmailChromeHtml,
   resolveTenantEmailChrome
 } from './tenantEmailChrome.service.js';
+import { clientAlertLine, prependClientAlertText } from '../utils/clientAlertText.js';
 
 function escapeHtml(s) {
   return String(s || '')
@@ -204,6 +205,10 @@ export function buildClientAssignedEmailHtml(opts = {}) {
   const serviceDay = String(opts.serviceDay || '').trim();
   const appUrl = String(opts.appUrl || '').trim();
   const primary = parsePrimaryColor(opts.colorPalette);
+  const alertLine = clientAlertLine(opts.clientAlert);
+  const alertHtml = alertLine
+    ? `<p style="margin:0 0 16px;font-size:16px;line-height:1.45;font-weight:700;color:#0f172a;">${escapeHtml(alertLine)}</p>`
+    : '';
 
   const dayLine = serviceDay
     ? `<p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#334155;">Added to your day: <strong>${escapeHtml(serviceDay)}</strong></p>`
@@ -220,6 +225,7 @@ export function buildClientAssignedEmailHtml(opts = {}) {
   return `
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
   <tr><td class="email-content-cell" style="padding:28px 28px 8px;">
+    ${alertHtml}
     <p style="margin:0 0 10px;font-size:18px;font-weight:700;color:${escapeHtml(primary)};">Hello,</p>
     <h1 style="margin:0 0 14px;font-size:22px;line-height:1.25;font-weight:800;color:#0f172a;">New client on your caseload</h1>
     <p style="margin:0 0 14px;font-size:15px;line-height:1.55;color:#334155;">
@@ -236,4 +242,31 @@ export function buildClientAssignedEmailHtml(opts = {}) {
     <p style="margin:0;font-size:13px;color:#94a3b8;">This is an automated message. Replies are not monitored.</p>
   </td></tr>
 </table>`;
+}
+
+/** Text and HTML the assignee already receives for a new caseload assignment. */
+export function composeClientAssignedAssigneeEmail({ agencyName, serviceDay, appUrl, colorPalette, clientAlert } = {}) {
+  const schoolName = String(agencyName || 'your school').trim() || 'your school';
+  const day = String(serviceDay || '').trim();
+  const dayPhrase = day ? ` on ${day}` : '';
+  const url = String(appUrl || '').trim();
+  const textBody = [
+    'A new client has been added to your caseload and you have new tasks waiting in the app.',
+    `School: ${schoolName}${dayPhrase}.`,
+    '',
+    'Please sign in to review and complete your new client tasks:',
+    url,
+    '',
+    'This is an automated message. Replies are not monitored.'
+  ].join('\n');
+  return {
+    text: prependClientAlertText(textBody, clientAlert),
+    html: buildClientAssignedEmailHtml({
+      agencyName: schoolName,
+      serviceDay: day,
+      appUrl: url,
+      colorPalette,
+      clientAlert
+    })
+  };
 }

@@ -348,6 +348,15 @@
                 {{ p.first_name }} {{ p.last_name }}
               </option>
             </select>
+            <label class="oiq-section-title" :for="`client-alert-${selected.id}`">Client Alert <span class="hint">(optional)</span></label>
+            <textarea
+              :id="`client-alert-${selected.id}`"
+              v-model="alertDrafts[selected.id]"
+              class="oiq-note-input"
+              rows="3"
+              maxlength="2000"
+              placeholder="Optional referral note for the assignee. Example: no contact info, please inquire with school client or referral contact for contact info."
+            />
             <button
               type="button"
               class="oiq-btn oiq-btn--primary"
@@ -444,6 +453,7 @@ const conversionLinks = reactive({});
 const conversionMessages = reactive({});
 const notesByClient = reactive({});
 const noteDrafts = reactive({});
+const alertDrafts = reactive({});
 const notesLoadingId = ref(null);
 const notesSavingId = ref(null);
 const acceptance = ref(null);
@@ -662,7 +672,12 @@ async function assign(client) {
   if (!providerId) return;
   assigningId.value = client.id;
   try {
-    await api.put(`/clients/${client.id}/provider`, { provider_id: Number(providerId) });
+    const clientAlert = String(alertDrafts[client.id] || '').trim();
+    await api.put(`/clients/${client.id}/provider`, {
+      provider_id: Number(providerId),
+      ...(clientAlert ? { client_alert: clientAlert } : {})
+    });
+    alertDrafts[client.id] = '';
     await loadAll();
     selectedId.value = null;
   } catch (e) {

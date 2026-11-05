@@ -9,11 +9,15 @@ it('shows authorized contact documentation to a provider without enabling admin 
  expect(w.text()).not.toContain('New admin note');
  expect(w.text()).not.toContain('Client-facing notes');
  expect(w.text()).not.toContain('Use initials only');
- expect(w.find('textarea').exists()).toBe(false);w.unmount();
+ expect(w.find('[aria-label="Client Alert"]').exists()).toBe(true);
+ expect(w.text()).toContain('Client Alerts');
+ w.unmount();
 });
 it('retains previously authorized shared account notes as read-only history',async()=>{
  api.get.mockResolvedValueOnce({data:[{id:2,is_internal_only:0,message:'Existing account update.'}]});
  const w=mount(Tab,{props:{clientId:1,isBackofficeRole:false}});await flushPromises();
  expect(w.find('details').exists()).toBe(true);expect(w.find('details').attributes('open')).toBeUndefined();
- expect(w.text()).toContain('Existing account update.');expect(w.find('textarea').exists()).toBe(false);w.unmount();
+ expect(w.text()).toContain('Existing account update.');
+ expect(w.text()).not.toContain('New admin note');
+ w.unmount();
 });

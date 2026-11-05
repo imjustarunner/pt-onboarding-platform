@@ -90,6 +90,20 @@
         </select>
       </div>
 
+      <div class="field">
+        <div class="field-label-row">
+          <label for="ob-client-alert">Client Alert <span class="muted">(optional)</span></label>
+        </div>
+        <textarea
+          id="ob-client-alert"
+          v-model="draftClientAlert"
+          rows="3"
+          maxlength="2000"
+          :disabled="!canEdit || savingAssignment"
+          placeholder="Optional referral note for the assignee. Example: no contact info, please inquire with school client or referral contact for contact info."
+        />
+      </div>
+
       <div class="staff-setup-actions">
         <button
           v-if="canEdit"
@@ -125,6 +139,7 @@ const emit = defineEmits(['updated']);
 const loading = ref(false);
 const loadError = ref('');
 const savingAssignment = ref(false);
+const draftClientAlert = ref('');
 const savingInsurance = ref(false);
 const saveMsg = ref('');
 const saveError = ref('');
@@ -321,6 +336,7 @@ async function saveAssignment() {
   savingAssignment.value = true;
   saveError.value = '';
   saveMsg.value = '';
+  const clientAlert = draftClientAlert.value.trim();
   try {
     if (isSchool.value) {
       const orgId = organizationId.value;
@@ -329,13 +345,16 @@ async function saveAssignment() {
         organization_id: orgId,
         provider_user_id: providerUserId,
         service_day: String(draftServiceDay.value || 'Unknown'),
-        is_primary: true
+        is_primary: true,
+        ...(clientAlert ? { client_alert: clientAlert } : {})
       }, { skipGlobalLoading: true });
     } else {
       await api.put(`/clients/${id}/provider`, {
-        provider_id: providerUserId
+        provider_id: providerUserId,
+        ...(clientAlert ? { client_alert: clientAlert } : {})
       }, { skipGlobalLoading: true });
     }
+    draftClientAlert.value = '';
     savedProviderId.value = String(providerUserId);
     savedServiceDay.value = isSchool.value ? String(draftServiceDay.value || '') : '';
     saveMsg.value = 'Provider assignment saved';
