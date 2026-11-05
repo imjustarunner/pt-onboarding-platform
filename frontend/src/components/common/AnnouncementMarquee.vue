@@ -62,9 +62,22 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { announcementSequence } from '../../utils/announcementSequence.js';
 import { toUploadsUrl } from '../../utils/uploadsUrl.js';
+
+// A blocked optional font must not reject Vite's dashboard stylesheet preload.
+// Load it separately after mounting; existing serif fallbacks remain available.
+onMounted(() => {
+  if (document.getElementById('announcement-display-font')) return;
+  const font = document.createElement('link');
+  font.id = 'announcement-display-font';
+  font.rel = 'stylesheet';
+  font.href = 'https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&display=swap';
+  font.media = 'print';
+  font.onload = () => { font.media = 'all'; };
+  document.head.appendChild(font);
+});
 
 const props = defineProps({
   items: { type: Array, default: () => [] },
@@ -194,7 +207,6 @@ function onClick() {
 </script>
 
 <style scoped>
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&display=swap');
 
 .ann-marquee {
   --ann-fg: #0f172a;
