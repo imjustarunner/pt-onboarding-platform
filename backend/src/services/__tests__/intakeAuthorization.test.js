@@ -7,3 +7,19 @@ beforeEach(()=>pool.execute.mockReset());
 it.each([{}, {authorizationAgreed:true},{authorizationSignature:'QA Parent'},{authorizationAgreed:false,authorizationSignature:'QA Parent'}])('rejects incomplete self-pay authorization before checking card availability: %j',async info=>{await expect(validateIntakeBilling(input(info))).rejects.toMatchObject({status:400});expect(pool.execute).not.toHaveBeenCalled();});
 it('allows payment follow-up when the authorization is complete and card collection is unavailable',async()=>{pool.execute.mockResolvedValue([[]]);await validateIntakeBilling(input({authorizationAgreed:true,authorizationSignature:'QA Parent'}));expect(pool.execute).toHaveBeenCalledTimes(1);});
 it('preserves the standalone school signature flow that does not display a checkbox',async()=>{const data=input({authorizationSignature:'QA Parent'});data.link={scope_type:'school',intake_steps:[{type:'insurance_info'}]};await validateIntakeBilling(data);expect(pool.execute).not.toHaveBeenCalled();});
+const school=info=>({agencyId:450,submission:{id:1},link:{scope_type:'school',intake_steps:[{type:'insurance_info'}]},intakeData:{responses:{submission:{insuranceInfo:{...info}}}}});
+it('lets a school family finish self-pay without a signature when the step showed none',async()=>{
+  await validateIntakeBilling(school({isSelfPay:true,authorizationSourceMethod:'self_pay',primary:{insurerName:'Self-Pay',memberId:''}}));
+  expect(pool.execute).not.toHaveBeenCalled();
+});
+it.each([
+  {isSelfPay:true,primary:{insurerName:'Self-Pay'}},
+  {isSelfPay:false,authorizationSourceMethod:'self_pay',primary:{insurerName:'Aetna'}},
+  {isSelfPay:true,authorizationSourceMethod:'self_pay',primary:{insurerName:'Self-Pay',memberId:'ABC123'}},
+  {isSelfPay:true,authorizationSourceMethod:'self_pay',primary:{insurerName:'Self-Pay',isMedicaid:true}}
+])('still requires the authorization signature for anything but plain self-pay: %j',async info=>{
+  await expect(validateIntakeBilling(school(info))).rejects.toMatchObject({status:400});
+});
+it('keeps requiring the agreement on office self-pay even with the school marker',async()=>{
+  await expect(validateIntakeBilling(input({authorizationSourceMethod:'self_pay'}))).rejects.toMatchObject({status:400});
+});

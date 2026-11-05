@@ -17,7 +17,18 @@ export async function validateIntakeBilling({ link, submission, intakeData, agen
       || String(info?.authorizationSignatureData || '').trim().length >= 50;
     const requiresCheckbox = linkLooksLikeOfficeIntake(link) || steps.some(step => step.paymentOnly)
       || ['tutoring','coaching','consulting','mentorship'].includes(link.master_channel);
-    if (!signed || info?.authorizationAgreed === false || (requiresCheckbox && info?.authorizationAgreed !== true)) {
+    // A standalone school enrollment self-pay choice shows no authorization or
+    // signature control, because no assignment of benefits exists to sign. Only
+    // that exact browser state may skip it; office and payment-only steps still
+    // show the agreement and must keep requiring it.
+    const memberId = String(info?.primary?.memberId || '').trim();
+    const selfPayWithoutAuthorization = !requiresCheckbox
+      && info?.isSelfPay === true
+      && info?.authorizationSourceMethod === 'self_pay'
+      && !signed
+      && !memberId
+      && !hasMedicaidCoverage(info);
+    if (!selfPayWithoutAuthorization && (!signed || info?.authorizationAgreed === false || (requiresCheckbox && info?.authorizationAgreed !== true))) {
       throw billingError(400, 'Please agree to and sign the insurance and payment authorization before completing enrollment.');
     }
   }
