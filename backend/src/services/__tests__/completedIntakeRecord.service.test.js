@@ -468,3 +468,57 @@ test('receipt prints the selected screen label and self screens that are not on 
   assert.equal(value('Grade'), 'GRADE-TOKEN-8');
   assert.equal(value('Street'), 'STREET-TOKEN-410');
 });
+
+for (const phqaOnStep of [false, true]) {
+  test(`self school packet prints an all-zero PHQ-A as its own titled section (fields on step=${phqaOnStep})`, () => {
+    const phqa = Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`phqa_${i + 1}`, 0]));
+    const gad7 = Object.fromEntries(Array.from({ length: 7 }, (_, i) => [`gad7_${i + 1}`, '1']));
+    const stepFields = [
+      { key: 'client_sex', label: 'Client Sex', type: 'text' },
+      ...(phqaOnStep ? Object.keys(phqa).map((key) => ({ key, label: '', type: 'radio', instrument: 'phqa' })) : [])
+    ];
+    const spec = buildCompletedIntakeRecord({
+      link: { scope_type: 'school', intake_steps: [{ type: 'questions', label: 'Questions', fields: stepFields }] },
+      submission: {
+        id: 1407,
+        intake_data: {
+          clients: [{ firstName: 'Demo', lastName: 'Self' }],
+          guardian: { firstName: 'Demo', lastName: 'Self', email: 'self@example.com' },
+          responses: {
+            // Self enrollment keeps the student's own answers in the guardian bag.
+            guardian: { client_sex: 'Male', client_grade: 'GRADE-SELF-8', ...phqa, ...gad7 },
+            clients: [{ client_first: 'Demo', client_last: 'Self' }],
+            submission: {
+              smartSchoolRoi: { intakeForSelf: true },
+              completedSchoolChildSteps: ['step_1777_abc', 'step_1777_def'],
+              guardianWaiverIntake: {
+                stepId: 'step_1777_waiver',
+                clients: [{ sections: { emergency_contacts: {
+                  payload: { declineEmergencyContacts: false, contacts: [{ name: 'Casey Contact', phone: '555-0100' }] },
+                  signatureData: 'data:image/png;base64,aaaa',
+                  signatureMeta: { signerName: 'Demo Self', sectionKey: 'emergency_contacts', clientIndex: 0 }
+                } } }]
+              },
+              insuranceInfo: { isSelfPay: true, identity: { verified: null, skipped: true, message: 'skipped' } }
+            }
+          }
+        }
+      }
+    });
+    const text = JSON.stringify(spec.sections);
+    const phqaSection = spec.sections.find((section) => section.title === 'PHQ-A');
+    assert.ok(phqaSection, 'PHQ-A section is titled');
+    assert.equal(phqaSection.rows.length, 9);
+    assert.equal(phqaSection.rows[0].label, 'Feeling down, depressed, irritable, or hopeless');
+    assert.equal(phqaSection.rows[0].value, 'Not at all');
+    assert.ok(phqaSection.rows.every((row) => row.value === 'Not at all'));
+    assert.ok(spec.sections.some((section) => section.title === 'GAD-7'));
+    assert.doesNotMatch(text, /Phqa \d/);
+    assert.doesNotMatch(text, /Gad7 \d/);
+    const info = spec.sections.find((section) => section.title === 'Your information');
+    assert.ok(info.rows.every((row) => !/phq|gad/i.test(row.label)));
+    assert.doesNotMatch(text, /Payload|Step Id|Completed School Child Steps|step_1777|Identity/);
+    const waivers = spec.sections.find((section) => section.title === 'Guardian waivers & safety');
+    assert.ok(waivers.rows.some((row) => /Emergency Contacts/.test(row.label) && row.value === 'Casey Contact'));
+  });
+}

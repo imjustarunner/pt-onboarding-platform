@@ -223,6 +223,10 @@
               </section>
             </template>
           </ClientOverviewHub>
+          <p v-if="chartReceiptError && !showPanel('records')" class="error" role="alert">
+            {{ chartReceiptError }}
+            <a v-if="chartReceiptFallbackUrl" :href="chartReceiptFallbackUrl" target="_blank" rel="noopener">Open the enrollment receipt</a>
+          </p>
           <ClientOperationalStatus v-if="roleNorm === 'support' && clientChartClientId" :client-id="clientChartClientId" />
           <ClientReminderTextConsent v-if="['support','admin','super_admin'].includes(roleNorm) && clientChartClientId" :key="clientChartClientId" :client-id="Number(clientChartClientId)" />
           <ClientPendingTasks v-if="clientChartClientId && !route.meta?.auricwellPreview" :agency-id="clientAgencyId" :client-id="clientChartClientId" :billing-enabled="canViewClientBillingImport" :clinical-notes="canViewMedicalRecord ? clientTaskEncounters : []" @open-note="goChartSub('medical-record')" />
@@ -2657,11 +2661,11 @@
             :agency-id="client.agency_id"
             @updated="onChartSetupUpdated"
           />
-          <h3 style="margin-top: 0;">{{ effectiveClientType === 'learning' ? 'Intake / enrollment note' : 'Intake note' }}</h3>
+          <h3 style="margin-top: 0;">{{ ['learning', 'school'].includes(effectiveClientType) ? 'Enrollment note' : 'Intake note' }}</h3>
           <p class="hint">
             {{
-              effectiveClientType === 'learning'
-                ? 'Enrollment and intake documentation for this student.'
+              ['learning', 'school'].includes(effectiveClientType)
+                ? 'Enrollment documentation for this student.'
                 : 'Intake draft and finalization for this client. Progress notes are under Records → Notes.'
             }}
           </p>

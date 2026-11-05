@@ -78,8 +78,20 @@ const SKIP_BAG_KEYS = new Set([
   'jobAcknowledged',
   'applicantProfile',
   'referenceReleaseSignature',
-  'referenceReleaseSigned'
+  'referenceReleaseSigned',
+  // Packet bookkeeping, not family answers.
+  'guardianWaiverIntake',
+  'completedSchoolChildSteps',
+  'stepId',
+  'step_id',
+  'sectionKey',
+  'clientIndex',
+  'registrationSelectionIdsByStep',
+  'registrationSelectionsByStep',
+  'registrationParticipantByStep',
+  'identity'
 ]);
+const INTERNAL_STEP_VALUE = /^step_[a-z0-9_-]+$/i;
 const INSTRUMENT_SKIP_KEYS = {
   phq9: 'skip_phq9',
   gad7: 'skip_gad7',
@@ -237,6 +249,8 @@ function instrumentWasCompleted(fields, values) {
     return hasValue(raw);
   });
   if (!answered.length) return false;
+  // Validated screens score 0 as a real answer ("Not at all"); an all-zero PHQ-A is complete.
+  if (answered.some((field) => SCREEN_ANSWER_KEY.test(field.key))) return true;
   const allBlankLikert = answered.every((field) => looksLikeBlankLikert(values?.[field.key]));
   if (allBlankLikert) return false;
   return true;
@@ -274,7 +288,7 @@ function fieldIndex(link) {
   return byKey;
 }
 
-const INSTRUMENT_LEFTOVER_KEY = /^(psc|vanderbilt|scared5?|asq|phq9?|gad7?|crafft|send_child)_/i;
+const INSTRUMENT_LEFTOVER_KEY = /^(psc|vanderbilt|scared5?|asq|phq(?:9|a)?|gad7?|crafft|send_child)_/i;
 
 const FALLBACK_VALUE_LABELS = {
   send: 'Send to the child',
@@ -436,11 +450,32 @@ function walkBag(bag, { byKey, locale, link, prefix = '', skipKeys = new Set(), 
       printed.add(key);
       continue;
     }
+    if (typeof raw === 'string' && INTERNAL_STEP_VALUE.test(raw.trim())) continue;
+    if (Array.isArray(raw) && raw.length && raw.every((item) => typeof item === 'string' && INTERNAL_STEP_VALUE.test(item.trim()))) continue;
     const rendered = field ? formatFieldValue(field, raw, locale, link) : formatFieldValue(null, raw, locale, link);
     if (!hasValue(rendered) && rendered !== 'Yes' && rendered !== 'No') continue;
     pushRow(rows, label, rendered);
     printed.add(key);
   }
+}
+
+/** Guardian waivers step: one titled section per waiver, answers only. */
+function guardianWaiverSection(submissionBag, { byKey, locale, link }) {
+  const intake = submissionBag?.guardianWaiverIntake;
+  const clients = Array.isArray(intake?.clients) ? intake.clients : [];
+  const rows = [];
+  clients.forEach((client, index) => {
+    const childPrefix = clients.length > 1 ? `Child ${index + 1}` : '';
+    for (const [sectionKey, section] of Object.entries(client?.sections || {})) {
+      const payload = section?.payload;
+      if (!payload || typeof payload !== 'object') continue;
+      const prefix = [childPrefix, humanizeKey(sectionKey)].filter(Boolean).join(' · ');
+      walkBag(payload, { byKey, locale, link, prefix }, rows, new Set());
+      const signedBy = String(section?.signatureMeta?.signerName || '').trim();
+      if (signedBy) pushRow(rows, `${prefix} · Signed by`, signedBy);
+    }
+  });
+  return rows.length ? { title: 'Guardian waivers & safety', rows } : null;
 }
 
 function rowsFromInterview(link, values, locale, printed, childName = '', { includeUnanswered = false } = {}) {
@@ -1113,6 +1148,7 @@ export function buildCompletedIntakeRecord({
     providersBlock,
     ...interviewSections,
     ...answeredInstrumentSections(interviewValues, printed, byKey, locale, link, childName),
+    guardianWaiverSection(submissionBag, { byKey, locale, link }),
     leftoverSubmission.length ? { title: 'Additional answers', rows: leftoverSubmission } : null,
     ...clientSections,
     ...schoolRoiRecordSections(intakeData)

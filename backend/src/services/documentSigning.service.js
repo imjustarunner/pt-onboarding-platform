@@ -275,6 +275,7 @@ ${originalStyles}
         referenceNumber = null,
         documentName = null,
         signatureOnAuditPage = false,
+        omitRawAuditTrail = false,
         fieldDefinitions = [],
         fieldValues = {}
       } = options || {};
@@ -319,7 +320,8 @@ ${originalStyles}
       await this.addAuditCertificatePage(pdfDoc, workflowData, userData, auditTrail, {
         referenceNumber,
         documentName,
-        signatureImage: signatureOnAuditPage ? signatureImage : null
+        signatureImage: signatureOnAuditPage ? signatureImage : null,
+        omitRawAuditTrail
       });
       console.log(`DocumentSigningService.generateFinalizedPDF: Audit certificate added successfully`);
 
@@ -1099,7 +1101,7 @@ ${originalStyles}
    * Add ESIGN Act compliant audit certificate page
    */
   static async addAuditCertificatePage(pdfDoc, workflowData, userData, auditTrail, options = {}) {
-    const { referenceNumber = null, documentName = null, signatureImage = null } = options || {};
+    const { referenceNumber = null, documentName = null, signatureImage = null, omitRawAuditTrail = false } = options || {};
     const page = pdfDoc.addPage([612, 792]); // Letter size
     const { width, height } = page.getSize();
 
@@ -1290,8 +1292,8 @@ ${originalStyles}
 
     y -= 20;
 
-    // Audit Trail Summary
-    if (auditTrail) {
+    // Audit Trail Summary. Family copies keep the certificate above; the JSON stays in stored audit data.
+    if (auditTrail && !omitRawAuditTrail) {
       page.drawText('Audit Trail', {
         x: 72,
         y,

@@ -392,7 +392,7 @@ export async function buildRegistrationTicketPdf({
   page.drawText('CONFIRMATION #', {
     x: MARGIN + 14, y: confLabelY, size: 8, font: fontBold, color: GRAY_TEXT
   });
-  const confValue = `INTAKE-${submission?.id || '—'}`;
+  const confValue = String(submission?.id || '—');
   page.drawText(confValue, {
     x: MARGIN + 14, y: confLabelY - 18, size: 18, font: fontBold, color: NAVY_DARK
   });

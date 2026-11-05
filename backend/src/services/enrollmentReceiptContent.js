@@ -12,7 +12,7 @@ export function enrollmentConfirmationContent({ portalLoginUrl = null, needsPass
     portal: 'En su portal puede consultar los documentos y mensajes que su equipo comparta con usted.',
     setup: needsPasswordSetup ? 'Use este enlace personal para crear su contraseña y entrar directamente a su portal. No necesita solicitar otro correo. Por favor, no reenvíe este enlace.' : 'Inicie sesión con la contraseña que ya creó.',
     action: needsPasswordSetup ? 'Crear mi contraseña' : 'Abrir mi portal', help: 'Si tiene preguntas o necesita ayuda para comenzar, comuníquese con nuestro equipo.',
-    thanks: 'Estamos aquí para ayudarle,', signature: agencyName ? `El equipo de ${agencyName}` : 'Su equipo de atención'
+    thanks: 'Estamos aquí para ayudarle,', signature: school ? 'Equipo Escolar' : agencyName ? `El equipo de ${agencyName}` : 'Su equipo de atención'
   } : {
     subject: 'Enrollment received', heading: 'Thank you for taking this step with us.',
     intro: 'We received your enrollment and saved the information you shared. Thank you for taking the time to complete it.',
@@ -22,7 +22,7 @@ export function enrollmentConfirmationContent({ portalLoginUrl = null, needsPass
     portal: 'Your portal is where you can find documents and messages shared by your team.',
     setup: needsPasswordSetup ? 'Use this personal link to create your password and go straight to your portal. No additional email is needed. Please do not forward this link.' : 'Sign in with the password you already created.',
     action: needsPasswordSetup ? 'Create my password' : 'Open my portal', help: 'If you have questions or need help getting started, please contact our team.',
-    thanks: 'We’re here to help,', signature: agencyName ? `Your ${agencyName} care team` : 'Your care team'
+    thanks: 'We’re here to help,', signature: school ? 'Schools Team' : agencyName ? `Your ${agencyName} care team` : 'Your care team'
   };
   const next = [c.review, school ? c.school : c.booking];
   const portal = portalLoginUrl ? [c.portal, c.setup, `${c.action}: ${portalLoginUrl}`] : [];

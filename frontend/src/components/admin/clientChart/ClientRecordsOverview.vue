@@ -193,7 +193,7 @@
             <button type="button" class="cdp-btn-soft" @click="openNoteAid({ launchIntent: 'update_treatment_plan', noteAid: 'psychotherapy_plan' })">
               Update treatment plan
             </button>
-            <button type="button" class="rco-link" @click="$emit('navigate', 'intake-note')">Intake note</button>
+            <button type="button" class="rco-link" @click="$emit('navigate', 'intake-note')">{{ enrollmentChart ? 'Enrollment note' : 'Intake note' }}</button>
             <button type="button" class="rco-link" @click="$emit('navigate', 'treatment-plans')">Treatment plans</button>
           </div>
         </section>
@@ -290,6 +290,10 @@ const props = defineProps({
 });
 
 defineEmits(['navigate', 'navigate-secondary', 'open-document', 'alert-click']);
+const enrollmentChart = computed(() =>
+  [props.client?.client_type, props.client?.organization_type]
+    .some((value) => ['school', 'learning'].includes(String(value || '').trim().toLowerCase()))
+);
 const router = useRouter();
 const route = useRoute();
 
@@ -410,7 +414,7 @@ const activityRows = computed(() => {
     },
     {
       id: 'intake',
-      label: 'Intake & consents',
+      label: 'Enrollment & consents',
       status: authCounts.value.active ? 'On file' : 'Due',
       badgeClass: authCounts.value.active ? 'rco-badge--ok' : 'rco-badge--warn',
       count: authCounts.value.active,

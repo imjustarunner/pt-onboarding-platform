@@ -27,6 +27,8 @@ class PublicIntakeSigningService {
 
     const isRoi = auditTrail?.smartSchoolRoi === true;
     const referenceNumber = `${isRoi ? 'ROI' : 'INTAKE'}-${submissionId}-${template.id}-${Date.now().toString(36).toUpperCase()}`;
+    // Families see their enrollment reference number; the unique id stays in the audit trail.
+    const displayReference = isRoi ? referenceNumber : `Enrollment ${submissionId}`;
     const documentName = isRoi ? 'Release of Information' : template.name || 'Document';
     const mergedAuditTrail = {
       ...(auditTrail || {}),
@@ -44,9 +46,10 @@ class PublicIntakeSigningService {
       mergedAuditTrail,
       signatureCoords,
       {
-        referenceNumber,
+        referenceNumber: displayReference,
         documentName,
         signatureOnAuditPage: false,
+        omitRawAuditTrail: true,
         branding,
         fieldDefinitions,
         fieldValues

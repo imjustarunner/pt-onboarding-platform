@@ -227,6 +227,17 @@
             <span>{{ index < progressIndex ? '✓' : index + 1 }}</span>{{ item.label }}
           </button>
         </nav>
+        <div
+          v-if="enrollmentLayout && !coverMode && progressSteps.length && !billingLayout"
+          class="df-enrollment-progress-bar"
+          role="progressbar"
+          aria-valuemin="0"
+          :aria-valuemax="progressSteps.length"
+          :aria-valuenow="Math.min(progressIndex + 1, progressSteps.length)"
+          :aria-label="language === 'es' ? `Paso ${Math.min(progressIndex + 1, progressSteps.length)} de ${progressSteps.length}` : `Step ${Math.min(progressIndex + 1, progressSteps.length)} of ${progressSteps.length}`"
+        >
+          <i :style="{ width: `${Math.round((Math.min(progressIndex + 1, progressSteps.length) / progressSteps.length) * 100)}%` }" />
+        </div>
         <DigitalFormProgress
           v-if="!enrollmentLayout && !billingLayout && progressSteps.length && !coverMode && progressIndex < progressSteps.length - 1"
           :steps="progressSteps"

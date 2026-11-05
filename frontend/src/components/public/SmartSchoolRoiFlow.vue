@@ -24,7 +24,7 @@
           </span>
           <span>
             {{ form.intakeForSelf === true ? tr('I am the client', 'Yo soy el cliente') : tr('My dependent is the client', 'Mi dependiente es el cliente') }}
-            <span class="subject-choice-locked__note">{{ tr('· carried in from earlier intake details', '· se arrastro desde los datos previos de admision') }}</span>
+            <span class="subject-choice-locked__note">{{ tr('· carried in from earlier enrollment details', '· se arrastro desde los datos previos de inscripción') }}</span>
           </span>
         </div>
       </template>

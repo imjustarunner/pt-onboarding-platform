@@ -18,11 +18,12 @@ export async function sendPacketCompletionNotification({ agencyId, organizationI
   if (!Number.isSafeInteger(tenantId) || tenantId <= 0) {
     throw Object.assign(new Error('A tenant is required to send the packet confirmation.'), { code: 'INTAKE_NOTIFICATION_TENANT_REQUIRED' });
   }
+  const school = String(scopeType || '').toLowerCase() === 'school';
   return sendEnrollmentReceiptOnce({
     ...message,
     agencyId: tenantId,
-    schoolOrganizationId: String(scopeType || '').toLowerCase() === 'school' ? organizationId : null,
+    schoolOrganizationId: school ? organizationId : null,
     source,
     templateType: message.templateType || 'intake_packet_completion'
-  }, sendEnrollmentPortalEmail);
+  }, (outbound) => sendEnrollmentPortalEmail({ ...outbound, schoolsTeamSender: school }));
 }

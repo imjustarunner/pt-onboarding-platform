@@ -27,12 +27,21 @@ describe('packet receipt delivery', () => {
     }
     expect(db.execute.mock.calls.every(([,args])=>JSON.stringify(args)===JSON.stringify([450,'1271']))).toBe(true);
   });
-  it('uses the agency and AuricWell portal sender and agency support replies, never the school personal identity', async () => {
+  it('signs school receipts as the Schools Team from the shared portal address with agency support replies, never the school personal identity', async () => {
+    EmailSenderIdentity.findByAgencyAndIdentityKey.mockResolvedValue({id:6,identity_key:'school_enrollment_portal',from_email:'portal@auricwell.com',display_name:'Schools Team',reply_to:'support@tenant.test'});
     const attachment={filename:'packet.pdf',contentBase64:'synthetic'};
     const result=await sendPacketCompletionNotification({agencyId:2,organizationId:280,scopeType:'school',to:'parent@example.test',text:'We received your packet',attachments:[attachment],intakeSubmissionId:1105,intakeLinkId:64,senderIdentityId:264,replyToOverride:'school@example.test'});
-    expect(EmailSenderIdentity.findByAgencyAndIdentityKey).toHaveBeenCalledWith(2,'clinical_enrollment_portal');
+    expect(EmailSenderIdentity.findByAgencyAndIdentityKey).toHaveBeenCalledWith(2,'school_enrollment_portal');
     expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:6,replyToOverride:'support@tenant.test',usedFallbackSender:false,source:'auto',templateType:'intake_packet_completion',attachments:[attachment],intakeSubmissionId:1105,intakeLinkId:64}));
+    const sent=sendEmailFromIdentity.mock.calls[0][0];
+    expect(sent.text.startsWith('Schools Team |')).toBe(true);
+    expect(sent.html).toContain('Schools Team');
+    expect(sent.html).not.toContain('AuricWell Portal');
     expect(result.sent).toBe(true);
+  });
+  it('keeps office clinical receipts on the AuricWell Portal identity', async () => {
+    await sendPacketCompletionNotification({agencyId:2,organizationId:2,scopeType:'agency',to:'parent@example.test',text:'We received your packet'});
+    expect(EmailSenderIdentity.findByAgencyAndIdentityKey).toHaveBeenCalledWith(2,'clinical_enrollment_portal');
   });
   it('requires an explicit caring tenant for a school packet', async () => {
     await expect(sendPacketCompletionNotification({organizationId:280,scopeType:'school'})).rejects.toHaveProperty('code','INTAKE_NOTIFICATION_TENANT_REQUIRED');

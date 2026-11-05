@@ -2882,6 +2882,13 @@
               @click="downloadOfficeSummaryPdf"
             >{{ officeSummaryDownloading ? t('preparingPdf') : t('downloadSummary') }}</button>
             <a
+              v-if="downloadUrl && !jobApplicationSubmitted && !isSmartSchoolRoi && intakeRegisteredNames.length"
+              class="btn btn-secondary"
+              :href="downloadUrl"
+              target="_blank"
+              rel="noopener"
+            >{{ enrollmentPacketViewLabel(intakeRegisteredNames[0]) }}</a>
+            <a
               v-if="downloadUrl && !jobApplicationSubmitted && !isSmartSchoolRoi"
               class="btn btn-outline"
               :href="downloadUrl"
@@ -2928,7 +2935,9 @@
           <div v-for="bundle in clientBundleLinks" :key="bundle.clientId || bundle.filename" class="bundle-item">
             <div class="bundle-name">{{ bundle.clientName || `Client ${bundle.clientId}` }}</div>
             <template v-if="bundle.downloadUrl">
-              <button type="button" class="btn btn-secondary btn-sm" @click="openChildPacket(bundle)">View</button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="openChildPacket(bundle)">
+                {{ formTypeKey === 'smart_school_roi' ? 'View' : enrollmentPacketViewLabel(bundle.clientName) }}
+              </button>
               <button type="button" class="btn btn-outline btn-sm" @click="openChildPacket(bundle)">Download</button>
             </template>
             <span v-else class="muted small">PDF still preparing</span>
@@ -7533,6 +7542,11 @@ function openChildPacket(bundle) {
     packetDownloadError.value = 'The browser blocked the packet. Allow pop-ups for this site, then click Download again.';
   }
 }
+function enrollmentPacketViewLabel(name) {
+  const who = String(name || '').trim();
+  if (intakeLocale.value === 'es') return who ? `Ver el paquete de inscripción de ${who}` : 'Ver el paquete de inscripción';
+  return who ? `View ${who}'s enrollment packet` : 'View enrollment packet';
+}
 const jobApplicationSubmitted = ref(false);
 
 // Multi-child post-submit UX helpers — used on step 3 ("Successfully
@@ -7541,11 +7555,14 @@ const jobApplicationSubmitted = ref(false);
 // clientBundleLinks.length to detect multi-child because polling starts
 // with an empty list and ramps up, so we capture the expected child count
 // from the form state at submit time and keep it stable through polling.
+// Child names from the status endpoint when the completion page was reloaded
+// and local form state is gone.
+const completedSubmissionRoster = ref([]);
 const expectedChildCount = computed(() => {
   const kids = Array.isArray(intakeResponses?.clients)
     ? intakeResponses.clients
     : [];
-  return Math.max(1, kids.length || 1);
+  return Math.max(1, kids.length || 0, completedSubmissionRoster.value.length);
 });
 const isMultiChildPostSubmit = computed(() => {
   // Job applications never have multiple "kids", so opt them out cleanly.
@@ -7573,9 +7590,8 @@ const pendingChildPlaceholders = computed(() => {
       .map((b) => String(b?.clientName || `Client ${b?.clientId}` || '').trim().toLowerCase())
       .filter(Boolean)
   );
-  const allKids = Array.isArray(intakeResponses?.clients)
-    ? intakeResponses.clients
-    : [];
+  const answeredKids = Array.isArray(intakeResponses?.clients) ? intakeResponses.clients : [];
+  const allKids = completedSubmissionRoster.value.length ? completedSubmissionRoster.value : answeredKids;
   const labels = [];
   allKids.forEach((kid, idx) => {
     const first = String(kid?.firstName || '').trim();
@@ -8686,7 +8702,11 @@ const restoreServerProgress = async () => {
       params: { sessionToken: token, coGuardianToken: String(route.query.coGuardian || '').trim() || undefined },
       skipGlobalLoading: true
     });
-    if (data?.alreadyCompleted) return false;
+    if (data?.alreadyCompleted) {
+      if (!data.submissionId || isJobApplication.value || isMedicalRecordsRequest.value) return false;
+      submissionId.value = data.submissionId;
+      return 'completed';
+    }
     if (data?.coGuardianInvite) {
       resumedCoGuardianInvite.value = true;
       coGuardianDependents.value = data.coGuardianInvite.dependents || [];
@@ -12440,13 +12460,50 @@ const finalizePacket = async () => {
   }
 };
 
+let downloadPollRunning = false;
+const completedPacketsReady = () => !!downloadUrl.value
+  || (clientBundleLinks.value || []).filter((bundle) => bundle?.downloadUrl).length >= expectedChildCount.value;
+
+function hydrateCompletedSubmission(intakeData) {
+  if (!intakeData || typeof intakeData !== 'object') return;
+  const roster = Array.isArray(intakeData.clients) ? intakeData.clients : [];
+  if (roster.length) {
+    completedSubmissionRoster.value = roster.map((kid) => ({
+      firstName: String(kid?.firstName || '').trim(),
+      lastName: String(kid?.lastName || '').trim()
+    }));
+  }
+  if (!guardianFirstName.value && intakeData.guardian?.firstName) {
+    guardianFirstName.value = String(intakeData.guardian.firstName).trim();
+  }
+}
+
 const pollForDownloadUrl = async (attemptLimit) => {
   if (jobApplicationSubmitted.value || (downloadUrl.value && emailDeliveryStatus.value?.attempted)) return;
+  if (downloadPollRunning) return;
+  downloadPollRunning = true;
+  try {
+    await runDownloadPoll(attemptLimit);
+  } finally {
+    downloadPollRunning = false;
+  }
+};
+
+function resumeDownloadPollWhenVisible() {
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+  if (step.value !== 3 || !submissionId.value || packetNeedsReview.value || completedPacketsReady()) return;
+  void pollForDownloadUrl(30);
+}
+onMounted(() => document.addEventListener('visibilitychange', resumeDownloadPollWhenVisible));
+onBeforeUnmount(() => document.removeEventListener('visibilitychange', resumeDownloadPollWhenVisible));
+
+// Per-child packets are built one after another, so allow more time per child.
+const runDownloadPoll = async (attemptLimit) => {
   pollingForDownload.value = false;
   const delays = [1000, 2000, 3000, 4000, 5000];
   const maxAttempts = Number.isFinite(Number(attemptLimit))
     ? Math.max(1, Number(attemptLimit))
-    : 60;
+    : 60 + (expectedChildCount.value > 1 ? 40 * expectedChildCount.value : 0);
   for (let i = 0; i < maxAttempts; i++) {
     const wait = delays[Math.min(i, delays.length - 1)];
     await new Promise((r) => setTimeout(r, wait));
@@ -12464,6 +12521,7 @@ const pollForDownloadUrl = async (attemptLimit) => {
       // Refresh per-child packets every poll so multi-child families see
       // each child's link appear the moment that child's bundle finishes
       // building, instead of waiting for ALL children to be ready.
+      hydrateCompletedSubmission(resp.data?.intakeData);
       if (Array.isArray(resp.data?.clientBundles)) {
         clientBundleLinks.value = resp.data.clientBundles;
         if (!coGuardianInviteResult.value?.inviteId) {
@@ -12483,11 +12541,8 @@ const pollForDownloadUrl = async (attemptLimit) => {
         packetNeedsReview.value = true;
         break;
       }
-      const readyDownloads = (clientBundleLinks.value || []).filter((bundle) => bundle?.downloadUrl).length;
-      const expectedKids = Math.max(1, (intakeResponses?.clients || []).length || 1);
       if (resp.data?.downloadUrl) downloadUrl.value = resp.data.downloadUrl;
-      const downloadsReady = !!downloadUrl.value || readyDownloads >= expectedKids;
-      if (downloadsReady && (emailDeliveryStatus.value?.attempted || i >= 8)) {
+      if (completedPacketsReady() && (emailDeliveryStatus.value?.attempted || i >= 8)) {
         break;
       }
     } catch {
@@ -14266,6 +14321,12 @@ onMounted(async () => {
     }
   }
   const restoredDraft = await restoreServerProgress();
+  if (restoredDraft === 'completed') {
+    // Reloading the completion page keeps the family on it while packets finish.
+    step.value = 3;
+    void pollForDownloadUrl();
+    return;
+  }
   if (!sessionToken.value) {
     if (isJobApplication.value || isMedicalRecordsRequest.value) {
       step.value = -1;

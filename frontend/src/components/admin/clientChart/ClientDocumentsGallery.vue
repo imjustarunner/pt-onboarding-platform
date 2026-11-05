@@ -113,6 +113,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
 import { enrollmentReceiptCards } from '../../../utils/enrollmentReceiptCards.js';
+import { openEnrollmentReceipt } from '../../../utils/openEnrollmentReceipt.js';
 
 const props = defineProps({
   clientId: { type: [Number, String], required: true }
@@ -280,24 +281,13 @@ async function openViewKey(viewKey) {
     return;
   }
   if (key.startsWith('receipt-')) {
-    const popup = window.open('about:blank', '_blank');
-    if (popup) writePopupLoading(popup);
     opening.value = true;
     try {
-      const resp = await api.get(`/phi-documents/enrollment-receipts/${encodeURIComponent(key.slice(8))}/view`, {
-        responseType: 'blob',
-        skipGlobalLoading: true
-      });
-      const file = resp.data instanceof Blob ? resp.data : new Blob([resp.data], { type: 'application/pdf' });
-      const url = URL.createObjectURL(file);
-      if (!navigateToUrl(url, popup)) {
-        closePopupQuietly(popup);
-        openFallbackUrl.value = url;
-        openError.value = 'Your browser blocked a new tab. Use the link below, or allow pop-ups for this site.';
+      const result = await openEnrollmentReceipt(key.slice(8));
+      if (!result.ok) {
+        openError.value = result.error;
+        openFallbackUrl.value = result.fallbackUrl || '';
       }
-    } catch (e) {
-      closePopupQuietly(popup);
-      openError.value = e.response?.data?.error?.message || 'Could not open the enrollment receipt.';
     } finally {
       opening.value = false;
     }

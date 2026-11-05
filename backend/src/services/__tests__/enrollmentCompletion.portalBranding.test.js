@@ -65,6 +65,15 @@ it.each([{ client_id: 99 }, { status: 'draft' }, { co_guardian_invite_id: 7 }])(
  expect(await requestingGuardianName({ inviteId: 18, agencyId: 2, clientId: 20 })).toBeNull();
 });
 
+it('signs school enrollment receipts as the Schools Team and keeps office receipts on the agency care team', async () => {
+ const { enrollmentConfirmationContent } = await import('../enrollmentReceiptContent.js');
+ expect(portalSenderName({ identity_key: 'school_enrollment_portal', display_name: 'AuricWell Portal' })).toBe('Schools Team');
+ const school = enrollmentConfirmationContent({ agencyName: 'ITSCO', school: true });
+ expect(school.text).toContain('Schools Team');
+ expect(school.text).not.toContain('care team');
+ expect(school.html).toContain('<strong>Schools Team</strong>');
+ expect(enrollmentConfirmationContent({ agencyName: 'ITSCO' }).text).toContain('Your ITSCO care team');
+});
 it('keeps clinical reminders separate from nonclinical agency mail',()=>{
  expect(portalSenderName({identity_key:'clinical_appointment_reminders'})).toBe('AuricWell Notifications');
  const brand=enrollmentMailBrand({agency,domain:'itsco.health'});

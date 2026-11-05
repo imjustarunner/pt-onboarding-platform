@@ -101,6 +101,30 @@ it('restores the signing step by ID after dropping an old extra child placeholde
  expect(wrapper.vm.currentFlowStep?.id).toBe('disclosure');
 });
 
+it('reopens the completion page after a reload and shows each child packet once stored', async () => {
+ vi.useFakeTimers({ toFake: ['setTimeout'] });
+ delete progress.coGuardianInvite;
+ progress = { alreadyCompleted: true, submissionId: 1406, status: 'submitted', intakeData: null };
+ const original = get.getMockImplementation();
+ get.mockImplementation(async (url, ...rest) => url === '/public-intake/resume-test' ? { data: {
+  link: { id: 1, form_type: 'intake', scope_type: 'school', organization_id: 61, intake_steps: [{ id: 'q', type: 'questions', label: 'Questions' }], intake_fields: [] },
+  organization: { id: 61, name: 'Columbia Elementary School', organization_type: 'school' }, agency: { id: 2, name: 'ITSCO' }, templates: []
+ } } : url.includes('/status/1406') ? { data: {
+  status: 'submitted', downloadUrl: null, emailDelivery: { attempted: true, sent: true, essentialConfirmation: true },
+  intakeData: { guardian: { firstName: 'Demo' }, clients: [{ firstName: 'Ann', lastName: 'Example' }, { firstName: 'Ben', lastName: 'Example' }] },
+  clientBundles: [{ clientId: 1, clientName: 'Ann Example', downloadUrl: 'https://storage.example/a.pdf' }, { clientId: 2, clientName: 'Ben Example', downloadUrl: 'https://storage.example/b.pdf' }]
+ } } : original(url, ...rest));
+ await render();
+ expect(wrapper.vm.step).toBe(3);
+ await vi.advanceTimersByTimeAsync(1100); await flushPromises();
+ expect(get).toHaveBeenCalledWith('/public-intake/resume-test/status/1406', expect.anything());
+ expect(wrapper.vm.expectedChildCount).toBe(2);
+ expect(wrapper.text()).toContain("View Ann Example's enrollment packet");
+ expect(wrapper.text()).toContain("View Ben Example's enrollment packet");
+ expect(wrapper.text()).not.toContain('0 of 2 PDF packets ready');
+ expect(post.mock.calls.some(([url]) => url.endsWith('/session') || url.endsWith('/finalize'))).toBe(false);
+});
+
 it.each([false,true])('opens a portal-started enrollment for self=%s with own account details and no old child answers', async forSelf => {
  progress = { submissionId: 150, intakeData: { portalEnrollment: { userId: 8, email: 'parent@example.test' }, intakeForSelf: forSelf,
   guardian: { firstName: 'Parent', lastName: 'Example', email: 'parent@example.test', relationship: forSelf ? 'Self' : 'Parent' },

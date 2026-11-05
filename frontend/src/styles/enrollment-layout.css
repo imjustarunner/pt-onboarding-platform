@@ -7,7 +7,10 @@
 .df-page.df-page--enrollment .df-main-header .df-btn { border:0; background:transparent; box-shadow:none; padding:8px 0; min-height:36px; font-size:13px; }
 .df-page.df-page--enrollment .df-enrollment-brand { box-sizing:border-box; max-width:1000px; padding:16px 24px; margin:auto; }
 .df-page.df-page--enrollment .df-main-body { box-sizing:border-box; width:100%; max-width:1000px; padding:0 24px 24px; margin:0 auto; text-align:left; }
-.df-page.df-page--enrollment .df-enrollment-progress { box-sizing:border-box; display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:8px; width:100%; max-width:1000px; margin:0 auto 18px; padding:0 24px; }
+.df-page.df-page--enrollment .df-enrollment-progress { box-sizing:border-box; display:grid; grid-auto-flow:column; grid-auto-columns:minmax(76px,1fr); gap:6px; width:100%; max-width:1000px; margin:0 auto 8px; padding:0 24px; overflow-x:auto; scrollbar-width:thin; }
+.df-enrollment-progress button { overflow-wrap:anywhere; }
+.df-page.df-page--enrollment .df-enrollment-progress-bar { width:calc(100% - 48px); max-width:952px; height:6px; margin:0 auto 18px; overflow:hidden; border-radius:6px; background:#dfe9e2; }
+.df-enrollment-progress-bar i { display:block; height:100%; border-radius:inherit; background:#3f7d5c; transition:width .25s ease; }
 .df-enrollment-progress button { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:6px; min-width:0; padding:10px 8px 12px; background:transparent; border:1px solid transparent; border-radius:10px; font:inherit; font-size:12.5px; line-height:1.3; text-align:center; color:#617469; cursor:pointer; }
 .df-enrollment-progress button::after { content:''; position:absolute; left:10px; right:10px; bottom:4px; height:3px; border-radius:3px; background:#dfe9e2; }
 .df-enrollment-progress button.is-done::after,.df-enrollment-progress button[aria-current=step]::after { background:#3f7d5c; }
@@ -46,6 +49,7 @@
  .df-page.df-page--enrollment .ai-page-title { font-size:25px; }
  .df-page.df-page--enrollment .ai-who-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
  .df-page.df-page--enrollment .df-enrollment-progress { padding:0 12px; gap:4px; }
+ .df-page.df-page--enrollment .df-enrollment-progress-bar { width:calc(100% - 24px); }
  .df-page.df-page--enrollment .df-input,.df-page.df-page--enrollment .df-select { font-size:16px; }
 }
 
