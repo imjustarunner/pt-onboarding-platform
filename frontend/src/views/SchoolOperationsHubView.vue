@@ -478,6 +478,12 @@ const allSections = computed(() => [
         count: 0
       },
       {
+        id: 'provider-days', title: 'Provider Days', shortDesc: 'Available Monday, Tuesday, and every school day.',
+        desc: 'Search providers with school assignments and see unassigned weekdays. Message a provider or review their schedule.',
+        cta: 'View weekdays →', to: {path: orgTo('/admin/provider-availability'), query: {...(providerManagementTo.value.query || {}), tab:'provider_days'}},
+        tone: 'indigo', icon: icon.people, tour: null, show: canSeeSchoolOpsContent.value, count: 0
+      },
+      {
         id: 'provider-mgmt',
         title: 'Provider Management',
         shortDesc: 'Slots, availability, ratios, and kudos.',

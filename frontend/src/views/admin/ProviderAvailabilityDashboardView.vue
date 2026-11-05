@@ -62,7 +62,8 @@
       <div v-else-if="loading" class="loading">Loading…</div>
 
       <div v-else>
-        <ProviderAvailabilityWorkspace v-if="tab === 'openings'" :agency-id="Number(agencyId)" />
+        <ProviderSchoolDays v-if="tab === 'provider_days'" :key="providerDaysRefresh" :agency-id="Number(agencyId)" />
+        <ProviderAvailabilityWorkspace v-else-if="tab === 'openings'" :agency-id="Number(agencyId)" />
         <div v-else-if="tab === 'school_requests'" class="school-requests-wrap">
           <div class="school-requests-banner">
             <strong>Additional school daytime hours</strong>
@@ -772,13 +773,14 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { formatTimeHm12h, formatTimeRange12h } from '../../utils/timeFormat';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import ProviderSchoolDays from '../../components/availability/ProviderSchoolDays.vue';
 import ProviderAvailabilityWorkspace from '../../components/availability/ProviderAvailabilityWorkspace.vue';
 import AvailabilityIntakeManagement from '../../components/admin/AvailabilityIntakeManagement.vue';
 import { canSeeClientExchangeNav, clientExchangePath } from '../../utils/clientExchangeNav.js';
@@ -813,7 +815,11 @@ const agencies = computed(() => {
 
 const loading = ref(false);
 const error = ref('');
-const tab = ref(authStore.user?.role === 'schedule_manager' ? 'school' : 'openings'); // school | office | virtual | school_requests | tracker | kudos | hourly_direct | unpaid_notes
+const router = useRouter();
+const providerDaysRefresh = ref(0);
+const dashboardLoaded = ref(false);
+const canSeeProviderDays = !['schedule_manager'].includes(authStore.user?.role);
+const tab = ref(route.query.tab === 'provider_days' && canSeeProviderDays ? 'provider_days' : authStore.user?.role === 'schedule_manager' ? 'school' : 'openings'); // school | office | virtual | school_requests | tracker | kudos | hourly_direct | unpaid_notes
 
 const data = ref({
   providers: [],
@@ -854,6 +860,7 @@ const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
 
 const PM_TABS = [
   ...(authStore.user?.role === 'schedule_manager' ? [] : [{ id: 'openings', label: 'Openings & preferences' }]),
+  ...(canSeeProviderDays ? [{ id: 'provider_days', label: 'Provider Days' }] : []),
   { id: 'school', label: 'School slots', tour: 'avail-tab-school' },
   { id: 'office', label: 'Office availability', tour: 'avail-tab-office' },
   { id: 'virtual', label: 'Virtual availability', tour: 'avail-tab-virtual' },
@@ -1529,6 +1536,7 @@ const loadUnpaidNotesDraft = async () => {
 
 const reload = async () => {
   if (!agencyId.value) return;
+  if (tab.value === 'provider_days') { providerDaysRefresh.value++; return; }
   if (tab.value === 'tracker') {
     await loadProviderTracker();
     return;
@@ -1557,6 +1565,7 @@ const reload = async () => {
       }
     });
     data.value = resp.data || data.value;
+    dashboardLoaded.value = true;
   } catch (e) {
     data.value = { providers: [], organizations: [], offices: [], schoolSlots: [], officeAvailability: [], virtualWorkingHours: [] };
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load availability dashboard';
@@ -1706,7 +1715,13 @@ const ensureAgencyContextFromQuery = async () => {
   }
 };
 
+watch(() => route.query.tab, (value) => {
+  if (PM_TABS.some(item => item.id === value)) tab.value = value;
+});
+
 watch(tab, (t) => {
+  if (route.query.tab !== t) router.replace({ query: { ...route.query, tab: t } });
+  if (t === 'provider_days') return;
   if (t === 'tracker') {
     loadProviderTracker();
     return;
@@ -1726,6 +1741,7 @@ watch(tab, (t) => {
     return;
   }
   if (t === 'school_requests') return;
+  if (['school', 'office', 'virtual'].includes(t) && !dashboardLoaded.value) reload();
   // Set a reasonable default sort per tab
   if (t === 'school') {
     sortKey.value = 'schoolName';
@@ -1740,6 +1756,7 @@ watch(tab, (t) => {
 });
 
 watch(agencyId, async () => {
+  dashboardLoaded.value = false;
   await reload();
 });
 

@@ -146,6 +146,13 @@ export const APP_PAGES = [
     desc: 'Modular Provider Update pushes, handbook, export, and payroll submit.'
   },
   {
+    title: 'Provider Days',
+    section: 'School Operations › Providers',
+    path: '/admin/provider-availability?tab=provider_days',
+    keywords: ['provider days', 'school availability', 'available monday', 'available tuesday', 'available wednesday', 'available thursday', 'available friday', 'school staffing', 'school evaluation'],
+    desc: 'Find providers without a school assignment on each weekday and message them.'
+  },
+  {
     title: 'Provider Management',
     section: 'Workforce Ops › Staff & Scheduling',
     path: '/admin/provider-availability',
