@@ -9,6 +9,7 @@ import { registerMobilePush, pushConfiguration, createMobilePushWorker } from '.
 const router=express.Router();
 const secureCookie={httpOnly:true,secure:true,sameSite:'strict',path:'/api/mobile',maxAge:90*86400000};
 const rawDevice=req=>req.get('X-Auricwell-Device') || req.cookies?.[MOBILE_COOKIE];
+function refreshBrowserDevice(req,res){const raw=rawDevice(req);if(!req.get('X-Auricwell-Device') && raw)res.cookie(MOBILE_COOKIE,raw,secureCookie);}
 const handle=work=>async(req,res,next)=>{
   res.set('Cache-Control','no-store');
   try{
@@ -46,10 +47,11 @@ router.get('/session',handle(async(req,res)=>{
   const context=await mobileSessions.device(rawDevice(req));
   res.json({signedIn:true,needsCode:!context.device.quick_code_hash,workspace:context.workspace});
 }));
-router.post('/code',limiter,handle(async(req,res)=>res.json(await mobileSessions.setCode(rawDevice(req),req.body.passcode))));
+router.post('/code',limiter,handle(async(req,res)=>{const result=await mobileSessions.setCode(rawDevice(req),req.body.passcode);refreshBrowserDevice(req,res);res.json(result);}));
 router.post('/unlock',limiter,handle(async(req,res)=>{
   const native=!!req.get('X-Auricwell-Device');
-  res.json(await mobileSessions.unlock(rawDevice(req),{code:req.body.passcode,biometric:native && req.body.biometric===true}));
+  const result=await mobileSessions.unlock(rawDevice(req),{code:req.body.passcode,biometric:native && req.body.biometric===true});
+  refreshBrowserDevice(req,res);res.json(result);
 }));
 router.post('/logout',handle(async(req,res)=>{
   await mobileSessions.logout(rawDevice(req));res.clearCookie(MOBILE_COOKIE,{...secureCookie,maxAge:undefined});res.json({signedOut:true});
