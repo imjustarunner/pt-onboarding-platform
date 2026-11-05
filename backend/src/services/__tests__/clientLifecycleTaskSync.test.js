@@ -48,12 +48,18 @@ describe('service confirmation reconciles existing provider tasks', () => {
     const result = await markClientBeingSeen({ clientId: 101, actorUserId: 9 });
     expect(result.skipped).toBe('terminal');expect(mocks.update).not.toHaveBeenCalled();expect(mocks.sync).not.toHaveBeenCalled();
   });
-  it('prevents a later readiness write from undoing confirmed services', async () => {
-    mocks.execute.mockResolvedValue([[{ id: 101, agency_id: 2, client_status_id: 8, client_status_key: 'being_seen', client_type: 'school', services_started_at: new Date().toISOString().slice(0, 10) }]]);
-    const result = await setClientLifecycleStatus({ clientId: 101, statusKey: 'ready_to_schedule', actorUserId: 9 });
-    expect(result.statusKey).toBe('being_seen');
-    expect(mocks.statusId).toHaveBeenCalledWith({ agencyId: 2, statusKey: 'being_seen' });
-    expect(mocks.update).not.toHaveBeenCalled();
+  it.each(['2026-11-04T18:00:00Z', '2026-11-05T03:00:00Z'])('prevents a later readiness write from undoing confirmed services at %s', async now => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(now));
+    try {
+      // Use an occurred service date in both CI timezones, including the hours
+      // when UTC has advanced to tomorrow and Denver is still on November 4.
+      mocks.execute.mockResolvedValue([[{ id: 101, agency_id: 2, client_status_id: 8, client_status_key: 'being_seen', client_type: 'school', services_started_at: '2026-11-04' }]]);
+      const result = await setClientLifecycleStatus({ clientId: 101, statusKey: 'ready_to_schedule', actorUserId: 9 });
+      expect(result.statusKey).toBe('being_seen');
+      expect(mocks.statusId).toHaveBeenCalledWith({ agencyId: 2, statusKey: 'being_seen' });
+      expect(mocks.update).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
   });
 
   it('requires agency review before reopening a waitlisted client', async () => {
