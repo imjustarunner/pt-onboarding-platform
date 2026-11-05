@@ -33,12 +33,12 @@
             <label>Practice name on the claim <input v-model="office.practiceName" :disabled="!office.owned || saving" /></label>
             <label>Service-facility name on the claim
               <input v-model="office.claimFacilityName" maxlength="35" :placeholder="office.practiceName" :disabled="!office.owned || saving" />
-              <small>CCHA claims send this name with the billing NPI. Leave blank to use the practice name. Maximum 35 characters.</small>
+              <small>CCHA claims send this name, the billing NPI, and this office’s street, city, state, and ZIP as the service facility. Leave blank to use the practice name. Maximum 35 characters.</small>
             </label>
             <label>Street <input v-model="office.streetAddress" :disabled="!office.owned || saving" /></label>
             <label>City <input v-model="office.city" :disabled="!office.owned || saving" /></label>
             <label>State <input v-model="office.state" :disabled="!office.owned || saving" /></label>
-            <label>Postal code <input v-model="office.postalCode" :disabled="!office.owned || saving" /></label>
+            <label>Postal code <input v-model="office.postalCode" :disabled="!office.owned || saving" /><small>Use the enrolled office ZIP, including ZIP+4 when available.</small></label>
             <label>Phone <input v-model="office.phone" :disabled="!office.owned || saving" /></label>
             <label>Practice NPI <input v-model="office.practiceNpi" inputmode="numeric" maxlength="10" :disabled="!office.owned || saving" /></label>
             <label>Taxonomy <input v-model="office.taxonomyCode" :disabled="!office.owned || saving" /></label>

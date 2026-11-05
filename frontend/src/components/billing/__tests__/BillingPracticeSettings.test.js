@@ -45,6 +45,8 @@ describe('billing practice settings', () => {
     await flushPromises();
     expect(api.patch).toHaveBeenLastCalledWith('/medical-billing/billing-offices/1', expect.objectContaining({ claimFacilityName:'' }));
     expect(wrapper.text()).toContain('Leave blank to use the practice name');
+    expect(wrapper.text()).toContain('this office’s street, city, state, and ZIP as the service facility');
+    expect(api.patch).toHaveBeenLastCalledWith('/medical-billing/billing-offices/1', expect.objectContaining({streetAddress:'437 Windchime Place',city:'Colorado Springs',state:'CO',postalCode:'80919'}));
     wrapper.unmount();
   });
 

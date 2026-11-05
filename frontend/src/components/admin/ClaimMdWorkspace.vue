@@ -147,7 +147,13 @@
       <button type="button" :disabled="busy" @click="run(reloadReview)">Refresh claim requirements</button>
       <p>Session #{{ review.clinicalSessionId }} · Signed note #{{ review.clinicalNoteId }} · {{ review.lifecycle }}</p>
       <p v-if="review.payload"><strong>{{ review.payload.pat_name_f }} {{ review.payload.pat_name_l }}</strong> · {{ review.payload.payer_name }} · Member {{ review.payload.ins_number }}</p>
-      <p v-if="review.payload">Billing NPI {{ review.payload.bill_npi }} · Rendering NPI {{ review.payload.prov_npi }}<template v-if="review.payload.facility_npi"> · Service facility: {{ review.payload.facility_name }} · NPI {{ review.payload.facility_npi }} (matches billing NPI for CCHA)</template></p>
+      <p v-if="review.payload">Billing NPI {{ review.payload.bill_npi }} · Rendering NPI {{ review.payload.prov_npi }}</p>
+      <div v-if="review.payload?.facility_npi" class="facility-identity" aria-label="Service facility on claim">
+        <strong>Service facility: {{ review.payload.facility_name }}</strong>
+        <div>{{ review.payload.facility_addr_1 }}<template v-if="review.payload.facility_addr_2"> · {{ review.payload.facility_addr_2 }}</template></div>
+        <div>{{ review.payload.facility_city }}, {{ review.payload.facility_state }} {{ review.payload.facility_zip }}</div>
+        <div>NPI {{ review.payload.facility_npi }} (matches billing NPI for CCHA)</div>
+      </div>
       <section v-if="review.supervision" class="review">
         <h4>Who delivered and oversaw the service</h4>
         <p>Treating clinician: {{ providerLabel(review.supervision.serviceProvider) }}</p>
