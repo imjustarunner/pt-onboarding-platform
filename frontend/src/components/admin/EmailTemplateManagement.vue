@@ -75,8 +75,8 @@
                 <option value="school_staff_account_recovery">School Staff Recovery</option>
                 <option value="school_staff_portal_access">School Staff Portal Access</option>
                 <option value="invitation">Invitation</option>
-                <option value="intake_packet_default">Intake Packet Default</option>
-                <option value="school_full_intake_packet_default">School Full Intake Packet Default</option>
+                <option value="intake_packet_default">Enrollment Packet Default</option>
+                <option value="school_full_intake_packet_default">School Enrollment Packet Default</option>
               </select>
               <div v-if="templatePresetByType[templateForm.type]" style="margin-top: 8px;">
                 <button type="button" class="btn btn-secondary btn-sm" @click="applyTemplateDefaultsForType(templateForm.type, { forceName: true, forceCopy: true })">
@@ -256,12 +256,12 @@ const templateForm = ref({
 });
 const templatePresetByType = {
   intake_packet_default: {
-    name: 'Intake Packet Default',
+    name: 'Enrollment Packet Default',
     subject: '{{CLIENT_NAME}} - Signed Packet Ready',
     body: [
       'Hello {{SIGNER_NAME}},',
       '',
-      'Your signed intake packet is ready.',
+      'Your signed enrollment packet is ready.',
       '{{CLIENT_SUMMARY}}',
       '',
       'Download your signed packet:',
@@ -271,12 +271,12 @@ const templatePresetByType = {
     ].join('\n')
   },
   school_full_intake_packet_default: {
-    name: 'School Full Intake Packet Default',
+    name: 'School Enrollment Packet Default',
     subject: '{{SCHOOL_NAME}} - Signed Packet Ready',
     body: [
       'Hello {{SIGNER_NAME}},',
       '',
-      'Your school intake packet is complete and ready.',
+      'Your school enrollment packet is complete and ready.',
       '{{CLIENT_SUMMARY}}',
       'School: {{SCHOOL_NAME}}',
       '',

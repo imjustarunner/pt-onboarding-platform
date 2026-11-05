@@ -382,7 +382,6 @@ function communicationsSection(submissionBag, publicOrigin) {
   if (cp.version) pushRow(rows, 'Communication disclosure version', cp.version);
   if (cp.disclosure) pushRow(rows, 'Text reminder disclosure', cp.disclosure);
   if (cp.schoolDisclosure) pushRow(rows, 'School visit notifications', cp.schoolDisclosure);
-  if (cp.activationStatus) pushRow(rows, 'Reminder subscription review', cp.activationStatus);
   if (cp.providerTextingOptIn) pushRow(rows, 'Provider / care-team texting', commChoiceLabel('yesno', cp.providerTextingOptIn));
   if (cp.programUpdatesOptIn) pushRow(rows, 'Program updates', commChoiceLabel('yesno', cp.programUpdatesOptIn));
   const terms = absolutePublicUrl(cp.termsUrl || '/terms', publicOrigin);
@@ -483,6 +482,8 @@ function rowsFromInterview(link, values, locale, printed, childName = '', { incl
       }
     }
     const rows = [];
+    const instrumentRows = new Map();
+    const fieldMap = new Map(fields.filter((f) => f?.key).map((f) => [f.key, f]));
     for (const field of fields) {
       if (!field?.key || field.type === 'info') continue;
       // Private partner/family safety answers stay off the shared family-facing record.
@@ -501,12 +502,24 @@ function rowsFromInterview(link, values, locale, printed, childName = '', { incl
       const empty = value !== false && value !== 0 && !hasValue(value);
       if (empty && !includeUnanswered) continue;
       if (looksLikeHtml(value)) continue;
+      const isScreen = SCREEN_ANSWER_KEY.test(field.key);
+      const shown = isScreen ? (fieldForInstrumentAnswer(field.key, value, values, fieldMap) || field) : field;
       const rendered = empty
         ? 'Not answered'
-        : formatFieldValue(field, value, locale, link);
+        : formatFieldValue(shown, value, locale, link);
       if (!rendered) continue;
-      const label = resolveIntakeFieldLabel(field, locale, link) || humanizeKey(field.key);
-      pushRow(rows, interpolateChildName(label, childName), rendered);
+      const official = isScreen ? OFFICIAL_INSTRUMENT_FIELDS.find((item) => item.key === field.key) : null;
+      const label = (official && !String(field.label || '').trim()
+        ? resolveIntakeFieldLabel(official, locale, link)
+        : resolveIntakeFieldLabel(field, locale, link))
+        || humanizeKey(field.key);
+      if (isScreen) {
+        const title = instrumentTitle(field.key);
+        if (!instrumentRows.has(title)) instrumentRows.set(title, []);
+        pushRow(instrumentRows.get(title), interpolateChildName(label, childName), rendered);
+      } else {
+        pushRow(rows, interpolateChildName(label, childName), rendered);
+      }
       printed.add(field.key);
     }
     if (rows.length) {
@@ -515,9 +528,12 @@ function rowsFromInterview(link, values, locale, printed, childName = '', { incl
         rows
       });
     }
+    for (const [title, screenRows] of instrumentRows) sections.push({ title, rows: screenRows });
   }
   return sections;
 }
+
+const SCREEN_ANSWER_KEY = /^(psc|phqa|phq9|gad7)_\d+$/i;
 
 const OFFICIAL_INSTRUMENT_FIELDS = [
   ...buildPsc17Fields(),
@@ -1124,7 +1140,7 @@ export function buildCompletedIntakeRecord({
   ].filter(Boolean);
 
   return {
-    title: isJobApplication ? 'Job application receipt' : 'Completed intake packet',
+    title: isJobApplication ? 'Job application receipt' : 'Completed enrollment packet',
     skipCoverPage: isJobApplication,
     kicker: 'For your records',
     agencyName:

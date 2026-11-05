@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import { activeManagedStaff, managedDomain } from './managedWorkspaceGroupPolicy.js';
+import { DEPARTMENTAL_GROUPS, assertDepartmentalGroupAccess } from './departmentalGroupAccess.service.js';
 const emails = value => (Array.isArray(value) ? value : [value]).flatMap(v => String(v || '').match(/[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}/gi) || []).map(e => e.toLowerCase());
 const json = value => typeof value === 'string' ? JSON.parse(value || '[]') : value || [];
 async function findGroups(where, params) {
@@ -15,6 +16,7 @@ export async function assertManagedChatPost(threadId,userId) {
   const groups=await findGroups('g.chat_thread_id=?',[threadId]);
   if(!groups.length)return;
   const group=groups[0];
+  if (DEPARTMENTAL_GROUPS[group.group_key]) await assertDepartmentalGroupAccess({ agencyId: group.agency_id, userId, groupKey: group.group_key });
   const [[row]]=await pool.execute(`SELECT u.*,ua.is_active AS membership_active
     FROM chat_thread_participants p JOIN users u ON u.id=p.user_id
     JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=?
@@ -35,7 +37,7 @@ export async function managedGroupEnvelope({to,cc=null,bcc=null,actorUserId}) {
   const targets=[...new Set([...emails(to),...emails(cc),...emails(bcc)])];
   if(!targets.length)return {to,cc,bcc};
   const placeholders=targets.map(()=>'?').join(',');
-  const groups=await findGroups(`LOWER(g.email) IN (${placeholders}) OR (g.group_key='spanish' AND REPLACE(LOWER(g.email),'spanish@','espanol@') IN (${placeholders}))`,[...targets,...targets]);
+  const groups=(await findGroups(`LOWER(g.email) IN (${placeholders}) OR (g.group_key='spanish' AND REPLACE(LOWER(g.email),'spanish@','espanol@') IN (${placeholders}))`,[...targets,...targets])).filter(group=>!DEPARTMENTAL_GROUPS[group.group_key]);
   if(!groups.length)return {to,cc,bcc};
   const expanded=new Set(),groupEmails=new Set();
   for(const group of groups) {
@@ -52,7 +54,7 @@ export async function managedGroupEnvelope({to,cc=null,bcc=null,actorUserId}) {
 
 export async function managedChatPostingAllowed(threadId,userId) {
   try { await assertManagedChatPost(threadId,userId);return true; }
-  catch(e) { if(['GROUP_MANAGER_REQUIRED','GROUP_MEMBER_REQUIRED'].includes(e.code))return false;throw e; }
+  catch(e) { if(['GROUP_MANAGER_REQUIRED','GROUP_MEMBER_REQUIRED','DEPARTMENTAL_GROUP_ACCESS_REQUIRED'].includes(e.code))return false;throw e; }
 }
 export async function assertManagedMeetingInvite(groupIds,userId) {
   if(!groupIds.length)return;

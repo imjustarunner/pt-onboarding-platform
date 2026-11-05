@@ -47,6 +47,7 @@ import {
 } from '../personalMailbox.service.js';
 import { ingestSupportTicketEmail } from '../supportTicketEmailInbound.service.js';
 import { isManagedSupportIdentity, isSupportEmailResponderRole } from '../supportTicketEmailPolicy.js';
+import { DEPARTMENTAL_GROUPS, groupKeyForIdentity, listUserDepartmentalGroupKeys } from '../departmentalGroupAccess.service.js';
 
 function headerMap(headers = []) {
   const m = new Map();
@@ -245,6 +246,7 @@ async function routeSenderIdentityFromHeaders(hdrs) {
   // A reply-all may include Schools or a school group. Technology must own it.
   const all = prioritizeTechnologyAddresses([...to, ...cc, ...deliveredTo, ...xOriginalTo, ...envelopeTo]);
   const { stripPlusAddress } = await import('../hubEmailInbound.service.js');
+  let fallback = null;
   for (const addr of all) {
     let identity = await EmailSenderIdentity.findByInboundAddress(addr);
     if (!identity?.id) {
@@ -258,9 +260,15 @@ async function routeSenderIdentityFromHeaders(hdrs) {
     if (!identity?.id) {
       identity = await EmailSenderIdentity.findByFromEmail(addr);
     }
-    if (identity?.id) return { senderIdentityId: identity.id, matchedAddress: addr, to, cc, deliveredTo, technology: isTechnologyIdentity(identity) };
+    if (identity?.id) {
+      const route = { senderIdentityId: identity.id, matchedAddress: addr, to, cc, deliveredTo, technology: isTechnologyIdentity(identity) };
+      // Personal copies are persisted separately. An explicitly addressed team
+      // must still receive its ticket when a person's mailbox appears first.
+      if (groupKeyForIdentity(identity) || isTechnologyIdentity(identity)) return route;
+      if (!fallback) fallback = route;
+    }
   }
-  return { senderIdentityId: null, matchedAddress: null, to, cc, deliveredTo };
+  return fallback || { senderIdentityId: null, matchedAddress: null, to, cc, deliveredTo };
 }
 
 async function hasSupportTicketMessagesTable() {
@@ -1056,7 +1064,8 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     } catch (e) {
       throw e; // Never acknowledge partial fan-out; outer retry preserves successful copies.
     }
-    if (automated || (personalRecipients.length && (!routed.senderIdentityId ||
+    const routedIdentity = routed.senderIdentityId ? await EmailSenderIdentity.findById(routed.senderIdentityId) : null;
+    if ((automated && !groupKeyForIdentity(routedIdentity)) || (personalRecipients.length && (!routed.senderIdentityId ||
         personalRecipients.some((r) => Number(r.id) === Number(routed.senderIdentityId))))) {
       await gmail.users.messages.modify({ userId: 'me', id,
         requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId] } });
@@ -1075,7 +1084,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
       continue;
     }
 
-    const identity = await EmailSenderIdentity.findById(senderIdentityId);
+    const identity = routedIdentity;
     const agencyId = identity?.agency_id || null;
     const agency = agencyId ? await Agency.findById(agencyId) : null;
     const agencyName = agency?.name || 'your organization';
@@ -1123,15 +1132,20 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         [fromEmail, fromEmail, fromEmail, fromEmail, agencyId]);
         const [[sharedSender]] = await pool.execute(`SELECT * FROM email_sender_identities
           WHERE agency_id=? AND LOWER(TRIM(from_email))=? AND is_active=1 LIMIT 1`, [agencyId, fromEmail]);
-        const staffCopy = isSupportEmailResponderRole(staffSender?.role) || isManagedSupportIdentity(sharedSender, { agencyId,
+        const departmentKey = groupKeyForIdentity(identity);
+        const departmentResponder = departmentKey && staffSender?.id
+          ? (await listUserDepartmentalGroupKeys({ agencyId, userId: staffSender.id })).includes(departmentKey) : false;
+        const replying = !!(hdrs.get('in-reply-to') || hdrs.get('references'));
+        const staffCopy = (departmentKey ? departmentResponder && replying : isSupportEmailResponderRole(staffSender?.role)) || isManagedSupportIdentity(sharedSender, { agencyId,
           schoolAddresses: schoolContext?.mailboxAddress ? [schoolContext.mailboxAddress] : [] }) || (schoolContext?.mailboxAddress
           && String(schoolContext.mailboxAddress).toLowerCase() === fromEmail);
         const saved = await ingestSupportTicketEmail({ agencyId,
+          topic: DEPARTMENTAL_GROUPS[departmentKey]?.topic || 'general',
           schoolOrganizationId: schoolContext?.schoolOrganizationId || null,
           fromEmail, fromDisplayName, subject, bodyText,
           messageId: hdrs.get('message-id') || `gmail:${id}`, threadId: full.data?.threadId || null,
           inReplyTo: hdrs.get('in-reply-to') || null, referencesHeader: hdrs.get('references') || null,
-          gmailMessageId: id, gmail, payload, recipients: routed.to || [], cc: routed.cc || [],
+          gmailMessageId: id, gmail, payload, recipients: [...new Set([routed.matchedAddress, ...(routed.to || []), ...(routed.cc || [])].filter(Boolean))], cc: routed.cc || [],
           headers: { autoSubmitted: hdrs.get('auto-submitted') || null,
             listId: String(hdrs.get('list-id') || '').slice(0, 200), listUnsubscribe: !!hdrs.get('list-unsubscribe') },
           receivedAt: new Date(Number(full.data?.internalDate) || Date.now()),

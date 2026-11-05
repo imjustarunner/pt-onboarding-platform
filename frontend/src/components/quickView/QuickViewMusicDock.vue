@@ -40,7 +40,8 @@ const props = defineProps({
   apiBase: { type: String, required: true },
   authHeaders: { type: Function, required: true },
   visible: { type: Boolean, default: true },
-  inline: { type: Boolean, default: false }
+  inline: { type: Boolean, default: false },
+  scopedPlayback: { type: Boolean, default: false }
 });
 
 const panelId = `qv-music-${useId()}`;
@@ -51,7 +52,7 @@ const current = ref(null);
 const playing = ref(false);
 const loadError = ref('');
 const audioEl = ref(null);
-let idx = 0;
+let idx = 0, sourceRequest=0, blobUrl='',loadedTrack='';
 
 async function loadCatalog() {
   loadError.value = '';
@@ -72,16 +73,21 @@ async function loadCatalog() {
   }
 }
 
-function applySrc() {
+async function applySrc() {
   const el = audioEl.value;
   if (!el || !current.value?.streamUrl) return;
-  el.src = current.value.streamUrl;
+  if(!props.scopedPlayback){el.src=current.value.streamUrl;return true;}
+  const request=++sourceRequest,trackId=current.value.id;
+  const {data}=await axios.get(`${props.apiBase}/focus-music/stream/${encodeURIComponent(trackId)}`,{headers:props.authHeaders(),withCredentials:true,responseType:'blob'});
+  if(request!==sourceRequest || !audioEl.value)return false;
+  if(blobUrl)URL.revokeObjectURL(blobUrl);
+  blobUrl=URL.createObjectURL(data);loadedTrack=trackId;el.src=blobUrl;return true;
 }
 
 async function togglePlay() {
   const el = audioEl.value;
   if (!el || !current.value) return;
-  if (!el.src || el.src.indexOf(current.value.id) < 0) applySrc();
+  if (!el.src || (props.scopedPlayback?loadedTrack!==current.value.id:el.src.indexOf(current.value.id)<0)){try{if(await applySrc()===false)return;}catch{loadError.value='Could not load this track';return;}}
   if (playing.value) {
     el.pause();
   } else {
@@ -93,12 +99,12 @@ async function togglePlay() {
   }
 }
 
-function setTrack(i) {
+async function setTrack(i) {
   if (!tracks.value.length) return;
   idx = ((i % tracks.value.length) + tracks.value.length) % tracks.value.length;
   current.value = tracks.value[idx];
   selectedId.value = current.value.id;
-  applySrc();
+  try{if(await applySrc()===false)return;}catch{loadError.value='Could not load this track';return;}
   if (playing.value) {
     audioEl.value?.play().catch(() => {});
   }
@@ -123,6 +129,7 @@ onMounted(() => {
   if (props.visible) loadCatalog();
 });
 onUnmounted(() => {
+  ++sourceRequest;if(blobUrl)URL.revokeObjectURL(blobUrl);
   audioEl.value?.pause();
 });
 

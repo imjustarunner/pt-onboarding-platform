@@ -104,7 +104,7 @@ test('completed record includes nested answers, skips secrets, and keeps ESIGN +
   });
 
   assert.equal(spec.agencyName, 'ITSCO');
-  assert.match(spec.title, /Completed intake packet/i);
+  assert.match(spec.title, /Completed enrollment packet/i);
   const values = spec.sections.flatMap((section) => section.rows.map((row) => `${row.label}|${row.value}`));
   assert.ok(values.some((row) => row.includes('Sleep')));
   assert.ok(values.some((row) => /Medicaid/.test(row)));
@@ -115,6 +115,19 @@ test('completed record includes nested answers, skips secrets, and keeps ESIGN +
   assert.ok(spec.approvals.some((block) => /Staff-assisted/i.test(block.title)));
   assert.ok(spec.esign.rows.some((row) => row.label === 'IP address' && row.value === '203.0.113.10'));
   assert.match(spec.esign.statement, /ESIGN Act/);
+});
+
+test('self packet PHQ-A fields without labels print the official title, questions and answer words', () => {
+  const record = buildCompletedIntakeRecord({
+    agency: { name: 'ITSCO' },
+    link: { intake_steps: [{ type: 'questions', label: 'Questions', fields: [{ key: 'phqa_1', type: 'radio' }, { key: 'phqa_2', type: 'radio' }] }] },
+    submission: { id: 901, intake_data: { responses: { submission: { phqa_1: 0, phqa_2: '1' } } } },
+    clients: []
+  });
+  const phqa = record.sections.find((section) => section.title === 'PHQ-A');
+  assert.ok(phqa);
+  assert.ok(phqa.rows.some((row) => /Feeling down/i.test(row.label) && /Not at all/i.test(row.value)));
+  assert.ok(!JSON.stringify(record.sections).includes('Phqa 1'));
 });
 
 test('school packet prints answered PSC-17 questions and omits unanswered ROI-only overlays', () => {
@@ -154,8 +167,11 @@ test('school packet prints answered PSC-17 questions and omits unanswered ROI-on
   const life = answered.sections.find((section) => /Life & Safety/i.test(section.title));
   assert.ok(life);
   assert.ok(life.rows.some((row) => /hope to gain/i.test(row.label) && /Nothing/i.test(row.value)));
-  assert.ok(life.rows.some((row) => /Fidgety/i.test(row.label) && /Sometimes/i.test(row.value)));
   assert.ok(!life.rows.some((row) => /Not answered/i.test(row.value)));
+  const psc = answered.sections.find((section) => section.title === 'PSC-17');
+  assert.ok(psc, 'PSC-17 answers print under their own titled section');
+  assert.ok(psc.rows.some((row) => /Fidgety/i.test(row.label) && /Sometimes/i.test(row.value)));
+  assert.ok(!life.rows.some((row) => /Fidgety/i.test(row.label)));
 
   const roiOnly = buildCompletedIntakeRecord({
     agency: { name: 'ITSCO' },

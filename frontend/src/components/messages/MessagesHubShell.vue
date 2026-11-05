@@ -54,10 +54,15 @@
     </div>
     <div v-if="channelActivationMessage" class="msg-hub-channel-status" role="status">{{ channelActivationMessage }}</div>
     <div v-if="['channel', 'group'].includes(inboxChannel)" class="msg-hub-group-help">
-      <span>Messages go to the members of the selected channel or group.</span>
+      <span>{{ inboxChannel === 'group' ? 'Your department mail and message groups. Department email is managed through its linked ticket.' : 'Messages go to the members of the selected channel.' }}</span>
       <button v-if="inboxChannel === 'channel'" type="button" class="btn btn-secondary btn-sm" @click="openTeamChat('channels')">Browse # channels</button>
       <button v-else type="button" class="btn btn-secondary btn-sm" @click="openGroupPicker">Choose a group</button>
     </div>
+    <section v-if="inboxChannel === 'group'" class="msg-hub-memberships" aria-label="Your groups">
+      <button type="button" :aria-pressed="selectedGroupInboxId == null" @click="selectedGroupInboxId = null">All groups</button>
+      <button v-for="box in departmentInboxes" :key="`department-${box.id}`" type="button" :title="box.from_email" :aria-pressed="String(selectedGroupInboxId) === String(box.id)" @click="selectedGroupInboxId = box.id"><GroupEmailBadge :mailbox="box" /></button>
+      <button v-for="group in internalGroups" :key="`chat-${group.groupId}`" type="button" @click="onOpenGroupFromModal(group)"><ConversaIcon type="group" :size="16" /> {{ group.displayName }}</button>
+    </section>
     <div v-if="error" class="msg-hub-error" role="alert">{{ error }}</div>
 
     <div class="msg-hub-reading-controls" role="toolbar" aria-label="Reading layout">
@@ -107,6 +112,9 @@
               :aria-label="`${inboxBadgeCount(item.id)} ${item.label}`"
             >{{ inboxBadgeCount(item.id) }}</span>
           </button>
+        </div>
+        <div v-if="canUseTickets" class="msg-hub-rail-section">
+          <button type="button" class="msg-hub-rail-item" @click="openTicketDesk">Tickets</button>
         </div>
         <div class="msg-hub-rail-section">
           <p class="msg-hub-rail-label">People</p>
@@ -259,7 +267,8 @@
               @click="pickConversation(c)"
             >
               <div class="msg-hub-avatar-wrap">
-                <div class="msg-hub-avatar" aria-hidden="true">
+                <GroupEmailBadge v-if="isTicketedGroup(c)" :mailbox="c" icon-only />
+                <div v-else class="msg-hub-avatar" aria-hidden="true">
                   <img v-if="c.photoUrl" :src="photoSrc(c.photoUrl)" :alt="''" />
                   <span v-else>{{ initials(conversationThreadTitle(c)) }}</span>
                 </div>
@@ -286,6 +295,13 @@
                 <p v-if="c.deliveryLabel" role="status">{{ c.deliveryLabel }}</p>
                 <button v-if="!c.draftId && draftByConversation[c.conversationId || c.id]" type="button" class="msg-hub-btn secondary sm" @click.stop="openEmailComposer(router,{draftId:draftByConversation[c.conversationId || c.id]})" @keydown.enter.stop>Draft · Continue writing</button>
                 <ConversaMailbox :conversation="c" />
+                <div v-if="c.support_ticket_id" class="msg-hub-ticket-label">
+                  <GroupEmailBadge v-if="isTicketedGroup(c)" :mailbox="c" />
+                  <span>Ticket #{{ c.support_ticket_id }}</span>
+                  <span v-if="c.ticket_replied">Replied</span>
+                  <span v-else-if="c.ticket_claimed_by_user_id">Claimed{{ c.owner_first_name ? ` by ${c.owner_first_name}` : '' }}</span>
+                  <span v-else>Available to claim</span>
+                </div>
                 <p class="msg-hub-snippet">
                   <span v-if="isConversationSnoozed(c)" class="msg-hub-snooze-tag" title="Snoozed">⏰</span>
                   <span
@@ -297,7 +313,7 @@
                 </p>
               </div>
               <button v-if="c.draftId && !c.deliveryLabel" type="button" class="msg-hub-btn secondary sm" @click.stop="discardListedDraft(c)">Discard</button>
-              <div v-else-if="!c.deliveryLabel && (!c.hubKind || c.hubKind === 'email' || c.hubKind === 'sms')" class="msg-hub-row-actions" @click.stop>
+              <div v-else-if="!c.deliveryLabel && !isTicketedGroup(c) && (!c.hubKind || c.hubKind === 'email' || c.hubKind === 'sms')" class="msg-hub-row-actions" @click.stop>
                 <div class="msg-hub-snooze-wrap">
                   <button
                     type="button"
@@ -1151,7 +1167,7 @@
                   </span>
                 </p>
               </div>
-              <div v-if="selectedConversation?.id" class="msg-hub-thread-actions">
+              <div v-if="selectedConversation?.id && !ticketedEmailPreview" class="msg-hub-thread-actions">
                 <div class="msg-hub-snooze-wrap">
                   <button
                     type="button"
@@ -1198,6 +1214,16 @@
                 </button>
               </div>
             </header>
+            <div v-if="ticketedEmailPreview" class="msg-hub-ticket-panel" role="status">
+              <GroupEmailBadge v-if="isTicketedGroup(conversationPreview.conversation)" :mailbox="conversationPreview.conversation" />
+              <strong v-if="conversationPreview.conversation.support_ticket_id">Support ticket #{{ conversationPreview.conversation.support_ticket_id }}</strong>
+              <span v-if="conversationPreview.conversation.ticket_replied">Replied</span>
+              <span v-else-if="conversationPreview.conversation.ticket_claimed_by_user_id">Claimed · managed in tickets</span>
+              <span v-else>Available to claim · stays unread until claimed</span>
+              <p>This email is read only. Open the ticket to manage it and reply from the group address.</p>
+              <button v-if="conversationPreview.conversation.can_claim_ticket && !conversationPreview.conversation.ticket_claimed_by_user_id" type="button" class="btn btn-secondary" :disabled="claimingGroupTicket" @click="claimPreviewTicket">{{ claimingGroupTicket ? 'Claiming…' : 'Claim ticket' }}</button>
+              <button v-if="conversationPreview.conversation.support_ticket_id" type="button" class="btn btn-primary" @click="openPreviewTicket">Open ticket #{{ conversationPreview.conversation.support_ticket_id }}</button>
+            </div>
             <div v-if="isUnknownConversation" class="msg-hub-unknown-banner">
               <div>
                 <strong>Unknown sender</strong>
@@ -1219,6 +1245,7 @@
             </section>
             <EmailThreadReader v-if="conversationPreview.conversation?.channel === 'email'" :conversation="conversationPreview.conversation" :messages="conversationPreview.messages || []"
               :has-older="!!conversationPreview.nextBeforeId" :loading-older="loadingEmailHistory"
+              :read-only="ticketedEmailPreview"
               @compose="composeEmail" @unread="markSelectedUnread" @older="loadEarlierEmail"
               :can-print="true" :can-file="true" @file="openThreadFiling" @print="printReaderThread" @attachment="downloadReaderAttachment" @like="likeReaderMessage" />
             <div v-else class="msg-hub-timeline"><article v-for="msg in conversationPreview.messages || []" :key="msg.id" class="msg-hub-bubble"><p class="msg-hub-bubble-body">{{ msg.body_text || msg.subject }}</p><time>{{ formatTime(msg.sent_at || msg.created_at) }}</time></article>
@@ -1539,7 +1566,7 @@
             </select>
           </label>
           <label>
-            Internal chat
+            Direct message
             <select v-model.number="sendDelayPrefs.internal">
               <option v-for="opt in undoDelayOptions" :key="'i-' + opt.value" :value="opt.value">
                 {{ opt.label }}
@@ -1569,6 +1596,7 @@
       </div>
     </div>
   </div>
+  <TicketDetailModal v-if="activeTicketId" :ticket-id="activeTicketId" :agency-id="activeTicketAgencyId" @close="closeTicketModal" @updated="refreshMail({ quiet: true })" />
   <Teleport to="body"><aside v-if="hoverEmail" class="email-hover-preview" role="tooltip" :style="{top:hoverEmail.top+'px',left:hoverEmail.left+'px'}" @mouseenter="clearTimeout(hidePreviewTimer)" @mouseleave="scheduleHidePreview">
     <strong>{{ hoverEmail.subject || '(No subject)' }}</strong><pre>{{ hoverEmail.body || 'Loading message…' }}</pre>
   </aside></Teleport>
@@ -1603,16 +1631,65 @@ import { isTenantOrganizationType } from '../../utils/organizationTypes';
 import StartConversationModal from './StartConversationModal.vue';
 import ResolveUnknownSenderModal from './ResolveUnknownSenderModal.vue';
 import HubEmailBodyEditor from './HubEmailBodyEditor.vue';
+import GroupEmailBadge from '../unifiedInbox/GroupEmailBadge.vue';
+import { isTicketedGroup } from '../../utils/groupEmailPresentation';
+import { canAccessTicketDesk } from '../../utils/ticketAccess';
+import TicketDetailModal from '../tickets/TicketDetailModal.vue';
 
 const inboxChannel = ref('all');
 const newConversationChannel = ref('all');
-const newMessageLabel = computed(() => ({email:'New email',internal:'New internal message',secure:'New secure message',sms:'New SMS',calls:'Calls / Voicemails',group:'New group'})[inboxChannel.value] || 'New conversation');
+const newMessageLabel = computed(() => ({email:'New email',internal:'New direct message',secure:'New secure message',sms:'New SMS',calls:'Calls / Voicemails',group:'New group'})[inboxChannel.value] || 'New conversation');
 const channelNeedsActivation = computed(() => ['sms','calls'].includes(inboxChannel.value));
 const channelActivationMessage = computed(() => ({
   sms: 'Provider texting is awaiting activation. You can read saved texts here. Contact your administrator to enable the agency’s provider texting line.',
   calls: 'Calling and voicemail capture are not connected yet. Saved conversation records remain available here.'
 })[inboxChannel.value] || '');
-const inboxChannels = [{id:'all',label:'All'},{id:'email',label:'Email'},{id:'internal',label:'Internal'},{id:'secure',label:'Secure'},{id:'sms',label:'SMS'},{id:'calls',label:'Calls / Voicemails'},{id:'channel',label:'Channels'},{id:'group',label:'Groups'}];
+const inboxChannels = [{id:'all',label:'All'},{id:'email',label:'Email'},{id:'group',label:'Groups'},{id:'internal',label:'Direct message'},{id:'secure',label:'Secure'},{id:'sms',label:'SMS'},{id:'calls',label:'Calls / Voicemails'},{id:'channel',label:'Channels'}];
+const departmentInboxes = ref([]), internalGroups = ref([]), selectedGroupInboxId = ref(null);
+const activeTicketId = ref(null), activeTicketAgencyId = ref(null), claimingGroupTicket = ref(false);
+const ticketedEmailPreview = computed(() => conversationPreview.value?.conversation?.channel === 'email' && !!(conversationPreview.value.conversation.support_ticket_id || isTicketedGroup(conversationPreview.value.conversation)));
+const canUseTickets = computed(() => departmentInboxes.value.length > 0 || canAccessTicketDesk(authStore.user, agencyId.value));
+
+async function loadGroupMemberships() {
+  const aid = agencyId.value;
+  if (!aid) return;
+  const results = await Promise.allSettled([
+    api.get('/communications/inboxes', { params: { agencyId: aid }, skipGlobalLoading: true }),
+    api.get('/messages/hub/start-directory', { params: { agencyId: aid, allAgencies: false, perSection: 40 }, skipGlobalLoading: true })
+  ]);
+  if (aid !== agencyId.value) return;
+  if (results[0].status === 'fulfilled') departmentInboxes.value = (results[0].value.data?.inboxes || []).filter(isTicketedGroup);
+  if (results[1].status === 'fulfilled') internalGroups.value = results[1].value.data?.sections?.groups || [];
+}
+function openTicketDesk() {
+  return router.push({ path: route.params.organizationSlug ? `/${route.params.organizationSlug}/tickets` : '/tickets', query: { agencyId: agencyId.value } });
+}
+function openPreviewTicket() {
+  const conversation = conversationPreview.value?.conversation || selectedConversation.value;
+  if (!conversation?.support_ticket_id) return;
+  activeTicketAgencyId.value = conversation.agency_id || agencyId.value;
+  activeTicketId.value = conversation.support_ticket_id;
+}
+function closeTicketModal() { activeTicketId.value = null; void refreshMail({ quiet: true }); }
+async function claimPreviewTicket() {
+  const conversation = conversationPreview.value?.conversation;
+  if (!conversation?.id || claimingGroupTicket.value) return;
+  claimingGroupTicket.value = true;
+  try {
+    const { data } = await api.post(`/communications/conversations/${conversation.id}/claim`, {}, { skipGlobalLoading: true });
+    const claimed = { ...conversation, ticket_claimed_by_user_id: data?.claimedByUserId || authStore.user?.id, can_claim_ticket: false, is_unread: false };
+    if (conversationPreview.value?.conversation?.id === conversation.id) {
+      conversationPreview.value = { ...conversationPreview.value, conversation: claimed };
+      selectedConversation.value = { ...selectedConversation.value, ...claimed };
+    }
+    conversations.value = conversations.value.filter(row => Number(row.conversationId || row.id) !== Number(conversation.id));
+    emailReadRequest += 1;
+    await Promise.all([loadConversations(), loadInboxCounts()]);
+  } catch (e) {
+    await refreshMail({ quiet: true });
+    error.value = messagingError(e, 'Could not claim this ticket.');
+  } finally { claimingGroupTicket.value = false; }
+}
 const readerSmsText=ref('');
 async function replyReaderSms(){const cid=conversationPreview.value?.conversation?.id;if(!cid||sending.value)return;sending.value=true;try{await api.post(`/communications/conversations/${cid}/reply`,{text:readerSmsText.value,mode:'reply'},{skipGlobalLoading:true});readerSmsText.value='';await refreshMail();}catch(e){error.value=e.response?.data?.error?.message||'Could not send text';}finally{sending.value=false;}}
 const refreshing = ref(false), loadingEmailHistory = ref(false), hoverEmail = ref(null);
@@ -1625,7 +1702,7 @@ function selectInboxChannel(channel){inboxChannel.value=channel;selectNav('inbox
 function composeEmail(mode='new') {
   if (mode === 'new') return openNewConversation('email');
   const supportTicketId = conversationPreview.value?.conversation?.support_ticket_id || selectedConversation.value?.support_ticket_id;
-  if (supportTicketId) return router.push({ path: route.params.organizationSlug ? `/${route.params.organizationSlug}/tickets` : '/tickets', query: { ticketId: supportTicketId } });
+  if (supportTicketId) return openPreviewTicket();
   const conversationId=selectedConversation.value?.conversationId || selectedConversation.value?.id || emailSubjectThreads.value.find(t=>t.key===activeEmailThreadKey.value)?.conversationId;
   if(mode !== 'new' && !conversationId){error.value='Open an email conversation first.';return;}
   openEmailComposer(router,{mode,agencyId:agencyId.value,conversationId:mode==='new'?undefined:conversationId,to:mode==='new'?selected.value?.email:undefined});
@@ -1745,6 +1822,7 @@ function exitReaderFullscreen() {
   nextTick(() => fullscreenButton.value?.focus());
 }
 function onReaderEscape(event) {
+  if (activeTicketId.value) return;
   if (!readerFullscreen.value || sessionBlocked.value) return;
   if (event.key === 'Tab') {
     const root = document.querySelector('.reader-fullscreen');
@@ -1876,6 +1954,7 @@ const { summary: emailWorkspace, draftByConversation } = useEmailWorkspace(agenc
 
 const inboxNavItems = [
   { id: 'inbox', label: 'Inbox' },
+  { id: 'assigned', label: 'Assigned to me' },
   { id: 'unread', label: 'Unread' },
   { id: 'unknown', label: 'Unknown Senders' },
   { id: 'mentions', label: 'Mentions' },
@@ -1922,7 +2001,7 @@ const hubSubtitle = computed(() => {
       return 'Mail from senders who are not in your known contacts — treat like a spam review folder.';
     }
     if (navId.value === 'inbox') {
-      return 'All your conversations in one list — email, secure, internal, and SMS when enabled.';
+      return 'All your conversations in one list — email, groups, direct messages, secure messages, and SMS when enabled.';
     }
     if (navId.value === 'unread') {
       return 'Only conversations with messages you have not seen yet.';
@@ -1958,7 +2037,7 @@ const listSearchPlaceholder = computed(() => {
 
 const isConversationMode = computed(() => {
   if (navSection.value !== 'inbox') return false;
-  return ['inbox', 'unread', 'unknown', 'mentions', 'starred', 'snoozed', 'drafts', 'sent', 'needs_attention'].includes(navId.value);
+  return ['inbox', 'assigned', 'unread', 'unknown', 'mentions', 'starred', 'snoozed', 'drafts', 'sent', 'needs_attention'].includes(navId.value);
 });
 
 const isQueuedMode = computed(() => navSection.value === 'inbox' && navId.value === 'queued');
@@ -2115,7 +2194,10 @@ const filteredPeople = computed(() => {
 const filteredConversations = computed(() => {
   let list = [...(conversations.value || [])];
   const q = listSearch.value.trim().toLowerCase();
-  if (inboxChannel.value !== 'all') list = list.filter(c => inboxChannel.value === 'calls' ? ['call', 'voicemail'].includes(c.channel) : c.channel === inboxChannel.value);
+  if (inboxChannel.value !== 'all') list = list.filter(c => inboxChannel.value === 'calls' ? ['call', 'voicemail'].includes(c.channel)
+    : inboxChannel.value === 'group' ? isTicketedGroup(c) || ['group', 'channel'].includes(c.channel)
+    : inboxChannel.value === 'email' ? c.channel === 'email' && !isTicketedGroup(c) : c.channel === inboxChannel.value);
+  if (inboxChannel.value === 'group' && selectedGroupInboxId.value != null) list = list.filter(c => String(c.inbox_id) === String(selectedGroupInboxId.value));
   if (!q || emailSearchEnabled.value) return list;
   return list.filter((c) => {
     const hay = `${conversationThreadTitle(c)} ${c.primary_participant_name || ''} ${c.primary_participant_email || ''} ${c.subject || ''} ${c.last_message_preview || ''} ${c.hubChannelLabel || ''}`.toLowerCase();
@@ -2152,7 +2234,7 @@ const emptyListCopy = computed(() => {
     return 'No recent people yet. Open New conversation and browse Clients.';
   }
   if (listFilter.value === 'sent') {
-    return 'No sent messages yet. Emails and internal messages you send will show here.';
+    return 'No sent messages yet. Emails and direct messages you send will show here.';
   }
   if (listFilter.value === 'staff') return 'No staff in this list. Try Search.';
   if (listFilter.value === 'school_staff' || (navSection.value === 'people' && navId.value === 'school_staff')) {
@@ -2470,7 +2552,10 @@ watch(sendMethod, (m, previous) => {
   undoDelaySeconds.value = activeDelaySeconds.value;
   if ((m === 'email' || m === 'secure') && !activeEmailThreadKey.value) {
     const threads = m === 'secure' ? secureSubjectThreads.value : emailSubjectThreads.value;
-    if (threads.length === 1) activeEmailThreadKey.value = threads[0].key;
+    if (threads.length === 1) {
+      if (m === 'email') { void openEmailSubjectThread(threads[0]); return; }
+      activeEmailThreadKey.value = threads[0].key;
+    }
   }
   scheduleSmartReply();
 });
@@ -3288,7 +3373,7 @@ const secureHint = computed(() => {
 const composerPlaceholder = computed(() => {
   if (sendMethod.value === 'sms') return 'Write a text message…';
   if (sendMethod.value === 'email') return 'Write an email…';
-  if (sendMethod.value === 'internal') return 'Write an internal message…';
+  if (sendMethod.value === 'internal') return 'Write a direct message…';
   return 'Write a secure message…';
 });
 
@@ -3443,7 +3528,7 @@ function methodLabel(id) {
     secure: 'Secure',
     sms: 'SMS',
     email: 'Email',
-    internal: 'Internal',
+    internal: 'Direct message',
     channel: 'Channel',
     group: 'Group',
     call: 'Call',
@@ -3457,13 +3542,13 @@ function hubUnreadChannelLabel(item) {
   const ch = String(item?.channel || '').toLowerCase();
   const tType = String(item?.threadType || '').toLowerCase();
   if (ch === 'secure') return 'Secure';
-  if (ch === 'internal') return 'Internal';
+  if (ch === 'internal') return 'Direct message';
   if (kind === 'group' || ch === 'group' || tType === 'group' || tType === 'team' || tType === 'club') {
     return 'Group';
   }
   if (tType === 'skill_builders_event') return 'Event';
   if (ch === 'channel' || kind === 'channel') return 'Channel';
-  if (kind === 'chat' && ch !== 'secure') return 'Internal';
+  if (kind === 'chat' && ch !== 'secure') return 'Direct message';
   if (ch === 'sms' || kind === 'sms') return 'SMS';
   if (ch === 'call' || ch === 'voicemail') return methodLabel(ch);
   return 'Email';
@@ -3686,6 +3771,7 @@ function selectMethod(id) {
   if (id === 'email' || id === 'secure') {
     if (!personFocus.value) {
       const threads = id === 'secure' ? secureSubjectThreads.value : emailSubjectThreads.value;
+      if (id === 'email' && threads[0]?.conversationId) return openEmailSubjectThread(threads[0]);
       activeEmailThreadKey.value = threads[0]?.key || null;
       if (threads[0]?.subject && threads[0].subject !== '(No subject)') {
         const bare = String(threads[0].subject || '').replace(/^(re|fw|fwd)\s*:\s*/gi, '').trim();
@@ -3823,6 +3909,13 @@ async function loadConversations({ quiet = false, append = false } = {}) {
       return;
     }
     const id = navId.value;
+    if (id === 'assigned') {
+      const { data } = await api.get('/communications/conversations', { params: { agencyId: agencyId.value, hubScope: 1, inboxId: 'assigned', filter: 'all', limit: 80 }, signal: controller.signal });
+      if (request !== inboxRequest) return;
+      conversations.value = data?.conversations || [];
+      await loadInboxCounts();
+      return;
+    }
     if (id === 'needs_attention') {
       const {data} = await api.get('/communications/drafts/attention', {params:{agencyId:agencyId.value},signal:controller.signal});
       if(request !== inboxRequest) return;
@@ -3860,6 +3953,7 @@ async function loadConversations({ quiet = false, append = false } = {}) {
       if (request !== inboxRequest) return;
       const items = Array.isArray(data?.items) ? data.items : [];
       conversations.value = items.map((item) => ({
+        ...item,
         id: item.conversationId || item.id,
         hubKind: item.kind,
         hubChannelLabel: hubUnreadChannelLabel(item),
@@ -4172,7 +4266,7 @@ async function pickConversation(conv, { preserveSequence = false } = {}) {
       };
 
     }
-    dropOpenedFromUnread({ ...conv, conversationId: emailConvId });
+    if (!isTicketedGroup(detailConv) || detailConv.ticket_claimed_by_user_id) dropOpenedFromUnread({ ...conv, conversationId: emailConvId });
     await refreshUnreadAfterOpen();
   } catch (e) {
     if (request === emailReadRequest && e?.code !== 'ERR_CANCELED') {
@@ -5132,6 +5226,7 @@ watch(sessionBlocked, (blocked, wasBlocked) => {
 });
 
 watch(() => [route.query.folder,route.query.channel], () => {if(route.query.folder || route.query.channel)restoreMailboxView();});
+watch(agencyId, () => { departmentInboxes.value = []; internalGroups.value = []; selectedGroupInboxId.value = null; activeTicketId.value = null; void loadGroupMemberships(); });
 onMounted(() => {
   window.addEventListener('keydown', onReaderEscape);
   restoreMailboxView();
@@ -5143,6 +5238,7 @@ onMounted(() => {
   openLinkedConversation();
   document.addEventListener('click', onDocClickClosePickers);
   loadInboxCounts();
+  loadGroupMemberships();
   loadSendDelayPrefs();
   queuedPollTimer = setInterval(() => {
     if (!sessionBlocked.value && !document.hidden && (inboxCounts.value.queued > 0 || navId.value === 'queued' || undoBanner.value)) {
@@ -5202,6 +5298,14 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
 </script>
 
 <style scoped>
+.msg-hub-memberships, .msg-hub-ticket-label { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.msg-hub-memberships { padding: 4px 16px 12px; }
+.msg-hub-memberships > button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--conversa-border); background: var(--conversa-surface); color: inherit; border-radius: 8px; cursor: pointer; }
+.msg-hub-memberships > button[aria-pressed=true] { outline: 2px solid var(--conversa-blue); outline-offset: 1px; }
+.msg-hub-ticket-label { margin-top: 6px; font-size: 12px; }
+.msg-hub-ticket-panel { margin: 12px 16px; padding: 12px; border: 1px solid var(--conversa-border); border-radius: 8px; background: var(--conversa-wash); font-size: 14px; }
+.msg-hub-ticket-panel > span, .msg-hub-ticket-panel > strong { margin-right: 8px; }
+.msg-hub-ticket-panel > button { margin: 0 8px 0 0; }
 .msg-hub-sender-school { display: block; font-size: .8rem; font-weight: normal; }
 .msg-hub-group-help { display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding:8px 16px; font-size:13px; }
 .msg-hub-email-recipients { margin: 4px 0 8px; font-size: 0.75rem; color: #64748b; overflow-wrap: anywhere; }

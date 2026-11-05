@@ -1,7 +1,7 @@
 import Agency from '../models/Agency.model.js';
 import { routingDestination } from './schoolCareBridgeRouting.service.js';
 
-export const SCHOOL_EMAIL_DISPLAY_NAME = 'Schools';
+export const SCHOOL_EMAIL_DISPLAY_NAME = 'Schools Team';
 
 /** Every school email opens the canonical school workspace and its existing access checks. */
 export async function schoolEmailPortalUrl({ schoolOrganizationId }) {

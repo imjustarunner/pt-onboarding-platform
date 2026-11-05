@@ -10,6 +10,8 @@ import UnifiedConversationList from './UnifiedConversationList.vue';
 import UnifiedConversationThread from './UnifiedConversationThread.vue';
 import UnifiedContextPanel from './UnifiedContextPanel.vue';
 import UnifiedComposeModal from './UnifiedComposeModal.vue';
+import { isTicketedGroup } from '../../utils/groupEmailPresentation';
+import TicketDetailModal from '../tickets/TicketDetailModal.vue';
 
 const props = defineProps({
   agencyId: { type: [Number, String], default: null }
@@ -44,6 +46,8 @@ const conversations = ref([]);
 const selectedId = ref(null);
 const detail = ref(null);
 const detailLoading = ref(false);
+const claimBusy = ref(false);
+const activeTicketId = ref(null);
 
 const selectedInboxId = ref(null); // null = All inboxes (matches agency-wide KPIs)
 const channel = ref('all');
@@ -95,27 +99,34 @@ async function savePrefs(patch) {
   }
 }
 
+let attentionRequestId = 0, inboxRequestId = 0;
 async function loadAttention() {
   if (!resolvedAgencyId.value) return;
+  const agencyId = resolvedAgencyId.value, requestId = ++attentionRequestId;
   const { data } = await api.get('/communications/attention-summary', {
-    params: { agencyId: resolvedAgencyId.value },
+    params: { agencyId },
     skipGlobalLoading: true
   });
-  attention.value = data?.summary || attention.value;
+  if (agencyId === resolvedAgencyId.value && requestId === attentionRequestId) attention.value = data?.summary || attention.value;
 }
 
 async function loadInboxes() {
   if (!resolvedAgencyId.value) return;
+  const agencyId = resolvedAgencyId.value, requestId = ++inboxRequestId;
   const { data } = await api.get('/communications/inboxes', {
-    params: { agencyId: resolvedAgencyId.value },
+    params: { agencyId },
     skipGlobalLoading: true
   });
-  inboxes.value = data?.inboxes || [];
+  if (agencyId === resolvedAgencyId.value && requestId === inboxRequestId) inboxes.value = data?.inboxes || [];
 }
 
 async function refreshAll() {
-  await ensurePersonalMailbox();
-  await Promise.all([loadAttention(), loadInboxes(), loadConversations(), loadPrefs()]);
+  try {
+    await ensurePersonalMailbox();
+    await Promise.all([loadAttention(), loadInboxes(), loadConversations(), loadPrefs()]);
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Could not refresh inbox';
+  }
 }
 
 let listRequestId = 0;
@@ -177,13 +188,42 @@ async function openConversation(id) {
     if (requestId !== detailRequestId) return;
     detail.value = data;
     const row = conversations.value.find((c) => c.id === id);
-    if (row) row.is_unread = false;
+    if (row && !(isTicketedGroup(data.conversation) && !data.conversation.ticket_claimed_by_user_id)) row.is_unread = false;
   } catch (e) {
     if (requestId !== detailRequestId) return;
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to open conversation';
   } finally {
     if (requestId === detailRequestId) detailLoading.value = false;
   }
+}
+
+async function claimTicket() {
+  const id = selectedId.value;
+  if (!id || claimBusy.value) return;
+  claimBusy.value = true;
+  error.value = '';
+  try {
+    await api.post(`/communications/conversations/${id}/claim`, {}, { skipGlobalLoading: true });
+    if (selectedId.value === id) await openConversation(id);
+    await Promise.all([loadConversations(), loadAttention()]);
+  } catch (e) {
+    const message = e?.response?.data?.error?.message || 'Could not claim ticket';
+    if (selectedId.value === id) await openConversation(id);
+    await Promise.allSettled([loadConversations(), loadAttention()]);
+    error.value = message;
+  } finally {
+    claimBusy.value = false;
+  }
+}
+
+function selectInbox(id) {
+  selectedInboxId.value = id;
+  listFilter.value = 'all';
+  if (id === 'group_email' || isTicketedGroup(inboxes.value.find(box => String(box.id) === String(id)))) channel.value = 'all';
+}
+
+function openTickets() {
+  router.push({ path: `${orgPrefix.value}/tickets`, query: { agencyId: String(resolvedAgencyId.value) } }).catch(() => {});
 }
 
 async function patchConversation(patch) {
@@ -305,8 +345,13 @@ watch(
 
 watch(resolvedAgencyId, () => {
   detailRequestId += 1;
+  listRequestId += 1;
   selectedId.value = null;
   detail.value = null;
+  selectedInboxId.value = null;
+  activeTicketId.value = null;
+  conversations.value = [];
+  inboxes.value = [];
   refreshAll();
 });
 
@@ -320,10 +365,32 @@ watch(searchQ, () => {
   searchDebounce = setTimeout(() => loadConversations(), 300);
 });
 
-onMounted(() => refreshAll());
+let mailboxPoll = null;
+let pollBusy = false;
+async function refreshSharedState() {
+  if (document.hidden || pollBusy) return;
+  pollBusy = true;
+  try {
+    const id = selectedId.value;
+    const detailRequest = detailRequestId;
+    const requests = [loadConversations(), loadAttention()];
+    if (id && isTicketedGroup(detail.value?.conversation)) requests.push(
+      api.get(`/communications/conversations/${id}`, { params: { agencyId: resolvedAgencyId.value }, skipGlobalLoading: true })
+        .then(({ data }) => { if (detailRequest === detailRequestId && selectedId.value === id) detail.value = data; })
+    );
+    await Promise.allSettled(requests);
+  } finally { pollBusy = false; }
+}
+onMounted(() => {
+  refreshAll();
+  mailboxPoll = setInterval(refreshSharedState, 30000);
+  window.addEventListener('focus', refreshSharedState);
+});
 onUnmounted(() => {
   clearTimeout(draftTimer);
   clearTimeout(searchDebounce);
+  clearInterval(mailboxPoll);
+  window.removeEventListener('focus', refreshSharedState);
 });
 
 const selectedInbox = computed(() => {
@@ -437,9 +504,10 @@ defineExpose({ refreshAll });
         :selected-inbox-id="selectedInboxId"
         :channel="channel"
         :prefs="prefs"
-        @update:selected-inbox-id="selectedInboxId = $event"
+        @update:selected-inbox-id="selectInbox"
         @update:channel="channel = $event"
         @compose="showCompose = true"
+        @open-tickets="openTickets"
         @smart-filter="listFilter = $event"
         @update:prefs="savePrefs"
       />
@@ -458,6 +526,10 @@ defineExpose({ refreshAll });
         :loading="detailLoading"
         :inbox="inboxes.find((i) => Number(i.id) === Number(detail?.conversation?.inbox_id)) || null"
         :agency-id="resolvedAgencyId"
+        :organization-slug="route.params?.organizationSlug || ''"
+        :claim-busy="claimBusy"
+        @claim-ticket="claimTicket"
+        @open-ticket="activeTicketId = $event"
         @reply="sendReply"
         @patch="patchConversation"
         @draft="onDraftInput"
@@ -472,6 +544,7 @@ defineExpose({ refreshAll });
         :agency-id="resolvedAgencyId"
         @patch="patchConversation"
         @refresh="onContextRefresh"
+        @open-ticket="activeTicketId = $event"
       />
     </div>
 
@@ -483,6 +556,7 @@ defineExpose({ refreshAll });
       @close="showCompose = false"
       @sent="onComposeSent"
     />
+    <TicketDetailModal v-if="activeTicketId" :ticket-id="activeTicketId" :agency-id="resolvedAgencyId" @close="activeTicketId = null; refreshSharedState()" @updated="refreshSharedState" />
   </div>
 </template>
 

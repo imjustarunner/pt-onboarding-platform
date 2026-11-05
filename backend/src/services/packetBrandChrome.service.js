@@ -398,7 +398,22 @@ export function applyPacketBrandToSpec(spec = {}, brand = null) {
   };
 }
 
-export async function brandedIntakeSummarySpec(spec, agency, options = {}) {
+// School organizations carry no packet art; their enrollment packets use the owning agency's.
+async function packetBrandOwner(agency) {
+  if (String(agency?.organization_type || '').toLowerCase() !== 'school' || !agency?.id) return agency;
+  try {
+    const { resolveAgencyIdForSchoolOrg } = await import('./schoolPortalEvents.service.js');
+    const ownerId = await resolveAgencyIdForSchoolOrg(agency.id);
+    if (!ownerId || Number(ownerId) === Number(agency.id)) return agency;
+    const { default: Agency } = await import('../models/Agency.model.js');
+    return (await Agency.findById(Number(ownerId))) || agency;
+  } catch {
+    return agency;
+  }
+}
+
+export async function brandedIntakeSummarySpec(spec, organization, options = {}) {
+  const agency = await packetBrandOwner(organization);
   const kind = String(options.packetKind || 'intake').trim().toLowerCase();
   const link = options.link || null;
   const resolvedKind = isNluPacketChromeAgency(agency)

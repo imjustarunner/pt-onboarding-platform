@@ -38,6 +38,8 @@ import {
   generateThreadInsight
 } from '../services/unifiedInboxAi.service.js';
 import CommunicationInbox from '../models/CommunicationInbox.model.js';
+import { groupKeyForIdentity, listUserDepartmentalGroupKeys } from '../services/departmentalGroupAccess.service.js';
+import { claimGroupEmailConversation } from '../services/groupEmailClaim.service.js';
 
 function resolveAgencyId(req) {
   const raw = req.query.agencyId ?? req.body?.agencyId ?? req.user?.agency_id;
@@ -137,7 +139,7 @@ export async function getUnifiedConversations(req, res, next) {
     const hubScope = req.query.hubScope === '1' || req.query.hubScope === 'true';
     const rawInbox = req.query.inboxId;
     let inboxId =
-      rawInbox != null && rawInbox !== '' && rawInbox !== 'null' && rawInbox !== 'assigned' && rawInbox !== 'my_inbox'
+      rawInbox != null && rawInbox !== '' && rawInbox !== 'null' && rawInbox !== 'assigned' && rawInbox !== 'my_inbox' && rawInbox !== 'group_email'
         ? parseInt(String(rawInbox), 10)
         : null;
     let ownerUserId = null;
@@ -162,7 +164,9 @@ export async function getUnifiedConversations(req, res, next) {
           return res.status(404).json({ error: { message: 'Inbox not found' } });
         }
         if (String(box.kind || '') === 'shared') {
-          inboxId = null;
+          const groupKey = groupKeyForIdentity(box);
+          const permitted = groupKey && (await listUserDepartmentalGroupKeys({ agencyId, userId: req.user.id })).includes(groupKey);
+          if (!permitted) return deny(res);
         } else if (
           String(box.kind || '') === 'personal' &&
           Number(box.owner_user_id) !== Number(req.user.id)
@@ -202,6 +206,7 @@ export async function getUnifiedConversations(req, res, next) {
       syncTickets: req.query.sync !== '0' && adminViewer && !hubScope,
       isAdminViewer: adminViewer && !hubScope,
       scopeToUserId,
+      groupOnly: rawInbox === 'group_email',
       unknownOnly: filter === 'unknown' || req.query.unknown === '1',
       includeHeld: req.query.includeHeld === '1' && adminViewer && !hubScope
     });
@@ -209,6 +214,15 @@ export async function getUnifiedConversations(req, res, next) {
   } catch (e) {
     next(e);
   }
+}
+
+export async function postClaimGroupEmail(req, res, next) {
+  try {
+    if (!isAllowedRole(req.user)) return deny(res);
+    const conversationId = Number(req.params.id);
+    if (!Number.isSafeInteger(conversationId) || conversationId < 1) return res.status(400).json({ error: { message: 'Invalid id' } });
+    res.json(await claimGroupEmailConversation({ conversationId, userId: req.user.id }));
+  } catch (error) { next(error); }
 }
 
 /**

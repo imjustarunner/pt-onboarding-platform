@@ -4,10 +4,11 @@
     :class="{
       compact,
       'ticket-desk--platform': isPlatformTheme,
-      'ticket-desk--focus': !!selectedId && !compact
+      'ticket-desk--focus': !!selectedId && !compact && !embedded,
+      'ticket-desk--embedded': embedded
     }"
   >
-    <header v-if="!compact && !selectedId" class="desk-header">
+    <header v-if="!embedded && !compact && !selectedId" class="desk-header">
       <div>
         <ConversaBrand heading="h2" compact />
         <p class="desk-sub">Tickets · Manage and respond to support requests.</p>
@@ -30,7 +31,7 @@
       </div>
     </header>
 
-    <div v-if="(!selectedId || compact) && (showTenantSwitcher || showPlatformChip)" class="tenant-rail-wrap">
+    <div v-if="!embedded && (!selectedId || compact) && (showTenantSwitcher || showPlatformChip)" class="tenant-rail-wrap">
       <button
         v-if="showPlatformChip"
         type="button"
@@ -59,7 +60,7 @@
       />
     </div>
 
-    <div v-if="!compact && !selectedId" class="metrics">
+    <div v-if="!embedded && !compact && !selectedId" class="metrics">
       <button
         v-for="m in metricCards"
         :key="m.key"
@@ -73,9 +74,10 @@
       </button>
     </div>
 
+    <p v-if="embedded && error" class="error" role="alert">{{ error }}</p>
     <div class="desk-body">
       <aside
-        v-if="!selectedId || compact"
+        v-if="!embedded && (!selectedId || compact)"
         class="list-pane"
         :class="{ 'hide-mobile': selectedId && isNarrow }"
       >
@@ -195,6 +197,7 @@
           <div class="detail-header">
             <button
               type="button"
+              v-if="!embedded"
               class="btn-exit-ticket"
               title="Back to queue"
               aria-label="Back to queue"
@@ -242,6 +245,7 @@
                 type="button"
                 class="btn btn-secondary btn-sm"
                 :disabled="!canGoPrev"
+                v-if="!embedded"
                 title="Previous ticket in queue"
                 @click="goAdjacent(-1)"
               >
@@ -251,6 +255,7 @@
                 type="button"
                 class="btn btn-secondary btn-sm"
                 :disabled="!canGoNext"
+                v-if="!embedded"
                 title="Next ticket in queue"
                 @click="goAdjacent(1)"
               >
@@ -259,6 +264,7 @@
               <button
                 type="button"
                 class="btn btn-secondary btn-sm"
+                v-if="!embedded"
                 title="Save draft and open next ticket"
                 @click="saveDraftAndNext"
               >
@@ -828,7 +834,7 @@
                     Official answer
                   </button>
                 </div>
-                <div v-if="isEmailTicket && canAnswer && composerMode !== 'internal'" class="email-sender-controls">
+                <div v-if="isEmailTicket && canSelectSharedSender && composerMode !== 'internal'" class="email-sender-controls">
                   <label>Reply from
                     <select v-model="senderIdentityId" aria-label="Shared email address">
                       <option v-for="option in senderOptions" :key="option.id" :value="option.id">{{ option.fromEmail }}</option>
@@ -837,7 +843,7 @@
                   <label>Display name
                     <select v-model="senderMode" aria-label="Email display name">
                       <option value="staff">{{ selectedSender?.staffDisplayName || 'My name' }}</option>
-                      <option value="team">{{ selectedSender?.teamDisplayName || 'Schools team' }}</option>
+                      <option value="team">{{ selectedSender?.teamDisplayName || selectedSender?.displayName || 'Group name' }}</option>
                     </select>
                   </label>
                   <p v-if="selectedSender">{{ senderMode === 'staff' ? selectedSender.staffDisplayName : selectedSender.teamDisplayName }} &lt;{{ selectedSender.fromEmail }}&gt;</p>
@@ -1082,6 +1088,7 @@
 </template>
 
 <script setup>
+import { canAccessTicketDesk } from '../../utils/ticketAccess.js';
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import { recordsRequestQueueUrl } from '../../utils/recordsRequestTicket.js';
 import TicketAttachmentFiling from './TicketAttachmentFiling.vue';
@@ -1101,13 +1108,17 @@ import {
 
 const props = defineProps({
   compact: { type: Boolean, default: false },
+  embedded: { type: Boolean, default: false },
+  initialTicketId: { type: [Number, String], default: null },
+  agencyId: { type: [Number, String], default: null },
+  syncRoute: { type: Boolean, default: true },
   /** When true, school_staff uses /mine; agency uses queue */
   mode: { type: String, default: 'auto' }, // auto | mine | queue
   /** Plot Twist HQ dark chrome (platform command center) */
   theme: { type: String, default: 'default' } // default | platform
 });
 
-const emit = defineEmits(['selection-change']);
+const emit = defineEmits(['selection-change', 'updated']);
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -1119,13 +1130,13 @@ const role = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isSchoolStaff = computed(() => role.value === 'school_staff');
 const isSuperAdmin = computed(() => role.value === 'super_admin');
 const canClaim = computed(() =>
-  ['school_staff', 'staff', 'admin', 'support', 'super_admin', 'clinical_practice_assistant'].includes(role.value)
+  role.value === 'school_staff' || canAccessTicketDesk(authStore.user, selected.value?.agency_id || agencyStore.currentAgency?.id)
 );
 const canClose = computed(() =>
-  ['staff', 'admin', 'support', 'super_admin', 'clinical_practice_assistant'].includes(role.value)
+  canAccessTicketDesk(authStore.user, selected.value?.agency_id || agencyStore.currentAgency?.id)
 );
 const canInternal = computed(() =>
-  ['staff', 'admin', 'support', 'super_admin', 'clinical_practice_assistant'].includes(role.value)
+  canAccessTicketDesk(authStore.user, selected.value?.agency_id || agencyStore.currentAgency?.id)
 );
 const canSetPriority = computed(() =>
   ['admin', 'support', 'super_admin', 'clinical_practice_assistant'].includes(role.value)
@@ -1133,6 +1144,7 @@ const canSetPriority = computed(() =>
 const canAnswer = computed(() =>
   ['admin', 'support', 'super_admin'].includes(role.value)
 );
+const canSelectSharedSender = computed(() => canAccessTicketDesk(authStore.user, selected.value?.agency_id || props.agencyId || agencyStore.currentAgency?.id));
 const isEmailTicket = computed(() =>
   String(selected.value?.source_channel || '').toLowerCase() === 'email'
 );
@@ -1194,6 +1206,7 @@ const sendAttempt = ref(null);
 let messageLoadSequence = 0;
 let draftGenerationSequence = 0;
 let restoringDraft = false;
+let senderModeInitialized = false;
 let messagePollTimer;
 function deliveryLabel(delivery) {
   if (delivery.direction === 'inbound') return 'Received';
@@ -1772,6 +1785,7 @@ function onResize() {
 }
 
 async function loadAgencyCounts() {
+  if (props.embedded) return;
   if (!showTenantSwitcher.value && !showPlatformChip.value) return;
   try {
     const r = await api.get('/support-tickets/counts-by-agency', { skipGlobalLoading: true });
@@ -1787,6 +1801,7 @@ async function loadAgencyCounts() {
 }
 
 async function loadMetrics() {
+  if (props.embedded) return;
   if (useSubmittedTickets.value) return;
   try {
     const params = {};
@@ -1809,6 +1824,7 @@ async function loadMetrics() {
 }
 
 async function loadTickets() {
+  if (props.embedded) return;
   loading.value = true;
   error.value = '';
   try {
@@ -1887,6 +1903,11 @@ async function loadMessages(ticketId, { quiet = false } = {}) {
     ticketAttachments.value = Array.isArray(r.data?.attachments) ? r.data.attachments : [];
     if (r.data?.ticket) selected.value = { ...selected.value, ...r.data.ticket };
     senderOptions.value = r.data?.senderOptions || [];
+    if (!senderModeInitialized) {
+      const departmentalKeys = ['payroll', 'billing', 'credentialing', 'support', 'admin', 'technology', 'compliance', 'medical_records'];
+      senderMode.value = senderOptions.value.some(option => departmentalKeys.includes(option.identityKey)) ? 'team' : 'staff';
+      senderModeInitialized = true;
+    }
     if (!senderOptions.value.some((x) => Number(x.id) === Number(senderIdentityId.value))) {
       senderIdentityId.value = (senderOptions.value.find((x) => x.identityKey === 'schools') || senderOptions.value[0])?.id || null;
     }
@@ -1926,6 +1947,7 @@ function saveDraftForTicket(id, text) {
   } catch { /* Private mode or quota: the editor remains available. */ }
 }
 function restoreDraftForTicket(id) {
+  senderModeInitialized = false;
   restoringDraft = true;
   try {
     const saved = JSON.parse(sessionStorage.getItem(draftStorageKey(id)) || '{}');
@@ -1937,6 +1959,7 @@ function restoreDraftForTicket(id) {
     draftThreadRevision.value = saved.draftThreadRevision ?? null;
     senderIdentityId.value = saved.senderIdentityId || null;
     senderMode.value = saved.senderMode === 'team' ? 'team' : 'staff';
+    senderModeInitialized = ['team', 'staff'].includes(saved.senderMode);
     sendAttempt.value = saved.sendAttempt || null;
   } catch {
     composerDrafts.value = { reply: '', internal: '', answer: '' };
@@ -2016,8 +2039,10 @@ function selectTicket(t) {
   suggestedActionsCollapsed.value = false;
   oneTimePasswords.value = {};
   emit('selection-change', t);
-  const q = { ...route.query, ticketId: String(t.id) };
-  router.replace({ query: q }).catch(() => {});
+  if (props.syncRoute) {
+    const q = { ...route.query, ticketId: String(t.id) };
+    router.replace({ query: q }).catch(() => {});
+  }
   loadMessages(t.id);
   if (canAssignOthers.value) loadAssignees(t);
   if (canAnswer.value) loadTicketActions(t.id);
@@ -2064,9 +2089,11 @@ function clearSelection() {
   draft.value = '';
   draftSources.value = [];
   emit('selection-change', null);
-  const q = { ...route.query };
-  delete q.ticketId;
-  router.replace({ query: q }).catch(() => {});
+  if (props.syncRoute) {
+    const q = { ...route.query };
+    delete q.ticketId;
+    router.replace({ query: q }).catch(() => {});
+  }
 }
 
 function actionTypeLabel(type) {
@@ -2341,6 +2368,7 @@ async function sendMessage() {
       if (email) emailNotice.value = 'Reply sent.';
     }
     if (current) await loadMessages(ticketId);
+    emit('updated', selected.value);
     await loadTickets(); await loadMetrics();
   } catch (e) {
     if (Number(selectedId.value) === Number(ticketId)) {
@@ -2357,6 +2385,7 @@ async function claim() {
     await api.post(`/support-tickets/${selected.value.id}/claim`, {}, { skipGlobalLoading: true });
     await loadAll();
     await loadMessages(selected.value.id);
+    emit('updated', selected.value);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Claim failed';
   } finally {
@@ -2371,6 +2400,7 @@ async function unclaim() {
     await api.post(`/support-tickets/${selected.value.id}/unclaim`);
     await loadAll();
     await loadMessages(selected.value.id);
+    emit('updated', selected.value);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Unclaim failed';
   } finally {
@@ -2389,6 +2419,12 @@ async function closeTicket() {
     await api.post(`/support-tickets/${closedId}/close`);
     clearDraftForTicket(closedId);
     await loadAll();
+    if (props.embedded) {
+      await loadMessages(closedId);
+      emit('updated', selected.value);
+      return;
+    }
+    emit('updated', selected.value);
     // Prefer the next still-open ticket after this one in the prior queue order.
     for (let i = idx + 1; i < prevOrder.length; i++) {
       const candidate = tickets.value.find(
@@ -2459,6 +2495,7 @@ async function assignTicket() {
     assignToId.value = '';
     await loadAll();
     await loadMessages(selected.value.id);
+    emit('updated', selected.value);
   } catch (e) {
     actionError.value = e?.response?.data?.error?.message || e?.message || 'Assign failed';
   } finally {
@@ -2710,6 +2747,7 @@ watch(schoolSort, () => {
 watch(
   () => route.query?.ticketId,
   (id) => {
+    if (!props.syncRoute) return;
     const n = parseInt(String(id || ''), 10);
     if (!Number.isFinite(n) || n <= 0) return;
     if (selectedId.value === n) return;
@@ -2721,12 +2759,24 @@ watch(
   }
 );
 
+watch([() => props.initialTicketId, () => props.agencyId], ([id, agencyId]) => {
+  if (!props.embedded || !Number(id)) return;
+  agencyIdInput.value = Number(agencyId) || null;
+  if (Number(selectedId.value) !== Number(id)) selectTicket({ id: Number(id), agency_id: agencyIdInput.value });
+});
+
 onMounted(async () => {
   messagePollTimer = setInterval(() => {
     if (selectedId.value && isEmailTicket.value && !sending.value && !messagesLoading.value && !document.hidden) loadMessages(selectedId.value, { quiet: true });
   }, 30000);
   onResize();
   window.addEventListener('resize', onResize);
+  if (props.embedded) {
+    agencyIdInput.value = Number(props.agencyId || agencyStore.currentAgency?.id) || null;
+    const id = Number(props.initialTicketId);
+    if (id > 0) selectTicket({ id, agency_id: agencyIdInput.value });
+    return;
+  }
   if (!isSchoolStaff.value) {
     try {
       if (!(agencyStore.userAgencies || []).length) {
@@ -2758,7 +2808,7 @@ onMounted(async () => {
   }
   await loadAll();
   await loadPendingProposalCount();
-  const qid = parseInt(String(route.query?.ticketId || ''), 10);
+  const qid = parseInt(String(props.initialTicketId || (props.syncRoute ? route.query?.ticketId : '') || ''), 10);
   if (Number.isFinite(qid) && qid > 0) {
     const found = tickets.value.find((t) => t.id === qid);
     if (found) selectTicket(found);
@@ -2779,6 +2829,10 @@ defineExpose({ loadAll, clearSelection });
 </script>
 
 <style scoped>
+.ticket-desk.ticket-desk--embedded { height: 100%; min-height: 0; max-height: none; gap: 0; }
+.ticket-desk--embedded .desk-body { grid-template-columns: 1fr; border: 0; border-radius: 0; }
+.ticket-desk--embedded .detail-pane { width: 100%; }
+
 .email-sender-controls { display: flex; flex-wrap: wrap; gap: 12px; padding: 10px 0; }
 .email-sender-controls label { display: grid; gap: 4px; font-size: 12px; }
 .email-sender-controls select { padding: 7px; border: 1px solid var(--border, #ddd); border-radius: 6px; background: var(--bg-card, white); color: inherit; }
@@ -3722,12 +3776,15 @@ defineExpose({ loadAll, clearSelection });
    scroll as one page; the desktop split pane keeps its existing behavior. */
 @media (max-width: 640px) {
   .ticket-desk--focus { height: auto; min-height: calc(100dvh - 48px); }
-  .ticket-desk--focus .desk-body { flex: 0 0 auto; overflow: visible; }
-  .ticket-desk--focus .detail-main { flex: 0 0 auto; display: block; }
-  .ticket-desk--focus .conversation-col { overflow: visible; }
-  .ticket-desk--focus .conversation-scroll { flex: 0 0 auto; overflow: visible; }
+  .ticket-desk.ticket-desk--embedded { height: auto; }
+  .ticket-desk--focus .desk-body, .ticket-desk--embedded .desk-body { flex: 0 0 auto; overflow: visible; }
+  .ticket-desk--focus .detail-main, .ticket-desk--embedded .detail-main { flex: 0 0 auto; display: block; }
+  .ticket-desk--focus .conversation-col, .ticket-desk--embedded .conversation-col { overflow: visible; }
+  .ticket-desk--focus .conversation-scroll, .ticket-desk--embedded .conversation-scroll { flex: 0 0 auto; overflow: visible; }
   .ticket-desk--focus .detail-header,
-  .ticket-desk--focus .composer { position: static; }
+  .ticket-desk--focus .composer,
+  .ticket-desk--embedded .detail-header,
+  .ticket-desk--embedded .composer { position: static; }
 }
 
 /* Follow the selected platform appearance. */

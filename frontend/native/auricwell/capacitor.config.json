@@ -1,0 +1,11 @@
+{
+  "appId": "com.auricwell.mobile",
+  "appName": "Auricwell",
+  "webDir": "../../dist-auricwell-mobile",
+  "ios": {
+    "path": "ios",
+    "scheme": "App",
+    "contentInset": "automatic"
+  },
+  "includePlugins": []
+}

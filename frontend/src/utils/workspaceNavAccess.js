@@ -1,3 +1,4 @@
+import { canAccessTicketDesk } from './ticketAccess.js';
 import { canAccessSchoolPortalsSurfaces, parseFeatureFlags, isTruthyFeatureFlag } from './schoolPortalsAccess.js';
 import { isSummitPlatformRouteSlug } from './summitPlatformSlugs.js';
 import { hubPathPrefix } from './orgScopedPath.js';
@@ -146,7 +147,7 @@ export function canSeeDashboardGlanceCard(cardKey, opts = {}) {
     case 'training':
       return hasCapability(user, 'canViewTraining') || isAdminRole(r) || r === 'super_admin';
     case 'support_tickets':
-      return isAdminRole(r) || r === 'staff';
+      return canAccessTicketDesk(user, opts.agencyId, r);
     case 'tasks':
       return true;
     case 'late_notes':

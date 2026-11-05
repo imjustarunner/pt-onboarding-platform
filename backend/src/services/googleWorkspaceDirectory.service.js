@@ -315,7 +315,7 @@ class GoogleWorkspaceDirectoryService {
    * Add a member to a Google Group. role: MEMBER | OWNER | MANAGER
    * Nested Google Groups can only be added as type GROUP / role MEMBER via the API.
    */
-  static async addGroupMember({ groupEmail, memberEmail, role = 'MEMBER', client = null, memberType = null }) {
+  static async addGroupMember({ groupEmail, memberEmail, role = 'MEMBER', client = null, memberType = null, deliverySettings = null }) {
     const groupKey = String(groupEmail || '').trim().toLowerCase();
     const email = String(memberEmail || '').trim().toLowerCase();
     if (!groupKey) throw new Error('groupEmail is required');
@@ -323,6 +323,8 @@ class GoogleWorkspaceDirectoryService {
     const admin = client || await this.getClient();
     if (appGroupMemberPolicy(email)) return ensureAppGroupMember({ admin, groupKey, email });
     const requestedRole = String(role || 'MEMBER').toUpperCase();
+    const delivery = deliverySettings == null ? null : String(deliverySettings).toUpperCase();
+    if (delivery && !['ALL_MAIL', 'DIGEST', 'DAILY', 'NONE', 'DISABLED'].includes(delivery)) throw new Error('Invalid group delivery settings');
 
     const nestedGroup = memberType === 'GROUP' ? true : memberType === 'USER' ? null : await this.getGroup({ groupEmail: email });
     const effectiveRole = nestedGroup && requestedRole !== 'MEMBER' ? 'MEMBER' : requestedRole;
@@ -333,6 +335,7 @@ class GoogleWorkspaceDirectoryService {
         requestBody: {
           email,
           role: effectiveRole,
+          ...(delivery ? { delivery_settings: delivery } : {}),
           ...(nestedGroup ? { type: 'GROUP' } : {})
         }
       });

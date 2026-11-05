@@ -24,6 +24,26 @@ import { DEFAULT_SCHEDULE_TZ } from '../utils/zonedWallTime.util.js';
 import { sendSupportTicketEmailReply } from './supportTicketEmail.service.js';
 import { encryptSupportEmailText } from './supportEmailEncryption.js';
 import { supportEmailError } from './supportTicketEmailPolicy.js';
+import { groupKeyForIdentity, listUserDepartmentalGroupKeys } from './departmentalGroupAccess.service.js';
+
+export async function loadGroupEmailInboxScope({ agencyId, userId }) {
+  const [inboxes, keys] = await Promise.all([
+    CommunicationInbox.listForAgency({ agencyId }), listUserDepartmentalGroupKeys({ agencyId, userId })
+  ]);
+  const groups = inboxes.filter((inbox) => groupKeyForIdentity(inbox));
+  return { groups, groupInboxIds: groups.map((i) => Number(i.id)),
+    allowedGroupInboxIds: groups.filter((i) => keys.includes(groupKeyForIdentity(i))).map((i) => Number(i.id)) };
+}
+
+function withGroupEmailMetadata(conversation, userId) {
+  const key = groupKeyForIdentity({ identity_key: conversation.inbox_identity_key,
+    kind: conversation.inbox_kind, from_email: conversation.inbox_from_email });
+  return { ...conversation, group_key: key, is_group_email: !!key, is_ticketed_group: !!key,
+    ticket_replied: !!conversation.support_ticket_id && conversation.last_message_direction === 'outbound',
+    can_claim_ticket: !!key && !!conversation.support_ticket_id && !conversation.ticket_claimed_by_user_id
+      && !['closed','resolved','done'].includes(conversation.ticket_status),
+    is_ticket_claimant: !!conversation.ticket_claimed_by_user_id && Number(conversation.ticket_claimed_by_user_id) === Number(userId) };
+}
 
 const UNDO_WINDOW_MS = 20 * 1000;
 const MAX_UNDO_DELAY_MS = 10 * 60 * 1000;
@@ -111,10 +131,13 @@ export async function listInboxes({ agencyId, userId, includeShared = true }) {
     console.warn('[unifiedInbox] messages@ mailbox:', e?.message || e);
   }
   const rows = await CommunicationInbox.listForAgency({ agencyId, userId });
+  const departmentKeys = await listUserDepartmentalGroupKeys({ agencyId, userId });
   const personal = rows.find((r) => r.kind === 'personal' && Number(r.owner_user_id) === Number(userId));
-  const shared = includeShared ? rows.filter((r) => r.kind === 'shared') : [];
+  const shared = rows.filter((r) => r.kind === 'shared' &&
+    (groupKeyForIdentity(r) ? departmentKeys.includes(groupKeyForIdentity(r)) : includeShared));
   const mapped = (r) => {
     const isPersonal = r.kind === 'personal';
+    const groupKey = isPersonal ? null : groupKeyForIdentity(r);
     return {
       id: r.id,
       kind: r.kind,
@@ -125,7 +148,9 @@ export async function listInboxes({ agencyId, userId, includeShared = true }) {
       reply_to: r.reply_to,
       signature_image_url: r.signature_image_url,
       owner_user_id: r.owner_user_id || null,
-      routing: isPersonal ? 'app_group_alias' : (r.kind === 'shared' ? 'shared_team' : null)
+      group_key: groupKey, is_group_email: !!groupKey, is_ticketed_group: !!groupKey,
+      ticketing_access: !!groupKey,
+      routing: isPersonal ? 'app_group_alias' : (groupKey ? 'ticketed_group' : r.kind === 'shared' ? 'shared_team' : null)
     };
   };
   return [
@@ -148,6 +173,8 @@ export async function listInboxes({ agencyId, userId, includeShared = true }) {
           routing: 'app_group_alias'
         },
     { id: 'assigned', kind: 'virtual', display_name: 'All Assigned to Me', from_email: null, identity_key: 'assigned' },
+    ...(shared.some((r) => groupKeyForIdentity(r)) ? [{ id: 'group_email', kind: 'virtual', display_name: 'Group Email',
+      identity_key: 'group_email', is_group_email: true, is_ticketed_group: true, ticketing_access: true }] : []),
     ...shared.map(mapped)
   ];
 }
@@ -170,15 +197,18 @@ export async function listConversations(opts) {
       });
     }
   }
-  return CommunicationConversation.list(opts);
+  const scope = await loadGroupEmailInboxScope({ agencyId, userId });
+  const rows = await CommunicationConversation.list({ ...opts, ...scope });
+  return rows.map((row) => withGroupEmailMetadata(row, userId));
 }
 
 export async function getAttentionSummary({ agencyId, userId, scopeToUserId = null } = {}) {
   // Do not re-sync tickets here — listConversations already syncs on load.
+  const scope = await loadGroupEmailInboxScope({ agencyId, userId });
   const summary = await CommunicationConversation.attentionSummary({
     agencyId,
     userId,
-    scopeToUserId
+    scopeToUserId, ...scope
   });
   const responseTime = await computeResponseTimeMetrics({ agencyId, days: 7 }).catch(() => null);
   return { ...summary, responseTime };
@@ -198,13 +228,18 @@ export async function getConversationDetail(conversationId, { userId, markRead =
   const hydrated = await hydrateChannelMessages(conv);
   if (hydrated) messages = hydrated;
   const context = await buildConversationContext(conv).catch((e) => { console.warn('[email-reader] context unavailable:', e?.code || 'context_failed'); return null; });
-  if (markRead && userId) {
+  conv = withGroupEmailMetadata(conv, userId);
+  if (markRead && userId && !conv.is_ticketed_group) {
     await CommunicationConversation.markRead(conversationId, userId);
   }
   return { conversation: conv, messages, context, ticketThreadRevision, nextBeforeId: messages.length === 200 ? Math.min(...messages.map(m => Number(m.id))) : null };
 }
 
 export async function updateConversation(conversationId, patch, { userId } = {}) {
+  const existing = await CommunicationConversation.findById(conversationId);
+  if (existing && withGroupEmailMetadata(existing, userId).is_ticketed_group) {
+    throw supportEmailError('Manage this group message in its linked ticket.', 409, 'GROUP_EMAIL_READ_ONLY');
+  }
   const updates = {};
   if (patch.status !== undefined) updates.status = patch.status;
   if (patch.priority !== undefined) updates.priority = patch.priority;
@@ -276,6 +311,9 @@ function normalizeAddressList(list) {
 export async function replyToConversation(conversationId, payload, { userId } = {}) {
   const conv = await CommunicationConversation.findById(conversationId);
   if (!conv) throw new Error('Conversation not found');
+  if (withGroupEmailMetadata(conv, userId).is_ticketed_group) {
+    throw supportEmailError('Reply from the linked ticket to keep the group response and assignment in sync.', 409, 'GROUP_EMAIL_READ_ONLY');
+  }
 
   if (['sms', 'call', 'voicemail'].includes(String(conv.channel || ''))) {
     const isInternal = String(payload.mode || '').toLowerCase() === 'internal' || !!payload.isInternalNote;

@@ -1,6 +1,7 @@
 import { assignedSmsConversationSql } from '../utils/assignedSmsAccessSql.js';
 import pool from '../config/database.js';
 import { decryptTicketMessageRow } from '../utils/supportTicketCrypto.js';
+import { groupEmailConversationSql } from '../services/groupEmailConversationPolicy.js';
 
 async function hydrateTicketMessageBodies(messages) {
   const ids = [...new Set(messages.map((m) => Number(m?.support_ticket_message_id)).filter(Boolean))];
@@ -47,14 +48,20 @@ class CommunicationConversation {
   static async findById(id) {
     const [rows] = await pool.execute(
       `SELECT c.*,
+              (CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END) AS owner_user_id,
+              (SELECT e.direction FROM support_ticket_email_messages e WHERE e.ticket_id=c.support_ticket_id
+                AND (e.direction='inbound' OR e.send_status='sent')
+                ORDER BY COALESCE(e.sent_at,e.created_at) DESC,e.id DESC LIMIT 1) AS last_message_direction,
               i.display_name AS inbox_display_name,
               i.from_email AS inbox_from_email,
-              i.sender_identity_id,
+              i.sender_identity_id, i.identity_key AS inbox_identity_key, i.kind AS inbox_kind,
+              t.status AS ticket_status, t.claimed_by_user_id AS ticket_claimed_by_user_id,
               u.first_name AS owner_first_name,
               u.last_name AS owner_last_name
        FROM communication_conversations c
        LEFT JOIN communication_inboxes i ON i.id = c.inbox_id
-       LEFT JOIN users u ON u.id = c.owner_user_id
+       LEFT JOIN support_tickets t ON t.id = c.support_ticket_id
+       LEFT JOIN users u ON u.id = (CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END)
        WHERE c.id = ?
        LIMIT 1`,
       [id]
@@ -163,10 +170,17 @@ class CommunicationConversation {
     unknownOnly = false,
     isAdminViewer = false,
     /** When set (non-admin feeds), only personal inbox + assigned-to-user threads. */
-    scopeToUserId = null
+    scopeToUserId = null,
+    groupInboxIds = [], allowedGroupInboxIds = [], groupOnly = false, excludeGroup = false
   } = {}) {
     const where = ['c.archived_at IS NULL', 'COALESCE(c.is_spam, 0) = 0'];
     const params = [];
+    const groupSql = groupEmailConversationSql({ groupInboxIds, allowedGroupInboxIds });
+    where.push(groupSql.access);
+    if (groupOnly) where.push(groupSql.isGroup);
+    if (excludeGroup) where.push(`NOT (${groupSql.isGroup})`);
+    if (filter !== 'assigned' && !ownerUserId &&
+      (groupOnly || !['sent', 'waiting', 'draft', 'drafts'].includes(filter))) where.push(groupSql.sharedQueue);
     if (agencyId != null) {
       where.push('(c.agency_id = ? OR c.agency_id IS NULL)');
       params.push(agencyId);
@@ -184,7 +198,8 @@ class CommunicationConversation {
     // Providers/staff must not see shared messages@ / tickets unless assigned or in their App inbox
     if (scopeToUserId) {
       where.push(`(
-        c.owner_user_id = ?
+        (CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END) = ?
+        ${groupSql.personalScopeExtension}
         OR ${assignedSmsConversationSql}
         OR EXISTS (
           SELECT 1 FROM communication_inboxes pi
@@ -221,7 +236,7 @@ class CommunicationConversation {
       params.push(status);
     }
     if (ownerUserId) {
-      where.push('c.owner_user_id = ?');
+      where.push('(CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END) = ?');
       params.push(ownerUserId);
     }
 
@@ -320,7 +335,7 @@ class CommunicationConversation {
       params.push(now);
     } else if (filter === 'unread' && userId) {
       // Unread = inbound you haven't seen, OR explicitly Mark unread (forced_unread).
-      where.push(`(
+      where.push(`(${groupSql.unread} OR (NOT (${groupSql.isGroup}) AND (
         EXISTS (
           SELECT 1 FROM communication_conversation_reads fr
           WHERE fr.conversation_id = c.id AND fr.user_id = ? AND COALESCE(fr.forced_unread, 0) = 1
@@ -344,7 +359,7 @@ class CommunicationConversation {
               )
             )
         )
-      )`);
+      )))`);
       // Actively snoozed mail leaves Unread until it wakes
       where.push('(c.snoozed_until IS NULL OR c.snoozed_until <= ?)');
       // Unknown senders live only in the Unknown Senders folder
@@ -359,7 +374,7 @@ class CommunicationConversation {
       where.push('c.snoozed_until IS NOT NULL AND c.snoozed_until > ?');
       params.push(now);
     } else if (filter === 'assigned' && userId) {
-      where.push('c.owner_user_id = ?');
+      where.push('(CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END) = ?');
       params.push(userId);
     } else if (filter === 'drafts' || filter === 'draft') {
       // Unsent compose only — leftover draft_body after a send must not keep the thread here.
@@ -384,16 +399,23 @@ class CommunicationConversation {
 
     const [rows] = await pool.execute(
       `SELECT c.*,
+              (CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END) AS owner_user_id,
+              t.status AS ticket_status, t.claimed_by_user_id AS ticket_claimed_by_user_id,
+              (${groupSql.unread}) AS group_ticket_unread,
               (SELECT m.from_json FROM communication_messages m
                WHERE m.conversation_id = c.id AND COALESCE(m.is_internal_note, 0) = 0
-                 AND (m.send_status IS NULL OR m.send_status = 'sent')
+                 AND (m.send_status IS NULL OR m.send_status IN ('sent','received'))
                ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC LIMIT 1
               ) AS last_sender_json,
-              (SELECT m.direction FROM communication_messages m
+              CASE WHEN t.id IS NOT NULL THEN
+                (SELECT e.direction FROM support_ticket_email_messages e WHERE e.ticket_id=t.id
+                  AND (e.direction='inbound' OR e.send_status='sent')
+                  ORDER BY COALESCE(e.sent_at,e.created_at) DESC,e.id DESC LIMIT 1)
+              ELSE (SELECT m.direction FROM communication_messages m
                WHERE m.conversation_id = c.id AND COALESCE(m.is_internal_note, 0) = 0
-                 AND (m.send_status IS NULL OR m.send_status = 'sent')
+                 AND (m.send_status IS NULL OR m.send_status IN ('sent','received'))
                ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC LIMIT 1
-              ) AS last_message_direction,
+              ) END AS last_message_direction,
               (SELECT m.from_json FROM communication_messages m
                WHERE m.conversation_id = c.id AND m.direction = 'inbound'
                  AND COALESCE(m.is_internal_note, 0) = 0
@@ -402,6 +424,7 @@ class CommunicationConversation {
               ) AS last_inbound_sender_json,
               i.display_name AS inbox_display_name,
               i.from_email AS inbox_from_email,
+              i.identity_key AS inbox_identity_key, i.kind AS inbox_kind,
               u.first_name AS owner_first_name,
               u.last_name AS owner_last_name,
               (
@@ -446,7 +469,8 @@ class CommunicationConversation {
               ) AS last_inbound_preview` : ''}
        FROM communication_conversations c
        LEFT JOIN communication_inboxes i ON i.id = c.inbox_id
-       LEFT JOIN users u ON u.id = c.owner_user_id
+       LEFT JOIN support_tickets t ON t.id = c.support_ticket_id
+       LEFT JOIN users u ON u.id = (CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END)
        WHERE ${where.join(' AND ')}
        ORDER BY COALESCE(c.last_message_at, c.updated_at) DESC
        LIMIT ${lim} OFFSET ${off}`,
@@ -462,7 +486,7 @@ class CommunicationConversation {
         is_spam: !!r.is_spam,
         is_snoozed: isSnoozed,
         snoozed_until: r.snoozed_until || null,
-        is_unread: userId
+        is_unread: groupInboxIds.map(Number).includes(Number(r.inbox_id)) ? !!Number(r.group_ticket_unread) : userId
           ? !!(
               !isSnoozed &&
               (Number(r.forced_unread || 0) === 1 ||
@@ -526,14 +550,16 @@ class CommunicationConversation {
     return rows.length;
   }
 
-  static async attentionSummary({ agencyId, userId, scopeToUserId = null } = {}) {
+  static async attentionSummary({ agencyId, userId, scopeToUserId = null, groupInboxIds = [], allowedGroupInboxIds = [] } = {}) {
     const now = new Date();
     const agencyClause = agencyId != null ? '(c.agency_id = ? OR c.agency_id IS NULL)' : '1=1';
     const paramsBase = agencyId != null ? [agencyId] : [];
     const scopeUid = scopeToUserId != null ? Number(scopeToUserId) : null;
+    const groupSql = groupEmailConversationSql({ groupInboxIds, allowedGroupInboxIds });
     const scopeClause = scopeUid
       ? `AND (
-           c.owner_user_id = ?
+           (CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END) = ?
+           ${groupSql.personalScopeExtension}
            OR ${assignedSmsConversationSql}
            OR EXISTS (
              SELECT 1 FROM communication_inboxes pi
@@ -546,10 +572,12 @@ class CommunicationConversation {
       : '';
     const scopeParams = scopeUid ? [scopeUid, scopeUid, scopeUid, scopeUid, scopeUid, scopeUid] : [];
 
-    const count = async (extra, extraParams = []) => {
+    const count = async (extra, extraParams = [], includeAssigned = false) => {
       const [rows] = await pool.execute(
         `SELECT COUNT(*) AS n FROM communication_conversations c
+         LEFT JOIN support_tickets t ON t.id=c.support_ticket_id
          WHERE c.archived_at IS NULL AND COALESCE(c.is_spam, 0) = 0 AND ${agencyClause}
+           AND ${groupSql.access} ${includeAssigned ? '' : `AND ${groupSql.sharedQueue}`}
            AND ${extra} ${scopeClause}`,
         [...paramsBase, ...extraParams, ...scopeParams]
       );
@@ -566,7 +594,7 @@ class CommunicationConversation {
       [now, now]
     );
     const assignedToYou = userId
-      ? await count(`c.owner_user_id = ? AND c.status <> 'resolved'`, [userId])
+      ? await count(`(CASE WHEN t.id IS NOT NULL THEN t.claimed_by_user_id ELSE c.owner_user_id END) = ? AND c.status <> 'resolved'`, [userId], true)
       : 0;
     const unknownSenders = userId
       ? await count(
@@ -587,12 +615,14 @@ class CommunicationConversation {
     if (userId) {
       try {
         const [uRows] = await pool.execute(
-          `SELECT c.channel, COUNT(*) AS n FROM communication_conversations c
+          `SELECT CASE WHEN ${groupSql.isGroup} THEN 'group' ELSE c.channel END AS channel, COUNT(*) AS n FROM communication_conversations c
+           LEFT JOIN support_tickets t ON t.id=c.support_ticket_id
            WHERE c.archived_at IS NULL AND COALESCE(c.is_spam, 0) = 0 AND ${agencyClause}
+             AND ${groupSql.access} AND ${groupSql.sharedQueue}
              AND COALESCE(c.is_unknown_sender, 0) = 0
              AND (c.snoozed_until IS NULL OR c.snoozed_until <= ?)
              ${scopeClause}
-             AND (
+             AND (${groupSql.unread} OR (NOT (${groupSql.isGroup}) AND (
                EXISTS (SELECT 1 FROM communication_conversation_reads fr WHERE fr.conversation_id=c.id AND fr.user_id=? AND COALESCE(fr.forced_unread,0)=1)
                OR EXISTS (
                SELECT 1 FROM communication_messages m
@@ -611,8 +641,8 @@ class CommunicationConversation {
                        AND r.last_read_at < COALESCE(m.sent_at, m.created_at)
                    )
                  )
-             ))
-           GROUP BY c.channel`,
+             ))))
+           GROUP BY CASE WHEN ${groupSql.isGroup} THEN 'group' ELSE c.channel END`,
           [...paramsBase, now, ...scopeParams, userId, userId, userId]
         );
         unreadByChannel = Object.fromEntries(uRows.map(row => [row.channel, Number(row.n || 0)]));
@@ -623,12 +653,14 @@ class CommunicationConversation {
     }
 
     const [channelRows] = await pool.execute(
-      `SELECT c.channel, COUNT(*) AS n
+      `SELECT CASE WHEN ${groupSql.isGroup} THEN 'group' ELSE c.channel END AS channel, COUNT(*) AS n
        FROM communication_conversations c
+       LEFT JOIN support_tickets t ON t.id=c.support_ticket_id
        WHERE c.archived_at IS NULL AND COALESCE(c.is_spam, 0) = 0 AND ${agencyClause}
+         AND ${groupSql.access} AND ${groupSql.sharedQueue}
          AND (c.snoozed_until IS NULL OR c.snoozed_until <= ?)
          ${scopeClause}
-       GROUP BY c.channel`,
+       GROUP BY CASE WHEN ${groupSql.isGroup} THEN 'group' ELSE c.channel END`,
       [...paramsBase, now, ...scopeParams]
     );
     const channels = Object.fromEntries((channelRows || []).map((r) => [r.channel, Number(r.n || 0)]));
@@ -644,6 +676,7 @@ class CommunicationConversation {
       unreadByChannel,
       channels: {
         email: channels.email || 0,
+        group: channels.group || 0,
         secure: channels.secure || 0,
         sms: channels.sms || 0,
         call: (channels.call || 0) + (channels.voicemail || 0),

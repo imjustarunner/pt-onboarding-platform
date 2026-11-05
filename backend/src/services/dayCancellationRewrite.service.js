@@ -6,14 +6,8 @@ const fail = message => Object.assign(new Error(message), { status: 400 });
 function acceptable(source, candidate) {
   const text = String(candidate || '').trim();
   if (!text || text.length > 6000) return false;
-  if (!/911/.test(source) || /911/.test(text)) {
-    if (!/988/.test(source) || /988/.test(text)) {
-      const addedReturn = /return|back on|see you/i.test(text) && !/return|back on|see you/i.test(source);
-      const addedReschedule = /reschedul/i.test(text) && !/reschedul/i.test(source);
-      return !addedReturn && !addedReschedule;
-    }
-  }
-  return false;
+  const added = pattern => pattern.test(text) && !pattern.test(source);
+  return !added(/return|back on|see you/i) && !added(/reschedul/i) && !added(/911|988|crisis|emergency/i);
 }
 
 export async function rewriteAbsenceLetter({ text, tone = 'regenerate', audience = 'guardian' }, overrides = {}) {
@@ -29,7 +23,7 @@ export async function rewriteAbsenceLetter({ text, tone = 'regenerate', audience
   try {
     model = await generate({
       temperature: 0.4, maxOutputTokens: 700, sensitive: false,
-      systemInstruction: 'Rewrite one care-team absence email. Keep every name, date, school, and the 911 and 988 sentence. Do not add a return date or any rescheduling offer unless that exact idea is already in the letter. Do not invent clinical details.',
+      systemInstruction: 'Rewrite one care-team absence email. Keep every name, date, and school. Do not add a return date, rescheduling offer, or emergency or crisis line unless that exact idea is already in the letter. Do not invent clinical details.',
       prompt: `Audience: ${audience}. Style: ${tone}. Letter:\n${source}`
     });
   } catch { model = ''; }

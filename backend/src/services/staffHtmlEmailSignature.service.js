@@ -393,7 +393,7 @@ function departmentTitleFromKey(identityKey) {
   if (key === 'forms') return 'Forms';
   if (key === 'intake' || key === 'school_intake') return 'Intake';
   if (key === 'support') return 'Support';
-  if (key === 'schools' || key === 'schoolreply' || key === 'school_reply') return 'Schools';
+  if (key === 'schools' || key === 'schoolreply' || key === 'school_reply') return 'Schools Team';
   if (key === 'job_applications') return 'Careers';
   if (!key) return null;
   return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());

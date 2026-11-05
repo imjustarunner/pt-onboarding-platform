@@ -7,8 +7,6 @@ export const ABSENCE_REASONS = Object.freeze([
   { key: 'transportation', label: 'Transportation', phrase: 'a transportation issue', category: 'provider_unavailable' }
 ]);
 
-const CRISIS = 'If this is an emergency, call 911. If you are in crisis, call 988.';
-
 export function absenceReason(key) {
   return ABSENCE_REASONS.find(reason => reason.key === key) || ABSENCE_REASONS[0];
 }
@@ -42,20 +40,16 @@ function sessionPhrase({ audience, clientName, schoolName, when, wholeDay = true
 export function composeAbsenceLetter({ audience = 'client', providerAuthored = true, providerName = 'Your provider', clientName, schoolName, when, reasonCategory, reason, note, wholeDay = true }) {
   const because = becauseClause(reasonCategory, reason, note);
   const session = sessionPhrase({ audience, clientName, schoolName, when, wholeDay });
-  const safety = `\n\n${CRISIS}`;
   if (audience === 'school') {
     return providerAuthored
-      ? { subject: `Schedule change for ${when}`, text: `Hello, ${schoolName || 'school'} team,\n\nUnfortunately, ${because}, I need to cancel ${session}. I apologize for the change and appreciate your understanding.\n\nI am notifying my clients and their families of my absence.${safety}\n\n${providerName}` }
-      : { subject: `Schedule change for ${when}`, text: `Hello, ${schoolName || 'school'} team,\n\n${providerName} has let us know they will not be able to attend on ${when}, ${because}. We are contacting their clients and families to inform them of the absence.${safety}\n\nSchools Team` };
+      ? { subject: `Schedule change for ${when}`, text: `Hello, ${schoolName || 'school'} team,\n\nUnfortunately, ${because}, I need to cancel ${session}. I apologize for the change and appreciate your understanding.\n\nI am notifying my clients and their families of my absence.\n\n${providerName}` }
+      : { subject: `Schedule change for ${when}`, text: `Hello, ${schoolName || 'school'} team,\n\n${providerName} has let us know they will not be able to attend on ${when}, ${because}. We are contacting their clients and families to inform them of the absence.\n\nSchools Team` };
   }
   if (!providerAuthored) {
     const who = audience === 'guardian' ? `the session for ${clientName || 'your child'}` : 'the scheduled session';
-    return { subject: `Session canceled — ${when}`, text: `Hello,\n\n${providerName} has let us know they are unable to attend ${who} on ${when}, ${because}. We have canceled it and are sorry for the change.${safety}\n\nYour care team` };
+    return { subject: `Session canceled — ${when}`, text: `Hello,\n\n${providerName} has let us know they are unable to attend ${who} on ${when}, ${because}. We have canceled it and are sorry for the change.\n\nYour care team` };
   }
-  const voice = audience === 'guardian'
-    ? 'I am writing to you as the parent or guardian.'
-    : 'I am writing to you directly about your session.';
-  return { subject: `Session canceled — ${when}`, text: `Hello,\n\nUnfortunately, ${because}, I need to cancel ${session}. I apologize for the change and appreciate your understanding.\n\n${voice}${safety}\n\n${providerName}` };
+  return { subject: `Session canceled — ${when}`, text: `Hello,\n\nUnfortunately, ${because}, I need to cancel ${session}. I apologize for the change and appreciate your understanding.\n\n${providerName}` };
 }
 
 export function parentCancellationSms(portalUrl) {
@@ -67,18 +61,17 @@ export function restyleAbsenceLetter(text, tone = 'regenerate') {
   let next = String(text || '').trim();
   if (!next) return next;
   if (tone === 'shorter') {
-    next = next.replace(/\n\nI apologize for the change and appreciate your understanding\./, '')
+    next = next.replace(/ I apologize for the change and appreciate your understanding\./, '')
       .replace(/\n\nI am writing to you as the parent or guardian\./, '')
       .replace(/\n\nI am writing to you directly about your session\./, '')
-      .replace(/\n\nThank you for your flexibility\./, '');
+      .replace(/ Thank you for your flexibility\./, '');
   } else if (tone === 'longer' && !next.includes('Thank you for your flexibility.')) {
-    next = next.replace(`\n\n${CRISIS}`, `\n\nThank you for your flexibility.\n\n${CRISIS}`);
+    next = next.replace('I apologize for the change and appreciate your understanding.', 'I apologize for the change and appreciate your understanding. Thank you for your flexibility.');
   } else if (tone === 'formal') {
     next = next.replaceAll('I apologize for the change and appreciate your understanding.', 'Please accept my apology for this change.')
       .replaceAll("I'm sorry", 'I apologize');
   } else if (tone === 'warmer') {
     next = next.replaceAll('I apologize for the change and appreciate your understanding.', 'I am sorry for the short notice, and I appreciate you working with me.');
   }
-  if (!next.includes('call 911') || !next.includes('988')) next = `${next}\n\n${CRISIS}`;
   return next.replace(/\n{3,}/g, '\n\n').trim();
 }

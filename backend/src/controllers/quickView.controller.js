@@ -571,7 +571,7 @@ export const postTenantUnlock = async (req, res, next) => {
 
 export const postHeartbeat = async (req, res, next) => {
   try {
-    const raw = req.cookies?.qv_session || req.headers['x-quick-view-session'] || req.body?.sessionToken;
+    const raw = req.headers['x-quick-view-session'] || req.cookies?.qv_session || req.body?.sessionToken;
     const session = await touchSession(raw, { meetingEndsAt: req.body?.meetingEndsAt || null, activity: req.body?.activity === true });
     if (!session) return res.status(401).json({ error: { message: 'Session expired' } });
     if (req.body?.activity === true) await recordQuickPresenceActivity(session).catch(e => console.warn('[quickView] presence activity:', e.message));
@@ -583,7 +583,7 @@ export const postHeartbeat = async (req, res, next) => {
 
 export const postExtendSession = async (req, res, next) => {
   try {
-    const raw = req.cookies?.qv_session || req.headers['x-quick-view-session'] || req.body?.sessionToken;
+    const raw = req.headers['x-quick-view-session'] || req.cookies?.qv_session || req.body?.sessionToken;
     const minutes = Number(req.body?.minutes || 10);
     const session = await extendSession(raw, { minutes });
     if (!session) return res.status(401).json({ error: { message: 'Session expired' } });
@@ -595,7 +595,7 @@ export const postExtendSession = async (req, res, next) => {
 
 export const postLogout = async (req, res, next) => {
   try {
-    const raw = req.cookies?.qv_session || req.headers['x-quick-view-session'] || req.body?.sessionToken;
+    const raw = req.headers['x-quick-view-session'] || req.cookies?.qv_session || req.body?.sessionToken;
     if (raw) await revokeSession(raw);
     res.clearCookie('qv_session');
     res.json({ ok: true });
@@ -607,7 +607,7 @@ export const postLogout = async (req, res, next) => {
 /** Scoped data endpoints — require active quick view session */
 export async function requireQuickViewSession(req, res, next) {
   try {
-    const raw = req.cookies?.qv_session || req.headers['x-quick-view-session'];
+    const raw = req.headers['x-quick-view-session'] || req.cookies?.qv_session;
     const session = await touchSession(raw);
     if (!session) return res.status(401).json({ error: { message: 'Quick View session required' } });
     if (!session.agencyId) {
@@ -620,7 +620,7 @@ export async function requireQuickViewSession(req, res, next) {
       } catch { /* ignore */ }
     }
     req.quickView = session;
-    await req.auditIdentify?.({ id: session.userId, role: 'quick_view', sessionId: `quickview:${raw}` });
+    await req.auditIdentify?.({ id: session.userId, role: 'quick_view', sessionId: `quickview:${session.sessionId}` });
     // A Quick View PIN is not the authenticator second factor. Sensitive access
     // uses a full account sign-in rather than upgrading this reusable shortcut.
     const { enforceAccountSecurity } = await import('../middleware/accountSecurity.middleware.js');

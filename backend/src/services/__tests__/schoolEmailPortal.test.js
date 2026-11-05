@@ -36,7 +36,7 @@ it('does not silently send families to a general agency login when the school is
 });
 it.each(['paper_upload','digital_submission'])('keeps the packet subject while using Schools for the signature and the school-specific links (%s)',async mode=>{
  await notifyNewPacketUploaded({agencyId:2,schoolOrganizationId:20,clientId:10,clientInitials:'ABC',mode});
- expect(m.send).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:12,fromDisplayNameOverride:'Schools',replyToOverride:'schools@itsco.health',cc:'support@itsco.health',to:'galileo@itsco.health',linkUrl:'https://schoolcarebridge.org/app/galileo-school'}));
+ expect(m.send).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:12,fromDisplayNameOverride:'Schools Team',replyToOverride:'schools@itsco.health',cc:'support@itsco.health',to:'galileo@itsco.health',linkUrl:'https://schoolcarebridge.org/app/galileo-school'}));
  const mail=m.send.mock.calls[0][0];expect(mail.subject).toContain('Galileo -');expect(mail.html).toContain('href="https://schoolcarebridge.org/app/galileo-school"');expect(mail.text).toContain('https://schoolcarebridge.org/app/galileo-school');expect(mail.html).not.toContain('https://app.itsco.health/login');
 });
 

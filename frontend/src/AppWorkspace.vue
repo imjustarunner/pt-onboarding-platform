@@ -2286,6 +2286,7 @@
 </template>
 
 <script setup>
+import { canAccessTicketDesk } from './utils/ticketAccess.js';
 import WorkspaceNavigation from './components/WorkspaceNavigation.vue';
 import { CONVERSA_ICON_URL } from './constants/conversa';
 import { clinicalWorkspaceActive } from './composables/useClinicalWorkspace';
@@ -4375,17 +4376,8 @@ const canUseCommunicationsCenter = computed(() => {
   const role = String(user.value?.role || '').toLowerCase();
   return role === 'admin' || role === 'support' || role === 'super_admin';
 });
-const canUseStandaloneTickets = computed(() => {
-  const role = String(user.value?.role || '').toLowerCase();
-  return [
-    'clinical_practice_assistant',
-    'staff',
-    'school_staff',
-    'admin',
-    'support',
-    'super_admin'
-  ].includes(role);
-});
+const canUseStandaloneTickets = computed(() => String(user.value?.role || '').toLowerCase() === 'school_staff' || canAccessTicketDesk(user.value, agencyStore.currentAgency?.id));
+
 const canUseEngagementFeed = computed(() => {
   if (isSscSstcTenant.value) return false;
   const role = String(user.value?.role || '').toLowerCase();

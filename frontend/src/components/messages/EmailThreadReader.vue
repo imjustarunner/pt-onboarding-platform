@@ -3,10 +3,10 @@
     <header>
       <h2>{{ conversation?.subject || '(No subject)' }}</h2>
       <div class="actions">
-        <button v-if="!readOnly" type="button" @click="$emit('compose','reply')">Reply</button>
-        <button v-if="!readOnly" type="button" @click="$emit('compose','reply_all')">Reply all</button>
-        <button v-if="!readOnly" type="button" @click="$emit('compose','forward')">Forward</button>
-        <button v-if="!readOnly" type="button" @click="$emit('unread')">Keep unread</button>
+        <button v-if="!isReadOnly" type="button" @click="$emit('compose','reply')">Reply</button>
+        <button v-if="!isReadOnly" type="button" @click="$emit('compose','reply_all')">Reply all</button>
+        <button v-if="!isReadOnly" type="button" @click="$emit('compose','forward')">Forward</button>
+        <button v-if="!isReadOnly" type="button" @click="$emit('unread')">Keep unread</button>
         <button v-if="canFile" type="button" @click="$emit('file')">File with client(s)</button>
         <button v-if="canPrint" type="button" @click="$emit('print')">Print / Save thread</button>
       </div>
@@ -31,7 +31,7 @@
         <EmailAudioAttachment v-for="file in message.attachments || []" :key="`audio-${file.id}`" :file="file" :conversation-id="conversation?.id" />
         <div class="actions">
           <button v-for="file in message.attachments || []" :key="file.id" type="button" @click="$emit('attachment',file)"><ConversaIcon type="attachment" :size="14" /> {{ file.filename }}</button>
-          <button v-if="!readOnly && !message.is_internal_note && (!message.send_status || message.send_status === 'sent')" type="button" :aria-pressed="!!message.reactions?.some(r => r.reactedByMe)" @click="$emit('like',message)">♥ Like {{ message.reactions?.find(r => r.emoji === '❤️')?.count || '' }}</button>
+          <button v-if="!isReadOnly && !message.is_internal_note && (!message.send_status || message.send_status === 'sent')" type="button" :aria-pressed="!!message.reactions?.some(r => r.reactedByMe)" @click="$emit('like',message)">♥ Like {{ message.reactions?.find(r => r.emoji === '❤️')?.count || '' }}</button>
         </div>
       </details>
       <p v-if="!messages.length">No messages in this conversation.</p>
@@ -45,6 +45,7 @@ import ConversaIcon from '../../components/conversa/ConversaIcon.vue';
 import { computed, ref, watch } from 'vue';
 import { renderEmailContent, emailDeliveryLabel } from '../../utils/emailPresentation';
 const props = defineProps({ conversation:Object,messages:{type:Array,default:()=>[]},hasOlder:Boolean,loadingOlder:Boolean,readOnly:Boolean,canPrint:Boolean,canFile:Boolean });
+const isReadOnly = computed(() => props.readOnly || !!props.conversation?.support_ticket_id);
 defineEmits(['compose','unread','older','attachment','like','print','file']);
 const expansion=ref({}),showImages=ref({});
 const rendered=computed(()=>Object.fromEntries(props.messages.map(message=>[message.id,renderEmailContent(message,{loadExternalImages:!!showImages.value[message.id]})])));

@@ -52,6 +52,16 @@ function escapeHtml(s) {
 
 const EMAIL_CHROME_ASSET_VERSION = '6';
 
+// Message bodies often cap themselves at 600–720px with no auto margins, which
+// leaves them hugging the left edge of the wider card.
+export function centerFixedWidthBlocks(html) {
+  return String(html || '').replace(/<(div|table)\b([^>]*?)style="([^"]*)"/gi, (tag, name, before, style) => {
+    const width = style.match(/max-width:\s*(\d+)px/i);
+    if (!width || Number(width[1]) < 480 || Number(width[1]) > 800 || /margin/i.test(style)) return tag;
+    return `<${name}${before}style="${style.replace(/;?\s*$/, '')};margin-left:auto;margin-right:auto;"`;
+  });
+}
+
 function rewriteLocalhostToPublic(url) {
   const s = String(url || '').trim();
   if (!s) return s;
@@ -226,6 +236,7 @@ export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
     .replace(/<\/?body[^>]*>/gi, '');
 
   const ownLayout = officeLayout || /^\s*<table\b/i.test(raw);
+  const body = ownLayout ? raw : centerFixedWidthBlocks(raw);
   const agencyName = escapeHtml(opts.agencyName || chrome.agencyName || '');
   const supportUrl = escapeHtml(
     opts.supportUrl || chrome.supportUrl || `${publicAppBaseUrl()}/support`
@@ -280,7 +291,7 @@ export function applyTenantEmailChromeHtml(html, chrome = {}, opts = {}) {
       <td align="center" class="email-frame" style="padding:8px 8px 20px;">
         <table role="presentation" class="email-card" width="960" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;width:100%;max-width:960px;background:#ffffff;margin:0 auto;padding:0;">
           ${headerBlock ? `<tr><td align="center" style="padding:0;margin:0;line-height:0;font-size:0;">${headerBlock}</td></tr>` : ''}
-          <tr><td class="email-body${ownLayout ? ' email-body-owned' : ''}" style="padding:${ownLayout ? '0' : '20px 24px'};margin:0;background:#ffffff;vertical-align:top;overflow-wrap:anywhere;">${raw}</td></tr>
+          <tr><td class="email-body${ownLayout ? ' email-body-owned' : ''}" style="padding:${ownLayout ? '0' : '20px 24px'};margin:0;background:#ffffff;vertical-align:top;overflow-wrap:anywhere;">${ownLayout ? body : `<div style="max-width:760px;margin:0 auto;">${body}</div>`}</td></tr>
           <tr>${footerBlock}</tr>
         </table>
       </td>

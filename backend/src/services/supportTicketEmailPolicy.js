@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { replyMessageIds } from '../utils/emailThreading.js';
+import { groupKeyForIdentity } from './departmentalGroupAccess.service.js';
 
 export const emailKey = (value) => String(value || '').trim().toLowerCase();
 export const emailHash = (value) => createHash('sha256').update(String(value)).digest('hex');
@@ -40,6 +41,7 @@ export function isManagedSupportIdentity(identity, { agencyId, topic = '', schoo
   const from = emailKey(identity.from_email);
   if (!/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(from)) return false;
   if (topic === 'technology') return key === 'technology' || /^technology@/.test(from);
+  if (groupKeyForIdentity(identity)) return true;
   return ['schools', 'schoolreply', 'school_reply', 'school_support', 'support'].includes(key)
     || /^(schools|schoolreply|support)@/.test(from)
     || schoolAddresses.map(emailKey).includes(from);

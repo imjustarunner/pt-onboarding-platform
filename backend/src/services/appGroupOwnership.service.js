@@ -1,6 +1,7 @@
 export const APP_GROUP_OWNER = 'michael@plottwistco.com';
 export const APP_GROUP_MANAGER = 'ai@plottwistco.com';
-const OWNER_MAIL_GROUPS = new Set(['admin', 'support', 'payroll', 'clinical', 'staff']);
+// Departmental correspondence is handled in app tickets, including for owners.
+const OWNER_MAIL_GROUPS = new Set(['clinical', 'staff']);
 
 export function appGroupMemberPolicy(address, groupAddress = '') {
   const email = String(address || '').trim().toLowerCase();

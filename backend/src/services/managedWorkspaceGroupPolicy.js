@@ -1,10 +1,12 @@
 // Explicit tenant enrollment: sharing a mail domain or enabling SSO is not consent
 // to have PlotTwist manage an organization's Google Groups.
+import { DEPARTMENTAL_GROUPS, departmentalGroupKeysForUser } from './departmentalGroupPolicy.js';
 export const CURRENT_MANAGED_DOMAINS = Object.freeze({
   plottwistco: 'plottwistco.com', itsco: 'itsco.health', nlu: 'nextleveluplcc.com',
   tisi: 'innerstrengthin.com', mh4kidz: 'mh4kidz.org'
 });
 export const GROUP_LABELS = Object.freeze({
+  ...Object.fromEntries(Object.entries(DEPARTMENTAL_GROUPS).map(([key, value]) => [key, value.label])),
   clinical: 'Clinical',
   staff: 'Staff', unlicensed: 'Unlicensed', prelicensed: 'Prelicensed', licensed: 'Licensed',
   supervisors: 'Supervisors', supervisees: 'Supervisees', interns: 'Interns',
@@ -35,7 +37,7 @@ export function activeManagedStaff(row) {
 }
 export function staffGroupKeys(row, { supervisorIds = new Set(), superviseeIds = new Set() } = {}) {
   if (!activeManagedStaff(row)) return [];
-  const keys = new Set(['staff']);
+  const keys = new Set(['staff', ...departmentalGroupKeysForUser(row)]);
   let details=row.public_details_json||{};if(typeof details==='string'){try{details=JSON.parse(details);}catch{details={};}}
   const reviewed=Array.isArray(details.languageProficiencies);
   const spanish=reviewed?details.languageProficiencies.some(l=>/^spanish$|^español$/i.test(l.language||'')&&l.canConductSessions===true&&['professional','fluent','native'].includes(l.proficiency))
@@ -76,7 +78,7 @@ export function buildManagedGroupPlan({ domain, rows, assignments = [], includeC
   const validAssignments = assignments.filter(s => byId.has(Number(s.supervisor_id)) && byId.has(Number(s.supervisee_id)));
   const supervisorIds = new Set(validAssignments.map(s => Number(s.supervisor_id)));
   const superviseeIds = new Set(validAssignments.map(s => Number(s.supervisee_id)));
-  const plans = Object.entries(GROUP_LABELS).filter(([key]) => key !== 'clinical' || includeClinical).map(([key, label]) => ({ key, label, email: `${key}@${domain}`, userIds: [], managerUserIds: [] }));
+  const plans = Object.entries(GROUP_LABELS).filter(([key]) => key !== 'clinical' || includeClinical).map(([key, label]) => ({ key, label, email: `${DEPARTMENTAL_GROUPS[key]?.localPart || key}@${domain}`, userIds: [], managerUserIds: [], ticketed: !!DEPARTMENTAL_GROUPS[key] }));
   for (const row of active) {
     for (const key of staffGroupKeys(row, { supervisorIds, superviseeIds })) plans.find(p => p.key === key)?.userIds.push(Number(row.id));
   }
