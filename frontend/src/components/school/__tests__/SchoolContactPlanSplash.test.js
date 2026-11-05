@@ -41,18 +41,63 @@ it('opens the Family Welcome tour once and lets a saved opt-out be revisited', a
 it('walks through example emails, the PDF, and where to find the settings', async () => {
   await open();
   await click('Next');
+  for (const [tab, filename] of [
+    ['Welcome email', 'welcome-email.png'],
+    ['Follow-up text at 48 hours', 'followup-text.png'],
+    ['Follow-up email at 48 hours', 'followup-email.png'],
+    ['Final email at 96 hours', 'final-email.png']
+  ]) {
+    await click(tab);
+    const selected = dialog().querySelector('[role="tab"][aria-selected="true"]');
+    expect(selected.textContent).toContain(tab);
+    const image = dialog().querySelector('.fw-shot img');
+    expect(image.getAttribute('src')).toBe(`/family-welcome/${filename}`);
+    expect(image.getAttribute('alt').toLowerCase()).toContain(tab.toLowerCase());
+    image.dispatchEvent(new Event('load')); await flushPromises();
+    expect(image.style.display).not.toBe('none');
+    expect(dialog().querySelector('.fw-mail-body, .fw-bubble')).toBeNull();
+  }
+  await click('Next');
+  const pdfImage = dialog().querySelector('.fw-shot img');
+  expect(pdfImage.getAttribute('src')).toBe('/family-welcome/introduction-pdf-p1.png');
+  expect(pdfImage.getAttribute('alt')).toContain('Page 1');
+  expect(findButton('View my PDF')).toBeTruthy();
+  await click('Next');
+  for (const [label, filename, query] of [
+    ['Quick Nav search example', 'quick-nav-search.png', 'family welcome'],
+    ['Search My Dashboard example', 'dashboard-search.png', 'auto message']
+  ]) {
+    const figure = dialog().querySelector(`[aria-label="${label}"]`);
+    const image = figure.querySelector('img');
+    expect(image.getAttribute('src')).toBe(`/family-welcome/${filename}`);
+    expect(image.getAttribute('alt')).toContain(query);
+    image.dispatchEvent(new Event('load')); await flushPromises();
+    expect(figure.querySelector('.fw-search')).toBeNull();
+    expect(image.style.display).not.toBe('none');
+  }
+  expect(dialog().textContent).toContain('customize your emails and text at any time');
+});
+
+it('keeps personalized previews usable when screenshots are missing and resets them when tabs change', async () => {
+  await open(); await click('Next');
   expect(dialog().querySelector('.fw-mail-body').textContent).toContain('Alex Provider');
   expect(dialog().textContent).toContain('School introduction.pdf');
+  const welcome = dialog().querySelector('.fw-shot img');
+  welcome.dispatchEvent(new Event('error')); await flushPromises();
+  expect(welcome.style.display).toBe('none');
+  expect(dialog().querySelector('.fw-mail-body').textContent).toContain('Alex Provider');
+  welcome.dispatchEvent(new Event('load')); await flushPromises();
+  await click('Final email at 96 hours');
+  expect(dialog().querySelector('.fw-shot img').style.display).toBe('none');
+  expect(dialog().querySelector('.fw-mail-body').textContent).toContain('Final contact');
   await click('Follow-up text at 48 hours');
   expect(dialog().querySelector('.fw-bubble').textContent).toContain('Alex Provider');
-  await click('Final email at 96 hours');
-  expect(dialog().querySelector('.fw-mail-body').textContent).toContain('Final contact');
   await click('Next');
-  expect(findButton('View my PDF')).toBeTruthy();
+  expect(dialog().querySelector('.fw-pdf-card').textContent).toContain('School introduction.pdf');
+  expect(findButton('View my PDF').disabled).toBe(false);
   await click('Next');
   expect(dialog().querySelector('[aria-label="Quick Nav search example"]').textContent).toContain('family welcome');
   expect(dialog().querySelector('[aria-label="Search My Dashboard example"]').textContent).toContain('auto message');
-  expect(dialog().textContent).toContain('customize your emails and text at any time');
 });
 
 it('opts in with the PDF choice and asks for the profile link when the welcome email has none', async () => {

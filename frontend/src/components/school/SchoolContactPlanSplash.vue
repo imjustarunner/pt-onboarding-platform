@@ -39,26 +39,37 @@
 
               <template v-else-if="slide === 1">
                 <h1 id="contact-plan-title">See the examples</h1>
-                <p id="contact-plan-description">These are the recommended messages, filled in with your name. You can change every word.</p>
+                <p id="contact-plan-description">These examples show the recommended messages. You can personalize every word in your settings.</p>
                 <div class="fw-example-tabs" role="tablist" aria-label="Example messages"><button v-for="m in FAMILY_WELCOME_MESSAGES" :key="m.field" type="button" role="tab" :aria-selected="exampleField === m.field" @click="exampleField = m.field">{{ m.label.replace(/^\d · /, '') }}</button></div>
                 <figure v-if="exampleInfo.sms" class="fw-shot fw-phone" aria-label="Example follow-up text">
                   <figcaption>Example · {{ exampleInfo.when }}</figcaption>
-                  <div class="fw-bubble">{{ exampleBody }}</div>
+                  <FamilyWelcomeScreenshot :src="exampleScreenshot" alt="Example follow-up text at 48 hours, asking the family to arrange an intake meeting.">
+                    <div class="fw-bubble">{{ exampleBody }}</div>
+                  </FamilyWelcomeScreenshot>
                 </figure>
                 <figure v-else class="fw-shot fw-mail" :aria-label="`Example ${exampleInfo.label}`">
                   <figcaption>Example · {{ exampleInfo.when }}</figcaption>
-                  <div class="fw-mail-bar"><i></i><i></i><i></i><span>Inbox</span></div>
-                  <dl><div><dt>From</dt><dd>{{ providerDisplayName }} &lt;{{ plan.routing?.from }}&gt;</dd></div><div><dt>To</dt><dd>Parent name</dd></div><div><dt>Subject</dt><dd><strong>{{ exampleInfo.subject }}</strong></dd></div></dl>
-                  <p class="fw-mail-body">{{ exampleBody }}</p>
-                  <p v-if="exampleField === 'template' && includePdf" class="fw-attachment">📎 School introduction.pdf</p>
+                  <FamilyWelcomeScreenshot :key="exampleField" :src="exampleScreenshot" :alt="`Example ${exampleInfo.label.replace(/^\d · /, '')}: ${exampleInfo.subject}.`">
+                    <div class="fw-mail-bar"><i></i><i></i><i></i><span>Inbox</span></div>
+                    <dl><div><dt>From</dt><dd>{{ providerDisplayName }} &lt;{{ plan.routing?.from }}&gt;</dd></div><div><dt>To</dt><dd>Parent name</dd></div><div><dt>Subject</dt><dd><strong>{{ exampleInfo.subject }}</strong></dd></div></dl>
+                    <p class="fw-mail-body">{{ exampleBody }}</p>
+                    <p v-if="exampleField === 'template' && includePdf" class="fw-attachment">📎 School introduction.pdf</p>
+                  </FamilyWelcomeScreenshot>
                 </figure>
               </template>
 
               <template v-else-if="slide === 2">
                 <h1 id="contact-plan-title">Your introduction PDF</h1>
                 <p id="contact-plan-description">Your welcome email can include a one-page SchoolCareBridge introduction with your name, your school blurb, the school team, and your supervisor.</p>
-                <div class="fw-pdf-card"><span aria-hidden="true">📄</span><div><strong>School introduction.pdf</strong><small>Built from your profile and your school.</small></div></div>
-                <FamilyWelcomePdfButton :agency-id="plan.agencyId" label="View my PDF" />
+                <div class="fw-pdf-preview">
+                  <figure class="fw-shot">
+                    <figcaption>Example · Introduction PDF, page 1</figcaption>
+                    <FamilyWelcomeScreenshot src="/family-welcome/introduction-pdf-p1.png" alt="Page 1 of an example SchoolCareBridge introduction PDF, with the provider introduction and school team.">
+                      <div class="fw-pdf-card"><span aria-hidden="true">📄</span><div><strong>School introduction.pdf</strong><small>Built from your profile and your school.</small></div></div>
+                    </FamilyWelcomeScreenshot>
+                  </figure>
+                  <FamilyWelcomePdfButton :agency-id="plan.agencyId" label="View my PDF" />
+                </div>
                 <label class="fw-check"><input v-model="includePdf" type="checkbox" /> Attach my PDF to the welcome email</label>
                 <p class="contact-plan-fine">Update your school blurb in My Account to change what the PDF says about you.</p>
               </template>
@@ -68,13 +79,17 @@
                 <p id="contact-plan-description">You can customize your emails and text at any time in your account settings. Search for <strong>family welcome</strong> to go straight there.</p>
                 <figure class="fw-shot" aria-label="Quick Nav search example">
                   <figcaption>Quick Nav · the search bar at the top of every page (⌘/Ctrl+K)</figcaption>
-                  <div class="fw-search"><span aria-hidden="true">⌕</span><span class="fw-typed">family welcome</span><kbd>⌘K</kbd></div>
-                  <div class="fw-result"><strong>{{ FAMILY_WELCOME_NAME }}</strong><small>Account · {{ FAMILY_WELCOME_TAGLINE }}</small></div>
+                  <FamilyWelcomeScreenshot src="/family-welcome/quick-nav-search.png" alt="Quick Nav with family welcome typed and the Family Welcome &amp; Follow-Up result showing.">
+                    <div class="fw-search"><span aria-hidden="true">⌕</span><span class="fw-typed">family welcome</span><kbd>⌘K</kbd></div>
+                    <div class="fw-result"><strong>{{ FAMILY_WELCOME_NAME }}</strong><small>Account · {{ FAMILY_WELCOME_TAGLINE }}</small></div>
+                  </FamilyWelcomeScreenshot>
                 </figure>
                 <figure class="fw-shot" aria-label="Search My Dashboard example">
                   <figcaption>Search My Dashboard · on your dashboard</figcaption>
-                  <div class="fw-search"><span aria-hidden="true">⌕</span><span class="fw-typed">auto message</span></div>
-                  <div class="fw-result"><strong>{{ FAMILY_WELCOME_NAME }}</strong><small>My Account › Account Info</small></div>
+                  <FamilyWelcomeScreenshot src="/family-welcome/dashboard-search.png" alt="Search My Dashboard with auto message typed and the Family Welcome &amp; Follow-Up result under My Account, Account Info.">
+                    <div class="fw-search"><span aria-hidden="true">⌕</span><span class="fw-typed">auto message</span></div>
+                    <div class="fw-result"><strong>{{ FAMILY_WELCOME_NAME }}</strong><small>My Account › Account Info</small></div>
+                  </FamilyWelcomeScreenshot>
                 </figure>
                 <p class="contact-plan-fine">These searches also work: {{ FAMILY_WELCOME_SEARCH_TERMS.slice(0, 10).join(', ') }}.</p>
               </template>
@@ -143,6 +158,7 @@ import { RouterLink } from 'vue-router';
 import api from '../../services/api';
 import SchoolCareBridgeBrand from '../schoolcarebridge/SchoolCareBridgeBrand.vue';
 import FamilyWelcomePdfButton from './FamilyWelcomePdfButton.vue';
+import FamilyWelcomeScreenshot from './FamilyWelcomeScreenshot.vue';
 import {
   FAMILY_WELCOME_MESSAGES, FAMILY_WELCOME_NAME, FAMILY_WELCOME_PROFILE_PROMPT, FAMILY_WELCOME_SEARCH_TERMS, FAMILY_WELCOME_TAGLINE,
   PROFILE_LINK_TOKEN, insertAtCursor, renderFamilyWelcome, requiredTokens, validateFamilyWelcomeTemplate, welcomeMissingProfileLink
@@ -173,6 +189,8 @@ const providerDisplayName = computed(() => props.providerName || plan.value?.pro
 const previewValues = computed(() => ({ parent_name: 'Parent name', provider_name: providerDisplayName.value, school_name: plan.value?.schools?.[0]?.name || 'Example Middle School', service_day: 'Tuesday', agency_name: plan.value?.agencyName || 'Your agency', ...plan.value?.previewValues }));
 const renderedBody = computed(() => renderFamilyWelcome(activeTemplate.value, previewValues.value));
 const exampleInfo = computed(() => FAMILY_WELCOME_MESSAGES.find(m => m.field === exampleField.value) || FAMILY_WELCOME_MESSAGES[0]);
+const exampleScreenshots = { template: 'welcome-email.png', smsTemplate: 'followup-text.png', secondTemplate: 'followup-email.png', finalTemplate: 'final-email.png' };
+const exampleScreenshot = computed(() => `/family-welcome/${exampleScreenshots[exampleField.value]}`);
 const exampleBody = computed(() => renderFamilyWelcome(draft[exampleField.value], previewValues.value));
 function resetRecommended() { activeTemplate.value = plan.value?.recommendedTemplates?.[selectedMessage.value] || activeTemplate.value; }
 async function addProfileLink() {
@@ -294,6 +312,7 @@ onBeforeUnmount(() => { disposed = true; version++; clearInterval(timer); window
 .fw-attachment{margin:0 14px 12px;display:inline-block;font-size:11px;border:1px solid #cfe0e8;border-radius:8px;padding:6px 10px;background:#fff}
 .fw-phone{max-width:340px}.fw-bubble{margin:14px;padding:12px 14px;border-radius:18px 18px 18px 4px;background:#e9f3fb;color:#203847;font-size:12px;line-height:1.6}
 .fw-pdf-card{display:flex;gap:12px;align-items:center;border:1px solid #dfe8e7;border-radius:12px;padding:12px 14px;margin:14px 0}.fw-pdf-card>span{font-size:26px}.fw-pdf-card strong,.fw-pdf-card small{display:block}.fw-pdf-card small{color:#6d7f86;font-size:11px}
+.fw-pdf-preview{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.fw-pdf-preview figure{flex:1 1 220px;max-width:340px;min-width:0}
 .fw-check{display:flex;gap:8px;align-items:center;font-size:12px;margin:12px 0}
 .fw-search{display:flex;align-items:center;gap:10px;margin:12px;padding:9px 12px;border:1px solid #9cc9e4;border-radius:10px;background:#fff;font-size:12px;box-shadow:0 0 0 3px #007cbd1f}.fw-typed{flex:1;color:#102e53}.fw-typed:after{content:'';display:inline-block;width:1px;height:13px;margin-left:2px;background:#102e53;vertical-align:middle}.fw-search kbd{font-size:10px;color:#6d7f86;border:1px solid #dfe8e7;border-radius:5px;padding:1px 5px}
 .fw-result{margin:0 12px 12px;padding:9px 12px;border-radius:9px;background:#eaf6fd}.fw-result strong,.fw-result small{display:block}.fw-result strong{font-size:12px;color:#075c91}.fw-result small{font-size:10px;color:#4b6470;margin-top:2px}

@@ -1,0 +1,57 @@
+Family Welcome tour screenshots — November 5, 2026
+
+SIX CAPTURES ADDED; PDF CAPTURE PENDING
+
+The splash uses the four message images in step 2, a PDF image in step 3,
+and the two search images in step 4. Images live in frontend/public/family-welcome/.
+Missing or failed images retain the existing usable previews. Adding the PDF
+image at the path below enables it without another component change.
+
+Captured from a signed-in Avery Morgan QA session in demo agency 450 on the
+deployed frontend build fb4d7ccd9fc51bb737edbe4a613e97d37255be94:
+
+  welcome-email.png    My Account > Account Info > Family Welcome; welcome preview
+  followup-text.png    Same settings card; 48-hour text preview
+  followup-email.png   Same settings card; 48-hour email preview
+  final-email.png      Same settings card; 96-hour final email preview
+  quick-nav-search.png Quick Nav with "family welcome" and the matching result
+  dashboard-search.png Search My Dashboard with "auto message" and the first result
+
+The message images are actual application previews of the recommended wording,
+not evidence of email or SMS delivery. "Use recommended wording" changed only
+the browser draft; no settings were saved and no example messages were sent.
+Names shown are Avery Morgan QA, Parent name, and Cedar Grove K-8 — DEMO.
+The crops exclude account details, credentials, tokens, and other client records.
+The signed-in browser session was kept in memory, not exported to a file.
+Each PNG is below 300,000 bytes; the largest is 110,564 bytes.
+
+PENDING: introduction-pdf-p1.png
+
+Avery's real PDF preview endpoint returned HTTP 403, ACTIVITY_REVIEW_REQUIRED:
+additional file access is paused pending review in Security & sign-in activity.
+No PDF was retrieved, and the access guard was not changed. After an authorized
+administrator restores access, sign in as Avery, select demo agency 450, open
+"View my PDF", and capture page 1. Confirm only fictional staff/provider/school
+names are visible, then save it as:
+
+  frontend/public/family-welcome/introduction-pdf-p1.png
+
+Keep it below 300,000 bytes. Do not substitute a recreated PDF for the live
+capture. The existing FamilyWelcomePdfButton still requests the current user's
+personalized PDF; the screenshot is explicitly labeled as an example.
+
+The optional settings-card image was not added.
+
+VALIDATION
+
+From frontend/:
+  ./node_modules/.bin/vitest run --config vitest.school-contact-plan.config.js
+
+All 50 tests passed across five files, including all four tab images, both
+search labels/images, missing-image fallbacks, and the existing opt-in/editor
+behavior. Browser checks passed at 1440 x 1100 and 390 x 844 using the actual
+local Vue splash: all six images loaded, every message tab switched correctly,
+the PDF fallback/button remained available, and there was no horizontal
+overflow or JavaScript error. These checks used fictional fixture data and
+blocked external network requests. No production build or dependency install
+was performed for this component/asset change.
