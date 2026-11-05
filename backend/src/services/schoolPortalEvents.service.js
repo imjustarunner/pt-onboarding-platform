@@ -21,6 +21,7 @@ export const SCHOOL_PORTAL_EVENT_TYPES = new Set([
   'school_orientation',
   'school_holiday',
   'school_day_off',
+  'school_sessions_prohibited',
   'school_other',
   'school_outreach'
 ]);
@@ -47,6 +48,7 @@ export const SCHOOL_EVENT_CATEGORIES = [
   'orientation',
   'holiday',
   'day_off',
+  'sessions_prohibited',
   'other',
   'outreach'
 ];
@@ -73,6 +75,7 @@ export function categoryToEventType(category) {
   if (c === 'orientation') return 'school_orientation';
   if (c === 'holiday') return 'school_holiday';
   if (c === 'day_off') return 'school_day_off';
+  if (c === 'sessions_prohibited') return 'school_sessions_prohibited';
   if (c === 'other') return 'school_other';
   if (c === 'outreach') return 'school_outreach';
   return null;
@@ -90,6 +93,7 @@ export function eventTypeToCategory(eventType) {
   if (t === 'school_orientation') return 'orientation';
   if (t === 'school_holiday') return 'holiday';
   if (t === 'school_day_off') return 'day_off';
+  if (t === 'school_sessions_prohibited') return 'sessions_prohibited';
   if (t === 'school_other') return 'other';
   if (t === 'school_outreach') return 'outreach';
   return null;
@@ -108,6 +112,7 @@ export function schoolEventCategoryLabel(category) {
     orientation: 'Orientation',
     holiday: 'Holiday',
     day_off: 'Day Off',
+    sessions_prohibited: 'Sessions prohibited',
     other: 'School Event',
     outreach: 'Outreach'
   };
@@ -228,6 +233,7 @@ export function buildSchoolEventStaffingConfig({ minProvidersPerSession = 2, ena
 export const CALENDAR_ONLY_SCHOOL_EVENT_CATEGORIES = new Set([
   'holiday',
   'day_off',
+  'sessions_prohibited',
   'first_day',
   'fall_check_in',
   'spring'
@@ -268,7 +274,7 @@ export async function enableSchoolEventProviderStaffing({
   if (CALENDAR_ONLY_SCHOOL_EVENT_CATEGORIES.has(String(cat || ''))) {
     throw Object.assign(
       new Error(
-        'Calendar-only dates (first day, fall/spring check-in, holidays, days off) cannot open provider staffing'
+        'Calendar-only dates (first day, fall/spring check-in, holidays, days off, sessions prohibited) cannot open provider staffing'
       ),
       { status: 400 }
     );

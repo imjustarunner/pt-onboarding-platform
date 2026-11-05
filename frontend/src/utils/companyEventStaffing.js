@@ -26,7 +26,7 @@ export function isCalendarOnlyCompanyEvent(event) {
   if (!event) return false;
   const type = String(event.eventType || event.event_type || '').toLowerCase();
   return event.calendarOnly === true || isFirstDayOfSchoolCompanyEvent(event) || isLastDayOfSchoolCompanyEvent(event)
-    || ['school_holiday', 'school_day_off', 'school_fall_check_in', 'school_spring_event'].includes(type);
+    || ['school_holiday', 'school_day_off', 'school_sessions_prohibited', 'school_fall_check_in', 'school_spring_event'].includes(type);
 }
 
 export function isUpcomingCompanyEvent(event, now = Date.now()) {

@@ -1281,7 +1281,7 @@ function eventsTypeColor(e) {
   if (t === 'school_back_to_school') return 'bts';
   if (t === 'school_fall_check_in') return 'fall';
   if (t === 'school_spring_event') return 'spring';
-  if (t === 'school_first_day' || t === 'school_holiday' || t === 'school_day_off') return 'holiday';
+  if (t === 'school_first_day' || t === 'school_holiday' || t === 'school_day_off' || t === 'school_sessions_prohibited') return 'holiday';
   if (t === 'school_resource_fair' || t === 'school_other') return 'fair';
   if (t === 'school_open_house' || t === 'school_orientation') return 'open';
   if (t === 'school_family_night') return 'family';
@@ -1312,6 +1312,7 @@ function eventsLabelType(t) {
     school_orientation: 'Orientation',
     school_holiday: 'Holiday',
     school_day_off: 'Day Off',
+    school_sessions_prohibited: 'Sessions prohibited',
     school_other: 'School Event'
   };
   return m[t] || t || 'Event';

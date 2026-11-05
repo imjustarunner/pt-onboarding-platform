@@ -105,7 +105,7 @@ it('keeps availability behind client appointments in week and day views, with qu
     }
   }
   await hourCell().find('.cell-multi-pick-badge').trigger('click');
-  expect(hourCell().find('.cell-expanded-item.cell-block-school').text()).toContain('School');
+  expect(hourCell().find('.cell-expanded-item.cell-block-school').text()).toContain('Demo school');
   expect(hourCell().find('.cell-expanded-item.cell-block-portal').text()).toContain('Virtual');
   expect(hourCell().findAll('.cell-expanded-item')).toHaveLength(4);
   await hourCell().find('.cell-blocks').trigger('keydown', { key: 'Escape' });
@@ -120,6 +120,22 @@ it('keeps availability behind client appointments in week and day views, with qu
   await wrapper.find('.cell-block-school-soft').trigger('click');
   expect(wrapper.findComponent(SchoolSoftScheduleDialog).props('block').record.clientId).toBe(100);
   expect(m.post).not.toHaveBeenCalled();
+});
+it('shows the school assignment as a rail and pulses a closed day', async () => {
+  m.summary.schoolAssignments = [{ agencyId: 2, schoolOrgId: 20, schoolId: 20, schoolName: 'Demo school', dayOfWeek: 'Tuesday', startTime: '08:00', endTime: '15:00', slotsTotal: 4, slotsUsed: 1, assignmentId: 3 }];
+  m.summary.schoolDayClosures = [{ schoolOrgId: 20, date: '2026-10-13', kind: 'sessions_prohibited', scope: 'school', reason: 'Testing', recordedByName: 'Jamie' }];
+  const s = await mount();
+  const rail = s.cellBlocks('Tuesday', 8).find(block => block.schoolRail);
+  expect(rail.railTone).toBe('closed');
+  expect(rail.schoolClosure.reason).toBe('Testing');
+  expect(s.cellBlocks('Tuesday', 10).find(block => block.kind === 'school').schoolRailContinuation).toBe(true);
+  const painted = wrapper.find('.cell-block-school-rail--closed');
+  expect(painted.exists()).toBe(true);
+  expect(painted.text()).toContain('Demo school');
+  await painted.trigger('click');
+  expect(s.schoolRailDetail.schoolClosure.reason).toBe('Testing');
+  expect(s.schoolRailDetail.schoolClosure.recordedByName).toBe('Jamie');
+  expect(wrapper.findComponent({ name: 'SchoolAssignmentRailPanel' }).exists()).toBe(true);
 });
 it('expands the calendar for early school times and preserves cancellation attention and receipt details on click', async () => {
   m.summary.schoolSoftSessions = [student({ canceled: true, slots: [{ startTime: '06:10', endTime: '06:50' }], reason: 'Weather', actorName: 'Synthetic support', delivery: { sent: 1, failed: 1, deliveries: [{ status: 'sent', recipient_address: 'qa@example.com', receiptRequired: true }] } })];

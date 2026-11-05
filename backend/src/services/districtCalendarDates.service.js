@@ -1,7 +1,7 @@
 import pool from '../config/database.js';
 import { sqlUnicodeEq, sqlUnicodeIn } from '../utils/mysqlCollation.js';
 
-export const DISTRICT_DATE_TYPES = ['school_holiday', 'school_day_off', 'school_first_day', 'school_fall_check_in', 'school_spring_event'];
+export const DISTRICT_DATE_TYPES = ['school_holiday', 'school_day_off', 'school_sessions_prohibited', 'school_first_day', 'school_fall_check_in', 'school_spring_event'];
 export const isDistrictCalendarDate = (row) => row?.organization_id == null && !!row?.district_name && DISTRICT_DATE_TYPES.includes(row?.event_type);
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 

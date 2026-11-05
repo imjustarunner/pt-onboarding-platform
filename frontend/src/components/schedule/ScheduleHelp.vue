@@ -13,7 +13,7 @@ const topics = [
   ['Cancel a provider’s day', 'Use Cancel day for the selected provider and date. Review affected appointments, hosted meetings and openings before confirming. Other recurring dates remain scheduled.'],
   ['Remove an opening', 'Open the published availability and choose Remove availability. Choose this occurrence or this and future occurrences. Existing appointments and room reservations stay booked.'],
   ['Contact a client', 'Open the scheduled appointment. Under Info, choose Text, message or email client · Conversa. Select the client/contact and channel, then review your message before sending.'],
-  ['Leave a staff reminder', 'Open the appointment and add an Internal appointment alert. Staff with full schedule access can see the flag; clients cannot.'],
+  ['Leave a schedule clip', 'Open the appointment and add a Schedule clip. It stays on the appointment. Check Show on the schedule to flag it on the schedule face. Staff with full schedule access can see it; clients cannot.'],
   ['See earlier or later times', 'The schedule includes the earliest and latest timed events. Use the hours control above the time labels to show all 24 hours.']
 ];
 function closeOutside(event) { if (!root.value?.contains(event.target) && !panel.value?.contains(event.target)) open.value = false; }

@@ -31,6 +31,7 @@
         <option value="">All types</option>
         <option value="school_holiday">Holiday</option>
         <option value="school_day_off">School break / Day off</option>
+        <option value="school_sessions_prohibited">Sessions prohibited</option>
         <option value="school_first_day">First Day of School</option>
         <option value="school_back_to_school">Back to School</option>
         <option value="school_fall_check_in">Fall School Check-in</option>
@@ -114,6 +115,7 @@
 
       <div class="legend">
         <span><i class="lg holiday" /> First Day / Holiday / Day off</span>
+        <span><i class="lg prohibited" /> Sessions prohibited</span>
         <span><i class="lg bts" /> Back to School</span>
         <span><i class="lg fall" /> Fall School Check-in</span>
         <span><i class="lg open" /> Open House / Orientation</span>
@@ -145,6 +147,7 @@ const emit = defineEmits(['add-event', 'edit-event', 'request-assignment', 'refr
 const CALENDAR_ONLY_TYPES = new Set([
   'school_holiday',
   'school_day_off',
+  'school_sessions_prohibited',
   'school_first_day',
   'school_fall_check_in',
   'school_spring_event'
@@ -156,7 +159,7 @@ function isStaffableEvent(e) {
   const typ = String(e.eventType || '').trim().toLowerCase();
   const cat = String(e.category || '').trim().toLowerCase();
   if (CALENDAR_ONLY_TYPES.has(typ)) return false;
-  if (['holiday', 'day_off', 'first_day', 'fall_check_in', 'spring'].includes(cat)) return false;
+  if (['holiday', 'day_off', 'sessions_prohibited', 'first_day', 'fall_check_in', 'spring'].includes(cat)) return false;
   return typ.startsWith('school_') || !!cat;
 }
 
@@ -263,6 +266,7 @@ function labelType(e) {
     school_orientation: 'Orientation',
     school_holiday: 'Holiday',
     school_day_off: 'School break / Day off',
+    school_sessions_prohibited: 'Sessions prohibited',
     school_other: 'School Event'
   };
   return map[e.eventType] || e.category || 'Event';
@@ -276,6 +280,7 @@ function typeColor(e) {
   if (t === 'school_resource_fair') return 'fair';
   if (t === 'school_open_house' || t === 'school_orientation') return 'open';
   if (t === 'school_family_night') return 'family';
+  if (t === 'school_sessions_prohibited') return 'prohibited';
   if (t === 'school_first_day' || t === 'school_holiday' || t === 'school_day_off') return 'holiday';
   return 'fair';
 }
@@ -534,6 +539,7 @@ onMounted(() => reload());
 .evt.family { background: #0f766e; }
 .evt.spring { background: #7c3aed; }
 .evt.holiday { background: #b45309; }
+.evt.prohibited { background: #c2410c; }
 .legend {
   display: flex;
   gap: 0.85rem;
@@ -557,6 +563,7 @@ onMounted(() => reload());
 .lg.family { background: #0f766e; }
 .lg.spring { background: #7c3aed; }
 .lg.holiday { background: #b45309; }
+.lg.prohibited { background: #c2410c; }
 .list-panel {
   display: flex;
   flex-direction: column;
@@ -600,6 +607,7 @@ onMounted(() => reload());
 .dot.family { background: #0f766e; }
 .dot.spring { background: #7c3aed; }
 .dot.holiday { background: #b45309; }
+.dot.prohibited { background: #c2410c; }
 @media (max-width: 720px) {
   .cell { min-height: 72px; }
   .evt { font-size: 0.62rem; }

@@ -11,6 +11,7 @@ export default defineConfig({
     'src/components/schedule/__tests__/SchoolAbsenceRecords.test.js',
     'src/components/schedule/__tests__/schoolSoftCalendar.test.js',
     'src/utils/__tests__/schoolSoftScheduleBlocks.test.js',
+    'src/utils/__tests__/schoolAssignmentRail.test.js',
     'src/utils/__tests__/calendarWallClock.test.js'
   ] }
 });

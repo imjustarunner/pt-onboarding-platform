@@ -63,6 +63,21 @@ describe('shared district important dates', () => {
     expect(await deleteDistrictCalendarDate({ eventId: 10, agencyId: 1, userId: 5 })).toMatchObject({ deleted: true, deletedCount: 1 });
     expect(m.execute.mock.calls[1][1]).toEqual([5, 10, 1]);
   });
+  it('shares one sessions-prohibited date across the district', async () => {
+    const prohibited = { ...row, event_type: 'school_sessions_prohibited', title: 'Testing', description: 'State testing' };
+    m.execute.mockImplementation(async sql => {
+      if (sql.includes('SELECT sp.school_organization_id AS id')) return [[{ id: 2 }, { id: 3 }]];
+      if (sql.includes('INSERT INTO company_events')) return [{ insertId: 11 }];
+      if (sql.includes('SELECT * FROM company_events')) return [[prohibited]];
+      return [[]];
+    });
+    const result = await createDistrictSchoolEvents({ agencyId: 1, userId: 5, districtName: 'D11', category: 'sessions_prohibited',
+      title: 'Testing', description: 'State testing', startsAt: row.starts_at, endsAt: row.ends_at, timezone: row.timezone });
+    expect(result.createdCount).toBe(1);
+    expect(result.schoolCount).toBe(2);
+    expect(result.events[0]).toMatchObject({ eventType: 'school_sessions_prohibited', isDistrictImportantDate: true, staffingEnabled: false });
+    expect(m.materialize).not.toHaveBeenCalled();
+  });
   it('returns the same shared ID from each school portal without assigning it a school', async () => {
     m.execute.mockImplementation(async sql => sql.includes('SELECT ce.* FROM company_events ce') ? [[row]] : [[]]);
     const a = await listSchoolEventsForOrg(2);

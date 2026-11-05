@@ -56,8 +56,9 @@
               <option value="fall_check_in">Fall School Check-in (calendar only)</option>
               <option value="spring">Spring School Check-in (calendar only)</option>
               <option value="first_day">First Day of School (calendar only)</option>
-              <option value="holiday">Holiday (calendar only)</option>
+              <option value="holiday">Holiday / No school (calendar only)</option>
               <option value="day_off">School break / Day off (important date)</option>
+              <option value="sessions_prohibited">Sessions prohibited (testing or other — calendar only)</option>
             </select>
             <span v-if="isOutreachCreate || isOutreachEvent || form.category === 'outreach'" class="hint">
               <template v-if="isGeneralOutreachCreate || isGeneralOutreachEvent">
@@ -66,6 +67,12 @@
               <template v-else>
                 District outreach is one event for the whole district (not copied per school). Provider staffing is on.
               </template>
+            </span>
+            <span v-else-if="form.category === 'sessions_prohibited'" class="hint">
+              The school may be open, but therapy sessions should not happen. Say why, such as testing or an assembly. A district date applies to every school in the district. This does not email families or remove appointments.
+            </span>
+            <span v-else-if="form.category === 'holiday' || form.category === 'day_off'" class="hint">
+              No school. Use a district important date when every school in the district is closed. This does not email families or remove appointments.
             </span>
             <span v-else-if="isCalendarOnlyCategory" class="hint">
               An all-day important date or date range. Use School break / Day off for fall break, winter break, or school closures.
@@ -463,7 +470,7 @@ const form = reactive({
 
 const isCalendarOnlyCategory = computed(() => {
   const c = String(form.category || '').toLowerCase();
-  return c === 'holiday' || c === 'day_off' || c === 'first_day' || c === 'fall_check_in' || c === 'spring';
+  return c === 'holiday' || c === 'day_off' || c === 'sessions_prohibited' || c === 'first_day' || c === 'fall_check_in' || c === 'spring';
 });
 
 const canAssignOnCreate = computed(
@@ -679,6 +686,10 @@ const submit = async () => {
     const range = buildIsoRange();
     if (!form.title.trim()) {
       error.value = 'Event name is required';
+      return;
+    }
+    if (form.category === 'sessions_prohibited' && !form.description.trim()) {
+      error.value = 'Say why sessions are prohibited, such as testing or an assembly.';
       return;
     }
     if (!range) {

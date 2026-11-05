@@ -3,7 +3,7 @@ import { computed, defineAsyncComponent, ref, watch } from 'vue';
 import api from '../../services/api';
 const AppointmentConversa = defineAsyncComponent(() => import('./AppointmentConversa.vue'));
 const props = defineProps({ appointmentId: { type: Number, required: true } });
-const data = ref(null); const draft = ref(''); const editing = ref(false); const loading = ref(false); const saving = ref(false); const error = ref(''); const saved = ref(''); const selectedClientId = ref(0); const messaging = ref(false); let request = 0;
+const data = ref(null); const draft = ref(''); const showOnSchedule = ref(false); const editing = ref(false); const loading = ref(false); const saving = ref(false); const error = ref(''); const saved = ref(''); const selectedClientId = ref(0); const messaging = ref(false); let request = 0;
 const selectedClient = computed(() => data.value?.clients?.find(c => Number(c.id) === Number(selectedClientId.value)));
 const openingLearning = ref(false);
 async function openLearningWorkspace() {
@@ -20,7 +20,7 @@ async function openLearningWorkspace() {
 }
 async function load() {
   const current = ++request; loading.value = true; error.value = ''; saved.value = ''; data.value = null; editing.value = false; messaging.value = false;
-  try { const result = await api.get(`/appointments/${props.appointmentId}/staff-tools`, { skipGlobalLoading: true }); if (current === request) { data.value = result.data; draft.value = result.data.alert?.text || ''; selectedClientId.value = result.data.clients?.[0]?.id || 0; } }
+  try { const result = await api.get(`/appointments/${props.appointmentId}/staff-tools`, { skipGlobalLoading: true }); if (current === request) { data.value = result.data; draft.value = result.data.alert?.text || ''; showOnSchedule.value = !!result.data.alert?.showOnSchedule; selectedClientId.value = result.data.clients?.[0]?.id || 0; } }
   catch (e) { if (current === request && e.response?.status !== 403) error.value = e.response?.data?.error?.message || 'Could not load appointment tools.'; }
   finally { if (current === request) loading.value = false; }
 }
@@ -29,11 +29,11 @@ async function save() {
   saving.value = true; error.value = ''; saved.value = '';
   const appointmentId = props.appointmentId;
   try {
-    const result = await api.put(`/appointments/${appointmentId}/staff-alert`, { text: draft.value, revision: data.value.alert.revision }, { skipGlobalLoading: true });
+    const result = await api.put(`/appointments/${appointmentId}/staff-alert`, { text: draft.value, revision: data.value.alert.revision, showOnSchedule: showOnSchedule.value }, { skipGlobalLoading: true });
     window.dispatchEvent(new CustomEvent('appointment-staff-alert-changed', { detail: { appointmentId, alert: result.data.alert } }));
     if (props.appointmentId !== appointmentId) return;
-    data.value.alert = result.data.alert; editing.value = false; saved.value = result.data.alert.text ? 'Appointment alert saved.' : 'Appointment alert removed.';
-  } catch (e) { if (props.appointmentId === appointmentId) error.value = e.response?.data?.error?.message || 'Could not save the appointment alert.'; }
+    data.value.alert = result.data.alert; showOnSchedule.value = !!result.data.alert?.showOnSchedule; editing.value = false; saved.value = result.data.alert.text ? 'Schedule clip saved.' : 'Schedule clip removed.';
+  } catch (e) { if (props.appointmentId === appointmentId) error.value = e.response?.data?.error?.message || 'Could not save the schedule clip.'; }
   finally { saving.value = false; }
 }
 watch(() => props.appointmentId, load, { immediate: true });
@@ -44,12 +44,14 @@ watch(() => props.appointmentId, load, { immediate: true });
     <template v-if="data">
       <p v-if="data.canOpenLearningWorkspace"><button type="button" :disabled="openingLearning" @click="openLearningWorkspace">{{ openingLearning ? 'Opening…' : 'Open learning session' }}</button></p>
       <div class="staff-alert" :class="{ 'staff-alert--active': !!data.alert.text }">
-        <div class="staff-alert__heading"><strong>⚑ Internal appointment alert</strong><button v-if="data.canEdit && !editing" type="button" @click="editing = true; draft = data.alert.text">{{ data.alert.text ? 'Edit alert' : 'Add alert' }}</button></div>
-        <p class="hint">Visible to authorized staff. The note author must acknowledge a current alert before starting or continuing this session note. Never sent to clients.</p>
+        <div class="staff-alert__heading"><strong>Schedule clip</strong><button v-if="data.canEdit && !editing" type="button" @click="editing = true; draft = data.alert.text; showOnSchedule = !!data.alert.showOnSchedule">{{ data.alert.text ? 'Edit clip' : 'Add clip' }}</button></div>
+        <p class="hint">Visible to providers, support, and admin on this appointment. Check Show on the schedule to also flag it on the schedule. The note author must acknowledge a current clip before starting or continuing this session note. Never sent to clients.</p>
         <p v-if="data.alert.text && !editing" class="alert-text">{{ data.alert.text }}</p>
+        <p v-if="data.alert.text && !editing" class="hint">{{ data.alert.showOnSchedule ? 'Shown on the schedule.' : 'On this appointment only.' }}</p>
         <form v-if="editing" @submit.prevent="save">
-          <label>Reminder for this appointment<textarea v-model="draft" rows="2" maxlength="500" :disabled="saving" placeholder="For example: prepare the intake paperwork before this session." /></label>
-          <div class="staff-alert__actions"><button type="submit" :disabled="saving">{{ saving ? 'Saving…' : 'Save alert' }}</button><button type="button" :disabled="saving" @click="editing = false">Discard changes</button><button v-if="data.alert.text" type="button" :disabled="saving" @click="draft = ''; save()">Remove alert</button></div>
+          <label>Clip for this appointment<textarea v-model="draft" rows="2" maxlength="500" :disabled="saving" placeholder="For example: prepare the intake paperwork before this session." /></label>
+          <label class="check"><input v-model="showOnSchedule" type="checkbox" :disabled="saving" /> Show on the schedule</label>
+          <div class="staff-alert__actions"><button type="submit" :disabled="saving">{{ saving ? 'Saving…' : 'Save clip' }}</button><button type="button" :disabled="saving" @click="editing = false">Discard changes</button><button v-if="data.alert.text" type="button" :disabled="saving" @click="draft = ''; showOnSchedule = false; save()">Remove clip</button></div>
         </form>
       </div>
       <div v-for="alert in data.diagnosisAlerts || []" :key="`${alert.clientId}:${alert.diagnosisId}:${alert.code}`" class="staff-alert staff-alert--active" role="status"><strong>Diagnosis review</strong><p>{{ alert.message }}</p><a :href="`/admin/clients/${alert.clientId}?tab=clinical`">Review clinical record</a></div>

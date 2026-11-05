@@ -26,7 +26,7 @@ export function createAppointmentStaffTools({ db = pool, appointments = Appointm
     if (write ? canManageOthersSchedule(role) : canViewFullScheduleDetails(role)) return;
     const actor = await users.findById(user.id);
     if (users.isSupervisor(actor) && await users.supervisorHasAccess(user.id, providerId, agencyId)) return;
-    fail(403, 'Full schedule access is required for internal appointment alerts');
+    fail(403, 'Full schedule access is required for schedule clips');
   }
   async function appointmentAccess(user, id, write = false, appointmentOperations = false) {
     if (!Number.isSafeInteger(Number(id)) || Number(id) <= 0) fail(400, 'A saved appointment is required');
@@ -35,10 +35,11 @@ export function createAppointmentStaffTools({ db = pool, appointments = Appointm
     await scheduleAccess(user, appointment.providerUserId, appointment.agencyId, write, appointmentOperations);
     return appointment;
   }
-  const mapAlert = row => ({ text: row?.alert_text ? decrypt(row.alert_text) : '', revision: Number(row?.revision || 0), updatedAt: row?.updated_at || null });
+  const showsOnSchedule = row => row?.show_on_schedule == null || row.show_on_schedule === '' || Number(row.show_on_schedule) === 1;
+  const mapAlert = row => ({ text: row?.alert_text ? decrypt(row.alert_text) : '', revision: Number(row?.revision || 0), updatedAt: row?.updated_at || null, showOnSchedule: row ? showsOnSchedule(row) : false });
   async function get(user, id) {
     const appointment = await appointmentAccess(user, id);
-    const [rows] = await db.execute('SELECT alert_text, revision, updated_at FROM appointment_staff_alerts WHERE appointment_id = ?', [appointment.id]);
+    const [rows] = await db.execute('SELECT alert_text, revision, updated_at, show_on_schedule FROM appointment_staff_alerts WHERE appointment_id = ?', [appointment.id]);
     const participants = await appointments.listParticipants(appointment.id);
     const clients = [];
     const diagnosticAlerts = [];
@@ -53,7 +54,8 @@ export function createAppointmentStaffTools({ db = pool, appointments = Appointm
   }
   async function save(user, id, body) {
     const appointment = await appointmentAccess(user, id, true);
-    if (typeof body?.text !== 'string' || body.text.length > 500) fail(400, 'Use at most 500 characters for the appointment alert');
+    if (typeof body?.text !== 'string' || body.text.length > 500) fail(400, 'Use at most 500 characters for the schedule clip');
+    const showOnSchedule = body.showOnSchedule === true ? 1 : 0;
     if (!Number.isSafeInteger(body.revision) || body.revision < 0) fail(400, 'The current alert revision is required');
     const value = body.text.trim();
     const encrypted = value ? encrypt(value) : null;
@@ -66,11 +68,11 @@ export function createAppointmentStaffTools({ db = pool, appointments = Appointm
       const previous = Number(rows[0]?.revision || 0);
       if (previous !== body.revision) fail(409, 'Someone updated this alert. Reload it before saving your changes.');
       const revision = previous + 1;
-      await conn.execute(`INSERT INTO appointment_staff_alerts (appointment_id, alert_text, revision, updated_by_user_id)
-        VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE alert_text = VALUES(alert_text), revision = VALUES(revision), updated_by_user_id = VALUES(updated_by_user_id)`, [appointment.id, encrypted, revision, user.id]);
+      await conn.execute(`INSERT INTO appointment_staff_alerts (appointment_id, alert_text, revision, updated_by_user_id, show_on_schedule)
+        VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE alert_text = VALUES(alert_text), revision = VALUES(revision), updated_by_user_id = VALUES(updated_by_user_id), show_on_schedule = VALUES(show_on_schedule)`, [appointment.id, encrypted, revision, user.id, showOnSchedule]);
       await conn.execute('INSERT INTO appointment_staff_alert_events (appointment_id, revision, alert_text, actor_user_id) VALUES (?, ?, ?, ?)', [appointment.id, revision, encrypted, user.id]);
       await conn.commit();
-      return { text: value, revision };
+      return { text: value, revision, showOnSchedule: showOnSchedule === 1 };
     } catch (error) { await conn.rollback(); throw error; } finally { conn.release(); }
   }
   async function list(user, { providerId, agencyId, windowStart, windowEnd }) {
@@ -78,7 +80,7 @@ export function createAppointmentStaffTools({ db = pool, appointments = Appointm
     const start = new Date(windowStart); const end = new Date(windowEnd);
     if (!Number.isFinite(+start) || !Number.isFinite(+end) || end <= start || end - start > 370 * 86400000) fail(400, 'A valid schedule window of at most one year is required');
     await scheduleAccess(user, Number(providerId), Number(agencyId));
-    const [rows] = await db.execute(`SELECT a.id AS appointment_id, a.provider_schedule_event_id, a.office_event_id, s.alert_text, s.revision, p.client_id
+    const [rows] = await db.execute(`SELECT a.id AS appointment_id, a.provider_schedule_event_id, a.office_event_id, s.alert_text, s.revision, s.show_on_schedule, p.client_id
       FROM appointments a LEFT JOIN appointment_staff_alerts s ON s.appointment_id = a.id
       LEFT JOIN appointment_participants p ON p.appointment_id=a.id
       WHERE a.agency_id = ? AND a.provider_user_id = ? AND a.start_at < ? AND a.end_at > ?`,
@@ -94,7 +96,12 @@ export function createAppointmentStaffTools({ db = pool, appointments = Appointm
       const entry=grouped.get(id);
       for(const alert of diagnosisCache.get(clientId)||[])if(!entry.diagnosisAlerts.some(item=>item.clientId===clientId&&item.code===alert.code&&item.diagnosisId===alert.diagnosisId))entry.diagnosisAlerts.push({...alert,clientId});
     }
-    return [...grouped.values()].map(entry=>({...entry,text:[entry.text,...entry.diagnosisAlerts.map(alert=>alert.message)].filter(Boolean).join('\n')})).filter(entry=>entry.text);
+    return [...grouped.values()].map(entry => {
+      const clipText = entry.text;
+      const showClip = entry.showOnSchedule && !!clipText;
+      const text = [showClip ? clipText : '', ...entry.diagnosisAlerts.map(alert => alert.message)].filter(Boolean).join('\n');
+      return { ...entry, text, clipText, showOnSchedule: showClip };
+    }).filter(entry => entry.text);
   }
   return { get, save, list, authorize: (user, id) => appointmentAccess(user, id, false, true) };
 }

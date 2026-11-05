@@ -55,10 +55,10 @@ describe('private appointment staff tools', () => {
     expect(users.supervisorHasAccess).toHaveBeenCalledWith(80, 9, 2);
   });
   it('writes encrypted content and encrypted audit history without changing any client-facing appointment fields', async () => {
-    expect(await service.save(provider, 12, { text: ' Bring paperwork ', revision: 2 })).toEqual({ text: 'Bring paperwork', revision: 3 });
+    expect(await service.save(provider, 12, { text: ' Bring paperwork ', revision: 2 })).toEqual({ text: 'Bring paperwork', revision: 3, showOnSchedule: false });
     const writes = conn.execute.mock.calls.filter(([sql]) => sql.startsWith('INSERT'));
     expect(writes).toHaveLength(2);
-    expect(writes[0][1]).toEqual([12, 'encrypted:Bring paperwork', 3, 9]);
+    expect(writes[0][1]).toEqual([12, 'encrypted:Bring paperwork', 3, 9, 0]);
     expect(writes[1][1]).toEqual([12, 3, 'encrypted:Bring paperwork', 9]);
     expect(conn.commit).toHaveBeenCalledOnce(); expect(conn.release).toHaveBeenCalledOnce();
   });
@@ -89,4 +89,12 @@ describe('private appointment staff tools', () => {
 it('lets agency-authorized billing staff manage internal appointment alerts',async()=>{service=createAppointmentStaffTools({db,appointments,users,clientAccess,encrypt,decrypt,billingAccess:vi.fn(async(user,agencyId)=>user.id===88&&agencyId===2)});expect((await service.get({id:88,role:'billing'},12)).canEdit).toBe(true);expect(await service.save({id:88,role:'billing'},12,{text:'Please review payment arrangements.',revision:2})).toMatchObject({revision:3});});
 
 it.each(['agency_admin','backoffice_admin'])('allows %s alert management only within their agency',async role=>{expect((await service.get({id:80,role},12)).canEdit).toBe(true);users.getAgencies.mockResolvedValue([{id:99}]);await expect(service.get({id:80,role},12)).rejects.toMatchObject({status:403});});
+it('keeps a schedule clip off the schedule face until show on schedule is checked', async () => {
+  db.execute.mockResolvedValue([[{ appointment_id: 12, client_id: 31, alert_text: 'encrypted', revision: 2, show_on_schedule: 0 }]]);
+  const hidden = await service.list(provider, { providerId: 9, agencyId: 2, windowStart: '2026-11-01', windowEnd: '2026-11-08' });
+  expect(hidden).toEqual([]);
+  expect(await service.save(provider, 12, { text: 'Bring paperwork', revision: 2, showOnSchedule: true })).toMatchObject({ revision: 3, showOnSchedule: true });
+  expect(conn.execute.mock.calls.find(([sql]) => sql.includes('INSERT INTO appointment_staff_alerts'))[1][4]).toBe(1);
+});
+
 it('adds persistent diagnosis flags to scheduled sessions even without a manual alert',async()=>{db.execute.mockResolvedValue([[{appointment_id:12,client_id:31,alert_text:null,revision:0}]]);service=createAppointmentStaffTools({db,appointments,users,clientAccess,encrypt,decrypt,diagnosisAlerts:vi.fn(async()=>[{code:'diagnosis_unspecified_90_days',diagnosisId:4,message:'Review diagnosis specificity.'}])});const alerts=await service.list(provider,{providerId:9,agencyId:2,windowStart:'2026-11-01',windowEnd:'2026-11-08'});expect(alerts[0]).toMatchObject({text:'Review diagnosis specificity.',diagnosisAlerts:[{clientId:31,code:'diagnosis_unspecified_90_days'}]});});

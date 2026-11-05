@@ -1,11 +1,11 @@
 <template>
-  <section v-if="loading || error || appointments.length || diagnosisAlerts.length" class="session-alerts" aria-label="Session alerts">
-    <p v-if="loading" role="status">Checking session alerts…</p>
+  <section v-if="loading || error || appointments.length || diagnosisAlerts.length" class="session-alerts" aria-label="Schedule clips">
+    <p v-if="loading" role="status">Checking schedule clips…</p>
     <p v-if="error" role="alert">{{ error }} <button type="button" @click="load">Retry</button></p>
     <article v-for="alert in appointments" :key="`${alert.appointmentId}:${alert.revision}`" class="appointment-alert">
-      <strong>Appointment alert</strong><p>{{ alert.text }}</p>
-      <button v-if="alert.needsAcknowledgement && !readOnly" type="button" :disabled="busy" @click="acknowledge(alert)">I have read this alert — continue to note</button>
-      <small v-else-if="alert.acknowledgedAt">Acknowledged for this alert revision.</small>
+      <strong>Schedule clip</strong><p>{{ alert.text }}</p>
+      <button v-if="alert.needsAcknowledgement && !readOnly" type="button" :disabled="busy" @click="acknowledge(alert)">I have read this schedule clip — continue to note</button>
+      <small v-else-if="alert.acknowledgedAt">Acknowledged for this schedule clip.</small>
     </article>
     <article v-for="alert in diagnosisAlerts" :key="`${alert.code}:${alert.diagnosisId}`" class="diagnosis-alert"><strong>Diagnosis review</strong><p>{{ alert.message }}</p><a :href="`/admin/clients/${clientId}?tab=clinical`" target="_blank" rel="noopener">Open clinical record to review</a></article>
   </section>

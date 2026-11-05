@@ -23,6 +23,12 @@
     <DayCancellationDialog v-if="cancelDayDate" :date="cancelDayDate" :time-zone="bookingTimezoneIana" :provider-id="Number(userId || authStore.user?.id)"
       :agency-id="Number(effectiveAgencyId || 0)" :agency-options="headerTenantOptions"
       @close="cancelDayDate = ''" @saved="onDayCancelled" />
+    <ProviderDayNoteDialog v-if="dayNoteDate" :date="dayNoteDate" :time-zone="bookingTimezoneIana" :provider-id="Number(userId || authStore.user?.id)"
+      :agency-ids="effectiveAgencyIds" @close="dayNoteDate = ''" />
+    <SchoolAssignmentRailPanel v-if="schoolRailDetail" :detail="schoolRailDetail" :provider-id="Number(userId || authStore.user?.id)"
+      :time-zone="bookingTimezoneIana" :can-cancel="canBookFromGrid" :can-request="canRequestSchoolChange"
+      @close="schoolRailDetail = null" @request-change="openSchoolAssignmentRequest(false)" @adjust-slots="openSchoolAssignmentRequest(true)"
+      @changed="onSchoolDayClosed" />
     <div v-if="scheduleChangeNotice" class="hint" role="status" style="padding:12px;border:1px solid currentColor;border-radius:8px;margin-bottom:12px;">
       {{ scheduleChangeNotice }} <button type="button" class="btn btn-secondary btn-sm" @click="scheduleChangeNotice=''">Dismiss</button>
     </div>
@@ -884,7 +890,7 @@
     </div>
 
     <div v-if="summary?.schoolAssignments?.length" class="school-commitment-summary" aria-label="Assigned school hours" style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">
-      <button v-for="assignment in summary.schoolAssignments" :key="`${assignment.agencyId}-${assignment.schoolOrgId}-${assignment.dayOfWeek}`" class="btn btn-secondary btn-sm" type="button" @click="schoolAssignmentReview={agencyId:Number(assignment.agencyId || assignment._agencyId || effectiveAgencyId),schoolId:Number(assignment.schoolOrgId || assignment.schoolOrganizationId),assignmentId:Number(assignment.assignmentId || 0)}">
+      <button v-for="assignment in summary.schoolAssignments" :key="`${assignment.agencyId}-${assignment.schoolOrgId}-${assignment.dayOfWeek}`" class="btn btn-secondary btn-sm" type="button" @click="openSchoolRail(assignment)">
         {{assignment.schoolName}} · {{assignment.dayOfWeek}} {{assignment.startTime}}–{{assignment.endTime}} · Hours / client spots
       </button>
     </div>
@@ -1074,6 +1080,7 @@
           <div class="sched-agenda__when">
             <strong>{{ agendaDayTitle }}</strong>
             <span class="muted">{{ agendaDaySub }}</span>
+            <button v-if="canBookFromGrid" type="button" class="sched-day-email" @click="openDayNote(agendaDayName)">Email this day</button>
             <button v-if="canBookFromGrid" type="button" class="sched-day-cancel" @click="openDayCancellation(agendaDayName)">Cancel day…</button>
           </div>
           <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="shiftFocusedDay(1)">
@@ -1117,7 +1124,7 @@
                   :src="agendaItemLogo(item)"
                   alt=""
                 />
-                <span v-if="staffAlertForBlock(item)" class="cell-staff-alert cell-staff-alert--inline" role="img" :aria-label="`Staff reminder: ${staffAlertForBlock(item)}`" :title="`Staff only: ${staffAlertForBlock(item)}`">⚑</span>
+                <span v-if="staffAlertForBlock(item)" class="cell-staff-alert cell-staff-alert--inline" role="img" :aria-label="staffAlertFaceLabel(item)" :title="staffAlertFaceLabel(item)">⚑</span>
                 <div class="sched-agenda__title">
                   <span
                     v-if="item.confirmationState === 'confirmed'"
@@ -1178,6 +1185,7 @@
         <div class="sched-day-timeline__title">
           {{ mobileTimelineDay }} · {{ dayDateLabel(mobileTimelineDay) }}
           <button type="button" class="sched-hours-toggle" :aria-pressed="showAllHours" @click="showAllHours = !showAllHours">{{ showAllHours ? 'Auto hours' : 'Show 24h' }}</button>
+          <button v-if="canBookFromGrid" type="button" class="sched-day-email" @click="openDayNote(mobileTimelineDay)">Email this day</button>
           <button v-if="canBookFromGrid" type="button" class="sched-day-cancel" @click="openDayCancellation(mobileTimelineDay)">Cancel day…</button>
         </div>
         <div v-if="untimedSchoolBlocksForDay(mobileTimelineDay).length" class="sched-mobile-untimed">
@@ -1234,7 +1242,7 @@
                   :src="blockAgencyIconUrl(b)"
                   alt=""
                 />
-                <span v-if="staffAlertForBlock(b)" class="cell-staff-alert cell-staff-alert--inline" role="img" :aria-label="`Staff reminder: ${staffAlertForBlock(b)}`" :title="`Staff only: ${staffAlertForBlock(b)}`">⚑</span>
+                <span v-if="staffAlertForBlock(b)" class="cell-staff-alert cell-staff-alert--inline" role="img" :aria-label="staffAlertFaceLabel(b)" :title="staffAlertFaceLabel(b)">⚑</span>
                 <div class="sched-day-card__body">
                   <div class="sched-day-card__title">
                     <span v-if="b.recurrenceSeriesId" role="img" aria-label="Recurring appointment">↻ </span>
@@ -1264,6 +1272,7 @@
                     <span v-if="b.officeEmpty" class="cell-block-office-empty"> · No bookings</span>
                   </div>
                   <div v-else-if="b.kind === 'school-soft'" class="sched-day-card__meta">{{ b.status.label }}</div>
+                  <div v-else-if="b.kind === 'school'" class="sched-day-card__meta">{{ schoolRailSummary(b) }}<template v-if="b.schoolClosure"> · {{ b.schoolClosure.kind === 'sessions_prohibited' ? 'Sessions prohibited' : 'No school' }}</template></div>
                   <div v-else-if="!b.isOfficeBlock && b.kind !== 'peerbusy'" class="sched-day-card__meta muted">
                     No office / any location
                   </div>
@@ -1330,6 +1339,8 @@
         >
           <div class="sched-head-day">
             <div class="sched-head-dow">{{ d }} {{ dayDateLabel(d) }}</div>
+            <button v-if="canBookFromGrid" type="button" class="sched-day-email" @click.stop="openDayNote(d)"
+              @keydown.stop :aria-label="`Email clients on ${d} ${dayDateLabel(d)}`">Email this day</button>
             <button v-if="canBookFromGrid" type="button" class="sched-day-cancel" @click.stop="openDayCancellation(d)"
               @keydown.stop :aria-label="`Cancel appointments for ${d} ${dayDateLabel(d)}`">Cancel day…</button>
           </div>
@@ -1456,7 +1467,7 @@
                     @click.stop="openExpandedCalendarItem($event, item)">
                     <strong>{{ cellBlockKindLabel(item) }}</strong>
                     <span>{{ item.title || item.shortLabel }}</span>
-                    <span v-if="staffAlertForBlock(item)">Staff reminder: {{ staffAlertForBlock(item) }}</span>
+                    <span v-if="staffAlertForBlock(item)">{{ staffAlertFaceLabel(item) }}</span>
                     <span v-if="item.schedulingNoteSnippet">{{ item.schedulingNoteSnippet }}</span>
                   </button>
                 </div>
@@ -1488,14 +1499,18 @@
                     'cell-block-supv-signup-enrolled': b.kind === 'supv-signup' && b.viewerSignedUp && !b.sessionLive,
                     'cell-block-supv-signup-occurring': b.kind === 'supv-signup' && b.sessionLive,
                     'cell-block-pick-expanded': isCellPickExpanded(d, slot.hour, slot.minute)
-                      && cellPickableBlocks(d, slot.hour, slot.minute).some((pb) => pb.key === b.key)
+                      && cellPickableBlocks(d, slot.hour, slot.minute).some((pb) => pb.key === b.key),
+                    'cell-block-school-rail': !!b.schoolRail,
+                    'cell-block-school-rail--closed': !!b.schoolRail && !!b.schoolClosure,
+                    'cell-block-school-continuation': !!b.schoolRailContinuation,
+                    'cell-block-school-session-blocked': !!b.schoolClosure && b.kind !== 'school'
                   }
                 ]"
                 :aria-label="b.title"
-                :role="b.kind === 'school-soft' ? 'button' : undefined"
-                :tabindex="b.kind === 'school-soft' ? 0 : undefined"
-                @keydown.enter="b.kind === 'school-soft' && onCellBlockClick($event, b, d, slot.hour, slot.minute, true)"
-                @keydown.space="b.kind === 'school-soft' && onCellBlockClick($event, b, d, slot.hour, slot.minute, true)"
+                :role="b.kind === 'school-soft' || b.schoolRail ? 'button' : undefined"
+                :tabindex="b.kind === 'school-soft' || b.schoolRail ? 0 : undefined"
+                @keydown.enter="(b.kind === 'school-soft' || b.schoolRail) && onCellBlockClick($event, b, d, slot.hour, slot.minute, true)"
+                @keydown.space="(b.kind === 'school-soft' || b.schoolRail) && onCellBlockClick($event, b, d, slot.hour, slot.minute, true)"
                 :style="{ ...cellBlockStyle(b), ...schedResizeOverrideStyle(b, d, slot.hour, slot.minute) }"
                 @mouseenter="hoveredBlockKey = blockKey(d, slot.hour, b)"
                 @mouseleave="hoveredBlockKey = ''"
@@ -1505,7 +1520,7 @@
                 @dblclick="onCellBlockDoubleClick($event, b, d, slot.hour, slot.minute)"
               >
                 <span v-if="b.recurrenceSeriesId" class="cell-recurrence-marker" role="img" aria-label="Recurring appointment">↻</span>
-                <span v-if="staffAlertForBlock(b)" class="cell-staff-alert" role="img" :aria-label="`Staff reminder: ${staffAlertForBlock(b)}`">⚑</span>
+                <span v-if="staffAlertForBlock(b)" class="cell-staff-alert" role="img" :aria-label="staffAlertFaceLabel(b)">⚑</span>
                 <!-- Top resize handle — any draggable block -->
                 <div
                   v-if="isAppointmentBlockDraggable(b)"
@@ -1572,6 +1587,10 @@
                   <span v-else-if="b.viewerSignedUp" class="cell-block-signup-status cell-block-signup-status--ok">Signed up</span>
                   <span v-else class="cell-block-signup-status">{{ b.signupStatusLabel }}</span>
                   <span v-if="b.signupHostName" class="cell-block-signup-host">{{ b.signupHostName }}</span>
+                </span>
+                <span v-else-if="b.schoolRail" class="school-day-rail">
+                  <img v-if="b.schoolLogoUrl" class="school-day-rail__logo" :src="b.schoolLogoUrl" alt="" />
+                  <span class="school-day-rail__name">{{ b.shortLabel }}</span>
                 </span>
                 <span v-else-if="b.kind === 'school-soft'" class="cell-block-text">
                   <span>{{ b.clientName }}{{ b.isCancelled ? ' · Canceled' : '' }}</span>
@@ -5772,7 +5791,7 @@
     <div v-if="schoolAssignmentReview" class="modal-backdrop modal-backdrop--request" @click.self="schoolAssignmentReview=null">
       <div class="modal" role="dialog" aria-modal="true" aria-label="School assignment change request">
         <div class="modal-head"><h3>School hours and client spots</h3><button class="btn btn-secondary" type="button" @click="schoolAssignmentReview=null">Close</button></div>
-        <ProviderUpdateSchoolSchedule base="/provider-update/me" :agency-id="schoolAssignmentReview.agencyId" :school-id="schoolAssignmentReview.schoolId" :initial-assignment-id="schoolAssignmentReview.assignmentId" :request-change="true" :readonly="Number(scheduleActorUserId)!==Number(authStore.user?.id)" hide-complete @requested="load({forceRefresh:true})" />
+        <ProviderUpdateSchoolSchedule base="/provider-update/me" :agency-id="schoolAssignmentReview.agencyId" :school-id="schoolAssignmentReview.schoolId" :initial-assignment-id="schoolAssignmentReview.assignmentId" :request-change="true" :focus-slots="schoolRequestFocusSlots" :readonly="Number(scheduleActorUserId)!==Number(authStore.user?.id)" hide-complete @requested="load({forceRefresh:true})" />
       </div>
     </div>
     <div
@@ -5829,10 +5848,12 @@
   </div>
   </Teleport>
   </div>
+  <ClientAlertDialog :client-id="scheduleClientAlertId" />
 </template>
 
 <script setup>
 import ScheduledTrainingEditor from './ScheduledTrainingEditor.vue';
+import ClientAlertDialog from '../clients/ClientAlertDialog.vue';
 import ProviderUpdateSchoolSchedule from '../provider/ProviderUpdateSchoolSchedule.vue';
 import {decorateSessionLocations, officeCoveredBySession, virtualSchoolOverlap, scheduleEventSignature} from '../../utils/scheduleLocationProjection.js';
 import ScheduledTrainingPanel from '../meetings/ScheduledTrainingPanel.vue';
@@ -5949,6 +5970,9 @@ import ScheduleQuarterHourPicker from './ScheduleQuarterHourPicker.vue';
 import DayCancellationDialog from './DayCancellationDialog.vue';
 import SchoolSoftScheduleDialog from './SchoolSoftScheduleDialog.vue';
 import { schoolSoftScheduleBlocks, schoolSoftBlocksInCell } from '../../utils/schoolSoftScheduleBlocks.js';
+import { assignmentSchoolId, assignmentStartsInCell, closureForSchoolDate, schoolRailSummary, schoolRailTone } from '../../utils/schoolAssignmentRail.js';
+import SchoolAssignmentRailPanel from './SchoolAssignmentRailPanel.vue';
+import ProviderDayNoteDialog from './ProviderDayNoteDialog.vue';
 import OfferedTimeDialog from './OfferedTimeDialog.vue';
 const offeredTime = ref(null);
 const onOfferReleased = async () => { offeredTime.value = null; invalidateScheduleSummaryCacheForUser(props.userId); await load({ forceRefresh: true }); };
@@ -6315,9 +6339,48 @@ const untimedSchoolBlocksForDay = day => {
 };
 const hasVisibleUntimedSchoolItems = computed(() => visibleDays.value.some(day => untimedSchoolBlocksForDay(day).length));
 const cancelDayDate = ref('');
+const dayNoteDate = ref('');
+const schoolRailDetail = ref(null);
+const schoolRequestFocusSlots = ref(false);
+const canRequestSchoolChange = computed(() => Number(scheduleActorUserId.value) === Number(authStore.user?.id));
 const openDayCancellation = (day) => {
   cancelDayDate.value = addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day));
 };
+const openDayNote = (day) => {
+  dayNoteDate.value = addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(day));
+};
+function openSchoolRail(assignment, dayName = assignment?.dayName || assignment?.dayOfWeek) {
+  const dateYmd = assignment?.dateYmd || addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(dayName));
+  const schoolId = assignmentSchoolId(assignment);
+  const closure = assignment?.schoolClosure || closureForSchoolDate(summary.value?.schoolDayClosures, schoolId, dateYmd);
+  schoolRailDetail.value = {
+    schoolName: assignment?.schoolName || assignment?.shortLabel || 'School',
+    schoolLogoUrl: assignment?.schoolLogoUrl || '',
+    startTime: assignment?.startTime,
+    endTime: assignment?.endTime,
+    dayName,
+    dateYmd,
+    slotsUsed: assignment?.slotsUsed,
+    slotsTotal: assignment?.slotsTotal,
+    agencyId: Number(assignment?.agencyId || assignment?._agencyId || effectiveAgencyId.value || 0),
+    schoolOrganizationId: schoolId,
+    assignmentId: Number(assignment?.assignmentId || 0),
+    schoolClosure: closure
+  };
+}
+function openSchoolAssignmentRequest(focusSlots) {
+  const detail = schoolRailDetail.value;
+  if (!detail) return;
+  schoolRequestFocusSlots.value = !!focusSlots;
+  schoolAssignmentReview.value = { agencyId: detail.agencyId, schoolId: detail.schoolOrganizationId, assignmentId: detail.assignmentId };
+  schoolRailDetail.value = null;
+}
+async function onSchoolDayClosed(closure) {
+  await load({ forceRefresh: true });
+  if (schoolRailDetail.value && closure) {
+    schoolRailDetail.value = { ...schoolRailDetail.value, schoolClosure: closure };
+  }
+}
 const onDayCancelled = async () => {
   cancelDayDate.value = '';
   await load({ forceRefresh: true });
@@ -6620,7 +6683,7 @@ const mobileDayCardsForHour = (hour) => {
   if (!day) return [];
   const blocks = (showQuarterDetail.value ? [0, 15, 30, 45] : [0])
     .flatMap(minute => cellBlocks(day, hour, minute, false, true).filter(block =>
-      !sideBySideDayLayouts.value.get(day)?.get(scheduleBlockPlacementKey(hour, minute, block.key))?.background)
+      !block.schoolRailContinuation && (block.schoolRail || !sideBySideDayLayouts.value.get(day)?.get(scheduleBlockPlacementKey(hour, minute, block.key))?.background))
       .map(block => ({ ...block, cellMinute: minute })));
   return [...new Map(blocks.filter(b => b && b.kind !== 'more').map(b => [b.key, b])).values()];
 };
@@ -10290,14 +10353,26 @@ const scheduleStaffAlertLookup = computed(() => {
   const map = new Map();
   for (const alert of scheduleStaffAlerts.value) {
     if (!String(alert.text || '').trim()) continue;
-    if (alert.appointmentId) map.set(`appointment:${alert.appointmentId}`, alert.text);
-    if (alert.providerScheduleEventId) map.set(`sevt:${alert.providerScheduleEventId}`, alert.text);
-    if (alert.officeEventId) map.set(`office:${alert.officeEventId}`, alert.text);
+    if (alert.appointmentId) map.set(`appointment:${alert.appointmentId}`, alert);
+    if (alert.providerScheduleEventId) map.set(`sevt:${alert.providerScheduleEventId}`, alert);
+    if (alert.officeEventId) map.set(`office:${alert.officeEventId}`, alert);
   }
   return map;
 });
-const staffAlertForBlock = block => scheduleStaffAlertLookup.value.get(`appointment:${block?.appointmentId}`)
-  || scheduleStaffAlertLookup.value.get(`${block?.isOfficeBlock ? 'office' : block?.kind}:${block?.eventId}`) || '';
+const staffAlertRecordForBlock = block => scheduleStaffAlertLookup.value.get(`appointment:${block?.appointmentId}`)
+  || scheduleStaffAlertLookup.value.get(`${block?.isOfficeBlock ? 'office' : block?.kind}:${block?.eventId}`) || null;
+const staffAlertForBlock = block => {
+  const alert = staffAlertRecordForBlock(block);
+  if (!alert) return '';
+  return typeof alert === 'string' ? alert : String(alert.text || '');
+};
+const staffAlertFaceLabel = block => {
+  const text = staffAlertForBlock(block);
+  if (!text) return '';
+  const alert = staffAlertRecordForBlock(block);
+  const clip = alert && typeof alert === 'object' && alert.showOnSchedule && String(alert.clipText || '').trim();
+  return clip ? `Schedule clip: ${text}` : `Staff reminder: ${text}`;
+};
 watch([rawSummary, () => props.userId, () => effectiveAgencyIds.value.join(',')], () => { void loadScheduleStaffAlerts(); });
 onMounted(() => window.addEventListener('appointment-staff-alert-changed', loadScheduleStaffAlerts));
 onUnmounted(() => { staffAlertLoadVersion += 1; window.removeEventListener('appointment-staff-alert-changed', loadScheduleStaffAlerts); });
@@ -10363,7 +10438,7 @@ const agendaItems = computed(() => {
   for (const slot of displayTimeSlots.value) {
     const h = slot.hour;
     for (const b of (cellBlocks(day, h, slot.minute, false, true) || [])) {
-      if (!b || b.kind === 'more') continue;
+      if (!b || b.kind === 'more' || b.schoolRailContinuation) continue;
       const key = String(b.key || `${b.kind}-${b.title}-${h}`);
       if (seen.has(key)) continue;
       seen.add(key);
@@ -10962,12 +11037,19 @@ const agendaItemTitle = (item) => {
 
 const agendaItemMeta = (item) => {
   if (item?.kind === 'school-soft') return item.status.label;
+  if (item?.kind === 'school') {
+    const summaryText = schoolRailSummary(item);
+    if (!item.schoolClosure) return summaryText;
+    const closed = item.schoolClosure.kind === 'sessions_prohibited' ? 'Sessions prohibited' : 'No school';
+    return `${summaryText} · ${closed}`;
+  }
   if (isFallCheckinPreslotBlock(item)) return 'Open until a school books this slot';
   if (isFallCheckinBookedBlock(item)) return 'Booked Fall School Check-in';
   return '';
 };
 
 const agendaItemLogo = (item) => {
+  if (item?.kind === 'school' && item.schoolLogoUrl) return item.schoolLogoUrl;
   if (!isFallCheckinBookedBlock(item)) return null;
   return agencyIconUrlById(item?.agencyId, {
     preferSchoolOwn: true,
@@ -10986,8 +11068,11 @@ const agendaItemStyle = (b) => {
   delete style.zIndex;
   delete style.flex;
   delete style.minHeight;
+  delete style.maxWidth;
   delete style.alignItems;
+  delete style.padding;
   delete style.paddingTop;
+  delete style.overflow;
   return style;
 };
 
@@ -11408,19 +11493,6 @@ const schoolAssignmentsInCell = (dayName, hour) => {
   });
 };
 
-const supervisionReplacesSchoolAssignment = (session, assignment) => {
-  if (isScheduleEventTerminal(session)) return false;
-  // Supervision always takes the calendar cell — do not stack over school assignment blocks
-  // (including virtual sessions while the provider is assigned to a school).
-  const modality = String(session?.modality || '').trim().toLowerCase();
-  if (modality === 'virtual' || modality === 'telehealth' || !modality) return true;
-  const loc = String(session?.locationText || '').trim().toLowerCase();
-  const schoolName = String(assignment?.schoolName || '').trim().toLowerCase();
-  if (!schoolName) return true;
-  if (!loc) return true;
-  return loc.includes(schoolName) || schoolName.includes(loc);
-};
-
 const portalIntakeInCell = (dayName, hour, minute = 0) => {
   const s = summary.value;
   if (!s) return [];
@@ -11826,38 +11898,53 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
     supvByAgency.get(key).push(ev);
   }
 
-  // Assigned school — hide when an in-person supervision session at that school replaces it
+  // The school assignment stays visible beside its sessions as a narrow rail.
   const schoolHits = schoolAssignmentsInCell(dayName, hour);
-  const schoolByAgency = new Map();
-  for (const a of schoolHits) {
-    if (supvHits.some((ev) => supervisionReplacesSchoolAssignment(ev, a))) continue;
-    if (scheduleEventsInCell(dayName,hour,minute).some(ev => !isScheduleEventTerminal(ev) && ev.calendarLocationKind==='school' && Number(ev.schoolOrganizationId)===Number(a.schoolOrgId || a.schoolOrganizationId))) continue;
-    const aid = Number(a?._agencyId || a?.agencyId || 0) || null;
-    const key = aid || 'none';
-    if (!schoolByAgency.has(key)) schoolByAgency.set(key, []);
-    schoolByAgency.get(key).push(a);
-  }
-  const hasSchoolBlocks = schoolByAgency.size > 0;
-  for (const [aid, assignments] of schoolByAgency) {
-    const agencyId = (aid === 'none' || !aid) ? null : Number(aid);
-    const names = assignments.flatMap((a) => (a?.schoolName ? [String(a.schoolName).trim()] : [])).filter(Boolean);
-    const shortLabel = singleDayFocused
-      ? ((names.join(', ') || 'School').length > 28 ? `${(names.join(', ') || 'School').slice(0, 28)}…` : (names.join(', ') || 'School'))
-      : (names.length <= 1 ? (names[0] || 'School') : `${names[0]}+${names.length - 1}`);
-    const ids = agencyId ? [agencyId] : [];
+  const hasSchoolBlocks = schoolHits.length > 0;
+  const stepMins = showQuarterDetail.value ? 15 : 60;
+  const schoolDate = addDaysYmd(summary.value?.weekStart || weekStart.value, dayIdxFromWeekStartMonday(dayName));
+  schoolHits.forEach((assignment, index) => {
+    const schoolId = assignmentSchoolId(assignment);
+    const startsHere = assignmentStartsInCell(assignment.startTime, hour, minute, stepMins);
+    const closure = closureForSchoolDate(summary.value?.schoolDayClosures, schoolId, schoolDate);
+    const startClock = String(assignment.startTime || '00:00').slice(0, 5);
+    const endClock = String(assignment.endTime || '00:00').slice(0, 5);
+    const timedSlice = startsHere
+      ? appointmentSpanSlice(`${schoolDate}T${startClock}:00`, `${schoolDate}T${endClock}:00`, dayName, hour, minute, true)
+      : null;
+    const agencyId = Number(assignment?._agencyId || assignment?.agencyId || 0) || null;
     blocks.push({
-      key: `school-${agencyId || 'x'}`,
+      key: `school-${schoolId || 'x'}-${assignment.assignmentId || index}-${hour}-${minute}`,
       kind: 'school',
-      assignments,
-      schoolOrganizationId:Number(assignments[0]?.schoolOrgId || assignments[0]?.schoolOrganizationId || 0),
-      assignmentId:Number(assignments[0]?.assignmentId || 0),
-      startTime:assignments[0]?.startTime, endTime:assignments[0]?.endTime,
-      shortLabel,
-      title: `School assigned${agencySuffix(ids)} — ${dayName} ${hourLabel(hour)}`,
+      schoolRail: startsHere,
+      schoolRailContinuation: !startsHere,
+      backgroundContext: !startsHere,
+      railIndex: index,
+      schoolRailCount: schoolHits.length,
+      railTone: schoolRailTone(assignment, closure),
+      schoolClosure: closure,
+      assignments: [assignment],
+      schoolOrganizationId: schoolId,
+      schoolOrgId: schoolId,
+      assignmentId: Number(assignment.assignmentId || 0),
+      slotsTotal: assignment.slotsTotal,
+      slotsUsed: assignment.slotsUsed,
+      schoolLogoUrl: assignment.schoolLogoUrl || '',
+      schoolName: assignment.schoolName || 'School',
+      startTime: assignment.startTime,
+      endTime: assignment.endTime,
+      shortLabel: assignment.schoolName || 'School',
+      title: closure
+        ? `${assignment.schoolName || 'School'} — ${closure.kind === 'sessions_prohibited' ? 'Sessions prohibited' : 'No school'} — ${closure.reason || closure.title || ''}`
+        : `${assignment.schoolName || 'School'} assigned${agencySuffix(agencyId ? [agencyId] : [])} — ${dayName} ${startClock}–${endClock}`,
       agencyId,
-      shareRow: hasSchoolBlocks && supvHits.length > 0
+      dateYmd: schoolDate,
+      dayName,
+      timedSlice,
+      spanBlock: !!startsHere,
+      shareRow: hasSchoolBlocks && supvHits.length > 0 && !startsHere
     });
-  }
+  });
 
   for (const [, events] of supvByAgency) {
     const agencyId = Number(events[0]?.agencyId || events[0]?._agencyId || 0) || null;
@@ -12116,12 +12203,24 @@ const buildCellBlocks = (dayName, hour, minute = 0, expanded = false, forLayout 
       if (scheduleSideBySide.value) block.sideBySideLane = placement;
     }
   }
+  // Sessions at a school sit to the right of that school's rail and turn red when the day is closed.
+  const coveredSchools = displayBlocks.filter(block => block.kind === 'school');
+  const coveredIds = new Set(coveredSchools.map(block => Number(block.schoolOrganizationId || 0)));
+  for (const block of displayBlocks) {
+    const schoolId = Number(block.schoolOrgId || block.schoolOrganizationId || 0);
+    if (block.kind === 'school' || !schoolId || !coveredIds.has(schoolId)) continue;
+    if (block.kind !== 'school-soft' && block.calendarLocationKind !== 'school') continue;
+    const rail = coveredSchools.find(item => Number(item.schoolOrganizationId) === schoolId);
+    block.besideSchoolRail = true;
+    block.schoolRailCount = coveredIds.size;
+    if (rail?.schoolClosure) block.schoolClosure = rail.schoolClosure;
+  }
   // Context blocks sit behind events and do not use up a visible event slot.
-  const foreground = displayBlocks.filter(block => !block.backgroundContext);
+  const foreground = displayBlocks.filter(block => !block.backgroundContext && !block.schoolRail && !block.schoolRailContinuation);
   if (!unlimited && !singleDayFocused && foreground.length > 3) {
     const extra = foreground.length - 2;
     return [
-      ...displayBlocks.filter(block => block.backgroundContext), ...foreground.slice(0, 2),
+      ...displayBlocks.filter(block => block.backgroundContext || block.schoolRail || block.schoolRailContinuation), ...foreground.slice(0, 2),
       { key:'more', kind:'more', shortLabel:`+${extra}`, title:`${extra} more items in this hour` }
     ];
   }
@@ -20471,6 +20570,48 @@ const cellBlockStyle = (b) => {
       minHeight:'0', maxWidth:'none', flex:'none', boxSizing:'border-box', zIndex:2, opacity:0.42
     });
   }
+  if (b?.schoolClosure && kind !== 'school') {
+    style['--blockFill'] = dark ? '#55252a' : '#fff1f2';
+    style['--blockBorder'] = '#c2410c';
+    style['--blockTypeStripe'] = '#c2410c';
+    style.boxShadow = 'inset 0 0 0 2px rgba(194, 65, 12, 0.55)';
+  }
+  if (kind === 'school' && b?.schoolRail) {
+    const palette = {
+      open: { fill: '#15803d', border: '#14532d' },
+      tight: { fill: '#ca8a04', border: '#854d0e' },
+      full: { fill: '#b91c1c', border: '#7f1d1d' },
+      closed: { fill: '#9a3412', border: '#7c2d12' },
+      neutral: { fill: '#64748b', border: '#334155' }
+    }[b.railTone] || { fill: '#64748b', border: '#334155' };
+    const index = Number(b.railIndex || 0);
+    Object.assign(style, {
+      position: 'absolute',
+      left: `${2 + index * 30}px`,
+      width: '26px',
+      right: 'auto',
+      top: `${b.timedSlice?.topPct || 0}%`,
+      height: `${Math.max(Number(b.timedSlice?.heightPct) || 100, 18)}%`,
+      zIndex: 8,
+      opacity: 1,
+      padding: '4px 0',
+      overflow: 'hidden',
+      minHeight: '28px',
+      maxWidth: '26px',
+      flex: 'none',
+      background: palette.fill,
+      color: '#fff',
+      borderColor: palette.border
+    });
+    style['--blockFill'] = palette.fill;
+    style['--blockBorder'] = palette.border;
+  }
+  if (b?.besideSchoolRail && kind !== 'school') {
+    const inset = 4 + Number(b.schoolRailCount || 1) * 30;
+    style.left = `calc(${style.left || '0px'} + ${inset}px)`;
+    style.width = `calc(${style.width || '100%'} - ${inset}px)`;
+    style.right = 'auto';
+  }
   return style;
 };
 
@@ -25365,7 +25506,7 @@ const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
     return;
   }
   if (kind === 'school') {
-    schoolAssignmentReview.value={agencyId:Number(block.agencyId || effectiveAgencyId.value || 0),schoolId:Number(block.schoolOrganizationId || 0),assignmentId:Number(block.assignmentId || 0)};
+    openSchoolRail(block, dayName);
     return;
   }
   if (kind === 'request') {
@@ -25485,6 +25626,19 @@ const scheduleEventEditForm = ref({
   agencyId: 0,
   clientId: 0,
   isPrivate: false
+});
+const scheduleClientAlertId = computed(() => {
+  if (showRequestModal.value && isScheduleEventEditMode.value) {
+    return Number(scheduleEventEditForm.value.clientId || 0) || 0;
+  }
+  if (!showRequestModal.value && Number(scheduleEventEditId.value || 0) > 0) {
+    return Number(scheduleEventEditForm.value.clientId || 0) || 0;
+  }
+  if (showRequestModal.value && editorIsClinical.value) {
+    const ids = (virtualSessionSelectedClientIds.value || []).map((id) => Number(id)).filter((id) => id > 0);
+    return ids.length ? ids[ids.length - 1] : 0;
+  }
+  return 0;
 });
 
 // Registered after scheduleEventEditForm so editor* computeds are safe to evaluate.
@@ -29218,8 +29372,17 @@ watch(()=>props.spanMode,value=>{
 .cell-staff-alert { position: absolute; right: 3px; top: 3px; z-index: 8; padding: 1px 4px; border-radius: 4px; background: #fef3c7; color: #92400e; font-size: 12px; line-height: 1.2; }
 .cell-staff-alert--inline { position: static; align-self: flex-start; }
 .sched-hours-toggle { border: 1px solid #cbd5e1; border-radius: 5px; background: #fff; color: #475569; padding: 4px; font-size: 11px; white-space: nowrap; cursor: pointer; }
-.sched-day-cancel { border: 0; background: transparent; color: #64748b; font-size: 10px; cursor: pointer; padding: 3px; }
+.sched-day-cancel, .sched-day-email { border: 0; background: transparent; color: #64748b; font-size: 10px; cursor: pointer; padding: 3px; }
 .sched-day-cancel:hover { color: #b91c1c; text-decoration: underline; }
+.sched-day-email:hover { color: #1d4ed8; text-decoration: underline; }
+.cell-block-school-continuation { display: none !important; }
+.cell-block-school-rail { cursor: pointer; border-radius: 8px; }
+.school-day-rail { display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; width: 100%; min-height: 0; }
+.school-day-rail__logo { width: 16px; height: 16px; object-fit: contain; border-radius: 3px; background: #fff; }
+.school-day-rail__name { writing-mode: vertical-rl; text-orientation: mixed; font-size: 11px; font-weight: 700; line-height: 1.1; overflow: hidden; max-height: 100%; }
+.cell-block-school-rail--closed { animation: school-rail-pulse 1.6s ease-in-out infinite; }
+@keyframes school-rail-pulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.35); } }
+@media (prefers-reduced-motion: reduce) { .cell-block-school-rail--closed { animation: none; } }
 .sched-all-day-label { padding: 6px 4px; font-size: 10px; font-weight: 600; color: #64748b; text-align: right; border-bottom: 1px solid var(--sched-line); background: #fff; }
 .sched-all-day-cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 3px 4px; border-left: 1px solid var(--sched-line); border-bottom: 1px solid var(--sched-line); background: #f8fafc; }
 .sched-all-day-item { display: block; width: 100%; min-width: 0; border: 1px solid var(--blockBorder, #cbd5e1); border-radius: 5px; background: var(--blockFill, rgba(148,163,184,.16)); padding: 3px 6px; color: var(--blockText, #334155); font-size: 11px; font-weight: 600; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; cursor: pointer; }

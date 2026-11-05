@@ -147,6 +147,7 @@
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_spring_event' }" @click="typeFilter = 'school_spring_event'">Spring Check-in</button>
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_holiday' }" @click="typeFilter = 'school_holiday'">Holiday</button>
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_day_off' }" @click="typeFilter = 'school_day_off'">School break / Day off</button>
+      <button type="button" class="chip" :class="{ active: typeFilter === 'school_sessions_prohibited' }" @click="typeFilter = 'school_sessions_prohibited'">Sessions prohibited</button>
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_outreach' }" @click="typeFilter = 'school_outreach'">Outreach</button>
       <button type="button" class="chip" :class="{ active: outstandingOnly }" @click="outstandingOnly = !outstandingOnly; if (outstandingOnly) typeFilter = ''">Needs payment</button>
       <button type="button" class="chip" :class="{ active: staffingFilter === 'needs_providers' }" @click="toggleStaffingFilter('needs_providers')">Needs providers</button>
@@ -468,6 +469,7 @@ function labelType(t) {
     school_orientation: 'Orientation',
     school_holiday: 'Holiday',
     school_day_off: 'School break / Day off',
+    school_sessions_prohibited: 'Sessions prohibited',
     school_other: 'School Event',
     school_outreach: 'Outreach'
   };
@@ -482,7 +484,7 @@ function typeClass(t) {
   if (t === 'school_orientation') return 'orient';
   if (t === 'school_family_night') return 'family';
   if (t === 'school_spring_event') return 'spring';
-  if (t === 'school_holiday' || t === 'school_day_off') return 'holiday';
+  if (t === 'school_holiday' || t === 'school_day_off' || t === 'school_sessions_prohibited') return 'holiday';
   if (t === 'school_outreach') return 'outreach';
   return 'other';
 }

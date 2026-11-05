@@ -2745,6 +2745,7 @@ const formatSchoolEventCategory = (c) => {
     orientation: 'Orientation',
     holiday: 'Holiday',
     day_off: 'Day off',
+    sessions_prohibited: 'Sessions prohibited',
     other: 'Other'
   };
   return map[String(c || '')] || c || 'Event';
@@ -3609,6 +3610,7 @@ const canRequestSchoolEventAssignment = computed(() => {
 const CALENDAR_ONLY_SCHOOL_EVENT_CATEGORIES = new Set([
   'holiday',
   'day_off',
+  'sessions_prohibited',
   'first_day',
   'fall_check_in',
   'spring'
@@ -3616,6 +3618,7 @@ const CALENDAR_ONLY_SCHOOL_EVENT_CATEGORIES = new Set([
 const CALENDAR_ONLY_SCHOOL_EVENT_TYPES = new Set([
   'school_holiday',
   'school_day_off',
+  'school_sessions_prohibited',
   'school_first_day',
   'school_fall_check_in',
   'school_spring_event'

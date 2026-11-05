@@ -1,3 +1,4 @@
+import { previewProviderDayNote, sendProviderDayNote, markProviderSchoolDayClosed } from '../controllers/providerScheduleDay.controller.js';
 import { requireAccountAdministrator, excludeSupportSettings, supportOwnAccountOnly, supportProfileUpdateOnly } from '../middleware/supportContentAccess.middleware.js';
 import { getMyAccountAccess, revealMyAccountTempPassword } from '../controllers/myAccountAccess.controller.js';
 import express from 'express';
@@ -119,6 +120,9 @@ router.get('/:id/login-email-aliases', authenticate, supportOwnAccountOnly, requ
 router.post('/:id/login-email-alias', authenticate, supportOwnAccountOnly, requireBackofficeAdmin, addUserLoginEmailAlias);
 router.delete('/:id/login-email-alias', authenticate, supportOwnAccountOnly, requireBackofficeAdmin, removeUserLoginEmailAlias);
 router.get('/:id/schedule-summary', authenticate, getUserScheduleSummary);
+router.post('/:id/school-day-closure', authenticate, markProviderSchoolDayClosed);
+router.get('/:id/day-note', authenticate, previewProviderDayNote);
+router.post('/:id/day-note', authenticate, sendProviderDayNote);
 router.get('/:id/work-schedule', authenticate, getUserWorkSchedule);
 router.put('/:id/work-schedule', authenticate, putUserWorkSchedule);
 router.get('/:id/meeting-candidates', authenticate, listUserMeetingCandidates);

@@ -58,7 +58,7 @@ export function createClinicalAppointmentAlerts({ db=pool, clinical=clinicalPool
   async function assertReviewed(user,input) {
     if(!positive(input?.clientId))return;
     const review=await context(user,input);
-    if(review.appointments.some(alert=>alert.needsAcknowledgement)) throw Object.assign(fail(409,'Review and acknowledge the appointment alert before starting or continuing this note.'),{appointmentAlerts:review.appointments});
+    if(review.appointments.some(alert=>alert.needsAcknowledgement)) throw Object.assign(fail(409,'Review and acknowledge the schedule clip before starting or continuing this note.'),{appointmentAlerts:review.appointments});
     return review;
   }
   async function acknowledge(user,appointmentId,revision) {
@@ -69,7 +69,7 @@ export function createClinicalAppointmentAlerts({ db=pool, clinical=clinicalPool
       await conn.beginTransaction();
       await conn.execute('SELECT id FROM appointments WHERE id=? FOR UPDATE',[appointmentId]);
       const [[current]]=await conn.execute('SELECT revision,alert_text FROM appointment_staff_alerts WHERE appointment_id=? FOR UPDATE',[appointmentId]);
-      if(!current?.alert_text || Number(current.revision)!==Number(revision))throw fail(409,'This appointment alert changed. Reload and review its current text before acknowledging.');
+      if(!current?.alert_text || Number(current.revision)!==Number(revision))throw fail(409,'This schedule clip changed. Reload and review its current text before acknowledging.');
       await conn.execute('INSERT IGNORE INTO appointment_staff_alert_acknowledgements (appointment_id,revision,acknowledged_by_user_id) VALUES (?,?,?)',[appointmentId,Number(revision),user.id]);
       await conn.commit();
       return {appointmentId,revision:Number(revision),acknowledged:true};

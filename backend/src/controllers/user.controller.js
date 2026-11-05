@@ -4301,14 +4301,23 @@ export const getUserScheduleSummary = async (req, res, next) => {
           `SELECT
              psa.id AS assignment_id,
              psa.slots_total,
+             (SELECT COUNT(*) FROM soft_schedule_slots ss
+               WHERE ss.provider_user_id = psa.provider_user_id
+                 AND ss.school_organization_id = psa.school_organization_id
+                 AND BINARY ss.weekday = BINARY psa.day_of_week
+                 AND ss.client_id IS NOT NULL) AS slots_used,
              psa.school_organization_id,
              oa.agency_id,
              a.name AS school_name,
+             a.logo_url,
+             a.logo_path,
+             i.file_path AS icon_file_path,
              psa.day_of_week,
              psa.start_time,
              psa.end_time
            FROM provider_school_assignments psa
            JOIN agencies a ON a.id = psa.school_organization_id
+           LEFT JOIN icons i ON a.icon_id = i.id
            JOIN organization_affiliations oa
              ON oa.organization_id = psa.school_organization_id
             AND oa.agency_id IN (${placeholders})
@@ -4320,10 +4329,12 @@ export const getUserScheduleSummary = async (req, res, next) => {
         );
         schoolAssignments = (rows || []).map((r) => ({
           assignmentId:Number(r.assignment_id || 0) || null,
-          slotsTotal:Number(r.slots_total || 0),
+          slotsTotal: r.slots_total == null ? null : Number(r.slots_total),
+          slotsUsed: Number(r.slots_used || 0),
           schoolOrgId: r.school_organization_id,
           agencyId: Number(r.agency_id || 0) || null,
           schoolName: r.school_name,
+          schoolLogoUrl: publicUploadsUrlFromStoredPath(r.icon_file_path || r.logo_path || r.logo_url),
           dayOfWeek: r.day_of_week,
           startTime: String(r.start_time || '').slice(0, 5),
           endTime: String(r.end_time || '').slice(0, 5)
@@ -6068,6 +6079,18 @@ export const getUserScheduleSummary = async (req, res, next) => {
     const { schoolSoftScheduleCalendar } = await import('../services/schoolSoftScheduleCalendar.service.js');
     const { default: Agency } = await import('../models/Agency.model.js');
     fullPayload.schoolSoftSessions = [];
+    fullPayload.schoolDayClosures = [];
+    try {
+      const { listProviderSchoolDayClosures } = await import('../services/schoolDayClosures.service.js');
+      fullPayload.schoolDayClosures = await listProviderSchoolDayClosures({
+        providerId,
+        agencyIds: Array.from(scheduleAgencyIdSet),
+        startDate: weekStart,
+        endDate: weekEnd
+      });
+    } catch (closureErr) {
+      console.warn('[schedule-summary] school day closures failed', closureErr?.message || closureErr);
+    }
     for (const aid of scheduleAgencyIdSet) {
       const agency = await Agency.findById(aid);
       const timeZone = agency?.timezone || 'America/Denver';
