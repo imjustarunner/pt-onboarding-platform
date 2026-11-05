@@ -111,6 +111,7 @@ export async function scheduleHiringInterview({
   jobQuestionSetId = null,
   hiringProfileId = null,
   sendInvites = true,
+  overrideScheduleHolds = false,
   titleOverride = null,
   interviewRound = 'initial',
   roundLabelCustom = null,
@@ -267,11 +268,13 @@ export async function scheduleHiringInterview({
   const scheduleStart = toSqlDatetimeUtc(startDate);
   const scheduleEnd = toSqlDatetimeUtc(endDate);
   // Reject a hold, appointment, or other booking before Google has anyone to notify.
+  const ignoreScheduleHolds = overrideScheduleHolds === true;
   await withMeetingWindow({
     userIds: interviewerIds,
     startAt: scheduleStart,
     endAt: scheduleEnd,
-    timeZone: tz
+    timeZone: tz,
+    ignoreScheduleHolds
   }, async () => true);
 
   try {
@@ -319,7 +322,8 @@ export async function scheduleHiringInterview({
       createdByUserId: hostId,
       waitingRoomEnabled: true,
       meetingSubtype: 'interview',
-      notifyParticipants: !!sendInvites
+      notifyParticipants: !!sendInvites,
+      ignoreScheduleHolds
     });
   } catch (error) {
     await discardUnsentInterviewCalendar(calendarSender, googleEventId);

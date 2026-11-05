@@ -314,7 +314,8 @@ export const createInterview = async (req, res, next) => {
       titleOverride: body.title || body.displayTitle || body.display_title || null,
       interviewRound: body.interviewRound ?? body.interview_round ?? 'initial',
       roundLabelCustom: body.roundLabelCustom ?? body.round_label_custom ?? null,
-      jobTitleOverride: body.jobTitle ?? body.job_title ?? null
+      jobTitleOverride: body.jobTitle ?? body.job_title ?? null,
+      overrideScheduleHolds: body.overrideScheduleHolds === true || body.override_schedule_holds === true
     });
 
     return res.status(201).json({ success: true, data: result });

@@ -14,7 +14,7 @@ class ProviderScheduleEvent {
     const zone = input.eventTimezone || 'America/Denver';
     const startAt = input.allDay ? wallMysqlToUtcMysql(`${input.startDate} 00:00:00`, zone) : input.startAt;
     const endAt = input.allDay ? wallMysqlToUtcMysql(`${input.endDate} 00:00:00`, zone) : input.endAt;
-    return withMeetingWindow({ userIds: [input.providerId], startAt, endAt, timeZone: zone }, () => this.createWithWindowChecked(input));
+    return withMeetingWindow({ userIds: [input.providerId], startAt, endAt, timeZone: zone, ignoreScheduleHolds: input.ignoreScheduleHolds === true }, () => this.createWithWindowChecked(input));
   }
   static async createWithWindowChecked({
     agencyId,

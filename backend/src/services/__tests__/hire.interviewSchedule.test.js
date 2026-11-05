@@ -28,7 +28,8 @@ describe('interview scheduling delivery', () => {
   it('uses the real host calendar, names Google guests, and shares only the candidate link', async () => {
     const result = await scheduleHiringInterview(args);
     expect(m.window.mock.invocationCallOrder[0]).toBeLessThan(m.calendar.mock.invocationCallOrder[0]);
-    expect(m.window.mock.calls[0][0].userIds).toEqual(expect.arrayContaining([11, 22]));
+    expect(m.window.mock.calls[0][0]).toMatchObject({ ignoreScheduleHolds: false, userIds: expect.arrayContaining([11, 22]) });
+    expect(m.event.mock.calls[0][0].ignoreScheduleHolds).toBe(false);
     expect(m.calendar.mock.calls[0][0]).toMatchObject({ subjectEmail: '11@tenant.org', sendUpdates: 'none', inviteGoogleGuests: false, attendeeDetails: [] });
     expect(m.append.mock.calls[0][0]).toMatchObject({ subjectEmail: '11@tenant.org', sendUpdates: 'all', attendeeDetails: expect.arrayContaining([expect.objectContaining({ email: '30@tenant.org' })]) });
     expect(m.append.mock.calls[0][0].appendText).toContain('https://app.tenant.example/join/team-meeting/guest-only-token');
@@ -42,6 +43,11 @@ describe('interview scheduling delivery', () => {
   it('fails before any meeting or delivery if PO is missing', async () => { m.sender.mockRejectedValue(new Error('PO missing')); await expect(scheduleHiringInterview(args)).rejects.toThrow('PO missing'); expect(m.calendar).not.toHaveBeenCalled(); expect(m.event).not.toHaveBeenCalled(); });
   it('validates candidate tenancy and rejects candidates as interviewers', async () => { m.agencies.mockResolvedValue([{ id: 9 }]); await expect(scheduleHiringInterview(args)).rejects.toThrow('Candidate is not'); m.agencies.mockResolvedValue([{ id: 4 }]); await expect(scheduleHiringInterview({ ...args, interviewerUserIds: [30] })).rejects.toThrow('candidate cannot'); expect(m.event).not.toHaveBeenCalled(); });
   it('saves without sending invitations when requested', async () => { const result = await scheduleHiringInterview({ ...args, sendInvites: false }); expect(m.invite).not.toHaveBeenCalled(); expect(m.calendar.mock.calls[0][0].sendUpdates).toBe('none'); expect(m.append.mock.calls[0][0].sendUpdates).toBe('none'); expect(m.append.mock.calls[0][0].attendeeDetails).toBeNull(); expect(result.delivery.sent).toBe(false); });
+  it('books over an app schedule hold when the scheduler confirms', async () => {
+    await scheduleHiringInterview({ ...args, overrideScheduleHolds: true });
+    expect(m.window.mock.calls[0][0].ignoreScheduleHolds).toBe(true);
+    expect(m.event.mock.calls[0][0].ignoreScheduleHolds).toBe(true);
+  });
   it('rejects a schedule hold before creating a calendar event or sending mail', async () => {
     m.window.mockRejectedValue(Object.assign(new Error('Haley Inyart has a schedule hold saved in the app during this time.'), { status: 409 }));
     await expect(scheduleHiringInterview(args)).rejects.toThrow('schedule hold');

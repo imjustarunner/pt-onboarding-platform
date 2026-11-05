@@ -249,6 +249,10 @@
           </label>
         </div>
         <InterviewInvitePreview :agency-id="effectiveAgencyId" :candidate-user-id="scheduleForm.candidateUserId" :title="scheduleTitlePreview" :starts-at="scheduleForm.startsAt" :timezone="scheduleForm.timezone" :interviewer-user-ids="scheduleForm.interviewerUserIds" />
+        <div v-if="scheduleError" class="ih-error" role="alert">
+          <p>{{ scheduleError }}</p>
+          <button v-if="scheduleHoldOverridable" type="button" class="btn btn-secondary btn-sm" :disabled="scheduling" @click="submitSchedule(true)">Schedule this interview anyway</button>
+        </div>
         <div class="ih-modal-footer">
           <button type="button" class="btn btn-secondary" @click="showScheduleModal = false">Cancel</button>
           <button type="button" class="btn btn-primary" :disabled="scheduling || !canSubmitSchedule" @click="submitSchedule">
@@ -282,6 +286,8 @@ const loadingJobSets = ref(false);
 const savingTemplate = ref(false);
 const savingJobSet = ref(false);
 const scheduling = ref(false);
+const scheduleError = ref('');
+const scheduleHoldOverridable = ref(false);
 const error = ref('');
 const successMsg = ref('');
 
@@ -718,6 +724,8 @@ async function removeJobSet(s) {
 
 async function openScheduleModal() {
   error.value = '';
+  scheduleError.value = '';
+  scheduleHoldOverridable.value = false;
   scheduleForm.value = {
     candidateUserId: '',
     startsAt: '',
@@ -740,10 +748,12 @@ async function openScheduleModal() {
   }
 }
 
-async function submitSchedule() {
+async function submitSchedule(overrideScheduleHolds = false) {
   if (!canSubmitSchedule.value || !effectiveAgencyId.value) return;
   scheduling.value = true;
   error.value = '';
+  scheduleError.value = '';
+  scheduleHoldOverridable.value = false;
   try {
     const interviewerUserIds = (scheduleForm.value.interviewerUserIds || [])
       .map((id) => Number(id))
@@ -762,7 +772,8 @@ async function submitSchedule() {
       interviewRound: scheduleForm.value.interviewRound,
       roundLabelCustom: scheduleForm.value.interviewRound === 'other'
         ? scheduleForm.value.roundLabelCustom.trim()
-        : null
+        : null,
+      overrideScheduleHolds: overrideScheduleHolds === true
     };
     const r = await api.post('/hiring/interview-hub/interviews', body);
     const created = r.data?.data?.interview || r.data?.data;
@@ -773,7 +784,9 @@ async function submitSchedule() {
     flashSuccess(outcome.delivery?.sent ? 'Interview scheduled and candidate invitation sent.' : 'Interview scheduled.');
     if (outcome.calendarWarning || (body.sendInvites && !outcome.delivery?.sent)) error.value = [outcome.delivery?.sent ? '' : outcome.delivery?.reason, outcome.calendarWarning].filter(Boolean).join(' ');
   } catch (e) {
-    error.value = e?.response?.data?.message || e?.message || 'Failed to schedule interview';
+    const body = e?.response?.data?.error || {};
+    scheduleError.value = body.message || e?.response?.data?.message || e?.message || 'Failed to schedule interview';
+    scheduleHoldOverridable.value = body.code === 'PROVIDER_TIME_CONFLICT' && body.overridable === true;
   } finally {
     scheduling.value = false;
   }
@@ -872,8 +885,9 @@ onMounted(async () => {
   border: 1px solid #fecaca;
   border-radius: 10px;
   padding: 10px 12px;
-  margin-bottom: 12px;
+  margin: 12px 0;
 }
+.ih-error p { margin: 0 0 8px; }
 .ih-success {
   background: #f5f3ff;
   color: #5b21b6;

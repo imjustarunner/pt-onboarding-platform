@@ -91,7 +91,10 @@
           {{ scheduling ? 'Scheduling…' : (sendInvites ? 'Schedule & send invitations' : 'Save without sending') }}
         </button>
       </div>
-      <div v-if="scheduleError" class="error-banner">{{ scheduleError }}</div>
+      <div v-if="scheduleError" class="error-banner" role="alert">
+        <p>{{ scheduleError }}</p>
+        <button v-if="scheduleHoldOverridable" type="button" class="btn btn-secondary btn-sm" :disabled="scheduling" @click="scheduleInterview(true)">Schedule this interview anyway</button>
+      </div>
     </div>
 
     <div v-if="deliveryNotice" role="status" class="cip-delivery">{{ deliveryNotice }}</div>
@@ -322,6 +325,7 @@ const showSchedule = ref(false);
 const emit = defineEmits(['interviews-updated']);
 const scheduling = ref(false);
 const scheduleError = ref('');
+const scheduleHoldOverridable = ref(false);
 const deliveryNotice = ref('');
 const resending = ref(false);
 const startsLocal = ref('');
@@ -462,6 +466,7 @@ function suggestRoundFromExisting() {
 function openScheduleForm() {
   showSchedule.value = true;
   scheduleError.value = '';
+  scheduleHoldOverridable.value = false;
   if (!startsLocal.value) startsLocal.value = suggestDefaultStartLocal();
   suggestRoundFromExisting();
   ensureDefaultInterviewer();
@@ -621,9 +626,10 @@ async function saveInterviewEdit() {
   }
 }
 
-async function scheduleInterview() {
+async function scheduleInterview(overrideScheduleHolds = false) {
   scheduling.value = true;
   scheduleError.value = '';
+  scheduleHoldOverridable.value = false;
   try {
     const startsAt = String(startsLocal.value || '').trim();
     if (!startsAt || Number.isNaN(new Date(startsAt).getTime())) {
@@ -641,7 +647,8 @@ async function scheduleInterview() {
       hiringProfileId: props.hiringProfileId || null,
       sendInvites: sendInvites.value,
       interviewRound: interviewRound.value,
-      roundLabelCustom: interviewRound.value === 'other' ? roundLabelCustom.value.trim() : null
+      roundLabelCustom: interviewRound.value === 'other' ? roundLabelCustom.value.trim() : null,
+      overrideScheduleHolds: overrideScheduleHolds === true
     });
     const outcome = response.data?.data || {};
     deliveryNotice.value = ['Interview scheduled.', outcome.delivery?.sent ? (outcome.delivery.redirected ? 'Email sent to the configured test recipient.' : 'Candidate invitation sent.') : outcome.delivery?.reason, outcome.calendarWarning].filter(Boolean).join(' ');
@@ -649,9 +656,11 @@ async function scheduleInterview() {
     showSchedule.value = false;
     await loadInterviews();
   } catch (e) {
-    scheduleError.value = e.response?.data?.error?.message
+    const body = e.response?.data?.error || {};
+    scheduleError.value = body.message
       || e.response?.data?.message
       || 'Failed to schedule interview';
+    scheduleHoldOverridable.value = body.code === 'PROVIDER_TIME_CONFLICT' && body.overridable === true;
   } finally {
     scheduling.value = false;
   }
@@ -916,6 +925,8 @@ async function openCapsule(c) {
   margin-bottom: 8px;
   font-size: 13px;
 }
+.error-banner p { margin: 0 0 8px; }
+.error-banner button { margin-top: 2px; }
 .row-actions { display: flex; gap: 8px; margin-top: 14px; }
 @media (max-width: 720px) {
   .cip-schedule-form { grid-template-columns: 1fr; }

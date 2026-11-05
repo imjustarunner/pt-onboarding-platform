@@ -11,7 +11,40 @@ const calendarConflictLabels = {
   HUDDLE: 'a huddle',
   INDIRECT_SERVICES: 'indirect-service time'
 };
-async function fail(db, row, activity) {
+function calendarDay(value) {
+  if (!value) return '';
+  const raw = value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : '';
+}
+function shiftDay(date, days) {
+  const next = new Date(`${date}T12:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next.toISOString().slice(0, 10);
+}
+function longDay(date) {
+  const [year, month, day] = date.split('-').map(Number);
+  return new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, day)));
+}
+function plannedOutSpan(entry) {
+  const start = calendarDay(entry.startDate);
+  if (!entry.allDay || !start) return 'during this time';
+  const end = calendarDay(entry.endDate);
+  const last = end ? shiftDay(end, -1) : start;
+  if (!last || last <= start) return `all day ${longDay(start)}`;
+  return `all day ${longDay(start)} through ${longDay(last)}`;
+}
+async function plannedOutAvailability(db, entry) {
+  if (!entry?.id) return null;
+  try {
+    const [[found]] = await db.execute(`SELECT CASE
+      WHEN description LIKE 'Unavailable%' THEN 'Unavailable'
+      WHEN description LIKE 'Available%' THEN 'Available'
+      ELSE NULL END AS availability
+      FROM provider_schedule_events WHERE id = ? AND reason_code = 'PLANNED_OUT' LIMIT 1`, [entry.id]);
+    return found?.availability || null;
+  } catch { return null; }
+}
+async function fail(db, row, activity, { overridable = false, plannedOut = false } = {}) {
   let person = `Provider #${Number(row.providerUserId)}`;
   try {
     const [[user]] = await db.execute('SELECT first_name, last_name FROM users WHERE id = ? LIMIT 1', [row.providerUserId]);
@@ -20,8 +53,11 @@ async function fail(db, row, activity) {
   } catch { /* Keep the conflict enforced even if its display name cannot be read. */ }
   // Identify whose calendar is blocked without exposing client names or private
   // event titles/notes. Google copies do not change the source of an app entry.
-  return Object.assign(new Error(`${person} has ${activity} saved in the app during this time. Update that entry or choose another time.`), {
-    status: 409, code: 'PROVIDER_TIME_CONFLICT'
+  const message = plannedOut
+    ? `${person} is ${activity}. That planned-out entry is in the app. Update it, or schedule this interview anyway.`
+    : `${person} has ${activity} saved in the app during this time. Update that entry or choose another time.`;
+  return Object.assign(new Error(message), {
+    status: 409, code: 'PROVIDER_TIME_CONFLICT', overridable
   });
 }
 export async function assertAppointmentWindowAvailable(db, row, appointmentId = null) {
@@ -66,7 +102,17 @@ export async function assertAppointmentWindowAvailable(db, row, appointmentId = 
   if (supervision.length) throw await fail(db, row, 'a supervision session');
   const busy = await readProviderCalendarBusy(db, { providerId: row.providerUserId, startAt: row.startAt, endAt: row.endAt,
     excludeEventId: row.providerScheduleEventId || null, timeZone: row.sourceTimezone || 'America/Denver', includeKind: true });
-  if (busy.length) throw await fail(db, row, calendarConflictLabels[String(busy[0].kind || '').toUpperCase()] || 'a calendar event');
+  const blocking = row.ignoreScheduleHolds ? busy.filter(entry => String(entry.kind || '').toUpperCase() !== 'SCHEDULE_HOLD') : busy;
+  if (blocking.length) {
+    const entry = blocking[0];
+    const kind = String(entry.kind || '').toUpperCase();
+    if (kind === 'SCHEDULE_HOLD' && String(entry.reasonCode || '').toUpperCase() === 'PLANNED_OUT') {
+      const availability = await plannedOutAvailability(db, entry);
+      const status = availability ? ` (${availability})` : '';
+      throw await fail(db, row, `planned out ${plannedOutSpan(entry)}${status}`, { overridable: true, plannedOut: true });
+    }
+    throw await fail(db, row, calendarConflictLabels[kind] || 'a calendar event', { overridable: kind === 'SCHEDULE_HOLD' });
+  }
 }
 export async function withAppointmentWindow(pool, row, appointmentId, save) {
   if (!row.providerUserId || !appointmentOccupiesTime(row.status)) return save();

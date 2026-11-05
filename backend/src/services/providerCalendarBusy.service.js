@@ -8,7 +8,7 @@ const ymd = value => value instanceof Date ? value.toISOString().slice(0, 10) : 
 // Query every agency and attendee calendar, but never expose private titles or notes.
 export async function readProviderCalendarBusy(db, { providerId, startAt, endAt, timeZone = 'America/Denver', excludeEventId = null, includeKind = false }) {
   const from = instant(startAt), to = instant(endAt);
-  const [rows] = await db.execute(`SELECT p.id, p.kind, p.all_day, p.start_at, p.end_at, p.start_date, p.end_date, p.event_timezone
+  const [rows] = await db.execute(`SELECT p.id, p.kind, p.reason_code, p.all_day, p.start_at, p.end_at, p.start_date, p.end_date, p.event_timezone
     FROM provider_schedule_events p
     WHERE (p.provider_id = ? OR EXISTS (SELECT 1 FROM provider_schedule_event_attendees a WHERE a.event_id = p.id AND a.user_id = ?))
       AND p.status = 'ACTIVE' AND (? IS NULL OR p.id <> ?)
@@ -24,6 +24,9 @@ export async function readProviderCalendarBusy(db, { providerId, startAt, endAt,
       start = instant(wallMysqlToUtcMysql(`${startDate} 00:00:00`, row.event_timezone || timeZone));
       end = instant(wallMysqlToUtcMysql(`${endDate} 00:00:00`, row.event_timezone || timeZone));
     } else { start = instant(row.start_at); end = instant(row.end_at); }
-    return start < to && end > from && end > start ? [{ start, end, ...(includeKind ? { kind: row.kind } : {}) }] : [];
+    return start < to && end > from && end > start ? [{ start, end, ...(includeKind ? {
+      id: row.id, kind: row.kind, reasonCode: row.reason_code, allDay: Number(row.all_day) === 1,
+      startDate: row.start_date ? ymd(row.start_date) : null, endDate: row.end_date ? ymd(row.end_date) : null
+    } : {}) }] : [];
   });
 }

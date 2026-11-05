@@ -32,6 +32,24 @@ it.each([
 it('keeps an app meeting protected even when it has a Google copy', async () => {
   await expect(assertAppointmentWindowAvailable(database({kind:'TEAM_MEETING',googleEventId:'synced-google-copy'}),row)).rejects.toThrow('a team meeting saved in the app');
 });
+it('names a planned-out day and lets an interview skip that hold', async () => {
+  const db = database({ kind: 'SCHEDULE_HOLD' });
+  const execute = db.execute.getMockImplementation();
+  db.execute.mockImplementation(async (sql, ...args) => {
+    if (sql.includes('FROM provider_schedule_events p')) return [[{
+      id: 362, kind: 'SCHEDULE_HOLD', reason_code: 'PLANNED_OUT', all_day: 1,
+      start_at: null, end_at: null, start_date: '2026-11-06', end_date: '2026-11-07', event_timezone: 'America/Chicago'
+    }]];
+    if (sql.includes('AS availability')) return [[{ availability: 'Unavailable' }]];
+    return execute(sql, ...args);
+  });
+  const window = { providerUserId: 9, startAt: '2026-11-06 15:00:00', endAt: '2026-11-06 16:00:00' };
+  await expect(assertAppointmentWindowAvailable(db, window)).rejects.toMatchObject({
+    status: 409, code: 'PROVIDER_TIME_CONFLICT', overridable: true,
+    message: 'Lindsey Byers is planned out all day Friday, November 6, 2026 (Unavailable). That planned-out entry is in the app. Update it, or schedule this interview anyway.'
+  });
+  await expect(assertAppointmentWindowAvailable(db, { ...window, ignoreScheduleHolds: true })).resolves.toBeUndefined();
+});
 it('keeps the conflict enforced if the display name lookup fails', async () => {
   const db=database({kind:'SCHEDULE_HOLD'});const execute=db.execute.getMockImplementation();
   db.execute.mockImplementation((sql,...args)=>sql.includes('FROM users')?Promise.reject(new Error('name unavailable')):execute(sql,...args));

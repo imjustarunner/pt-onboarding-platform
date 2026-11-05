@@ -1244,6 +1244,7 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({
     error: {
       message: err.message || 'Internal server error',
+      ...(err.code === 'PROVIDER_TIME_CONFLICT' ? { code: err.code, overridable: !!err.overridable } : {}),
       ...(err.code === 'PAYMENT_SETUP_REVIEW_REQUIRED' ? { code: err.code } : {}),
       ...(err.code === 'INSURANCE_VERIFICATION_REQUIRED' ? { code: err.code, clientId: Number(err.details?.clientId), agencyId: Number(err.details?.agencyId) } : {}),
       ...(err.code === 'RECIPIENT_AVAILABILITY_CHOICE_REQUIRED' ? { code: err.code, availability: err.availability } : {}),

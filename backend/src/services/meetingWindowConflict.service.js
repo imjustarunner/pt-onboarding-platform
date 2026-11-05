@@ -2,7 +2,7 @@ import pool from '../config/database.js';
 import { assertAppointmentWindowAvailable } from './appointmentConflict.service.js';
 import { assertNoReviewTimeOverlap } from './supervisionReviewTime.service.js';
 
-export async function withMeetingWindow({ userIds, startAt, endAt, timeZone, excludeMeetingId = null, excludeSupervisionId = null }, work) {
+export async function withMeetingWindow({ userIds, startAt, endAt, timeZone, excludeMeetingId = null, excludeSupervisionId = null, ignoreScheduleHolds = false }, work) {
   const ids = [...new Set(userIds.map(Number).filter(id => id > 0))].sort((a,b) => a-b);
   const db = await pool.getConnection();
   const locks = [];
@@ -18,7 +18,8 @@ export async function withMeetingWindow({ userIds, startAt, endAt, timeZone, exc
     }
     for (const id of ids) {
       await assertAppointmentWindowAvailable(db, { providerUserId: id, startAt, endAt,
-        sourceTimezone: timeZone, providerScheduleEventId: excludeMeetingId, supervisionSessionId: excludeSupervisionId });
+        sourceTimezone: timeZone, providerScheduleEventId: excludeMeetingId, supervisionSessionId: excludeSupervisionId,
+        ignoreScheduleHolds });
     }
     await assertNoReviewTimeOverlap(db, ids, startAt, endAt);
     return await work(db);
