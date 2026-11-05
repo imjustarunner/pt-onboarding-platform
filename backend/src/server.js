@@ -393,6 +393,8 @@ app.use(cors({
     'X-Requested-With',
     'X-Agency-Id',
     'X-Quick-View-Session',
+    'X-Auricwell-Mobile',
+    'X-Auricwell-Device',
     'X-Account-Security',
     'X-Account-User-Id'
   ],
@@ -1016,6 +1018,7 @@ app.use('/api/meeting-calendar', meetingCalendarRoutes);
 // Quick View must mount before catch-all `/api` routers that call router.use(authenticate),
 // so passcode sessions are not rejected as missing JWT ("No token provided").
 app.use('/api/quick-view', quickViewRoutes);
+app.use('/api/mobile', (await import('./routes/mobile.routes.js')).default);
 // Family cookies are restricted to /api/family; keep sharing controls inside that path.
 app.use('/api/family/calendar-sharing', calendarSharingRoutes);
 app.use('/api/family', familyRoutes);
@@ -3058,3 +3061,7 @@ if (process.env.MEETING_DIAL_IN_VOICE_APPLICATION_ID) {
   };
   setInterval(phoneTick, 15000).unref();
 }
+
+// Durable devices receive the complete Conversa stream, independently of UI polling.
+const mobilePushTimer=setInterval(async()=>{const {mobilePushTick}=await import('./services/mobile/push.service.js');await mobilePushTick();},10000);
+mobilePushTimer.unref();

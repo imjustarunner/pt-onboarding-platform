@@ -34,6 +34,8 @@ app.use((req,res,next)=>{
   return res.type('html').set('Cache-Control','no-store').send(officeHtml(readFileSync(join(distPath,'index.html'),'utf8'),site));
 });
 
+app.get(/^\/mobile(?:\/|$)/, (_req,res)=>res.set('Cache-Control','no-store').set('X-Robots-Tag','noindex,nofollow').sendFile(join(distPath,'mobile.html')));
+
 console.log(`Serving files from: ${distPath}`);
 console.log(`Dist directory exists: ${existsSync(distPath)}`);
 

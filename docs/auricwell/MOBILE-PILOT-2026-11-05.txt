@@ -1,0 +1,74 @@
+Auricwell mobile pilot
+
+Browser entry: https://auricwell.com/mobile
+Use an existing full-suite staff account. Enter its organization workspace name
+(for ITSCO, itsco). Continue through the organization's existing password,
+Google SSO, or passkey sign-in, confirm the account and workspace, then choose
+a separate six-digit code for this device. Standalone EHR-only accounts use
+their existing separate sign-in and are not enrolled here.
+
+Locking and signing out
+The browser unlocks with the device's quick access code. The separate native
+iOS project adds Face ID / Touch ID through LocalAuthentication. Inactivity
+or backgrounding hides the workspace and revokes its short access session;
+it keeps the device sign-in. Sign out revokes the device and all its short
+sessions, clears notification registration, and requires primary sign-in again.
+Five wrong quick access codes revoke the device. Password changes, disabled
+accounts, lost membership, and 90 days without device use require sign-in.
+Passkey enrollment remains optional through the existing account settings;
+existing passkeys are used at their original organization sign-in domain.
+
+Notifications
+Opt in under My Account. Coverage includes incoming email, SMS, direct/team
+chat, channels, replies, mentions, and secure messages, with fresh membership
+and recipient checks. Alerts follow the user's authorized workspaces, rather
+than the screen currently open. Outgoing messages do not notify their sender.
+Lock-screen text is always "Auricwell / New message". No message bodies,
+senders, subjects or patient identifiers are sent to the push provider.
+Each message has a distinct queued delivery; retries do not create new queue
+rows. There is no historical mail flood when notifications are enabled.
+Chat mutes, device opt-out, revoked permissions and OS permissions apply.
+Delivery is polled every ten seconds; OS Focus/notification summaries can
+change when the user sees an alert. Secure message content still opens through
+the existing secure workspace and its access checks. This does not implement
+telephone ringing/CallKit or change existing SMS/email delivery providers.
+
+Native projects
+Summit Stats: frontend/capacitor.config.json and frontend/ios (unchanged).
+Auricwell: frontend/native/auricwell/capacitor.config.json and its ios folder.
+Auricwell bundle ID: com.auricwell.mobile. Sign-in callback:
+com.auricwell.mobile://auth. It bundles its interface locally and uses the
+existing HTTPS API; it does not load a remote website as its app shell.
+From frontend: npm run cap:auricwell:sync; npm run cap:auricwell:open.
+The native durable credential stays in Keychain, WhenUnlockedThisDeviceOnly.
+The bridge returns short workspace sessions, never the durable credential.
+Privacy cover hides app-switcher snapshots. Attachments shared through iOS
+use protected temporary files, removed on dismissal or next cold launch.
+
+Configuration still required for native testing/release
+Xcode currently rejects a simulator build until its license is accepted.
+An authorized Mac user must review/accept that license in Xcode, then select
+the Apple Developer team for the Auricwell target and provision its bundle ID
+with Push Notifications. Debug uses sandbox APNs; Release uses production.
+Backend provider secrets: APNS_TEAM_ID, APNS_KEY_ID, APNS_PRIVATE_KEY (P8 PEM).
+The APNs topic is fixed to com.auricwell.mobile. Browser push uses the existing
+VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY. Missing configuration is displayed as
+awaiting setup and never recorded as a successful delivery. Native sources
+and sync have been checked; the native app is not yet compiled, signed,
+uploaded to TestFlight or submitted to the App Store.
+
+Validation
+Use synthetic test records, then pilot with the existing staff test accounts.
+Verify sign-in by password, SSO and an existing passkey; set code; reload;
+unlock; lock; background; inactivity; My Account; workspace switch; explicit
+sign-out; wrong-code lockout; password change and revoked membership.
+For notifications, send one new incoming message of each supported kind from
+a different test user, including a reply, mention and secure message. Verify
+one alert for each and no private lock-screen content. Tap while locked and
+unlock to reach the authorized conversation; verify secure access is retained.
+Test provider-configured APNs on a physical iPhone before calling push live.
+
+Automated validation: frontend mobile/Quick View/attachment tests; backend
+mobile API/cookie/PKCE and disposable MySQL migration/session/notification
+tests; dedicated mobile production build; full application bundle check;
+isolated Chrome phone-width fixture checks. No live account data was used.

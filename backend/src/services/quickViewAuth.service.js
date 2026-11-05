@@ -592,10 +592,14 @@ export async function touchSession(rawSessionToken, { meetingEndsAt = null, acti
   }
 
   await assertHireStaffAccess({ id: session.user_id });
+  if (session.mobile_device_session_id) {
+    const { mobileSessions } = await import('./mobile/session.service.js');
+    await mobileSessions.access(session.mobile_device_session_id,session.user_id,session.agency_id);
+  }
 
   // Read/poll requests verify the absolute deadline without renewing it.
   if (!activity && !meetingEndsAt) return {
-    userId: session.user_id, agencyId: session.agency_id, sessionId: session.id,
+    userId: session.user_id, agencyId: session.agency_id, sessionId: session.id, mobileDeviceSessionId: session.mobile_device_session_id || null,
     expiresAt, meetingEventType: session.meeting_event_type, meetingEventId: session.meeting_event_id
   };
 
@@ -617,7 +621,7 @@ export async function touchSession(rawSessionToken, { meetingEndsAt = null, acti
   return {
     userId: session.user_id,
     agencyId: session.agency_id,
-    sessionId: session.id,
+    sessionId: session.id, mobileDeviceSessionId: session.mobile_device_session_id || null,
     expiresAt: nextExpiry,
     meetingEventType: session.meeting_event_type,
     meetingEventId: session.meeting_event_id
@@ -626,6 +630,7 @@ export async function touchSession(rawSessionToken, { meetingEndsAt = null, acti
 
 /** Explicit “still here” bump — add minutes from now (default 10). */
 export async function extendSession(rawSessionToken, { minutes = 10 } = {}) {
+  if (!await touchSession(rawSessionToken)) return null;
   const hash = sha256(rawSessionToken);
   const [rows] = await pool.execute(
     `SELECT * FROM quick_view_sessions
@@ -663,7 +668,7 @@ export async function extendSession(rawSessionToken, { minutes = 10 } = {}) {
   return {
     userId: session.user_id,
     agencyId: session.agency_id,
-    sessionId: session.id,
+    sessionId: session.id, mobileDeviceSessionId: session.mobile_device_session_id || null,
     expiresAt: nextExpiry
   };
 }
@@ -820,4 +825,16 @@ export async function createInitialPasscode({userId,agencyId=null}) {
  const { recordCredentialChangeNotice } = await import('./credentialChangeNotification.service.js');
  await recordCredentialChangeNotice({userId,agencyId,kind:'quick_view'});
  return {passcode:digits};
+}
+
+/** Called only after a durable mobile device grant has verified this actor/workspace. */
+export async function startAuthenticatedMobileSession({userId,agencyId,mobileDeviceId}) {
+  await assertHireStaffAccess({id:userId});
+  const raw=randomSession();
+  const expiresAt=new Date(Date.now()+SESSION_TTL_MS);
+  const [result]=await pool.execute(`INSERT INTO quick_view_sessions
+    (user_id,agency_id,session_token_hash,credential_token_version,mobile_device_session_id,expires_at,last_activity_at)
+    VALUES (?,?,?,0,?,?,CURRENT_TIMESTAMP)`,[userId,agencyId,sha256(raw),mobileDeviceId,expiresAt]);
+  await logAccessEvent({userId,agencyId,eventType:'mobile_unlock',meta:{mobileDeviceId,sessionId:result.insertId}});
+  return {sessionToken:raw,userId,agencyId,expiresAt};
 }

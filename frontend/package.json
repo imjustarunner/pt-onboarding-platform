@@ -13,7 +13,10 @@
     "start": "node server.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "postinstall": "npm run build || true"
+    "postinstall": "npm run build || true",
+    "build:mobile": "vite build --config vite.mobile.config.js && node scripts/prepare-mobile-native.mjs",
+    "cap:auricwell:sync": "npm run build:mobile && cd native/auricwell && node ../../node_modules/@capacitor/cli/bin/capacitor sync ios",
+    "cap:auricwell:open": "cd native/auricwell && node ../../node_modules/@capacitor/cli/bin/capacitor open ios"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",

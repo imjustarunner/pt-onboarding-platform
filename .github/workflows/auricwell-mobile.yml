@@ -1,0 +1,47 @@
+name: Auricwell mobile
+on:
+  pull_request:
+    paths: ['frontend/**', 'backend/**', 'database/migrations/**', '.github/workflows/auricwell-mobile.yml']
+  push:
+    branches: [main]
+    paths: ['frontend/**', 'backend/**', 'database/migrations/**', '.github/workflows/auricwell-mobile.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  mobile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: mobile_fixture_only
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -pmobile_fixture_only"
+          --health-interval=5s --health-timeout=5s --health-retries=12
+    env:
+      MOBILE_MYSQL_TEST: '1'
+      MOBILE_MYSQL_PORT: '3306'
+      MOBILE_MYSQL_PASSWORD: mobile_fixture_only
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefix frontend --ignore-scripts
+      - run: npm ci --prefix backend --ignore-scripts
+      - run: npm rebuild --prefix backend bcrypt
+      - name: Verify device security and complete Conversa notification delivery
+        working-directory: backend
+        run: node ../frontend/node_modules/vitest/vitest.mjs run --config vitest.mobile.config.js
+      - name: Verify mobile sign-in, locking and Quick View integration
+        working-directory: frontend
+        run: node node_modules/vitest/vitest.mjs run src/mobile/__tests__/MobileApp.test.js src/components/quickView/__tests__ src/views/__tests__/QuickViewLauncher.test.js src/components/messages/__tests__/EmailAudioAttachment.test.js
+      - name: Build the bundled mobile interface
+        working-directory: frontend
+        run: npm run build:mobile
