@@ -1,6 +1,6 @@
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import api from '../../services/api';
+import { computed, inject, onBeforeUnmount, ref, watch } from 'vue';
+const scopedTransport=inject('emailAttachmentTransport',null);
 const props = defineProps({ file: { type: Object, required: true }, conversationId: [Number, String] });
 const mime = computed(() => {
   const type = props.file.content_type || props.file.contentType || '';
@@ -15,7 +15,7 @@ onBeforeUnmount(clear);
 async function load() {
   const current = ++generation; busy.value = true; error.value = '';
   try {
-    const { data } = await api.get(props.file.downloadPath || `/communications/conversations/${props.conversationId}/attachments/${props.file.id}`, { responseType: 'blob', skipGlobalLoading: true });
+    const { data } = scopedTransport ? await scopedTransport({conversationId:props.conversationId,file:props.file}) : await (import.meta.env.VITE_AURICWELL_MOBILE ? Promise.reject(new Error('Scoped attachment access required')) : (await import('../../services/api')).default.get(props.file.downloadPath || `/communications/conversations/${props.conversationId}/attachments/${props.file.id}`, { responseType: 'blob', skipGlobalLoading: true }));
     if (current !== generation) return;
     src.value = URL.createObjectURL(new Blob([data], { type: mime.value }));
   } catch { if (current === generation) error.value = 'Could not load this recording. Try again or download the attachment.'; }

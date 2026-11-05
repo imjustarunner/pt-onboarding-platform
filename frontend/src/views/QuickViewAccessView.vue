@@ -97,7 +97,7 @@
           <button v-for="item in secondaryNavigation" :key="item.id" type="button" class="qv-tool-card" :aria-label="item.label" @click="navigateTo(item.id)"><span class="qv-tool-icon"><component :is="item.icon" :size="23" aria-hidden="true" /></span><span><strong>{{ item.label }}</strong><small>{{ item.description }}</small></span><ChevronRight :size="18" aria-hidden="true" /></button>
         </div>
         <div class="qv-more-account"><div><h2>Workspace access</h2><p>Manage your session or continue in the full workspace.</p></div><div class="qv-more-actions"><a v-if="loginUrl" class="qv-btn ghost" :href="loginUrl">Full workspace<ArrowUpRight :size="16" aria-hidden="true" /></a><button type="button" class="qv-btn ghost" @click="logout"><LockKeyhole :size="16" aria-hidden="true" />Lock Quick View</button></div></div>
-        <QuickViewMusicDock inline :api-base="apiBase" :auth-headers="authHeaders" :visible="!!session" />
+        <QuickViewMusicDock inline :scoped-playback="isMobile" :api-base="apiBase" :auth-headers="authHeaders" :visible="!!session" />
       </section>
       <div v-show="!moreOpen" class="qv-content" :aria-busy="navigationBusy || undefined">
       <QuickViewPresence v-if="tab==='presence'" :http="presenceHttp" />
@@ -778,13 +778,13 @@
 <script setup>
 import AuricWellBrand from '../components/auricwell/AuricWellBrand.vue';
 import { AURICWELL_PREVIEW_URL } from '../constants/auricwellBrand';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { CalendarDays, MessageSquare, ListTodo, Ellipsis, LockKeyhole, Clock3, NotebookPen, Users, Radio, ArrowUpRight, ChevronRight, Mail, Smartphone, Phone, RefreshCw, Paperclip, AtSign } from '@lucide/vue';
 import ConversaBrand from '../components/conversa/ConversaBrand.vue';
 import { privateSpeechRecognition } from '../utils/privateSpeechRecognition.js';
 import { quickViewDeepLink } from '../utils/quickViewDeepLink';
 import QuickViewPresence from '../components/quickView/QuickViewPresence.vue';
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { provide, computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import { emailReplyRecipients } from '../utils/messageThreads';
@@ -796,6 +796,10 @@ import { encodeEmailFiles } from '../utils/communicationAttachments';
 import QuickViewMusicDock from '../components/quickView/QuickViewMusicDock.vue';
 import { buildDisplaySections, extractSections, formatFullNoteCopy } from '../utils/noteAidUiHelpers.js';
 
+const props=defineProps({ mobileSession:Object });
+const emit=defineEmits(['locked']);
+const isMobile=computed(()=>!!props.mobileSession);
+
 const BOOKMARK_KEY = 'plottwist.quickViewBookmark';
 const TOKEN_KEY = 'plottwist.quickViewToken';
 const HOME_TIP_KEY = 'plottwist.quickViewHomeTipDismissed';
@@ -804,13 +808,14 @@ const showBrowserInstallTip = !Capacitor.isNativePlatform() && /iPad|iPhone|iPod
 
 const route = useRoute();
 const router = useRouter();
-function openDetachedEmail(mode='new') { openEmailComposer(router,{quickView:true,session:session.value,mode,conversationId:mode==='new'?undefined:activeConv.value?.id}); }
+function openDetachedEmail(mode='new') { if(isMobile.value){if(mode==='new')showCompose.value=true;else{changeReplyMode(mode);document.querySelector('.qv-reply textarea')?.focus();}return;} openEmailComposer(router,{quickView:true,session:session.value,mode,conversationId:mode==='new'?undefined:activeConv.value?.id}); }
 function changeEmailFolder(folder){sort.value=folder;loadHome(msgSuite.value);}
 async function keepEmailUnread(){
   try{await axios.patch(`${apiBase}/conversations/${activeConv.value.id}`,{markUnread:true},{headers:authHeaders(),withCredentials:true});sort.value='unread';await loadHome('email');}catch(e){error.value=e.response?.data?.error?.message || 'Could not mark unread';}
 }
 
-const apiBase = '/api/quick-view';
+const apiBase = Capacitor.isNativePlatform() ? 'https://auricwell.com/api/quick-view' : '/api/quick-view';
+provide('emailAttachmentTransport',({conversationId,file})=>axios.get(`${apiBase}/conversations/${conversationId}/attachments/${file.id}`,{headers:authHeaders(),withCredentials:true,responseType:'blob'}));
 const presenceHttp={get:path=>axios.get(apiBase+path,{headers:authHeaders(),withCredentials:true}),post:(path,body)=>axios.post(apiBase+path,body,{headers:authHeaders(),withCredentials:true})};
 const quickPreview = ref(null);
 let quickPreviewTimer=null,quickPreviewHideTimer=null;
@@ -845,7 +850,7 @@ const loginUrl = ref('');
 const secureMessagesUrl = computed(() => {
   const url = new URL(loginUrl.value || '/login', window.location.origin);
   url.pathname = url.pathname.replace(/\/login\/?$/, '/messages');
-  url.search = '?channel=secure'; url.hash = '';
+  url.search = '?channel=secure';if(isMobile.value && /^[1-9]\d*$/.test(String(route.query.threadId || '')))url.searchParams.set('threadId',route.query.threadId);url.hash = '';
   return url.href;
 });
 const isLocked = ref(false);
@@ -1085,6 +1090,7 @@ async function selectEmailFiles(event, composer = false) {
 async function downloadEmailFile(a) {
   try {
     const { data } = await axios.get(`${apiBase}/conversations/${activeConv.value.id}/attachments/${a.id}`, { headers: authHeaders(), withCredentials: true, responseType: 'blob' });
+    if(isMobile.value && Capacitor.isNativePlatform()){const bytes=new Uint8Array(await data.arrayBuffer());let binary='';for(let start=0;start<bytes.length;start+=32768)binary+=String.fromCharCode(...bytes.subarray(start,start+32768));await registerPlugin('AuricwellDevice').shareFile({data:btoa(binary),filename:a.filename || 'attachment'});return;}
     const url = URL.createObjectURL(data); const link = document.createElement('a'); link.href = url; link.download = a.filename || 'attachment'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch { error.value = 'Could not download attachment'; }
 }
@@ -1196,6 +1202,7 @@ const isDelivery = computed(() =>
 const sessionOnly = computed(() => route.meta?.quickViewSessionOnly === true);
 
 async function resumeSession() {
+  if(isMobile.value){session.value=props.mobileSession.sessionToken;expiresAt.value=props.mobileSession.expiresAt;sessionUserId.value=props.mobileSession.userId;sessionAgencyId.value=props.mobileSession.agencyId;agencyName.value=props.mobileSession.profile?.workspace?.name || '';loginUrl.value=props.mobileSession.profile?.workspace?.loginUrl || '';loading.value=false;startHeartbeat();await loadHome();await openDeepLink();return;}
   loading.value = true;
   error.value = '';
   try {
@@ -1365,7 +1372,7 @@ async function unlock() {
 
 function checkDeadline(){
   clockNow.value=Date.now();
-  if(session.value && expiresAt.value && remainingSeconds.value<=0){clearSession();error.value='Quick View timed out. Use your saved six-digit code to reopen it.';if(!tokenInfo.value)window.location.replace(`/qv?${new URLSearchParams(quickViewDeepLink(route.query))}`);}
+  if(session.value && expiresAt.value && remainingSeconds.value<=0){clearSession();if(isMobile.value)return;error.value='Quick View timed out. Use your saved six-digit code to reopen it.';if(!tokenInfo.value)window.location.replace(`/qv?${new URLSearchParams(quickViewDeepLink(route.query))}`);}
 }
 async function recordActivity(event){
   if(!event.isTrusted || document.hidden)return;
@@ -1851,6 +1858,7 @@ function noteAidDrawerKey() {
 }
 
 function loadNoteAidDrawer() {
+  if(isMobile.value)return;
   try {
     const raw = localStorage.getItem(noteAidDrawerKey());
     noteAidDrawer.value = raw ? JSON.parse(raw) : [];
@@ -1861,6 +1869,7 @@ function loadNoteAidDrawer() {
 }
 
 function persistNoteAidDrawer() {
+  if(isMobile.value)return;
   try {
     localStorage.setItem(noteAidDrawerKey(), JSON.stringify(noteAidDrawer.value.slice(0, 40)));
   } catch { /* ignore */ }
@@ -2443,7 +2452,8 @@ function extendForMeeting(item) {
     .catch(() => {});
 }
 
-function clearSession() {
+function clearSession({notify=true}={}) {
+  const wasUnlocked=!!session.value;
   window.dispatchEvent(new Event('quick-view-session-ended'));
   quickPreview.value=null;clearTimeout(quickPreviewTimer);clearTimeout(quickPreviewHideTimer);
   session.value = null; sessionUserId.value = null; sessionAgencyId.value = null;
@@ -2463,7 +2473,7 @@ function clearSession() {
   noteAidInput.value = ''; noteAidOutput.value = ''; noteAidInitials.value = ''; noteAidSections.value = []; noteAidDrawer.value = [];
   stopNoteAidSpeak();
   passcode.value = ''; tab.value = 'home'; moreOpen.value = false; lastActivitySent=0;expiresAt.value=null;
-  try { sessionStorage.removeItem('plottwist.quickViewSession'); } catch { /* ignore */ }
+  if(isMobile.value){if(wasUnlocked && notify)emit('locked');}else try { sessionStorage.removeItem('plottwist.quickViewSession'); } catch { /* ignore */ }
 }
 async function logout() {
   const headers = authHeaders();
@@ -2523,13 +2533,15 @@ onMounted(() => {
   } catch {
     homeScreenTip.value = true;
   }
-  if (sessionOnly.value || (!route.params.token && route.name === 'QuickViewApp')) {
+  if (isMobile.value || sessionOnly.value || (!route.params.token && route.name === 'QuickViewApp')) {
     resumeSession();
   } else {
     loadTokenInfo();
   }
 });
+defineExpose({lock:logout,openDeepLink});
 onUnmounted(() => {
+  if(isMobile.value)clearSession({notify:false});
   for(const type of ['pointerdown','keydown','touchstart'])window.removeEventListener(type,recordActivity);
   window.removeEventListener('focus',checkDeadline);
   document.removeEventListener('visibilitychange',checkDeadline);

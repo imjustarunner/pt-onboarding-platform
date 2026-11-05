@@ -99,3 +99,9 @@ deliverables/plotline/website/
 # Standalone AuricWell local build dependencies
 auricwell/node_modules
 auricwell/dist/
+
+# Auricwell native reproducible outputs
+frontend/dist-auricwell-mobile/
+frontend/native/auricwell/ios/App/App/public/
+frontend/native/auricwell/ios/App/App/capacitor.config.json
+frontend/native/auricwell/ios/App/App/config.xml

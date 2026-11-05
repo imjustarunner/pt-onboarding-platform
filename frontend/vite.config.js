@@ -19,7 +19,7 @@ const gamesRoot = path.resolve(rootDir, '..', 'games');
 export default defineConfig({
   // Always resolve root relative to this config file (works even when invoked from repo root).
   root: rootDir,
-  plugins: [appVersionPlugin(), vue(), {
+  plugins: [appVersionPlugin(), vue(), {name:'auricwell-mobile-entry',configureServer(server){server.middlewares.use((req,_res,next)=>{if(/^\/mobile(?:\/|[?]|$)/.test(req.url || ''))req.url='/mobile.html'+(req.url.includes('?')?req.url.slice(req.url.indexOf('?')):'');next();});}}, {
     name: 'plotline-marketing-entry',
     configureServer(server) {
       server.middlewares.use((req, _res, next) => {
@@ -116,7 +116,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     rollupOptions: {
-      input: { main: indexHtml, auricwell: fileURLToPath(new URL('./auricwell.html', import.meta.url)), auricwellDemo: fileURLToPath(new URL('./auricwell-demo.html', import.meta.url)), schoolcarebridgeDemo: fileURLToPath(new URL('./schoolcarebridge-demo.html', import.meta.url)) }
+      input: { mobile: fileURLToPath(new URL('./mobile.html', import.meta.url)), main: indexHtml, auricwell: fileURLToPath(new URL('./auricwell.html', import.meta.url)), auricwellDemo: fileURLToPath(new URL('./auricwell-demo.html', import.meta.url)), schoolcarebridgeDemo: fileURLToPath(new URL('./schoolcarebridge-demo.html', import.meta.url)) }
     }
   }
 });
