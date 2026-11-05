@@ -10,6 +10,8 @@ export function schoolCareBridgeApiAllowed(method,path,userId) {
   if(method==='GET' && /^\/api\/(agencies|organizations|users|providers|branding|platform-branding|app-version|icons|portal|tasks|user-preferences|client-settings|supervisor-assignments|public)(\/|$)/.test(path))return true;
   if(/^\/api\/organizations\/[^/]+\/upload-referral(\/|$)/.test(path))return true;
   if(/^\/api\/availability\/school-requests(\/|$)/.test(path))return true;
+  if(/^\/api\/availability\/providers\/\d+\/day-cancellation(\/|$)/.test(path))return true;
+  if(/^\/api\/planned-outs(\/|$)/.test(path))return true;
   if(/^\/api\/company-events\/\d+\/session-staffing-summary$/.test(path)&&method==='GET')return true;
   if(new RegExp(`^/api/users/${Number(userId)}/(preferences|profile|signature)(/|$)`).test(path))return true;
   return method==='POST' && path==='/api/users/change-password';

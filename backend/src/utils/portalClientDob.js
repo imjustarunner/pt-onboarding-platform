@@ -64,6 +64,12 @@ export async function loadLinkedClientDobs(userId, db = null) {
     .filter((r) => r.dob);
 }
 
+export function dobValuesMatch(stored, given) {
+  const left = sqlDateToYmd(stored);
+  const right = normalizeDobInput(given);
+  return Boolean(left && right && left === right);
+}
+
 export function portalRoleNeedsClientDob(user) {
   const role = String(user?.role || '').trim().toLowerCase();
   return PORTAL_DOB_ROLES.has(role);

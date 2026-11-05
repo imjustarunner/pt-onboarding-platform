@@ -19,6 +19,7 @@ import { useAgencyStore } from '../store/agency';
 import { useOrganizationStore } from '../store/organization';
 import { getDashboardRoute } from '../utils/router';
 import {providerSchoolPortalDestination} from '../utils/providerSchoolPortalDestination.js';
+import { scopedSchoolCareBridgeDestination } from '../utils/schoolCareBridgeTenant.js';
 import { extractAdminPageFromPath } from '../utils/normalizeAdminPageKey.js';
 import { useIndirectTimeSessionStore } from '../store/indirectTimeSession';
 import { getLoginUrl, getCurrentPortalSlugFromHostCache } from '../utils/loginRedirect';
@@ -994,6 +995,30 @@ const routes = [
     name: 'PublicClientRenewal',
     component: () => import('../views/public/PublicClientRenewalView.vue'),
     meta: { requiresGuest: false }
+  },
+  {
+    path: '/family-documents/:token',
+    name: 'FamilyDocumentSession',
+    component: () => import('../views/public/FamilyDocumentSessionView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/family-documents/:token',
+    name: 'OrganizationFamilyDocumentSession',
+    component: () => import('../views/public/FamilyDocumentSessionView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
+  },
+  {
+    path: '/family-introduction/reminders/:token',
+    name: 'FamilyIntroductionReminder',
+    component: () => import('../views/public/FamilyIntroductionReminderView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/:organizationSlug/family-introduction/reminders/:token',
+    name: 'OrganizationFamilyIntroductionReminder',
+    component: () => import('../views/public/FamilyIntroductionReminderView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/client-renewal/:token',
@@ -6239,6 +6264,8 @@ router.beforeEach(async (to, from, next) => {
       // Redirect to appropriate dashboard
       next(getDashboardRoute());
     }
+  } else if (authStore.isAuthenticated && String(authStore.user?.role || '').toLowerCase() !== 'super_admin' && scopedSchoolCareBridgeDestination(to, authStore.user?.agencies || [], agencyStore.currentAgency?.value ?? agencyStore.currentAgency)) {
+    next(scopedSchoolCareBridgeDestination(to, authStore.user?.agencies || [], agencyStore.currentAgency?.value ?? agencyStore.currentAgency));
   } else if (authStore.isAuthenticated && providerSchoolPortalDestination({role:authStore.user?.role,path:to.path,dashboardPath:getDashboardRoute()})) {
     next(providerSchoolPortalDestination({role:authStore.user?.role,path:to.path,dashboardPath:getDashboardRoute()}));
   } else if (to.meta.requiresRole) {

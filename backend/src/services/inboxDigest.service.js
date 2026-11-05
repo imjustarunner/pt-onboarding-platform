@@ -253,6 +253,10 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
 
     const reminderPreferences = personalMessagePreferences(row);
     const isPersonalDelivery = String(to).toLowerCase() === String(row.personal_email || '').toLowerCase();
+    try {
+      const away = await (await import('./vacationScheduleSync.service.js')).default.getUserAbsence(row.user_id, agencyId, now);
+      if (away && !String(away.key || '').startsWith('hours:')) continue;
+    } catch (error) { if (error?.code !== 'ER_NO_SUCH_TABLE') console.warn('[hubSecureDigest] absence check skipped', error?.code || 'unavailable'); }
     // Unread chat messages in threads the user belongs to
     const [unread] = await pool.execute(
       `SELECT t.id AS thread_id, MIN(m.created_at) AS oldest_unread_at, MAX(m.id) AS message_id, COUNT(*) AS unread_count,

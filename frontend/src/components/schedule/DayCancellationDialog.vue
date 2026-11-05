@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import ReplacementOpeningBuilder from './ReplacementOpeningBuilder.vue';
 import PlannedOutModal from '../admin/opsDashboard/PlannedOutModal.vue';
-const props = defineProps({ deferredToken: String, reviewToken: String, providerId: { type: Number, required: true }, agencyId: Number, agencyOptions: { type: Array, default: () => [] }, date: { type: String, required: true } });
+const props = defineProps({ deferredToken: String, reviewToken: String, providerId: { type: Number, required: true }, agencyId: Number, agencyOptions: { type: Array, default: () => [] }, date: { type: String, required: true }, timeZone: { type: String, default: 'America/Denver' } });
 const emit = defineEmits(['close', 'saved']);
 const dialog = ref(null), busy = ref(false), error = ref(''), plan = ref(null), signed = ref(false), reviewed = ref(false);
 const resumeChecked = ref(false), applyAttempted = ref(false);
@@ -65,7 +65,14 @@ function close() { if (busy.value) return; if (changed.value || applyAttempted.v
 function itemNeedsAttention(item) { const r = plan.value?.results?.[item.key]; const d = r?.notificationDelivery; return r?.status === 'failed' || ['failed','held','skipped'].some(k => d?.[k] > 0) || item.clients?.some(c => !c.recipients?.some(r => r.email)); }
 function when(item) { if (['school','school_roster'].includes(item.kind)) return item.date || ''; return item.startAt ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone: item.timeZone }).format(new Date(item.startAt)) : ''; }
 watch(scopeMode, mode => { for (const item of Object.values(schoolChoices)) item.message.text = mode === 'sessions' ? item.message.text.replace('has canceled their sessions', 'has canceled selected sessions') : item.message.text.replace('has canceled selected sessions', 'has canceled their sessions'); });
-function addDay() { if (addDate.value && !dates.value.includes(addDate.value) && dates.value.length < 14) dates.value = [...dates.value, addDate.value].sort(); addDate.value = ''; }
+function shiftDate(value, days) { const [year, month, day] = String(value).split('-').map(Number); return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10); }
+const latestCancelDate = computed(() => shiftDate(new Intl.DateTimeFormat('en-CA', { timeZone: props.timeZone || 'America/Denver', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()), 2));
+const dateTooFar = computed(() => urgent.value && dates.value.some(date => date > latestCancelDate.value));
+function addDay() {
+  if (urgent.value && addDate.value > latestCancelDate.value) { error.value = 'Please use Planned Out.'; return; }
+  if (addDate.value && !dates.value.includes(addDate.value) && dates.value.length < 14) dates.value = [...dates.value, addDate.value].sort();
+  addDate.value = '';
+}
 function initializeEditors() {
   for (const editors of [contactChoices,messages,schoolChoices]) for (const key of Object.keys(editors)) delete editors[key];
   selectedSessions.value = appointmentItems.value.map(i => i.id);
@@ -148,10 +155,11 @@ async function apply(retryFailed = false) {
         <p v-if="!emailReview"><button type="button" @click="showPlannedOut = true">Use Planned Out instead</button></p>
         <label class="day-field">Absence type <select v-model="urgent" @change="reasonCategory = urgent ? 'provider_unavailable' : 'facility'; followUpAction = 'none'"><option :value="true">Urgent — sickness, weather, unexpected absence</option><option :value="false">Nonurgent — planned school closure or holiday</option></select></label>
         <p>Parents, clients, and the school each get their own letter. Parents who already opted into texts also get a short text with the portal link. Replies go to support, with support and any supervisor copied. The letter does not mention rescheduling unless you add that yourself.</p>
+        <p v-if="urgent && dateTooFar" class="day-error" role="alert">Please use Planned Out. Cancel Day is only for today, tomorrow, and the next day.</p>
         <div class="reason-choices" role="group" aria-label="Reason for the absence"><button v-for="reason in reasons" :key="reason.key" type="button" :aria-pressed="reasonKey === reason.key" @click="chooseReason(reason)">{{ reason.label }}</button></div>
         <p class="reason-preview">The letters will say this is {{ reasonKey === 'illness' ? 'because of illness' : reasonKey === 'family_emergency' ? 'because of a family emergency' : reasonKey === 'weather' ? 'because of weather' : reasonKey === 'personal_emergency' ? 'because of a personal emergency' : reasonKey === 'transportation' ? 'because of a transportation issue' : 'because of unforeseen circumstances' }}.</p>
         <fieldset><legend>Agencies to review</legend><label v-for="a in agencies" :key="a.id"><input v-model="selected" type="checkbox" :value="a.id"> {{ a.label }}</label></fieldset>
-        <label class="day-field">Add another date <input v-model="addDate" type="date"></label><button type="button" :disabled="!addDate || dates.length >= 14" @click="addDay">Add date</button>
+        <label class="day-field">Add another date <input v-model="addDate" type="date" :max="urgent ? latestCancelDate : undefined"></label><button type="button" :disabled="!addDate || dates.length >= 14 || (urgent && addDate > latestCancelDate)" @click="addDay">Add date</button>
         <p v-for="date in dates" :key="date">{{ date }} <button v-if="dates.length > 1" type="button" @click="dates = dates.filter(d => d !== date)">Remove date</button></p>
         <label class="day-field">Notifications <select v-model="notificationMode"><option value="send">Review and send cancellation notifications</option><option value="none">Do not send now — create a to-do</option></select></label>
         <label v-if="notificationMode === 'none'" class="day-field">Follow-up note (internal record) <textarea v-model="suppressionReason" maxlength="500" rows="2" /></label>
@@ -240,7 +248,7 @@ async function apply(retryFailed = false) {
       <div v-if="error" id="day-cancellation-action-error" role="alert" class="day-action-feedback day-error"><strong>Could not continue</strong><span>{{ error }}</span><span>Your edits are preserved. Correct the listed issue and try again.</span></div>
       <p v-else-if="plan && !reviewed && finalReviewIssue" class="day-action-feedback" role="status">{{ finalReviewIssue }}</p>
       <button type="button" :disabled="busy" @click="close">{{ changed ? 'Done' : 'Close' }}</button>
-      <button v-if="!plan" type="button" class="day-primary" :disabled="busy || !resumeChecked || !selected.length || !reasonCategory || (notificationMode === 'none' && !suppressionReason.trim())" @click="review(false)">Review day</button>
+      <button v-if="!plan" type="button" class="day-primary" :disabled="busy || !resumeChecked || !selected.length || !reasonCategory || dateTooFar || (notificationMode === 'none' && !suppressionReason.trim())" @click="review(false)">Review day</button>
       <template v-else-if="!finished">
         <button v-if="!changed" type="button" :disabled="busy" @click="reviewed ? (reviewed = false, signed = false, plan = draftPlan) : emailReview ? close() : (plan = null, followUpAction = 'none')">Back</button>
         <button v-if="!reviewed && !changed" type="button" class="day-primary" :aria-describedby="error ? 'day-cancellation-action-error' : undefined" :disabled="busy || slotBusy || !!finalReviewIssue" @click="review(true)">{{ busy ? 'Preparing final review…' : 'Review final cancellation' }}</button>

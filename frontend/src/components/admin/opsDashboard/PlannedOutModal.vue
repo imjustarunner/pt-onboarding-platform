@@ -106,22 +106,29 @@
 
         <p v-if="error" class="pom-err">{{ error }}</p>
 
-        <label v-if="availability === 'unavailable'" class="field"><span><input v-model="cancelScheduledItems" type="checkbox"> Cancel all overlapping sessions and scheduled events, and mark my RSVPs as not attending (default).</span></label>
+        <fieldset v-if="availability === 'unavailable'" class="pom-span">
+          <legend>What to cancel</legend>
+          <label><input v-model="cancelAll" type="checkbox"> Cancel all</label>
+          <label><input v-model="cancelSchool" type="checkbox"> Cancel school sessions</label>
+          <label><input v-model="cancelOffice" type="checkbox"> Cancel office sessions</label>
+          <label><input v-model="cancelVirtual" type="checkbox"> Cancel virtual sessions</label>
+          <label><input v-model="cancelOther" type="checkbox"> Cancel all other scheduled events</label>
+        </fieldset>
         <p class="pom-info pom-info--foot" role="note">
           <strong>Important:</strong>
-          When unavailable, review the affected items before confirming. With cancel-all selected, overlapping sessions and scheduled events are canceled and RSVPs are marked not attending. If you turn it off, only the availability block is saved. Families receive a nonurgent email; school offices do not. No texts or receipt confirmations are sent. Records stay in place, and you can change an event RSVP afterward.
+          Choose any combination. Cancel all selects every category. A school-session choice emails the school group when you are assigned to that school that day. That letter says you will be away. It does not say the school is closed. Office, virtual, and other choices leave the school email unsent. Families for the selected sessions receive a nonurgent email. No texts or receipt confirmations are sent.
         </p>
 
         <footer class="pom-foot">
           <button type="button" class="btn ghost" @click="$emit('close')">Cancel</button>
           <button type="submit" class="btn primary" :disabled="saving">
-            {{ saving ? 'Saving…' : availability === 'unavailable' && cancelScheduledItems ? 'Review affected items' : 'Submit planned out' }}
+            {{ saving ? 'Saving…' : availability === 'unavailable' && cancelScopes.length ? 'Review affected items' : 'Submit planned out' }}
           </button>
         </footer>
       </form>
       <section v-else-if="preflight" class="pom-form pom-review">
         <h4>{{ reviewFinal ? 'Final Planned Out review' : 'Review affected items' }}</h4>
-        <p>Nothing has been canceled or sent yet. This absence uses nonurgent family emails, without texts, school-office notices, or receipt requests.</p>
+        <p>Nothing has been canceled or sent yet. Selected sessions use nonurgent family emails. A school-session choice also emails the assigned school. That letter does not say the school is closed.</p>
         <p>{{ selectedWhen }} · {{ preflight.items.length }} items</p>
         <ul><li v-for="item in preflight.items" :key="item.key" :class="{ 'pom-err': item.clients?.some(c => !c.recipients?.some(r => r.email)) }">
           <strong>{{ item.date }} · {{ item.title }}</strong>
@@ -173,7 +180,13 @@ const contactPreference = ref('none');
 const details = ref('');
 const saving = ref(false), savedCancellation = ref(null), showResume = ref(false);
 const error = ref('');
-const cancelScheduledItems = ref(true), preflight = ref(null), pendingBody = ref(null), includeUntimedKeys = ref([]), reviewFinal = ref(false), confirmedReview = ref(false);
+const cancelSchool = ref(true), cancelOffice = ref(true), cancelVirtual = ref(true), cancelOther = ref(true);
+const cancelAll = computed({
+  get: () => cancelSchool.value && cancelOffice.value && cancelVirtual.value && cancelOther.value,
+  set: value => { cancelSchool.value = cancelOffice.value = cancelVirtual.value = cancelOther.value = value; }
+});
+const cancelScopes = computed(() => ['school', 'office', 'virtual', 'other'].filter(scope => ({ school: cancelSchool.value, office: cancelOffice.value, virtual: cancelVirtual.value, other: cancelOther.value })[scope]));
+const preflight = ref(null), pendingBody = ref(null), includeUntimedKeys = ref([]), reviewFinal = ref(false), confirmedReview = ref(false);
 
 const selectedWhen = computed(() => {
   if (spanType.value === 'all_day') {
@@ -217,7 +230,8 @@ async function submit() {
       // 8am-12pm / 12pm-5pm windows) in this zone, not the agency's configured time zone.
       timeZone: myTimezone,
       availability: availability.value,
-      cancelScheduledItems: cancelScheduledItems.value,
+      cancelScheduledItems: cancelScopes.value.length > 0,
+      cancelScopes: cancelScopes.value,
       emergencies: emergencies.value,
       emergenciesRedirectName: emergencies.value === 'redirect' ? emergenciesRedirectName.value.trim() : undefined,
       contactPreference: contactPreference.value,
@@ -242,7 +256,7 @@ async function submit() {
       body.endDate = addOneDay(endDateInclusive.value || startDate.value);
       body.allDay = true;
     }
-    if (body.availability === 'unavailable' && body.cancelScheduledItems) {
+    if (body.availability === 'unavailable' && body.cancelScopes.length) {
       const { data } = await api.post('/planned-outs/preview', {...body,includeUntimedKeys:[],finalReview:false}, {skipGlobalLoading:true});
       preflight.value = data.review; pendingBody.value = body; reviewFinal.value = false; confirmedReview.value = false; includeUntimedKeys.value = []; return;
     }

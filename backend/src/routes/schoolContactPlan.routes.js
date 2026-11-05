@@ -1,7 +1,7 @@
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import { authenticate } from '../middleware/auth.middleware.js';
-import { getSchoolContactPlan, saveSchoolContactPlan, sendSchoolContactExample } from '../services/schoolContactPlan.service.js';
+import { buildFamilyWelcomePdfPreview, getSchoolContactPlan, saveSchoolContactPlan, sendSchoolContactExample } from '../services/schoolContactPlan.service.js';
 
 const router = express.Router();
 router.use(authenticate);
@@ -10,6 +10,13 @@ router.get('/providers', async(req,res,next)=>{try{const {listSchoolContactPlanP
 router.put('/providers/:id/required', async(req,res,next)=>{try{const {requireSchoolContactPlan}=await import('../services/schoolContactPlanAdmin.service.js');res.json(await requireSchoolContactPlan(input(req),req.params.id,req.body.required));}catch(e){next(e);}});
 router.get('/', async (req, res, next) => { try { res.json(await getSchoolContactPlan(input(req))); } catch (error) { next(error); } });
 router.put('/', async (req, res, next) => { try { res.json(await saveSchoolContactPlan(input(req), req.body)); } catch (error) { next(error); } });
+router.get('/pdf-preview', async (req, res, next) => {
+  try {
+    const pdf = await buildFamilyWelcomePdfPreview(input(req), req.query.schoolId);
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="School introduction.pdf"', 'Cache-Control': 'no-store' });
+    res.send(pdf);
+  } catch (error) { next(error); }
+});
 router.get('/workflows', async (req, res, next) => {
   try {
     const { getContactPlanContext } = await import('../services/schoolContactPlan.service.js');

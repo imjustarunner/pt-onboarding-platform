@@ -14,6 +14,7 @@
         <p class="hint">Choose “Print cards for” to print a general agency, group, or department card.</p>
         <StaffBusinessCardsButton :user-id="userId" :agency-id="agencyStore.currentAgency?.id" self-only />
       </div>
+      <FamilyWelcomeSettings v-if="showFamilyWelcome" :agency-id="agencyStore.currentAgency?.id" :user-id="userId" :provider-name="familyWelcomeProviderName" />
       <!-- Profile Photo -->
       <div class="info-section">
         <div class="section-header">
@@ -1164,6 +1165,7 @@ import {isProviderFocusField} from '../navigation/providerFocus.js';
 import QuickViewPrivacyPanel from '../components/account/QuickViewPrivacyPanel.vue';
 import StaffBusinessCardsButton from '../components/admin/StaffBusinessCardsButton.vue';
 import HowToVideoButton from '../components/HowToVideoButton.vue';
+import FamilyWelcomeSettings from '../components/school/FamilyWelcomeSettings.vue';
 import {
   isNativePlatform,
   checkBiometricAvailability,
@@ -1189,6 +1191,8 @@ const isClubContext = computed(() => {
 });
 const isSsc = useSummitStatsChallengeChrome();
 const userId = computed(() => authStore.user?.id);
+const showFamilyWelcome = computed(() => ['provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'clinical_practice_assistant'].includes(String(authStore.user?.role || '').toLowerCase()) || !!authStore.user?.has_provider_access);
+const familyWelcomeProviderName = computed(() => [authStore.user?.firstName || authStore.user?.first_name, authStore.user?.lastName || authStore.user?.last_name].filter(Boolean).join(' '));
 const isSchoolStaffUser = computed(() => String(authStore.user?.role || '').toLowerCase() === 'school_staff');
 
 const clubSummitContext = ref(null);

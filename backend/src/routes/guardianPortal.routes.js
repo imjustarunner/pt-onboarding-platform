@@ -164,6 +164,14 @@ router.post('/support-tickets', createGuardianSupportTicket);
 router.post('/technology-help',requireActiveStatus,rateLimit({windowMs:60*60*1000,max:10}),guardianHelpUpload.array('screenshots',3),submitHelp);
 router.get('/support-tickets/:ticketId', getGuardianSupportTicket);
 router.post('/support-tickets/:ticketId/messages', sendGuardianSupportTicketMessage);
+router.get('/family-documents', async (req, res, next) => {
+  try {
+    const { listGuardianFamilyDocuments } = await import('../services/familyDocumentSession.service.js');
+    res.json({ sessions: await listGuardianFamilyDocuments(req.user) });
+  } catch (error) {
+    next(error);
+  }
+});
 router.get('/clients/:clientId/intake-documents', listMyClientIntakeSignedDocuments);
 router.get('/clients/:clientId/intake-documents/:documentId/download-url', getMyClientIntakeSignedDocumentDownloadUrl);
 router.get('/invitations', guardianInvitations.list);

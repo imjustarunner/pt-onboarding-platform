@@ -3107,6 +3107,21 @@ const resolvePublicIntakeContext = async (publicKey) => {
     } catch {
       boundClient = null;
     }
+    if (!boundClient && isSmartDisclosureForm(directLink)) {
+      try {
+        const [sessionRows] = await pool.execute(
+          `SELECT client_id FROM family_document_session_items
+           WHERE kind = 'disclosure' AND public_key = ?
+           ORDER BY id DESC LIMIT 1`,
+          [key]
+        );
+        if (sessionRows?.[0]?.client_id) {
+          boundClient = await Client.findById(sessionRows[0].client_id, { includeSensitive: true });
+        }
+      } catch {
+        // Migration 1758 may not be applied yet.
+      }
+    }
     return {
       link: directLink,
       issuedRoiLink: null,

@@ -18,12 +18,15 @@ Before beginning services, I'd like to connect with you to learn more about your
 
 Please reply with a few days and times that work best for you so we can schedule a brief virtual intake meeting. Our goal is to complete this meeting before your child's first session whenever possible.
 
+You can learn a little more about me here: {{profile_link}}
+
 If you have any questions in the meantime, please don't hesitate to reach out by simply replying to this email.
 
 I look forward to connecting with you!
 
 Best regards,
 {{provider_name}}`;
+export const PROFILE_LINK_TOKEN = '{{profile_link}}';
 export const DEFAULT_SECOND_CONTACT_TEMPLATE = `Hello {{parent_name}},
 
 I hope you're doing well!

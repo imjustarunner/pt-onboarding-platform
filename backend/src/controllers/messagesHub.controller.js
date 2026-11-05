@@ -601,7 +601,7 @@ export const postMessagesHubSend = async (req, res, next) => {
     const prefDelay = prefs?.[delayKey] ?? DEFAULT_DELAY_SECONDS;
     const explicitDelay =
       req.body?.undoDelaySeconds != null ? clampSendDelaySeconds(req.body.undoDelaySeconds) : null;
-    if (method === 'internal' && person.userId && req.body?.deliveryChoice !== 'now') {
+    if (method === 'internal' && person.userId && !['now', 'deliver_anyway'].includes(req.body?.deliveryChoice)) {
       const { resolveRecipientDeliveryGate } = await import('../services/hubRecipientDelivery.service.js');
       const gate = await resolveRecipientDeliveryGate({ agencyId, userId: person.userId }).catch(() => null);
       if (gate && gate.availableNow === false) {

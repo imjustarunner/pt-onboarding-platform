@@ -295,6 +295,7 @@ import { assignedDayDisplay, displaySchoolClientStatusLabel } from '../../utils/
 import {
   schoolStaffOwnDocumentsOnly,
   schoolStaffCanCollaborateFromState,
+  schoolStaffCanInterfaceFromState,
   schoolStaffRoiHover
 } from '../../utils/schoolStaffRoiLabels.js';
 
@@ -324,7 +325,7 @@ const canOpenDocuments = computed(() => {
   }
   return ['provider', 'admin', 'staff', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value);
 });
-const canViewCollaboration = computed(() => !isSchoolStaff.value || schoolStaffCanCollaborateFromState(schoolStaffEffectiveState.value));
+const canViewCollaboration = computed(() => !isSchoolStaff.value || schoolStaffCanInterfaceFromState(schoolStaffEffectiveState.value));
 const documentsOwnOnly = computed(() => isSchoolStaff.value && schoolStaffOwnDocumentsOnly(schoolStaffEffectiveState.value));
 const showOwnDocumentsSection = computed(() => documentsOwnOnly.value);
 const documentsModalTitle = computed(() => (documentsOwnOnly.value ? 'My documents' : 'Documents'));

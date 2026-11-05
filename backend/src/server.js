@@ -141,6 +141,7 @@ import publicMisdirectedEmailReportRoutes from './routes/publicMisdirectedEmailR
 import publicContactRemindersRoutes from './routes/publicContactReminders.routes.js';
 import publicProviderYearUpdateRoutes from './routes/publicProviderYearUpdate.routes.js';
 import publicClientRenewalRoutes from './routes/publicClientRenewal.routes.js';
+import familyDocumentSessionRoutes, { publicFamilyDocumentRoutes, publicFamilyIntroductionRoutes } from './routes/familyDocumentSession.routes.js';
 import publicProviderUpdateRoutes from './routes/publicProviderUpdate.routes.js';
 import publicAdminUpdateRoutes from './routes/publicAdminUpdate.routes.js';
 import adminUpdateMeRoutes from './routes/adminUpdate.routes.js';
@@ -856,6 +857,8 @@ app.use('/api/school-visits', schoolVisitRoutes);
 app.use('/api/public/school-onboarding', publicSchoolOnboardingRoutes);
 app.use('/api/public/provider-year-update', publicProviderYearUpdateRoutes);
 app.use('/api/public/client-renewal', publicClientRenewalRoutes);
+app.use('/api/public/family-documents', publicFamilyDocumentRoutes);
+app.use('/api/public/family-introduction', publicFamilyIntroductionRoutes);
 app.use('/api/public/provider-update', publicProviderUpdateRoutes);
 app.use('/api/public/provider-action', publicProviderActionRoutes);
 app.use('/api/public/secure-message', publicSecureMessageRoutes);
@@ -1057,6 +1060,7 @@ app.use('/api/referral-directory', referralDirectoryRoutes); // External referra
 app.use('/api/fax-intake', faxIntakeRoutes);
 app.use('/api/client-referral-links', clientReferralLinksRoutes);
 app.use('/api/clients', clientRoutes); // Client management routes
+app.use('/api/family-document-sessions', familyDocumentSessionRoutes);
 app.use('/api/dependent-portal', dependentPortalRoutes);
 app.use('/api/client-support', clientSupportRoutes);
 app.use('/api/guardian-portal', guardianPortalRoutes); // Guardian portal routes
@@ -2316,6 +2320,8 @@ if (!isBootstrap) {
   const scheduleSchoolClientStatusEmails = async () => {
     try{await (await import('./services/schoolClientStatusEmail.service.js')).sendPendingSchoolClientStatusEmails();}
     catch(error){console.error('Error in school client status email worker:',error?.message || error);}
+    try{await (await import('./services/familyIntroductionEmail.service.js')).sendPendingFamilyIntroductions();}
+    catch(error){console.error('Error in family introduction email worker:',error?.message || error);}
   };
   scheduleSchoolClientStatusEmails();
   setInterval(scheduleSchoolClientStatusEmails, 60 * 1000);

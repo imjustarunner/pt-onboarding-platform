@@ -109,7 +109,7 @@
             <GuardianProgressRecords v-else-if="['checkins','evaluations'].includes(activePanel) && !isSuperadminPreview" :client-id="selectedChildId" :client-name="selectedFirstName" :kind="activePanel" :learning="standardsLearningVisible"/>
             <template v-else-if="activePanel === 'documents'">
               <p v-if="isSuperadminPreview">Documents are available in the signed-in family account.</p>
-              <template v-else><PortalSafetyPlans v-if="selectedChildId" :key="`safety:${selectedChildId}`" :client-id="selectedChildId" compact /><GuardianIntakeDocuments :client-id="selectedChildId" /><GuardianSharedFiles :client-id="selectedChildId" /><details class="account-documents"><summary>{{ ft("Other forms assigned to your account") }}</summary><DocumentsTab /></details></template>
+              <template v-else><FamilyPendingDocuments /><PortalSafetyPlans v-if="selectedChildId" :key="`safety:${selectedChildId}`" :client-id="selectedChildId" compact /><GuardianIntakeDocuments :client-id="selectedChildId" /><GuardianSharedFiles :client-id="selectedChildId" /><details class="account-documents"><summary>{{ ft("Other forms assigned to your account") }}</summary><DocumentsTab /></details></template>
             </template>
 
             <template v-else-if="activePanel === 'child'">
@@ -644,6 +644,7 @@ import api from '../../services/api';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import DocumentsTab from '../../components/dashboard/DocumentsTab.vue';
 import GuardianIntakeDocuments from '../../components/guardian/GuardianIntakeDocuments.vue';
+import FamilyPendingDocuments from '../../components/guardian/FamilyPendingDocuments.vue';
 import GuardianClientDetails from '../../components/guardian/GuardianClientDetails.vue';
 import GuardianCareAccess from '../../components/guardian/GuardianCareAccess.vue';
 import GuardianAppointmentsPanel from '../../components/guardian/GuardianAppointmentsPanel.vue';

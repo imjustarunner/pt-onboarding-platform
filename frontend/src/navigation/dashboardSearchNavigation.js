@@ -16,7 +16,8 @@ export function mergeDashboardSearchTargets(targets, quickNavEntries) {
   const merged = targets.map(target => ({ ...target }));
   for (const entry of quickNavEntries) {
     if (entry.kind === 'dashboard') {
-      const target = merged.find(t => t.tabId === entry.tab && (t.mySection || '') === (entry.my || '') && !t.sectionId && !t.fieldId);
+      const target = merged.find(t => t.tabId === entry.tab && (t.mySection || '') === (entry.my || '')
+        && (entry.section ? t.sectionId === entry.section : !t.sectionId && !t.fieldId));
       // Dashboard pages still follow the rail and My Account visibility rules.
       if (target) target.aliases = [...(target.aliases || []), entry.label, ...(entry.keywords || [])];
     } else {

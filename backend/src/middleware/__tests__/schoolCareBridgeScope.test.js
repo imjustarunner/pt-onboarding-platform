@@ -13,6 +13,11 @@ describe('SchoolCareBridge tenant scope',()=>{
  it('cannot expand a scoped tenant through organization settings',async()=>{m.members.mockResolvedValue([limited,full]);const {res}=await request('/api/agencies/2',{method:'PUT'});expect(res.status).toHaveBeenCalledWith(403);});
  it('fails closed when membership lookup fails',async()=>{const error=Error('db failure');m.members.mockRejectedValue(error);const {next,res}=await request('/api/clients');expect(next).toHaveBeenCalledWith(error);expect(res.json).not.toHaveBeenCalled();});
  it('limits profile updates to the current account',()=>{expect(schoolCareBridgeApiAllowed('PUT','/api/users/21/profile',20)).toBe(false);expect(schoolCareBridgeApiAllowed('PUT','/api/users/20/profile',20)).toBe(true);});
+ it('keeps Cancel Day and Planned Out inside the school workspace',()=>{
+  expect(schoolCareBridgeApiAllowed('POST','/api/availability/providers/1433/day-cancellation/preview',1433)).toBe(true);
+  expect(schoolCareBridgeApiAllowed('POST','/api/planned-outs/preview',1433)).toBe(true);
+  expect(schoolCareBridgeApiAllowed('POST','/api/payroll/run',1433)).toBe(false);
+ });
  it('allows provider contact-plan settings and reply recording within the school workspace',async()=>{
   for(const [method,path] of [['GET','/api/school-contact-plan'],['PUT','/api/school-contact-plan'],['POST','/api/school-contact-plan/example'],['POST','/api/school-contact-plan/workflows/1/parent-replied']]){
    const {next,res}=await request(path,{method});expect(next).toHaveBeenCalledWith();expect(res.status).not.toHaveBeenCalled();

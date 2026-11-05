@@ -1,7 +1,7 @@
 import { describe,it,expect,vi } from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{}}));
 vi.mock('../providerDayCancellation.service.js',()=>({default:{}}));
-import { dayAbsenceMessage } from '../dayAbsencePolicy.service.js';
+import { dayAbsenceMessage, schoolDayAbsenceMessage } from '../dayAbsencePolicy.service.js';
 import { plannedOutCancellationInput } from '../plannedOutCancellation.service.js';
 import { createSchoolSoftScheduleCalendar } from '../schoolSoftScheduleCalendar.service.js';
 import { createSchoolAbsenceHistory } from '../schoolAbsenceHistory.service.js';
@@ -15,6 +15,15 @@ describe('day absence policy and schedule evidence',()=>{
     const planned=dayAbsenceMessage({urgent:false,date:'2026-11-09',reason:'Private reason'});
     expect(planned.text).toContain('Your care team has canceled an upcoming session');
     expect(planned.text).toContain('Please log in');expect(planned.text).not.toContain('Private reason');
+  });
+  it('writes a planned-out school notice without saying the school is closed',()=>{
+    const letter=schoolDayAbsenceMessage({reasonCategory:'planned_out',providerName:'Avery QA',schoolName:'Cedar Grove',date:'2026-11-16',providerAuthored:true});
+    expect(letter.subject).toBe('Provider absence for Monday, November 16, 2026');
+    expect(letter.text).toContain('I will be away');
+    expect(letter.text).not.toMatch(/closed|I need to cancel|911|reschedule/i);
+    const staff=schoolDayAbsenceMessage({reasonCategory:'planned_out',providerName:'Avery QA',schoolName:'Cedar Grove',date:'2026-11-16',providerAuthored:false});
+    expect(staff.text).toContain('Avery QA will be away');
+    expect(staff.text).not.toMatch(/\bI will be away\b|closed|I need to cancel/i);
   });
   it('preserves timed planned-out boundaries and handles DST with local dates',()=>{
     const input=plannedOutCancellationInput({providerId:7,agencyId:450,payload:{timeZone:'America/Denver',availability:'unavailable',startAt:'2026-11-01 07:30:00',endAt:'2026-11-02 18:00:00'}});

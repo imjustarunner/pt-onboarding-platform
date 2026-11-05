@@ -760,7 +760,8 @@ async function canViewClientTicketScope({ req, schoolOrganizationId, clientId })
     return await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
       clientId,
       schoolOrganizationId,
-      schoolStaffUserId: req.user?.id
+      schoolStaffUserId: req.user?.id,
+      allowNoRoiInterface: true
     });
   }
   if (role === 'provider') {
@@ -1865,7 +1866,8 @@ export const createSupportTicket = async (req, res, next) => {
         const hasRoiAccess = await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
           clientId,
           schoolOrganizationId,
-          schoolStaffUserId: req.user?.id
+          schoolStaffUserId: req.user?.id,
+          allowNoRoiInterface: true
         });
         if (!hasRoiAccess) {
           return res.status(403).json({ error: { message: 'ROI access required for this client' } });
@@ -2255,7 +2257,8 @@ export const listSupportTicketMessages = async (req, res, next) => {
       canView = await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
         clientId: ticket.client_id,
         schoolOrganizationId: ticket.school_organization_id,
-        schoolStaffUserId: req.user?.id
+        schoolStaffUserId: req.user?.id,
+        allowNoRoiInterface: true
       });
     }
     if (!canView && ticket.client_id) {
@@ -2424,7 +2427,8 @@ export const createSupportTicketMessage = async (req, res, next) => {
         canPost = await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
           clientId: ticket.client_id,
           schoolOrganizationId: ticket.school_organization_id,
-          schoolStaffUserId: req.user?.id
+          schoolStaffUserId: req.user?.id,
+          allowNoRoiInterface: true
         });
       }
       if (!canPost) {

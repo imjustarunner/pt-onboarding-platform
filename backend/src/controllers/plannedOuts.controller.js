@@ -277,6 +277,7 @@ function normalizePayload(body = {}, timeZone = DEFAULT_SCHEDULE_TZ) {
 
   return {
     cancelScheduledItems:body.cancelScheduledItems !== false,
+    cancelScopes:Array.isArray(body.cancelScopes) ? body.cancelScopes : undefined,
     timeZone: tz,
     spanType: allDay ? 'all_day' : spanType,
     halfDayPart,
@@ -631,7 +632,9 @@ export const updatePlannedOut = async (req, res, next) => {
         emergenciesRedirectUserId: req.body?.emergenciesRedirectUserId ?? row.emergencies_redirect_user_id,
         emergenciesRedirectName: req.body?.emergenciesRedirectName ?? row.emergencies_redirect_name,
         contactPreference: req.body?.contactPreference ?? row.contact_preference,
-        details: req.body?.details !== undefined ? req.body.details : row.details
+        details: req.body?.details !== undefined ? req.body.details : row.details,
+        cancelScheduledItems: req.body?.cancelScheduledItems,
+        cancelScopes: req.body?.cancelScopes
       }, submitTz);
     } catch (err) {
       return res.status(err.status || 400).json({ error: { message: err.message } });

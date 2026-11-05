@@ -394,7 +394,9 @@ api.interceptors.response.use(
       '/school-reinit',
       '/client-action',
       '/ca/',
-      '/school-referral'
+      '/school-referral',
+      '/family-documents/',
+      '/family-introduction/'
     ];
     const isBrandedKioskPath =
       /\/[^/]+\/kiosk\/?$/.test(path) ||
@@ -404,6 +406,8 @@ api.interceptors.response.use(
       path.includes('/school-events/kiosk');
     const isPublicPath =
       publicPathPrefixes.some((prefix) => path.startsWith(prefix)) ||
+      /\/family-documents\//.test(path) ||
+      /\/family-introduction\//.test(path) ||
       /\/join\/supervision\//.test(path) ||
       /\/join\/team-meeting\//.test(path) ||
       path.includes('/clubs') ||

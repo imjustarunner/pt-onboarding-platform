@@ -31,6 +31,32 @@
       </div>
     </div>
 
+    <section v-if="canSendFamilyDocuments" class="family-documents" aria-label="Family documents">
+      <h4>Family documents</h4>
+      <p>Send school disclosure, Smart ROI, and demographic confirmation together. One guardian gets one link.</p>
+      <p v-if="familyError" class="error">{{ familyError }}</p>
+      <p v-if="familySuccess" class="success">{{ familySuccess }}</p>
+      <div v-if="familyLoading" class="muted">Loading children who share a guardian.</div>
+      <form v-else-if="familyDocs" @submit.prevent="sendFamilyDocuments">
+        <label v-if="familyDocs.guardians.length > 1">
+          Guardian
+          <select v-model="familyGuardianId">
+            <option v-for="guardian in familyDocs.guardians" :key="guardian.guardianUserId" :value="guardian.guardianUserId">{{ guardian.email }}</option>
+          </select>
+        </label>
+        <p v-else-if="!familyDocs.guardians.length">Link a guardian with an email address before sending.</p>
+        <div v-for="child in selectedGuardianChildren" :key="child.id" class="family-child">
+          <strong>{{ child.name }}</strong>
+          <label v-if="!familyDocs.providerOnly"><input v-model="familyChoices[child.id].disclosure" type="checkbox" /> School disclosure</label>
+          <label v-if="!familyDocs.providerOnly"><input v-model="familyChoices[child.id].roi" type="checkbox" /> Smart ROI</label>
+          <label><input v-model="familyChoices[child.id].demographics" type="checkbox" /> Demographic confirmation</label>
+        </div>
+        <button class="btn btn-primary btn-sm" type="submit" :disabled="familySending || !selectedGuardianChildren.length">
+          {{ familySending ? 'Sending…' : 'Send one link' }}
+        </button>
+      </form>
+    </section>
+
     <div v-if="error" class="error">{{ error }}</div>
     <div v-if="success" class="success">{{ success }}</div>
     <div v-if="loading && !disclosure" class="muted">Loading disclosure…</div>
@@ -347,6 +373,61 @@ const terminologyFields = [
 
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const canManage = computed(() => ['super_admin', 'admin', 'support'].includes(roleNorm.value));
+const canSendFamilyDocuments = computed(() => canManage.value || ['provider', 'provider_plus', 'intern', 'intern_plus'].includes(roleNorm.value));
+const familyDocs = ref(null);
+const familyLoading = ref(false);
+const familySending = ref(false);
+const familyError = ref('');
+const familySuccess = ref('');
+const familyGuardianId = ref(0);
+const familyChoices = reactive({});
+const selectedGuardianChildren = computed(() => {
+  const guardian = familyDocs.value?.guardians?.find((row) => Number(row.guardianUserId) === Number(familyGuardianId.value))
+    || familyDocs.value?.guardians?.[0];
+  return guardian?.clients || [];
+});
+function ensureFamilyChoices(children) {
+  for (const child of children || []) {
+    if (!familyChoices[child.id]) familyChoices[child.id] = { disclosure: false, roi: false, demographics: false };
+  }
+}
+async function loadFamilyDocuments() {
+  if (!canSendFamilyDocuments.value || !props.clientId) return;
+  familyLoading.value = true;
+  familyError.value = '';
+  try {
+    const { data } = await api.get(`/family-document-sessions/candidates/${props.clientId}`);
+    familyDocs.value = data;
+    familyGuardianId.value = data.guardians?.[0]?.guardianUserId || 0;
+    for (const guardian of data.guardians || []) ensureFamilyChoices(guardian.clients);
+  } catch (e) {
+    familyError.value = e.response?.data?.error?.message || 'Family documents could not be loaded.';
+  } finally {
+    familyLoading.value = false;
+  }
+}
+async function sendFamilyDocuments() {
+  familySending.value = true;
+  familyError.value = '';
+  familySuccess.value = '';
+  try {
+    const items = selectedGuardianChildren.value.map((child) => ({
+      clientId: child.id,
+      ...familyChoices[child.id]
+    })).filter((item) => item.disclosure || item.roi || item.demographics);
+    const { data } = await api.post('/family-document-sessions', {
+      guardianUserId: familyGuardianId.value,
+      items
+    });
+    familySuccess.value = data.emailSent
+      ? `One link was sent.${data.texted ? ' A text was sent too.' : ''}`
+      : (data.emailError || 'The link was created, but the email was not sent.');
+  } catch (e) {
+    familyError.value = e.response?.data?.error?.message || 'The documents could not be sent.';
+  } finally {
+    familySending.value = false;
+  }
+}
 const canEditTerminology = computed(() => canManage.value);
 const canEditRegulatoryBoards = computed(() => ['super_admin', 'admin'].includes(roleNorm.value));
 
@@ -667,6 +748,7 @@ watch(
 
 onMounted(() => {
   void refresh();
+  void loadFamilyDocuments();
 });
 </script>
 
@@ -674,6 +756,9 @@ onMounted(() => {
 .client-disclosure-panel {
   margin-bottom: 16px;
 }
+.family-documents { margin: 16px 0; padding: 12px; border: 1px solid #d5e4dc; border-radius: 10px; }
+.family-child { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 8px 0; }
+.family-child label { display: flex; gap: 6px; align-items: center; }
 
 .cdp-header {
   display: flex;

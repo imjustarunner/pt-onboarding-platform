@@ -11,6 +11,7 @@ import { ACCOUNT_SECTIONS } from '../config/accountDisplaySections.js';
 import { isSupervisor } from '../utils/helpers.js';
 import { surfaceBoostForQuickNavEntry } from '../utils/resolveCommandSurface.js';
 import { APP_PAGES } from './appPagesData.js';
+import { FAMILY_WELCOME_NAME, FAMILY_WELCOME_SEARCH_TERMS, FAMILY_WELCOME_SECTION_ID, FAMILY_WELCOME_TAGLINE } from '../utils/familyWelcome.js';
 
 export const QUICK_NAV_GROUP_ORDER = [
   'account',
@@ -94,6 +95,8 @@ function buildAccountEntries() {
  */
 function buildAppEntries() {
   return [
+    {id:'family-welcome',label:FAMILY_WELCOME_NAME,description:FAMILY_WELCOME_TAGLINE,group:'account',keywords:[...FAMILY_WELCOME_SEARCH_TERMS,'welcome email','schoolcarebridge'],kind:'dashboard',tab:'my',my:'account',section:FAMILY_WELCOME_SECTION_ID,
+      rolesAny:['provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant']},
     {id:'my-business-cards',label:'My business cards',description:'Review and print your agency business cards.',group:'account',keywords:['business cards','print cards','Avery','QR code'],kind:'dashboard',tab:'my',my:'account',section:'my-business-cards'},
     {
       id: 'workspace-overview',

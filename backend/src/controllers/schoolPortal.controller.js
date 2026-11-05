@@ -833,14 +833,15 @@ function getSchoolStaffPortalAccessMeta(client, accessMap, resolvedStateMap = ne
   };
 }
 
-async function ensureSchoolStaffClientRoiAccess({ userId, role, schoolOrganizationId, clientId }) {
+async function ensureSchoolStaffClientRoiAccess({ userId, role, schoolOrganizationId, clientId, allowNoRoiInterface = false }) {
   if (String(role || '').toLowerCase() !== 'school_staff') {
     return { ok: true };
   }
   const allowed = await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
     clientId,
     schoolOrganizationId,
-    schoolStaffUserId: userId
+    schoolStaffUserId: userId,
+    allowNoRoiInterface
   });
   if (!allowed) {
     return { ok: false, status: 403, message: 'ROI access required for this client' };
@@ -5234,7 +5235,8 @@ export const listClientComments = async (req, res, next) => {
       userId,
       role: roleNorm,
       schoolOrganizationId: orgId,
-      clientId
+      clientId,
+      allowNoRoiInterface: true
     });
     if (!roiAccess.ok) return res.status(roiAccess.status).json({ error: { message: roiAccess.message } });
 
@@ -5308,7 +5310,8 @@ export const getSchoolPortalClientSchoolStaffRoiSummary = async (req, res, next)
       userId,
       role: roleNorm,
       schoolOrganizationId: orgId,
-      clientId
+      clientId,
+      allowNoRoiInterface: true
     });
     if (!roiAccess.ok) return res.status(roiAccess.status).json({ error: { message: roiAccess.message } });
 
@@ -5395,7 +5398,8 @@ export const createClientComment = async (req, res, next) => {
       userId,
       role: roleNorm,
       schoolOrganizationId: orgId,
-      clientId
+      clientId,
+      allowNoRoiInterface: true
     });
     if (!roiAccess.ok) return res.status(roiAccess.status).json({ error: { message: roiAccess.message } });
 

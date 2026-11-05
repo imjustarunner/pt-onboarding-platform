@@ -20,7 +20,7 @@
     <OfferedTimeDialog v-if="offeredTime" :item="offeredTime" @close="offeredTime=null" @released="onOfferReleased" />
     <SchoolSoftScheduleDialog v-if="selectedSchoolSoftBlock" :block="selectedSchoolSoftBlock" :can-cancel-day="canBookFromGrid"
       @close="selectedSchoolSoftBlock = null" @cancel-day="date => { selectedSchoolSoftBlock = null; cancelDayDate = date; }" />
-    <DayCancellationDialog v-if="cancelDayDate" :date="cancelDayDate" :provider-id="Number(userId || authStore.user?.id)"
+    <DayCancellationDialog v-if="cancelDayDate" :date="cancelDayDate" :time-zone="bookingTimezoneIana" :provider-id="Number(userId || authStore.user?.id)"
       :agency-id="Number(effectiveAgencyId || 0)" :agency-options="headerTenantOptions"
       @close="cancelDayDate = ''" @saved="onDayCancelled" />
     <div v-if="scheduleChangeNotice" class="hint" role="status" style="padding:12px;border:1px solid currentColor;border-radius:8px;margin-bottom:12px;">

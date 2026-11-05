@@ -3,6 +3,7 @@ import {
   isSchoolScheduleClientLocked,
   schoolStaffCanOpenFromState,
   schoolStaffCanCollaborateFromState,
+  schoolStaffCanInterfaceFromState,
   schoolStaffHidesReferralPackets,
   schoolStaffOwnDocumentsOnly,
   schoolStaffRoiLabel
@@ -16,12 +17,13 @@ describe('schoolStaffRoiLabels', () => {
     expect(schoolStaffRoiLabel('packet')).toBe('No ROI on file');
   });
 
-  it('treats limited, speak, all-active, and expired as open', () => {
+  it('treats No ROI, limited, speak, all-active, and expired as open', () => {
+    expect(schoolStaffCanOpenFromState('none')).toBe(true);
+    expect(schoolStaffCanOpenFromState('packet')).toBe(true);
     expect(schoolStaffCanOpenFromState('limited')).toBe(true);
     expect(schoolStaffCanOpenFromState('roi')).toBe(true);
     expect(schoolStaffCanOpenFromState('roi_docs')).toBe(true);
     expect(schoolStaffCanOpenFromState('expired')).toBe(true);
-    expect(schoolStaffCanOpenFromState('packet')).toBe(false);
   });
 
   it('keeps own-document scope off for ROI All Active', () => {
@@ -49,20 +51,23 @@ describe('schoolStaffRoiLabels', () => {
     })).toBe(false);
     expect(isSchoolScheduleClientLocked({
       school_staff_effective_access_state: 'packet',
-      school_portal_can_open: false,
-      school_portal_force_placeholder: true
-    })).toBe(true);
+      school_portal_can_open: true,
+      school_portal_force_placeholder: false
+    })).toBe(false);
   });
 });
 
 it('keeps expired-ROI schedule entries open despite a stale lock flag without unlocking missing ROI',()=>{
  expect(isSchoolScheduleClientLocked({school_staff_effective_access_state:'expired',school_portal_can_open:false,school_portal_force_placeholder:true})).toBe(false);
- expect(isSchoolScheduleClientLocked({school_staff_effective_access_state:'none',school_portal_can_open:false})).toBe(true);
+ expect(isSchoolScheduleClientLocked({school_staff_effective_access_state:'none',school_portal_can_open:true})).toBe(false);
 });
 
 it('keeps expired overviews open but blocks all collaboration', () => {
   expect(schoolStaffCanOpenFromState('expired')).toBe(true);
   expect(schoolStaffCanCollaborateFromState('expired')).toBe(false);
+  expect(schoolStaffCanInterfaceFromState('none')).toBe(true);
+  expect(schoolStaffCanInterfaceFromState('packet')).toBe(true);
+  expect(schoolStaffCanCollaborateFromState('none')).toBe(false);
   for (const state of ['limited', 'roi', 'roi_docs']) expect(schoolStaffCanCollaborateFromState(state)).toBe(true);
   expect(isSchoolScheduleClientLocked({school_staff_effective_access_state: 'expired', school_portal_can_open: false})).toBe(false);
 });

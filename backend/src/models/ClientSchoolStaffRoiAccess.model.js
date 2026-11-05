@@ -91,21 +91,11 @@ export function isRoiExpired(roiExpiresAt) {
 }
 
 export function getEffectiveSchoolStaffRoiState(record, roiExpiresAt, { schoolStaffInOrg = false } = {}) {
-  const expired = isRoiExpired(roiExpiresAt);
-  if (!record || !toBool(record.is_active)) {
-    if (schoolStaffInOrg && !expired) return 'limited';
-    // An existing dated ROI may expire before per-staff grants were introduced.
-    // Keep its overview available to school members; never revive revoked grants.
-    if (!record && schoolStaffInOrg && roiExpiresAt && Number.isFinite(new Date(roiExpiresAt).getTime())) return 'expired';
-    return 'none';
-  }
+  if (!record || !toBool(record.is_active)) return 'none';
   const accessLevel = normalizeAccessLevel(record.access_level);
-  // Legacy "No ROI on file" (packet) upgrades to ROI Active when the client ROI date is current.
-  if (accessLevel === 'packet') {
-    if (!expired) return 'limited';
-    return 'packet';
-  }
-  if (expired) return 'expired';
+  // A stored No ROI grant stays No ROI. A current client ROI date is not a personal grant.
+  if (accessLevel === 'packet') return 'packet';
+  if (isRoiExpired(roiExpiresAt)) return 'expired';
   if (accessLevel === 'limited') return 'limited';
   return accessLevel === 'roi_docs' ? 'roi_docs' : 'roi';
 }
@@ -118,12 +108,8 @@ export function getEffectiveSchoolStaffRoiState(record, roiExpiresAt, { schoolSt
  */
 export function schoolStaffCanOpenClient(record, roiExpiresAt, opts = {}) {
   const effectiveState = getEffectiveSchoolStaffRoiState(record, roiExpiresAt, opts);
-  return (
-    effectiveState === 'limited'
-    || effectiveState === 'roi'
-    || effectiveState === 'roi_docs'
-    || effectiveState === 'expired'
-  );
+  if (effectiveState === 'none' || effectiveState === 'packet') return opts.schoolStaffInOrg === true;
+  return effectiveState === 'limited' || effectiveState === 'roi' || effectiveState === 'roi_docs' || effectiveState === 'expired';
 }
 
 export function schoolStaffCanViewClientDocuments(record, roiExpiresAt, opts = {}) {
@@ -433,7 +419,8 @@ class ClientSchoolStaffRoiAccess {
     schoolStaffUserId,
     requireDocumentAccess = false,
     includeLimited = true,
-    allowExpiredOverview = false
+    allowExpiredOverview = false,
+    allowNoRoiInterface = false
   }) {
     const state = await this.resolveSchoolStaffClientAccessState({
       clientId,
@@ -441,6 +428,8 @@ class ClientSchoolStaffRoiAccess {
       schoolStaffUserId
     });
     if (requireDocumentAccess) return state === 'roi_docs';
+    // No personal grant stays No ROI. Overview, comments, and tickets use allowNoRoiInterface.
+    if ((state === 'none' || state === 'packet') && allowNoRoiInterface) return true;
     // Expired ROI permits only the basic client overview, never collaboration.
     if (state === 'expired') return allowExpiredOverview;
     // includeLimited is kept for callers; limited is ROI Active (portal except referral docs).

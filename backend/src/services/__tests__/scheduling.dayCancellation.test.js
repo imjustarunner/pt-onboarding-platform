@@ -20,7 +20,7 @@ beforeEach(() => {
   const execute = vi.fn(async (sql, args = []) => {
     if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
     if (sql.includes('RELEASE_LOCK')) return [[{ released: 1 }]];
-    if (sql.startsWith('INSERT INTO provider_day_cancellations')) { record = { token: args[0], provider_id: args[1], actor_user_id: args[2], cancellation_date: args[3], plan_json: args[4], results_json: '{}', status: 'preview', expires_at: '2026-11-01 01:00:00' }; return [{ affectedRows: 1 }]; }
+    if (sql.startsWith('INSERT INTO provider_day_cancellations')) { record = { token: args[0], provider_id: args[1], actor_user_id: args[2], cancellation_date: args[3], plan_json: args[4], results_json: '{}', status: 'preview', expires_at: '2026-11-05 01:00:00' }; return [{ affectedRows: 1 }]; }
     if (sql.startsWith('SELECT * FROM provider_day_cancellations WHERE provider_id')) return [[record].filter(r => r && r.provider_id === args[0] && r.actor_user_id === args[1] && ['processing', 'partial','completed'].includes(r.status))];
     if (sql.startsWith('SELECT * FROM provider_day_cancellations')) return [[record].filter(r => r && r.token === args[0] && (args.length === 1 || r.actor_user_id === args[1]))];
     if (sql.includes("SET status='processing'")) { record.status = 'processing'; return [{}]; }
@@ -32,7 +32,7 @@ beforeEach(() => {
   });
   const conn = { execute, beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() };
   database = { execute, getConnection: vi.fn(async () => conn) };
-  dependencies = { database, now: () => new Date('2026-11-01T00:00:00Z'), timeZone: async () => 'America/Denver', providerName: async () => 'Avery QA',
+  dependencies = { database, now: () => new Date('2026-11-04T15:00:00Z'), timeZone: async () => 'America/Denver', providerName: async () => 'Avery QA',
     encrypt: vi.fn(s => JSON.stringify({ testEncrypted: s })), decrypt: s => JSON.parse(s).testEncrypted,
     listAppointments: vi.fn(async () => structuredClone(appointments)), getAppointment: vi.fn(async id => structuredClone(appointments.find(a => a.id === id))),
     participants: vi.fn(async () => structuredClone(recipients)), previewAppointment: vi.fn(async () => ({ narrative: 'Provider unavailable. No service rendered.' })),
@@ -218,6 +218,12 @@ describe('selected sessions, dates and reviewed outreach', () => {
     await apply(plan); expect(blocks).toHaveLength(0);
     expect(appointments[0].status).toBe('scheduled'); expect(appointments[1].status).toBe('canceled_by_provider');
     expect(dependencies.editPublication).not.toHaveBeenCalled();
+  });
+  it('asks for Planned Out when urgent Cancel Day is more than two days ahead', async () => {
+    await expect(service.preview({ ...input, date: '2026-11-07', dates: ['2026-11-07'] }, actor, authorize, appointmentAccess)).rejects.toThrow('Please use Planned Out.');
+    dependencies.participation = vi.fn(async () => []);
+    service = createDayCancellationService(dependencies);
+    await expect(service.preview({ ...input, urgent: false, reasonCategory: 'planned_out', absenceSource: 'planned_out', timeZone: 'America/Denver', date: '2026-11-16', dates: ['2026-11-16'] }, actor, authorize, appointmentAccess)).resolves.toMatchObject({ date: '2026-11-16' });
   });
   it('blocks each selected date with its own timezone bounds and keeps shared reasons', async () => {
     const plan = await service.preview({ ...input, dates: ['2026-11-04','2026-11-05'] }, actor, authorize, appointmentAccess);

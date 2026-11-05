@@ -6,11 +6,12 @@ import { schoolStaffCanCollaborateFromState, schoolStaffOwnDocumentsOnly } from 
 
 const scope = { clientId: 1, schoolOrganizationId: 2, schoolStaffUserId: 3 };
 describe('expired school ROI boundaries', () => {
-  it('opens expired legacy overviews while keeping missing or revoked grants locked', () => {
-    assert.equal(getEffectiveSchoolStaffRoiState(null, '2020-01-01', { schoolStaffInOrg: true }), 'expired');
+  it('keeps a missing grant as No ROI and still opens that school overview', () => {
+    assert.equal(getEffectiveSchoolStaffRoiState(null, '2020-01-01', { schoolStaffInOrg: true }), 'none');
     assert.equal(getEffectiveSchoolStaffRoiState(null, null, { schoolStaffInOrg: true }), 'none');
     assert.equal(getEffectiveSchoolStaffRoiState({ is_active: false }, '2020-01-01', { schoolStaffInOrg: true }), 'none');
-    assert.equal(getEffectiveSchoolStaffRoiState(null, '2020-01-01'), 'none');
+    assert.equal(schoolStaffCanOpenClient(null, '2026-06-01', { schoolStaffInOrg: true }), true);
+    assert.equal(schoolStaffCanOpenClient(null, '2026-06-01'), false);
   });
   it('permits the overview while denying comments, messages, and document access', async () => {
     mock.method(ClientSchoolStaffRoiAccess, 'resolveSchoolStaffClientAccessState', async () => 'expired');
@@ -26,6 +27,7 @@ describe('expired school ROI boundaries', () => {
     for (const state of ['none', 'packet', 'limited', 'roi', 'roi_docs']) {
       mock.method(ClientSchoolStaffRoiAccess, 'resolveSchoolStaffClientAccessState', async () => state);
       assert.equal(await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess(scope), ['limited', 'roi', 'roi_docs'].includes(state));
+      assert.equal(await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({ ...scope, allowNoRoiInterface: true }), ['none', 'packet', 'limited', 'roi', 'roi_docs'].includes(state));
       mock.restoreAll();
     }
   });

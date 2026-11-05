@@ -9,37 +9,31 @@ import {
 const nextYear = `${new Date().getFullYear() + 1}-06-01`;
 
 describe('getEffectiveSchoolStaffRoiState', () => {
-  it('upgrades packet / No ROI on file to ROI Active when the client ROI is current', () => {
+  it('keeps a No ROI grant labeled No ROI even when the client ROI date is current', () => {
     const state = getEffectiveSchoolStaffRoiState(
       { access_level: 'packet', is_active: 1 },
-      nextYear
+      nextYear,
+      { schoolStaffInOrg: true }
     );
-    assert.equal(state, 'limited');
+    assert.equal(state, 'packet');
     assert.equal(
-      schoolStaffCanOpenClient({ access_level: 'packet', is_active: 1 }, nextYear),
+      schoolStaffCanOpenClient({ access_level: 'packet', is_active: 1 }, nextYear, { schoolStaffInOrg: true }),
       true
     );
   });
 
-  it('keeps packet locked when the client ROI is expired or missing', () => {
-    assert.equal(
-      getEffectiveSchoolStaffRoiState({ access_level: 'packet', is_active: 1 }, null),
-      'packet'
-    );
-    assert.equal(
-      schoolStaffCanOpenClient({ access_level: 'packet', is_active: 1 }, null),
-      false
-    );
-  });
-
-  it('treats no record as ROI Active for school staff in the org when ROI is current', () => {
+  it('keeps a missing grant as No ROI for school members and still opens the overview', () => {
     assert.equal(
       getEffectiveSchoolStaffRoiState(null, nextYear, { schoolStaffInOrg: true }),
-      'limited'
+      'none'
     );
     assert.equal(
-      getEffectiveSchoolStaffRoiState(null, nextYear, { schoolStaffInOrg: false }),
-      'none'
+      schoolStaffCanOpenClient(null, nextYear, { schoolStaffInOrg: true }),
+      true
+    );
+    assert.equal(
+      schoolStaffCanOpenClient(null, nextYear, { schoolStaffInOrg: false }),
+      false
     );
   });
 });

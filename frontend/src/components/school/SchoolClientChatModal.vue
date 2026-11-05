@@ -538,6 +538,7 @@ import { assignedDayDisplay, displaySchoolClientStatusLabel } from '../../utils/
 import {
   schoolStaffOwnDocumentsOnly,
   schoolStaffCanCollaborateFromState,
+  schoolStaffCanInterfaceFromState,
   schoolStaffRoiHover
 } from '../../utils/schoolStaffRoiLabels.js';
 
@@ -563,7 +564,7 @@ const schoolStaffEffectiveState = computed(() =>
   String(props.client?.school_staff_effective_access_state || schoolStaffAccessLevel.value || '').trim().toLowerCase()
 );
 const schoolStaffRoiExpired = computed(() => isSchoolStaff.value && schoolStaffEffectiveState.value === 'expired');
-const canViewCollaboration = computed(() => !isSchoolStaff.value || schoolStaffCanCollaborateFromState(schoolStaffEffectiveState.value));
+const canViewCollaboration = computed(() => !isSchoolStaff.value || schoolStaffCanInterfaceFromState(schoolStaffEffectiveState.value));
 const canViewClientDocuments = computed(() => {
   if (isSchoolStaff.value) {
     return schoolStaffCanCollaborateFromState(schoolStaffEffectiveState.value);

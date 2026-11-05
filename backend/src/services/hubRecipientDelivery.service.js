@@ -119,7 +119,7 @@ export async function resolveRecipientDeliveryGate({
   }
 
   const whenLabel = formatReceiveWhen(holdUntil, scheduleTz);
-  const message = `${name} is not currently in and will receive this message on ${whenLabel}.`;
+  const message = `${name} is not currently in. The message will be in the app. They will not get a waiting-message email or text until they are back${whenLabel ? ` on ${whenLabel}` : ''}.`;
 
   return {
     availableNow: false,

@@ -40,6 +40,26 @@ const confirmedUnsentFamily = (item,result) => {
     && (!delivery?.deliveries?.length || delivery.deliveries.every(row=>row.status==='skipped' && !row.external_message_id));
 };
 
+export function localCalendarDate(now, timeZone) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+}
+
+export const PLANNED_OUT_CANCEL_SCOPES = Object.freeze(['school', 'office', 'virtual', 'other']);
+
+export function normalizeCancelScopes(value, { absenceSource, cancelScheduledItems = true } = {}) {
+  if (absenceSource !== 'planned_out') return null;
+  if (cancelScheduledItems === false) return [];
+  if (!Array.isArray(value)) return [...PLANNED_OUT_CANCEL_SCOPES];
+  return [...new Set(value.filter(scope => PLANNED_OUT_CANCEL_SCOPES.includes(scope)))];
+}
+
+function sessionScope(appointment, schoolName) {
+  const modality = String(appointment?.modality || '').toUpperCase();
+  if (['VIRTUAL', 'TELEHEALTH', 'VIDEO'].includes(modality)) return 'virtual';
+  if (schoolName || appointment?.schoolOrganizationId) return 'school';
+  return 'office';
+}
+
 export function dayBounds(date, timeZone) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date)) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date) throw fail('Choose a valid date.');
   const bounds = { start: wallMysqlToUtcMysql(`${date} 00:00:00`, timeZone), end: wallMysqlToUtcMysql(`${addDaysYmd(date, 1)} 00:00:00`, timeZone) };
@@ -57,10 +77,12 @@ export function dayCancellationFacts(input = {}) {
   const followUpAction = input.urgent === false ? 'none' : input.followUpAction || 'none';
   if (!['client_contact_support', 'none', 'keep_next_or_support', 'private_slots'].includes(followUpAction)) throw fail('Choose a supported follow-up option.');
   const notification = validateCancellationChoices({ ...input, followUpAction, eventType: 'canceled' });
-  return { eventType: 'canceled', initiator: 'provider', reasons: ['provider_unavailable'],
+  const facts = { eventType: 'canceled', initiator: 'provider', reasons: ['provider_unavailable'],
     reasonOther: '', reasonCategory, clientFacingReason, ...notification, urgent, emailOnly: true,
     absenceSource: input.absenceSource || 'cancel_day',
     offerDays: input.offerDays || 2, offeredSlots: input.offeredSlots || [], followUpAction, followUpMessage: String(input.followUpMessage || '').trim().slice(0, 1000), signatureConfirmed: true };
+  if (facts.absenceSource === 'planned_out') facts.cancelScopes = normalizeCancelScopes(input.cancelScopes, { absenceSource: 'planned_out', cancelScheduledItems: input.cancelScheduledItems !== false });
+  return facts;
 }
 
 // Dependencies are injectable so recovery and authorization can be exercised without sending notifications.
@@ -112,6 +134,7 @@ export function createDayCancellationService(overrides = {}) {
         if (isCanceled(a.status) || items.some(i => i.key === `appointment:${a.id}`)) continue;
         if (plan.appointmentIds && !plan.appointmentIds.includes(Number(a.id))) continue;
         await authorizeAppointment(actor, a);
+        if (Array.isArray(plan.facts.cancelScopes) && !plan.facts.cancelScopes.includes(sessionScope(a, await deps.schoolName(a)))) continue;
         const item = { key: `appointment:${a.id}`, kind: 'appointment', id: a.id, agencyId, timeZone, date,
           title: a.title || 'Client appointment', startAt: stamp(a.startAt), endAt: stamp(a.endAt), source: { status: a.status, updatedAt: stamp(a.updatedAt), participants: await deps.participants(a.id) } };
         item.recipients = item.source.participants.filter(p => p.clientId).map(p => p.displayName || `Client record #${p.clientId}`);
@@ -152,7 +175,8 @@ export function createDayCancellationService(overrides = {}) {
         item.followUpPreview = plan.facts.followUpAction && plan.facts.followUpAction !== 'none' ? emailPreview.followUpText : '';
         items.push(item);
       }
-      if (plan.scopeMode === 'days') {
+      const notifySchoolOffice = plan.facts.absenceSource === 'planned_out' ? plan.facts.cancelScopes?.includes('school') === true : plan.facts.urgent !== false;
+      if (plan.scopeMode === 'days' && (!plan.facts.cancelScopes || plan.facts.cancelScopes.includes('school'))) {
         // A real appointment (including started/completed/canceled sessions) takes precedence over the soft roster.
         const scheduledClients = new Set();
         for (const appointment of appointments) for (const p of await deps.participants(appointment.id)) if (p.clientId) scheduledClients.add(Number(p.clientId));
@@ -174,14 +198,16 @@ export function createDayCancellationService(overrides = {}) {
           items.push({ ...reviewed, timeZone, startAt: stamp(start), endAt: stamp(end) });
         }
       }
-      if (plan.facts.urgent !== false && (plan.scopeMode === 'days' || items.some(i => i.kind === 'appointment' && i.date === date && i.agencyId === agencyId))) {
+      if (notifySchoolOffice && (plan.scopeMode === 'days' || items.some(i => i.kind === 'appointment' && i.date === date && i.agencyId === agencyId))) {
         for (const school of await deps.schools({ providerId: plan.providerId, agencyId, date, reason: plan.facts.clientFacingReason, reasonCategory: plan.facts.reasonCategory, providerAuthored: plan.facts.providerAuthored, wholeDay: plan.scopeMode === 'days', note: plan.facts.followUpMessage })) {
           const reviewed = deps.schoolReview(school, plan.schoolChoices?.[school.key], false);
           items.push({ ...reviewed, providerId:plan.providerId,notificationScope:plan.scopeMode === 'sessions' ? `sessions:${plan.appointmentIds.join(',')}` : 'days', timeZone, source: { recipients: school.recipients }, startAt: stamp(start), endAt: stamp(end) });
         }
       }
       if (plan.scopeMode === 'sessions') continue;
-      for (const kind of ['meeting', 'supervision']) {
+      const otherEvents = !plan.facts.cancelScopes || plan.facts.cancelScopes.includes('other');
+      if (!otherEvents && plan.facts.absenceSource === 'planned_out') continue;
+      if (otherEvents) for (const kind of ['meeting', 'supervision']) {
         const table = kind === 'meeting' ? 'provider_schedule_events' : 'supervision_sessions';
         const host = kind === 'meeting' ? 'provider_id' : 'supervisor_user_id';
         const [rows] = await db.execute(`SELECT * FROM ${table} WHERE agency_id=? AND ${host}=? AND status<> 'CANCELLED'
@@ -257,6 +283,7 @@ export function createDayCancellationService(overrides = {}) {
         if (bounds.start >= bounds.end) continue;
       }
       if (utc(bounds.end) <= deps.now()) { if (plan.facts.absenceSource === 'planned_out') continue; throw fail('Choose today or a future day.'); }
+      if (plan.facts.absenceSource !== 'planned_out' && plan.facts.urgent !== false && date > addDaysYmd(localCalendarDate(deps.now(), timeZone), 2)) throw fail('Please use Planned Out.');
       plan.scopes.push({ agencyId, timeZone, date, ...bounds });
     }
     Object.assign(plan, await inventory(plan, actor, authorizeAppointment));
@@ -433,7 +460,8 @@ export function createDayCancellationService(overrides = {}) {
         required: plan.messagesReviewed, urgent: plan.facts.urgent, providerAuthored: plan.facts.providerAuthored, reasonCategory: plan.facts.reasonCategory, absenceSource: plan.facts.absenceSource, followUpAction: plan.facts.followUpAction, followUpMessage: plan.facts.followUpMessage }),
         timeZone: saved.timeZone, startAt: saved.startAt, endAt: saved.endAt });
     }
-    for (const scope of !plan.unsentRecovery && plan.facts.urgent !== false ? plan.scopes : []) for (const school of await deps.schools({ providerId: plan.providerId, agencyId: scope.agencyId, date: scope.date || plan.date, reason: plan.facts.clientFacingReason, reasonCategory: plan.facts.reasonCategory, providerAuthored: plan.facts.providerAuthored, wholeDay: plan.scopeMode === 'days', note: plan.facts.followUpMessage })) {
+    const refreshSchoolNotices = !plan.unsentRecovery && (plan.facts.absenceSource === 'planned_out' ? plan.facts.cancelScopes?.includes('school') === true : plan.facts.urgent !== false);
+    for (const scope of refreshSchoolNotices ? plan.scopes : []) for (const school of await deps.schools({ providerId: plan.providerId, agencyId: scope.agencyId, date: scope.date || plan.date, reason: plan.facts.clientFacingReason, reasonCategory: plan.facts.reasonCategory, providerAuthored: plan.facts.providerAuthored, wholeDay: plan.scopeMode === 'days', note: plan.facts.followUpMessage })) {
       if (plan.scopeMode === 'sessions' && !items.some(i => i.agencyId === scope.agencyId && i.date === (scope.date || plan.date))) continue;
       items.push({ ...deps.schoolReview(school, plan.schoolChoices?.[school.key], false), source: { recipients: school.recipients }, timeZone: scope.timeZone });
     }
@@ -480,8 +508,11 @@ export function createDayCancellationService(overrides = {}) {
     if (!row) throw fail('This Planned Out review is unavailable. Review it again.',409);
     const plan = JSON.parse(deps.decrypt(typeof row.plan_json === 'string' ? row.plan_json : JSON.stringify(row.plan_json)));
     await authorize(actor,plan.providerId,plan.scopes.map(s=>s.agencyId));
+    const reviewedScopes = JSON.stringify(plan.facts.cancelScopes || null);
+    const submittedScopes = JSON.stringify(normalizeCancelScopes(input.cancelScopes, { absenceSource: input.absenceSource || plan.facts.absenceSource, cancelScheduledItems: input.cancelScheduledItems !== false }));
     if (!plan.messagesReviewed || plan.facts.absenceSource !== 'planned_out' || utc(row.expires_at) <= deps.now()
       || plan.providerId !== Number(input.providerId) || JSON.stringify(plan.dates) !== JSON.stringify(input.dates)
+      || reviewedScopes !== submittedScopes
       || plan.scopes.some(s => !input.agencyIds.includes(s.agencyId) || s.timeZone !== input.timeZone)
       || (plan.windowStart || null) !== (input.windowStart || null) || (plan.windowEnd || null) !== (input.windowEnd || null)) throw fail('Planned Out changed or its review expired. Review the affected items again.',409);
     return response(row,plan,{});

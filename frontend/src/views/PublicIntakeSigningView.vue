@@ -2789,12 +2789,18 @@
             </p>
             <div v-if="returnToPath" class="intake-thankyou-return" style="margin: 14px 0;">
               <p class="muted" style="margin-bottom: 8px;">
-                {{ returnToPath.includes('/packet/')
+                {{ returnToPath.includes('/family-documents/')
+                  ? 'This document is signed. Continue to the next one on the same link.'
+                  : returnToPath.includes('/packet/')
                   ? 'Return to your coaching onboarding packet to finish the remaining steps.'
                   : 'Return to your secure pre-hire portal (no login needed) to continue tasks or save your personal link.' }}
               </p>
               <a class="btn btn-primary" :href="returnToPath">
-                {{ returnToPath.includes('/packet/') ? 'Return to your onboarding packet' : 'Return to your portal' }}
+                {{ returnToPath.includes('/family-documents/')
+                  ? 'Continue to the next document'
+                  : returnToPath.includes('/packet/')
+                  ? 'Return to your onboarding packet'
+                  : 'Return to your portal' }}
               </a>
             </div>
             <ul
@@ -4121,6 +4127,8 @@ const returnToPath = computed(() => {
   // Pre-hire portal return OR practitioner packet wizard return
   if (raw.startsWith('/pre-hire/')) return raw;
   if (/^\/[^/]+\/packet\/[A-Za-z0-9_-]+/.test(raw)) return raw;
+  if (/^\/family-documents\/[A-Za-z0-9]+$/.test(raw)) return raw;
+  if (/^\/[^/]+\/family-documents\/[A-Za-z0-9]+$/.test(raw)) return raw;
   return '';
 });
 // Back-compat alias used by thank-you CTA

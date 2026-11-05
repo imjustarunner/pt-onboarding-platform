@@ -1,10 +1,10 @@
 <template>
   <section v-if="info" class="delivery-choice" role="alert" aria-label="Choose when this message is received">
     <p>{{ info.message || 'This person is not currently in.' }}</p>
-    <p v-if="when">They will receive this message on {{ when }}.</p>
+    <p v-if="when && info.channel !== 'internal'">They will receive this message on {{ when }}.</p>
     <div>
       <button v-if="info.channel !== 'internal'" type="button" :disabled="busy" @click="$emit('choose', 'now')">Send now</button>
-      <button type="button" :disabled="busy" @click="$emit('choose', 'next_available')">{{ info.channel === 'internal' ? 'Deliver it then' : 'Send at next availability' }}</button>
+      <button type="button" :disabled="busy" @click="$emit('choose', info.channel === 'internal' ? 'deliver_anyway' : 'next_available')">{{ info.channel === 'internal' ? 'Understood, Deliver it Anyway' : 'Send at next availability' }}</button>
       <button type="button" :disabled="busy" @click="$emit('cancel')">Keep editing</button>
     </div>
   </section>

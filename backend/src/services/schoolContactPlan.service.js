@@ -9,7 +9,10 @@ export const SCHOOL_CONTACT_DEMO_AGENCY_ID = 450;
 export const SCHOOL_CONTACT_TEST_INBOX = 'testing@itsco.health';
 export { DEFAULT_SCHOOL_CONTACT_TEMPLATE } from './schoolContactTemplates.js';
 import { DEFAULT_SCHOOL_CONTACT_TEMPLATE, DEFAULT_SECOND_CONTACT_TEMPLATE, DEFAULT_FINAL_CONTACT_TEMPLATE, DEFAULT_CONTACT_SMS_TEMPLATE, SCHOOL_CONTACT_SUBJECTS,preferredSchoolContactTemplate } from './schoolContactTemplates.js';
+import { buildProviderIntroductionPdf, introductionPdfAttachment, providerProfileUrl } from './familyWelcomeAssets.service.js';
+export const FAMILY_WELCOME_NAME = 'Family Welcome & Follow-Up';
 const TOKENS = ['parent_name', 'provider_name', 'school_name', 'service_day'];
+const OPTIONAL_TOKENS = ['profile_link'];
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const parse = value => { try { return typeof value === 'string' ? JSON.parse(value) : value || {}; } catch { return {}; } };
 const email = value => String(value || '').trim().toLowerCase();
@@ -29,13 +32,22 @@ export function validateSchoolContactTemplate(value) {
   if (template.length < 80 || template.length > 6000) throw fail('Keep your message between 80 and 6,000 characters.');
   if (/<[^>]*>/.test(template)) throw fail('Use plain text in your contact message.');
   for (const token of TOKENS) if (!template.includes(`{{${token}}}`)) throw fail(`Keep the {{${token}}} placeholder in your message.`);
-  const unknown = [...template.matchAll(/{{\s*([^}]+)\s*}}/g)].find(match => !TOKENS.includes(match[1]));
-  if (unknown) throw fail('Use only the four supported name, school, and day placeholders.');
+  const unknown = [...template.matchAll(/{{\s*([^}]+)\s*}}/g)].find(match => ![...TOKENS, ...OPTIONAL_TOKENS].includes(match[1]));
+  if (unknown) throw fail('Use only the supported name, school, day, and profile link placeholders.');
   return template;
 }
 
 export function renderSchoolContactTemplate(template, values) {
-  return validateSchoolContactTemplate(template).replace(/{{(parent_name|provider_name|school_name|service_day)}}/g, (_, key) => String(values[key] || ''));
+  return validateSchoolContactTemplate(template).replace(/{{(parent_name|provider_name|school_name|service_day|profile_link)}}/g, (_, key) => String(values[key] || ''));
+}
+
+function linkedEmailHtml(text, profileUrl) {
+  let html = escapeHtml(text).replaceAll('\n', '<br>');
+  if (profileUrl && /^https?:\/\//.test(profileUrl)) {
+    const safe = escapeHtml(profileUrl);
+    html = html.replaceAll(safe, `<a href="${safe}">${safe}</a>`);
+  }
+  return `<div style="font:16px/1.65 Arial,sans-serif;color:#203847">${html}</div>`;
 }
 
 export function schoolContactRouting(provider, from = 'messages@itsco.health', agency = {}) {
@@ -90,12 +102,16 @@ export async function getContactPlanContext({ agencyId, userId, requireEligible 
 function planDto(ctx, plan = {}, from) {
   const template = preferredSchoolContactTemplate(plan.template);
   const providerName = [ctx.provider.first_name, ctx.provider.last_name].filter(Boolean).join(' ') || 'Provider name';
+  const profileUrl = providerProfileUrl(ctx.agency, ctx.provider);
   return { eligible: ctx.eligible, agencyId: ctx.agencyId, demoOnly: true, mandatory: ctx.mandatory || flag(plan.required_by_admin), status: plan.status || 'unconfigured',
+    featureName: FAMILY_WELCOME_NAME, includePdf: plan.include_pdf === undefined || plan.include_pdf === null ? true : flag(plan.include_pdf),
+    welcomeSeen: !!plan.welcome_seen_at, profileUrl, agencyName: ctx.agency.name, previewValues: { profile_link: profileUrl, agency_name: ctx.agency.name },
     recommendedTemplates:{template:DEFAULT_SCHOOL_CONTACT_TEMPLATE,secondTemplate:DEFAULT_SECOND_CONTACT_TEMPLATE,finalTemplate:DEFAULT_FINAL_CONTACT_TEMPLATE,smsTemplate:DEFAULT_CONTACT_SMS_TEMPLATE},
     template, secondTemplate:plan.second_template || DEFAULT_SECOND_CONTACT_TEMPLATE, finalTemplate:plan.final_template || DEFAULT_FINAL_CONTACT_TEMPLATE, smsTemplate:plan.sms_template || DEFAULT_CONTACT_SMS_TEMPLATE,
     smsAfterDays:2, emailAfterDays:4, staleAfterHours:48, providerNoticeAfterDays:6, reminderEveryHours:48,
     routing: schoolContactRouting(ctx.provider, from, ctx.agency), schools: ctx.schools, providerName,
-    preview: { subject: SCHOOL_CONTACT_SUBJECTS.initial_email, body: renderSchoolContactTemplate(template, { parent_name: 'Parent name', provider_name: providerName, school_name: 'Example Middle School', service_day: 'Example Day' }) },
+    subjects: SCHOOL_CONTACT_SUBJECTS,
+    preview: { subject: SCHOOL_CONTACT_SUBJECTS.initial_email, body: renderSchoolContactTemplate(template, { parent_name: 'Parent name', provider_name: providerName, school_name: 'Example Middle School', service_day: 'Example Day', profile_link: profileUrl }) },
     testDestination: SCHOOL_CONTACT_TEST_INBOX };
 }
 
@@ -120,19 +136,26 @@ export async function saveSchoolContactPlan(input, body = {}) {
   if (sms.length < 40 || sms.length > 1000 || /<[^>]*>/.test(sms) || !sms.includes('{{parent_name}}') || !sms.includes('{{provider_name}}')) throw fail('Keep your text between 40 and 1,000 characters and retain the parent and provider fields.');
   if ([...sms.matchAll(/{{\s*([^}]+)\s*}}/g)].some(m => ![...TOKENS,'agency_name'].includes(m[1]))) throw fail('Use only the supported text fields.');
   const timings = [2,4,48];
+  const includePdf = body.includePdf === undefined ? (existing?.include_pdf ?? 1) : (body.includePdf ? 1 : 0);
   // Editing an enabled plan never moves the assignment cutoff. Re-enabling starts
   // a new opt-in window, so old assignments are not unexpectedly contacted.
   const decidedAt = existing?.status === 'enabled' && status === 'enabled' ? existing.decided_at : new Date();
   await pool.execute(`INSERT INTO school_provider_contact_plans
-    (agency_id,provider_user_id,status,template,second_template,final_template,sms_template,sms_after_days,email_after_days,stale_after_hours,decided_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE status=VALUES(status),template=VALUES(template),second_template=VALUES(second_template),final_template=VALUES(final_template),sms_template=VALUES(sms_template),sms_after_days=VALUES(sms_after_days),
-    email_after_days=VALUES(email_after_days),stale_after_hours=VALUES(stale_after_hours),decided_at=VALUES(decided_at)`,
-  [ctx.agencyId, ctx.userId, status, template, second, final, sms, ...timings, decidedAt]);
+    (agency_id,provider_user_id,status,template,second_template,final_template,sms_template,sms_after_days,email_after_days,stale_after_hours,decided_at,include_pdf,welcome_seen_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE status=VALUES(status),template=VALUES(template),second_template=VALUES(second_template),final_template=VALUES(final_template),sms_template=VALUES(sms_template),sms_after_days=VALUES(sms_after_days),
+    email_after_days=VALUES(email_after_days),stale_after_hours=VALUES(stale_after_hours),decided_at=VALUES(decided_at),include_pdf=VALUES(include_pdf),welcome_seen_at=COALESCE(welcome_seen_at,VALUES(welcome_seen_at))`,
+  [ctx.agencyId, ctx.userId, status, template, second, final, sms, ...timings, decidedAt, includePdf]);
   return getSchoolContactPlan(input);
 }
 
+export async function buildFamilyWelcomePdfPreview(input, schoolId = null) {
+  const ctx = await getContactPlanContext(input);
+  const school = ctx.schools.find(s => Number(s.id) === Number(schoolId)) || ctx.schools[0];
+  return buildProviderIntroductionPdf({ agencyId: ctx.agencyId, providerUserId: ctx.userId, schoolId: school.id });
+}
+
 export async function sendSchoolContactEmail({ agencyId, providerUserId, clientId = null, schoolId = null, to, parentName, schoolName, serviceDay,
-  template = DEFAULT_SCHOOL_CONTACT_TEMPLATE, subject = SCHOOL_CONTACT_SUBJECTS.initial_email, body, example = false, conversationId = null, workflowId = null, stepKey = null } = {}) {
+  template = DEFAULT_SCHOOL_CONTACT_TEMPLATE, subject = SCHOOL_CONTACT_SUBJECTS.initial_email, body, example = false, conversationId = null, workflowId = null, stepKey = null, includePdf = null } = {}) {
   const ctx = await getContactPlanContext({ agencyId, userId: providerUserId });
   const mailbox = await resolveMessagesSendMailbox(ctx.agencyId);
   const from = email(mailbox.fromEmail || mailbox.identity?.from_email);
@@ -149,10 +172,23 @@ export async function sendSchoolContactEmail({ agencyId, providerUserId, clientI
   }
   const title = String(subject).trim();
   if (!title || title.length > 200 || /[\r\n]/.test(title)) throw fail('Enter a valid email subject.');
+  const profileUrl = providerProfileUrl(ctx.agency, ctx.provider);
   const text = body === undefined ? renderSchoolContactTemplate(template, {
     parent_name: parentName || 'Parent name', provider_name: [ctx.provider.first_name, ctx.provider.last_name].filter(Boolean).join(' ') || 'Provider name',
-    school_name: schoolName || 'Example Middle School', service_day: serviceDay || 'Example Day'
+    school_name: schoolName || 'Example Middle School', service_day: serviceDay || 'Example Day', profile_link: profileUrl
   }) : String(body).trim();
+  let attachments = null;
+  if ((stepKey === 'initial_email' || (example && !stepKey)) && ctx.schools.length) {
+    let attach = includePdf;
+    if (attach === null) {
+      const [[saved]] = await pool.execute('SELECT include_pdf FROM school_provider_contact_plans WHERE agency_id=? AND provider_user_id=?', [ctx.agencyId, ctx.userId]);
+      attach = saved ? flag(saved.include_pdf) : true;
+    }
+    if (attach) {
+      const pdfSchool = ctx.schools.find(s => Number(s.id) === Number(schoolId)) || ctx.schools[0];
+      attachments = [introductionPdfAttachment(await buildProviderIntroductionPdf({ agencyId: ctx.agencyId, providerUserId: ctx.userId, schoolId: pdfSchool.id }))];
+    }
+  }
   if (!text || text.length > 10000) throw fail('Enter a message of up to 10,000 characters.');
   let conversation;
   if (conversationId) {
@@ -176,7 +212,7 @@ export async function sendSchoolContactEmail({ agencyId, providerUserId, clientI
         VALUES (?,?,?,?,?,DATE_ADD(NOW(),INTERVAL 180 DAY))`,[createHash('sha256').update(token).digest('hex'),ctx.agencyId,conversation.id,null,ctx.userId]);
     }
   }
-  const html = `<div style="font:16px/1.65 Arial,sans-serif;color:#203847">${escapeHtml(text).replaceAll('\n', '<br>')}</div>`;
+  const html = linkedEmailHtml(text, profileUrl);
   const stableMessageId = workflowId && stepKey && /^[a-z0-9_]+$/i.test(String(stepKey))
     ? `<school-contact-${Number(workflowId)}-${stepKey}@itsco.health>` : null;
   const messageId = await Conversation.addMessage({ conversationId: conversation.id, channel: 'email', direction: 'outbound', authorUserId: ctx.userId,
@@ -205,7 +241,7 @@ export async function sendSchoolContactEmail({ agencyId, providerUserId, clientI
     // testing inbox. source:auto prevents generic manual SSO copy expansion.
     const receipt = await sendEmailFromIdentity({ senderIdentityId: mailbox.identity.id, to: SCHOOL_CONTACT_TEST_INBOX,
       cc: example ? SCHOOL_CONTACT_TEST_INBOX : null, bcc: SCHOOL_CONTACT_TEST_INBOX,
-      subject: example ? `[Example] ${title}` : title, text, html, replyToOverride: replyTo,
+      subject: example ? `[Example] ${title}` : title, text, html, attachments, replyToOverride: replyTo,
       fromDisplayNameOverride: [ctx.provider.first_name, ctx.provider.last_name].filter(Boolean).join(' '),
       source: 'auto', templateType: example ? 'school_contact_example' : 'school_contact_plan', generatedByUserId: ctx.userId, internetMessageIdOverride: stableMessageId,
       clientId: example ? null : Number(clientId), schoolOrganizationId: example ? null : Number(schoolId) });
@@ -223,5 +259,6 @@ export async function sendSchoolContactEmail({ agencyId, providerUserId, clientI
 
 export async function sendSchoolContactExample(input, body = {}) {
   const stepKey=['initial_email','second_contact','final_contact'].includes(body.stepKey)?body.stepKey:'initial_email';
-  return sendSchoolContactEmail({agencyId:input.agencyId,providerUserId:input.userId,template:validateSchoolContactTemplate(body.template),subject:SCHOOL_CONTACT_SUBJECTS[stepKey],example:true});
+  return sendSchoolContactEmail({agencyId:input.agencyId,providerUserId:input.userId,template:validateSchoolContactTemplate(body.template),subject:SCHOOL_CONTACT_SUBJECTS[stepKey],example:true,
+    stepKey:stepKey==='initial_email'?'initial_email':null,includePdf:stepKey==='initial_email'?body.includePdf!==false:false});
 }

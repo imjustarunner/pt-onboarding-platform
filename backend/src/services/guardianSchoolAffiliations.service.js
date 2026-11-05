@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import { guardianCanReadIntakeDocuments } from '../utils/guardianDocumentAccess.js';
+import { portalProfilePath } from './familyIntroduction.logic.js';
 
 // Display context only: an affiliation never grants school staff or guardian access.
 // Call with the already-authorized, guardian-safe overview rows, never request IDs.
@@ -37,8 +38,31 @@ export async function attachGuardianSchoolAffiliations(clients = [], { guardianU
   if (!schoolClients.length) return result;
   const schoolIds = schoolClients.map(c => Number(c.client_id));
   const placeholders = schoolIds.map(() => '?').join(',');
-  const [[providers], [staff], [rois]] = await Promise.all([
-    pool.execute(`SELECT p.client_id, p.organization_id, p.service_day, p.is_active,
+  const providerSql = `SELECT p.client_id, p.organization_id, p.service_day, p.is_active, p.provider_user_id,
+                         TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))) AS name,
+                         (SELECT DATE_FORMAT(s.start_time, '%h:%i %p') FROM soft_schedule_slots s
+                           WHERE s.client_id=p.client_id AND s.provider_user_id=p.provider_user_id
+                             AND s.school_organization_id=p.organization_id AND s.start_time IS NOT NULL
+                           ORDER BY (LOWER(CAST(s.weekday AS CHAR))=LOWER(COALESCE(p.service_day,''))) DESC, s.slot_index LIMIT 1) AS soft_time,
+                         ag.slug AS agency_slug
+                  FROM client_provider_assignments p
+                  JOIN users u ON u.id=p.provider_user_id
+                  JOIN clients cl ON cl.id=p.client_id
+                  JOIN agencies ag ON ag.id=cl.agency_id
+                  WHERE p.client_id IN (${placeholders})
+                  UNION ALL
+                  SELECT c.id, c.organization_id, c.service_day, 1, c.provider_id,
+                         TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))),
+                         (SELECT DATE_FORMAT(s.start_time, '%h:%i %p') FROM soft_schedule_slots s
+                           WHERE s.client_id=c.id AND s.provider_user_id=c.provider_id
+                             AND s.school_organization_id=c.organization_id AND s.start_time IS NOT NULL
+                           ORDER BY (LOWER(CAST(s.weekday AS CHAR))=LOWER(COALESCE(c.service_day,''))) DESC, s.slot_index LIMIT 1),
+                         ag.slug
+                  FROM clients c JOIN users u ON u.id=c.provider_id
+                  JOIN agencies ag ON ag.id=c.agency_id
+                  WHERE c.id IN (${placeholders}) AND NOT EXISTS
+                    (SELECT 1 FROM client_provider_assignments p WHERE p.client_id=c.id AND p.organization_id=c.organization_id)`;
+  const legacyProviderSql = `SELECT p.client_id, p.organization_id, p.service_day, p.is_active,
                          TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))) AS name
                   FROM client_provider_assignments p JOIN users u ON u.id=p.provider_user_id
                   WHERE p.client_id IN (${placeholders})
@@ -47,7 +71,15 @@ export async function attachGuardianSchoolAffiliations(clients = [], { guardianU
                          TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,'')))
                   FROM clients c JOIN users u ON u.id=c.provider_id
                   WHERE c.id IN (${placeholders}) AND NOT EXISTS
-                    (SELECT 1 FROM client_provider_assignments p WHERE p.client_id=c.id AND p.organization_id=c.organization_id)`, [...schoolIds, ...schoolIds]),
+                    (SELECT 1 FROM client_provider_assignments p WHERE p.client_id=c.id AND p.organization_id=c.organization_id)`;
+  let providers;
+  try {
+    [providers] = await pool.execute(providerSql, [...schoolIds, ...schoolIds]);
+  } catch (error) {
+    if (error?.code !== 'ER_BAD_FIELD_ERROR' && error?.code !== 'ER_NO_SUCH_TABLE') throw error;
+    [providers] = await pool.execute(legacyProviderSql, [...schoolIds, ...schoolIds]);
+  }
+  const [[staff], [rois]] = await Promise.all([
     pool.execute(`SELECT r.client_id, r.school_organization_id, r.access_level, r.is_active,
                          TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))) AS name
                   FROM client_school_staff_roi_access r JOIN users u ON u.id=r.school_staff_user_id
@@ -65,7 +97,10 @@ export async function attachGuardianSchoolAffiliations(clients = [], { guardianU
   for (const client of schoolClients) for (const school of client.school_affiliations) {
     const sameSchool = row => Number(row.client_id) === Number(client.client_id) && Number(row.organization_id || row.school_organization_id) === school.organization_id;
     school.providers = providerClientIds.includes(Number(client.client_id)) ? providers.filter(sameSchool).map(p => ({
-      name: p.name || 'Assigned provider', service_day: p.service_day || null,
+      name: p.name || 'Assigned provider',
+      service_day: p.service_day || null,
+      soft_time: p.soft_time || null,
+      profile_url: portalProfilePath({ agencySlug: p.agency_slug, providerId: p.provider_user_id, providerName: p.name }),
       status: school.status === 'current' && Number(p.is_active) === 1 ? 'current' : 'former'
     })) : [];
     school.staff = staff.filter(sameSchool).map(s => ({ name: s.name || 'School staff member',

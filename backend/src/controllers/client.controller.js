@@ -1145,7 +1145,8 @@ export const getClientById = async (req, res, next) => {
           clientId: client.id,
           schoolOrganizationId: client.organization_id,
           schoolStaffUserId: userId,
-          allowExpiredOverview: true
+          allowExpiredOverview: true,
+          allowNoRoiInterface: true
         });
         if (!canAccessClient) {
           return res.status(403).json({

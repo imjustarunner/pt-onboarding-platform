@@ -1,13 +1,13 @@
-export const SCHOOL_STAFF_OPEN_STATES = ['limited', 'roi', 'roi_docs', 'expired'];
+export const SCHOOL_STAFF_OPEN_STATES = ['none', 'packet', 'limited', 'roi', 'roi_docs', 'expired'];
 
 const LABELS = {
   none: {
     label: 'No ROI on file',
-    hover: 'No ROI on file for this staff member. They cannot open this client in the school portal.'
+    hover: 'No ROI on file. The overview, comments, and tickets are available. Clinical notes and referral documents stay closed.'
   },
   packet: {
     label: 'No ROI on file',
-    hover: 'No ROI on file for this staff member. They cannot open this client in the school portal.'
+    hover: 'No ROI on file. The overview, comments, and tickets are available. Clinical notes and referral documents stay closed.'
   },
   limited: {
     label: 'ROI Active',
@@ -71,7 +71,12 @@ export function isSchoolScheduleClientLocked(client) {
   return client?.school_portal_force_placeholder === true || client?.school_portal_can_open === false;
 }
 
-/** Collaboration and documents require a current ROI, even when the overview can open. */
+/** Comments and tickets stay available without a personal ROI grant. Documents do not. */
+export function schoolStaffCanInterfaceFromState(state) {
+  return ['none', 'packet', 'limited', 'roi', 'roi_docs'].includes(String(state || '').trim().toLowerCase());
+}
+
+/** Clinical notes and referral documents require a current personal ROI grant. */
 export function schoolStaffCanCollaborateFromState(state) {
   return ['limited', 'roi', 'roi_docs'].includes(String(state || '').trim().toLowerCase());
 }

@@ -2,6 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({ execute: vi.fn(), mailbox: vi.fn(), send: vi.fn(), create: vi.fn(), add: vi.fn(), updateMessage: vi.fn(), update: vi.fn(), link: vi.fn(), participant: vi.fn(), find: vi.fn() }));
 vi.mock('../schoolContactReplyRouting.service.js',()=>({schoolContactWorkMailboxAvailable:vi.fn(async()=>true)}));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.execute } }));
+vi.mock('../familyWelcomeAssets.service.js', () => ({ providerProfileUrl: () => 'https://app.example/auricwell-qa-demo/provider/1433', buildProviderIntroductionPdf: vi.fn(async () => Buffer.from('%PDF-1.7')), introductionPdfAttachment: pdf => ({ filename: 'School introduction.pdf', contentType: 'application/pdf', contentBase64: pdf.toString('base64') }) }));
 vi.mock('../tenantMessageMailboxes.service.js', () => ({ resolveMessagesSendMailbox: m.mailbox }));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: m.send }));
 vi.mock('../../models/CommunicationConversation.model.js', () => ({ default: { create: m.create, addMessage: m.add, updateMessage: m.updateMessage, update: m.update, upsertLink: m.link, upsertParticipant: m.participant, findById: m.find } }));
@@ -20,6 +21,7 @@ beforeEach(() => {
     if (sql.startsWith('SELECT * FROM school_provider_contact_plans')) return [[plan].filter(Boolean)];
     if (sql.startsWith('SELECT status,decided_at FROM school_provider_contact_plans')) return [[{ status: plan?.status || 'enabled', decided_at: plan?.decided_at || '2026-10-30T15:00:00Z' }]];
     if (sql.startsWith('SELECT plan_decided_at FROM school_contact_workflows')) return [[{ plan_decided_at: '2026-10-30T15:00:00Z' }]];
+    if (sql.startsWith('SELECT include_pdf')) return [[plan ? { include_pdf: plan.include_pdf ?? 1 } : undefined].filter(Boolean)];
     if (sql.startsWith('SELECT from_email')) return [[{ from_email: 'messages@itsco.health' }]];
     if (sql.startsWith('SELECT c.id')) return [[{ id: 999 }]];
     return [{ affectedRows: 1 }];
@@ -63,22 +65,22 @@ it('returns a rendered preview, persisted choices and actual SSO mailbox copy ad
 it('constrains editable text and renders no arbitrary placeholders or HTML', () => {
   expect(validateSchoolContactTemplate(template)).toBe(template);
   expect(() => validateSchoolContactTemplate(template.replace('{{school_name}}', 'School'))).toThrow('school_name');
-  expect(() => validateSchoolContactTemplate(`${template}\n{{secret}}`)).toThrow('four supported');
+  expect(() => validateSchoolContactTemplate(`${template}\n{{secret}}`)).toThrow('supported');
   expect(() => validateSchoolContactTemplate(`${template}<script>alert(1)</script>`)).toThrow('plain text');
   expect(renderSchoolContactTemplate(template, { parent_name: 'Alex', provider_name: 'Avery', school_name: 'Cedar', service_day: 'Monday' })).toContain('Hello Alex,');
 });
 it('persists decline and preserves the opt-in cutoff when editing an enabled plan', async () => {
   await saveSchoolContactPlan(input, { status: 'declined' });
-  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO school_provider_contact_plans'), [450,1433,'declined',template,expect.any(String),expect.any(String),expect.any(String),2,4,48,expect.any(Date)]);
+  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO school_provider_contact_plans'), [450,1433,'declined',template,expect.any(String),expect.any(String),expect.any(String),2,4,48,expect.any(Date),1]);
   const cutoff = new Date('2026-10-30T15:00:00Z'); plan = { status: 'enabled', template, decided_at: cutoff };
   await saveSchoolContactPlan(input, { status: 'enabled', smsAfterDays: 4 });
   const insert = m.execute.mock.calls.filter(([sql]) => sql.startsWith('INSERT INTO school_provider_contact_plans')).at(-1);
-  expect(insert[1]).toEqual([450,1433,'enabled',template,expect.any(String),expect.any(String),expect.any(String),2,4,48,cutoff]);
+  expect(insert[1]).toEqual([450,1433,'enabled',template,expect.any(String),expect.any(String),expect.any(String),2,4,48,cutoff,1]);
 });
 it('uses the required48hour cadence and rejects unsafe later-contact templates',async()=>{
   await saveSchoolContactPlan(input,{status:'enabled',smsAfterDays:7,emailAfterDays:8,staleAfterHours:72});
   const insert=m.execute.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO school_provider_contact_plans')).at(-1);
-  expect(insert[1].slice(-4,-1)).toEqual([2,4,48]);
+  expect(insert[1].slice(7,10)).toEqual([2,4,48]);
   await expect(saveSchoolContactPlan(input,{status:'enabled',secondTemplate:'<script>unsafe</script>'})).rejects.toMatchObject({status:400});
 });
 it('supports future mandated providers without enabling other tenants', async () => {
@@ -132,4 +134,23 @@ it('retains accepted delivery evidence without resending if recording fails', as
   m.updateMessage.mockRejectedValue(new Error('database transient failure'));
   expect(await sendSchoolContactExample(input, { template })).toMatchObject({ sent: true, recordPending: true });
   expect(m.send).toHaveBeenCalledTimes(1);
+});
+it('attaches the introduction PDF to the welcome email only when the provider keeps it on', async () => {
+  plan = { status: 'enabled', decided_at: '2026-10-30T15:00:00Z', include_pdf: 1 };
+  await sendSchoolContactEmail({ agencyId: 450, providerUserId: 1433, clientId: 999, schoolId: 451, to: 'parent@example.com', workflowId: 3, stepKey: 'initial_email' });
+  expect(m.send.mock.calls.at(-1)[0].attachments).toEqual([expect.objectContaining({ filename: 'School introduction.pdf', contentType: 'application/pdf' })]);
+  plan.include_pdf = 0;
+  await sendSchoolContactEmail({ agencyId: 450, providerUserId: 1433, clientId: 999, schoolId: 451, to: 'parent@example.com', workflowId: 3, stepKey: 'initial_email' });
+  expect(m.send.mock.calls.at(-1)[0].attachments).toBeNull();
+  await sendSchoolContactEmail({ agencyId: 450, providerUserId: 1433, clientId: 999, schoolId: 451, to: 'parent@example.com', workflowId: 3, stepKey: 'final_contact', template: template.replace('{{provider_name}}', '{{provider_name}} {{profile_link}}') });
+  const last = m.send.mock.calls.at(-1)[0];
+  expect(last.attachments).toBeNull();
+  expect(last.html).toContain('<a href="https://app.example/auricwell-qa-demo/provider/1433">');
+});
+it('saves the PDF choice and reports Family Welcome state', async () => {
+  await saveSchoolContactPlan(input, { status: 'enabled', includePdf: false });
+  const insert = m.execute.mock.calls.filter(([sql]) => sql.startsWith('INSERT INTO school_provider_contact_plans')).at(-1);
+  expect(insert[1].at(-1)).toBe(0);
+  plan = { status: 'enabled', template, include_pdf: 0, welcome_seen_at: new Date() };
+  expect(await getSchoolContactPlan(input)).toMatchObject({ featureName: 'Family Welcome & Follow-Up', includePdf: false, welcomeSeen: true, profileUrl: 'https://app.example/auricwell-qa-demo/provider/1433' });
 });

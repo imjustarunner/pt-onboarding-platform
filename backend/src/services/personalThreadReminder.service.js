@@ -55,6 +55,10 @@ export async function runPersonalThreadReminders({ now = new Date() } = {}) {
       const schedule = await resolveAvailabilitySchedule(row.user_id, { agencyId: row.agency_id });
       const preferences = personalMessagePreferences({...row, digest_hours:row.digest_hours ?? settings?.personalEmailDigestBusinessHours ?? 24});
       if (!isPersonalMessageReminderDue(row.received_at, { now, schedule, timeZone:agency?.timezone, preferences })) continue;
+      try {
+        const away = await (await import('./vacationScheduleSync.service.js')).default.getUserAbsence(row.user_id, row.agency_id, now);
+        if (away && !String(away.key || '').startsWith('hours:')) continue;
+      } catch (error) { if (error?.code !== 'ER_NO_SUCH_TABLE') console.warn('[threadReminder] absence check skipped', error?.code || 'unavailable'); }
       const recipient = await messageReminderRecipient(row);
       if (!recipient) continue;
       const inbox = {id:row.inbox_id, agency_id:row.agency_id, owner_user_id:row.user_id, from_email:row.from_email, sender_identity_id:row.sender_identity_id, kind:'personal', is_active:1};

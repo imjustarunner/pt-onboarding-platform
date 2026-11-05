@@ -3,6 +3,7 @@ import { resolveClientProviderHolds } from './publicProviderHold.service.js';
 import { resolveAssignedEnrollmentWaitlist } from './providerEnrollmentWaitlist.service.js';
 import pool from '../config/database.js';
 import { queueSchoolClientStatusEmails } from './schoolClientStatusEmail.service.js';
+import { cancelPendingFamilyIntroductions, queueFamilyIntroduction } from './familyIntroductionEmail.service.js';
 
 async function queueInitialSchoolContact(connection, clientId) {
   const { queueSchoolContactAssignments } = await import('./schoolContactAutomation.service.js');
@@ -209,6 +210,7 @@ export async function afterLegacyProviderFieldsChanged(
     await resolveClientProviderHolds(connection,{clientId:cid,userId});
     await deactivateClientProviderAssignments(connection, { clientId: cid, userId });
     await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentChanged: true,actorUserId:userId });
+    await cancelPendingFamilyIntroductions(connection, cid);
     return;
   }
 
@@ -224,6 +226,7 @@ export async function afterLegacyProviderFieldsChanged(
     isPrimary
   });
   await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentChanged: true,actorUserId:userId });
+  await queueFamilyIntroduction(connection, { clientId: cid });
   await queueInitialSchoolContact(connection, cid);
 }
 
@@ -238,6 +241,7 @@ export async function afterScopedProviderAssignmentChanged(connection, { clientI
   if (forceLegacy) {
     await syncPrimaryLegacyFromClientAssignments(connection, { clientId: cid, userId });
     await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentChanged: true,actorUserId:userId });
+    await queueFamilyIntroduction(connection, { clientId: cid });
     await queueInitialSchoolContact(connection, cid);
     return;
   }
@@ -248,6 +252,7 @@ export async function afterScopedProviderAssignmentChanged(connection, { clientI
     await syncPrimaryLegacyFromClientAssignments(connection, { clientId: cid, userId });
   }
   await queueSchoolClientStatusEmails(connection, { clientId: cid, assignmentChanged: true,actorUserId:userId });
+  await queueFamilyIntroduction(connection, { clientId: cid });
   await queueInitialSchoolContact(connection, cid);
 }
 

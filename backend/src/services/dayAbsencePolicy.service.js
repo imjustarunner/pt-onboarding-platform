@@ -52,5 +52,13 @@ export function dayAbsenceMessage({ urgent = true, providerName = 'Your provider
 }
 
 export function schoolDayAbsenceMessage({ providerName = 'Your assigned provider', providerAuthored, schoolName, date, reasonCategory, reason, note, wholeDay = true }) {
+  if (reasonCategory === 'planned_out') {
+    const when = absenceDate(date);
+    const school = schoolName || 'school';
+    const text = providerAuthored
+      ? `Hello, ${school} team,\n\nI will be away on ${when} and have canceled my school sessions for that time. This is a planned absence.\n\n${providerName}`
+      : `Hello, ${school} team,\n\n${providerName} will be away on ${when}. Their school sessions for that time have been canceled. This is a planned absence.\n\nSchools Team`;
+    return { subject: `Provider absence for ${when}`, text };
+  }
   return composeAbsenceLetter({ audience: 'school', providerAuthored, providerName, schoolName, when: absenceDate(date), reasonCategory, reason, note, wholeDay });
 }

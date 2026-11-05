@@ -948,7 +948,7 @@ const isSchoolClientLocked = (client) => {
   if (!isSchoolStaff.value) return false;
   return isSchoolScheduleClientLocked(client);
 };
-const canViewCollaboration = (client) => !isSchoolStaff.value || ['limited', 'roi', 'roi_docs'].includes(
+const canViewCollaboration = (client) => !isSchoolStaff.value || ['none', 'packet', 'limited', 'roi', 'roi_docs'].includes(
   String(client?.school_staff_effective_access_state || client?.school_staff_access_level || '').toLowerCase()
 );
 const canOpenSchoolClient = (client) => {

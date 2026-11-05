@@ -1,10 +1,17 @@
 import dayCancellation from './providerDayCancellation.service.js';
+const PLANNED_OUT_SCOPES = ['school', 'office', 'virtual', 'other'];
+function plannedOutScopes(payload) {
+  if (payload.cancelScheduledItems === false) return [];
+  if (!Array.isArray(payload.cancelScopes)) return [...PLANNED_OUT_SCOPES];
+  return [...new Set(payload.cancelScopes.filter(scope => PLANNED_OUT_SCOPES.includes(scope)))];
+}
 import { addDaysYmd } from '../utils/scheduleRecurrence.js';
 import pool from '../config/database.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 
 export function plannedOutCancellationInput({ payload, providerId, agencyId }) {
-  if (payload.availability === 'available' || payload.cancelScheduledItems === false) return null;
+  const cancelScopes = plannedOutScopes(payload);
+  if (payload.availability === 'available' || !cancelScopes.length) return null;
   const timeZone = payload.timeZone || 'America/Denver';
   const localDate = value => new Intl.DateTimeFormat('en-CA', { timeZone, year:'numeric',month:'2-digit',day:'2-digit' }).format(parseUtcDate(value));
   const start = payload.allDay ? payload.startDate : localDate(payload.startAt);
@@ -12,7 +19,7 @@ export function plannedOutCancellationInput({ payload, providerId, agencyId }) {
   const dates = [];
   for (let date = start; date < end && dates.length <= 90; date = addDaysYmd(date,1)) dates.push(date);
   return { providerId, agencyIds:[agencyId],date:start,dates,timeZone,scopeMode:'days',absenceSource:'planned_out',urgent:false,
-    reasonCategory:'planned_out',followUpAction:'none',notificationMode:'send',messagesReviewed:true,
+    reasonCategory:'planned_out',followUpAction:'none',notificationMode:'send',messagesReviewed:true,cancelScopes,
     ...(payload.allDay ? {} : { windowStart:payload.startAt, windowEnd:payload.endAt }) };
 }
 
