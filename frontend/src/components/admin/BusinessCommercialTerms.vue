@@ -3,7 +3,7 @@
     <header><p class="journey-eyebrow">A clear agreement from day one</p><h3>Services, app charges & revenue share</h3><p>Monthly PlotTwistHQ charges come from Features and Billing. Add PlotTwistCo management services below. One-time services are billed separately in their specified month.</p></header>
     <p v-if="!canEdit" class="journey-muted">PlotTwistCo maintains signed terms and confirms monthly revenue. Your company can review them here.</p>
     <div class="journey-actions"><label v-if="state.agreements.length">Agreement version<select v-model.number="selectedIndex"><option v-for="(a, i) in state.agreements" :key="i" :value="i">{{ a.startMonth }} · {{ a.status === 'active' ? 'Signed terms' : 'Draft' }}</option></select></label><button v-if="canEdit" class="btn btn-secondary" @click="addAgreement">{{ state.agreements.length ? 'Add future agreement version' : 'Draft an agreement' }}</button></div>
-    <ManagementServiceCatalog :can-select="canEdit && !!agreement" :service-month="agreement?.startMonth || currentMonth" @select="addCatalogService" />
+    <ManagementServiceCatalog :can-select="canEdit && !!agreement" :management-selected="managementSelected" :service-month="agreement?.startMonth || currentMonth" @select="addCatalogService" />
     <p v-if="!agreement" class="journey-card">No management agreement has been recorded. Start with the interview and agree on services and pricing with the business owner.</p>
     <fieldset v-else class="journey-card" :disabled="!canEdit">
       <legend>Company-specific terms · USD</legend>
@@ -40,6 +40,7 @@ const props = defineProps({ modelValue: { type: Object, required: true }, canEdi
 const state = computed(() => props.modelValue), selectedIndex = ref(Math.max(0, props.modelValue.agreements.length - 1));
 watch(() => props.modelValue, s => { selectedIndex.value = Math.min(selectedIndex.value, Math.max(0, s.agreements.length - 1)); });
 const agreement = computed(() => state.value.agreements[selectedIndex.value]);
+const managementSelected = computed(() => agreement.value?.services.some(s => s.id === 'full-management' || s.id.startsWith('full-management-')) === true);
 const currentMonth = new Date().toISOString().slice(0, 7);
 const money = cents => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(cents || 0) / 100);
 const cents = event => Math.round(Number(event.target.value) * 100);
@@ -53,12 +54,16 @@ function addAgreement() {
 }
 function addCatalogService(selection) {
   if (!agreement.value || !props.canEdit) return;
-  const { catalogServiceId, includedCatalogIds, ...service } = selection;
+  const { catalogServiceId, catalogIncludedInManagement, includedCatalogIds, ...service } = selection;
+  if (managementSelected.value && catalogIncludedInManagement) return;
+  if (catalogServiceId === 'organization-platform') agreement.value.platformIncluded = true;
+  const fromCatalog = (row, id) => row.id === id || row.id.startsWith(`${id}-`);
+  agreement.value.services = agreement.value.services.filter(s => !fromCatalog(s, catalogServiceId));
   if (catalogServiceId === 'full-management') {
     agreement.value.platformIncluded = true;
     agreement.value.mode = 'higher_of';
     agreement.value.revenueShareBps = 1000;
-    agreement.value.services = agreement.value.services.filter(s => ![catalogServiceId, ...includedCatalogIds].some(id => s.id.startsWith(`${id}-`)));
+    agreement.value.services = agreement.value.services.filter(s => ![catalogServiceId, ...(includedCatalogIds || [])].some(id => fromCatalog(s, id)));
   }
   agreement.value.services.push(service);
 }

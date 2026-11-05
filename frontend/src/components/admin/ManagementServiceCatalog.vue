@@ -29,8 +29,8 @@
           <label>Service details<textarea v-model="item.notes" maxlength="1500" rows="2" /></label>
           <button type="button" class="journey-link" @click="catalog.services = catalog.services.filter(s => s.id !== item.id)">Remove service</button>
         </template>
-        <template v-else><strong>{{ item.name }}</strong><p>{{ priceLabel(item) }}<span v-if="managed && item.includedInManagement"> · Included in full management</span></p><p v-if="item.notes" class="journey-muted">{{ item.notes }}</p></template>
-        <button v-if="canSelect && !isPercentage(item)" type="button" class="btn btn-secondary" @click="$emit('select', selectedService(item))">Add {{ item.name }} to this agreement</button>
+        <template v-else><strong>{{ item.name }}</strong><p>{{ priceLabel(item) }}<span v-if="(managed || managementSelected) && item.includedInManagement"> · Included in full management</span></p><p v-if="item.notes" class="journey-muted">{{ item.notes }}</p></template>
+        <button v-if="canSelect && !isPercentage(item) && !(managementSelected && item.includedInManagement)" type="button" class="btn btn-secondary" @click="$emit('select', selectedService(item))">Add {{ item.name }} to this agreement</button>
       </div>
       <div v-if="editing && canEditCatalog" class="journey-actions"><button type="button" class="btn btn-secondary" @click="addService">Add a catalog service</button><button type="button" class="btn btn-primary" :disabled="saving" @click="save">{{ saving ? 'Saving…' : 'Save service prices' }}</button><button type="button" class="journey-link" :disabled="saving" @click="load">Discard edits / reload</button></div>
       <p v-if="canSelect" class="journey-muted">Only add selected services. Do not add individual services already included in full management. Annual services become a one-time charge in the selected month; percentage services need their separate agreed billing terms.</p>
@@ -40,7 +40,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import api from '../../services/api';
-const props = defineProps({ canSelect: Boolean, serviceMonth: { type: String, default: '' } });
+const props = defineProps({ canSelect: Boolean, managementSelected: Boolean, serviceMonth: { type: String, default: '' } });
 defineEmits(['select']);
 const catalog = ref(null), categories = ref([]), revision = ref(0), canEditCatalog = ref(false), editing = ref(false), loading = ref(false), saving = ref(false), error = ref(''), message = ref(''), category = ref(''), managed = ref(true);
 const discountPercent = computed(() => (catalog.value?.managedDiscountBps ?? 2000) / 100);
@@ -57,7 +57,7 @@ function priceLabel(item) {
   if (isPercentage(item)) return `${value.rateBps / 100}% ${item.cadence === 'collections_percent' ? 'of collections' : item.cadence === 'session_revenue_percent' ? 'of in-building session revenue' : 'of monthly revenue'}`;
   return `${money(value.amountCents)} ${item.cadence === 'monthly' ? '/ month' : item.cadence === 'annual' ? '/ year' : 'one-time'}`;
 }
-function selectedService(item) { return { id: `${item.id}-${Date.now()}`, name: item.name, amountCents: price(item).amountCents, cadence: item.cadence === 'monthly' ? 'monthly' : 'once', month: item.cadence === 'monthly' ? '' : props.serviceMonth, catalogServiceId: item.id, includedCatalogIds: item.id === 'full-management' ? catalog.value.services.filter(s => s.includedInManagement).map(s => s.id) : [], separateFromManagement: !item.includedInManagement && item.id !== 'full-management' }; }
+function selectedService(item) { return { id: `${item.id}-${Date.now()}`, name: item.name, amountCents: price(item).amountCents, cadence: item.cadence === 'monthly' ? 'monthly' : 'once', month: item.cadence === 'monthly' ? '' : props.serviceMonth, catalogServiceId: item.id, catalogIncludedInManagement: item.includedInManagement, includedCatalogIds: item.id === 'full-management' ? catalog.value.services.filter(s => s.includedInManagement).map(s => s.id) : [], separateFromManagement: !item.includedInManagement && item.id !== 'full-management' }; }
 function changeCadence(item, cadence) { item.cadence = cadence; if (isPercentage(item)) { item.amountCents = 0; delete item.managedBaseAmountCents; } else item.rateBps = 0; }
 function addService() { catalog.value.services.push({ id: `service-${Date.now()}`, name: '', category: category.value || categories.value[0].key, amountCents: 0, rateBps: 0, cadence: 'monthly', discountEligible: true, includedInManagement: false, businessTypes: ['coaching', 'consulting', 'tutoring', 'counseling'], notes: '' }); }
 function accept(data) { catalog.value = data.catalog; categories.value = data.categories || []; revision.value = data.revision; canEditCatalog.value = data.canEdit === true; }

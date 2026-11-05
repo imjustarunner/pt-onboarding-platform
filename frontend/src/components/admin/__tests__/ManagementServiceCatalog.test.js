@@ -31,4 +31,12 @@ describe('management service catalog', () => {
     api.get.mockResolvedValue({ data: response(false) }); const w = mount(Catalog); await flushPromises();
     expect(button(w, 'Edit service prices')).toBeUndefined(); expect(button(w, 'Save service prices')).toBeUndefined(); w.unmount();
   });
+  it('hides individual included-service additions after full management is selected while keeping optional website selection available',async()=>{
+    const w=mount(Catalog,{props:{canSelect:true,managementSelected:true,serviceMonth:'2026-01'}});await flushPromises();
+    for(const name of ['Organization Platform','Bookkeeping / basic financial tracking','Marketing management','Onboarding / offboarding & people ops support','Compliance calendar & reminders'])expect(button(w,`Add ${name} to this agreement`)).toBeUndefined();
+    expect(w.text()).toContain('Included in full management');
+    const optional=button(w,'Add Website + Marketing Hub to this agreement');expect(optional).toBeDefined();await optional.trigger('click');
+    expect(w.emitted('select')[0][0]).toMatchObject({catalogServiceId:'website-marketing-hub',catalogIncludedInManagement:false,separateFromManagement:true});
+    expect(api.put).not.toHaveBeenCalled();w.unmount();
+  });
 });
