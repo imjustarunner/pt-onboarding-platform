@@ -1337,7 +1337,7 @@
                 </tbody>
               </table>
               <div class="hint" style="margin-top: 8px;">
-                Tracks access to client profile + notes (best-effort).
+                Tracks portal sign-ins, what was opened, and staff access to the profile and notes. Message text and document contents are not stored here.
               </div>
             </div>
           </div>

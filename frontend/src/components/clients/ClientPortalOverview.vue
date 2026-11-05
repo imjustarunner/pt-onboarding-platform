@@ -5,9 +5,9 @@
     <p v-if="error" role="alert">{{error}}</p><p v-if="loading" role="status">Loading portal overview…</p>
     <template v-if="canViewAs"><div class="portal-metrics"><article><strong>{{accounts.length}}</strong><span>Linked portal accounts</span></article><article><strong>{{available.length}}</strong><span>Accounts with access</span></article><article><strong>{{date(latestActivity)}}</strong><span>Last recorded activity in this practice</span></article></div>
       <p v-if="!loading&&!error&&!accounts.length">No client or parent portal accounts are linked. Use Manage portal access to review invitations and relationships.</p>
-      <div class="portal-accounts"><article v-for="account in accounts" :key="account.id"><h3>{{account.name}}</h3><p>{{account.relationship}} · {{account.available?'Access enabled':'Access disabled'}}</p><dl><dt>Last recorded sign-in in this practice</dt><dd>{{date(account.lastLogin)}}</dd><dt>Last activity</dt><dd>{{date(account.lastActivity)}}</dd></dl><div class="account-actions"><button type="button" :disabled="!account.available" @click="previewIds=[account.id]">View as {{account.name}}</button><button type="button" :disabled="!account.available" @click="loadActivity(account)">Activity</button></div></article></div>
+      <div class="portal-accounts"><article v-for="account in accounts" :key="account.id"><h3>{{account.name}}</h3><p>{{account.relationship}} · {{account.available?'Access enabled':'Access disabled'}}</p><dl><dt>Last recorded sign-in in this practice</dt><dd>{{date(account.lastLogin)}}</dd><dt>Last sign-in network address</dt><dd>{{account.lastLoginIp||'None recorded'}}</dd><dt>Last activity</dt><dd>{{date(account.lastActivity)}}</dd></dl><div class="account-actions"><button type="button" :disabled="!account.available" @click="previewIds=[account.id]">View as {{account.name}}</button><button type="button" :disabled="!account.available" @click="loadActivity(account)">Activity</button></div></article></div>
       <button v-if="available.length>1" type="button" @click="previewIds=available.map(a=>a.id)">Show all linked portal views</button>
-      <section v-if="activity" class="portal-activity"><h3>{{activity.account.name}} · Recent activity</h3><p>Latest 100 recorded events in {{agency.name}}. Staff previews are attributed to the staff member.</p><ol><li v-for="event in activity.events" :key="event.id"><time>{{date(event.occurredAt)}}</time> · {{event.action.replaceAll('_',' ')}}</li></ol><p v-if="!activity.events.length">No activity recorded for this practice.</p></section>
+      <section v-if="activity" class="portal-activity"><h3>{{activity.account.name}} · Recent activity</h3><p>Latest 100 sign-ins and portal opens, with the network address recorded for each. Message text and document contents are not stored here. Staff previews are attributed to the staff member.</p><ol><li v-for="event in activity.events" :key="`${event.source}-${event.id}`"><time>{{date(event.occurredAt)}}</time> · {{describe(event)}}<span v-if="event.ipAddress"> · {{event.ipAddress}}</span></li></ol><p v-if="!activity.events.length">No activity recorded for this practice.</p></section>
       <PortalAccountPreview v-for="account in viewedAccounts" :key="`${client.id}:${account.id}`" :account="account" :client="client" :agency="agency" @close="previewIds=previewIds.filter(id=>id!==account.id)" />
     </template><p v-else>Portal activity and View as are available to admin, support, and superadmin.</p>
   </section>
@@ -16,6 +16,21 @@
 import {computed,ref,watch,onBeforeUnmount} from 'vue';
 import api from '../../services/api';
 import PortalAccountPreview from '../../auricwell/PortalAccountPreview.vue';
+import { toPlainEnglish } from '../../utils/auditActionRegistry';
+const describe=event=>{const route=String(event.route||'');const writing=event.method&&event.method!=='GET'&&event.method!=='HEAD';
+ if(route.includes('download')||route.includes('download-url'))return 'Opened a portal document';
+ if(route.includes('intake-documents')||route.includes('enrollment-copies'))return route.includes('/:')&&!route.endsWith('intake-documents')&&!route.endsWith('enrollment-copies')?'Opened a portal document':'Opened enrollment documents';
+ if(route.includes('shared-files'))return route.includes('/:')?'Opened a shared file':'Opened shared files';
+ if(route.includes('/messages'))return writing?'Sent a portal message':route.includes('/messages/')?'Opened a message':'Opened messages';
+ if(route.includes('/emails'))return writing?'Sent a portal email':route.includes('/emails/')?'Opened an email':'Opened portal email';
+ if(route.includes('appointments'))return 'Opened appointments';
+ if(route.includes('daily-notes')||route.includes('/details'))return 'Opened the portal record';
+ if(route.includes('balances'))return 'Opened balances';
+ if(route.endsWith('/overview'))return 'Opened the portal home';
+ if(route.includes('/clients/'))return 'Opened the portal record';
+ if(route.includes('skill-builders'))return 'Opened skill builder';
+ if(event.action==='login')return 'Signed in';
+ return toPlainEnglish(event.action)||String(event.action||'Portal activity').replaceAll('_',' ');};
 const props=defineProps({client:{type:Object,required:true},agency:{type:Object,required:true},actor:{type:Object,required:true}});
 defineEmits(['share-documents','share-assessments','manage-access']);
 const canViewAs=computed(()=>['admin','support','super_admin'].includes(props.actor.role));

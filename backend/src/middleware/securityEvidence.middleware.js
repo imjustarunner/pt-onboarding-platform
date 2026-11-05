@@ -75,7 +75,16 @@ export function createSecurityEvidenceMiddleware({ append = appendSecurityEviden
       if (finalized) return;
       finalized = true;
       try {
-        await append({ ...base, ...identity, phase: 'completed', ...classifyResponse(req, res, interrupted), route: routeEvidence(req), statusCode: res.statusCode, responseBytes: responseHasBody(req, res) ? bytes : 0, durationMs: Math.min(Date.now() - start, 4294967295), details: { ...identityDetails, ...resourceEvidence(req), ...responseEvidence(req, res) } });
+        const completed = { ...base, ...identity, phase: 'completed', ...classifyResponse(req, res, interrupted), route: routeEvidence(req), statusCode: res.statusCode, responseBytes: responseHasBody(req, res) ? bytes : 0, durationMs: Math.min(Date.now() - start, 4294967295), details: { ...identityDetails, ...resourceEvidence(req), ...responseEvidence(req, res) } };
+        await append(completed);
+        if (['client', 'client_guardian'].includes(String(identity.role || ''))) {
+          try {
+            const { projectPortalChartAccess } = await import('../services/portalChartAudit.service.js');
+            await projectPortalChartAccess(completed);
+          } catch (error) {
+            console.warn('[PortalChartAudit]', error?.code || 'write_failed');
+          }
+        }
       } catch (error) { failure(error, requestId, 'completed'); }
     };
     res.once('finish', () => { void finish(false); });
