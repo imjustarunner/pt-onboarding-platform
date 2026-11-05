@@ -105,7 +105,7 @@ describe('reviewed provider-day cancellation', () => {
   });
   it('requires a reviewed public reason and keeps private details out of session facts', () => {
     expect(() => dayCancellationFacts({ reasonCategory: 'detailed private reason' })).toThrow('category');
-    expect(dayCancellationFacts(input)).toMatchObject({ initiator: 'provider', reasonOther: '', clientFacingReason: 'Unexpected provider absence', followUpAction: 'client_contact_support' });
+    expect(dayCancellationFacts(input)).toMatchObject({ initiator: 'provider', reasonOther: '', clientFacingReason: 'Unexpected provider absence', followUpAction: 'none' });
     expect(() => dayCancellationFacts({ ...input, followUpAction: 'support_will_contact' })).toThrow('supported follow-up');
   });
   it('previews without sending or canceling and encrypts internal audit details', async () => {

@@ -155,7 +155,7 @@ describe('day cancellation review', () => {
     expect(m.post).toHaveBeenCalledTimes(2);
     expect(m.post).toHaveBeenCalledWith(`${base}/preview`, expect.objectContaining({
       agencyIds: [2], date: '2026-10-15', reasonCategory: 'provider_unavailable',
-      internalReason: 'Private staffing note.', notificationMode: 'send', suppressionReason: '', followUpAction: 'client_contact_support', followUpMessage: 'Please contact support for another time.'
+      internalReason: 'Private staffing note.', notificationMode: 'send', suppressionReason: '', followUpAction: 'none', followUpMessage: 'Please contact support for another time.'
     }), { skipGlobalLoading: true });
     expect(wrapper.find('.day-review').text()).toContain(fixture().clientFacingReason);
     expect(wrapper.find('.day-review').text()).not.toContain('Private staffing note');

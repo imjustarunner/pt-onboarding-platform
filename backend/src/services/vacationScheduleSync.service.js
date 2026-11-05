@@ -28,12 +28,26 @@ class VacationScheduleSyncService {
     // Widen discovery for legacy all-day rows, then enforce exact boundaries below.
     const events = await ProviderScheduleEvent.listForUserInWindow({ agencyId, providerId: userId,
       windowStart: new Date(atDate.getTime() - 86400000), windowEnd: new Date(atDate.getTime() + 86400000) });
-    const active = (events || []).filter(event =>
-      ['VACATION', 'AWAY'].includes(String(event.kind || '').toUpperCase()) &&
-      !['CANCELLED', 'CANCELED', 'DELETED'].includes(String(event.status || '').toUpperCase()) &&
-      eventBoundary(event, false) <= atDate.getTime() && atDate.getTime() < eventBoundary(event, true));
-    if (!active.length) return null;
-    return { key: `schedule:${active.map(event => event.id).sort((a, b) => a - b).join(',')}` };
+    const blocked = (events || []).filter(event => {
+      const kind = String(event.kind || '').toUpperCase();
+      const away = ['VACATION', 'AWAY'].includes(kind) || (kind === 'SCHEDULE_HOLD' && Number(event.all_day) === 1);
+      return away && !['CANCELLED', 'CANCELED', 'DELETED'].includes(String(event.status || '').toUpperCase())
+        && eventBoundary(event, false) <= atDate.getTime() && atDate.getTime() < eventBoundary(event, true);
+    });
+    if (blocked.length) return { key: `schedule:${blocked.map(event => event.id).sort((a, b) => a - b).join(',')}` };
+    try {
+      const [planned] = await pool.execute(`SELECT id FROM planned_outs WHERE user_id=? AND agency_id=? AND status='approved' AND availability='unavailable' AND (end_at > UTC_TIMESTAMP() OR end_date >= UTC_DATE()) ORDER BY id DESC LIMIT 20`, [userId, agencyId]);
+      if (planned.length) {
+        const { activePlannedOut } = await import('./vacationResponder.service.js');
+        for (const row of planned) if (await activePlannedOut(agencyId, userId, row.id, atDate)) return { key: `planned:${row.id}` };
+      }
+      const { isUserAvailable } = await import('./availabilityWindow.service.js');
+      const state = await isUserAvailable(userId, atDate, { agencyId });
+      if (state?.schedule?.enabled && state.available === false) return { key: `hours:${state.schedule.source || 'schedule'}` };
+    } catch (error) {
+      if (error?.code !== 'ER_NO_SUCH_TABLE') console.warn('[absence] Planned-out or availability check skipped:', error?.code || 'lookup_failed');
+    }
+    return null;
   }
 
   static async isUserOnVacation(userId, agencyId, atDate = new Date()) {

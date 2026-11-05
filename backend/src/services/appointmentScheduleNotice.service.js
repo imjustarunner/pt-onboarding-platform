@@ -6,6 +6,16 @@ import { futureAppointment, scheduleNoticeDeadline, buildScheduleNoticeMessage }
 import { cancellationEmailReceipts, needsCancellationReceipt, appendCancellationReceipt } from './cancellationEmailReceipt.service.js';
 
 const sqlDate = d => d.toISOString().slice(0, 19).replace('T', ' ');
+async function textOptedInParent(d, { agencyId, clientId, target, facts, portalUrl, actorUserId }) {
+  const allowed = await d.reviewedRecipientAllowed(clientId, agencyId, target, 'sms', {
+    reviewedCancellationToken: facts.reviewedCancellationToken, reviewedCancellationItemKey: facts.reviewedCancellationItemKey, actorUserId });
+  if (!allowed || !target.phone) return;
+  const to = await d.normalizePhone(target.phone);
+  const from = await d.smsSender({ agencyId, purpose: 'reminders' });
+  if (!to || !from) return;
+  const { parentCancellationSms } = await import('./dayAbsenceNarrative.service.js');
+  await d.sendSms({ agencyId, clientId, notificationCategory: 'schedule_changes', purpose: 'reminders', from, to, body: parentCancellationSms(portalUrl) });
+}
 const active = a => ['scheduled', 'confirmed', 'client_confirmed'].includes(a?.status);
 const canceled = a => ['canceled','cancelled','canceled_by_provider','canceled_by_client','canceled_by_guardian','canceled_by_organization','canceled_by_agency','late_canceled','rescheduled','no_show'].includes(a?.status);
 const defaults = {
@@ -217,6 +227,9 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
       for (const channel of channels.length ? channels : ['in_app']) for (const target of channel==='email' && individualReview ? individualTargets : targets) {
         let attempted = false, communication = null, recipient = null, externalId = null, status = 'failed', reason = null, receipt = null;
         let recipientMessage = buildScheduleNoticeMessage(entries,portalUrl,{recipientUserId:target?.userId || null});
+        const signedLetter = entries[0]?.payload?.facts?.reviewedMessage?.[target?.role === 'client' ? 'client' : target?.role === 'guardian' ? 'guardian' : ''];
+        if (signedLetter?.text) recipientMessage = { ...recipientMessage, subject: signedLetter.subject || recipientMessage.subject, text: signedLetter.text,
+          html: `<p>${String(signedLetter.text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])).replaceAll('\n', '<br>')}</p>` };
         const body = channel === 'sms' ? recipientMessage.sms : recipientMessage.text;
         const [delivery] = await db.execute(`INSERT INTO appointment_schedule_notice_deliveries (batch_id,channel,message_json,recipient_key) VALUES (?,?,?,?)`, [batchId,channel,d.encrypt(JSON.stringify(recipientMessage)),target?.key || 'default']);
         try {
@@ -272,6 +285,9 @@ export function createAppointmentScheduleNoticeService(overrides = {}) {
                 entries,
                 subject:recipientMessage.subject,text:recipientMessage.text,html:recipientMessage.html,triggerKey:'session_change',templateType:individualEmail?'session_cancellation':'session_change',
                 generatedByUserId:seed.created_by_user_id,source:'auto',existingCommunicationId:communication.id});
+              if (target?.role === 'guardian' && entries.every(entry => entry.payload.facts?.absenceSource === 'cancel_day')) {
+                textOptedInParent(d, { agencyId: seed.agency_id, clientId: seed.client_id, target, facts: entries[0].payload.facts, portalUrl, actorUserId: seed.created_by_user_id }).catch(() => {});
+              }
             } else {
               const from = await d.smsSender({agencyId:seed.agency_id,purpose:'reminders'});
               if (!from) { status='held'; reason='No registered SMS sender. Review before contacting the client.'; }

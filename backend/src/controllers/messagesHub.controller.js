@@ -601,6 +601,18 @@ export const postMessagesHubSend = async (req, res, next) => {
     const prefDelay = prefs?.[delayKey] ?? DEFAULT_DELAY_SECONDS;
     const explicitDelay =
       req.body?.undoDelaySeconds != null ? clampSendDelaySeconds(req.body.undoDelaySeconds) : null;
+    if (method === 'internal' && person.userId && req.body?.deliveryChoice !== 'now') {
+      const { resolveRecipientDeliveryGate } = await import('../services/hubRecipientDelivery.service.js');
+      const gate = await resolveRecipientDeliveryGate({ agencyId, userId: person.userId }).catch(() => null);
+      if (gate && gate.availableNow === false) {
+        if (req.body?.deliveryChoice !== 'next_available') {
+          const error = Object.assign(new Error(gate.message), { status: 409, code: 'RECIPIENT_AVAILABILITY_CHOICE_REQUIRED',
+            availability: { ...gate, nextAvailableAt: gate.receiveAt, channel: 'internal', message: gate.message } });
+          throw error;
+        }
+        req.body.scheduledSendAt = gate.receiveAt;
+      }
+    }
     const schedulePreset = String(req.body?.schedulePreset || '').toLowerCase();
     const hasSchedule =
       !!req.body?.scheduledSendAt ||

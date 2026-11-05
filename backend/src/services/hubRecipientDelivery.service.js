@@ -119,14 +119,7 @@ export async function resolveRecipientDeliveryGate({
   }
 
   const whenLabel = formatReceiveWhen(holdUntil, scheduleTz);
-  let message;
-  if (reasons.includes('planned_out') && outsideAvailability) {
-    message = `${name} is planned out and outside availability hours — next availability is ${whenLabel}. You can send now or wait until then.`;
-  } else if (reasons.includes('planned_out')) {
-    message = `${name} is planned out — next availability is ${whenLabel}. You can send now or wait until then.`;
-  } else {
-    message = `${name} is outside availability hours — next availability is ${whenLabel}. You can send now or wait until then.`;
-  }
+  const message = `${name} is not currently in and will receive this message on ${whenLabel}.`;
 
   return {
     availableNow: false,

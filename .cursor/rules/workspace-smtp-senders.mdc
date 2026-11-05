@@ -19,8 +19,9 @@ substitute another From address to work around the Gmail alias limit.
 - Appointment reminders use `notifications@auricwell.com` / `AuricWell
   Notifications`. Keep appointment sender configuration separate from account mail.
 - Provider-authored cancellation notices use the configured work mailbox resolver.
-  For Workspace SSO users this selects tenant `messages@`; Reply-To is the
-  provider's work email and support is copied. Preserve the envelope through
+  For Workspace SSO users this selects tenant `messages@`. Reply-To is support.
+  Support is always copied, and the provider's current supervisors are copied
+  when assigned. Preserve the envelope through
   approval/retry and use the server-validated cancellation context.
 - School waitlist-to-active/provider-assignment status notices go to the school
   and assigned provider. Do not add automatic family assignment notices. The

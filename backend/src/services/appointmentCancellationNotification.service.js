@@ -71,7 +71,7 @@ export function buildCancellationNotification(appointment, facts, resolved = {})
   const reviewed = facts.reviewedMessage;
   if (reviewed) {
     paragraphs.splice(0, paragraphs.length, reviewed.text);
-    if (facts.urgent !== false) {
+    if (facts.urgent !== false && details.followUpAction && details.followUpAction !== 'none') {
       paragraphs.push(followUpText);
       if (!['keep_next','keep_next_or_support','private_slots','portal_booking'].includes(details.followUpAction)) paragraphs.push(nextText);
     }

@@ -14,6 +14,13 @@ export function validatedDayCancellationContext(context,{agencyId,clientId,to}) 
     && context.destinations.includes(email(to))
     && (!clientId || context.item.clients?.some(client=>Number(client.clientId)===Number(clientId))) ? context : null;
 }
+async function supervisorEmails(database, agencyId, providerId) {
+  const [rows] = await database.execute(`SELECT DISTINCT u.work_email,u.email FROM supervisor_assignments s
+    JOIN users u ON u.id=s.supervisor_id JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=s.agency_id
+    WHERE s.supervisee_id=? AND s.agency_id=? AND ua.is_active=1 AND u.is_active=1 AND COALESCE(u.is_archived,0)=0`, [providerId, agencyId]);
+  return rows.map(row => email(row.work_email || row.email)).filter(validEmail);
+}
+
 function addresses(value) {
   if (Array.isArray(value)) return value.flatMap(addresses);
   if (value && typeof value === 'object') return addresses(value.email || value.address);
@@ -47,9 +54,11 @@ export async function resolveDayCancellationEmail({ agencyId, providerId, provid
   if (!mailbox?.identity?.id || Number(mailbox.identity.agency_id) !== Number(agencyId) || Number(mailbox.identity.is_active) === 0) throw fail('The cancellation sender is unavailable in this agency.');
   const providerName = [provider.preferred_name || provider.first_name, provider.last_name].filter(Boolean).join(' ') || 'Your provider';
   const displayName = providerAuthored ? providerName : `${agency.official_name || agency.name} Care Team`;
+  const supervisors = await supervisorEmails(d.database, agencyId, providerId);
+  const cc = [...new Set([supportEmail, ...supervisors].filter(address => address && address !== providerEmail))];
   return { senderIdentityId: mailbox.identity.id, fromDisplayNameOverride: displayName,
-    replyToOverride: providerEmail, cc: [supportEmail], providerEmail, supportEmail,
-    portalEmailBrand: { ...enrollmentMailBrand({ agency, domain, school: true }), replyTo: providerEmail, displayName },
+    replyToOverride: supportEmail, cc, providerEmail, supportEmail,
+    portalEmailBrand: { ...enrollmentMailBrand({ agency, domain, school: true }), replyTo: supportEmail, displayName },
     source: 'manual', ...(reviewedCancellationToken ? { reviewedCancellationToken } : {}),
     ...(reviewedCancellationItemKey ? { reviewedCancellationItemKey } : {}) };
 }
@@ -102,10 +111,12 @@ export async function reviewedDayCancellationContext(input, overrides = {}) {
     const support=`support@${email(await d.domain(input.agencyId))}`;
     if(!validEmail(support)) throw fail('Configure the approved agency support mailbox before sending.');
     const report=String(input.templateType).replace(/^trigger:/,'')==='day_cancellation_contact_followup';
+    const supervisors = report ? [] : await supervisorEmails(d.database, input.agencyId, plan.providerId);
+    const allowed = new Set([support, ...supervisors]);
     const verifyCopies=envelope=>{
       const copies=addresses(envelope.cc);
-      if(addresses(envelope.bcc).length || copies.some(address=>!validEmail(address) || address!==support)
-        || (!report && !copies.includes(support))) throw fail('Cancellation email may copy only the approved support mailbox and cannot add BCC recipients.');
+      if(addresses(envelope.bcc).length || copies.some(address=>!validEmail(address) || !allowed.has(address))
+        || (!report && !copies.includes(support))) throw fail('Cancellation email may copy only support and the provider’s current supervisors, and cannot add BCC recipients.');
     };
     verifyCopies(input);
     if(persisted)verifyCopies(proof);

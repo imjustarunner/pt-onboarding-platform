@@ -35,7 +35,7 @@ it('uses the tenant messages identity for SSO with provider Reply-To and support
  const envelope=await resolveDayCancellationEmail({agencyId:2,providerId:776,providerAuthored:true,actorUserId:776,...proof},
   {...deps(),agency:async()=>({id:2,name:'ITSCO'}),personal});
  expect(personal).toHaveBeenCalledWith({agencyId:2,userId:776});
- expect(envelope).toMatchObject({senderIdentityId:9,replyToOverride:'danica@itsco.health',cc:['support@itsco.health'],
+ expect(envelope).toMatchObject({senderIdentityId:9,replyToOverride:'support@itsco.health',cc:['support@itsco.health'],
   providerEmail:'danica@itsco.health',supportEmail:'support@itsco.health',source:'manual',...proof});
 });
 it('uses a shared messages sender when staff cancel on behalf of the provider',async()=>{
@@ -43,7 +43,7 @@ it('uses a shared messages sender when staff cancel on behalf of the provider',a
  const envelope=await resolveDayCancellationEmail({agencyId:2,providerId:776,providerAuthored:false,actorUserId:99},
   {...deps(),agency:async()=>({id:2,name:'ITSCO'}),personal,messages});
  expect(personal).not.toHaveBeenCalled();expect(messages).toHaveBeenCalledWith(2);
- expect(envelope).toMatchObject({replyToOverride:'danica@itsco.health',cc:['support@itsco.health']});
+ expect(envelope).toMatchObject({replyToOverride:'support@itsco.health',cc:['support@itsco.health']});
 });
 it('rejects provider impersonation or an identity from another agency',async()=>{
  const options={...deps(),agency:async()=>({id:2,name:'ITSCO'}),personal:async()=>({identity:{id:9,agency_id:6,is_active:1}})};
@@ -77,11 +77,11 @@ it('allows the initials follow-up only to the provider and agency support',async
 });
 it.each([{cc:['outsider@example.test']},{cc:['support@itsco.health','outsider@example.test']},{cc:null},{bcc:'outsider@example.test'}])
 ('rejects an unapproved actual cancellation copy envelope %j',async change=>{
- await expect(reviewedDayCancellationContext({...input(),...change},{...deps(),verifyEnvelope:true})).rejects.toThrow('approved support mailbox');
+ await expect(reviewedDayCancellationContext({...input(),...change},{...deps(),verifyEnvelope:true})).rejects.toThrow('current supervisors');
 });
 it.each([{cc:['outsider@example.test']},{bcc:['outsider@example.test']}])('rejects stored retry copy tampering even when supplied actual CC looks safe %j',async change=>{
  Object.assign(communication.metadata,change);
- await expect(reviewedDayCancellationContext({...input(),existingCommunicationId:77},{...deps(),verifyEnvelope:true})).rejects.toThrow('approved support mailbox');
+ await expect(reviewedDayCancellationContext({...input(),existingCommunicationId:77},{...deps(),verifyEnvelope:true})).rejects.toThrow('current supervisors');
 });
 it('exempts a signed cancellation from the rollout reminder pause while retaining schedule-change opt-outs',async()=>{
  expect(await routineParentEmailGate(input(),db)).toEqual({allowed:true});

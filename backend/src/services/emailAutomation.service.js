@@ -90,12 +90,12 @@ export async function maybeSendClientOooAutoReply({
     catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
   }
   const vacationActive = vacation?.state === 'active';
+  const plannedOut = personal && !vacationActive ? await currentPlannedOut(agencyId, ownerUserId, now) : null;
   if (!vacationActive && !['client', 'guardian'].includes(String(conv.sender_trust || ''))) return { sent: false, reason: 'not_client' };
-  if (!vacationActive && conv.auto_reply_sent_at) return { sent: false, reason: 'already_sent' };
+  if (!vacationActive && !plannedOut && conv.auto_reply_sent_at) return { sent: false, reason: 'already_sent' };
   const afterHoursReplyContext = { agencyId, ownerUserId, inbox, recipientEmails, senderTrust: conv.sender_trust, fromEmail };
-  if (!vacationActive && !await eligibleClientAfterHoursReply(afterHoursReplyContext)) return { sent: false, reason: 'after_hours_reply_not_allowed' };
+  if (!vacationActive && !plannedOut && !await eligibleClientAfterHoursReply(afterHoursReplyContext)) return { sent: false, reason: 'after_hours_reply_not_allowed' };
   const { available, schedule } = await isUserAvailable(ownerUserId, now, { agencyId });
-  const plannedOut = !vacationActive ? await currentPlannedOut(agencyId, ownerUserId, now) : null;
   if (!vacationActive && !plannedOut && (available || !schedule?.enabled)) return { sent: false, reason: 'available' };
   const returnAt = vacationActive ? new Date(vacation.endsAt) : plannedOut ? null : nextAvailableAt(schedule, now);
   const provider = await User.findById(ownerUserId);

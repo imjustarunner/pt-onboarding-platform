@@ -54,7 +54,7 @@ export function dayCancellationFacts(input = {}) {
   const urgent = input.urgent !== false;
   if (urgent && ['holiday', 'planned_out'].includes(reasonCategory)) throw fail('Use nonurgent cancellation or Planned Out for a scheduled absence.');
   if (input.absenceSource && !['cancel_day', 'planned_out'].includes(input.absenceSource)) throw fail('Choose a supported absence source.');
-  const followUpAction = input.urgent === false ? 'none' : input.followUpAction || 'client_contact_support';
+  const followUpAction = input.urgent === false ? 'none' : input.followUpAction || 'none';
   if (!['client_contact_support', 'none', 'keep_next_or_support', 'private_slots'].includes(followUpAction)) throw fail('Choose a supported follow-up option.');
   const notification = validateCancellationChoices({ ...input, followUpAction, eventType: 'canceled' });
   return { eventType: 'canceled', initiator: 'provider', reasons: ['provider_unavailable'],
@@ -137,8 +137,11 @@ export function createDayCancellationService(overrides = {}) {
         }
         const generated = await deps.cancellationMessage({ ...a, sourceTimezone: timeZone }, item.facts);
         const providerName = a.providerName || (await deps.providerName(plan.providerId));
-        Object.assign(generated, dayAbsenceMessage({ urgent: plan.facts.urgent, providerName, providerAuthored: plan.facts.providerAuthored, clientName: item.clients.length === 1 ? item.clients[0].clientName : null, reasonCategory: plan.facts.reasonCategory, schoolName: await deps.schoolName(a), date, when: `${generated.when} (${timeZone})`, reason: plan.facts.clientFacingReason }));
-        item.message = reviewedMessage(plan.messages?.[item.key], { subject: generated.subject, text: generated.text });
+        const letter = { urgent: plan.facts.urgent, providerName, providerAuthored: plan.facts.providerAuthored, clientName: item.clients.length === 1 ? item.clients[0].clientName : null, reasonCategory: plan.facts.reasonCategory, schoolName: await deps.schoolName(a), date, when: `${generated.when} (${timeZone})`, reason: plan.facts.clientFacingReason, note: plan.facts.followUpMessage };
+        const guardian = dayAbsenceMessage({ ...letter, audience: 'guardian' });
+        const clientLetter = dayAbsenceMessage({ ...letter, audience: 'client' });
+        Object.assign(generated, guardian);
+        item.message = reviewedMessage(plan.messages?.[item.key], { subject: generated.subject, text: generated.text, client: clientLetter, guardian });
         item.facts.reviewedMessage = item.message;
         item.source.contacts = item.clients.map(c => c.contacts);
         // Run the actual cancellation preview: missing client links/clinical constraints cannot be hidden by a bulk action.
@@ -146,7 +149,7 @@ export function createDayCancellationService(overrides = {}) {
         item.note = preview.narrative;
         const previewOffer = plan.facts.followUpAction === 'private_slots' ? { status: 'open', expires_at: new Date(Math.min(+now + plan.facts.offerDays * 86400000, Math.max(...plan.facts.offeredSlots.map(s => +utc(s.startAt))))).toISOString() } : null;
         const emailPreview = await deps.cancellationMessage({ ...a, sourceTimezone: timeZone }, item.facts, { nextAppointment: preview.nextAppointment, offer: previewOffer });
-        item.followUpPreview = emailPreview.followUpText;
+        item.followUpPreview = plan.facts.followUpAction && plan.facts.followUpAction !== 'none' ? emailPreview.followUpText : '';
         items.push(item);
       }
       if (plan.scopeMode === 'days') {
@@ -172,7 +175,7 @@ export function createDayCancellationService(overrides = {}) {
         }
       }
       if (plan.facts.urgent !== false && (plan.scopeMode === 'days' || items.some(i => i.kind === 'appointment' && i.date === date && i.agencyId === agencyId))) {
-        for (const school of await deps.schools({ providerId: plan.providerId, agencyId, date, reason: plan.facts.clientFacingReason, reasonCategory: plan.facts.reasonCategory, providerAuthored: plan.facts.providerAuthored, wholeDay: plan.scopeMode === 'days' })) {
+        for (const school of await deps.schools({ providerId: plan.providerId, agencyId, date, reason: plan.facts.clientFacingReason, reasonCategory: plan.facts.reasonCategory, providerAuthored: plan.facts.providerAuthored, wholeDay: plan.scopeMode === 'days', note: plan.facts.followUpMessage })) {
           const reviewed = deps.schoolReview(school, plan.schoolChoices?.[school.key], false);
           items.push({ ...reviewed, providerId:plan.providerId,notificationScope:plan.scopeMode === 'sessions' ? `sessions:${plan.appointmentIds.join(',')}` : 'days', timeZone, source: { recipients: school.recipients }, startAt: stamp(start), endAt: stamp(end) });
         }
@@ -412,7 +415,7 @@ export function createDayCancellationService(overrides = {}) {
         const generated=await deps.cancellationMessage({...a,sourceTimezone:saved.timeZone},plan.facts);
         fallback=dayAbsenceMessage({urgent:plan.facts.urgent,providerAuthored:plan.facts.providerAuthored,
           providerName:a.providerName || await deps.providerName(plan.providerId),clientName:clients.length === 1 ? clients[0].clientName : null,
-          schoolName:await deps.schoolName(a),date:saved.date,when:`${generated.when} (${saved.timeZone})`,reason:plan.facts.clientFacingReason,reasonCategory:plan.facts.reasonCategory});
+          schoolName:await deps.schoolName(a),date:saved.date,when:`${generated.when} (${saved.timeZone})`,reason:plan.facts.clientFacingReason,reasonCategory:plan.facts.reasonCategory,note:plan.facts.followUpMessage});
       }
       const message = reviewedMessage(plan.messages?.[saved.key], fallback);
       items.push({ ...saved, clients, message, source: { ...saved.source, updatedAt: stamp(a.updatedAt), participants: await deps.participants(a.id), contacts: clients.map(c => c.contacts) },
@@ -430,7 +433,7 @@ export function createDayCancellationService(overrides = {}) {
         required: plan.messagesReviewed, urgent: plan.facts.urgent, providerAuthored: plan.facts.providerAuthored, reasonCategory: plan.facts.reasonCategory, absenceSource: plan.facts.absenceSource, followUpAction: plan.facts.followUpAction, followUpMessage: plan.facts.followUpMessage }),
         timeZone: saved.timeZone, startAt: saved.startAt, endAt: saved.endAt });
     }
-    for (const scope of !plan.unsentRecovery && plan.facts.urgent !== false ? plan.scopes : []) for (const school of await deps.schools({ providerId: plan.providerId, agencyId: scope.agencyId, date: scope.date || plan.date, reason: plan.facts.clientFacingReason, reasonCategory: plan.facts.reasonCategory, providerAuthored: plan.facts.providerAuthored, wholeDay: plan.scopeMode === 'days' })) {
+    for (const scope of !plan.unsentRecovery && plan.facts.urgent !== false ? plan.scopes : []) for (const school of await deps.schools({ providerId: plan.providerId, agencyId: scope.agencyId, date: scope.date || plan.date, reason: plan.facts.clientFacingReason, reasonCategory: plan.facts.reasonCategory, providerAuthored: plan.facts.providerAuthored, wholeDay: plan.scopeMode === 'days', note: plan.facts.followUpMessage })) {
       if (plan.scopeMode === 'sessions' && !items.some(i => i.agencyId === scope.agencyId && i.date === (scope.date || plan.date))) continue;
       items.push({ ...deps.schoolReview(school, plan.schoolChoices?.[school.key], false), source: { recipients: school.recipients }, timeZone: scope.timeZone });
     }

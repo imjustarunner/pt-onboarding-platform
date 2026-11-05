@@ -20,10 +20,10 @@ it('ignores ordinary off-hours, cancelled events, and other event types',async()
 });
 it('uses the local timezone for legacy all-day events across the November DST change',async()=>{
  Events.listForUserInWindow.mockResolvedValue([{id:9,kind:'VACATION',all_day:1,start_date:'2026-11-01',end_date:'2026-11-02',event_timezone:'America/Denver'}]);
- expect(await Vacation.getUserAbsence(7,450,new Date('2026-11-01T05:59:59Z'))).toBeNull();
+ expect(await Vacation.getUserAbsence(7,450,new Date('2026-11-01T05:59:59Z'))).toEqual({key:'hours:default'});
  expect(await Vacation.getUserAbsence(7,450,new Date('2026-11-01T06:00:00Z'))).toEqual({key:'schedule:9'});
  expect(await Vacation.getUserAbsence(7,450,new Date('2026-11-02T06:59:59Z'))).toEqual({key:'schedule:9'});
- expect(await Vacation.getUserAbsence(7,450,new Date('2026-11-02T07:00:00Z'))).toBeNull();
+ expect(await Vacation.getUserAbsence(7,450,new Date('2026-11-02T07:00:00Z'))).toEqual({key:'hours:default'});
 });
 it('keeps the manual absence identity stable until a new recorded absence',async()=>{
  pool.execute.mockResolvedValue([[{vacation_mode_enabled:1,vacation_mode_started_at:'2026-11-02 17:00:00.123456'}]]);

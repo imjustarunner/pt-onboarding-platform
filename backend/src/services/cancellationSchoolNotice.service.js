@@ -10,7 +10,7 @@ export function createCancellationSchoolNoticeService(overrides = {}) {
   const d = { database: pool,
     sendEmail: async args => (await import('./schoolDayAbsenceEmail.service.js')).sendSchoolDayAbsenceEmail(args),
     ...overrides };
-  async function list({ providerId, agencyId, date, reason, reasonCategory, providerAuthored = false, wholeDay = true }) {
+  async function list({ providerId, agencyId, date, reason, reasonCategory, providerAuthored = false, wholeDay = true, note = '' }) {
     const weekday = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][new Date(`${date}T12:00:00Z`).getUTCDay()];
     const [rows] = await d.database.execute(`SELECT DISTINCT school.id,school.name,sp.itsco_email,sp.primary_contact_email,
       CONCAT_WS(' ',u.first_name,u.last_name) AS provider_name
@@ -21,7 +21,7 @@ export function createCancellationSchoolNoticeService(overrides = {}) {
     return rows.map(s => ({ key: `school:${agencyId}:${s.id}:${date}`, kind: 'school', id: Number(s.id), agencyId, date,
       providerId, providerAuthored, schoolName:s.name,
       title: `${s.name} — school cancellation notice`, recipients: [...new Set([s.itsco_email].filter(Boolean).map(e => String(e).trim().toLowerCase()))],
-      message: schoolDayAbsenceMessage({providerName:s.provider_name,providerAuthored,schoolName:s.name,date,reasonCategory,reason,wholeDay}) }));
+      message: schoolDayAbsenceMessage({providerName:s.provider_name,providerAuthored,schoolName:s.name,date,reasonCategory,reason,note,wholeDay}) }));
   }
   function review(item, edits, required = false) {
     const recipients = edits?.recipients ?? item.recipients;

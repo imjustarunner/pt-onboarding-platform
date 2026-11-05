@@ -1,11 +1,10 @@
 <template>
-  <section v-if="info" class="delivery-choice" role="alert" aria-label="Choose email delivery time">
-    <p>One or more recipients are outside their availability hours.</p>
-    <p>Send now delivers to their app. Their notification settings still control whether and when they receive a personal email.</p>
-    <p v-if="when">Next availability: {{ when }}</p>
+  <section v-if="info" class="delivery-choice" role="alert" aria-label="Choose when this message is received">
+    <p>{{ info.message || 'This person is not currently in.' }}</p>
+    <p v-if="when">They will receive this message on {{ when }}.</p>
     <div>
-      <button type="button" :disabled="busy" @click="$emit('choose', 'now')">Send now</button>
-      <button type="button" :disabled="busy" @click="$emit('choose', 'next_available')">Send at next availability</button>
+      <button v-if="info.channel !== 'internal'" type="button" :disabled="busy" @click="$emit('choose', 'now')">Send now</button>
+      <button type="button" :disabled="busy" @click="$emit('choose', 'next_available')">{{ info.channel === 'internal' ? 'Deliver it then' : 'Send at next availability' }}</button>
       <button type="button" :disabled="busy" @click="$emit('cancel')">Keep editing</button>
     </div>
   </section>

@@ -21,7 +21,11 @@ export function reviewedMessage(value, fallback) {
   if (!value) return fallback;
   const subject = String(value.subject || '').trim(), text = String(value.text || '').trim();
   if (!subject || subject.length > 200 || /[\r\n]/.test(subject) || !text || text.length > 6000) throw fail('Review the email subject and message (up to 6,000 characters).');
-  return { subject, text };
+  const message = { subject, text };
+  for (const audience of ['client', 'guardian']) {
+    if (value[audience]?.subject || value[audience]?.text) message[audience] = reviewedMessage(value[audience], fallback?.[audience] || { subject, text });
+  }
+  return message;
 }
 
 export function createCancellationRecipientService(overrides = {}) {

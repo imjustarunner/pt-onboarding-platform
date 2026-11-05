@@ -11,8 +11,8 @@ vi.mock('../appointmentServiceSetting.service.js',()=>({resolveAppointmentServic
 import {sendScheduleNotificationEmail} from '../scheduleNotificationEmail.service.js';
 import {sendSchoolDayAbsenceEmail} from '../schoolDayAbsenceEmail.service.js';
 const proof={reviewedCancellationToken:'11111111-1111-4111-8111-111111111111',reviewedCancellationItemKey:'appointment:17'};
-const envelope={senderIdentityId:9,replyToOverride:'danica@itsco.health',cc:['support@itsco.health'],fromDisplayNameOverride:'Danica Provider',
- portalEmailBrand:{clinical:false,name:'ITSCO',displayName:'ITSCO',products:[],replyTo:'danica@itsco.health'},source:'manual',...proof};
+const envelope={senderIdentityId:9,replyToOverride:'support@itsco.health',cc:['support@itsco.health'],fromDisplayNameOverride:'Danica Provider',
+ portalEmailBrand:{clinical:false,name:'ITSCO',displayName:'ITSCO',products:[],replyTo:'support@itsco.health'},source:'manual',...proof};
 beforeEach(()=>{
  vi.clearAllMocks();m.context.mockResolvedValue({tenant:{name:'ITSCO'},url:()=> 'https://example.test/guardian'});
  m.envelope.mockResolvedValue(envelope);m.proof.mockResolvedValue({providerId:776,actorUserId:776,plan:{facts:{providerAuthored:true}},...proof});
@@ -35,7 +35,7 @@ it('uses the shared provider/support sender for a persisted signed individual ca
   entries:[{appointment:{id:17},payload:{individualCancellationReview:{appointmentId:17}}}],subject:'Session canceled',text:'The school session was canceled.'});
  expect(m.individual).toHaveBeenCalledWith(expect.objectContaining({existingCommunicationId:12,templateType:'session_cancellation'}));
  expect(m.envelope).toHaveBeenCalledWith({agencyId:2,providerId:776,providerAuthored:true,actorUserId:776});
- expect(m.send).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:9,replyToOverride:'danica@itsco.health',cc:['support@itsco.health'],templateType:'session_cancellation'}));
+ expect(m.send).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:9,replyToOverride:'support@itsco.health',cc:['support@itsco.health'],templateType:'session_cancellation'}));
  expect(m.optOut).not.toHaveBeenCalled();
 });
 it('rejects an individual snapshot without persisted signed authority instead of using a generic manual bypass',async()=>{

@@ -161,6 +161,7 @@ describe('saved cancellation final-envelope recipient admission',()=>{
       if(sql.includes('FROM user_communications'))return [[communication]];
       if(sql.includes('FROM clients c'))return [[{id:8,full_name:'Client',status:'ACTIVE'}]];
       if(sql.includes('FROM agencies school'))return [schoolAffiliated?[{id:21}]:[]];
+      if(sql.includes('FROM supervisor_assignments'))return [[]];
       if(sql.includes('FROM users u JOIN user_agencies'))return [[{id:776,work_email:'provider@itsco.health'}]];
       throw new Error(`Unexpected query: ${sql}`);
     })};

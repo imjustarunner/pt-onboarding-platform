@@ -379,7 +379,7 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
       [`$.staff_communications_${Number(agencyId)}.accessRequests.inAppTexting`, id]);
     if (!absence && ![false, 0, 'false'].includes(choiceRow?.texting)) notifyCaregivers.push(id);
   }
-  // Ordinary availability hours and alert preferences do not mean out of office.
+  // Planned outs, cancel-day holds, and being outside work hours all count as away.
   const allCaregiversAway = caregiverIds.length > 0 && absences.length === caregiverIds.length;
   const coverageReason = allCaregiversAway ? 'provider_away' : null;
   const absenceKey = allCaregiversAway ? absences.sort().join('|') : null;

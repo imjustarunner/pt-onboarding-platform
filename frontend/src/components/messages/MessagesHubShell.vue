@@ -4875,6 +4875,7 @@ async function executeSend({ deliveryChoice = null, sendToAllPortalGuardians = f
             : composeBody.value.trim(),
         subject: composeSubject.value.trim() || undefined
       };
+      if (sendMethod.value === 'internal' && deliveryChoice) payload.deliveryChoice = deliveryChoice;
       if (sendMethod.value === 'email') {
         payload.deliveryChoice = deliveryChoice;
         payload.bodyHtml = String(composeBody.value || '').trim() || null;

@@ -10,6 +10,22 @@ import { notificationTransportReceipt } from '../utils/notificationTransportRece
 
 const fail = message => Object.assign(new Error(message), { status: 409 });
 
+async function textOptedInGuardian(d, item, recipient, actorUserId) {
+  if (item.absenceSource && item.absenceSource !== 'cancel_day') return;
+  const allowed = await d.permitted(item.clientId, item.agencyId, recipient, 'sms', { actorUserId, reviewedCancellationToken: item.reviewedCancellationToken, reviewedCancellationItemKey: item.reviewedCancellationItemKey });
+  if (!allowed || !recipient.phone) return;
+  const { parentCancellationSms } = await import('./dayAbsenceNarrative.service.js');
+  const phone = (await import('../models/PhoneNumber.model.js')).default.normalizePhone(recipient.phone);
+  const from = await (await import('./smsCompliance.service.js')).resolveRegisteredSmsSender({ agencyId: item.agencyId, purpose: 'reminders' });
+  if (!phone || !from) return;
+  let portal = 'your client portal';
+  try {
+    const context = await (await import('./clientPortalEmail.service.js')).clientEmailContext({ agencyId: item.agencyId, clientId: item.clientId });
+    portal = context.url(`guardian?panel=appointments&clientId=${encodeURIComponent(item.clientId)}`);
+  } catch { /* The short text still tells the parent where to look. */ }
+  await (await import('./vonage.service.js')).default.sendSms({ agencyId: item.agencyId, clientId: item.clientId, notificationCategory: 'schedule_changes', purpose: 'reminders', from, to: phone, body: parentCancellationSms(portal) });
+}
+
 export async function sendRosterEmail({ agencyId, clientId, ...message }) {
   const { clientEmailContext } = await import('./clientPortalEmail.service.js');
   const { resolveDayCancellationEmail } = await import('./dayCancellationEmail.service.js');
@@ -71,7 +87,8 @@ export function createCancellationSchoolRosterService(overrides = {}) {
     if (client.channels.some(c => c !== 'email')) throw fail('Assigned-day school notices support email. Review other contact methods separately.');
     if (followUpAction === 'private_slots') throw fail('Private replacement times require scheduled appointments. Choose contact support for assigned-day clients.');
     let reviewed;
-    try { reviewed=reviewedMessage(message, dayAbsenceMessage({ urgent, providerAuthored, providerName: row.provider_name, clientName:client.clientName, schoolName: row.school_name, date, when: schoolAbsenceWhen({ date, slots: row.slots, timeZone, windowStart, windowEnd }), reason, reasonCategory })); }
+    const letter = { urgent, providerAuthored, providerName: row.provider_name, clientName: client.clientName, schoolName: row.school_name, date, when: schoolAbsenceWhen({ date, slots: row.slots, timeZone, windowStart, windowEnd }), reason, reasonCategory, note: followUpMessage };
+    try { reviewed = reviewedMessage(message, { ...dayAbsenceMessage({ ...letter, audience: 'guardian' }), client: dayAbsenceMessage({ ...letter, audience: 'client' }), guardian: dayAbsenceMessage({ ...letter, audience: 'guardian' }) }); }
     catch(error) { throw fail(`${client.clientName}: ${error.message}`); }
     return { key: `school_roster:${agencyId}:${providerId}:${date}:${clientId}:${row.school_id}`, kind: 'school_roster',
       id: clientId, clientId, agencyId, providerId, schoolId: Number(row.school_id), date,
@@ -110,8 +127,17 @@ export function createCancellationSchoolRosterService(overrides = {}) {
         return result;
       } catch (error) { if (receipt) await d.receipts.sent(receipt.id,'review'); throw error; }
     } });
-    const addresses = [...new Set(client.recipients.map(r => r.email.toLowerCase()).filter(Boolean))];
-    const result = addresses.length ? await notices.send(deliveryToken, { ...item, recipients: addresses }, actorUserId) : { sent: 0, deliveries: [] };
+    const deliveries = [];
+    let sent = 0, held = 0;
+    for (const recipient of client.recipients.filter(r => r.email)) {
+      const letter = item.message?.[recipient.role === 'client' ? 'client' : 'guardian'] || item.message;
+      const one = await notices.send(deliveryToken, { ...item, recipients: [recipient.email.toLowerCase()], message: { subject: letter.subject || item.message.subject, text: letter.text || item.message.text } }, actorUserId);
+      sent += one.sent || 0;
+      held += one.held || 0;
+      deliveries.push(...(one.deliveries || []));
+      if (recipient.role === 'guardian') await textOptedInGuardian(d, item, recipient, actorUserId).catch(() => {});
+    }
+    const result = { sent, held, deliveries };
     return { ...result, skipped: missing.length, deliveries: [...result.deliveries, ...missing].map(r => ({ ...r,
       recipient_name: r.recipient_name || client.recipients.filter(c => c.email.toLowerCase() === r.recipient_address).map(c => c.name).join(', '), channel: 'email' })) };
   }
