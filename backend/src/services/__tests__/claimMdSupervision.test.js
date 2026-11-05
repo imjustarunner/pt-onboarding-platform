@@ -46,9 +46,15 @@ describe('supervised billing policy',()=>{
     const practice={name:'Synthetic Group',tax_id:'123456789',street_address:'1 Test',city:'Denver',state:'CO',postal_code:'80000',phone_number:'3035550100'},lines=[{procedure_code:'90834',charge_cents:12500,units:1}];
     const payload=buildClaimMdJsonClaim(claim,lines,{insurance,practice});
     expect(payload.facility_npi).toBe(payload.bill_npi);
+    expect(payload.facility_name).toBe('Synthetic Group');
+    expect(buildClaimMdJsonClaim(claim,lines,{insurance,practice:{...practice,claim_facility_name:'  Verified Facility  '}}).facility_name).toBe('Verified Facility');
+    expect(buildClaimMdJsonClaim(claim,lines,{insurance,practice:{...practice,claim_facility_name:'   '}}).facility_name).toBe('Synthetic Group');
+    expect(() => buildClaimMdJsonClaim(claim,lines,{insurance,practice:{...practice,claim_facility_name:'X'.repeat(36)}})).toThrow('facility_name');
+    expect(buildClaimMdJsonClaim(claim,lines,{insurance,practice:{...practice,claim_facility_name:'X'.repeat(35)}}).facility_name).toHaveLength(35);
     const ccha=buildClaimMdJsonClaim({...claim,billing_npi:'1215615711'},[{...lines[0],procedure_code:'H0002',units:1,charge_cents:3000,modifiers_json:['U9']}],{insurance,practice});
-    expect(ccha).toMatchObject({bill_npi:'1215615711',facility_npi:'1215615711',prov_npi:claim.rendering_npi,charge:[expect.objectContaining({proc_code:'H0002',units:'1',charge:'30.00',mod1:'U9'})]});
+    expect(ccha).toMatchObject({bill_npi:'1215615711',facility_npi:'1215615711',facility_name:'Synthetic Group',prov_npi:claim.rendering_npi,charge:[expect.objectContaining({proc_code:'H0002',units:'1',charge:'30.00',mod1:'U9'})]});
     expect(buildClaimMdJsonClaim(claim,lines,{insurance:{...insurance,primary:{...insurance.primary,payerId:'OTHER'}},practice})).not.toHaveProperty('facility_npi');
+    expect(buildClaimMdJsonClaim(claim,lines,{insurance:{...insurance,primary:{...insurance.primary,payerId:'OTHER'}},practice})).not.toHaveProperty('facility_name');
     expect(payload).toMatchObject({bill_npi:'1111111111',prov_npi:'1234567893',prov_name_f:'Treating',charge:[expect.objectContaining({chg_supv_prov_npi:'1306688650',chg_supv_prov_name_f:'Overseeing'})]});
     expect(()=>buildClaimMdJsonClaim({...claim,supervising_provider:{...claim.supervising_provider,npi:claim.rendering_npi}},lines,{insurance,practice})).toThrow();
   });

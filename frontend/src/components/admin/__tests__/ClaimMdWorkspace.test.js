@@ -29,6 +29,13 @@ beforeEach(() => {
   api.post.mockResolvedValue({ data: { message: 'Acknowledged' } });
 });
 describe('Claim.MD billing desk', () => {
+  it('shows the facility name alongside the effective facility NPI before approval', async () => {
+    api.get.mockImplementation(async url => ({data:url.endsWith('/review') ? {...claim,payload:{...claim.payload,bill_npi:'1215615711',facility_npi:'1215615711',facility_name:'Verified Practice LLC'}} : {items:[]}}));
+    const w=mount(ClaimMdWorkspace,{props});await flushPromises();await w.vm.reviewClaim(11);await flushPromises();
+    expect(w.text()).toContain('Service facility: Verified Practice LLC');
+    expect(w.text()).toContain('NPI 1215615711');
+    expect(api.post).not.toHaveBeenCalled();w.unmount();
+  });
   it('runs an actual AI review and clears prior approval when refreshed', async () => {
     api.get.mockImplementation(async url=>({data:url.endsWith('/review')?{...claim,aiReview:{status:'required',findings:[]}}:{items:[]}}));
     const w=mount(ClaimMdWorkspace,{props});await flushPromises();await w.vm.reviewClaim(11);await flushPromises();await w.find('input[type="checkbox"]').setValue(true);

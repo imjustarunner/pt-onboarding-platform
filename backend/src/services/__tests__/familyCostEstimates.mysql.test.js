@@ -40,8 +40,12 @@ test('staged estimates and welcome/benefit reservations work with real MySQL', {
   await db.execute('DELETE FROM user_info_values WHERE user_id=45 AND field_definition_id=401');
   await db.execute("INSERT INTO user_info_values(user_id,field_definition_id,value) VALUES(45,401,'1234567893')");
   await db.execute("UPDATE agencies SET tax_id='123456789' WHERE id=1");
-  await db.execute("INSERT IGNORE INTO office_locations VALUES(401,1,'Synthetic office','Synthetic practice','1234567893','123 Test Street','Denver','CO','80202','5550100',1,1)");
+  await db.execute("INSERT IGNORE INTO office_locations(id,agency_id,name,practice_name,practice_npi,street_address,city,state,postal_code,phone,is_active,use_as_billing_address) VALUES(401,1,'Synthetic office','Synthetic practice','1234567893','123 Test Street','Denver','CO','80202','5550100',1,1)");
   await db.execute("INSERT IGNORE INTO clinical_diagnoses VALUES(401,1,401,'F43.9',1,1,UTC_TIMESTAMP())");
+  // Use the production migration so dependent billing-profile readers see the same schema.
+  for(const statement of splitSqlStatements(await readFile(new URL('../../../../database/migrations/1767_claim_facility_name.sql',import.meta.url),'utf8')))await db.query(statement);
+  const [[facility]]=await db.execute('SELECT claim_facility_name FROM office_locations WHERE id=401');
+  assert.equal(facility.claim_facility_name,'Synthetic practice');
   pool=(await import('../../config/database.js')).default;clinical=(await import('../../config/clinicalDatabase.js')).default;
   const estimates=await import('../familyCostEstimates.service.js');
   const {activeBillingBenefitRecipient,benefitNoticeFingerprint,billingBenefitNoticeContext}=await import('../billingBenefitsEmail.service.js');

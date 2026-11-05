@@ -40,7 +40,7 @@ export async function listClaimMdBillingProfiles(agencyId) {
 
 export async function getClaimMdBillingProfile(agencyId, officeId, { requireComplete = true } = {}) {
   if (!Number.isSafeInteger(Number(officeId)) || Number(officeId) < 1) throw fail('Select a billing office for this agency.');
-  const [[office]] = await pool.execute(`SELECT id, agency_id, name, practice_name, practice_npi, street_address, city, state, postal_code, phone
+  const [[office]] = await pool.execute(`SELECT id, agency_id, name, practice_name, claim_facility_name, practice_npi, street_address, city, state, postal_code, phone
     FROM office_locations WHERE id = ? AND agency_id = ? AND is_active = 1 AND use_as_billing_address = 1`, [officeId, agencyId]);
   if (!office) throw fail('The billing office is unavailable or belongs to another agency.');
   const identity = await officeGroupIdentity(agencyId, office.id, office.practice_npi);
@@ -52,7 +52,7 @@ export async function getClaimMdBillingProfile(agencyId, officeId, { requireComp
     FROM agencies WHERE id = ?`, [agencyId]);
   // Tax identity remains agency-specific; never copy it from a shared office.
   const practice = {
-    name: office.practice_name, phone_number: office.phone || agency.phone_number,
+    name: office.practice_name, claim_facility_name: office.claim_facility_name, phone_number: office.phone || agency.phone_number,
     street_address: office.street_address, city: office.city, state: office.state, postal_code: office.postal_code,
     tax_id: unpackAgencyTaxId(taxRow || {}), tax_id_type: agency.tax_id_type
   };

@@ -5,7 +5,7 @@ vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: mocks.c
 vi.mock('../../models/Agency.model.js', () => ({ default: { findById: mocks.agency } }));
 vi.mock('../agencyTaxId.service.js', () => ({ unpackAgencyTaxId: row => row.decoded || row.tax_id || null }));
 import { getClaimMdBillingProfile, resolveClaimMdBillingProfile, assertClaimBillingNpi, listClaimMdBillingProfiles, assertExclusiveClaimMdTaxId } from '../claimMdBillingProfile.service.js';
-const office = { id: 8, agency_id: 377, name: 'Office A', practice_name: 'Test Group LLC', practice_npi: '1306688650', street_address: '1 Test Lane', city: 'Test City', state: 'CO', postal_code: '80000', phone: '5555550100' };
+const office = { id: 8, agency_id: 377, name: 'Office A', practice_name: 'Test Group LLC', claim_facility_name: 'Verified Facility LLC', practice_npi: '1306688650', street_address: '1 Test Lane', city: 'Test City', state: 'CO', postal_code: '80000', phone: '5555550100' };
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.main.mockImplementation(async sql => [sql.startsWith('SELECT tax_id,') ? [{ tax_id: '123456789' }] : sql.includes('agency_service_locations') ? [{ billing_office_location_id: 8 }] : [office]]);
@@ -28,7 +28,7 @@ describe('Claim.MD office billing identity', () => {
   it('uses the selected office legal name/address and agency tax identity', async () => {
     const p = await resolveClaimMdBillingProfile(377, 10);
     expect(p.billingNpi).toBe('1306688650');
-    expect(p.practice).toEqual(expect.objectContaining({ name: 'Test Group LLC', street_address: '1 Test Lane', tax_id: '123456789' }));
+    expect(p.practice).toEqual(expect.objectContaining({ name: 'Test Group LLC', claim_facility_name: 'Verified Facility LLC', street_address: '1 Test Lane', tax_id: '123456789' }));
     expect(mocks.clinical).toHaveBeenCalledWith(expect.stringContaining('agency_id = ?'), [10, 377]);
     expect(mocks.main).toHaveBeenCalledWith(expect.stringContaining('agency_id = ?'), [8, 377]);
     expect(mocks.main).toHaveBeenLastCalledWith(expect.stringContaining('FROM agencies WHERE id = ?'), [377]);

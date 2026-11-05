@@ -50,6 +50,8 @@ jobs:
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.fee-integration.config.js
       - name: Concurrent claim references and retained payer identifiers
         run: node --test backend/src/services/__tests__/clinicalClaimReferences.mysql.test.js
+      - name: Facility identity settings and rejected claim review
+        run: node frontend/node_modules/vitest/vitest.mjs run --config frontend/vitest.claim-facility.config.js
       - name: Transaction filters and billing office review
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.billing-transactions.config.js
       - name: Fee schedule controls
