@@ -193,6 +193,7 @@ export function buildIntakeSummaryDocumentHtml({
         ${signatures.map((sig) => `
           <div class="intake-summary-sign-card">
             <strong>${escapeHtml(sig.documentName || 'Signed document')}</strong>
+            <p class="intake-summary-sign-meta">Acknowledged and signed electronically</p>
             ${sig.versionLabel ? `<p class="intake-summary-sign-meta">${escapeHtml(sig.versionLabel)}</p>` : ''}
             ${sig.signedAt ? `<p class="intake-summary-sign-meta">Signed ${escapeHtml(sig.signedAt)}${sig.signerName ? ` by ${escapeHtml(sig.signerName)}` : ''}</p>` : ''}
             ${sig.hash ? `<p class="intake-summary-sign-meta">Fingerprint ${escapeHtml(sig.hash)}</p>` : ''}
@@ -510,6 +511,7 @@ async function renderCompletedIntakePdf(spec = {}) {
       ensure(70);
       drawLines([sig.documentName || 'Signed document'], { size: 10, type: bold, gap: 13 });
       const meta = [
+        'Acknowledged and signed electronically',
         sig.versionLabel,
         sig.signedAt ? `Signed ${sig.signedAt}${sig.signerName ? ` by ${sig.signerName}` : ''}` : '',
         sig.hash ? `Fingerprint ${sig.hash}` : '',

@@ -112,6 +112,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
+import { enrollmentReceiptCards } from '../../../utils/enrollmentReceiptCards.js';
 
 const props = defineProps({
   clientId: { type: [Number, String], required: true }
@@ -172,6 +173,20 @@ async function loadArtifacts() {
     artifacts.value = Array.isArray(resp.data?.artifacts) ? resp.data.artifacts : [];
     signedPackets.value = Array.isArray(resp.data?.packets) ? resp.data.packets : [];
   } catch (e) {
+    if (e.response?.status === 403) {
+      try {
+        const receipts = await api.get(`/phi-documents/clients/${id}/enrollment-receipts`, { skipGlobalLoading: true });
+        artifacts.value = enrollmentReceiptCards(receipts.data);
+        signedPackets.value = [];
+        error.value = artifacts.value.length ? '' : 'No signed enrollment receipt is on this chart yet.';
+        return;
+      } catch (receiptError) {
+        error.value = receiptError.response?.data?.error?.message || 'Could not open the enrollment receipt.';
+        artifacts.value = [];
+        signedPackets.value = [];
+        return;
+      }
+    }
     error.value = e.response?.data?.error?.message || 'Failed to load signed documents';
     artifacts.value = [];
     signedPackets.value = [];
@@ -262,6 +277,30 @@ async function openViewKey(viewKey) {
 
   if (key.startsWith('packet-')) {
     await openPacketById(Number(key.slice(7)));
+    return;
+  }
+  if (key.startsWith('receipt-')) {
+    const popup = window.open('about:blank', '_blank');
+    if (popup) writePopupLoading(popup);
+    opening.value = true;
+    try {
+      const resp = await api.get(`/phi-documents/enrollment-receipts/${encodeURIComponent(key.slice(8))}/view`, {
+        responseType: 'blob',
+        skipGlobalLoading: true
+      });
+      const file = resp.data instanceof Blob ? resp.data : new Blob([resp.data], { type: 'application/pdf' });
+      const url = URL.createObjectURL(file);
+      if (!navigateToUrl(url, popup)) {
+        closePopupQuietly(popup);
+        openFallbackUrl.value = url;
+        openError.value = 'Your browser blocked a new tab. Use the link below, or allow pop-ups for this site.';
+      }
+    } catch (e) {
+      closePopupQuietly(popup);
+      openError.value = e.response?.data?.error?.message || 'Could not open the enrollment receipt.';
+    } finally {
+      opening.value = false;
+    }
     return;
   }
 

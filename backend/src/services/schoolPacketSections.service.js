@@ -13,6 +13,7 @@ import {
 } from '../content/officePacketTemplateDefault.js';
 import { normalizeOfficePacketVariant } from '../constants/officePrintablePacket.js';
 import { isNluPacketChromeAgency } from './packetBrandChrome.service.js';
+import { rewriteSelfEnrollmentWording } from './selfEnrollmentWording.js';
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -334,6 +335,9 @@ export async function buildPacketSectionContext({
       ? DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML_ES
       : DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML;
     snapshotHtml = extractPacketSectionHtml(fallbackHtml, key);
+  }
+  if (normalizeOfficePacketVariant(variant) !== 'parent') {
+    snapshotHtml = rewriteSelfEnrollmentWording(snapshotHtml);
   }
   const contentHash = hashPacketSectionHtml(snapshotHtml);
 

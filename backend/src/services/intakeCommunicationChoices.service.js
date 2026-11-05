@@ -3,6 +3,7 @@ import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import IntakeSubmission from '../models/IntakeSubmission.model.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
+import { rewriteSelfEnrollmentWording } from './selfEnrollmentWording.js';
 
 export const ENROLLMENT_EMAIL_NOTICE_VERSION = '2026-10-28.1';
 export const ENROLLMENT_CONTACT_NOTICE = 'Your enrollment confirmation and requested portal setup, sign-in and password recovery emails are separate from optional updates. These choices do not affect care. Texting choices are separate. Use the contact options below if automatic email is not safe for you.';
@@ -18,6 +19,7 @@ export function intakeCommunicationDisclosure(agency) {
     emailAllLabel: 'All optional account updates (no marketing)',
     text: `${brandName} offers optional text messages for appointment reminders, schedule changes, cancellations and links to sign in or join a scheduled session. Choose Yes or No below. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Choosing No does not affect care, enrollment or school services. This choice does not authorize marketing or enroll other contacts. Texts may appear on a shared phone or lock screen; use the secure app for private details.`,
     schoolText: SCHOOL_COMMUNICATION_NOTICE,
+    schoolTextSelf: rewriteSelfEnrollmentWording(SCHOOL_COMMUNICATION_NOTICE),
     signatureText: 'By typing my name and continuing, I electronically sign these choices. If I request texts, I control the listed phone and am the recipient or their authorized guardian. I can decline texts and still receive services.' };
 }
 
@@ -53,7 +55,7 @@ export async function validateAndStampIntakeCommunications({ link, agencyId, int
   const disclosure = intakeCommunicationDisclosure(await Agency.findById(agencyId));
   // Client enrollment must never accept a forged workforce subscription.
   cp.internalWorkforceOptIn = null;
-  if (cp.version !== disclosure.version || cp.disclosure !== disclosure.text || cp.schoolDisclosure !== disclosure.schoolText) {
+  if (cp.version !== disclosure.version || cp.disclosure !== disclosure.text || ![disclosure.schoolText, disclosure.schoolTextSelf].includes(cp.schoolDisclosure)) {
     fail('Communication information has changed. Refresh and review your communication choices before signing.');
   }
   if (!String(cp.signerName || '').trim() || cp.signatureAccepted !== true) fail('Please sign your communication choices. You may decline all texts.');

@@ -532,7 +532,7 @@
       <p>{{ tr('These disclosures are limited and documented according to the terms below.', 'Estas divulgaciones son limitadas y documentadas segun los terminos a continuacion.') }}</p>
       <div class="info-panel">
         <ul>
-          <li v-for="item in roiContext.guidelines || []" :key="item">{{ item }}</li>
+          <li v-for="item in guidelinesForSigner" :key="item">{{ item }}</li>
         </ul>
       </div>
       <div class="actions">
@@ -914,6 +914,16 @@ const schoolContactLine = computed(() => {
   return [contact.name, contact.email, contact.phone].filter((value) => String(value || '').trim()).join(' · ');
 });
 const signerFullName = computed(() => `${form.signer.firstName || ''} ${form.signer.lastName || ''}`.trim());
+const guidelinesForSigner = computed(() => (props.roiContext?.guidelines || []).map((item) => {
+  if (form.intakeForSelf !== true) return item;
+  return String(item)
+    .replace(/your or your child's\/minor's/gi, 'your')
+    .replace(/your \(or your child's\)/gi, 'your')
+    .replace(/your child's\/minor's/gi, 'your')
+    .replace(/your child's/gi, 'your')
+    .replace(/your child\b/gi, 'you')
+    .replace(/my dependent/gi, 'me');
+}));
 const staffDecisionLabel = (decision) => {
   if (decision === 'roi_docs') {
     return tr('ROI All Active', 'ROI All Active');
@@ -986,6 +996,7 @@ const hasRequiredValue = (value) => String(value || '').trim().length > 0;
 const requiredFieldClass = (value) => (hasRequiredValue(value) ? '' : 'required-highlight');
 
 const buildRoiPayload = () => ({
+  intakeForSelf: form.intakeForSelf === true,
   clientFullName: form.clientFullName,
   clientDateOfBirth: form.clientDateOfBirth,
   signatureData: signatureData.value || null,
@@ -996,8 +1007,14 @@ const buildRoiPayload = () => ({
   waiverItems: { ...form.waiverItems },
   staffDecisions: staffRoster.value.map((staff) => {
     const decision = form.staffDecisions[staff.schoolStaffUserId];
+    const fullName = String(staff.fullName || `${staff.firstName || ''} ${staff.lastName || ''}`).trim();
     return {
       schoolStaffUserId: staff.schoolStaffUserId,
+      fullName,
+      firstName: staff.firstName || '',
+      lastName: staff.lastName || '',
+      role: staff.roleTitle || staff.role || staff.title || '',
+      email: staff.email || '',
       decision,
       allowed: decision === 'roi' || decision === 'roi_docs',
       packetAllowed: decision === 'roi_docs'

@@ -8,6 +8,7 @@ import {
   SPEAK_AUTHORIZATION_ITEMS,
   getLocalizedSmartRoiBundle
 } from './smartSchoolRoiCopy.js';
+import { rewriteSelfEnrollmentWording } from './selfEnrollmentWording.js';
 
 function normalizeBool(value) {
   if (typeof value === 'boolean') return value;
@@ -712,8 +713,10 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
       ${personDecisionDetailHtml(item)}
     </li>`)
     .join('');
+  const forSelf = response?.intakeForSelf === true
+    || String(response?.signer?.relationship || '').trim().toLowerCase() === 'self';
   const purposesHtml = (roiContext?.purposes || []).map((item) => `<li>${escapeHtml(item)}</li>`).join('');
-  const guidelinesHtml = (roiContext?.guidelines || []).map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+  const guidelinesHtml = (roiContext?.guidelines || []).map((item) => `<li>${escapeHtml(forSelf ? rewriteSelfEnrollmentWording(item) : item)}</li>`).join('');
 
   return `<!DOCTYPE html>
 <html>

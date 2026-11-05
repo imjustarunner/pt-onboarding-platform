@@ -163,6 +163,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
+import { enrollmentReceiptCards } from '../../../utils/enrollmentReceiptCards.js';
 import ClientCareTimeline from './ClientCareTimeline.vue';
 import '../../../styles/client-hub.css';
 
@@ -207,7 +208,17 @@ async function loadDocs() {
   try {
     const resp = await api.get(`/phi-documents/clients/${id}/chart-artifacts`, { skipGlobalLoading: true });
     artifacts.value = Array.isArray(resp.data?.artifacts) ? resp.data.artifacts : [];
-  } catch {
+  } catch (err) {
+    if (err?.response?.status === 403) {
+      try {
+        const receipts = await api.get(`/phi-documents/clients/${id}/enrollment-receipts`, { skipGlobalLoading: true });
+        artifacts.value = enrollmentReceiptCards(receipts.data);
+        return;
+      } catch {
+        artifacts.value = [];
+        return;
+      }
+    }
     artifacts.value = [];
   } finally {
     docsLoading.value = false;

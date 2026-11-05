@@ -289,6 +289,8 @@ const FALLBACK_VALUE_LABELS = {
   school_based: 'School based',
   most_important: 'Most important',
   no_preference: 'No preference',
+  self_pay: 'Self-pay. No insurance authorization signature is required.',
+  signature_from_earlier_in_this_packet: 'Signature from earlier in this packet',
   '2_weeks_2_months': '2 weeks to 2 months',
   sadness_low_mood: 'Sadness or low mood',
   school_avoidance: 'School avoidance',
@@ -524,21 +526,57 @@ const OFFICIAL_INSTRUMENT_FIELDS = [
   ...buildGad7Fields()
 ];
 
+const SCHOOL_PSC_OPTIONS = [
+  { value: '1', label: 'Never' },
+  { value: '2', label: 'Sometimes' },
+  { value: '3', label: 'Often' }
+];
+
+function usesSchoolPscScale(values, byKey) {
+  const sample = byKey.get('psc_1') || byKey.get('psc_2');
+  if ((sample?.options || []).some((option) => String(option.value) === '3' && /often/i.test(String(option.label || '')))) {
+    return true;
+  }
+  return Object.entries(values || {}).some(([key, value]) => /^psc_\d+$/i.test(key) && String(value) === '3');
+}
+
+function instrumentTitle(key) {
+  if (/^psc_\d+$/i.test(key)) return 'PSC-17';
+  if (/^phqa_\d+$/i.test(key)) return 'PHQ-A';
+  if (/^phq9_\d+$/i.test(key)) return 'PHQ-9';
+  if (/^gad7_\d+$/i.test(key)) return 'GAD-7';
+  return 'Symptom screens';
+}
+
+function fieldForInstrumentAnswer(key, raw, values, byKey) {
+  const linked = byKey.get(key);
+  const official = OFFICIAL_INSTRUMENT_FIELDS.find((item) => item.key === key);
+  if (/^psc_\d+$/i.test(key) && usesSchoolPscScale(values, byKey)) {
+    return { ...(linked || official || { key, type: 'radio' }), options: SCHOOL_PSC_OPTIONS };
+  }
+  if (linked && (linked.options || []).some((option) => String(option.value) === String(raw) || String(option.label) === String(raw))) {
+    return linked;
+  }
+  return official || linked;
+}
+
 function answeredInstrumentSections(values, printed, byKey, locale, link, childName) {
-  const rows = [];
+  const grouped = new Map();
   const keys = Object.keys(values || {})
     .filter((key) => /^(psc|phqa|phq9|gad7)_\d+$/i.test(key) && !printed.has(key))
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   for (const key of keys) {
-    const field = byKey.get(key) || OFFICIAL_INSTRUMENT_FIELDS.find((item) => item.key === key);
+    const field = fieldForInstrumentAnswer(key, values[key], values, byKey);
     if (!field) continue;
     const rendered = formatFieldValue(field, values[key], locale, link);
     if (!rendered) continue;
     const label = resolveIntakeFieldLabel(field, locale, link) || field.label || humanizeKey(key);
-    pushRow(rows, interpolateChildName(label, childName), rendered);
+    const title = instrumentTitle(key);
+    if (!grouped.has(title)) grouped.set(title, []);
+    pushRow(grouped.get(title), interpolateChildName(label, childName), rendered);
     printed.add(key);
   }
-  return rows.length ? [{ title: 'Symptom screens', rows }] : [];
+  return [...grouped.entries()].map(([title, rows]) => ({ title, rows }));
 }
 
 function signatureImage(trail) {
@@ -1036,12 +1074,20 @@ export function buildCompletedIntakeRecord({
     }
   }
   const waiversBlock = waiverRows.length ? { title: 'Waivers & acknowledgments', rows: waiverRows } : null;
+  const signerRelationship = String(
+    intakeData?.smartSchoolRoi?.signer?.relationship
+    || submissionBag?.smartSchoolRoi?.signer?.relationship
+    || ''
+  ).trim().toLowerCase();
+  const enrollingSelf = intakeData?.smartSchoolRoi?.intakeForSelf === true
+    || submissionBag?.smartSchoolRoi?.intakeForSelf === true
+    || signerRelationship === 'self';
 
   const sections = [
     contactRows.length
       ? { title: isJobApplication ? 'Applicant' : 'Who this packet is for', rows: contactRows }
       : null,
-    leftoverGuardian.length ? { title: isJobApplication ? 'Applicant details' : 'Parent / guardian', rows: leftoverGuardian } : null,
+    leftoverGuardian.length ? { title: isJobApplication ? 'Applicant details' : (enrollingSelf ? 'Your information' : 'Parent / guardian'), rows: leftoverGuardian } : null,
     ...(isJobApplication ? jobApplicationSections(intakeData.applicationRecord) : []),
     referencesBlock,
     waiversBlock,

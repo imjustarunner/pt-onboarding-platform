@@ -1,81 +1,59 @@
-School enrollment receipt check
-Compare the PDF with the exact words typed. Do not treat a saved packet as correct because a download button exists.
+School enrollment receipt check — next run
+Do not start until the owner says the new build is live. Hard-refresh the school link before typing. Record the build hash from the live site. If it is still 0a90c086 or 2a3d3ac7e, stop and report that the new build is not live.
 
-Use a different recognizable token in every section. After submit, download the enrollment receipt from the completion page, open the PDF, and also open that same PDF from the client’s documents as the client, as support, as an administrator, and as the assigned provider.
+This run is for the family and for support. Do not sign in as an admin or superadmin. Do not ask an admin to create a provider login. Do not open an assigned-provider view.
 
-A check passes only when the question label and the token, or the exact choice words below, appear together. “Never” next to the wrong question is a failure. A wrapped label with the answer on a later line is a failure if the answer cannot be tied to that question.
+Use new practice families. Do not delete or reopen enrollment references 1396, 1397, or 1398, or the portal accounts from run 20261104d.
 
-Parent, one child
-- Child first/last: use the test name already assigned to this journey.
-- Date of birth: 2014-04-14. The receipt must show 2014-04-14 next to the date of birth.
-- Grade: GRADE-PARENT-6
+A check passes only when the question label and the token, or the exact choice words below, appear together in the PDF. A number such as 3, or a shifted word (Sometimes printed as Often), is a failure. Open the completion-page PDF first. Then open the same enrollment from the client portal. They are different files. Both must pass.
+
+Run three journeys on the live Columbia school link.
+
+Journey 1 — guardian, one child
+- Date of birth: 2014-04-14
+- Grade is a drop-down on the parent path. Choose 6th. Record that the token could not be typed. That is a note, not a failure, if the receipt shows 6th or 6.
 - Sex: Female
 - Street: STREET-PARENT-610
 - City: CITY-PARENT
 - State: CO
 - ZIP: 80211
-- PSC-17, type these choices, not all Never:
-  1 Fidgety, unable to sit still: Sometimes
-  2 Acts as if driven by a motor: Often
-  3 Daydreams too much: Never
-  4 Distracted easily: Sometimes
-  5 Feels sad, unhappy: Often
-  6 Feels hopeless: Never
-  7 Has trouble concentrating: Sometimes
-  8 Fights with others: Often
-  9 Is down on him or herself: Never
-  10 Worries a lot: Sometimes
-  11 Seems to be having less fun: Often
-  12 Does not listen to rules: Never
-  13 Does not understand other people's feelings: Sometimes
-  14 Teases others: Often
-  15 Blames others for his or her troubles: Never
-  16 Takes things that do not belong to him or her: Sometimes
-  17 Refuses to share: Often
-- The receipt must not contain PHQ-A or GAD-7 on this parent packet.
-- Insurance: choose self-pay. The receipt must say self-pay and must not invent a member id.
-- Reminders, if the page is shown: name REMINDER-PARENT-ONE and email reminder.parent.one@example.com
-- Release: for the two Columbia staff, choose two different options (one All Active, one Speak or No ROI). The receipt must name each person and that person’s choice.
-- Each required release notice that is accepted must say Acknowledged. Each authorization choice must show the choice that was clicked.
-- Informed consent, policy, and HIPAA must show that they were acknowledged.
-- Communication: choose No for email and No for text. The receipt must say No for both.
+- PSC-17, in this order: Sometimes, Often, Never, Sometimes, Often, Never, Sometimes, Often, Never, Sometimes, Often, Never, Sometimes, Often, Never, Sometimes, Often
+- The receipt must show the title PSC-17. It must not show a “Symptom screens” block with shifted answers or a raw 3.
+- No PHQ-A and no GAD-7 on a parent packet.
+- Staff: one person ROI All Active, one person ROI (Speak). The completion receipt must print each person’s name with those exact words. “Staff #1000”, “ROI + packet documents”, and “Roi” are failures.
+- Communication: No email, No text.
+- Insurance: I am self-pay. Saving must not ask for “Apply my signature to this authorization”. The receipt must show Self-Pay, self-pay Yes, and no member id. It must not invent a member id.
+- Five notices Acknowledged. Consent lines on the completion receipt must say acknowledged (the client copy’s “Acknowledged and signed electronically” is the expected wording).
 
-Parent, two children
-- Repeat the parent journey with two children. Child A tokens use the suffix A. Child B tokens use the suffix B. Example grades: GRADE-A-4 and GRADE-B-1. Example streets: STREET-A-22 and STREET-B-88.
-- PSC-17 choices for child B are the reverse of child A. Child A item 1 is Sometimes. Child B item 1 is Often.
-- Download each child’s receipt. Child A’s PDF must contain Child A’s tokens and must not contain Child B’s grade, street, or PSC pattern. Child B’s PDF must do the opposite.
-- Shared parent name, email, and phone may appear on both.
+Journey 2 — guardian, two children
+- Child A: date of birth 2016-04-04, grade drop-down 4th (note, not a failure), sex Female, street STREET-A-22, city CITY-A, state CO, ZIP 80211.
+- Child A PSC-17: the same Sometimes / Often / Never pattern as Journey 1.
+- Child B: date of birth 2019-09-09, grade drop-down 1st (note, not a failure), sex Male, street STREET-B-88, city CITY-B, state CO, ZIP 80212.
+- Child B PSC-17: the reverse pattern, starting Often, Sometimes, Never.
+- Staff, shared: one person No ROI on file, one person ROI All Active. The completion receipt must print the names and those exact words.
+- Communication: No / No.
+- If the unfinished-enrollment reminder is agreed, type a reminder name and email that are different from the guardian’s name and email. After agree, the guardian first name and email on the packet must still be the guardian’s, not the reminder values.
+- Self-pay, same rule as Journey 1. Saving must not ask for the hidden signature button.
+- On the completion page, download a PDF for child A and a separate PDF for child B. A click that does nothing, and the combined “View your enrollment” print, are failures. Do not use the HTML summary as a substitute.
+- Child A’s PDF must contain Child A’s PSC pattern and tokens and must not contain STREET-B-88, CITY-B, 80212, or 2019-09-09.
+- Child B’s PDF must contain the reverse PSC pattern and Child B’s tokens and must not contain STREET-A-22 or Child A’s date of birth.
 
-Student enrolling themselves, age 13
-- Do not expect the PSC-17. If any PSC-17 question is on the page, stop and fail.
-- The page must show PHQ-A and GAD-7, with those titles.
-- Grade: GRADE-SELF-8
-- Sex: Male
-- Street: STREET-SELF-410
-- City: CITY-SELF
-- State: CO
-- ZIP: 80205
-- Date of birth: 2013-05-05, and the receipt must show 2013-05-05.
-- PHQ-A, past two weeks:
-  1 Feeling down, depressed, irritable, or hopeless: Several days
-  2 Little interest or pleasure in doing things: Not at all
-  3 Trouble falling asleep, staying asleep, or sleeping too much: More than half the days
-  4 Poor appetite, weight loss, or overeating: Not at all
-  5 Feeling tired, or having little energy: Several days
-  6 Feeling bad about yourself: Not at all
-  7 Trouble concentrating on things like school work: More than half the days
-  8 Moving or speaking slowly, or fidgety: Not at all
-  9 Thoughts that you would be better off dead, or of hurting yourself: Not at all
-- GAD-7:
-  1 Feeling nervous, anxious, or on edge: Nearly every day
-  2 Not being able to stop or control worrying: Several days
-  3 Worrying too much about different things: Not at all
-  4 Trouble relaxing: More than half the days
-  5 Being so restless that it is hard to sit still: Not at all
-  6 Becoming easily annoyed or irritable: Several days
-  7 Feeling afraid, as if something awful might happen: Not at all
-- Insurance: self-pay. Receipt must say self-pay.
-- Release relationship must say Self, not “my dependent” and not “your child.”
-- Communication choices must match the buttons that were clicked.
+Journey 3 — student enrolling themself, age 13
+- Date of birth: 2013-05-05. Grade is free text on this path. Type GRADE-SELF-8.
+- Sex: Male. Street: STREET-SELF-410. City: CITY-SELF. State: CO. ZIP: 80205.
+- The questions page must show PHQ-A and GAD-7, with those titles. It must not show PSC-17.
+- PHQ-A: Not at all, Several days, More than half the days, Nearly every day, Not at all, Several days, More than half the days, Nearly every day, Not at all.
+- GAD-7: Several days, Not at all, Nearly every day, More than half the days, Not at all, Several days, More than half the days.
+- Both screens, with the question labels and those words, must be in the completion receipt and in the client-portal copy.
+- The student’s own details must not be under a “Parent / guardian” heading.
+- Relationship must say Self. The release, the policy, and the school-visit notice must not say “my dependent” or “your child”.
+- Staff: ROI All Active and ROI (Speak), with names and those exact words.
+- Self-pay must save without the hidden signature button. The receipt must not say “Reused Guardian Signature”.
+- Communication: No / No.
 
-After each PDF check, record the reference number and which tokens were missing or attached to the wrong question. Do not copy the whole PDF into the report.
+After each journey
+1. On the completion page, download the receipt (two files for Journey 2). Open each PDF and check every item above.
+2. Set up the portal, then open Tasks & documents → Your signed copies → Complete signed enrollment copy → Download PDF. Check the same items. For two children, open each child’s file and confirm the other child’s tokens are absent.
+3. Sign in as the existing ITSCO demo support account (demo-support-test). Open each new chart. Documents must list the signed enrollment, and View must open the PDF. “No signed files on the chart yet” or a permission error is a failure on this run. Do not use an admin account.
+
+Do not copy signer IP addresses into the report. Do not include passwords, session links, or the contents of private first-access pages. Leave the new practice records in place and list their reference numbers for cleanup later.

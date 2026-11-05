@@ -182,9 +182,11 @@ function staffLabel(row) {
 
 function decisionLabel(row) {
   const d = String(row?.decision || '').toLowerCase();
-  if (d === 'roi_docs' || row?.packetAllowed) return 'ROI + packet documents';
-  if (d === 'speak' || d === 'roi_speak') return 'ROI (Speak) only';
-  if (d === 'deny' || row?.allowed === false) return 'Denied';
+  if (d === 'roi_docs' || d === 'all_active') return 'ROI All Active';
+  if (d === 'roi' || d === 'speak' || d === 'roi_speak') return 'ROI (Speak)';
+  if (d === 'none' || d === 'deny' || d === 'no_roi') return 'No ROI on file';
+  if (row?.packetAllowed) return 'ROI All Active';
+  if (row?.allowed === false) return 'No ROI on file';
   return humanize(d || 'decision');
 }
 

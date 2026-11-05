@@ -11,7 +11,7 @@ function item(key, label, helperText, instrument, section) {
     key,
     label,
     type: 'radio',
-    required: false,
+    required: true,
     helperText,
     options: frequency,
     instrument,

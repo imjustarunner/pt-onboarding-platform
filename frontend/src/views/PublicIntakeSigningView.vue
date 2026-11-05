@@ -1840,7 +1840,7 @@
                 <span>{{ tx('No - Do not text me') }}</span>
               </label>
             </div>
-            <p v-if="isSchoolScopedIntake && communicationConsent?.schoolText" class="communications-disclosure">{{ tx(communicationConsent.schoolText) }}</p>
+            <p v-if="isSchoolScopedIntake && schoolCommunicationNotice" class="communications-disclosure">{{ tx(schoolCommunicationNotice) }}</p>
             <p class="communications-disclosure">{{ tx('A past appointment confirmation is not a new text subscription. Other adults must make their own choices. You may choose No now and change your preference later.') }}</p>
             <p class="communications-disclosure">{{ tx('A Yes saves your request. Texts start only after your phone, signed permission and the agency’s parent texting program are verified. A saved form does not override an earlier STOP.') }}</p>
             <label v-if="communications.smsPreference === 'scheduling_only' || communications.providerTextingOptIn === 'yes'">{{ tx('Your phone number for these texts') }}
@@ -2904,7 +2904,7 @@
           </p>
           <div v-if="!isMultiChildPacketsAllReady" class="multi-child-prep-header">
             <span>
-              {{ clientBundleLinks.length }} of {{ expectedChildCount }} PDF packets ready.
+              {{ downloadableChildBundles.length }} of {{ expectedChildCount }} PDF packets ready.
               <br />
               <span class="muted small">{{ t('packetPdfStillPreparing') }}</span>
             </span>
@@ -2921,8 +2921,11 @@
           <div class="bundle-title">{{ formTypeKey === 'smart_school_roi' ? 'Download per-client releases' : 'Download per-child packets' }}</div>
           <div v-for="bundle in clientBundleLinks" :key="bundle.clientId || bundle.filename" class="bundle-item">
             <div class="bundle-name">{{ bundle.clientName || `Client ${bundle.clientId}` }}</div>
-            <a class="btn btn-secondary btn-sm" :href="bundle.downloadUrl" target="_blank" rel="noopener">View</a>
-            <a class="btn btn-outline btn-sm" :href="bundle.downloadUrl" download>Download</a>
+            <template v-if="bundle.downloadUrl">
+              <button type="button" class="btn btn-secondary btn-sm" @click="openChildPacket(bundle)">View</button>
+              <button type="button" class="btn btn-outline btn-sm" @click="openChildPacket(bundle)">Download</button>
+            </template>
+            <span v-else class="muted small">PDF still preparing</span>
           </div>
           <!-- Pending-child placeholder rows so the parent SEES the kids
                that haven't finished bundling yet, instead of an empty list.
@@ -2935,6 +2938,7 @@
             <div class="bundle-name">{{ pendingName }}</div>
             <span class="muted small">PDF still preparing — we’ll email it.</span>
           </div>
+          <p v-if="packetDownloadError" class="error">{{ packetDownloadError }}</p>
         </div>
         <div class="actions">
           <button v-if="!endSessionPrompt" class="btn btn-secondary" type="button" @click="endSessionPrompt = true">
@@ -7508,6 +7512,19 @@ const downloadUrl = ref('');
 const officeSummaryDownloading = ref(false);
 const officeSummaryError = ref('');
 const clientBundleLinks = ref([]);
+const packetDownloadError = ref('');
+function openChildPacket(bundle) {
+  const url = String(bundle?.downloadUrl || '').trim();
+  packetDownloadError.value = '';
+  if (!url) {
+    packetDownloadError.value = 'This packet is still being prepared. Wait until it says ready, then try again.';
+    return;
+  }
+  const opened = window.open(url, '_blank', 'noopener');
+  if (!opened) {
+    packetDownloadError.value = 'The browser blocked the packet. Allow pop-ups for this site, then click Download again.';
+  }
+}
 const jobApplicationSubmitted = ref(false);
 
 // Multi-child post-submit UX helpers — used on step 3 ("Successfully
@@ -7527,10 +7544,14 @@ const isMultiChildPostSubmit = computed(() => {
   if (jobApplicationSubmitted.value) return false;
   return expectedChildCount.value > 1;
 });
+const downloadableChildBundles = computed(() => (
+  Array.isArray(clientBundleLinks.value)
+    ? clientBundleLinks.value.filter((bundle) => String(bundle?.downloadUrl || '').trim())
+    : []
+));
 const isMultiChildPacketsAllReady = computed(() => {
   if (!isMultiChildPostSubmit.value) return false;
-  return Array.isArray(clientBundleLinks.value)
-    && clientBundleLinks.value.length >= expectedChildCount.value;
+  return downloadableChildBundles.value.length >= expectedChildCount.value;
 });
 // While waiting for siblings to finish bundling, render placeholder rows
 // for each child whose name we know but whose packet hasn't appeared in
@@ -7571,6 +7592,11 @@ const consentErrors = reactive({
 });
 const startClientErrors = ref([]);
 const intakeForSelf = ref(null);
+const schoolCommunicationNotice = computed(() => {
+  const consent = communicationConsent.value || {};
+  if (intakeForSelf.value === true && consent.schoolTextSelf) return consent.schoolTextSelf;
+  return consent.schoolText || '';
+});
 /** self | dependent | couple | family — preferred over boolean intakeForSelf for office counseling. */
 const serviceSubject = ref('');
 // The saved subject is authoritative after a refresh; false also describes
@@ -11746,8 +11772,8 @@ const completeInsuranceStep = async () => {
 
   // Self-Pay fast path: the dedicated toggle at the top of the insurance step
   // bypasses every insurer-specific requirement (carrier name, member ID, card
-  // photos). We still require the Insurance Authorization signature below so
-  // there's a paper trail for the assignment-of-benefits language.
+  // photos). The assignment-of-benefits signature is not on this path, so
+  // saving must not ask for the hidden signature button.
   const selfPayDeclared = !!(insInfo.isSelfPay || insuranceEntryState.isSelfPay);
   if (selfPayDeclared) {
     insInfo.isSelfPay = true;
@@ -11784,6 +11810,12 @@ const completeInsuranceStep = async () => {
   //      authorizationSignedAt.
   // Either is a legal e-signature; both record signedAt locally and the
   // server stamps ip + user_agent at finalize.
+  if (selfPayDeclared) {
+    insInfo.authorizationSignature = '';
+    insInfo.authorizationSignatureData = '';
+    insInfo.authorizationSignedAt = '';
+    insInfo.authorizationSourceMethod = 'self_pay';
+  } else {
   const authBundle = combined?.validateAuthorization
     ? {
         authorizationSignature: insInfo.authorizationSignature,
@@ -11810,8 +11842,11 @@ const completeInsuranceStep = async () => {
   insInfo.authorizationSignedAt = String(authBundle.authorizationSignedAt || new Date().toISOString());
   insInfo.authorizationSourceMethod = String(
     authBundle.authorizationSourceMethod
-    || (hasDrawn ? 'reused_guardian_signature' : 'typed_full_name')
+    || (intakeForSelf.value === true
+      ? 'signature_from_earlier_in_this_packet'
+      : (hasDrawn ? 'reused_guardian_signature' : 'typed_full_name'))
   );
+  }
 
   // Persist payment choice from combined office step when payment section was shown.
   if (combined?.showPaymentSection && !intakeResponses.submission.paymentInfo) {
@@ -11905,7 +11940,7 @@ const completeCommunicationsStep = () => {
   intakeResponses.submission.communicationPreferences = {
     version: communicationConsent.value?.version,
     disclosure: communicationConsent.value?.text,
-    schoolDisclosure: communicationConsent.value?.schoolText,
+    schoolDisclosure: schoolCommunicationNotice.value,
     displayedDisclosure: communicationsSmsDisclosure.value,
     emailDisclosure: communicationConsent.value?.emailText,
     emailNoticeVersion: communicationConsent.value?.emailNoticeVersion,
@@ -12364,14 +12399,15 @@ const finalizePacket = async () => {
     // Multi-child submissions deliberately have no combined download URL —
     // each child's packet is in clientBundles. Treat any per-child bundle as
     // "ready" so the post-submit page stops spinning.
-    const hasPerChildPackets = Array.isArray(clientBundleLinks.value) && clientBundleLinks.value.length > 0;
-    if (downloadUrl.value || jobApplicationSubmitted.value || hasPerChildPackets) {
+    const readyDownloads = (clientBundleLinks.value || []).filter((bundle) => bundle?.downloadUrl).length;
+    const expectedKids = Math.max(1, (intakeResponses?.clients || []).length || 1);
+    if (downloadUrl.value || jobApplicationSubmitted.value || readyDownloads >= expectedKids) {
       pollingForDownload.value = false;
     }
     step.value = 3;
     clearPersistedDraft();
     void maybeCreateOfficeCoGuardianInvite(resp.data);
-    if (!downloadUrl.value && !jobApplicationSubmitted.value && !hasPerChildPackets) {
+    if (!downloadUrl.value && !jobApplicationSubmitted.value && readyDownloads < expectedKids) {
       if (!isOfficeInDepthIntake.value) {
         pollForDownloadUrl();
       } else if (!coGuardianInviteResult.value) {
@@ -12439,22 +12475,12 @@ const pollForDownloadUrl = async (attemptLimit) => {
         packetNeedsReview.value = true;
         break;
       }
-      const hasPerChildPackets = Array.isArray(clientBundleLinks.value) && clientBundleLinks.value.length > 0;
-      // Backend now reports packetReady=true once finalize is done AND there
-      // is something downloadable (combined OR per-child). Either explicit
-      // flag or the presence of bundles ends the poll loop.
-      if (resp.data?.packetReady === true || (resp.data?.packetReady == null && (resp.data?.downloadUrl || hasPerChildPackets))) {
-        if (resp.data?.downloadUrl) {
-          downloadUrl.value = resp.data.downloadUrl;
-        }
-        // For multi-child, keep polling a couple more times so any siblings
-        // still being built show up, but stop blocking the UI.
-        const _expectedKids = (intakeResponses?.clients || []).length || 1;
-        const haveAllExpected = Array.isArray(clientBundleLinks.value)
-          && clientBundleLinks.value.length >= _expectedKids;
-        if ((resp.data?.packetReady === true || resp.data?.downloadUrl || haveAllExpected) && emailDeliveryStatus.value?.attempted) {
-          break;
-        }
+      const readyDownloads = (clientBundleLinks.value || []).filter((bundle) => bundle?.downloadUrl).length;
+      const expectedKids = Math.max(1, (intakeResponses?.clients || []).length || 1);
+      if (resp.data?.downloadUrl) downloadUrl.value = resp.data.downloadUrl;
+      const downloadsReady = !!downloadUrl.value || readyDownloads >= expectedKids;
+      if (downloadsReady && (emailDeliveryStatus.value?.attempted || i >= 8)) {
+        break;
       }
     } catch {
       // continue polling
@@ -12839,7 +12865,7 @@ const stepQuestionFields = computed(() => {
   if (current?.type !== 'questions' || !Array.isArray(current.fields)) return [];
   const stepVis = String(current.visibility || 'always').trim().toLowerCase();
   if (stepVis === 'new_client_only' && isExistingClientByMatch.value) return [];
-  return normalizeIntakeSexFields(current.fields || []).filter((f) => {
+  const fields = normalizeIntakeSexFields(current.fields || []).filter((f) => {
     const key = String(f?.key || '').trim();
     if (usesSchoolChildDetails.value && childDetailKind(f) && intakeForSelf.value !== true) return false;
     if (!key && f?.type !== 'info') return false;
@@ -12881,6 +12907,13 @@ const stepQuestionFields = computed(() => {
     if (f?.sexPlus) return false;
     return true;
   });
+  const hadParentScreen = (current.fields || []).some((f) => instrumentIdForField(f) === 'psc17');
+  if (intakeForSelf.value === true && hadParentScreen && !fields.some((f) => ['phqa', 'gad7'].includes(instrumentIdForField(f)))) {
+    const supplied = link.value?.self_adolescent_screens;
+    const screens = Array.isArray(supplied) && supplied.length ? supplied : adolescentSelfScreenFields();
+    return [...fields, ...screens];
+  }
+  return fields;
 });
 
 const questionValues = computed(() => {
@@ -14018,8 +14051,6 @@ async function submitEnrollmentReminderConsent(consentStatus) {
       reminderConsentError.value = t('reminderConsentAgreeNeedsContact');
       return;
     }
-    if (!guardianFirstName.value && firstName) guardianFirstName.value = firstName;
-    if (!guardianEmail.value && email) guardianEmail.value = email;
   }
   reminderConsentLoading.value = true;
   consentLoading.value = true;

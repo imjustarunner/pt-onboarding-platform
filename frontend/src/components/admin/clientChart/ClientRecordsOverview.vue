@@ -265,6 +265,7 @@ import { formatAuditTimestamp } from '../../../utils/formatDate';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import api from '../../../services/api';
+import { enrollmentReceiptCards } from '../../../utils/enrollmentReceiptCards.js';
 import '../../../styles/client-hub.css';
 import { buildNoteAidQuery, treatmentPlanUpdaterQuery } from '../../../utils/noteAidLaunch.js';
 
@@ -536,7 +537,21 @@ async function load() {
     const jobs = [
       api.get(`/phi-documents/clients/${clientId}/chart-artifacts`, { skipGlobalLoading: true })
         .then((r) => { artifacts.value = Array.isArray(r.data?.artifacts) ? r.data.artifacts : []; })
-        .catch((e) => { artifacts.value = []; failures.push(e); })
+        .catch(async (e) => {
+          if (e?.response?.status === 403) {
+            try {
+              const receipts = await api.get(`/phi-documents/clients/${clientId}/enrollment-receipts`, { skipGlobalLoading: true });
+              artifacts.value = enrollmentReceiptCards(receipts.data);
+              return;
+            } catch (receiptError) {
+              artifacts.value = [];
+              failures.push(receiptError);
+              return;
+            }
+          }
+          artifacts.value = [];
+          failures.push(e);
+        })
     ];
     if (agencyId) {
       jobs.push(

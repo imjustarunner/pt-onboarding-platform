@@ -48,6 +48,7 @@ test('intake answers text includes guardian-equivalent ROI fields', () => {
   const text = buildSchoolRoiAnswersText(roiPayload);
   assert.match(text, /ChaMar/);
   assert.match(text, /Kelly Gallegos/);
+  assert.match(text, /ROI All Active/);
   assert.match(text, /HIPAA/i);
 });
 

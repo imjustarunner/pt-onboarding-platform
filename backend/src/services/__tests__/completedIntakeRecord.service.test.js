@@ -426,7 +426,8 @@ test('receipt prints the selected screen label and self screens that are not on 
         responses: {
           clients: [{
             psc_1: '2',
-            psc_2: '2',
+            psc_2: '3',
+            psc_3: '2',
             phqa_1: '1',
             gad7_1: '3',
             client_grade: 'GRADE-TOKEN-8',
@@ -441,6 +442,11 @@ test('receipt prints the selected screen label and self screens that are not on 
   const value = (label) => rows.find((row) => row.label === label)?.value;
   assert.equal(value('Fidgety, unable to sit still'), 'Sometimes');
   assert.equal(value('Acts as if driven by a motor'), 'Often');
+  assert.equal(value('Daydreams too much'), 'Sometimes');
+  assert.ok(spec.sections.some((section) => section.title === 'PSC-17'));
+  assert.ok(spec.sections.some((section) => section.title === 'PHQ-A'));
+  assert.ok(spec.sections.some((section) => section.title === 'GAD-7'));
+  assert.equal(spec.sections.some((section) => section.title === 'Symptom screens'), false);
   assert.equal(value('Feeling down, depressed, irritable, or hopeless'), 'Several days');
   assert.equal(value('Feeling nervous, anxious, or on edge'), 'Nearly every day');
   assert.equal(value('Grade'), 'GRADE-TOKEN-8');
