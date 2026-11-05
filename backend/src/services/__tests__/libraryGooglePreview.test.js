@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 const mocks=vi.hoisted(()=>({execute:vi.fn(),auth:vi.fn(),get:vi.fn(),download:vi.fn(),read:vi.fn(),operation:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:mocks.execute}}));
 vi.mock('../googleWorkspaceAuth.service.js',()=>({buildImpersonatedJwtClient:mocks.auth}));
-vi.mock('googleapis',()=>({google:{drive:()=>({files:{get:mocks.get,download:mocks.download},operations:{get:mocks.operation}})}}));
+vi.mock('../../utils/googleApis.js',()=>({google:{drive:()=>({files:{get:mocks.get,download:mocks.download},operations:{get:mocks.operation}})}}));
 import {libraryGoogleFileId,loadLibraryGooglePreview} from '../libraryGooglePreview.service.js';
 const resource={id:1,agencyId:2,createdBy:3,updatedBy:4,name:'Guide',externalUrl:'https://docs.google.com/document/d/doc_123/edit'};
 beforeEach(()=>{vi.resetAllMocks();mocks.execute.mockResolvedValue([[{email:'publisher@example.org',work_email:'author@work.test',login_is_group_email:0}]]);mocks.auth.mockResolvedValue({request:mocks.read});mocks.get.mockResolvedValue({data:{mimeType:'application/vnd.google-apps.document',capabilities:{canDownload:true}}});mocks.download.mockResolvedValue({data:{done:true,response:{downloadUri:'https://docs.google.com/feeds/download/documents/export/Export?id=doc_123'}}});mocks.read.mockResolvedValue({data:Buffer.from('%PDF-1.7\npreview')});});

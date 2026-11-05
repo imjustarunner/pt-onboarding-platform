@@ -1,5 +1,5 @@
 import { appGroupMemberPolicy, ensureAppGroupMember, ensureAppGroupOwnership } from './appGroupOwnership.service.js';
-import { google } from 'googleapis';
+import { google } from '../utils/googleApis.js';
 import {
   buildImpersonatedJwtClient,
   logGoogleUnauthorizedHint,

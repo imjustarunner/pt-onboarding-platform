@@ -1,4 +1,5 @@
 import { redactSmsCampaignSettings } from '../utils/smsCampaignPublicRedaction.js';
+import { dashboardIconManifest } from '../services/dashboardIconManifest.service.js';
 import { validateSessionSettings } from '../utils/sessionSecurityPolicy.js';
 import { mergeAgencyFeatureFlags } from '../utils/agencyFeatureFlags.js';
 import Agency from '../models/Agency.model.js';
@@ -1733,10 +1734,12 @@ export const getThemeByPortalUrl = withBrandingCache(
     };
     const iconUrl = resolveIconUrl(brandingOrg);
 
+    const dashboardIcons = await dashboardIconManifest(brandingOrg).catch(() => null);
     // Return theme data for frontend
     res.json({
       brandingAgencyId: brandingOrg.id,
       portalOrganizationId: agency.id,
+      dashboardIcons,
       colorPalette: colorPalette || {},
       logoUrl,
       iconUrl: iconUrl || null,
@@ -1906,11 +1909,13 @@ export const getLoginThemeByPortalUrl = withBrandingCache(
       ? (parentAgencyForLogin.portal_url || parentAgencyForLogin.slug || '').toString().trim().toLowerCase()
       : null;
 
+    const dashboardIcons = await dashboardIconManifest(brandingOrg, platformBranding).catch(() => null);
     // Return combined theme data for login page
     res.json({
       agency: {
         brandingAgencyId: brandingOrg.id,
         portalOrganizationId: agency.id,
+        dashboardIcons,
         name: loginDisplayName,
         // Preserve the portal org type so frontend can enforce school portal behavior.
         organizationType: agency.organization_type || 'agency',

@@ -11,7 +11,6 @@ import { resolveHostForAgencyLookup } from '../utils/subdomain';
 import api from '../services/api';
 import { loadFont } from '../utils/fontLoader';
 import { getBackendBaseUrl, toUploadsUrl } from '../utils/uploadsUrl';
-import { trackPromise } from '../utils/pageLoader';
 import { preloadImages } from '../utils/preloadImages';
 import { isSchoolOnboardingDemoActive } from '../utils/schoolOnboardingDemoContext.js';
 import { shouldApplyPortalAgencyThemeFirst as resolvePortalThemePriority } from '../utils/portalThemePriority.js';
@@ -70,6 +69,32 @@ export const useBrandingStore = defineStore('branding', () => {
   // IMPORTANT: Do NOT fetch the full /icons index (it can be huge and slow).
   const iconFilePathCache = ref({}); // { [id]: file_path }
   const iconFetchInFlight = new Map(); // id -> Promise<string|null>
+  const iconFetchQueue = [];
+  let activeIconFetches = 0;
+
+  // All callers share the limit, including lazy resolutions during rendering.
+  // Decorative icons must leave capacity for session and workspace requests.
+  const drainIconFetchQueue = () => {
+    while (activeIconFetches < 4 && iconFetchQueue.length) {
+      const { key, resolve } = iconFetchQueue.shift();
+      activeIconFetches++;
+      void (async () => {
+        let fp = null;
+        try {
+          const res = await api.get(`/icons/${encodeURIComponent(key)}`, { skipGlobalLoading: true });
+          fp = res?.data?.file_path || null;
+        } catch {
+          // Best effort; the UI can render its fallback icon.
+        } finally {
+          iconFilePathCache.value = { ...iconFilePathCache.value, [key]: fp };
+          iconFetchInFlight.delete(key);
+          activeIconFetches--;
+          resolve(fp);
+          drainIconFetchQueue();
+        }
+      })();
+    }
+  };
 
   // Any authenticated user may resolve icon id → file path (GET /icons/:id is read-only; not the icon index).
   const canFetchIconsApi = computed(() => !!authStore.isAuthenticated);
@@ -108,22 +133,9 @@ export const useBrandingStore = defineStore('branding', () => {
         if (iconFilePathCache.value?.[key]) return Promise.resolve(iconFilePathCache.value[key]);
         if (iconFetchInFlight.has(key)) return iconFetchInFlight.get(key);
 
-        const p = api
-          .get(`/icons/${encodeURIComponent(key)}`, { skipGlobalLoading: true })
-          .then((res) => {
-            const fp = res?.data?.file_path || null;
-            iconFilePathCache.value = { ...iconFilePathCache.value, [key]: fp };
-            return fp;
-          })
-          .catch(() => {
-            iconFilePathCache.value = { ...iconFilePathCache.value, [key]: null };
-            return null;
-          })
-          .finally(() => {
-            iconFetchInFlight.delete(key);
-          });
-
+        const p = new Promise((resolve) => iconFetchQueue.push({ key, resolve }));
         iconFetchInFlight.set(key, p);
+        drainIconFetchQueue();
         return p;
       });
 
@@ -131,6 +143,21 @@ export const useBrandingStore = defineStore('branding', () => {
     } catch {
       // ignore
     }
+  };
+
+  const prefetchBrandingIcons = (branding) => {
+    const paths = {};
+    const ids = [];
+    for (const [field, id] of Object.entries(branding || {})) {
+      if (!field.endsWith('_icon_id') || id === null || id === undefined || id === '') continue;
+      const path = branding[field.replace(/_id$/, '_path')];
+      if (path) paths[String(id)] = path;
+      ids.push(id);
+    }
+    // The branding response already joins most icon paths. Reuse them instead
+    // of issuing an authenticated request for every configured icon.
+    iconFilePathCache.value = { ...iconFilePathCache.value, ...paths };
+    return prefetchIconIds(ids);
   };
 
   // Portal agency (detected from subdomain)
@@ -175,6 +202,34 @@ export const useBrandingStore = defineStore('branding', () => {
   const _iconsBySlug = reactive({});     // slug → organization icon URL (favicon / nav mark)
   const _namesBySlug = reactive({});     // slug → agency display name
   const _themeSettingsBySlug = reactive({}); // slug → themeSettings (parallel to slug theme fetch)
+  const _dashboardIconsBySlug = reactive({});
+  const dashboardImageUrlsBySlug = new Map();
+  const warmedDashboardImages = new Map();
+  const applyDashboardIcons = (slug, manifest) => {
+    if (!slug || !manifest) return;
+    _dashboardIconsBySlug[slug] = manifest.fields || {};
+    iconFilePathCache.value = { ...iconFilePathCache.value, ...(manifest.pathsById || {}) };
+    const allUrls = Object.values(manifest.pathsById || {}).map(toUploadsUrl).filter(Boolean);
+    dashboardImageUrlsBySlug.set(slug, allUrls);
+    const urls = allUrls.filter(url => !warmedDashboardImages.has(url));
+    // Start on the login page, alongside the logo. These same URLs are reused
+    // by the dashboard, without authenticated per-icon API lookups.
+    if (urls.length) {
+      const ready = preloadImages(urls, { concurrency: 6, timeoutMs: 4000 }).catch(() => {});
+      urls.forEach(url => warmedDashboardImages.set(url, ready));
+    }
+  };
+  const prepareDashboardIcons = async () => {
+    const slug = normalizePortalKey(activeWorkspaceSlug.value);
+    const pending = [...new Set((dashboardImageUrlsBySlug.get(slug) || []).map(url => warmedDashboardImages.get(url)).filter(Boolean))];
+    if (!pending.length) return;
+    let timer;
+    try {
+      // Usually already cached while credentials were entered. Fast SSO gets a
+      // short, bounded handoff; an unavailable image cannot trap someone here.
+      await Promise.race([Promise.all(pending), new Promise(resolve => { timer = setTimeout(resolve, 1200); })]);
+    } finally { clearTimeout(timer); }
+  };
 
   const normalizePortalKey = (value) => String(value || '').trim().toLowerCase();
   const agencyPortalKey = (agency) => normalizePortalKey(agency?.slug || agency?.portal_url || agency?.portalUrl);
@@ -237,25 +292,16 @@ export const useBrandingStore = defineStore('branding', () => {
       // Update branding version to force logo refresh
       brandingVersion.value = Date.now();
 
-      // Best-effort: preload platform icons/logos so pages feel "fully populated" before the global loader disappears.
+      // Warm decorative assets in the background without holding the page loader.
       try {
         const pb = platformBranding.value || {};
-        // Best-effort: prefetch icon IDs so *_icon_id fallbacks resolve immediately.
-        // (This matches how SettingsModal prefetches sidebar icons; we do it platform-wide here.)
-        try {
-          const ids = Object.entries(pb)
-            .filter(([k, v]) => k.endsWith('_icon_id') && v !== null && v !== undefined && v !== '')
-            .map(([, v]) => v);
-          trackPromise(prefetchIconIds(ids), 'Loading…');
-        } catch {
-          // ignore
-        }
+        void prefetchBrandingIcons(pb);
 
         const paths = Object.entries(pb)
           .filter(([k, v]) => !!v && (k.endsWith('_icon_path') || k.endsWith('_logo_path') || k.endsWith('_icon_url') || k.endsWith('_logo_url')))
           .map(([, v]) => toUploadsUrl(String(v)))
           .filter(Boolean);
-        trackPromise(preloadImages(paths, { concurrency: 6, timeoutMs: 8000 }), 'Loading…');
+        void preloadImages(paths, { concurrency: 2, timeoutMs: 8000 }).catch(() => {});
       } catch {
         // ignore
       }
@@ -285,11 +331,7 @@ export const useBrandingStore = defineStore('branding', () => {
     platformBranding.value = pb || null;
     brandingVersion.value = Date.now();
     try {
-      const next = pb || {};
-      const ids = Object.entries(next)
-        .filter(([k, v]) => k.endsWith('_icon_id') && v !== null && v !== undefined && v !== '')
-        .map(([, v]) => v);
-      await prefetchIconIds(ids);
+      await prefetchBrandingIcons(pb);
     } catch {
       // ignore
     }
@@ -361,6 +403,7 @@ export const useBrandingStore = defineStore('branding', () => {
   };
 
   const _applyThemeData = (data, portalUrl) => {
+    applyDashboardIcons(String(portalUrl || '').trim().toLowerCase(), data.dashboardIcons);
     portalTheme.value = data;
     portalAgency.value = {
       name: data.agencyName,
@@ -633,6 +676,7 @@ export const useBrandingStore = defineStore('branding', () => {
       portalHostPortalUrl.value ||
       ''
     ).trim().toLowerCase();
+    applyDashboardIcons(slugKey, themeData.dashboardIcons);
     portalAgency.value = {
       name: themeData.agencyName || themeData.name || portalAgency.value?.name || null,
       colorPalette: themeData.colorPalette || {},
@@ -672,6 +716,7 @@ export const useBrandingStore = defineStore('branding', () => {
     setPortalThemeData({
       brandingAgencyId: loginTheme.agency.brandingAgencyId || null,
       portalOrganizationId: loginTheme.agency.portalOrganizationId || null,
+      dashboardIcons: loginTheme.agency.dashboardIcons || null,
       agencyName: loginTheme.agency.name,
       colorPalette: loginTheme.agency.colorPalette || {},
       logoUrl: loginTheme.agency.logoUrl || null,
@@ -1566,6 +1611,10 @@ export const useBrandingStore = defineStore('branding', () => {
       const url = iconUrlById(org[idField]);
       if (url) return url;
     }
+    if (organization === undefined && !org?.[idField]) {
+      const path = _dashboardIconsBySlug[normalizePortalKey(activeWorkspaceSlug.value)]?.[field];
+      if (path) return toUploadsUrl(path);
+    }
     if (platformBranding.value?.[field]) return toUploadsUrl(platformBranding.value[field]);
     if (platformBranding.value?.[idField]) {
       const url = iconUrlById(platformBranding.value[idField]);
@@ -1790,6 +1839,7 @@ export const useBrandingStore = defineStore('branding', () => {
     tagline,
     platformBranding,
     fetchPlatformBranding,
+    prepareDashboardIcons,
     portalAgency,
     portalTheme,
     portalHostPortalUrl,

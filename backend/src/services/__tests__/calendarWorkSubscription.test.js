@@ -7,7 +7,7 @@ vi.mock('../scheduleCalendarPolicy.service.js', () => ({ usesGoogleSchedule: m.a
 vi.mock('../familyAuth.service.js', () => ({ requireHousehold: vi.fn(), assertFamilyBenefit: vi.fn() }));
 vi.mock('../calendarEvents.service.js', () => ({ workCalendarEvents: m.events, familyCalendarEvents: m.events }));
 vi.mock('../googleWorkspaceAuth.service.js', () => ({ buildImpersonatedJwtClient: m.google }));
-vi.mock('googleapis', () => ({ google: { calendar: () => ({ calendars: { delete: m.remove } }) } }));
+vi.mock('../../utils/googleApis.js', () => ({ google: { calendar: () => ({ calendars: { delete: m.remove } }) } }));
 import { publicationStatus, issueSubscription, revokeSubscription, subscriptionFeed, createGooglePublication, syncGooglePublication, addPublicationReader, syncDueCalendarPublications } from '../calendarPublication.service.js';
 const session = { userId: 7, agencyId: 2 };
 let publication;

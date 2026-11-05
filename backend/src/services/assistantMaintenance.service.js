@@ -1,7 +1,7 @@
 import {deliverApprovedPayrollReports} from './assistantPayrollReport.service.js';
 /** Read-only drift inspection by default. Apply mode restricts accounts and drains existing queues; it never grants access or runs a bot/model. */
 import pool from '../config/database.js';
-import { google } from 'googleapis';
+import { google } from '../utils/googleApis.js';
 import { buildImpersonatedJwtClient, GOOGLE_WORKSPACE_GROUPS_SETTINGS_SCOPE } from './googleWorkspaceAuth.service.js';
 import { ASSISTANT_CATALOG, ASSISTANT_OWNER_EMAIL, ASSISTANT_AGENCIES, parseAssistantJson, assistantStoredConfigurationHash } from './assistantTeamPolicy.js';
 import { APP_GROUP_MANAGER } from './appGroupOwnership.service.js';

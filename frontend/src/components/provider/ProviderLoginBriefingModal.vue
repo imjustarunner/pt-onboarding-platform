@@ -40,13 +40,17 @@
 
           <div v-if="loading" class="briefing-loading" role="status">
             <span class="briefing-spinner" aria-hidden="true"></span>
-            Building your personalized briefing…
+            Checking your updates. You can open your dashboard now.
           </div>
 
-          <template v-else>
+          <template>
             <div class="briefing-layout">
               <div class="briefing-main">
                 <DashboardMeetings @navigate="dismiss" />
+                <p v-if="!loading && partialFailure" class="briefing-update-error" role="status">
+                  Some updates could not be checked.
+                  <button type="button" class="card-link" @click="loadBriefing">Try again</button>
+                </p>
                 <div v-if="sections.length" class="briefing-card-grid">
                   <article
                     v-for="section in sections"
@@ -58,10 +62,12 @@
                       <span class="card-icon" aria-hidden="true">{{ section.icon }}</span>
                       <div>
                         <div class="card-kicker">{{ section.title }}</div>
-                        <div class="card-count"><strong>{{ section.count }}</strong> {{ section.countLabel }}</div>
+                        <div v-if="section.key !== 'calendar' || (!calendarLoading && !calendarError)" class="card-count"><strong>{{ section.count }}</strong> {{ section.countLabel }}</div>
                       </div>
                     </header>
-                    <template v-if="section.items.length">
+                    <DashboardCardStatus v-if="section.key === 'calendar' && (calendarLoading || calendarError)"
+                      :loading="calendarLoading" :error="calendarError" label="Loading today’s schedule…" @retry="loadBriefing" />
+                    <template v-else-if="section.items.length">
                       <button
                         v-for="item in section.items.slice(0, 3)"
                         :key="item.id"
@@ -86,7 +92,7 @@
                   </article>
                 </div>
 
-                <div v-else-if="!hasCalendarSection" class="all-clear-card">
+                <div v-else-if="!loading && !partialFailure && !hasCalendarSection" class="all-clear-card">
                   <span aria-hidden="true">✓</span>
                   <div><strong>You’re all caught up.</strong><small>No new items need your attention right now.</small></div>
                 </div>
@@ -139,6 +145,7 @@
 
 <script setup>
 import { getScheduleSummaryResponse } from '../../utils/scheduleSummaryRequests';
+import DashboardCardStatus from '../dashboard/DashboardCardStatus.vue';
 import DashboardMeetings from '../meetings/DashboardMeetings.vue';
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
@@ -170,6 +177,9 @@ const router = useRouter();
 
 const visible = ref(false);
 const loading = ref(false);
+const calendarLoading = ref(false);
+const calendarError = ref('');
+const partialFailure = ref(false);
 const dontShowAgain = ref(false);
 const loginTenantAgency = ref(null);
 const tierLabel = ref('');
@@ -306,7 +316,7 @@ const glanceMetrics = computed(() => {
     .reduce((sum, section) => sum + Number(section.count || 0), 0);
   const metrics = [
     { value: tenantAgency.value?.name || '—', label: 'Tenant' },
-    { value: Number(briefing.value.calendar?.count || 0), label: 'On your calendar today' }
+    { value: calendarLoading.value || calendarError.value ? '—' : Number(briefing.value.calendar?.count || 0), label: 'On your calendar today' }
   ];
   if (attentionCount > 0) {
     metrics.push({ value: attentionCount, label: 'Items needing attention' });
@@ -442,15 +452,6 @@ function mergeTodayAgendaItems(scheduleData, supervisionPrompts = []) {
     .sort((a, b) => a.sortAt - b.sortAt);
 }
 
-async function safeRequest(requestPromise, fallback = null) {
-  try {
-    const response = await requestPromise;
-    return response?.data ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 function baseSection({ title, icon, tone, count, countLabel, items, action, to }) {
   return { title, icon, tone, count: Number(count || 0), countLabel, items: items || [], action, to };
 }
@@ -466,6 +467,13 @@ function mapNotificationItems(rows = []) {
 async function loadBriefing() {
   const generation = ++requestGeneration;
   loading.value = true;
+  calendarLoading.value = true;
+  calendarError.value = '';
+  partialFailure.value = false;
+  const safeRequest = async (promise, fallback = null) => {
+    try { return (await promise)?.data ?? fallback; }
+    catch { if (generation === requestGeneration) partialFailure.value = true; return fallback; }
+  };
   tierLabel.value = '';
   payPeriodLabel.value = '';
   briefing.value = {
@@ -495,9 +503,11 @@ async function loadBriefing() {
       hostPortalSlug: hostPortalSlug.value,
       currentAgency: agencyStore.currentAgency?.value || agencyStore.currentAgency || null
     });
+    if (generation !== requestGeneration) return;
     loginTenantAgency.value = tenant;
     if (tenant?.id) agencyStore.setCurrentAgency(tenant);
     await nextTick();
+    if (generation !== requestGeneration) return;
     visible.value = true;
 
     const agencyId = Number(tenant?.id || 0);
@@ -512,6 +522,50 @@ async function loadBriefing() {
       limit: 40,
       ...(agencyId ? { agencyId } : {})
     };
+
+    const scheduleParams = {
+      weekStart: mondayYmd(),
+      includeAllAgencies: 0,
+      ...(agencyId ? { agencyId } : {})
+    };
+
+    briefing.value.calendar = baseSection({ title: 'Today’s schedule', icon: '▦', tone: 'blue',
+      count: 0, countLabel: 'scheduled', items: [], action: 'View full schedule', to: `${pathPrefix}/my-schedule` });
+    const scheduleRequest = getScheduleSummaryResponse(`/users/${userId.value}/schedule-summary`, {
+      params: scheduleParams, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)
+    }).then(({ data }) => {
+      if (generation === requestGeneration) {
+        const items = mergeTodayAgendaItems(data, []);
+        briefing.value.calendar = { ...briefing.value.calendar, count: items.length, items };
+      }
+      return data;
+    }).catch(() => {
+      if (generation === requestGeneration) {
+        calendarError.value = 'Your schedule could not be loaded. Please try again.';
+        partialFailure.value = true;
+      }
+      return {};
+    }).finally(() => { if (generation === requestGeneration) calendarLoading.value = false; });
+    const secondaryRequest = Promise.all([
+      safeRequest(api.get('/tasks', { params: agencyId ? { agencyId } : {}, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), []),
+      scheduleRequest,
+      safeRequest(api.get('/me/notes-to-sign/count', apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)), { count: 0 }),
+      safeRequest(api.get('/support-tickets/mine', apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)), []),
+      safeRequest(api.get('/supervision/my-prompts', {
+        params: agencyId ? { agencyId } : {},
+        ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)
+      }), []),
+      agencyId
+        ? safeRequest(api.get('/provider-year-update/me/status', { params: { agencyId }, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), null)
+        : null,
+      agencyId
+        ? safeRequest(api.get('/payroll/me/dashboard-summary', { params: { agencyId }, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), null)
+        : null,
+      agencyId
+        ? safeRequest(api.get('/payroll/me/current-tier', { params: { agencyId }, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), null)
+        : null
+    ]);
+
 
     const [notificationCounts, notificationPayload, messageData] = await Promise.all([
       safeRequest(api.get('/notifications/counts', apiOpts(BRIEFING_PRIMARY_TIMEOUT_MS)), {}),
@@ -584,42 +638,8 @@ async function loadBriefing() {
         : null
     };
 
-    loading.value = false;
-
-    const scheduleParams = {
-      weekStart: mondayYmd(),
-      includeAllAgencies: 0,
-      ...(agencyId ? { agencyId } : {})
-    };
-
-    const [
-      taskPayload,
-      schedulePayload,
-      notesPayload,
-      ticketPayload,
-      supervisionPayload,
-      yearUpdateStatus,
-      payrollSummary,
-      tierData
-    ] = await Promise.all([
-      safeRequest(api.get('/tasks', { params: { ...(agencyId ? { agencyId, tenantId: agencyId } : {}), view: 'personal' }, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), []),
-      safeRequest(getScheduleSummaryResponse(`/users/${userId.value}/schedule-summary`, { params: scheduleParams, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), {}),
-      safeRequest(api.get('/me/notes-to-sign/count', apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)), { count: 0 }),
-      safeRequest(api.get('/support-tickets/mine', apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)), []),
-      safeRequest(api.get('/supervision/my-prompts', {
-        params: agencyId ? { agencyId } : {},
-        ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)
-      }), []),
-      agencyId
-        ? safeRequest(api.get('/provider-year-update/me/status', { params: { agencyId }, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), null)
-        : null,
-      agencyId
-        ? safeRequest(api.get('/payroll/me/dashboard-summary', { params: { agencyId }, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), null)
-        : null,
-      agencyId
-        ? safeRequest(api.get('/payroll/me/current-tier', { params: { agencyId }, ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS) }), null)
-        : null
-    ]);
+    const [taskPayload, schedulePayload, notesPayload, ticketPayload, supervisionPayload,
+      yearUpdateStatus, payrollSummary, tierData] = await secondaryRequest;
 
     if (generation !== requestGeneration) return;
 
@@ -750,23 +770,12 @@ async function loadBriefing() {
         : null
     };
   } catch {
-    /* Briefing should never block login — show whatever we have. */
+    if (generation === requestGeneration) partialFailure.value = true;
   } finally {
     if (generation === requestGeneration) {
-      if (!briefing.value.calendar) {
-        briefing.value = {
-          ...briefing.value,
-          calendar: baseSection({
-            title: 'Today’s schedule',
-            icon: '▦',
-            tone: 'blue',
-            count: 0,
-            countLabel: 'scheduled',
-            items: [],
-            action: 'View full schedule',
-            to: `${prefix.value}/my-schedule`
-          })
-        };
+      if (calendarLoading.value) {
+        calendarLoading.value = false;
+        calendarError.value = 'Your schedule could not be loaded. Please try again.';
       }
       loading.value = false;
     }
@@ -777,6 +786,7 @@ function dismiss() {
   if (dontShowAgain.value) {
     try { localStorage.setItem(storageKey(), '1'); } catch { /* ignore */ }
   }
+  requestGeneration++;
   visible.value = false;
 }
 
@@ -795,6 +805,7 @@ watch(
   () => [authStore.user?.id, props.loginTrigger],
   ([nextUserId, trigger]) => {
     if (!nextUserId || !isProviderLoginBriefingUser(authStore.user) || isDisabled()) {
+      requestGeneration++;
       visible.value = false;
       return;
     }
@@ -897,9 +908,10 @@ onBeforeUnmount(() => {
 .briefing-date span:last-child { display: flex; flex-direction: column; }
 .briefing-date small { margin-top: 2px; color: #64748b; }
 .date-icon { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid #d8dee9; border-radius: 8px; font-size: 23px; color: var(--brief-primary); background: rgba(255,255,255,.7); }
-.briefing-loading { min-height: 430px; display: flex; align-items: center; justify-content: center; gap: 12px; color: #64748b; }
+.briefing-loading { min-height: 56px; padding: 0 28px 12px; display: flex; align-items: center; justify-content: center; gap: 12px; color: #64748b; }
 .briefing-spinner { width: 23px; height: 23px; border: 3px solid #dbe5e0; border-top-color: var(--brief-primary); border-radius: 50%; animation: briefing-spin .75s linear infinite; }
 .briefing-warning { margin: 0 26px 12px 126px; padding: 9px 12px; border: 1px solid #fcd34d; border-radius: 8px; background: #fffbeb; color: #92400e; font-size: 12px; }
+.briefing-update-error { color: #64748b; font-size: 14px; }
 .briefing-layout { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 18px; padding: 0 28px 18px 126px; }
 .briefing-main { min-width: 0; }
 .briefing-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }

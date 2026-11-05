@@ -6,7 +6,7 @@ import { relaySelected } from './workspaceRelayConfig.js';
  * Gmail Send-as alias automation (impersonated mailbox).
  * Requires DWD scope: https://www.googleapis.com/auth/gmail.settings.sharing
  */
-import { google } from 'googleapis';
+import { google } from '../utils/googleApis.js';
 import {
   buildImpersonatedJwtClient,
   GOOGLE_WORKSPACE_SCOPES,

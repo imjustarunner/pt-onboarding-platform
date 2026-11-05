@@ -4976,7 +4976,9 @@ const canSeeEventPortalsTopNav = computed(() => {
 
 /** Program orgs user can open in Program Hub modal (coordinator tooling). */
 const programWorkspaceOrgs = ref([]);
+let programWorkspaceOrgsGeneration = 0;
 async function loadProgramWorkspaceOrgs() {
+  const generation = ++programWorkspaceOrgsGeneration;
   programWorkspaceOrgs.value = [];
   if (!isAuthenticated.value) return;
   if (!canSeeProgramWorkspacesTopNav.value) return;
@@ -4989,14 +4991,16 @@ async function loadProgramWorkspaceOrgs() {
       skipGlobalLoading: true
     });
     const orgs = Array.isArray(res.data?.organizations) ? res.data.organizations : [];
-    programWorkspaceOrgs.value = orgs.filter((o) => String(o.organizationType || '').toLowerCase() !== 'school');
+    if (generation === programWorkspaceOrgsGeneration) {
+      programWorkspaceOrgs.value = orgs.filter((o) => String(o.organizationType || '').toLowerCase() !== 'school');
+    }
   } catch {
-    programWorkspaceOrgs.value = [];
+    if (generation === programWorkspaceOrgsGeneration) programWorkspaceOrgs.value = [];
   }
 }
 
 watch(
-  () => [canSeeProgramWorkspacesTopNav.value, agencyStore.currentAgency?.id, user.value?.id],
+  [canSeeProgramWorkspacesTopNav, () => agencyStore.currentAgency?.id, () => user.value?.id],
   () => { void loadProgramWorkspaceOrgs(); }
 );
 
