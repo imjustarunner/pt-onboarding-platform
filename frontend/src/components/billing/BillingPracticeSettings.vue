@@ -31,6 +31,10 @@
           <div class="fields">
             <label>Office name <input v-model="office.name" :disabled="!office.owned || saving" /></label>
             <label>Practice name on the claim <input v-model="office.practiceName" :disabled="!office.owned || saving" /></label>
+            <label>Service-facility name on the claim
+              <input v-model="office.claimFacilityName" maxlength="35" :placeholder="office.practiceName" :disabled="!office.owned || saving" />
+              <small>CCHA claims send this name with the billing NPI. Leave blank to use the practice name. Maximum 35 characters.</small>
+            </label>
             <label>Street <input v-model="office.streetAddress" :disabled="!office.owned || saving" /></label>
             <label>City <input v-model="office.city" :disabled="!office.owned || saving" /></label>
             <label>State <input v-model="office.state" :disabled="!office.owned || saving" /></label>
@@ -124,6 +128,7 @@ function officeDraft(office) {
     owned: Number(office.agency_id) === agencyId.value,
     name: office.name || '',
     practiceName: office.practice_name || '',
+    claimFacilityName: office.claim_facility_name || '',
     streetAddress: office.street_address || '',
     city: office.city || '',
     state: office.state || '',
@@ -197,6 +202,7 @@ async function saveOffice(office) {
       agencyId: agencyId.value,
       name: office.name,
       practiceName: office.practiceName,
+      claimFacilityName: office.claimFacilityName,
       streetAddress: office.streetAddress,
       city: office.city,
       state: office.state,

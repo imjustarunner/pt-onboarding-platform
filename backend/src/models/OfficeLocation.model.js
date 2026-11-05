@@ -106,6 +106,7 @@ class OfficeLocation {
       'default_place_of_service',
       'use_as_billing_address',
       'practice_name',
+      'claim_facility_name',
       'phone',
       'fax',
       'practice_npi',
@@ -114,6 +115,11 @@ class OfficeLocation {
       'services_provided_at_address',
       'telehealth_default'
     ];
+    if (Object.hasOwn(updates, 'claim_facility_name')) {
+      const name = String(updates.claim_facility_name ?? '').trim();
+      if (name.length > 35) throw Object.assign(new Error('Service-facility name must be 35 characters or fewer.'), { status:400 });
+      updates = { ...updates, claim_facility_name: name || null };
+    }
     const fields = [];
     const values = [];
 

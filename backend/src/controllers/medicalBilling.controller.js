@@ -3490,6 +3490,7 @@ export const updateBillingOffice = async (req, res, next) => {
     const updates = {};
     if (req.body.name !== undefined) updates.name = String(req.body.name || '').slice(0, 255);
     if (req.body.practiceName !== undefined) updates.practice_name = String(req.body.practiceName || '').slice(0, 255);
+    if (req.body.claimFacilityName !== undefined) updates.claim_facility_name = req.body.claimFacilityName;
     if (req.body.streetAddress !== undefined) updates.street_address = String(req.body.streetAddress || '').slice(0, 255);
     if (req.body.city !== undefined) updates.city = String(req.body.city || '').slice(0, 128);
     if (req.body.state !== undefined) updates.state = String(req.body.state || '').slice(0, 64);

@@ -17,6 +17,17 @@ describe('shared physical buildings and agency billing identities', () => {
     await requirePhysicalOffice({user:{id:2}},res,next,'1');
     expect(next).toHaveBeenCalledWith();
   });
+  it('persists a trimmed facility name, supports practice-name fallback, and rejects overlength values', async () => {
+    mock.execute.mockResolvedValue([[]]);
+    await OfficeLocation.update(1, { claim_facility_name: '  Verified Practice LLC  ' });
+    expect(mock.execute).toHaveBeenCalledWith('UPDATE office_locations SET claim_facility_name = ? WHERE id = ?', ['Verified Practice LLC', 1]);
+    mock.execute.mockClear();
+    await OfficeLocation.update(1, { claim_facility_name: '   ' });
+    expect(mock.execute).toHaveBeenCalledWith('UPDATE office_locations SET claim_facility_name = ? WHERE id = ?', [null, 1]);
+    mock.execute.mockClear();
+    await expect(OfficeLocation.update(1, { claim_facility_name: 'X'.repeat(36) })).rejects.toMatchObject({status:400});
+    expect(mock.execute).not.toHaveBeenCalled();
+  });
   it('filters only physical lists, preserving billing/legacy queries by default', async () => {
     mock.execute.mockResolvedValue([[]]);
     await OfficeLocation.listAll({ physicalOnly: true });

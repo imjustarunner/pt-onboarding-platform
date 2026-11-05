@@ -152,8 +152,15 @@ export function buildClaimMdJsonClaim(claim, lines = [], { insurance, practice =
     ...Object.fromEntries(diagnoses.map((d,i)=>[`diag_${i+1}`,d])),charge};
   // CCHA billing requires the service-facility identifier to match the effective
   // billing group, including its saved payer override. Rendering stays separate.
-  if (String(primary.payerId || '').toUpperCase() === 'COCHA') payload.facility_npi = payload.bill_npi;
-  const limits={payerid:32,payer_name:64,pcn:32,pat_name_l:35,pat_name_f:25,pat_addr_1:55,pat_addr_2:55,pat_city:30,pat_state:2,pat_zip:15,ins_number:32,bill_name:32,bill_addr_1:128,bill_addr_2:128,bill_city:32,bill_state:2,bill_zip:12,bill_phone:16};
+  if (String(primary.payerId || '').trim().toUpperCase() === 'COCHA') {
+    payload.facility_npi = payload.bill_npi;
+  }
+  // A facility identifier must travel with its configured name for any payer.
+  if (payload.facility_npi) {
+    payload.facility_name = String(practice.claim_facility_name || '').trim() || String(practice.name || '').trim();
+    if (!payload.facility_name) throw Object.assign(new Error('Save the service-facility name in Billing settings before submitting this claim.'), { status:409 });
+  }
+  const limits={facility_name:35,payerid:32,payer_name:64,pcn:32,pat_name_l:35,pat_name_f:25,pat_addr_1:55,pat_addr_2:55,pat_city:30,pat_state:2,pat_zip:15,ins_number:32,bill_name:32,bill_addr_1:128,bill_addr_2:128,bill_city:32,bill_state:2,bill_zip:12,bill_phone:16};
   const oversized=Object.entries(limits).filter(([field,limit])=>String(payload[field] || "").length>limit).map(([field])=>field);
   if(oversized.length)throw Object.assign(new Error(`Claim fields exceed clearinghouse limits: ${oversized.join(", ")}`),{status:409});
   return payload;
