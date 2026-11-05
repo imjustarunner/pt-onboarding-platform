@@ -4,6 +4,7 @@ import express from 'express';
 import { authenticate, requireAgencyAccess, requireAgencyAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 import stripeConnectRoutes from './stripeConnect.routes.js';
 import { getAgencyBillingEstimate, getAgencyAddons } from '../controllers/billing.controller.js';
+import { getIndependentBusinessProfile, updateIndependentBusinessProfile } from '../controllers/independentBusinessProfile.controller.js';
 import {
   disconnectPlatformQuickBooks,
   disconnectQuickBooks,
@@ -82,6 +83,8 @@ router.get('/:agencyId/addons', authenticate, requireAgencyAccess, getAgencyAddo
 router.get('/:agencyId/estimate', authenticate, requireAgencyAccess, getAgencyBillingEstimate);
 
 // Billing settings
+router.get('/:agencyId/business-profile', authenticate, requireAgencyAdmin, getIndependentBusinessProfile);
+router.put('/:agencyId/business-profile', authenticate, requireAgencyAdmin, updateIndependentBusinessProfile);
 router.get('/:agencyId/settings', authenticate, requireAgencyAccess, requireMedicalBillingFinancialAccess, getBillingSettings);
 router.put('/:agencyId/settings', authenticate, requireAgencyAdmin, billingSettingsValidators, updateBillingSettings);
 router.get('/:agencyId/payment-methods/setup', authenticate, requireAgencyAdmin, getAgencyBillingPaymentMethodSetup);

@@ -17,6 +17,7 @@ import { enforceAccountSecurity } from './accountSecurity.middleware.js';
 import { enforceSchoolCareBridgeScope } from './schoolCareBridgeScope.middleware.js';
 import { recordAccountSession } from '../services/personalSessionHistory.service.js';
 import { assistantBoundary } from './assistantBoundary.middleware.js';
+import { isIndependentPracticeOwner } from '../utils/independentPracticeOwner.js';
 
 const PROVIDER_LIKE_ROLES_MIDDLEWARE = new Set([
   'provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'
@@ -759,6 +760,10 @@ export const requireAgencyAdmin = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Agency ID required' } });
     }
     const aid = parseInt(agencyId, 10);
+
+    // A provider may own an independent business while remaining a provider at
+    // another employer. Ownership grants administration only in that business.
+    if (await isIndependentPracticeOwner(req.user.id, aid)) return next();
 
     // Summit club managers: same billing/admin actions for their club agency
     if (normalizeAuthRole(req.user.role) === 'club_manager') {

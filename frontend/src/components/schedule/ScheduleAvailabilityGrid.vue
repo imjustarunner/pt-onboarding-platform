@@ -5971,6 +5971,7 @@ import DayCancellationDialog from './DayCancellationDialog.vue';
 import SchoolSoftScheduleDialog from './SchoolSoftScheduleDialog.vue';
 import { schoolSoftScheduleBlocks, schoolSoftBlocksInCell } from '../../utils/schoolSoftScheduleBlocks.js';
 import { assignmentSchoolId, assignmentStartsInCell, closureForSchoolDate, schoolRailSummary, schoolRailTone } from '../../utils/schoolAssignmentRail.js';
+import { ownsIndependentBusiness } from '../../utils/independentBusinessAccess.js';
 import SchoolAssignmentRailPanel from './SchoolAssignmentRailPanel.vue';
 import ProviderDayNoteDialog from './ProviderDayNoteDialog.vue';
 import OfferedTimeDialog from './OfferedTimeDialog.vue';
@@ -14397,6 +14398,7 @@ const bookingPreSessionAddonOptions = computed(() => {
 const editorCanViewBillingFinancials = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   const aid = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
+  if (ownsIndependentBusiness(authStore.user, aid, [...selfScheduleAgencyOptions.value, ...(agencyStore.userAgencies || []), agencyStore.currentAgency])) return true;
   return !['provider', 'provider_plus'].includes(role) && (['admin', 'super_admin'].includes(role) || (authStore.user?.billingAgencyIds || []).map(Number).includes(aid));
 });
 const editorShowBillingTab = computed(() => {

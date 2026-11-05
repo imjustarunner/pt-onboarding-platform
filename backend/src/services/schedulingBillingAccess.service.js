@@ -8,6 +8,7 @@ export async function hasSchedulingBillingAccess(user, agencyId) {
   if (!user?.id || !Number(agencyId)) return false;
   const product = productBillingContext(user);
   if (product) return product.agencyId === Number(agencyId) && await isActiveBillingAgency(agencyId);
+  if (await isIndependentPracticeOwner(user.id, agencyId)) return true;
   const role = String(user.role || user.effectiveRole || '').toLowerCase();
   if (['provider', 'provider_plus'].includes(role)) return false;
   if (!await isActiveBillingAgency(agencyId)) return false;
@@ -16,7 +17,6 @@ export async function hasSchedulingBillingAccess(user, agencyId) {
   if (ids.some(id => Number(id) === Number(agencyId))) return true;
   const agencies = await User.getAgencies(user.id);
   if (!(agencies || []).some((a) => Number(a.id) === Number(agencyId))) return false;
-  if (await isIndependentPracticeOwner(user.id, agencyId)) return true;
   return false;
 }
 

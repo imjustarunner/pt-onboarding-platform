@@ -13,6 +13,22 @@ test('zero-revenue company pays app + selected services + one-time setup', () =>
   assert.equal(result.businessAgreement.breakEvenRevenueCents, 800000);
   assert.equal(result.chargeLines.reduce((n, l) => n + l.amountCents, 0), 100000);
 });
+test('included platform does not stack on the managed fee and the percentage replaces that fee', () => {
+  const s = state();
+  s.agreements[0].platformIncluded = true;
+  s.agreements[0].services = [{ id: 'full-management', name: 'Full management', amountCents: 30000, cadence: 'monthly', month: '' }];
+  const low = quote(s);
+  assert.equal(low.totals.totalCents, 40000);
+  assert.equal(low.businessAgreement.platformCents, 10000);
+  assert.equal(low.businessAgreement.includedPlatformCents, 40000);
+  assert.equal(low.businessAgreement.breakEvenRevenueCents, 300000);
+  assert.equal(low.chargeLines.length, 2);
+  s.revenue[0].amountCents = 400000;
+  const high = quote(s);
+  assert.equal(high.totals.totalCents, 50000);
+  assert.equal(high.chargeLines.length, 2);
+  assert.equal(high.businessAgreement.basis, 'revenue_share');
+});
 test('at break-even, revenue share replaces app and recurring services without double charging', () => {
   const result = quote(state(800000));
   assert.equal(result.totals.totalCents, 100000);

@@ -2,7 +2,7 @@ import { describe,it,expect,vi,beforeEach } from 'vitest';
 const { execute,getConnection }=vi.hoisted(()=>({execute:vi.fn(),getConnection:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute,getConnection},onTableWrite:vi.fn()}));
 import { createAgreement,saveAgreement,approveAgreement,issueAgreement,signAgreement,reviseAgreement,agreementHash } from '../auricwell/agreements.js';
-import { assertAdministrator,scopeFor,completedParties,validateExternalReview,uploadOriginal,downloadOriginal,verifyExternal,listArchive } from '../organizationAgreements.js';
+import { assertAdministrator,scopeFor,completedParties,validateExternalReview,uploadOriginal,downloadOriginal,verifyExternal,listArchive,signerOptions } from '../organizationAgreements.js';
 import { agreementHtml } from '../organizationAgreementHtml.js';
 import { hash } from '../auricwell/policy.js';
 const ctx={agencyId:2,accountId:'11',userId:11,actorType:'staff',permissions:['agreements'],profile:{operator:true,name:'Alex Operator'}};
@@ -57,10 +57,38 @@ describe('shared organization agreement engine',()=>{
  it('renders downloadable HTML without scripts and identifies unexecuted copies',async()=>{
   const {r}=await issued();const html=agreementHtml({...r,data:{...r.data,body:'<script>injected</script> & original'}});expect(html).toContain('UNEXECUTED COPY');expect(html).toContain('&lt;script&gt;');expect(html).not.toContain('<script>');expect(html).toContain(r.data.contentHash);
  });
+ it('uses the same two-party immutable signature workflow for a branded management agreement',async()=>{
+  const {store}=fixture();let r=await createAgreement(ctx,{type:'management_agreement'},store);
+  r=await saveAgreement(ctx,r.id,{...input,body:'Management: $300 or 10% of reconciled revenue; platform included.'},store);
+  r=await approveAgreement(ctx,r.id,store);r=await issueAgreement(ctx,r.id,store);
+  r=await signAgreement(ctx,r.id,{name:'Morgan Manager',consent:true,contentHash:r.data.contentHash},store);
+  const owner={...ctx,accountId:'22',userId:22,profile:{operator:false,name:'Avery Owner'}};
+  r=await signAgreement(owner,r.id,{name:'Avery Owner',consent:true,contentHash:r.data.contentHash},store);
+  expect(r.data.type).toBe('management_agreement');expect(r.data.status).toBe('completed');
+  const branded={...r,data:{...r.data,branding:{operator:'Plot Twist Co.',practice:'Example Independent Practice'}}};
+  const html=agreementHtml(branded);expect(html).toContain('class="brands"');expect(html).toContain('Example Independent Practice');expect(html).toContain('Plot Twist Co.');
+  expect(agreementHash(branded.data)).not.toBe(agreementHash(r.data));
+ });
 });
 describe('organization boundary and external originals',()=>{
  it('requires an active administrator membership, while operators may administer across organizations',()=>{
   expect(()=>assertAdministrator({role:'provider'},true)).toThrow('administrator');expect(()=>assertAdministrator({role:'admin'},false)).toThrow('administrator');expect(()=>assertAdministrator({role:'admin'},true)).not.toThrow();expect(()=>assertAdministrator({role:'super_admin'},false)).not.toThrow();
+ });
+ it('permits only the scoped independent-practice owner or an explicitly managed operator',async()=>{
+  expect(()=>assertAdministrator({role:'provider'},true,{owner:true})).not.toThrow();
+  expect(()=>assertAdministrator({role:'provider'},false,{owner:true})).toThrow('administrator');
+  expect(()=>assertAdministrator({role:'admin'},false,{operator:true})).not.toThrow();
+  execute.mockImplementation(async sql=>sql.includes('FROM users u')?[[{id:42,role:'admin',first_name:'Morgan',operator_admin:1}]]:sql.includes('FROM agencies')?[[{id:13,name:'Example Independent Practice',slug:'example-practice'}]]:[[]]);
+  const scoped=await scopeFor(42,13);expect(scoped.profile.operator).toBe(true);expect(scoped.agencyId).toBe(13);
+  execute.mockResolvedValue([[{id:42,role:'admin',name:'Morgan',operator_admin:1,organization_member:0},{id:43,role:'provider',name:'Avery',operator_admin:0,organization_member:1}]]);
+  expect(await signerOptions(scoped)).toEqual([{id:'42',name:'Morgan',operator:true,organization:false},{id:'43',name:'Avery',operator:false,organization:true}]);
+ });
+ it('can retain incomplete draft party details while requiring them before approval',()=>{
+  const incomplete={practice:{legalName:'Example Independent Practice'},operator:{legalName:'Plot Twist Co.'}};
+  const draft=completedParties(incomplete,'baa',{draft:true});expect(draft.practice.address).toBe('');expect(draft.practice.hipaaRole).toBe('');
+  expect(()=>completedParties(draft)).toThrow('Legal address');
+  const management={practice:{...parties.practice,hipaaRole:''},operator:{...parties.operator,hipaaRole:''}};
+  expect(completedParties(management,'management_agreement').practice.hipaaRole).toBe('');expect(()=>completedParties(management)).toThrow('HIPAA role');
  });
  it('does not trust the caller agency or role for the scope',async()=>{
   execute.mockImplementation(async sql=>sql.includes('FROM users u')?[[{id:4,role:'admin',first_name:'Sam'}]]:sql.includes('FROM agencies')?[[{id:2,name:'Practice',slug:'practice'}]]:[[]]);

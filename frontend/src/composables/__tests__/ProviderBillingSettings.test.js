@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount, flushPromises, RouterLinkStub } from '@vue/test-utils';
 const state = vi.hoisted(() => ({ user: { role: 'admin' } }));
 vi.mock('../../store/auth', () => ({ useAuthStore: () => ({ get user() { return state.user; } }) }));
+vi.mock('../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: null }) }));
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { organizationSlug: 'test' } }) }));
 vi.mock('../../services/api', () => ({ default: { get: vi.fn(), put: vi.fn() } }));
 import api from '../../services/api';

@@ -78,6 +78,35 @@ class AgencyBillingInvoice {
     return rows[0] || null;
   }
 
+  static async finalizeManagementProposal(invoiceId, agencyId, invoice, db = pool) {
+    const values = {
+      merchant_mode: invoice.merchantMode,
+      provider_connection_id: invoice.providerConnectionId || null,
+      schools_used: invoice.schoolsUsed, programs_used: invoice.programsUsed,
+      admins_used: invoice.adminsUsed, active_onboardees_used: invoice.activeOnboardeesUsed,
+      base_fee_cents: invoice.baseFeeCents, extra_schools_cents: invoice.extraSchoolsCents,
+      extra_programs_cents: invoice.extraProgramsCents, extra_admins_cents: invoice.extraAdminsCents,
+      extra_onboardees_cents: invoice.extraOnboardeesCents,
+      communication_actual_cost_cents: invoice.communicationActualCostCents || 0,
+      communication_markup_cents: invoice.communicationMarkupCents || 0,
+      communication_subtotal_cents: invoice.communicationSubtotalCents || 0,
+      total_cents: invoice.totalCents, line_items_json: JSON.stringify(invoice.lineItemsJson),
+      invoice_delivery_mode: invoice.invoiceDeliveryMode || 'manual'
+    };
+    const [result] = await db.execute(`UPDATE agency_billing_invoices SET
+      ${Object.keys(values).map(column => `${column}=?`).join(',')}, pdf_storage_path=NULL, error_message=NULL, updated_at=CURRENT_TIMESTAMP
+      WHERE id=? AND agency_id=? AND status='draft' AND payment_status='unpaid'
+        AND qbo_invoice_id IS NULL AND qbo_bill_id IS NULL AND qbo_payment_id IS NULL
+        AND payment_reference IS NULL AND payment_method_id IS NULL AND paid_at IS NULL
+        AND auto_charge_attempted_at IS NULL AND invoice_sent_at IS NULL AND invoice_delivery_status='not_sent'
+        AND JSON_EXTRACT(line_items_json,'$.businessAgreement.requiresSignatures')=true
+        AND JSON_EXTRACT(line_items_json,'$.businessAgreement.ready')=false
+        AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(line_items_json,'$.businessAgreement.signedOn')),'')=''`,
+    [...Object.values(values), invoiceId, agencyId]);
+    if (result.affectedRows !== 1) throw Object.assign(new Error('This proposed invoice changed. Refresh and review it before finalizing.'), { status: 409, statusCode: 409 });
+    return this.findById(invoiceId, db);
+  }
+
   static async findByAgencyAndPeriod(agencyId, { periodStart, periodEnd, billingDomain = 'agency_subscription' }, db = pool) {
     const [rows] = await db.execute(
       `SELECT * FROM agency_billing_invoices

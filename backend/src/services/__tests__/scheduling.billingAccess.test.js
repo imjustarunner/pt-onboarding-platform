@@ -2,11 +2,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../managedBillingAccess.service.js', () => ({ isActiveBillingAgency: vi.fn(async () => true) }));
 import { isActiveBillingAgency } from '../managedBillingAccess.service.js';
 vi.mock('../../utils/independentPracticeOwner.js', () => ({ isIndependentPracticeOwner: vi.fn(async () => false) }));
+import { isIndependentPracticeOwner } from '../../utils/independentPracticeOwner.js';
 vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: vi.fn(), listBillingAgencyIds: vi.fn() } }));
 import User from '../../models/User.model.js';
 import { hasSchedulingBillingAccess, stripSchedulingFinancials } from '../schedulingBillingAccess.service.js';
 describe('agency billing permission', () => {
-  beforeEach(() => { isActiveBillingAgency.mockResolvedValue(true); User.getAgencies.mockResolvedValue([{ id: 1 }, { id: 2 }]); User.listBillingAgencyIds.mockResolvedValue([1]); });
+  beforeEach(() => { isIndependentPracticeOwner.mockResolvedValue(false); isActiveBillingAgency.mockResolvedValue(true); User.getAgencies.mockResolvedValue([{ id: 1 }, { id: 2 }]); User.listBillingAgencyIds.mockResolvedValue([1]); });
+  it('lets a provider administer only the independent business they actively own',async()=>{
+    isIndependentPracticeOwner.mockImplementation(async(uid,aid)=>uid===4001&&Number(aid)===7001);
+    isActiveBillingAgency.mockResolvedValue(false);
+    expect(await hasSchedulingBillingAccess({id:4001,role:'provider'},7001)).toBe(true);
+    expect(await hasSchedulingBillingAccess({id:4001,role:'provider'},7002)).toBe(false);
+    expect(await hasSchedulingBillingAccess({id:999,role:'provider'},7001)).toBe(false);
+  });
   it('denies providers even with a legacy delegated billing flag', async () => {
     expect(await hasSchedulingBillingAccess({ id: 9, role: 'provider' }, 1)).toBe(false);
     expect(await hasSchedulingBillingAccess({ id: 9, role: 'provider' }, 2)).toBe(false);

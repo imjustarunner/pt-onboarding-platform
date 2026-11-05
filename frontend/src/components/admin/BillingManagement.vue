@@ -79,11 +79,12 @@
       <div class="billing-toolbar">
         <div>
           <h3 class="billing-toolbar-title">{{ isSuperAdmin ? 'Tenant billing account' : 'Your billing account' }}</h3>
-          <p class="billing-toolbar-copy">Feature toggles and pricing now live in Features so billing can stay focused on charges, invoices, receipts, and payment collection.</p>
+          <p class="billing-toolbar-copy">{{ independentBusiness ? 'Review your platform subscription, management agreement, invoices and payment method.' : 'Feature toggles and pricing now live in Features so billing can stay focused on charges, invoices, receipts, and payment collection.' }}</p>
         </div>
         <div class="inline billing-toolbar-actions">
-          <button class="btn btn-secondary" type="button" @click="router.push({ path: route.path, query: { category: 'general', item: 'business-commercial', agencyId: currentAgencyId } })">Agreement & revenue</button>
-          <button class="btn btn-secondary" type="button" @click="openFeaturesPage">Open features</button>
+          <router-link v-if="independentBusiness" class="btn btn-secondary" :to="{path:`/${agencyStore.currentAgency?.slug}/admin/organization-agreements`,query:{agencyId:String(currentAgencyId)}}">Review agreements</router-link>
+          <button v-else class="btn btn-secondary" type="button" @click="router.push({ path: route.path, query: { category: 'general', item: 'business-commercial', agencyId: currentAgencyId } })">Agreement & revenue</button>
+          <button v-if="!independentBusiness" class="btn btn-secondary" type="button" @click="openFeaturesPage">Open features</button>
           <button
             v-if="isSuperAdmin"
             class="btn"
@@ -189,7 +190,7 @@
 
       <div class="card">
         <h3>Current charges</h3>
-        <p class="muted">This page handles the money side of the relationship. Feature access and pricing controls now live in Features.</p>
+        <p class="muted">{{ independentBusiness ? 'Your company’s subscription and agreed management services appear here.' : 'This page handles the money side of the relationship. Feature access and pricing controls now live in Features.' }}</p>
         <div class="status-grid">
           <div>
             <div class="label">Current Bill (Estimated)</div>
@@ -231,7 +232,7 @@
         <div v-if="estimateError" class="error">{{ estimateError }}</div>
       </div>
 
-      <div class="card">
+      <div v-if="!independentBusiness" class="card">
         <div class="billing-features-handoff">
           <div>
             <h3>Features moved</h3>
@@ -541,7 +542,7 @@
                   <button
                     v-if="inv.payment_status !== 'paid' && autopayEnabled"
                     class="btn btn-secondary"
-                    :disabled="retryingInvoiceId === inv.id || !subscriptionProviderStatus?.paymentsEnabled || !canUseLiveBilling"
+                    :disabled="invoiceAgreementHeld(inv) || retryingInvoiceId === inv.id || !subscriptionProviderStatus?.paymentsEnabled || !canUseLiveBilling"
                     @click="retryInvoicePayment(inv.id)"
                   >
                     {{ retryingInvoiceId === inv.id ? 'Retrying…' : 'Retry Autopay' }}
@@ -549,7 +550,7 @@
                   <button
                     v-if="inv.payment_status !== 'paid'"
                     class="btn btn-secondary"
-                    :disabled="sendingInvoiceId === inv.id || !inv.qbo_invoice_id || !canUseLiveBilling"
+                    :disabled="invoiceAgreementHeld(inv) || sendingInvoiceId === inv.id || !inv.qbo_invoice_id || !canUseLiveBilling"
                     @click="sendInvoice(inv.id)"
                   >
                     {{ sendingInvoiceId === inv.id ? 'Sending…' : 'Send Invoice' }}
@@ -562,7 +563,19 @@
               <tr v-if="openInvoiceIds.has(inv.id)" class="invoice-details-row">
                 <td colspan="7">
                   <div class="invoice-details">
-                    <div class="invoice-summary">
+                    <p v-if="invoiceAgreementHeld(inv)" class="invoice-review-hold" role="status">Review draft — payment, sending and collection are on hold until both representatives sign the management agreement and its billing terms are finalized.</p>
+                    <section v-if="parsedInvoiceItems(inv)?.businessAgreement" class="invoice-agreement-summary">
+                      <h4>Management agreement</h4>
+                      <router-link v-if="agreementLocation(inv)" :to="agreementLocation(inv)">Open the exact management contract</router-link>
+                      <p v-else>{{ parsedInvoiceItems(inv).businessAgreement.contractReference || 'Agreement reference pending' }}</p>
+                      <p v-if="parsedInvoiceItems(inv).businessAgreement.signedOn">Signed {{ parsedInvoiceItems(inv).businessAgreement.signedOn }}</p>
+                      <p v-else>Awaiting completed signatures.</p>
+                    </section>
+                    <section v-if="parsedInvoiceItems(inv)?.chargeLines?.length" class="invoice-charge-lines">
+                      <h4>Invoice charges</h4>
+                      <table class="sub-table"><thead><tr><th>Service</th><th>Amount</th></tr></thead><tbody><tr v-for="(line,index) in parsedInvoiceItems(inv).chargeLines" :key="`${inv.id}-${line.key || index}`"><td>{{ line.label }}</td><td>{{ money(line.amountCents) }}</td></tr><tr><th>Total</th><th>{{ money(inv.total_cents) }}</th></tr></tbody></table>
+                    </section>
+                    <div v-else class="invoice-summary">
                       <div><strong>Base fee:</strong> {{ money(inv.base_fee_cents) }}</div>
                       <div v-if="parsedInvoiceItems(inv)?.lineItems?.length">
                         <strong>Usage line items:</strong>
@@ -634,7 +647,7 @@
         </table>
       </div>
 
-      <div v-if="canUseLiveBilling" class="card">
+      <div v-if="canUseLiveBilling && !independentBusiness" class="card">
         <h3>Linked Schools (for billing)</h3>
         <p class="muted">
           These schools count toward your billing “Schools” usage. Link schools even before any clients exist.
@@ -693,7 +706,7 @@
         </table>
       </div>
 
-      <div v-if="currentAgencyId && canUseLiveBilling" class="card">
+      <div v-if="currentAgencyId && canUseLiveBilling && !independentBusiness" class="card">
         <h3>Organization link requests</h3>
         <p class="muted">
           To link a school or program that already belongs to another agency, the organization must approve your request first.
@@ -739,6 +752,9 @@ import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import AgencyStripeConnectSection from './AgencyStripeConnectSection.vue';
+import { invoiceSnapshot, invoiceAgreementHeld, invoiceAgreementLocation } from '../../utils/invoiceAgreementDisplay.js';
+
+const props = defineProps({ independentBusiness: { type: Boolean, default: false } });
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
@@ -755,7 +771,7 @@ const normalizeText = (v) => String(v || '').trim().toLowerCase();
 const billingAgencies = computed(() => {
   const list = agencyStore.agencies || agencyStore.userAgencies || [];
   return [...list]
-    .filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency')
+    .filter((a) => ['agency','life_coach','consultant'].includes(String(a?.organization_type || 'agency').toLowerCase()))
     .sort((a, b) => normalizeText(a?.name).localeCompare(normalizeText(b?.name)));
 });
 
@@ -811,12 +827,11 @@ const toggleInvoiceDetails = (id) => {
   openInvoiceIds.value = next;
 };
 
-const parsedInvoiceItems = (inv) => {
-  if (!inv) return null;
-  const raw = inv.line_items_json;
-  if (!raw) return null;
-  if (typeof raw === 'object') return raw;
-  try { return JSON.parse(raw); } catch { return null; }
+const parsedInvoiceItems = invoiceSnapshot;
+const agreementLocation = inv => invoiceAgreementLocation(inv,agencyStore.currentAgency?.slug,currentAgencyId.value);
+const expandRequestedInvoice = () => {
+  const requested=Number(route.query.invoiceId||0),invoice=invoices.value.find(inv=>Number(inv.id)===requested);
+  if(invoice)openInvoiceIds.value=new Set([...openInvoiceIds.value,invoice.id]);
 };
 
 const invoiceFeatureBilling = (inv) => {
@@ -1608,8 +1623,11 @@ const loadInvoices = async () => {
   manageError.value = '';
   if (!currentAgencyId.value) return;
   try {
-    const res = await api.get(`/billing/${currentAgencyId.value}/invoices`);
+    const agencyId=currentAgencyId.value;
+    const res = await api.get(`/billing/${agencyId}/invoices`);
+    if(Number(currentAgencyId.value)!==Number(agencyId))return;
     invoices.value = res.data || [];
+    expandRequestedInvoice();
   } catch (e) {
     manageError.value = e?.response?.data?.error?.message || 'Failed to load invoices';
   }
@@ -1632,6 +1650,7 @@ const generateInvoice = async () => {
 const retryInvoicePayment = async (invoiceId) => {
   manageError.value = '';
   if (!currentAgencyId.value || !invoiceId) return;
+  if(invoiceAgreementHeld(invoices.value.find(inv=>Number(inv.id)===Number(invoiceId))))return;
   retryingInvoiceId.value = invoiceId;
   try {
     await api.post(`/billing/${currentAgencyId.value}/invoices/${invoiceId}/retry-payment`, {
@@ -1648,6 +1667,7 @@ const retryInvoicePayment = async (invoiceId) => {
 const sendInvoice = async (invoiceId) => {
   manageError.value = '';
   if (!currentAgencyId.value || !invoiceId) return;
+  if(invoiceAgreementHeld(invoices.value.find(inv=>Number(inv.id)===Number(invoiceId))))return;
   sendingInvoiceId.value = invoiceId;
   try {
     await api.post(`/billing/${currentAgencyId.value}/invoices/${invoiceId}/send`, {
@@ -1801,9 +1821,7 @@ onMounted(async () => {
     loadSettings(),
     loadPaymentMethods(),
     loadInvoices(),
-    loadAvailableSchools(),
-    loadLinkedSchools(),
-    loadAffiliationOutgoing(),
+    ...(props.independentBusiness ? [] : [loadAvailableSchools(), loadLinkedSchools(), loadAffiliationOutgoing()]),
     ...(isSuperAdmin.value ? [loadPlatformQboStatus()] : [])
   ]);
   await loadStripePaymentSetup();
@@ -1812,6 +1830,7 @@ onMounted(async () => {
 watch(billingAgencies, () => {
   if (!currentAgencyId.value) applyAgencyFromQuery();
 });
+watch(()=>route.query.invoiceId,expandRequestedInvoice);
 
 watch(currentAgencyId, async (newId, oldId) => {
   if (!newId || newId === oldId) return;
@@ -1822,9 +1841,7 @@ watch(currentAgencyId, async (newId, oldId) => {
     loadSettings(),
     loadPaymentMethods(),
     loadInvoices(),
-    loadAvailableSchools(),
-    loadLinkedSchools(),
-    loadAffiliationOutgoing(),
+    ...(props.independentBusiness ? [] : [loadAvailableSchools(), loadLinkedSchools(), loadAffiliationOutgoing()]),
     ...(isSuperAdmin.value ? [loadPlatformQboStatus()] : [])
   ]);
   await loadStripePaymentSetup();
@@ -1846,6 +1863,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.invoice-review-hold{padding:14px 18px;border:1px solid #d6bd7c;border-radius:8px;background:#fff8e8;color:#725414;line-height:1.6}.invoice-agreement-summary,.invoice-charge-lines{margin-bottom:20px}.invoice-charge-lines td:last-child,.invoice-charge-lines th:last-child{text-align:right}
 .billing-management {
   width: 100%;
 }

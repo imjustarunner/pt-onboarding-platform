@@ -7,6 +7,7 @@ import { hasMedicaidCoverage, isNonClinicalPaymentChannel } from '../../utils/in
 import { getReadiness, assertReady, insuranceFingerprint } from './readiness.js';
 import { assertLedgerIntegrity } from './integrity.js';
 import { decryptFamilyBilling } from '../familyBillingEncryption.service.js';
+import { isIndependentPracticeOwner } from '../../utils/independentPracticeOwner.js';
 
 export function cents(value, { allowZero = false } = {}) {
   const n = Number(value);
@@ -42,6 +43,7 @@ export function parseJson(value, fallback = null) {
 }
 export async function requireBillingStaff(user, agencyId, db = pool) {
   const aid = positiveId(agencyId), uid = positiveId(user?.id);
+  if (await isIndependentPracticeOwner(uid, aid, db)) return;
   if (['provider', 'provider_plus'].includes(user.role)) throw billingError(403, 'Billing staff access is required for this organization');
   if (['super_admin', 'superadmin'].includes(user.role)) {
     const [agency] = await db.execute('SELECT id FROM agencies WHERE id = ? AND is_active = 1 AND COALESCE(is_archived, 0) = 0', [aid]);

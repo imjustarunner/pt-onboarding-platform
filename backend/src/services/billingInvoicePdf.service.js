@@ -65,6 +65,10 @@ class BillingInvoicePdfService {
     };
 
     if (items?.chargeLines) {
+      if (items.businessAgreement?.requiresSignatures === true && (!items.businessAgreement.signedOn || items.businessAgreement.ready !== true)) {
+        drawRow('REVIEW DRAFT - awaiting both agreement signatures.', null, { italic: true });
+        drawRow('This proposal is not ready for collection or automatic payment.', null, { italic: true });
+      }
       for (const line of items.chargeLines) drawRow(line.label, line.amountCents);
       if (items.businessAgreement?.contractReference) drawRow(`Agreement: ${items.businessAgreement.contractReference}`, null);
     } else {

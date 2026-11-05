@@ -69,6 +69,8 @@ export function validateLifecycle(input) {
   state.agreements = list(input.agreements, 120, 'agreements').map(raw => {
     if (!raw || typeof raw !== 'object') fail('Check agreement terms.');
     const a = { startMonth: month(raw.startMonth, 'first billing month'), endMonth: raw.endMonth ? month(raw.endMonth, 'last billing month') : '', contractReference: string(raw.contractReference, 500, 'agreement reference'), signedOn: date(raw.signedOn, 'signed date'), revenueBasis: string(raw.revenueBasis, 500, 'revenue definition'), mode: raw.mode, revenueShareBps: integer(raw.revenueShareBps, 10000, 'revenue percentage'), thresholdCents: integer(raw.thresholdCents, 100000000000, 'revenue threshold'), status: raw.status };
+    if (raw.platformIncluded === true) a.platformIncluded = true;
+    if (raw.requiresSignatures === true) a.requiresSignatures = true;
     if (!['draft', 'active'].includes(a.status) || !['higher_of', 'threshold', 'additive', 'a_la_carte'].includes(a.mode)) fail('Choose valid agreement terms.');
     if (a.endMonth && a.endMonth < a.startMonth) fail('The last billing month must follow the first.');
     if (a.status === 'active' && (!a.signedOn || !a.contractReference || !a.revenueBasis)) fail('An active agreement needs its signed date, reference, and definition of revenue.');
@@ -77,6 +79,7 @@ export function validateLifecycle(input) {
     a.services = list(raw.services, 50, 'services').map(s => {
       if (!s || typeof s !== 'object') fail('Check service details.');
       const service = { id: string(s.id, 80, 'service identifier'), name: string(s.name, 160, 'service name'), amountCents: integer(s.amountCents, 100000000, 'service price'), cadence: s.cadence, month: s.month ? month(s.month, 'service month') : '' };
+      if (s.separateFromManagement === true) service.separateFromManagement = true;
       if (!service.id || !service.name || !['monthly', 'once'].includes(service.cadence)) fail('Enter each service name, price, and frequency.');
       if (service.cadence === 'once' && (!service.month || service.month < a.startMonth || (a.endMonth && service.month > a.endMonth))) fail('One-time services need a month within the agreement.');
       return service;
@@ -139,19 +142,29 @@ export function applyBusinessAgreement(estimate, state, billingMonth, { requireR
   const monthlyServices = a.services.filter(s => s.cadence === 'monthly');
   const oneTime = a.services.filter(s => s.cadence === 'once' && s.month === billingMonth);
   const serviceCents = monthlyServices.reduce((sum, s) => sum + s.amountCents, 0);
-  const floorCents = estimate.totals.totalCents + serviceCents;
+  // Including the Organization Platform covers its base fee. Optional modules,
+  // metered usage and explicitly separate services remain distinct charges.
+  const includedPlatformCents = a.platformIncluded ? Number(estimate.totals.baseFeeCents || 0) : 0;
+  const platformCents = estimate.totals.totalCents - includedPlatformCents;
+  const separatePlatformCents = a.platformIncluded ? platformCents : 0;
+  const separateServices = monthlyServices.filter(s => s.separateFromManagement);
+  const separateServiceCents = separateServices.reduce((sum, s) => sum + s.amountCents, 0);
+  const floorCents = platformCents + serviceCents;
+  const replacementFloorCents = floorCents - separatePlatformCents - separateServiceCents;
   const revenueShareCents = Math.round((revenue?.amountCents || 0) * a.revenueShareBps / 10000);
   const oneTimeCents = oneTime.reduce((sum, s) => sum + s.amountCents, 0);
   let recurringCents = floorCents, basis = 'a_la_carte';
-  if (ready && a.mode === 'higher_of' && revenueShareCents >= floorCents) { recurringCents = revenueShareCents; basis = 'revenue_share'; }
-  if (ready && a.mode === 'threshold' && revenue.amountCents >= a.thresholdCents) { recurringCents = revenueShareCents; basis = 'revenue_share'; }
+  if (ready && a.mode === 'higher_of' && revenueShareCents >= replacementFloorCents) { recurringCents = revenueShareCents + separatePlatformCents + separateServiceCents; basis = 'revenue_share'; }
+  if (ready && a.mode === 'threshold' && revenue.amountCents >= a.thresholdCents) { recurringCents = revenueShareCents + separatePlatformCents + separateServiceCents; basis = 'revenue_share'; }
   if (ready && a.mode === 'additive') { recurringCents = floorCents + revenueShareCents; basis = 'additive'; }
+  const appLines = platformChargeLines(estimate).filter(l => !a.platformIncluded || l.key !== 'platform_base');
+  const serviceLine = s => ({ key: `service_${s.id}`, label: `PlotTwistCo - ${s.name}`, amountCents: s.amountCents });
   let chargeLines = basis === 'revenue_share'
-    ? [{ key: 'management_revenue_share', label: `PlotTwistCo management + PlotTwistHQ (${a.revenueShareBps / 100}% revenue share)`, amountCents: revenueShareCents }]
-    : [...platformChargeLines(estimate), ...monthlyServices.map(s => ({ key: `service_${s.id}`, label: `PlotTwistCo - ${s.name}`, amountCents: s.amountCents }))];
+    ? [...(a.platformIncluded ? appLines : []), ...separateServices.map(serviceLine), { key: 'management_revenue_share', label: `PlotTwistCo management + PlotTwistHQ (${a.revenueShareBps / 100}% revenue share)`, amountCents: revenueShareCents }]
+    : [...appLines, ...monthlyServices.map(serviceLine)];
   if (basis === 'additive') chargeLines.push({ key: 'management_revenue_share', label: `PlotTwistCo revenue share (${a.revenueShareBps / 100}%)`, amountCents: revenueShareCents });
   chargeLines.push(...oneTime.map(s => ({ key: `service_${s.id}`, label: `PlotTwistCo - ${s.name} (one-time)`, amountCents: s.amountCents })));
   const totalCents = recurringCents + oneTimeCents;
   if (chargeLines.reduce((sum, l) => sum + l.amountCents, 0) !== totalCents) throw new BusinessLifecycleError(409, 'The platform charge breakdown does not reconcile. Review feature pricing before invoicing.');
-  return { ...estimate, chargeLines, totals: { ...estimate.totals, totalCents }, businessAgreement: { billingMonth, ready, basis, mode: a.mode, contractReference: a.contractReference, signedOn: a.signedOn, revenueBasis: a.revenueBasis, revenueCents: revenue?.amountCents ?? null, revenueReference: revenue?.reference || '', revenueShareBps: a.revenueShareBps, revenueShareCents, platformCents: estimate.totals.totalCents, serviceCents, floorCents, oneTimeCents, breakEvenRevenueCents: a.revenueShareBps ? Math.ceil(floorCents * 10000 / a.revenueShareBps) : null } };
+  return { ...estimate, chargeLines, totals: { ...estimate.totals, totalCents }, businessAgreement: { billingMonth, ready, basis, mode: a.mode, contractReference: a.contractReference, signedOn: a.signedOn, revenueBasis: a.revenueBasis, revenueCents: revenue?.amountCents ?? null, revenueReference: revenue?.reference || '', revenueShareBps: a.revenueShareBps, revenueShareCents, platformIncluded: a.platformIncluded === true, platformCents, includedPlatformCents, separatePlatformCents, separateServiceCents, replacementFloorCents, serviceCents, floorCents, oneTimeCents, breakEvenRevenueCents: a.revenueShareBps ? Math.ceil(replacementFloorCents * 10000 / a.revenueShareBps) : null } };
 }
