@@ -1,5 +1,6 @@
 <template>
   <AssistantAppShell v-if="assistantSurface"><router-view /></AssistantAppShell>
+  <router-view v-else-if="publicLoginSurface" />
   <AppWorkspace v-else />
 </template>
 
@@ -15,4 +16,8 @@ const AppWorkspace = defineAsyncComponent(() => import('./AppWorkspace.vue'));
 const route = useRoute();
 const auth = useAuthStore();
 const assistantSurface = computed(() => String(auth.user?.role || '').toLowerCase() === 'assistant' || route.meta?.assistantSurface === true);
+// Sign-in must remain available when an unrelated employee widget cannot load.
+// Login views own their branding; authentication and route guards stay in place.
+const publicLoginNames = new Set(['Login', 'OrganizationLogin', 'ParentOrganizationLogin', 'SchoolCareBridgeLogin', 'SchoolCareBridgeSchool']);
+const publicLoginSurface = computed(() => !auth.isAuthenticated && publicLoginNames.has(route.name));
 </script>
