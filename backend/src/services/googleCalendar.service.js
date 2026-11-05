@@ -567,7 +567,7 @@ export class GoogleCalendarService {
   /**
    * Append text to a calendar event's description (e.g. app join URL for team meetings).
    */
-  static async appendToEventDescription({ subjectEmail, googleEventId, appendText, sendUpdates = 'none' }) {
+  static async appendToEventDescription({ subjectEmail, googleEventId, appendText, sendUpdates = 'none', attendeeDetails = null }) {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     const gid = String(googleEventId || '').trim();
     const append = String(appendText || '').trim();
@@ -585,10 +585,23 @@ export class GoogleCalendarService {
       const sendUpdatesMode = ['all', 'externalOnly', 'none'].includes(String(sendUpdates || ''))
         ? String(sendUpdates)
         : 'none';
+      const requestBody = { description: newDesc };
+      // Guests are added on this saved-interview update. Creating them earlier
+      // lets a rejected save turn into a cancellation for an invite nobody received.
+      if (Array.isArray(attendeeDetails) && attendeeDetails.length) {
+        const attendees = Array.from(new Map(attendeeDetails
+          .map(person => {
+            const email = String(person?.email || person || '').trim().toLowerCase();
+            const displayName = String(person?.displayName || '').trim();
+            return [email, { email, ...(displayName ? { displayName } : {}) }];
+          })
+          .filter(([email]) => email && email !== subject)).values());
+        if (attendees.length) requestBody.attendees = attendees;
+      }
       await cal.events.patch({
         calendarId: 'primary',
         eventId: gid,
-        requestBody: { description: newDesc },
+        requestBody,
         sendUpdates: sendUpdatesMode
       });
       return { ok: true };

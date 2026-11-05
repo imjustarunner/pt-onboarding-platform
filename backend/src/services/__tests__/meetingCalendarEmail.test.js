@@ -3,11 +3,11 @@ import {beforeEach,describe,it,expect,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../googleMeetTranscript.service.js',()=>({ensureMeetAutoTranscriptionEnabled:vi.fn()}));
 import GoogleCalendarService from '../googleCalendar.service.js';
-const insert=vi.fn(),patch=vi.fn();
+const insert=vi.fn(),patch=vi.fn(),get=vi.fn();
 beforeEach(()=>{
-  vi.restoreAllMocks();insert.mockReset().mockResolvedValue({data:{id:'event'}});patch.mockReset().mockResolvedValue({data:{id:'event'}});
+  vi.restoreAllMocks();insert.mockReset().mockResolvedValue({data:{id:'event'}});patch.mockReset().mockResolvedValue({data:{id:'event'}});get.mockReset().mockResolvedValue({data:{description:'Hiring interview.'}});
   vi.spyOn(GoogleCalendarService,'isConfigured').mockReturnValue(true);
-  vi.spyOn(GoogleCalendarService,'buildCalendarClientForSubject').mockReturnValue({events:{insert,patch}});
+  vi.spyOn(GoogleCalendarService,'buildCalendarClientForSubject').mockReturnValue({events:{insert,patch,get}});
 });
 describe('app-owned meeting notifications',()=>{
   it('retries a stable recurring insert as a patch instead of creating duplicates',async()=>{
@@ -21,6 +21,14 @@ describe('app-owned meeting notifications',()=>{
     await GoogleCalendarService.createProviderScheduleEvent({subjectEmail:'host@example.com',startAt:'2026-09-28T16:00:00',endAt:'2026-09-28T17:00:00',summary:'Leadership',kind,attendeeEmails:['invitee@example.com'],sendUpdates:'all'});
     expect(insert).toHaveBeenCalledOnce();
     const args=insert.mock.calls[0][0];expect(args.sendUpdates).toBe('none');expect(args.requestBody.attendees).toBeUndefined();expect(args.requestBody.reminders).toEqual({useDefault:false,overrides:[]});
+  });
+  it('adds interview guests only when the saved invite is patched',async()=>{
+    await GoogleCalendarService.appendToEventDescription({subjectEmail:'host@primary.com',googleEventId:'event',appendText:'Join interview:\nhttps://tenant.example/join',sendUpdates:'all',attendeeDetails:[{email:'host@primary.com',displayName:'Host'},{email:'applicant@example.org',displayName:'Applicant Name'}]});
+    expect(patch.mock.calls[0][0]).toMatchObject({sendUpdates:'all',requestBody:{attendees:[{email:'applicant@example.org',displayName:'Applicant Name'}],description:expect.stringContaining('Join interview:')}});
+    patch.mockClear();
+    await GoogleCalendarService.appendToEventDescription({subjectEmail:'host@primary.com',googleEventId:'event',appendText:'Join interview:\nhttps://tenant.example/join',sendUpdates:'none'});
+    expect(patch.mock.calls[0][0].requestBody.attendees).toBeUndefined();
+    expect(patch.mock.calls[0][0].sendUpdates).toBe('none');
   });
   it('includes named tenant guests when an interview explicitly requests calendar invitations',async()=>{
     await GoogleCalendarService.createProviderScheduleEvent({subjectEmail:'host@primary.com',startAt:'2026-09-28T16:00:00',endAt:'2026-09-28T17:00:00',summary:'Interview',kind:'TEAM_MEETING',inviteGoogleGuests:true,attendeeDetails:[{email:'haley@itsco.health',displayName:'Haley Inyart'},{email:'applicant@example.org',displayName:'Applicant Name'}],sendUpdates:'all'});

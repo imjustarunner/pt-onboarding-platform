@@ -28,6 +28,7 @@ import InterviewHubJobQuestionSet from '../models/InterviewHubJobQuestionSet.mod
 import { isValidInterviewRoundKey } from '../constants/hiringInterviewRounds.js';
 import { buildHiringInterviewTitle } from '../utils/hiringInterviewTitle.js';
 import { sendHiringInterviewInviteEmail } from './hiringInterviewInviteEmail.service.js';
+import { withMeetingWindow } from './meetingWindowConflict.service.js';
 
 /** Google Calendar event color: 3 = grape/purple (distinct from general meetings). */
 export const INTERVIEW_GOOGLE_COLOR_ID = '3';
@@ -79,6 +80,20 @@ function toSqlDatetimeUtc(value) {
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return null;
   return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
+}
+
+/** A rejected booking must not email guests about a calendar copy they were never invited to. */
+async function discardUnsentInterviewCalendar(subjectEmail, googleEventId) {
+  if (!subjectEmail || !googleEventId) return;
+  try {
+    await GoogleCalendarService.deleteEvent({
+      subjectEmail,
+      eventId: googleEventId,
+      sendUpdates: 'none'
+    });
+  } catch (error) {
+    console.warn('[scheduleHiringInterview] unsent calendar cleanup failed:', error?.message || error);
+  }
 }
 
 /**
@@ -238,7 +253,6 @@ export async function scheduleHiringInterview({
     allUserIds
   );
   const attendeeDetails = await Promise.all(attendeeRows.map(user => resolveMeetingRecipient({agencyId:agency,user,guest:Number(user.id)===candidateId})));
-  const attendeeEmails = attendeeDetails.map(person => person.email).filter(Boolean);
 
   let calendarWarning = null;
   let googleEventId = null;
@@ -250,6 +264,15 @@ export async function scheduleHiringInterview({
     `Join with the ${agencyName} interview link below.`,
     `Participants:\n${attendeeDetails.map(person=>`${person.displayName} <${person.email}>`).join('\n')}`
   ];
+  const scheduleStart = toSqlDatetimeUtc(startDate);
+  const scheduleEnd = toSqlDatetimeUtc(endDate);
+  // Reject a hold, appointment, or other booking before Google has anyone to notify.
+  await withMeetingWindow({
+    userIds: interviewerIds,
+    startAt: scheduleStart,
+    endAt: scheduleEnd,
+    timeZone: tz
+  }, async () => true);
 
   try {
     const gcal = await GoogleCalendarService.createProviderScheduleEvent({
@@ -260,9 +283,9 @@ export async function scheduleHiringInterview({
       summary: title,
       description: descriptionParts.join('\n\n'),
       kind: 'TEAM_MEETING',
-      attendeeEmails: sendInvites ? attendeeEmails : [],
-      attendeeDetails: sendInvites ? attendeeDetails : [],
-      inviteGoogleGuests: true,
+      attendeeEmails: [],
+      attendeeDetails: [],
+      inviteGoogleGuests: false,
       isPrivate: true,
       createMeetLink: false,
       sendUpdates: 'none',
@@ -277,27 +300,34 @@ export async function scheduleHiringInterview({
     console.warn('[scheduleHiringInterview] Google Calendar create failed:', e?.message || e);
   }
 
-  const saved = await ProviderScheduleEvent.create({
-    agencyId: agency,
-    providerId: hostId,
-    kind: 'TEAM_MEETING',
-    title,
-    description: descriptionParts.join('\n\n'),
-    allDay: false,
-    startAt: toSqlDatetimeUtc(startDate),
-    endAt: toSqlDatetimeUtc(endDate),
-    eventTimezone: tz,
-    googleEventId,
-    googleHtmlLink,
-    googleMeetLink: null,
-    platformVideoLink: true,
-    createdByUserId: hostId,
-    waitingRoomEnabled: true,
-    meetingSubtype: 'interview',
-    notifyParticipants: !!sendInvites
-  });
+  let saved;
+  try {
+    saved = await ProviderScheduleEvent.create({
+      agencyId: agency,
+      providerId: hostId,
+      kind: 'TEAM_MEETING',
+      title,
+      description: descriptionParts.join('\n\n'),
+      allDay: false,
+      startAt: scheduleStart,
+      endAt: scheduleEnd,
+      eventTimezone: tz,
+      googleEventId,
+      googleHtmlLink,
+      googleMeetLink: null,
+      platformVideoLink: true,
+      createdByUserId: hostId,
+      waitingRoomEnabled: true,
+      meetingSubtype: 'interview',
+      notifyParticipants: !!sendInvites
+    });
+  } catch (error) {
+    await discardUnsentInterviewCalendar(calendarSender, googleEventId);
+    throw error;
+  }
 
   if (!saved?.id) {
+    await discardUnsentInterviewCalendar(calendarSender, googleEventId);
     const err = new Error('Failed to create schedule event');
     err.status = 500;
     throw err;
@@ -326,7 +356,8 @@ export async function scheduleHiringInterview({
         subjectEmail: calendarSender,
         googleEventId,
         appendText: `\n\nJoin interview:\n${publicJoinUrl}\n\nInterviewers: sign in with your staff account to open the private workspace.`,
-        sendUpdates: sendInvites ? 'all' : 'none'
+        sendUpdates: sendInvites ? 'all' : 'none',
+        attendeeDetails: sendInvites ? attendeeDetails : null
       });
       if (!linkUpdate?.ok) calendarWarning = 'Calendar join-link update failed. Use the emailed interview link.';
     } catch (e) {
