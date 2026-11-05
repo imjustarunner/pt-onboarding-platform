@@ -4,6 +4,7 @@ export default defineConfig({
   plugins: [vue()],
   resolve: { alias: { '@': new URL('./src', import.meta.url).pathname } },
   test: { environment: 'jsdom', include: [
+    'src/__tests__/App.publicLogin.test.js',
     'src/services/__tests__/api.publicAuthForm.test.js',
     'src/services/__tests__/api.rateLimit.test.js',
     'src/views/__tests__/LoginPortalIsolation.test.js',
