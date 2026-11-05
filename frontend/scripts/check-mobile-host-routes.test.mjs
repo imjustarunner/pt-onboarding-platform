@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
+import {get as httpGet} from 'node:http';
 
 test('generated auricwell.com nginx serves mobile routes and its push worker', {skip:process.env.MOBILE_NGINX_TEST!=='1',timeout:120000},async()=>{
   const fixture=await mkdtemp(join(tmpdir(),'auricwell-mobile-host-'));
@@ -27,20 +28,21 @@ test('generated auricwell.com nginx serves mobile routes and its push worker', {
     started=true;
     const info=JSON.parse(docker('inspect',name))[0];
     const origin=`http://127.0.0.1:${info.NetworkSettings.Ports['8080/tcp'][0].HostPort}`;
+    const requestHost=path=>new Promise((resolve,reject)=>{httpGet(origin+path,{headers:{Host:'auricwell.com'}},response=>{let body='';response.setEncoding('utf8');response.on('data',chunk=>body+=chunk);response.on('error',reject);response.on('end',()=>resolve({status:response.statusCode,headers:new Headers(response.headers),text:async()=>body}));}).on('error',reject);});
     for(let attempt=0;attempt<30;attempt++) {
-      try {await fetch(origin+'/mobile',{headers:{Host:'auricwell.com'}});break;}
+      try {await requestHost('/mobile');break;}
       catch(error){if(attempt===29)throw error;await new Promise(resolve=>setTimeout(resolve,100));}
     }
     for(const path of ['/mobile','/mobile/','/mobile/workspace?kind=chat&id=2','/mobile/connect','/mobile/callback','/mobile.html']) {
-      const response=await fetch(origin+path,{headers:{Host:'auricwell.com'}});
+      const response=await requestHost(path);
       assert.equal(response.status,200,path);assert.match(await response.text(),/MOBILE-FIXTURE/,path);
       assert.match(response.headers.get('cache-control'),/no-store/,path);
       assert.match(response.headers.get('x-robots-tag'),/noindex/,path);
     }
-    const worker=await fetch(origin+'/mobile-sw.js',{headers:{Host:'auricwell.com'}});
+    const worker=await requestHost('/mobile-sw.js');
     assert.equal(worker.status,200);assert.match(worker.headers.get('cache-control'),/no-cache/);
     assert.equal(worker.headers.get('service-worker-allowed'),'/mobile/');
-    const home=await fetch(origin+'/',{headers:{Host:'auricwell.com'}});assert.equal(home.status,200);assert.doesNotMatch(await home.text(),/MOBILE-FIXTURE/);
+    const home=await requestHost('/');assert.equal(home.status,200);assert.doesNotMatch(await home.text(),/MOBILE-FIXTURE/);
   } finally {
     if(started)docker('rm','--force',name);
     await rm(fixture,{recursive:true,force:true});
