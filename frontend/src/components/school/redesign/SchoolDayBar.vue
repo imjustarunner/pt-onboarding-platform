@@ -14,12 +14,14 @@
       }"
       type="button"
       role="tab"
+      :aria-label="d.availability_count !== undefined ? `Available ${d.weekday}: ${d.availability_count} providers` : undefined"
       :aria-selected="d.weekday === modelValue"
       :aria-disabled="!d.has_providers"
       :disabled="!d.has_providers"
       @click="d.has_providers && $emit('update:modelValue', d.weekday)"
     >
       <span class="label">{{ shortLabel(d.weekday) }}</span>
+      <span v-if="d.availability_count !== undefined" class="count">{{ d.availability_count }} available</span>
     </button>
   </div>
 </template>
@@ -91,5 +93,6 @@ const shortLabel = (weekday) => {
   width: 100%;
   text-align: center;
 }
+.count { display:block; margin-top:6px; font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; }
 </style>
 

@@ -10,6 +10,7 @@
 
       <div class="page-header__toolbar" data-tour="schools-overview-actions">
         <div class="toolbar-group">
+          <router-link v-if="orgType === 'school'" class="btn btn-secondary btn-sm" :to="{path: orgSlug ? `/${orgSlug}/admin/provider-availability` : '/admin/provider-availability', query: {tab:'provider_days', ...(selectedAgencyId ? {agencyId:String(selectedAgencyId)} : {})}}">Provider Days</router-link>
           <router-link class="btn btn-secondary btn-sm" to="/admin/clients" title="Back to Client Management">
             <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
             Clients

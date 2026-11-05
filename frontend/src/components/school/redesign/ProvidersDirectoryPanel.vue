@@ -24,9 +24,10 @@
         </div>
       </div>
       <div class="actions">
-        <input v-model="query" class="search" type="search" placeholder="Search name/email…" />
+        <button v-if="canAddProvider && parentAgencyId" class="btn btn-secondary btn-sm" type="button" :aria-pressed="showProviderDays" @click="showProviderDays = !showProviderDays">{{ showProviderDays ? 'School providers' : 'Provider Days' }}</button>
+        <input v-if="!showProviderDays" v-model="query" class="search" type="search" placeholder="Search name/email…" />
         <button
-          v-if="canAddProvider"
+          v-if="canAddProvider && !showProviderDays"
           class="btn btn-primary btn-sm"
           type="button"
           @click="openAddModal"
@@ -107,7 +108,8 @@
       </div>
     </div>
 
-    <div class="body">
+    <ProviderSchoolDays v-if="showProviderDays && canAddProvider && parentAgencyId" :agency-id="Number(parentAgencyId)" organization-slug="" />
+    <div v-else class="body">
       <div class="slot-legend" role="group" aria-label="Availability legend">
         <div class="slot-legend__item">
           <span class="slot-legend__dot slot-legend__dot--green" aria-hidden="true" />
@@ -208,6 +210,7 @@
 </template>
 
 <script setup>
+import ProviderSchoolDays from '../../availability/ProviderSchoolDays.vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { toUploadsUrl } from '../../../utils/uploadsUrl';
@@ -221,6 +224,7 @@ import {
 } from '../../../composables/useSlotVerification';
 
 const props = defineProps({
+  parentAgencyId: { type: [Number, String], default: null },
   schoolOrganizationId: { type: [Number, String], default: null },
   organizationSlug: { type: String, default: '' },
   providers: { type: Array, default: () => [] },
@@ -231,6 +235,7 @@ const props = defineProps({
 
 const emit = defineEmits(['open-provider', 'message-provider', 'provider-added']);
 
+const showProviderDays = ref(false);
 const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const showAddModal = ref(false);
 const addableProviders = ref([]);

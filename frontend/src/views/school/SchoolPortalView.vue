@@ -1295,6 +1295,7 @@
             v-if="organizationId"
             :school-organization-id="organizationId"
             :organization-slug="organizationSlug"
+            :parent-agency-id="affiliatedAgencyId"
             :providers="store.eligibleProviders"
             :loading="store.eligibleProvidersLoading"
             :current-user-role="roleNorm"

@@ -42,6 +42,7 @@ jobs:
           npm ci --prefix frontend --ignore-scripts
       - name: School portals, enrollment, and appointment notice rules
         run: |
+          npm test --prefix frontend -- src/components/availability/__tests__/ProviderSchoolDays.test.js src/components/school/redesign/__tests__/SchoolDayBar.test.js
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.family-email.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.school-onboarding.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.qa-sms.config.js schoolAppointment appointmentReplyFeeAcknowledgement scheduling.reminderUtc
