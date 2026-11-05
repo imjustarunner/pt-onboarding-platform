@@ -1,3 +1,4 @@
+import { getClientChartSetup } from '../controllers/chartSetup.controller.js';
 import {getStaffReminderConsent,saveStaffReminderConsent} from '../controllers/staffVerbalReminderConsent.controller.js';
 import { listSchoolAbsenceHistory } from '../controllers/schoolAbsenceHistory.controller.js';
 import * as clientPortalInvites from '../controllers/clientPortalInvites.controller.js';
@@ -280,6 +281,7 @@ router.get('/:id/demographic-updates', guardianDemographics.staffRead);
 router.post('/:id/demographic-updates/:requestId/review', guardianDemographics.review);
 router.post('/:id/demographics/parse', parseClientDemographicsImport);
 router.post('/:id/demographics/import', importClientDemographics);
+router.get('/:id/chart-setup', getClientChartSetup);
 
 // Copy-ready chart blocks (demographics + scrubbed clinical text)
 router.get('/:id/records-copy-blocks', getClientRecordsCopyBlocks);

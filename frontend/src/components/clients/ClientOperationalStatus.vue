@@ -23,7 +23,7 @@ import api from '../../services/api';
 const props=defineProps({clientId:{type:Number,required:true}});
 const sessions=ref([]),scope=ref(''),loading=ref(false),error=ref('');let generation=0;
 async function load(){const version=++generation;sessions.value=[];error.value='';loading.value=true;
-  try{const {data}=await api.get(`/clients/${props.clientId}/operational-status`);if(version===generation){sessions.value=data.sessions;scope.value=data.scope;}}
+  try{const {data}=await api.get(`/clients/${props.clientId}/operational-status`,{skipGlobalLoading:true});if(version===generation){sessions.value=data.sessions;scope.value=data.scope;}}
   catch{if(version===generation)error.value='Session status is unavailable. Retry or ask the care team; this does not mean a note or claim is missing.';}
   finally{if(version===generation)loading.value=false;}
 }

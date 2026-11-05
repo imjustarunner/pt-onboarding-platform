@@ -48,6 +48,19 @@ Sexual Orientation`;
   assert.equal(parsed.administrativeSex, 'Female');
 });
 
+test('parseDemographicsPaste prefers paper-packet dependent fields over the form title', () => {
+  const parsed = parseDemographicsPaste(`INTAKE QUESTIONNAIRE
+Dependent's Name
+Jordan Lee
+Dependent's Date of Birth
+03/14/2015
+Dependent's Grade
+5`);
+  assert.equal(parsed.fullName, 'Jordan Lee');
+  assert.equal(parsed.dateOfBirth, '2015-03-14');
+  assert.equal(parsed.grade, '5');
+});
+
 test('parseDemographicsPaste ignores label-only paste (no values under labels)', () => {
   const text = `Legal Name
 Date of Birth

@@ -55,6 +55,25 @@ describe('SupervisionVideoLobbyPanel admit-all behavior', () => {
 
     wrapper.unmount();
   });
+
+  it('keeps admit controls over a full-screen meeting and can hide the waiting room', async () => {
+    const wrapper = mount(SupervisionVideoLobbyPanel, {
+      props: { sessionId: 42, isSupervisor: true, meetingKind: 'supervision', overlay: true, theme: 'dark' },
+      attachTo: document.body
+    });
+    await flushPromises();
+    const toggle = () => document.querySelector('.lobby-host-float__toggle');
+    expect(toggle().textContent).toContain('Hide waiting room');
+    expect(document.querySelector('.lobby-panel-list').textContent).toContain('Admit');
+    toggle().click();
+    await flushPromises();
+    expect(toggle().textContent).toContain('Waiting room (2)');
+    expect(document.querySelector('.lobby-host-float__panel').style.display).toBe('none');
+    toggle().click();
+    await flushPromises();
+    expect(document.querySelector('.lobby-panel-admit-all').textContent).toContain('Admit all');
+    wrapper.unmount();
+  });
 });
 
 describe('host and cohost waiting-room alerts',()=>{

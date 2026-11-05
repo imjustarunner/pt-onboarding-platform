@@ -40,7 +40,7 @@ const person=computed(()=>context.value?.recipients.find(r=>String(r.id)===selec
 const localNow=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);};
 function resetAttestation(){attested.value=false;phoneConfirmed.value=false;authorityConfirmed.value=false;collectedAt.value=localNow();requestKey=crypto.randomUUID();}
 const formatDate=value=>new Date(value).toLocaleString();
-async function load(token=generation){loading.value=true;try{const {data}=await api.get(`/clients/${props.clientId}/reminder-text-consent`);if(token===generation)context.value=data;}catch(e){if(token===generation)error.value=e.response?.data?.error?.message||'Unable to load text reminder consent.';}finally{if(token===generation)loading.value=false;}}
+async function load(token=generation){loading.value=true;try{const {data}=await api.get(`/clients/${props.clientId}/reminder-text-consent`,{skipGlobalLoading:true});if(token===generation)context.value=data;}catch(e){if(token===generation)error.value=e.response?.data?.error?.message||'Unable to load text reminder consent.';}finally{if(token===generation)loading.value=false;}}
 async function save(){
  if(busy.value||!person.value||!attested.value||!phoneConfirmed.value||!authorityConfirmed.value)return;
  const token=generation,clientId=props.clientId,recipient={...person.value};busy.value=true;error.value='';notice.value='';

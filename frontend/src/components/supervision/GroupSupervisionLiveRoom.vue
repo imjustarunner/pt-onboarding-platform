@@ -83,6 +83,7 @@
       :session-id="numericSessionId"
       :is-supervisor="isSupervisor"
       theme="dark"
+      :overlay="videoFullscreen"
     />
 
     <section v-if="!isInLobby" class="gsl__consent" role="status">

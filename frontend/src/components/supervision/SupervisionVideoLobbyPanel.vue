@@ -1,10 +1,16 @@
 <template>
-  <CalendarGuestLobby v-if="isSupervisor && !unavailable && sessionId" ref="calendarLobby" :session-id="sessionId" :meeting-kind="meetingKind" @update:guests="calendarGuests = $event" @update:busy="calendarBusy = $event" @unavailable="stopUnavailable" />
   <WaitingRoomAlerts v-if="isSupervisor && !unavailable && sessionId" :meeting-key="`${meetingKind}:${sessionId}`" :participants="alertParticipants" :busy="!!admittingKey || admittingAll || disablingWaitingRoom || calendarBusy" @admit="admitFromAlert" />
+  <Teleport to="body" :disabled="!overlay">
+  <div v-if="isSupervisor && !unavailable && sessionId" :class="overlay ? 'lobby-host-float' : 'lobby-host-inline'">
+  <button v-if="overlay" type="button" class="lobby-host-float__toggle" @click="overlayOpen = !overlayOpen">
+    {{ overlayOpen ? 'Hide waiting room' : (waitingCount ? `Waiting room (${waitingCount})` : 'Waiting room') }}
+  </button>
+  <div v-show="!overlay || overlayOpen" class="lobby-host-float__panel">
+  <CalendarGuestLobby v-if="isSupervisor && !unavailable && sessionId" ref="calendarLobby" :session-id="sessionId" :meeting-kind="meetingKind" @update:guests="calendarGuests = $event" @update:busy="calendarBusy = $event" @unavailable="stopUnavailable" />
   <div
-    v-if="isSupervisor && !unavailable && sessionId && waitingRoomEnabled"
+    v-if="waitingRoomEnabled"
     class="lobby-panel"
-    :class="{ 'lobby-panel--dark': theme === 'dark' }"
+    :class="{ 'lobby-panel--dark': theme === 'dark' || overlay }"
   >
     <div v-if="recentArrivals.length" :key="arrivalVersion" class="lobby-panel-arrival" role="status" aria-live="polite">
       {{ recentArrivals.slice(0, 2).map(p => p.displayName).join(', ') }}{{ recentArrivals.length > 2 ? ' and others' : '' }} joined the waiting room. {{ participants.length }} waiting for admission.
@@ -54,6 +60,10 @@
       </li>
     </ul>
   </div>
+  <p v-else-if="overlay" class="lobby-panel lobby-panel--dark lobby-panel-empty">Waiting room is open. People join without waiting.</p>
+  </div>
+  </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -68,7 +78,9 @@ const props = defineProps({
   /** supervision | team-meeting */
   meetingKind: { type: String, default: 'supervision' },
   /** default | dark — dark for live meeting shells */
-  theme: { type: String, default: 'default' }
+  theme: { type: String, default: 'default' },
+  /** Keep admit controls above a full-screen meeting. */
+  overlay: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['update:waitingCount']);
@@ -110,6 +122,8 @@ const admittingKey = ref(null);
 const admittingAll = ref(false);
 const disablingWaitingRoom = ref(false);
 const waitingRoomEnabled = ref(true);
+const overlayOpen = ref(false);
+const waitingCount = computed(() => participants.value.length + calendarGuests.value.length);
 const admitSuccess = ref(false);
 const admitError = ref('');
 const loadError = ref('');
@@ -256,6 +270,12 @@ function stopPolling() {
   }
 }
 
+watch(() => props.overlay, (on) => {
+  if (on && waitingCount.value) overlayOpen.value = true;
+});
+watch(waitingCount, (count, previous) => {
+  if (props.overlay && count > (previous || 0)) overlayOpen.value = true;
+});
 watch(
   () => [props.sessionId, props.isSupervisor, props.meetingKind],
   () => {
@@ -380,4 +400,35 @@ onUnmounted(() => { pollingGeneration += 1; stopPolling(); });
 .lobby-panel-arrival { padding: 10px 12px; margin-bottom: 10px; border: 1px solid #34d399; border-radius: 8px; animation: lobby-arrival 1s ease-in-out 3; }
 @keyframes lobby-arrival { 50% { box-shadow: 0 0 0 3px #34d39955; } }
 @media (prefers-reduced-motion: reduce) { .lobby-panel-arrival { animation: none; } }
+.lobby-host-inline { display: contents; }
+.lobby-host-float {
+  position: fixed;
+  top: 56px;
+  right: 12px;
+  z-index: 10320;
+  width: min(420px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+.lobby-host-float__toggle,
+.lobby-host-float__panel { pointer-events: auto; }
+.lobby-host-float__toggle {
+  border: 1px solid rgba(147, 197, 253, 0.7);
+  background: #1d4ed8;
+  color: #fff;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.lobby-host-float__panel {
+  width: 100%;
+  max-height: min(70vh, 640px);
+  overflow: auto;
+}
 </style>

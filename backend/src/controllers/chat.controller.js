@@ -543,6 +543,15 @@ async function assertUsersInAgency(agencyId, userIds) {
 
 export async function findOrCreateDirectThread(agencyId, organizationId, userAId, userBId, messageChannel = null) {
   messageChannel = messageChannel || await defaultChatChannel([userAId, userBId]);
+  if (messageChannel === 'secure') {
+    const [schoolRows] = await pool.execute(
+      `SELECT 1 FROM users WHERE id IN (?, ?) AND LOWER(role) = 'school_staff' LIMIT 1`,
+      [userAId, userBId]
+    );
+    if (schoolRows.length) {
+      throw Object.assign(new Error('Secure messages are not available to school staff'), { status: 403 });
+    }
+  }
   const clientId = await resolveClientForSecureRecipients({ agencyId, actorUserId: userAId, recipientUserId: userBId });
   if (clientId) {
     if (messageChannel !== 'secure') throw Object.assign(new Error('Client and guardian communication must use secure messages'), { status: 400 });
@@ -1272,6 +1281,12 @@ export const listMessages = async (req, res, next) => {
     const threadId = parseInt(req.params.threadId, 10);
     if (!threadId) return res.status(400).json({ error: { message: 'threadId is required' } });
     await assertThreadAccess(req.user.id, threadId);
+    if (String(req.user?.role || '').toLowerCase() === 'school_staff') {
+      const [[channelRow]] = await pool.execute('SELECT message_channel FROM chat_threads WHERE id = ?', [threadId]);
+      if (channelRow?.message_channel === 'secure') {
+        return res.status(403).json({ error: { message: 'Secure messages are not available to school staff' } });
+      }
+    }
 
     // Read receipts (direct threads): determine what the other participant has read.
     // For now, we support "read by other" by using the max last_read_message_id among all other participants.
@@ -1431,6 +1446,9 @@ export const sendMessage = async (req, res, next) => {
     }
     const roleNorm = String(req.user?.role || '').toLowerCase();
     const [clientParticipants] = await pool.execute(`SELECT 1 FROM chat_thread_participants p JOIN users u ON u.id = p.user_id WHERE p.thread_id = ? AND LOWER(u.role) IN ('client', 'client_guardian') LIMIT 1`, [threadId]);
+    if (roleNorm === 'school_staff' && isSecureMessage) {
+      return res.status(403).json({ error: { message: 'Secure messages are not available to school staff' } });
+    }
     if (!isSecureMessage && (['client', 'client_guardian'].includes(roleNorm) || clientParticipants.length)) {
       return res.status(409).json({ error: { message: 'Clients and guardians can only use secure messages inside the app' } });
     }

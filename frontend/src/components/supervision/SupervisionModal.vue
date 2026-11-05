@@ -384,6 +384,8 @@
           <SupervisionVideoLobbyPanel
             :session-id="appVideoSessionId"
             :is-supervisor="appVideoIsSupervisor"
+            theme="dark"
+            :overlay="appVideoFullscreen || roomVideoFullscreen"
           />
           <SupervisionVideoRoom
             supervision-diagnostics
@@ -397,6 +399,7 @@
             :session-id="appVideoSessionId"
             :is-host="appVideoIsSupervisor"
             :diagnostics="appVideoDiagnostics"
+            @update:video-fullscreen="roomVideoFullscreen = $event"
             @disconnected="closeAppVideoModal"
           />
         </div>
@@ -526,6 +529,7 @@ const appVideoSessionTitle = ref('');
 const appVideoSessionId = ref(null);
 const appVideoIsSupervisor = ref(false);
 const appVideoFullscreen = ref(false);
+const roomVideoFullscreen = ref(false);
 const appVideoLoading = ref(false);
 const appVideoError = ref('');
 const sessionHistory = ref([]);

@@ -17,6 +17,7 @@ import { meetingReplyTo } from './meetingParticipants.service.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
 import NotificationGatekeeperService from './notificationGatekeeper.service.js';
 import { isVideoConfigured } from './video.service.js';
+import { withStaffReminderOptOut } from './staffReminderSmsPreference.service.js';
 import { toMysqlUtcDateTime, parseUtcDate } from '../utils/officeEventDateTime.util.js';
 
 const WINDOW_START_MINUTES = 5;
@@ -183,8 +184,17 @@ async function deliverJoinReminderToUser({ userId, agencyId, joinUrl, label, ses
       const from = await resolveRegisteredSmsSender({ agencyId, purpose: 'workforce' });
       if (from) {
         const meetingLabel = sessionType === 'supervision' ? 'supervision' : meetingEvent?.kind === 'HUDDLE' ? 'huddle' : 'staff meeting';
-        const body = `Your ${meetingLabel} is ${when}. Open your personal link to join: ${finalJoinUrl}`.slice(0, 480);
-        await VonageService.sendSms({ purpose: 'workforce', agencyId: agencyId, to: toPhoneNorm, from, body });
+        const supervisionReminder = sessionType === 'supervision';
+        const footer = supervisionReminder ? ' Reply NOREMIND to stop reminders.' : '';
+        const body = `${`Your ${meetingLabel} is ${when}. Open your personal link to join: ${finalJoinUrl}`.slice(0, 480 - footer.length)}${footer}`;
+        await VonageService.sendSms({
+          purpose: 'workforce',
+          agencyId: agencyId,
+          to: toPhoneNorm,
+          from,
+          body: supervisionReminder ? withStaffReminderOptOut(body) : body,
+          ...(supervisionReminder ? { reminderFooter: 'noremind' } : {})
+        });
         smsSent = true;
       }
     } catch (e) {

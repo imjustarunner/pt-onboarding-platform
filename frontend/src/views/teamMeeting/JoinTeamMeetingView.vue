@@ -225,6 +225,7 @@
             :is-supervisor="isHost || isCoHostBySignal || !!trainingState?.proctor"
             meeting-kind="team-meeting"
             theme="dark"
+            :overlay="videoFullscreen"
             @update:waiting-count="waitingLobbyCount = $event"
           />
           <SupervisionWaitingRoomStage

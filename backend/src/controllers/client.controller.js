@@ -1009,6 +1009,10 @@ async function attachDemographicsOnFileFlag(client) {
     if (client.demographics_phi_enc) {
       client.demographics_phi_enc = { encrypted: true };
     }
+    if (client.paper_packet_demo_candidate_enc) {
+      client.paper_packet_demo_on_file = true;
+      delete client.paper_packet_demo_candidate_enc;
+    }
   } catch {
     client.demographics_on_file = !!(client.demographics_phi_enc || client.date_of_birth);
   }
@@ -4880,14 +4884,21 @@ export const getClientNotes = async (req, res, next) => {
     }
 
     const {canAccessHubClient}=await import('../services/hubPeopleAccess.service.js');
-    const canViewContactEvents=!isGuardian && await canAccessHubClient({userId,clientId:Number(id),agencyId:currentClient.agency_id});
-    // Get notes (filtered by permission)
+    const canViewContactEvents = !isGuardian
+      && roleNorm !== 'school_staff'
+      && await canAccessHubClient({userId,clientId:Number(id),agencyId:currentClient.agency_id});
+    // Get notes (filtered by permission). Contact notes stay off the school and family views.
     const notes = await ClientNotes.findByClientId(id, {
       hasAgencyAccess: userRole === 'super_admin' ? true : hasAgencyAccess,
       canViewInternalNotes, canViewContactEvents
     });
+    const visible = (notes || []).filter((note) => {
+      if ((isGuardian || roleNorm === 'school_staff') && note?.is_internal_only) return false;
+      if (isGuardian && String(note?.category || '').toLowerCase() === 'comment') return false;
+      return true;
+    });
     logClientAccess(req, parseInt(id, 10), 'view_client_notes').catch(() => {});
-    res.json(notes);
+    res.json(visible);
   } catch (error) {
     console.error('Get client notes error:', error);
     next(error);
@@ -7167,7 +7178,8 @@ export const importClientDemographics = async (req, res, next) => {
       email: demo.email || null,
       appointmentReminderType:
         demo.appointmentReminderType || demo.appointment_reminder_type || null,
-      administrativeSex: demo.administrativeSex || demo.gender || null
+      administrativeSex: demo.administrativeSex || demo.gender || null,
+      grade: demo.grade || null
     };
 
     if (!demographicsImportHasContent(parsed)) {
@@ -7192,6 +7204,10 @@ export const importClientDemographics = async (req, res, next) => {
     // Avoid returning encryption envelope to clients unnecessarily
     if (updated && updated.demographics_phi_enc) {
       updated.demographics_phi_enc = { encrypted: true };
+    }
+    if (updated?.paper_packet_demo_candidate_enc) {
+      updated.paper_packet_demo_on_file = true;
+      delete updated.paper_packet_demo_candidate_enc;
     }
     if (updated) {
       updated.demographics_on_file = clientHasDemographicsOnFile(updated) || true;

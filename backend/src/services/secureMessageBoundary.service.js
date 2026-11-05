@@ -6,7 +6,7 @@ export async function defaultChatChannel(userIds) {
   if (!ids.length) return 'internal';
   const [rows] = await pool.execute(
     `SELECT 1 FROM users WHERE id IN (${ids.map(() => '?').join(',')})
-     AND LOWER(role) IN ('client', 'client_guardian', 'school_staff') LIMIT 1`, ids
+     AND LOWER(role) IN ('client', 'client_guardian') LIMIT 1`, ids
   );
   return rows.length ? 'secure' : 'internal';
 }

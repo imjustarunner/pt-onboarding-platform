@@ -28,3 +28,11 @@ export function isPaperPacketClient(client) {
   if (!source && (status === 'PACKET' || documentStatus === 'PACKET')) return true;
   return false;
 }
+
+/** School registration and paper-packet charts. Their file fields are not an EHR demographics import. */
+export function isSchoolRegistrationClient(client) {
+  if (!client) return false;
+  const type = String(client.client_type || client.clientType || '').trim().toLowerCase();
+  const org = String(client.organization_type || client.organizationType || '').trim().toLowerCase();
+  return type === 'school' || org === 'school' || isPaperPacketClient(client);
+}

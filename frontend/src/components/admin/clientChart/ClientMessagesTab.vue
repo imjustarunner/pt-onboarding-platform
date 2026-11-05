@@ -25,7 +25,7 @@
             <h3 class="cc-messages-card__title cc-messages-lock">
               <span aria-hidden="true">🔒</span> {{ isBackofficeRole ? 'Internal notes' : 'Contact documentation' }}
             </h3>
-            <p class="cc-messages-card__sub">{{ isBackofficeRole ? 'Internal staff notes' : 'Parent contacts recorded for your client' }} · Not client-facing</p>
+            <p class="cc-messages-card__sub">{{ isBackofficeRole ? 'Internal staff notes' : 'Parent contacts recorded for your client' }} · Stays with agency staff. Not shared with the school or the family.</p>
           </div>
           <button v-if="isBackofficeRole" type="button" class="cc-btn-primary" style="width: auto;" @click="openInternalComposer">
             New admin note
@@ -107,7 +107,7 @@ const showInternalComposer = ref(false);
 const internalNoteMessage = ref('');
 const creatingInternal = ref(false);
 
-const sharedMessages = computed(() => (notes.value || []).filter((n) => !n?.is_internal_only));
+const sharedMessages = computed(() => (notes.value || []).filter((n) => !n?.is_internal_only && String(n?.category || '').toLowerCase() !== 'comment'));
 const internalNotes = computed(() => (notes.value || []).filter((n) => !!n?.is_internal_only));
 
 function formatCategory(c) {

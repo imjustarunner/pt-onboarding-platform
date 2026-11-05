@@ -900,7 +900,15 @@ const launchSmartRoi = async () => {
   }
 };
 
-const formatDateTime = (d) => (d ? new Date(d).toLocaleString() : '');
+const formatDateTime = (d) => {
+  if (!d) return '';
+  const date = new Date(d);
+  if (!Number.isFinite(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en-US', {
+    month: '2-digit', day: '2-digit', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true
+  }).format(date);
+};
 
 const formatDateOnly = (d) => (d ? String(d).slice(0, 10) : '—');
 

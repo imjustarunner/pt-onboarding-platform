@@ -205,6 +205,7 @@ api.interceptors.request.use(
       const isOfficeKioskApi = /^\/kiosk\/\d+\//.test(url);
       const isPublicIntakeApi =
         url.includes('/public-intake/') || url.startsWith('public-intake/');
+      const isClientProfilePage = /\/admin\/clients\/\d+(?:\/|$)/.test(String(window.location.pathname || ''));
       const isBackgroundWidgetApi =
         /\/notifications(\?|$|\/)/.test(url)
         || /\/kudos\//.test(url)
@@ -215,7 +216,7 @@ api.interceptors.request.use(
         || /\/agencies\/\d+\/(users|departments)(\?|$)/.test(url)
         || url.includes('/supervision/providers')
         || /\/availability\//.test(url);
-      if (!config?.skipGlobalLoading && (isSchoolPortalShellActive.value || isSchoolPortalApi || isOfficeKioskApi || isPublicIntakeApi || isBackgroundWidgetApi)) {
+      if (!config?.skipGlobalLoading && (isClientProfilePage || isSchoolPortalShellActive.value || isSchoolPortalApi || isOfficeKioskApi || isPublicIntakeApi || isBackgroundWidgetApi)) {
         config.skipGlobalLoading = true;
       }
       if (!config?.skipGlobalLoading) {

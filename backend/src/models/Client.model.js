@@ -593,6 +593,7 @@ class Client {
       'appointment_reminder_type',
       'session_sms_opt_in',
       'demographics_phi_enc',
+      'paper_packet_demo_candidate_enc',
       'paper_packet_staff_roi_pending',
       'needs_full_packet_renewal',
       'onboarding_docs_json',
@@ -628,7 +629,7 @@ class Client {
           values.push(clientData[field] ? 1 : 0);
         } else if (field === 'grade') {
           values.push(normalizeGradeForSave(clientData[field]));
-        } else if (field === 'demographics_phi_enc') {
+        } else if (field === 'demographics_phi_enc' || field === 'paper_packet_demo_candidate_enc') {
           values.push(
             clientData[field] == null
               ? null

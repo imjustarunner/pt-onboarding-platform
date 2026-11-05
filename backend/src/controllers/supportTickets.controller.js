@@ -16,6 +16,7 @@ import Notification from '../models/Notification.model.js';
 import Client from '../models/Client.model.js';
 import ClientNotes from '../models/ClientNotes.model.js';
 import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.model.js';
+import { schoolStaffCanSeeCollaborationItem } from '../utils/schoolStaffCollaborationWindow.js';
 import { callGeminiText } from '../services/geminiText.service.js';
 import { sendNotificationEmail, sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
@@ -2205,6 +2206,11 @@ export const listClientSupportTickets = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'schoolOrganizationId and clientId are required' } });
     }
 
+    const ticketRole = String(req.user?.role || '').toLowerCase();
+    if (ticketRole === 'client_guardian' || ticketRole === 'client') {
+      return res.status(403).json({ error: { message: 'School tickets are not available in the family portal' } });
+    }
+
     const access = await ensureOrgAccess(req, schoolOrganizationId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
@@ -2234,7 +2240,16 @@ export const listClientSupportTickets = async (req, res, next) => {
       queryParams
     );
 
-    res.json({ tickets: (rows || []).map((t) => enrichTicketForClient(t)) });
+    let tickets = (rows || []).map((t) => enrichTicketForClient(t));
+    if (String(req.user?.role || '').toLowerCase() === 'school_staff') {
+      const staffWindow = await ClientSchoolStaffRoiAccess.getStaffAccessWindow({
+        clientId,
+        schoolOrganizationId,
+        schoolStaffUserId: req.user.id
+      });
+      tickets = tickets.filter((ticket) => schoolStaffCanSeeCollaborationItem(ticket.created_at, staffWindow));
+    }
+    res.json({ tickets });
   } catch (e) {
     next(e);
   }

@@ -1827,6 +1827,13 @@ export const setStaffInactive = async (req, res, next) => {
       console.warn('Admin audit log failed:', e?.message || e);
     }
 
+    try {
+      const { holdStaffPersonalNotifications } = await import('../services/staffNotificationHold.service.js');
+      await holdStaffPersonalNotifications(uid);
+    } catch (e) {
+      console.warn('[setStaffInactive] notification hold failed:', e?.message || e);
+    }
+
     const user = await User.findById(uid);
     res.json({
       message: 'User marked inactive. Organization and school links were removed; their history remains on file.',
@@ -10996,6 +11003,12 @@ export const markUserActive = async (req, res, next) => {
       for (const entry of employeeEntries) {
         await ApprovedEmployee.delete(entry.id);
       }
+      try {
+        const { restoreStaffPersonalNotifications } = await import('../services/staffNotificationHold.service.js');
+        await restoreStaffPersonalNotifications(idNum);
+      } catch (e) {
+        console.warn('[markUserActive] notification restore failed:', e?.message || e);
+      }
 
       return res.json({
         message: 'User reactivated from inactive. Re-assign them to agencies and schools as needed.',
@@ -11099,6 +11112,12 @@ export const markUserActive = async (req, res, next) => {
     for (const entry of employeeEntries) {
       await ApprovedEmployee.delete(entry.id);
     }
+    try {
+      const { restoreStaffPersonalNotifications } = await import('../services/staffNotificationHold.service.js');
+      await restoreStaffPersonalNotifications(parseInt(id, 10));
+    } catch (e) {
+      console.warn('[markUserActive] notification restore failed:', e?.message || e);
+    }
     
     res.json({
       message: 'User account reactivated and removed from approved employee list',
@@ -11121,6 +11140,12 @@ export const deactivateUser = async (req, res, next) => {
     const deactivated = await User.deactivate(parseInt(id));
     if (!deactivated) {
       return res.status(404).json({ error: { message: 'User not found' } });
+    }
+    try {
+      const { holdStaffPersonalNotifications } = await import('../services/staffNotificationHold.service.js');
+      await holdStaffPersonalNotifications(parseInt(id, 10));
+    } catch (e) {
+      console.warn('[deactivateUser] notification hold failed:', e?.message || e);
     }
 
     try {
@@ -11794,6 +11819,12 @@ export const changePassword = async (req, res, next) => {
         'UPDATE users SET is_active = TRUE WHERE id = ?',
         [userId]
       );
+      try {
+        const { restoreStaffPersonalNotifications } = await import('../services/staffNotificationHold.service.js');
+        await restoreStaffPersonalNotifications(userId);
+      } catch (e) {
+        console.warn('[changePassword] notification restore failed:', e?.message || e);
+      }
     }
 
     // Log password change activity using centralized service

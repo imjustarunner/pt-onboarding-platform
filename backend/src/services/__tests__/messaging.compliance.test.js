@@ -178,6 +178,27 @@ describe('campaign-wide SMS delivery gate', () => {
     expect(permissions.find(p=>p.purpose==='reminders').status).toBe('opted_in');
     expect(sendReply.mock.calls.at(-1)[0].body).toContain('NOREMIND (appointment reminders)');
   });
+  it('puts NOREMIND on a supervision reminder without adding STOP', async () => {
+    const original = pool.execute.getMockImplementation();
+    pool.execute.mockImplementation(async (sql, args) => {
+      if (sql.includes('FROM twilio_numbers')) return [[{ ...sender, registration_json: { ...registration, provider: 'vonage', purposes: ['workforce'] } }]];
+      return original(sql, args);
+    });
+    permissions.push({ scope: 'campaign:C123', phone: message.to, purpose: 'workforce', status: 'opted_in', evidence_json: { source: 'web_form', reference: 'grant-1', disclosure: 'signed', collectedAt: '2026-01-01T00:00:00Z', signatureReference: 'sig', signerVerified: true } });
+    const delivery = await prepareSmsDelivery({ ...message, purpose: 'workforce', body: 'Your supervision is soon.', reminderFooter: 'noremind' });
+    expect(delivery.body).toContain('Reply NOREMIND to stop reminders.');
+    expect(delivery.body).not.toContain('STOP');
+  });
+  it('blocks personal texts to an inactive employee', async () => {
+    const original = pool.execute.getMockImplementation();
+    pool.execute.mockImplementation(async (sql, args) => {
+      if (sql.includes('FROM twilio_numbers')) return [[{ ...sender, registration_json: { ...registration, provider: 'vonage', purposes: ['workforce'] } }]];
+      if (sql.includes('JSON_EXTRACT(p.notification_categories')) return [[{ is_active: 0, status: 'INACTIVE_EMPLOYEE', choices: null }]];
+      return original(sql, args);
+    });
+    permissions.push({ scope: 'campaign:C123', phone: message.to, purpose: 'workforce', status: 'opted_in', evidence_json: { source: 'web_form', reference: 'grant-2' } });
+    await expect(prepareSmsDelivery({ ...message, purpose: 'workforce', body: 'Your supervision is soon.' })).rejects.toMatchObject({ code: 'sms_staff_inactive' });
+  });
   it('declining provider texting preserves reminders and an inbound question cannot override that decline', async () => {
     permissions.push({scope:'campaign:C123',phone:message.to,purpose:'care',status:'opted_out'},
       {scope:'campaign:C123',phone:message.to,purpose:'reminders',status:'opted_in'});

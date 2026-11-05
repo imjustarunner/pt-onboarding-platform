@@ -181,6 +181,14 @@
           v-if="chartHub === 'overview' && effectiveHubSub !== 'skill-builders'"
           class="detail-section cdp-overview"
         >
+          <ClientChartSetupPanel
+            v-if="canFinishChartSetup"
+            scope="all"
+            :client="client"
+            :client-id="client.id"
+            :agency-id="client.agency_id"
+            @updated="onChartSetupUpdated"
+          />
           <ClientOverviewHub
             :client-id="client.id"
             :client="client"
@@ -1415,6 +1423,14 @@
 
         <!-- Demographics Tab -->
         <div v-if="showPanel('demographics')" class="detail-section">
+          <ClientChartSetupPanel
+            v-if="canFinishChartSetup"
+            scope="demographics"
+            :client="client"
+            :client-id="client.id"
+            :agency-id="client.agency_id"
+            @updated="onChartSetupUpdated"
+          />
           <GuardianDemographicReview v-if="canEditAccount" :client-id="Number(client.id)" />
           <div class="tab-meta-bar">
             <div class="muted" style="font-size: 13px;">
@@ -1580,14 +1596,18 @@
 
         <!-- Messages/Notes Tab -->
         <ClientMessagesTab
-          v-if="showPanel('messages')"
+          v-if="showPanel('messages') && !['school_staff', 'client_guardian', 'client'].includes(roleNorm)"
           :client-id="Number(client.id)"
           :is-backoffice-role="isBackofficeRole"
         />
 
         <!-- Communications Tab -->
         <div v-if="showPanel('communications')" class="detail-section">
-          <ClientCommunicationsTab :client-id="Number(props.client.id)" />
+          <ClientCommunicationsTab
+            :client-id="Number(props.client.id)"
+            :organization-id="Number(props.client.organization_id || props.schoolOrganizationId || 0)"
+            :agency-id="Number(props.client.agency_id || selectedAgencyId || 0)"
+          />
         </div>
 
         <ClientPortalOverview v-if="chartHub==='portal' && canViewGuardians" :key="client.id" :client="client" :agency="{id:Number(selectedAgencyId||client.agency_id),name:primaryAgencyDisplayName}" :actor="authStore.user" @share-documents="goChartSub('documents')" @share-assessments="goChartSub('assessments')" @manage-access="goChartSub('guardians')" />
@@ -2629,6 +2649,14 @@
         </div>
 
         <div v-if="showPanel('intake-note')" class="detail-section">
+          <ClientChartSetupPanel
+            v-if="canFinishChartSetup"
+            scope="intake"
+            :client="client"
+            :client-id="client.id"
+            :agency-id="client.agency_id"
+            @updated="onChartSetupUpdated"
+          />
           <h3 style="margin-top: 0;">{{ effectiveClientType === 'learning' ? 'Intake / enrollment note' : 'Intake note' }}</h3>
           <p class="hint">
             {{
@@ -2652,6 +2680,14 @@
         </div>
 
         <div v-if="showPanel('treatment-plans')" class="detail-section">
+          <ClientChartSetupPanel
+            v-if="canFinishChartSetup"
+            scope="plan"
+            :client="client"
+            :client-id="client.id"
+            :agency-id="client.agency_id"
+            @updated="onChartSetupUpdated"
+          />
           <ClientTreatmentPlansPanel
             :client-id="client.id"
             :agency-id="selectedAgencyId || client.agency_id"
@@ -2825,6 +2861,7 @@ import ClientMedicalRecordsTab from './ClientMedicalRecordsTab.vue';
 import ClientBillingImportTab from './ClientBillingImportTab.vue';
 import ClientChartShell from './clientChart/ClientChartShell.vue';
 import ClientOverviewHub from './clientChart/ClientOverviewHub.vue';
+import ClientChartSetupPanel from './clientChart/ClientChartSetupPanel.vue';
 import { formatAuditTimestamp } from '../../utils/formatDate';
 import EnrollmentPreferencesSummary from './clientChart/EnrollmentPreferencesSummary.vue';
 import ClientClinicalTab from './clientChart/ClientClinicalTab.vue';
@@ -2998,10 +3035,11 @@ const chartSubnav = computed(() => {
     });
   }
   if (hub === 'messages') {
-    return [
-      { id: 'communications', label: 'Communications' },
-      { id: 'messages', label: 'Contact documentation' }
-    ];
+    const items = [{ id: 'communications', label: 'Communications' }];
+    if (!['school_staff', 'client_guardian', 'client'].includes(roleNorm.value)) {
+      items.push({ id: 'messages', label: 'Contact documentation' });
+    }
+    return items;
   }
   if (hub === 'overview' && isSchoolClientType.value && isSkillsClientFlag(props.client?.skills)) {
     return [
@@ -3507,6 +3545,16 @@ function closeLifecycleHistoryModal() {
 }
 
 const canEditAccount = computed(() => isBackofficeRole.value && hasAgencyAccess.value);
+const canFinishChartSetup = computed(() => [
+  'super_admin',
+  'admin',
+  'support',
+  'staff',
+  'provider',
+  'provider_plus',
+  'supervisor',
+  'clinical_practice_assistant'
+].includes(roleNorm.value) && (hasAgencyAccess.value || viewerIsAssignedProvider.value));
 
 const clientDobLabel = computed(() => {
   const raw = props.client?.date_of_birth;
@@ -4100,13 +4148,15 @@ const careSummaryError = ref('');
 let careSummaryVersion = 0;
 watch([clientAgencyId, clientChartClientId, canViewMedicalRecord, chartHub, () => props.client?.updated_at], async ([agencyId, clientId, enabled, hub]) => {
   const version = ++careSummaryVersion;
-  careSummary.value = null;
   careSummaryError.value = '';
-  careSummaryLoading.value = false;
-  if (!enabled || !agencyId || !clientId || !['overview', 'account'].includes(hub)) return;
+  if (!enabled || !agencyId || !clientId || !['overview', 'account'].includes(hub)) {
+    careSummary.value = null;
+    careSummaryLoading.value = false;
+    return;
+  }
   careSummaryLoading.value = true;
   try {
-    const { data } = await api.get(`/client-exchange/clients/${clientId}/summary`, { params: { agencyId } });
+    const { data } = await api.get(`/client-exchange/clients/${clientId}/summary`, { params: { agencyId }, skipGlobalLoading: true });
     if (version === careSummaryVersion) careSummary.value = data.summary;
   } catch (error) {
     if (version === careSummaryVersion) careSummaryError.value = error?.response?.data?.error?.message || 'Unable to load clinical summary';
@@ -6334,30 +6384,60 @@ watch(chartHub, (hub) => {
 });
 
 
-watch(() => props.client, async () => {
-  // Reset editing states when client changes
-  editingStatus.value = false;
+let chartContextSeq = 0;
+async function onChartSetupUpdated(updated) {
+  const id = Number(props.client?.id || 0);
+  if (!id) return;
+  if (updated?.id) {
+    emit('updated', { keepOpen: true, client: updated });
+    return;
+  }
+  try {
+    const refreshed = await api.get(`/clients/${id}`, { skipGlobalLoading: true });
+    emit('updated', { keepOpen: true, client: refreshed.data });
+  } catch {
+    emit('updated', { keepOpen: true });
+  }
+}
+
+function syncOpenClientForm() {
   selfGuardianEmail.value = String(props.client?.email || '').trim();
   skillsValue.value = isSkillsClientFlag(props.client?.skills);
-  clientTypeDraft.value = effectiveClientType.value || 'basic_nonclinical';
-  clientCodeDraft.value = '';
-  if (!editingOverview.value) {
-    hydrateOverviewForm();
-  }
-  loadOverviewOptions();
-  fetchDocChecklist();
-  await fetchClientAgencyAffiliations();
-  await fetchClientAffiliations();
+  if (!editingOverview.value) hydrateOverviewForm();
   syncClientBookingDefaultsFromClient();
-  await fetchAccess();
-  await fetchChartAgencyAffiliatedOrgs();
-  await refreshOverviewProviders();
-  await fetchAdminNote();
-  loadClientDisclosureStatus().catch(() => {});
+}
+
+watch(() => Number(props.client?.id || 0), async (id, prev) => {
+  const seq = ++chartContextSeq;
+  if (!id) return;
+  if (id !== prev) {
+    editingStatus.value = false;
+    editingOverview.value = false;
+    clientCodeDraft.value = '';
+    clientTypeDraft.value = effectiveClientType.value || 'basic_nonclinical';
+  }
+  syncOpenClientForm();
+  await Promise.all([
+    loadOverviewOptions(),
+    fetchDocChecklist(),
+    fetchClientAgencyAffiliations(),
+    fetchClientAffiliations(),
+    fetchAccess(),
+    fetchChartAgencyAffiliatedOrgs(),
+    refreshOverviewProviders(),
+    fetchAdminNote(),
+    loadClientDisclosureStatus().catch(() => {})
+  ]);
+  if (seq !== chartContextSeq) return;
   if (activeTab.value === 'clinical' || activeTab.value === 'student-summary') {
     fetchBillingDiagnoses();
   }
-}, { deep: true, immediate: true });
+}, { immediate: true });
+
+watch(() => props.client, () => {
+  if (!props.client?.id) return;
+  syncOpenClientForm();
+});
 
 watch(activeChartAgencyId, () => {
   fetchChartAgencyAffiliatedOrgs();
@@ -6803,15 +6883,7 @@ onMounted(async () => {
     profileDetailsPulseHint.value = false;
   }
   if (isBackofficeRole.value) {
-    await fetchProviders();
-  }
-  // Fire fetchAccess without awaiting — it only populates the agency-switcher dropdown
-  // which is only visible in edit mode; no need to block the overview render.
-  fetchAccess().catch(() => {});
-  await refreshOverviewProviders();
-  await fetchAdminNote();
-  if (isClinicalLikeClientType.value) {
-    fetchBillingDiagnoses();
+    fetchProviders().catch(() => {});
   }
   // Log that this profile was viewed (best-effort)
   if (props.client?.id) {

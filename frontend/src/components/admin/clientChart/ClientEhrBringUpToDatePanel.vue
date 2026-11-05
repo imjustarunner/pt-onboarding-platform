@@ -1,6 +1,10 @@
 <template>
-  <div v-if="open" class="ehr-bring-backdrop" @click.self="!busy && emit('close')">
-    <div class="ehr-bring" role="dialog" aria-labelledby="ehr-bring-title">
+  <div
+    v-if="open"
+    :class="embedded ? 'ehr-bring ehr-bring--embedded' : 'ehr-bring-backdrop'"
+    @click.self="!embedded && !busy && emit('close')"
+  >
+    <div :class="embedded ? undefined : 'ehr-bring'" role="dialog" aria-labelledby="ehr-bring-title">
       <header class="ehr-bring-head">
         <div>
           <h3 id="ehr-bring-title">{{ creationFlow ? 'Import new client records' : 'Bring up to date' }}</h3>
@@ -9,7 +13,7 @@
             <span v-if="clientId"> · #{{ clientId }}</span>
           </p>
         </div>
-        <button type="button" class="ehr-link" :disabled="busy" @click="emit('close')">Close</button>
+        <button v-if="!embedded" type="button" class="ehr-link" :disabled="busy" @click="emit('close')">Close</button>
       </header>
 
       <div class="ehr-status-row" aria-label="Setup status">
@@ -92,7 +96,9 @@ const props = defineProps({
   agencyId: { type: [Number, String], required: true },
   clientLabel: { type: String, default: '' },
   initialTexts: { type: Object, default: () => ({}) },
-  creationFlow: { type: Boolean, default: false }
+  creationFlow: { type: Boolean, default: false },
+  embedded: { type: Boolean, default: false },
+  recordStatus: { type: Object, default: () => ({}) }
 });
 
 const emit = defineEmits(['close', 'done', 'imported']);
@@ -135,8 +141,8 @@ function agencyHeaders() {
 }
 
 watch(
-  () => props.open,
-  (open) => {
+  () => [props.open, props.clientId, props.recordStatus?.demographics, props.recordStatus?.intake, props.recordStatus?.plan],
+  ([open]) => {
     if (!open) return;
     if (props.creationFlow && initializedClientId === props.clientId) return;
     initializedClientId = props.clientId;
@@ -148,10 +154,10 @@ watch(
     stepLog.value = [];
     showPlanReview.value = false;
     planReviewText.value = '';
-    status.demographics = 'missing';
-    status.intake = 'missing';
+    status.demographics = props.recordStatus?.demographics || 'missing';
+    status.intake = props.recordStatus?.intake || 'missing';
     importedIntakeDraft = null;
-    status.plan = 'missing';
+    status.plan = props.recordStatus?.plan || 'missing';
     reviewPending.intake = false;
     reviewPending.plan = false;
     if (props.creationFlow) importAll();
@@ -546,6 +552,11 @@ async function markDoneOnly() {
   border: 1px solid #e2e8f0;
   padding: 18px 20px 20px;
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
+}
+.ehr-bring--embedded {
+  width: 100%;
+  margin: 0 0 16px;
+  box-shadow: none;
 }
 .ehr-bring-head {
   display: flex;

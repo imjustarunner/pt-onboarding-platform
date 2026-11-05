@@ -651,6 +651,23 @@ class ClientSchoolStaffRoiAccess {
     );
     return Number(result?.affectedRows || 0);
   }
+
+  static async getStaffAccessWindow({ clientId, schoolOrganizationId, schoolStaffUserId }) {
+    const cid = Number(clientId || 0);
+    const sid = Number(schoolOrganizationId || 0);
+    const uid = Number(schoolStaffUserId || 0);
+    if (!cid || !sid || !uid) return null;
+    const [rows] = await pool.execute(
+      `SELECT granted_at, revoked_at, is_active
+       FROM client_school_staff_roi_access
+       WHERE client_id = ?
+         AND school_organization_id = ?
+         AND school_staff_user_id = ?
+       LIMIT 1`,
+      [cid, sid, uid]
+    );
+    return rows?.[0] || null;
+  }
 }
 
 export default ClientSchoolStaffRoiAccess;

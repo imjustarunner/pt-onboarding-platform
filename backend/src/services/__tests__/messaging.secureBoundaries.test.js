@@ -8,11 +8,12 @@ import { resolveSecureMessageClient, recordSecureMessageInChart } from '../secur
 beforeEach(() => { vi.clearAllMocks(); pool.execute.mockResolvedValue([[]]); });
 afterEach(() => vi.unstubAllEnvs());
 describe('secure channel separation', () => {
-  it('defaults family/school accounts to secure and staff to internal', async () => {
+  it('defaults family accounts to secure and staff, including school staff, to internal', async () => {
     pool.execute.mockResolvedValueOnce([[{ id: 1 }]]).mockResolvedValueOnce([[]]);
     expect(await defaultChatChannel([1, 2])).toBe('secure');
     expect(await defaultChatChannel([3, 4])).toBe('internal');
     expect(pool.execute.mock.calls[0][0]).toContain("'client_guardian'");
+    expect(pool.execute.mock.calls[0][0]).not.toContain('school_staff');
   });
   it('rejects changing an established secure thread into an internal message', async () => {
     pool.execute.mockResolvedValue([[{ message_channel: 'secure' }]]);

@@ -3,14 +3,21 @@
     <div class="tab-header">
       <div>
         <ConversaBrand heading="h3" compact />
-        <p class="muted" style="margin: 6px 0 0 0;">
-          Emails, replies, texts, and shared care conversations filed for this client.
+        <p v-if="familyViewer" class="muted" style="margin: 6px 0 0 0;">
+          Texts and emails with you, and secure messages with your provider or support, stay in your family messages. School comments and tickets are not shown here.
+        </p>
+        <p v-else-if="schoolViewer" class="muted" style="margin: 6px 0 0 0;">
+          Comments and school tickets for this client. Texts, emails with the family, and secure messages stay with the family and the care team.
+        </p>
+        <p v-else class="muted" style="margin: 6px 0 0 0;">
+          Emails, replies, texts, comments, tickets, and notifications filed for this client.
+          A new email subject starts its own conversation. Later replies stay on that conversation, and the printout keeps the thread together.
           <span v-if="counts.opened > 0" style="color: #166534; font-weight: 700;">
             {{ counts.opened }} opened
           </span>
         </p>
       </div>
-      <button type="button" class="btn btn-secondary" @click="printRecord()">Print / Download communication record</button>
+      <button v-if="agencyRecord" type="button" class="btn btn-secondary" @click="printRecord()">Print / Download communication record</button>
       <div class="filter-controls" v-if="!loading && items.length">
         <select v-model="channelFilter" class="form-select">
           <option value="">All channels ({{ counts.total }})</option>
@@ -30,6 +37,15 @@
       </div>
     </div>
 
+    <ClientChartLiveCommunications
+      v-if="!familyViewer"
+      :client-id="clientId"
+      :organization-id="organizationId"
+      :agency-id="agencyId"
+      :sms-items="agencyRecord ? auditItems : []"
+      @sent="loadSmsAudit"
+    />
+    <template v-if="agencyRecord">
     <ClientSecureMessageRecords :client-id="clientId" />
     <SchoolAbsenceRecords :client-id="clientId" />
     <ClientNotificationHistory :client-id="clientId" />
@@ -347,6 +363,7 @@
         </div>
       </div>
     </div>
+    </template>
   </div>
 </template>
 
@@ -358,13 +375,25 @@ import ClientNotificationHistory from '../conversa/ClientNotificationHistory.vue
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
 import {communicationDeliveryStatus, communicationTimestampLabel, hasCommunicationSendEvidence} from '../../utils/communicationDeliveryStatus';
 import EmailThreadReader from '../messages/EmailThreadReader.vue';
+import ClientChartLiveCommunications from './clientChart/ClientChartLiveCommunications.vue';
 import {openCommunicationPrint} from '../../utils/communicationPrint';
 
+const authStore = useAuthStore();
+const viewerRole = computed(() => String(authStore.user?.role || '').toLowerCase());
+const schoolViewer = computed(() => viewerRole.value === 'school_staff');
+const familyViewer = computed(() => viewerRole.value === 'client_guardian' || viewerRole.value === 'client');
+const agencyRecord = computed(() => !schoolViewer.value && !familyViewer.value);
+
 const props = defineProps({
-  clientId: { type: Number, required: true }
+  clientId: { type: Number, required: true },
+  organizationId: { type: [Number, String], default: 0 },
+  agencyId: { type: [Number, String], default: 0 }
 });
+const organizationId = computed(() => Number(props.organizationId || 0));
+const agencyId = computed(() => Number(props.agencyId || 0));
 
 const conversations=ref([]),viewingThread=ref(null);
 async function openClientThread(thread){try{const {data}=await api.get(`/clients/${props.clientId}/communications/conversations/${thread.id}`);viewingThread.value=data;}catch(e){error.value=e.response?.data?.error?.message || 'Could not load conversation';}}
@@ -635,8 +664,8 @@ const formatDate = (s) => {
   const d = new Date(s);
   if (!Number.isFinite(d.getTime())) return s;
   return d.toLocaleString('en-US', {
-    year: 'numeric', month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit'
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: 'numeric', minute: '2-digit', hour12: true
   });
 };
 
@@ -664,6 +693,7 @@ const formatPhone = (raw) => {
 };
 
 onMounted(() => {
+  if (!agencyRecord.value) return;
   loadCommunications();
   loadIntakeCommPrefs();
   loadSmsAudit();
@@ -672,6 +702,7 @@ onMounted(() => {
 watch(
   () => props.clientId,
   () => {
+    if (!agencyRecord.value) return;
     loadCommunications();
     loadIntakeCommPrefs();
     loadSmsAudit();

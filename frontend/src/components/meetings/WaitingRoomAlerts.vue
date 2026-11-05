@@ -40,7 +40,7 @@ onBeforeUnmount(() => {
 });
 </script>
 <style scoped>
-.waiting-alert { position:fixed; z-index:10050; bottom:20px; right:20px; width:min(360px, calc(100vw - 40px)); box-sizing:border-box; padding:16px; background:#102b25; color:#fff; border:2px solid #6ee7b7; border-radius:12px; box-shadow:0 6px 24px #0006; }
+.waiting-alert { position:fixed; z-index:10360; bottom:20px; right:20px; width:min(360px, calc(100vw - 40px)); box-sizing:border-box; padding:16px; background:#102b25; color:#fff; border:2px solid #6ee7b7; border-radius:12px; box-shadow:0 6px 24px #0006; }
 .waiting-alert ul { list-style:none; padding:0; max-height:180px; overflow:auto; }
 .waiting-alert li { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:8px 0; }
 .waiting-alert li span { overflow-wrap:anywhere; min-width:0; }

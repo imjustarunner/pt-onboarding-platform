@@ -21,6 +21,7 @@ import ClientSchoolStaffRoiAccess, {
   schoolStaffCanViewClientDocuments
 } from '../models/ClientSchoolStaffRoiAccess.model.js';
 import { schoolStaffCanOpenFromState, schoolStaffRoiHover, schoolStaffRoiLabel } from '../utils/schoolStaffRoiLabels.js';
+import { schoolStaffCanSeeCollaborationItem } from '../utils/schoolStaffCollaborationWindow.js';
 // isRoiExpired also used for agency Action derivation on roster rows
 import User from '../models/User.model.js';
 import { logClientAccess } from '../services/clientAccessLog.service.js';
@@ -5222,6 +5223,9 @@ export const listClientComments = async (req, res, next) => {
     const userId = req.user?.id;
     const roleNorm = String(req.user?.role || '').toLowerCase();
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (roleNorm === 'client_guardian' || roleNorm === 'client') {
+      return res.status(403).json({ error: { message: 'School comments are not available in the family portal' } });
+    }
 
     const inOrg = await clientBelongsToOrg({ clientId, orgId });
     if (!inOrg) return res.status(404).json({ error: { message: 'Client not found in this organization' } });
@@ -5260,9 +5264,17 @@ export const listClientComments = async (req, res, next) => {
 
     // Shared notes only (internal notes are filtered by the model when canViewInternalNotes=false).
     const notes = await ClientNotes.findByClientId(clientId, { hasAgencyAccess: false, canViewInternalNotes: false });
+    const staffWindow = roleNorm === 'school_staff'
+      ? await ClientSchoolStaffRoiAccess.getStaffAccessWindow({
+        clientId,
+        schoolOrganizationId: orgId,
+        schoolStaffUserId: userId
+      })
+      : null;
     const out = (notes || [])
       .filter((n) => String(n?.category || '').toLowerCase() === 'comment')
       .filter((n) => !schedulerOwnOnly || Number(n?.author_id || 0) === Number(userId))
+      .filter((n) => roleNorm !== 'school_staff' || schoolStaffCanSeeCollaborationItem(n.created_at, staffWindow))
       .slice(0, 200)
       .map((n) => ({
         id: n.id,
@@ -5385,6 +5397,9 @@ export const createClientComment = async (req, res, next) => {
     const userId = req.user?.id;
     const roleNorm = String(req.user?.role || '').toLowerCase();
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (roleNorm === 'client_guardian' || roleNorm === 'client') {
+      return res.status(403).json({ error: { message: 'School comments are not available in the family portal' } });
+    }
 
     const inOrg = await clientBelongsToOrg({ clientId, orgId });
     if (!inOrg) return res.status(404).json({ error: { message: 'Client not found in this organization' } });
@@ -5402,6 +5417,16 @@ export const createClientComment = async (req, res, next) => {
       allowNoRoiInterface: true
     });
     if (!roiAccess.ok) return res.status(roiAccess.status).json({ error: { message: roiAccess.message } });
+    if (roleNorm === 'school_staff') {
+      const staffWindow = await ClientSchoolStaffRoiAccess.getStaffAccessWindow({
+        clientId,
+        schoolOrganizationId: orgId,
+        schoolStaffUserId: userId
+      });
+      if (!schoolStaffCanSeeCollaborationItem(new Date(), staffWindow)) {
+        return res.status(403).json({ error: { message: 'ROI access is required before comments are available' } });
+      }
+    }
 
     const isSupervisorOnly = await isSupervisorOnlyActor({ userId, role: roleNorm, user: req.user });
     // Providers may only comment for clients assigned to them in this org.

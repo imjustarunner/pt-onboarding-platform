@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { encryptChatText, decryptChatText, isChatEncryptionConfigured } from './chatEncryption.service.js';
+import { extractPaperPacketDemographics } from '../utils/paperPacketDemographics.util.js';
 
 /**
  * Reuse chat AES-GCM key ring for demographics PHI envelopes.
@@ -210,7 +211,8 @@ export function parseDemographicsPaste(rawText) {
     textMessagesOk: null,
     email: null,
     appointmentReminderType: null,
-    administrativeSex: null
+    administrativeSex: null,
+    grade: null
   };
   if (!raw) return empty;
 
@@ -337,6 +339,18 @@ export function parseDemographicsPaste(rawText) {
     }
   }
 
+  const packet = extractPaperPacketDemographics(raw);
+  if (packet.fullName) result.fullName = packet.fullName;
+  if (packet.dateOfBirth) result.dateOfBirth = packet.dateOfBirth;
+  if (packet.addressStreet) result.addressStreet = packet.addressStreet;
+  if (packet.addressCity) result.addressCity = packet.addressCity;
+  if (packet.addressState) result.addressState = packet.addressState;
+  if (packet.addressZip) result.addressZip = packet.addressZip;
+  if (packet.contactPhone) result.contactPhone = packet.contactPhone;
+  if (packet.email) result.email = packet.email;
+  if (packet.administrativeSex) result.administrativeSex = packet.administrativeSex;
+  if (packet.grade) result.grade = packet.grade;
+
   return result;
 }
 
@@ -357,6 +371,7 @@ export function demographicsToClientPatch(parsed) {
     const gender = sanitizeAdministrativeSex(p.administrativeSex);
     if (gender) patch.gender = gender;
   }
+  if (p.grade) patch.grade = p.grade;
   if (p.textMessagesOk === true) patch.session_sms_opt_in = 1;
   if (p.textMessagesOk === false) patch.session_sms_opt_in = 0;
   return patch;
@@ -372,7 +387,8 @@ export function demographicsImportHasContent(parsed) {
     || p.addressStreet
     || p.addressCity
     || p.addressZip
-    || (p.fullName && !/^(date of birth|address|phone|email|legal name)$/i.test(String(p.fullName).trim()))
+    || p.grade
+    || (p.fullName && !/^(date of birth|address|phone|email|legal name|dependent'?s name)$/i.test(String(p.fullName).trim()))
   );
 }
 

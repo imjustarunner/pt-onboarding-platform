@@ -15,7 +15,7 @@
     <router-view v-if="route.meta?.familyCommandCenter" />
     <div v-else class="preview-root" :data-preview-viewport="effectivePreviewViewport">
       <div id="app" :inert="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive)" :aria-hidden="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive) ? 'true' : undefined" :class="{ 'conversa-app': isAuthenticated, 'is-native': isNative, 'is-platform-hq': isPlatformHqShell, 'is-clinical-workspace': clinicalWorkspaceActive }">
-      <div v-if="pageLoading && !isScheduleRoute && !applicantInterviewMode && !isLoginEntry && !isPublicOfficeRoute && !route.meta?.publicMarketingHub" class="agency-loading-overlay" aria-label="Loading">
+      <div v-if="pageLoading && !isScheduleRoute && !isClientProfileRoute && !applicantInterviewMode && !isLoginEntry && !isPublicOfficeRoute && !route.meta?.publicMarketingHub" class="agency-loading-overlay" aria-label="Loading">
         <div class="agency-loading-card">
           <div class="agency-loading-logo"><BrandingLogo :logoUrl="loaderLogoUrl" size="xlarge" class="loader-logo" /></div>
           <div class="agency-loading-text">{{ loadingText }}</div>
@@ -2672,6 +2672,7 @@ function routeLooksLikePublicIntake(r) {
 
 // Global loading overlay (tracks API calls + navigation + icon preloads).
 // Calendars show their own inline progress; unrelated requests must not cover them.
+const isClientProfileRoute = computed(() => /\/admin\/clients\/\d+(?:\/|$)/.test(String(route.path || '')));
 const isScheduleRoute = computed(() => {
   const path = String(route.path || '');
   if (/\/(?:my-schedule|buildings\/schedule|office\/schedule|schedule\/staff|schedule\/board\/[^/]+|provider-mobile\/schedule)\/?$/.test(path)) return true;
@@ -2844,7 +2845,7 @@ function suppressScheduleFullscreenLoader() {
 
 function syncPageLoading(isOn) {
   try {
-    if (isScheduleRoute.value) {
+    if (isScheduleRoute.value || isClientProfileRoute.value) {
       suppressScheduleFullscreenLoader();
       return;
     }
@@ -2902,6 +2903,7 @@ function syncPageLoading(isOn) {
 watch(globalLoading, syncPageLoading);
 // Re-evaluate even when a request stays pending across navigation or a tab change.
 watch(isScheduleRoute, () => syncPageLoading(globalLoading.value), { flush: 'sync' });
+watch(isClientProfileRoute, () => syncPageLoading(globalLoading.value), { flush: 'sync' });
 watch(isSchoolPortalShellActive, (active) => {
   if (active) suppressSchoolPortalFullscreenLoader();
 });

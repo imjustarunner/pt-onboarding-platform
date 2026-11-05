@@ -72,6 +72,7 @@
       :session-id="numericSessionId"
       :is-supervisor="isSupervisor"
       theme="dark"
+      :overlay="videoFullscreen"
     />
 
     <section v-if="!isInLobby" class="isl__transcript-banner" role="status">

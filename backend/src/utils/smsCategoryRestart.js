@@ -2,6 +2,7 @@ export const SMS_CATEGORY_LABELS = Object.freeze({
   exchange_matches: ['Client Exchange texts', 'NOEXCHANGE'],
   client_forwarding: ['client text forwarding', 'NOCLIENTS'],
   reminders: ['appointment reminders', 'NOREMIND'],
+  staff_reminders: ['meeting and supervision reminder texts', 'NOREMIND'],
   links: ['session links', 'NOLINK'],
   forms: ['form texts', 'NOFORM'],
   account: ['account notices', 'NOACCOUNT'],

@@ -15,6 +15,7 @@ import {
   detectSignaturesFromText,
   extractVersionLabelFromText
 } from '../utils/paperPacketVisionParse.util.js';
+import { applyPaperPacketDemographicsFromText } from './paperPacketDemographics.service.js';
 
 const CONFIDENT_THRESHOLD = 0.72;
 
@@ -207,7 +208,7 @@ export async function evaluateAndApplyPaperPacketVision({
       status: 'needs_review',
       reviewReasons,
       confidence: 0,
-      rawSummary: { error: 'no_packet_document' }
+      rawSummary: { error: 'no_packet_document', demographicsAttempted: true }
     });
     return { ok: false, status: 'needs_review', reviewReasons, evalId };
   }
@@ -226,7 +227,7 @@ export async function evaluateAndApplyPaperPacketVision({
       status: 'failed',
       reviewReasons,
       confidence: 0,
-      rawSummary: { error: e?.message || 'read_failed' }
+      rawSummary: { error: e?.message || 'read_failed', demographicsAttempted: true }
     });
     return { ok: false, status: 'failed', reviewReasons, evalId };
   }
@@ -254,9 +255,20 @@ export async function evaluateAndApplyPaperPacketVision({
       status: 'failed',
       reviewReasons,
       confidence: 0,
-      rawSummary: { error: e?.message || 'ocr_failed' }
+      rawSummary: { error: e?.message || 'ocr_failed', demographicsAttempted: true }
     });
     return { ok: false, status: 'failed', reviewReasons, evalId };
+  }
+
+  let demographicApply = { attempted: true, filled: [] };
+  try {
+    demographicApply = await applyPaperPacketDemographicsFromText({
+      clientId: cid,
+      ocrText,
+      actorUserId
+    });
+  } catch (e) {
+    console.warn('[paperPacketVision] demographics apply failed', e?.message || e);
   }
 
   const versionHit = extractVersionLabelFromText(ocrText);
@@ -327,7 +339,9 @@ export async function evaluateAndApplyPaperPacketVision({
       staffCount: staffList.length,
       denyCount: deny.denyStaffUserIds.length,
       unmatchedDenyHints: deny.unmatchedDenyHints,
-      ocrChars: ocrText.length
+      ocrChars: ocrText.length,
+      demographicsAttempted: true,
+      demographicFieldsFilled: demographicApply.filled || []
     }
   });
 
@@ -383,11 +397,20 @@ export async function evaluateAndApplyPaperPacketVision({
 /**
  * Fire-and-forget after upload. Does not block the HTTP response.
  */
+const visionEvalInFlight = new Set();
+
 export function schedulePaperPacketVisionEval(opts = {}) {
+  const cid = Number(opts.clientId || 0);
+  if (cid && visionEvalInFlight.has(cid)) return;
+  if (cid) visionEvalInFlight.add(cid);
   setImmediate(() => {
-    evaluateAndApplyPaperPacketVision(opts).catch((e) => {
-      console.warn('[paperPacketVision] scheduled eval failed', e?.message || e);
-    });
+    evaluateAndApplyPaperPacketVision(opts)
+      .catch((e) => {
+        console.warn('[paperPacketVision] scheduled eval failed', e?.message || e);
+      })
+      .finally(() => {
+        if (cid) visionEvalInFlight.delete(cid);
+      });
   });
 }
 

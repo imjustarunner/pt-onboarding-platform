@@ -46,7 +46,7 @@ describe('mandatory pending RSVP Campaign 2 reminders', () => {
   await f.send(f.request); await f.send(f.request);
   expect(f.deps.send).toHaveBeenCalledOnce();
   expect(f.deps.resolveSender).toHaveBeenCalledWith({ agencyId: 2, purpose: 'workforce', requiredPurpose: 'polling' });
-  expect(f.deps.send).toHaveBeenCalledWith(expect.objectContaining({ to: phone, staffNotificationKind: 'notifications', body: expect.stringContaining('Required group supervision is starting soon') }));
+  expect(f.deps.send).toHaveBeenCalledWith(expect.objectContaining({ to: phone, staffNotificationKind: 'notifications', reminderFooter: 'noremind', body: expect.stringContaining('Reply NOREMIND to stop reminders.') }));
   const body = f.deps.send.mock.calls[0][0].body;
   expect(body).toContain("Join here: https://app.itsco.health/join/invitation/personal\n\nCan't make it? Click here to record your absence: https://app.itsco.health/join/invitation/personal?rsvp=absence&eventId=20");
   expect(body).not.toContain('Please RSVP');

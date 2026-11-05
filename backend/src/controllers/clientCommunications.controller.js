@@ -30,6 +30,13 @@ const isBackofficeRole = (role) => {
  * across module boundaries.
  */
 async function ensureClientAccess({ userId, role, clientId }) {
+  const roleNorm = String(role || '').toLowerCase();
+  if (roleNorm === 'school_staff') {
+    return { ok: false, status: 403, message: 'School staff do not have access to family texts, emails, or secure messages', client: null };
+  }
+  if (roleNorm === 'client_guardian' || roleNorm === 'client') {
+    return { ok: false, status: 403, message: 'Family texts, emails, and secure messages stay in the family portal', client: null };
+  }
   const client = await Client.findById(clientId, { includeSensitive: true });
   if (!client) return { ok: false, status: 404, message: 'Client not found', client: null };
   if (!isBackofficeRole(role)) {
