@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { BUSINESS_JOURNEY, BusinessLifecycleError, emptyLifecycle, validateLifecycle, businessFinancialSnapshot } from './businessLifecyclePolicy.js';
+import { isUnsignedInvoiceProposal } from './businessInvoiceHold.js';
 
 const parse = value => typeof value === 'string' ? JSON.parse(value) : value;
 const financial = state => ({ agreements: state.agreements, revenue: state.revenue });
@@ -41,8 +42,9 @@ export function createBusinessLifecycleService(pool) {
         if ((row?.revision || 0) !== input.revision) throw new BusinessLifecycleError(409, 'Someone else updated this journey. Reload it before saving your changes.');
         if (actor.role !== 'super_admin' && !isDeepStrictEqual(financial(before), financial(state))) throw new BusinessLifecycleError(403, 'Only PlotTwistCo platform administrators can change signed pricing or confirm revenue.');
         if (target.agencyId && !isDeepStrictEqual(financial(before), financial(state))) {
-          const [invoices] = await db.execute("SELECT period_start FROM agency_billing_invoices WHERE agency_id=? AND billing_domain='agency_subscription'", [target.agencyId]);
+          const [invoices] = await db.execute("SELECT * FROM agency_billing_invoices WHERE agency_id=? AND billing_domain='agency_subscription'", [target.agencyId]);
           for (const invoice of invoices) {
+            if (isUnsignedInvoiceProposal(invoice)) continue;
             const month = invoice.period_start instanceof Date ? invoice.period_start.toISOString().slice(0, 7) : String(invoice.period_start).slice(0, 7);
             if (!isDeepStrictEqual(businessFinancialSnapshot(before, month), businessFinancialSnapshot(state, month))) throw new BusinessLifecycleError(409, `An invoice already exists for ${month}. Keep its terms and revenue unchanged; add a future agreement version instead.`);
           }

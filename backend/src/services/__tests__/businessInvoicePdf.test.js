@@ -17,3 +17,9 @@ test('management invoice PDF prints the selected billing basis without duplicate
     assert.doesNotMatch(text, /Platform Base Fee|500\.00/);
   } finally { await parser.destroy(); }
 });
+test('unsigned management proposal PDF clearly identifies its collection hold and discount', async () => {
+  const bytes = await BillingInvoicePdfService.generateInvoicePdf({ agencyName:'Synthetic Coaching', invoice:{period_start:'2026-11-01',period_end:'2026-11-30',total_cents:30000,line_items_json:{chargeLines:[{label:'Full management package',amountCents:37500},{label:'Managed-company discount (20%)',amountCents:-7500}],businessAgreement:{requiresSignatures:true,ready:false,signedOn:'',contractReference:'Draft-ABC'}}} });
+  const parser = new PDFParse({data:bytes});
+  try { const {text}=await parser.getText(); assert.match(text,/REVIEW DRAFT/); assert.match(text,/not ready for collection/); assert.match(text,/discount \(20%\)/); assert.match(text,/-75\.00/); assert.match(text,/300\.00/); }
+  finally {await parser.destroy();}
+});

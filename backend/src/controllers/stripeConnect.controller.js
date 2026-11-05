@@ -15,6 +15,7 @@
 import pool from '../config/database.js';
 import StripePaymentsService, { isStripeConfigured, stripeConnectStatus } from '../services/stripePayments.service.js';
 import Agency from '../models/Agency.model.js';
+import { isIndependentPracticeOwner } from '../utils/independentPracticeOwner.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -98,7 +99,9 @@ export const startConnect = async (req, res, next) => {
     }
 
     // Generate a fresh account link (links expire after a few minutes)
-    const portalPath = `/${encodeURIComponent(agency.slug)}/admin/family-billing?tab=setup&agencyId=${agencyId}`;
+    const portalPath = ['life_coach','consultant'].includes(agency.organization_type)
+      ? `/${encodeURIComponent(agency.slug)}/admin/business-account?agencyId=${agencyId}`
+      : `/${encodeURIComponent(agency.slug)}/admin/family-billing?tab=setup&agencyId=${agencyId}`;
     // Global callback values may name another tenant. Keep their trusted origin,
     // but always return to the organization whose account was opened.
     const base = process.env.FRONTEND_URL || process.env.STRIPE_CONNECT_RETURN_URL;
@@ -136,7 +139,8 @@ export const startConnect = async (req, res, next) => {
  */
 export const getStripeStatus = async (req, res, next) => {
   try {
-    const canManageConnection=['admin','agency_admin','super_admin','backoffice_admin'].includes(req.user.role);
+    const canManageConnection=['admin','agency_admin','super_admin','backoffice_admin'].includes(req.user.role)
+      ||await isIndependentPracticeOwner(req.user.id,req.params.agencyId);
     if (!isStripeConfigured()) {
       return res.json({ status: 'not_connected', chargesEnabled: false, stripeAccountId: null, canManageConnection });
     }

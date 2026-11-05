@@ -6,6 +6,7 @@ import AgencyBillingPaymentMethod from '../models/AgencyBillingPaymentMethod.mod
 import QuickBooksPaymentsService from './quickbooksPayments.service.js';
 import BillingMerchantContextService from './billingMerchantContext.service.js';
 import StripePaymentsService from './stripePayments.service.js';
+import { assertAgreementInvoiceReady } from './businessInvoiceHold.js';
 
 function toSqlDateTime(value = new Date()) {
   const d = value instanceof Date ? value : new Date(value);
@@ -26,6 +27,7 @@ class AgencyBillingPaymentService {
   static async attemptAutoPay(invoiceId) {
     const invoice = await AgencyBillingInvoice.findById(invoiceId);
     if (!invoice) throw new Error('Invoice not found');
+    assertAgreementInvoiceReady(invoice);
 
     const account = await AgencyBillingAccount.getByAgencyId(invoice.agency_id);
     const merchantContext = await BillingMerchantContextService.getAgencySubscriptionContext(invoice.agency_id);

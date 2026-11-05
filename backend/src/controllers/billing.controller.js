@@ -8,6 +8,7 @@ import pool from '../config/database.js';
 import { createBusinessLifecycleService } from '../services/businessLifecycle.service.js';
 import { applyBusinessAgreement } from '../services/businessLifecyclePolicy.js';
 import { computeFeatureBillingForPeriod } from '../services/featureBilling.service.js';
+import { isIndependentPracticeOwner } from '../utils/independentPracticeOwner.js';
 
 export const getAgencyAddons = async (req, res, next) => {
   try {
@@ -58,7 +59,8 @@ export const getAgencyBillingEstimate = async (req, res, next) => {
     }
 
     const lifecycle = await createBusinessLifecycleService(pool).billingState(parsedAgencyId);
-    if (lifecycle.agreements.length && !['super_admin', 'admin'].includes(req.user?.role)) {
+    if (lifecycle.agreements.length && !['super_admin', 'admin'].includes(req.user?.role)
+      && !await isIndependentPracticeOwner(req.user?.id,parsedAgencyId)) {
       return res.status(403).json({ error: { message: 'Company administrator access is required to review management billing.' } });
     }
     const period = getCurrentBillingPeriod(new Date());

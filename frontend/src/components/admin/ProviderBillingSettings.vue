@@ -39,7 +39,10 @@
         <p class="billing-help">Hourly rates are prorated to the booked duration and rounded to the nearest cent. Rates are for the whole appointment; package bookings use their purchased credits.</p>
       </div>
       <div class="billing-card"><h3>Packages</h3><p>Purchased packages retain their price and credit balance. Service overrides do not change a purchased package.</p>
-        <router-link v-if="organizationSlug && isAdmin" :to="`/${organizationSlug}/admin/package-catalog`">Manage package catalog →</router-link>
+        <router-link v-if="packageCatalogLink && (isAdmin || isPracticeOwner)" :to="packageCatalogLink">Manage packages, session units and cancellation policies →</router-link>
+      </div>
+      <div v-if="isPracticeOwner && selectedPractice?.slug" class="billing-card"><h3>Business account</h3><p>Keep your business information up to date, connect your payout account, and manage platform payments.</p>
+        <router-link :to="`/${selectedPractice.slug}/admin/business-account`">Business details, bank setup and platform billing →</router-link>
       </div>
     </template>
   </section>
@@ -49,14 +52,25 @@
 import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
+import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 const props = defineProps({ providerId: { type: [Number, String], default: 0 }, agencyId: { type: [Number, String], default: 0 }, agencies: { type: Array, default: () => [] } });
 const auth = useAuthStore();
+const agencyStore = useAgencyStore();
 const route = useRoute();
 const organizationSlug = computed(() => route.params.organizationSlug);
 const isAdmin = computed(() => ['admin', 'super_admin'].includes(auth.user?.role));
 const canManage = computed(() => isAdmin.value || Number(props.providerId)===Number(auth.user?.id));
 const selectedAgency = ref(Number(props.agencyId || props.agencies[0]?.id || 0));
+const selectedPractice = computed(() => props.agencies.find(agency => Number(agency.id) === selectedAgency.value)
+  || (Number(agencyStore.currentAgency?.id) === selectedAgency.value ? agencyStore.currentAgency : null));
+const isPracticeOwner = computed(() => Number(auth.user?.id) > 0
+  && Number(selectedPractice.value?.account_owner_user_id) === Number(auth.user?.id)
+  && ['life_coach', 'consultant'].includes(selectedPractice.value?.organization_type || selectedPractice.value?.organizationType));
+const packageCatalogLink = computed(() => {
+  const slug = selectedPractice.value?.slug || (selectedAgency.value === Number(props.agencyId) ? organizationSlug.value : '');
+  return slug ? `/${slug}/admin/package-catalog` : '';
+});
 const scope = ref(props.providerId ? 'provider' : 'agency');
 const hasClinicalServices = ref(false);
 const clinicalServiceNotices = ref([]);

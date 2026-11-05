@@ -1,0 +1,143 @@
+name: Business management, packages and agreements
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/src/**/[Bb]usiness*'
+      - 'backend/src/**/[Ii]ndependent*'
+      - 'backend/src/**/[Mm]anagement*'
+      - 'backend/src/**/organizationAgreement*'
+      - 'backend/src/**/[Bb]illingInvoice*'
+      - 'backend/src/models/AgencyBillingInvoice.model.js'
+      - 'backend/src/services/agencyBillingPayment.service.js'
+      - 'backend/src/services/quickbooksBillingSync.service.js'
+      - 'backend/src/services/auricwell/agreements.js'
+      - 'backend/src/services/schedulingBillingAccess.service.js'
+      - 'backend/src/middleware/auth.middleware.js'
+      - 'backend/src/services/familyLedger/policy.js'
+      - 'backend/src/routes/billing.routes.js'
+      - 'backend/src/routes/stripeConnect.routes.js'
+      - 'backend/src/controllers/stripeConnect.controller.js'
+      - 'backend/src/content/businessManagementAgreements.js'
+      - 'frontend/src/router/index.js'
+      - 'frontend/src/**/[Bb]usiness*'
+      - 'frontend/src/**/[Ii]ndependent*'
+      - 'frontend/src/**/[Mm]anagementService*'
+      - 'frontend/src/**/OrganizationAgreement*'
+      - 'frontend/src/**/[Bb]illingManagement*'
+      - 'frontend/src/**/[Ii]nvoiceAgreement*'
+      - 'frontend/src/**/PackageCatalog*'
+      - 'frontend/src/**/ProviderBilling*'
+      - '**/vitest.*business*.config.js'
+      - '**/vitest.management-catalog.config.js'
+      - '**/vitest.coaching-packages.config.js'
+      - '**/vitest.organization-agreements.config.js'
+      - 'backend/package*.json'
+      - 'frontend/package*.json'
+      - 'database/migrations/*business*'
+      - 'database/migrations/*agreement*'
+      - 'database/migrations/*management*'
+      - '.github/workflows/business-management.yml'
+  pull_request:
+    paths:
+      - 'backend/src/**/[Bb]usiness*'
+      - 'backend/src/**/[Ii]ndependent*'
+      - 'backend/src/**/[Mm]anagement*'
+      - 'backend/src/**/organizationAgreement*'
+      - 'backend/src/**/[Bb]illingInvoice*'
+      - 'backend/src/models/AgencyBillingInvoice.model.js'
+      - 'backend/src/services/agencyBillingPayment.service.js'
+      - 'backend/src/services/quickbooksBillingSync.service.js'
+      - 'backend/src/services/auricwell/agreements.js'
+      - 'backend/src/services/schedulingBillingAccess.service.js'
+      - 'backend/src/middleware/auth.middleware.js'
+      - 'backend/src/services/familyLedger/policy.js'
+      - 'backend/src/routes/billing.routes.js'
+      - 'backend/src/routes/stripeConnect.routes.js'
+      - 'backend/src/controllers/stripeConnect.controller.js'
+      - 'backend/src/content/businessManagementAgreements.js'
+      - 'frontend/src/router/index.js'
+      - 'frontend/src/**/[Bb]usiness*'
+      - 'frontend/src/**/[Ii]ndependent*'
+      - 'frontend/src/**/[Mm]anagementService*'
+      - 'frontend/src/**/OrganizationAgreement*'
+      - 'frontend/src/**/[Bb]illingManagement*'
+      - 'frontend/src/**/[Ii]nvoiceAgreement*'
+      - 'frontend/src/**/PackageCatalog*'
+      - 'frontend/src/**/ProviderBilling*'
+      - '**/vitest.*business*.config.js'
+      - '**/vitest.management-catalog.config.js'
+      - '**/vitest.coaching-packages.config.js'
+      - '**/vitest.organization-agreements.config.js'
+      - 'backend/package*.json'
+      - 'frontend/package*.json'
+      - 'database/migrations/*business*'
+      - 'database/migrations/*agreement*'
+      - 'database/migrations/*management*'
+      - '.github/workflows/business-management.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: business-management-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  business-management:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.0.44
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+        ports: ['3359:3306']
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      NODE_ENV: test
+      SKIP_DB_CONNECT: '1'
+      SKIP_CLINICAL_DB_CONNECT: '1'
+      DB_HOST: 127.0.0.1
+      DB_PORT: '1'
+      DB_USER: business_tests_never_prod
+      DB_PASSWORD: unused
+      DB_NAME: never_production
+      PTCO_TEST_MYSQL_PORT: '3359'
+      BUSINESS_AGREEMENT_TEST_MYSQL_PORT: '3359'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Install test dependencies
+        run: |
+          npm ci --prefix backend
+          npm ci --prefix frontend --ignore-scripts
+      - name: Catalog pricing, lifecycle terms and invoice PDF
+        run: node --test --test-force-exit backend/src/services/__tests__/managementServiceCatalog.test.js backend/src/services/__tests__/businessLifecyclePolicy.test.js backend/src/services/__tests__/businessInvoicePdf.test.js backend/src/content/__tests__/businessManagementAgreements.test.js
+      - name: Scoped owner access, signature holds and organization agreements
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.independent-business.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.business-invoice-hold.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.organization-agreements.config.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.stripe-connect.config.js
+      - name: Business billing, package units, catalog and document interfaces
+        working-directory: frontend
+        run: |
+          node node_modules/vitest/vitest.mjs run --config vitest.independent-business.config.js
+          node node_modules/vitest/vitest.mjs run --config vitest.coaching-packages.config.js
+          node node_modules/vitest/vitest.mjs run --config vitest.management-catalog.config.js
+          node node_modules/vitest/vitest.mjs run --config vitest.organization-agreements.config.js
+          node node_modules/vitest/vitest.mjs run --config vitest.stripe-connect.config.js
+      - name: Real MySQL invoice transactions and signer authorization SQL
+        run: node --test --test-force-exit backend/src/services/__tests__/businessLifecycle.mysql.test.js backend/src/services/__tests__/managementInvoiceFinalization.mysql.test.js backend/src/services/__tests__/organizationAgreements.mysql.test.js
