@@ -102,5 +102,11 @@ small,.muted { color:var(--text-secondary, #5b7066); }
 .row-actions { min-width:130px; gap:8px; }
 .empty { padding:20px 0; }
 .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }
-@media(max-width:600px) { .days-toolbar>button { width:100%; } header { align-items:flex-start; } }
+@media(max-width:600px) {
+  .days-toolbar>button { width:100%; }
+  header { align-items:flex-start; }
+  :deep(.day-bar) { grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px; }
+  :deep(.day) { min-width:0; padding:12px 3px; }
+  :deep(.count) { font-size:10px; }
+}
 </style>
