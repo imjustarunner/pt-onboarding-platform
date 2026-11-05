@@ -1,0 +1,59 @@
+Avery demo file-access exception — November 5, 2026
+
+OWNER REQUEST
+Permanently clear the file-access review restriction for Avery's one existing
+demo account. A person marking another account as a demo must not qualify.
+
+SCOPE
+backend/src/services/demoFileAccess.service.js checks the database on every
+protected file request. All conditions must hold:
+- The authenticated account is user 1433 and is not a switched-account session.
+- The persisted email is qa.provider.auricwell@example.com; the persisted role
+  is provider; the account is active, not archived, and marked as a demo.
+- It has the exact agency 450 / auricwell-qa-demo membership, with the existing
+  qaSandbox.syntheticOnly flag true.
+- All active organization memberships are the verified QA agency above or
+  agency 456 / scb-qa-company. A new membership elsewhere removes the exception.
+- The approved organizations remain active.
+
+No registration field, profile choice, request header, query argument, generic
+demo flag, or new account can opt into this exception. There is no self-service
+exception setting. Deleting Avery's account or changing its qualifying identity
+removes the exception. There is no expiration or quota for the qualifying account.
+
+Each exempt file operation must first write durable security evidence as
+demo_file_access_authorized, including its time, session reference, network
+evidence, route, and hashed resource reference. Failed audit writes deny the
+operation. Existing authentication, session locks, tenant/record permissions,
+email limits, and all other accounts' activity protections remain in force.
+This change does not configure new real-time activity notifications.
+
+LIVE HOLD CLEARANCE
+The exact identity and its two memberships were checked against the live DB.
+Only activity_protection_state for user_id=1433 and kind=client_file was changed;
+held_at is now NULL. The separate email state was unchanged. Its 84 historical
+alerts, 103 usage records, and zero tickets were preserved.
+Audit event: 7b805dd8-194c-4dc0-9282-ff61a8cebc37
+The owner-directed maintenance action is recorded separately from reviewer
+approval; no reviewer identity or historical review result was fabricated.
+The real introduction PDF request subsequently returned HTTP 200, and the final
+tour image is now frontend/public/family-welcome/introduction-pdf-p1.png.
+
+VALIDATION
+72 focused backend tests passed, including actual isolated-MySQL activity
+protection integration, the new identity/membership boundary tests, staff view
+controls, email limits, and payroll export access. 164 backend security unit
+tests passed. 13 frontend protection/notice tests passed. The payroll fixture
+was updated to handle the existing agency-schema discovery query.
+
+An exploratory run of all security MySQL fixtures also found two failures in
+the unchanged securityEvidence.mysql.test.js: its schema lacks current passkey
+tables, and an evidence-filter expectation fails. The activity-protection
+MySQL suite itself passed; the two unrelated evidence fixtures were not changed.
+
+RELEASE
+No schema migration or broad account-setting change is required. The permanent
+rule requires deploying this backend source; the security panel and PDF image
+are frontend changes. Use the existing paired backend/frontend deployment
+workflows so the live build IDs agree. Live release verification is recorded
+in the task's final handoff.
