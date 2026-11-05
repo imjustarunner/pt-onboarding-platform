@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ execute: vi.fn(), update: vi.fn(), history: vi.fn(), statusId: vi.fn(), sync: vi.fn(), queue: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.execute } }));
@@ -12,11 +12,15 @@ import { markClientBeingSeen, setClientLifecycleStatus } from '../clientLifecycl
 
 describe('service confirmation reconciles existing provider tasks', () => {
   beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-04T18:00:00.000Z'));
     vi.resetAllMocks();
     mocks.execute.mockResolvedValue([[{ id: 101, agency_id: 2, client_status_id: 8, client_status_key: 'being_seen' }]]);
     mocks.statusId.mockResolvedValue(8);
     mocks.update.mockResolvedValue({});mocks.history.mockResolvedValue({});mocks.sync.mockResolvedValue({});mocks.queue.mockResolvedValue({});
   });
+
+  afterEach(() => vi.useRealTimers());
 
   it('clears a returning-service task after reconfirmation without requiring a status change', async () => {
     const result = await markClientBeingSeen({ clientId: 101, actorUserId: 9, serviceDate: '2026-09-25' });

@@ -1,0 +1,37 @@
+name: Quick View interface
+
+on:
+  push:
+    branches: [main]
+    paths: ['frontend/**', '.github/workflows/quick-view-interface.yml']
+  pull_request:
+    paths: ['frontend/**', '.github/workflows/quick-view-interface.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quick-view:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TZ: America/Denver
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend test dependencies without building public sites
+        run: npm ci --prefix frontend --ignore-scripts
+      - name: Verify Quick View navigation, conversations, presence, sign-in and locking
+        working-directory: frontend
+        run: >-
+          node node_modules/vitest/vitest.mjs run
+          src/components/quickView/__tests__/QuickView.messaging.test.js
+          src/components/quickView/__tests__/QuickView.presence.test.js
+          src/components/quickView/__tests__/QuickView.navigation.test.js
+          src/views/__tests__/QuickViewLauncher.test.js
