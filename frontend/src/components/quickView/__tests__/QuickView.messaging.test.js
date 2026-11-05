@@ -3,6 +3,7 @@ import { shallowMount, flushPromises } from '@vue/test-utils';
 import QuickView from '../../../views/QuickViewAccessView.vue';
 import axios from 'axios';
 vi.mock('axios', () => ({ default: { get: vi.fn(), post: vi.fn(), patch: vi.fn() } }));
+vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn(), patch: vi.fn() } }));
 vi.mock('vue-router', () => ({ useRouter: () => ({resolve:vi.fn(()=>({href:'/quick-view/email-compose'}))}), useRoute: () => ({ name: 'QuickViewApp', params: {}, query: {}, meta: { quickViewSessionOnly: true } }) }));
 let wrapper; let state;
 const message = { id: 1, direction: 'inbound', from: { email: 'sender@example.org' }, to: [{ email: 'staff@itsco.health' }], cc: [{ email: 'colleague@example.org' }], body_text: 'Hello', send_status: 'sent' };

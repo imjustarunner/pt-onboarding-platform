@@ -1,42 +1,53 @@
 <template>
-  <div class="qv" :style="brandStyle">
-    <a v-if="loginUrl" class="qv-fullapp" :href="loginUrl">
-      Click here to login to the full app
-    </a>
+  <div class="qv" :class="{ 'qv-signed-in': session }" :style="brandStyle" @keydown.esc="closeMore" @keydown.tab="trapDialogFocus">
+    <a v-if="session" class="qv-skip" href="#qv-workspace">Skip to workspace</a>
     <header class="qv-top">
       <div class="qv-brand-row">
+        <AuricWellBrand :context="agencyName || 'Quick View'" />
+      </div>
+      <div class="qv-organization">
         <img v-if="agencyLogoUrl" :src="agencyLogoUrl" alt="" class="qv-logo" />
-        <div>
-          <div class="qv-brand">{{ agencyName || 'Quick View' }}</div>
-          <div class="qv-sub" v-if="session">Expires {{ formatExpiry(expiresAt) }}</div>
-        </div>
+        <span>{{ agencyName || 'Your workspace' }}</span>
       </div>
       <div v-if="session" class="qv-top-actions">
-        <button type="button" class="qv-btn primary sm" :disabled="extendBusy" @click="extendSession">
-          {{ extendBusy ? '…' : '+10 min' }}
+        <span class="qv-session-status"><span aria-hidden="true" />Locks at {{ formatExpiry(expiresAt) }}</span>
+        <button type="button" class="qv-icon-button qv-extend" :disabled="extendBusy" aria-label="Extend session by 10 minutes" @click="extendSession">
+          <Clock3 :size="17" aria-hidden="true" /><span>{{ extendBusy ? 'Extending…' : '+10 min' }}</span>
         </button>
-        <button type="button" class="qv-btn ghost sm" @click="logout">Lock</button>
+        <button type="button" class="qv-icon-button" aria-label="Lock Quick View" @click="logout"><LockKeyhole :size="18" aria-hidden="true" /><span class="qv-lock-label">Lock</span></button>
       </div>
     </header>
 
-    <div v-if="homeScreenTip && !session" class="qv-homescreen">
-      <strong>Add to Home Screen</strong>
+    <nav v-if="session" class="qv-tabs" aria-label="Primary navigation">
+      <span class="qv-nav-caption">WORKSPACE</span>
+      <button v-for="item in primaryNavigation" :key="item.id" type="button" :class="{ on: activeDestination === item.id }" :aria-current="activeDestination === item.id ? 'page' : undefined" :aria-expanded="item.id === 'more' ? moreOpen : undefined" :aria-controls="item.id === 'more' ? 'qv-more-tools' : undefined" @click="navigateTo(item.id)">
+        <component :is="item.icon" :size="21" :stroke-width="1.8" aria-hidden="true" /><span>{{ item.label }}</span>
+      </button>
+      <div class="qv-nav-footer">
+        <div class="qv-nav-note"><LockKeyhole :size="16" aria-hidden="true" /><span>Your workspace locks<br />when you're away.</span></div>
+        <a v-if="loginUrl" :href="loginUrl" class="qv-workspace-link">Open full workspace<ArrowUpRight :size="16" aria-hidden="true" /></a>
+      </div>
+    </nav>
+
+    <main id="qv-workspace" class="qv-workspace" tabindex="-1">
+    <div v-if="homeScreenTip && showBrowserInstallTip && !session" class="qv-homescreen">
+      <strong>Your workspace, one tap away</strong>
       <p>
-        On this tenant Quick View page, use Share → Add to Home Screen.
-        Keep <strong>Open as Web App</strong> on — it should open this tenant’s Quick View (not the main login).
+        In Safari, tap Share, then Add to Home Screen. Keep Open as Web App on to return directly to Quick View.
       </p>
       <button type="button" class="qv-btn ghost sm" @click="dismissHomeTip">Got it</button>
     </div>
 
-    <div v-if="error" class="qv-err">
-      {{ error }}
-      <button v-if="session" type="button" class="qv-btn ghost sm" @click="retryHome">Retry</button>
+    <div v-if="error" class="qv-err" role="alert">
+      <span>{{ error }}</span>
+      <button v-if="session" type="button" class="qv-btn ghost sm" @click="retryCurrentView">Try again</button>
     </div>
-    <div v-if="loading && !session" class="qv-pad">Loading…</div>
+    <div v-if="loading && !session" class="qv-loading" role="status"><span class="qv-spinner" aria-hidden="true" />Opening your workspace…</div>
 
     <section v-else-if="!session && !loading" class="qv-gate">
-      <img v-if="agencyLogoUrl" :src="agencyLogoUrl" alt="" class="qv-gate-logo" />
-      <h1>{{ agencyName || 'Quick View' }}</h1>
+      <div class="qv-gate-icon"><LockKeyhole :size="25" aria-hidden="true" /></div>
+      <p class="qv-eyebrow">{{ agencyName || 'AuricWell Quick View' }}</p>
+      <h1>{{ isLocked ? 'Let’s get you back in.' : 'Welcome back.' }}</h1>
       <template v-if="isLocked">
         <p>Quick View is locked after 3 incorrect passcode attempts.</p>
         <p class="qv-hint">
@@ -45,10 +56,11 @@
         <a v-if="loginUrl" class="qv-btn primary" :href="loginUrl">Sign in to reset</a>
       </template>
       <template v-else>
-        <p v-if="tokenInfo">Hi {{ tokenInfo.firstName || 'there' }} — enter your 6-digit passcode.</p>
-        <a v-else class="qv-btn primary" href="/qv">Unlock Quick View</a>
+        <p v-if="tokenInfo">{{ tokenInfo.firstName ? `${tokenInfo.firstName}, enter` : 'Enter' }} your 6-digit passcode to open your workspace.</p>
+        <a v-else class="qv-btn primary" href="/qv">Continue to sign in</a>
         <form v-if="tokenInfo" class="qv-form" autocomplete="on" @submit.prevent="unlock">
-          <label>Account email (optional, for saved sign-in)<input v-model="credentialEmail" name="username" type="email" autocomplete="username" /></label>
+          <label>Account email <span class="qv-field-hint">Optional · helps your password manager find your sign-in</span><input v-model="credentialEmail" name="username" type="email" autocomplete="username" placeholder="you@yourpractice.com" /></label>
+          <label for="quick-view-passcode">Quick View passcode</label>
           <input
             v-model="passcode"
             class="qv-pin"
@@ -63,30 +75,34 @@
             aria-label="6-digit Quick View passcode"
           />
           <button type="submit" class="qv-btn primary" :disabled="unlocking || passcode.length !== 6">
-            {{ unlocking ? 'Opening…' : 'Open' }}
+            {{ unlocking ? 'Opening your workspace…' : 'Open workspace' }}<ChevronRight v-if="!unlocking" :size="18" aria-hidden="true" />
           </button>
         </form>
         <p class="qv-hint">
           Passcodes are never emailed. Reset yours from My Dashboard → Settings → Privacy &amp; Quick View.
         </p>
       </template>
+      <a v-if="loginUrl" class="qv-gate-link" :href="loginUrl">Open full workspace<ArrowUpRight :size="15" aria-hidden="true" /></a>
     </section>
 
     <template v-if="session">
-      <div v-if="sendNotice" class="qv-pad" role="status">{{ sendNotice }} <button v-if="undoSend" type="button" class="qv-btn ghost sm" @click="undoEmail">Undo send</button></div>
-      <p v-if="remainingSeconds<=120" class="qv-pad" role="status">Quick View locks in {{ remainingSeconds }} seconds. <button class="qv-btn primary sm" @click="extendSession">Keep me signed in</button></p>
-      <nav class="qv-tabs">
-        <button type="button" :class="{ on: tab === 'home' }" @click="tab = 'home'; loadHome()">Messages</button>
-        <button type="button" :class="{ on: tab === 'tasks' }" @click="switchTasks">Tasks</button>
-        <button type="button" :class="{ on: tab === 'calendar' }" @click="switchCalendar">Calendar</button>
-        <button type="button" :class="{ on: tab === 'noteaid' }" @click="switchNoteAid">Note Workspace</button>
-        <button type="button" :class="{ on: tab === 'presence' }" @click="tab = 'presence'">Presence</button>
-        <button type="button" :class="{ on: tab === 'contacts' }" @click="loadContacts">Contacts</button>
-      </nav>
-
+      <div class="qv-page-heading">
+        <div><p class="qv-eyebrow">{{ workspaceDate }}</p><h1>{{ currentHeading.title }}</h1><p class="qv-page-description">{{ currentHeading.description }}</p></div>
+        <span class="qv-workspace-tag">QUICK VIEW</span>
+      </div>
+      <div v-if="sendNotice" class="qv-notice" role="status">{{ sendNotice }} <button v-if="undoSend" type="button" class="qv-btn ghost sm" @click="undoEmail">Undo send</button></div>
+      <div v-if="remainingSeconds<=120" class="qv-lock-warning" role="status"><Clock3 :size="18" aria-hidden="true" /><span>Quick View locks in {{ remainingSeconds }} seconds.</span><button class="qv-btn primary sm" :disabled="extendBusy" @click="extendSession">Keep me signed in</button></div>
+      <section id="qv-more-tools" v-show="moreOpen" class="qv-more-panel" role="region" aria-label="More tools">
+        <div class="qv-tool-grid">
+          <button v-for="item in secondaryNavigation" :key="item.id" type="button" class="qv-tool-card" :aria-label="item.label" @click="navigateTo(item.id)"><span class="qv-tool-icon"><component :is="item.icon" :size="23" aria-hidden="true" /></span><span><strong>{{ item.label }}</strong><small>{{ item.description }}</small></span><ChevronRight :size="18" aria-hidden="true" /></button>
+        </div>
+        <div class="qv-more-account"><div><h2>Workspace access</h2><p>Manage your session or continue in the full workspace.</p></div><div class="qv-more-actions"><a v-if="loginUrl" class="qv-btn ghost" :href="loginUrl">Full workspace<ArrowUpRight :size="16" aria-hidden="true" /></a><button type="button" class="qv-btn ghost" @click="logout"><LockKeyhole :size="16" aria-hidden="true" />Lock Quick View</button></div></div>
+        <QuickViewMusicDock inline :api-base="apiBase" :auth-headers="authHeaders" :visible="!!session" />
+      </section>
+      <div v-show="!moreOpen" class="qv-content" :aria-busy="navigationBusy || undefined">
       <QuickViewPresence v-if="tab==='presence'" :http="presenceHttp" />
       <div v-if="tab === 'home'" class="qv-pane conversa-surface">
-        <ConversaBrand class="qv-conversa-brand" compact tagline />
+        <div class="qv-messages-heading"><ConversaBrand compact /><span>YOUR CONVERSATIONS</span></div>
         <div class="qv-suite">
           <a class="qv-btn ghost sm" :href="secureMessagesUrl">Secure messages ↗</a>
           <button type="button" :class="{ on: msgSuite === 'email' }" @click="switchMsgSuite('email')">Email</button>
@@ -106,7 +122,7 @@
               <button type="button" :class="{ on: sort === 'needs' }" @click="sort = 'needs'">Needs reply</button>
 
             </div>
-            <button type="button" class="qv-btn ghost sm" @click="loadHome(msgSuite)">↻ Refresh</button>
+            <button type="button" class="qv-btn ghost sm" @click="loadHome(msgSuite)"><RefreshCw :size="14" aria-hidden="true" />Refresh</button>
             <button v-if="msgSuite === 'email'" type="button" class="qv-btn ghost sm" :aria-pressed="sort === 'unknown'" @click="changeEmailFolder('unknown')">Unknown senders</button>
             <button v-if="msgSuite === 'email'" type="button" class="qv-btn ghost sm" :aria-pressed="sort === 'drafts'" @click="changeEmailFolder('drafts')">Drafts</button>
             <button v-if="msgSuite === 'email'" type="button" class="qv-btn primary sm" @click="openDetachedEmail('new')">New email</button>
@@ -123,7 +139,7 @@
             @mouseenter="previewQuickEmail(c, $event)" @mouseleave="hideQuickPreview" @focus="previewQuickEmail(c, $event)" @blur="hideQuickPreview"
             @click="quickPreview = null; openConversation(c)"
           >
-            <span class="ch">{{ channelIcon(c.channel) }}</span>
+            <span class="ch"><component :is="channelIcon(c.channel)" :size="19" :stroke-width="1.6" aria-hidden="true" /></span>
             <div class="meta">
               <strong>{{ c.subject || '(no subject)' }}</strong>
               <small>{{ emailPreviewText(c.last_message_preview || '') }}</small><small>{{ formatTime(c.last_message_at) }}</small>
@@ -149,7 +165,7 @@
             :class="{ unread: Number(t.unread_count) > 0 }"
             @click="openChatThread(t)"
           >
-            <span class="ch">{{ msgSuite === 'channels' ? '#' : '💬' }}</span>
+            <span class="ch"><MessageSquare :size="19" :stroke-width="1.6" aria-hidden="true" /></span>
             <div class="meta">
               <strong>{{ chatTitle(t) }}</strong>
               <small>{{ t.last_message?.body || t.last_message_body || t.lastMessage?.body || t.description || '' }}</small>
@@ -168,7 +184,7 @@
             class="qv-row"
             @click="openInboxItem(item)"
           >
-            <span class="ch">{{ msgSuite === 'files' ? '📎' : msgSuite === 'mentions' ? '@' : '🧵' }}</span>
+            <span class="ch"><component :is="msgSuite === 'files' ? Paperclip : msgSuite === 'mentions' ? AtSign : MessageSquare" :size="19" :stroke-width="1.6" aria-hidden="true" /></span>
             <div class="meta">
               <strong>{{ inboxTitle(item) }}</strong>
               <small>{{ inboxPreview(item) }}</small>
@@ -266,7 +282,8 @@
               <small>{{ t.status }} · {{ t.due_at ? formatTime(t.due_at) : 'No due date' }}</small>
             </div>
           </button>
-          <div v-if="!tasks.length" class="qv-pad muted">No open tasks.</div>
+          <div v-if="navigationBusy" class="qv-pad muted" role="status">Loading your tasks…</div>
+          <div v-if="!navigationBusy && !error && !tasks.length" class="qv-pad muted">No open tasks.</div>
         </template>
         <template v-else-if="taskSuite === 'lists'">
           <button
@@ -281,7 +298,7 @@
               <small>{{ l.role || 'member' }}</small>
             </div>
           </button>
-          <div v-if="!taskLists.length" class="qv-pad muted">No shared lists.</div>
+          <div v-if="!error && !taskLists.length" class="qv-pad muted">No shared lists.</div>
         </template>
         <template v-else-if="taskSuite === 'projects'">
           <button
@@ -296,7 +313,7 @@
               <small>{{ p.status || 'active' }} · {{ p.open_task_count != null ? `${p.open_task_count} open` : '' }}</small>
             </div>
           </button>
-          <div v-if="!taskProjects.length" class="qv-pad muted">No projects.</div>
+          <div v-if="!error && !taskProjects.length" class="qv-pad muted">No projects.</div>
         </template>
         <template v-else-if="taskSuite === 'listDetail' || taskSuite === 'projectDetail'">
           <button type="button" class="qv-btn ghost" @click="taskSuite === 'listDetail' ? loadSharedLists() : loadProjects()">← Back</button>
@@ -339,7 +356,7 @@
               <small>{{ t.status }} · {{ t.assignee || '' }} · {{ t.due_at ? formatTime(t.due_at) : 'No due' }}</small>
             </div>
           </button>
-          <div v-if="!suiteTasks.length" class="qv-pad muted">No tasks in this view.</div>
+          <div v-if="!error && !suiteTasks.length" class="qv-pad muted">No tasks in this view.</div>
         </template>
       </div>
 
@@ -485,7 +502,7 @@
         <template v-if="!showOffice">
           <p class="qv-pad muted">Times shown in {{ calendarTimeZone }}.</p>
           <p v-if="calendarLoading" class="qv-pad muted" role="status">Loading your schedule…</p>
-          <div v-for="item in dayItems" :key="item.id" class="qv-agenda-item" role="button" tabindex="0" @click="openCalEvent(item)" @keydown.enter="openCalEvent(item)">
+          <div v-for="item in dayItems" :key="item.id" class="qv-agenda-item" role="button" tabindex="0" @click="openCalEvent(item)" @keydown.enter.self="openCalEvent(item)" @keydown.space.self.prevent="openCalEvent(item)">
             <div><strong>{{ item.title }}</strong><p>{{ item.allDay ? 'All day' : `${formatClock(item.startAt)}–${formatClock(item.endAt)}` }}<template v-if="item.location"> · {{ item.location }}</template></p><small v-if="item.status === 'CANCELLED'">Cancelled</small></div>
             <a v-if="item.canJoin" class="qv-btn primary sm" :href="joinHref(item)" target="_blank" rel="noopener noreferrer" @click.stop="extendForMeeting(item)">Join meeting ↗</a>
           </div>
@@ -590,14 +607,11 @@
         </template>
       </div>
 
-      <QuickViewMusicDock
-        :api-base="apiBase"
-        :auth-headers="authHeaders"
-        :visible="!!session"
-      />
+      </div>
     </template>
+    </main>
 
-    <div v-if="showCompose" class="qv-modal" @click.self="showCompose = false">
+    <div v-if="session && showCompose" class="qv-modal" role="dialog" aria-modal="true" aria-label="New email" @click.self="showCompose = false" @keydown.esc.stop="showCompose = false">
       <form class="qv-sheet" @submit.prevent="sendCompose">
         <h3>New email</h3>
         <p class="muted">From: {{ mailboxEmail || 'Your work mailbox' }}</p>
@@ -619,7 +633,7 @@
       </form>
     </div>
 
-    <div v-if="showNewTask" class="qv-modal" @click.self="showNewTask = false">
+    <div v-if="session && showNewTask" class="qv-modal" role="dialog" aria-modal="true" aria-label="Add task" @click.self="showNewTask = false" @keydown.esc.stop="showNewTask = false">
       <form class="qv-sheet" @submit.prevent="createTask">
         <h3>Add task</h3>
         <label>Title</label>
@@ -633,7 +647,7 @@
       </form>
     </div>
 
-    <div v-if="showNewContact" class="qv-modal" @click.self="showNewContact = false">
+    <div v-if="session && showNewContact" class="qv-modal" role="dialog" aria-modal="true" aria-label="Add contact" @click.self="showNewContact = false" @keydown.esc.stop="showNewContact = false">
       <form class="qv-sheet" @submit.prevent="createContact">
         <h3>Add contact</h3>
         <label>Name</label>
@@ -649,7 +663,7 @@
       </form>
     </div>
 
-    <div v-if="taskDetail" class="qv-modal" @click.self="taskDetail = null">
+    <div v-if="session && taskDetail" class="qv-modal" role="dialog" aria-modal="true" aria-label="Task details" @click.self="taskDetail = null" @keydown.esc.stop="taskDetail = null">
       <div class="qv-sheet qv-task-detail">
         <button type="button" class="qv-btn ghost sm" @click="taskDetail = null">Close</button>
         <h3>{{ taskDetail.task.title }}</h3>
@@ -717,7 +731,7 @@
       </div>
     </div>
 
-    <div v-if="calEvent" class="qv-modal" @click.self="calEvent = null">
+    <div v-if="session && calEvent" class="qv-modal" role="dialog" aria-modal="true" aria-label="Event details" @click.self="calEvent = null" @keydown.esc.stop="calEvent = null">
       <div class="qv-sheet">
         <button type="button" class="qv-btn ghost sm" @click="calEvent = null">Close</button>
         <h3>{{ calEvent.title }}</h3>
@@ -762,11 +776,15 @@
 </template>
 
 <script setup>
+import AuricWellBrand from '../components/auricwell/AuricWellBrand.vue';
+import { AURICWELL_PREVIEW_URL } from '../constants/auricwellBrand';
+import { Capacitor } from '@capacitor/core';
+import { CalendarDays, MessageSquare, ListTodo, Ellipsis, LockKeyhole, Clock3, NotebookPen, Users, Radio, ArrowUpRight, ChevronRight, Mail, Smartphone, Phone, RefreshCw, Paperclip, AtSign } from '@lucide/vue';
 import ConversaBrand from '../components/conversa/ConversaBrand.vue';
 import { privateSpeechRecognition } from '../utils/privateSpeechRecognition.js';
 import { quickViewDeepLink } from '../utils/quickViewDeepLink';
 import QuickViewPresence from '../components/quickView/QuickViewPresence.vue';
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import { emailReplyRecipients } from '../utils/messageThreads';
@@ -782,6 +800,7 @@ const BOOKMARK_KEY = 'plottwist.quickViewBookmark';
 const TOKEN_KEY = 'plottwist.quickViewToken';
 const HOME_TIP_KEY = 'plottwist.quickViewHomeTipDismissed';
 const LOGIN_URL_KEY = 'plottwist.quickViewLoginUrl';
+const showBrowserInstallTip = !Capacitor.isNativePlatform() && /iPad|iPhone|iPod/.test(navigator.userAgent) && !navigator.standalone;
 
 const route = useRoute();
 const router = useRouter();
@@ -831,6 +850,78 @@ const secureMessagesUrl = computed(() => {
 });
 const isLocked = ref(false);
 const tab = ref('home');
+const moreOpen = ref(false);
+const navigationBusy = ref(false);
+const primaryNavigation = [
+  { id: 'calendar', label: 'Today', icon: CalendarDays },
+  { id: 'home', label: 'Messages', icon: MessageSquare },
+  { id: 'tasks', label: 'Tasks', icon: ListTodo },
+  { id: 'more', label: 'More', icon: Ellipsis }
+];
+const secondaryNavigation = [
+  { id: 'noteaid', label: 'Note Workspace', description: 'Continue your documentation.', icon: NotebookPen },
+  { id: 'presence', label: 'Presence', description: 'See who’s available and set your status.', icon: Radio },
+  { id: 'contacts', label: 'Contacts', description: 'Find and message your team.', icon: Users }
+];
+const activeDestination = computed(() => {
+  if (moreOpen.value) return 'more';
+  if (['home', 'thread', 'chat'].includes(tab.value)) return 'home';
+  if (['calendar', 'tasks'].includes(tab.value)) return tab.value;
+  return 'more';
+});
+const workspaceDate = computed(() => new Date(clockNow.value).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }));
+const currentHeading = computed(() => {
+  if (moreOpen.value) return { title: 'Your workspace', description: 'The tools and people that keep your day moving.' };
+  return {
+    home: { title: 'Messages', description: 'Stay connected to your team and your work.' },
+    thread: { title: 'Conversation', description: 'Keep the conversation moving.' },
+    chat: { title: 'Team conversation', description: 'Direct messages and team discussions.' },
+    calendar: { title: 'Your day, in view.', description: 'Appointments, meetings, and where you need to be.' },
+    tasks: { title: 'Tasks', description: 'Your tasks, shared lists, and next steps.' },
+    noteaid: { title: 'Note Workspace', description: 'A focused space for your documentation.' },
+    presence: { title: 'Team presence', description: 'Find the right moment to connect.' },
+    contacts: { title: 'Your people', description: 'Find a colleague and start a conversation.' }
+  }[tab.value] || { title: 'Quick View', description: 'Your daily workspace.' };
+});
+
+async function navigateTo(destination) {
+  if (destination === 'more') { moreOpen.value = !moreOpen.value; return; }
+  moreOpen.value = false;
+  error.value = '';
+  navigationBusy.value = true;
+  try {
+    if (destination === 'home') await switchMsgSuite(msgSuite.value);
+    else if (destination === 'calendar') { if (showOffice.value) { tab.value = 'calendar'; await loadOffice(); } else await loadCalendar(); }
+    else if (destination === 'tasks') await loadTasks(taskView.value);
+    else if (destination === 'noteaid') await switchNoteAid();
+    else if (destination === 'contacts') await loadContacts();
+    else if (destination === 'presence') tab.value = 'presence';
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || `Could not load ${destination === 'tasks' ? 'your tasks' : 'this view'}. Try again.`;
+  } finally {
+    navigationBusy.value = false;
+    if (session.value && secondaryNavigation.some(item => item.id === destination)) {
+      await nextTick();
+      document.getElementById('qv-workspace')?.focus();
+    }
+  }
+}
+
+function closeMore() {
+  if (!moreOpen.value) return;
+  moreOpen.value = false;
+  document.querySelector('.qv-tabs button[aria-controls="qv-more-tools"]')?.focus();
+}
+
+async function retryCurrentView() {
+  if (tab.value === 'thread' && activeConv.value?.id) { error.value = ''; await openConversation(activeConv.value); }
+  else if (tab.value === 'chat' && activeChatId.value) { error.value = ''; await loadChatMessages(); }
+  else if (tab.value === 'tasks' && taskSuite.value === 'lists') {
+    try { error.value = ''; await loadSharedLists(); } catch { error.value = 'Could not load shared lists. Try again.'; }
+  } else if (tab.value === 'tasks' && taskSuite.value === 'projects') {
+    try { error.value = ''; await loadProjects(); } catch { error.value = 'Could not load projects. Try again.'; }
+  } else await navigateTo(tab.value);
+}
 const sort = ref('all');
 const msgSuite = ref('email');
 const conversations = ref([]);
@@ -855,6 +946,7 @@ const suiteMembers = ref([]);
 const suiteLists = ref([]);
 const suiteStats = ref(null);
 const taskDetail = ref(null);
+let taskDetailRequest = 0;
 const taskComment = ref('');
 const taskCommentBusy = ref(false);
 const taskAssignId = ref(null);
@@ -875,6 +967,7 @@ const noteAidDrawer = ref([]);
 const noteAidSections = ref([]);
 let noteAidRecognition = null;
 let noteAidSpeakTimer = null;
+let noteAidRequest = 0;
 
 const speechSupported = computed(() => {
   try {
@@ -924,6 +1017,29 @@ const newContactEmail = ref('');
 const newContactPhone = ref('');
 const contactBusy = ref(false);
 const mailboxEmail = ref('');
+const modalOpen = computed(() => !!session.value && !!(showCompose.value || showNewTask.value || showNewContact.value || taskDetail.value || calEvent.value));
+let modalReturnFocus = null;
+
+function trapDialogFocus(event) {
+  if (!modalOpen.value) return;
+  const modal = event.currentTarget.querySelector('.qv-modal');
+  const controls = Array.from(modal?.querySelectorAll('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]') || []).filter(element => element.getClientRects().length);
+  if (!controls.length) return;
+  const first = controls[0]; const last = controls.at(-1);
+  if (!modal.contains(document.activeElement) || (event.shiftKey && document.activeElement === first)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+}
+
+watch(modalOpen, async (open) => {
+  if (open) modalReturnFocus = document.activeElement;
+  await nextTick();
+  if (open && modalOpen.value) document.querySelector('.qv-modal button, .qv-modal input, .qv-modal textarea, .qv-modal a[href]')?.focus();
+  else if (!open) {
+    if (session.value && modalReturnFocus?.isConnected) modalReturnFocus.focus();
+    else document.getElementById('quick-view-passcode')?.focus();
+    modalReturnFocus = null;
+  }
+});
 const homeCursor = ref(null);
 const homeOlderLoading = ref(false);
 const replyMode = ref('reply');
@@ -1012,37 +1128,21 @@ const dayHours = computed(() => {
 });
 
 const brandStyle = computed(() => {
-  const p = colorPalette.value || {};
-  const primary = p.primary || agencyPrimaryColor.value || '#166534';
-  const secondary = p.secondary || primary;
-  const accent = p.accent || secondary;
-  // Strong tenant tint (avoid default slate blue shell)
-  const bg = p.backgroundColor
-    || `linear-gradient(180deg, color-mix(in srgb, ${primary} 42%, #041008) 0%, color-mix(in srgb, ${accent} 28%, #020806) 100%)`;
-  // Always dark chrome surfaces — never borrow light secondaryBackground (NLU white)
-  const surface = `color-mix(in srgb, ${primary} 32%, #0a1610)`;
-  const border = `color-mix(in srgb, ${secondary} 45%, #12261c)`;
-  // QV is always a dark shell — ignore tenant textPrimary (often dark navy for light pages)
-  const text = '#f4faf6';
-  const muted = '#c5d9ce';
-  // Inactive tab labels: tenant secondary (dark blue for NLU) on white pills
-  const tabInk = secondary || '#1e3a5f';
   return {
-    '--qv-primary': primary,
-    '--qv-secondary': secondary,
-    '--qv-accent': accent,
-    '--qv-primary-soft': primary,
-    '--qv-bg': bg,
-    '--qv-surface': surface,
-    '--qv-border': border,
-    '--qv-text': text,
-    '--qv-muted': muted,
-    '--qv-tab-ink': tabInk,
-    // Beat #app { color: var(--text-primary) } for everything inside QV
-    '--text-primary': text,
-    '--text-secondary': muted,
-    '--text-muted': muted,
-    color: text
+    '--qv-primary': '#2563eb',
+    '--qv-secondary': '#1d4ed8',
+    '--qv-accent': '#2563eb',
+    '--qv-primary-soft': '#eef4ff',
+    '--qv-bg': '#f4f7fb',
+    '--qv-surface': '#ffffff',
+    '--qv-border': '#e3eaf3',
+    '--qv-text': '#172b4d',
+    '--qv-muted': '#62748e',
+    '--qv-tab-ink': '#62748e',
+    '--text-primary': '#172b4d',
+    '--text-secondary': '#62748e',
+    '--text-muted': '#62748e',
+    color: '#172b4d'
   };
 });
 
@@ -1161,9 +1261,11 @@ function isQvHostPath() {
 function installQuickViewManifest() {
   if (typeof document === 'undefined') return;
   const origin = window.location.origin;
-  const name = agencyName.value ? `${agencyName.value} Quick View` : 'Quick View';
-  const iconSrc = agencyLogoUrl.value || '/assets/ptco/logo-flat.png';
-  const theme = agencyPrimaryColor.value || colorPalette.value?.primary || '#166534';
+  const schoolQuickView = window.location.hostname === 'qv.app.schoolcarebridge.org';
+  const productName = schoolQuickView ? 'Quick View' : 'AuricWell';
+  const name = agencyName.value ? `${agencyName.value} · ${productName}` : productName;
+  const iconSrc = agencyLogoUrl.value || (schoolQuickView ? '/assets/ptco/logo-flat.png' : AURICWELL_PREVIEW_URL);
+  const theme = agencyPrimaryColor.value || colorPalette.value?.primary || '#2563eb';
   // Server-served manifest so iOS "Open as Web App" uses this origin's root — not plottwisthq /
   const href =
     `${apiBase}/pwa-manifest?` +
@@ -1645,20 +1747,25 @@ async function openProject(p) {
 }
 
 async function openTaskDetail(t) {
+  if (!session.value) return;
+  const request = ++taskDetailRequest;
+  const activeSession = session.value;
   try {
     if (!directoryProviders.value.length) {
-      await loadDirectory('providers').catch(() => {});
+      await loadDirectory('providers', { activate: false }).catch(() => {});
     }
+    if (request !== taskDetailRequest || session.value !== activeSession) return;
     const { data } = await axios.get(`${apiBase}/tasks/${t.id}`, {
       headers: authHeaders(),
       withCredentials: true
     });
+    if (request !== taskDetailRequest || session.value !== activeSession) return;
     taskDetail.value = data;
     taskComment.value = '';
     taskAssignId.value = data.task?.assigned_to_user_id || null;
     taskListPickId.value = data.task?.task_list_id || null;
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Could not open task';
+    if (request === taskDetailRequest && session.value === activeSession) error.value = e?.response?.data?.error?.message || 'Could not open task';
   }
 }
 
@@ -1894,7 +2001,9 @@ function pushNoteAidToDrawer() {
 }
 
 async function runNoteAid() {
-  if (!noteAidToolId.value || !canRunNoteAid.value) return;
+  if (!session.value || noteAidBusy.value || !noteAidToolId.value || !canRunNoteAid.value) return;
+  const request = ++noteAidRequest;
+  const activeSession = session.value;
   stopNoteAidSpeak();
   noteAidBusy.value = true;
   noteAidOutput.value = '';
@@ -1910,14 +2019,15 @@ async function runNoteAid() {
       },
       { headers: authHeaders(), withCredentials: true }
     );
+    if (request !== noteAidRequest || session.value !== activeSession) return;
     const output = data.outputText || data.text || data.output || '';
     noteAidOutput.value = output;
     parseNoteAidSections(output);
     pushNoteAidToDrawer();
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Note Workspace failed';
+    if (request === noteAidRequest && session.value === activeSession) error.value = e?.response?.data?.error?.message || 'Note Workspace failed';
   } finally {
-    noteAidBusy.value = false;
+    if (request === noteAidRequest) noteAidBusy.value = false;
   }
 }
 
@@ -2168,18 +2278,21 @@ function formatClock(v) {
   }
 }
 
-async function loadDirectory(suite = 'providers') {
-  tab.value = 'contacts';
-  contactSuite.value = suite;
+async function loadDirectory(suite = 'providers', { activate = true } = {}) {
+  const activeSession = session.value;
+  const activeTaskRequest = taskDetailRequest;
+  if (activate) { tab.value = 'contacts'; contactSuite.value = suite; }
   try {
     const { data } = await axios.get(`${apiBase}/directory`, {
       headers: authHeaders(),
       withCredentials: true
     });
+    if (!session.value || session.value !== activeSession || (!activate && activeTaskRequest !== taskDetailRequest)) return;
     directoryProviders.value = data.providers || [];
     directorySchool.value = data.schoolStaff || [];
     if (data.agencyId) sessionAgencyId.value = data.agencyId;
   } catch (e) {
+    if (!session.value || session.value !== activeSession || (!activate && activeTaskRequest !== taskDetailRequest)) return;
     error.value = e?.response?.data?.error?.message || 'Could not load directory';
     directoryProviders.value = [];
     directorySchool.value = [];
@@ -2336,13 +2449,20 @@ function clearSession() {
   session.value = null; sessionUserId.value = null; sessionAgencyId.value = null;
   stopHeartbeat(); clearTimeout(undoTimer); clearTimeout(quickPreviewTimer); clearTimeout(quickPreviewHideTimer);
   ++conversationRequest; ++homeRequest; ++chatRequest; ++calendarRequest;
+  ++taskDetailRequest; ++noteAidRequest; noteAidBusy.value = false;
   emailDrafts.clear(); chatDrafts.clear();
   activeConv.value = null; threadMessages.value = []; conversations.value = [];
   chatMessages.value = []; chatList.value = []; inboxItems.value = []; activeChatId.value = null;
   replyText.value = ''; replyAttachments.value = []; chatReply.value = ''; chatAttachments.value = [];
   composeToEmail.value = ''; composeSubject.value = ''; composeText.value = ''; composeAttachments.value = [];
   tasks.value = []; dayItems.value = []; undoSend.value = null; sendNotice.value = ''; showCompose.value = false;
-  passcode.value = ''; tab.value = 'home';lastActivitySent=0;expiresAt.value=null;
+  taskDetail.value = null; calEvent.value = null; showNewTask.value = false; showNewContact.value = false;
+  newTaskTitle.value = ''; newTaskDue.value = ''; taskComment.value = '';
+  newContactName.value = ''; newContactEmail.value = ''; newContactPhone.value = '';
+  directoryProviders.value = []; directorySchool.value = []; contacts.value = [];
+  noteAidInput.value = ''; noteAidOutput.value = ''; noteAidInitials.value = ''; noteAidSections.value = []; noteAidDrawer.value = [];
+  stopNoteAidSpeak();
+  passcode.value = ''; tab.value = 'home'; moreOpen.value = false; lastActivitySent=0;expiresAt.value=null;
   try { sessionStorage.removeItem('plottwist.quickViewSession'); } catch { /* ignore */ }
 }
 async function logout() {
@@ -2365,10 +2485,10 @@ async function openDeepLink() {
 
 function channelIcon(ch) {
   const c = String(ch || '');
-  if (c === 'sms') return '📱';
-  if (c === 'secure') return '🔒';
-  if (c === 'call' || c === 'voicemail') return '📞';
-  return '✉';
+  if (c === 'sms') return Smartphone;
+  if (c === 'secure') return LockKeyhole;
+  if (c === 'call' || c === 'voicemail') return Phone;
+  return Mail;
 }
 function stripHtml(html) {
   return String(html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -2421,472 +2541,281 @@ watch([replyTo, replyCc, replyBcc, replyText, () => activeConv.value?.id, sessio
 </script>
 
 <style scoped>
-.qv-conversa-brand{padding:16px 18px;border-bottom:1px solid var(--conversa-border)}
-
-.qv :deep(.email-reader){--email-message-background:var(--qv-surface,#153c29);--email-message-color:var(--qv-text,#f4faf6)}
-.qv-agenda-item { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:16px; border-bottom:1px solid var(--qv-border); cursor:pointer; }
-.qv-agenda-item p { margin:6px 0; font-size:13px; color:var(--qv-muted); }
-.qv-reply label { display:block; font-size:13px; }
-.qv-reply input { box-sizing:border-box; width:100%; padding:9px; margin:4px 0 8px; border:1px solid var(--qv-border); border-radius:8px; background:var(--qv-surface); color:var(--qv-text); }
-.qv-suite { overflow-x:auto; }
-.qv-bubble .body { overflow-wrap:anywhere; }
-@media (max-width:520px) { .qv-agenda-item { align-items:flex-start; flex-direction:column; } }
 .qv {
+  --qv-radius: 18px;
   box-sizing: border-box;
-  width: 100%;
-  min-width: 100%;
-  max-width: 100vw;
   min-height: 100vh;
   min-height: 100dvh;
-  margin: 0;
-  background: var(--qv-bg, #0f172a);
-  background-color: color-mix(in srgb, var(--qv-primary, #166534) 28%, #041008);
-  /* #app sets color: var(--text-primary) with ID specificity — must force light ink here */
-  color: #f4faf6 !important;
-  font-family: system-ui, -apple-system, sans-serif;
-  overflow-x: hidden;
-  padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
-}
-.qv strong,
-.qv h1,
-.qv h2,
-.qv h3 {
-  color: #f4faf6 !important;
-  -webkit-text-fill-color: #f4faf6;
-}
-.qv-fullapp {
-  display: block;
-  text-align: center;
-  padding: 10px 12px;
-  background: var(--qv-primary, #166534);
-  color: #fff;
-  font-weight: 800;
-  font-size: 13px;
-  text-decoration: none;
-}
-.qv-top-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
-.qv-note-out {
-  margin-top: 12px;
-  padding: 12px;
-  border-radius: 10px;
-  background: var(--qv-surface, #1e293b);
-  border: 1px solid var(--qv-border, #334155);
-  white-space: pre-wrap;
-  font-size: 13px;
-  line-height: 1.45;
-  max-height: 40vh;
-  overflow: auto;
-}
-.qv-na-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.85fr);
-  gap: 12px;
-  margin-bottom: 12px;
-  align-items: end;
-}
-.qv-na-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-.qv-na-field .qv-date {
   width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-}
-.qv-na-initials {
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-@media (max-width: 420px) {
-  .qv-na-row {
-    grid-template-columns: 1fr;
-  }
-}
-.qv-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  object-fit: cover;
-  flex-shrink: 0;
-  background: var(--qv-surface, #1e293b);
-}
-.qv-avatar-fallback {
-  display: grid;
-  place-items: center;
-  font-size: 12px;
-  font-weight: 800;
-  color: var(--qv-text, #fff);
-  background: color-mix(in srgb, var(--qv-primary, #166534) 45%, #0a1610);
-}
-.qv-contact-row .meta small { white-space: normal; }
-.qv-note-section {
-  margin-bottom: 10px;
-  border: 1px solid var(--qv-border, #334155);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--qv-surface, #1e293b) 88%, #fff 4%);
-  overflow: hidden;
-}
-.qv-note-section-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  background: color-mix(in srgb, var(--qv-primary, #166534) 22%, transparent);
-  border-bottom: 1px solid var(--qv-border, #334155);
-}
-.qv-note-section-title {
-  font-size: 12px;
-  font-weight: 800;
-  color: var(--qv-muted, #a7c4b4);
-  text-transform: none;
-}
-.qv-note-section-body {
-  margin: 0;
-  padding: 12px;
+  background: var(--qv-bg);
+  color: var(--qv-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 14px;
   line-height: 1.5;
-  font-family: inherit;
-  color: #f8fafc !important;
-  -webkit-text-fill-color: #f8fafc;
-  white-space: pre-wrap;
-  word-break: break-word;
+  isolation: isolate;
 }
-.qv-note-block { margin-top: 12px; }
-.qv-note-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-  color: #f4faf6;
-}
-.qv-save-new {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 12px;
-  padding-top: 8px;
-}
-.qv-save-new .qv-btn {
-  width: 100%;
-  border: none;
-  border-radius: 10px;
-  padding: 12px 14px;
-  font-weight: 700;
-  color: #fff !important;
-  -webkit-text-fill-color: #fff;
-}
-.qv-save-same-client {
-  background: var(--qv-primary, #0d9488) !important;
-}
-.qv-save-same-dos {
-  background: var(--qv-secondary, #4338ca) !important;
-}
-.qv-save-fresh {
-  background: color-mix(in srgb, var(--qv-accent, #6366f1) 70%, #0f172a) !important;
-}
-.qv-note-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 10px;
-  margin: 0 0 10px;
-  font-size: 12px;
-}
-.qv-note-meta strong {
-  color: #f4faf6 !important;
-  -webkit-text-fill-color: #f4faf6;
-  font-weight: 800;
-}
-.qv-note-meta-sep {
-  opacity: 0.55;
-}
-.qv-section-title { color: var(--qv-text, #f4faf6) !important; }
-.qv *,
-.qv *::before,
-.qv *::after {
-  box-sizing: border-box;
-}
-.qv-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--qv-border, #1e293b);
-  background: color-mix(in srgb, var(--qv-primary, #166534) 12%, transparent);
-}
-.qv-brand-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.qv-logo {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  object-fit: contain;
-  background: #fff;
-  flex-shrink: 0;
-}
-.qv-gate-logo {
-  width: 64px;
-  height: 64px;
-  border-radius: 14px;
-  object-fit: contain;
-  background: #fff;
-  margin-bottom: 12px;
-}
-.qv-brand { font-weight: 800; font-size: 1.05rem; color: #ffffff !important; -webkit-text-fill-color: #ffffff; }
-.qv-sub { font-size: 11px; color: var(--qv-muted, #94a3b8); }
-.qv-homescreen {
-  margin: 12px 16px;
-  padding: 12px;
-  border-radius: 12px;
-  background: var(--qv-surface, #1e293b);
-  border: 1px solid var(--qv-border, #334155);
-}
-.qv-homescreen strong { display: block; margin-bottom: 4px; }
-.qv-homescreen p { margin: 0 0 8px; font-size: 13px; color: var(--qv-muted, #cbd5e1); line-height: 1.4; }
-.qv-gate, .qv-pad { padding: 24px 16px; }
-.qv-gate h1 {
-  margin: 0 0 8px;
-  font-size: clamp(1.75rem, 8vw, 2.4rem);
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  color: #f4faf6 !important;
-  -webkit-text-fill-color: #f4faf6;
-}
-.qv-gate p { margin: 0; line-height: 1.4; }
-.qv-form label { display:flex;flex-direction:column;gap:8px;font-size:13px; }
-.qv-form input[type=email] { box-sizing:border-box;width:100%;padding:12px;border:1px solid var(--qv-border);border-radius:10px;background:var(--qv-surface);color:var(--qv-text);font:inherit; }
-.qv-form { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; width: 100%; }
-.qv-pin {
-  width: 100%;
-  font-size: 28px;
-  letter-spacing: 0.35em;
-  text-align: center;
-  padding: 14px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--qv-border, #334155);
-  background: var(--qv-surface, #1e293b);
-  color: var(--qv-text, #fff);
-  -webkit-text-security: disc;
-  text-security: disc;
-}
-.qv-btn { border: none; border-radius: 10px; padding: 12px 14px; font-weight: 700; cursor: pointer; }
-.qv-btn.primary { background: var(--qv-primary, #166534); color: #fff; width: 100%; }
-.qv-btn.ghost { background: transparent; color: var(--qv-text, #cbd5e1); }
-.qv-btn.sm { padding: 6px 10px; font-size: 12px; width: auto; }
-.qv-hint {
-  font-size: 12px;
-  color: var(--qv-muted, #94a3b8);
-  margin-top: 16px;
-  line-height: 1.45;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-.qv-err {
-  margin: 12px 16px;
-  padding: 10px 12px;
-  background: #7f1d1d;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.qv-tabs { display: flex; gap: 4px; padding: 8px; border-bottom: 1px solid var(--qv-border, #1e293b); overflow-x: auto; }
-.qv-tabs button {
-  flex: 1 0 auto;
-  min-width: max-content;
-  white-space: nowrap;
-  background: #ffffff !important;
-  color: var(--qv-tab-ink, #1e3a5f) !important;
-  -webkit-text-fill-color: var(--qv-tab-ink, #1e3a5f);
-  border: none;
-  border-radius: 8px;
-  padding: 10px 8px;
-  font-weight: 700;
-}
-.qv-tabs button.on {
-  background: var(--qv-primary, #166534) !important;
-  color: #ffffff !important;
-  -webkit-text-fill-color: #ffffff;
-}
-.qv-suite {
-  display: flex;
-  gap: 6px;
-  padding: 8px 12px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-}
-.qv-suite button {
-  flex: 0 0 auto;
-  background: var(--qv-surface, #1e293b);
-  color: var(--qv-muted, #94a3b8);
-  border: none;
-  border-radius: 999px;
-  padding: 7px 12px;
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.qv-suite button.on { background: var(--qv-secondary, #334155); color: #fff; }
-.qv-pane { padding-bottom: 72px; max-width: 960px; margin: 0 auto; }
-.qv-pane > h2 { margin: 16px; }
-.qv-reply .qv-btn { min-height: 40px; }
-.qv-reply input, .qv-reply textarea { font-size: 16px; }
-.qv-section-title { margin: 8px 16px; font-size: 1.1rem; }
-.qv-office-section { margin-bottom: 8px; }
-.qv-office-card {
-  margin: 8px 12px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: var(--qv-surface, #1e293b);
-  border: 1px solid var(--qv-border, #334155);
-}
-.qv-office-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  align-items: baseline;
-  margin-bottom: 4px;
-}
-.qv-office-head small { color: var(--qv-muted, #94a3b8); font-size: 12px; }
-.qv-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; flex-wrap: wrap; }
-.qv-sorters, .qv-day-nav { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-.qv-sorters button { background: var(--qv-surface, #1e293b); color: var(--qv-muted, #94a3b8); border: none; border-radius: 999px; padding: 6px 10px; font-size: 12px; }
-.qv-sorters button.on { background: var(--qv-secondary, #334155); color: #fff; }
-.qv-day-nav { padding: 8px 12px; }
-.qv-day-grid { padding: 0 8px 16px; }
-.qv-hour-row {
-  display: grid;
-  grid-template-columns: 52px 1fr;
-  min-height: 56px;
-  border-top: 1px solid var(--qv-border, #1e293b);
-}
-.qv-hour-label {
-  font-size: 11px;
-  color: var(--qv-muted, #64748b);
-  padding: 4px 4px 0 0;
-  text-align: right;
-}
-.qv-hour-lane {
-  position: relative;
-  border-left: 1px solid var(--qv-border, #1e293b);
-  padding: 2px 4px 4px 8px;
-  min-height: 56px;
-}
-.qv-cal-block {
-  background: color-mix(in srgb, var(--qv-primary, #166534) 28%, var(--qv-surface, #1e293b));
-  border-left: 3px solid var(--qv-accent, var(--qv-primary, #22c55e));
-  border-radius: 8px;
-  padding: 6px 8px;
-  margin-bottom: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.qv-cal-block strong { font-size: 13px; }
-.qv-cal-block small { font-size: 11px; color: var(--qv-muted, #cbd5e1); }
-.qv-cal-block .qv-btn { margin-top: 4px; align-self: flex-start; }
-.qv-row { width: 100%; display: flex; gap: 10px; align-items: center; text-align: left; background: transparent; border: none; border-bottom: 1px solid var(--qv-border, #1e293b); padding: 12px 16px; color: inherit; cursor: pointer; }
-.qv-row.unread strong { color: var(--qv-text, #fff); }
-.qv-row .meta { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.qv-row .meta strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #f4faf6 !important; -webkit-text-fill-color: #f4faf6; }
-.qv-row .meta small { font-size: 12px; color: var(--qv-muted, #94a3b8); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.badge { font-size: 10px; background: color-mix(in srgb, var(--qv-accent, #854d0e) 55%, #000); color: #fef9c3; border-radius: 999px; padding: 2px 6px; font-weight: 800; }
-.qv-bubble { margin: 10px 16px; padding: 10px 12px; border-radius: 12px; background: var(--qv-surface, #1e293b); }
-.qv-bubble.outbound { background: color-mix(in srgb, var(--qv-primary, #14532d) 55%, #0a1610); }
-.qv-bubble .when { font-size: 11px; color: var(--qv-muted, #94a3b8); margin-bottom: 4px; }
-.qv-reply { display: grid; gap: 8px; margin: 12px 16px 20px; }
-.qv-reply textarea,
-.qv-sheet input,
-.qv-sheet textarea {
-  width: 100%;
-  border-radius: 10px;
-  border: 1px solid var(--qv-border, #334155);
-  background: var(--qv-surface, #1e293b);
-  color: var(--qv-text, #f8fafc);
-  padding: 10px;
-  resize: vertical;
-}
-.qv-date,
-.qv input.qv-date,
-.qv select.qv-date,
-.qv textarea {
-  background: #ffffff !important;
-  color: #0f172a !important;
-  -webkit-text-fill-color: #0f172a;
-  border: 1px solid var(--qv-border, #334155);
-  border-radius: 8px;
-  padding: 8px 10px;
-  font-size: 15px;
-}
-.muted { color: #d7ebe0 !important; }
-.qv-ready-badge {
-  display: inline-block;
-  margin-left: 8px;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #052e16 !important;
-  -webkit-text-fill-color: #052e16;
-  background: #86efac;
-  border-radius: 999px;
-  padding: 2px 8px;
-  vertical-align: middle;
-}
-.qv-soap-letter {
-  display: inline-grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  margin-right: 6px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 900;
-  color: #fff !important;
-  -webkit-text-fill-color: #fff;
-  background: var(--qv-primary, #166534);
-}
-.qv-modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(2, 6, 23, 0.72);
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  z-index: 60;
-  padding: 12px;
-}
-.qv-sheet {
-  width: 100%;
-  max-width: 480px;
-  background: var(--qv-bg, #111827);
-  border: 1px solid var(--qv-border, #334155);
-  border-radius: 16px 16px 12px 12px;
-  padding: 16px;
-  max-height: 88vh;
-  overflow: auto;
-}
-.qv-task-detail h3 { margin: 8px 0 4px; }
-.qv-task-detail h4 { margin: 16px 0 8px; font-size: 13px; color: var(--qv-muted, #94a3b8); text-transform: uppercase; letter-spacing: 0.04em; }
-.qv-detail-meta { margin: 0 0 6px; font-size: 12px; color: var(--qv-muted, #94a3b8); }
-.qv-detail-body { margin: 10px 0; font-size: 14px; line-height: 1.45; white-space: pre-wrap; }
-.qv-links { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
-.qv-links a { color: color-mix(in srgb, var(--qv-primary, #93c5fd) 70%, #fff); font-size: 13px; word-break: break-all; }
-.qv-comment { padding: 8px 0; border-bottom: 1px solid var(--qv-border, #1e293b); }
-.qv-comment strong { display: block; font-size: 13px; }
-.qv-comment small { color: var(--qv-muted, #64748b); font-size: 11px; }
-.qv-comment p { margin: 4px 0 0; font-size: 13px; line-height: 1.4; }
-.qv-sheet-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
-.qv-sheet label { display: block; font-size: 12px; color: var(--qv-muted, #94a3b8); margin: 8px 0 4px; }
-.qv-sheet h3 { margin: 0 0 4px; }
+.qv *, .qv *::before, .qv *::after { box-sizing: border-box; }
+.qv h1, .qv h2, .qv h3, .qv h4, .qv strong { color: var(--qv-text); -webkit-text-fill-color: currentColor; }
+.qv button, .qv input, .qv select, .qv textarea { font-family: inherit; }
+.qv button, .qv a, .qv input, .qv select, .qv textarea { -webkit-tap-highlight-color: transparent; }
+.qv button { cursor: pointer; }
+.qv button:disabled { opacity: .55; cursor: wait; }
+.qv :is(button, a, input, select, textarea):focus-visible { outline: 3px solid #93b8ff; outline-offset: 3px; }
+.qv-skip { position: fixed; top: -80px; left: 16px; z-index: 100; padding: 12px 18px; border-radius: 10px; background: var(--qv-primary); color: #fff; }
+.qv-skip:focus { top: 12px; }
+.qv-top { min-height: 92px; display: flex; align-items: center; gap: 20px; padding: max(20px, env(safe-area-inset-top)) 32px 20px; background: #fff; border-bottom: 1px solid var(--qv-border); }
+.qv-brand-row { display: flex; flex-shrink: 0; }
+.qv-brand-row :deep(.auricwell-brand small) { max-width: 155px; overflow: hidden; text-overflow: ellipsis; }
+.qv-organization { display: flex; align-items: center; gap: 10px; min-width: 0; color: var(--qv-muted); font-size: 13px; font-weight: 600; }
+.qv-organization > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qv-logo { width: 30px; height: 30px; object-fit: contain; border: 1px solid var(--qv-border); border-radius: 9px; background: #fff; flex-shrink: 0; }
+.qv-top-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-shrink: 0; }
+.qv-icon-button { display: inline-flex; justify-content: center; align-items: center; gap: 7px; min-height: 42px; padding: 9px 12px; border: 1px solid var(--qv-border); border-radius: 11px; color: var(--qv-muted); background: #fff; font-size: 12px; font-weight: 650; }
+.qv-icon-button:hover { color: var(--qv-primary); background: var(--qv-primary-soft); }
+.qv-session-status { display: flex; align-items: center; gap: 7px; margin-right: 10px; color: var(--qv-muted); font-size: 11px; }
+.qv-session-status > span { width: 6px; height: 6px; border-radius: 50%; background: #21916d; }
+.qv-workspace { max-width: 1120px; margin: 0 auto; padding: 34px 40px 64px; min-width: 0; }
+.qv-workspace:focus { outline: none; }
+.qv-signed-in { padding-left: 232px; }
+.qv-signed-in::before { content: ''; position: fixed; inset: 0 auto 0 0; width: 232px; z-index: -1; border-right: 1px solid var(--qv-border); background: #fff; }
+.qv-signed-in .qv-top { position: sticky; top: 0; z-index: 30; }
+.qv-signed-in .qv-brand-row { position: fixed; top: 26px; left: 25px; }
+.qv-tabs { position: fixed; z-index: 35; top: 125px; left: 16px; bottom: 22px; width: 200px; display: flex; flex-direction: column; gap: 7px; }
+.qv-nav-caption { padding: 0 16px 12px; color: #8592a7; font-size: 10px; font-weight: 700; letter-spacing: .14em; }
+.qv-tabs > button { display: flex; align-items: center; gap: 13px; min-height: 48px; padding: 12px 16px; border: 0; border-radius: 11px; background: transparent; color: var(--qv-muted); font-size: 14px; font-weight: 550; text-align: left; }
+.qv-tabs > button:hover { background: #f5f8fd; color: var(--qv-text); }
+.qv-tabs > button.on { background: var(--qv-primary-soft); color: #1d4ed8; font-weight: 700; }
+.qv-nav-footer { margin-top: auto; padding: 16px 10px 0; }
+.qv-nav-note { display: flex; align-items: flex-start; gap: 9px; padding-bottom: 20px; color: #7a899f; font-size: 11px; line-height: 1.7; }
+.qv-nav-note svg { margin-top: 3px; flex-shrink: 0; }
+.qv-workspace-link, .qv-gate-link { display: inline-flex; align-items: center; gap: 8px; color: var(--qv-primary); font-size: 12px; font-weight: 600; text-decoration: none; }
+.qv-workspace-link { border-top: 1px solid var(--qv-border); padding-top: 18px; }
+.qv-page-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 28px; }
+.qv-eyebrow { margin: 0 0 8px; color: var(--qv-muted); font-size: 11px; font-weight: 600; letter-spacing: .035em; }
+.qv-page-heading h1 { margin: 0; font-size: clamp(26px, 3vw, 34px); font-weight: 650; letter-spacing: -.035em; line-height: 1.2; }
+.qv-page-description { margin: 9px 0 0; color: var(--qv-muted); font-size: 13px; }
+.qv-workspace-tag { flex-shrink: 0; padding: 6px 10px; border: 1px solid #dce6f4; border-radius: 7px; color: #69809e; font-size: 9px; font-weight: 650; letter-spacing: .12em; }
+.qv-content, .qv-pane { min-width: 0; }
+.qv-pane, .qv-content > :deep(.presence) { border: 1px solid var(--qv-border); border-radius: var(--qv-radius); background: #fff; box-shadow: 0 3px 12px #173c6a03; overflow: hidden; }
+.qv-pane > h2 { margin: 22px 24px 12px; font-size: 20px; letter-spacing: -.02em; }
+.qv-messages-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 20px 24px; border-bottom: 1px solid var(--qv-border); }
+.qv-messages-heading > span { color: #8290a5; font-size: 9px; letter-spacing: .12em; font-weight: 600; }
+.qv :deep(.email-reader) { --email-message-background: #fff; --email-message-color: #172b4d; }
+.qv :deep(.email-reader .muted) { color: var(--qv-muted); }
+.qv-suite { display: flex; align-items: center; gap: 5px; padding: 14px 20px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
+.qv-suite button, .qv-sorters button { flex-shrink: 0; min-height: 36px; padding: 8px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--qv-muted); font-size: 12px; font-weight: 550; white-space: nowrap; }
+.qv-suite button:hover, .qv-sorters button:hover { background: #f4f7fc; }
+.qv-suite button.on, .qv-sorters button.on { color: #1d4ed8; background: var(--qv-primary-soft); font-weight: 650; }
+.qv-suite > a { flex-shrink: 0; }
+.qv-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 20px; flex-wrap: wrap; border-bottom: 1px solid #f0f3f8; }
+.qv-sorters, .qv-day-nav { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.qv-sorters button { font-size: 11px; }
+.qv-day-nav { padding: 12px 20px; }
+.qv-pad { padding: 24px; }
+.qv-row { display: flex; align-items: center; gap: 13px; width: 100%; min-height: 82px; padding: 18px 24px; border: 0; border-bottom: 1px solid #edf1f7; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.qv-row:last-child { border-bottom: 0; }
+button.qv-row:hover { background: #f8faff; }
+.qv-row.unread { background: #f7faff; }
+.qv-row .ch { display: grid; place-items: center; width: 40px; height: 40px; flex-shrink: 0; border-radius: 12px; color: #5278b5; background: #edf3fc; }
+.qv-row .meta { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; }
+.qv-row .meta strong { overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.qv-row.unread .meta strong { font-weight: 700; }
+.qv-row .meta small { overflow: hidden; color: var(--qv-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.qv-row .meta > small:last-child:not(:first-of-type) { font-size: 10px; color: #8592a7; }
+.qv-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; padding: 11px 16px; border: 1px solid transparent; border-radius: 10px; font-size: 13px; font-weight: 600; text-decoration: none; }
+.qv-btn.primary { color: #fff; background: var(--qv-primary); box-shadow: 0 2px 4px #2563eb15; }
+.qv-btn.primary:hover:not(:disabled) { background: #1d4ed8; }
+.qv-btn.ghost { color: #526986; background: #f7f9fd; border-color: var(--qv-border); }
+.qv-btn.ghost:hover { color: #1d4ed8; background: #edf4ff; }
+.qv-btn.ghost.on { color: #1d4ed8; background: var(--qv-primary-soft); border-color: #b9d1ff; }
+.qv-btn.sm { min-height: 36px; padding: 8px 11px; font-size: 11px; }
+.badge { flex-shrink: 0; padding: 3px 8px; border-radius: 20px; background: #edf3ff; color: #3158a4; font-size: 10px; font-weight: 650; }
+.muted { color: var(--qv-muted); }
+.qv-notice, .qv-lock-warning, .qv-err { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; padding: 14px 18px; border: 1px solid #cfe3da; border-radius: 12px; color: #27694e; background: #f0faf5; font-size: 13px; }
+.qv-lock-warning { border-color: #eed7a8; color: #80550d; background: #fff8e9; }
+.qv-lock-warning > span { flex: 1; }
+.qv-err { border-color: #f1cfd2; background: #fff4f4; color: #9d3846; }
+.qv-err > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.qv-loading { display: flex; justify-content: center; align-items: center; gap: 12px; padding: 80px 20px; color: var(--qv-muted); }
+.qv-spinner { width: 20px; height: 20px; border: 2px solid #dbe8ff; border-top-color: var(--qv-primary); border-radius: 50%; animation: qv-spin .8s linear infinite; }
+@keyframes qv-spin { to { transform: rotate(360deg); } }
+.qv-more-panel { display: grid; gap: 22px; }
+.qv-tool-grid { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.qv-tool-card { display: flex; flex-direction: column; align-items: flex-start; gap: 17px; min-height: 190px; padding: 24px; border: 1px solid var(--qv-border); border-radius: 16px; background: #fff; text-align: left; }
+.qv-tool-card:hover { border-color: #afc9f4; box-shadow: 0 5px 16px #1d4ed808; }
+.qv-tool-icon { display: grid; place-items: center; width: 45px; height: 45px; border-radius: 12px; color: #3569c8; background: #eef4ff; }
+.qv-tool-card > span:nth-child(2) { flex: 1; }
+.qv-tool-card strong { display: block; margin-bottom: 5px; font-size: 14px; font-weight: 650; }
+.qv-tool-card small { display: block; color: var(--qv-muted); font-size: 12px; line-height: 1.6; }
+.qv-tool-card > svg { display: none; }
+.qv-more-account { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 22px 24px; border: 1px solid var(--qv-border); border-radius: 16px; background: #fff; }
+.qv-more-account h2 { margin: 0 0 4px; font-size: 14px; font-weight: 650; }
+.qv-more-account p { margin: 0; font-size: 12px; color: var(--qv-muted); }
+.qv-more-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.qv:not(.qv-signed-in) .qv-top { justify-content: space-between; }
+.qv:not(.qv-signed-in) .qv-workspace { display: flex; flex-direction: column; align-items: center; max-width: 600px; padding-top: 56px; }
+.qv:not(.qv-signed-in) .qv-err { width: 100%; }
+.qv-gate { order: 1; width: 100%; padding: 36px; border: 1px solid var(--qv-border); border-radius: 22px; background: #fff; box-shadow: 0 12px 40px #173c6a06; }
+.qv-gate-icon { display: grid; place-items: center; width: 54px; height: 54px; margin-bottom: 24px; border-radius: 15px; color: var(--qv-primary); background: var(--qv-primary-soft); }
+.qv-gate h1 { margin: 0 0 12px; font-size: 29px; font-weight: 650; letter-spacing: -.035em; line-height: 1.2; }
+.qv-gate p { color: var(--qv-muted); }
+.qv-gate p.qv-eyebrow { color: #4770aa; margin-bottom: 8px; }
+.qv-form { display: flex; flex-direction: column; gap: 12px; margin-top: 26px; }
+.qv-form label { display: flex; flex-direction: column; gap: 8px; color: #314967; font-size: 12px; font-weight: 600; }
+.qv-field-hint { margin-top: -4px; color: #7b8aa0; font-size: 10px; font-weight: 400; }
+.qv-form input[type=email], .qv-pin { width: 100%; min-height: 48px; padding: 12px; border: 1px solid #dbe3ee; border-radius: 10px; background: #fcfdff; color: var(--qv-text); font-size: 16px; }
+.qv-pin { min-height: 60px; font-size: 27px; letter-spacing: .38em; text-align: center; }
+.qv-form > .qv-btn { width: 100%; min-height: 50px; margin-top: 4px; }
+.qv-hint { margin-top: 18px; color: var(--qv-muted); font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; }
+.qv-gate-link { margin-top: 24px; }
+.qv-homescreen { order: 2; width: 100%; margin-top: 20px; padding: 18px 22px; border: 1px solid var(--qv-border); border-radius: 14px; background: #edf3fc; }
+.qv-homescreen strong { font-size: 12px; }
+.qv-homescreen p { margin: 6px 0 12px; color: var(--qv-muted); font-size: 11px; line-height: 1.7; }
+.qv-reply { display: grid; gap: 10px; margin: 20px 24px 24px; }
+.qv-reply label { display: block; color: var(--qv-muted); font-size: 12px; }
+.qv-reply input, .qv-reply textarea, .qv-sheet input, .qv-sheet textarea, .qv-date, .qv input.qv-date, .qv select.qv-date, .qv textarea { width: 100%; min-width: 0; min-height: 44px; padding: 10px 12px; border: 1px solid #dbe3ee; border-radius: 9px; background: #fff; color: var(--qv-text); font-size: 16px; }
+.qv-reply input { margin: 6px 0 8px; }
+.qv textarea { resize: vertical; line-height: 1.6; }
+.qv-date { width: auto; }
+.qv-bubble { margin: 16px 24px; padding: 16px 18px; border: 1px solid var(--qv-border); border-radius: 13px; background: #f8fafd; }
+.qv-bubble.outbound { border-color: #dce7fb; background: #eff5ff; }
+.qv-bubble .when { margin-bottom: 8px; color: var(--qv-muted); font-size: 11px; }
+.qv-bubble .body { overflow-wrap: anywhere; line-height: 1.7; font-size: 13px; }
+.qv-agenda-item { display: flex; justify-content: space-between; align-items: center; gap: 16px; min-height: 100px; padding: 22px 24px; border-bottom: 1px solid var(--qv-border); cursor: pointer; }
+.qv-agenda-item:hover { background: #f8faff; }
+.qv-agenda-item strong { font-size: 13px; font-weight: 600; }
+.qv-agenda-item p { margin: 7px 0 0; color: var(--qv-muted); font-size: 12px; }
+.qv-agenda-item small { color: #a34848; }
+.qv-day-grid { padding: 0 16px 20px; }
+.qv-hour-row { display: grid; grid-template-columns: 52px 1fr; min-height: 56px; border-top: 1px solid var(--qv-border); }
+.qv-hour-label { padding: 5px 8px 0 0; text-align: right; color: var(--qv-muted); font-size: 10px; }
+.qv-hour-lane { position: relative; min-height: 56px; padding: 3px 6px 5px 10px; border-left: 1px solid var(--qv-border); }
+.qv-cal-block { display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; padding: 10px; border-left: 3px solid #7ca7ef; border-radius: 7px; background: #eff5ff; }
+.qv-cal-block strong { font-size: 12px; }
+.qv-cal-block small { color: var(--qv-muted); font-size: 11px; }
+.qv-cal-block .qv-btn { align-self: flex-start; margin-top: 6px; }
+.qv-office-section { margin-bottom: 12px; }
+.qv-section-title { margin: 18px 24px 10px; font-size: 14px; }
+.qv-office-card { margin: 12px 20px; padding: 16px; border: 1px solid var(--qv-border); border-radius: 12px; }
+.qv-office-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; margin-bottom: 6px; }
+.qv-office-head small { color: var(--qv-muted); font-size: 11px; }
+.qv-avatar { width: 40px; height: 40px; flex-shrink: 0; border-radius: 13px; background: #eef4ff; object-fit: cover; }
+.qv-avatar-fallback { display: grid; place-items: center; color: #4774b9; font-size: 11px; font-weight: 650; }
+.qv-contact-row .meta small { white-space: normal; overflow-wrap: anywhere; }
+.qv-na-row { display: grid; grid-template-columns: minmax(0,1.35fr) minmax(0,.85fr); gap: 12px; align-items: end; margin-bottom: 16px; }
+.qv-na-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; font-size: 12px; }
+.qv-na-field .qv-date { width: 100%; }
+.qv-na-initials { text-transform: uppercase; letter-spacing: .06em; }
+.qv-note-out { margin-top: 16px; padding: 16px; border: 1px solid var(--qv-border); border-radius: 12px; background: #f8fafd; white-space: pre-wrap; font-size: 13px; line-height: 1.7; max-height: 40vh; overflow: auto; }
+.qv-note-section { margin-bottom: 12px; border: 1px solid var(--qv-border); border-radius: 12px; overflow: hidden; }
+.qv-note-section-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--qv-border); background: #f5f8fd; }
+.qv-note-section-title { color: #496385; font-size: 12px; font-weight: 650; }
+.qv-note-section-body { margin: 0; padding: 16px; color: var(--qv-text); white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 14px; line-height: 1.7; }
+.qv-note-block { margin-top: 16px; }
+.qv-note-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; }
+.qv-note-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 0 0 12px; color: var(--qv-muted); font-size: 12px; }
+.qv-note-meta-sep { opacity: .5; }
+.qv-save-new { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.qv-save-new .qv-btn { width: 100%; color: #fff; background: var(--qv-primary); }
+.qv-save-same-dos { background: #426baf !important; }
+.qv-save-fresh { background: #526783 !important; }
+.qv-ready-badge { display: inline-block; padding: 3px 8px; margin-left: 8px; border-radius: 20px; background: #e8f7ef; color: #287153; font-size: 10px; font-weight: 650; }
+.qv-soap-letter { display: inline-grid; place-items: center; width: 22px; height: 22px; margin-right: 6px; border-radius: 7px; color: #fff; background: var(--qv-primary); font-size: 11px; font-weight: 700; }
+.qv-modal { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 24px; background: #13264165; backdrop-filter: blur(4px); }
+.qv-sheet { width: 100%; max-width: 500px; max-height: 88dvh; padding: 26px; border: 1px solid var(--qv-border); border-radius: 20px; overflow-y: auto; overscroll-behavior: contain; background: #fff; box-shadow: 0 20px 80px #10254226; }
+.qv-sheet h3 { margin: 0 0 8px; font-size: 19px; }
+.qv-sheet label { display: block; margin: 14px 0 7px; color: var(--qv-muted); font-size: 12px; }
+.qv-sheet-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 .qv-sheet-actions .qv-btn { flex: 1; }
-.qv-btn.ghost.on { color: #fff; background: var(--qv-secondary, #334155); }
+.qv-task-detail h3 { margin: 8px 0; }
+.qv-task-detail h4 { margin: 22px 0 10px; color: var(--qv-muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.qv-detail-meta { margin: 0 0 8px; color: var(--qv-muted); font-size: 12px; }
+.qv-detail-body { margin: 14px 0; white-space: pre-wrap; font-size: 14px; line-height: 1.7; }
+.qv-links { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+.qv-links a { color: var(--qv-primary); font-size: 13px; overflow-wrap: anywhere; }
+.qv-comment { padding: 12px 0; border-bottom: 1px solid var(--qv-border); }
+.qv-comment strong { display: block; font-size: 13px; }
+.qv-comment small { color: var(--qv-muted); font-size: 11px; }
+.qv-comment p { margin: 6px 0 0; font-size: 13px; line-height: 1.6; }
+@media (max-width: 1100px) {
+  .qv-signed-in { padding-left: 208px; }
+  .qv-signed-in::before { width: 208px; }
+  .qv-tabs { width: 176px; }
+  .qv-signed-in .qv-brand-row { left: 20px; }
+  .qv-workspace { padding: 30px 26px 50px; }
+  .qv-session-status { display: none; }
+  .qv-tool-grid { grid-template-columns: 1fr; }
+  .qv-tool-card { flex-direction: row; align-items: center; min-height: 100px; padding: 20px; }
+  .qv-tool-card > svg { display: block; flex-shrink: 0; color: #8b9cb3; }
+  .qv-more-account { align-items: flex-start; flex-direction: column; }
+}
+@media (max-width: 760px) {
+  .qv-signed-in { display: flex; flex-direction: column; height: 100dvh; min-height: 0; padding-left: 0; overflow: hidden; }
+  .qv-signed-in::before { display: none; }
+  .qv-top { min-height: 80px; padding: max(16px, env(safe-area-inset-top)) 20px 16px; gap: 12px; }
+  .qv-signed-in .qv-brand-row { position: static; }
+  .qv-signed-in .qv-top { flex-shrink: 0; }
+  .qv-signed-in .qv-workspace { flex: 1; width: 100%; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px)); }
+  .qv-brand-row :deep(.auricwell-brand) { font-size: 18px; gap: 7px; }
+  .qv-brand-row :deep(.auricwell-brand img) { width: 29px; height: 29px; }
+  .qv-brand-row :deep(.auricwell-brand small) { font-size: 10px; }
+  .qv-signed-in .qv-organization { display: none; }
+  .qv:not(.qv-signed-in) .qv-organization { max-width: 45%; font-size: 11px; }
+  .qv-top-actions { gap: 6px; }
+  .qv-icon-button { min-width: 42px; min-height: 44px; padding: 10px; }
+  .qv-lock-label { display: none; }
+  .qv-extend { font-size: 10px; }
+  .qv-workspace { padding: 26px 20px 24px; }
+  .qv-tabs { inset: auto 0 0; z-index: 40; flex-direction: row; align-items: center; width: 100%; height: calc(74px + env(safe-area-inset-bottom, 0px)); padding: 8px max(12px, env(safe-area-inset-right, 0px)) calc(8px + env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px)); border-top: 1px solid var(--qv-border); background: #fffffffa; box-shadow: 0 -5px 24px #133b6a05; backdrop-filter: blur(16px); }
+  .qv-tabs > button { flex: 1; flex-direction: column; justify-content: center; gap: 4px; min-width: 0; min-height: 54px; padding: 7px 4px; border-radius: 12px; font-size: 10px; line-height: 1.2; }
+  .qv-nav-caption, .qv-nav-footer { display: none; }
+  .qv-page-heading { margin-bottom: 22px; }
+  .qv-page-heading h1 { font-size: 28px; }
+  .qv-page-description { font-size: 12px; line-height: 1.6; }
+  .qv-workspace-tag { display: none; }
+  .qv-eyebrow { font-size: 10px; }
+  .qv-pane { border-radius: 16px; }
+  .qv-messages-heading { padding: 18px; }
+  .qv-messages-heading > span { font-size: 8px; }
+  .qv-suite { padding: 12px; }
+  .qv-suite button, .qv-sorters button { min-height: 44px; }
+  .qv-btn.sm { min-height: 44px; }
+  .qv-toolbar { padding: 10px 12px; gap: 8px; }
+  .qv-sorters { gap: 0; }
+  .qv-sorters button { padding: 7px 9px; }
+  .qv-row { gap: 10px; min-height: 90px; padding: 17px 16px; }
+  .qv-row .ch { width: 35px; height: 35px; border-radius: 11px; }
+  .qv-row .meta strong { font-size: 12px; }
+  .qv-pad { padding: 22px 18px; }
+  .qv-reply { margin: 16px; }
+  .qv-bubble { margin: 14px 16px; padding: 14px; }
+  .qv-agenda-item { padding: 20px 18px; flex-wrap: wrap; }
+  .qv-lock-warning { padding: 14px; gap: 8px; font-size: 12px; }
+  .qv-lock-warning .qv-btn { margin-left: 26px; }
+  .qv:not(.qv-signed-in) .qv-workspace { padding: 30px 20px; }
+  .qv-gate { padding: 28px 24px; }
+  .qv-gate h1 { font-size: 27px; }
+  .qv-homescreen { padding: 16px 20px; }
+  .qv-tool-card { gap: 14px; padding: 18px; }
+  .qv-tool-card strong { font-size: 13px; }
+  .qv-tool-card small { font-size: 11px; }
+  .qv-more-account { padding: 20px; }
+  .qv-more-actions { width: 100%; }
+  .qv-more-actions .qv-btn { flex: 1; font-size: 11px; }
+  .qv-modal { align-items: flex-end; padding: 0; }
+  .qv-sheet { max-width: 100%; max-height: 90dvh; padding: 26px 22px max(26px, env(safe-area-inset-bottom)); border-radius: 24px 24px 0 0; }
+}
+@media (max-width: 360px) {
+  .qv-top { padding-left: 14px; padding-right: 14px; }
+  .qv-workspace { padding-left: 12px; padding-right: 12px; }
+  .qv-extend svg { display: none; }
+  .qv-na-row { grid-template-columns: 1fr; }
+  .qv-messages-heading > span { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .qv-spinner { animation: none; }
+  .qv *, .qv *::before, .qv *::after { scroll-behavior: auto; transition: none; }
+}
 </style>
 
 <style>
