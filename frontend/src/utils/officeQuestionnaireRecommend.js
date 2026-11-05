@@ -36,6 +36,12 @@ export const OFFICE_INSTRUMENT_META = {
     subtitle: 'Depression screening',
     skipKey: 'skip_phq9'
   },
+  phqa: {
+    id: 'phqa',
+    title: 'PHQ-A',
+    subtitle: 'Adolescent depression screening',
+    skipKey: 'skip_phqa'
+  },
   gad7: {
     id: 'gad7',
     title: 'GAD-7',
@@ -94,6 +100,7 @@ export function instrumentIdForField(field) {
   const instrument = String(field?.instrument || '').toLowerCase();
   if (OFFICE_INSTRUMENT_META[instrument]) return instrument;
   const key = String(field?.key || '').toLowerCase();
+  if (/^phqa/.test(key)) return 'phqa';
   if (/^phq/.test(key)) return 'phq9';
   if (/^gad/.test(key)) return 'gad7';
   if (/^audit/.test(key)) return 'auditc';

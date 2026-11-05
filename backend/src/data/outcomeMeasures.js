@@ -3,7 +3,7 @@
 import { getNluLearningMeasure } from './nluLearningMeasures.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { buildPhq9Fields, buildGad7Fields } from './validatedClinicalScreens.en.js';
+import { buildPhq9Fields, buildPhqAFields, buildGad7Fields } from './validatedClinicalScreens.en.js';
 
 export const measureRights = JSON.parse(readFileSync(new URL('./outcomeMeasureRights.json', import.meta.url), 'utf8'));
 const options = (labels, start = 0) => labels.map((label, i) => ({ value: String(i + start), label }));
@@ -19,9 +19,12 @@ const measures = [
   base('phq-9', 'PHQ-9 · Depression symptoms', 'Depression', twoWeeks,
     [...fields(buildPhq9Fields().map(f => f.label), frequency), impairment],
     { instrumentVersion: 'PHQ-9, English', summary: 'Nine symptom items and an unscored functioning question. Item 9 requires direct clinical follow-up when endorsed.', scoreRange: '0–27', timeframe: 'Past 2 weeks' }),
+  base('phq-a', 'PHQ-A · Adolescent depression symptoms', 'Depression', twoWeeks,
+    [...fields(buildPhqAFields().map(f => f.label), frequency), impairment],
+    { instrumentVersion: 'PHQ-A, adolescent wording, English', population: 'Adolescents; clinician selects for clinical fit', summary: 'Nine adolescent symptom items, including irritability, and an unscored functioning question. Item 9 requires direct clinical follow-up when endorsed. This is not the adult PHQ-9.', scoreRange: '0–27', timeframe: 'Past 2 weeks' }),
   base('gad-7', 'GAD-7 · Anxiety symptoms', 'Anxiety', twoWeeks,
     [...fields(buildGad7Fields().map(f => f.label), frequency), impairment],
-    { instrumentVersion: 'GAD-7, English', summary: 'Seven anxiety symptom items and an unscored functioning question.', scoreRange: '0–21', timeframe: 'Past 2 weeks' }),
+    { instrumentVersion: 'GAD-7, English', population: 'Adolescents and adults; clinician selects for clinical fit', summary: 'Seven anxiety symptom items and an unscored functioning question.', scoreRange: '0–21', timeframe: 'Past 2 weeks' }),
   base('pcl-5', 'PCL-5 · PTSD symptoms', 'Trauma', 'Below is a list of problems that people sometimes have in response to a very stressful experience. Keeping your worst event in mind, please read each problem carefully and then select one of the numbers to indicate how much you have been bothered by that problem in the past month.',
     [{ key: 'worst_event', label: 'Your worst event:', type: 'text', optional: true }, ...fields([
       'Repeated, disturbing, and unwanted memories of the stressful experience?',

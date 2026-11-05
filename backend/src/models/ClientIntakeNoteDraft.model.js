@@ -57,29 +57,37 @@ class ClientIntakeNoteDraft {
     return this.findById(result.insertId);
   }
 
-  static async findOpenForSubmission({ clientId, agencyId, intakeSubmissionId }) {
+  static async findOpenForSubmission({ clientId, agencyId, intakeSubmissionId, serviceCode = null }) {
     const cid = safeInt(clientId);
     const aid = safeInt(agencyId);
     const sid = safeInt(intakeSubmissionId);
+    const code = ['90791', 'H0031'].includes(String(serviceCode || '').toUpperCase())
+      ? String(serviceCode).toUpperCase()
+      : null;
     if (!cid || !aid) return null;
+    const codeSql = code ? ' AND UPPER(TRIM(service_code)) = ?' : '';
     if (sid) {
+      const params = [cid, aid, sid];
+      if (code) params.push(code);
       const [rows] = await intakeDraftDatabase().execute(
         `SELECT * FROM client_intake_note_drafts
          WHERE client_id = ? AND agency_id = ? AND intake_submission_id = ?
-           AND status != 'failed'
+           AND status != 'failed'${codeSql}
          ORDER BY created_at DESC
          LIMIT 1`,
-        [cid, aid, sid]
+        params
       );
       if (rows?.[0]) return rows[0];
     }
+    const params = [cid, aid];
+    if (code) params.push(code);
     const [rows] = await intakeDraftDatabase().execute(
       `SELECT * FROM client_intake_note_drafts
        WHERE client_id = ? AND agency_id = ?
-         AND status IN ('draft', 'diagnosis_pending', 'ready')
+         AND status IN ('draft', 'diagnosis_pending', 'ready')${codeSql}
        ORDER BY created_at DESC
        LIMIT 1`,
-      [cid, aid]
+      params
     );
     return rows?.[0] || null;
   }
@@ -138,16 +146,25 @@ class ClientIntakeNoteDraft {
     return rows?.[0] || null;
   }
 
-  static async latestForClient({ clientId, agencyId }) {
+  static async latestForClient({ clientId, agencyId, serviceCode = null }) {
     const cid = safeInt(clientId);
     const aid = safeInt(agencyId);
+    const code = ['90791', 'H0031'].includes(String(serviceCode || '').toUpperCase())
+      ? String(serviceCode).toUpperCase()
+      : null;
     if (!cid || !aid) return null;
+    const params = [cid, aid];
+    let codeSql = '';
+    if (code) {
+      codeSql = ' AND UPPER(TRIM(service_code)) = ?';
+      params.push(code);
+    }
     const [rows] = await intakeDraftDatabase().execute(
       `SELECT * FROM client_intake_note_drafts
-       WHERE client_id = ? AND agency_id = ?
+       WHERE client_id = ? AND agency_id = ?${codeSql}
        ORDER BY created_at DESC
        LIMIT 1`,
-      [cid, aid]
+      params
     );
     return rows?.[0] || null;
   }

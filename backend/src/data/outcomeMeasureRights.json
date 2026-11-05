@@ -304,9 +304,9 @@
     "name": "PHQ-A: Patient Health Questionnaire for Adolescents",
     "checkedAt": "2026-10-10",
     "scope": "English instrument in a commercial multi-company clinical web application",
-    "status": "version_review",
-    "version": "Exact licensed digital version not established",
-    "reason": "The guide names PHQ-A without specifying whether it means the full adolescent questionnaire or PHQ-9 modified for adolescents. Confirm exact content and rights; do not relabel adult PHQ-9 as PHQ-A.",
+    "status": "enabled",
+    "version": "PHQ-A adolescent wording, English",
+    "reason": "Same Pfizer unrestricted reproduction terms as the PHQ family. Stored as its own instrument with adolescent item wording, including irritability and schoolwork, so it is not a relabel of the adult PHQ-9.",
     "rightsUrl": "https://www.psychiatry.org/psychiatrists/practice/dsm/educational-resources/assessment-measures",
     "sourceUrl": "https://www.psychiatry.org/psychiatrists/practice/dsm/educational-resources/assessment-measures",
     "attribution": ""

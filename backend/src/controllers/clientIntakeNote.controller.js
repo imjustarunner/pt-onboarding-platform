@@ -783,9 +783,12 @@ export const getClientIntakeNote = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'Client has no agency' } });
 
     const wantedDraftId = safeInt(req.query?.draftId || req.query?.intakeDraftId);
+    const wantedCode = ['90791', 'H0031'].includes(String(req.query?.serviceCode || '').toUpperCase())
+      ? String(req.query.serviceCode).toUpperCase()
+      : null;
     const row = wantedDraftId
       ? await ClientIntakeNoteDraft.findForClient({ draftId: wantedDraftId, clientId, agencyId })
-      : await ClientIntakeNoteDraft.latestForClient({ clientId, agencyId });
+      : await ClientIntakeNoteDraft.latestForClient({ clientId, agencyId, serviceCode: wantedCode });
     if (wantedDraftId && !row) {
       return res.status(404).json({ error: { message: 'Intake draft not found' } });
     }

@@ -1196,3 +1196,41 @@ export const removePhiDocument = async (req, res, next) => {
     next(e);
   }
 };
+
+const ENROLLMENT_RECEIPT_TYPES = new Set(['intake packet', 'intake responses']);
+
+function isEnrollmentReceipt(doc) {
+  return ENROLLMENT_RECEIPT_TYPES.has(String(doc?.document_type || '').trim().toLowerCase());
+}
+
+export const listEnrollmentReceipts = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.clientId, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+    const client = await Client.findById(clientId, { includeSensitive: true });
+    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+    const allowed = await userCanAccessClient({
+      requestingUserId: req.user.id,
+      requestingUserRole: req.user.role,
+      client
+    });
+    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+    const docs = await ClientPhiDocument.findByClientId(clientId);
+    res.json((docs || []).filter((doc) => !doc.removed_at && isEnrollmentReceipt(doc)));
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const viewEnrollmentReceipt = async (req, res, next) => {
+  try {
+    const docId = parseInt(req.params.docId, 10);
+    const doc = docId ? await ClientPhiDocument.findById(docId) : null;
+    if (!doc || doc.removed_at || !isEnrollmentReceipt(doc)) {
+      return res.status(404).json({ error: { message: 'Enrollment receipt not found' } });
+    }
+    return viewPhiDocument(req, res, next);
+  } catch (e) {
+    next(e);
+  }
+};

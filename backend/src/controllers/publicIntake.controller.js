@@ -113,7 +113,7 @@ import {
   REMINDER_DECLINE_TTL_MS
 } from '../services/intakeUnfinishedReminder.service.js';
 import { resolveOrCreateJobApplicantUser } from '../services/jobApplicantUser.service.js';
-import { buildPsc17Fields, buildStandardQuestionnaireFields } from '../data/validatedClinicalScreens.en.js';
+import { buildGad7Fields, buildPhqAFields, buildPsc17Fields, buildStandardQuestionnaireFields } from '../data/validatedClinicalScreens.en.js';
 
 /** Fetch the Stripe Connect account ID for an agency (null if not connected). */
 async function getAgencyStripeConnectAccountId(agencyId) {
@@ -6201,6 +6201,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
               dependent: buildPsc17Fields({ scope: 'client' })
             }
           : null,
+        self_adolescent_screens: [...buildPhqAFields(), ...buildGad7Fields()],
         custom_messages: link.custom_messages || null,
         linked_es_form: link.has_spanish_master ? null : linkedEsInfo,
         document_translation_map: link.has_spanish_master ? null : (link.document_translation_map || null),

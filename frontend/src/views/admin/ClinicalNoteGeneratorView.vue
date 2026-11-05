@@ -7059,7 +7059,12 @@ const loadClientIntakeSummary = async (clientId) => {
   try {
     const [blocksRes, draftRes, clinicalRes] = await Promise.all([
       api.get(`/clients/${cid}/records-copy-blocks`, { skipGlobalLoading: true }).catch(() => null),
-      api.get(`/clients/${cid}/intake-note`, { skipGlobalLoading: true }).catch(() => null),
+      api.get(`/clients/${cid}/intake-note`, {
+        skipGlobalLoading: true,
+        params: ['90791', 'H0031'].includes(String(route.query?.serviceCode || route.query?.service_code || '').toUpperCase())
+          ? { serviceCode: String(route.query?.serviceCode || route.query?.service_code).toUpperCase() }
+          : {}
+      }).catch(() => null),
       api.get(`/clients/${cid}/clinical-responses`, { skipGlobalLoading: true }).catch(() => null)
     ]);
     if (requestSeq !== intakeLoadSeq || Number(effectiveClientId.value) !== cid) return;
@@ -7093,6 +7098,14 @@ const loadClientIntakeSummary = async (clientId) => {
       } else {
         intakeSummary.value = '';
       }
+    }
+    if (!intakeSummary.value) {
+      const sections = Array.isArray(draftRes?.data?.draft?.sections) ? draftRes.data.draft.sections : [];
+      intakeSummary.value = sections
+        .map((section) => [section.label, section.body].filter(Boolean).join('\n'))
+        .filter(Boolean)
+        .join('\n\n')
+        .slice(0, 6000);
     }
     const draftStatus = String(draftRes?.data?.draft?.status || '').toLowerCase();
     intakeDraftFinalized.value = draftStatus === 'final' || !!draftRes?.data?.draft?.finalizedAt;

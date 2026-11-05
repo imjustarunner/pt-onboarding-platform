@@ -20,8 +20,8 @@ import { listDisclosureProviders } from './smartDisclosure.service.js';
 import { buildDisclosureCareTeamHtml, buildSchoolStaffTableHtml, expandYourCareTeamProviders, buildPacketStyleBlock, buildPdfChromeTemplates } from './schoolPrintablePacket.service.js';
 import { buildCounselingSelfEnSteps } from '../data/counselingIntakeSelfEn.js';
 import { buildCounselingDependentEnSteps } from '../data/counselingIntakeDependentEn.js';
-import { buildPhq9Fields, buildGad7Fields, buildPsc17Fields } from '../data/validatedClinicalScreens.en.js';
-import { buildPhq9FieldsEs, buildGad7FieldsEs, buildPsc17FieldsEs, SPANISH_SCREEN_SOURCES } from '../data/validatedClinicalScreens.es.js';
+import { buildPhqAFields, buildGad7Fields, buildPsc17Fields } from '../data/validatedClinicalScreens.en.js';
+import { buildGad7FieldsEs, buildPsc17FieldsEs, SPANISH_SCREEN_SOURCES } from '../data/validatedClinicalScreens.es.js';
 import { SMS_PROGRAMS, buildCampaignPacket, campaignPublicContent } from '../utils/smsCampaignPacket.js';
 import { publishedSmsProgramSeed } from '../utils/smsPublishedProgramSeeds.js';
 import { buildPublicPortalBaseUrl } from '../utils/publicPortalUrl.js';
@@ -229,7 +229,10 @@ export async function getEnrollmentPacketDocuments(input = {}) {
     const selectScreen=(instrument,builder,count)=>{
       const current=masterFields.filter(field=>field.instrument===instrument&&field.type!=='info');
       if (locale === 'es') {
-        const spanishBuilder = {phq9:buildPhq9FieldsEs,gad7:buildGad7FieldsEs,psc17:buildPsc17FieldsEs}[instrument];
+        const spanishBuilder = {gad7:buildGad7FieldsEs,psc17:buildPsc17FieldsEs}[instrument];
+        // PHQ-A does not have a reviewed Spanish edition yet. Keep the English
+        // adolescent wording and mark the screen as not localized.
+        if (!spanishBuilder) return {fields:builder().map(fieldTuple),localized:false};
         // A Spanish master may be an old English clone. Locale alone is not
         // evidence of translated instrument text. Use the published edition;
         // retain required/conditional settings by the stable question key.
@@ -241,14 +244,14 @@ export async function getEnrollmentPacketDocuments(input = {}) {
       }
       return current.length>=count?{fields:current.map(fieldTuple),localized:true}:{fields:builder().map(fieldTuple),localized:locale!=='es'};
     };
-    const selected=audience==='guardian'?[selectScreen('psc17',buildPsc17Fields,17)]:[selectScreen('phq9',buildPhq9Fields,9),selectScreen('gad7',buildGad7Fields,7)];
+    const selected=audience==='guardian'?[selectScreen('psc17',buildPsc17Fields,17)]:[selectScreen('phqa',buildPhqAFields,9),selectScreen('gad7',buildGad7Fields,7)];
     const hasLocalizedScreens=selected.every(screen=>screen.localized);
-    const screenSections=localizeEnrollmentPacketSections(audience==='guardian' ? [{title:'PSC-17 · Parent / guardian report for children',fields:selected[0].fields}] : [{title:'PHQ-9',fields:selected[0].fields},{title:'GAD-7',fields:selected[1].fields}],locale);
+    const screenSections=localizeEnrollmentPacketSections(audience==='guardian' ? [{title:'PSC-17 · Parent / guardian report for children',fields:selected[0].fields}] : [{title:'PHQ-A · Adolescent depression symptoms',fields:selected[0].fields},{title:'GAD-7 · Anxiety symptoms',fields:selected[1].fields}],locale);
     const screenHtml=screenSections.map(section=>{
       const source=locale==='es'?SPANISH_SCREEN_SOURCES[section.fields[0]?.[2]?.instrument]:null;
       return sectionsToPaperHtml([section])+(source?`<p class="screen-source">${escape(source.attribution)} <a href="${escape(source.url)}">${escape(source.title)}</a></p>`:'');
     }).join('');
-    documents.push(doc('screening-questionnaires',audience==='guardian'?'PSC-17':'PHQ-9 and GAD-7',`<h2>${audience==='guardian'?'PSC-17':'PHQ-9 and GAD-7'}</h2>${enrollmentPacketLocaleNotice({locale,hasLocalizedScreens})}<p>${audience==='guardian'?'Complete for a child only; an adult dependent requires age-appropriate screening selected by the clinician.':'Complete these questionnaires about yourself.'} These screens support clinician review and do not establish a diagnosis. You may discuss answers with your provider. These forms are not monitored for emergencies; call 911 for an emergency or call/text 988 for immediate crisis support in the U.S.</p>${screenHtml}`,screenSections));
+    documents.push(doc('screening-questionnaires',audience==='guardian'?'PSC-17':'PHQ-A and GAD-7',`<h2>${audience==='guardian'?'PSC-17':'PHQ-A and GAD-7'}</h2>${enrollmentPacketLocaleNotice({locale,hasLocalizedScreens})}<p>${audience==='guardian'?'Complete for a child only; an adult dependent requires age-appropriate screening selected by the clinician.':'Complete these questionnaires about yourself.'} These screens support clinician review and do not establish a diagnosis. You may discuss answers with your provider. These forms are not monitored for emergencies; call 911 for an emergency or call/text 988 for immediate crisis support in the U.S.</p>${screenHtml}`,screenSections));
   }
   for(const step of steps.filter(s=>s.type==='document'&&eligibleStep(s,audience))) {
     const template=await DocumentTemplate.findById(Number(step.templateId||step.template_id));

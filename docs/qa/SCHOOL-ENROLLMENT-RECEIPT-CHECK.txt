@@ -1,0 +1,81 @@
+School enrollment receipt check
+Compare the PDF with the exact words typed. Do not treat a saved packet as correct because a download button exists.
+
+Use a different recognizable token in every section. After submit, download the enrollment receipt from the completion page, open the PDF, and also open that same PDF from the client’s documents as the client, as support, as an administrator, and as the assigned provider.
+
+A check passes only when the question label and the token, or the exact choice words below, appear together. “Never” next to the wrong question is a failure. A wrapped label with the answer on a later line is a failure if the answer cannot be tied to that question.
+
+Parent, one child
+- Child first/last: use the test name already assigned to this journey.
+- Date of birth: 2014-04-14. The receipt must show 2014-04-14 next to the date of birth.
+- Grade: GRADE-PARENT-6
+- Sex: Female
+- Street: STREET-PARENT-610
+- City: CITY-PARENT
+- State: CO
+- ZIP: 80211
+- PSC-17, type these choices, not all Never:
+  1 Fidgety, unable to sit still: Sometimes
+  2 Acts as if driven by a motor: Often
+  3 Daydreams too much: Never
+  4 Distracted easily: Sometimes
+  5 Feels sad, unhappy: Often
+  6 Feels hopeless: Never
+  7 Has trouble concentrating: Sometimes
+  8 Fights with others: Often
+  9 Is down on him or herself: Never
+  10 Worries a lot: Sometimes
+  11 Seems to be having less fun: Often
+  12 Does not listen to rules: Never
+  13 Does not understand other people's feelings: Sometimes
+  14 Teases others: Often
+  15 Blames others for his or her troubles: Never
+  16 Takes things that do not belong to him or her: Sometimes
+  17 Refuses to share: Often
+- The receipt must not contain PHQ-A or GAD-7 on this parent packet.
+- Insurance: choose self-pay. The receipt must say self-pay and must not invent a member id.
+- Reminders, if the page is shown: name REMINDER-PARENT-ONE and email reminder.parent.one@example.com
+- Release: for the two Columbia staff, choose two different options (one All Active, one Speak or No ROI). The receipt must name each person and that person’s choice.
+- Each required release notice that is accepted must say Acknowledged. Each authorization choice must show the choice that was clicked.
+- Informed consent, policy, and HIPAA must show that they were acknowledged.
+- Communication: choose No for email and No for text. The receipt must say No for both.
+
+Parent, two children
+- Repeat the parent journey with two children. Child A tokens use the suffix A. Child B tokens use the suffix B. Example grades: GRADE-A-4 and GRADE-B-1. Example streets: STREET-A-22 and STREET-B-88.
+- PSC-17 choices for child B are the reverse of child A. Child A item 1 is Sometimes. Child B item 1 is Often.
+- Download each child’s receipt. Child A’s PDF must contain Child A’s tokens and must not contain Child B’s grade, street, or PSC pattern. Child B’s PDF must do the opposite.
+- Shared parent name, email, and phone may appear on both.
+
+Student enrolling themselves, age 13
+- Do not expect the PSC-17. If any PSC-17 question is on the page, stop and fail.
+- The page must show PHQ-A and GAD-7, with those titles.
+- Grade: GRADE-SELF-8
+- Sex: Male
+- Street: STREET-SELF-410
+- City: CITY-SELF
+- State: CO
+- ZIP: 80205
+- Date of birth: 2013-05-05, and the receipt must show 2013-05-05.
+- PHQ-A, past two weeks:
+  1 Feeling down, depressed, irritable, or hopeless: Several days
+  2 Little interest or pleasure in doing things: Not at all
+  3 Trouble falling asleep, staying asleep, or sleeping too much: More than half the days
+  4 Poor appetite, weight loss, or overeating: Not at all
+  5 Feeling tired, or having little energy: Several days
+  6 Feeling bad about yourself: Not at all
+  7 Trouble concentrating on things like school work: More than half the days
+  8 Moving or speaking slowly, or fidgety: Not at all
+  9 Thoughts that you would be better off dead, or of hurting yourself: Not at all
+- GAD-7:
+  1 Feeling nervous, anxious, or on edge: Nearly every day
+  2 Not being able to stop or control worrying: Several days
+  3 Worrying too much about different things: Not at all
+  4 Trouble relaxing: More than half the days
+  5 Being so restless that it is hard to sit still: Not at all
+  6 Becoming easily annoyed or irritable: Several days
+  7 Feeling afraid, as if something awful might happen: Not at all
+- Insurance: self-pay. Receipt must say self-pay.
+- Release relationship must say Self, not “my dependent” and not “your child.”
+- Communication choices must match the buttons that were clicked.
+
+After each PDF check, record the reference number and which tokens were missing or attached to the wrong question. Do not copy the whole PDF into the report.

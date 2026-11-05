@@ -45,6 +45,10 @@ describe('school enrollment parent journey', () => {
     wrapper.vm.currentFlowIndex = screener();
     await flushPromises();
     expect(wrapper.text()).not.toContain('Feels sad');
+    expect(wrapper.text()).toContain('PHQ-A');
+    expect(wrapper.text()).toContain('Feeling down, depressed, irritable, or hopeless');
+    expect(wrapper.text()).toContain('GAD-7');
+    expect(wrapper.text()).toContain('Feeling nervous, anxious, or on edge');
     wrapper.vm.intakeForSelf = false;
     wrapper.vm.currentFlowIndex = screener();
     await flushPromises();

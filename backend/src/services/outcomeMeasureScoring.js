@@ -47,9 +47,10 @@ export function scoreOutcomeMeasure(measure, input) {
   if (measure.kind === 'original_pilot') return scoreNluLearning(measure, answers, result);
   const numeric = measure.items.filter(i => /^q\d+$/.test(i.key));
   const rawSum = numeric.reduce((sum, item) => sum + (answers[item.key] == null ? 0 : Number(answers[item.key])), 0);
-  if (measure.id === 'phq-9') {
-    if (Number(answers.q9) > 0) result.flags.push({ key: 'safety_follow_up', urgent: true, text: 'PHQ-9 item 9 was endorsed. Complete a direct suicide/self-harm assessment and follow the agency safety procedure now. The total score does not determine safety.' });
-    else if (answers.q9 == null) result.flags.push({ key: 'safety_unanswered', urgent: false, text: 'PHQ-9 item 9 is unanswered. Safety has not been assessed by this response set; follow up directly.' });
+  if (measure.id === 'phq-9' || measure.id === 'phq-a') {
+    const name = measure.id === 'phq-a' ? 'PHQ-A' : 'PHQ-9';
+    if (Number(answers.q9) > 0) result.flags.push({ key: 'safety_follow_up', urgent: true, text: `${name} item 9 was endorsed. Complete a direct suicide/self-harm assessment and follow the agency safety procedure now. The total score does not determine safety.` });
+    else if (answers.q9 == null) result.flags.push({ key: 'safety_unanswered', urgent: false, text: `${name} item 9 is unanswered. Safety has not been assessed by this response set; follow up directly.` });
   }
   if (measure.id === 'lec-5') {
     result.interpretation = 'Exposure inventory only. No validated total or severity score; review individual events clinically.';
@@ -87,9 +88,9 @@ export function scoreOutcomeMeasure(measure, input) {
     if (result.prorated) result.total = Math.round(rawSum * 8 / (8 - missing.length));
     result.average = result.total / 8;
     result.interpretation = `${result.prorated ? 'Prorated total (1–2 unanswered items); ' : ''}higher total and average indicate greater reported dissociative symptom severity. Review the items with the client.`;
-  } else if (measure.id === 'phq-9' || measure.id === 'gad-7') {
-    const thresholds = measure.id === 'phq-9' ? [5,10,15,20] : [5,10,15];
-    const bands = measure.id === 'phq-9' ? ['Minimal','Mild','Moderate','Moderately severe','Severe'] : ['Minimal','Mild','Moderate','Severe'];
+  } else if (measure.id === 'phq-9' || measure.id === 'phq-a' || measure.id === 'gad-7') {
+    const thresholds = measure.id === 'gad-7' ? [5,10,15] : [5,10,15,20];
+    const bands = measure.id === 'gad-7' ? ['Minimal','Mild','Moderate','Severe'] : ['Minimal','Mild','Moderate','Moderately severe','Severe'];
     result.band = bands[thresholds.filter(n => result.total >= n).length];
     result.interpretation = `${result.band} symptom range. Screening result only; clinical assessment determines diagnosis and next steps.`;
   } else if (measure.id === 'pcl-5') {

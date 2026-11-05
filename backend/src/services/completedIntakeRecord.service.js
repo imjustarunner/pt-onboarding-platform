@@ -13,6 +13,7 @@ import {
 } from '../utils/intakeFieldLabels.js';
 import { matchesShowIf, childAgeFlags } from '../utils/intakeShowIf.js';
 import { schoolRoiRecordSections } from './schoolRoiChartText.service.js';
+import { buildGad7Fields, buildPhq9Fields, buildPhqAFields, buildPsc17Fields } from '../data/validatedClinicalScreens.en.js';
 import { OFFICE_REFERRAL_SOURCE_KEY } from '../utils/officeReferralSource.js';
 
 const SECRET_KEY = /password|preview|card_number|cvc|cvv|ssn|secret|signaturedata|dataurl|token/i;
@@ -514,6 +515,30 @@ function rowsFromInterview(link, values, locale, printed, childName = '', { incl
     }
   }
   return sections;
+}
+
+const OFFICIAL_INSTRUMENT_FIELDS = [
+  ...buildPsc17Fields(),
+  ...buildPhqAFields(),
+  ...buildPhq9Fields(),
+  ...buildGad7Fields()
+];
+
+function answeredInstrumentSections(values, printed, byKey, locale, link, childName) {
+  const rows = [];
+  const keys = Object.keys(values || {})
+    .filter((key) => /^(psc|phqa|phq9|gad7)_\d+$/i.test(key) && !printed.has(key))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  for (const key of keys) {
+    const field = byKey.get(key) || OFFICIAL_INSTRUMENT_FIELDS.find((item) => item.key === key);
+    if (!field) continue;
+    const rendered = formatFieldValue(field, values[key], locale, link);
+    if (!rendered) continue;
+    const label = resolveIntakeFieldLabel(field, locale, link) || field.label || humanizeKey(key);
+    pushRow(rows, interpolateChildName(label, childName), rendered);
+    printed.add(key);
+  }
+  return rows.length ? [{ title: 'Symptom screens', rows }] : [];
 }
 
 function signatureImage(trail) {
@@ -1025,6 +1050,7 @@ export function buildCompletedIntakeRecord({
     reminderBlock,
     providersBlock,
     ...interviewSections,
+    ...answeredInstrumentSections(interviewValues, printed, byKey, locale, link, childName),
     leftoverSubmission.length ? { title: 'Additional answers', rows: leftoverSubmission } : null,
     ...clientSections,
     ...schoolRoiRecordSections(intakeData)

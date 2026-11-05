@@ -24,7 +24,9 @@ for (const shape of ['nested', 'flat']) {
         fields: [
           { key: 'child_dob', label: 'Date of birth', type: 'date', scope: 'client' },
           { key: 'client_grade', label: 'Grade', type: 'text', scope: 'client' },
-          { key: 'psc_1', label: 'Fidgety, unable to sit still', type: 'radio', instrument: 'psc17', scope: 'client' }
+          { key: 'psc_1', label: 'Fidgety, unable to sit still', type: 'radio', options: [
+            { value: '1', label: 'Never' }, { value: '2', label: 'Sometimes' }, { value: '3', label: 'Often' }
+          ] }
         ]
       }]
     };
@@ -393,4 +395,54 @@ test('job application completed record uses application copy instead of intake/c
   assert.ok(!labels.some((l) => /upload text/i.test(l)));
   const leftover = spec.sections.find((section) => /Additional answers/i.test(section.title));
   assert.ok(!leftover || leftover.rows.every((row) => !/resume|upload text/i.test(`${row.label} ${row.value}`)));
+});
+
+test('receipt prints the selected screen label and self screens that are not on the link', () => {
+  const spec = buildCompletedIntakeRecord({
+    link: {
+      scope_type: 'school',
+      intake_steps: [{
+        type: 'questions',
+        label: 'How your child has been doing',
+        fields: [
+          {
+            key: 'psc_1',
+            label: 'Fidgety, unable to sit still',
+            type: 'radio',
+            options: [
+              { value: '1', label: 'Never' },
+              { value: '2', label: 'Sometimes' },
+              { value: '3', label: 'Often' }
+            ]
+          },
+          { key: 'client_grade', label: 'Grade', type: 'text' },
+          { key: 'client_street', label: 'Street', type: 'text' }
+        ]
+      }]
+    },
+    submission: {
+      intake_data: {
+        clients: [{ firstName: 'Quinn', lastName: 'Example' }],
+        responses: {
+          clients: [{
+            psc_1: '2',
+            psc_2: '2',
+            phqa_1: '1',
+            gad7_1: '3',
+            client_grade: 'GRADE-TOKEN-8',
+            client_street: 'STREET-TOKEN-410'
+          }],
+          submission: {}
+        }
+      }
+    }
+  });
+  const rows = spec.sections.flatMap((section) => section.rows || []);
+  const value = (label) => rows.find((row) => row.label === label)?.value;
+  assert.equal(value('Fidgety, unable to sit still'), 'Sometimes');
+  assert.equal(value('Acts as if driven by a motor'), 'Often');
+  assert.equal(value('Feeling down, depressed, irritable, or hopeless'), 'Several days');
+  assert.equal(value('Feeling nervous, anxious, or on edge'), 'Nearly every day');
+  assert.equal(value('Grade'), 'GRADE-TOKEN-8');
+  assert.equal(value('Street'), 'STREET-TOKEN-410');
 });

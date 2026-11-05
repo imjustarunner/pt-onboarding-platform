@@ -43,14 +43,16 @@ const SUMMARY_EXTRA_CSS = `
       .intake-summary-meta { text-align: center; margin: 0 0 18px; color: #374151; }
       .intake-summary-dl { margin: 0 0 16px; }
       .intake-summary-row {
-        display: flex;
-        gap: 12px;
+        display: block;
         padding: 7px 0;
         border-bottom: 1px solid #d1d5db;
         page-break-inside: avoid;
       }
-      .intake-summary-row dt { flex: 0 0 2.15in; font-weight: 700; }
-      .intake-summary-row dd { margin: 0; flex: 1 1 auto; }
+      .intake-summary-row dt,
+      .intake-summary-row dd { display: inline; }
+      .intake-summary-row dt { font-weight: 700; }
+      .intake-summary-row dt::after { content: ": "; }
+      .intake-summary-row dd { margin: 0; }
       .intake-summary-acks ul { margin: 0; padding-left: 1.1rem; }
       .intake-summary-foot { margin-top: 22px; font-size: 12px; color: #4b5563; }
       .intake-summary-sign {
@@ -473,12 +475,10 @@ async function renderCompletedIntakePdf(spec = {}) {
           ensure(12); drawValue(line, side, row.href); y -= 12;
         }
       } else {
-        const labels = wrapPdfText(bold, `${row.label}:`, 9, 160);
-        const values = wrapPdfText(font, String(row.value), 9, maxWidth - 170);
-        for (let i = 0; i < Math.max(labels.length, values.length); i += 1) {
+        const paired = wrapPdfText(font, `${row.label}: ${row.value}`, 9, maxWidth);
+        for (const line of paired) {
           ensure(12);
-          if (labels[i]) page.drawText(labels[i], { x: side, y, size: 9, font: bold, color: black });
-          if (values[i]) drawValue(values[i], side + 170, row.href);
+          drawValue(line, side, row.href);
           y -= 12;
         }
       }

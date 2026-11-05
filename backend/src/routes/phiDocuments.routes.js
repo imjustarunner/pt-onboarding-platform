@@ -11,7 +11,9 @@ import {
   markPhiDocumentExported,
   removePhiDocument,
   viewPhiDocument,
-  uploadClientPhiDocument
+  uploadClientPhiDocument,
+  listEnrollmentReceipts,
+  viewEnrollmentReceipt
 } from '../controllers/phiDocuments.controller.js';
 import {
   listClientSignedSchoolPackets,
@@ -19,6 +21,10 @@ import {
 } from '../controllers/agencySchoolIntakeMaster.controller.js';
 
 const router = express.Router();
+// The enrollment receipt is the submitted packet. Support, the assigned
+// provider, and administrators can open that file without the rest of the chart.
+router.get('/clients/:clientId/enrollment-receipts', authenticate, listEnrollmentReceipts);
+router.get('/enrollment-receipts/:docId/view', authenticate, viewEnrollmentReceipt);
 // These are completed PHI records and medical attachments. Blank-document and
 // questionnaire dispatch use their existing operational routes.
 router.use(authenticate, excludeSupportClinicalContent, excludeFamilyClinicalWorkspace);

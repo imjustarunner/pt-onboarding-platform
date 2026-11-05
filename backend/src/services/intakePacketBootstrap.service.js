@@ -13,7 +13,6 @@ import { maybeEncryptNotePayload, maybeDecryptNotePayload } from './clinicalNote
 import { scrubIntakeTextForNoteWriter } from './phiScrubber.service.js';
 import { collectClientPhiNames } from './clientPhiNames.service.js';
 import { parseIntakeDiagnoses } from './intakeImport.service.js';
-import { deriveCredentialTierFromText } from '../utils/credentialNormalization.js';
 import { parseScalePair, inferScaleDirection, parseTreatmentPlanText } from './treatmentPlanImport.service.js';
 
 export const INTAKE_PACKET_BOOTSTRAP_TOOL = 'intake_packet_bootstrap';
@@ -279,28 +278,6 @@ async function resolveAssignedProviderUserId(clientId, client = null) {
   return safeInt(client?.provider_id || client?.provider_user_id || 0) || null;
 }
 
-async function getProviderCredentialText(userId) {
-  const uid = safeInt(userId);
-  if (!uid) return null;
-  try {
-    const [rows] = await pool.execute(`SELECT credential FROM users WHERE id = ? LIMIT 1`, [uid]);
-    if (rows?.[0]?.credential) return String(rows[0].credential);
-  } catch {
-    // ignore
-  }
-  return null;
-}
-
-function resolveIntakeTier(tier) {
-  if (tier === 'intern_plus') {
-    return { serviceCode: '90791', toolId: 'clinical_90791_intake_plan' };
-  }
-  if (tier === 'bachelors' || tier === 'qbha') {
-    return { serviceCode: 'H0031', toolId: 'clinical_h0031_intake' };
-  }
-  return { serviceCode: '90791', toolId: 'clinical_90791_intake_plan' };
-}
-
 async function resolveSummaryText({ clientId, intakeSubmissionId = null }) {
   const { resolveIntakeSummaryText } = await import('../controllers/clientIntakeNote.controller.js');
   return resolveIntakeSummaryText({ clientId, intakeSubmissionId });
@@ -342,14 +319,35 @@ async function runIntakeGemini({ scrubbedText, toolId }) {
  * Create intake draft + linked Treatment Plan Draft from packet clinical info.
  * Idempotent per client/submission while a non-failed draft exists.
  */
+const INTAKE_PRELOAD_CODES = [
+  { serviceCode: '90791', toolId: 'clinical_90791_intake_plan', withPlan: true },
+  { serviceCode: 'H0031', toolId: 'clinical_h0031_intake', withPlan: false }
+];
+
 export async function bootstrapIntakeAndPlanFromPacket({
   clientId,
   agencyId = null,
   submissionId = null,
-  actorUserId = null
+  actorUserId = null,
+  serviceCode = null,
+  toolId = null,
+  withPlan = null
 } = {}) {
   const cid = safeInt(clientId);
   if (!cid) return null;
+  if (!serviceCode) {
+    const results = [];
+    for (const code of INTAKE_PRELOAD_CODES) {
+      results.push(await bootstrapIntakeAndPlanFromPacket({
+        clientId,
+        agencyId,
+        submissionId,
+        actorUserId,
+        ...code
+      }));
+    }
+    return { drafts: results, ...(results.find((row) => row?.serviceCode === '90791') || results[0] || {}) };
+  }
 
   const client = await Client.findById(cid, { includeSensitive: true }).catch(() => null);
   const aid = safeInt(agencyId) || safeInt(client?.agency_id);
@@ -361,7 +359,8 @@ export async function bootstrapIntakeAndPlanFromPacket({
   const existing = await ClientIntakeNoteDraft.findOpenForSubmission({
     clientId: cid,
     agencyId: aid,
-    intakeSubmissionId: submissionId
+    intakeSubmissionId: submissionId,
+    serviceCode
   });
   if (existing && existing.status !== 'final') {
     return { skipped: true, reason: 'draft_exists', draftId: existing.id };
@@ -380,15 +379,7 @@ export async function bootstrapIntakeAndPlanFromPacket({
   }
 
   const providerUserId = await resolveAssignedProviderUserId(cid, client);
-  let serviceCode = '90791';
-  let toolId = 'clinical_90791_intake_plan';
-  if (providerUserId) {
-    const cred = await getProviderCredentialText(providerUserId);
-    const tier = deriveCredentialTierFromText({ userRole: 'provider', providerCredentialText: cred });
-    const info = resolveIntakeTier(tier);
-    serviceCode = info.serviceCode;
-    toolId = info.toolId;
-  }
+  const createPlan = withPlan !== false && serviceCode === '90791';
 
   const extraNames = await collectClientPhiNames(client).catch(() => []);
   const scrubbedText = scrubIntakeTextForNoteWriter(summaryText, { extraNames });
@@ -430,7 +421,7 @@ export async function bootstrapIntakeAndPlanFromPacket({
   });
 
   let treatmentPlan = null;
-  try {
+  if (createPlan) try {
     treatmentPlan = await ClinicalTreatmentPlan.create({
       agencyId: aid,
       clientId: cid,

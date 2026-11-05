@@ -431,6 +431,7 @@ const attachSubtitle = computed(() => {
 const canManageLifecycle = computed(() => ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value));
 
 const loading = ref(false);
+const receiptOnly = ref(false);
 const auditLoading = ref(false);
 const ocrLoading = ref(false);
 const intakeLoading = ref(false);
@@ -470,9 +471,23 @@ const reloadDocs = async () => {
   try {
     loading.value = true;
     error.value = '';
+    receiptOnly.value = false;
     const resp = await api.get(`/phi-documents/clients/${props.clientId}`);
     docs.value = resp.data || [];
+    receiptOnly.value = false;
   } catch (e) {
+    if (e.response?.status === 403) {
+      try {
+        const receipts = await api.get(`/phi-documents/clients/${props.clientId}/enrollment-receipts`);
+        docs.value = receipts.data || [];
+        receiptOnly.value = true;
+        error.value = '';
+        return;
+      } catch (receiptError) {
+        error.value = receiptError.response?.data?.error?.message || 'Failed to load the enrollment receipt';
+        return;
+      }
+    }
     error.value = e.response?.data?.error?.message || 'Failed to load packets';
   } finally {
     loading.value = false;
@@ -643,7 +658,7 @@ const openDoc = async (doc) => {
   try {
     opening.value = true;
     error.value = '';
-    const resp = await api.get(`/phi-documents/${doc.id}/view`, {
+    const resp = await api.get(receiptOnly.value ? `/phi-documents/enrollment-receipts/${doc.id}/view` : `/phi-documents/${doc.id}/view`, {
       responseType: 'blob',
       params: { theme: document.documentElement.getAttribute('data-theme') || '' }
     });

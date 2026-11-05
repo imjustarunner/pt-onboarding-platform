@@ -3197,6 +3197,7 @@ import {
   isOfficeRequiredQuestionField,
   isOfficeHardRequiredField
 } from '../utils/officeQuestionnaireRecommend.js';
+import { adolescentSelfScreenFields } from '../utils/adolescentSelfScreens.js';
 
 const JOB_LANDING_ICON_PATHS = {
   school: [
@@ -3403,8 +3404,8 @@ const INTAKE_TRANSLATIONS = {
     multiDependentDeclineNotice: 'No problem. Please finish this dependent’s packet first. You can then start a fresh packet from the same link to sign separately for the other dependent.',
     phiDownloadNotice: 'This file contains protected health information. After it is saved on a device, we cannot retrieve, change, or delete that copy. Keep it in a private place and only share it if you mean to.',
     viewPacketNow: 'View your enrollment',
-    packetRecordLead: 'View or print your branded packet now — it includes your answers, signatures, approvals, and electronic signature details.',
-    downloadSignedForms: 'Signed form copies',
+    packetRecordLead: 'Download your enrollment receipt and open it. Every answer you entered should be on that PDF. A copy is also saved with the client’s documents.',
+    downloadSignedForms: 'Download enrollment receipt',
     signedFormsReady: 'Your signed forms are ready to view or download.',
     applicationCopyReady: 'Your application copy is ready to view or download.',
     packetViewTemporary: 'View or print your branded packet now — it includes your answers, signatures, approvals, and electronic signature details.',
@@ -5272,12 +5273,21 @@ const visibleClinicalFields = computed(() => {
     }).map((f) => ({ ...f, required: false }));
     return fields;
   }
-  return fields.filter((f) => {
+  fields = fields.filter((f) => {
     if (!f?.key) return false;
     // A student enrolling themselves does not complete the parent PSC-17.
     if (intakeForSelf.value && instrumentIdForField(f) === 'psc17') return false;
     return matchesShowIf(f.showIf, values);
   });
+  if (intakeForSelf.value) {
+    const hasSelfScreen = fields.some((f) => ['phqa', 'gad7'].includes(instrumentIdForField(f)));
+    if (!hasSelfScreen) {
+      const supplied = link.value?.self_adolescent_screens;
+      const screens = Array.isArray(supplied) && supplied.length ? supplied : adolescentSelfScreenFields();
+      fields = [...fields, ...screens];
+    }
+  }
+  return fields;
 });
 
 const isClinicalFieldMissing = (field) => {
@@ -12831,11 +12841,10 @@ const stepQuestionFields = computed(() => {
   if (stepVis === 'new_client_only' && isExistingClientByMatch.value) return [];
   return normalizeIntakeSexFields(current.fields || []).filter((f) => {
     const key = String(f?.key || '').trim();
-    if (usesSchoolChildDetails.value && childDetailKind(f)) return false;
+    if (usesSchoolChildDetails.value && childDetailKind(f) && intakeForSelf.value !== true) return false;
     if (!key && f?.type !== 'info') return false;
     const scope = String(f?.scope || 'submission').trim().toLowerCase();
     if (intakeForSelf.value && scope === 'guardian') return false;
-    if (intakeForSelf.value && scope === 'client') return false;
     if (!intakeForSelf.value && scope === 'self') return false;
     if (intakeForSelf.value && instrumentIdForField(f) === 'psc17') return false;
     const collected = new Set([

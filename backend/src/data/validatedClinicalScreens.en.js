@@ -73,6 +73,35 @@ export function buildPhq9Fields() {
   );
 }
 
+const PHQA_HELPER =
+  'Over the last 2 weeks, how often have you been bothered by any of the following problems?';
+
+/** Adolescent wording. This is not the adult PHQ-9. */
+export function buildPhqAFields() {
+  const items = [
+    ['phqa_1', 'Feeling down, depressed, irritable, or hopeless'],
+    ['phqa_2', 'Little interest or pleasure in doing things'],
+    ['phqa_3', 'Trouble falling asleep, staying asleep, or sleeping too much'],
+    ['phqa_4', 'Poor appetite, weight loss, or overeating'],
+    ['phqa_5', 'Feeling tired, or having little energy'],
+    ['phqa_6', 'Feeling bad about yourself — or that you are a failure, or that you have let yourself or your family down'],
+    ['phqa_7', 'Trouble concentrating on things like school work, reading, or watching TV'],
+    ['phqa_8', 'Moving or speaking so slowly that other people could have noticed? Or the opposite — being so fidgety or restless that you have been moving around a lot more than usual'],
+    ['phqa_9', 'Thoughts that you would be better off dead, or of hurting yourself in some way']
+  ];
+  return items.map(([key, label]) =>
+    radioField({
+      key,
+      label,
+      helperText: PHQA_HELPER,
+      options: PHQ9_FREQUENCY,
+      required: false,
+      instrument: 'phqa',
+      section: 'PHQ-A'
+    })
+  );
+}
+
 const GAD7_HELPER =
   'Over the last 2 weeks, how often have you been bothered by the following problems?';
 
