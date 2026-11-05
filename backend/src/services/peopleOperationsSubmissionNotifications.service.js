@@ -53,7 +53,7 @@ export async function peopleOperationsSenders(agencyId,db=pool) {
    else {
     // Read only the existing accepted Send As identity. No alias registration,
     // transport pin changes or fallback to a different address occurs here.
-    const {google}=await import('googleapis'),{buildImpersonatedJwtClient,GOOGLE_WORKSPACE_SCOPES}=await import('./googleWorkspaceAuth.service.js');
+    const {google}=await import('../utils/googleApis.js'),{buildImpersonatedJwtClient,GOOGLE_WORKSPACE_SCOPES}=await import('./googleWorkspaceAuth.service.js');
     const {resolveAppEmailTransport}=await import('./unifiedEmail/transportMailbox.js');
     const auth=await buildImpersonatedJwtClient({subjectEmail:resolveAppEmailTransport(),scopes:GOOGLE_WORKSPACE_SCOPES});
     const alias=(await google.gmail({version:'v1',auth}).users.settings.sendAs.get({userId:'me',sendAsEmail:identity.from_email})).data;

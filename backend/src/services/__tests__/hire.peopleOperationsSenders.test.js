@@ -4,7 +4,7 @@ vi.mock('../../config/database.js',()=>({default:{execute:m.execute},onTableWrit
 vi.mock('../workspaceRelayConfig.js',()=>({relaySelected:m.relay}));
 vi.mock('../workspaceRelaySender.js',()=>({verifyWorkspaceRelaySender:m.verify}));
 vi.mock('../googleWorkspaceAuth.service.js',()=>({buildImpersonatedJwtClient:vi.fn(async()=>({})),GOOGLE_WORKSPACE_SCOPES:['existing-app-scope']}));
-vi.mock('googleapis',()=>({google:{gmail:()=>({users:{settings:{sendAs:{get:m.alias}}}})}}));
+vi.mock('../../utils/googleApis.js',()=>({google:{gmail:()=>({users:{settings:{sendAs:{get:m.alias}}}})}}));
 import {peopleOperationsSenders} from '../peopleOperationsSubmissionNotifications.service.js';
 let row,sequence=0;
 beforeEach(()=>{vi.clearAllMocks();row={id:13,agency_id:2,identity_key:'people_operations',from_email:`po${++sequence}@tenant.test`,is_active:1};m.execute.mockImplementation(async()=>[[row]]);m.relay.mockReturnValue(false);m.alias.mockImplementation(async()=>({data:{sendAsEmail:row.from_email,verificationStatus:'accepted'}}));m.verify.mockResolvedValue({transport:'workspace_smtp_relay'});});

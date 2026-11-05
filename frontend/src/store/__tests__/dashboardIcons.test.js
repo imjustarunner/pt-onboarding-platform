@@ -1,21 +1,66 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
+import { flushPromises } from '@vue/test-utils';
 import { useAgencyStore } from '../agency';
 import { useAuthStore } from '../auth';
 import { useBrandingStore } from '../branding';
 import api from '../../services/api';
 import { clearAdminApiCache, getCached } from '../../utils/adminApiCache';
+import { isLoading } from '../../utils/pageLoader';
+import { preloadImages } from '../../utils/preloadImages';
 
 vi.mock('../../services/api', () => ({ default: { get: vi.fn() } }));
 vi.mock('../../utils/fontLoader', () => ({ loadFont: vi.fn() }));
+vi.mock('../../utils/preloadImages', () => ({ preloadImages: vi.fn() }));
 
 beforeEach(() => {
   localStorage.clear(); sessionStorage.clear(); clearAdminApiCache();
   setActivePinia(createPinia()); vi.clearAllMocks();
+  preloadImages.mockResolvedValue({ loaded: 0 });
   useAuthStore().setAuth(null, { id: 1, role: 'super_admin' });
 });
 
 describe('dashboard icon branding', () => {
+  it('bounds the fast sign-in handoff when an image server does not respond', async () => {
+    vi.useFakeTimers();
+    try {
+      preloadImages.mockReturnValue(new Promise(() => {}));
+      const branding = useBrandingStore();
+      branding.portalHostPortalUrl = 'itsco';
+      branding.setPortalThemeFromLoginTheme({ agency: { name: 'ITSCO', dashboardIcons: {
+        fields: { my_dashboard_clients_icon_id: 93 }, pathsById: { 93: 'icons/clients.svg' }
+      } } });
+      let finished = false;
+      const ready = branding.prepareDashboardIcons().then(() => { finished = true; });
+      await vi.advanceTimersByTimeAsync(1199);
+      expect(finished).toBe(false);
+      await vi.advanceTimersByTimeAsync(1); await ready;
+      expect(finished).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('warms configured icons on the login page and reuses them immediately after sign-in', () => {
+    const branding = useBrandingStore();
+    useAuthStore().user = null;
+    branding.portalHostPortalUrl = 'itsco';
+    branding.setPortalThemeFromLoginTheme({ agency: {
+      name: 'ITSCO', dashboardIcons: {
+        fields: { my_dashboard_clients_icon_id: 93, my_dashboard_clients_icon_path: 'icons/clients.svg' },
+        pathsById: { 93: 'icons/clients.svg', 94: 'icons/custom.svg' }
+      }
+    } });
+    expect(preloadImages).toHaveBeenCalledWith(expect.arrayContaining([expect.stringContaining('/icons/clients.svg')]), expect.any(Object));
+    useAuthStore().setAuth(null, { id: 7, role: 'provider' });
+    useAgencyStore().currentAgency = { id: 2, slug: 'itsco', my_dashboard_clients_icon_id: 93,
+      theme_settings: { dashboardIconOverrides: { dashboard: { overview: 94 } } } };
+    expect(branding.getDashboardCardIconUrl('clients')).toContain('/icons/clients.svg');
+    expect(branding.getDashboardIconOverrideUrl('dashboard', 'overview')).toContain('/icons/custom.svg');
+    expect(api.get).not.toHaveBeenCalled();
+    branding.setActiveRouteSlug('nlu');
+    expect(branding.getDashboardCardIconUrl('clients')).toBeNull();
+  });
+
   it('keeps NLU, PlotTwistCo, and platform assignments separate', () => {
     const agencies = useAgencyStore(); const branding = useBrandingStore();
     agencies.agencies = [
@@ -61,6 +106,74 @@ describe('dashboard icon branding', () => {
     await branding.prefetchIconIds([93]);
     expect(branding.getDashboardCardIconUrl('my_schedule')).toContain('/icons/schedule.png');
     expect(api.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the page usable while missing icons and decorative images are still loading', async () => {
+    let finishIcon;
+    let finishImages;
+    preloadImages.mockReturnValue(new Promise(resolve => { finishImages = resolve; }));
+    api.get.mockImplementation(url => url === '/platform-branding'
+      ? Promise.resolve({ data: {
+        manage_agencies_icon_id: 101, manage_agencies_icon_path: 'icons/agencies.png',
+        manage_users_icon_id: 102
+      } })
+      : new Promise(resolve => { finishIcon = resolve; }));
+    const branding = useBrandingStore();
+    await branding.fetchPlatformBranding();
+
+    expect(api.get.mock.calls.map(([url]) => url)).toEqual(['/platform-branding', '/icons/102']);
+    expect(branding.iconUrlById(101)).toContain('/icons/agencies.png');
+    expect(preloadImages).toHaveBeenCalled();
+    expect(isLoading.value).toBe(false);
+
+    finishIcon({ data: { file_path: 'icons/users.png' } });
+    finishImages({ loaded: 1 });
+    await flushPromises();
+    expect(branding.iconUrlById(102)).toContain('/icons/users.png');
+  });
+
+  it('bounds concurrent icon requests across callers and drains the queue after a failure', async () => {
+    const pending = new Map();
+    let active = 0;
+    let peak = 0;
+    api.get.mockImplementation(url => {
+      active++;
+      peak = Math.max(peak, active);
+      return new Promise((resolve, reject) => pending.set(url, { resolve, reject }))
+        .finally(() => { active--; });
+    });
+    const branding = useBrandingStore();
+    const first = branding.prefetchIconIds([101, 102, 103, 104, 105, 106]);
+    const second = branding.prefetchIconIds([105, 107, 108, 109, 110]);
+    expect(api.get).toHaveBeenCalledTimes(4);
+
+    pending.get('/icons/101').reject(new Error('temporarily unavailable'));
+    pending.delete('/icons/101');
+    await flushPromises();
+    expect(api.get).toHaveBeenCalledTimes(5);
+    while (pending.size) {
+      for (const [url, request] of [...pending]) {
+        pending.delete(url);
+        request.resolve({ data: { file_path: `${url.slice(1)}.png` } });
+      }
+      await flushPromises();
+    }
+    await Promise.all([first, second]);
+    expect(peak).toBe(4);
+    expect(api.get).toHaveBeenCalledTimes(10);
+    expect(api.get.mock.calls.filter(([url]) => url === '/icons/105')).toHaveLength(1);
+    expect(branding.iconFilePathById(101)).toBeNull();
+    expect(branding.iconUrlById(110)).toContain('/icons/110.png');
+  });
+
+  it('reuses updated paths from a saved branding response without fetching those IDs', async () => {
+    const branding = useBrandingStore();
+    branding.iconFilePathCache = { 101: 'icons/old.png' };
+    await branding.setPlatformBrandingFromResponse({
+      manage_agencies_icon_id: 101, manage_agencies_icon_path: 'icons/new.png'
+    });
+    expect(api.get).not.toHaveBeenCalled();
+    expect(branding.iconUrlById(101)).toContain('/icons/new.png');
   });
 
   it('applies per-card changes immediately, preserves settings, and refreshes hydration cache', () => {

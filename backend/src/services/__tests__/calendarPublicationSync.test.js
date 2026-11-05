@@ -6,7 +6,7 @@ vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnectio
 vi.mock('../familyAuth.service.js',()=>({requireHousehold:vi.fn(async()=>({id:1})),assertFamilyBenefit:vi.fn()}));
 vi.mock('../calendarEvents.service.js',()=>({familyCalendarEvents:m.events,workCalendarEvents:m.events}));
 vi.mock('../googleWorkspaceAuth.service.js',()=>({buildImpersonatedJwtClient:vi.fn()}));
-vi.mock('googleapis',()=>({google:{calendar:()=>({events:{insert:m.insert,update:m.update,delete:m.remove},acl:{delete:m.aclDelete}})}}));
+vi.mock('../../utils/googleApis.js',()=>({google:{calendar:()=>({events:{insert:m.insert,update:m.update,delete:m.remove},acl:{delete:m.aclDelete}})}}));
 import {syncGooglePublication} from '../calendarPublication.service.js';
 const p={id:1,household_id:1,user_id:501,agency_id:1,calendar_kind:'family',detail_mode:'limited',google_calendar_id:'family-calendar',google_subject:'automation@example.com'};
 const current={key:'family:1:1',title:'Personal event',start:'2026-09-20T10:00Z',end:'2026-09-20T11:00Z'};

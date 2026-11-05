@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { google } from 'googleapis';
+import { OAuth2Client } from 'google-auth-library';
  
 function getClientId() {
   return process.env.GOOGLE_OAUTH_CLIENT_ID || '';
@@ -62,7 +62,7 @@ export function getGoogleOAuthClient({ redirectUri: redirectUriOverride = null }
   if (!clientId || !clientSecret || !redirectUri) {
     throw new Error('Google OAuth is not configured (GOOGLE_OAUTH_CLIENT_ID/SECRET/REDIRECT_URI)');
   }
-  return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+  return new OAuth2Client(clientId, clientSecret, redirectUri);
 }
  
 export function getGoogleAuthorizeUrl({ state, nonce, prompt = 'select_account', loginHint = null, redirectUri = null }) {

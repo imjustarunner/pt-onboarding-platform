@@ -1,5 +1,5 @@
 import { guardGmailClient } from './unifiedEmail/gmailTrafficGuard.js';
-import { google } from 'googleapis';
+import { google } from '../utils/googleApis.js';
 
 // Required scopes (match Admin Console DWD configuration)
 export const GOOGLE_WORKSPACE_SCOPES = [

@@ -1870,16 +1870,15 @@ const countUnsignedNotifications = () => {
   }).length;
 };
 
-const withTimeout = (promise, ms = 7000) =>
-  Promise.race([
+const withTimeout = (promise, ms = 7000) => {
+  let timer;
+  return Promise.race([
     promise,
     new Promise((_, reject) => {
-      const t = setTimeout(() => {
-        clearTimeout(t);
-        reject(new Error('timeout'));
-      }, ms);
+      timer = setTimeout(() => reject(new Error('timeout')), ms);
     })
-  ]);
+  ]).finally(() => clearTimeout(timer));
+};
 
 const safeGet = (url, config = {}, ms = 7000) =>
   withTimeout(getStartupData(url, { ...config, skipGlobalLoading: true }), ms)
@@ -1938,14 +1937,14 @@ const loadDashboard = async () => {
   });
 
   // Notifications are best-effort and must not block the first paint / global loader.
-  const notificationsPromise = notificationStore
+  void notificationStore
     .fetchNotifications?.({
       agencyId: agencyId || undefined,
       limit: 200,
       skipGlobalLoading: true
     })
     .catch(() => {});
-  const commsCountsPromise = communicationsCountsStore.fetchCounts?.().catch(() => {});
+  void communicationsCountsStore.fetchCounts?.().catch(() => {});
   notificationStore.fetchCounts?.().catch(() => {});
 
   if (!agencyId) {
@@ -1966,8 +1965,7 @@ const loadDashboard = async () => {
         : Promise.resolve(null)
     ]);
     applyGlanceFromPayloads({ center, personal, openCountRes, metrics, specs, escalationSummary });
-    await Promise.allSettled([notificationsPromise, commsCountsPromise]);
-    await refreshDerivedGlanceCounts({ agencyId, personal, center });
+    // Secondary badge/notification reads must not delay the schedule phase.
   } finally {
     setLoading(false);
   }
@@ -2354,7 +2352,7 @@ const loadDashboard = async () => {
       modules: modulesList.length
     };
 
-    await refreshDerivedGlanceCounts({ agencyId });
+    void refreshDerivedGlanceCounts({ agencyId }).catch(() => {});
   } finally {
     scheduleLoading.value = false;
   }

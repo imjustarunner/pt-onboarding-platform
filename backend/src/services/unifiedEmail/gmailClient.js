@@ -1,6 +1,6 @@
 import { guardGmailClient } from './gmailTrafficGuard.js';
 import { resolveAppEmailTransport } from './transportMailbox.js';
-import { google } from 'googleapis';
+import { google } from '../../utils/googleApis.js';
 import {
   buildImpersonatedJwtClient,
   GOOGLE_WORKSPACE_SCOPES,

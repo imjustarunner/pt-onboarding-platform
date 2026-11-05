@@ -62,6 +62,11 @@ jobs:
       - name: Session deadlines and cross-tab verification request bounds
         working-directory: frontend
         run: node node_modules/vitest/vitest.mjs run src/utils/__tests__/activityTracker.test.js src/utils/__tests__/sessionDeadline.test.js
+      - name: Login artwork, dashboard loading, and modular Workspace clients
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.startup-performance.config.js
+          node --test backend/src/utils/__tests__/googleApis.test.js backend/src/services/__tests__/outboundEmailQuality.performance.test.js
+          npm test --prefix frontend -- src/store/__tests__/dashboardIcons.test.js src/store/__tests__/loginBranding.test.js src/store/__tests__/communicationsCounts.test.js src/services/__tests__/startupRequests.test.js src/components/provider/__tests__/ProviderLoginBriefing.loading.test.js src/views/admin/__tests__/TenantAdminDashboard.loading.test.js src/views/__tests__/LoginPortalIsolation.test.js src/utils/__tests__/completeGoogleLogin.test.js
       - name: Booked clinical sessions in My Work
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.booked-work.config.js
       - name: One-session guardian activity alerts and audit scope

@@ -3,6 +3,7 @@
  * but do not include them, and flag ROI emails missing required context.
  */
 
+import { setImmediate as yieldEventLoop } from 'node:timers/promises';
 import { buildQualityIssueSqlClause } from './communicationQualitySql.js';
 import { activeCommunicationFailureSql } from '../utils/communicationFailureQueue.js';
 import { appCommunicationVisibilitySql } from '../utils/externalTestingEmail.js';
@@ -303,8 +304,11 @@ export async function countAgencyCommunicationQualityIssues(agencyId, { pool, ch
   if (!pool || !agencyId) return 0;
   const rows = await fetchRowsForQualityScan(agencyId, pool, { channel });
   let count = 0;
-  for (const row of rows) {
-    if (rowHasOpenQualityIssue(row)) count++;
+  for (let index = 0; index < rows.length; index++) {
+    // Leave the event loop available to session and workspace requests during
+    // this potentially large badge scan, without changing the quality rules.
+    if (index > 0 && index % 50 === 0) await yieldEventLoop();
+    if (rowHasOpenQualityIssue(rows[index])) count++;
   }
   return count;
 }

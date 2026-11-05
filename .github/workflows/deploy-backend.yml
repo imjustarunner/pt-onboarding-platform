@@ -189,6 +189,11 @@ jobs:
                   throw new Error('Support email review scheduler is missing from the release image');
                 }
                 await import('./src/routes/supportEmailReview.routes.js');
+                // Check the modular clients against the image's installed lockfile.
+                const { google } = await import('./src/utils/googleApis.js');
+                for (const [api, version] of [['calendar', 'v3'], ['gmail', 'v1'], ['drive', 'v3'], ['admin', 'directory_v1'], ['groupssettings', 'v1'], ['meet', 'v2']]) {
+                  google[api]({ version });
+                }
                 console.log('✅ SMOKE_OK: shared navigation + assistant catalog load as ES modules');
                 process.exit(0);
               } catch (e) {
@@ -574,7 +579,7 @@ jobs:
               --min=1 \
               --min-instances=0 \
               --concurrency=40 \
-              --startup-probe=httpGet.path=/readyz,httpGet.port=8080,initialDelaySeconds=0,failureThreshold=24,periodSeconds=10,timeoutSeconds=5 \
+              --startup-probe=httpGet.path=/readyz,httpGet.port=8080,initialDelaySeconds=0,failureThreshold=120,periodSeconds=2,timeoutSeconds=2 \
             && break
             echo "Deploy attempt $attempt failed"
             if [ "$attempt" -eq 3 ]; then exit 1; fi

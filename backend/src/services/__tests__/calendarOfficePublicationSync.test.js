@@ -5,7 +5,7 @@ vi.mock('../../models/User.model.js',()=>({default:{findById:async()=>({id:5})}}
 vi.mock('../scheduleCalendarPolicy.service.js',()=>({usesGoogleSchedule:async()=>true}));
 vi.mock('../calendarEvents.service.js',()=>({workCalendarEvents:m.events,familyCalendarEvents:m.events}));
 vi.mock('../googleWorkspaceAuth.service.js',()=>({buildImpersonatedJwtClient:vi.fn()}));
-vi.mock('googleapis',()=>({google:{calendar:()=>({events:{get:m.get,insert:m.insert,update:m.update,delete:m.remove}})}}));
+vi.mock('../../utils/googleApis.js',()=>({google:{calendar:()=>({events:{get:m.get,insert:m.insert,update:m.update,delete:m.remove}})}}));
 import {syncGooglePublication,subscriptionFeed} from '../calendarPublication.service.js';
 const publication={id:2,user_id:5,agency_id:1,calendar_kind:'work',google_calendar_id:'work-mirror',google_subject:'automation@example.com',scope_key:'work:1:5'};
 const event={key:'work:1:office:12',title:'Office booking · Room 10',start:'2026-10-20T21:00:00Z',end:'2026-10-20T22:00:00Z',officeReservation:{id:12,roomId:10,buildingId:1,googleEventId:'native-reservation',calendarEmail:'owner@example.com',roomResourceEmail:'room@example.com'}};

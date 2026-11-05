@@ -1,5 +1,5 @@
 import { googleScheduleAllowedForEmail, GOOGLE_SCHEDULE_DISABLED } from './scheduleCalendarPolicy.service.js';
-import { google } from 'googleapis';
+import { google } from '../utils/googleApis.js';
 import { randomUUID } from 'crypto';
 import pool from '../config/database.js';
 import {

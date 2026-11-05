@@ -1,7 +1,7 @@
 import User from '../models/User.model.js';
 import { usesGoogleSchedule } from './scheduleCalendarPolicy.service.js';
 import crypto from 'crypto';
-import { google } from 'googleapis';
+import { google } from '../utils/googleApis.js';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import { buildPublicPortalBaseUrl } from '../utils/publicPortalUrl.js';

@@ -6,7 +6,7 @@ vi.mock('../googleWorkspaceDirectory.service.js', () => ({ default: { getGroup: 
   listGroupMembers: m.members, addGroupMember: m.addMember } }));
 vi.mock('../googleWorkspaceAuth.service.js', () => ({ buildImpersonatedJwtClient: m.auth,
   GOOGLE_WORKSPACE_SCOPES: [], logGoogleUnauthorizedHint: vi.fn() }));
-vi.mock('googleapis', () => ({ google: { gmail: m.gmail } }));
+vi.mock('../../utils/googleApis.js', () => ({ google: { gmail: m.gmail } }));
 import { ensureSendAsAlias } from '../gmailSendAs.service.js';
 import { assertVerifiedGmailSender } from '../unifiedEmail/verifiedSender.js';
 import { relaySelected } from '../workspaceRelayConfig.js';

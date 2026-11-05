@@ -1365,6 +1365,7 @@ onMounted(async () => {
         completeGoogleLogin({ api, authStore, agencyStore, orgSlug, startActivityTracking })
       ]);
       requireVerifiedSession();
+      await brandingStore.prepareDashboardIcons();
       signalFreshLogin();
       const destination = safeLoginDestination(route.query.redirect) || getDashboardRoute();
       await router.replace(user.requiresPasswordChange ? '/change-password' : destination);
@@ -2275,7 +2276,7 @@ const handleLogin = async (passkeyResult = null) => {
   if (result.success) {
     await runWorkspaceTransition(async () => {
       if (String(authStore.user?.role || '').toLowerCase() !== 'kiosk') {
-        await startActivityTracking({ force: true });
+        await Promise.all([startActivityTracking({ force: true }), brandingStore.prepareDashboardIcons()]);
         requireVerifiedSession();
       }
       const currentOrgSlug = String(effectiveLoginSlug.value || '').trim().toLowerCase();
