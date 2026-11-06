@@ -16,7 +16,7 @@ suite('canonical fee schedule against isolated MySQL', () => {
   let admin, db, d;
   const actor = { id: 501, role: 'super_admin' };
   beforeAll(async () => {
-    if (socket && !/^\/private\/tmp\/pt-billing-fees-(?:h0002-)?mysql-20261103\//.test(socket)) throw new Error('Only the owned socket-only synthetic MySQL instance may run this test');
+    if (socket && socket !== '/private/tmp/auricwell-narriva-mysql.sock' && !/^\/private\/tmp\/pt-billing-fees-(?:h0002-)?mysql-20261103\//.test(socket)) throw new Error('Only the owned socket-only synthetic MySQL instance may run this test');
     admin = await mysql.createConnection(connection);
     await admin.query('DROP DATABASE IF EXISTS fee_schedule_qa');
     await admin.query('CREATE DATABASE fee_schedule_qa');
@@ -58,11 +58,6 @@ suite('canonical fee schedule against isolated MySQL', () => {
     ]) await db.query(sql);
     const source = await readFile(new URL('../../../../database/migrations/1740_canonical_fee_schedules.sql', import.meta.url), 'utf8');
     for (const statement of splitSqlStatements(stripSqlLineComments(source))) await db.query(statement);
-    const modifiers = await readFile(new URL('../../../../database/migrations/1768_fee_schedule_modifiers.sql', import.meta.url), 'utf8');
-    for (const statement of splitSqlStatements(stripSqlLineComments(modifiers))) {
-      if (statement.includes('billing_claim_overrides')) continue;
-      await db.query(statement);
-    }
     const modifiers = await readFile(new URL('../../../../database/migrations/1768_fee_schedule_modifiers.sql', import.meta.url), 'utf8');
     for (const statement of splitSqlStatements(stripSqlLineComments(modifiers))) {
       if (statement.includes('billing_claim_overrides')) continue;

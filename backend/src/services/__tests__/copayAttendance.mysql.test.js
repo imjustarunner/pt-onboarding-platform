@@ -20,7 +20,7 @@ test('attendance copays use real SQL locks and one payment through note retries 
     // Disposable synthetic database only; never import any production environment.
     const [tables]=await setup.query('SHOW TABLES');await setup.query('SET FOREIGN_KEY_CHECKS=0');for(const table of tables)await setup.query(`DROP TABLE \`${Object.values(table)[0]}\``);await setup.query('SET FOREIGN_KEY_CHECKS=1');
     const fixture=await readFile(new URL('../../../fixtures/family-billing-security.sql',import.meta.url),'utf8');await setup.query(fixture.slice(fixture.indexOf('CREATE TABLE agencies')));
-    for(const file of ['613_guardian_insurance_payment.sql','665_guardian_payment_cards_stripe.sql','1413_private_family_billing.sql','1687_dependent_portal_access.sql','1688_client_portal_independence.sql','1414_family_receivables_and_workflows.sql','1745_copay_receipts_and_credits.sql','1485_client_billing_readiness.sql','1486_client_coverage_verification.sql','1494_management_collections.sql','1520_guardian_shared_billing.sql','1640_insurance_followups_and_payer_shares.sql','1673_attendance_copays.sql'])await setup.query(await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8'));
+    for(const file of ['613_guardian_insurance_payment.sql','665_guardian_payment_cards_stripe.sql','1413_private_family_billing.sql','1687_dependent_portal_access.sql','1688_client_portal_independence.sql','1414_family_receivables_and_workflows.sql','1745_copay_receipts_and_credits.sql','1485_client_billing_readiness.sql','1486_client_coverage_verification.sql','1494_management_collections.sql','1520_guardian_shared_billing.sql','1640_insurance_followups_and_payer_shares.sql','1673_attendance_copays.sql','1774_narriva_reviews_and_preferences.sql'])await setup.query(await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8'));
     for(const file of ['family-ledger-workflows.sql','patient-service-billing.sql'])await setup.query(await readFile(new URL(`../../../fixtures/${file}`,import.meta.url),'utf8'));
     await setup.query(`ALTER TABLE agencies ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0;
       ALTER TABLE users ADD is_demo BOOLEAN DEFAULT 0,ADD is_active BOOLEAN DEFAULT 1,ADD is_archived BOOLEAN DEFAULT 0,ADD status_expires_at DATETIME;
@@ -121,11 +121,11 @@ test('attendance copays use real SQL locks and one payment through note retries 
       const {createHash}=await import('node:crypto');
       const {maybeEncryptNotePayload}=await import('../clinicalNoteCrypto.service.js');
       const {completeNonbillableReview}=await import('../nonbillableNoteCompletion.service.js');
-      // This copay-only fixture injects an empty risk registry; the persisted-risk
-      // paths are exercised by nonbillableNoteCompletion and Narriva regression tests.
+      // Use the actual persisted Narriva registry, including the nested
+      // attendance-completion path; an empty registry has no mandatory risk.
       await setup.execute("INSERT INTO clinical_notes(id,clinical_session_id,agency_id,client_id,created_by_user_id,note_type,note_payload,is_billable) VALUES(9007,9007,1,102,45,'MISSED_APPOINTMENT',?,0)",[maybeEncryptNotePayload(payload)]);
-      await completeNonbillableReview({noteId:9007,agencyId:1,actorUserId:45,confirmed:true,expectedHash:createHash('sha256').update(payload).digest('hex')},{riskGate:async()=>{}});
-      await completeNonbillableReview({noteId:9007,agencyId:1,actorUserId:45,confirmed:true,expectedHash:createHash('sha256').update(payload).digest('hex')},{riskGate:async()=>{}});
+      await completeNonbillableReview({noteId:9007,agencyId:1,actorUserId:45,confirmed:true,expectedHash:createHash('sha256').update(payload).digest('hex')});
+      await completeNonbillableReview({noteId:9007,agencyId:1,actorUserId:45,confirmed:true,expectedHash:createHash('sha256').update(payload).digest('hex')});
       const [[decision]]=await setup.execute('SELECT attendance,decision_source FROM family_copay_attendance WHERE clinical_session_id=9007');
       assert.deepEqual(decision,{attendance:'did_not_occur',decision_source:'reviewed_note'});
       const [[notes]]=await setup.execute('SELECT COUNT(*) n,MAX(provider_signed_at) signature FROM clinical_notes WHERE clinical_session_id=9007');
