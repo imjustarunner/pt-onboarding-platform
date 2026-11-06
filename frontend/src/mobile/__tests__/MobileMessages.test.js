@@ -62,3 +62,14 @@ it('shows category and filter counts, including groups',async()=>{
  await start();expect(wrapper.findAll('.mm-categories button').find(button=>button.text().includes('Groups')).text()).toContain('0');
  expect(wrapper.findAll('.mm-filters button').map(button=>button.text())).toEqual(['All 1','Unread 1','Needs reply 1']);
 });
+
+it('keeps recipient and group names on cards when the latest author is someone else',async()=>{
+ api.get.mockResolvedValue({data:{items:[{...direct,sender:'You'},{key:'chat:20',id:20,kind:'chat',category:'groups',title:'Pilot team',sender:'Avery Example',preview:'Latest group update'}],counts:response().counts}});
+ await start();expect(row('Jordan').get('.mm-row-top strong').text()).toBe('Jordan Example');expect(row('Jordan').get('.mm-preview').text()).toContain('You:');expect(row('Pilot team').get('.mm-row-top strong').text()).toBe('Pilot team');expect(row('Pilot team').get('.mm-preview').text()).toContain('Avery Example:');
+});
+
+it('clears cached secure content when a refresh reports revoked conversation access',async()=>{
+ await start();await row('Mi•••').trigger('click');await flushPromises();await wrapper.findAll('.mm-secure-toggle')[0].trigger('click');expect(wrapper.text()).toContain('ORIGINAL MESSAGE');
+ api.get.mockRejectedValue({response:{status:403,data:{error:{message:'Conversation access changed'}}}});
+ await wrapper.findAll('.mm-reaction')[0].trigger('click');await flushPromises();expect(wrapper.text()).not.toContain('ORIGINAL MESSAGE');expect(wrapper.text()).toContain('Conversation access changed');expect(wrapper.text()).toContain('Unlock conversation');
+});
