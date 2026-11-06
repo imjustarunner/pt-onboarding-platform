@@ -140,7 +140,7 @@ evidence to roll back the interface.
 
 Completed release checks
 
-The final focused Narriva matrix passed 293 tests, including real MySQL service
+The final focused Narriva matrix passed 294 tests, including real MySQL service
 catalog/publication/correction cases, twice-applied review/preferences migration,
 recording opt-in and consent, privacy canaries, attachment races, and model
 executor compatibility. The established signature/claim suite passed 504 tests

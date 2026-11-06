@@ -83,6 +83,12 @@ describe('Narriva local clinical facts and privacy boundary',()=>{
   }
   expect(containsNarrivaIdentifiers('Client practiced grounding and identified triggers.')).toBe(false);
  });
+ it('blocks the protected mobile name abbreviations as well as full names before generation or review',()=>{
+  for(const text of ['Mic* Men* practiced grounding.','Élo* Álv* participated.']){
+   expect(containsNarrivaIdentifiers(text,['Michael Mendez','Élodie Álvarez'])).toBe(true);
+   expect(()=>requireNarrivaIdentifierCorrection(text,['Michael Mendez','Élodie Álvarez'])).toThrow(expect.objectContaining({code:'PHI_INPUT_REQUIRES_CORRECTION'}));
+  }
+ });
  it('masks short, long and Unicode client names on the server',()=>{
   expect(maskMobileClientName({first_name:'Michael',last_name:'Mendez'})).toBe('Mic* Men*');
   expect(maskMobileClientName({first_name:'Li',last_name:'Ng'})).toBe('Li Ng');
