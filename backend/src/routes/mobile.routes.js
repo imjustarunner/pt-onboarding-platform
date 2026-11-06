@@ -36,7 +36,7 @@ router.post('/authorize',limiter,authenticate,handle(async(req,res)=>{
   res.json(await mobileSessions.authorize({userId:req.user.id,agencyId:req.body.agencyId,clientId:req.body.clientId,redirectUri:req.body.redirectUri,challenge:req.body.challenge}));
 }));
 router.post('/exchange',limiter,handle(async(req,res)=>{
-  const result=await mobileSessions.exchange(req.body || {});
+  const result=await mobileSessions.exchange(req.body || {},rawDevice(req));
   if(req.body.clientId==='web'){
     res.cookie(MOBILE_COOKIE,result.deviceToken,secureCookie);
     delete result.deviceToken;
@@ -45,12 +45,19 @@ router.post('/exchange',limiter,handle(async(req,res)=>{
 }));
 router.get('/session',handle(async(req,res)=>{
   const context=await mobileSessions.device(rawDevice(req));
-  res.json({signedIn:true,needsCode:!context.device.quick_code_hash,workspace:context.workspace});
+  res.json({signedIn:true,needsCode:false,appLock:mobileSessions.lockInfo(context.device),workspace:context.workspace});
 }));
 router.post('/code',limiter,handle(async(req,res)=>{const result=await mobileSessions.setCode(rawDevice(req),req.body.passcode);refreshBrowserDevice(req,res);res.json(result);}));
 router.post('/unlock',limiter,handle(async(req,res)=>{
   const native=!!req.get('X-Auricwell-Device');
   const result=await mobileSessions.unlock(rawDevice(req),{code:req.body.passcode,biometric:native && req.body.biometric===true});
+  refreshBrowserDevice(req,res);res.json(result);
+}));
+router.post('/resume',limiter,handle(async(req,res)=>{const result=await mobileSessions.resume(rawDevice(req));refreshBrowserDevice(req,res);res.json(result);}));
+router.post('/app-lock',limiter,handle(async(req,res)=>{
+  const context=await unlocked(req),device=await mobileSessions.device(rawDevice(req));
+  if(Number(context.device.id)!==Number(device.device.id))throw failure(403,'MOBILE_DEVICE_MISMATCH','Use this device’s current sign-in.');
+  const result=await mobileSessions.configureLock(context,{method:req.body.method,code:req.body.passcode,biometricVerified:!!req.get('X-Auricwell-Device') && req.body.biometric===true});
   refreshBrowserDevice(req,res);res.json(result);
 }));
 router.post('/logout',handle(async(req,res)=>{

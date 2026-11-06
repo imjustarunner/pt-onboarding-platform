@@ -5145,6 +5145,8 @@ function isFreshLoginWindow(now = Date.now()) {
 }
 
 router.beforeEach(async (to, from, next) => {
+  if(/^\/mobile(?:\/|$)/.test(to.path)){window.location.replace(to.fullPath);next(false);return;}
+
   const auricwellDestination = auricwellLoginDestination(to.fullPath);
   if (auricwellDestination) { window.location.assign(auricwellDestination); next(false); return; }
   const officeEntry = officeKioskEntryRedirect(window.location.hostname, to.path);

@@ -1,7 +1,7 @@
 import {beforeAll,afterAll,beforeEach,it,expect,vi} from 'vitest';
 import express from 'express';
 import cookieParser from 'cookie-parser';
-const mocks=vi.hoisted(()=>({exchange:vi.fn(),authorize:vi.fn(),device:vi.fn(),unlock:vi.fn()}));
+const mocks=vi.hoisted(()=>({exchange:vi.fn(),authorize:vi.fn(),device:vi.fn(),unlock:vi.fn(),configureLock:vi.fn(),resume:vi.fn(),lockInfo:row=>({method:row.quick_code_hash?'code':'none',hasCode:!!row.quick_code_hash})}));
 vi.mock('../../../middleware/auth.middleware.js',()=>({authenticate:(req,_res,next)=>{req.user={id:1,switchedFromUserId:req.get('X-Test-Impersonating')?2:null};req.authClaims={demoMode:req.get('X-Test-Demo')==='1'};next();}}));
 vi.mock('../../../middleware/loginProtection.middleware.js',()=>({sharedLoginLimiter:()=>((_req,_res,next)=>next())}));
 vi.mock('../session.service.js',()=>({mobileSessions:mocks}));
@@ -32,7 +32,7 @@ it('cannot connect an impersonated/demo session or a different account than conf
 it('never returns the private profile in the locked device status',async()=>{
   mocks.device.mockResolvedValue({device:{quick_code_hash:'hash'},workspace:{id:10,name:'Test'},user:{password_hash:'private'}});
   const response=await fetch(base+'/session',{headers:{Cookie:'__Secure-auricwell_mobile_device=secret'}});
-  expect(await response.json()).toEqual({signedIn:true,needsCode:false,workspace:{id:10,name:'Test'}});
+  expect(await response.json()).toEqual({signedIn:true,needsCode:false,appLock:{method:'code',hasCode:true},workspace:{id:10,name:'Test'}});
   expect(mocks.device).toHaveBeenCalledWith('secret');
 });
 
@@ -41,4 +41,9 @@ it('refreshes the browser credential lifetime on successful code unlock, without
   const response=await post('/unlock',{passcode:'123456'},{Cookie:'__Secure-auricwell_mobile_device=existing-device-secret'});
   expect(response.status).toBe(200);expect(response.headers.get('set-cookie')).toContain('Max-Age=7776000');
   expect(await response.json()).toEqual({sessionToken:'short-access'});
+});
+
+it('cannot turn off an app lock with only the retained device cookie',async()=>{
+  const response=await post('/app-lock',{method:'none'},{Cookie:'__Secure-auricwell_mobile_device=secret'});
+  expect(response.status).toBe(423);expect(mocks.configureLock).not.toHaveBeenCalled();
 });
