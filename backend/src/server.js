@@ -286,6 +286,7 @@ import { adminBusinessOnboardingRouter } from './routes/businessOnboarding.route
 import publicMarketingPagesAdminRoutes from './routes/publicMarketingPagesAdmin.routes.js';
 import agentsRoutes from './routes/agents.routes.js';
 import clinicalNoteGeneratorRoutes from './routes/clinicalNoteGenerator.routes.js';
+import narrivaRoutes from './routes/narriva.routes.js';
 import sessionRecordingRoutes from './routes/sessionRecording.routes.js';
 import complianceCornerRoutes from './routes/complianceCorner.routes.js';
 import learningBillingRoutes from './routes/learningBilling.routes.js';
@@ -1114,6 +1115,7 @@ app.use('/api/prehire-portal', prehirePortalRoutes);
 app.use('/api/overlays', agencyPageOverlaysRoutes);
 app.use('/api/agents', agentsRoutes);
 app.use('/api/clinical-notes', clinicalNoteGeneratorRoutes);
+app.use('/api/narriva', narrivaRoutes);
 app.use('/api/session-recordings', sessionRecordingRoutes);
 app.use('/api/compliance-corner', complianceCornerRoutes);
 app.use('/api', researchCandidateRoutes);
@@ -3066,3 +3068,14 @@ if (process.env.MEETING_DIAL_IN_VOICE_APPLICATION_ID) {
 // Durable devices receive the complete Conversa stream, independently of UI polling.
 const mobilePushTimer=setInterval(async()=>{const {mobilePushTick}=await import('./services/mobile/push.service.js');await mobilePushTick();},10000);
 mobilePushTimer.unref();
+
+// Temporary clinical audio has a durable cleanup registry; failures retry after a crash.
+let clinicalAudioCleanupRunning=false;
+const clinicalAudioCleanupTick=async()=>{
+ if(clinicalAudioCleanupRunning)return;clinicalAudioCleanupRunning=true;
+ try{await (await import('./services/clinicalAudioCleanup.service.js')).retryClinicalAudioCleanup();}
+ catch(error){console.warn('[clinical-audio] Cleanup requires retry',error?.code || 'cleanup_unavailable');}
+ finally{clinicalAudioCleanupRunning=false;}
+};
+setTimeout(clinicalAudioCleanupTick,60000).unref();
+setInterval(clinicalAudioCleanupTick,60000).unref();

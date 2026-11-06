@@ -75,7 +75,8 @@ class SessionRecordingConsent {
         AND sd.task_id=c.task_id AND sd.signed_pdf_path IS NOT NULL AND sd.pdf_hash IS NOT NULL))`;
     if (safeInt(clientId)) {
       const [rows] = await db.execute(`SELECT c.* FROM session_recording_consents c
-        JOIN clients client ON client.id=c.client_id AND client.agency_id=c.agency_id
+        JOIN clients client ON client.id=c.client_id AND (client.agency_id=c.agency_id
+          OR EXISTS (SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=client.id AND ca.agency_id=c.agency_id AND ca.is_active=1))
         WHERE c.agency_id=? AND c.client_id=? AND ${signedProof} ORDER BY c.signed_at DESC LIMIT 1`, [aid,safeInt(clientId)]);
       return rows?.[0] || null;
     }

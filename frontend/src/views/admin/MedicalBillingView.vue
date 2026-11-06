@@ -165,6 +165,7 @@
           </div>
           <button type="button" class="mb-btn" :disabled="svcSaving" @click="saveServiceCode">Save code</button>
         </div>
+        <ServiceInformation v-if="svcForm.serviceCode" :service-code="svcForm.serviceCode" :agency-id="agencyId" :service-info="serviceCodes.find(item => String(item.service_code || item.serviceCode).toUpperCase() === String(svcForm.serviceCode).toUpperCase())?.serviceInfo || null" />
         <div class="mb-row" style="margin-top: 0.75rem;">
           <input v-model.number="previewMinutes" class="mb-input" type="number" placeholder="Preview minutes" />
           <button type="button" class="mb-btn mb-btn--small" @click="previewUnits">Preview units</button>
@@ -384,6 +385,7 @@
 
 <script setup>
 import ClinicalNoteCosignReview from '../../components/clinical/ClinicalNoteCosignReview.vue';
+import ServiceInformation from '../../components/notes/ServiceInformation.vue';
 import { computed, watch, ref } from 'vue';
 import ClaimMdWorkspace from '../../components/admin/ClaimMdWorkspace.vue';
 import { canAccessMedicalBilling } from '../../config/medicalBillingAccess.js';

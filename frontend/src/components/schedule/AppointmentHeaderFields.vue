@@ -180,6 +180,7 @@
             :placeholder="modality === 'IN_PERSON' ? 'Address or place (e.g. park, school)' : 'Optional'"
             @change="emit('update:locationAddress', String($event.target.value || ''))"
           />
+          <ServiceInformation v-if="primaryServiceCode" :service-code="primaryServiceCode" :agency-id="agencyId" :service-info="primaryServiceCodeOptions.find(option => String(option.code).toUpperCase() === String(primaryServiceCode).toUpperCase())?.serviceInfo || null" />
           <p v-if="adminCatalogLinks" class="ahf-admin-link-wrap">
             <a class="ahf-admin-link" :href="adminCatalogLinks.locations" target="_blank" rel="noopener">Update locations ↗</a>
           </p>
@@ -596,6 +597,7 @@
 
 <script setup>
 import { officeRoomTitle } from '../../utils/officeRoomTitle.js';
+import ServiceInformation from '../notes/ServiceInformation.vue';
 import { computed, ref, watch } from 'vue';
 
 const roomPreferenceSearch = ref('');

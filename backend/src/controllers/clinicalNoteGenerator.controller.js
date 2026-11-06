@@ -1,6 +1,7 @@
 import clinicalAppointmentAlerts from '../services/clinicalAppointmentAlerts.service.js';
 import { resolveClinicalDraftSessionContext } from '../services/clinicalDraftSessionContext.service.js';
 import { readStaffCareEligibility, requireStaffCareEligibility } from '../services/staffCareEligibility.service.js';
+import { requireNarrivaIdentifierCorrection } from '../services/narrivaInputPrivacy.service.js';
 import { maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
 import { hasAuthoredDraftChange } from '../services/clinicalDraftAttendanceIntent.js';
 import { ageAtServiceDate, intakeAgeInstruction, applyIntakeIdentifyingAge } from '../services/noteAidAge.service.js';
@@ -336,6 +337,7 @@ function resolveClinicalToolId({ serviceCode, programId }) {
   if (sc === 'H2014') return programId ? 'clinical_h2014_group' : 'clinical_h2014_individual';
   if (sc === 'H2015' || sc === 'H2016') return 'clinical_h2014_individual';
   if (sc === 'H0004') return 'clinical_h0004_note';
+  if (sc === 'H2011') return 'clinical_h2011_note';
   if (sc === 'H0031') return 'clinical_h0031_intake';
   if (sc === 'H0032') return 'clinical_h0032_plan_development';
   if (sc === 'H0002') return 'clinical_screening_review';
@@ -970,6 +972,13 @@ export const patchClinicalNoteDraft = async (req, res, next) => {
         dateOfService:patch.dateOfService||existing.date_of_service,serviceCode:patch.serviceCode||existing.service_code});
       patch.clinicalSessionId=Number(session.id);
     }
+    // Check unchanged links too: a browser with an old draft must not restore a
+    // prior service after the provider explicitly corrected the actual session.
+    if(patch.clinicalSessionId || existing.clinical_session_id || patch.officeEventId || existing.office_event_id){
+      await resolveClinicalDraftSessionContext({agencyId,clientId:patch.clientId||existing.client_id,providerUserId:req.user.id,
+        clinicalSessionId:patch.clinicalSessionId||existing.clinical_session_id,officeEventId:patch.officeEventId||existing.office_event_id,
+        dateOfService:patch.dateOfService||existing.date_of_service,serviceCode:patch.serviceCode||existing.service_code});
+    }
     const updated = await ClinicalNoteDraft.updateForUser({
       draftId,
       userId: req.user.id,
@@ -1063,6 +1072,15 @@ export const listRecentClinicalNoteDrafts = async (req, res, next) => {
     }
     const remaining = (drafts || []).filter((d) => !retireIds.includes(d.id));
     const sanitized = remaining.map((d) => sanitizeDraftRow(d));
+    if(sanitized.length) {
+      const pairs=sanitized.map(d=>[Number(d.agency_id),Number(d.id),Number(d.clinical_session_id) || null]);
+      const [riskRows]=await pool.execute(`SELECT agency_id,draft_id,clinical_session_id FROM narriva_reviews WHERE risk_assessment_required=1 AND (${pairs.map(()=>'(agency_id=? AND (draft_id=? OR clinical_session_id=?))').join(' OR ')})`,pairs.flat());
+      for(const draft of sanitized)if(riskRows.some(r=>Number(r.agency_id)===Number(draft.agency_id) && (Number(r.draft_id)===Number(draft.id) || r.clinical_session_id && Number(r.clinical_session_id)===Number(draft.clinical_session_id)))) {
+        let output={};try{output=typeof draft.output_json==='string'?JSON.parse(draft.output_json || '{}'):draft.output_json || {};}catch{/* Preserve the narrative even if old metadata is malformed. */}
+        output.meta={...output.meta,narrivaContext:{...output.meta?.narrivaContext,riskAssessmentRequired:true}};
+        draft.output_json=JSON.stringify(output);
+      }
+    }
     res.json({ drafts: sanitized, signedSessions, retiredDraftIds: retireIds });
   } catch (e) {
     next(e);
@@ -1154,43 +1172,11 @@ export const deleteClinicalNoteDrafts = async (req, res, next) => {
   }
 };
 
-export const transcribeClinicalNoteAudio = async (req, res, next) => {
-  try {
-    if (!requireNotSchoolStaff(req, res)) return;
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
-    }
-
-    const agencyId = req.body?.agencyId ? safeInt(req.body.agencyId) : null;
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
-    if (!(await requireClinicalNoteGeneratorEnabled(req, res, agencyId))) return;
-    await requireStaffCareEligibility(req.user.id, agencyId);
-
-    if (!req.file?.buffer) {
-      return res.status(400).json({ error: { message: 'audio is required' } });
-    }
-
-    const languageCode = String(req.body?.languageCode || 'en-US').trim() || 'en-US';
-    const transcript = await transcribeLongAudio({
-      buffer: req.file.buffer,
-      mimeType: req.file.mimetype,
-      languageCode,
-      userId: req.user?.id
-    });
-
-    res.json({ transcriptText: String(transcript || '').trim() });
-  } catch (e) {
-    if (e?.status) {
-      return res.status(e.status).json({ error: { message: e.message || 'Transcription failed' } });
-    }
-    next(e);
-  }
-};
+export const transcribeClinicalNoteAudio = async (req, res) => res.status(410).json({error:{code:'SESSION_RECORDING_REQUIRED',message:'Recording has moved to the session. Open Record Session and complete the required recording waivers.'}});
 
 export const generateClinicalNote = async (req, res, next) => {
   try {
+    if(req.file)throw Object.assign(new Error('Record audio from the actual session after recording consent is complete. Note Workspace accepts Session Narrative text.'),{status:410,code:'SESSION_RECORDING_REQUIRED'});
     if (!requireNotSchoolStaff(req, res)) return;
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -1241,7 +1227,16 @@ export const generateClinicalNote = async (req, res, next) => {
     if (!terminationRequested) await clinicalAppointmentAlerts.assertReviewed(req.user,{agencyId,clientId,clinicalSessionId,officeEventId,dateOfService});
     let inputText = String(req.body?.inputText || '').trim();
     if (terminationRequested && inputText.length > 1500000) return res.status(413).json({ error: { message: 'The supplied treatment history exceeds the generation limit.' } });
-    if (!terminationRequested) inputText = inputText.slice(0, 12000);
+    const narrivaWorkflow=['manual','narriva','smart_notes'].includes(String(req.body?.writerMode));
+    if(req.body?.writerMode && !narrivaWorkflow)throw Object.assign(new Error('Choose Manual Writer, Narriva or Smart Notes.'),{status:422,code:'NARRIVA_WRITER_MODE_INVALID'});
+    if(narrivaWorkflow){
+      const workspace=await Agency.findById(agencyId);
+      let flags=workspace?.feature_flags || {};if(typeof flags==='string'){try{flags=JSON.parse(flags);}catch{flags={};}}
+      if(flags?.narriva?.writing===false)throw Object.assign(new Error('Narriva writing is disabled for this workspace. Your saved draft remains available.'),{status:403,code:'NARRIVA_WRITING_DISABLED'});
+    }
+    if(narrivaWorkflow && autoSelectCode)throw Object.assign(new Error('Select and confirm the actual session service before generating. Narriva recommends service changes for your review and does not automatically change the billed code.'),{status:409,code:'NARRIVA_SERVICE_CONFIRMATION_REQUIRED'});
+    if(!terminationRequested && narrivaWorkflow && inputText.length>150000)throw Object.assign(new Error('The Session Narrative exceeds 150,000 characters. Split the material into session-specific content; no partial note was generated.'),{status:413});
+    if (!terminationRequested && !narrivaWorkflow) inputText = inputText.slice(0, 12000);
     const revisionInstruction = req.body?.revisionInstruction
       ? String(req.body.revisionInstruction).trim().slice(0, 1500)
       : '';
@@ -1252,6 +1247,15 @@ export const generateClinicalNote = async (req, res, next) => {
       ? String(req.body.treatmentPlanContext).trim().slice(0, 8000)
       : '';
     const draftId = req.body?.draftId ? safeInt(req.body.draftId) : null;
+    const savedGenerationDraft=draftId?await ClinicalNoteDraft.findByIdForUser({draftId,userId:req.user.id}):null;
+    if(narrivaWorkflow && draftId && (!savedGenerationDraft || Number(savedGenerationDraft.agency_id)!==Number(agencyId)))throw Object.assign(new Error('The saved draft is unavailable in this workspace.'),{status:404});
+    const generationSessionContext={agencyId,clientId:clientId || savedGenerationDraft?.client_id,providerUserId:req.user.id,
+      clinicalSessionId:clinicalSessionId || savedGenerationDraft?.clinical_session_id,officeEventId:officeEventId || savedGenerationDraft?.office_event_id,
+      dateOfService:dateOfService || savedGenerationDraft?.date_of_service,serviceCode:serviceCode || savedGenerationDraft?.service_code};
+    const assertGenerationSessionCurrent=async()=>{
+      if(generationSessionContext.clinicalSessionId || generationSessionContext.officeEventId)await resolveClinicalDraftSessionContext(generationSessionContext);
+    };
+    await assertGenerationSessionCurrent();
     const includeInteractiveComplexity = parseBool(req.body?.includeInteractiveComplexity);
     const dateWritten = req.body?.dateWritten ? normalizeDateOnly(req.body.dateWritten) : null;
 
@@ -1280,7 +1284,7 @@ export const generateClinicalNote = async (req, res, next) => {
       ? (Array.isArray(tierCodes) ? intersectCodes(catalogCodes, tierCodes) : catalogCodes)
       : tierCodes;
     const requestedToolId = req.body?.toolId ? String(req.body.toolId).trim() : '';
-    const effectiveAutoSelect = !requestedToolId && (autoSelectCode || tier === 'unknown');
+    const effectiveAutoSelect = !narrivaWorkflow && !requestedToolId && (autoSelectCode || tier === 'unknown');
     // Billing code optional when an explicit Note Workspace tool (gem) is selected (plans / termination / diagnosis).
     if (!effectiveAutoSelect && !serviceCode && !requestedToolId) {
       return res.status(400).json({
@@ -1377,6 +1381,7 @@ export const generateClinicalNote = async (req, res, next) => {
       }
     }
     const privacyContext = createSessionPrivacyContext({identifiers:scrubExtraNames,clientNames:sessionClientNames,providerNames:[req.user.first_name,req.user.last_name,req.user.firstName,req.user.lastName]});
+    if(narrivaWorkflow)requireNarrivaIdentifierCorrection(inputText,scrubExtraNames);
     inputText = await privacyContext.redact(inputText);
     const scrubbedRevision = revisionInstruction
       ? revisionInstruction
@@ -1578,6 +1583,7 @@ export const generateClinicalNote = async (req, res, next) => {
             ]
           })
         );
+        if(narrivaWorkflow && tool?.includeKnowledgeBase && !String(kbContext || '').trim())throw Object.assign(new Error('Configured Narriva guidance is unavailable.'),{status:503});
         if (kbContext) {
           prompt = [
             prompt,
@@ -1589,7 +1595,8 @@ export const generateClinicalNote = async (req, res, next) => {
           ].join('\n');
         }
       } catch {
-        // Ignore KB failures to keep tool responsive.
+        if(narrivaWorkflow)throw Object.assign(new Error('The configured Narriva guidance is unavailable. Your draft is saved; retry generation after it is available.'),{status:503,code:'NARRIVA_GUIDANCE_UNAVAILABLE'});
+        // Older tool callers retain their previous fallback; never label it Narriva verification.
       }
     }
 
@@ -1626,6 +1633,7 @@ export const generateClinicalNote = async (req, res, next) => {
         sessionContext: { durationMinutes: Number(req.body?.durationMinutes) || null },
         billingPrimaryUnits: serviceCode === '90834' && Number(req.body?.durationMinutes) >= 75 ? 2 : 1,
         model: modelName,
+        aidId: aidIdRaw || null,
         latencyMs,
         includeInteractiveComplexity: !!applyInteractiveComplexity,
         dateWritten: dateWritten || null,
@@ -1647,6 +1655,7 @@ export const generateClinicalNote = async (req, res, next) => {
     const encryptedInputText = maybeEncryptText(storedInputText);
     const encryptedOutputJson = maybeEncryptText(outputJson);
     if(req.sessionTranscription && !isChatEncryptionConfigured()) throw Object.assign(new Error('Secure note storage is not configured.'),{status:503});
+    await assertGenerationSessionCurrent();
 
     let draft = null;
     if (draftId) {

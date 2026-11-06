@@ -1,6 +1,8 @@
 import clinicalPool from '../config/clinicalDatabase.js';
 import { ensureNoteOnlyClinicalRecord } from './billingEncounterClinical.service.js';
 import ClinicalNote from '../models/clinical/ClinicalNote.model.js';
+import {assertNarrivaRiskBeforeSignature} from './narrivaRiskAssessment.service.js';
+import {assertNoPendingClinicalServiceChange} from '../utils/clinicalServiceChangePolicy.js';
 
 /**
  * After a chart contact note requests insurance billing, create a note-only
@@ -13,7 +15,7 @@ export async function processContactNoteBillingMeta({
   authorUserId,
   noteMessage,
   meta = {}
-} = {}) {
+} = {}, {database=clinicalPool,ensureRecord=ensureNoteOnlyClinicalRecord,noteModel=ClinicalNote,riskGate=assertNarrivaRiskBeforeSignature} = {}) {
   if (!meta?.billing_enabled) {
     return { handled: false, reason: 'billing_disabled' };
   }
@@ -33,7 +35,7 @@ export async function processContactNoteBillingMeta({
   const serviceDate = new Date().toISOString().slice(0, 10);
   const minutes = Number(meta.minutes || 0) || null;
 
-  const ensured = await ensureNoteOnlyClinicalRecord({
+  const ensured = await ensureRecord({
     agencyId,
     clientId,
     providerUserId: authorUserId,
@@ -47,8 +49,19 @@ export async function processContactNoteBillingMeta({
     return { handled: false, reason: 'session_create_failed' };
   }
 
+  async function assertCurrentSessionServiceReady(){
+    const [[current]]=await database.execute('SELECT * FROM clinical_sessions WHERE id=? AND agency_id=? AND client_id=?',[sessionId,agencyId,clientId]);
+    if(!current)throw Object.assign(new Error('The linked contact encounter is unavailable. Reload before finalizing the note.'),{status:409});
+    assertNoPendingClinicalServiceChange(current);
+  }
+  await assertCurrentSessionServiceReady();
+
+  // A reused note-only encounter may already carry a persisted risk requirement.
+  // This gate is deliberately outside the best-effort metadata/signature writes.
+  await riskGate({id:null,agency_id:agencyId,client_id:clientId,clinical_session_id:sessionId,metadata_json:{contactMeta:meta}});
+
   try {
-    await clinicalPool.execute(
+    await database.execute(
       `UPDATE clinical_sessions
        SET service_code = COALESCE(?, service_code),
            metadata_json = JSON_SET(
@@ -65,7 +78,7 @@ export async function processContactNoteBillingMeta({
   }
 
   const title = `Contact note (${serviceCode}) ${serviceDate}`;
-  const note = await ClinicalNote.create({
+  const note = await noteModel.create({
     clinicalSessionId: sessionId,
     agencyId,
     clientId,
@@ -88,9 +101,14 @@ export async function processContactNoteBillingMeta({
     createdByUserId: authorUserId
   });
 
+  // Recheck the actual newly saved note immediately before applying a signature.
+  // A risk requirement discovered while the record was being created must propagate.
+  await assertCurrentSessionServiceReady();
+  await riskGate({...note,agency_id:agencyId,client_id:clientId,clinical_session_id:sessionId});
+
   // Mark signed + billable so createMedicalClaim can queue for billing staff.
   try {
-    await clinicalPool.execute(
+    await database.execute(
       `UPDATE clinical_notes
        SET provider_signed_at = UTC_TIMESTAMP(),
            is_billable = 1,
@@ -100,7 +118,7 @@ export async function processContactNoteBillingMeta({
     );
   } catch {
     try {
-      await clinicalPool.execute(
+      await database.execute(
         `UPDATE clinical_notes
          SET provider_signed_at = UTC_TIMESTAMP(),
              is_billable = 1

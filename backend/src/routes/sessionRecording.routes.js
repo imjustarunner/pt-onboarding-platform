@@ -3,6 +3,7 @@ import { body, param, query } from 'express-validator';
 
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
 import { apiLimiter } from '../middleware/rateLimiter.middleware.js';
+import * as session from '../controllers/clinicalSessionRecording.controller.js';
 
 import {
   getSessionRecordingContext,
@@ -25,6 +26,22 @@ import {
 const router = express.Router();
 
 router.use(authenticate, requireActiveStatus);
+
+// Real encounter capture comes before the legacy /:id routes.
+router.get('/session/context', apiLimiter, session.sessionRecordingContext);
+router.post('/session/start-setup', apiLimiter, session.setupClinicalSessionRecording);
+router.post('/session/:recordingId/participants', apiLimiter, session.updateSessionRecordingParticipants);
+router.post('/session/:recordingId/consent', apiLimiter, session.prepareSessionRecordingConsent);
+router.get('/session/:recordingId/consent/:participantId/pdf', apiLimiter, session.getSessionRecordingConsentPdf);
+router.post('/session/:recordingId/consent/:participantId/sign', apiLimiter, session.signSessionRecordingConsent);
+router.post('/session/:recordingId/consent/:participantId/assign', apiLimiter, session.assignSessionRecordingConsent);
+router.post('/session/:recordingId/consent/:participantId/withdraw', apiLimiter, session.withdrawSessionRecordingConsent);
+router.post('/session/:recordingId/confirm', apiLimiter, session.confirmClinicalSessionRecording);
+router.post('/session/:recordingId/control', apiLimiter, session.controlClinicalSessionRecording);
+router.post('/session/:recordingId/audio', apiLimiter, session.clinicalSessionAudioUpload.single('audio'), session.appendClinicalSessionRecordingAudio);
+router.get('/session/:recordingId/narrative', apiLimiter, session.getClinicalSessionRecordingNarrative);
+router.post('/session/:recordingId/finish', apiLimiter, session.finishClinicalSessionRecording);
+
 
 router.get(
   '/context',

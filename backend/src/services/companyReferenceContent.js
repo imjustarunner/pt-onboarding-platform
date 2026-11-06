@@ -1,3 +1,4 @@
+import { clinicalServiceHandbookSections } from '../content/narrivaServiceHandbookAmendment.js';
 import { applyScreenerReference } from './safetyPlans/guideReference.js';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -247,6 +248,11 @@ function baseReferenceSource(agency, key, { packageAssigned = false } = {}) {
     if (tenant === 'isi') {
       const scope = source.sections.find(s => s.slug === 'facilitator-scope-reference');
       scope.body_html = scope.body_html.replace('<p>The <a href="/workplace-handbook#handbook-bachelors-level-facilitator-scope-and-h0004">Workplace Handbook → Bachelor’s-level facilitators · Scope, oversight and H0004</a> contains the agency policy.', '<p>ISI remains counseling-only. Follow the current approved assignment and <a href="/library?companyDocument=counseling-guide#counseling-guide-facilitator-scope">Care Approaches &amp; Practice Guide · Facilitator scope</a>; this reference does not establish a separate program.');
+    }
+    for (const section of clinicalServiceHandbookSections()) {
+      source.sections.push({ slug: section.slug, title: section.title,
+        parent_slug: section.parentSlug, source_page: section.sourcePage,
+        content_status: 'ready', sort_order: source.sections.length, body_html: section.bodyHtml });
     }
     appendHandbookPolicy(source, missedSessionFeeSectionForTenant(tenant));
     if (tenant === 'nlu') appendHandbookPolicy(source, NLU_BETWEEN_SESSION_SECTION);

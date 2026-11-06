@@ -58,6 +58,48 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     return { wrapper, state };
   }
 
+  it('defaults to Manual, keeps source text across mode changes, and saves the chosen default per workspace', async () => {
+    const { wrapper, state } = await workspace();
+    expect(state.noteWriterMode).toBe('manual');
+    expect(state.skipAiAid).toBe(true);
+    state.inputText = 'Synthetic session narrative without identifying details.';
+    state.noteWriterMode = 'narriva';
+    await flushPromises();
+    expect(state.inputText).toContain('Synthetic session narrative');
+    expect(state.skipAiAid).toBe(false);
+    await state.saveNarrivaDefault('narriva');
+    expect(api.patch).toHaveBeenCalledWith('/narriva/preferences', {agencyId:7,defaultMode:'narriva'}, {skipGlobalLoading:true});
+    expect(state.narrivaDefaultMode).toBe('narriva');
+    expect(wrapper.find('.na-speak-stage').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('blocks identified names before sending Narriva generation without a generate-anyway bypass', async () => {
+    const { wrapper, state } = await workspace();
+    state.noteWriterMode = 'narriva';
+    state.selectedClientId = 72;
+    state.selectedClient = {id:72,agency_id:7,full_name:'Synthetic Identifyingname'};
+    state.latestTreatmentPlan = {id:81,status:'active',effective_date:'2099-01-01',goals:[]};
+    state.initials='SYN'; state.inputText='Synthetic Identifyingname practiced grounding skills.';
+    await flushPromises();
+    vi.mocked(api.post).mockClear();
+    await state.generateNote();
+    expect(vi.mocked(api.post).mock.calls.some(([url]) => url === '/clinical-notes/generate')).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('requires explicit confirmation before changing the linked encounter service',async()=>{
+    const {wrapper,state}=await workspace();state.inputText='Synthetic crisis documentation.';state.sessionClinicalSessionId=82;await nextTick();state.narrivaServiceSnapshot={id:82,serviceCode:'90834'};state.otherServiceCode='H2011';state.selectedServiceCode='__other__';await nextTick();expect(state.narrivaServicePending).toBe(true);vi.mocked(api.post).mockClear();await state.saveDraftNow();expect(api.post).not.toHaveBeenCalled();state.narrivaServiceReason='The unscheduled crisis required immediate intervention.';vi.mocked(api.post).mockImplementation(async url=>({data:url.endsWith('/service')?{session:{id:82,serviceCode:'H2011'},serviceCode:'H2011'}:{draft:{id:66}}}));await state.confirmNarrivaService();expect(api.post).toHaveBeenCalledWith('/narriva/sessions/82/service',expect.objectContaining({agencyId:7,serviceCode:'H2011',expectedOldServiceCode:'90834',confirmed:true,justification:'The unscheduled crisis required immediate intervention.'}),{skipGlobalLoading:true});expect(state.narrivaServicePending).toBe(false);wrapper.unmount();
+  });
+
+  it('rehydrates a pending encounter confirmation without automatically submitting it',async()=>{
+    const {wrapper,state}=await workspace();const pending={expectedOldServiceCode:'90834',serviceCode:'H2011',justification:'Original crisis documentation confirmation.'};vi.mocked(api.get).mockImplementation(async url=>({data:url.endsWith('/narriva/sessions/82/service')?{session:{id:82,serviceCode:'H2011',pendingServiceChange:true},serviceCode:'H2011',pendingServiceChange:true,pendingConfirmation:pending}:{}}));state.sessionClinicalSessionId=82;await flushPromises();expect(state.narrivaPendingConfirmation).toEqual(pending);expect(state.narrivaServiceReason).toBe(pending.justification);expect(state.narrivaServicePending).toBe(true);expect(vi.mocked(api.post).mock.calls.some(([url])=>url.endsWith('/service'))).toBe(false);vi.mocked(api.post).mockImplementation(async url=>({data:url.endsWith('/service')?{session:{id:82,serviceCode:'H2011'},serviceCode:'H2011'}:{draft:{id:61}}}));await state.confirmNarrivaService();expect(api.post).toHaveBeenCalledWith('/narriva/sessions/82/service',expect.objectContaining({expectedOldServiceCode:'90834',serviceCode:'H2011',justification:pending.justification,confirmed:true}),{skipGlobalLoading:true});wrapper.unmount();
+  });
+
+  it('keeps the legacy guidance aid on the explicit service without asking AI to choose a billed code',async()=>{
+    const {wrapper,state}=await workspace('code_decider');state.noteWriterMode='narriva';await nextTick();state.selectedServiceCode='90837';state.initials='SYN';state.dateOfService='2026-11-06';state.inputText='Synthetic intervention and response.';await nextTick();expect(state.generateBlockedReason).toBe('');expect(state.generateDisabled).toBe(false);vi.mocked(api.post).mockImplementation(async url=>({data:url==='/clinical-notes/generate'?{outputJson:{sections:{Narrative:'Synthetic generated note.'}}}:{}}));await state.generateNote();const request=vi.mocked(api.post).mock.calls.find(([url])=>url==='/clinical-notes/generate');expect(request).toBeTruthy();expect(request[1].get('autoSelectCode')).toBe('false');expect(request[1].get('serviceCode')).toBe('90837');expect(request[1].get('toolId')).toBeNull();wrapper.unmount();
+  });
+
   it('opens the dashboard notes landing page with the same AuricWell frame as a clinical client record', async () => {
     const { wrapper, state } = await workspace('', { realFrame: true });
     try {
@@ -273,6 +315,8 @@ describe('ClinicalNoteGeneratorView smoke', () => {
 
   it.each(['tpt_note', 'h2014_individual', 'psychotherapy'])('generates an unlinked %s note without requiring a chart treatment plan', async (aid) => {
     const { wrapper, state } = await workspace(aid);
+    state.noteWriterMode = 'narriva';
+    await nextTick();
     state.initials = 'TEST';
     state.dateOfService = '2026-09-14';
     state.inputText = 'Practiced emotional regulation and positive self-talk during learning activities.';
@@ -295,6 +339,8 @@ describe('ClinicalNoteGeneratorView smoke', () => {
 
   it('generates a full unlinked 90791 intake and plan with editable, individually copyable sections', async () => {
     const { wrapper, state } = await workspace('90791_intake_plan');
+    state.noteWriterMode = 'narriva';
+    await nextTick();
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('navigator', { clipboard: { writeText } });
     try {
@@ -347,6 +393,8 @@ describe('ClinicalNoteGeneratorView smoke', () => {
 
   it('still blocks linked progress notes with a missing or expired treatment plan', async () => {
     const { wrapper, state } = await workspace('tpt_note');
+    state.noteWriterMode = 'narriva';
+    await nextTick();
     state.selectedClientId = 202;
     state.selectedClient = { id: 202, agency_id: 7 };
     state.inputText = 'Synthetic session notes.';
@@ -425,6 +473,8 @@ describe('ClinicalNoteGeneratorView smoke', () => {
 
   it('preserves generated content and unsaved edits through a manual mode round trip', async () => {
     const { wrapper, state } = await workspace();
+    state.noteWriterMode = 'narriva';
+    await nextTick();
     state.outputObj = { sections: { Subjective: 'Generated subjective.', Objective: 'Generated objective.' }, meta: {} };
     await nextTick();
     state.sectionOverrides.Objective = 'Edited observation.';

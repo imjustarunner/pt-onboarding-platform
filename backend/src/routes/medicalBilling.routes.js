@@ -19,6 +19,7 @@ import { getCoverageEvidence, checkClientCoverage, reviewClientCoverage } from '
 import { getDocumentationReadiness, reviewDocumentationReadiness } from '../controllers/clientDocumentationReadiness.controller.js';
 import { createSecondaryClaim, prepareClaimResubmission } from '../controllers/claimMdWorkflow.controller.js';
 import express from 'express';
+import { getServiceReference } from '../controllers/clinicalServiceReference.controller.js';
 import { getProviderBillingRollout, putProviderBillingRollout } from '../controllers/providerBillingRollout.controller.js';
 import { getAppointmentBilling, getPlannedBillingServices } from '../controllers/appointmentBilling.controller.js';
 import { payerSetupRequests } from '../controllers/payerSetupRequest.controller.js';
@@ -756,6 +757,8 @@ router.get(
   [query('agencyId').isInt({ min: 1 }), query('type').optional().isString().isLength({ min: 1, max: 40 })],
   runMedicalBillingReport
 );
+
+router.get('/service-reference/:serviceCode', excludeSupportClinicalContent, requireClinicalChart, getServiceReference);
 
 router.get(
   '/service-codes',

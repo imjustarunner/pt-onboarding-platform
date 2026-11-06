@@ -29,6 +29,14 @@ it('rejects the pre-race token after reading the current draft under its row loc
  const req=request();note.note_payload='DEMO QA changed by racing editor';const next=vi.fn(),res=response();await signClinicalNote(req,res,next);
  expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));expect(db.execute.mock.calls.some(([sql])=>sql.includes('FOR UPDATE'))).toBe(true);expect(m.original).not.toHaveBeenCalled();expect(db.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);expect(db.rollback).toHaveBeenCalledOnce();expect(db.commit).not.toHaveBeenCalled();expect(db.release).toHaveBeenCalledOnce();
 });
+it('blocks provider signing when the current locked session has a pending cross-plane service correction',async()=>{
+ note.clinical_session_id=10;const original=db.execute.getMockImplementation();
+ db.execute.mockImplementation(async(sql,args)=>sql.startsWith('SELECT clinical_session_id')?[[{clinical_session_id:10,agency_id:450}]]:sql.startsWith('SELECT * FROM clinical_sessions')?[[{id:10,metadata_json:{serviceCodeChangePending:{id:'pending'}}}]]:original(sql,args));
+ const next=vi.fn();await signClinicalNote(request(),response(),next);
+ expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409,code:'CLINICAL_SERVICE_CHANGE_PENDING'}));
+ expect(db.execute.mock.calls.some(([sql])=>sql.includes('FROM clinical_sessions') && sql.includes('FOR UPDATE'))).toBe(true);
+ expect(m.original).not.toHaveBeenCalled();expect(events).not.toContain('provider_signature');expect(db.rollback).toHaveBeenCalledOnce();
+});
 it('persists the signature, immutable snapshot and audit together before responding with server time',async()=>{
  const res=response(),next=vi.fn();await signClinicalNote(request(),res,next);expect(next).not.toHaveBeenCalled();expect(events).toEqual(['begin','provider_signature','version_signature_audit','commit']);expect(res.json).toHaveBeenCalledWith(expect.objectContaining({signedAt:note.provider_signed_at,revisionId:10,revisionContentHash:'exact-version'}));expect(note.metadata_json.attestation.medicallyNecessary).toBe(false);
 });

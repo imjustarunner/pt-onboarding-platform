@@ -1,3 +1,4 @@
+import {assertLegacyClinicalCaptureDisabled} from '../services/clinicalSessionRecording.service.js';
 import { requireClinicalRecordingConsent } from '../services/recordingConsentPolicy.service.js';
 import multer from 'multer';
 import { validationResult } from 'express-validator';
@@ -368,6 +369,7 @@ export const createRecording = async (req, res, next) => {
         ? false
         : req.body?.generateStructuredNote !== false && !!aid;
 
+    await assertLegacyClinicalCaptureDisabled({session_kind:sessionKind,client_id:safeInt(req.body?.clientId)});
     const recording = await SessionRecording.create({
       agencyId,
       createdByUserId: req.user.id,
@@ -446,6 +448,7 @@ export const patchRecording = async (req, res, next) => {
     const existing = await SessionRecording.findByIdForUser({ id, userId: req.user.id, agencyId });
     if (!existing) return res.status(404).json({ error: { message: 'Recording not found' } });
 
+    await assertLegacyClinicalCaptureDisabled(existing);
     const nextRecording = {...existing,client_id:req.body?.clientId !== undefined ? safeInt(req.body.clientId) : existing.client_id,session_kind:req.body?.sessionKind || existing.session_kind};
     if (existing.client_id && req.body?.clientId !== undefined && Number(existing.client_id)!==Number(req.body.clientId)) return res.status(400).json({error:{message:'Start a new recording when changing clients.'}});
     if (['recording','processing'].includes(req.body?.status) || req.body?.transcriptText !== undefined || ['recording','processing'].includes(existing.status)) await requireClinicalRecordingConsent(nextRecording);
@@ -494,6 +497,7 @@ export const appendTranscript = async (req, res, next) => {
     if (!(await requireSessionRecordingAccess(req, res, agencyId))) return;
     const existing = await SessionRecording.findByIdForUser({ id, userId: req.user.id, agencyId });
     if (!existing) return res.status(404).json({ error: { message: 'Recording not found' } });
+    await assertLegacyClinicalCaptureDisabled(existing);
     await requireClinicalRecordingConsent(existing);
 
     const chunk = String(req.body?.chunk || '').trim();
@@ -521,6 +525,7 @@ export const startRecording = async (req, res, next) => {
     if (!(await requireSessionRecordingAccess(req, res, agencyId))) return;
     const existing = await SessionRecording.findByIdForUser({ id, userId: req.user.id, agencyId });
     if (!existing) return res.status(404).json({ error: { message: 'Recording not found' } });
+    await assertLegacyClinicalCaptureDisabled(existing);
     await requireClinicalRecordingConsent(existing);
     const updated = await SessionRecording.update(id, {
       status: 'recording',
@@ -540,6 +545,7 @@ export const transcribeRecordingAudio = async (req, res, next) => {
     if (!(await requireSessionRecordingAccess(req, res, agencyId))) return;
     const existing = await SessionRecording.findByIdForUser({ id, userId: req.user.id, agencyId });
     if (!existing) return res.status(404).json({ error: { message: 'Recording not found' } });
+    await assertLegacyClinicalCaptureDisabled(existing);
     await requireClinicalRecordingConsent(existing);
     if (!req.file?.buffer) return res.status(400).json({ error: { message: 'audio file is required' } });
 
@@ -578,6 +584,7 @@ export const endAndSummarizeRecording = async (req, res, next) => {
     if (!(await requireSessionRecordingAccess(req, res, agencyId))) return;
     const existing = await SessionRecording.findByIdForUser({ id, userId: req.user.id, agencyId });
     if (!existing) return res.status(404).json({ error: { message: 'Recording not found' } });
+    await assertLegacyClinicalCaptureDisabled(existing);
     await requireClinicalRecordingConsent(existing);
 
     await SessionRecording.update(id, { status: 'processing' });

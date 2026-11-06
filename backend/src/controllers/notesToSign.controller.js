@@ -11,6 +11,7 @@ import pool from '../config/database.js';
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import User from '../models/User.model.js';
+import { latestNarrivaStatus } from '../services/narrivaReview.service.js';
 
 /**
  * GET /api/me/notes-to-sign
@@ -70,7 +71,17 @@ export const listNotesToSign = async (req, res, next) => {
           clinical_revision_id:item.revisionId,revision_number:item.revisionNumber,revision_status:item.status,revision_action:item.nextAction});
       }
     }
-    if (!req.notesCountOnly) rows=rows.slice(0,50);
+    if (!req.notesCountOnly) {
+      rows=rows.slice(0,50);
+      for(const row of rows) {
+        row.narriva={status:'pending',quickSignEligible:false,reviewId:null};
+        if(row.clinical_revision_id)continue;
+        try {
+          const review=await latestNarrivaStatus(req.user,row.agency_id,row.clinical_note_id);
+          if(review)row.narriva={status:review.status,quickSignEligible:review.quickSignEligible,reviewId:review.id};
+        } catch { row.narriva.status='unavailable'; }
+      }
+    }
 
     res.json({
       notes: rows || [],

@@ -145,6 +145,10 @@ server.listen(PORT, HOST, () => {
       await ensureSafetyPlanSchema();
       const {ensureOrganizationAgreementSchema}=await import('./services/organizationAgreementSchema.js');
       await ensureOrganizationAgreementSchema();
+      const {requireNarrivaReleaseReadiness}=await import('./services/narrivaReleaseReadiness.service.js');
+      const narrivaRelease=await requireNarrivaReleaseReadiness();
+      const rolloutCounts=key=>narrivaRelease.reduce((counts,item)=>({...counts,[item[key]]:(counts[item[key]] || 0)+1}),{});
+      console.log('[startup:narriva] Service references and internal November addenda checked',JSON.stringify({agencies:narrivaRelease.length,handbooks:rolloutCounts('handbookStatus'),november:rolloutCounts('digestStatus')}));
       console.log('[startup:app] Loading application modules');
       return import('./server.js');
     })

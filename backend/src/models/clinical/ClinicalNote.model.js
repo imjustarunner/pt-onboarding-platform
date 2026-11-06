@@ -23,11 +23,11 @@ class ClinicalNote {
     notePayload = null,
     metadataJson = null,
     createdByUserId
-  }) {
+  }, {executor=clinicalPool}={}) {
     if (metadataJson?.amendmentOfNoteId) {
       throw Object.assign(new Error('Add a signed amendment/correction to the original note using Addenda and amendments; do not create a separate note copy.'), { status: 409 });
     }
-    const [result] = await clinicalPool.execute(
+    const [result] = await executor.execute(
       `INSERT INTO clinical_notes
        (clinical_session_id, agency_id, client_id, title, note_payload, metadata_json, created_by_user_id)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -41,54 +41,56 @@ class ClinicalNote {
         createdByUserId
       ]
     );
-    return this.findById(result.insertId);
+    return this.findById(result.insertId,{executor});
   }
 
-  static async findById(id) {
+  static async findById(id,{executor=clinicalPool,forUpdate=false}={}) {
     const nid = Number(id || 0);
     if (!nid) return null;
-    const [rows] = await clinicalPool.execute(
+    const [rows] = await executor.execute(
       `SELECT *
        FROM clinical_notes
        WHERE id = ?
-       LIMIT 1`,
+       LIMIT 1${forUpdate?' FOR UPDATE':''}`,
       [nid]
     );
     return rows?.[0] || null;
   }
 
-  static async findByDraftId({ clientId, draftId }) {
+  static async findByDraftId({ clientId, draftId },{executor=clinicalPool,forUpdate=false}={}) {
     const cid = Number(clientId || 0);
     const did = Number(draftId || 0);
     if (!cid || !did) return null;
     try {
-      const [rows] = await clinicalPool.execute(
+      const [rows] = await executor.execute(
         `SELECT *
          FROM clinical_notes
          WHERE client_id = ?
            AND is_deleted = 0
            AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.draftId')) = ?
          ORDER BY id DESC
-         LIMIT 1`,
+         LIMIT 1${forUpdate?' FOR UPDATE':''}`,
         [cid, String(did)]
       );
       return rows?.[0] || null;
-    } catch {
+    } catch(error) {
+      if(executor!==clinicalPool || forUpdate)throw error;
       return null;
     }
   }
 
-  static async updatePayload({ noteId, title = undefined, notePayload = undefined, metadataJson = undefined }) {
+  static async updatePayload({ noteId, title = undefined, notePayload = undefined, metadataJson = undefined },{executor=clinicalPool}={}) {
     if (metadataJson?.amendmentOfNoteId && (notePayload !== undefined || title != null)) {
       throw Object.assign(new Error('Add a signed amendment/correction to the original note using Addenda and amendments; do not replace an amendment draft.'), { status: 409 });
     }
     const nid = Number(noteId || 0);
     if (nid && notePayload === undefined && title == null && metadataJson !== undefined) {
-      const db=await clinicalPool.getConnection();
+      const ownsTransaction=executor===clinicalPool;
+      const db=ownsTransaction?await clinicalPool.getConnection():executor;
       try {
-        await db.beginTransaction();
+        if(ownsTransaction)await db.beginTransaction();
         const [[current]]=await db.execute('SELECT * FROM clinical_notes WHERE id=? FOR UPDATE',[nid]);
-        if (!current) { await db.rollback(); return null; }
+        if (!current) { if(ownsTransaction)await db.rollback(); return null; }
         if (current.provider_signed_at || current.content_review_source === 'provider_review') {
           const parse=v=>typeof v==='string'?JSON.parse(v || '{}'):v || {};
           const canonical=v=>JSON.stringify(v, function(k,value){return value && typeof value==='object' && !Array.isArray(value)?Object.fromEntries(Object.keys(value).sort().map(key=>[key,value[key]])):value;});
@@ -101,10 +103,10 @@ class ClinicalNote {
           if (incoming.digitalShare !== undefined) permitted.digitalShare={...(existing.digitalShare || {}),...incoming.digitalShare};
           if (!Object.keys(permitted).length) throw Object.assign(new Error('Only operational document references may be updated on a signed note.'),{status:409});
           await db.execute('UPDATE clinical_notes SET metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',[JSON.stringify({...existing,...permitted}),nid]);
-          await db.commit(); return this.findById(nid);
+          if(ownsTransaction)await db.commit(); return await this.findById(nid,{executor:db});
         }
-        await db.rollback();
-      } catch(error) { await db.rollback(); throw error; } finally { db.release(); }
+        if(ownsTransaction)await db.rollback();
+      } catch(error) { if(ownsTransaction)await db.rollback(); throw error; } finally { if(ownsTransaction)db.release(); }
     }
     if (!nid) return null;
     const updates = [];
@@ -121,14 +123,14 @@ class ClinicalNote {
       updates.push('metadata_json = ?');
       values.push(metadataJson ? JSON.stringify(metadataJson) : null);
     }
-    if (!updates.length) return this.findById(nid);
+    if (!updates.length) return this.findById(nid,{executor});
     values.push(nid);
-    const [result]=await clinicalPool.execute(
+    const [result]=await executor.execute(
       `UPDATE clinical_notes SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND provider_signed_at IS NULL AND COALESCE(content_review_source,'') <> 'provider_review'`,
       values
     );
     if(!result.affectedRows)throw Object.assign(new Error('Completed notes must be changed through an amendment/addendum'),{status:409});
-    return this.findById(nid);
+    return this.findById(nid,{executor});
   }
 
   static async listBySession({ clinicalSessionId, includeDeleted = false }) {

@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import {queueClinicalAudioCleanup,finishClinicalAudioCleanup,readyClinicalAudioCleanup} from './clinicalAudioCleanup.service.js';
 import { requireSessionPrivacyConfiguration } from './sessionAiPrivacy.service.js';
 import StorageService from './storage.service.js';
 import { SpeechClient } from '@google-cloud/speech';
@@ -87,13 +88,18 @@ async function uploadTempAudio({ buffer, mimeType, userId }) {
   const key = `clinical_audio/${id}`;
   const file = bucket.file(key);
 
-  await file.save(buffer, {
+  // Persist cleanup responsibility before upload, including process crashes.
+  await queueClinicalAudioCleanup(bucketName,key);
+  try { await file.save(buffer, {
     contentType: mimeType || 'application/octet-stream',
     resumable: false,
     metadata: {
       uploadedAt: new Date().toISOString()
     }
-  });
+  }); } catch {
+    await readyClinicalAudioCleanup(bucketName,key);
+    throw Object.assign(new Error('Secure audio upload failed.'),{status:502});
+  }
 
   return { bucketName, key };
 }
@@ -166,8 +172,10 @@ export async function transcribeLongAudio({
       const storage = await StorageService.getGCSStorage();
       const bucket = storage.bucket(bucketName);
       await bucket.file(key).delete({ ignoreNotFound: true });
+      await finishClinicalAudioCleanup(bucketName,key);
     } catch {
-      // ignore cleanup errors
+      await readyClinicalAudioCleanup(bucketName,key);
+      console.warn('[clinicalAudio] Temporary audio cleanup queued for retry.');
     }
   }
 }

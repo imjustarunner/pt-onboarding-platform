@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import { LockKeyhole, UserRound, Fingerprint, Bell, ArrowRight, LogOut } from '@lucide/vue';
 import AuricWellBrand from '../components/auricwell/AuricWellBrand.vue';
+import {activateClinicalRecovery,clearClinicalRecovery} from './clinicalRecovery.js';
 import QuickView from '../views/QuickViewAccessView.vue';
 import { MobileDevice, native, mobileApi, quickApiBase, randomSecret, pkceChallenge, accountUrl, mobileRequestError } from './transport.js';
 
@@ -23,6 +24,7 @@ async function deviceRequest(method,path,data={}) {
   return (await mobileApi.request({method,url:path,data,headers:access.value?{'X-Quick-View-Session':access.value.sessionToken}:{}})).data;
 }
 function applySession(result) {
+  activateClinicalRecovery(result.userId || result.profile?.user?.id,result.agencyId || result.profile?.workspace?.id);
   const notifications=profile.value?.user?.id===result.profile.user?.id?profile.value.notifications:null;
   access.value=result;profile.value={...result.profile,...(notifications?{notifications}:{})};workspace.value=result.profile.workspace;
   appLock.value=result.profile.appLock || {method:'code',hasCode:true};lockChoice.value=appLock.value.method;
@@ -146,6 +148,7 @@ async function saveAppLock(){
   }catch(e){lockNotice.value=mobileRequestError(e);}finally{busy.value=false;}
 }
 async function signOut() {
+  clearClinicalRecovery({deactivate:true});
   busy.value=true;error.value='';
   lock();
   try { await deviceRequest('POST','/logout');workspace.value=null;screen.value='signin'; }

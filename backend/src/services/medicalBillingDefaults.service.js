@@ -18,7 +18,7 @@ const TIER_BACHELORS_UP = ['bachelors', 'intern_plus'];
 const TIER_ALL = ['qbha', 'bachelors', 'intern_plus'];
 
 const LADDER_15 = new Set([
-  'H0004', 'H0023', 'H0025', 'H2014', 'H2015', 'H2017', 'H2021', 'H2032', 'H2033', 'T1017', '97535'
+  'H0004', 'H0023', 'H0025', 'H2011', 'H2014', 'H2015', 'H2017', 'H2021', 'H2032', 'H2033', 'T1017', '97535'
 ]);
 
 const BACHELORS_UP = new Set(['H0004', 'H0031', 'H0032', 'H2033', 'T1017']);
@@ -116,6 +116,16 @@ function buildDefaultMedicalServiceCodes() {
       maxUnitsPerDay: 4,
       description: patchByCode.get('H0004').description
         || 'Behavioral health counseling and therapy (max 4 units / day)'
+    });
+  }
+  // October 2026 SBHS manual p.80: base H2011 only. The 15-minute maximum
+  // describes a unit, not the encounter. At 248+ minutes billing must review
+  // S9485; do not auto-switch to an unconfigured service or invent its rate.
+  if (patchByCode.has('H2011')) {
+    Object.assign(patchByCode.get('H2011'), {
+      maxMinutes: 247, maxUnitsPerSession: 16, maxUnitsPerDay: null,
+      overflowServiceCode: null, overflowAtMinutes: null,
+      allowedCredentialTiers: TIER_ALL
     });
   }
   // H2015 (15-min community support) → H2016 day code at 4h 8m (248 min).

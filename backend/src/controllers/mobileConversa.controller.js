@@ -10,6 +10,7 @@ import {downloadSecureChatAttachment} from './chatAttachments.controller.js';
 import StorageService from '../services/storage.service.js';
 import fs from 'node:fs/promises';
 import {listNoteAidWorkQueue} from './noteAidWorkQueue.controller.js';
+import {authorizedMobileClientCards,sanitizeMobileWorkItem} from '../services/mobileClinicalPrivacy.service.js';
 
 const fail=(status,message)=>Object.assign(new Error(message),{status});
 const mobile=fn=>async(req,res,next)=>{
@@ -123,5 +124,8 @@ export const getMobileMyWork=mobile(async(req,res)=>{
   const user=await User.findById(req.quickView.userId);
   if(['support','school_staff'].includes(String(user.role).toLowerCase()))return res.json({items:[],clinicalAvailable:false});
   const scoped=Object.assign(Object.create(req),{user:{...user,id:user.id,role:user.role},auricwellPreview:{agencyId:req.quickView.agencyId}});
-  const result=await invoke(listNoteAidWorkQueue,scoped);res.json({...result,clinicalAvailable:true});
+  const result=await invoke(listNoteAidWorkQueue,scoped);
+  const cards=await authorizedMobileClientCards(user,req.quickView.agencyId,(result.items || []).map(item=>item.clientId));
+  const items=(result.items || []).filter(item=>!item.clientId || cards.has(Number(item.clientId))).map(item=>sanitizeMobileWorkItem(item,cards.get(Number(item.clientId))));
+  res.json({items,clinicalAvailable:true});
 });

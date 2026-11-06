@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-vi.mock('../feeSchedule.service.js', () => ({ resolveCanonicalFeeQuote: vi.fn() }));
+vi.mock('../feeSchedule.service.js', async () => {
+  const { resolveModifiersFromEntries } = await import('../../utils/feeScheduleRates.js');
+  return {
+    resolveCanonicalFeeQuote: vi.fn(),
+    resolveClaimModifiers: vi.fn(async input => resolveModifiersFromEntries(input))
+  };
+});
 import { priceNewClaimLines } from '../newClaimFees.service.js';
 
 describe('new claim fee snapshots', () => {
@@ -16,6 +22,19 @@ describe('new claim fee snapshots', () => {
     const quote = vi.fn();
     const result=await priceNewClaimLines({...input,lines:[{procedureCode:'H0002',chargeCents:0},{procedureCode:'90837',chargeCents:12500}]},quote);
     expect(result.map(l=>l.chargeCents)).toEqual([0,12500]);expect(quote).not.toHaveBeenCalled();
+  });
+  it('snapshots scoped modifier defaults and preserves modifiers entered on the claim', async () => {
+    const quote = vi.fn();
+    const modifiers = vi.fn().mockResolvedValue({ modifiers: ['U9'], source: 'payer' });
+    const result = await priceNewClaimLines({ ...input, credentialKey: 'hcbs_1', lines: [
+      { procedureCode: 'H0002', chargeCents: 0 },
+      { procedureCode: '90837', chargeCents: 12500, modifiers: ['95'] }
+    ] }, quote, modifiers);
+    expect(modifiers).toHaveBeenCalledExactlyOnceWith({ agencyId: 2, payerId: '60054', providerUserId: 90, credentialKey: 'hcbs_1', serviceCode: 'H0002' });
+    expect(result.map(line => ({ modifiers: line.modifiers, source: line.modifierSource }))).toEqual([
+      { modifiers: ['U9'], source: 'payer' }, { modifiers: ['95'], source: 'entered' }
+    ]);
+    expect(quote).not.toHaveBeenCalled();
   });
   it('marks a missing rate separately from an explicit free fee and propagates lookup errors', async () => {
     const quote=vi.fn().mockResolvedValueOnce({amountCents:null,rateCents:null,source:'unset'}).mockResolvedValueOnce({amountCents:0,rateCents:0,source:'practice'});

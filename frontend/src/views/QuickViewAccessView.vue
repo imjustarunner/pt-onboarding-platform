@@ -86,7 +86,7 @@
     </section>
 
     <template v-if="session">
-      <div v-if="!isMobile || !['home','thread','chat'].includes(tab)" class="qv-page-heading">
+      <div v-if="!isMobile || !['home','thread','chat','clinical','client','session'].includes(tab)" class="qv-page-heading">
         <div><p class="qv-eyebrow">{{ workspaceDate }}</p><h1>{{ currentHeading.title }}</h1><p class="qv-page-description">{{ currentHeading.description }}</p></div>
         <span class="qv-workspace-tag">QUICK VIEW</span>
       </div>
@@ -103,6 +103,9 @@
       <QuickViewPresence v-if="tab==='presence'" :http="presenceHttp" />
       <MobileMessages v-if="isMobile" v-show="tab==='home' || tab==='chat'" ref="mobileMessages" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" :visible="!moreOpen && (tab==='home' || tab==='chat')" :preferences="workspacePreferences" @open-email="openMobileConversation" @compose-email="openDetachedEmail('new')" @counts="mobileCounts=$event" @settings="showMobileSettings=true"/>
       <MobilePreferences v-if="isMobile && showMobileSettings" :api-base="apiBase" :session-token="session" :preferences="workspacePreferences" @close="showMobileSettings=false" @saved="workspacePreferences=$event"/>
+      <MobileClinicalWorkspace v-if="isMobile && tab==='clinical'" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" @signed="sendNotice='Note signed and saved to the chart.'" />
+      <MobileClientSummary v-if="isMobile && tab==='client'" :api-base="apiBase" :session-token="session" :client-id="route.query.clientId" @back="returnInApp({view:'mywork'})" @contact="openMobileClinicalContact" />
+      <MobileClinicalSession v-if="isMobile && tab==='session'" :api-base="apiBase" :session-token="session" />
       <MobileMyWork v-if="isMobile && tab==='mywork'" :api-base="apiBase" :session-token="session" @draft="prepareWorkDraft" @tasks="navigateTo('tasks')"/>
       <div v-if="!isMobile && tab === 'home'" class="qv-pane conversa-surface">
         <div class="qv-messages-heading"><ConversaBrand compact /><span>YOUR CONVERSATIONS</span></div>
@@ -512,7 +515,7 @@
           </button>
         </div>
         <div v-if="isMobile && !showOffice" class="qv-calendar-modes"><button type="button" :aria-pressed="calendarMode==='agenda'" @click="calendarMode='agenda'">Agenda</button><button type="button" :aria-pressed="calendarMode==='day'" @click="calendarMode='day'">Day</button></div>
-        <div v-if="isMobile && !showOffice && calendarMode==='day'" class="qv-day-grid" aria-label="Day schedule"><div v-for="hour in calendarHours" :key="hour" class="qv-hour-row"><time class="qv-hour-label">{{ hour===0?'12 AM':hour<12?`${hour} AM`:hour===12?'12 PM':`${hour-12} PM` }}</time><div class="qv-hour-lane"><button v-for="item in itemsAtHour(hour)" :key="item.id" type="button" class="qv-cal-block" @click="openCalEvent(item)"><strong>{{ item.title }}</strong><small>{{ item.allDay?'All day':`${formatClock(item.startAt)}–${formatClock(item.endAt)}` }}</small></button></div></div></div>
+        <div v-if="isMobile && !showOffice && calendarMode==='day'" class="qv-day-grid" aria-label="Day schedule"><div v-for="hour in calendarHours" :key="hour" class="qv-hour-row"><time class="qv-hour-label">{{ hour===0?'12 AM':hour<12?`${hour} AM`:hour===12?'12 PM':`${hour-12} PM` }}</time><div class="qv-hour-lane"><button v-for="item in itemsAtHour(hour)" :key="item.id" type="button" class="qv-cal-block" @click="openCalEvent(item)"><strong>{{ calendarTitle(item) }}</strong><small>{{ item.allDay?'All day':`${formatClock(item.startAt)}–${formatClock(item.endAt)}` }}</small></button></div></div></div>
         <template v-if="!showOffice && (!isMobile || calendarMode==='agenda')">
           <p class="qv-pad muted">Times shown in {{ calendarTimeZone }}.</p>
           <p v-if="calendarLoading" class="qv-pad muted" role="status">Loading your schedule…</p>
@@ -747,7 +750,7 @@
     <div v-if="session && calEvent" class="qv-modal" role="dialog" aria-modal="true" aria-label="Event details" @click.self="calEvent = null" @keydown.esc.stop="calEvent = null">
       <div class="qv-sheet">
         <button type="button" class="qv-btn ghost sm" @click="calEvent = null">Close</button>
-        <h3>{{ calEvent.title }}</h3>
+        <h3>{{ calendarTitle(calEvent) }}</h3>
         <p class="qv-detail-meta">{{ calEvent.kind }} · {{ formatClock(calEvent.startAt) }} – {{ formatClock(calEvent.endAt) }}</p>
         <template v-if="String(calEvent.kind || '').toUpperCase() === 'OFFICE'">
           <p class="qv-detail-meta"><strong>Office:</strong> {{ calEvent.officeName || calEvent.location || '—' }}</p>
@@ -758,8 +761,8 @@
         <template v-else>
           <p v-if="calEvent.location" class="qv-detail-meta">{{ calEvent.location }}</p>
           <p v-if="calEvent.hasClient" class="qv-detail-meta">
-            Client: {{ calEvent.clientInitials || 'initials unavailable' }}
-            <span class="muted"> (full name only in the main app)</span>
+            <button v-if="isMobile && calEvent.clientId" type="button" class="qv-btn ghost sm" @click="mobileNavigate({view:'client',clientId:String(calEvent.clientId)});calEvent=null">{{ calEvent.clientMaskedName || calEvent.maskedName || 'Client' }}<template v-if="calEvent.clientAge != null"> · Age {{ calEvent.clientAge }}</template> ›</button>
+            <template v-else>Client: {{ calEvent.clientInitials || 'initials unavailable' }}</template>
           </p>
           <div v-if="calEvent.attendees?.length">
             <h4 style="margin:12px 0 6px;font-size:13px;color:var(--qv-muted);">Who’s coming</h4>
@@ -795,6 +798,9 @@ import {mobileLinkTarget} from '../mobile/mobileLinks.js';
 import MobileMessages from '../mobile/MobileMessages.vue';
 import MobilePreferences from '../mobile/MobilePreferences.vue';
 import MobileMyWork from '../mobile/MobileMyWork.vue';
+import MobileClinicalWorkspace from '../mobile/MobileClinicalWorkspace.vue';
+import MobileClientSummary from '../mobile/MobileClientSummary.vue';
+import MobileClinicalSession from '../mobile/MobileClinicalSession.vue';
 import AuricWellBrand from '../components/auricwell/AuricWellBrand.vue';
 import { AURICWELL_PREVIEW_URL } from '../constants/auricwellBrand';
 import { Capacitor, registerPlugin } from '@capacitor/core';
@@ -907,7 +913,20 @@ function countNavigation(destination){if(!isMobile.value)return;workspacePrefere
 function handleMobileLink(event){if(!isMobile.value || event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)return;const anchor=event.target.closest?.('a[href]');if(!anchor || anchor.classList.contains('qv-workspace-link') || anchor.classList.contains('qv-gate-link') || anchor.hasAttribute('download'))return;const target=mobileLinkTarget(anchor.href,{workspaceLoginUrl:loginUrl.value,currentOrigin:window.location.origin});if(target){event.preventDefault();router.push(target);}}
 function openMobilePreferences(){showMobileSettings.value=true;}
 async function openMobileConversation(item){msgSuite.value=String(route.query.suite || 'all');await openConversation(item);}
-async function prepareWorkDraft(item){noteAidDos.value=String(item.date || item.dos || item.dateOfService || localDay()).slice(0,10);noteAidInitials.value=item.initials || String(item.clientName || '').split(/\s+/).map(word=>word[0]).join('');noteAidInput.value=item.draft?.input || item.input || item.notes || '';await navigateTo('noteaid');}
+async function prepareWorkDraft(item){
+  const query={view:'clinical'};
+  for(const [key,value] of Object.entries({workId:item.id || item.serverId,clientId:item.clientId || item.client_id,clinicalSessionId:item.clinicalSessionId || item.clinical_session_id,officeEventId:item.officeEventId || item.office_event_id,draftId:item.draftId || item.draft_id,noteId:item.clinicalNoteId || item.clinical_note_id}))if(value)query[key]=String(value);
+  if(item.quickSignRequested)query.quickSign='1';
+  if(String(item.id || '').startsWith('cosign_'))delete query.workId;
+  await mobileNavigate(query);
+}
+async function openMobileClinicalContact(target){
+  if(target.threadId){await mobileNavigate({view:'home',suite:'secure',threadId:String(target.threadId),secure:'1'});return;}
+  if(target.conversationId){await mobileNavigate({view:'home',suite:target.channel==='sms'?'sms':'email',conversationId:String(target.conversationId)});return;}
+  if(target.channel==='email' && target.to){composeToEmail.value=target.to;composeSubject.value='';composeText.value='';showCompose.value=true;}
+}
+function calendarTitle(item){return isMobile.value && item.hasClient?`${item.clientMaskedName || item.maskedName || 'Client session'}${item.clientAge != null ? ` · Age ${item.clientAge}` : ''}`:item.title;}
+
 const activeDestination = computed(() => {
   if (moreOpen.value) return 'more';
   if (['home', 'thread', 'chat'].includes(tab.value)) return 'home';
@@ -931,6 +950,7 @@ const currentHeading = computed(() => {
 });
 
 async function navigateTo(destination,{fromRoute=false}={}) {
+  if(isMobile.value && destination==='noteaid')destination='mywork';
   if (destination === 'more') { moreOpen.value = !moreOpen.value; return; }
   if(isMobile.value && !fromRoute){countNavigation(destination);const query=destination==='home'?{view:'home',...(route.query.suite?{suite:route.query.suite}:{}),...(route.query.filter?{filter:route.query.filter}:{}),...(route.query.archived?{archived:route.query.archived}:{})}:{view:destination};if(router.resolve({path:'/mobile/workspace',query}).fullPath!==route.fullPath){moreOpen.value=false;await mobileNavigate(query);return;}}
   moreOpen.value = false;
@@ -940,7 +960,7 @@ async function navigateTo(destination,{fromRoute=false}={}) {
     if (destination === 'home') {if(isMobile.value)tab.value='home';else await switchMsgSuite(msgSuite.value);}
     else if (destination === 'calendar') { if (showOffice.value) { tab.value = 'calendar'; await loadOffice(); } else await loadCalendar(); }
     else if (destination === 'tasks') await loadTasks(taskView.value);
-    else if (destination === 'mywork' && isMobile.value)tab.value='mywork';
+    else if (['mywork','clinical','client','session'].includes(destination) && isMobile.value)tab.value=destination;
     else if (destination === 'noteaid') await switchNoteAid();
     else if (destination === 'contacts') await loadContacts();
     else if (destination === 'presence') tab.value = 'presence';
@@ -1864,6 +1884,7 @@ function openProjectFromTask() {
 }
 
 function openCalEvent(item) {
+  if(isMobile.value && item.hasClient && (item.clinicalSessionId || item.officeEventId)){prepareWorkDraft({...item,id:null});return;}
   calEvent.value = item;
 }
 

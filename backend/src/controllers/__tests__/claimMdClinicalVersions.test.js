@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({ find: vi.fn(), agency: vi.fn(), policy: vi.fn(), billing: vi.fn(), summary: vi.fn(), revision: vi.fn(), propose: vi.fn(), edit: vi.fn(), sign: vi.fn(), approved: vi.fn(), clinical: vi.fn(), nonbillable: vi.fn(), diagnosis:vi.fn(), materialize:vi.fn() }));
 vi.mock('../medicalBilling.controller.js',()=>({draftClaimAfterSignature:m.materialize}));
+vi.mock('../../services/narrivaRiskAssessment.service.js',()=>({assertNarrivaRiskBeforeSignature:vi.fn(async()=>{})}));
 vi.mock('../../services/clinicalDiagnosisPolicy.service.js',()=>({assertClientDiagnosisPolicy:m.diagnosis}));
 vi.mock('../../models/clinical/ClinicalNote.model.js', () => ({ default: { findById: m.find } }));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: m.clinical } }));
@@ -11,6 +12,7 @@ vi.mock('../../services/supervisedBillingPolicy.service.js', () => ({ resolveNot
 vi.mock('../../services/clinicalSupervisorReview.service.js', () => ({ normalizeServiceDetails: vi.fn(), serviceDetailTimes: vi.fn(), verifyServiceAmendmentLocation: vi.fn(), serviceLocationSnapshot: vi.fn() }));
 vi.mock('../../services/clinicalNoteVersion.service.js', () => ({ getRevisionSummary: m.summary, getRevision: m.revision, proposeRevision: m.propose, editRevision: m.edit, signRevision: m.sign }));
 import { listClinicalNoteVersions, createClinicalNoteVersion, updateClinicalNoteVersion, signClinicalNoteVersion, cosignClinicalNoteVersion, acknowledgeClinicalNoteVersion } from '../clinicalNoteVersions.controller.js';
+import {assertNarrivaRiskBeforeSignature} from '../../services/narrivaRiskAssessment.service.js';
 
 const hash = 'a'.repeat(64);
 const request = (user = { id: 7, role: 'provider' }, body = {}) => ({ user, params: { noteId: '4', versionId: '12' }, query: { agencyId: '2' }, body: { agencyId: 2, reason: 'Clarify documented services', expectedContentHash: hash, expectedVersionNumber: 2, baseRevisionId: 10, ...body } });
@@ -18,6 +20,8 @@ const response = () => ({ json: vi.fn(), status: vi.fn().mockReturnThis() });
 let pending, state;
 beforeEach(() => {
   vi.clearAllMocks();
+  m.clinical.mockResolvedValue([[{id:5,agency_id:2,metadata_json:{}}]]);
+  vi.mocked(assertNarrivaRiskBeforeSignature).mockResolvedValue(undefined);
   m.nonbillable.mockReturnValue(false); m.diagnosis.mockResolvedValue({ready:true});
   const note = { id: 4, agency_id: 2, client_id: 3, clinical_session_id: 5, created_by_user_id: 7, provider_signed_by_user_id: 7, provider_signed_at: '2026-10-31', metadata_json: { serviceCode: '90834' } };
   pending = { id: 12, revisionNumber: 2, origin: 'provider', reason: 'Clarification', originalAuthorUserId: 7, proposedByUserId: 7, responsibleSupervisorUserId: 9, requiresSupervisorCosign: true, contentHash: hash, signatures: [], snapshot: { metadataJson: {}, encounterContext: {} } };
@@ -26,6 +30,11 @@ beforeEach(() => {
 });
 
 describe('clinical version HTTP authorization and signatures', () => {
+  it('blocks an amendment signature during a pending actual-session service correction',async()=>{
+    m.clinical.mockResolvedValueOnce([[{id:5,agency_id:2,metadata_json:{serviceCodeChangePending:{id:'pending'}}}]]);
+    const next=vi.fn();await signClinicalNoteVersion(request(undefined,{attested:true}),response(),next);
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409,code:'CLINICAL_SERVICE_CHANGE_PENDING'}));expect(m.sign).not.toHaveBeenCalled();
+  });
   it('blocks a clinical amendment signature before persistence when diagnosis documentation is incomplete',async()=>{m.diagnosis.mockRejectedValueOnce(Object.assign(Error('Separate justification required'),{status:409}));const next=vi.fn();await signClinicalNoteVersion(request(undefined,{attested:true}),response(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));expect(m.sign).not.toHaveBeenCalled();});
   it('derives billability for new and edited amendments instead of inheriting a legacy supervisor hold or trusting a client flag', async () => {
     const legacy = { ...await m.find(), note_type: 'PROGRESS_NOTE', is_billable: 0 };
@@ -123,6 +132,18 @@ describe('clinical version HTTP authorization and signatures', () => {
     m.sign.mockRejectedValueOnce(Object.assign(Error('The clinical version changed'), { status: 409 })); next.mockClear();
     await signClinicalNoteVersion(request(undefined, { attested: true }), response(), next);
     expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 409 }));
+  });
+  it.each(['author','supervisor'])('keeps mandatory Narriva risk requirements on %s amendment signatures',async who=>{
+    pending.signatures=who==='supervisor'?[{action:'author_sign'}]:[];
+    vi.mocked(assertNarrivaRiskBeforeSignature).mockRejectedValueOnce(Object.assign(Error('Complete the required risk assessment.'),{status:409,code:'NARRIVA_RISK_ASSESSMENT_REQUIRED'}));
+    const next=vi.fn(),handler=who==='supervisor'?cosignClinicalNoteVersion:signClinicalNoteVersion;
+    await handler(request({id:who==='supervisor'?9:7,role:who==='supervisor'?'supervisor':'provider'},{attested:true}),response(),next);
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({code:'NARRIVA_RISK_ASSESSMENT_REQUIRED'}));
+    expect(m.sign).not.toHaveBeenCalled();
+  });
+  it('does not treat an amendment signature as an eligible Quick Sign action',async()=>{
+    const next=vi.fn();await cosignClinicalNoteVersion(request({id:9,role:'supervisor'},{attested:true,quickSign:true}),response(),next);
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));expect(m.sign).not.toHaveBeenCalled();
   });
   it('allows the author to revise a billing proposal while preserving the service-generated immutable successor', async () => {
     pending.origin = 'billing'; pending.proposedByUserId = 22;

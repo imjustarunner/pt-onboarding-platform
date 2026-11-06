@@ -37,6 +37,26 @@ describe('supervisor note review', () => {
     expect(w.emitted('signed')).toHaveLength(1); w.unmount();
   });
 
+  it('requires passing server evidence and an explicit attestation for Quick Sign', async () => {
+    const originalGet=api.get.getMockImplementation();
+    api.get.mockImplementation(async (url,config)=>url.includes('/medical-billing/notes/') ? {data:{note:{...note(),narrivaReview:{id:29,status:'passed',quickSignEligible:true,checks:[]}}}} : originalGet(url,config));
+    const w=mounted();await flushPromises();
+    expect(w.get('[data-testid="quick-sign"]').element.disabled).toBe(true);
+    await w.get('[data-testid="supervisor-attestation"]').setValue(true);
+    await w.get('[data-testid="quick-sign"]').trigger('click');await flushPromises();
+    expect(api.post).toHaveBeenCalledWith('/medical-billing/notes/71/cosign',expect.objectContaining({quickSign:true,narrivaReviewId:29,contentHash:'reviewed-current-version',reviewSnapshotToken:'metadata-version',reviewedAndApproved:true}),{skipGlobalLoading:true});
+    expect(w.emitted('signed')).toHaveLength(1);w.unmount();
+  });
+
+  it('hides Quick Sign after bypass and discards evidence when the version changes', async () => {
+    const originalGet=api.get.getMockImplementation();
+    api.get.mockImplementation(async (url,config)=>url.includes('/medical-billing/notes/') ? {data:{note:{...note(),narrivaReview:{id:29,status:'bypassed',quickSignEligible:false,checks:[]}}}} : originalGet(url,config));
+    const w=mounted();await flushPromises();
+    expect(w.find('[data-testid="quick-sign"]').exists()).toBe(false);
+    w.findComponent({name:'ClinicalNoteVersionHistory'}).vm.$emit('changed',{action:'edit',revision:{id:13,status:'draft'}});await flushPromises();
+    expect(w.find('.narriva-compliance').exists()).toBe(false);w.unmount();
+  });
+
   it('blocks approval for incomplete service details and preserves author signature', async () => {
     api.get.mockImplementation(async url => ({ data: url.includes('document-reviews') ? review() : { note: { ...note(), startTime: '', locationLabel: '' } } }));
     const w = mounted(); await flushPromises();

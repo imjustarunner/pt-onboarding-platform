@@ -88,6 +88,8 @@ import { listBillingEncountersForClient } from '../services/billingReportIngest.
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import { resolveDocumentationPolicy, resolveNoteDocumentationPolicy, isNonBillableDocument, normalizeNoteType, requiredDocumentReviewTypes, hasCurrentSupervisorCosign, hasClinicalAmendments, documentReviewRequirement } from '../services/supervisedBillingPolicy.service.js';
 import { loadReviewDocument, formatNoteEntriesForExport } from '../services/clinicalReviewDocument.service.js';
+import { assertNarrivaRiskBeforeSignature } from '../services/narrivaRiskAssessment.service.js';
+import { assertNoPendingClinicalServiceChange } from '../utils/clinicalServiceChangePolicy.js';
 
 async function completeNoteAidSigningWorkflow(note) {
   await recordSignedTermination(note);
@@ -1863,6 +1865,7 @@ export const signClinicalNote = async (req, res, next) => {
     if (!note || note.is_deleted) throw Object.assign(new Error('Note not found.'),{status:404});
     if (Number(note.clinical_session_id || 0)!==Number(reference.clinical_session_id || 0)) throw Object.assign(new Error('The encounter link changed. Reload before signing.'),{status:409});
     if (note.clinical_session_id && !lockedSession) throw Object.assign(new Error('The linked encounter is unavailable.'),{status:409});
+    assertNoPendingClinicalServiceChange(lockedSession);
     if (Number(req.body?.agencyId || req.medicalBillingAgencyId || note.agency_id)!==Number(note.agency_id)) throw Object.assign(new Error('Note not found in this agency.'),{status:404});
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: note.agency_id });
 
@@ -1898,6 +1901,7 @@ export const signClinicalNote = async (req, res, next) => {
       if (screenMeta?.source === H0002_SOURCE && noteMeta?.source !== H0002_SOURCE) throw Object.assign(new Error('Use the digital screening review to sign this encounter.'),{status:409});
     }
     validateScreeningSignature(note);
+    await assertNarrivaRiskBeforeSignature(note);
     const plain = maybeDecryptNotePayload(note.note_payload);
     const hash = contentHash(plain);
     let meta = {};
@@ -2156,6 +2160,7 @@ export const cosignClinicalNote = async (req, res, next) => {
     const current = await loadReviewDocument({ agencyId:note.agency_id, providerUserId:note.provider_signed_by_user_id || note.created_by_user_id }, 'note', noteId, cosignDb);
     Object.assign(note,current.row);
     const [[liveReviewSession]] = note.clinical_session_id ? await cosignDb.execute('SELECT * FROM clinical_sessions WHERE id=? AND agency_id=?',[note.clinical_session_id,note.agency_id]) : [[{}]];
+    assertNoPendingClinicalServiceChange(liveReviewSession);
     const originalRevision = await ensureOriginalRevision({db:cosignDb,note,session:liveReviewSession || {}});
     const approvedContext=await getApprovedClinicalContext({note,session:liveReviewSession || {}},cosignDb);
     if (Number(approvedContext.note.clinical_version_number)>1) throw Object.assign(new Error('Use the signature actions on the amended version. The original signatures remain on file.'),{status:409});
@@ -2176,6 +2181,7 @@ export const cosignClinicalNote = async (req, res, next) => {
       return res.json({ ok:true,noteId,cosignedAt:note.supervisor_cosigned_at,isBillable:!isNonBillableDocument(note) });
     }
     if (current.hash !== req.body.contentHash || req.body.reviewedAndApproved !== true) throw Object.assign(new Error('Read the current note and addenda and attest approval before cosigning.'),{status:409});
+    if(req.body.quickSign===true)await (await import('../services/narrivaReview.service.js')).assertNarrivaQuickSign({user:req.user,noteId,agencyId:note.agency_id,reviewId:req.body.narrivaReviewId,clinicalDb:cosignDb});
     let meta = {};
     try {
       meta =

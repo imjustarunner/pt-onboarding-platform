@@ -23,6 +23,9 @@ import {
 } from '../sessionRecordingAccess.js';
 
 describe('note aid kinds', () => {
+  it('routes H2011 to its crisis intervention writer instead of psychotherapy',()=>{
+    const item=findNoteAidById('h2011_note');expect(item.category.id).toBe('universal');expect(item.aid.serviceCode).toBe('H2011');expect(item.aid.toolId).toBe('clinical_h2011_note');expect(aidKind(item.aid)).toBe('crisis');
+  });
   it('puts Code Decider first in Universal Aids', () => {
     const universal = findNoteAidById('code_decider');
     expect(universal?.category?.id).toBe('universal');

@@ -8,7 +8,10 @@ vi.mock('../../services/schoolGroupSubscription.service.js', async importOrigina
   resolveGroupEmailForSchool: vi.fn().mockResolvedValue(null),
   readSchoolGroupSubscriptions: vi.fn().mockResolvedValue(new Map())
 }));
-vi.mock('../../services/schoolStaffWelcomeEmail.service.js',()=>({sendSchoolStaffWelcomeEmail:vi.fn(async()=>({id:'sent'}))}));
+vi.mock('../../services/schoolStaffWelcomeEmail.service.js',async importOriginal=>({
+ ...await importOriginal(),
+ sendSchoolStaffWelcomeEmail:vi.fn(async()=>({id:'sent'}))
+}));
 import {applySchoolGroupSubscription} from '../../services/schoolGroupSubscription.service.js';
 import {sendSchoolStaffWelcomeEmail} from '../../services/schoolStaffWelcomeEmail.service.js';
 import pool from '../../config/database.js';
@@ -22,6 +25,7 @@ import { addSchoolStaff, updateSchoolStaff, listSchoolStaff } from '../schoolPor
 let req, res, next, user;
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv('SCHOOLCAREBRIDGE_PUBLIC_ORIGIN', 'https://schoolcarebridge.org');
   user = { id: 42, role: 'school_staff', first_name: 'School', last_name: 'Contact', email: 'contact@school.example', phone_number: '303-555-0123', is_active: 0 };
   req = { params: { organizationId: '20', userId: '42' }, user: { id: 3, role: 'super_admin' }, body: {}, query: {} };
   res = { status: vi.fn().mockReturnThis(), json: vi.fn() }; next = vi.fn();
@@ -44,7 +48,7 @@ beforeEach(() => {
   // Do not run the add endpoint's background email task in a phone persistence test.
   vi.stubGlobal('setImmediate', vi.fn());
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 it.each([' 303-555-0111 ', '', null])('saves or clears an existing override (%s)', async input => {
   req.body.phoneNumber = input;
@@ -100,7 +104,8 @@ it('sends a welcome containing the added school and exact permissions using the 
  User.getAgencies.mockResolvedValue([{id:999,slug:'unrelated-school'},{id:20,slug:'test-school'}]);
  req.body={email:user.email,isSchoolAdmin:true,isScheduler:true};
  await addSchoolStaff(req,res,next);expect(next).not.toHaveBeenCalled();
- expect(sendSchoolStaffWelcomeEmail).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,schoolOrganizationId:20,userId:42,actorUserId:3,schoolName:'Test School',isSchoolAdmin:true,isScheduler:true,accessUrl:expect.stringContaining('/test-school/passwordless-login/test-token')}));
+ expect(User.generatePasswordlessToken).toHaveBeenCalledWith(42,168,'reset');
+ expect(sendSchoolStaffWelcomeEmail).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,schoolOrganizationId:20,userId:42,actorUserId:3,schoolName:'Test School',isSchoolAdmin:true,isScheduler:true,accessUrl:'https://schoolcarebridge.org/app/test-school/reset-password/test-token',portalUrl:'https://schoolcarebridge.org/app/test-school',setup:true,setupExpiresHours:168}));
  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({emailSent:true,emailQueued:false}));
 });
 

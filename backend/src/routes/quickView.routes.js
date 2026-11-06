@@ -1,6 +1,7 @@
 import {getMobileInbox,getMobilePreferences,patchMobilePreferences,patchMobileArchive,getMobileChatContext,getMobileFile,patchMobileMessageState,postMobileViewed,getMobileMyWork} from '../controllers/mobileConversa.controller.js';
 import { getQuickPresence, postQuickAway, postQuickPresenceClear } from '../controllers/quickViewPresence.controller.js';
 import emailDraftRoutes from './emailDraft.routes.js';
+import mobileClinicalRoutes from './mobileClinical.routes.js';
 import { getQuickDeliveryReceipt, getQuickConversation, patchQuickConversation, postQuickReply, postQuickCompose, getQuickAttachment, postQuickReaction, postQuickUndo } from '../controllers/quickViewMessaging.controller.js';
 import express from 'express';
 import multer from 'multer';
@@ -120,6 +121,7 @@ router.get('/directory', requireQuickViewSession, getQuickDirectory);
 
 // Mobile-only surfaces require a primary device sign-in in addition to this scoped session.
 router.get('/my-work', requireQuickViewSession, getMobileMyWork);
+router.use('/clinical',requireQuickViewSession,mobileClinicalRoutes);
 router.get('/messages/inbox', requireQuickViewSession, getMobileInbox);
 router.get('/messages/preferences', requireQuickViewSession, getMobilePreferences);
 router.patch('/messages/preferences', requireQuickViewSession, patchMobilePreferences);

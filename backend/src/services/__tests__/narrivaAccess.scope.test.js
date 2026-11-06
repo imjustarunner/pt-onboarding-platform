@@ -1,0 +1,20 @@
+import {beforeEach,describe,it,expect,vi} from 'vitest';
+const m=vi.hoisted(()=>({execute:vi.fn(),user:vi.fn(),client:vi.fn(),scope:vi.fn(),agency:vi.fn(),clinical:vi.fn(),memberships:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
+vi.mock('../../models/User.model.js',()=>({default:{findById:m.user}}));
+vi.mock('../../models/Client.model.js',()=>({default:{findById:m.client}}));
+vi.mock('../clinicalEligibility.service.js',()=>({default:{ensureAgencyAccess:m.agency,assertAgencyHasClinicalOrg:m.clinical}}));
+vi.mock('../../utils/noteAidClientAgency.js',()=>({listClientAgencyMembershipIds:m.memberships}));
+vi.mock('../agencyAccessProfiles.service.js',()=>({readAgencyAccess:m.scope}));
+vi.mock('../clinicalNoteSigningToken.service.js',()=>({CLINICAL_SIGNER_ROLES:new Set(['admin','provider','provider_plus','supervisor','super_admin'])}));
+import {requireNarrivaAgency,requireNarrivaClient} from '../narrivaAccess.service.js';
+import {authorizedMobileClientCards} from '../mobileClinicalPrivacy.service.js';
+let current,profile,membership;
+const staleAdmin={id:7,role:'admin',status:'ACTIVE',is_active:1};
+beforeEach(()=>{vi.clearAllMocks();current={id:7,role:'admin',status:'ACTIVE',is_active:1,is_archived:0};profile={agencyId:2,userId:7,role:'provider',permissions:{has_provider_access:true},membership:true,platformAccessOnly:false,financialAccessOnly:false};membership={user_id:7,agency_role:'provider',is_active:1};m.user.mockImplementation(async()=>({...current}));m.scope.mockImplementation(async()=>profile);m.agency.mockResolvedValue(true);m.clinical.mockResolvedValue(true);m.client.mockResolvedValue({id:10,agency_id:2,client_type:'clinical',provider_id:88});m.memberships.mockResolvedValue([2]);m.execute.mockImplementation(async(sql)=>sql.includes('FROM user_agencies')?[[membership]]:sql.includes('FROM clients')?[[]]:[[]]);});
+describe('Narriva authorization uses current exact-workspace role',()=>{
+ it('rejects a stale clinical JWT after the current account becomes support',async()=>{current.role='support';membership.agency_role='support';profile.role='support';profile.permissions={has_provider_access:false};await expect(requireNarrivaAgency(staleAdmin,2)).rejects.toMatchObject({status:403});});
+ it('rejects a globally privileged account downgraded to school staff in this workspace',async()=>{membership.agency_role='school_staff';profile.role='school_staff';profile.permissions={has_provider_access:false};await expect(requireNarrivaAgency(staleAdmin,2)).rejects.toMatchObject({status:403});});
+ it('does not keep broad client access from a stale admin role after a provider downgrade',async()=>{await expect(requireNarrivaClient(staleAdmin,2,10)).rejects.toMatchObject({status:403});});
+ it('uses the effective provider role when selecting masked mobile client cards',async()=>{await authorizedMobileClientCards(staleAdmin,2,[10]);const query=m.execute.mock.calls.find(([sql])=>sql.includes('FROM clients'));expect(query[0]).toContain('client_provider_assignments');expect(query[1].slice(-2)).toEqual([7,7]);});
+});

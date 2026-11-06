@@ -9,6 +9,9 @@ import { normalizeServiceDetails, serviceDetailTimes, verifyServiceAmendmentLoca
 import { isValidTimeZone } from '../utils/zonedWallTime.util.js';
 import { requireStaffPlanActor } from '../utils/planStaffAccess.js';
 import { CLINICAL_SIGNER_ROLES } from '../services/clinicalNoteSigningToken.service.js';
+import { assertNarrivaRiskBeforeSignature } from '../services/narrivaRiskAssessment.service.js';
+import ClinicalSession from '../models/clinical/ClinicalSession.model.js';
+import { assertNoPendingClinicalServiceChange } from '../utils/clinicalServiceChangePolicy.js';
 import {
   getRevisionSummary, getRevision, proposeRevision, editRevision, signRevision
 } from '../services/clinicalNoteVersion.service.js';
@@ -203,7 +206,9 @@ export async function updateClinicalNoteVersion(req, res, next) {
 
 async function attest(req, res, next, action, capability) {
   try {
+    if(req.body.quickSign===true)throw policyError(409,'Quick Sign is unavailable for amendments. Review and sign this version through its existing signature actions.');
     const context = await scope(req), revisionId = positiveId(req.params.versionId);
+    if(context.note.clinical_session_id)assertNoPendingClinicalServiceChange(await ClinicalSession.findById(context.note.clinical_session_id));
     if (!revisionId) throw policyError(400, 'A valid versionId is required.');
     if (req.body.attested !== true || !/^[a-f0-9]{64}$/i.test(String(req.body.expectedContentHash || ''))) throw policyError(400, 'Review and attest to this exact version before signing.');
     if (req.body.expectedEntryManifestHash !== undefined && !/^[a-f0-9]{64}$/i.test(String(req.body.expectedEntryManifestHash))) throw policyError(400, 'The reviewed entry manifest hash is invalid. Reopen this version.');
@@ -215,6 +220,7 @@ async function attest(req, res, next, action, capability) {
         serviceCode:encounter.serviceCode,dateOfService:encounter.dateOfService,note:{...context.note,metadata_json:snapshot.metadataJson,primary_diagnosis_id:snapshot.primaryDiagnosisId,diagnostic_justification:snapshot.diagnosticJustification || null,clinical_version_id:revision.id,clinical_version_encounter_context:encounter},
         diagnoses:snapshot.metadataJson?.structuredChart?.diagnoses || snapshot.metadataJson?.structuredChart?.intakeDiagnoses});
     }
+    if(action!=='author_acknowledge')await assertNarrivaRiskBeforeSignature({...context.note,metadata_json:revision.snapshot?.metadataJson || context.note.metadata_json});
     const signedRevision = await signRevision({ ...context, revisionId, action, attested: true, expectedContentHash: req.body.expectedContentHash, expectedEntryManifestHash: req.body.expectedEntryManifestHash });
     const finalSummary = await summaryResponse(context);
     if (action !== 'author_acknowledge' && Number(finalSummary.effectiveRevisionId) === Number(signedRevision.id) && !finalSummary.pendingRevisionId) {

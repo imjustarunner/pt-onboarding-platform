@@ -24,6 +24,8 @@ import {
   isReviewOnlyNoteType
 } from '../services/clinicalNoteContentReview.service.js';
 import { markQuestionnairesAttached } from '../services/noteAidQuestionnaireContext.service.js';
+import { assertNoPendingClinicalServiceChange } from '../utils/clinicalServiceChangePolicy.js';
+import clinicalDatabase from '../config/clinicalDatabase.js';
 
 const BACKOFFICE_ROLES = new Set(['admin', 'super_admin', 'support']);
 const CLINICAL_DB_HINT = 'Clinical database schema missing. Run database/clinical_migrations/001_create_clinical_data_plane.sql (and 002_medical_billing_foundations.sql for billing).';
@@ -274,6 +276,7 @@ export const listSessionArtifacts = async (req, res, next) => {
 };
 
 export const createSessionNote = async (req, res, next) => {
+  let attachDb = null;
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -285,6 +288,7 @@ export const createSessionNote = async (req, res, next) => {
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: session.agency_id });
     await ClinicalEligibilityService.assertAgencyHasClinicalOrg(session.agency_id);
     await ClinicalEligibilityService.assertSessionNoteEligible(session);
+    assertNoPendingClinicalServiceChange(session);
     await clinicalAppointmentAlerts.assertReviewed(req.user,{agencyId:session.agency_id,clientId:session.client_id,clinicalSessionId:session.id});
 
     const title = String(req.body?.title || '').trim();
@@ -328,24 +332,51 @@ export const createSessionNote = async (req, res, next) => {
     }
 
     const draftIdMeta = parseIntValue(metadata.draftId);
+    // Service changes lock this same encounter row. Keep the current context,
+    // draft lookup and note write together so a pending saga cannot slip in.
+    attachDb = await clinicalDatabase.getConnection();
+    await attachDb.beginTransaction();
+    const [[currentSession]] = await attachDb.execute(
+      'SELECT * FROM clinical_sessions WHERE id=? FOR UPDATE', [session.id]
+    );
+    if (!currentSession
+      || Number(currentSession.agency_id) !== Number(session.agency_id)
+      || Number(currentSession.client_id) !== Number(session.client_id)
+      || Number(currentSession.provider_user_id || 0) !== Number(session.provider_user_id || 0)) {
+      throw Object.assign(new Error('The appointment client, provider or workspace changed. Reopen the actual session before attaching this note.'), { status: 409 });
+    }
+    assertNoPendingClinicalServiceChange(currentSession);
+    const selectedService = String(metadata.serviceCode || session.service_code || '').trim().toUpperCase();
+    if (selectedService && String(currentSession.service_code || '').trim().toUpperCase() !== selectedService) {
+      throw Object.assign(new Error('The session service changed. Reload the appointment and regenerate or review the note for its current service before attaching.'), { status: 409, code: 'CLINICAL_SERVICE_CHANGED' });
+    }
+    Object.assign(session, currentSession);
     let note = null;
     if (draftIdMeta) {
       note = await ClinicalNote.findByDraftId({
         clientId: session.client_id,
         draftId: draftIdMeta
-      });
+      }, { executor: attachDb, forUpdate: true });
       if (note) {
         if (Number(note.created_by_user_id) !== Number(req.user.id) || Number(note.agency_id) !== Number(session.agency_id)) {
-          return res.status(403).json({ error: { message: 'This note belongs to another author or agency.' } });
+          throw Object.assign(new Error('This note belongs to another author or agency.'), { status: 403 });
+        }
+        if (Number(note.clinical_session_id) !== Number(session.id)) {
+          throw Object.assign(new Error('This draft is already attached to a different encounter. Open its original appointment.'), { status: 409 });
         }
         // Signature retries must never replace the payload of an already signed note.
-        if (note.provider_signed_at || note.content_review_source === 'provider_review') return res.json({ ok: true, note });
+        if (note.provider_signed_at || note.content_review_source === 'provider_review') {
+          await attachDb.commit();
+          attachDb.release();
+          attachDb = null;
+          return res.json({ ok: true, note });
+        }
         note = await ClinicalNote.updatePayload({
           noteId: note.id,
           title,
           notePayload,
           metadataJson: { ...metadata, draftId: draftIdMeta }
-        });
+        }, { executor: attachDb });
       }
     }
     if (!note) {
@@ -357,8 +388,12 @@ export const createSessionNote = async (req, res, next) => {
         notePayload,
         metadataJson: metadata,
         createdByUserId: req.user.id
-      });
+      }, { executor: attachDb });
     }
+
+    await attachDb.commit();
+    attachDb.release();
+    attachDb = null;
 
     const qInstruments = Array.isArray(metadata.questionnaireInstruments)
       ? metadata.questionnaireInstruments
@@ -520,6 +555,10 @@ export const createSessionNote = async (req, res, next) => {
 
     res.status(201).json({ ok: true, note:await withClinicalSigningToken(await ClinicalNote.findById(note.id)) });
   } catch (error) {
+    if (attachDb) {
+      try { await attachDb.rollback(); }
+      finally { attachDb.release(); attachDb = null; }
+    }
     if (handleSchemaError(error, res)) return;
     next(error);
   }

@@ -1,4 +1,5 @@
 import { recordQuickPresenceActivity } from './quickViewPresence.controller.js';
+import {enrichMobileClinicalCalendar} from '../services/mobileClinicalCalendar.service.js';
 import { quickDayWindow, quickMeetingLink } from '../utils/quickViewCalendar.js';
 import crypto from 'crypto';
 import {
@@ -837,6 +838,10 @@ export const getQuickDayCalendar = async (req, res, next) => {
       })
     ].sort((a, b) => new Date(a.startAt) - new Date(b.startAt));
 
+    if(req.quickView.mobileDeviceSessionId) {
+      const user=await User.findById(userId);
+      if(!['support','school_staff'].includes(String(user?.role).toLowerCase()))return res.json({ok:true,day,timeZone,items:await enrichMobileClinicalCalendar({user,agencyId:req.quickView.agencyId,windowStart,windowEnd,items,events})});
+    }
     res.json({ ok: true, day, timeZone, items });
   } catch (e) {
     next(e);

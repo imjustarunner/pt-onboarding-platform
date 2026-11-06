@@ -1,0 +1,48 @@
+name: Narriva workspace
+on:
+  pull_request:
+    paths: ['frontend/**', 'backend/**', 'database/migrations/**', '.github/workflows/narriva-workspace.yml']
+  push:
+    branches: [main]
+    paths: ['frontend/**', 'backend/**', 'database/migrations/**', '.github/workflows/narriva-workspace.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  clinical:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: narriva_fixture_only
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -pnarriva_fixture_only"
+          --health-interval=5s --health-timeout=5s --health-retries=12
+    env:
+      NODE_ENV: test
+      SKIP_DB_CONNECT: '1'
+      NARRIVA_MYSQL_TEST: '1'
+      NARRIVA_MYSQL_PORT: '3306'
+      NARRIVA_MYSQL_PASSWORD: narriva_fixture_only
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefix frontend --ignore-scripts
+      - run: npm ci --prefix backend --ignore-scripts
+      - run: npm rebuild --prefix backend bcrypt
+      - name: Verify scoped clinical access, consent, review evidence and service publication
+        working-directory: frontend
+        run: node node_modules/vitest/vitest.mjs run --config vitest.narriva.config.js --maxWorkers=3
+      - name: Verify established note and immutable signature workflows
+        working-directory: frontend
+        run: node node_modules/vitest/vitest.mjs run --config vitest.note-workspace.config.js --maxWorkers=3
+      - name: Verify clinical signature, amendment and claim boundaries
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.claimmd.config.js --maxWorkers=3

@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { getClinicalServiceReference } from '../services/clinicalServiceReference.service.js';
 
 const SESSION_MODES = new Set(['individual', 'group', 'either']);
 
@@ -26,7 +27,8 @@ class AgencyMedicalServiceCode {
       session_mode: normalizeSessionMode(r.session_mode, 'either'),
       isAddon: Number(r.is_addon || 0) === 1,
       isActive: Number(r.is_active || 0) === 1,
-      defaultPlaceOfService: r.default_place_of_service || null
+      defaultPlaceOfService: r.default_place_of_service || null,
+      serviceInfo: getClinicalServiceReference(r.service_code)
     };
   }
 

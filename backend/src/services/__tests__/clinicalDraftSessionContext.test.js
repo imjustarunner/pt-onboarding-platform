@@ -49,6 +49,10 @@ it('does not fabricate context when the explicit session is missing or database 
   database.execute.mockRejectedValue(new Error('Unavailable'));
   await expect(resolve({})).rejects.toThrow('Unavailable');
 });
+it('blocks draft saves and generation while a confirmed service change is pending in the other data plane',async()=>{
+  sessions.findById.mockResolvedValue({...canonical,metadata_json:JSON.stringify({serviceCodeChangePending:{id:'opaque'}})});
+  await expect(resolve({clinicalSessionId:140})).rejects.toMatchObject({status:409,code:'CLINICAL_SERVICE_CHANGE_PENDING'});
+});
 it('keeps independent drafts possible when no canonical appointment exists and never changes notes or attendance', async () => {
   database.execute.mockResolvedValue([[]]);
   expect(await resolve({})).toBeNull();

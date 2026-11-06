@@ -42,7 +42,7 @@
 	<key>NSFaceIDUsageDescription</key>
 	<string>Use Face ID to unlock your private Auricwell workspace on this device.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Use the microphone only when you choose to dictate or join a call.</string>
+	<string>Use the microphone when you choose to record a session after recording consent, dictate a message, or join a call.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Attach a photo to a message when you choose one from your library.</string>
 	<key>UILaunchStoryboardName</key>
