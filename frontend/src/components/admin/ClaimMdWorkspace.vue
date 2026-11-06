@@ -99,7 +99,7 @@
         </template>
         <p v-else class="error" role="status">{{ draft.approvedClinicalVersionError }}</p>
         <form v-if="reconciling" data-testid="clinical-reconciliation-form" @submit.prevent="saveClinicalReconciliation">
-          <p>Applying version {{ reconciliationPlan.revisionNumber }} keeps Claim #{{ draft.claim.id }} as a draft. A fresh claim review is required before any later submission.</p>
+          <p>Applying version {{ reconciliationPlan.revisionNumber }} keeps {{ draft.claim.claim_reference || `Claim #${draft.claim.id}` }} as a draft. A fresh claim review is required before any later submission.</p>
           <fieldset :disabled="busy"><legend>Explicit billing review for every approved service</legend>
             <article v-for="(line, index) in reconciliationLines" :key="index">
               <strong>{{ line.procedureCode }} · {{ line.units }} unit(s)</strong>
@@ -232,14 +232,21 @@
       <div class="actions"><button :disabled="busy || !approved || !review.readiness.ready || !['draft','ready','rejected'].includes(review.lifecycle) || !(connection.practiceSubmission || ['test','live'].includes(connection.mode))" @click="submit">{{ connection.practiceSubmission ? 'Approve practice submit' : `Approve and submit ${connection.mode === 'live' ? 'LIVE claim' : 'test claim'}` }}</button><button :disabled="busy" @click="review = null">Close review</button></div>
     </section>
 
-    <section v-if="historyClaimId" class="review">
-      <h3>Claim #{{ historyClaimId }} history and follow-up</h3>
+    <section v-if="historyClaimId" class="review claim-timeline" aria-label="Claim history">
+      <h3>{{ historyMeta.claimReference || `Claim #${historyClaimId}` }} · Claim history</h3>
+      <p>One claim, listed in chronological order. Submission attempts and their responses remain on record.</p>
+      <p v-if="historyMeta.patientControlNumber && historyMeta.claimReference !== historyMeta.patientControlNumber">Earlier payer reference: {{ historyMeta.patientControlNumber }}. Retained for matching previously submitted claims.</p>
+      <details v-if="historyMeta.attempts?.length > 1"><summary>Submission attempts and earlier references ({{ historyMeta.attempts.length }})</summary><ul><li v-for="attempt in historyMeta.attempts" :key="attempt.id">Attempt {{ attempt.number }} · {{ claimStatusLabel(attempt.lifecycle) }}<template v-if="attempt.submittedAt"> · {{ formatBillingTimestamp(attempt.submittedAt) }}</template><template v-if="attempt.payerReference"> · Sent reference {{ attempt.payerReference }}</template></li></ul></details>
+      <button v-if="historyMeta.nextBefore" type="button" :disabled="busy" @click="loadEarlierHistory">Load earlier history</button>
       <p v-if="!history.length">No clearinghouse activity yet.</p>
       <article v-for="event in history" :key="event.id">
+        <small v-if="event.attemptNumber">Attempt {{ event.attemptNumber }} · </small>
         <strong>{{ claimHistoryLabel(event.type) }}</strong> · {{ clearinghouseStatusLabel(event.status) || event.status || 'Recorded' }} · {{ formatBillingTimestamp(event.createdAt) }} · {{ event.actorName || (event.actorUserId ? `User #${event.actorUserId}` : 'System / clearinghouse') }}
         <p v-for="(message, i) in event.messages || []" :key="i">{{ message.message }} <small>{{ message.fields }}</small></p>
         <ul><li v-for="suggestion in event.suggestions || []" :key="suggestion">{{ suggestion }}</li></ul>
         <p v-if="event.reason">{{ event.reason }}</p>
+        <p v-if="event.type==='remittance_posted'">{{ event.denied ? 'Denied' : 'Payer adjudication' }} · Paid {{ claimHistoryMoney(event.paidCents) }} · Adjustments {{ claimHistoryMoney(event.adjustmentCents) }} · Patient responsibility {{ claimHistoryMoney(event.responsibilityCents) }}<template v-if="event.payerControlNumber"> · Payer control number {{ event.payerControlNumber }}</template></p>
+        <ul v-if="claimHistoryChanges(event).length"><li v-for="change in claimHistoryChanges(event)" :key="change.label">{{ change.label }}: {{ change.before }} → {{ change.after }}</li></ul>
       </article>
     </section>
   </section>
@@ -256,7 +263,7 @@ import ProviderBillingRollout from '../billing/ProviderBillingRollout.vue';
 import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import { claimRequirementAction } from '../../utils/claimReviewRequirements.js';
 import api from '../../services/api';
-import { claimHistoryLabel, clearinghouseStatusLabel } from '../../utils/billingWorkspace.js';
+import { claimHistoryLabel, clearinghouseStatusLabel, claimStatusLabel, claimHistoryChanges, claimHistoryMoney } from '../../utils/billingWorkspace.js';
 const props = defineProps({ agencyId: { type: Number, required: true }, connection: { type: Object, required: true }, section: { type: String, default: 'all' }, readOnly: Boolean });
 const emit = defineEmits(['updated']);
 const fetchRollout = async () => (await api.get('/medical-billing/provider-rollout', { params: { agencyId: props.agencyId } })).data;
@@ -301,6 +308,7 @@ const billingGroups = computed(() => [...new Set(billingOffices.value.map(o=>o.p
 const sameGroupOfficeCount = computed(() => billingOffices.value.filter(o=>o.practice_npi===selectedOffice.value?.practice_npi).length);
 const enrollmentStatus = status => ({ requested: 'Requested — open enrollment to continue', started: 'Form issued — complete steps in Claim.MD', provider_validation_required: 'Action needed — NPPES phone validation', era_receiver_conflict: 'Action needed — release or transfer ERA enrollment from the current receiving account' })[status] || status;
 const payers = ref([]), enrollments = ref([]), review = ref(null), approved = ref(false), history = ref([]), historyClaimId = ref(null);
+const historyMeta=ref({});let historySequence=0;
 const transactionCapability = payer => payer[{'1500':'1500_claims',era:'era',elig:'eligibility'}[enrollmentType.value]];
 const transactionUnavailable = payer => transactionCapability(payer) === 'no';
 const transactionAvailable = payer => transactionCapability(payer) === 'yes';
@@ -396,10 +404,12 @@ const sync = () => run(async () => {
   const { data } = await api.post('/medical-billing/claimmd/responses/sync', { agencyId: props.agencyId });
   if (active) { notice.value = `${data.updated} claim updates saved.${data.moreAvailable ? ' More updates are available; sync again.' : ''}`; emit('updated'); if (historyClaimId.value) await fetchHistory(historyClaimId.value); }
 });
-async function fetchHistory(claimId) {
-  const { data } = await api.get(`/medical-billing/claimmd/claims/${claimId}/history`, { params: { agencyId: props.agencyId }, skipGlobalLoading: true });
-  if (active) { historyClaimId.value = claimId; history.value = data.history || []; }
+async function fetchHistory(claimId,before=null) {
+  const seq=++historySequence;
+  const { data } = await api.get(`/medical-billing/claimmd/claims/${claimId}/history`, { params: { agencyId: props.agencyId,...(before?{before}:{}) }, skipGlobalLoading: true });
+  if (active && seq===historySequence) { historyClaimId.value = claimId; historyMeta.value=data;history.value = before?[...(data.history||[]),...history.value]:(data.history || []); }
 }
+const loadEarlierHistory=()=>run(()=>fetchHistory(historyClaimId.value,historyMeta.value.nextBefore));
 const showHistory = claimId => run(() => fetchHistory(claimId));
 const editClaim = claimId => run(async () => {
   if (props.readOnly) return;
@@ -430,11 +440,11 @@ const reviewClaim = claimId => run(async () => {
   activeClaimId.value=claimId;
   review.value = null; approved.value = false;
   const { data } = await api.get(`/medical-billing/claimmd/claims/${claimId}/review`, { params: { agencyId: props.agencyId } });
-  if (active) { review.value = data; historyClaimId.value = claimId; history.value = data.history || []; }
+  if (active) { historySequence++;review.value = data; historyClaimId.value = claimId; historyMeta.value=data;history.value = data.history || []; }
 });
 async function reloadReview() {
   const {data}=await api.get(`/medical-billing/claimmd/claims/${review.value.claimId}/review`,{params:{agencyId:props.agencyId}});
-  if(active){review.value=data;approved.value=false;exceptionFinding.value=null;}
+  if(active){historySequence++;review.value=data;historyClaimId.value=data.claimId;historyMeta.value=data;history.value=data.history||[];approved.value=false;exceptionFinding.value=null;}
 }
 const runAiReview=()=>run(async()=>{
   await api.post(`/medical-billing/claimmd/claims/${review.value.claimId}/ai-review`,{agencyId:props.agencyId});

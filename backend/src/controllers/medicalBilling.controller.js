@@ -1,3 +1,5 @@
+import { collapseClaimAttempts } from '../services/claimFamily.service.js';
+import { attachClaimReferences } from '../services/clinicalClaimReferences.service.js';
 import { getCanonicalFeeSchedule } from '../services/feeSchedule.service.js';
 import { priceNewClaimLines } from '../services/newClaimFees.service.js';
 import { listClientDiagnosisAlerts } from '../services/clinicalDiagnosisPolicy.service.js';
@@ -2819,18 +2821,19 @@ export const listMedicalClaims = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
     const [rows] = await clinicalPool.execute(
-      `SELECT id, clinical_session_id, client_id, claim_number, claim_status, amount_cents, currency_code,
+      `SELECT id,id AS claimId,agency_id,payer_sequence,parent_claim_id,metadata_json, clinical_session_id, client_id, claim_number, claim_status, amount_cents, currency_code,
               clinical_note_id, payer_name, claim_lifecycle, claimmd_claim_id, claimmd_last_status,
               date_of_service, diagnosis_codes_json, place_of_service, created_at, updated_at
        FROM clinical_claims
        WHERE agency_id = ? AND is_deleted = 0
-       ORDER BY created_at DESC
-       LIMIT 200`,
+       ORDER BY created_at DESC`,
       [agencyId]
     );
     const [responsibilities]=await pool.execute("SELECT r.source_key,r.id,r.amount_cents,r.status,COALESCE(SUM(a.paid_cents),0) AS paid_cents FROM family_receivables r LEFT JOIN family_receivable_allocations a ON a.receivable_id=r.id WHERE r.agency_id=? AND r.source_type='claim_responsibility' GROUP BY r.id",[agencyId]);
     const byClaim=new Map(responsibilities.map(r=>[String(r.source_key),r]));
-    return res.json({ claims: (rows||[]).map(claim=>({...claim,familyResponsibility:byClaim.get(String(claim.id))||null})) });
+    await attachClaimReferences(rows,clinicalPool);
+    const claims=collapseClaimAttempts(rows).sort((a,b)=>Number(b.id)-Number(a.id)).slice(0,200);
+    return res.json({ claims: claims.map(claim=>{const {metadata_json,...visible}=claim;return {...visible,familyResponsibility:byClaim.get(String(claim.id))||null,familyResponsibilities:claim.attempt_ids.map((id,index)=>{const balance=byClaim.get(String(id));return balance?{...balance,attemptNumber:index+1}:null;}).filter(Boolean)};}) });
   } catch (e) {
     next(e);
   }
@@ -2938,10 +2941,10 @@ export const submitClaimToClaimMd = async (req, res, next) => {
         const practiceClaimId = `practice-${claimId}`;
         const [queued] = await db.execute(`UPDATE clinical_claims SET claim_lifecycle = 'submitted', claim_status = 'SUBMITTED', member_id = NULL,
           insurance_payload = ?, claimmd_connection_id = ?, rendering_npi = ?, destination_payer_id = ?,
-          claimmd_last_status = 'PRACTICE', claimmd_submitted_at = NOW(), claimmd_claim_id = ?
+          claimmd_last_status = 'PRACTICE', claimmd_submitted_at = NOW(), claimmd_claim_id = ?, claim_number = ?
           WHERE id = ? AND agency_id = ? AND is_deleted = 0
           AND claim_lifecycle IN ('ready','draft','rejected') AND billing_revision = ?`,
-          [encryptFamilyBilling(insurance, `claim-insurance:${agencyId}:${claimId}`), connectionId, payload.prov_npi || null, payload.payerid || null, practiceClaimId, claimId, agencyId, claim.billing_revision]);
+          [encryptFamilyBilling(insurance, `claim-insurance:${agencyId}:${claimId}`), connectionId, payload.prov_npi || null, payload.payerid || null, practiceClaimId, payload.pcn, claimId, agencyId, claim.billing_revision]);
         if (!queued.affectedRows) throw Object.assign(new Error('This claim changed or is already being submitted. Refresh its review.'), { status: 409 });
         await recordClaimEvent({ agencyId, claimId, connectionId, eventKey: `practice:${attemptId}`, eventType: 'approved_submission', status: 'PRACTICE', actorUserId: req.user.id, payload: { reviewHash, clinicalVersion, mode: 'practice', practice: true, payload, supervision } }, db);
         await recordClaimEvent({ agencyId, claimId, connectionId, eventKey: `practice-ack:${attemptId}`, eventType: 'acknowledgement', status: 'PRACTICE', actorUserId: req.user.id, payload: { messages: [{ message: 'Practice acknowledgement. This claim was not sent to Claim.MD or a payer.', status: 'PRACTICE' }], claimMdId: practiceClaimId } }, db);
@@ -2974,9 +2977,9 @@ export const submitClaimToClaimMd = async (req, res, next) => {
       await assertClinicalVersionSubmission({ noteId: claim.clinical_note_id, agencyId, expectedRevisionId: clinicalVersion.revisionId, expectedContentHash: clinicalVersion.contentHash }, db);
       await assertOriginalTransmissionAllowed({...latestReview.claim,agency_id:agencyId},db);
       const [queued] = await db.execute(`UPDATE clinical_claims SET claim_lifecycle = 'queued', member_id = NULL,
-        insurance_payload = ?, claimmd_connection_id = ?, rendering_npi = ?, destination_payer_id = ? WHERE id = ? AND agency_id = ? AND is_deleted = 0
+        insurance_payload = ?, claimmd_connection_id = ?, rendering_npi = ?, destination_payer_id = ?, claim_number = ? WHERE id = ? AND agency_id = ? AND is_deleted = 0
         AND claim_lifecycle IN ('ready','draft','rejected') AND billing_revision = ?`,
-        [encryptFamilyBilling(insurance, `claim-insurance:${agencyId}:${claimId}`), connection.connectionId, payload.prov_npi || null, payload.payerid || null, claimId, agencyId, claim.billing_revision]);
+        [encryptFamilyBilling(insurance, `claim-insurance:${agencyId}:${claimId}`), connection.connectionId, payload.prov_npi || null, payload.payerid || null, payload.pcn, claimId, agencyId, claim.billing_revision]);
       if (!queued.affectedRows) throw Object.assign(new Error('This claim changed or is already being submitted. Refresh its review.'), { status: 409 });
       await recordClaimEvent({ agencyId, claimId, connectionId: connection.connectionId, eventKey: `submission:${attemptId}`,
         eventType: 'approved_submission', actorUserId: req.user.id, payload: { reviewHash, clinicalVersion, mode: connection.mode, payload,

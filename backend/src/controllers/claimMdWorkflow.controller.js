@@ -1,4 +1,5 @@
 import { attachClaimReferences } from '../services/clinicalClaimReferences.service.js';
+import { loadClaimFamily, claimRecordId } from '../services/claimFamily.service.js';
 import { serviceDetailBillingBlockers } from '../services/clinicalSupervisorReview.service.js';
 import { getApprovedClinicalContext, approvedVersionBillingBlockers, clinicalVersionReference } from '../services/clinicalNoteVersionBilling.service.js';
 import { approvedClinicalClaimPlan, claimDiffersFromApprovedVersion, reconcileApprovedClinicalClaim } from '../services/clinicalClaimVersionReconciliation.service.js';
@@ -19,7 +20,7 @@ import { documentationScope, getClientDocumentationReadiness } from '../services
 import { resolveClaimMdConnection } from '../services/claimMdConnection.service.js';
 import { buildClaimMdJsonClaim, fetchPayers, requestEnrollment } from '../services/claimMd.service.js';
 import { secondaryInsurance, readSecondaryAdjudication, applySecondaryAdjudication, prepareSecondaryClaim } from '../services/secondaryClaim.service.js';
-import { asList, claimReviewHash, claimEventHistory, safeEnrollmentUrl, taxIdHash, recordClaimEvent } from '../services/claimMdWorkflow.service.js';
+import { asList, claimReviewHash, claimEventHistory, claimFamilyHistory, safeEnrollmentUrl, taxIdHash, recordClaimEvent } from '../services/claimMdWorkflow.service.js';
 import { applyBillingClaimOverrides } from '../services/applyBillingClaimOverrides.service.js';
 import { listClaimMdBillingProfiles, getClaimMdBillingProfile, resolveClaimMdBillingProfile, describeClaimServiceSite, assertClaimBillingNpi } from '../services/claimMdBillingProfile.service.js';
 
@@ -38,8 +39,12 @@ export async function prepareClaimReview(agencyId, claimId) {
   const [[claim]] = await clinicalPool.execute('SELECT * FROM clinical_claims WHERE id = ? AND agency_id = ? AND is_deleted = 0', [claimId, agencyId]);
   if (!claim) throw fail(404, 'Claim not found');
   await attachClaimReferences([claim], clinicalPool);
+  const family=await loadClaimFamily(agencyId,claimId);
+  claim.claim_reference=family.claimReference;
+  claim.patient_control_number=family.patientControlNumber;
   const [lines] = await clinicalPool.execute('SELECT * FROM clinical_claim_lines WHERE clinical_claim_id = ? ORDER BY line_number', [claimId]);
   const readiness = await evaluateClaimReadiness({ agencyId, clientId: claim.client_id, clinicalSessionId: claim.clinical_session_id, clinicalNoteId: claim.clinical_note_id, requireSignedNote: true });
+  if(claimRecordId(family.current)!==Number(claimId))readiness.blockers.push('A newer submission attempt exists for this claim. Open the current attempt from the claim history.');
   if (!claim.clinical_note_id || lines.some(line => Number(line.clinical_note_id) !== Number(claim.clinical_note_id))) throw fail(409, 'Every service line must be linked to this claim’s signed note');
   const sourceInsurance = await readClientInsurance(claim.client_id, agencyId);
   const secondary = Number(claim.payer_sequence || 1) === 2;
@@ -164,10 +169,10 @@ export async function reviewClaim(req, res, next) {
     const claimId = Number(req.params.claimId);
     if (!Number.isSafeInteger(claimId) || claimId < 1) throw fail(400, 'Invalid claim ID');
     const prepared = await prepareClaimReview(agencyId, claimId);
-    const history = await claimEventHistory(agencyId, claimId);
+    const familyHistory = await claimFamilyHistory(agencyId, claimId);
     res.json({ claimId, claimReference: prepared.claim.claim_reference, clientId: prepared.claim.client_id, dateOfService: prepared.claim.date_of_service, clinicalSessionId: prepared.claim.clinical_session_id, clinicalNoteId: prepared.claim.clinical_note_id,
       lifecycle: prepared.claim.claim_lifecycle, billingOffice: prepared.billingOffice, serviceSite: prepared.serviceSite, payload: prepared.payload, readiness: prepared.readiness, reviewHash: prepared.reviewHash,
-      supervision:prepared.supervision,clinicalVersion:clinicalVersionReference(prepared.documentation.note),aiReview:prepared.aiReview,appliedOverrides:prepared.appliedOverrides,history });
+      supervision:prepared.supervision,clinicalVersion:clinicalVersionReference(prepared.documentation.note),aiReview:prepared.aiReview,appliedOverrides:prepared.appliedOverrides,...familyHistory });
   } catch (e) { next(e); }
 }
 
@@ -200,7 +205,7 @@ export async function claimHistory(req, res, next) {
     const agencyId = await agencyFor(req);
     const [[claim]] = await clinicalPool.execute('SELECT id FROM clinical_claims WHERE id = ? AND agency_id = ? AND is_deleted = 0', [req.params.claimId, agencyId]);
     if (!claim) throw fail(404, 'Claim not found');
-    res.json({ history: await claimEventHistory(agencyId, claim.id) });
+    res.json(await claimFamilyHistory(agencyId,claim.id,{before:req.query.before || null}));
   } catch (e) { next(e); }
 }
 

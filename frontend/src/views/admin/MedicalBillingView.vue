@@ -259,9 +259,9 @@
         <button type="button" class="mb-btn" :disabled="claimsLoading" @click="loadClaims">Refresh claims</button>
         <ul v-if="claims.length" class="mb-list">
           <li v-for="c in claims" :key="c.id">
-            #{{ c.id }}
+            {{ c.claim_reference || c.claim_number || `Claim #${c.id}` }}
             <span class="mb-ready" :class="claimLifecycleClass(c)">{{ c.claim_lifecycle || c.claim_status }}</span>
-            <span v-if="c.familyResponsibility" class="muted">Family balance #{{ c.familyResponsibility.id }}: ${{ ((c.familyResponsibility.amount_cents-c.familyResponsibility.paid_cents)/100).toFixed(2) }} remaining · {{ c.familyResponsibility.status }}</span>
+            <span v-for="balance in c.familyResponsibilities || (c.familyResponsibility ? [c.familyResponsibility] : [])" :key="balance.id" class="muted">Family balance #{{ balance.id }}<template v-if="balance.attemptNumber"> · attempt {{ balance.attemptNumber }}</template>: ${{ ((balance.amount_cents-balance.paid_cents)/100).toFixed(2) }} remaining · {{ balance.status }}</span>
             — {{ formatCents(c.amount_cents) }}
             <span v-if="c.date_of_service"> · DOS {{ String(c.date_of_service).slice(0, 10) }}</span>
             <span v-if="c.place_of_service"> · POS {{ c.place_of_service }}</span>

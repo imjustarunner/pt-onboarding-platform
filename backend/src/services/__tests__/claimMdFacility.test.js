@@ -40,3 +40,10 @@ describe('complete Claim.MD facility identity', () => {
     expect(JSON.stringify(second)).not.toBe(JSON.stringify(first));
   });
 });
+
+it('uses the stable claim number as the outgoing PCN while retaining an attempt-specific response identifier',()=>{
+ const payload=buildClaimMdJsonClaim({...claim,id:13,claim_reference:'002-2026-11-009',patient_control_number:'002-2026-11-009'},lines,{insurance,practice});
+ expect(payload).toMatchObject({pcn:'002-2026-11-009',remote_claimid:'PT-2-13'});
+ const legacy=buildClaimMdJsonClaim({...claim,id:14,claim_reference:'002-2026-11-009',patient_control_number:'13'},lines,{insurance,practice});
+ expect(legacy.pcn).toBe('13');expect(legacy.remote_claimid).toBe('PT-2-14');
+});

@@ -180,6 +180,10 @@ describe('default source adapters', () => {
 describe('packet integration with the existing session privacy processor', () => {
   it('locally minimizes known identifiers, screens unknown Unicode names, and never invokes a language model', async () => {
     const { createSessionPrivacyContext } = await vi.importActual('../sessionAiPrivacy.service.js');
+    // Keep random opaque references from coincidentally ending in ten digits,
+    // which the intentionally conservative final phone-number screen rejects.
+    let referenceNumber=0;
+    const references=vi.spyOn(crypto,'randomUUID').mockImplementation(()=>`aaaaaaaa-bbbb-4ccc-8ddd-${(++referenceNumber).toString(16).padStart(12,'a')}`);
     vi.stubEnv('GCP_PROJECT_ID', 'synthetic-project'); vi.stubEnv('CLINICAL_AI_PRIVACY_APPROVED', 'true');
     vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEY_BASE64', Buffer.alloc(32, 7).toString('base64'));
     const source = sources();
@@ -196,7 +200,7 @@ describe('packet integration with the existing session privacy processor', () =>
       expect(JSON.stringify(result.packet)).not.toMatch(/Synthetic Alice|Zoë Privée|synthetic@example.com|202-555-0107|TEST12345/);
       expect(fetchImpl).toHaveBeenCalled();
       for (const [url] of fetchImpl.mock.calls) expect(url).toContain('dlp.googleapis.com');
-    } finally { vi.unstubAllEnvs(); }
+    } finally { references.mockRestore(); vi.unstubAllEnvs(); }
   });
 });
 

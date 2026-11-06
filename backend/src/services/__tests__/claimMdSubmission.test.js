@@ -13,7 +13,7 @@ vi.mock('../familyBillingEncryption.service.js', () => ({ encryptFamilyBilling: 
 import { submitClaimToClaimMd } from '../../controllers/medicalBilling.controller.js';
 const response = () => ({ code: 200, body: null, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } });
 const request = () => ({ user: { id: 9, role: 'admin' }, params: { claimId: '11' }, body: { agencyId: 1, approved: true, reviewHash: 'a'.repeat(64), accountMode: 'test' } });
-const prepared = () => ({ claim: { id: 11, client_id: 7, clinical_note_id: 4, clinical_session_id: 71, claim_lifecycle: 'ready', billing_revision: 0 }, documentation: { note: { clinical_version_id: 12, clinical_version_number: 2, clinical_version_content_hash: 'b'.repeat(64) } }, readiness: { ready: true }, insurance: {}, payload: { remote_claimid: '11' }, reviewHash: 'a'.repeat(64) });
+const prepared = () => ({ claim: { id: 11, client_id: 7, clinical_note_id: 4, clinical_session_id: 71, claim_lifecycle: 'ready', billing_revision: 0 }, documentation: { note: { clinical_version_id: 12, clinical_version_number: 2, clinical_version_content_hash: 'b'.repeat(64) } }, readiness: { ready: true }, insurance: {}, payload: { remote_claimid: '11', pcn:'001-2026-11-001' }, reviewHash: 'a'.repeat(64) });
 beforeEach(() => {
   vi.clearAllMocks(); mocks.liveAgency.mockResolvedValue(undefined); mocks.syntheticAgency.mockResolvedValue(false); mocks.selfPayCheck.mockResolvedValue(undefined); mocks.versionGuard.mockResolvedValue(undefined); mocks.prepare.mockResolvedValue(prepared());
   mocks.connection.mockResolvedValue({ accountKey: 'synthetic', mode: 'test', connectionId: 'account:100' });
@@ -118,7 +118,7 @@ describe('reviewed claim transmission', () => {
     mocks.prepare.mockResolvedValue({...prepared(),payload:{...prepared().payload,payerid:'SYNTH'}});
     await submitClaimToClaimMd(request(),response(),e=>{throw e;});
     const [sql,params]=mocks.execute.mock.calls.find(([sql])=>sql.includes('destination_payer_id = ?'));
-    expect(sql).toContain('agency_id = ?');expect(params.slice(-4)).toEqual(['SYNTH',11,1,0]);
+    expect(sql).toContain('agency_id = ?');expect(sql).toContain('claim_number = ?');expect(params.slice(-5)).toEqual(['SYNTH','001-2026-11-001',11,1,0]);
   });
   it('rejects an acknowledgement for a different claim and leaves this claim queued', async () => {
     mocks.upload.mockResolvedValue({ claim: [{ remote_claimid: '99', claimmd_id: '800', status: 'A' }] });

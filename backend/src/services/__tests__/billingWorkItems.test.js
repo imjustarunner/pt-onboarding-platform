@@ -15,7 +15,7 @@ describe('unified billing work stages',()=>{
   [{review_requests_json:[{action:'changes_needed'}],provider_signed_at:'2026-11-01'},'revisions_needed'],
   [{review_requests_json:[{action:'review_acknowledge'}],approved_at:'2026-11-02'},'ready_to_submit'],
   [{claim_lifecycle:'submitted',pending_revision_id:9},'submitted'],[{claim_lifecycle:'queued'},'processing'],
-  [{claim_lifecycle:'paid'},'paid'],[{claim_lifecycle:'denied'},'denied'],[{claim_lifecycle:'rejected'},'on_hold'],[{claim_lifecycle:'void'},'closed']
+  [{claim_lifecycle:'paid'},'paid'],[{claim_lifecycle:'denied'},'denied'],[{claim_lifecycle:'rejected'},'rejected'],[{claim_lifecycle:'void'},'closed']
  ])('derives %s as %s from persisted evidence',(row,stage)=>expect(billingWorkStage(row)).toBe(stage));
  it('never authorizes draft/pending/revision rows to review or submit a claim',()=>{
   for(const row of [{clinical_note_id:4},{clinical_note_id:4,provider_signed_at:'today'},{clinical_note_id:4,review_requests_json:[{action:'changes_needed'}]}]){

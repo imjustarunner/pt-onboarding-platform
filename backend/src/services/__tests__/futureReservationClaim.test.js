@@ -21,7 +21,10 @@ it('keeps the past-session claim workflow and checks the date again in the inser
     if(sql.includes('FROM clinical_claim_references'))return [[{clinical_claim_id:42,agency_id:2,public_reference:'002-2026-10-001'}]];
     return [[]];
   });
-  expect(await Claim.create(input)).toEqual({id:42,agency_id:2,claim_reference:'002-2026-10-001'});
+  expect(await Claim.create(input)).toEqual({
+    id:42, agency_id:2, claim_reference:'002-2026-10-001',
+    claim_root_id:42, attempt_reference:'002-2026-10-001'
+  });
   expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('FROM clinical_claim_references'),[2,42]);
   expect(m.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO'))[0]).toContain('s.scheduled_start_at <= UTC_TIMESTAMP()');
   expect(m.commit).toHaveBeenCalledOnce();

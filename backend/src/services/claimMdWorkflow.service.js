@@ -3,6 +3,26 @@ import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { fetchResponses } from './claimMd.service.js';
+import { loadClaimFamily,claimRecordId } from './claimFamily.service.js';
+
+export async function claimFamilyHistory(agencyId,claimId,{before=null}={}) {
+  if(before!=null && (!Number.isSafeInteger(Number(before)) || Number(before)<1))throw error(400,'Invalid claim history cursor');
+  const family=await loadClaimFamily(agencyId,claimId), ids=family.attempts.map(claimRecordId), marks=ids.map(()=>'?').join(',');
+  const [rows]=await clinicalPool.execute(`SELECT e.* FROM claimmd_claim_events e WHERE e.agency_id=? AND e.clinical_claim_id IN (${marks})
+    AND NOT EXISTS(SELECT 1 FROM claimmd_claim_events d WHERE d.agency_id=e.agency_id AND d.connection_id=e.connection_id AND d.event_key=e.event_key AND d.clinical_claim_id IN (${marks}) AND d.id<e.id)
+    ${before?'AND e.id<?':''} ORDER BY e.id DESC LIMIT 101`,[agencyId,...ids,...ids,...(before?[Number(before)]:[])]);
+  const page=rows.slice(0,100), actorIds=[...new Set(page.map(row=>Number(row.actor_user_id)).filter(id=>id>0))];
+  const [actors]=actorIds.length?await pool.execute(`SELECT id,first_name,last_name FROM users WHERE id IN (${actorIds.map(()=>'?').join(',')})`,actorIds):[[]];
+  const names=new Map(actors.map(actor=>[Number(actor.id),[actor.first_name,actor.last_name].filter(Boolean).join(' ')]));
+  const history=page.map(row=>{
+    const payload=decryptFamilyBilling(row.payload_encrypted,`claimmd:${agencyId}:${row.clinical_claim_id}:${row.event_key}`);
+    const attemptId=row.event_type==='resubmission_created' && ids.includes(Number(payload.claimId)) ? Number(payload.claimId):Number(row.clinical_claim_id);
+    return {...payload,id:row.id,type:row.event_type,status:row.status,createdAt:row.created_at,actorUserId:row.actor_user_id,actorName:names.get(Number(row.actor_user_id))||null,attemptId,attemptNumber:ids.indexOf(attemptId)+1};
+  }).reverse();
+  return {claimReference:family.claimReference,rootClaimId:claimRecordId(family.root),currentAttemptId:claimRecordId(family.current),patientControlNumber:family.patientControlNumber,
+    attempts:family.attempts.map((row,index)=>({id:claimRecordId(row),number:index+1,lifecycle:row.claim_lifecycle,submittedAt:row.claimmd_submitted_at,payerReference:row.claim_number || (row.claimmd_submitted_at?String(row.id):null),legacyReference:row.attempt_reference})),
+    history,nextBefore:rows.length>100?Number(page.at(-1).id):null};
+}
 
 export const asList = value => Array.isArray(value) ? value : value && typeof value === 'object' ? [value] : [];
 const error = (status, message) => Object.assign(new Error(message), { status });

@@ -87,14 +87,15 @@
       <div class="panel-heading"><div><span class="eyebrow">{{ companyName(selectedClaim.agency_id) }} · {{ workItemTitle(selectedClaim) }}</span><h2 id="claim-dialog-title">{{ selectedClaim.client_name || `Client #${selectedClaim.client_id}` }}</h2></div><button class="icon-button" aria-label="Close claim" @click="closeClaim">×</button></div>
       <p>{{ date(selectedClaim.date_of_service) }} · {{ selectedClaim.service_code || 'Service not recorded' }} · {{ selectedClaim.provider_name || 'Clinician not recorded' }}</p>
       <span class="badge" :class="claimStatusTone(workStage(selectedClaim))">{{ claimStatusLabel(workStage(selectedClaim)) }}</span>
+      <p v-if="selectedClaim.attempt_count > 1" class="subtle">{{ selectedClaim.attempt_count }} submission attempts · one claim history</p>
       <dl class="claim-facts"><div><dt>Billed as provider</dt><dd>{{ selectedClaim.billing_provider_name || selectedClaim.provider_name || 'Not recorded' }}</dd></div><div><dt>Supervisor</dt><dd>{{ selectedClaim.supervisor_name || '—' }}</dd></div><div><dt>Charge</dt><dd>{{ selectedClaim.amount_cents == null ? 'Not set' : money(selectedClaim.amount_cents, selectedClaim.currency_code) }}</dd></div><div><dt>Units</dt><dd>{{ selectedClaim.units ?? 'Not recorded' }}</dd></div><div><dt>Place of service</dt><dd>{{ selectedClaim.place_of_service || 'Not recorded' }}</dd></div><div><dt>Diagnoses</dt><dd>{{ diagnosisList(selectedClaim.diagnosis_codes) || 'Not recorded' }}</dd></div></dl>
       <div class="panel-toolbar"><a class="secondary" :href="clientBillingLink(selectedClaim)">Client billing profile</a><button class="secondary" :aria-expanded="showClientHistory" @click="showClientHistory = !showClientHistory">{{ showClientHistory ? 'Hide' : 'View' }} client service history</button></div>
       <PlannedBillingServices v-if="showClientHistory" :agency-id="Number(selectedClaim.agency_id)" :client-id="Number(selectedClaim.client_id)" :client-name="selectedClaim.client_name || ''" @open-work-item="openClaim" />
       <p v-if="clinicalDraft" class="panel-note" role="status">{{ draftProgressMessage }}</p>
       <p v-if="claimActionError" class="error-banner" role="alert">{{ claimActionError }}</p>
-      <div v-if="!clinicalDraft" class="panel-toolbar"><button v-if="selectedClaimId" class="secondary" @click="claimTools?.showHistory(selectedClaimId)">Response history</button><button v-if="editableClaim" class="secondary" @click="claimTools?.editClaim(selectedClaimId)">Edit billing fields</button><button v-if="editableClaim" class="primary" @click="claimTools?.reviewClaim(selectedClaimId)">Review for submission</button><button v-else-if="selectedClaim.canPrepareClaim && workStage(selectedClaim) === 'ready_to_submit'" class="primary" :disabled="preparingClaim" @click="prepareReadyClaim">{{ preparingClaim ? 'Opening claim…' : 'Review ready claim' }}</button></div>
+      <div v-if="!clinicalDraft" class="panel-toolbar"><button v-if="selectedClaimId" class="secondary" @click="claimTools?.showHistory(selectedClaimId)">Claim history</button><button v-if="editableClaim" class="secondary" @click="claimTools?.editClaim(selectedClaimId)">Edit billing fields</button><button v-if="editableClaim" class="primary" @click="claimTools?.reviewClaim(selectedClaimId)">Review for submission</button><button v-else-if="selectedClaim.canPrepareClaim && workStage(selectedClaim) === 'ready_to_submit'" class="primary" :disabled="preparingClaim" @click="prepareReadyClaim">{{ preparingClaim ? 'Opening claim…' : 'Review ready claim' }}</button></div>
       <p v-if="selectedClaim.claim_lifecycle === 'queued'" class="panel-note">Submission is unresolved. Sync and reconcile before attempting another upload.</p><p v-if="selectedClaim.claim_lifecycle === 'denied'" class="panel-note">Review the payer’s adjudication before choosing a replacement claim or appeal.</p>
-      <ClaimResubmissionPanel v-if="selectedClaimId && !clinicalDraft" :agency-id="Number(selectedClaim.agency_id)" :claim-id="selectedClaimId" :revision="selectedClaim.billing_revision == null ? null : Number(selectedClaim.billing_revision)" :lifecycle="selectedClaim.claim_lifecycle" @created="openResubmission" />
+      <ClaimResubmissionPanel v-if="selectedClaimId && !clinicalDraft" :agency-id="Number(selectedClaim.agency_id)" :claim-id="selectedClaimId" :revision="selectedClaim.billing_revision == null ? null : Number(selectedClaim.billing_revision)" :lifecycle="selectedClaim.claim_lifecycle" :claim-reference="selectedClaim.claim_reference" @created="openResubmission" />
       <SecondaryClaimPanel v-if="selectedClaimId && !clinicalDraft && ['paid','denied','adjusted'].includes(selectedClaim.claim_lifecycle)" :agency-id="Number(selectedClaim.agency_id)" :claim-id="selectedClaimId" @created="claimUpdated" />
       <ClaimMdWorkspace v-if="selectedClaimId" ref="claimTools" :key="`${selectedClaim.agency_id}-${selectedClaimId}`" :agency-id="Number(selectedClaim.agency_id)" :connection="claimOrganization?.connection || {}" :read-only="clinicalDraft" section="detail" @updated="claimUpdated" />
     </aside></div>
@@ -128,7 +129,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
-import { billingTotals, billingBrand, billingStages, billingDate, diagnosisList, workStage, workClaimId, workItemKey, workItemTitle, claimStatusLabel, claimStatusTone } from '../../utils/billingWorkspace';
+import { billingTotals, billingBrand, claimQueueFilters, billingStages, billingDate, diagnosisList, workStage, workClaimId, workItemKey, workItemTitle, claimStatusLabel, claimStatusTone } from '../../utils/billingWorkspace';
 import ClaimMdWorkspace from '../../components/admin/ClaimMdWorkspace.vue';
 import MedicalBillingReportsPanel from '../../components/admin/MedicalBillingReportsPanel.vue';
 import MedicalBillingView from './MedicalBillingView.vue';
@@ -187,7 +188,7 @@ const selectedClaimId = computed(() => workClaimId(selectedClaim.value));
 const clinicalDraft = computed(() => !!selectedClaim.value && ['note_needed','draft','pending_review','revisions_needed'].includes(workStage(selectedClaim.value)));
 const editableClaim = computed(() => !!selectedClaimId.value && !clinicalDraft.value && selectedClaim.value?.readOnly !== true && selectedClaim.value?.canReviewClaim !== false && ['draft', 'ready', 'rejected'].includes(selectedClaim.value?.claim_lifecycle));
 const draftProgressMessage = computed(() => ({note_needed:'The session has passed and a note has not been started.',draft:'The clinician’s note is in progress. Billing review becomes available after the required clinical signatures.',pending_review:'The author signed this note. Supervisor review is pending.',revisions_needed:'The supervisor requested changes. The clinician must complete the requested revision before billing review.'}[workStage(selectedClaim.value || {})] || 'This work item is available for review only.'));
-const queueTabs = [{ id: 'all', label: 'All claims' }, { id: 'attention', label: 'Needs attention' }, ...billingStages];
+const queueTabs = [{ id: 'all', label: 'All claims' }, { id: 'attention', label: 'Needs attention' }, ...claimQueueFilters, ...billingStages];
 const payerRows = computed(() => scopedOrganizations.value.flatMap(organization => {
   const grouped = new Map();
   for (const e of organization.enrollments || []) {
@@ -243,7 +244,7 @@ async function reload() {
       scopeId.value = String(data.organizations[0].id);
       return;
     }
-    if (initialClaimId) { const match = data.claims.find(c => Number(c.id) === initialClaimId); initialClaimId = 0; if (match) await openClaim(match); }
+    if (initialClaimId) { const match = data.claims.find(c => Number(c.id) === initialClaimId || c.attempt_ids?.includes(initialClaimId)); initialClaimId = 0; if (match) await openClaim(match); }
   } catch (e) { if (active && seq === loadSequence) { error.value = e.response?.data?.error?.message || 'Billing data could not be loaded. Refresh to try again.'; organizations.value = []; claims.value = []; total.value = 0; } }
   finally { if (active && seq === loadSequence) loading.value = false; }
 }
@@ -271,7 +272,7 @@ async function prepareReadyClaim() {
 async function openResubmission(result) {
   if (!result?.claimId || !selectedClaim.value) return;
   const source = selectedClaim.value;
-  selectedClaim.value = { ...source, id: Number(result.claimId), claimId: Number(result.claimId), key: `claim:${result.claimId}`, source: 'claim', claim_number: null, claim_reference: result.claimReference || result.claim_reference || null, claim_lifecycle: 'draft', stage: 'ready_to_submit', readOnly: false, canReviewClaim: true, canPrepareClaim: false, resubmission_type: result.kind, claim_frequency_code: result.frequencyCode, billing_revision: null };
+  selectedClaim.value = { ...source, id: Number(result.claimId), claimId: Number(result.claimId), key: `claim:${result.claimId}`, source: 'claim', claim_number: null, claim_reference: result.claimReference || result.claim_reference || source.claim_reference, claim_lifecycle: 'draft', stage: 'ready_to_submit', readOnly: false, canReviewClaim: true, canPrepareClaim: false, attempt_count: result.attemptNumber || Number(source.attempt_count || 1)+1, attempt_ids: [...new Set([...(source.attempt_ids || [workClaimId(source)]),Number(result.claimId)])], resubmission_type: result.kind, claim_frequency_code: result.frequencyCode, billing_revision: null };
   await nextTick(); await claimTools.value?.reviewClaim(Number(result.claimId)); await reload();
 }
 function trapClaimFocus(event) {
