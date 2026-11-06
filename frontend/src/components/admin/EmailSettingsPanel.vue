@@ -907,6 +907,7 @@ const syncSchoolGroupContacts = async () => {
       ` (${data.contactsCreated || 0} new, ${data.contactsUpdated || 0} updated)` +
       `; pending staff +${data.staffCreatedPending || 0}, assigned +${data.staffAssigned || 0}` +
       `${data.staffSkippedOtherRole ? `, skipped other roles ${data.staffSkippedOtherRole}` : ''}` +
+      `${data.staffSkippedDisabled ? `; ${data.staffSkippedDisabled} disabled accounts or memberships require review in School Staff before restoring access` : ''}` +
       `${data.groupsUnmatched ? `, ${data.groupsUnmatched} groups unmatched` : ''}` +
       `${data.inboundSync?.schoolsRouted ? `; inbound routes: ${data.inboundSync.schoolsRouted} schools` : ''}.`;
     await loadSenderIdentities();

@@ -1,5 +1,6 @@
 import pool from '../../config/database.js';
 import User from '../../models/User.model.js';
+import { isAccountDisabled } from '../../utils/accountAccess.js';
 import GoogleWorkspaceDirectoryService from '../googleWorkspaceDirectory.service.js';
 import { syncSchoolEmailInboundForAgency } from './schoolEmailInboundSync.service.js';
 import { reconcileSchoolGroupTicketIntakeForAgency } from './reconcileSchoolGroupTicketIntake.service.js';
@@ -148,8 +149,20 @@ async function ensurePendingSchoolStaffUser({
     if (role !== 'school_staff') {
       return { action: 'skipped_other_role', reason: `role:${role}`, userId: existing.id };
     }
+    // Email-group membership is not an administrator's decision to restore
+    // portal access. Read current flags: findByEmail does not select them.
+    const [accounts] = await pool.execute(
+      'SELECT status, is_active, is_archived FROM users WHERE id = ? LIMIT 1',
+      [existing.id]
+    );
+    if (!accounts[0] || isAccountDisabled(accounts[0])) {
+      return { action: 'skipped_disabled', userId: existing.id };
+    }
     const membership = await User.getAgencyMembership(existing.id, Number(schoolOrganizationId));
     if (membership) {
+      if ([false, 0, '0'].includes(membership.is_active)) {
+        return { action: 'skipped_disabled', userId: existing.id };
+      }
       return { action: 'already_member', userId: existing.id };
     }
     if (dryRun) return { action: 'would_assign', userId: existing.id };
@@ -254,6 +267,8 @@ export async function syncSchoolGroupContactsForAgency({
     staffAssigned: 0,
     staffAlreadyMember: 0,
     staffSkippedOtherRole: 0,
+    staffSkippedDisabled: 0,
+    disabledStaff: [],
     dryRun,
     matchedGroups: [],
     unmatchedGroups: [],
@@ -285,7 +300,8 @@ export async function syncSchoolGroupContactsForAgency({
       contactsCreated: 0,
       contactsUpdated: 0,
       staffCreatedPending: 0,
-      staffAssigned: 0
+      staffAssigned: 0,
+      staffSkippedDisabled: 0
     };
 
     let members = [];
@@ -376,6 +392,10 @@ export async function syncSchoolGroupContactsForAgency({
             stats.staffAlreadyMember += 1;
           } else if (staffResult.action === 'skipped_other_role') {
             stats.staffSkippedOtherRole += 1;
+          } else if (staffResult.action === 'skipped_disabled') {
+            stats.staffSkippedDisabled += 1;
+            groupStats.staffSkippedDisabled += 1;
+            stats.disabledStaff.push({ userId: staffResult.userId, email, schoolOrganizationId: school.schoolOrganizationId });
           }
         }
       } catch (e) {

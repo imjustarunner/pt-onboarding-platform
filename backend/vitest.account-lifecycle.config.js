@@ -5,6 +5,7 @@ export default {
     environment: 'node', restoreMocks: true,
     include: [
       'src/services/__tests__/accountLifecycle.mysql.test.js',
+      'src/services/__tests__/schoolGroupContactsSync.test.js',
       'src/services/__tests__/auditEvent.target.test.js',
       'src/services/__tests__/hire.groupActivation.test.js',
       'src/controllers/__tests__/schoolStaffPhone.test.js',

@@ -32,6 +32,8 @@ async function main() {
     staffAssigned: result.staffAssigned,
     staffAlreadyMember: result.staffAlreadyMember,
     staffSkippedOtherRole: result.staffSkippedOtherRole,
+    staffSkippedDisabled: result.staffSkippedDisabled,
+    disabledStaff: (result.disabledStaff || []).slice(0, 10),
     contactsSkippedInternal: result.membersSkippedInternal,
     inboundSync: result.inboundSync,
     matchedSample: (result.matchedGroups || []).slice(0, 8),
