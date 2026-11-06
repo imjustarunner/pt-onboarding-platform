@@ -47,6 +47,12 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
   await db.execute(`INSERT INTO communication_messages(id,conversation_id,direction,send_status,sent_at,created_at,from_json)VALUES(?,?,'inbound','sent','2026-11-06 12:00:00','2026-11-06 12:00:00',?)`,[id,id,JSON.stringify({name:'Fixture sender',email})]);
   await db.execute('INSERT INTO communication_participants(id,conversation_id,is_primary,email,display_name)VALUES(?,?,1,?,?)',[id,id,email,'Fixture sender']);
  }
+ async function seedMailRange(start,end,{statusFor=()=>'new'}={}){
+  const ids=Array.from({length:end-start},(_,index)=>start+index),at='2026-11-06 12:00:00';
+  await db.query('INSERT INTO communication_conversations(id,agency_id,inbox_id,owner_user_id,channel,subject,status,last_message_preview,last_message_at,created_at,is_unknown_sender) VALUES ?',[ids.map(id=>[id,10,1,1,'email',`MESSAGE-${id}`,statusFor(id),'Preview',at,at,0])]);
+  await db.query('INSERT INTO communication_messages(id,conversation_id,direction,send_status,sent_at,created_at,from_json) VALUES ?',[ids.map(id=>[id,id,'inbound','sent',at,at,JSON.stringify({name:'Fixture sender',email:'outside@example.invalid'})])]);
+  await db.query('INSERT INTO communication_participants(id,conversation_id,is_primary,email,display_name) VALUES ?',[ids.map(id=>[id,id,1,'outside@example.invalid','Fixture sender'])]);
+ }
  it('excludes another staff mailbox and a tenant with no active membership',async()=>{
   await mail(1);await mail(2,{owner:2,inbox:2});await mail(3,{owner:1,inbox:2});await mail(4,{agency:20});await mail(5,{owner:2,inbox:1});
   expect((await store.emails(1)).map(item=>item.id).sort()).toEqual([1,5]);
@@ -65,7 +71,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
   const counts=await store.emailCounts(1);expect(counts.find(c=>c.unknown).total).toBe(1);expect(counts.find(c=>!c.unknown).total).toBe(2);
  });
  it('computes counts beyond a visible page and filters before pagination',async()=>{
-  for(let i=1;i<=105;i++)await mail(i,{status:i<=3?'closed':'new'});
+  await seedMailRange(1,106,{statusFor:id=>id<=3?'closed':'new'});
   expect(await store.emails(1)).toHaveLength(101);expect((await store.emailCounts(1))[0]).toMatchObject({total:105,unread:105,needs:102});
   await db.execute("INSERT INTO communication_conversation_reads VALUES(105,1,0,'2026-11-06 13:00:00')");expect((await store.emails(1,{filter:'unread'})).some(item=>item.id===105)).toBe(false);
   expect((await store.emailCounts(1))[0].unread).toBe(104);
@@ -83,7 +89,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
   await expect(requireMobileThreadMembership(2,11,db)).rejects.toMatchObject({status:403});await db.execute('UPDATE user_agencies SET is_active=0 WHERE user_id=1');await expect(requireMobileThreadMembership(1,11,db)).rejects.toMatchObject({status:403});
  });
  it('orders mixed source kinds consistently when a timestamp has more than a page',async()=>{
-  for(let i=1000;i<1105;i++)await mail(i);
+  await seedMailRange(1000,1105);
   await mail(1,{channel:'sms',unknown:true});const rows=await store.emails(1);expect(rows[0]).toMatchObject({id:1,category:'sms',unknown:false});
  });
  it('persists personal swipe and navigation choices without crossing accounts',async()=>{
