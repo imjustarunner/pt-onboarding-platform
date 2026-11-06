@@ -389,7 +389,7 @@ async function load() {
         { key: 'culture_collaboration', label: 'Culture & Collaboration' },
         { key: 'overall_fit', label: 'Overall Fit' }
       ];
-    criteria.value = [data.template?.scorecard_criteria_json, data.artifact?.scorecard_json?.criteria]
+    criteria.value = [data.artifact?.scorecard_json?.criteria, data.flow?.scorecardCriteria, data.template?.scorecard_criteria_json]
       .find(items => Array.isArray(items) && items.length) || defaultCriteria;
     Object.keys(ratings).forEach((k) => delete ratings[k]);
     const savedRatings = data.artifact?.my_scorecard || {};

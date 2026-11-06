@@ -289,6 +289,7 @@
               @screen-sharing-change="onMeetingScreenSharing"
               @leave-request="requestLeave"
             >
+              <template #branding><InterviewMeetingBrand v-if="isInterviewMeeting" :brand="meetingBrand" @leave="requestLeave" /></template>
               <template #extra-controls>
                 <button v-if="canSeeMeetingWorkspace && !isInLobby && !isInterviewMeeting && !isEvaluationMeeting" type="button" class="btn btn-secondary btn-sm" @click="showMeetingDetails">Show goals, agenda &amp; actions</button>
                 <button v-if="canManageMeetingLive && !isInLobby" type="button" class="btn btn-secondary btn-sm" @click="openAddAttendeeModal">Invite someone</button>
@@ -647,6 +648,7 @@ import { suspendInactivityTimeout, resumeInactivityTimeout } from '../../utils/a
 import { createMeetingRefresh } from '../../utils/meetingRefresh';
 import { useTeamMeetingLiveTranscript } from '../../composables/useTeamMeetingLiveTranscript';
 import SupervisionVideoRoom from '../../components/supervision/SupervisionVideoRoom.vue';
+import InterviewMeetingBrand from '../../components/hiring/InterviewMeetingBrand.vue';
 import SupervisionVideoLobbyPanel from '../../components/supervision/SupervisionVideoLobbyPanel.vue';
 import SupervisionWaitingRoomStage from '../../components/supervision/SupervisionWaitingRoomStage.vue';
 import MeetingAgendaPanel from '../../components/meetings/MeetingAgendaPanel.vue';
@@ -707,6 +709,7 @@ const vonageSessionId = ref('');
 const applicationId = ref('');
 const diagnostics = ref(null);
 const meetingSubtype = ref('general');
+const meetingBrand = ref(null);
 const meetingKind = ref('TEAM_MEETING');
 const attendanceTrackingEnabled = ref(false);
 const enablingTracking = ref(false);
@@ -1588,6 +1591,7 @@ async function fetchTokenAndJoin({ afterLogin = false } = {}) {
     applyTokenPayload(resp?.data || {});
     const payload = resp?.data || {};
     meetingSettings.value = payload.meetingSettings || null;
+    meetingBrand.value = payload.branding || null;
     // Interviews only: if we somehow still got a guest token while authenticated as staff,
     // retry once after session hydrate — do not bounce to host link (403 for non-hosts).
     const joinedAsGuest = !!(payload.isGuest || String(payload.identity || '').startsWith('guest-'));

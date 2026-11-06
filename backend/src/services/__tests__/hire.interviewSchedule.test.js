@@ -11,7 +11,7 @@ vi.mock('../../models/HiringInterview.model.js', () => ({ default: { create: m.i
 vi.mock('../../models/HiringInterviewArtifact.model.js', () => ({ default: { upsertByInterviewId: m.artifact } }));
 vi.mock('../../models/HiringProfile.model.js', () => ({ default: { findByCandidateUserId: m.profile } }));
 vi.mock('../../models/InterviewHubTemplate.model.js', () => ({ default: { findById: m.template } }));
-vi.mock('../../models/InterviewHubJobQuestionSet.model.js', () => ({ default: { findById: m.questions } }));
+vi.mock('../../models/InterviewHubJobQuestionSet.model.js', () => ({ default: { findById: m.questions,findDefaultForJob:m.questions } }));
 vi.mock('../googleCalendar.service.js', () => ({ default: { createProviderScheduleEvent: m.calendar, appendToEventDescription: m.append, deleteEvent: m.remove } }));
 vi.mock('../meetingWindowConflict.service.js', () => ({ withMeetingWindow: m.window }));
 vi.mock('../interviewHub.service.js', () => ({ ensureDefaultTemplate: m.template, buildInterviewFlow: () => ({ sections: [] }) }));
@@ -22,9 +22,19 @@ import { scheduleHiringInterview } from '../hiringInterviewSchedule.service.js';
 const args = { agencyId: 4, candidateUserId: 30, hostUserId: 11, startsAt: '2026-10-02T13:00', timezone: 'America/Denver', interviewerUserIds: [11, 22] };
 beforeEach(() => {
   vi.clearAllMocks();
+  m.questions.mockResolvedValue(null);
   m.candidate.mockImplementation(async id => ({ id, email: `${id}@tenant.org`, first_name: 'Person' })); m.agencies.mockResolvedValue([{ id: 4 }]); m.sender.mockResolvedValue({ id: 1, from_email: 'po@tenant.org' }); m.access.mockResolvedValue(true); m.template.mockResolvedValue({ id: 1, agency_id: 4 }); m.profile.mockResolvedValue({ id: 8 }); m.window.mockImplementation(async (_window, work) => work()); m.calendar.mockResolvedValue({ ok: true, eventId: 'calendar-1' }); m.append.mockResolvedValue({ ok: true }); m.remove.mockResolvedValue({ ok: true }); m.event.mockResolvedValue({ id: 2, participant_join_token: 'guest-only-token', host_join_token: 'secret-host-token' }); m.interview.mockResolvedValue({ id: 5 }); m.update.mockResolvedValue({ id: 5, invite_sent_at: 'confirmed' }); m.artifact.mockResolvedValue({}); m.invite.mockResolvedValue({ id: 'email-1' }); m.execute.mockImplementation(async sql => sql.includes('FROM users') ? [[{ id: 11, email: '11@tenant.org' }, { id: 22, email: '22@tenant.org' }, { id: 30, email: '30@tenant.org' }]] : [[]]);
 });
 describe('interview scheduling delivery', () => {
+  it('automatically selects the applied job’s question and rating guide',async()=>{
+    m.profile.mockResolvedValue({id:8,job_description_id:45});m.questions.mockResolvedValue({id:44,agency_id:4,job_description_id:45,questions_json:[{key:'q',text:'Role question'}]});
+    await scheduleHiringInterview({...args,sendInvites:false});
+    expect(m.questions).toHaveBeenCalledWith(4,45);expect(m.interview.mock.calls[0][0].jobQuestionSetId).toBe(44);
+  });
+  it('rejects a guide for a different job before creating the calendar meeting',async()=>{
+    m.profile.mockResolvedValue({id:8,job_description_id:45});m.questions.mockResolvedValue({id:44,agency_id:4,job_description_id:99});
+    await expect(scheduleHiringInterview({...args,jobQuestionSetId:44,sendInvites:false})).rejects.toMatchObject({status:400});expect(m.calendar).not.toHaveBeenCalled();
+  });
   it('uses the real host calendar, names Google guests, and shares only the candidate link', async () => {
     const result = await scheduleHiringInterview(args);
     expect(m.window.mock.invocationCallOrder[0]).toBeLessThan(m.calendar.mock.invocationCallOrder[0]);

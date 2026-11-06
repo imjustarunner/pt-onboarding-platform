@@ -16,6 +16,15 @@ beforeEach(() => {
  api.put.mockResolvedValue({data:{data:{}}});
 });
 afterEach(() => {wrapper?.unmount(); document.body.innerHTML='';});
+it('rates the saved job guide rather than replacing it with current agency criteria',async()=>{
+ const previous=api.get.getMockImplementation();
+ api.get.mockImplementation(async url=>url.includes('by-schedule-event')?{data:{data:{interview:{id:4},template:{scorecard_criteria_json:[{key:'generic',label:'Generic criterion'}]},flow:{sections:[],scorecardCriteria:[{key:'clinical',label:'Clinical judgment'}]},artifact:{my_scorecard:{}}}}}:previous(url));
+ wrapper=mount(InterviewLiveWorkspace,{props:{eventId:9}});await flushPromises();await wrapper.findAll('.ilw-tab').find(b=>b.text()==='Scorecard').trigger('click');
+ const rating=wrapper.get('[aria-label="Clinical judgment: 4 out of 4"]');await rating.trigger('click');
+ expect(wrapper.find('[aria-label="Generic criterion: 4 out of 4"]').exists()).toBe(false);
+ await wrapper.findAll('button').find(b=>b.text()==='Save progress').trigger('click');await flushPromises();
+ expect(api.put).toHaveBeenCalledWith('/hiring/interview-hub/interviews/4/artifacts',expect.objectContaining({myRatings:{clinical:4}}),{skipGlobalLoading:true});
+});
 it('shows strengths alongside the resume and saves a rating from the visible scorecard',async () => {
  wrapper=mount(InterviewLiveWorkspace,{attachTo:document.body,props:{eventId:9,briefTarget:'#candidate-brief'}});
  await flushPromises();

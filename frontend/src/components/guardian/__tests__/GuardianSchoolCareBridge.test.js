@@ -5,6 +5,9 @@ import Bridge from '../GuardianSchoolCareBridge.vue';
 vi.mock('../../../services/api',()=>({default:{get:vi.fn()}}));
 const schools=[{organization_id:20,name:'Current School',status:'current',providers:[{name:'Taylor Provider',service_day:'Wednesday',status:'current'}],staff:[{name:'Robin Staff',status:'current',access_level:'roi'}],roi:{status:'issued'}},{organization_id:19,name:'Previous School',status:'former',providers:[{name:'Old Provider',service_day:'Monday',status:'former'}],staff:[{name:'Old Staff',status:'former'}],roi:{status:'completed',signed_at:'2025-09-10',document_id:42}}];
 describe('SchoolCareBridge family view',()=>{
+ it('opens the assigned school release in Tasks & documents',async()=>{
+  const w=mount(Bridge,{props:{schools,clientId:8}});await w.findAll('button').find(b=>b.text()==='Open the assigned release').trigger('click');expect(w.emitted('navigate')[0]).toEqual(['documents']);w.unmount();
+ });
  it('shows the school service day, provider, ROI and included staff',()=>{
   const w=mount(Bridge,{props:{schools,clientId:8}});expect(w.text()).toContain('Wednesday');expect(w.text()).toContain('Taylor Provider');expect(w.text()).toContain('Robin Staff');expect(w.text()).toContain('Awaiting signature');expect(w.text()).not.toContain('Old Provider');
  });

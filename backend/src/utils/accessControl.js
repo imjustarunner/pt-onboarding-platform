@@ -95,6 +95,21 @@ export function checkAccess(user, { effectiveRole } = {}) {
     canAccessAdmin: false
   };
 
+  // Family accounts are not employees. A password that can sign in must also open
+  // the family portal. Employee statuses such as PENDING_SETUP were leaving
+  // guardians signed in and then blocking every dashboard request.
+  const familyRole = ['client_guardian', 'guardian', 'client'].includes(String(user.role || '').toLowerCase());
+  const familyPasswordReady = status !== 'PENDING_SETUP' || (user.password_hash != null && user.password_hash !== '');
+  if (familyRole && familyPasswordReady && !isAccountDisabled(user) && status !== 'PROSPECTIVE') {
+    return {
+      canAccessOnDemand: false,
+      canAccessDashboard: true,
+      canAccessTraining: false,
+      canAccessDocuments: true,
+      canAccessAdmin: false
+    };
+  }
+
   // Superadmins have full access regardless of status (except terminal states)
   if (userRole === 'super_admin' && status !== 'ARCHIVED' && status !== 'INACTIVE_EMPLOYEE') {
     return {

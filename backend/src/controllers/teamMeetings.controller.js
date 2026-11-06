@@ -1,4 +1,5 @@
 import { dialInConfigured } from '../services/meetingDialInPolicy.js';
+import { meetingAgencyBrand } from '../services/meetingAgencyBrand.service.js';
 import { createOrGetMeetingRoom } from '../services/video.service.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { isJacquelyneHuddle, JACQUELYNE_TIME_START } from '../utils/jacquelyneTimePolicy.js';
@@ -896,6 +897,7 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
       token: String(token).trim(),
       sessionId: vonageSessionId,
       applicationId: projectId,
+      branding: isInterviewMeeting(row) ? await meetingAgencyBrand(row.agency_id) : undefined,
       apiKey: projectId,
       roomName,
       roomSid: vonageSessionId,

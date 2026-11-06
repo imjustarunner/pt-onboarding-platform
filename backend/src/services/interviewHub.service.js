@@ -163,7 +163,9 @@ export function buildInterviewFlow({
     icebreaker,
     sections: builtSections,
     scorecardCriteria:
-      Array.isArray(template?.scorecard_criteria_json) && template.scorecard_criteria_json.length
+      Array.isArray(jobQuestionSet?.scorecard_criteria_json) && jobQuestionSet.scorecard_criteria_json.length
+        ? jobQuestionSet.scorecard_criteria_json
+        : Array.isArray(template?.scorecard_criteria_json) && template.scorecard_criteria_json.length
         ? template.scorecard_criteria_json
         : DEFAULT_SCORECARD_CRITERIA,
     generatedAt: new Date().toISOString()

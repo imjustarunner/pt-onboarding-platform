@@ -13,6 +13,8 @@
       </div>
     </div>
 
+    <JobInterviewGuideEditor v-if="jobDescriptionId" :agency-id="agencyId" :job-description-id="jobDescriptionId" :job-title="jobTitle" @saved="jobGuideSaved" />
+    <p v-else class="muted small">No job description is linked yet. Interviews use the agency or platform default questions and ratings.</p>
     <div v-if="showSchedule" ref="scheduleSectionRef" class="cip-schedule">
       <div class="cip-schedule-title">New Interview Hub meeting</div>
       <div class="cip-schedule-form">
@@ -46,7 +48,7 @@
         <div class="cip-field">
           <label for="cip-questions">Job-specific questions</label>
           <select id="cip-questions" v-model="jobQuestionSetId" class="cip-input">
-            <option value="">None (standard only)</option>
+            <option value="">Applied job defaults / standard questions</option>
             <option v-for="s in jobSets" :key="s.id" :value="String(s.id)">{{ s.title }}</option>
           </select>
           <div class="cip-question-tools">
@@ -301,6 +303,7 @@ import { useAuthStore } from '../../store/auth';
 import { HIRING_INTERVIEW_ROUNDS, suggestInterviewRound } from '../../constants/hiringInterviewRounds.js';
 import { buildHiringInterviewTitle } from '../../utils/hiringInterviewTitle.js';
 
+import JobInterviewGuideEditor from './JobInterviewGuideEditor.vue';
 const props = defineProps({
   candidateUserId: { type: [Number, String], required: true },
   agencyId: { type: [Number, String], required: true },
@@ -431,8 +434,9 @@ onMounted(async () => {
   await Promise.all([loadInterviews(), loadJobSets(), loadCapsules()]);
 });
 
-watch(() => props.candidateUserId, async () => {
-  await Promise.all([loadInterviews(), loadCapsules()]);
+watch(() => [props.candidateUserId,props.agencyId,props.jobDescriptionId], async () => {
+  jobQuestionSetId.value='';questionEditor.value=false;
+  await Promise.all([loadInterviews(), loadCapsules(),loadJobSets()]);
 });
 
 watch(() => props.schedulePulse, (n) => {
@@ -504,14 +508,19 @@ async function loadInterviews() {
   }
 }
 
+let jobSetsRequest=0;
+async function jobGuideSaved(){jobQuestionSetId.value='';await loadJobSets();}
 async function loadJobSets() {
+  const request=++jobSetsRequest;
   try {
     const r = await api.get('/hiring/interview-hub/job-question-sets', {
       params: { agencyId: props.agencyId, jobDescriptionId: props.jobDescriptionId || undefined }
     });
+    if(request!==jobSetsRequest)return;
     jobSets.value = r.data?.data || r.data || [];
+    if(!jobQuestionSetId.value && props.jobDescriptionId)jobQuestionSetId.value=String(jobSets.value.find(set=>Number(set.job_description_id)===Number(props.jobDescriptionId))?.id || '');
   } catch {
-    jobSets.value = [];
+    if(request===jobSetsRequest)jobSets.value = [];
   }
 }
 

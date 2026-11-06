@@ -78,7 +78,8 @@ class ClientSchoolRoiSigningLink {
     schoolOrganizationId,
     intakeLinkId,
     publicKey,
-    issuedByUserId = null
+    issuedByUserId = null,
+    preserveCompleted = false
   }) {
     const cid = Number(clientId || 0);
     const sid = Number(schoolOrganizationId || 0);
@@ -86,24 +87,20 @@ class ClientSchoolRoiSigningLink {
     const actorId = Number(issuedByUserId || 0) || null;
     const key = String(publicKey || '').trim();
     if (!cid || !sid || !linkId || !key) return null;
+    const keep=preserveCompleted ? "status = 'completed'" : 'FALSE';
+    // Check the existing status for every assignment, changing status last.
+    // A guardian opening Documents must never replace a concurrently signed ROI.
+    const replacements={intake_link_id:'VALUES(intake_link_id)',public_key:'VALUES(public_key)',
+      issued_by_user_id:'VALUES(issued_by_user_id)',issued_at:'CURRENT_TIMESTAMP',latest_intake_submission_id:'NULL',
+      signed_at:'NULL',completed_client_phi_document_id:'NULL',roi_context_json:'NULL',roi_response_json:'NULL',
+      access_applied_at:'NULL',updated_at:'CURRENT_TIMESTAMP',status:"'issued'"};
+    const assignments=Object.entries(replacements).map(([column,value])=>`${column} = IF(${keep}, ${column}, ${value})`).join(', ');
     await pool.execute(
       `INSERT INTO client_school_roi_signing_links
          (client_id, school_organization_id, intake_link_id, public_key, status, issued_by_user_id, issued_at,
           latest_intake_submission_id, signed_at, completed_client_phi_document_id, roi_context_json, roi_response_json, access_applied_at)
        VALUES (?, ?, ?, ?, 'issued', ?, CURRENT_TIMESTAMP, NULL, NULL, NULL, NULL, NULL, NULL)
-       ON DUPLICATE KEY UPDATE
-         intake_link_id = VALUES(intake_link_id),
-         public_key = VALUES(public_key),
-         status = 'issued',
-         issued_by_user_id = VALUES(issued_by_user_id),
-         issued_at = CURRENT_TIMESTAMP,
-         latest_intake_submission_id = NULL,
-         signed_at = NULL,
-         completed_client_phi_document_id = NULL,
-         roi_context_json = NULL,
-         roi_response_json = NULL,
-         access_applied_at = NULL,
-         updated_at = CURRENT_TIMESTAMP`,
+       ON DUPLICATE KEY UPDATE ${assignments}`,
       [cid, sid, linkId, key, actorId]
     );
     return this.findForClient({ clientId: cid, schoolOrganizationId: sid });
@@ -118,7 +115,7 @@ class ClientSchoolRoiSigningLink {
        SET status = 'in_progress',
            latest_intake_submission_id = ?,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
+       WHERE id = ? AND status <> 'completed'`,
       [submissionId, rid]
     );
     return this.findById(rid);

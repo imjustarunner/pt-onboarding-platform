@@ -31,7 +31,8 @@
         <p v-if="school?.roi?.expires_at">Expires {{ formatDate(school.roi.expires_at) }}</p>
         <button v-if="school?.roi?.document_id" :disabled="downloading" @click="openRoi">{{ downloading ? 'Opening…' : 'Open my signed ROI' }}</button>
         <p v-else-if="school?.roi?.status === 'completed'">Your available signed copies are in Tasks &amp; documents.</p>
-        <p v-else-if="['issued','in_progress'].includes(school?.roi?.status)">Use the signing link sent to you to review and complete this ROI.</p>
+        <p v-else-if="['issued','in_progress','not_on_file'].includes(school?.roi?.status)">This release is assigned in Tasks &amp; documents.</p>
+        <button v-if="school?.status !== 'former' && ['issued','in_progress','not_on_file'].includes(school?.roi?.status)" type="button" @click="$emit('navigate', 'documents')">Open the assigned release</button>
         <p v-if="downloadError" role="alert">{{ downloadError }}</p>
       </section>
       <section aria-label="School staff included">

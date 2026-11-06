@@ -193,6 +193,7 @@ async function applyUserEmailSignatureBlock({
 }
 
 import { standardizeEmailButtons } from '../../utils/emailActionButton.js';
+import { agencyActionColor } from '../../utils/agencyBrandColor.js';
 import { renderProviderUpdateReceipt } from '../../utils/providerUpdateReceiptEmail.js';
 import { refreshEmailBrandImageUrls } from '../../utils/emailBrandImageCache.js';
 import { constrainPortalEmailLayout } from '../../utils/portalEmailLayout.js';
@@ -248,7 +249,11 @@ export async function finalizeOutboundContent({
       !['billing', 'collections'].includes(identity?.identity_key)
     )
   );
-  if (src === 'auto' && tt !== 'hub_email') html = standardizeEmailButtons(html);
+  if (tt !== 'hub_email' && (src === 'auto' || /meeting|interview/.test(tt))) {
+    const {default:Agency}=await import('../../models/Agency.model.js');
+    const agency=aid ? await Agency.findById(aid) : null;
+    html=standardizeEmailButtons(html,agencyActionColor(agency));
+  }
   const history = useStaffSignature && tt === 'hub_email' ? splitEmailHistory({html, text}) : {html, text, historyHtml:'', historyText:''};
   ({html, text} = history);
   let signed;

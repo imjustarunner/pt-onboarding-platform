@@ -33,7 +33,8 @@ class InterviewHubJobQuestionSet {
       agency_id: Number(row.agency_id),
       job_description_id: row.job_description_id != null ? Number(row.job_description_id) : null,
       is_active: Number(row.is_active) === 1,
-      questions_json: parseJsonMaybe(row.questions_json, [])
+      questions_json: parseJsonMaybe(row.questions_json, []),
+      scorecard_criteria_json: parseJsonMaybe(row.scorecard_criteria_json, null)
     };
   }
 
@@ -66,23 +67,31 @@ class InterviewHubJobQuestionSet {
     return (rows || []).map((r) => this.hydrate(r));
   }
 
+  static async findDefaultForJob(agencyId, jobDescriptionId) {
+    const [rows]=await pool.execute(`SELECT * FROM interview_hub_job_question_sets
+      WHERE agency_id=? AND job_description_id=? AND is_active=1 ORDER BY updated_at DESC,id DESC LIMIT 1`,[parseIntParam(agencyId),parseIntParam(jobDescriptionId)]);
+    return this.hydrate(rows[0] || null);
+  }
+
   static async create({
     agencyId,
     jobDescriptionId = null,
     title,
     questionsJson,
+    scorecardCriteriaJson = null,
     isActive = true,
     createdByUserId = null
   }) {
     const [result] = await pool.execute(
       `INSERT INTO interview_hub_job_question_sets (
-        agency_id, job_description_id, title, questions_json, is_active, created_by_user_id
-      ) VALUES (?, ?, ?, ?, ?, ?)`,
+        agency_id, job_description_id, title, questions_json, scorecard_criteria_json, is_active, created_by_user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         parseIntParam(agencyId),
         jobDescriptionId != null ? parseIntParam(jobDescriptionId) : null,
         String(title || '').trim().slice(0, 255),
         toJsonParam(questionsJson ?? []),
+        toJsonParam(scorecardCriteriaJson),
         isActive ? 1 : 0,
         parseIntParam(createdByUserId)
       ]
@@ -109,6 +118,10 @@ class InterviewHubJobQuestionSet {
     if (patch.isActive !== undefined) {
       updates.push('is_active = ?');
       params.push(patch.isActive ? 1 : 0);
+    }
+    if (patch.scorecardCriteriaJson !== undefined) {
+      updates.push('scorecard_criteria_json = ?');
+      params.push(toJsonParam(patch.scorecardCriteriaJson));
     }
 
     if (!updates.length) return this.findById(id);

@@ -5,15 +5,20 @@ vi.mock('../../composables/consentedAudioCapture.js', () => ({ createConsentedAu
 vi.mock('../../services/api', () => ({ default: m }));
 vi.mock('../../utils/activityTracker', () => ({ suspendInactivityTimeout: m.suspend, resumeInactivityTimeout: m.resume }));
 vi.mock('../../components/supervision/SupervisionVideoRoom.vue', () => ({ default: { name: 'SupervisionVideoRoom',
-  props: ['token','localRoleLabel','isHost','equalTilesWhenRemote','preserveVideoAspect','lobbyMode'], emits: ['connected','leave-request','disconnected','interview-guest-ended'], methods: { getTranscriptionStream: () => 'local microphone' }, template: '<div data-test="video" />' } }));
+  props: ['token','localRoleLabel','isHost','equalTilesWhenRemote','preserveVideoAspect','lobbyMode'], emits: ['connected','leave-request','disconnected','interview-guest-ended'], methods: { getTranscriptionStream: () => 'local microphone' }, template: '<div data-test="video"><slot name="branding" /></div>' } }));
 vi.mock('../../components/hiring/InterviewSharedChat.vue', () => ({ default: { name: 'InterviewSharedChat', props: ['endpoint'], template: '<div data-test="shared-chat">Chat with applicant</div>' } }));
 import Applicant from '../teamMeeting/ApplicantInterviewView.vue';
 let wrapper;
-const creds = mode => ({ token: 'candidate-video', sessionId: 'interview-room', applicationId: 'project', roomMode: mode, displayName: 'Jamie Applicant' });
+const creds = mode => ({ token: 'candidate-video', sessionId: 'interview-room', applicationId: 'project', roomMode: mode, displayName: 'Jamie Applicant',branding:{name:'Next Level Up',logoUrl:'/assets/nlu/logo.png',primaryColor:'#1F2A44'} });
 beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers(); m.get.mockResolvedValue({ data: creds('main') }); m.post.mockResolvedValue({ data: {} }); });
 afterEach(() => { wrapper?.unmount(); vi.useRealTimers(); });
 async function open() { wrapper = mount(Applicant, { props: { invitationToken: 'a'.repeat(32) } }); await flushPromises(); }
 describe('minimal applicant interview', () => {
+  it('keeps agency branding, PlotLine attribution and a visible Leave meeting action with the video',async()=>{
+    await open();expect(wrapper.text()).toContain('Next Level Up');expect(wrapper.text()).toContain('Powered by PlotLine');expect(wrapper.get('img[alt="Next Level Up logo"]').attributes('src')).toBe('/assets/nlu/logo.png');
+    await wrapper.get('.interview-leave').trigger('click');await flushPromises();expect(wrapper.find('[data-test=video]').exists()).toBe(false);expect(wrapper.text()).toContain('Rejoin interview');
+    expect(m.post.mock.calls.some(([,body])=>body.action==='leave')).toBe(true);
+  });
   it('joins using only the invitation endpoint and shows square video plus shared chat', async () => {
     await open();
     expect(m.get.mock.calls[0][0]).toBe(`/team-meetings/interview-applicant/${'a'.repeat(32)}/video-token`);

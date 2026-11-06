@@ -5,6 +5,7 @@ import {rehearsalBootstrap,rehearsalI9,rehearsalLink} from '../controllers/itsco
 import { packetPreviewOptions, packetPreviewReference, packetPreviewContract } from '../controllers/hirePacketPreview.controller.js';
 import { getCandidateReferenceWorkspace, postCandidateReferenceContact } from '../controllers/hiring.controller.js';
 import { getInterviewBrief, viewInterviewDocument, previewInterviewInvite, resendInterviewInvite } from '../controllers/interviewHub.controller.js';
+import {getJobInterviewGuide,saveJobInterviewGuide} from '../controllers/interviewHub.controller.js';
 import express from 'express';
 import multer from 'multer';
 import { authenticate, requireCapability } from '../middleware/auth.middleware.js';
@@ -234,6 +235,8 @@ router.get('/interview-hub/templates', listTemplates);
 router.post('/interview-hub/templates/ensure-default', ensureDefaultTemplateHandler);
 router.put('/interview-hub/templates/:templateId', updateTemplate);
 router.get('/interview-hub/job-question-sets', listJobQuestionSets);
+router.get('/interview-hub/jobs/:jobDescriptionId/guide',getJobInterviewGuide);
+router.put('/interview-hub/jobs/:jobDescriptionId/guide',saveJobInterviewGuide);
 router.post('/interview-hub/job-question-sets', createJobQuestionSet);
 router.put('/interview-hub/job-question-sets/:id', updateJobQuestionSet);
 router.delete('/interview-hub/job-question-sets/:id', deleteJobQuestionSet);

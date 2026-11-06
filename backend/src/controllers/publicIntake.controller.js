@@ -147,7 +147,7 @@ import { notifyNewPacketUploaded, notifyCompanyEventRegistrationSubmitted, notif
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity, logSkippedOrFailedEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
-import { existingIssuedRoiGuardian } from '../services/issuedRoiGuardian.service.js';
+import { existingIssuedRoiGuardian, portalGuardianForIssuedRoi } from '../services/issuedRoiGuardian.service.js';
 import { resolveDevFillContext } from '../services/devFill.service.js';
 import {
   buildJobDescriptionAttachmentForEmail,
@@ -7087,6 +7087,9 @@ export const createPublicConsent = async (req, res, next) => {
       effectiveIntakeData = mergeIntakeSubmissionPatch(effectiveIntakeData, matchPatch);
     }
     const intakeDataHash = hashIntakeData(effectiveIntakeData);
+    const portalGuardianId = Number(issuedRoiLink?.client_id)
+      ? await portalGuardianForIssuedRoi(req, issuedRoiLink.client_id)
+      : null;
     const sessionToken = String(req.body?.sessionToken || '').trim();
     let submission = sessionToken ? await IntakeSubmission.findBySessionToken(sessionToken) : null;
     if (submission) {
@@ -7130,7 +7133,8 @@ export const createPublicConsent = async (req, res, next) => {
         user_agent: userAgent,
         retention_expires_at: retentionExpiresAt,
         session_token: sessionToken || null,
-        client_id: issuedRoiLink?.client_id || submission.client_id || null
+        client_id: issuedRoiLink?.client_id || submission.client_id || null,
+        guardian_user_id: portalGuardianId || submission.guardian_user_id || null
       });
     } else {
       submission = await IntakeSubmission.create({
@@ -7148,7 +7152,8 @@ export const createPublicConsent = async (req, res, next) => {
         ipAddress,
         userAgent,
         retentionExpiresAt,
-        clientId: issuedRoiLink?.client_id || null
+        clientId: issuedRoiLink?.client_id || null,
+        guardianUserId: portalGuardianId
       });
     }
 
@@ -8763,7 +8768,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         combined_pdf_hash: signedResult.pdfHash,
         // Staff-issued recipient + existing permitted relationship; not signer-entered email.
         ...(!updatedSubmission.guardian_user_id && issuedRoiLink?.id
-          ? { guardian_user_id: await existingIssuedRoiGuardian(issuedRoiLink, boundClient.id) }
+          ? { guardian_user_id: await portalGuardianForIssuedRoi(req, boundClient.id) || await existingIssuedRoiGuardian(issuedRoiLink, boundClient.id) }
           : {})
       });
 

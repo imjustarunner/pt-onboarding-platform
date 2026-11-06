@@ -56,6 +56,7 @@
       @cohost-granted="$emit('cohost-granted', $event)"
       @participant-left="$emit('participant-left', $event)"
     >
+      <template #branding><slot name="branding" /></template>
       <template #extra-controls>
         <slot name="extra-controls" />
       </template>

@@ -12,6 +12,7 @@ import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import InterviewHubTemplate from '../models/InterviewHubTemplate.model.js';
 import InterviewHubJobQuestionSet from '../models/InterviewHubJobQuestionSet.model.js';
+import {jobInterviewSettings} from '../utils/jobInterviewSettingsPolicy.js';
 import HiringInterview from '../models/HiringInterview.model.js';
 import HiringInterviewArtifact from '../models/HiringInterviewArtifact.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
@@ -131,6 +132,33 @@ export const ensureDefaultTemplateHandler = async (req, res, next) => {
 };
 
 // ── Job question sets ──────────────────────────────────────────────────────
+
+async function jobGuideScope(req) {
+  const agencyId=agencyIdFromReq(req),jobDescriptionId=parseIntParam(req.params.jobDescriptionId);
+  await ensureAgencyAccess(req,agencyId);
+  const [[job]]=await pool.execute('SELECT id,title FROM hiring_job_descriptions WHERE id=? AND agency_id=?',[jobDescriptionId,agencyId]);
+  if(!job)throw Object.assign(new Error('Job description not found for this agency.'),{status:404});
+  return {agencyId,jobDescriptionId,job};
+}
+async function jobGuideData({agencyId,jobDescriptionId,job}) {
+  const [set,template]=await Promise.all([InterviewHubJobQuestionSet.findDefaultForJob(agencyId,jobDescriptionId),InterviewHubTemplate.findDefaultByAgencyId(agencyId)]);
+  const flow=buildInterviewFlow({template,jobQuestionSet:set});
+  return {job,questionSet:set,questions:set?.questions_json || [],criteria:flow.scorecardCriteria,
+    criteriaSource:set?.scorecard_criteria_json?.length?'job':template?.scorecard_criteria_json?.length?'agency':'platform'};
+}
+export const getJobInterviewGuide=async(req,res,next)=>{
+  try{res.json({success:true,data:await jobGuideData(await jobGuideScope(req))});}catch(error){next(error);}
+};
+export const saveJobInterviewGuide=async(req,res,next)=>{
+  try {
+    const scope=await jobGuideScope(req),settings=jobInterviewSettings(req.body || {});
+    const existing=await InterviewHubJobQuestionSet.findDefaultForJob(scope.agencyId,scope.jobDescriptionId);
+    const patch={questionsJson:settings.questions,scorecardCriteriaJson:settings.criteria};
+    if(existing)await InterviewHubJobQuestionSet.updateById(existing.id,patch);
+    else await InterviewHubJobQuestionSet.create({...patch,agencyId:scope.agencyId,jobDescriptionId:scope.jobDescriptionId,title:`${scope.job.title} interview guide`,createdByUserId:req.user.id});
+    res.json({success:true,data:await jobGuideData(scope)});
+  }catch(error){next(error);}
+};
 
 export const listJobQuestionSets = async (req, res, next) => {
   try {

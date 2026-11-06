@@ -41,6 +41,7 @@
         <div class="detail guardian-detail">
           <div class="panel guardian-panel">
             <section v-if="activePanel === 'family'" class="family-overview" aria-label="All family profiles">
+              <GuardianSchoolReleaseNotice v-if="!isSuperadminPreview && schoolReleasePeople.length" :people="schoolReleasePeople" @open="openSchoolRelease" />
               <FamilyDashboard :profiles="allFamilyProfiles" :preview="isSuperadminPreview" @navigate="navigatePortal" @profile="chooseFamilyProfile" /><h2>{{ allFamilyProfiles.length > 1 ? ft("Your family members") : ft("Your profile") }}</h2><p>{{ ft("Choose a profile to see their appointments, documents, and next steps.") }}</p>
               <div class="family-profile-grid"><article v-for="person in allFamilyProfiles" :key="person.client_id" class="family-profile-card">
                 <div class="profile-logos"><img v-if="profileAgencyLogo(person)" :src="profileAgencyLogo(person)" :alt="person.agency_name"/><img v-if="profileSchool(person)?.logo" :src="profileSchool(person).logo" :alt="profileSchool(person).name"/></div><strong>{{ profileLabel(person) }}</strong><span>{{ person.agency_name }}<template v-if="profileSchool(person)"> · {{ profileSchool(person).name }}</template></span>
@@ -63,7 +64,10 @@
             </template>
             <template v-else-if="activePanel === 'overview'">
               <template v-if="selectedInlineEvent"><button class="btn btn-secondary" @click="selectedInlineEvent = null">Back to dashboard</button><GuardianSkillBuildersEventView :event-id-prop="selectedInlineEvent.eventId" :program-event-mode="selectedInlineEvent.programMode" :inline="true" :hide-actions="true" /></template>
-              <FamilyPortalHome v-else :client-first-name="selectedFirstName" :agency-id="currentAgencyId" :client-id="selectedChildId" :show-plan="portalPlanAllowed" :learning="standardsLearningVisible" :preview="isSuperadminPreview" :events="programOverviewEvents" :programs="selectedPrograms" @navigate="navigatePortal" @event="openInlineEventFromWorkspace" @program="openProgramWorkspace" />
+              <template v-else>
+                <GuardianSchoolReleaseNotice v-if="!isSuperadminPreview && selectedSchoolRelease" :people="[selectedSchoolRelease]" @open="openSchoolRelease" />
+                <FamilyPortalHome :client-first-name="selectedFirstName" :agency-id="currentAgencyId" :client-id="selectedChildId" :show-plan="portalPlanAllowed" :learning="standardsLearningVisible" :preview="isSuperadminPreview" :events="programOverviewEvents" :programs="selectedPrograms" @navigate="navigatePortal" @event="openInlineEventFromWorkspace" @program="openProgramWorkspace" />
+              </template>
             </template>
             <template v-else-if="activePanel === 'plan'">
               <GuardianPlanProgressPanel v-if="portalPlanAllowed" :client-id="selectedChildId" :agency-id="selectedChildAgencyId" :client-type="selectedChildClientType" />
@@ -109,7 +113,7 @@
             <GuardianProgressRecords v-else-if="['checkins','evaluations'].includes(activePanel) && !isSuperadminPreview" :client-id="selectedChildId" :client-name="selectedFirstName" :kind="activePanel" :learning="standardsLearningVisible"/>
             <template v-else-if="activePanel === 'documents'">
               <p v-if="isSuperadminPreview">Documents are available in the signed-in family account.</p>
-              <template v-else><FamilyPendingDocuments /><PortalSafetyPlans v-if="selectedChildId" :key="`safety:${selectedChildId}`" :client-id="selectedChildId" compact /><GuardianIntakeDocuments :client-id="selectedChildId" /><GuardianSharedFiles :client-id="selectedChildId" /><details class="account-documents"><summary>{{ ft("Other forms assigned to your account") }}</summary><DocumentsTab /></details></template>
+              <template v-else><GuardianSchoolReleaseForm v-if="profileSchool(selectedChild)" :client-id="selectedChildId" @completed="schoolReleaseVersion++" /><FamilyPendingDocuments /><PortalSafetyPlans v-if="selectedChildId" :key="`safety:${selectedChildId}`" :client-id="selectedChildId" compact /><GuardianIntakeDocuments :key="`signed-documents:${selectedChildId}:${schoolReleaseVersion}`" :client-id="selectedChildId" /><GuardianSharedFiles :client-id="selectedChildId" /><details class="account-documents"><summary>{{ ft("Other forms assigned to your account") }}</summary><DocumentsTab /></details></template>
             </template>
 
             <template v-else-if="activePanel === 'child'">
@@ -627,6 +631,8 @@ import FamilyPayments from '../../components/guardian/FamilyPayments.vue';
 import { resolveFamilyPortalOrganization, familyPortalClients, familyCareAgencies } from '../../utils/familyPortalContext.js';
 import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
 import GuardianSchoolCareBridge from '../../components/guardian/GuardianSchoolCareBridge.vue';
+import GuardianSchoolReleaseForm from '../../components/guardian/GuardianSchoolReleaseForm.vue';
+import GuardianSchoolReleaseNotice from '../../components/guardian/GuardianSchoolReleaseNotice.vue';
 import { isClinicalClient } from '../../utils/clinicalWorkspace';
 import ClinicalWorkspaceFrame from '../../components/clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import { computed, onMounted, ref, watch, nextTick } from 'vue';
@@ -919,6 +925,13 @@ const familyHomeLabel = computed(() => portalAccountLabel.value === 'Family port
 const selectedFirstName = computed(() => String(selectedChild.value?.full_name || '').split(' — ')[0].trim().split(/\s+/)[0] || 'Client');
 const selectedPrograms = computed(() => programs.value.filter(p => [Number(selectedChild.value?.agency_id),Number(selectedChild.value?.organization_id)].includes(Number(p.id))));
 function profileSchool(person) { const school=person?.school_affiliations?.find(s=>s.status!=='former');return school ? {name:school.name,logo:school.logo_url} : person?.organization_type==='school' ? {name:person.organization_name,logo:person.organization_logo_url} : null; }
+const schoolReleasePeople = computed(() => allFamilyProfiles.value.filter(person => profileSchool(person)).map(person => ({ clientId: person.client_id, childName: childDisplayName(person), schoolName: profileSchool(person)?.name || '' })));
+const selectedSchoolRelease = computed(() => schoolReleasePeople.value.find(person => Number(person.clientId) === Number(selectedChildId.value)) || null);
+const schoolReleaseVersion=ref(0);
+function openSchoolRelease(clientId) {
+  if (Number(selectedChildId.value) !== Number(clientId)) return chooseFamilyProfile(clientId, 'documents');
+  navigatePortal('documents');
+}
 const careAgencyLogo = computed(() => profileAgencyLogo(selectedChild.value) || programLogoUrl.value || tenantAgencyLogoUrl.value || '');
 function profileLabel(profile) { return profile ? `${childDisplayName(profile)}${profile.relationship_type === 'self' ? ' (you)' : ''}` : 'Choose a profile'; }
 async function chooseFamilyProfile(id, panel = null, agencyId = null, serviceId = null) {
@@ -1937,9 +1950,8 @@ onMounted(async () => {
     const access=await api.get('/dependent-portal/status');
     if(access.data?.personalPortal){await router.replace('/my-portal');return;}
   } catch {
-    error.value='Your portal could not be opened. Please reload to try again.';
-    loading.value=false;
-    return;
+    // This check only redirects a dependent's personal portal. A failure here
+    // must not replace the family dashboard with a dead-end message.
   }
   await fetchOverview();
   fetchGenEvents();

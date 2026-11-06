@@ -23,7 +23,7 @@ const applicantReply = handler => (req, res, next) => {
   res.json = data => json(Object.fromEntries(Object.entries(data || {}).filter(([key]) => [
     'error', 'token', 'sessionId', 'applicationId', 'roomName', 'roomMode', 'identity',
     'displayName', 'roleLabel', 'admitted', 'meetingCompleted', 'interviewGuestEnded',
-    'headline', 'message', 'contactEmail', 'contactPhone', 'agencyName', 'peopleOpsLabel', 'ok'
+    'headline', 'message', 'contactEmail', 'contactPhone', 'agencyName', 'peopleOpsLabel', 'branding', 'ok'
   ].includes(key))));
   return handler(req, res, next);
 };

@@ -17,6 +17,7 @@
       [`vsr--tile-size-${tileSizePreset}`]: true
     }"
   >
+    <slot name="branding" />
     <div v-if="mini" class="vsr__mini-header" @pointerdown="startMiniDrag">
       <span>Meeting in progress</span>
       <button type="button" class="vsr__ctrl" @click="meetingViewport.restore">Return to meeting</button>

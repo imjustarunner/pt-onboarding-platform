@@ -10,6 +10,10 @@ import{useAgencyStore}from '../../../store/agency';import{useGuardianStore}from 
 const agencies=[{id:2,slug:'itsco',name:'ITSCO',organization_type:'agency'},{id:6,slug:'nlu',name:'Next Level Up',organization_type:'agency'},{id:377,slug:'tisi',name:'Inner Strength',organization_type:'agency'}];
 const person=(id,aid,name,type='clinical',self=false)=>({client_id:id,agency_id:aid,agency_name:agencies.find(a=>a.id===aid).name,agency_slug:agencies.find(a=>a.id===aid).slug,full_name:name,initials:name.slice(0,2),client_type:type,organization_type:id===3?'school':'agency',organization_id:id===3?376:aid,relationship_type:self?'self':'guardian',school_affiliations:id===3?[{organization_id:376,name:'Hogwarts',status:'current'}]:[]});
 const people=[person(1,2,'Riley'),person(2,6,'Jordan','learning'),person(3,2,'Avery','school'),person(4,377,'Morgan','clinical',true)];
+it('opens the family dashboard when the personal portal check fails',async()=>{
+ api.get.mockImplementation(async(url='')=>{if(url==='/dependent-portal/status')throw new Error('status down');return{data:url==='/guardian-portal/overview'?{children:people.slice(0,3),me:people[3],programs:agencies}:{events:[],items:[],documents:[],grants:[],subjects:[],plans:[]}}});
+ const{w}=await setup();expect(w.text()).not.toContain('could not be opened');expect(w.findAll('.family-profile-card')).toHaveLength(4);w.unmount();
+});
 it('does not mount family widgets before personal portal access is resolved',async()=>{
  let resolve;api.get.mockImplementation(url=>url==='/dependent-portal/status'?new Promise(done=>{resolve=done}):Promise.resolve({data:{children:[],programs:[]}}));
  const{w,router}=await setup();expect(w.text()).toContain('Loading your dashboard');expect(w.findComponent({name:'GuardianInvitations'}).exists()).toBe(false);

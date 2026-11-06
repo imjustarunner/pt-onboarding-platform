@@ -175,6 +175,14 @@ export async function scheduleHiringInterview({
   }
 
   if (profileId && Number(profileRow?.id) !== profileId) throw Object.assign(new Error('Hiring profile does not belong to the candidate'), { status: 400 });
+  if(jobQuestionSet?.job_description_id && profileRow?.job_description_id && Number(jobQuestionSet.job_description_id)!==Number(profileRow.job_description_id)) {
+    throw Object.assign(new Error('Choose questions for the job this candidate applied for.'),{status:400});
+  }
+  if(profileRow?.job_description_id) {
+    const jobGuide=await InterviewHubJobQuestionSet.findDefaultForJob(agency,profileRow.job_description_id);
+    if(!jobQuestionSetId)jobQuestionSet=jobGuide;
+    else if(jobGuide?.scorecard_criteria_json?.length)jobQuestionSet={...jobQuestionSet,scorecard_criteria_json:jobGuide.scorecard_criteria_json};
+  }
 
   let jobTitle = String(jobTitleOverride || '').trim();
   let resolvedJobDescriptionId = null;

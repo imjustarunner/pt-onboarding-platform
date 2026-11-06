@@ -373,6 +373,8 @@ export async function ensureIssuedRoiSigningLinkForClient({
     && Number(existing.intake_link_id || 0) === Number(selectedLink.id || 0)
     && String(existing.public_key || '').trim();
 
+  if(existing?.status==='completed' && !regenerate)return {ok:true,issuedLink:existing,config:selection.explicitConfig,selectedLink,preferredLanguageCode:preferredLocale};
+
   const issuedLink = hasUsableKey
     ? existing
     : await ClientSchoolRoiSigningLink.issueForClient({
@@ -380,7 +382,8 @@ export async function ensureIssuedRoiSigningLinkForClient({
         schoolOrganizationId,
         intakeLinkId: Number(selectedLink.id),
         publicKey: crypto.randomBytes(24).toString('hex'),
-        issuedByUserId: actorUserId
+        issuedByUserId: actorUserId,
+        preserveCompleted: !regenerate
       });
 
   return { ok: true, issuedLink, config: selection.explicitConfig, selectedLink, preferredLanguageCode: preferredLocale };

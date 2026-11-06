@@ -19,7 +19,9 @@
           :can-share-screen="false" :equal-tiles-when-remote="true" :preserve-video-aspect="false"
           :show-layout-controls="false" :allow-tile-focus="false" tile-focus="equal" layout="standard"
           @connected="videoConnected = true" @leave-request="leave()" @disconnected="disconnected" @meeting-ended="finish"
-          @interview-guest-ended="finish" />
+          @interview-guest-ended="finish">
+          <template #branding><InterviewMeetingBrand :brand="meetingBrand" @leave="leave()" /></template>
+        </SupervisionVideoRoom>
       </div>
       <InterviewSharedChat v-if="!inLobby" :endpoint="`${base}/chat`" />
     </template>
@@ -32,6 +34,7 @@ import api from '../../services/api';
 import SupervisionVideoRoom from '../../components/supervision/SupervisionVideoRoom.vue';
 import InterviewSharedChat from '../../components/hiring/InterviewSharedChat.vue';
 import InterviewQuestionCard from '../../components/hiring/InterviewQuestionCard.vue';
+import InterviewMeetingBrand from '../../components/hiring/InterviewMeetingBrand.vue';
 import { useInterviewQuestion } from '../../composables/useInterviewQuestion';
 import { useTeamMeetingLiveTranscript } from '../../composables/useTeamMeetingLiveTranscript';
 import { suspendInactivityTimeout, resumeInactivityTimeout } from '../../utils/activityTracker';
@@ -39,6 +42,7 @@ const props = defineProps({ invitationToken: { type: String, required: true } })
 const base = computed(() => `/team-meetings/interview-applicant/${encodeURIComponent(props.invitationToken)}`);
 const credentials = ref(null), error = ref(''), joining = ref(false), ended = ref(''), canRejoin = ref(true);
 const leaving = ref(false);
+const meetingBrand = ref(null);
 const inLobby = computed(() => credentials.value?.roomMode === 'lobby');
 const videoRoomRef = ref(null), videoConnected = ref(false);
 const { transcriptHint, stopAndFlush: stopTranscript } = useTeamMeetingLiveTranscript({
@@ -63,6 +67,7 @@ async function join() {
   joining.value = true; error.value = ''; ended.value = ''; videoConnected.value = false; clearTimers();
   try {
     const { data } = await api.get(`${base.value}/video-token`, options);
+    if(data.branding)meetingBrand.value=data.branding;
     if (stopped || attempt !== generation) return;
     if (!data.token || !data.sessionId || !data.applicationId) throw new Error('Video credentials unavailable');
     credentials.value = data;

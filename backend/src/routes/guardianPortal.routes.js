@@ -172,6 +172,20 @@ router.get('/family-documents', async (req, res, next) => {
     next(error);
   }
 });
+router.get('/clients/:clientId/school-release', requireActiveStatus, async (req, res, next) => {
+  try {
+    if (req.guardianPreviewMode) return res.status(403).json({ error: { message: 'Preview cannot open a school release.' } });
+    const { openGuardianSchoolRelease } = await import('../services/guardianSchoolRoi.service.js');
+    const release = await openGuardianSchoolRelease({
+      userId: req.user.id,
+      clientId: Number(req.params.clientId)
+    });
+    res.set('Cache-Control', 'no-store').json(release);
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: { message: error.message } });
+    next(error);
+  }
+});
 router.get('/clients/:clientId/intake-documents', listMyClientIntakeSignedDocuments);
 router.get('/clients/:clientId/intake-documents/:documentId/download-url', getMyClientIntakeSignedDocumentDownloadUrl);
 router.get('/invitations', guardianInvitations.list);
