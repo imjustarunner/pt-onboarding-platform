@@ -74,7 +74,11 @@ router.get('/notification-target/:kind/:id',handle(async(req,res)=>{
   if(!Number.isSafeInteger(id) || id<=0)throw failure(404,'MOBILE_TARGET_UNAVAILABLE','This message is unavailable.');
   const target=await createMobilePushWorker().permitted(context.device,kind,id);
   if(!target)throw failure(404,'MOBILE_TARGET_UNAVAILABLE','This message is unavailable.');
-  if(kind==='chat')return res.json({threadId:String(target)});
+  if(kind==='chat'){
+    const {default:pool}=await import('../config/database.js');
+    const [[message]]=await pool.execute('SELECT m.parent_message_id,t.message_channel FROM chat_messages m JOIN chat_threads t ON t.id=m.thread_id WHERE m.id=? AND m.thread_id=?',[id,target]);
+    return res.json({threadId:String(target),messageId:String(id),...(message?.parent_message_id?{parentId:String(message.parent_message_id)}:{}),...(message?.message_channel==='secure'?{suite:'secure',secure:'1'}:{})});
+  }
   if(kind==='email')return res.json({conversationId:String(target)});
   const {default:pool}=await import('../config/database.js');
   const [[conversation]]=await pool.execute(`SELECT c.id FROM communication_conversations c JOIN message_logs m ON m.agency_id=c.agency_id AND m.sms_thread_key=c.external_thread_id WHERE m.id=? AND c.channel='sms' LIMIT 1`,[id]);

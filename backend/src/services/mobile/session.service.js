@@ -25,7 +25,7 @@ export function createMobileSessionService({ db=pool, findUser=id=>User.findById
   function lockInfo(device) { return {method:device.app_lock_method || (device.quick_code_hash?'code':'none'),hasCode:!!device.quick_code_hash}; }
   function publicProfile(context) {
     const {user,agencies,workspace}=context;
-    return {...(context.device?{appLock:lockInfo(context.device)}:{}),user:{id:user.id,firstName:user.first_name || '',lastName:user.last_name || '',email:user.email,role:user.role},agencies,workspace};
+    return {...(context.device?{appLock:lockInfo(context.device)}:{}),user:{id:user.id,firstName:user.first_name || '',lastName:user.last_name || '',email:user.email,role:user.role,profilePhotoPath:user.profile_photo_path || null},agencies,workspace};
   }
   async function authorize({userId,agencyId,clientId,redirectUri,challenge}) {
     validClient(clientId,redirectUri);validChallenge(challenge);

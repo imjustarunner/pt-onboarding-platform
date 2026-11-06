@@ -3,6 +3,7 @@
  * with the Quick View session user attached as req.user.
  */
 import {
+  assertThreadAccess,
   listMyThreads,
   listMessages,
   sendMessage,
@@ -70,11 +71,12 @@ function internalChat(handler) {
     const threadId = Number(req.params?.threadId);
     const messageId = Number(req.params?.messageId);
     const [rows] = threadId
-      ? await pool.execute('SELECT message_channel FROM chat_threads WHERE id = ?', [threadId])
-      : await pool.execute('SELECT t.message_channel FROM chat_threads t JOIN chat_messages m ON m.thread_id = t.id WHERE m.id = ?', [messageId]);
-    if (rows[0]?.message_channel === 'secure') {
+      ? await pool.execute('SELECT message_channel,id AS mobile_thread_id FROM chat_threads WHERE id = ?', [threadId])
+      : await pool.execute('SELECT t.message_channel,t.id AS mobile_thread_id FROM chat_threads t JOIN chat_messages m ON m.thread_id = t.id WHERE m.id = ?', [messageId]);
+    if (rows[0]?.message_channel === 'secure' && !req.quickView.mobileDeviceSessionId) {
       return res.status(409).json({ error: { code: 'SECURE_WORKSPACE_REQUIRED', message: 'Open Secure messages in Messages by Conversa to view or reply to this conversation.' } });
     }
+    if(req.quickView.mobileDeviceSessionId)await assertThreadAccess(req.quickView.userId,threadId || rows[0]?.mobile_thread_id,{requireActiveAgency:true});
     return handler(req, res, next);
   });
 }
@@ -126,6 +128,7 @@ function mapDirectoryPerson(r, section) {
     profilePhotoUrl: publicUploadsUrlFromStoredPath(r.profile_photo_path) || null,
     hcbsCategory: axes.hcbsCategory,
     hcbsCategoryLabel: axes.hcbsCategoryLabel,
+    credential: r.credential || null,
     section
   };
 }
@@ -145,7 +148,10 @@ export const getQuickDirectory = async (req, res, next) => {
        FROM user_agencies ua
        JOIN users u ON u.id = ua.user_id
        WHERE ua.agency_id = ?
+         AND COALESCE(ua.is_active,1)=1
+         AND COALESCE(u.login_is_group_email,0)=0
          AND u.id != ?
+         AND COALESCE(u.is_demo,0)=0
          AND (u.is_archived = FALSE OR u.is_archived IS NULL)
          AND LOWER(COALESCE(u.role, '')) NOT IN (
                'client_guardian', 'guardian', 'school_staff',
@@ -173,7 +179,7 @@ export const getQuickDirectory = async (req, res, next) => {
          INNER JOIN organization_affiliations oa ON oa.organization_id = school.id
            AND oa.agency_id = ?
            AND oa.is_active = 1
-         WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
+         WHERE COALESCE(ua.is_active,1)=1 AND COALESCE(u.is_demo,0)=0 AND (u.is_archived = FALSE OR u.is_archived IS NULL)
            AND LOWER(COALESCE(u.role, '')) = 'school_staff'
            AND u.id != ?
          ORDER BY u.first_name ASC, u.last_name ASC
@@ -190,7 +196,7 @@ export const getQuickDirectory = async (req, res, next) => {
            FROM users u
            INNER JOIN user_agencies ua ON ua.user_id = u.id
            INNER JOIN agency_schools ash ON ash.school_id = ua.agency_id AND ash.agency_id = ?
-           WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
+           WHERE COALESCE(ua.is_active,1)=1 AND COALESCE(u.is_demo,0)=0 AND (u.is_archived = FALSE OR u.is_archived IS NULL)
              AND LOWER(COALESCE(u.role, '')) = 'school_staff'
              AND u.id != ?
            ORDER BY u.first_name ASC, u.last_name ASC

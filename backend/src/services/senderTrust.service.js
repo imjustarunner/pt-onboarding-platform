@@ -120,6 +120,15 @@ export async function classifyInboundSender({
     }
   }
 
+  if(result.trust==='unknown'){
+    const [groups]=await pool.execute('SELECT id,label FROM managed_workspace_groups WHERE LOWER(TRIM(email))=? LIMIT 1',[email]);
+    if(groups[0]){result.trust='staff';result.isUnknownSender=false;result.displayName=groups[0].label || email;result.linkedEntityType='managed_group';result.linkedEntityId=groups[0].id;}
+  }
+  if(result.trust==='unknown'){
+    const [mailboxes]=await pool.execute('SELECT id,display_name FROM communication_inboxes WHERE LOWER(TRIM(from_email))=? LIMIT 1',[email]);
+    if(mailboxes[0]){result.trust='staff';result.isUnknownSender=false;result.displayName=mailboxes[0].display_name || email;result.linkedEntityType='app_mailbox';result.linkedEntityId=mailboxes[0].id;}
+  }
+
   // ITSCO / tenant school-site Google Groups (russell@, north@, sabin@, …)
   if (result.trust === 'unknown') {
     const [siteRows] = await pool.execute(

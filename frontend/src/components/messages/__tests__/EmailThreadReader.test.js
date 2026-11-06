@@ -21,3 +21,10 @@ it('shows signature images, lets the reader load other images, and resets that c
  await wrapper.get('.load-images').trigger('click');expect(wrapper.findAll('.body img')).toHaveLength(2);
  await wrapper.setProps({conversation:{id:21}});expect(wrapper.findAll('.body img')).toHaveLength(1);wrapper.unmount();
 });
+
+it('uses a compact phone reading layout without changing the source email or losing links',()=>{
+ const html='<table style="width:600px;padding:40px;background-color:#ffffff"><tr><td><p>Readable update</p><a href="https://example.org/one" style="background-color:#236644;color:white;padding:20px;width:300px">Open one</a><a href="https://example.org/two" style="background-color:#236644;color:white;padding:20px;width:300px">Open two</a></td></tr></table>';
+ const message={id:1,body_html:html,direction:'outbound',from:{name:'Taylor Example',email:'staff@example.invalid'}};
+ const wrapper=mount(Reader,{props:{conversation:{id:5},messages:[message],mobile:true,currentUserPhoto:'photos/me.png'}});
+ expect(wrapper.get('.body').html()).not.toContain('width: 600px');expect(wrapper.findAll('.body a')).toHaveLength(2);expect(wrapper.get('.body a').element.style.display).toBe('block');expect(message.body_html).toBe(html);expect(wrapper.find('.email-avatar img').exists()).toBe(true);wrapper.unmount();
+});

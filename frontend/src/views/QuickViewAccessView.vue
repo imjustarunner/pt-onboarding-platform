@@ -1,5 +1,5 @@
 <template>
-  <div class="qv" :class="{ 'qv-signed-in': session }" :style="brandStyle" @keydown.esc="closeMore" @keydown.tab="trapDialogFocus">
+  <div class="qv" :class="{ 'qv-signed-in': session, 'qv-mobile':isMobile, 'qv-mobile-messages':isMobile && ['home','thread','chat'].includes(tab) }" :style="brandStyle" @click.capture="handleMobileLink" @keydown.esc="closeMore" @keydown.tab="trapDialogFocus">
     <a v-if="session" class="qv-skip" href="#qv-workspace">Skip to workspace</a>
     <header class="qv-top">
       <div class="qv-brand-row">
@@ -9,7 +9,7 @@
         <img v-if="agencyLogoUrl" :src="agencyLogoUrl" alt="" class="qv-logo" />
         <span>{{ agencyName || 'Your workspace' }}</span>
       </div>
-      <div v-if="session" class="qv-top-actions">
+      <div v-if="session" class="qv-top-actions"><button v-if="isMobile" type="button" class="qv-icon-button" aria-label="My Account" @click="emit('account')"><UserRound :size="18"/></button>
         <span class="qv-session-status"><span aria-hidden="true" />{{ isMobile && mobileSession.profile?.appLock?.method==='none'?'Refreshes at':'Locks at' }} {{ formatExpiry(expiresAt) }}</span>
         <button type="button" class="qv-icon-button qv-extend" :disabled="extendBusy" aria-label="Extend session by 10 minutes" @click="extendSession">
           <Clock3 :size="17" aria-hidden="true" /><span>{{ extendBusy ? 'Extending…' : '+10 min' }}</span>
@@ -21,7 +21,7 @@
     <nav v-if="session" class="qv-tabs" aria-label="Primary navigation">
       <span class="qv-nav-caption">WORKSPACE</span>
       <button v-for="item in primaryNavigation" :key="item.id" type="button" :class="{ on: activeDestination === item.id }" :aria-current="activeDestination === item.id ? 'page' : undefined" :aria-expanded="item.id === 'more' ? moreOpen : undefined" :aria-controls="item.id === 'more' ? 'qv-more-tools' : undefined" @click="navigateTo(item.id)">
-        <component :is="item.icon" :size="21" :stroke-width="1.8" aria-hidden="true" /><span>{{ item.label }}</span>
+        <component :is="item.icon" :size="21" :stroke-width="1.8" aria-hidden="true" /><span>{{ item.label }}</span><span v-if="isMobile && item.id==='home' && mobileUnreadCount" class="qv-nav-badge">{{ mobileUnreadCount }}</span>
       </button>
       <div class="qv-nav-footer">
         <div class="qv-nav-note"><LockKeyhole :size="16" aria-hidden="true" /><span>Your workspace locks<br />when you're away.</span></div>
@@ -86,7 +86,7 @@
     </section>
 
     <template v-if="session">
-      <div class="qv-page-heading">
+      <div v-if="!isMobile || !['home','thread','chat'].includes(tab)" class="qv-page-heading">
         <div><p class="qv-eyebrow">{{ workspaceDate }}</p><h1>{{ currentHeading.title }}</h1><p class="qv-page-description">{{ currentHeading.description }}</p></div>
         <span class="qv-workspace-tag">QUICK VIEW</span>
       </div>
@@ -96,12 +96,15 @@
         <div class="qv-tool-grid">
           <button v-for="item in secondaryNavigation" :key="item.id" type="button" class="qv-tool-card" :aria-label="item.label" @click="navigateTo(item.id)"><span class="qv-tool-icon"><component :is="item.icon" :size="23" aria-hidden="true" /></span><span><strong>{{ item.label }}</strong><small>{{ item.description }}</small></span><ChevronRight :size="18" aria-hidden="true" /></button>
         </div>
-        <div class="qv-more-account"><div><h2>Workspace access</h2><p>Manage your session or continue in the full workspace.</p></div><div class="qv-more-actions"><a v-if="loginUrl" class="qv-btn ghost" :href="loginUrl">Full workspace<ArrowUpRight :size="16" aria-hidden="true" /></a><button type="button" class="qv-btn ghost" @click="logout"><LockKeyhole :size="16" aria-hidden="true" />Lock Quick View</button></div></div>
+        <button v-if="isMobile" type="button" class="qv-btn ghost" @click="showMobileSettings=true">Mobile layout &amp; swipe settings</button><div class="qv-more-account"><div><h2>Workspace access</h2><p>Manage your session or continue in the full workspace.</p></div><div class="qv-more-actions"><a v-if="loginUrl" class="qv-btn ghost" :href="loginUrl">Full workspace<ArrowUpRight :size="16" aria-hidden="true" /></a><button type="button" class="qv-btn ghost" @click="logout"><LockKeyhole :size="16" aria-hidden="true" />Lock Quick View</button></div></div>
         <QuickViewMusicDock inline :scoped-playback="isMobile" :api-base="apiBase" :auth-headers="authHeaders" :visible="!!session" />
       </section>
       <div v-show="!moreOpen" class="qv-content" :aria-busy="navigationBusy || undefined">
       <QuickViewPresence v-if="tab==='presence'" :http="presenceHttp" />
-      <div v-if="tab === 'home'" class="qv-pane conversa-surface">
+      <MobileMessages v-if="isMobile" v-show="tab==='home' || tab==='chat'" ref="mobileMessages" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" :visible="!moreOpen && (tab==='home' || tab==='chat')" :preferences="workspacePreferences" @open-email="openMobileConversation" @compose-email="openDetachedEmail('new')" @counts="mobileCounts=$event" @settings="showMobileSettings=true"/>
+      <MobilePreferences v-if="isMobile && showMobileSettings" :api-base="apiBase" :session-token="session" :preferences="workspacePreferences" @close="showMobileSettings=false" @saved="workspacePreferences=$event"/>
+      <MobileMyWork v-if="isMobile && tab==='mywork'" :api-base="apiBase" :session-token="session" @draft="prepareWorkDraft" @tasks="navigateTo('tasks')"/>
+      <div v-if="!isMobile && tab === 'home'" class="qv-pane conversa-surface">
         <div class="qv-messages-heading"><ConversaBrand compact /><span>YOUR CONVERSATIONS</span></div>
         <div class="qv-suite">
           <a class="qv-btn ghost sm" :href="secureMessagesUrl">Secure messages ↗</a>
@@ -197,10 +200,10 @@
       </div>
 
       <div v-else-if="tab === 'thread'" class="qv-pane thread">
-        <button type="button" class="qv-btn ghost" @click="closeConversation">← Conversations</button>
+        <button type="button" class="qv-btn ghost qv-message-back" :aria-label="isMobile?'Back':undefined" @click="closeConversation">← {{ isMobile?'Back':'Conversations' }}</button>
         <h2 v-if="activeConv?.channel !== 'email'">{{ activeConv?.subject || 'Conversation' }}</h2>
         <p v-if="threadLoading" role="status">Loading conversation…</p>
-        <EmailThreadReader v-if="activeConv?.channel === 'email' && !threadLoading" :conversation="activeConv" :messages="threadMessages" :has-older="!!nextBeforeId" :loading-older="olderLoading"
+        <EmailThreadReader v-if="activeConv?.channel === 'email' && !threadLoading" :conversation="activeConv" :messages="threadMessages" :mobile="isMobile" :current-user-photo="mobileSession?.profile?.user?.profilePhotoPath" :has-older="!!nextBeforeId" :loading-older="olderLoading"
           @compose="openDetachedEmail" @unread="keepEmailUnread" @older="loadOlderEmail" @attachment="downloadEmailFile" @like="likeEmail" />
         <template v-else>        <button v-if="nextBeforeId" type="button" class="qv-btn ghost" :disabled="olderLoading" @click="loadOlderEmail">{{ olderLoading ? 'Loading…' : 'Load older messages' }}</button>
         <div v-for="m in threadMessages" :key="m.id" class="qv-bubble" :class="m.direction">
@@ -369,7 +372,7 @@
       <div v-else-if="tab === 'noteaid'" class="qv-pane">
         <div class="qv-pad" style="padding-bottom:8px;">
           <p class="muted" style="margin:0 0 10px;">
-            Use Note Workspace tools here. Open the main app to attach a note to a client’s chart.
+            Prepare a documentation draft here. Final chart attachment and signing are available in the full clinical workspace.
           </p>
           <div class="qv-na-row">
             <div class="qv-na-field">
@@ -409,6 +412,7 @@
           </div>
           <textarea
             v-model="noteAidInput"
+            aria-label="Note input"
             rows="5"
             class="qv-date"
             :placeholder="noteAidMode === 'speak' ? 'Speak your note…' : 'Type or paste session notes…'"
@@ -424,6 +428,8 @@
               {{ noteAidBusy ? 'Generating…' : 'Generate' }}
             </button>
           </div>
+          <p v-if="!canRunNoteAid" class="qv-note-readiness" role="status">Add the date of service, client initials, and session notes to enable Generate.</p>
+          <p v-if="!noteAidTools.length" class="qv-note-readiness">Draft tools are unavailable for this workspace. <button type="button" class="qv-btn ghost sm" @click="switchNoteAid">Retry tools</button></p>
           <div v-if="noteAidOutput || noteAidSections.length" class="qv-note-block">
             <div class="qv-note-toolbar">
               <div>
@@ -505,7 +511,9 @@
             {{ showOffice ? 'My day' : 'Office' }}
           </button>
         </div>
-        <template v-if="!showOffice">
+        <div v-if="isMobile && !showOffice" class="qv-calendar-modes"><button type="button" :aria-pressed="calendarMode==='agenda'" @click="calendarMode='agenda'">Agenda</button><button type="button" :aria-pressed="calendarMode==='day'" @click="calendarMode='day'">Day</button></div>
+        <div v-if="isMobile && !showOffice && calendarMode==='day'" class="qv-day-grid" aria-label="Day schedule"><div v-for="hour in calendarHours" :key="hour" class="qv-hour-row"><time class="qv-hour-label">{{ hour===0?'12 AM':hour<12?`${hour} AM`:hour===12?'12 PM':`${hour-12} PM` }}</time><div class="qv-hour-lane"><button v-for="item in itemsAtHour(hour)" :key="item.id" type="button" class="qv-cal-block" @click="openCalEvent(item)"><strong>{{ item.title }}</strong><small>{{ item.allDay?'All day':`${formatClock(item.startAt)}–${formatClock(item.endAt)}` }}</small></button></div></div></div>
+        <template v-if="!showOffice && (!isMobile || calendarMode==='agenda')">
           <p class="qv-pad muted">Times shown in {{ calendarTimeZone }}.</p>
           <p v-if="calendarLoading" class="qv-pad muted" role="status">Loading your schedule…</p>
           <div v-for="item in dayItems" :key="item.id" class="qv-agenda-item" role="button" tabindex="0" @click="openCalEvent(item)" @keydown.enter.self="openCalEvent(item)" @keydown.space.self.prevent="openCalEvent(item)">
@@ -514,7 +522,7 @@
           </div>
           <div v-if="!calendarLoading && !error && !dayItems.length" class="qv-pad muted">Nothing scheduled this day.</div>
         </template>
-        <template v-else>
+        <template v-else-if="showOffice">
           <div class="qv-suite">
             <button type="button" :class="{ on: officeFilterId === null }" @click="setOfficeFilter(null)">All offices</button>
             <button
@@ -579,12 +587,11 @@
             <div v-else class="qv-avatar qv-avatar-fallback">{{ contactInitials(p) }}</div>
             <div class="meta">
               <strong>{{ p.displayName }}</strong>
-              <small>
-                {{ formatRole(p.role) }}
-                <span v-if="p.hcbsCategory"> · {{ p.hcbsCategoryLabel || `HCBS Cat ${p.hcbsCategory}` }}</span>
+              <small v-if="!isMobile || p.credential">
+                {{ isMobile?p.credential:formatRole(p.role) }}<span v-if="!isMobile && p.hcbsCategory"> · {{ p.hcbsCategoryLabel }}</span>
               </small>
               <small v-if="p.workEmail || p.email">{{ p.workEmail || p.email }}</small>
-              <small v-if="p.workPhone">Work {{ p.workPhone }}</small>
+              <small v-if="!isMobile && p.workPhone">Work {{ p.workPhone }}</small>
             </div>
             <button
               type="button"
@@ -783,10 +790,15 @@
 </template>
 
 <script setup>
+import {backInMobile,trackMobileNavigation} from '../mobile/mobileNavigation.js';
+import {mobileLinkTarget} from '../mobile/mobileLinks.js';
+import MobileMessages from '../mobile/MobileMessages.vue';
+import MobilePreferences from '../mobile/MobilePreferences.vue';
+import MobileMyWork from '../mobile/MobileMyWork.vue';
 import AuricWellBrand from '../components/auricwell/AuricWellBrand.vue';
 import { AURICWELL_PREVIEW_URL } from '../constants/auricwellBrand';
 import { Capacitor, registerPlugin } from '@capacitor/core';
-import { CalendarDays, MessageSquare, ListTodo, Ellipsis, LockKeyhole, Clock3, NotebookPen, Users, Radio, ArrowUpRight, ChevronRight, Mail, Smartphone, Phone, RefreshCw, Paperclip, AtSign } from '@lucide/vue';
+import { CalendarDays, MessageSquare, ListTodo, Ellipsis, LockKeyhole, Clock3, NotebookPen, Users, Radio, ArrowUpRight, ChevronRight, Mail, Smartphone, Phone, RefreshCw, Paperclip, AtSign, UserRound, ChevronDown, BriefcaseBusiness } from '@lucide/vue';
 import ConversaBrand from '../components/conversa/ConversaBrand.vue';
 import { privateSpeechRecognition } from '../utils/privateSpeechRecognition.js';
 import { quickViewDeepLink } from '../utils/quickViewDeepLink';
@@ -804,7 +816,7 @@ import QuickViewMusicDock from '../components/quickView/QuickViewMusicDock.vue';
 import { buildDisplaySections, extractSections, formatFullNoteCopy } from '../utils/noteAidUiHelpers.js';
 
 const props=defineProps({ mobileSession:Object });
-const emit=defineEmits(['locked']);
+const emit=defineEmits(['locked','account']);
 const isMobile=computed(()=>!!props.mobileSession);
 
 const BOOKMARK_KEY = 'plottwist.quickViewBookmark';
@@ -869,21 +881,37 @@ const isLocked = ref(false);
 const tab = ref('home');
 const moreOpen = ref(false);
 const navigationBusy = ref(false);
-const primaryNavigation = [
-  { id: 'calendar', label: 'Today', icon: CalendarDays },
-  { id: 'home', label: 'Messages', icon: MessageSquare },
-  { id: 'tasks', label: 'Tasks', icon: ListTodo },
-  { id: 'more', label: 'More', icon: Ellipsis }
+const allNavigation = [
+  { id:'calendar',label:'Today',icon:CalendarDays,description:'Your schedule and appointments.' },
+  { id:'home',label:'Messages',icon:MessageSquare,description:'All your conversations.' },
+  { id:'tasks',label:'Tasks',icon:ListTodo,description:'Assigned tasks and shared lists.' },
+  { id:'mywork',label:'My Work',icon:BriefcaseBusiness,description:'Your documentation queue.' },
+  { id:'noteaid',label:'Note Workspace',icon:NotebookPen,description:'Prepare your documentation.' },
+  { id:'presence',label:'Presence',icon:Radio,description:'See who’s available and set your status.' },
+  { id:'contacts',label:'Contacts',icon:Users,description:'Find and message your team.' }
 ];
-const secondaryNavigation = [
-  { id: 'noteaid', label: 'Note Workspace', description: 'Continue your documentation.', icon: NotebookPen },
-  { id: 'presence', label: 'Presence', description: 'See who’s available and set your status.', icon: Radio },
-  { id: 'contacts', label: 'Contacts', description: 'Find and message your team.', icon: Users }
-];
+const workspacePreferences=ref({swipeLeft:'archive',swipeRight:'read',navigationMode:'automatic',pinnedNavigation:['calendar','home','tasks'],usage:{}});
+const viewportWidth=ref(window.innerWidth),showMobileSettings=ref(false),mobileMessages=ref(null),mobileCounts=ref({});
+const mobileUnreadCount=computed(()=>mobileCounts.value.all?.unread || 0);
+let preferenceTimer;
+const primaryNavigation=computed(()=>{
+  if(!isMobile.value)return [...allNavigation.slice(0,3),{id:'more',label:'More',icon:Ellipsis}];
+  const slots=viewportWidth.value>=430?4:viewportWidth.value>=350?3:2;
+  const ids=workspacePreferences.value.navigationMode==='pinned'?workspacePreferences.value.pinnedNavigation:[...allNavigation].sort((a,b)=>(workspacePreferences.value.usage?.[b.id] || 0)-(workspacePreferences.value.usage?.[a.id] || 0)).map(item=>item.id);
+  return [...ids.slice(0,slots).map(id=>allNavigation.find(item=>item.id===id)).filter(Boolean),{id:'more',label:'More',icon:ChevronDown}];
+});
+const secondaryNavigation=computed(()=>isMobile.value?allNavigation:allNavigation.filter(item=>['noteaid','presence','contacts'].includes(item.id)));
+function resizeMobile(){viewportWidth.value=window.innerWidth;}
+async function loadWorkspacePreferences(){try{const {data}=await axios.get(`${apiBase}/messages/preferences`,{headers:authHeaders(),withCredentials:true});workspacePreferences.value=data.preferences || workspacePreferences.value;}catch{/* Defaults remain usable if preferences are temporarily unavailable. */}}
+function countNavigation(destination){if(!isMobile.value)return;workspacePreferences.value={...workspacePreferences.value,usage:{...workspacePreferences.value.usage,[destination]:(workspacePreferences.value.usage?.[destination] || 0)+1}};clearTimeout(preferenceTimer);preferenceTimer=setTimeout(()=>{if(session.value)axios.patch(`${apiBase}/messages/preferences`,{usage:workspacePreferences.value.usage},{headers:authHeaders(),withCredentials:true}).catch(()=>{});},1200);}
+function handleMobileLink(event){if(!isMobile.value || event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)return;const anchor=event.target.closest?.('a[href]');if(!anchor || anchor.classList.contains('qv-workspace-link') || anchor.classList.contains('qv-gate-link') || anchor.hasAttribute('download'))return;const target=mobileLinkTarget(anchor.href,{workspaceLoginUrl:loginUrl.value,currentOrigin:window.location.origin});if(target){event.preventDefault();router.push(target);}}
+function openMobilePreferences(){showMobileSettings.value=true;}
+async function openMobileConversation(item){msgSuite.value=String(route.query.suite || 'all');await openConversation(item);}
+async function prepareWorkDraft(item){noteAidDos.value=String(item.date || item.dos || item.dateOfService || localDay()).slice(0,10);noteAidInitials.value=item.initials || String(item.clientName || '').split(/\s+/).map(word=>word[0]).join('');noteAidInput.value=item.draft?.input || item.input || item.notes || '';await navigateTo('noteaid');}
 const activeDestination = computed(() => {
   if (moreOpen.value) return 'more';
   if (['home', 'thread', 'chat'].includes(tab.value)) return 'home';
-  if (['calendar', 'tasks'].includes(tab.value)) return tab.value;
+  if (primaryNavigation.value.some(item=>item.id===tab.value)) return tab.value;
   return 'more';
 });
 const workspaceDate = computed(() => new Date(clockNow.value).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }));
@@ -894,6 +922,7 @@ const currentHeading = computed(() => {
     thread: { title: 'Conversation', description: 'Keep the conversation moving.' },
     chat: { title: 'Team conversation', description: 'Direct messages and team discussions.' },
     calendar: { title: 'Your day, in view.', description: 'Appointments, meetings, and where you need to be.' },
+    mywork:{title:'My Work',description:'Your documentation queue and next steps.'},
     tasks: { title: 'Tasks', description: 'Your tasks, shared lists, and next steps.' },
     noteaid: { title: 'Note Workspace', description: 'A focused space for your documentation.' },
     presence: { title: 'Team presence', description: 'Find the right moment to connect.' },
@@ -901,15 +930,17 @@ const currentHeading = computed(() => {
   }[tab.value] || { title: 'Quick View', description: 'Your daily workspace.' };
 });
 
-async function navigateTo(destination) {
+async function navigateTo(destination,{fromRoute=false}={}) {
   if (destination === 'more') { moreOpen.value = !moreOpen.value; return; }
+  if(isMobile.value && !fromRoute){countNavigation(destination);const query=destination==='home'?{view:'home',...(route.query.suite?{suite:route.query.suite}:{}),...(route.query.filter?{filter:route.query.filter}:{}),...(route.query.archived?{archived:route.query.archived}:{})}:{view:destination};if(router.resolve({path:'/mobile/workspace',query}).fullPath!==route.fullPath){moreOpen.value=false;await mobileNavigate(query);return;}}
   moreOpen.value = false;
   error.value = '';
   navigationBusy.value = true;
   try {
-    if (destination === 'home') await switchMsgSuite(msgSuite.value);
+    if (destination === 'home') {if(isMobile.value)tab.value='home';else await switchMsgSuite(msgSuite.value);}
     else if (destination === 'calendar') { if (showOffice.value) { tab.value = 'calendar'; await loadOffice(); } else await loadCalendar(); }
     else if (destination === 'tasks') await loadTasks(taskView.value);
+    else if (destination === 'mywork' && isMobile.value)tab.value='mywork';
     else if (destination === 'noteaid') await switchNoteAid();
     else if (destination === 'contacts') await loadContacts();
     else if (destination === 'presence') tab.value = 'presence';
@@ -917,7 +948,7 @@ async function navigateTo(destination) {
     error.value = e?.response?.data?.error?.message || `Could not load ${destination === 'tasks' ? 'your tasks' : 'this view'}. Try again.`;
   } finally {
     navigationBusy.value = false;
-    if (session.value && secondaryNavigation.some(item => item.id === destination)) {
+    if (session.value && secondaryNavigation.value.some(item => item.id === destination)) {
       await nextTick();
       document.getElementById('qv-workspace')?.focus();
     }
@@ -1002,6 +1033,8 @@ const day = ref(localDay());
 const calendarLoading = ref(false);
 const calendarTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Denver';
 const dayItems = ref([]);
+const calendarMode=ref('agenda'),calendarHours=Array.from({length:24},(_,hour)=>hour);
+function itemsAtHour(hour){return dayItems.value.filter(item=>item.allDay?hour===0:Number(new Intl.DateTimeFormat('en-US',{timeZone:calendarTimeZone,hour:'numeric',hourCycle:'h23'}).format(new Date(item.startAt)))===hour);}
 const showOffice = ref(false);
 const officeSlots = ref([]);
 const officeLocations = ref([]);
@@ -1216,7 +1249,7 @@ const isDelivery = computed(() =>
 const sessionOnly = computed(() => route.meta?.quickViewSessionOnly === true);
 
 async function resumeSession() {
-  if(isMobile.value){session.value=props.mobileSession.sessionToken;expiresAt.value=props.mobileSession.expiresAt;sessionUserId.value=props.mobileSession.userId;sessionAgencyId.value=props.mobileSession.agencyId;agencyName.value=props.mobileSession.profile?.workspace?.name || '';loginUrl.value=props.mobileSession.profile?.workspace?.loginUrl || '';loading.value=false;startHeartbeat();await loadHome();await openDeepLink();return;}
+  if(isMobile.value){session.value=props.mobileSession.sessionToken;expiresAt.value=props.mobileSession.expiresAt;sessionUserId.value=props.mobileSession.userId;sessionAgencyId.value=props.mobileSession.agencyId;agencyName.value=props.mobileSession.profile?.workspace?.name || '';loginUrl.value=props.mobileSession.profile?.workspace?.loginUrl || '';loading.value=false;startHeartbeat();await loadWorkspacePreferences();await openDeepLink();if(route.query.view && route.query.view!=='home')await navigateTo(String(route.query.view),{fromRoute:true});return;}
   loading.value = true;
   error.value = '';
   try {
@@ -1424,6 +1457,7 @@ function stopHeartbeat() {
 }
 
 async function refreshMessages() {
+  if(isMobile.value && ['home','chat'].includes(tab.value))return;
   if (!session.value || document.visibilityState === 'hidden' || threadLoading.value || replyBusy.value || chatBusy.value) return;
   try {
     if (tab.value === 'chat') { await loadChatMessages({ quiet: true }); return; }
@@ -1680,7 +1714,7 @@ async function openConversation(c, { refresh = false, preserveCurrent = true } =
   if (preserveCurrent) rememberReply();
   const request = ++conversationRequest;
   activeConv.value = c; threadMessages.value = []; threadLoading.value = true; tab.value = 'thread';
-  if(isMobile.value && String(route.query.conversationId || '')!==String(c.id))await mobileNavigate({view:'home',suite:msgSuite.value,conversationId:String(c.id)});
+  if(isMobile.value && String(route.query.conversationId || '')!==String(c.id))await mobileNavigate({...route.query,view:'home',suite:msgSuite.value,conversationId:String(c.id),threadId:undefined,parentId:undefined,secure:undefined,compose:undefined});
   if(isMobile.value){await nextTick();if(request!==conversationRequest || activeConv.value?.id!==c.id)return;document.getElementById('qv-workspace')?.scrollTo?.({top:0});}
   error.value = ''; nextBeforeId.value = null;
   replyText.value = ''; replyAttachments.value = [];
@@ -2260,6 +2294,7 @@ async function messageUser(userId, name) {
       },
       { headers: authHeaders(), withCredentials: true }
     );
+    if(isMobile.value){msgSuite.value='direct';await mobileNavigate({view:'home',suite:'direct',threadId:String(data.threadId)});tab.value='home';return;}
     activeChatId.value = data.threadId;
     activeChatTitle.value = name || 'Direct message';
     tab.value = 'chat';
@@ -2477,6 +2512,7 @@ function clearSession({notify=true}={}) {
   window.dispatchEvent(new Event('quick-view-session-ended'));
   showMobileReply.value=false;dismissQuickPreview();
   session.value = null; sessionUserId.value = null; sessionAgencyId.value = null;
+  showMobileSettings.value=false;clearTimeout(preferenceTimer);
   stopHeartbeat(); clearTimeout(undoTimer); clearTimeout(quickPreviewTimer); clearTimeout(quickPreviewHideTimer);
   ++conversationRequest; ++homeRequest; ++chatRequest; ++calendarRequest;
   ++taskDetailRequest; ++noteAidRequest; noteAidBusy.value = false;
@@ -2507,21 +2543,21 @@ async function mobileNavigate(query,{replace=false}={}) {
   if(replace)await router.replace({path:'/mobile/workspace',query:clean});else await router.push({path:'/mobile/workspace',query:clean});
 }
 function returnInApp(query) {
-  if(isMobile.value && String(window.history.state?.back || '').startsWith('/mobile'))router.back();
-  else mobileNavigate(query,{replace:true});
+  if(isMobile.value){trackMobileNavigation(router);return backInMobile(router,{path:'/mobile/workspace',query:Object.fromEntries(Object.entries(query).filter(([,value])=>value!==undefined))});}
 }
 function closeConversation(){rememberReply();showMobileReply.value=false;dismissQuickPreview();++conversationRequest;activeConv.value=null;threadMessages.value=[];threadLoading.value=false;tab.value='home';returnInApp({view:'home',suite:msgSuite.value});}
 function closeMobileReply(){if(!mobileEmailReply.value)return;rememberReply();showMobileReply.value=false;if(route.query.compose)returnInApp({...route.query,compose:undefined});}
 watch(()=>route.fullPath,async()=>{
   if(!isMobile.value || !session.value)return;
   dismissQuickPreview();
+  const view=String(route.query.view || 'home');if(view!=='home'){if(tab.value!==view)await navigateTo(view,{fromRoute:true});return;}
   const conversationId=String(route.query.conversationId || ''),threadId=String(route.query.threadId || '');
   if(/^[1-9]\d*$/.test(conversationId)){
     if(String(activeConv.value?.id)!==conversationId || tab.value!=='thread')await openConversation({id:Number(conversationId)});
     showMobileReply.value=['reply','reply_all','forward'].includes(route.query.compose);
     if(showMobileReply.value)changeReplyMode(route.query.compose);
   }else if(/^[1-9]\d*$/.test(threadId)){
-    if(String(activeChatId.value)!==threadId || tab.value!=='chat')await openChatThread({id:Number(threadId)});
+    showMobileReply.value=false;tab.value='home';
   }else{
     showMobileReply.value=false;rememberReply();++conversationRequest;threadLoading.value=false;tab.value='home';
   }
@@ -2529,7 +2565,7 @@ watch(()=>route.fullPath,async()=>{
 async function openDeepLink() {
   const target = quickViewDeepLink(route.query, tokenInfo.value?.deepLinkPath);
   if (target.conversationId) await openConversation({ id: Number(target.conversationId) });
-  else if (target.threadId) await openChatThread({ id: Number(target.threadId) });
+  else if (target.threadId) {if(isMobile.value)tab.value='home';else await openChatThread({ id: Number(target.threadId) });}
   else if (target.join) {
     try {
       const { data } = await axios.get(`${apiBase}/meetings/${target.join}/${encodeURIComponent(target.id)}/link`, { headers: authHeaders(), withCredentials: true });
@@ -2570,6 +2606,7 @@ watch([agencyName, agencyLogoUrl, agencyPrimaryColor], () => {
 });
 
 onMounted(() => {
+  if(isMobile.value)window.addEventListener('resize',resizeMobile);
   document.addEventListener('pointerdown',outsidePreview);
   for(const type of ['pointerdown','keydown','touchstart'])window.addEventListener(type,recordActivity,{passive:true});
   window.addEventListener('focus',checkDeadline);
@@ -2585,8 +2622,9 @@ onMounted(() => {
     loadTokenInfo();
   }
 });
-defineExpose({lock:logout,openDeepLink});
+defineExpose({lock:logout,openDeepLink,openPreferences:openMobilePreferences});
 onUnmounted(() => {
+  window.removeEventListener('resize',resizeMobile);clearTimeout(preferenceTimer);
   document.removeEventListener('pointerdown',outsidePreview);dismissQuickPreview();
   if(isMobile.value)clearSession({notify:false});
   for(const type of ['pointerdown','keydown','touchstart'])window.removeEventListener(type,recordActivity);
@@ -2875,6 +2913,7 @@ button.qv-row:hover { background: #f8faff; }
   .qv-spinner { animation: none; }
   .qv *, .qv *::before, .qv *::after { scroll-behavior: auto; transition: none; }
 }
+@media(max-width:360px){.qv-mobile .qv-extend span{display:none}.qv-mobile .qv-top :deep(.auricwell-brand){font-size:16px;gap:5px}.qv-mobile .qv-top :deep(.auricwell-brand img){width:28px;height:28px}}
 </style>
 
 <style>
@@ -2887,4 +2926,7 @@ button.qv-row:hover { background: #f8faff; }
 
 <style scoped>
 .qv-mobile-reply{color:var(--qv-text);font-family:inherit}.qv-mobile-reply :is(button,input,textarea,select){font-family:inherit}.qv-mobile-reply .qv-reply-heading{position:sticky;top:-22px;background:white;z-index:2;padding:4px 0}
+
+.qv-nav-badge{position:absolute;right:15%;top:7px;min-width:17px;padding:2px 4px;border-radius:10px;background:#255ad9;color:white;font-size:9px;font-weight:750}.qv-tabs>button{position:relative}.qv-message-back{font-size:12px;min-height:40px;border:0!important;margin:7px 10px!important;padding:7px 9px!important}.qv-calendar-modes{display:flex;gap:5px;padding:2px 16px 14px}.qv-calendar-modes button{font:inherit;font-size:12px;border:0;background:#f0f4fa;color:#647a98;padding:8px 16px;border-radius:8px}.qv-calendar-modes button[aria-pressed=true]{background:#245be0;color:white}.qv-note-readiness{margin:8px 0 15px;font-size:12px;color:#6e819d;line-height:1.6}.qv-cal-block{width:100%;text-align:left;color:#244c84;cursor:pointer;border:0;border-left:3px solid #7ca7ef}.qv-mobile-messages .qv-workspace{padding:0 0 calc(78px + env(safe-area-inset-bottom,0px));max-width:none}.qv-mobile-messages .qv-pane.thread{border:0;border-radius:0;box-shadow:none}.qv-mobile-messages .qv-content{width:100%}.qv-mobile .qv-day-nav{flex-wrap:nowrap;gap:5px;padding:12px 10px}.qv-mobile .qv-day-nav .qv-btn{padding:8px 9px;min-height:38px;font-size:11px;flex-shrink:0}.qv-mobile .qv-day-nav .qv-date{flex:1;min-width:0;width:100px;padding:8px 4px;min-height:38px;font-size:12px;box-sizing:border-box}.qv-mobile .qv-na-row{grid-template-columns:minmax(0,1fr) minmax(80px,.55fr)}.qv-mobile .qv-na-row input{box-sizing:border-box;min-width:0}.qv-mobile .qv-contact-row{padding:16px 13px;gap:11px}.qv-mobile .qv-contact-row .meta strong{font-size:13px}.qv-mobile .qv-contact-row .meta small{font-size:11px}.qv-mobile .qv-contact-row .qv-btn{padding:9px 12px;font-size:11px;min-height:37px}.qv-mobile .qv-contact-row .qv-avatar{width:36px;height:36px}
+@media(max-width:760px){.qv-mobile .qv-top{padding:12px 14px;min-height:72px;box-sizing:border-box}.qv-mobile .qv-top :deep(.auricwell-brand){max-width:190px}.qv-mobile .qv-top-actions{gap:5px}.qv-mobile .qv-icon-button{min-width:33px;height:35px;padding:7px;border-radius:10px}.qv-mobile .qv-extend span{font-size:10px}.qv-mobile .qv-organization{display:none}.qv-mobile-messages .qv-workspace{padding-top:0;padding-left:0;padding-right:0}.qv-mobile .qv-tabs{padding:5px 5px calc(5px + env(safe-area-inset-bottom,0px));gap:3px;grid-template-columns:repeat(auto-fit,minmax(50px,1fr))}.qv-mobile .qv-tabs>button{min-height:57px;padding:7px 4px;min-width:0;flex:1}.qv-mobile .qv-tabs>button span{font-size:10px}.qv-mobile .qv-top .qv-lock-label{display:none}.qv-mobile .qv-page-heading{margin-bottom:17px}.qv-mobile .qv-page-heading h1{font-size:25px}.qv-mobile .qv-page-description{font-size:12px}.qv-mobile:not(.qv-mobile-messages) .qv-workspace{padding-left:13px;padding-right:13px}}
 </style>

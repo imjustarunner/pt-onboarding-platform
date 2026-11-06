@@ -1,3 +1,4 @@
+import {requireMobileThreadMembership} from '../services/mobile/conversa.service.js';
 import { assertSecureAttachmentPath } from '../services/secureChatAttachment.service.js';
 import { ensureClientSecureConversation, resolveClientForSecureRecipients, refreshClientSecureAccess } from '../services/clientSecureConversation.service.js';
 import { resolveSecureMessageClient, recordSecureMessageInChart } from '../services/secureMessageRecord.service.js';
@@ -95,6 +96,17 @@ async function hasChatMessageMentionsTable() {
   } catch {
     return false;
   }
+}
+
+function mobileInboxCutoff(req,params,dateColumn,idColumn){
+  if(!req.quickView?.mobileDeviceSessionId || !req.query.beforeAt)return '';
+  const date=new Date(req.query.beforeAt),id=Number(req.query.beforeId);
+  if(!Number.isFinite(date.getTime()) || !Number.isSafeInteger(id) || id<=0)throw Object.assign(new Error('Invalid inbox cursor'),{status:400});
+  params.push(date,date,id);return `AND (${dateColumn}<? OR (${dateColumn}=? AND ${idColumn}<?))`;
+}
+
+function mobileUnreadMessage(req,alias='m'){
+  const me=Number(req.user.id);return `(${alias}.sender_user_id<>${me} AND NOT EXISTS(SELECT 1 FROM chat_thread_reads tr WHERE tr.thread_id=${alias}.thread_id AND tr.user_id=${me} AND tr.last_read_message_id>=${alias}.id) AND NOT EXISTS(SELECT 1 FROM chat_message_views v WHERE v.message_id=${alias}.id AND v.user_id=${me}))`;
 }
 
 /** Resolve a parent id to the root message id (Slack-style: no nested trees). */
@@ -325,8 +337,9 @@ async function assertAgencyOrOrgAccess(reqUser, agencyId, organizationId = null)
   return true;
 }
 
-async function assertThreadAccess(reqUserId, threadId) {
+export async function assertThreadAccess(reqUserId, threadId, {requireActiveAgency=false}={}) {
   await refreshClientSecureAccess(threadId, reqUserId);
+  if(requireActiveAgency)return requireMobileThreadMembership(reqUserId,threadId);
   const [rows] = await pool.execute(
     'SELECT 1 FROM chat_thread_participants WHERE thread_id = ? AND user_id = ? LIMIT 1',
     [threadId, reqUserId]
@@ -897,6 +910,8 @@ export const listMyThreads = async (req, res, next) => {
     } catch {
       /* ignore */
     }
+    const previewEncryption=await hasChatMessageEncryptionColumns();
+    const previewColumns=previewEncryption?', lm.body_ciphertext AS preview_ciphertext,lm.body_iv AS preview_iv,lm.body_auth_tag AS preview_tag,lm.encryption_key_id AS preview_key':'';
     const [rows] = await pool.execute(
       `SELECT t.id AS thread_id,
               t.agency_id,
@@ -908,7 +923,7 @@ export const listMyThreads = async (req, res, next) => {
               t.client_id,
               EXISTS(SELECT 1 FROM dependent_portal_threads dp WHERE dp.thread_id=t.id) AS personal_portal,
               t.updated_at,
-              lm.id AS last_message_id,
+              lm.id AS last_message_id${previewColumns},
               CASE WHEN t.message_channel = 'secure' THEN 'Secure message — open to read' ELSE lm.body END AS last_message_body,
               lm.created_at AS last_message_at,
               lm.sender_user_id AS last_message_sender_user_id,
@@ -920,6 +935,7 @@ export const listMyThreads = async (req, res, next) => {
                 WHERE m2.thread_id = t.id
                   AND (r.last_read_message_id IS NULL OR m2.id > r.last_read_message_id)
                   AND m2.sender_user_id <> ?
+                  ${req.quickView?.mobileDeviceSessionId ? `AND NOT EXISTS(SELECT 1 FROM chat_message_views seen WHERE seen.message_id=m2.id AND seen.user_id=${Number(userId)})` : ''}
                   AND NOT EXISTS (
                     SELECT 1 FROM chat_message_deletes d2
                     WHERE d2.user_id = ? AND d2.message_id = m2.id
@@ -939,7 +955,9 @@ export const listMyThreads = async (req, res, next) => {
          LIMIT 1
        )
        WHERE t.agency_id IN (${placeholders})
-         ${req.quickView ? "AND t.message_channel = 'internal'" : ''}
+         ${req.quickView && !req.quickView.mobileDeviceSessionId ? "AND t.message_channel = 'internal'" : ''}
+         ${req.quickView?.mobileDeviceSessionId && req.user.role==='school_staff'?"AND t.message_channel='internal'":''}
+         ${req.quickView?.mobileDeviceSessionId?`AND COALESCE(a.is_active,1)=1 AND COALESCE(a.is_archived,0)=0 AND EXISTS(SELECT 1 FROM user_agencies mobile_member WHERE mobile_member.user_id=${Number(userId)} AND mobile_member.agency_id=t.agency_id AND COALESCE(mobile_member.is_active,1)=1)`:''}
          AND (td.deleted_at IS NULL OR (lm.created_at IS NOT NULL AND lm.created_at > td.deleted_at))
        ORDER BY t.updated_at DESC`,
       [userId, userId, userId, userId, userId, userId, ...agencyIds]
@@ -957,7 +975,7 @@ export const listMyThreads = async (req, res, next) => {
     if (threadIds.length) {
       const placeholders2 = threadIds.map(() => '?').join(',');
       const [parts] = await pool.execute(
-        `SELECT tp.thread_id, u.id AS user_id, u.first_name, u.last_name, u.email, u.role
+        `SELECT tp.thread_id, u.id AS user_id, u.first_name, u.last_name, u.email, u.role, u.profile_photo_path
          FROM chat_thread_participants tp
          JOIN users u ON u.id = tp.user_id
          WHERE tp.thread_id IN (${placeholders2})`,
@@ -1023,6 +1041,8 @@ export const listMyThreads = async (req, res, next) => {
     }
 
     const threads = visibleRows.map((r) => {
+      let previewBody=r.last_message_body;
+      if(r.message_channel!=='secure' && !previewBody && r.preview_ciphertext)try{previewBody=decryptChatText({ciphertextB64:r.preview_ciphertext,ivB64:r.preview_iv,authTagB64:r.preview_tag,keyId:r.preview_key || null});}catch{previewBody='Message unavailable';}
       const participants = participantsByThread[r.thread_id] || [];
       const others = participants.filter((p) => p.user_id !== userId);
       const other = others[0] || null;
@@ -1059,10 +1079,11 @@ export const listMyThreads = async (req, res, next) => {
         team_meta: teamMeta,
         updated_at: r.updated_at,
         unread_count: Number(r.unread_count || 0),
+        last_read_message_id: Number(r.last_read_message_id) || 0,
         last_message: r.last_message_id
           ? {
               id: r.last_message_id,
-              body: r.last_message_body,
+              body: previewBody,
               created_at: r.last_message_at,
               sender_user_id: r.last_message_sender_user_id
             }
@@ -1072,7 +1093,8 @@ export const listMyThreads = async (req, res, next) => {
           first_name: p.first_name,
           last_name: p.last_name,
           email: p.email,
-          role: p.role
+          role: p.role,
+          profile_photo_url: p.profile_photo_path || null
         })),
         other_participant:
           isDirect && other
@@ -1259,7 +1281,7 @@ export const deleteThreadForMe = async (req, res, next) => {
   try {
     const threadId = parseInt(req.params.threadId, 10);
     if (!threadId) return res.status(400).json({ error: { message: 'threadId is required' } });
-    await assertThreadAccess(req.user.id, threadId);
+    await assertThreadAccess(req.user.id, threadId,{requireActiveAgency:!!req.quickView?.mobileDeviceSessionId});
 
     await pool.execute(
       `INSERT INTO chat_thread_deletes (thread_id, user_id, deleted_at)
@@ -1280,7 +1302,7 @@ export const listMessages = async (req, res, next) => {
 
     const threadId = parseInt(req.params.threadId, 10);
     if (!threadId) return res.status(400).json({ error: { message: 'threadId is required' } });
-    await assertThreadAccess(req.user.id, threadId);
+    await assertThreadAccess(req.user.id, threadId,{requireActiveAgency:!!req.quickView?.mobileDeviceSessionId});
     if (String(req.user?.role || '').toLowerCase() === 'school_staff') {
       const [[channelRow]] = await pool.execute('SELECT message_channel FROM chat_threads WHERE id = ?', [threadId]);
       if (channelRow?.message_channel === 'secure') {
@@ -1360,6 +1382,12 @@ export const listMessages = async (req, res, next) => {
       sqlParams
     );
     const ordered = (rows || []).reverse();
+    if(req.quickView?.mobileDeviceSessionId && parentMessageIdQ){
+      const [parents]=await pool.execute(`SELECT m.id,m.thread_id,m.sender_user_id,m.body${encCols}${parentCol},m.created_at,u.first_name AS sender_first_name,u.last_name AS sender_last_name,u.profile_photo_path AS sender_profile_photo_path
+        FROM chat_messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=? AND m.thread_id=? AND m.parent_message_id IS NULL AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)`,[parentMessageIdQ,threadId,req.user.id]);
+      if(!parents.length)return res.status(404).json({error:{message:'The original message is unavailable.'}});
+      ordered.unshift(parents[0]);
+    }
     const me = Number(req.user.id);
     const messageIds = ordered.map((m) => Number(m.id)).filter(Boolean);
     const [attachmentsByMessage, reactionsByMessage, mentionsByMessage, replyCounts, viewedMessageIds] =
@@ -1371,6 +1399,14 @@ export const listMessages = async (req, res, next) => {
         !parentMessageIdQ ? loadReplyCountsForRoots(messageIds) : Promise.resolve(new Map()),
         loadViewedMessageIds(messageIds, me)
       ]);
+    const latestReplies=new Map();
+    if(req.quickView?.mobileDeviceSessionId && !parentMessageIdQ && messageIds.length && hasParentCol){
+      const [previews]=await pool.execute(`SELECT m.id,m.parent_message_id,m.body${encCols},m.sender_user_id,m.created_at,u.first_name AS sender_first_name,u.last_name AS sender_last_name,u.profile_photo_path AS sender_profile_photo_path
+        FROM chat_messages m JOIN users u ON u.id=m.sender_user_id WHERE m.parent_message_id IN(${messageIds.map(()=>'?').join(',')})
+        AND m.id=(SELECT MAX(latest.id) FROM chat_messages latest WHERE latest.parent_message_id=m.parent_message_id AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=latest.id AND d.user_id=?))`,[...messageIds,me]);
+      for(const reply of previews){let body=reply.body;if(!body && reply.body_ciphertext)try{body=decryptChatText({ciphertextB64:reply.body_ciphertext,ivB64:reply.body_iv,authTagB64:reply.body_auth_tag,keyId:reply.encryption_key_id || null});}catch{body='Message unavailable';}
+        latestReplies.set(Number(reply.parent_message_id),{id:reply.id,body:body || '',sender_user_id:reply.sender_user_id,sender_first_name:reply.sender_first_name,sender_last_name:reply.sender_last_name,created_at:reply.created_at});}
+    }
     const enriched = ordered.map((m) => {
       const id = m?.id ? Number(m.id) : null;
       const isMine = Number(m?.sender_user_id) === me;
@@ -1396,19 +1432,26 @@ export const listMessages = async (req, res, next) => {
         body: body || '',
         parent_message_id: m.parent_message_id != null ? Number(m.parent_message_id) : null,
         reply_count: replyCounts.get(Number(m?.id)) || 0,
+        ...(req.quickView?.mobileDeviceSessionId?{latest_reply:latestReplies.get(Number(m.id)) || null}:{}),
         mentioned_user_ids: mentioned,
         is_read_by_other: isReadByOther,
         attachments,
         reactions
       };
     });
-    const messageChannel = await recordSecureThreadOpen({ threadId, userId: req.user.id, messageIds, req });
+    const messageChannel = await recordSecureThreadOpen({ threadId, userId: req.user.id, messageIds:[...messageIds,...[...latestReplies.values()].map(r=>Number(r.id))], req });
     res.set?.('X-Message-Channel', messageChannel);
     res.set?.('Cache-Control', 'no-store');
     const visible = ['client','client_guardian'].includes(req.user?.role)
       ? await (await import('../services/guardianContactSharing.service.js')).redactGuardianThreadAuthors(threadId,req.user.id,enriched)
       : enriched;
-    res.json(visible.map((message) => ({ ...message, message_channel: messageChannel })));
+    const result=visible.map((message)=>({...message,message_channel:messageChannel}));
+    if(req.quickView?.mobileDeviceSessionId){
+      const [[first]]=await pool.execute(`SELECT COALESCE(m.parent_message_id,m.id) AS id FROM chat_messages m LEFT JOIN chat_thread_reads r ON r.thread_id=m.thread_id AND r.user_id=? WHERE m.thread_id=? AND m.sender_user_id<>? AND (r.last_read_message_id IS NULL OR m.id>r.last_read_message_id)
+        AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?) AND NOT EXISTS(SELECT 1 FROM chat_message_views v WHERE v.message_id=m.id AND v.user_id=?) ORDER BY m.id LIMIT 1`,[me,threadId,me,me,me]);
+      return res.json({messages:result,hasOlder:rows.length===limit,firstUnreadId:first?.id || null});
+    }
+    res.json(result);
   } catch (e) {
     next(e);
   }
@@ -1429,7 +1472,7 @@ export const sendMessage = async (req, res, next) => {
     }
     const { assertSharedGuardianSend } = await import('../services/guardianSharedMessages.service.js');
     await assertSharedGuardianSend(req.user.id, threadId);
-    await assertThreadAccess(req.user.id, threadId);
+    await assertThreadAccess(req.user.id, threadId,{requireActiveAgency:!!req.quickView?.mobileDeviceSessionId});
     const { assertManagedChatPost } = await import('../services/managedWorkspaceGroupAccess.service.js');
     await assertManagedChatPost(threadId, req.user.id);
 
@@ -1722,11 +1765,15 @@ export const listThreadsInbox = async (req, res, next) => {
     const sqlParams = [me, me, me, me, me];
     if (agencyClause) sqlParams.push(agencyId);
 
+    const mobileCutoff=mobileInboxCutoff(req,sqlParams,'latest.created_at','root.id');
+    const previewEncryption=await hasChatMessageEncryptionColumns();
+    const rootEncryption=previewEncryption?', root.body_ciphertext AS root_ciphertext,root.body_iv AS root_iv,root.body_auth_tag AS root_tag,root.encryption_key_id AS root_key':'';
+    const latestEncryption=previewEncryption?', latest.body_ciphertext AS latest_ciphertext,latest.body_iv AS latest_iv,latest.body_auth_tag AS latest_tag,latest.encryption_key_id AS latest_key':'';
     const [rows] = await pool.execute(
       `SELECT
           root.id AS root_message_id,
           root.thread_id,
-          root.body AS root_body,
+          root.body AS root_body${rootEncryption},
           root.created_at AS root_created_at,
           root.sender_user_id AS root_sender_user_id,
           ru.first_name AS root_sender_first_name,
@@ -1737,7 +1784,7 @@ export const listThreadsInbox = async (req, res, next) => {
           t.name AS channel_name,
           t.slug AS channel_slug,
           latest.id AS latest_reply_id,
-          latest.body AS latest_reply_body,
+          latest.body AS latest_reply_body${latestEncryption},
           latest.created_at AS latest_reply_at,
           latest.sender_user_id AS latest_reply_sender_user_id,
           lu.first_name AS latest_reply_first_name,
@@ -1750,9 +1797,10 @@ export const listThreadsInbox = async (req, res, next) => {
              WHERE r2.parent_message_id = root.id
                AND r2.sender_user_id <> ?
                AND (tr.last_read_message_id IS NULL OR r2.id > tr.last_read_message_id)
+               ${req.quickView?.mobileDeviceSessionId?`AND NOT EXISTS(SELECT 1 FROM chat_message_views v WHERE v.message_id=r2.id AND v.user_id=${Number(me)}) AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=r2.id AND d.user_id=${Number(me)})`:''}
           ) AS unread_reply_count,
           (
-            SELECT COUNT(*) FROM chat_messages r3 WHERE r3.parent_message_id = root.id
+            SELECT COUNT(*) FROM chat_messages r3 WHERE r3.parent_message_id = root.id ${req.quickView?.mobileDeviceSessionId?`AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=r3.id AND d.user_id=${Number(me)})`:''}
           ) AS reply_count
        FROM chat_messages root
        JOIN chat_threads t ON t.id = root.thread_id
@@ -1761,8 +1809,9 @@ export const listThreadsInbox = async (req, res, next) => {
        JOIN users ru ON ru.id = root.sender_user_id
        JOIN (
          SELECT parent_message_id, MAX(id) AS max_id
-           FROM chat_messages
+           FROM chat_messages inbox_reply
           WHERE parent_message_id IS NOT NULL
+            ${req.quickView?.mobileDeviceSessionId?`AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=inbox_reply.id AND d.user_id=${Number(me)})`:''}
           GROUP BY parent_message_id
        ) mx ON mx.parent_message_id = root.id
        JOIN chat_messages latest ON latest.id = mx.max_id
@@ -1775,12 +1824,15 @@ export const listThreadsInbox = async (req, res, next) => {
              WHERE r.parent_message_id = root.id AND r.sender_user_id = ?
           )
         )
-        ${agencyClause}
-      ORDER BY latest.created_at DESC
+        ${agencyClause} ${mobileCutoff}
+        ${req.quickView?.mobileDeviceSessionId?`AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=root.id AND d.user_id=${Number(me)}) AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=latest.id AND d.user_id=${Number(me)})`:''}
+      ${req.quickView?.mobileDeviceSessionId && req.query.filter==='unread'?'HAVING unread_reply_count>0':req.quickView?.mobileDeviceSessionId && req.query.filter==='needs'?`HAVING latest_reply_sender_user_id<>${Number(me)}`:''}
+      ORDER BY latest.created_at DESC,root.id DESC
       LIMIT 80`,
       sqlParams
     );
 
+    const previewText=(row,prefix,fallback)=>{if(fallback)return fallback;if(!row[`${prefix}_ciphertext`])return '';try{return decryptChatText({ciphertextB64:row[`${prefix}_ciphertext`],ivB64:row[`${prefix}_iv`],authTagB64:row[`${prefix}_tag`],keyId:row[`${prefix}_key`] || null});}catch{return 'Message unavailable';}};
     const items = (rows || []).map((r) => ({
       root_message_id: Number(r.root_message_id),
       thread_id: Number(r.thread_id),
@@ -1789,7 +1841,7 @@ export const listThreadsInbox = async (req, res, next) => {
       thread_type: r.thread_type || null,
       channel_name: r.channel_name || null,
       channel_slug: r.channel_slug || null,
-      root_body: r.root_body || '',
+      root_body: previewText(r,'root',r.root_body),
       root_created_at: r.root_created_at,
       root_sender: {
         id: Number(r.root_sender_user_id),
@@ -1798,7 +1850,7 @@ export const listThreadsInbox = async (req, res, next) => {
       },
       latest_reply: {
         id: Number(r.latest_reply_id),
-        body: r.latest_reply_body || '',
+        body: previewText(r,'latest',r.latest_reply_body),
         created_at: r.latest_reply_at,
         sender: {
           id: Number(r.latest_reply_sender_user_id),
@@ -1835,6 +1887,7 @@ export const listMentionsInbox = async (req, res, next) => {
     const sqlParams = [me, me, me];
     if (agencyClause) sqlParams.push(agencyId);
 
+    const mobileCutoff=mobileInboxCutoff(req,sqlParams,'mn.created_at','m.id');
     const [rows] = await pool.execute(
       `SELECT
           m.id AS message_id,
@@ -1865,8 +1918,10 @@ export const listMentionsInbox = async (req, res, next) => {
        JOIN chat_thread_participants tp ON tp.thread_id = t.id AND tp.user_id = ?
        JOIN users u ON u.id = m.sender_user_id
       WHERE t.message_channel = 'internal' AND mn.mentioned_user_id = ?
-        ${agencyClause}
-      ORDER BY mn.created_at DESC
+        ${agencyClause} ${mobileCutoff}
+        ${req.quickView?.mobileDeviceSessionId?`AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=${Number(me)})`:''}
+        ${req.quickView?.mobileDeviceSessionId && ['unread','needs'].includes(req.query.filter)?`AND ${mobileUnreadMessage(req)}`:''}
+      ORDER BY mn.created_at DESC,m.id DESC
       LIMIT 80`,
       sqlParams
     );
@@ -1903,7 +1958,7 @@ export const unsendMessage = async (req, res, next) => {
     if (!threadId || !messageId) {
       return res.status(400).json({ error: { message: 'threadId and messageId are required' } });
     }
-    await assertThreadAccess(req.user.id, threadId);
+    await assertThreadAccess(req.user.id, threadId,{requireActiveAgency:!!req.quickView?.mobileDeviceSessionId});
     const [secureThread] = await pool.execute('SELECT message_channel FROM chat_threads WHERE id = ?', [threadId]);
     if (secureThread[0]?.message_channel === 'secure') return res.status(409).json({ error: { message: 'Sent secure messages are retained in the record. Send a correction or hide the message from your inbox.' } });
 
@@ -2001,7 +2056,7 @@ export const deleteForMe = async (req, res, next) => {
     if (!threadId || !messageId) {
       return res.status(400).json({ error: { message: 'threadId and messageId are required' } });
     }
-    await assertThreadAccess(req.user.id, threadId);
+    await assertThreadAccess(req.user.id, threadId,{requireActiveAgency:!!req.quickView?.mobileDeviceSessionId});
 
     const hasEncCols = await hasChatMessageEncryptionColumns();
     const encCols = hasEncCols ? ', body_ciphertext, body_iv, body_auth_tag, encryption_key_id' : '';
@@ -2071,7 +2126,7 @@ export const bulkDeleteForMe = async (req, res, next) => {
   try {
     const threadId = parseInt(req.params.threadId, 10);
     if (!threadId) return res.status(400).json({ error: { message: 'threadId is required' } });
-    await assertThreadAccess(req.user.id, threadId);
+    await assertThreadAccess(req.user.id, threadId,{requireActiveAgency:!!req.quickView?.mobileDeviceSessionId});
 
     const idsRaw = req.body?.messageIds;
     if (!Array.isArray(idsRaw) || idsRaw.length === 0) {
@@ -2130,7 +2185,7 @@ export const markRead = async (req, res, next) => {
     if (!threadId) {
       return res.status(400).json({ error: { message: 'threadId is required' } });
     }
-    await assertThreadAccess(req.user.id, threadId);
+    await assertThreadAccess(req.user.id, threadId,{requireActiveAgency:!!req.quickView?.mobileDeviceSessionId});
 
     if (!lastReadMessageId) {
       const [rows] = await pool.execute(
@@ -2161,7 +2216,7 @@ export const markUnread = async (req, res, next) => {
     if (!threadId) {
       return res.status(400).json({ error: { message: 'threadId is required' } });
     }
-    await assertThreadAccess(req.user.id, threadId);
+    await assertThreadAccess(req.user.id, threadId,{requireActiveAgency:!!req.quickView?.mobileDeviceSessionId});
     const [rows] = await pool.execute(
       `SELECT MAX(id) AS last_inbound
        FROM chat_messages
@@ -2189,7 +2244,7 @@ export const getThreadMeta = async (req, res, next) => {
   try {
     const threadId = parseInt(req.params.threadId, 10);
     if (!threadId) return res.status(400).json({ error: { message: 'threadId is required' } });
-    await assertThreadAccess(req.user.id, threadId);
+    await assertThreadAccess(req.user.id, threadId,{requireActiveAgency:!!req.quickView?.mobileDeviceSessionId});
 
     const [[t]] = await pool.execute(
       `SELECT t.id AS thread_id,
@@ -2273,10 +2328,11 @@ export const listFilesInbox = async (req, res, next) => {
     }
     const limitRaw = parseInt(req.query?.limit, 10);
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 100)) : 50;
+    const sqlParams=[req.user.id,req.user.id];const mobileCutoff=mobileInboxCutoff(req,sqlParams,'a.created_at','a.id');
     const [rows] = await pool.execute(
       `SELECT a.id, a.message_id, a.file_path, a.mime_type, a.file_kind, a.original_filename,
               a.byte_size, a.created_at,
-              m.thread_id, m.body, m.sender_user_id, m.created_at AS message_created_at,
+              m.thread_id, m.parent_message_id, m.body, m.sender_user_id, m.created_at AS message_created_at,
               t.thread_type, t.name AS channel_name,
               u.first_name AS sender_first_name, u.last_name AS sender_last_name
        FROM chat_message_attachments a
@@ -2285,10 +2341,11 @@ export const listFilesInbox = async (req, res, next) => {
        INNER JOIN chat_thread_participants p ON p.thread_id = t.id AND p.user_id = ?
        LEFT JOIN users u ON u.id = m.sender_user_id
        LEFT JOIN chat_message_deletes d ON d.message_id = m.id AND d.user_id = ?
-       WHERE t.message_channel = 'internal' AND d.message_id IS NULL
-       ORDER BY a.created_at DESC
+       WHERE t.message_channel = 'internal' AND d.message_id IS NULL ${mobileCutoff}
+         ${req.quickView?.mobileDeviceSessionId && req.query.filter==='unread'?`AND ${mobileUnreadMessage(req)}`:req.quickView?.mobileDeviceSessionId && req.query.filter==='needs'?'AND 1=0':''}
+       ORDER BY a.created_at DESC,a.id DESC
        LIMIT ${limit}`,
-      [req.user.id, req.user.id]
+      sqlParams
     );
     const files = (rows || []).map((r) => {
       let body = r.body;
@@ -2298,6 +2355,7 @@ export const listFilesInbox = async (req, res, next) => {
         id: r.id,
         message_id: r.message_id,
         thread_id: r.thread_id,
+        root_message_id: r.parent_message_id || null,
         file_path: r.file_path,
         mime_type: r.mime_type,
         file_kind: r.file_kind,
@@ -2509,7 +2567,7 @@ export const startMeetingFromThread = async (req, res, next) => {
   try {
     const threadId = parseInt(req.params.threadId, 10);
     if (!threadId) return res.status(400).json({ error: { message: 'threadId is required' } });
-    await assertThreadAccess(req.user.id, threadId);
+    await assertThreadAccess(req.user.id, threadId,{requireActiveAgency:!!req.quickView?.mobileDeviceSessionId});
 
     const [[t]] = await pool.execute(
       `SELECT id, agency_id, organization_id, thread_type FROM chat_threads WHERE id = ? LIMIT 1`,
