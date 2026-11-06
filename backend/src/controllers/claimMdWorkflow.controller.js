@@ -1,7 +1,7 @@
 import { attachClaimReferences } from '../services/clinicalClaimReferences.service.js';
 import { loadClaimFamily, claimRecordId } from '../services/claimFamily.service.js';
 import { serviceDetailBillingBlockers } from '../services/clinicalSupervisorReview.service.js';
-import { getApprovedClinicalContext, approvedVersionBillingBlockers, clinicalVersionReference } from '../services/clinicalNoteVersionBilling.service.js';
+import { getApprovedClinicalContext, approvedVersionBillingBlockers, clinicalClaimForReview, clinicalVersionReference } from '../services/clinicalNoteVersionBilling.service.js';
 import { approvedClinicalClaimPlan, claimDiffersFromApprovedVersion, reconcileApprovedClinicalClaim } from '../services/clinicalClaimVersionReconciliation.service.js';
 import { checkSuperviseePayerEligibility } from '../services/credentialPayerEligibility.service.js';
 import { screeningClaimBlockers } from '../services/h0002ScreeningRules.js';
@@ -92,18 +92,24 @@ export async function prepareClaimReview(agencyId, claimId) {
   if (Number(documentation.note.provider_signed_by_user_id || documentation.note.created_by_user_id) !== providerId) supervision.blockers.push('The signed note author does not match the treating service provider');
   // Older notes used is_billable=0 to represent a cosign hold. Policy now owns that hold.
   if (documentation.note.provider_signed_at && !isNonBillableDocument(documentation.note) && policy.supervisorUserId) readiness.blockers = readiness.blockers.filter(b=>b!=='Note requires supervisor approval or is non-billable');
-  const billingProfile = claimOfficeId(claim) ? await getClaimMdBillingProfile(agencyId, claimOfficeId(claim)) : await resolveClaimMdBillingProfile(agencyId, claim.clinical_session_id);
-  const { practice } = billingProfile;
   const overrides = await applyBillingClaimOverrides({ agencyId, clientId: claim.client_id, claimId,
     placeOfService: claim.place_of_service, billingNpi: claim.billing_npi, taxonomyCode: claim.taxonomy_code, payerName: claim.payer_name,
     payerId: insurance?.primary?.payerId, planType: insurance?.primary?.planType, dateOfService: claim.date_of_service });
+  const officeId = Number(overrides?.billingOfficeLocationId || 0) || claimOfficeId(claim);
+  const billingProfile = officeId ? await getClaimMdBillingProfile(agencyId, officeId) : await resolveClaimMdBillingProfile(agencyId, claim.clinical_session_id);
+  const { practice } = billingProfile;
   const effective = { ...claim, rendering_npi: supervision.renderingProvider?.npi || claim.rendering_npi, rendering_first_name: supervision.renderingProvider?.firstName, rendering_last_name: supervision.renderingProvider?.lastName,
     supervising_provider: supervision.emitSupervisor ? supervision.supervisingProvider : null,
     place_of_service: overrides?.placeOfService || claim.place_of_service, billing_npi: overrides?.billingNpi || claim.billing_npi, taxonomy_code: overrides?.taxonomyCode || claim.taxonomy_code };
-  readiness.blockers.push(...await serviceDetailBillingBlockers(documentation.note,effective,lines,undefined,session));
-  readiness.blockers.push(...approvedVersionBillingBlockers({ note: documentation.note, claim: effective, lines, session, diagnosisCodes: readiness.diagnosisCodes }));
+  const clinicalClaim = clinicalClaimForReview(claim, effective);
+  readiness.blockers.push(...await serviceDetailBillingBlockers(documentation.note,clinicalClaim,lines,undefined,session));
+  readiness.blockers.push(...approvedVersionBillingBlockers({ note: documentation.note, claim: clinicalClaim, lines, session, diagnosisCodes: readiness.diagnosisCodes }));
   assertClaimBillingNpi(billingProfile, effective.billing_npi);
-  const effectiveLines = overrides?.modifiers ? lines.map(line => ({ ...line, modifiers_json: String(overrides.modifiers).split(/[,\s]+/).filter(Boolean) })) : lines;
+  const modifierRules = (overrides?.applied || []).filter(item => item.field === 'modifiers');
+  const effectiveLines = modifierRules.length ? lines.map(line => {
+    const match = modifierRules.find(item => !item.serviceCode || String(item.serviceCode).toUpperCase() === String(line.procedure_code || '').toUpperCase());
+    return match ? { ...line, modifiers_json: String(match.to || '').split(/[,\s]+/).filter(Boolean) } : line;
+  }) : lines;
   let payload = null;
   let payloadIssue = null;
   try {

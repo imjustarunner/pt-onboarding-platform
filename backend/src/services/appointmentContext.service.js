@@ -236,7 +236,7 @@ async function ensureLockedAppointmentContext({
       const loc = await AgencyServiceLocation.findById(serviceLocationId);
       if (loc && Number(loc.agency_id) === resolvedAgencyId) {
         actualServiceLocationId = serviceLocationId;
-        placeOfService = placeOfService || loc.place_of_service || null;
+        placeOfService = loc.place_of_service || placeOfService || null;
         billingOfficeLocationId = parseIntId(loc.billing_office_location_id) || billingOfficeLocationId || officeLocationId;
       }
     }

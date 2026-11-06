@@ -6,12 +6,14 @@ const MODES = {
 const address = (row) => [row.street_address, row.city, row.state, row.postal_code].filter(Boolean).join(', ');
 
 /** Use the tenant's billing records and the user's explicit office assignments. */
-export function buildNoteAidLocationChoices({ locations = [], offices = [], officeIds = [] }) {
+export function buildNoteAidLocationChoices({ locations = [], offices = [], officeIds = [], schoolIds = [] }) {
   const assigned = new Set(officeIds.map(Number));
+  const assignedSchools = new Set((schoolIds || []).map(Number).filter(id => id > 0));
   const availableOffices = offices.filter(o => (assigned.has(Number(o.physical_office_location_id || o.id)) || assigned.has(Number(o.id))) && Number(o.is_active) !== 0);
   const byOffice = new Map(availableOffices.map(o => [Number(o.id), o]));
   const visible = locations.filter(l => (l.is_active == null || Number(l.is_active) !== 0) && (l.is_provider_visible == null || Number(l.is_provider_visible) !== 0)
-    && (!Number(l.billing_office_location_id) || byOffice.has(Number(l.billing_office_location_id))));
+    && (!Number(l.billing_office_location_id) || byOffice.has(Number(l.billing_office_location_id)))
+    && (String(l.location_kind || '') !== 'school' || assignedSchools.has(Number(l.school_organization_id))));
   const choices = new Map();
   // Linked office templates take precedence over legacy generic POS duplicates.
   for (const loc of [...visible].sort((a, b) => Number(!!b.billing_office_location_id) - Number(!!a.billing_office_location_id) || Number(a.id) - Number(b.id))) {

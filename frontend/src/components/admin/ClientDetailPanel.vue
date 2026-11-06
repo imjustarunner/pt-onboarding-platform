@@ -2042,7 +2042,7 @@
                         </select>
                       </label>
                       <label class="casg-field">
-                        <span>Service location (optional)</span>
+                        <span>Default billing location</span>
                         <select
                           class="filters-select"
                           :value="tenantBookingDraft(a.agency_id).serviceLocationId"
@@ -2431,6 +2431,15 @@
                           >
                             Save
                           </button>
+                          <textarea
+                            v-model="editProviderClientAlert"
+                            rows="2"
+                            maxlength="2000"
+                            class="filters-select"
+                            style="display:block; width:min(320px, 70vw); margin-top:8px; margin-left:auto;"
+                            placeholder="Client Alert for the person receiving this client (optional)"
+                            aria-label="Client Alert for this provider assignment"
+                          />
                           <button class="btn btn-secondary btn-sm" type="button" :disabled="savingProviderAssignment" @click="cancelEditProviderAssignment">
                             Cancel
                           </button>
@@ -2491,14 +2500,14 @@
                     Make primary
                   </label>
                   <div class="filters-group" style="min-width: 280px; flex: 1 1 100%;">
-                    <label class="filters-label" for="add-provider-client-alert">Client Alert <span class="hint">(optional)</span></label>
+                    <label class="filters-label" for="add-provider-client-alert">Client Alert <span class="hint">(optional, for the person receiving this client)</span></label>
                     <textarea
                       id="add-provider-client-alert"
                       v-model="addProviderClientAlert"
                       class="filters-select"
                       rows="3"
                       maxlength="2000"
-                      placeholder="Optional referral note for the assignee. Example: no contact info, please inquire with school client or referral contact for contact info."
+                      placeholder="Example: no contact info, please inquire with the referral contact for contact info."
                     />
                   </div>
                   <div class="actions" style="align-self: end;">
@@ -4362,6 +4371,7 @@ const addProviderMakePrimary = ref(true);
 const addProviderClientAlert = ref('');
 const savingProviderAssignment = ref(false);
 const editingProviderAssignmentId = ref(null);
+const editProviderClientAlert = ref('');
 const editProviderUserId = ref('');
 const editProviderDay = ref('Unknown');
 
@@ -5903,12 +5913,14 @@ const startEditProviderAssignment = (pa) => {
   const id = Number(pa?.id);
   if (!id) return;
   editingProviderAssignmentId.value = id;
+  editProviderClientAlert.value = '';
   editProviderUserId.value = pa?.provider_user_id ? String(pa.provider_user_id) : '';
   editProviderDay.value = pa?.service_day ? String(pa.service_day) : 'Unknown';
 };
 
 const cancelEditProviderAssignment = () => {
   editingProviderAssignmentId.value = null;
+  editProviderClientAlert.value = '';
   editProviderUserId.value = '';
   editProviderDay.value = 'Unknown';
 };
@@ -5929,12 +5941,15 @@ const saveEditProviderAssignment = async (pa) => {
 
     // Upsert the "new" assignment (this also supports changing the day for the same provider).
     // If the row was primary, carry primary status to the updated/new provider.
+    const clientAlert = editProviderClientAlert.value.trim();
     await api.post(`/clients/${props.client.id}/provider-assignments`, {
       organization_id: orgId,
       provider_user_id: nextProviderUserId,
       service_day: nextDay,
-      ...(pa?.is_primary ? { is_primary: true } : {})
+      ...(pa?.is_primary ? { is_primary: true } : {}),
+      ...(clientAlert ? { client_alert: clientAlert } : {})
     });
+    editProviderClientAlert.value = '';
 
     // If they switched providers, remove the old assignment row (so it becomes a true edit, not "add another").
     if (providerChanged) {

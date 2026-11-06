@@ -17,7 +17,7 @@ import { validateScreeningSignature, completeH0002Screening, loadScreeningSource
 import { providerBillingNpi } from '../services/providerBillingNpi.service.js';
 import { buildNoteAidLocationChoices } from '../services/noteAidLocations.service.js';
 import { requireStaffPlanActor } from '../utils/planStaffAccess.js';
-import { listUserOfficeIds } from '../services/officeBillingSites.service.js';
+import { listUserOfficeIds, listUserSchoolIds } from '../services/officeBillingSites.service.js';
 import {assertNoSelfPayBalance} from '../services/familyLedger/serviceCharges.js';
 import {reserveMedicalServiceUsage,completeMedicalServiceUsage} from '../services/medicalServiceFees.service.js';
 import { resolveClaimMdConnection, claimMdConnectionMeta, requireClaimMdTransmission } from '../services/claimMdConnection.service.js';
@@ -2046,6 +2046,14 @@ export const signClinicalNote = async (req, res, next) => {
     const originalRevision=await ensureOriginalRevision({db:signingDb,note:persisted,session:lockedSession || {},actorUserId:req.user.id,signatureEvent:true,responsibleSupervisorUserId:supervisor?.supervisor_id || null,requiresSupervisorCosign:!!supervisor});
     await signingDb.commit();signingDb.release();signingDb=null;
     queueCommittedClinicalSourceChange({ agencyId: note.agency_id, clientId: note.client_id, sourceKind: 'note', sourceId: noteId });
+    if (note.clinical_session_id && !nonBillable) {
+      try {
+        const { attachSignedSessionToClaim } = await import('../services/sessionClaimWindow.service.js');
+        await attachSignedSessionToClaim({ agencyId: note.agency_id, sessionId: note.clinical_session_id, noteId });
+      } catch (error) {
+        console.warn('[session-claim] signed note was not attached', error?.message || error);
+      }
+    }
     Object.assign(note,persisted);
     const queueSynchronized=!supervisor || await synchronizeSupervisorQueue(note,meta.supervisorQueue);
     try {
@@ -2608,16 +2616,8 @@ export const createMedicalClaim = async (req, res, next) => {
           });
         }
         const modifiers = Array.isArray(meta.modifiers) ? meta.modifiers : [];
-        for (const m of modifiers) {
-          const code = String(m || '').trim().toUpperCase();
-          if (!code || code === primary || lines.some((l) => l.procedureCode === code)) continue;
-          lines.push({
-            procedureCode: code,
-            units: 1,
-            diagnosisPointers: '1',
-            serviceDate: dateOfService
-          });
-        }
+        const lineModifiers = modifiers.map(m => String(m || '').trim().toUpperCase()).filter(code => /^[A-Z0-9]{2}$/.test(code));
+        if (lineModifiers.length && lines[0]) lines[0] = { ...lines[0], modifiers: [...new Set([...(lines[0].modifiers || []), ...lineModifiers])] };
       } catch (lineBuildErr) {
         console.warn('[createMedicalClaim] auto line build failed', lineBuildErr?.message || lineBuildErr);
       }
@@ -2638,9 +2638,10 @@ export const createMedicalClaim = async (req, res, next) => {
         const loc = await AgencyServiceLocation.findById(slid);
         const mods = String(loc?.default_modifiers || '').trim();
         if (mods) {
-          const parsed = mods.split(/[,\s]+/).map((m) => m.trim().toUpperCase()).filter(Boolean);
-          if (parsed.length && !lines[0].modifiers) {
-            lines[0] = { ...lines[0], modifiers: parsed };
+          const parsed = mods.split(/[,\s]+/).map((m) => m.trim().toUpperCase()).filter(code => /^[A-Z0-9]{2}$/.test(code));
+          if (parsed.length) {
+            const current = Array.isArray(lines[0].modifiers) ? lines[0].modifiers : [];
+            lines[0] = { ...lines[0], modifiers: [...new Set([...current, ...parsed])].slice(0, 4) };
           }
         }
       }
@@ -2656,10 +2657,19 @@ export const createMedicalClaim = async (req, res, next) => {
         claimId: null,
         placeOfService,
         billingNpi: resolvedBillingNpi,
-        payerName
+        payerName,
+        payerId: insuranceSnapshot?.primary?.payerId || null,
+        planType: insuranceSnapshot?.primary?.planType || null,
+        dateOfService
       });
-      if (overrideResult?.placeOfService) placeOfService = overrideResult.placeOfService;
+      // The stored claim keeps the visit place of service. Payer place-of-service rules apply when the claim is sent.
       if (overrideResult?.billingNpi) resolvedBillingNpi = overrideResult.billingNpi;
+      const modifierOverride = (overrideResult?.applied || []).find(item => item.field === 'modifiers');
+      if (modifierOverride) {
+        const codes = String(modifierOverride.to || '').split(/[,\s]+/).map(code => code.trim().toUpperCase()).filter(code => /^[A-Z0-9]{2}$/.test(code));
+        const only = modifierOverride.serviceCode ? String(modifierOverride.serviceCode).toUpperCase() : '';
+        lines = lines.map(line => !only || String(line.procedureCode).toUpperCase() === only ? { ...line, modifiers: codes, modifierSource: 'override' } : line);
+      }
     } catch (ovErr) {
       // Table may not exist until migration 1399 runs.
       if (!String(ovErr?.message || '').includes('billing_claim_overrides')) {
@@ -2708,7 +2718,7 @@ export const createMedicalClaim = async (req, res, next) => {
       }),
       metadataJson: {
         createdVia: 'medicalBilling.createMedicalClaim',
-        feeScheduleSnapshot: lines.map(line => ({ serviceCode: line.procedureCode, units: line.units, chargeCents: line.chargeCents, ...line.feeSource })),
+        feeScheduleSnapshot: lines.map(line => ({ serviceCode: line.procedureCode, units: line.units, chargeCents: line.chargeCents, modifiers: line.modifiers || [], modifierSource: line.modifierSource || null, ...line.feeSource })),
         claimBillingMode: claimProviderMeta?.mode || null,
         clinicalVersion,
         billingUserId: claimProviderMeta?.billingUserId || null,
@@ -2839,6 +2849,68 @@ export const listMedicalClaims = async (req, res, next) => {
   }
 };
 
+export const listBillingClaimOverrideAudit = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.query.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const { listBillingClaimOverrideAudit: listAudit } = await import('../services/applyBillingClaimOverrides.service.js');
+    return res.json({ items: await listAudit(agencyId, parseIntValue(req.query.overrideId)) });
+  } catch (e) {
+    next(e);
+  }
+};
+
+const ADJUSTMENT_DESCRIPTIONS = {
+  '4': 'The procedure code is inconsistent with the modifier, or a modifier is missing.',
+  '45': 'The charge is above the fee schedule or contracted amount.',
+  '16': 'The claim or service line is missing information needed for adjudication.',
+  '96': 'This service is not a covered benefit for this payer.',
+  '97': 'This service is included in another service on the claim.',
+  '18': 'This is a duplicate claim or service.'
+};
+
+export const listClaimAdjustments = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.query.agencyId);
+    const claimId = parseIntValue(req.params.claimId);
+    if (!agencyId || !claimId) return res.status(400).json({ error: { message: 'agencyId and claimId are required' } });
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const [rows] = await clinicalPool.execute(`SELECT line_number, procedure_code, group_code, reason_code, amount_cents, allowed_cents, remark_codes_json, created_at
+      FROM claimmd_remittance_adjustments WHERE agency_id = ? AND clinical_claim_id = ? ORDER BY line_number, id`, [agencyId, claimId]);
+    return res.json({ items: (rows || []).map(row => ({ ...row, description: ADJUSTMENT_DESCRIPTIONS[String(row.reason_code)] || `Adjustment ${row.group_code}-${row.reason_code}` })) });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return res.json({ items: [] });
+    next(e);
+  }
+};
+
+export const listBillingSuggestions = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.query.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const { listBillingSuggestions: list } = await import('../services/billingOutcomeLearning.service.js');
+    return res.json({ items: await list(agencyId) });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return res.json({ items: [] });
+    next(e);
+  }
+};
+
+export const decideBillingSuggestion = async (req, res, next) => {
+  try {
+    const agencyId = parseIntValue(req.body.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
+    const { decideBillingSuggestion: decide } = await import('../services/billingOutcomeLearning.service.js');
+    return res.json(await decide({ agencyId, suggestionId: parseIntValue(req.params.suggestionId), decision: req.body.decision, actorUserId: req.user.id, modifier: req.body.modifier, planType: req.body.planType, effectiveFrom: req.body.effectiveFrom, effectiveThrough: req.body.effectiveThrough, policyReference: req.body.policyReference, reason: req.body.reason }));
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
 export const listBillingClaimOverrides = async (req, res, next) => {
   try {
     const agencyId = parseIntValue(req.query.agencyId);
@@ -2946,7 +3018,7 @@ export const submitClaimToClaimMd = async (req, res, next) => {
           AND claim_lifecycle IN ('ready','draft','rejected') AND billing_revision = ?`,
           [encryptFamilyBilling(insurance, `claim-insurance:${agencyId}:${claimId}`), connectionId, payload.prov_npi || null, payload.payerid || null, practiceClaimId, payload.pcn, claimId, agencyId, claim.billing_revision]);
         if (!queued.affectedRows) throw Object.assign(new Error('This claim changed or is already being submitted. Refresh its review.'), { status: 409 });
-        await recordClaimEvent({ agencyId, claimId, connectionId, eventKey: `practice:${attemptId}`, eventType: 'approved_submission', status: 'PRACTICE', actorUserId: req.user.id, payload: { reviewHash, clinicalVersion, mode: 'practice', practice: true, payload, supervision } }, db);
+        await recordClaimEvent({ agencyId, claimId, connectionId, eventKey: `practice:${attemptId}`, eventType: 'approved_submission', status: 'PRACTICE', actorUserId: req.user.id, payload: { reviewHash, clinicalVersion, mode: 'practice', practice: true, payload, supervision, appliedOverrides: latestReview.appliedOverrides || [] } }, db);
         await recordClaimEvent({ agencyId, claimId, connectionId, eventKey: `practice-ack:${attemptId}`, eventType: 'acknowledgement', status: 'PRACTICE', actorUserId: req.user.id, payload: { messages: [{ message: 'Practice acknowledgement. This claim was not sent to Claim.MD or a payer.', status: 'PRACTICE' }], claimMdId: practiceClaimId } }, db);
         await db.commit();
       } catch (e) { await db.rollback(); throw e; } finally { db.release(); }
@@ -2983,7 +3055,7 @@ export const submitClaimToClaimMd = async (req, res, next) => {
       if (!queued.affectedRows) throw Object.assign(new Error('This claim changed or is already being submitted. Refresh its review.'), { status: 409 });
       await recordClaimEvent({ agencyId, claimId, connectionId: connection.connectionId, eventKey: `submission:${attemptId}`,
         eventType: 'approved_submission', actorUserId: req.user.id, payload: { reviewHash, clinicalVersion, mode: connection.mode, payload,
-          supervision } }, db);
+          supervision, appliedOverrides: latestReview.appliedOverrides || [] } }, db);
       await db.commit();
     } catch (e) { await db.rollback(); throw e; } finally { db.release(); }
     // A transport failure stays queued: never automatically repeat a possibly successful upload.
@@ -3344,7 +3416,8 @@ export const listServiceLocations = async (req, res, next) => {
     const offices = await OfficeLocation.findBillingByAgency(agencyId);
     if (String(req.query.forNoteAid || '') === '1') {
       const officeIds = await listUserOfficeIds(req.user.id);
-      return res.json({ choices: buildNoteAidLocationChoices({ locations: items, offices: offices || [], officeIds }) });
+      const schoolIds = await listUserSchoolIds(req.user.id);
+      return res.json({ choices: buildNoteAidLocationChoices({ locations: items, offices: offices || [], officeIds, schoolIds }) });
     }
     const affiliated = await OrganizationAffiliation.listActiveOrganizationsForAgency(agencyId).catch(() => []);
     const schools = (affiliated || []).filter((org) => {
@@ -3412,65 +3485,16 @@ export const ensureSchoolServiceLocation = async (req, res, next) => {
     }
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
 
-    const [schoolRows] = await pool.execute(
-      `SELECT id, name FROM agencies
-       WHERE id = ?
-         AND LOWER(COALESCE(organization_type, '')) = 'school'
-       LIMIT 1`,
-      [schoolOrganizationId]
-    );
-    const school = schoolRows?.[0];
-    if (!school) {
-      return res.status(404).json({ error: { message: 'School organization not found' } });
-    }
-
-    let item = await AgencyServiceLocation.findByAgencyAndSchool(agencyId, schoolOrganizationId);
-    if (item) {
-      // Keep district→office link fresh when the school already has a location.
-      try {
-        const { resolveBillingOfficeForSchool } = await import('../services/officeBillingSites.service.js');
-        const office = await resolveBillingOfficeForSchool({ agencyId, schoolOrganizationId });
-        const officeId = Number(office?.id || 0) || null;
-        if (officeId && Number(item.billing_office_location_id || 0) !== officeId) {
-          item = await AgencyServiceLocation.update(item.id, {
-            billingOfficeLocationId: officeId,
-            locationKind: 'school'
-          });
-        }
-      } catch {
-        // best-effort
-      }
-      return res.json({ item, created: false });
-    }
-
-    let billingOfficeLocationId = parseIntValue(req.body.billingOfficeLocationId);
-    if (!billingOfficeLocationId) {
-      try {
-        const { resolveBillingOfficeForSchool } = await import('../services/officeBillingSites.service.js');
-        const office = await resolveBillingOfficeForSchool({ agencyId, schoolOrganizationId });
-        billingOfficeLocationId = Number(office?.id || 0) || null;
-      } catch {
-        billingOfficeLocationId = null;
-      }
-    }
-    if (!billingOfficeLocationId) {
-      const offices = await OfficeLocation.findBillingByAgency(agencyId);
-      billingOfficeLocationId = Number(offices?.[0]?.id || 0) || null;
-    }
-
-    item = await AgencyServiceLocation.create({
+    const { ensureSchoolServiceLocation } = await import('../services/officeBillingSites.service.js');
+    const existing = await AgencyServiceLocation.findByAgencyAndSchool(agencyId, schoolOrganizationId);
+    const item = await ensureSchoolServiceLocation({
       agencyId,
-      name: String(school.name || '').trim() || `School #${schoolOrganizationId}`,
-      placeOfService: '03',
-      notes: 'Auto-added school site. Claims bill under the linked district office.',
-      requiresCredentialing: false,
-      billingOfficeLocationId,
       schoolOrganizationId,
-      createdByUserId: req.user.id,
-      locationKind: 'school',
-      isProviderVisible: true
+      actorUserId: req.user.id,
+      billingOfficeLocationId: parseIntValue(req.body.billingOfficeLocationId)
     });
-    return res.status(201).json({ item, created: true });
+    if (!item) return res.status(404).json({ error: { message: 'School organization not found' } });
+    return res.status(existing ? 200 : 201).json({ item, created: !existing });
   } catch (e) {
     next(e);
   }

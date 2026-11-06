@@ -22,6 +22,7 @@
           <option v-if="overview.canManagePlatform" value="platform">Platform defaults</option>
           <option value="practice">Practice defaults</option>
           <option v-if="mode === 'insurance'" value="payer">Payer rates</option>
+          <option v-if="mode === 'insurance'" value="credential">HCBS credential modifiers</option>
           <option v-else value="category">Provider category rates</option>
           <option value="provider">Provider rates</option>
         </select>
@@ -30,6 +31,12 @@
         <select aria-label="Payer" :value="payerId" :disabled="busy || hasUnsavedChanges" @change="setPayer($event.target.value)">
           <option value="">Select a payer</option>
           <option v-for="payer in overview.payers" :key="payer.id" :value="String(payer.id)">{{ payer.name }}</option>
+        </select>
+      </label>
+      <label v-if="mode === 'insurance' && scope === 'credential'">HCBS category
+        <select v-model="credentialKey" aria-label="HCBS credential category" :disabled="busy || hasUnsavedChanges">
+          <option value="">Select a category</option>
+          <option v-for="category in overview.credentialScopes || []" :key="category.key" :value="category.key">{{ category.label }}</option>
         </select>
       </label>
       <label v-if="mode === 'self_pay' && scope === 'category'">Provider category
@@ -48,6 +55,7 @@
 
     <p class="inheritance" data-testid="rate-inheritance">
       <span>Platform default</span><span aria-hidden="true">→</span><span>Practice default</span><span aria-hidden="true">→</span>
+      <span v-if="mode === 'insurance'">HCBS category</span><span v-if="mode === 'insurance'" aria-hidden="true">→</span>
       <span>{{ mode === 'insurance' ? 'Payer rate' : 'Provider category rate' }}</span><span aria-hidden="true">→</span><span>Provider rate</span>
     </p>
     <p v-if="mode === 'self_pay'" class="context-help">Self-pay rates use the provider’s category unless an individual override is saved. Existing appointment quotes retain their saved rate.</p>
@@ -101,7 +109,7 @@
       <p v-if="overview.readOnly" class="message warning">You can view these rates. Billing settings access is required to change them.</p>
       <div v-if="visibleRows.length" class="rate-table-wrap">
         <table class="rate-table">
-          <thead><tr><th scope="col">Service</th><th scope="col">Current rate</th><th scope="col">{{ editLabel }}</th><th scope="col">Actions</th></tr></thead>
+          <thead><tr><th scope="col">Service</th><th scope="col">Current rate</th><th scope="col">{{ editLabel }}</th><th v-if="mode === 'insurance'" scope="col">Default modifiers</th><th scope="col">Actions</th></tr></thead>
           <tbody>
             <tr v-for="row in visibleRows" :key="row.serviceCode" :class="{ 'hidden-service': row.isHidden }" :data-service-code="row.serviceCode">
               <th scope="row" class="service-cell">
@@ -125,6 +133,12 @@
                   <option value="session">Per session</option><option value="hour">Per hour</option>
                 </select>
                 <small v-if="isDirty(row)" class="unsaved">Unsaved change</small>
+              </td>
+              <td v-if="mode === 'insurance'" data-label="Default modifiers">
+                <strong>{{ (row.modifiers || []).join(', ') || 'None' }}</strong>
+                <span class="source-badge" :class="{ inherited: !row.modifierCustom }">{{ row.modifierSourceLabel || 'No default set' }}</span>
+                <label class="rate-input"><input v-model="modifierDrafts[row.serviceCode]" type="text" :aria-label="`${row.serviceCode} default modifiers`" :disabled="busy || overview.readOnly" placeholder="U9 or NONE" /></label>
+                <button v-if="!overview.readOnly" class="text-button" type="button" :disabled="busy || reloadNeeded" @click="saveModifiers(row)">Save modifiers</button>
               </td>
               <td data-label="Actions" class="action-cell">
                 <template v-if="!overview.readOnly">
@@ -164,15 +178,15 @@ const endpoint = '/medical-billing/fee-schedule/canonical';
 const modes = [{ value: 'insurance', label: 'Insurance fees' }, { value: 'self_pay', label: 'Self-pay fees' }];
 const initialContext = () => ({
   mode: props.initialMode === 'self_pay' ? 'self_pay' : 'insurance',
-  scope: ['practice', 'platform', 'payer', 'provider', 'category'].includes(props.initialScope) ? props.initialScope
+  scope: ['practice', 'platform', 'payer', 'provider', 'category', 'credential'].includes(props.initialScope) ? props.initialScope
     : Number(props.initialProviderId) > 0 ? 'provider' : props.initialCategoryKey ? 'category' : props.initialPayerId ? 'payer' : 'practice',
   payerId: String(props.initialPayerId || ''), providerUserId: Number(props.initialProviderId) > 0 ? String(props.initialProviderId) : '', categoryKey: props.initialCategoryKey || ''
 });
 const startingContext = initialContext();
 const mode = ref(startingContext.mode);
-const scope = ref(startingContext.scope), payerId = ref(startingContext.payerId), providerUserId = ref(startingContext.providerUserId), categoryKey = ref(startingContext.categoryKey);
-const emptyOverview = () => ({ payers: [], providers: [], categories: [], rows: [], warnings: [], revision: 0, readOnly: true });
-const overview = ref(emptyOverview()), drafts = ref({}), unitDrafts = ref({}), search = ref(''), showHidden = ref(false), reason = ref('');
+const scope = ref(startingContext.scope), payerId = ref(startingContext.payerId), providerUserId = ref(startingContext.providerUserId), categoryKey = ref(startingContext.categoryKey), credentialKey = ref('');
+const emptyOverview = () => ({ payers: [], providers: [], categories: [], credentialScopes: [], rows: [], warnings: [], revision: 0, readOnly: true });
+const overview = ref(emptyOverview()), drafts = ref({}), unitDrafts = ref({}), modifierDrafts = ref({}), search = ref(''), showHidden = ref(false), reason = ref('');
 const loading = ref(false), saving = ref(false), syncing = ref(false), loaded = ref(false), error = ref(''), notice = ref(''), reloadNeeded = ref(false);
 const syncPlan = ref(null), syncError = ref(''), syncNotice = ref('');
 const syncCounts = computed(() => ({ link: syncPlan.value?.operations.filter(row => row.action === 'link_existing').length || 0, create: syncPlan.value?.operations.filter(row => row.action === 'create_definition').length || 0 }));
@@ -181,14 +195,15 @@ let requestGeneration = 0;
 let metadataLoaded = false;
 const money = value => value == null ? 'Not set' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value) / 100);
 const dollars = value => value == null ? '' : (Number(value) / 100).toFixed(2);
-const sourceLabel = source => ({ platform: 'Platform default', platform_starter: 'Platform starter default', practice: 'Practice default', legacy_practice: 'Saved practice rate', payer: 'Payer rate', legacy_payer: 'Saved payer rate', category: 'Provider category rate', provider: 'Provider rate', legacy_provider: 'Saved provider rate', legacy_catalog: 'Saved service rate', unset: 'No default set' })[source] || 'No default set';
+const sourceLabel = source => ({ platform: 'Platform default', platform_starter: 'Platform starter default', practice: 'Practice default', legacy_practice: 'Saved practice rate', payer: 'Payer rate', legacy_payer: 'Saved payer rate', category: 'Provider category rate', credential: 'HCBS credential category', provider: 'Provider rate', legacy_provider: 'Saved provider rate', legacy_catalog: 'Saved service rate', unset: 'No default set' })[source] || 'No default set';
 const isCustom = row => row.customRateCents != null;
 const inheritedLabel = row => ({ platform: 'platform default', platform_starter: 'platform default', practice: 'practice default', legacy_practice: 'practice default', payer: 'payer rate', legacy_payer: 'payer rate', category: 'category rate', legacy_catalog: 'saved service rate' })[row.inheritedSource] || 'inherited rate';
-const editLabel = computed(() => ({ platform: 'Platform rate', practice: 'Practice rate', payer: 'Payer rate', category: 'Category rate', provider: 'Provider rate' })[scope.value]);
+const editLabel = computed(() => ({ platform: 'Platform rate', practice: 'Practice rate', payer: 'Payer rate', category: 'Category rate', credential: 'HCBS modifiers', provider: 'Provider rate' })[scope.value]);
 const saveLabel = computed(() => `Save ${editLabel.value.toLowerCase()}`);
-const scopeReady = computed(() => ['practice', 'platform'].includes(scope.value) || (scope.value === 'payer' && !!payerId.value) || (scope.value === 'category' && !!categoryKey.value) || (scope.value === 'provider' && !!providerUserId.value && (mode.value === 'self_pay' || !!payerId.value)));
+const scopeReady = computed(() => ['practice', 'platform'].includes(scope.value) || (scope.value === 'payer' && !!payerId.value) || (scope.value === 'category' && !!categoryKey.value) || (scope.value === 'credential' && !!credentialKey.value) || (scope.value === 'provider' && !!providerUserId.value && (mode.value === 'self_pay' || !!payerId.value)));
 const selectableProviders = computed(() => overview.value.providers.filter(provider => mode.value === 'self_pay' || (provider.eligiblePayerIds || []).some(id => String(id) === String(payerId.value))));
 const selectionHelp = computed(() => {
+  if (scope.value === 'credential') return 'Select an HCBS category to set modifiers for unlicensed, prelicensed, or licensed providers.';
   if (scope.value === 'category') return 'Select a provider category to view its self-pay rates.';
   if (scope.value === 'payer') return 'Select a payer to view its rates and practice defaults.';
   if (mode.value === 'insurance' && !payerId.value) return 'Select a payer, then a fully licensed provider credentialed with that payer.';
@@ -211,7 +226,8 @@ function context() {
   return { agencyId: Number(props.agencyId), mode: mode.value, scope: scope.value,
     ...(payerId.value && mode.value === 'insurance' && ['payer', 'provider'].includes(scope.value) ? { payerId: payerId.value } : {}),
     ...(providerUserId.value && scope.value === 'provider' ? { providerUserId: Number(providerUserId.value) } : {}),
-    ...(categoryKey.value && scope.value === 'category' ? { categoryKey: categoryKey.value } : {}) };
+    ...(categoryKey.value && scope.value === 'category' ? { categoryKey: categoryKey.value } : {}),
+    ...(credentialKey.value && scope.value === 'credential' ? { credentialKey: credentialKey.value } : {}) };
 }
 function apply(data, savedCode = null) {
   metadataLoaded = true;
@@ -220,6 +236,7 @@ function apply(data, savedCode = null) {
   const keep = new Set(savedCode ? overview.value.rows.filter(row => row.serviceCode !== savedCode && isDirty(row)).map(row => row.serviceCode) : []);
   overview.value = { ...emptyOverview(), ...data, payers: data.payers || [], providers: data.providers || [], categories: data.categories || [], rows: data.rows || [], warnings: data.warnings || [] };
   drafts.value = Object.fromEntries(overview.value.rows.map(row => [row.serviceCode, keep.has(row.serviceCode) ? oldDrafts[row.serviceCode] : dollars(row.rateCents)]));
+  modifierDrafts.value = Object.fromEntries(overview.value.rows.map(row => [row.serviceCode, (row.modifiers || []).join(', ')]));
   unitDrafts.value = Object.fromEntries(overview.value.rows.map(row => [row.serviceCode, keep.has(row.serviceCode) ? oldUnits[row.serviceCode] : effectiveUnit(row)]));
   loaded.value = true;
 }
@@ -241,8 +258,8 @@ async function load() {
   } catch (e) { if (generation === requestGeneration) error.value = e.response?.data?.error?.message || 'Unable to load this fee schedule.'; }
   finally { if (generation === requestGeneration) loading.value = false; }
 }
-function setMode(value) { mode.value = value; scope.value = 'practice'; payerId.value = ''; providerUserId.value = ''; categoryKey.value = ''; reason.value = ''; }
-function setScope(value) { scope.value = value; providerUserId.value = ''; categoryKey.value = ''; reason.value = ''; }
+function setMode(value) { mode.value = value; scope.value = 'practice'; payerId.value = ''; providerUserId.value = ''; categoryKey.value = ''; credentialKey.value = ''; reason.value = ''; }
+function setScope(value) { scope.value = value; providerUserId.value = ''; categoryKey.value = ''; credentialKey.value = ''; reason.value = ''; }
 function setPayer(value) { payerId.value = value; providerUserId.value = ''; }
 function discardEdits() {
   drafts.value = Object.fromEntries(overview.value.rows.map(row => [row.serviceCode, dollars(row.rateCents)]));
@@ -278,6 +295,10 @@ async function saveRate(row, action) {
     if (action !== 'reset') { payload.rateCents = parseCents(drafts.value[row.serviceCode]); payload.rateUnit = unitDrafts.value[row.serviceCode]; }
     await mutate(payload, { savedCode: row.serviceCode, success: action === 'update_practice_default' ? `${row.serviceCode} practice default updated. Saved payer and provider overrides still apply.` : `${row.serviceCode} ${action === 'reset' ? 'now uses its inherited rate' : 'rate saved'}.` });
   } catch (e) { error.value = e.message; }
+}
+async function saveModifiers(row) {
+  const text = String(modifierDrafts.value[row.serviceCode] || '').trim();
+  await mutate({ action: text ? 'set_modifiers' : 'reset_modifiers', serviceCode: row.serviceCode, modifiers: text ? text.split(/[,\s]+/) : undefined, reason: reason.value.trim() }, { savedCode: row.serviceCode, success: `${row.serviceCode} modifier default saved.` });
 }
 async function setVisibility(row) {
   await mutate({ action: 'set_visibility', serviceCode: row.serviceCode, isHidden: !row.isHidden, reason: reason.value.trim() }, { savedCode: row.serviceCode, success: `${row.serviceCode} ${row.isHidden ? 'shown' : 'hidden'} in fee schedules.` });
@@ -335,7 +356,7 @@ function applyInitialContext() {
 }
 watch(() => props.agencyId, () => { requestGeneration++; metadataLoaded = false; saving.value = false; syncing.value = false; overview.value = emptyOverview(); applyInitialContext(); reason.value = ''; });
 watch(() => [props.initialMode, props.initialScope, props.initialProviderId, props.initialPayerId, props.initialCategoryKey], () => { if (!hasUnsavedChanges.value && !saving.value) applyInitialContext(); });
-watch([() => props.agencyId, mode, scope, payerId, providerUserId, categoryKey], () => { emit('context-change', context()); load(); }, { immediate: true });
+watch([() => props.agencyId, mode, scope, payerId, providerUserId, categoryKey, credentialKey], () => { emit('context-change', context()); load(); }, { immediate: true });
 onBeforeUnmount(() => { requestGeneration++; });
 defineExpose({ refresh: load });
 </script>

@@ -204,6 +204,15 @@
         </form>
       </section>
       <details v-if="review.appliedOverrides?.length"><summary>Applied billing overrides</summary><p v-for="override in review.appliedOverrides" :key="override.overrideId">{{ override.field }}: {{ override.from }} → {{ override.to }} · {{ override.reason }} · {{ override.policyReference }}</p></details>
+      <form v-if="review.lifecycle === 'rejected'" class="clinical-reconciliation" @submit.prevent="savePosOverride">
+        <h4>Set a place-of-service override</h4>
+        <p>This changes the claim sent to the payer. The note keeps the location the provider recorded.</p>
+        <label>Send this POS instead<input v-model="posOverride.to" required pattern="[0-9]{2}" maxlength="2" /></label>
+        <label>Plan type<input v-model="posOverride.planType" maxlength="100" placeholder="Any plan" /></label>
+        <label>Why<textarea v-model="posOverride.reason" required minlength="10" maxlength="1000" /></label>
+        <label>Policy reference<input v-model="posOverride.reference" required minlength="5" maxlength="1000" /></label>
+        <button :disabled="busy">Save payer override</button>
+      </form>
       <p v-if="review.serviceSite?.name || review.serviceSite?.placeOfService">Service site: {{ review.serviceSite.name || 'Place of service' }}<template v-if="review.serviceSite.placeOfService"> · POS {{ review.serviceSite.placeOfService }}</template><template v-if="review.serviceSite.serviceAddress"> · {{ review.serviceSite.serviceAddress }}</template>. This is where the visit happened. The claim is billed from the office below.</p>
       <template v-if="review.payload">
       <p v-if="review.billingOffice">Billing office: {{ review.billingOffice.name }} · {{ review.payload.bill_name }} · {{ review.payload.bill_addr_1 }}, {{ review.payload.bill_city }}, {{ review.payload.bill_state }} {{ review.payload.bill_zip }}</p>
@@ -248,6 +257,21 @@
         <p v-if="event.type==='remittance_posted'">{{ event.denied ? 'Denied' : 'Payer adjudication' }} · Paid {{ claimHistoryMoney(event.paidCents) }} · Adjustments {{ claimHistoryMoney(event.adjustmentCents) }} · Patient responsibility {{ claimHistoryMoney(event.responsibilityCents) }}<template v-if="event.payerControlNumber"> · Payer control number {{ event.payerControlNumber }}</template></p>
         <ul v-if="claimHistoryChanges(event).length"><li v-for="change in claimHistoryChanges(event)" :key="change.label">{{ change.label }}: {{ change.before }} → {{ change.after }}</li></ul>
       </article>
+      <section v-if="adjustments.length" aria-label="Payment and adjustments">
+        <h4>Payment and adjustments</h4>
+        <table><thead><tr><th>Line</th><th>Code</th><th>Adjustment</th><th>Amount</th><th>Allowed</th></tr></thead>
+          <tbody><tr v-for="(row, index) in adjustments" :key="index"><td>{{ row.line_number || 'Claim' }}</td><td>{{ row.procedure_code || '—' }}</td><td>{{ row.group_code }}-{{ row.reason_code }}<small>{{ row.description }}</small></td><td>{{ money(row.amount_cents) }}</td><td>{{ row.allowed_cents == null ? '—' : money(row.allowed_cents) }}</td></tr></tbody>
+        </table>
+      </section>
+      <section v-if="suggestions.length" aria-label="Suggested billing changes">
+        <h4>Suggested billing changes</h4>
+        <article v-for="item in suggestions" :key="item.id">
+          <p>{{ item.prompt }}</p>
+          <label v-if="item.kind === 'modifier'">Modifier<input v-model="suggestionModifiers[item.id]" maxlength="2" /></label>
+          <button :disabled="busy" @click="decideSuggestion(item, 'accepted')">Accept</button>
+          <button :disabled="busy" @click="decideSuggestion(item, 'dismissed')">Dismiss</button>
+        </article>
+      </section>
     </section>
   </section>
 </template>
@@ -307,8 +331,10 @@ const selectedOffice = computed(() => billingOffices.value.find(o => Number(o.id
 const billingGroups = computed(() => [...new Set(billingOffices.value.map(o=>o.practice_npi))].map(npi=>({npi,offices:billingOffices.value.filter(o=>o.practice_npi===npi)})));
 const sameGroupOfficeCount = computed(() => billingOffices.value.filter(o=>o.practice_npi===selectedOffice.value?.practice_npi).length);
 const enrollmentStatus = status => ({ requested: 'Requested — open enrollment to continue', started: 'Form issued — complete steps in Claim.MD', provider_validation_required: 'Action needed — NPPES phone validation', era_receiver_conflict: 'Action needed — release or transfer ERA enrollment from the current receiving account' })[status] || status;
-const payers = ref([]), enrollments = ref([]), review = ref(null), approved = ref(false), history = ref([]), historyClaimId = ref(null);
+const payers = ref([]), enrollments = ref([]), review = ref(null), approved = ref(false), history = ref([]), historyClaimId = ref(null), adjustments = ref([]), suggestions = ref([]), suggestionModifiers = ref({});
 const historyMeta=ref({});let historySequence=0;
+const posOverride = ref({ to: '11', planType: '', reason: '', reference: '' });
+const money = cents => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(cents || 0) / 100);
 const transactionCapability = payer => payer[{'1500':'1500_claims',era:'era',elig:'eligibility'}[enrollmentType.value]];
 const transactionUnavailable = payer => transactionCapability(payer) === 'no';
 const transactionAvailable = payer => transactionCapability(payer) === 'yes';
@@ -407,9 +433,28 @@ const sync = () => run(async () => {
 async function fetchHistory(claimId,before=null) {
   const seq=++historySequence;
   const { data } = await api.get(`/medical-billing/claimmd/claims/${claimId}/history`, { params: { agencyId: props.agencyId,...(before?{before}:{}) }, skipGlobalLoading: true });
-  if (active && seq===historySequence) { historyClaimId.value = claimId; historyMeta.value=data;history.value = before?[...(data.history||[]),...history.value]:(data.history || []); }
+  const [adjustmentResult, suggestionResult] = await Promise.all([
+    api.get(`/medical-billing/claims/${claimId}/adjustments`, { params: { agencyId: props.agencyId }, skipGlobalLoading: true }),
+    api.get('/medical-billing/billing-suggestions', { params: { agencyId: props.agencyId }, skipGlobalLoading: true })
+  ]);
+  if (active && seq===historySequence) {
+    historyClaimId.value = claimId;
+    historyMeta.value=data;
+    history.value = before?[...(data.history||[]),...history.value]:(data.history || []);
+    adjustments.value = adjustmentResult.data.items || [];
+    suggestions.value = suggestionResult.data.items || [];
+  }
 }
 const loadEarlierHistory=()=>run(()=>fetchHistory(historyClaimId.value,historyMeta.value.nextBefore));
+const savePosOverride = () => run(async () => {
+  if (!review.value) return;
+  await api.post('/medical-billing/claim-overrides', { agencyId: props.agencyId, scope: 'payer', payerId: review.value.readiness?.payer?.payerId, planType: posOverride.value.planType, fieldKey: 'place_of_service', fromValue: review.value.payload?.charge?.[0]?.place_of_service || null, toValue: posOverride.value.to, notes: posOverride.value.reason, policyReference: posOverride.value.reference, effectiveFrom: String(review.value.dateOfService).slice(0, 10), effectiveThrough: '2099-12-31' });
+  if (active) { notice.value = 'Place-of-service override saved. Review the claim again before submitting.'; await reloadReview(); }
+});
+const decideSuggestion = (item, decision) => run(async () => {
+  await api.post(`/medical-billing/billing-suggestions/${item.id}/decide`, { agencyId: props.agencyId, decision, modifier: suggestionModifiers.value[item.id] || item.payload?.modifier, planType: review.value?.readiness?.payer?.planType || null, reason: item.prompt, policyReference: 'Accepted from the billing suggestion' });
+  if (active && historyClaimId.value) await fetchHistory(historyClaimId.value);
+});
 const showHistory = claimId => run(() => fetchHistory(claimId));
 const editClaim = claimId => run(async () => {
   if (props.readOnly) return;

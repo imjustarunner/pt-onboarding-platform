@@ -21,20 +21,22 @@ export function normalizeItem(raw,index) {
  try {
   paidCents=money(raw.total_paid);billedCents=money(raw.total_charge);
   claimAdjustments=adjustments(raw.adjustment);
-  rows=list(raw.charge).map(l=>({code:String(l.proc_code||''),date:serviceDate(l.from_dos||raw.from_dos),throughDate:serviceDate(l.thru_dos||l.from_dos||raw.from_dos),units:String(l.units||''),modifiers:[l.mod1,l.mod2,l.mod3,l.mod4].map(x=>String(x||'')),billedCents:money(l.charge),paidCents:money(l.paid),adjustments:adjustments(l.adjustment)}));
+  rows=list(raw.charge).map(l=>({code:String(l.proc_code||''),date:serviceDate(l.from_dos||raw.from_dos),throughDate:serviceDate(l.thru_dos||l.from_dos||raw.from_dos),units:String(l.units||''),modifiers:[l.mod1,l.mod2,l.mod3,l.mod4].map(x=>String(x||'')),billedCents:money(l.charge),paidCents:money(l.paid),adjustments:adjustments(l.adjustment),remarkCodes:list(l.remark_code||l.remark||l.rem_code).map(code=>String(code||'')).filter(Boolean)}));
  }catch(e){blockers.push(e.message);}
  const all=[...claimAdjustments,...rows.flatMap(l=>l.adjustments)];
  if(!rows.length)blockers.push('Service-line detail is required before posting');
  if(rows.some(l=>!l.code||!l.date||!l.throughDate||!/^\d+(\.\d+)?$/.test(l.units)))blockers.push('Service identity is incomplete');
  if(all.some(a=>!['CO','PR','OA','PI'].includes(a.group)||!a.code))blockers.push('Adjustment group or reason requires review');
  const adjustmentCents=all.reduce((n,a)=>n+a.amountCents,0),responsibilityCents=all.filter(a=>a.group==='PR').reduce((n,a)=>n+a.amountCents,0);
+ const allowedOf=(billed,adjustments)=>billed-adjustments.filter(a=>a.group==='CO').reduce((n,a)=>n+a.amountCents,0);
+ rows.forEach(line=>{line.allowedCents=allowedOf(line.billedCents,line.adjustments);line.remarkCodes=[line.remarkCodes].flat().filter(Boolean);});
  if(billedCents!==paidCents+adjustmentCents||rows.reduce((n,l)=>n+l.billedCents,0)!==billedCents||rows.reduce((n,l)=>n+l.paidCents,0)!==paidCents)blockers.push('Claim charges, payments and adjustments do not balance');
  if(!claimAdjustments.length&&rows.some(l=>l.billedCents!==l.paidCents+l.adjustments.reduce((n,a)=>n+a.amountCents,0)))blockers.push('Service-line payment and adjustments do not balance');
  const status=String(raw.status_code||'');
  if(!['1','2','3','4','19','20','21','22'].includes(status))blockers.push('Unsupported adjudication status requires manual review');
  if(status!=='22'&&(paidCents<0||billedCents<0||all.some(a=>a.amountCents<0)))blockers.push('Negative adjustments require reversal reconciliation');
  const forward=!!(raw.crossover_id||raw.crossover_carrier)||['19','20','21'].includes(status);
- return {index,memberId:String(raw.ins_number||''),pcn:String(raw.pcn||''),payerControlNumber:String(raw.payer_icn||''),patientName:[raw.pat_name_f,raw.pat_name_l].filter(Boolean).join(' '),status,forwarded:forward,denied:status==='4',reversal:status==='22',billedCents,paidCents,adjustmentCents,responsibilityCents,lines:rows,claimAdjustments,blockers};
+ return {index,memberId:String(raw.ins_number||''),pcn:String(raw.pcn||''),payerControlNumber:String(raw.payer_icn||''),patientName:[raw.pat_name_f,raw.pat_name_l].filter(Boolean).join(' '),status,forwarded:forward,denied:status==='4',reversal:status==='22',billedCents,paidCents,adjustmentCents,responsibilityCents,allowedCents:allowedOf(billedCents,claimAdjustments),lines:rows,claimAdjustments,blockers};
 }
 export function normalizeEra(raw,{taxId,npis,eraId}) {
  if(String(raw.eraid)!==String(eraId)||String(raw.prov_taxid||'').replace(/\D/g,'')!==taxId||!npis.includes(String(raw.prov_npi)))throw fail(409,'Remittance billing identity does not match this agency');

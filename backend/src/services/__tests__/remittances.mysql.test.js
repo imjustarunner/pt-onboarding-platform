@@ -20,7 +20,7 @@ test('ERA import/post concurrency, tenant isolation and final copay adjustments 
  const connection={connectionId:'account:synthetic'},identity={taxId:'123456789',npis:['1234567893']};
  const tx=async fn=>{const db=await pool.getConnection();try{await db.beginTransaction();const value=await fn(db);await db.commit();return value;}catch(e){await db.rollback();throw e;}finally{db.release();}};
  try{
-  for(const sql of (await fs.readFile(new URL('../../../../database/clinical_migrations/024_claimmd_remittances.sql',import.meta.url),'utf8')).replace(/^--.*$/gm,'').split(';').filter(s=>s.trim()))await pool.query(sql);
+  for(const file of ['024_claimmd_remittances.sql','031_remittance_adjustments.sql'])for(const sql of (await fs.readFile(new URL(`../../../../database/clinical_migrations/${file}`,import.meta.url),'utf8')).replace(/^--.*$/gm,'').split(';').filter(s=>s.trim()))await pool.query(sql);
   await pool.query('CREATE TABLE clinical_claims(id BIGINT PRIMARY KEY,agency_id INT,claim_number VARCHAR(80),claimmd_connection_id VARCHAR(120),claimmd_submitted_at DATETIME,claim_lifecycle VARCHAR(40),is_deleted INT DEFAULT 0)');
   await pool.query('CREATE TABLE claimmd_claim_events(id BIGINT PRIMARY KEY AUTO_INCREMENT,agency_id INT,clinical_claim_id BIGINT,connection_id VARCHAR(120),event_key VARCHAR(100),event_type VARCHAR(40),status VARCHAR(40),payload_encrypted LONGTEXT,actor_user_id INT,UNIQUE KEY(agency_id,connection_id,event_key))');
   await pool.execute("INSERT INTO clinical_claims VALUES(101,377,'101','account:synthetic',NOW(),'submitted',0)");

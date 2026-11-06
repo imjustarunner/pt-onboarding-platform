@@ -670,6 +670,12 @@ export async function processBulkSchoolUpload({ agencyId, userId, fileName, rows
         );
 
         await connection.commit();
+        try {
+          const { ensureSchoolServiceLocation } = await import('./officeBillingSites.service.js');
+          await ensureSchoolServiceLocation({ agencyId, schoolOrganizationId: schoolId, actorUserId: userId });
+        } catch {
+          // The imported school remains; billing settings shows a missing address if the location could not be written.
+        }
         successRows += 1;
       } catch (e) {
         await connection.rollback();

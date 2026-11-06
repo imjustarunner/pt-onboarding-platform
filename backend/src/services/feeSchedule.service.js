@@ -2,10 +2,10 @@ import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { hasSchedulingBillingAccess } from './schedulingBillingAccess.service.js';
 import { credentialPayerRows, isActiveCredentialPayerRow } from './credentialPayerEligibility.service.js';
-import { classifyPayCategory, isFullyLicensedCredentialText } from '../utils/credentialNormalization.js';
+import { classifyHcbsCategory, classifyPayCategory, isFullyLicensedCredentialText } from '../utils/credentialNormalization.js';
 import {
   feeError, normalizeFeeScope, normalizeFeeMutation, normalizeFeeCode, latestFeeEntries,
-  feeLedgerKey, resolveFeeFromEntries, calculateFeeCharge, SELF_PAY_CATEGORIES
+  feeLedgerKey, resolveFeeFromEntries, resolveModifiersFromEntries, calculateFeeCharge, SELF_PAY_CATEGORIES, CREDENTIAL_MODIFIER_SCOPES
 } from '../utils/feeScheduleRates.js';
 
 const deps = { main: pool, clinical: clinicalPool, access: hasSchedulingBillingAccess, credentials: credentialPayerRows };
@@ -117,12 +117,18 @@ function displayRow(code, scope, ctx) {
   const own = ctx.entries.get(key(scope.ownerKey, scope.mode, scope.scopeKey, serviceCode));
   const visibility = ctx.entries.get(key(`agency:${scope.agencyId}`, scope.mode, 'practice', serviceCode, 'visibility'));
   const inheritedLegacyOverride = !own && current.source === ({ practice: 'legacy_practice', payer: 'legacy_payer', provider: 'legacy_provider' }[scope.scope]);
+  const credentialKey = scope.scope === 'credential' ? scope.credentialKey : null;
+  const modifiers = scope.mode === 'insurance' ? resolveModifiersFromEntries({ ...scope, serviceCode, credentialKey, entries: ctx.entries }) : null;
+  const inheritedModifiers = scope.mode === 'insurance' ? resolveModifiersFromEntries({ ...scope, serviceCode, credentialKey, entries: ctx.entries, excludeScopeKey: scope.scopeKey }) : null;
+  const ownModifiers = ctx.entries.get(key(scope.ownerKey, 'insurance', scope.scopeKey, serviceCode, 'modifier'));
   return { serviceCode, description: code.description || serviceCode, isActive: bool(code.is_active), isAddon: bool(code.is_addon), isHidden: bool(visibility?.is_hidden),
     unitCalcMode: code.unit_calc_mode, unitMinutes: code.unit_minutes == null ? null : Number(code.unit_minutes),
     ...current, customRateCents: own?.rate_cents != null ? Number(own.rate_cents) : inheritedLegacyOverride ? current.rateCents : null,
     customRateUnit: own?.rate_unit || (inheritedLegacyOverride ? current.rateUnit : null),
     inheritedRateCents: inherited.rateCents, inheritedRateUnit: inherited.rateUnit, inheritedSource: inherited.source,
-    platformRateCents: platform.rateCents, scopeKey: scope.scopeKey };
+    platformRateCents: platform.rateCents, scopeKey: scope.scopeKey,
+    modifiers: modifiers?.modifiers || [], modifierSource: modifiers?.source || null, modifierSourceLabel: modifiers?.sourceLabel || null,
+    inheritedModifiers: inheritedModifiers?.modifiers || [], modifierCustom: !!ownModifiers };
 }
 export async function getCanonicalFeeSchedule(user, input = {}, d = deps) {
   const scope = normalizeFeeScope(input);
@@ -149,7 +155,7 @@ export async function getCanonicalFeeSchedule(user, input = {}, d = deps) {
   if (missingCodes.length) warnings.push(`Claims use service codes missing from this practice's settings: ${missingCodes.join(', ')}. Review Service codes to configure them and their rates. Existing claims remain visible; no automatic rate is supplied.`);
   if (inactiveCodes.length) warnings.push(`Claims use inactive service codes: ${inactiveCodes.join(', ')}. Review their status in Service codes. Existing claims remain visible; inactive codes have no automatic fee rate.`);
   return { ...scope, revision, readOnly: false, canManagePlatform: user.role === 'super_admin', rows,
-    payers: ctx.payers.map(({ names, ...payer }) => payer), providers: ctx.providers, categories: SELF_PAY_CATEGORIES,
+    payers: ctx.payers.map(({ names, ...payer }) => payer), providers: ctx.providers, categories: SELF_PAY_CATEGORIES, credentialScopes: CREDENTIAL_MODIFIER_SCOPES,
     warnings, missingServiceCodes: missingCodes, inactiveServiceCodes: inactiveCodes, unlinkedCredentialCount, credentialingPath: `/admin/credentialing?agencyId=${scope.agencyId}`,
     starterRateNotice: 'Platform starters are editable billed-charge defaults. They are not payer reimbursement rates. Existing service-code and unit rules apply.' };
 }
@@ -161,12 +167,16 @@ async function lockRevision(db, ownerKey, revision) {
   if (Number(state.revision) !== revision) throw feeError(409, 'These fee settings changed. Reload before saving.', 'FEE_SCHEDULE_STALE');
 }
 async function appendRate(db, value, userId, revision) {
+  const modifierAction = value.action === 'set_modifiers' || value.action === 'reset_modifiers';
+  const recordType = value.action === 'set_visibility' ? 'visibility' : modifierAction ? 'modifier' : 'rate';
   await db.execute(`INSERT INTO medical_fee_schedule_rates
-    (owner_key,agency_id,revision,record_type,mode,scope_key,service_code,rate_cents,rate_unit,is_hidden,action,reason,actor_user_id)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, [value.ownerKey, value.scope === 'platform' ? null : value.agencyId, revision,
-    value.action === 'set_visibility' ? 'visibility' : 'rate', value.mode, value.scopeKey, value.serviceCode,
-    value.rateCents, value.action === 'reset' || value.action === 'set_visibility' ? null : value.rateUnit,
-    value.action === 'set_visibility' ? value.isHidden ? 1 : 0 : null, value.action, value.reason, userId]);
+    (owner_key,agency_id,revision,record_type,mode,scope_key,service_code,rate_cents,rate_unit,is_hidden,modifiers_json,action,reason,actor_user_id)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [value.ownerKey, value.scope === 'platform' ? null : value.agencyId, revision,
+    recordType, value.mode, value.scopeKey, value.serviceCode,
+    value.rateCents, modifierAction || value.action === 'reset' || value.action === 'set_visibility' ? null : value.rateUnit,
+    value.action === 'set_visibility' ? value.isHidden ? 1 : 0 : null,
+    value.action === 'set_modifiers' ? JSON.stringify(value.modifiers) : null,
+    value.action, value.reason, userId]);
 }
 export async function saveCanonicalFeeSchedule(user, input, d = deps) {
   const value = normalizeFeeMutation(input);
@@ -236,6 +246,17 @@ export async function resolveCanonicalFeeQuote(input, d = deps) {
     categoryKey, entries: latestFeeEntries(rateRows), legacy: legacyFeeContext(legacy, { mode, serviceCode, payer: payers.find(p => p.id === input.payerId), providerUserId: providerRateEligible ? providerUserId : null, tenantServiceId: input.tenantServiceId }) });
   return { ...rate, amountCents: calculateFeeCharge(rate, { units: input.units ?? 1, durationMinutes: input.durationMinutes }), serviceCode, serviceCodeAvailable: true,
     payerId: input.payerId || null, providerUserId, providerRateEligible, categoryKey };
+}
+
+export async function resolveClaimModifiers({ agencyId, payerId, providerUserId, credentialKey, serviceCode }, d = deps) {
+  const rows = await ledgerRows(agencyId, d.main);
+  let key = credentialKey || null;
+  if (!key && providerUserId) {
+    const [[provider]] = await d.main.execute('SELECT credential, title, role, is_hourly_worker FROM users WHERE id = ?', [providerUserId]);
+    const category = provider ? classifyHcbsCategory({ ...provider, isHourlyWorker: provider.is_hourly_worker }).category : null;
+    if (category) key = `hcbs_${category}`;
+  }
+  return resolveModifiersFromEntries({ agencyId, serviceCode, payerId: payerId || null, providerUserId: providerUserId || null, credentialKey: key, entries: latestFeeEntries(rows) });
 }
 
 /** Batched self-pay display for existing service editors/public profile consumers.

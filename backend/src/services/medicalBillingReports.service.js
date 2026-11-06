@@ -15,7 +15,8 @@ const REPORT_CATALOG = [
       ['procedure_codes', 'Service codes', 'text'], ['place_of_service', 'POS', 'text'],
       ['claim_lifecycle', 'Lifecycle', 'status'], ['claim_status', 'Claim status', 'status'],
       ['line_count', 'Lines', 'number'], ['total_units', 'Units', 'number'],
-      ['amount_cents', 'Amount', 'currency'], ['claimmd_last_status', 'Claim.MD status', 'text'],
+      ['amount_cents', 'Amount', 'currency'], ['adjustment_cents', 'Adjustments', 'currency'],
+      ['allowed_cents', 'Allowed', 'currency'], ['claimmd_last_status', 'Claim.MD status', 'text'],
       ['created_at', 'Created', 'datetime']
     ]
   },
@@ -139,7 +140,7 @@ const REPORT_CATALOG = [
 
 const catalogByType = new Map(REPORT_CATALOG.map((report) => [report.type, report]));
 const CLINICAL_TABLES = [
-  'clinical_sessions', 'clinical_notes', 'clinical_claims', 'clinical_claim_lines', 'clinical_claim_references',
+  'clinical_sessions', 'clinical_notes', 'clinical_claims', 'clinical_claim_lines', 'clinical_claim_references', 'claimmd_remittance_adjustments',
   'clinical_diagnoses', 'clinical_treatment_plans', 'clinical_treatment_plan_goals',
   'clinical_treatment_plan_objectives', 'medical_fee_schedule_items'
 ];
@@ -313,7 +314,11 @@ async function queryClaims(agencyId, filters, page, schema) {
       ${selectColumn(schema, 'clinical', 'clinical_claims', 'claimmd_last_status', 'c.claimmd_last_status')},
       c.created_by_user_id, c.created_at, c.updated_at,
       (SELECT ${providerColumn} FROM clinical_sessions s WHERE s.id = c.clinical_session_id LIMIT 1) AS provider_user_id,
-      ${claimLineSelect}`,
+      ${claimLineSelect},
+      ${hasColumn(schema, 'clinical', 'claimmd_remittance_adjustments', 'amount_cents')
+        ? `(SELECT COALESCE(SUM(a.amount_cents), 0) FROM claimmd_remittance_adjustments a WHERE a.agency_id = c.agency_id AND a.clinical_claim_id = c.id) AS adjustment_cents,
+           (SELECT MAX(a.allowed_cents) FROM claimmd_remittance_adjustments a WHERE a.agency_id = c.agency_id AND a.clinical_claim_id = c.id AND a.line_number IS NULL) AS allowed_cents`
+        : 'NULL AS adjustment_cents, NULL AS allowed_cents'}`,
     from: `clinical_claims c${hasReferences?' LEFT JOIN clinical_claim_references cr ON cr.clinical_claim_id=c.id AND cr.agency_id=c.agency_id':''}`, where, params, orderBy: `${dateExpression} DESC, c.id DESC`, ...page,
     summarySelect: `COUNT(*) AS record_count, COUNT(DISTINCT c.client_id) AS client_count,
       COALESCE(SUM(c.amount_cents), 0) AS total_amount_cents,

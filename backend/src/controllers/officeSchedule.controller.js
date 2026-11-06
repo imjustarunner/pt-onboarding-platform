@@ -3469,10 +3469,12 @@ export const getBookingMetadata = async (req, res, next) => {
         serviceLocations = await AgencyServiceLocation.listByAgency(policyAgencyId);
         const {
           filterServiceLocationsForProvider,
-          listUserOfficeIds
+          listUserOfficeIds,
+          listUserSchoolIds
         } = await import('../services/officeBillingSites.service.js');
         const officeIds = await listUserOfficeIds(requestedProviderId || req.user.id);
-        serviceLocations = filterServiceLocationsForProvider(serviceLocations, officeIds);
+        const schoolIds = await listUserSchoolIds(requestedProviderId || req.user.id);
+        serviceLocations = filterServiceLocationsForProvider(serviceLocations, officeIds, schoolIds);
       } catch {
         serviceLocations = [];
       }

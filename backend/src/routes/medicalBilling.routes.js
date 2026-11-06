@@ -25,6 +25,7 @@ import { payerSetupRequests } from '../controllers/payerSetupRequest.controller.
 import { listSupervisedPayerPolicies, saveSupervisedPayerPolicy, supervisedProviderReadiness } from '../controllers/supervisedBilling.controller.js';
 import { runClaimAiReview, resolveClaimAiFinding } from '../controllers/claimMdWorkflow.controller.js';
 import { getBillingWorkspace, getBillingWorkspaceTransactions } from '../controllers/claimMdWorkspace.controller.js';
+import { submitReadyClaimSet } from '../controllers/bulkClaimSubmit.controller.js';
 import { getInsuranceVerificationWorkspace } from '../controllers/insuranceVerificationWorkspace.controller.js';
 import { reviewClaim, claimHistory, claimDraft, listUndraftedNotes, correctClaim, searchClaimMdPayers, startClaimMdEnrollment, listClaimMdEnrollments, listClaimMdOffices } from '../controllers/claimMdWorkflow.controller.js';
 import { getClaimServiceChanges,resolveClaimServiceChange } from '../controllers/claimMdWorkflow.controller.js';
@@ -79,7 +80,11 @@ import {
   createMedicalClaim,
   listMedicalClaims,
   listBillingClaimOverrides,
+  listBillingClaimOverrideAudit,
   upsertBillingClaimOverride,
+  listClaimAdjustments,
+  listBillingSuggestions,
+  decideBillingSuggestion,
   getSessionClaimReadiness,
   saveClaimMdCredentials,
   submitClaimToClaimMd,
@@ -576,6 +581,14 @@ router.get(
 );
 
 router.get(
+  '/claim-overrides/audit',
+  ...claimsGate,
+  requireMedicalBillingFinancialAccess,
+  [query('agencyId').isInt({ min: 1 }), query('overrideId').optional().isInt({ min: 1 })],
+  listBillingClaimOverrideAudit
+);
+
+router.get(
   '/claim-overrides',
   ...claimsGate,
   requireMedicalBillingFinancialAccess,
@@ -601,6 +614,30 @@ router.post(
     body('id').optional().isInt({ min: 1 })
   ],
   upsertBillingClaimOverride
+);
+
+router.get(
+  '/claims/:claimId/adjustments',
+  ...claimsGate,
+  requireMedicalBillingFinancialAccess,
+  [param('claimId').isInt({ min: 1 }), query('agencyId').isInt({ min: 1 })],
+  listClaimAdjustments
+);
+
+router.get(
+  '/billing-suggestions',
+  ...claimsGate,
+  requireMedicalBillingFinancialAccess,
+  [query('agencyId').isInt({ min: 1 })],
+  listBillingSuggestions
+);
+
+router.post(
+  '/billing-suggestions/:suggestionId/decide',
+  ...claimsGate,
+  requireMedicalBillingFinancialAccess,
+  [param('suggestionId').isInt({ min: 1 }), body('agencyId').isInt({ min: 1 }), body('decision').isIn(['accepted', 'dismissed'])],
+  decideBillingSuggestion
 );
 
 router.get(
@@ -636,6 +673,13 @@ router.post(
     body('accountKey').isString().isLength({ min: 8 })
   ],
   saveClaimMdCredentials
+);
+
+router.post(
+  '/claims/bulk-submit',
+  ...claimMdGate,
+  [body('agencyId').isInt({ min: 1 })],
+  submitReadyClaimSet
 );
 
 router.post(

@@ -24,6 +24,18 @@ test('does not expose all offices when the provider has none assigned', () => {
   const choices = buildNoteAidLocationChoices({ locations, offices, officeIds: [] });
   assert.deepEqual(choices.map(c => c.serviceLocationId), [13]);
 });
+test('shows an assigned school and hides every other school', () => {
+  const schoolLocations = [
+    ...locations,
+    { id: 20, name: 'Rudy Elementary', place_of_service: '03', location_kind: 'school', school_organization_id: 40, billing_office_location_id: 1, street_address: '1 School Rd', city: 'Denver', state: 'CO', postal_code: '80205' },
+    { id: 21, name: 'Other School', place_of_service: '03', location_kind: 'school', school_organization_id: 41, billing_office_location_id: 1 }
+  ];
+  const assigned = buildNoteAidLocationChoices({ locations: schoolLocations, offices, officeIds: [1], schoolIds: [40] });
+  assert.equal(assigned.some(choice => choice.serviceLocationId === 20), true);
+  assert.equal(assigned.some(choice => choice.serviceLocationId === 21), false);
+  const unassigned = buildNoteAidLocationChoices({ locations: schoolLocations, offices, officeIds: [1], schoolIds: [] });
+  assert.equal(unassigned.some(choice => String(choice.placeOfService) === '03'), false);
+});
 test('does not collapse two assigned offices into one generic Office and flags missing addresses', () => {
   const choices = buildNoteAidLocationChoices({ locations: [], offices, officeIds: [1, 2] });
   assert.equal(choices.length, 2);

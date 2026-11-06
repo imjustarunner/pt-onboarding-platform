@@ -235,7 +235,8 @@
             <strong>{{ l.name }}</strong>
             <span>POS {{ l.place_of_service }}</span>
             <span v-if="l.default_modifiers" class="muted">mods {{ l.default_modifiers }}</span>
-            <span v-if="l.location_kind" class="muted"> · {{ l.location_kind }}</span>
+            <span v-if="l.location_kind" class="muted"> · {{ l.location_kind === 'school' ? 'assigned school' : l.location_kind === 'office_pos' ? 'default location' : l.location_kind }}</span>
+            <span v-if="l.location_kind === 'school' && !l.street_address" class="muted"> · address missing</span>
             <span v-if="l.billing_office_name" class="muted">bills under {{ l.billing_office_name }}</span>
             <span v-else class="muted">no billing office linked</span>
             <span v-if="schoolNameForLocation(l)" class="muted"> · {{ schoolNameForLocation(l) }}</span>
@@ -300,6 +301,7 @@
             <option value="billing_npi">Billing NPI</option>
             <option value="taxonomy_code">Taxonomy</option>
             <option value="modifiers">Modifiers</option>
+            <option value="billing_office_location_id">Billing office</option>
           </select>
           <input
             v-if="overrideForm.scope === 'payer'"

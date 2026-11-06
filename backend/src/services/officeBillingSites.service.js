@@ -112,19 +112,104 @@ async function findOfficePosTemplate(agencyId, officeId, placeOfService) {
  * Filter booking POS options for a provider: office templates for their assigned offices
  * (or all offices if none assigned), plus school sites for those offices.
  */
-export function filterServiceLocationsForProvider(locations = [], officeIds = []) {
+export function filterServiceLocationsForProvider(locations = [], officeIds = [], schoolIds = []) {
   const list = Array.isArray(locations) ? locations : [];
   const allowed = new Set((officeIds || []).map((n) => Number(n)).filter((n) => n > 0));
-  if (!allowed.size) {
-    // No assignment → show all provider-visible locations (legacy behavior).
-    return list.filter((l) => l.is_provider_visible == null || Number(l.is_provider_visible) !== 0);
-  }
-  return list.filter((l) => {
-    if (l.is_provider_visible != null && Number(l.is_provider_visible) === 0) return false;
+  const schools = new Set((schoolIds || []).map((n) => Number(n)).filter((n) => n > 0));
+  const visible = list.filter((l) => l.is_provider_visible == null || Number(l.is_provider_visible) !== 0);
+  return visible.filter((l) => {
+    if (String(l.location_kind || l.locationKind || '') === 'school' || Number(l.school_organization_id || l.schoolOrganizationId || 0) > 0) {
+      return schools.has(Number(l.school_organization_id || l.schoolOrganizationId));
+    }
+    if (!allowed.size) return true;
     const billOffice = Number(l.billing_office_location_id || l.billingOfficeLocationId || 0);
     if (!billOffice) return true;
     return allowed.has(billOffice);
   });
+}
+
+export async function listUserSchoolIds(userId) {
+  const uid = Number(userId || 0);
+  if (!uid) return [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT school_organization_id FROM provider_school_assignments
+       WHERE provider_user_id = ? AND is_active = 1`,
+      [uid]
+    );
+    return (rows || []).map((r) => Number(r.school_organization_id)).filter((n) => n > 0);
+  } catch {
+    return [];
+  }
+}
+
+export async function ensureSchoolServiceLocation({ agencyId, schoolOrganizationId, actorUserId = null, billingOfficeLocationId = null } = {}) {
+  const aid = Number(agencyId || 0);
+  const sid = Number(schoolOrganizationId || 0);
+  if (!aid || !sid) return null;
+  const [[school]] = await pool.execute(
+    `SELECT id, name, street_address, city, state, postal_code FROM agencies
+     WHERE id = ? AND LOWER(COALESCE(organization_type, '')) = 'school' LIMIT 1`,
+    [sid]
+  );
+  if (!school) return null;
+  let officeId = Number(billingOfficeLocationId || 0) || null;
+  if (!officeId) {
+    const office = await resolveBillingOfficeForSchool({ agencyId: aid, schoolOrganizationId: sid });
+    officeId = Number(office?.id || 0) || null;
+  }
+  if (!officeId) {
+    const offices = await OfficeLocation.findBillingByAgency(aid);
+    officeId = Number(offices?.[0]?.id || 0) || null;
+  }
+  const address = {
+    streetAddress: school.street_address || null,
+    city: school.city || null,
+    state: school.state || null,
+    postalCode: school.postal_code || null
+  };
+  let item = await AgencyServiceLocation.findByAgencyAndSchool(aid, sid);
+  if (item) {
+    item = await AgencyServiceLocation.update(item.id, {
+      ...address,
+      placeOfService: '03',
+      locationKind: 'school',
+      ...(officeId ? { billingOfficeLocationId: officeId } : {})
+    });
+    return item;
+  }
+  return AgencyServiceLocation.create({
+    agencyId: aid,
+    name: String(school.name || '').trim() || `School #${sid}`,
+    placeOfService: '03',
+    ...address,
+    notes: 'School service site. Claims bill under the linked office.',
+    requiresCredentialing: false,
+    billingOfficeLocationId: officeId,
+    schoolOrganizationId: sid,
+    createdByUserId: actorUserId,
+    locationKind: 'school',
+    isProviderVisible: true
+  });
+}
+
+export async function setClientDefaultFromSchool({ agencyId, clientId, schoolOrganizationId, actorUserId = null } = {}) {
+  const location = await ensureSchoolServiceLocation({ agencyId, schoolOrganizationId, actorUserId });
+  if (!location?.id) return null;
+  await pool.execute(
+    `UPDATE clients SET default_service_location_id = ?, default_place_of_service = '03' WHERE id = ? AND agency_id = ?`,
+    [location.id, clientId, agencyId]
+  );
+  try {
+    await pool.execute(
+      `UPDATE client_agency_assignments SET default_service_location_id = ?, default_place_of_service = '03'
+       WHERE client_id = ? AND agency_id = ?`,
+      [location.id, clientId, agencyId]
+    );
+  } catch {
+    // Membership defaults are added by a later migration in some environments.
+  }
+  return location;
 }
 
 export async function listUserOfficeIds(userId) {
@@ -204,5 +289,8 @@ export default {
   ensureOfficePosTemplates,
   filterServiceLocationsForProvider,
   listUserOfficeIds,
+  listUserSchoolIds,
+  ensureSchoolServiceLocation,
+  setClientDefaultFromSchool,
   transitionOfficeBillingSites
 };

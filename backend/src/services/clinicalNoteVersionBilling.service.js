@@ -56,6 +56,10 @@ export function clinicalVersionReference(note) {
   };
 }
 
+export function clinicalClaimForReview(claim, effective) {
+  return { ...effective, place_of_service: claim?.place_of_service };
+}
+
 export function approvedVersionBillingBlockers({ note, claim, lines, session = {}, diagnosisCodes = null }) {
   if (!note?.clinical_version_id) return [];
   const metadata = parseObject(note.metadata_json), blockers = [];

@@ -135,12 +135,19 @@ export async function postRemittanceItem({agencyId,id,itemId,reviewHash,actorUse
   const [posting]=await db.execute('INSERT INTO claimmd_payment_postings(agency_id,remittance_item_id,clinical_claim_id,kind,paid_cents,adjustment_cents,responsibility_cents,posted_by_user_id) VALUES(?,?,?,?,?,?,?,?)',[agencyId,itemId,claim.id,item.denied?'denial':'payment',item.paidCents,item.adjustmentCents,item.responsibilityCents,actorUserId]);
   await db.execute("UPDATE claimmd_remittance_items SET status='posted',reviewed_by_user_id=? WHERE id=?",[actorUserId,itemId]);
   await db.execute('UPDATE clinical_claims SET claim_lifecycle=? WHERE id=? AND agency_id=?',[item.denied?'denied':item.paidCents>0?'paid':'adjusted',claim.id,agencyId]);
-  await recordClaimEvent({agencyId,claimId:claim.id,connectionId:row.connection_id,eventKey:`era-post:${itemId}`,eventType:'remittance_posted',actorUserId,payload:{eraId:era.eraId,postingId:posting.insertId,paidCents:item.paidCents,adjustmentCents:item.adjustmentCents,responsibilityCents:item.responsibilityCents,payerControlNumber:item.payerControlNumber,denied:item.denied,forwarded:item.forwarded}},db);
+  await recordClaimEvent({agencyId,claimId:claim.id,connectionId:row.connection_id,eventKey:`era-post:${itemId}`,eventType:'remittance_posted',actorUserId,payload:{eraId:era.eraId,postingId:posting.insertId,paidCents:item.paidCents,adjustmentCents:item.adjustmentCents,responsibilityCents:item.responsibilityCents,allowedCents:item.allowedCents,payerControlNumber:item.payerControlNumber,denied:item.denied,forwarded:item.forwarded}},db);
+  const writeAdjustment=async(lineNumber,procedureCode,adjustment,allowedCents,remarkCodes)=>db.execute(`INSERT INTO claimmd_remittance_adjustments (agency_id,clinical_claim_id,remittance_item_id,line_number,procedure_code,group_code,reason_code,amount_cents,allowed_cents,remark_codes_json) VALUES (?,?,?,?,?,?,?,?,?,?)`,[agencyId,claim.id,itemId,lineNumber,procedureCode,adjustment.group,String(adjustment.code).slice(0,8),adjustment.amountCents,allowedCents,JSON.stringify(remarkCodes||[])]);
+  for(const adjustment of item.claimAdjustments||[])await writeAdjustment(null,null,adjustment,item.allowedCents,[]);
+  for(const [index,line] of (item.lines||[]).entries())for(const adjustment of line.adjustments||[])await writeAdjustment(index+1,line.code||null,adjustment,line.allowedCents,line.remarkCodes);
   await db.execute('INSERT INTO claimmd_responsibility_jobs(posting_id,agency_id,clinical_claim_id,amount_cents,action,actor_user_id) VALUES(?,?,?,?,?,?)',[posting.insertId,agencyId,claim.id,item.responsibilityCents,item.forwarded?'secondary_review':'set',actorUserId]);
   const [[remaining]]=await db.execute("SELECT COUNT(*) AS count FROM claimmd_remittance_items WHERE remittance_id=? AND status<>'posted'",[id]);
   await db.execute('UPDATE claimmd_remittances SET status=? WHERE id=?',[Number(remaining.count)?'partially_posted':'posted',id]);
-  return {posted:true,postingId:posting.insertId};
+  return {posted:true,postingId:posting.insertId,denied:item.denied,claimId:claim.id};
  },pool);
+ if(result?.denied && result.claimId){
+  try { const { learnFromClaimOutcome } = await import('../billingOutcomeLearning.service.js'); await learnFromClaimOutcome({ agencyId, claimId: result.claimId, outcome: 'denied' }); }
+  catch(e){ if(e?.code!=='ER_NO_SUCH_TABLE') throw e; }
+ }
  return result;
 }
 export async function applyResponsibilityJobs(agencyId) {

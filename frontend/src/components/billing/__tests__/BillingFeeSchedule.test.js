@@ -15,6 +15,17 @@ async function open(extra = {}) { const wrapper = mount(BillingFeeSchedule, { pr
 beforeEach(() => { vi.clearAllMocks(); api.get.mockResolvedValue({ data: payload() }); api.post.mockResolvedValue({ data: payload({ revision: 8 }) }); });
 
 describe('canonical billing fee schedules', () => {
+  it('shows the effective modifier and saves it on the same schedule', async () => {
+    api.get.mockResolvedValue({ data: payload({ rows: [service('H0002', { rateCents: 3000, inheritedRateCents: 3000, modifiers: ['U9'], modifierSource: 'platform_starter', modifierSourceLabel: 'Platform starter default' })] }) });
+    const w = await open();
+    expect(row(w, 'H0002').text()).toContain('U9');
+    expect(row(w, 'H0002').text()).toContain('Platform starter default');
+    await row(w, 'H0002').find('[aria-label="H0002 default modifiers"]').setValue('GT');
+    await button(row(w, 'H0002'), 'Save modifiers').trigger('click'); await flushPromises();
+    expect(api.post).toHaveBeenCalledWith(endpoint, expect.objectContaining({ action: 'set_modifiers', serviceCode: 'H0002', modifiers: ['GT'], scope: 'practice' }));
+    w.unmount();
+  });
+
   it('shows inherited starter charges and the canonical service-code settings link', async () => {
     const w = await open();
     expect(api.get).toHaveBeenCalledWith(endpoint, { params: { agencyId: 2, mode: 'insurance', scope: 'practice', includeHidden: 1 } });

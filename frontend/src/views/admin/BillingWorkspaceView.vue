@@ -41,11 +41,13 @@
           <aside v-if="selectedOrganization" class="panel company-drawer" :style="billingBrand(selectedOrganization)" aria-label="Company billing details"><div class="panel-heading"><div><span class="eyebrow">COMPANY DETAILS</span><h2>{{ selectedOrganization.name }}</h2></div><button class="icon-button" aria-label="Close company details" @click="selectedCompanyId = null">×</button></div><p class="subtle">{{ selectedOrganization.connection?.configured ? 'Clearinghouse credentials configured' : 'Clearinghouse setup needed' }} · {{ selectedOrganization.connection?.mode || 'disabled' }}</p><div class="drawer-stats"><div><strong>{{ selectedOrganization.counts?.ready_to_submit ?? selectedOrganization.counts?.ready ?? (selectedOrganization.counts ? 0 : '—') }}</strong><span>Ready to submit</span></div><div><strong>{{ attentionCount(selectedOrganization) }}</strong><span>Need attention</span></div></div><h3>Next actions</h3><button class="action-row" @click="openCompanyQueue(selectedOrganization, 'attention')">Review rejections and denials <span>→</span></button><button class="action-row" @click="openCompanyQueue(selectedOrganization, 'ready_to_submit')">Review prepared claims <span>→</span></button><button class="action-row" @click="drillInto(selectedOrganization, 'payers')">Check payer and ERA enrollment <span>→</span></button><button class="action-row" @click="drillInto(selectedOrganization, 'reports')">Open company reports <span>→</span></button><p class="subtle">Payment totals will appear after ERA reconciliation is available.</p><button class="primary wide" @click="drillInto(selectedOrganization, 'claims')">Work in {{ selectedOrganization.name }}</button></aside>
         </div>
 
+        <BillingRuleSuggestions v-if="['workspace', 'claims'].includes(section) && scopedOrganization" :key="`suggestions-${scopeId}`" :agency-id="scopedOrganization.id" />
         <section v-if="['workspace', 'claims'].includes(section)" class="panel queue-panel">
           <div class="panel-heading"><div><h2>{{ scopeId === 'all' ? 'Cross-company work queue' : 'Claim work queue' }}</h2><p>Signed notes, drafts and billing activity are linked by patient. Scheduled visits stay in each patient’s service history.</p></div><form class="search" @submit.prevent="applySearch"><label class="sr-only" for="claim-search">Search claims</label><input id="claim-search" v-model="searchInput" placeholder="Patient, claim, provider, service or payer…" /><button class="secondary">Search</button></form></div>
           <div class="panel-toolbar"><button class="secondary" :aria-pressed="queueMode === 'claims'" @click="queueMode = 'claims'">Claims</button><button class="secondary" :aria-pressed="queueMode === 'connections'" @click="queueMode = 'connections'">Payer, ERA &amp; EFT activity ({{ connectionQueue.length }})</button></div>
           <template v-if="queueMode === 'claims'">
           <div class="queue-tabs" aria-label="Claim filters"><button v-for="tab in queueTabs" :key="tab.id" :class="{ active: status === tab.id }" :aria-pressed="status === tab.id" @click="changeStatus(tab.id)">{{ tab.label }}</button></div>
+          <div v-if="scopedOrganization && status === 'ready_to_submit'" class="panel-toolbar"><button class="primary" :disabled="submittingSet || !claims.length" @click="submitReadySet">{{ submittingSet ? 'Submitting…' : 'Submit ready claims' }}</button><p v-if="submitSetResult" class="panel-note">{{ submitSetResult }}</p></div>
           <p v-if="!capabilities.claims" class="empty-state">Claim data is unavailable until billing setup is complete.</p>
           <ClaimWorkTable v-else :items="claims" :organizations="organizations" :multiple-organizations="hasMultipleOrganizations" :sort-by="sortBy" :direction="sortDirection" :preference-key="`billing-columns:${authStore.user?.id || 'session'}`" @sort="sortClaims" @open="openClaim" />
           <p v-if="capabilities.claims && !claims.length && !loading" class="empty-state">No claims match this scope and filter.</p><div class="pagination"><span>{{ total.toLocaleString() }} work items · Page {{ page }} of {{ Math.max(1, Math.ceil(total / 30)) }}</span><div><button class="secondary" :disabled="loading || page <= 1" @click="page--">Previous</button><button class="secondary" :disabled="loading || page * 30 >= total" @click="page++">Next</button></div></div>
@@ -107,6 +109,7 @@ import InsuranceVerificationQueue from '../../components/billing/InsuranceVerifi
 import BillingTransactionHistory from '../../components/billing/BillingTransactionHistory.vue';
 import ClaimResubmissionPanel from '../../components/billing/ClaimResubmissionPanel.vue';
 import ClaimWorkTable from '../../components/billing/ClaimWorkTable.vue';
+import BillingRuleSuggestions from '../../components/billing/BillingRuleSuggestions.vue';
 import ClientPendingTasks from '../../components/billing/ClientPendingTasks.vue';
 import InsuranceCardTasks from '../../components/billing/InsuranceCardTasks.vue';
 import CallBillingQueue from '../../components/admin/CallBillingQueue.vue';
@@ -156,7 +159,7 @@ const section = ref(navigation.some(n => n.id === route.query.billingSection) ? 
 const scopeId = ref(String((route.meta?.auricwellPreview ? agencyStore.currentAgency?.id : null) || route.query.billingScope || route.query.agencyId || (route.query.claimId ? agencyStore.currentAgency?.id : '') || 'all')), status = ref('all'), page = ref(1), searchInput = ref(String(route.query.claimId || '')), search = ref(String(route.query.claimId || '')), companySearch = ref('');
 const organizations = ref([]), claims = ref([]), total = ref(0), capabilities = ref({}), updatedAt = ref(null), loading = ref(false), error = ref('');
 const queueMode = ref('claims'), sortBy = ref('date_of_service'), sortDirection = ref('desc');
-const showClientHistory = ref(false), preparingClaim = ref(false), claimActionError = ref('');
+const showClientHistory = ref(false), preparingClaim = ref(false), claimActionError = ref(''), submittingSet = ref(false), submitSetResult = ref('');
 const selectedCompanyId = ref(null), selectedClaim = ref(null), claimTools = ref(null), claimDialog = ref(null);
 let loadSequence = 0, active = true, priorFocus = null, initialClaimId = Number(route.query.claimId || 0);
 onBeforeUnmount(() => { active = false; loadSequence++; });
@@ -255,6 +258,20 @@ watch(() => route.query.billingScope, id => { if (id && String(id) !== scopeId.v
 watch(() => route.query.billingSection, value => { if (navigation.some(item => item.id === value)) section.value = value; });
 watch(() => agencyStore.currentAgency?.id, () => { organizations.value = []; claims.value = []; scopeId.value = 'all'; reload(); });
 async function openClaim(claim) { priorFocus = document.activeElement; selectedClaim.value = claim; showClientHistory.value = false; claimActionError.value = ''; await nextTick(); claimDialog.value?.focus(); if (workClaimId(claim)) await claimTools.value?.showHistory(workClaimId(claim)); }
+async function submitReadySet() {
+  const ids = claims.value.filter(item => workStage(item) === 'ready_to_submit' && workClaimId(item)).map(item => workClaimId(item));
+  if (!ids.length || !scopedOrganization.value || submittingSet.value) return;
+  if (!window.confirm(`Submit ${ids.length} ready claim${ids.length === 1 ? '' : 's'} for ${scopedOrganization.value.name}? A claim that fails a billing check stays in the queue.`)) return;
+  submittingSet.value = true;
+  submitSetResult.value = '';
+  try {
+    const { data } = await api.post('/medical-billing/claims/bulk-submit', { agencyId: scopedOrganization.value.id, claimIds: ids }, { skipGlobalLoading: true });
+    submitSetResult.value = `${data.submitted?.length || 0} submitted. ${data.held?.length || 0} held.`;
+    await reload();
+  } catch (error) {
+    submitSetResult.value = error.response?.data?.error?.message || 'The set could not be submitted.';
+  } finally { submittingSet.value = false; }
+}
 async function prepareReadyClaim() {
   const item = selectedClaim.value;
   if (preparingClaim.value || !item?.canPrepareClaim || workStage(item) !== 'ready_to_submit') return;

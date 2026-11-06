@@ -784,6 +784,13 @@ export async function createInvite({
       // ignore if table/columns differ
     }
 
+    try {
+      const { ensureSchoolServiceLocation } = await import('./officeBillingSites.service.js');
+      await ensureSchoolServiceLocation({ agencyId, schoolOrganizationId: schoolId, actorUserId: invitedByUserId });
+    } catch {
+      // The school record is saved even when its service location cannot be created yet.
+    }
+
     await upsertSchoolProfile(schoolId, {
       primaryContactName: `${firstName} ${lastName}`,
       primaryContactEmail: email,

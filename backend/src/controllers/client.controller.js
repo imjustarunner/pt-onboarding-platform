@@ -32,7 +32,7 @@ import {
 } from '../services/clientRecordAccess.service.js';
 import Notification from '../models/Notification.model.js';
 import NotificationDispatcherService from '../services/notificationDispatcher.service.js';
-import { findProviderAssignmentId, saveClientAlert } from '../services/clientAlerts.service.js';
+import { findProviderAssignmentId, notifyAssigneeClientAlert, saveClientAlert } from '../services/clientAlerts.service.js';
 import { readClientAlertText } from '../utils/clientAlertText.js';
 import crypto from 'crypto';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
@@ -1849,6 +1849,13 @@ export const createClient = async (req, res, next) => {
       // ignore (older DBs)
     }
 
+    try {
+      const { setClientDefaultFromSchool } = await import('../services/officeBillingSites.service.js');
+      await setClientDefaultFromSchool({ agencyId: parsedAgencyId, clientId: client.id, schoolOrganizationId: parsedOrganizationId, actorUserId: userId });
+    } catch {
+      // A missing billing location must not block creating the client.
+    }
+
     // Seed per-client document status checklist (best-effort; migration may not be applied yet).
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
@@ -3120,6 +3127,17 @@ export const updateClient = async (req, res, next) => {
     // Without this, the profile can show the "new" school (clients.organization_id) while the School Portal
     // roster still shows the client under the "old" school (client_organization_assignments).
     if (wantsOrgChange) {
+      try {
+        const { setClientDefaultFromSchool } = await import('../services/officeBillingSites.service.js');
+        await setClientDefaultFromSchool({
+          agencyId: currentClient.agency_id,
+          clientId: parseInt(String(id), 10),
+          schoolOrganizationId: updatedClient.organization_id,
+          actorUserId: userId
+        });
+      } catch {
+        // Billing location follows the school when the location tables are available.
+      }
       const clientId = parseInt(String(id), 10);
       const newOrgId = updatedClient.organization_id ? parseInt(String(updatedClient.organization_id), 10) : null;
       const oldOrgId = curOrgId;
@@ -4260,6 +4278,22 @@ export const assignProvider = async (req, res, next) => {
       }
 
       const updatedClient = await Client.findById(id);
+      if (alertInput.text && finalProviderId) {
+        try {
+          await notifyAssigneeClientAlert({
+            providerUserId: finalProviderId,
+            clientId: updatedClient.id,
+            clientName: updatedClient.full_name || updatedClient.initials,
+            placeName: updatedClient.organization_name || updatedClient.school_name || '',
+            serviceDay: updatedClient.service_day || null,
+            agencyId: updatedClient.agency_id,
+            actorUserId: userId,
+            clientAlert: alertInput.text
+          });
+        } catch (e) {
+          console.warn('[assignProvider] client alert notice failed:', e?.message || e);
+        }
+      }
       // Notifications: client is current and newly assigned a provider/day (slot-consuming)
       if (!oldConsumesSlot && newConsumesSlotFinal) {
         notifyClientBecameCurrent({

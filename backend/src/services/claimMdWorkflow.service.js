@@ -4,6 +4,7 @@ import clinicalPool from '../config/clinicalDatabase.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { fetchResponses } from './claimMd.service.js';
 import { loadClaimFamily,claimRecordId } from './claimFamily.service.js';
+import { classifyClearinghouseRejection, learnFromClaimOutcome } from './billingOutcomeLearning.service.js';
 
 export async function claimFamilyHistory(agencyId,claimId,{before=null}={}) {
   if(before!=null && (!Number.isSafeInteger(Number(before)) || Number(before)<1))throw error(400,'Invalid claim history cursor');
@@ -87,6 +88,7 @@ export async function syncClaimMdResponses({ agencyId, connection, db = clinical
     const cursor = String(result.last_responseid || state.last_response_id);
     if (!/^\d{1,40}$/.test(cursor) || BigInt(cursor) < BigInt(state.last_response_id)) throw error(502, 'Claim.MD returned an invalid response cursor');
     let updated = 0;
+    const rejected = [];
     // Scope locally before exposing or persisting any response from the shared account.
     for (const row of asList(result.claim)) {
       const remoteId = String(row.remote_claimid || '');
@@ -109,10 +111,20 @@ export async function syncClaimMdResponses({ agencyId, connection, db = clinical
         await conn.execute(`UPDATE clinical_claims SET claim_lifecycle = ?, claimmd_last_status = ?, claimmd_last_response_id = ?, claimmd_claim_id = COALESCE(claimmd_claim_id, ?) WHERE id = ? AND agency_id = ?`,
           [next, String(row.status || 'unknown'), responseId, String(row.claimmd_id || row.claimid || '') || null, claim.id, agencyId]);
         updated++;
+        if (next === 'rejected') rejected.push({ claimId: claim.id, reasons: classifyClearinghouseRejection(row) });
       }
     }
     await conn.execute('UPDATE claimmd_sync_state SET last_response_id = ?, synced_at = NOW() WHERE agency_id = ? AND connection_id = ?', [cursor, agencyId, connection.connectionId]);
     await conn.commit();
+    if (db === clinicalPool) {
+      for (const item of rejected) {
+        try {
+          await learnFromClaimOutcome({ agencyId, claimId: item.claimId, outcome: 'rejected', reasonCodes: item.reasons });
+        } catch (learningError) {
+          if (learningError?.code !== 'ER_NO_SUCH_TABLE') console.error('Billing outcome learning skipped:', learningError?.code || learningError?.message);
+        }
+      }
+    }
     return { updated, syncedAt: new Date().toISOString(), moreAvailable: asList(result.claim).length >= 20000 };
   } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
 }
