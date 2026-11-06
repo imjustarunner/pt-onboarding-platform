@@ -32,7 +32,7 @@ async function normalizeWorkspaceRoute() {
   if(route.path==='/mobile/workspace')return;
   const query={...route.query};
   await router.replace({path:'/mobile/workspace',query:{view:'home'}});
-  if(query.conversationId || query.threadId || query.kind)await router.push({path:'/mobile/workspace',query:Object.fromEntries(Object.entries(query).filter(([key])=>['conversationId','threadId','kind','id','suite','view'].includes(key)))});
+  if(query.conversationId || query.threadId || query.kind)await router.push({path:'/mobile/workspace',query:Object.fromEntries(Object.entries(query).filter(([key])=>['conversationId','threadId','parentId','messageId','secure','kind','id','suite','view'].includes(key)))});
 }
 async function detectSession() {
   const current=++generation;screen.value='loading';error.value='';
@@ -121,7 +121,7 @@ async function afterOpen() {
   const token=access.value?.sessionToken;if(!token)return;
   if(native){
     const target=await MobileDevice.pendingNotification();if(access.value?.sessionToken!==token)return;
-    if(target.url)await openNotification(target.url);
+    if(target.url)await openNotification(target.url);else if(route.query.kind)await openNotification(location.pathname+location.search);
     try{const {data}=await mobileApi.get('/profile',{headers:{'X-Quick-View-Session':token}});if(access.value?.sessionToken!==token)return;profile.value=data;
       if(data.notifications.enabled){const registration=await MobileDevice.registerPush();if(access.value?.sessionToken===token)await registerPush({enabled:true,...registration});}
     }catch{/* Notification setup must not prevent opening the workspace. */}
@@ -197,7 +197,8 @@ async function openNotification(url) {
   if(!['email','sms','chat'].includes(kind) || !/^[1-9]\d*$/.test(id || ''))return;
   try {
     const {data}=await mobileApi.get(`/notification-target/${kind}/${id}`,{headers:{'X-Quick-View-Session':access.value.sessionToken}});
-    await router.replace({path:'/mobile/workspace',query:data});
+    if(route.query.kind)await router.replace({path:'/mobile/workspace',query:{view:'home'}});
+    if(route.path!=='/mobile/workspace' || JSON.stringify(route.query)!==JSON.stringify(data))await router.push({path:'/mobile/workspace',query:{view:'home',...data}});
     await nextTick();qv.value?.openDeepLink();
   }catch(e){error.value=mobileRequestError(e);}
 }
@@ -218,8 +219,8 @@ onUnmounted(()=>{lock();document.removeEventListener('visibilitychange',backgrou
 <template>
   <div class="mobile-app">
     <template v-if="screen==='workspace' && access">
-      <button class="mobile-account-button" @click="showAccount"><UserRound :size="18" />My Account</button>
-      <QuickView :key="access.sessionToken" ref="qv" :mobile-session="access" @locked="lock" />
+
+      <QuickView :key="access.sessionToken" ref="qv" :mobile-session="access" @locked="lock" @account="showAccount" />
       <div v-if="accountOpen" class="mobile-overlay" @keydown.esc="accountOpen=false">
         <section class="mobile-card account" role="dialog" aria-modal="true" aria-labelledby="account-title">
           <button class="close" @click="accountOpen=false;privacyIntro=false" aria-label="Close My Account">×</button>
@@ -228,6 +229,7 @@ onUnmounted(()=>{lock();document.removeEventListener('visibilitychange',backgrou
           <a v-if="accountLink" :href="accountLink" target="_blank" rel="noopener">Manage profile <ArrowRight :size="17" /></a>
           <a v-if="securityLink" :href="securityLink" target="_blank" rel="noopener">Security & passkeys <ArrowRight :size="17" /></a>
           <a v-if="preferencesLink" :href="preferencesLink" target="_blank" rel="noopener">Account preferences <ArrowRight :size="17" /></a>
+          <button class="secondary" @click="accountOpen=false;qv?.openPreferences()">Mobile layout &amp; swipe settings</button>
           <section class="mobile-lock-options" aria-labelledby="app-lock-title">
             <h2 id="app-lock-title">App lock · optional</h2>
             <p>Your sign-in stays on this device. Choose an extra app lock if you want one; otherwise use your phone’s normal screen lock.</p>

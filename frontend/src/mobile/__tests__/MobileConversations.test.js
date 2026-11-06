@@ -12,7 +12,7 @@ beforeEach(async()=>{
   vi.stubGlobal('matchMedia',vi.fn(()=>({matches:false,addListener(){},removeListener(){},addEventListener(){},removeEventListener(){}})));
   mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{workspace:profile.workspace,appLock:profile.appLock}:{sessionToken:'test-scoped-session',userId:1,agencyId:10,expiresAt:'2099-01-01',profile}}));
   mocks.quickPost.mockResolvedValue({data:{ok:true}});
-  mocks.quickGet.mockImplementation(async url=>({data:url.endsWith('/home')?{conversations:[{id:41,channel:'email',subject:'SYNTHETIC-EMAIL-41',last_message_preview:'Preview',last_message_at:'2026-11-05'}],mailboxEmail:'staff@example.invalid'}:url.endsWith('/conversations/41')?{conversation:{id:41,channel:'email',subject:'SYNTHETIC-EMAIL-41',inbox_from_email:'staff@example.invalid'},messages:[{id:100,from:{email:'sender@example.invalid'},to:[{email:'staff@example.invalid'}],body_text:'LONG-EMAIL-BODY\n'.repeat(100),direction:'inbound',send_status:'sent'}]}:{items:[],tasks:[],conversations:[]}}));
+  mocks.quickGet.mockImplementation(async url=>({data:url.endsWith('/messages/inbox')?{items:[{key:'email:41',id:41,kind:'email',channel:'email',category:'email',title:'SYNTHETIC-EMAIL-41',subject:'SYNTHETIC-EMAIL-41',sender:'Synthetic Sender',preview:'Preview',at:'2026-11-05'}],mailboxEmail:'staff@example.invalid'}:url.endsWith('/conversations/41')?{conversation:{id:41,channel:'email',subject:'SYNTHETIC-EMAIL-41',inbox_from_email:'staff@example.invalid'},messages:[{id:100,from:{email:'sender@example.invalid'},to:[{email:'staff@example.invalid'}],body_text:'LONG-EMAIL-BODY\n'.repeat(100),direction:'inbound',send_status:'sent'}]}:{items:[],tasks:[],conversations:[]}}));
   router=createRouter({history:createWebHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<span />'}}]});await router.push('/mobile');
   wrapper=mount(MobileApp,{attachTo:document.body,global:{plugins:[router],stubs:{QuickViewMusicDock:true,QuickViewPresence:true}}});await flushPromises();
 });
@@ -23,7 +23,7 @@ it('opens a touch email without an obstructing hover preview and shows a closabl
   await email().trigger('mouseenter');await email().trigger('focus');await email().trigger('click');await flushPromises();
   await new Promise(resolve=>setTimeout(resolve,380));await flushPromises();
   expect(document.querySelector('.qv-email-preview')).toBeNull();
-  await wrapper.find('.email-reader header button').trigger('click');await flushPromises();
+  await wrapper.findAll('.email-reader header button').find(button=>button.text()==='Reply').trigger('click');await flushPromises();
   const dialog=document.querySelector('[aria-label="Email reply"]');expect(dialog).not.toBeNull();
   expect(document.activeElement).toBe(dialog.querySelector('textarea'));
   await new DOMWrapper(dialog.querySelector('textarea')).setValue('SYNTHETIC-REPLY');
@@ -33,7 +33,7 @@ it('opens a touch email without an obstructing hover preview and shows a closabl
 });
 it('uses browser Back for reply, conversation and inbox without going to sign-in or setup',async()=>{
   await email().trigger('click');await flushPromises();
-  await wrapper.find('.email-reader header button').trigger('click');await flushPromises();
+  await wrapper.findAll('.email-reader header button').find(button=>button.text()==='Reply').trigger('click');await flushPromises();
   await historyBack();expect(document.querySelector('[aria-label="Email reply"]')).toBeNull();expect(wrapper.find('.email-reader').exists()).toBe(true);
   await historyBack();expect(wrapper.find('.email-reader').exists()).toBe(false);expect(email()).toBeTruthy();
   expect(wrapper.text()).not.toContain('Continue to sign in');expect(wrapper.text()).not.toContain('Confirm code');

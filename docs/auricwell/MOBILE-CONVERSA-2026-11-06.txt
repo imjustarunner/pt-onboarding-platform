@@ -1,0 +1,101 @@
+Auricwell mobile Conversa update — November 6, 2026
+
+Purpose
+Resolve the 24 phone-pilot observations with a mobile message workspace while
+preserving the existing desktop email presentation, outgoing email payloads,
+legacy Quick View PIN boundary, and current account/tenant permissions.
+
+Requested behavior
+1. Internal conversations open at the newest message. Unread messages above
+   produce a floating Unread arrow. Reading visible messages records individual
+   views; opening at the bottom does not mark every older message read.
+2. Swipe left on internal conversation cards to archive personally.
+3. Archived conversations are hidden by default. The compact archive control
+   includes them; an archived card can be restored. Archive is not a shared delete.
+4. Thread replies show the original message. Human participant names replace
+   numeric thread labels, and existing reply counts have a distinct filled style.
+5. Sender names, stable sender colors, and profile photos/initials distinguish
+   authors. Email also distinguishes inbound and outbound senders.
+6. The newest reply is attached below its parent with a right offset.
+7. Direct conversations identify their actual participants. Groups and channels
+   are separate categories, including existing managed team conversations.
+8. Back uses the previous in-app route and retains the selected category and
+   conversation. Web history and native memory history are both covered.
+9. One Messages by Conversa heading, a date, and a flush white message panel.
+   My Account moved into the header so it no longer covers message content.
+10. Email summaries and sender rows are clearer; see item 17 for reading layout.
+11. Primary mobile sign-ins can open authorized secure conversations in place.
+    The list masks names and omits body text. Names and message bodies have
+    explicit reveal controls. Lock clears the open conversation. A legacy PIN
+    shortcut still cannot use the mobile secure-message endpoints. Current
+    secure-audience, active-membership, attachment and audit checks are reused.
+12. All is a chronological feed of the user's personal email, assigned texts,
+    participating direct/group/channel conversations, and authorized secure chats.
+    Counts cover the full allowed collection. Paging handles timestamp ties.
+13. Email and internal cards support left archive/right mark-read defaults.
+    My Account > Mobile layout & swipe settings can change either gesture to
+    archive/restore, mark read, mark unread, or no action. Changes are account-scoped.
+14. Threads show participants, original text and latest reply. Back returns to
+    the selected Threads view when that was the preceding step.
+15. Files show their filename, sender and size. View opens a scoped file preview;
+    Open message carries the source message and parent context. Access is
+    rechecked before bytes are returned, including secure attachments.
+16. Existing Conversa notification coverage remains in place. Notification taps
+    now include the authorized message and parent IDs, not only a room ID.
+    Supported organization message/task/calendar/note links stay in the retained
+    mobile sign-in. Unsupported full-clinical pages retain their own sign-in and
+    permission boundary; mobile credentials do not become an unrestricted login.
+17. Mobile Reading view removes fixed-width email layout chrome and separates
+    call-to-action links. Original layout is optional. Outgoing templates, message
+    bodies stored on the server, and delivery formatting were not changed.
+18. Exact registered app user, mailbox and managed-group addresses are known.
+    Old unknown mail is recognized in the mobile feed too. Merely receiving an
+    arbitrary external email does not enroll its sender as a trusted app identity.
+19. Note Workspace uses the existing enabled tools and shows required-input
+    readiness. Opening a work item no longer clears text typed during loading.
+    Drafting/copying remains mobile; final chart attachment/signing stays in the
+    full clinical workspace. AI generation still needs the workspace's existing
+    feature and service configuration; configuration failures preserve typed input.
+20. My Work shows the user's real workspace documentation queue. More includes
+    every tool. Bottom shortcuts use frequency or a saved override, with two,
+    three or four tool slots according to width, plus the expansion control.
+21. Date navigation stays on one row. Agenda and Day use the same existing
+    UTC-backed, viewer-timezone calendar data and meeting permissions.
+22. Directory rows show name, credential when present, email, photo and Message.
+    Inactive memberships, archived users, demo accounts and shared group logins
+    are excluded from the provider directory. HCBS category labels are not part
+    of mobile rows. No demo accounts were added.
+23. Groups have their own category; message categories and bottom Messages show
+    unread conversation counts.
+24. All, Unread and Needs reply show counts. Internal Needs reply is based on
+    the latest incoming author; email uses its existing conversation status.
+
+Validation before release
+- 58 frontend tests across 10 files passed, including native Back history,
+  secure reveal/lock, message/file interactions, settings integration, and a
+  delayed Note Workspace load that must not overwrite newly typed text.
+- 37 mobile API/MySQL tests passed, including mailbox/tenant isolation, personal
+  archive/settings persistence, large-page counts, known app group addresses,
+  per-message read tracking and notification target authorization.
+- 1,147 existing messaging tests passed (31 opt-in tests skipped).
+- Main application Vite bundle passed. Dedicated mobile bundle passed.
+- Isolated Chrome touch fixture passed the complete mobile journey, including
+  an actual emulated touch archive, email/reply, latest-message/unread position,
+  thread context/Back, secure conceal/lock, saved shortcuts, My Work -> draft,
+  one-row calendar controls, Agenda/Day, and 320/390/430-pixel widths.
+- Fixture messages, photos and notes were synthetic. No production account
+  credentials, message bodies or clinical records were read or sent by this task.
+
+Native / distribution limit
+A signed iOS build, physical Face ID test, TestFlight upload and APNs delivery
+remain unverified. This Mac's Xcode first-launch check still exits 69. The Apple
+owner/developer must complete Xcode/team/signing setup and real-device testing.
+After updating source, run npm run cap:auricwell:sync before archiving. Refer to
+PHONE-AND-TESTFLIGHT-TESTING.txt. Browser push and native APNs need their respective
+server configuration and each tester's notification permission. No automatic
+Testing Needed tasks or messages to staff were created.
+
+Storage
+Dependencies are shared by task-only symlinks. Build outputs, the disposable
+MySQL instance and the isolated task checkout are temporary and must be removed
+after release validation. Keep the synthetic screenshots and release status.

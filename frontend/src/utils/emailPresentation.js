@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify';
 
-export function renderEmailContent({ body_html, body_text } = {}, { collapseQuotes = true, loadExternalImages = false } = {}) {
+export function renderEmailContent({ body_html, body_text } = {}, { collapseQuotes = true, loadExternalImages = false, compactLayout = false } = {}) {
   let hasBlockedImages = false;
   const html = body_html || '';
   const fragment = DOMPurify.sanitize(html, {
@@ -68,6 +68,20 @@ export function renderEmailContent({ body_html, body_text } = {}, { collapseQuot
     }
     node.removeAttribute('style');
     if (clean.cssText) node.setAttribute('style', clean.cssText);
+  }
+  if(compactLayout){
+    // Reading presentation only: keep content and links, discard fixed-width email chrome.
+    for(const node of container.querySelectorAll('[style]')){
+      const callToAction=node.tagName==='A' && !!node.style.backgroundColor;
+      for(const key of ['color','font-family','width','height','max-width','padding','padding-top','padding-right','padding-bottom','padding-left','margin','margin-top','margin-right','margin-bottom','margin-left','border','border-top','border-right','border-bottom','border-left','border-radius','background-color','font-size','line-height','letter-spacing'])node.style.removeProperty(key);
+      if(callToAction){node.style.display='block';node.style.width='fit-content';node.style.maxWidth='100%';node.style.padding='8px 12px';node.style.margin='8px 0';node.style.backgroundColor='#edf3ff';node.style.color='#2458ad';node.style.borderRadius='8px';}
+    }
+    for(const table of [...container.querySelectorAll('table')]){
+      if(table.querySelector('th'))continue;
+      const box=document.createElement('div');while(table.firstChild)box.append(table.firstChild);table.replaceWith(box);
+      for(const node of [...box.querySelectorAll('thead,tbody,tr,td')]){const block=document.createElement('div');while(node.firstChild)block.append(node.firstChild);node.replaceWith(block);}
+    }
+    for(const image of container.querySelectorAll('img')){image.removeAttribute('width');image.removeAttribute('height');}
   }
   for (const node of container.querySelectorAll('[class]')) node.removeAttribute('class');
   for (const link of container.querySelectorAll('a')) {

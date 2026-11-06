@@ -1,11 +1,11 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
 vi.mock('../../models/User.model.js', () => ({ default: { findById: vi.fn(async () => ({ role: 'provider' })) } }));
-vi.mock('../../controllers/chat.controller.js', () => ({ listMyThreads: vi.fn(), listMessages: vi.fn(), sendMessage: vi.fn(), markRead: vi.fn(), listThreadsInbox: vi.fn(), listMentionsInbox: vi.fn(), listFilesInbox: vi.fn(), createOrGetDirectThread: vi.fn() }));
+vi.mock('../../controllers/chat.controller.js', () => ({ assertThreadAccess: vi.fn(), listMyThreads: vi.fn(), listMessages: vi.fn(), sendMessage: vi.fn(), markRead: vi.fn(), listThreadsInbox: vi.fn(), listMentionsInbox: vi.fn(), listFilesInbox: vi.fn(), createOrGetDirectThread: vi.fn() }));
 vi.mock('../../controllers/chatAttachments.controller.js', () => ({ uploadChatAttachment: vi.fn() }));
 vi.mock('../../controllers/chatReactions.controller.js', () => ({ addReaction: vi.fn(), removeReaction: vi.fn() }));
 import pool from '../../config/database.js';
-import { listMessages, sendMessage } from '../../controllers/chat.controller.js';
+import { assertThreadAccess, listMessages, sendMessage } from '../../controllers/chat.controller.js';
 import { qvListChatMessages, qvSendChatMessage, qvMarkChatRead, qvUploadChatAttachment, qvAddChatReaction, qvRemoveChatReaction } from '../../controllers/quickViewSurfaces.controller.js';
 const req = () => ({ quickView: { userId: 3, agencyId: 2 }, query: {}, headers: {}, params: { threadId: 5 }, body: {} });
 const res = () => ({ status: vi.fn().mockReturnThis(), json: vi.fn() });
@@ -32,4 +32,9 @@ it('continues to use the shared chat handler for internal conversations', async 
   await qvListChatMessages(request, response, next);
   expect(listMessages).toHaveBeenCalledWith(request, response, next);
   expect(response.status).not.toHaveBeenCalled();
+});
+
+it('uses the shared secure audience checks for a primary mobile sign-in',async()=>{
+ const request=req();request.quickView.mobileDeviceSessionId=9;const response=res(),next=vi.fn();
+ await qvListChatMessages(request,response,next);expect(assertThreadAccess).toHaveBeenCalledWith(3,5,{requireActiveAgency:true});expect(listMessages).toHaveBeenCalledWith(request,response,next);expect(response.status).not.toHaveBeenCalled();
 });
