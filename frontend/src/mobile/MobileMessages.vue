@@ -154,7 +154,7 @@ async function syncRoute(){
   else{clearChat();await loadInbox();await nextTick();const pane=document.getElementById('qv-workspace');if(pane)pane.scrollTop=scrollPositions.get(`${suite.value}:${filter.value}`)||0;}
 }
 watch(()=>route.fullPath,syncRoute);
-watch(()=>props.visible,async visible=>{if(visible){if(threadId.value && !chat.value)await syncRoute();else if(!threadId.value)await loadInbox({quiet:true});}else{clearFile();if(secure.value){rememberDraft();clearChat();}}});
+watch(()=>props.visible,async visible=>{if(visible){if(threadId.value){if(!chat.value)await syncRoute();else await loadChat({quiet:true});}else if(!threadId.value)await loadInbox({quiet:true});}else{clearFile();if(secure.value){rememberDraft();clearChat();}}});
 onMounted(async()=>{await syncRoute();timer=setInterval(()=>{if(!props.visible || document.hidden || chatBusy.value || uploading.value)return;if(threadId.value)loadChat({quiet:true});else loadInbox({quiet:true});},15000);});
 onUnmounted(()=>{++inboxRequest;clearChat();clearInterval(timer);clearTimeout(scrollTimer);drafts.clear();scrollPositions.clear();});
 </script>

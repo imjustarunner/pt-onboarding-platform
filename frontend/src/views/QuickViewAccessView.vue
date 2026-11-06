@@ -2294,6 +2294,7 @@ async function messageUser(userId, name) {
       },
       { headers: authHeaders(), withCredentials: true }
     );
+    if(isMobile.value){msgSuite.value='direct';await mobileNavigate({view:'home',suite:'direct',threadId:String(data.threadId)});tab.value='home';return;}
     activeChatId.value = data.threadId;
     activeChatTitle.value = name || 'Direct message';
     tab.value = 'chat';

@@ -8,3 +8,10 @@ it('does not overwrite session notes typed while a work item opens its tools',as
  await wrapper.get('.prepare-draft').trigger('click');await flushPromises();await wrapper.get('textarea[aria-label="Note input"]').setValue('DO NOT OVERWRITE MY NEW TEXT');
  finish({data:{tools:[{id:'clean',name:'Clean + Bulletize'}]}});await flushPromises();expect(wrapper.get('textarea[aria-label="Note input"]').element.value).toBe('DO NOT OVERWRITE MY NEW TEXT');wrapper.unmount();
 });
+
+it('opens the directory Message action in the scoped mobile conversation route',async()=>{
+ api.get.mockImplementation(async url=>({data:url.endsWith('/directory')?{providers:[{id:2,displayName:'Jordan Example',credential:'LPC',email:'jordan@example.invalid'}],schoolStaff:[]}:url.endsWith('/messages/preferences')?{preferences:{pinnedNavigation:['calendar','home','tasks'],usage:{}}}:{}}));api.post.mockResolvedValue({data:{threadId:45}});
+ const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<span/>'}}]});await router.push('/mobile/workspace?view=contacts');
+ const wrapper=mount(QuickView,{props:{mobileSession:{sessionToken:'scoped',userId:1,agencyId:10,expiresAt:'2099-01-01',profile:{workspace:{name:'Test'},appLock:{method:'none'}}}},global:{plugins:[router],stubs:{MobileMessages:true,QuickViewMusicDock:true,QuickViewPresence:true}}});await flushPromises();
+ await wrapper.get('.qv-contact-row button').trigger('click');await flushPromises();expect(router.currentRoute.value.query).toEqual({view:'home',suite:'direct',threadId:'45'});wrapper.unmount();
+});
