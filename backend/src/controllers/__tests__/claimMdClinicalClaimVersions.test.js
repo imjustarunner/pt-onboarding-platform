@@ -14,7 +14,7 @@ vi.mock('../../services/claimMdBillingProfile.service.js', () => ({ resolveClaim
 vi.mock('../../services/applyBillingClaimOverrides.service.js', () => ({ applyBillingClaimOverrides: vi.fn(async () => null) }));
 vi.mock('../../services/familyBillingEncryption.service.js', () => ({ encryptFamilyBilling: vi.fn(() => 'synthetic encrypted insurance'), decryptFamilyBilling: vi.fn() }));
 vi.mock('../../services/supervisedBillingPolicy.service.js', async original => ({ ...await original(), resolveNoteDocumentationPolicy: vi.fn(async () => ({supervisorUserId:null})) }));
-vi.mock('../../services/feeSchedule.service.js', () => ({ resolveCanonicalFeeQuote: m.quote, getCanonicalFeeSchedule: vi.fn() }));
+vi.mock('../../services/feeSchedule.service.js', () => ({ resolveCanonicalFeeQuote: m.quote, resolveClaimModifiers:vi.fn(async()=>({modifiers:[],source:null})), getCanonicalFeeSchedule: vi.fn() }));
 vi.mock('../../services/resolveClaimProviders.service.js', () => ({ resolveClaimProviders: m.providers }));
 import { createMedicalClaim } from '../medicalBilling.controller.js';
 

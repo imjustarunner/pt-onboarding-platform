@@ -1,0 +1,162 @@
+Auricwell Note Workspace and Narriva release — November 6, 2026
+
+What is connected
+
+Desktop Note Workspace and the primary mobile account open the existing session
+and saved draft from the schedule or My Work. Manual Writer, Narriva and Smart
+Notes share the editor and a per-user, per-workspace default. Existing account
+restrictions on Manual Writer still apply. Older guided-builder drafts remain
+readable. Smart Notes sends its answers through the authored Narriva generation
+path rather than inventing normal findings, consent or an assessment.
+
+Mobile receives masked client identities and age from the server. The condensed
+profile provides authorized guardians and available Conversa contact actions.
+Legacy Quick View PIN access does not receive primary-mobile clinical access.
+
+Narriva Compliance runs five server-owned checks in this order: Risk & Safety;
+Service Code & Documentation; Encounter Details & Consent; Clinical Necessity &
+Interventions; Participation, Progress & Plan. Participant and crisis-service
+reconciliation belongs to the service check. The UI displays actual persisted
+progress, not a simulated approval animation. Unsupported facts remain findings.
+Required risk assessment cannot be removed with a toggle or metadata edit.
+
+Assessment evidence can be selected from authorized clean documents, uploaded
+as protected session material, scanned, and previewed. Compliance receives only
+an allowlisted evidence manifest; it does not read PDF contents. An unscanned or
+quarantined upload cannot count as evidence or be opened as a clean attachment.
+
+Verification binds the exact saved content, encounter facts, evidence versions,
+provider qualifications, rules and authored guidance. Relevant edits invalidate
+the result. A permitted bypass retains its finding and reason and cannot receive
+Quick Sign. Existing author signatures, supervisor assignments, content hashes,
+review tokens and immutable revisions remain authoritative. Amendments use their
+existing version-specific signature actions, rather than Quick Sign.
+
+Service corrections require the clinician's explicit confirmation and reason.
+They synchronize the actual unsigned encounter and its source appointment,
+drafts and queue items. A durable pending journal blocks generation/signing
+between data-plane commits. A retry with the same confirmation can finish an
+interrupted correction. This does not move a booking, send a notice, set a rate,
+or automatically choose a crisis code.
+
+Recording and privacy
+
+Record Session lives on the actual session; Speak in the writer opens that
+session. Required signers can receive an existing portal waiver or finger-sign
+in the clinician-presented flow. The clinician cannot substitute their identity
+for the client or guardian. The signed PDF and evidence must be stored before
+recording is authorized, followed by a session-specific clinician confirmation.
+Consent and authority are checked at start, resume and upload. Interruption,
+locking, backgrounding and consent withdrawal pause or stop capture.
+
+The existing approved private Cloud Speech/DLP/Vertex path processes encrypted
+segments into a detailed editable Session Narrative. Identifying chart linkage
+stays inside authorized application services. Narrative entry warns against
+identifiers, blocks detected identifiers before model dispatch, and fails closed
+when required privacy inspection or guidance is unavailable. Raw speech can
+contain identifiers before transcription/redaction and is not anonymous.
+
+Raw audio is temporary. A durable cleanup entry is created before upload; normal
+processing deletes the object, with server retries for failed deletion. Retained
+transcripts and narratives are encrypted. There is no retained-audio playback.
+The storage operator must also enforce the temporary-audio lifecycle policy.
+
+A completed narrative is offered separately. Insert/replace requires review and
+does not silently overwrite clinician edits. Mobile lock recovery uses bounded
+in-memory buffers scoped to the current account/workspace/source; it requires
+fresh authorization and explicit restore/save. It is not durable offline storage
+and does not survive process termination. Sign out/account change clears it.
+
+Base H2011 and handbook information
+
+Only base H2011 is added. H2011 ET is excluded. The October 2026 supplied manual
+is the versioned reference, with source hash/pages and explicit unmapped states.
+The service panel separates reference information from rates and agency/payer
+restrictions. QBHA, bachelor-level and higher eligible qualifications follow the
+base entry; a Peer Specialist-only or unknown classification does not acquire
+base-code access. Existing disabled entries and explicit restrictions remain.
+
+The Medicaid ladder starts at 8 minutes, reaches 16 units/247 minutes, and flags
+248+ for manual service review with the manual's S9485 guidance. It does not
+enable S9485, substitute codes or invent a rate. Scheduling, medical, credential,
+payroll and future defaults are updated together.
+
+An idempotent internal rollout adds the H-code handbook entry and an explicitly
+targeted November 2026 addendum linked through existing update mechanisms.
+Published history and unrelated unfinished handbook drafts remain preserved.
+A conflicting draft is reported, while the independent November addendum can
+publish. No staff messages or automatic distribution are sent.
+
+Operations and rollout
+
+Apply the new numbered migrations 1772, 1773 and 1774 through the existing
+migration runner. Backend startup checks their successful log entries/storage
+before exposing the release and runs the retry-safe internal handbook rollout.
+Do not edit previously applied migrations or manually create partial tables.
+
+Workspace feature_flags.narriva has independent writing, compliance, quickSign
+and recording controls. Recording defaults off and requires an explicit true
+for the authorized pilot; keep it disabled for ordinary usage until physical
+device and live private-processing/deletion checks pass. An explicit false
+disables the other features; do not disable note storage to stop capture.
+Existing clinical permissions still apply.
+
+Private processing requires the approved clinical privacy configuration,
+project/service identity, encryption keys, DLP access, the private model path,
+and the configured temporary audio bucket. CLINICAL_AI_PRIVACY_APPROVED is an
+operator attestation and does not establish a contract or cloud approval.
+CLINICAL_AUDIO_BUCKET (or the existing PTONBOARDFILES bucket fallback) must have
+restricted service access and a lifecycle rule for temporary raw audio. Never
+copy secrets into this document or logs. CLAMAV_SOCKET_PATH must point to the
+approved scanner for newly uploaded assessments to become clean evidence.
+
+Start testing at https://auricwell.com/mobile with an existing primary account.
+Choose the correct workspace and open Today or My Work, then an actual session.
+Use synthetic records first. Test all writer modes, save/reopen, backward
+navigation, masking/contact permissions, compliance corrections and bypasses,
+and an assigned supervisor's explicit review/sign action.
+
+For iPhone Home Screen testing, open /mobile in Safari and use Share > Add to
+Home Screen. This is browser installation; it does not update the native app.
+For the native shell, use the existing com.auricwell.mobile Xcode project after
+building the bundled mobile interface and running the Auricwell Capacitor sync.
+Archive/sign with the authorized Apple developer team, upload to App Store
+Connect and distribute through the existing TestFlight groups. Preserve the
+existing push and associated-domain capabilities. A web deployment cannot
+update an already installed app's bundled interface; install a fresh build.
+
+Release validation must distinguish synthetic automated/browser checks from
+physical-device and live-cloud checks. A signed iPhone build must exercise
+microphone permission, pause/resume, phone interruptions, screen locking,
+backgrounding, withdrawn consent, failed/retried chunks, multiple signers,
+durable waiver PDFs, complete long-session narrative and raw-audio deletion.
+Also test actual account lock/unlock and push deep links in that signed build.
+Do not declare native capture or TestFlight distribution validated by a Vite
+build or a desktop browser preview.
+
+Rollback preserves drafts, historical notes, executed documents and review
+history. Disable capture independently when necessary; never delete clinical
+evidence to roll back the interface.
+
+Completed release checks
+
+The final focused Narriva matrix passed 293 tests, including real MySQL service
+catalog/publication/correction cases, twice-applied review/preferences migration,
+recording opt-in and consent, privacy canaries, attachment races, and model
+executor compatibility. The established signature/claim suite passed 504 tests
+with three pre-existing environment-dependent skips. Desktop Note Workspace
+passed 238 tests; mobile/Quick View passed 76 tests. These suite counts overlap
+in coverage and are not a count of unique application behaviors.
+
+Production web and bundled mobile builds passed, and the Auricwell Capacitor
+iOS sync passed. The first full web build exceeded Node's default heap; the
+completed build used the existing 8 GiB build heap setting. Synthetic browser
+previews exercised 320/390/430 px layouts without overflow. The native SDK check
+still requests acceptance of the Xcode license, and DEVELOPMENT_TEAM is blank.
+No signed archive, physical iPhone capture test or TestFlight upload is claimed.
+
+Local gcloud configuration inspection requires account reauthentication. The
+approved private-cloud/scanner configuration and actual processing/deletion
+must therefore be checked during the explicit recording pilot. Deployment
+workflow/readiness and public route checks are recorded separately in the
+release deliverables, without accessing authenticated patient records.

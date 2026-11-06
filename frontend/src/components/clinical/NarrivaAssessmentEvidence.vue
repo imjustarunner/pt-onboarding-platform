@@ -1,0 +1,57 @@
+<template>
+  <section class="narriva-evidence" aria-label="Assessment evidence">
+    <header><div><img :src="NARRIVA_BRAND.icon" alt="" /><h3>Assessment evidence</h3></div><button type="button" @click="load" :disabled="loading || busy">Refresh attachments</button></header>
+    <p>Link the assessment referenced by this note. Review the file, then select it below. Narriva checks the saved attachment link; it does not read or send the file’s contents to the note-writing model.</p>
+    <p v-if="loading" role="status">Checking authorized assessment attachments…</p>
+    <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
+    <template v-if="state">
+      <ul v-if="state.choices.length" class="evidence-list">
+        <li v-for="choice in state.choices" :key="`${choice.kind}:${choice.id}`">
+          <label><input type="checkbox" :checked="isSelected(choice)" :disabled="!choice.available || busy" @change="select(choice,$event.target.checked)" /><span><strong>{{ choice.title }}</strong><small>{{ choice.kind === 'session_material' ? 'This session’s material' : 'Client document' }}<span v-if="choice.createdAt"> · {{ displayDate(choice.createdAt) }}</span></small></span></label>
+          <button v-if="choice.available" type="button" @click="view(choice)" :disabled="busy">View assessment</button>
+          <div v-else class="evidence-pending"><span>{{ choice.scanStatus === 'infected' ? 'Blocked by security scan' : 'Pending private security scan' }} · cannot count as evidence yet.</span><button v-if="choice.kind === 'session_material' && state.canUpload" type="button" @click="scan(choice)" :disabled="busy">Retry private security scan</button></div>
+        </li>
+      </ul>
+      <p v-else>No available assessment attachments for this client and session yet.</p>
+      <p v-if="state.rejected?.length" class="evidence-warning">{{ state.rejected.length }} previously linked attachment{{ state.rejected.length === 1 ? ' is' : 's are' }} unavailable or outside this session. <button type="button" @click="removeUnavailable" :disabled="busy">Remove unavailable links</button></p>
+      <form v-if="state.canUpload" @submit.prevent="upload">
+        <h4>Attach an assessment to this session</h4><label>Attachment title<input v-model="title" maxlength="255" required :disabled="busy" placeholder="For example, completed assessment" /></label><label>Assessment file<input :key="fileInputKey" type="file" accept="application/pdf,image/jpeg,image/png" @change="chooseFile" :disabled="busy" /></label><small>PDF, JPEG or PNG, up to 25 MB. Storage is encrypted. The private security scan must pass before the file can be viewed or selected. Uploading does not share it in a client or guardian portal.</small><button type="submit" :disabled="busy || !file || !title.trim()">{{ busy ? 'Saving…' : 'Upload assessment' }}</button>
+      </form>
+      <p v-else class="evidence-help">To upload a new assessment, open the actual session as an authorized treating clinician. You may link an existing authorized attachment here.</p>
+    </template>
+    <div v-if="previewUrl" class="evidence-preview" role="region" aria-label="Assessment preview"><header><strong>{{ previewTitle }}</strong><button type="button" @click="closePreview">Close preview</button></header><img v-if="previewType.startsWith('image/')" :src="previewUrl" alt="Selected assessment document" /><iframe v-else :src="previewUrl" title="Selected assessment PDF" sandbox="" /></div>
+  </section>
+</template>
+<script setup>
+import {computed,onBeforeUnmount,onMounted,ref,shallowRef,watch} from 'vue';
+import {NARRIVA_BRAND} from '../../config/narrivaBrand';
+const props=defineProps({agencyId:[Number,String],clientId:[Number,String],clinicalSessionId:[Number,String],draftId:[Number,String],noteId:[Number,String],modelValue:{type:Array,default:()=>[]},apiClient:{type:Object,default:null},baseUrl:{type:String,default:'/narriva/assessments'}});
+const emit=defineEmits(['update:modelValue','change']);
+const desktopApi=shallowRef(null),api=computed(()=>props.apiClient||desktopApi.value),state=ref(null),loading=ref(false),busy=ref(false),error=ref(''),notice=ref(''),title=ref('Assessment'),file=shallowRef(null),fileInputKey=ref(0),previewUrl=ref(''),previewTitle=ref(''),previewType=ref('application/pdf');
+let generation=0,disposed=false;
+const key=ref=>`${ref.kind}:${Number(ref.id)}`;
+const selection=()=>props.modelValue.filter(ref=>['client_document','session_material'].includes(ref?.kind)&&Number(ref.id)>0).map(ref=>({kind:ref.kind,id:Number(ref.id)}));
+const context=()=>({agencyId:Number(props.agencyId),clientId:Number(props.clientId),...(Number(props.clinicalSessionId)?{clinicalSessionId:Number(props.clinicalSessionId)}:{}),...(Number(props.draftId)?{draftId:Number(props.draftId)}:{}),...(Number(props.noteId)?{noteId:Number(props.noteId)}:{})});
+const params=()=>({...context(),assessmentEvidence:JSON.stringify(selection())});
+const options={skipGlobalLoading:true,skipAuthRedirect:true};
+const message=e=>e.response?.data?.error?.message||e.message||'Unable to access assessment evidence.';
+const isSelected=choice=>selection().some(ref=>key(ref)===key(choice));
+function displayDate(value){const date=new Date(value);return Number.isFinite(date.getTime())?date.toLocaleDateString():'';}
+function publish(refs){const next=[...new Map(refs.map(ref=>[key(ref),{kind:ref.kind,id:Number(ref.id)}])).values()];emit('update:modelValue',next);emit('change',next);}
+function select(choice,checked){if(!choice.available)return;const refs=selection().filter(ref=>key(ref)!==key(choice));if(checked)refs.push({kind:choice.kind,id:Number(choice.id)});publish(refs);}
+function removeUnavailable(){const available=new Set((state.value?.choices||[]).filter(item=>item.available).map(key));publish(selection().filter(ref=>available.has(key(ref))));if(state.value)state.value.rejected=[];notice.value='Unavailable attachment links removed. Save and rerun the compliance check.';}
+async function load(){if(!api.value||!props.agencyId||!props.clientId)return;const current=++generation;loading.value=true;error.value='';try{const {data}=await api.value.get(props.baseUrl,{...options,params:params()});if(!disposed&&current===generation)state.value=data;}catch(e){if(current===generation){state.value=null;error.value=message(e);}}finally{if(current===generation)loading.value=false;}}
+function chooseFile(event){error.value='';const chosen=event.target.files?.[0]||null;if(chosen&&chosen.size>25*1024*1024){file.value=null;error.value='Choose a file of 25 MB or smaller.';return;}file.value=chosen;}
+async function upload(){if(busy.value||!file.value||!title.value.trim())return;const current=generation,requestParams=params(),body=new FormData();body.append('file',file.value);body.append('title',title.value.trim());busy.value=true;error.value='';notice.value='';try{const {data}=await api.value.post(props.baseUrl,body,{...options,params:requestParams,timeout:120000});if(disposed||current!==generation)return;state.value=data;file.value=null;fileInputKey.value++;notice.value=data.attachment?.available?'Assessment saved encrypted. Open and review it, then select it as evidence.':'Assessment saved encrypted and pending a private security scan. It does not count as evidence yet.';}catch(e){if(current===generation)error.value=message(e);}finally{if(current===generation)busy.value=false;}}
+async function scan(choice){if(busy.value||choice.kind!=='session_material')return;const current=generation;busy.value=true;error.value='';try{const {data}=await api.value.post(`${props.baseUrl}/${choice.id}/scan`,{}, {...options,params:params()});if(current!==generation||disposed)return;state.value=data;notice.value='Private security scan refreshed. Only available attachments may be selected.';}catch(e){if(current===generation)error.value=message(e);}finally{if(current===generation)busy.value=false;}}
+function closePreview(){if(previewUrl.value)URL.revokeObjectURL(previewUrl.value);previewUrl.value='';previewTitle.value='';}
+async function view(choice){if(!choice.available||busy.value)return;const current=generation;busy.value=true;error.value='';try{const {data,headers}=await api.value.get(`${props.baseUrl}/${choice.kind}/${choice.id}/view`,{...options,params:context(),responseType:'blob'});if(current!==generation||disposed)return;closePreview();previewType.value=String(headers?.['content-type']||choice.mimeType||'application/pdf');previewUrl.value=URL.createObjectURL(data);previewTitle.value=choice.title;}catch(e){if(current===generation)error.value=message(e);}finally{if(current===generation)busy.value=false;}}
+function hidden(){if(document.visibilityState==='hidden')closePreview();}
+watch(()=>[props.agencyId,props.clientId,props.clinicalSessionId,props.draftId,props.noteId],()=>{generation++;state.value=null;closePreview();file.value=null;fileInputKey.value++;busy.value=false;notice.value='';if(api.value)void load();});
+onMounted(async()=>{if(!props.apiClient)desktopApi.value=(await import('../../services/api')).default;if(disposed)return;document.addEventListener('visibilitychange',hidden);await load();});
+onBeforeUnmount(()=>{disposed=true;generation++;closePreview();document.removeEventListener('visibilitychange',hidden);});
+defineExpose({load});
+</script>
+<style scoped>
+.narriva-evidence{border:1px solid #d7e2ee;border-radius:14px;background:#fff;padding:18px;margin:18px 0;color:#183954}.narriva-evidence>header,.evidence-preview>header{display:flex;justify-content:space-between;align-items:center;gap:12px}.narriva-evidence>header>div{display:flex;align-items:center;gap:10px}.narriva-evidence header img{width:30px;height:30px;object-fit:contain}.narriva-evidence h3{margin:0;font-size:19px}.narriva-evidence p,.narriva-evidence small{line-height:1.5;color:#5b6f83}.narriva-evidence small{display:block;font-size:12px;margin-top:5px}.narriva-evidence button{border:1px solid #c7d6e6;border-radius:8px;padding:9px 12px;color:#244a74;background:#f5f8fc;font:inherit;cursor:pointer}.narriva-evidence button:disabled{opacity:.5;cursor:default}.evidence-list{list-style:none;padding:0;margin:14px 0}.evidence-list li{display:flex;align-items:center;flex-wrap:wrap;gap:12px;border-top:1px solid #e5ebf2;padding:12px 0}.evidence-list label{display:flex;align-items:flex-start;gap:9px;flex:1;min-width:180px}.evidence-list input{margin-top:3px}.evidence-pending{flex-basis:100%;font-size:13px;color:#7d5c13;display:flex;gap:10px;align-items:center}.narriva-evidence form{border-top:1px solid #dce5ef;padding-top:16px}.narriva-evidence form label{display:block;font-size:14px;font-weight:600;margin:12px 0}.narriva-evidence form input{display:block;width:100%;box-sizing:border-box;margin-top:7px;padding:10px;border:1px solid #ccd9e6;border-radius:8px;font:inherit}.narriva-evidence form button{margin-top:12px}.evidence-preview{border:1px solid #cbd9e7;border-radius:10px;padding:12px;margin-top:16px}.evidence-preview iframe{width:100%;height:480px;border:0;margin-top:12px}.evidence-preview>img{display:block;max-width:100%;max-height:650px;margin:auto}.narriva-evidence [role=alert]{color:#a02b2b}.evidence-warning{background:#fff7e3;border-radius:8px;padding:10px}@media(max-width:520px){.narriva-evidence{padding:14px}.narriva-evidence>header{align-items:flex-start;flex-wrap:wrap}.evidence-preview iframe{height:380px}.evidence-pending{display:block}}
+</style>

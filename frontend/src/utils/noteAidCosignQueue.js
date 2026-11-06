@@ -13,6 +13,9 @@ export function normalizeCosignQueueItems(notes) {
       || n.provider_name || 'Provider',
     serviceCode: n.service_code || n.serviceCode || null,
     date: String(n.date_of_service || n.dateOfService || n.provider_signed_at || n.created_at || '').slice(0, 10),
-    signedAt: n.provider_signed_at || n.created_at || null
+    signedAt: n.provider_signed_at || n.created_at || null,
+    narriva: n.narriva || null,
+    quickSignEligible: n.narriva?.quickSignEligible === true || n.quickSignEligible === true,
+    narrivaReviewId: n.narriva?.reviewId || n.narrivaReviewId || null
   }));
 }

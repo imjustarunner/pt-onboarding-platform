@@ -36,6 +36,7 @@ export const PAYROLL_SERVICE_CODE_DEFAULTS = new Map(
     ['H0025', { category: 'direct', otherSlot: 1, durationMinutes: 15, payDivisor: 4, creditValue: 0.25 }],
     ['H0031', { category: 'direct', otherSlot: 1, durationMinutes: 1, payDivisor: 60, creditValue: 0.01666666667 }],
     ['H0032', { category: 'direct', otherSlot: 1, durationMinutes: 1, payDivisor: 60, creditValue: 0.01666666667 }],
+    ['H2011', { category: 'direct', otherSlot: 1, durationMinutes: 15, payDivisor: 4, creditValue: 0.25 }],
     ['H2014', { category: 'direct', otherSlot: 1, durationMinutes: 15, payDivisor: 4, creditValue: 0.25 }],
     ['H2032', { category: 'direct', otherSlot: 1, durationMinutes: 15, payDivisor: 4, creditValue: 0.25 }],
     ['H2015', { category: 'direct', otherSlot: 1, durationMinutes: 15, payDivisor: 4, creditValue: 0.25 }],

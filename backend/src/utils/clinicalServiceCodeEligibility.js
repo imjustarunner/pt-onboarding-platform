@@ -3,6 +3,7 @@ import { deriveCredentialTierFromText } from './credentialNormalization.js';
 const QBHA_CODES = new Set([
   'H0023',
   'H0025',
+  'H2011',
   'H2014',
   'H2015',
   'H2016',
@@ -20,9 +21,13 @@ export function deriveCredentialTier({ userRole, providerCredentialText }) {
   return deriveCredentialTierFromText({ userRole, providerCredentialText });
 }
 
-// Explicit application policy: bachelor's-level providers cannot use 9-series codes.
+// Bachelor's-level providers cannot use 9-series codes. Base H2011 requires
+// an explicitly recognized provider tier; an unknown credential is not a QBHA.
 export function isServiceCodeDeniedForTier(tier, code) {
-  return String(tier || '').trim().toLowerCase() === 'bachelors' && /^9/.test(String(code || '').trim());
+  const normalizedTier=String(tier || '').trim().toLowerCase();
+  const normalizedCode=String(code || '').trim().toUpperCase();
+  return (normalizedTier === 'bachelors' && /^9/.test(normalizedCode))
+    || (normalizedCode === 'H2011' && !['qbha','bachelors','intern_plus'].includes(normalizedTier));
 }
 
 export function eligibleServiceCodesForTier(tier) {
@@ -30,7 +35,7 @@ export function eligibleServiceCodesForTier(tier) {
   if (t === 'qbha') return Array.from(QBHA_CODES);
   if (t === 'bachelors') return Array.from(new Set([...QBHA_CODES, ...BACHELORS_EXTRA_CODES])).filter(code => !isServiceCodeDeniedForTier(t, code));
   if (t === 'intern_plus') return null; // null means "all codes allowed"
-  return Array.from(QBHA_CODES); // unknown => default to QBHA list
+  return Array.from(QBHA_CODES).filter(code => !isServiceCodeDeniedForTier(t,code)); // preserve legacy fallback, but never grant new crisis authority to an unknown credential
 }
 
 export function assertServiceCodeAllowed({ tier, serviceCode, allowedCodes = null }) {

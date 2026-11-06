@@ -1,5 +1,10 @@
 <template>
-  <div class="sr-app">
+  <main v-if="clinicalRecordingPage" class="sr-clinical-session">
+    <header><button type="button" @click="router.back()">← Back</button><div><h1>Session recording</h1><p>Recording belongs to the actual appointment. Its reviewed narrative can be used in Note Workspace.</p></div></header>
+    <ClinicalSessionRecordingPanel v-if="clinicalRecordingContextReady" :key="`${clinicalRecordingAgencyId}:${queryClientId}:${queryClinicalSessionId}:${queryOfficeEventId}`" :agency-id="clinicalRecordingAgencyId" :client-id="queryClientId" :clinical-session-id="queryClinicalSessionId" :office-event-id="queryOfficeEventId" @narrative-ready="useClinicalRecordingNarrative" @close="router.back()" />
+    <p v-else role="alert">Open an actual clinical session from your schedule or Note Workspace to record it. A client and its linked clinical session or office appointment are required; recording cannot start from an unlinked note.</p>
+  </main>
+  <div v-else class="sr-app">
     <ClinicalNoteLibrarySidebar
       title="Clinical Note Library"
       new-label="New recording"
@@ -294,6 +299,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
+import ClinicalSessionRecordingPanel from '../../components/clinical/ClinicalSessionRecordingPanel.vue';
 import DocumentSigningWorkflow from '../../components/documents/DocumentSigningWorkflow.vue';
 import ClinicalNoteLibrarySidebar from '../../components/clinical/ClinicalNoteLibrarySidebar.vue';
 import { parseAgencyFeatureFlags } from '../../config/medicalBillingAccess.js';
@@ -330,6 +336,17 @@ const clients = ref([]);
 const clientQuery = ref('');
 
 const queryClientId = computed(() => String(route.query.clientId || route.query.client_id || ''));
+const queryClinicalSessionId=computed(()=>String(route.query.clinicalSessionId || route.query.clinical_session_id || ''));
+const clinicalRecordingAgencyId=computed(()=>Number(route.query.agencyId || agencyId.value || 0));
+const clinicalRecordingPage=computed(()=>!!queryClinicalSessionId.value || !!queryOfficeEventId.value || (!queryLearningSessionId.value && String(agencyStore.currentAgency?.organization_type || '').toLowerCase()!=='learning'));
+const clinicalRecordingContextReady=computed(()=>clinicalRecordingAgencyId.value>0 && Number(queryClientId.value)>0 && (Number(queryClinicalSessionId.value)>0 || Number(queryOfficeEventId.value)>0));
+function useClinicalRecordingNarrative(payload){
+  // The narrative stays on the authenticated API; only opaque record IDs travel.
+  const slug=route.params.organizationSlug;
+  const query={...buildNoteAidQuery({agencyId:clinicalRecordingAgencyId.value,clientId:Number(queryClientId.value),clinicalSessionId:Number(queryClinicalSessionId.value)||undefined,officeEventId:Number(queryOfficeEventId.value)||undefined,draftId:Number(route.query.draftId)||undefined,dateOfService:String(route.query.dateOfService || route.query.date || ''),serviceCode:String(route.query.serviceCode || ''),launchIntent:'progress_note'}),recordingId:String(payload.recordingId)};
+  router.push({path:slug?`/${slug}/note-aid`:'/note-aid',query});
+}
+
 const queryOfficeEventId = computed(() => String(route.query.officeEventId || route.query.office_event_id || ''));
 const queryLearningSessionId = computed(() =>
   String(route.query.learningClassSessionId || route.query.learning_class_session_id || '')
@@ -896,6 +913,7 @@ watch(
 );
 
 onMounted(async () => {
+  if (clinicalRecordingPage.value) return;
   if (!assertAccess()) return;
   editingOverview.value = !queryClientId.value;
   try {
@@ -916,6 +934,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.sr-clinical-session{padding:clamp(16px,3vw,28px);background:#f5f8fc;min-height:calc(100vh - 64px)}.sr-clinical-session>header{display:flex;align-items:flex-start;gap:18px;max-width:900px;margin:0 auto 20px}.sr-clinical-session>header button{padding:10px 14px;border:1px solid #cbd8e5;border-radius:10px;background:#fff;color:#1c426c}.sr-clinical-session h1{margin:0;font-size:26px;color:#163555}.sr-clinical-session header p{color:#60758b;line-height:1.5}.sr-clinical-session>[role=alert]{max-width:900px;margin:auto;padding:18px;border:1px solid #dac58b;border-radius:12px;background:#fffaf0}
 .sr-app {
   display: grid;
   grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);

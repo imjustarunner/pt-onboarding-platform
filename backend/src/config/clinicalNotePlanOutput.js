@@ -217,6 +217,7 @@ export const SOIP_PROGRESS_NOTE_TOOL_IDS = new Set([
   'clinical_h2014_group',
   'clinical_h2014_individual',
   'clinical_h0004_note',
+  'clinical_h2011_note',
   'clinical_tpt_note'
 ]);
 

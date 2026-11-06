@@ -25,6 +25,8 @@
       </div>
       <div ref="body" class="review-body">
         <p v-if="notice" class="review-notice" role="status">{{ notice }}</p>
+        <NarrivaCompliancePanel v-if="narrivaReview || narrivaBusy || narrivaError" :review="narrivaReview" :busy="narrivaBusy" :error="narrivaError" read-only />
+        <button v-if="canSign && !narrivaBusy" type="button" class="narriva-run" @click="runNarrivaChecks">{{ narrivaReview ? 'Refresh Narriva checks' : 'Run Narriva checks for Quick Sign' }}</button>
         <ClinicalNoteVersionHistory :note-id="noteId" :agency-id="agencyId" :legacy-pending-service-details="note.pendingServiceDetails" :legacy-amendment="legacyPendingAmendment" prefer-pending @loaded="onVersionsLoaded" @changed="onVersionChanged" @editing="amendmentEditing = $event" />
         <section v-if="openRequests.length" class="request-history" aria-label="Supervisor requests">
           <article v-for="request in openRequests" :key="request.id"><strong>{{ actionLabel(request.action || request.requestType || request.request_type) }}</strong><p>{{ readableReviewMessage(request.message) }}</p><small>{{ timestamp(request.createdAt || request.created_at) }}</small></article>
@@ -91,7 +93,7 @@
           <label class="check-line"><input v-model="attested" data-testid="supervisor-attestation" type="checkbox" :disabled="busy || missingDetails.length > 0 || hasChangesNeeded || hasUnfinishedAction" /> {{ isBillable ? 'I reviewed this note, its service details and all amendments, and approve this documentation for billing review under my supervisory responsibility.' : 'I reviewed this note and all amendments, and approve this clinical documentation under my supervisory responsibility.' }}</label>
           <p v-if="hasChangesNeeded" class="missing">Changes have been requested. Review the author's correction before approving.</p>
           <p v-if="hasUnfinishedAction" class="missing" role="status">{{ amendmentEditing ? 'Submit or cancel the amendment before approving this note.' : 'Send or cancel your request or feedback before approving this note.' }}</p>
-          <div class="footer-actions"><button type="button" :disabled="busy || amendmentEditing" @click="showFeedback = true">Return / provide feedback</button><button type="button" class="approve" data-testid="cosign" :disabled="busy || !attested || missingDetails.length > 0 || hasChangesNeeded || hasUnfinishedAction" @click="sign">{{ busy ? 'Saving…' : isBillable ? 'Cosign & approve for billing review' : 'Cosign & approve documentation' }}</button></div>
+          <div class="footer-actions"><button type="button" :disabled="busy || amendmentEditing" @click="showFeedback = true">Return / provide feedback</button><button v-if="narrivaReview?.quickSignEligible === true && narrivaReview.status === 'passed'" type="button" class="approve narriva-quick-sign" data-testid="quick-sign" :disabled="busy || narrivaBusy || !attested || missingDetails.length > 0 || hasChangesNeeded || hasUnfinishedAction" @click="sign(true)"><img :src="NARRIVA_BRAND.verified" alt="" /> Quick Sign</button><button type="button" class="approve" data-testid="cosign" :disabled="busy || !attested || missingDetails.length > 0 || hasChangesNeeded || hasUnfinishedAction" @click="sign">{{ busy ? 'Saving…' : isBillable ? 'Cosign & approve for billing review' : 'Cosign & approve documentation' }}</button></div>
         </template>
         <template v-else><p class="muted">{{ !versionHistoryReady ? 'Confirm the current note version in Note versions before approving.' : hasPendingVersion ? 'Use Note versions above to review and sign the pending revision at its current stage.' : review.cosignedAt ? 'This version has been approved by the supervisor.' : 'Only the assigned responsible supervisor can approve this note.' }}</p><button v-if="canReview" type="button" :disabled="busy || amendmentEditing" @click="showFeedback = true">Provide feedback</button></template>
       </footer>
@@ -102,23 +104,29 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../services/api.js';
+import NarrivaCompliancePanel from './NarrivaCompliancePanel.vue';
+import { useNarrivaReview } from '../../composables/useNarrivaReview.js';
+import { NARRIVA_BRAND } from '../../config/narrivaBrand.js';
 import { readableReviewMessage } from '../../utils/noteReviewWork.js';
 import CosignReviewTimer from './CosignReviewTimer.vue';
 import ClinicalNoteVersionHistory from './ClinicalNoteVersionHistory.vue';
 import { formatMedicationsText, formatRiskAssessmentText } from '../../utils/noteAidUiHelpers.js';
 import { missingSupervisorServiceDetails, parseReviewContent, supervisorMentalStatus, supervisorNoteSections, supervisorObjectiveRatings, supervisorServiceDetails } from '../../utils/supervisorNoteReview.js';
 
-const props = defineProps({ noteId: { type: [Number, String], required: true }, agencyId: { type: [Number, String], required: true }, providerId: { type: [Number, String], default: null }, clientName: { type: String, default: '' }, fullPage: { type: Boolean, default: false } });
+const props = defineProps({ noteId: { type: [Number, String], required: true }, agencyId: { type: [Number, String], required: true }, providerId: { type: [Number, String], default: null }, clientName: { type: String, default: '' }, fullPage: { type: Boolean, default: false }, quickSignRequested: { type:Boolean, default:false } });
 const emit = defineEmits(['signed', 'returned', 'open-full', 'close']);
 const note = ref(null), review = ref(null), reviewProviderId = ref(null), loading = ref(false), busy = ref(false), error = ref(''), notice = ref(''), attested = ref(false);
 const activeInfo = ref(''), showFeedback = ref(false), feedbackAction = ref('changes_needed'), feedbackMessage = ref('');
 const materials = ref([]), materialsLoading = ref(false), materialsError = ref(''), materialsLoaded = ref(false);
 const body = ref(null);
+const { review:narrivaReview,busy:narrivaBusy,error:narrivaError,runReview:startNarrivaReview,invalidate:invalidateNarriva } = useNarrivaReview({agencyId:computed(() => props.agencyId),apiClient:api});
+async function runNarrivaChecks(){ if (!canSign.value || busy.value || hasPendingVersion.value) return; attested.value=false; await startNarrivaReview({noteId:Number(props.noteId)}); }
 const versionSummary = ref(null), versionHistoryReady = ref(false), amendmentEditing = ref(false);
-function onVersionsLoaded(summary) { versionSummary.value = summary; versionHistoryReady.value = true; }
+function onVersionsLoaded(summary) { if (versionSummary.value && (versionSummary.value.effectiveRevisionId !== summary.effectiveRevisionId || versionSummary.value.pendingRevisionId !== summary.pendingRevisionId)) invalidateNarriva(); versionSummary.value = summary; versionHistoryReady.value = true; }
 const legacyPendingAmendment = computed(() => (note.value?.serviceDetailAmendments || []).filter(entry => !entry.approvedAt && !entry.supersededByAmendmentId).at(-1) || null);
 const hasPendingVersion = computed(() => !!versionSummary.value?.pendingRevisionId);
 function onVersionChanged(result) {
+  invalidateNarriva();
   if (result.action === 'cosign' || (result.action === 'sign' && result.revision?.status === 'approved')) emit('signed', { ...context.value, ...result });
   else emit('returned', { ...context.value, ...result, action: result.action === 'sign' ? 'review_acknowledge' : result.action });
 }
@@ -175,6 +183,7 @@ function cancelFeedback() { feedbackMessage.value = ''; showFeedback.value = fal
 async function load(attempt = 0) {
   const retry = Number.isInteger(attempt) ? attempt : 0;
   const g = ++generation;
+  invalidateNarriva();
   loading.value = true; error.value = ''; versionSummary.value = null; versionHistoryReady.value = false; note.value = null; review.value = null; attested.value = false; busy.value = false; amendmentEditing.value = false; showFeedback.value = false; activeInfo.value = ''; feedbackMessage.value = ''; materials.value = []; materialsLoaded.value = false; materialsLoading.value = false; materialsError.value = '';
   try {
     const { data } = await api.get(`/medical-billing/notes/${props.noteId}`, { params: { agencyId: Number(props.agencyId) }, skipGlobalLoading:true });
@@ -190,21 +199,26 @@ async function load(attempt = 0) {
       throw new Error('The note details changed while opening this review, or the current review snapshot is unavailable. Reload before signing.');
     }
     note.value = { ...data.note, ...(result.data.reviewSnapshot || {}) }; review.value = result.data; reviewProviderId.value = provider;
+    if (data.note.narrivaReview?.id) narrivaReview.value=data.note.narrivaReview;
+    if (props.quickSignRequested) await startNarrivaReview({noteId:Number(props.noteId)});
   } catch (e) { if (g === generation) error.value = errorMessage(e, 'Unable to load supervisor review.'); }
   finally { if (g === generation) loading.value = false; }
 }
 
-async function sign() {
+async function sign(quick = false) {
+  const quickSign = quick === true;
+  if (quickSign && (narrivaBusy.value || narrivaReview.value?.quickSignEligible !== true || narrivaReview.value?.status !== 'passed')) return;
   if (busy.value || !canSign.value || !attested.value || missingDetails.value.length || hasChangesNeeded.value || hasUnfinishedAction.value) return;
   const g = generation; busy.value = true; error.value = '';
   try {
-    const { data } = await api.post(`/medical-billing/notes/${props.noteId}/cosign`, { agencyId: Number(props.agencyId), contentHash: review.value.contentHash, reviewSnapshotToken: review.value.reviewSnapshotToken, ...(review.value.revisionSummary?.effectiveRevision?.entryManifestHash || review.value.revisionSummary?.entryManifestHash ? { expectedEntryManifestHash: review.value.revisionSummary.effectiveRevision?.entryManifestHash || review.value.revisionSummary.entryManifestHash } : {}), reviewedAndApproved: true }, {skipGlobalLoading:true});
+    const { data } = await api.post(`/medical-billing/notes/${props.noteId}/cosign`, { agencyId: Number(props.agencyId), contentHash: review.value.contentHash, reviewSnapshotToken: review.value.reviewSnapshotToken, ...(review.value.revisionSummary?.effectiveRevision?.entryManifestHash || review.value.revisionSummary?.entryManifestHash ? { expectedEntryManifestHash: review.value.revisionSummary.effectiveRevision?.entryManifestHash || review.value.revisionSummary.entryManifestHash } : {}), reviewedAndApproved: true, ...(quickSign ? {quickSign:true,narrivaReviewId:narrivaReview.value.id} : {}) }, {skipGlobalLoading:true});
     if (g === generation) { if (!data?.cosignedAt) throw new Error('The server did not confirm supervisor approval. Reload before continuing.'); attested.value = false; review.value = { ...review.value, cosignedAt: data.cosignedAt }; emit('signed', { ...context.value, ...data }); }
   } catch (e) { if (g === generation) { attested.value = false; error.value = errorMessage(e, 'Unable to approve this note.'); } }
   finally { if (g === generation) busy.value = false; }
 }
 
 async function sendFeedback() {
+  invalidateNarriva();
   if (busy.value || !canReview.value || !feedbackMessage.value.trim()) return;
   const g = generation; busy.value = true; error.value = '';
   try {
@@ -238,4 +252,5 @@ async function toggleInfo(id) {
 
 <style scoped>
 .supervisor-review{display:flex;flex-direction:column;max-height:calc(100dvh - 100px);min-height:300px;background:var(--bg-card,#fff);color:var(--text-primary,#203246);border:1px solid #a9c7d3;border-radius:14px;box-shadow:0 12px 38px #193c5120;overflow:hidden}.supervisor-review--full{max-height:none;min-height:65vh;box-shadow:none}.review-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;background:#f1f7fa;border-bottom:1px solid #dce7ed}.eyebrow{font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:#4d657c;margin:0 0 3px}.participant-presence{display:block;font-weight:400;margin-top:3px}.review-header h2{font-size:1.12rem;margin:0}.header-actions{display:flex;gap:6px;flex-shrink:0}button{border:1px solid #b9cbd6;border-radius:7px;background:white;color:#254e6a;padding:7px 10px;font:inherit;font-size:.8rem;cursor:pointer}button:hover:not(:disabled){background:#eaf4f8}button:disabled{opacity:.55;cursor:not-allowed}button:focus-visible,summary:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid #339ac9;outline-offset:2px}.review-summary{padding:10px 18px;border-bottom:1px solid #dce7ed}.service-facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 12px;margin:0}dt{font-size:.67rem;color:#5b7187;text-transform:uppercase;letter-spacing:.035em}dd{margin:2px 0 0;font-size:.83rem;font-weight:600;overflow-wrap:anywhere}.signature-state{display:flex;gap:8px;margin-top:10px;font-size:.71rem;color:#16665b}.signature-state span{padding:3px 7px;background:#e8f5f1;border-radius:10px}.pending-label{font-size:.76rem;color:#835a16;margin:8px 0 0}.review-body{min-height:0;overflow-y:auto;padding:12px 18px;scrollbar-gutter:stable}.supervisor-review--full .review-body{overflow:visible}.prose{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;font-size:.85rem;margin:8px 0}.content-section{padding:8px 0;border-bottom:1px solid #e5edf1}summary{font-size:.83rem;font-weight:650;cursor:pointer;color:#244e6c}.content-section p{margin-left:14px}.clinical-section{padding:8px 0}.clinical-section h3,.ratings h3,.info-panel h3{font-size:.83rem;margin:0 0 6px}.clinical-section ul,.content-section ul{padding-left:18px;font-size:.82rem;line-height:1.5;margin:6px 0}.rating-heading,.rating-row summary{display:grid;grid-template-columns:minmax(150px,2fr) repeat(4,minmax(38px,.7fr));gap:6px;align-items:center}.rating-heading{font-size:.66rem;color:#5b7187;margin:8px 0;text-transform:uppercase}.rating-row{padding:7px 0;border-top:1px solid #e5edf1}.rating-row summary{font-size:.75rem}.rating-row summary span:not(:first-child),.rating-heading span:not(:first-child),.rating-row summary strong{text-align:center}.ratings{margin:12px 0}.detail-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.detail-tabs button[aria-expanded=true]{background:#e5f2f6;border-color:#4596b5}.info-panel{background:#f7fafc;border:1px solid #dce7ed;border-radius:8px;padding:12px;margin:10px 0;font-size:.82rem}.info-panel dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.info-panel label{display:block;font-size:.8rem;margin:8px 0}.info-panel input:not([type=checkbox]),.info-panel textarea,.info-panel select{display:block;box-sizing:border-box;width:100%;font:inherit;border:1px solid #b6c9d6;border-radius:6px;padding:8px;margin-top:4px;background:white;color:#203246}.info-panel button+button{margin-left:6px}.correction-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 12px}.entry{padding:10px 0;border-bottom:1px solid #dce7ed}.entry small,.muted{color:#61778a}.review-footer{padding:12px 18px;border-top:1px solid #cbdde5;background:#f8fbfc;flex-shrink:0}.supervisor-review--full .review-footer{position:sticky;bottom:0;z-index:1}.check-line{display:flex!important;gap:8px;align-items:flex-start;font-size:.77rem;line-height:1.4}.check-line input{margin-top:3px;flex-shrink:0}.footer-actions{display:flex;justify-content:space-between;gap:10px;margin-top:10px}.approve{background:#126e67;color:white;border-color:#126e67;font-weight:650}.approve:hover:not(:disabled){background:#0c5954}.missing,.review-error{color:#9b3c16}.missing-details{background:#fff6e7;border:1px solid #ecd2a4;border-radius:7px;padding:9px;font-size:.78rem;margin-bottom:10px}.missing-details button{margin:6px 0 0}.review-error,.review-message,.review-notice{padding:12px;font-size:.82rem;margin:0}.review-error{background:#fff3ee}.review-notice{background:#e9f6f0;border-radius:7px;margin-bottom:10px;color:#216451}.request-history{background:#fff5e8;border-left:3px solid #b7791f;padding:9px 12px;font-size:.8rem;margin-bottom:10px}.request-history p{white-space:pre-wrap;margin:5px 0}.review-footer p{font-size:.78rem;margin:5px 0}.review-body>.muted{font-size:.8rem}@media(max-width:700px){.supervisor-review{max-height:calc(100dvh - 24px)}.review-header{padding:10px 12px;align-items:flex-start}.header-actions{flex-direction:column}.review-summary,.review-body,.review-footer{padding:10px 12px}.service-facts{grid-template-columns:repeat(2,minmax(0,1fr))}.footer-actions{flex-direction:column}.footer-actions button{width:100%;padding:10px}.correction-fields{grid-template-columns:1fr}.rating-heading,.rating-row summary{grid-template-columns:minmax(115px,2fr) repeat(4,minmax(30px,.7fr));gap:3px}.review-header h2{font-size:1rem}.check-line{font-size:.74rem}}
+.narriva-run{border:1px solid #cad9e5;background:#f6faff;color:#1c567e;border-radius:7px;padding:8px 11px;margin:10px 0;font:inherit;font-size:12px;cursor:pointer}.narriva-quick-sign{display:inline-flex;align-items:center;gap:7px}.narriva-quick-sign img{width:22px;height:22px;object-fit:contain}
 </style>

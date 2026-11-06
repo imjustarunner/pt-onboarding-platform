@@ -6,10 +6,9 @@
       <button type="button" class="oesn-hipaa-dismiss" @click="hipaaBannerVisible = false">Dismiss</button>
     </div>
 
-    <div class="oesn-tabs" role="tablist">
-      <button type="button" role="tab" :class="{ active: inputMode === 'type' }" @click="inputMode = 'type'">Type</button>
-      <button type="button" role="tab" :class="{ active: inputMode === 'speak' }" @click="inputMode = 'speak'">Speak</button>
-    </div>
+    <div class="oesn-session-tools"><strong>Session Narrative</strong><button type="button" class="oesn-record-session" :disabled="!agencyId || !clientId || (!officeEventId && !clinicalSessionId) || loadingDraft || activeDraftState?.loadFailed" @click="recorderOpen = !recorderOpen">{{ recorderOpen ? 'Close session recorder' : 'Record session' }}</button></div>
+    <ClinicalSessionRecordingPanel v-if="recorderOpen" :key="`${agencyId}:${clientId}:${officeEventId}:${clinicalSessionId}`" :agency-id="agencyId" :client-id="clientId" :office-event-id="officeEventId" :clinical-session-id="clinicalSessionId" @narrative-ready="receiveRecordedNarrative" @close="recorderOpen = false" />
+    <section v-if="pendingNarrative" class="oesn-narrative-choice" role="status"><strong>Your Session Narrative is ready.</strong><p>You already have session text. Choose how to use the recording’s reviewed narrative.</p><button type="button" @click="applyRecordedNarrative('append')" :disabled="String(inputText || '').length + pendingNarrative.text.length + 2 > 12000">Append to current text</button><button type="button" @click="applyRecordedNarrative('replace')">Replace current text</button><button type="button" @click="pendingNarrative = null">Keep current text</button></section>
 
     <div v-if="hasSavedPhi && !revealed" class="oesn-redacted">
       <p>Session notes are saved and encrypted. Content is hidden until you reveal it.</p>
@@ -17,7 +16,6 @@
     </div>
     <template v-else>
       <textarea
-        v-if="inputMode === 'type'"
         v-model="inputText"
         :disabled="loadingDraft || activeDraftState?.loadFailed"
         class="oesn-textarea"
@@ -25,20 +23,6 @@
         maxlength="12000"
         placeholder="Type in all information that occurred during the session, your interpretation of the client’s progress, etc."
       />
-      <template v-else>
-        <textarea
-          v-model="inputText"
-          :disabled="loadingDraft || activeDraftState?.loadFailed"
-          class="oesn-textarea"
-          rows="6"
-          maxlength="12000"
-          placeholder="Transcript appears here after dictation…"
-        />
-        <button type="button" class="oesn-speak-btn" :class="{ on: listening }" :disabled="!speechSupported" @click="toggleDictation">
-          {{ listening ? 'Stop recording' : 'Record dictation' }}
-        </button>
-        <p v-if="dictationError" class="oesn-error">{{ dictationError }}</p>
-      </template>
     </template>
 
     <div class="oesn-footer">
@@ -70,7 +54,7 @@
         {{ generating ? 'Generating…' : 'Generate Note' }}
       </button>
     </div>
-    <p class="oesn-hint">Add session notes in the box above or record dictation. This text is saved automatically and becomes the source text in Note Workspace for this appointment.</p>
+    <p class="oesn-hint">Write the Session Narrative above or record this actual session after participant waivers and consent are confirmed. Use the reviewed narrative explicitly; existing edits are preserved. Do not enter identifying information into narrative text.</p>
     <p class="oesn-hint">After the scheduled end, saving session content confirms attendance and may collect the authorized copay today. Opening this panel alone does not confirm attendance. For a session that did not occur, use Missed appointment or Cancel instead.</p>
     <p v-if="attendanceNotice" class="oesn-hint" role="status">{{ attendanceNotice }}</p>
     <p v-if="statusMsg" class="oesn-status">{{ statusMsg }}</p>
@@ -94,7 +78,7 @@
 import ClinicalWorkspaceFrame from '../clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import SessionSupportingMaterials from '../clinical/SessionSupportingMaterials.vue';
 import { noteDraftAttendanceNotice } from '../../utils/noteDraftAttendance.js';
-import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
+import ClinicalSessionRecordingPanel from '../clinical/ClinicalSessionRecordingPanel.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -124,13 +108,12 @@ const emit = defineEmits(['open-note-aid']);
 const router = useRouter();
 const route = useRoute();
 const inputText = defineModel('inputText', { type: String, default: '' });
-const inputMode = ref('type');
+const recorderOpen=ref(false);
+const pendingNarrative=ref(null);
 
 const includeInteractiveComplexity = ref(false);
 const generating = ref(false);
 const draftId = ref(null);
-const listening = ref(false);
-const dictationError = ref('');
 const statusMsg = ref('');
 const attendanceNotice = ref('');
 const errorMsg = ref('');
@@ -139,7 +122,6 @@ const sessionRatings = ref([]);
 const revealed = ref(false);
 const hasSavedPhi = ref(false);
 const hipaaBannerVisible = ref(true);
-let recognition = null;
 let saveTimer = null;
 const loadingDraft = ref(false);
 let activeDraftState = null;
@@ -157,9 +139,6 @@ function sessionContext() {
 }
 
 
-const speechSupported = computed(() => (
-  typeof window !== 'undefined' && !!(privateSpeechRecognition())
-));
 const activeGoals = computed(() => activePlanGoals(props.latestPlan));
 
 async function logSessionNoteView(extra = {}) {
@@ -247,9 +226,9 @@ async function persistDraft({ allowEmpty = false, state = activeDraftState } = {
     if (state.id && text === state.lastSavedInput) return;
     const payload = { ...state.context, inputText: text };
     // Never replace a generated note's sections when updating its source text.
-    if (!state.id) payload.outputJson = { meta: { quickNote: true } };
+    if (!state.id) payload.outputJson = { meta: { quickNote: true,...(state.recordingId?{sessionRecordingId:state.recordingId}:{}) } };
     else if (state.outputJson && typeof state.outputJson === 'object') {
-      payload.outputJson = { ...state.outputJson, meta: { ...state.outputJson.meta, quickNote: true } };
+      payload.outputJson = { ...state.outputJson, meta: { ...state.outputJson.meta, quickNote: true,...(state.recordingId?{sessionRecordingId:state.recordingId}:{}) } };
     }
     if (text.trim() && text !== state.lastSavedInput) payload.attendanceIntent = 'authored_session_draft';
     let attendance;
@@ -397,45 +376,22 @@ async function generateNote() {
   }
 }
 
-function toggleDictation() {
-  dictationError.value = '';
-  if (!speechSupported.value) {
-    dictationError.value = 'Speech recognition needs Chrome/Edge (or Safari) with microphone permission.';
-    return;
-  }
-  if (listening.value) {
-    try { recognition?.stop?.(); } catch { /* ignore */ }
-    listening.value = false;
-    return;
-  }
-  const Ctor = privateSpeechRecognition();
-  recognition = new Ctor();
-  recognition.continuous = true;
-  recognition.interimResults = true;
-  let committed = String(inputText.value || '').trim();
-  recognition.onresult = (event) => {
-    let interim = '';
-    let finalChunk = '';
-    for (let i = event.resultIndex; i < event.results.length; i += 1) {
-      const piece = String(event.results[i]?.[0]?.transcript || '');
-      if (event.results[i].isFinal) finalChunk += piece;
-      else interim += piece;
-    }
-    if (finalChunk) {
-      committed = `${committed} ${finalChunk}`.trim();
-      inputText.value = committed.slice(0, 12000);
-    } else if (interim) {
-      inputText.value = `${committed} ${interim}`.trim().slice(0, 12000);
-    }
-  };
-  recognition.onerror = () => { listening.value = false; };
-  recognition.onend = () => { listening.value = false; };
-  try {
-    recognition.start();
-    listening.value = true;
-  } catch (e) {
-    dictationError.value = e?.message || 'Could not start dictation.';
-  }
+function receiveRecordedNarrative(payload) {
+  if((payload.clinicalSessionId && Number(props.clinicalSessionId) && Number(payload.clinicalSessionId)!==Number(props.clinicalSessionId)) || (payload.officeEventId && Number(payload.officeEventId)!==Number(props.officeEventId))) {errorMsg.value='The recorded session changed. Reopen this appointment’s recorder before inserting its narrative.';return;}
+  if(loadingDraft.value || activeDraftState?.loadFailed){errorMsg.value='Wait for this session’s draft to load before using the recording narrative.';return;}
+  const text=String(payload.narrative || '').trim();
+  if(!text)return;
+  if(text.length>12000){errorMsg.value='This narrative exceeds the 12,000-character note input limit. Shorten it in the recording review before inserting it; the full encrypted recording narrative remains saved.';return;}
+  pendingNarrative.value={text,recordingId:payload.recordingId,stateToken:activeDraftState.token,previousText:String(inputText.value || '')};
+  if(!String(inputText.value || '').trim())applyRecordedNarrative('replace');
+}
+function applyRecordedNarrative(mode) {
+  const pending=pendingNarrative.value;
+  if(!pending || pending.stateToken!==activeDraftState?.token){pendingNarrative.value=null;errorMsg.value='The appointment changed; its existing text was preserved.';return;}
+  if(mode==='replace' && String(inputText.value || '')!==pending.previousText){pending.previousText=String(inputText.value || '');errorMsg.value='Your session text changed after this choice opened. Review it, then choose Replace again if you still want to replace those edits.';return;}
+  const next=mode==='append'?[String(inputText.value || '').trim(),pending.text].filter(Boolean).join('\n\n'):pending.text;
+  if(next.length>12000){errorMsg.value='The combined narrative is longer than 12,000 characters. Your current text was preserved; review and shorten it before inserting.';return;}
+  activeDraftState.recordingId=pending.recordingId;inputText.value=next;revealed.value=true;pendingNarrative.value=null;recorderOpen.value=false;errorMsg.value='';statusMsg.value='Reviewed recording narrative added to this session. Review the text before generating the note.';
 }
 
 watch(inputText, () => {
@@ -450,8 +406,9 @@ watch(
   async () => {
     flushPendingDraft();
     loadingDraft.value = true;
-    const state = { context: sessionContext(), id: null, text: '', lastSavedInput: '', saving: Promise.resolve(), loadFailed: false };
+    const state = { token:Symbol(), context: sessionContext(), id: null, text: '', lastSavedInput: '', saving: Promise.resolve(), loadFailed: false };
     activeDraftState = state;
+    recorderOpen.value=false;pendingNarrative.value=null;
     draftId.value = null;
     inputText.value = '';
     hasSavedPhi.value = false;
@@ -469,11 +426,11 @@ watch(
 
 onBeforeUnmount(() => {
   flushPendingDraft();
-  try { recognition?.stop?.(); } catch { /* ignore */ }
 });
 </script>
 
 <style scoped>
+.oesn-session-tools{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0}.oesn-record-session,.oesn-narrative-choice button{padding:10px 14px;border:1px solid #c8d7e5;border-radius:9px;background:#f2f6fc;color:#19416e;cursor:pointer}.oesn-record-session:disabled{opacity:.5;cursor:default}.oesn-narrative-choice{padding:14px;border:1px solid #ddc681;background:#fffaf0;border-radius:12px;margin:12px 0}.oesn-narrative-choice button{margin:4px}
 .oesn {
   padding: 12px 14px 18px;
 }

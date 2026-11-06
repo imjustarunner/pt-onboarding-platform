@@ -59,13 +59,13 @@ export const NOTE_AID_CATEGORIES = [
     aids: [
       {
         id: 'code_decider',
-        label: 'Let AI choose for me — Code Decider and Progress Note Writer',
+        label: 'Service guidance and Progress Note Writer',
         toolId: 'clinical_code_decider',
         serviceCode: null,
         autoSelect: true,
         pinToTop: true,
         guidance:
-          'Type or speak everything that happened in the session (participation, progress, benefit). The Code Decider picks the best eligible billing code for your credential (including intern_plus) and writes the progress note. Use this when you are not sure which note type to open.'
+          'Choose the actual eligible service for this encounter, then describe participation, interventions, progress and benefit. Narriva writes the note; service-code findings ask you to review and explicitly confirm any change.'
       },
       {
         id: 'h0023',
@@ -77,7 +77,7 @@ export const NOTE_AID_CATEGORIES = [
         skipMse: true,
         diagnosisMode: 'none',
         guidance:
-          'Type in all information from the engagement activity (8+ minutes). Output is a Colorado Service Documentation Standards narrative paragraph — not SOAP. Use Freeform or CSNoteBuild.'
+          'Type in all information from the engagement activity (8+ minutes). Output is a Colorado Service Documentation Standards narrative paragraph — not SOAP. Use Narriva or Smart Notes.'
       },
       {
         id: 'h0031_intake',
@@ -102,7 +102,7 @@ export const NOTE_AID_CATEGORIES = [
         diagnosisMode: 'zr_only',
         attachQuestionnaires: true,
         guidance:
-          'Type additional assessment / collateral session content. Freeform Colorado narrative in one session-information block (not SOIP). Z/R by default; diagnose-capable clinicians also attach chart diagnoses when present. No mental status exam. Use Freeform or CSNoteBuild. Recent unattached questionnaires are auto-included when available.'
+          'Type additional assessment / collateral session content. Freeform Colorado narrative in one session-information block (not SOIP). Z/R by default; diagnose-capable clinicians also attach chart diagnoses when present. No mental status exam. Use Narriva or Smart Notes. Recent unattached questionnaires are auto-included when available.'
       },
       {
         id: 'h0032_plan',
@@ -114,7 +114,7 @@ export const NOTE_AID_CATEGORIES = [
         skipMse: true,
         diagnosisMode: 'chart',
         guidance:
-          'If you have a session with a client or their parent for which 51% of the time was spent to update the treatment plan/get approval/etc., use this. No min time. Output is a Colorado Service Documentation Standards narrative paragraph — not SOAP. Use Freeform or CSNoteBuild.'
+          'If you have a session with a client or their parent for which 51% of the time was spent to update the treatment plan/get approval/etc., use this. No min time. Output is a Colorado Service Documentation Standards narrative paragraph — not SOAP. Use Narriva or Smart Notes.'
       },
       {
         id: 'h0004_plan',
@@ -134,6 +134,16 @@ export const NOTE_AID_CATEGORIES = [
         diagnosisMode: 'chart',
         guidance:
           'Same SOIP panels as 90837 (Subjective, Objective, Interventions, Plan) with bachelor’s-level wording. Minimum 8 minutes. Mental status exam is not used for H0004.'
+      },
+      {
+        id: 'h2011_note',
+        label: 'H2011 — Crisis Intervention (Bachelor’s Level and Up)',
+        toolId: 'clinical_h2011_note',
+        serviceCode: 'H2011',
+        kind: 'crisis',
+        skipMse: true,
+        diagnosisMode: 'chart',
+        guidance: 'Document the unanticipated crisis, immediate assessment and interventions, response, relevant history, treatment needs, coordination and follow-up. Review required risk/safety documentation. H2011 uses 15-minute units with the approved 8-minute minimum rule; confirm current agency and payer eligibility.'
       },
       {
         id: 'termination',
@@ -432,7 +442,7 @@ export function aidKind(aid) {
   return 'progress';
 }
 
-/** Aids that offer Freeform + CSNoteBuild only (never SOAP/SOIP panels). */
+/** Aids that offer Narriva + Smart Notes only (never SOAP/SOIP panels). */
 export function aidUsesFreeformCsPathway(aid) {
   return String(aid?.pathwayMode || '') === 'freeform_cs';
 }

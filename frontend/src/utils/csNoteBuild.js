@@ -77,19 +77,7 @@ export const CS_MSE_FIELDS = [
   { key: 'judgment', label: 'Judgment' }
 ];
 
-export const CS_MSE_DEFAULTS = {
-  appearance: 'Within normal limits',
-  behavior: 'Cooperative',
-  speech: 'Normal rate/tone',
-  mood: 'Anxious',
-  affect: 'Congruent',
-  thoughtProcess: 'Logical / goal-directed',
-  thoughtContent: 'No delusions reported',
-  orientation: 'Oriented x3',
-  attention: 'Adequate',
-  insight: 'Fair',
-  judgment: 'Fair'
-};
+export const CS_MSE_DEFAULTS = Object.fromEntries(CS_MSE_FIELDS.map(field => [field.key, '']));
 
 export function createEmptyCsNoteBuildState() {
   return {
@@ -112,7 +100,7 @@ export function createEmptyCsNoteBuildState() {
     affectAreas: [],
     medicalNecessityNarrative: '',
     mse: { ...CS_MSE_DEFAULTS },
-    riskLevel: 'Low Risk',
+    riskLevel: '',
     riskDetails: '',
     goalProgress: {}, // goalId -> { rating, note }
     telehealthRequired: false,
@@ -163,7 +151,7 @@ export function serializeCsNoteBuildForGenerate(state, {
     `Date of Service: ${dateOfService || '—'}`,
     `Service code: ${serviceCode || '—'}`,
     `Place of service / setting: ${locationLabel || '—'}`,
-    `Client initials: ${clientInitials || '—'}`,
+    'Participant role: Client',
     `Start time: ${s.startTime || '—'}`,
     `End time: ${s.endTime || '—'}`,
     `Total contact time (minutes): ${mins != null ? mins : '—'}`,

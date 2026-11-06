@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { getClinicalServiceReference } from './clinicalServiceReference.service.js';
 import { resolvePolicyRuleForServiceCode, isServiceCodeEnabledForAgency } from './billingPolicy.service.js';
 import { isServiceCodeDeniedForTier } from '../utils/clinicalServiceCodeEligibility.js';
 import { defaultClinicalNoteType, isClinicalAddon } from '../utils/clinicalServiceCodeCatalog.js';
@@ -14,8 +15,9 @@ function tiersFor(row) {
  * when an older global dictionary was not synchronized. No reads mutate policy.
  * Explicit global, agency, credential and add-on restrictions still win. */
 export async function resolveAgencySchedulingCatalog({ agencyId, credentialTier, allServiceCodes, eligibleServiceCodes }) {
-  const baseAll = allServiceCodes.filter(row => !isClinicalAddon(row.code, row));
-  const baseEligible = eligibleServiceCodes.filter(row => !isClinicalAddon(row.code, row));
+  const withReference = row => ({ ...row, serviceInfo: getClinicalServiceReference(row.code) });
+  const baseAll = allServiceCodes.filter(row => !isClinicalAddon(row.code, row)).map(withReference);
+  const baseEligible = eligibleServiceCodes.filter(row => !isClinicalAddon(row.code, row)).map(withReference);
   if (!Number(agencyId)) return { allServiceCodes: baseAll, eligibleServiceCodes: baseEligible };
   let rows;
   try {
@@ -52,7 +54,8 @@ export async function resolveAgencySchedulingCatalog({ agencyId, credentialTier,
       unitCalcMode: policy?.unitCalcMode || medical.unit_calc_mode || null,
       maxUnitsPerDay: policy?.maxUnitsPerDay || Number(medical.max_units_per_day) || null,
       policyProfileId: policy?.policyProfileId || null,
-      sessionMode: medical.session_mode || 'either'
+      sessionMode: medical.session_mode || 'either',
+      serviceInfo: getClinicalServiceReference(code)
     };
     all.set(code, row);
     const tiers = tiersFor(medical);

@@ -226,6 +226,7 @@
               <span v-if="item.importedFromEhr && Number(item.agencyId) === 377 && item.clinicalSessionId && ['progress','intake'].includes(item.noteKind)"> · Claim preparation linked</span>
             </div>
           </button>
+          <button v-if="item.narriva?.quickSignEligible === true || item.quickSignEligible === true" type="button" class="na-wq-quick-sign" @click="$emit('quick-sign', item)">✓ Quick Sign</button>
         </li>
       </ul>
     </template>
@@ -283,6 +284,7 @@ const emit = defineEmits([
   'open-work',
   'select',
   'select-cosign',
+  'quick-sign',
   'select-review',
   'refresh-review',
   'delete',
@@ -912,4 +914,5 @@ function removeQueueTitle(item) {
     padding: 6px 8px;
   }
 }
+.na-wq-quick-sign{margin:0 12px 10px;padding:7px 10px;border:1px solid #b9d9c8;border-radius:7px;background:#edf8f1;color:#236743;font:inherit;font-size:12px;cursor:pointer}
 </style>

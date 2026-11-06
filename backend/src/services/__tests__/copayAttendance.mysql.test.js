@@ -121,9 +121,11 @@ test('attendance copays use real SQL locks and one payment through note retries 
       const {createHash}=await import('node:crypto');
       const {maybeEncryptNotePayload}=await import('../clinicalNoteCrypto.service.js');
       const {completeNonbillableReview}=await import('../nonbillableNoteCompletion.service.js');
+      // This copay-only fixture injects an empty risk registry; the persisted-risk
+      // paths are exercised by nonbillableNoteCompletion and Narriva regression tests.
       await setup.execute("INSERT INTO clinical_notes(id,clinical_session_id,agency_id,client_id,created_by_user_id,note_type,note_payload,is_billable) VALUES(9007,9007,1,102,45,'MISSED_APPOINTMENT',?,0)",[maybeEncryptNotePayload(payload)]);
-      await completeNonbillableReview({noteId:9007,agencyId:1,actorUserId:45,confirmed:true,expectedHash:createHash('sha256').update(payload).digest('hex')});
-      await completeNonbillableReview({noteId:9007,agencyId:1,actorUserId:45,confirmed:true,expectedHash:createHash('sha256').update(payload).digest('hex')});
+      await completeNonbillableReview({noteId:9007,agencyId:1,actorUserId:45,confirmed:true,expectedHash:createHash('sha256').update(payload).digest('hex')},{riskGate:async()=>{}});
+      await completeNonbillableReview({noteId:9007,agencyId:1,actorUserId:45,confirmed:true,expectedHash:createHash('sha256').update(payload).digest('hex')},{riskGate:async()=>{}});
       const [[decision]]=await setup.execute('SELECT attendance,decision_source FROM family_copay_attendance WHERE clinical_session_id=9007');
       assert.deepEqual(decision,{attendance:'did_not_occur',decision_source:'reviewed_note'});
       const [[notes]]=await setup.execute('SELECT COUNT(*) n,MAX(provider_signed_at) signature FROM clinical_notes WHERE clinical_session_id=9007');

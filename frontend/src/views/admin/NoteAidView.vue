@@ -5,7 +5,7 @@
       <div>
         <router-link :to="orgTo('/admin')" class="back-link">← Back to Admin</router-link>
         <h1>{{ noteWorkspaceLabel }}</h1>
-        <p class="subtitle">Paste or dictate text, run an AI tool, then copy or save the result.</p>
+        <p class="subtitle">Enter narrative text, run a writing tool, then copy or save the result. Recording is available only from the actual session.</p>
       </div>
     </div>
 
@@ -36,16 +36,13 @@
 
           <div class="col">
             <label class="label">Input</label>
-            <textarea v-model="inputText" class="textarea" rows="10" placeholder="Paste or dictate here…" />
+            <textarea v-model="inputText" class="textarea" rows="10" placeholder="Type or paste narrative text without identifying information…" />
             <div class="actions">
-              <button class="btn btn-secondary" type="button" :disabled="!speechSupported" @click="toggleDictation">
-                {{ dictating ? 'Stop dictation' : 'Dictate' }}
-              </button>
               <button class="btn btn-primary" type="button" :disabled="runDisabled" @click="runTool">
                 {{ running ? 'Running…' : 'Run tool' }}
               </button>
             </div>
-            <small v-if="!speechSupported" class="hint">Dictation is not supported in this browser.</small>
+            <small class="hint">For session audio, open the appointment and choose Record session. Participant waivers and consent are checked there.</small>
             <small v-if="runError" class="error">{{ runError }}</small>
           </div>
         </div>
@@ -135,7 +132,6 @@
 import { isMentalHealthWorkspace } from '../../utils/clinicalWorkspace.js';
 import { noteAidWorkspaceLabel } from '../../config/noteAidAccess.js';
 import ClinicalWorkspaceFrame from '../../components/clinicalWorkspace/ClinicalWorkspaceFrame.vue';
-import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
@@ -258,55 +254,6 @@ const copyOutput = async () => {
     window.setTimeout(() => (copied.value = false), 1500);
   } catch {
     // ignore
-  }
-};
-
-// Dictation (browser speech-to-text; no audio upload)
-const dictating = ref(false);
-let recognition = null;
-const speechSupported = computed(() => {
-  return !!(privateSpeechRecognition());
-});
-
-const toggleDictation = () => {
-  if (!speechSupported.value) return;
-  if (dictating.value) {
-    try {
-      recognition?.stop?.();
-    } catch {
-      // ignore
-    }
-    dictating.value = false;
-    return;
-  }
-
-  const SR = privateSpeechRecognition();
-  recognition = new SR();
-  recognition.continuous = true;
-  recognition.interimResults = false;
-  recognition.onresult = (event) => {
-    try {
-      const r = event?.results?.[event.results.length - 1];
-      const t = r?.[0]?.transcript || '';
-      if (t) {
-        const prev = String(inputText.value || '');
-        inputText.value = prev ? `${prev}\n${t}` : t;
-      }
-    } catch {
-      // ignore
-    }
-  };
-  recognition.onerror = () => {
-    dictating.value = false;
-  };
-  recognition.onend = () => {
-    dictating.value = false;
-  };
-  try {
-    dictating.value = true;
-    recognition.start();
-  } catch {
-    dictating.value = false;
   }
 };
 

@@ -50,7 +50,6 @@
 
 <script setup>
 import { computed, ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
-import api from '../services/api';
 
 const props = defineProps({
   moduleId: {
@@ -211,6 +210,7 @@ const saveSignature = async () => {
     
     // For module signatures, save to API
     if (props.moduleId) {
+      const {default:api}=await import('../services/api');
       await api.post('/signatures', {
         moduleId: parseInt(props.moduleId),
         signatureData: dataUrl
@@ -276,6 +276,7 @@ onMounted(async () => {
 
   if (!props.moduleId) return;
   try {
+    const {default:api}=await import('../services/api');
     const response = await api.get(`/signatures/${props.moduleId}`);
     signatureData.value = response.data.signature_data;
     signed.value = true;

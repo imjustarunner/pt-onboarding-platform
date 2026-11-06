@@ -1,12 +1,12 @@
 <template>
-  <section class="csnb" aria-label="CSNoteBuild Colorado step-by-step note builder">
+  <section class="csnb" aria-label="Smart Notes guided note builder">
     <header class="csnb-head">
       <div>
-        <span class="csnb-kicker">CSNoteBuild</span>
-        <h2>Colorado progress note pathway</h2>
+        <span class="csnb-kicker">Smart Notes · Powered by Narriva</span>
+        <h2>Guided note builder</h2>
         <p>
           Step-by-step documentation aligned to Colorado Service Documentation Standards.
-          Answers drive the AI narrative (not freeform SOAP).
+          Your answers become the source for Narriva’s narrative note.
         </p>
       </div>
       <div class="csnb-progress" aria-live="polite">
@@ -218,6 +218,7 @@
         <label>
           Risk / Safety Assessment
           <select v-model="model.riskLevel" class="csnb-input">
+            <option value="">Select an assessed risk level…</option>
             <option>Low Risk</option>
             <option>Moderate Risk</option>
             <option>High Risk</option>

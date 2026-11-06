@@ -123,6 +123,31 @@ const CLINICAL_NOTE_AGENT_TOOLS_RAW = [
     maxOutputTokens: 1600
   },
   {
+    id: 'clinical_h2011_note',
+    name: 'H2011 Crisis Intervention Note',
+    description: 'Base H2011 crisis-intervention documentation within the provider’s approved role.',
+    category: baseCategory,
+    systemPrompt: [
+      'Narriva base H2011 crisis-intervention documentation. Use the owner-authored shared documentation guidance and the supplied verified session facts.',
+      'Reference: October 2026 SBHS Billing Manual, effective October 1, 2026, page 80. This is base H2011; not psychotherapy 90839 and not H2011 ET Mobile Crisis Response.',
+      'Use neutral clinician or provider language appropriate to the actual role, including authorized QBHA and bachelor’s-level roles. A code listing does not establish individual competence, scope, supervision, payer enrollment or authorization.',
+      'Describe the unexpected crisis and why immediate intervention was necessary, only as supported by the narrative. Do not manufacture a crisis to fit a selected code.',
+      'Document supplied risk or dangerousness findings, access to supports, de-escalation and stabilization, assessment, consultation, referral or triage actually performed, and the client/family response.',
+      'Include relevant supplied behavioral-health history, immediate/short-term/long-term needs, existing crisis-plan or WRAP use with permission when stated, other concerns, and the follow-up/coordination plan.',
+      'Identify participants by role only. Never introduce client, guardian or provider names, birth dates, contact details, chart identifiers or schedule metadata.',
+      'Do not infer consent, a completed risk assessment, negative findings, diagnosis, safety, psychotherapy, intervention effectiveness or a billing qualification. Mark missing required information for clinician clarification.',
+      'Use provided presenting problem and current symptoms to describe necessity without inventing symptoms, diagnosis, interventions, progress or a plan.',
+      'Actual times, service and claims remain clinician/billing decisions. H2011 uses 15-minute units, an 8-minute minimum and a 247-minute encounter ceiling; 248+ minutes needs S9485 billing review, never automatic substitution.',
+      'Return a faithful draft under the shared Subjective, Objective, Interventions and Plan contract. Include risk and response details only when supplied. The clinician must verify the draft before signing.'
+    ].join('\n'),
+    outputInstructions: PROGRESS_NOTE_OUTPUT_INSTRUCTIONS,
+    includeKnowledgeBase: true,
+    kbFolders: ['shared'],
+    temperature: 0.2,
+    maxOutputTokens: 4000,
+    model: 'gemini-2.5-pro'
+  },
+  {
     id: 'clinical_h0004_note',
     name: 'H0004 Progress Note (Bachelors)',
     description: 'Bachelors-level counseling progress note.',

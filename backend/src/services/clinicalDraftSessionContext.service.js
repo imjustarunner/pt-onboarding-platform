@@ -1,6 +1,7 @@
 import clinicalPool from '../config/clinicalDatabase.js';
 import ClinicalSession from '../models/clinical/ClinicalSession.model.js';
 import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
+import { assertNoPendingClinicalServiceChange } from '../utils/clinicalServiceChangePolicy.js';
 
 const fail = (message, status = 409) => Object.assign(new Error(message), { status, code: 'NOTE_SESSION_CONTEXT_REQUIRED' });
 const code = value => String(value || '').trim().toUpperCase();
@@ -15,6 +16,7 @@ function assertScope(session, input) {
     || Number(session.provider_user_id) !== Number(input.providerUserId)) {
     throw fail('The selected session does not belong to this client, provider and organization. Open the correct appointment from the schedule.', 403);
   }
+  assertNoPendingClinicalServiceChange(session);
   if (input.officeEventId && Number(session.office_event_id) !== Number(input.officeEventId)) {
     throw fail('The selected appointment and clinical session do not match. Reopen the appointment from the schedule.');
   }

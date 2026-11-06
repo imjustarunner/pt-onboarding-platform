@@ -101,7 +101,7 @@
     </div>
     <p v-else class="na-chart__skip muted">{{ mseSkipLabel }}</p>
 
-    <div class="na-chart__block na-chart__block--risk">
+    <div v-if="includeRisk" class="na-chart__block na-chart__block--risk">
       <h3>Risk Assessment</h3>
 
       <div class="na-risk-deny" :class="{ on: !!risk.patientDeniesAll }">
@@ -294,6 +294,7 @@ const props = defineProps({
   medications: { type: Object, default: () => ({ noneCurrently: true, items: [], commentsHtml: '' }) },
   medicationsSourceHint: { type: String, default: '' },
   skipMse: { type: Boolean, default: false },
+  includeRisk: { type:Boolean, default:true },
   diagnosisMode: { type: String, default: 'full' },
   mseSkipLabel: { type: String, default: 'Mental status exam skipped for this service.' }
 });

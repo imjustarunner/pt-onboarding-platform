@@ -16449,7 +16449,8 @@ const bookingServiceCodeOptions = computed(() => {
       allowedPlaceOfService: Array.isArray(row?.allowedPlaceOfService) ? row.allowedPlaceOfService : [],
       defaultPlaceOfService: row?.defaultPlaceOfService || null,
       medical: !!row?.medical,
-      isAddon: isAddonServiceCode(row?.code, row)
+      isAddon: isAddonServiceCode(row?.code, row),
+      serviceInfo: row?.serviceInfo || null
     };
   }).filter((row) => row.code);
   const selected = normalizeCodeValue(bookingServiceCode.value);

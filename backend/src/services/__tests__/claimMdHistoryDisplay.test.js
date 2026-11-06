@@ -1,7 +1,7 @@
 import {beforeEach,it,expect,vi} from 'vitest';
 const mocks=vi.hoisted(()=>({clinical:vi.fn(),main:vi.fn(),decrypt:vi.fn()}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:mocks.clinical}}));
-vi.mock('../../config/database.js',()=>({default:{execute:mocks.main}}));
+vi.mock('../../config/database.js',()=>({default:{execute:mocks.main},onTableWrite:()=>()=>{}}));
 vi.mock('../familyBillingEncryption.service.js',()=>({decryptFamilyBilling:mocks.decrypt,encryptFamilyBilling:vi.fn()}));
 import {claimEventHistory} from '../claimMdWorkflow.service.js';
 beforeEach(()=>vi.resetAllMocks());

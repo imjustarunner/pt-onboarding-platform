@@ -1,3 +1,4 @@
+import { applyNarrivaServiceHandbookAmendment } from '../content/narrivaServiceHandbookAmendment.js';
 import { applyNluServicePayClarification } from '../content/nluServicePayClarification.js';
 import {applyDirectCareIndirectCorrection, correctDirectCareIndirectText} from '../content/directCareIndirectCorrection.js';
 import { applyEventTimeHandbookAmendment, applyEventTimeReviewAmendment } from '../content/eventTimeHandbookAmendment.js';
@@ -76,6 +77,7 @@ export function getHandbookSource(agency, { employeeTemplates } = {}) {
   }
   applyDirectCareIndirectCorrection(source);
   applyNluServicePayClarification(source, tenant);
+  applyNarrivaServiceHandbookAmendment(source);
   source.revision = createHash('sha256').update(JSON.stringify(source)).digest('hex');
   source.sections = source.sections.map((s, index) => ({
     slug: s.slug, parent_slug: s.parentSlug, title: s.title, source_page: s.sourcePage,

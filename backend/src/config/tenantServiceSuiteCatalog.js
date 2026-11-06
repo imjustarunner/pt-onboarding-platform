@@ -99,6 +99,11 @@ const ITSCO_DIRECT_SERVICE_META = {
     name: 'Service plan development',
     description: 'Create, evaluate, or modify a member’s treatment/service plan.'
   },
+  H2011: {
+    name: 'Crisis intervention (H2011)',
+    description: 'Unanticipated crisis intervention requiring immediate assessment, de-escalation and stabilization; 15-minute units. Service and provider eligibility must be verified.',
+    packageEligible: false
+  },
   H2014: {
     name: 'Skills training and development',
     description: 'Skills training for community integration and daily living (15-minute units).'
@@ -155,7 +160,7 @@ const ITSCO_DIRECT_BOOKABLE_CODES = [
   '90791', '90832', '90834', '90837', '90839', '90840', '90846', '90847', '90853',
   '90785', '99051', '97535',
   'H0004', 'H0023', 'H0025', 'H0031', 'H0032',
-  'H2014', 'H2015', 'H2016', 'H2017', 'H2018',
+  'H2011', 'H2014', 'H2015', 'H2016', 'H2017', 'H2018',
   'H2021', 'H2022', 'H2032', 'H2033',
   'S9454', 'T1017',
   'PRO-BONO SERVICE'

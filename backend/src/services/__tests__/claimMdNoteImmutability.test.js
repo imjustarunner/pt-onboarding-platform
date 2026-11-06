@@ -11,8 +11,7 @@ describe('signed content survives metadata and correction workflows',()=>{
   });
   it('does not erase note content when attaching metadata such as a print-upload reference',async()=>{
     const original={id:4,note_payload:'Original signed content',provider_signed_at:'2026-11-03',metadata_json:{clinicalValue:'preserve',supervisorQueue:{status:'signed'}}};
-    locked.mockResolvedValueOnce([[original]]).mockResolvedValueOnce([{affectedRows:1}]);
-    execute.mockResolvedValueOnce([[original]]);
+    locked.mockResolvedValueOnce([[original]]).mockResolvedValueOnce([{affectedRows:1}]).mockResolvedValueOnce([[original]]);
     expect(await ClinicalNote.updatePayload({noteId:4,metadataJson:{printUpload:{phiDocumentId:9}}})).toMatchObject({note_payload:'Original signed content'});
     expect(locked.mock.calls[0][0]).toContain('FOR UPDATE');
     expect(locked.mock.calls[1][0]).not.toContain('note_payload =');
