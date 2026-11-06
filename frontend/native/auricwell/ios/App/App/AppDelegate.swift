@@ -12,7 +12,7 @@ class AuricwellBridgeViewController: CAPBridgeViewController {
 @objc(AuricwellDevice)
 class AuricwellDevice: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationPresentationContextProviding {
     let identifier = "AuricwellDevice", jsName = "AuricwellDevice"
-    let pluginMethods = ["status", "request", "exchange", "unlockWithBiometrics", "signIn", "registerPush", "pendingNotification", "reveal", "shareFile"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise) }
+    let pluginMethods = ["status", "request", "exchange", "unlockWithBiometrics", "configureBiometrics", "signIn", "registerPush", "pendingNotification", "reveal", "shareFile"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise) }
     static weak var current: AuricwellDevice?
     static var notificationURL: String?
     private var authentication: ASWebAuthenticationSession?
@@ -34,14 +34,13 @@ class AuricwellDevice: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationPresentat
     }
     @objc func status(_ call: CAPPluginCall) { call.resolve(["biometrics": LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)]) }
     // Durable credentials never cross the bridge into JavaScript.
-    private func send(_ call: CAPPluginCall, path: String, method: String, data: [String: Any] = [:], exchange: Bool = false) {
+    private func send(_ call: CAPPluginCall, path: String, method: String, data: [String: Any] = [:], exchange: Bool = false, sessionToken: String? = nil) {
         var request = URLRequest(url: URL(string: "https://auricwell.com/api/mobile" + path)!)
         request.httpMethod = method; request.timeoutInterval = 30
         request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.setValue("1", forHTTPHeaderField: "X-Auricwell-Mobile")
-        if !exchange {
-            guard let token = token() else { if path == "/logout" { call.resolve(["signedOut": true]); return }; call.reject("Sign in to this device again.", "MOBILE_SIGN_IN_REQUIRED"); return }
-            request.setValue(token, forHTTPHeaderField: "X-Auricwell-Device")
-        }
+        if let credential = token() { request.setValue(credential, forHTTPHeaderField: "X-Auricwell-Device") }
+        else if !exchange { if path == "/logout" { call.resolve(["signedOut": true]); return }; call.reject("Sign in to this device again.", "MOBILE_SIGN_IN_REQUIRED"); return }
+        if let sessionToken = sessionToken { request.setValue(sessionToken, forHTTPHeaderField: "X-Quick-View-Session") }
         if method != "GET" { request.httpBody = try? JSONSerialization.data(withJSONObject: data) }
         let config = URLSessionConfiguration.ephemeral; config.httpCookieStorage = nil; config.urlCache = nil
         let session = URLSession(configuration: config, delegate: NoRedirect(), delegateQueue: nil)
@@ -64,19 +63,26 @@ class AuricwellDevice: CAPPlugin, CAPBridgedPlugin, ASWebAuthenticationPresentat
     }
     @objc func request(_ call: CAPPluginCall) {
         let path = call.getString("path") ?? "", method = call.getString("method") ?? "GET"
-        guard (path == "/session" && method == "GET") || (["/code", "/unlock", "/logout"].contains(path) && method == "POST") else { call.reject("Unsupported request"); return }
+        guard (path == "/session" && method == "GET") || (["/code", "/unlock", "/logout", "/resume", "/app-lock"].contains(path) && method == "POST") else { call.reject("Unsupported request"); return }
         var data = call.getObject("data") ?? [:]; data.removeValue(forKey: "biometric")
-        send(call, path: path, method: method, data: data)
+        send(call, path: path, method: method, data: data, sessionToken: call.getString("sessionToken"))
     }
     @objc func exchange(_ call: CAPPluginCall) {
         var data = call.getObject("data") ?? [:]; data["clientId"] = "ios"; data["redirectUri"] = "com.auricwell.mobile://auth"
         send(call, path: "/exchange", method: "POST", data: data, exchange: true)
     }
     @objc func unlockWithBiometrics(_ call: CAPPluginCall) {
-        let context = LAContext(); context.localizedFallbackTitle = "Use quick access code"
+        let context = LAContext(); context.localizedFallbackTitle = "Use account sign-in"
         context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Unlock your Auricwell workspace") { accepted, _ in
-            guard accepted else { call.reject("Use your quick access code to unlock.", "MOBILE_BIOMETRIC_CANCELLED"); return }
+            guard accepted else { call.reject("Use password, SSO or a passkey to recover access.", "MOBILE_BIOMETRIC_CANCELLED"); return }
             self.send(call, path: "/unlock", method: "POST", data: ["biometric": true])
+        }
+    }
+    @objc func configureBiometrics(_ call: CAPPluginCall) {
+        let context = LAContext()
+        context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Enable optional biometric app lock for Auricwell") { accepted, _ in
+            guard accepted else { call.reject("Biometric app lock was not enabled.", "MOBILE_BIOMETRIC_CANCELLED"); return }
+            self.send(call, path: "/app-lock", method: "POST", data: ["method": "biometric", "biometric": true], sessionToken: call.getString("sessionToken"))
         }
     }
     @objc func signIn(_ call: CAPPluginCall) {

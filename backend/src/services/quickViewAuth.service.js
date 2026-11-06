@@ -594,7 +594,7 @@ export async function touchSession(rawSessionToken, { meetingEndsAt = null, acti
   await assertHireStaffAccess({ id: session.user_id });
   if (session.mobile_device_session_id) {
     const { mobileSessions } = await import('./mobile/session.service.js');
-    await mobileSessions.access(session.mobile_device_session_id,session.user_id,session.agency_id);
+    await mobileSessions.access(session.mobile_device_session_id,session.user_id,session.agency_id,session.credential_token_version);
   }
 
   // Read/poll requests verify the absolute deadline without renewing it.
@@ -828,13 +828,13 @@ export async function createInitialPasscode({userId,agencyId=null}) {
 }
 
 /** Called only after a durable mobile device grant has verified this actor/workspace. */
-export async function startAuthenticatedMobileSession({userId,agencyId,mobileDeviceId}) {
+export async function startAuthenticatedMobileSession({userId,agencyId,mobileDeviceId,mobileDeviceVersion=0}) {
   await assertHireStaffAccess({id:userId});
   const raw=randomSession();
   const expiresAt=new Date(Date.now()+SESSION_TTL_MS);
   const [result]=await pool.execute(`INSERT INTO quick_view_sessions
     (user_id,agency_id,session_token_hash,credential_token_version,mobile_device_session_id,expires_at,last_activity_at)
-    VALUES (?,?,?,0,?,?,CURRENT_TIMESTAMP)`,[userId,agencyId,sha256(raw),mobileDeviceId,expiresAt]);
+    VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)`,[userId,agencyId,sha256(raw),mobileDeviceVersion,mobileDeviceId,expiresAt]);
   await logAccessEvent({userId,agencyId,eventType:'mobile_unlock',meta:{mobileDeviceId,sessionId:result.insertId}});
   return {sessionToken:raw,userId,agencyId,expiresAt};
 }

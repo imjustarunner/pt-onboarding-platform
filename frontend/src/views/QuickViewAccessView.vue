@@ -10,11 +10,11 @@
         <span>{{ agencyName || 'Your workspace' }}</span>
       </div>
       <div v-if="session" class="qv-top-actions">
-        <span class="qv-session-status"><span aria-hidden="true" />Locks at {{ formatExpiry(expiresAt) }}</span>
+        <span class="qv-session-status"><span aria-hidden="true" />{{ isMobile && mobileSession.profile?.appLock?.method==='none'?'Refreshes at':'Locks at' }} {{ formatExpiry(expiresAt) }}</span>
         <button type="button" class="qv-icon-button qv-extend" :disabled="extendBusy" aria-label="Extend session by 10 minutes" @click="extendSession">
           <Clock3 :size="17" aria-hidden="true" /><span>{{ extendBusy ? 'Extending…' : '+10 min' }}</span>
         </button>
-        <button type="button" class="qv-icon-button" aria-label="Lock Quick View" @click="logout"><LockKeyhole :size="18" aria-hidden="true" /><span class="qv-lock-label">Lock</span></button>
+        <button type="button" class="qv-icon-button" :aria-label="isMobile && mobileSession.profile?.appLock?.method==='none'?'Hide workspace':'Lock Quick View'" @click="logout"><LockKeyhole :size="18" aria-hidden="true" /><span class="qv-lock-label">{{ isMobile && mobileSession.profile?.appLock?.method==='none'?'Hide':'Lock' }}</span></button>
       </div>
     </header>
 
@@ -137,7 +137,7 @@
             class="qv-row"
             :class="{ unread: c.is_unread }" :title="`${c.subject || ''}\n\n${emailPreviewText(c.last_message_preview || '')}`"
             @mouseenter="previewQuickEmail(c, $event)" @mouseleave="hideQuickPreview" @focus="previewQuickEmail(c, $event)" @blur="hideQuickPreview"
-            @click="quickPreview = null; openConversation(c)"
+            @click="openConversation(c)"
           >
             <span class="ch"><component :is="channelIcon(c.channel)" :size="19" :stroke-width="1.6" aria-hidden="true" /></span>
             <div class="meta">
@@ -197,7 +197,7 @@
       </div>
 
       <div v-else-if="tab === 'thread'" class="qv-pane thread">
-        <button type="button" class="qv-btn ghost" @click="rememberReply(); tab = 'home'">← Conversations</button>
+        <button type="button" class="qv-btn ghost" @click="closeConversation">← Conversations</button>
         <h2 v-if="activeConv?.channel !== 'email'">{{ activeConv?.subject || 'Conversation' }}</h2>
         <p v-if="threadLoading" role="status">Loading conversation…</p>
         <EmailThreadReader v-if="activeConv?.channel === 'email' && !threadLoading" :conversation="activeConv" :messages="threadMessages" :has-older="!!nextBeforeId" :loading-older="olderLoading"
@@ -213,15 +213,20 @@
           <button v-for="a in m.attachments || []" :key="a.id" type="button" class="qv-btn ghost sm" @click="downloadEmailFile(a)">📎 {{ a.filename }}</button>
           <button v-if="activeConv?.channel === 'email' && !m.is_internal_note && (!m.send_status || m.send_status === 'sent')" type="button" class="qv-btn ghost sm" :aria-pressed="m.reactions?.some((r) => r.emoji === '❤️' && r.reactedByMe) || false" @click="likeEmail(m)">♥ {{ m.reactions?.find((r) => r.emoji === '❤️')?.count || '' }} Like</button>
         </div>
-        <form v-if="!threadLoading && threadMessages.length" class="qv-reply" @submit.prevent="sendQuickReply">
+        </template>
+        <Teleport to="body" :disabled="!mobileEmailReply">
+        <div v-if="!threadLoading && threadMessages.length && !activeConv?.support_ticket_id && (!mobileEmailReply || showMobileReply)" :class="{'qv-modal':mobileEmailReply,'qv-mobile-reply':mobileEmailReply}" :style="mobileEmailReply?brandStyle:undefined" @click.self="closeMobileReply">
+        <form :class="['qv-reply',{'qv-sheet':mobileEmailReply}]" :role="mobileEmailReply?'dialog':undefined" :aria-modal="mobileEmailReply?'true':undefined" :aria-label="mobileEmailReply?'Email reply':undefined" @submit.prevent="sendQuickReply" @keydown.tab="trapDialogFocus" @keydown.esc.prevent="closeMobileReply">
+          <div v-if="mobileEmailReply" class="qv-reply-heading"><h2>{{ replyMode==='forward'?'Forward email':'Reply to email' }}</h2><button type="button" class="qv-btn ghost" aria-label="Close reply" @click="closeMobileReply">Close</button></div>
           <template v-if="activeConv?.channel === 'email'">
             <div class="qv-suite">
-              <button v-for="action in [{ id: 'reply', label: 'Reply' }, { id: 'reply_all', label: 'Reply all' }, { id: 'forward', label: 'Forward' }]" :key="action.id" type="button" :class="{ on: replyMode === action.id }" @click="changeReplyMode(action.id)">{{ action.label }}</button>
+              <button v-for="action in [{ id: 'reply', label: 'Reply' }, { id: 'reply_all', label: 'Reply all' }, { id: 'forward', label: 'Forward' }]" :key="action.id" type="button" :class="{ on: replyMode === action.id }" @click="chooseReplyMode(action.id)">{{ action.label }}</button>
             </div>
             <p class="muted">From: {{ activeConv?.inbox_from_email || mailboxEmail }}</p>
             <label>To <input v-model="replyTo" type="text" inputmode="email" required /></label>
-            <label>CC <input v-model="replyCc" type="text" inputmode="email" /></label>
-            <label>BCC <input v-model="replyBcc" type="text" inputmode="email" /></label>
+            <button v-if="mobileEmailReply && !showReplyCopies && !replyCc && !replyBcc" type="button" class="qv-btn ghost sm" @click="showReplyCopies=true">Add CC / BCC</button>
+            <label v-if="!mobileEmailReply || showReplyCopies || replyCc || replyBcc">CC <input v-model="replyCc" type="text" inputmode="email" /></label>
+            <label v-if="!mobileEmailReply || showReplyCopies || replyCc || replyBcc">BCC <input v-model="replyBcc" type="text" inputmode="email" /></label>
           </template>
           <textarea v-model="replyText" rows="4" placeholder="Write your reply…" aria-label="Reply message" />
           <template v-if="activeConv?.channel === 'email'">
@@ -231,7 +236,8 @@
           <EmailDeliveryChoice :info="replyAvailability" :busy="replyBusy" @choose="sendQuickReply({deliveryChoice:$event})" @cancel="replyAvailability=null" />
           <button type="submit" class="qv-btn primary" :disabled="replyBusy || (!replyText.trim() && !replyAttachments.length)">{{ replyBusy ? 'Sending…' : (replyMode === 'forward' ? 'Forward' : 'Send reply') }}</button>
         </form>
-        </template>
+        </div>
+        </Teleport>
       </div>
 
       <div v-else-if="tab === 'chat'" class="qv-pane thread">
@@ -770,7 +776,8 @@
       </div>
     </div>
   </div>
-  <Teleport to="body"><aside v-if="quickPreview" class="qv-email-preview" role="tooltip" :style="{top:quickPreview.top+'px',left:quickPreview.left+'px'}" @mouseenter="clearTimeout(quickPreviewHideTimer)" @mouseleave="hideQuickPreview">
+  <Teleport to="body"><aside v-if="quickPreview" class="qv-email-preview" role="region" aria-label="Email preview" :style="{top:quickPreview.top+'px',left:quickPreview.left+'px'}" @mouseenter="clearTimeout(quickPreviewHideTimer)" @mouseleave="hideQuickPreview">
+    <button type="button" class="qv-preview-close" aria-label="Close email preview" @click="dismissQuickPreview">Close</button>
     <strong>{{ quickPreview.subject || '(No subject)' }}</strong><pre>{{ quickPreview.body || 'Loading message…' }}</pre>
   </aside></Teleport>
 </template>
@@ -808,7 +815,7 @@ const showBrowserInstallTip = !Capacitor.isNativePlatform() && /iPad|iPhone|iPod
 
 const route = useRoute();
 const router = useRouter();
-function openDetachedEmail(mode='new') { if(isMobile.value){if(mode==='new')showCompose.value=true;else{changeReplyMode(mode);document.querySelector('.qv-reply textarea')?.focus();}return;} openEmailComposer(router,{quickView:true,session:session.value,mode,conversationId:mode==='new'?undefined:activeConv.value?.id}); }
+async function openDetachedEmail(mode='new') { if(isMobile.value){dismissQuickPreview();if(mode==='new')showCompose.value=true;else{changeReplyMode(mode);showMobileReply.value=true;await mobileNavigate({...route.query,compose:mode});await nextTick();document.querySelector('[aria-label=\"Email reply\"] textarea')?.focus();}return;} openEmailComposer(router,{quickView:true,session:session.value,mode,conversationId:mode==='new'?undefined:activeConv.value?.id}); }
 function changeEmailFolder(folder){sort.value=folder;loadHome(msgSuite.value);}
 async function keepEmailUnread(){
   try{await axios.patch(`${apiBase}/conversations/${activeConv.value.id}`,{markUnread:true},{headers:authHeaders(),withCredentials:true});sort.value='unread';await loadHome('email');}catch(e){error.value=e.response?.data?.error?.message || 'Could not mark unread';}
@@ -818,12 +825,17 @@ const apiBase = Capacitor.isNativePlatform() ? 'https://auricwell.com/api/quick-
 provide('emailAttachmentTransport',({conversationId,file})=>axios.get(`${apiBase}/conversations/${conversationId}/attachments/${file.id}`,{headers:authHeaders(),withCredentials:true,responseType:'blob'}));
 const presenceHttp={get:path=>axios.get(apiBase+path,{headers:authHeaders(),withCredentials:true}),post:(path,body)=>axios.post(apiBase+path,body,{headers:authHeaders(),withCredentials:true})};
 const quickPreview = ref(null);
+const showMobileReply=ref(false),showReplyCopies=ref(false);
+const mobileEmailReply=computed(()=>isMobile.value && activeConv.value?.channel==='email');
+function dismissQuickPreview(){clearTimeout(quickPreviewTimer);clearTimeout(quickPreviewHideTimer);quickPreview.value=null;}
+function outsidePreview(event){if(!event.target?.closest?.('.qv-row,.qv-email-preview'))dismissQuickPreview();}
 let quickPreviewTimer=null,quickPreviewHideTimer=null;
 function hideQuickPreview(){clearTimeout(quickPreviewTimer);quickPreviewHideTimer=setTimeout(()=>quickPreview.value=null,200);}
 function previewQuickEmail(c,event){
-  clearTimeout(quickPreviewTimer);clearTimeout(quickPreviewHideTimer);if(c.channel!=='email'||c.draftId)return;
+  clearTimeout(quickPreviewTimer);clearTimeout(quickPreviewHideTimer);if(!window.matchMedia?.('(hover: hover) and (pointer: fine)').matches || event.pointerType==='touch' || c.channel!=='email'||c.draftId || tab.value!=='home')return;
   const rect=event.currentTarget.getBoundingClientRect();const activeSession=session.value;
   quickPreviewTimer=setTimeout(async()=>{
+    if(tab.value!=='home' || session.value!==activeSession)return;
     const preview={id:c.id,subject:c.subject,body:emailPreviewText(c.last_message_preview),top:Math.max(8,Math.min(rect.bottom+8,innerHeight-330)),left:Math.max(8,Math.min(rect.left,innerWidth-430))};quickPreview.value=preview;
     try{const {data}=await axios.get(`${apiBase}/conversations/${c.id}`,{params:{markRead:'0'},headers:authHeaders(),withCredentials:true});if(session.value===activeSession&&quickPreview.value?.id===c.id){const m=(data.messages||[]).filter(m=>!m.is_internal_note).at(-1);quickPreview.value={...preview,subject:m?.subject||data.conversation?.subject||c.subject,body:emailPreviewText(m?.body_text||m?.body_html)||'(Empty message)'};}}catch{/* Retain available preview on a temporary failure. */}
   },350);
@@ -913,6 +925,7 @@ async function navigateTo(destination) {
 }
 
 function closeMore() {
+  dismissQuickPreview();if(showMobileReply.value){closeMobileReply();return;}
   if (!moreOpen.value) return;
   moreOpen.value = false;
   document.querySelector('.qv-tabs button[aria-controls="qv-more-tools"]')?.focus();
@@ -1022,12 +1035,12 @@ const newContactEmail = ref('');
 const newContactPhone = ref('');
 const contactBusy = ref(false);
 const mailboxEmail = ref('');
-const modalOpen = computed(() => !!session.value && !!(showCompose.value || showNewTask.value || showNewContact.value || taskDetail.value || calEvent.value));
+const modalOpen = computed(() => !!session.value && !!(showCompose.value || showNewTask.value || showNewContact.value || taskDetail.value || calEvent.value || showMobileReply.value));
 let modalReturnFocus = null;
 
 function trapDialogFocus(event) {
   if (!modalOpen.value) return;
-  const modal = event.currentTarget.querySelector('.qv-modal');
+  const modal = event.currentTarget.closest('.qv-modal') || event.currentTarget.querySelector('.qv-modal');
   const controls = Array.from(modal?.querySelectorAll('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]') || []).filter(element => element.getClientRects().length);
   if (!controls.length) return;
   const first = controls[0]; const last = controls.at(-1);
@@ -1083,6 +1096,7 @@ function changeReplyMode(mode) {
   const addresses = emailReplyRecipients(threadMessages.value, { mode, inboxEmail: activeConv.value?.inbox_from_email || mailboxEmail.value });
   replyTo.value = addresses.to.join(', '); replyCc.value = addresses.cc.join(', '); replyBcc.value = '';
 }
+function chooseReplyMode(mode){changeReplyMode(mode);if(mobileEmailReply.value && showMobileReply.value)mobileNavigate({...route.query,compose:mode},{replace:true});}
 async function selectEmailFiles(event, composer = false) {
   try { const files = await encodeEmailFiles(event.target.files || []); if (composer) composeAttachments.value = files; else replyAttachments.value = files; }
   catch (e) { error.value = e.message; }
@@ -1574,6 +1588,7 @@ async function openChatThread(t) {
   activeChatId.value = threadId; chatParentId.value = null; restoreChatDraft();
   activeChatTitle.value = chatTitle(t);
   tab.value = 'chat';
+  if(isMobile.value && String(route.query.threadId || '')!==String(threadId))await mobileNavigate({view:'home',suite:msgSuite.value,threadId:String(threadId)});
   await loadChatMessages();
 }
 
@@ -1661,9 +1676,12 @@ async function sendChatMessage() {
 
 async function openConversation(c, { refresh = false, preserveCurrent = true } = {}) {
   if(c.draftId)return openEmailComposer(router,{quickView:true,session:session.value,draftId:c.draftId});
+  dismissQuickPreview();if(!refresh){showMobileReply.value=false;showReplyCopies.value=false;}
   if (preserveCurrent) rememberReply();
   const request = ++conversationRequest;
   activeConv.value = c; threadMessages.value = []; threadLoading.value = true; tab.value = 'thread';
+  if(isMobile.value && String(route.query.conversationId || '')!==String(c.id))await mobileNavigate({view:'home',suite:msgSuite.value,conversationId:String(c.id)});
+  if(isMobile.value){await nextTick();if(request!==conversationRequest || activeConv.value?.id!==c.id)return;document.getElementById('qv-workspace')?.scrollTo?.({top:0});}
   error.value = ''; nextBeforeId.value = null;
   replyText.value = ''; replyAttachments.value = [];
   try {
@@ -2432,6 +2450,8 @@ async function sendQuickReply({deliveryChoice=null}={}) {
     sendNotice.value = data.scheduled ? 'Email queued. You have 20 seconds to undo.' : 'Message sent';
     const destination = data.forwardedConversationId || id;
     if (data.scheduled) offerUndo(destination, data.messageId, draft);
+    showMobileReply.value=false;
+    if(isMobile.value && route.query.compose)returnInApp({...route.query,compose:undefined});
     await openConversation({ id: destination }, { refresh: true });
   } catch (e) {
     if (session.value !== sessionAtSend || activeConv.value?.id !== id) return;
@@ -2455,7 +2475,7 @@ function extendForMeeting(item) {
 function clearSession({notify=true}={}) {
   const wasUnlocked=!!session.value;
   window.dispatchEvent(new Event('quick-view-session-ended'));
-  quickPreview.value=null;clearTimeout(quickPreviewTimer);clearTimeout(quickPreviewHideTimer);
+  showMobileReply.value=false;dismissQuickPreview();
   session.value = null; sessionUserId.value = null; sessionAgencyId.value = null;
   stopHeartbeat(); clearTimeout(undoTimer); clearTimeout(quickPreviewTimer); clearTimeout(quickPreviewHideTimer);
   ++conversationRequest; ++homeRequest; ++chatRequest; ++calendarRequest;
@@ -2481,6 +2501,31 @@ async function logout() {
   await axios.post(`${apiBase}/session/logout`, {}, { headers, withCredentials: true }).catch(() => {});
   error.value = '';
 }
+async function mobileNavigate(query,{replace=false}={}) {
+  if(!isMobile.value)return;
+  const clean=Object.fromEntries(Object.entries(query).filter(([,value])=>value!==undefined && value!==null));
+  if(replace)await router.replace({path:'/mobile/workspace',query:clean});else await router.push({path:'/mobile/workspace',query:clean});
+}
+function returnInApp(query) {
+  if(isMobile.value && String(window.history.state?.back || '').startsWith('/mobile'))router.back();
+  else mobileNavigate(query,{replace:true});
+}
+function closeConversation(){rememberReply();showMobileReply.value=false;dismissQuickPreview();++conversationRequest;activeConv.value=null;threadMessages.value=[];threadLoading.value=false;tab.value='home';returnInApp({view:'home',suite:msgSuite.value});}
+function closeMobileReply(){if(!mobileEmailReply.value)return;rememberReply();showMobileReply.value=false;if(route.query.compose)returnInApp({...route.query,compose:undefined});}
+watch(()=>route.fullPath,async()=>{
+  if(!isMobile.value || !session.value)return;
+  dismissQuickPreview();
+  const conversationId=String(route.query.conversationId || ''),threadId=String(route.query.threadId || '');
+  if(/^[1-9]\d*$/.test(conversationId)){
+    if(String(activeConv.value?.id)!==conversationId || tab.value!=='thread')await openConversation({id:Number(conversationId)});
+    showMobileReply.value=['reply','reply_all','forward'].includes(route.query.compose);
+    if(showMobileReply.value)changeReplyMode(route.query.compose);
+  }else if(/^[1-9]\d*$/.test(threadId)){
+    if(String(activeChatId.value)!==threadId || tab.value!=='chat')await openChatThread({id:Number(threadId)});
+  }else{
+    showMobileReply.value=false;rememberReply();++conversationRequest;threadLoading.value=false;tab.value='home';
+  }
+});
 async function openDeepLink() {
   const target = quickViewDeepLink(route.query, tokenInfo.value?.deepLinkPath);
   if (target.conversationId) await openConversation({ id: Number(target.conversationId) });
@@ -2525,6 +2570,7 @@ watch([agencyName, agencyLogoUrl, agencyPrimaryColor], () => {
 });
 
 onMounted(() => {
+  document.addEventListener('pointerdown',outsidePreview);
   for(const type of ['pointerdown','keydown','touchstart'])window.addEventListener(type,recordActivity,{passive:true});
   window.addEventListener('focus',checkDeadline);
   document.addEventListener('visibilitychange',checkDeadline);
@@ -2541,6 +2587,7 @@ onMounted(() => {
 });
 defineExpose({lock:logout,openDeepLink});
 onUnmounted(() => {
+  document.removeEventListener('pointerdown',outsidePreview);dismissQuickPreview();
   if(isMobile.value)clearSession({notify:false});
   for(const type of ['pointerdown','keydown','touchstart'])window.removeEventListener(type,recordActivity);
   window.removeEventListener('focus',checkDeadline);
@@ -2832,4 +2879,12 @@ button.qv-row:hover { background: #f8faff; }
 
 <style>
 .qv-email-preview{position:fixed;z-index:3000;background:#fff;color:#24372d;border:1px solid #86aa99;border-radius:9px;padding:16px;width:min(410px,90vw);box-sizing:border-box;max-height:320px;overflow:auto;box-shadow:0 8px 24px #0004}.qv-email-preview pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.5}
+</style>
+
+<style scoped>
+.qv-preview-close{float:right;border:1px solid #cad8eb;background:white;color:#254978;border-radius:6px;padding:5px 9px;cursor:pointer}.qv-reply-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.qv-reply-heading h2{font-size:19px;margin:0}.qv-modal .qv-reply{margin:0;max-height:calc(100dvh - 48px);overflow:auto;padding:22px;padding-bottom:calc(22px + env(safe-area-inset-bottom));width:min(620px,calc(100vw - 28px))}
+</style>
+
+<style scoped>
+.qv-mobile-reply{color:var(--qv-text);font-family:inherit}.qv-mobile-reply :is(button,input,textarea,select){font-family:inherit}.qv-mobile-reply .qv-reply-heading{position:sticky;top:-22px;background:white;z-index:2;padding:4px 0}
 </style>

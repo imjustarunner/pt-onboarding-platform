@@ -3,13 +3,17 @@ Auricwell mobile pilot
 Browser entry: https://auricwell.com/mobile
 Use an existing full-suite staff account. Enter its organization workspace name
 (for ITSCO, itsco). Continue through the organization's existing password,
-Google SSO, or passkey sign-in, confirm the account and workspace, then choose
-a separate six-digit code for this device. Standalone EHR-only accounts use
+Google SSO, or passkey sign-in, confirm the account and workspace, then optionally choose
+an extra app lock in My Account. No extra app lock, a six-digit code, and
+native Face ID / Touch ID are available choices. Standalone EHR-only accounts use
 their existing separate sign-in and are not enrolled here.
 
 Locking and signing out
-The browser unlocks with the device's quick access code. The separate native
-iOS project adds Face ID / Touch ID through LocalAuthentication. Inactivity
+App lock is optional. Existing codes remain enabled until changed in My Account.
+Without an extra app lock the retained device sign-in resumes; the phone's
+screen lock still protects a locked phone. The separate native iOS project
+adds optional Face ID / Touch ID through LocalAuthentication, without a code
+prerequisite. Passkeys remain optional primary/recovery sign-in methods. Inactivity
 or backgrounding hides the workspace and revokes its short access session;
 it keeps the device sign-in. Sign out revokes the device and all its short
 sessions, clears notification registration, and requires primary sign-in again.
@@ -72,3 +76,5 @@ Automated validation: frontend mobile/Quick View/attachment tests; backend
 mobile API/cookie/PKCE and disposable MySQL migration/session/notification
 tests; dedicated mobile production build; full application bundle check;
 isolated Chrome phone-width fixture checks. No live account data was used.
+
+Updated phone and TestFlight handoff: docs/auricwell/PHONE-AND-TESTFLIGHT-TESTING.txt

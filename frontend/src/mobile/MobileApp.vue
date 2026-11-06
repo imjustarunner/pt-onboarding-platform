@@ -10,20 +10,40 @@ import { MobileDevice, native, mobileApi, quickApiBase, randomSecret, pkceChalle
 const route=useRoute(),router=useRouter();
 const screen=ref('loading'),busy=ref(false),error=ref(''),portal=ref(''),passcode=ref(''),confirmCode=ref('');
 const access=ref(null),profile=ref(null),workspace=ref(null),accountOpen=ref(false),connectAccount=ref(null),selectedAgency=ref('');
-const qv=ref(null),notificationStatus=ref(''),biometry=ref(false);
+const qv=ref(null),notificationStatus=ref(''),biometry=ref(false),accountLoading=ref(false);
+const appLock=ref({method:'none',hasCode:false}),lockChoice=ref('none'),newCode=ref(''),newCodeConfirm=ref(''),lockNotice=ref(''),privacyIntro=ref(false);
+let wasBackground=false;
 let generation=0,interceptor,deviceListener,pushListener,privacyListener;
 const accountLink=computed(()=>accountUrl(profile.value?.workspace));
 const securityLink=computed(()=>accountUrl(profile.value?.workspace,'account-security'));
 const preferencesLink=computed(()=>accountUrl(profile.value?.workspace,'preferences'));
 const connectQuery=()=>Object.fromEntries(new URLSearchParams(window.location.search));
 async function deviceRequest(method,path,data={}) {
-  if(native)return MobileDevice.request({method,path,data});
-  return (await mobileApi.request({method,url:path,data})).data;
+  if(native)return MobileDevice.request({method,path,data,sessionToken:access.value?.sessionToken || ''});
+  return (await mobileApi.request({method,url:path,data,headers:access.value?{'X-Quick-View-Session':access.value.sessionToken}:{}})).data;
+}
+function applySession(result) {
+  const notifications=profile.value?.user?.id===result.profile.user?.id?profile.value.notifications:null;
+  access.value=result;profile.value={...result.profile,...(notifications?{notifications}:{})};workspace.value=result.profile.workspace;
+  appLock.value=result.profile.appLock || {method:'code',hasCode:true};lockChoice.value=appLock.value.method;
+  passcode.value='';confirmCode.value='';screen.value='workspace';
+}
+async function normalizeWorkspaceRoute() {
+  if(route.path==='/mobile/workspace')return;
+  const query={...route.query};
+  await router.replace({path:'/mobile/workspace',query:{view:'home'}});
+  if(query.conversationId || query.threadId || query.kind)await router.push({path:'/mobile/workspace',query:Object.fromEntries(Object.entries(query).filter(([key])=>['conversationId','threadId','kind','id','suite','view'].includes(key)))});
 }
 async function detectSession() {
-  screen.value='loading';error.value='';
-  try { const status=await deviceRequest('GET','/session');workspace.value=status.workspace;screen.value=status.needsCode?'setup':'locked'; }
-  catch(e){screen.value='signin';if(e.response?.status===503)error.value=mobileRequestError(e);}
+  const current=++generation;screen.value='loading';error.value='';
+  try {
+    const status=await deviceRequest('GET','/session');if(current!==generation)return false;
+    workspace.value=status.workspace;appLock.value=status.appLock || {method:'code',hasCode:!status.needsCode};
+    if(appLock.value.method==='none'){
+      const result=await deviceRequest('POST','/resume');if(current!==generation)return false;applySession(result);await normalizeWorkspaceRoute();await afterOpen();
+    }else screen.value='locked';
+    return true;
+  }catch(e){if(current!==generation)return false;screen.value='signin';if(e.response?.status!==401)error.value=mobileRequestError(e);return false;}
 }
 async function startSignIn() {
   busy.value=true;error.value='';
@@ -40,13 +60,14 @@ async function startSignIn() {
       await completeSignIn(callbackUrl,{state,verifier,callback,clientId:'ios'});
     } else {
       sessionStorage.setItem('auricwell.mobile.pending',JSON.stringify({state,verifier,callback,clientId:'web',createdAt:Date.now()}));
-      window.location.assign(url.href);
+      window.location.replace(url.href);
     }
   } catch(e){error.value=mobileRequestError(e);} finally {busy.value=false;}
 }
 async function loadConnect() {
   screen.value='connect';busy.value=true;
   const query=connectQuery();
+  if(query.clientId==='web' && performance.getEntriesByType?.('navigation')?.[0]?.type==='back_forward'){location.replace('https://auricwell.com/mobile');return;}
   try {
     if(!['web','ios'].includes(query.clientId) || !/^[\w-]{43}$/.test(query.challenge || '') || !/^[\w-]{43}$/.test(query.state || ''))throw new Error('Restart sign-in from Auricwell mobile.');
     const {data}=await mobileApi.get('/account');connectAccount.value=data;selectedAgency.value=String(data.agencies[0]?.id || '');
@@ -54,7 +75,7 @@ async function loadConnect() {
     if([401,423].includes(e.response?.status)){
       const path=query.loginPath;
       if(!/^\/(?:[a-z0-9-]+\/)*login\/?$/i.test(path || '')){error.value='Restart sign-in from Auricwell mobile.';return;}
-      const login=new URL(path,location.origin);login.searchParams.set('redirect',location.pathname+location.search);location.assign(login.href);
+      const login=new URL(path,location.origin);login.searchParams.set('redirect',location.pathname+location.search);location.replace(login.href);
     } else error.value=mobileRequestError(e);
   } finally {busy.value=false;}
 }
@@ -72,50 +93,70 @@ async function completeSignIn(url,pending) {
   if(!pending || pending.state!==callback.searchParams.get('state') || !code || pending.createdAt && Date.now()-pending.createdAt>600000)throw new Error('The sign-in request expired. Start again from this device.');
   const data={code,verifier:pending.verifier,clientId:pending.clientId,redirectUri:pending.callback,deviceName:native?'Auricwell iPhone':'Auricwell browser'};
   const result=native?await MobileDevice.exchange({data}):(await mobileApi.post('/exchange',data)).data;
-  workspace.value=result.workspace;screen.value='setup';
+  if(result.sessionToken){applySession(result);await normalizeWorkspaceRoute();await afterOpen();privacyIntro.value=!!result.newDevice;if(result.newDevice)await showAccount();}else await detectSession();
 }
 async function callback() {
   try {
     const pending=JSON.parse(sessionStorage.getItem('auricwell.mobile.pending') || 'null');sessionStorage.removeItem('auricwell.mobile.pending');
-    const url=location.href;history.replaceState(null,'','/mobile');
+    const url=location.href;await router.replace('/mobile');
     await completeSignIn(url,pending);
-  }catch(e){screen.value='signin';error.value=mobileRequestError(e);}
+  }catch(e){const message=mobileRequestError(e);if(!await detectSession())error.value=message;}
 }
 async function enter(biometrics=false) {
   busy.value=true;error.value='';const current=generation;
   try {
-    if(screen.value==='setup' && passcode.value!==confirmCode.value)throw new Error('The quick access codes must match.');
-    const result=biometrics?await MobileDevice.unlockWithBiometrics():await deviceRequest('POST',screen.value==='setup'?'/code':'/unlock',{passcode:passcode.value});
+    const result=biometrics?await MobileDevice.unlockWithBiometrics():await deviceRequest('POST',appLock.value.method==='none'?'/resume':'/unlock',{passcode:passcode.value});
     if(current!==generation)return;
-    access.value=result;profile.value=result.profile;workspace.value=result.profile.workspace;passcode.value='';confirmCode.value='';screen.value='workspace';
-    if(native){
-      try{const {data}=await mobileApi.get('/profile',{headers:{'X-Quick-View-Session':result.sessionToken}});if(current!==generation)return;profile.value=data;if(data.notifications.enabled){const registration=await MobileDevice.registerPush();await registerPush({enabled:true,...registration});}}catch{/* Notification settings must not prevent unlocking. */}
-      const target=await MobileDevice.pendingNotification();if(target.url)await openNotification(target.url);}
-    else if(route.query.kind)await openNotification(location.pathname+location.search);
+    applySession(result);await normalizeWorkspaceRoute();
+    await afterOpen();
   }catch(e){
     if(current!==generation)return;
     error.value=mobileRequestError(e);
     const code=e.response?.data?.error?.code || e.code;
     if(['MOBILE_SIGN_IN_REQUIRED','MOBILE_ACCOUNT_CHANGED','ACCOUNT_DISABLED','ACCOUNT_UNAVAILABLE','MOBILE_WORKSPACE_UNAVAILABLE','PRODUCT_SESSION_MISMATCH'].includes(code))screen.value='signin';
-    if(code==='MOBILE_SETUP_REQUIRED')screen.value='setup';
+    if(['MOBILE_SETUP_REQUIRED','MOBILE_METHOD_CHANGED'].includes(code))await detectSession();
   } finally {busy.value=false;}
+}
+async function afterOpen() {
+  const token=access.value?.sessionToken;if(!token)return;
+  if(native){
+    const target=await MobileDevice.pendingNotification();if(access.value?.sessionToken!==token)return;
+    if(target.url)await openNotification(target.url);
+    try{const {data}=await mobileApi.get('/profile',{headers:{'X-Quick-View-Session':token}});if(access.value?.sessionToken!==token)return;profile.value=data;
+      if(data.notifications.enabled){const registration=await MobileDevice.registerPush();if(access.value?.sessionToken===token)await registerPush({enabled:true,...registration});}
+    }catch{/* Notification setup must not prevent opening the workspace. */}
+  }else if(route.query.kind)await openNotification(location.pathname+location.search);
 }
 function lock() {
   ++generation;
-  const old=access.value;access.value=null;profile.value=null;accountOpen.value=false;passcode.value='';confirmCode.value='';
+  const old=access.value;access.value=null;profile.value=null;accountOpen.value=false;passcode.value='';confirmCode.value='';newCode.value='';newCodeConfirm.value='';
   if(screen.value==='workspace')screen.value='locked';
   if(old)axios.post(`${quickApiBase}/session/logout`,{},{headers:{'X-Quick-View-Session':old.sessionToken},withCredentials:true}).catch(()=>{});
 }
-function background() {if(!native && document.hidden && ['workspace','locked','setup'].includes(screen.value))lock();}
+function background() {if(native)return;if(document.hidden){wasBackground=true;if(['workspace','locked','loading'].includes(screen.value))lock();}else if(wasBackground){wasBackground=false;if(appLock.value.method==='none' && screen.value==='locked')detectSession();}}
+function restorePage(event){if(!event.persisted)return;if(location.pathname==='/mobile/connect' && connectQuery().clientId==='web'){location.replace('https://auricwell.com/mobile');return;}lock();detectSession();}
+function recoverSignIn(){lock();portal.value=workspace.value?.portal_url || '';screen.value='signin';error.value='';}
+async function saveAppLock(){
+  busy.value=true;lockNotice.value='';
+  try{
+    if(lockChoice.value==='code' && newCode.value!==newCodeConfirm.value)throw new Error('The quick access codes must match.');
+    const result=lockChoice.value==='biometric'?await MobileDevice.configureBiometrics({sessionToken:access.value.sessionToken}):await deviceRequest('POST','/app-lock',{method:lockChoice.value,passcode:newCode.value});
+    applySession(result);newCode.value='';newCodeConfirm.value='';privacyIntro.value=false;
+    lockNotice.value=lockChoice.value==='none'?'App lock is off. Your device stays signed in.':lockChoice.value==='code'?'Your optional quick access code is saved.':'Biometric app lock is enabled.';
+  }catch(e){lockNotice.value=mobileRequestError(e);}finally{busy.value=false;}
+}
 async function signOut() {
   busy.value=true;error.value='';
-  try { await deviceRequest('POST','/logout');lock();workspace.value=null;screen.value='signin'; }
+  lock();
+  try { await deviceRequest('POST','/logout');workspace.value=null;screen.value='signin'; }
   catch(e){error.value=mobileRequestError(e);} finally {busy.value=false;}
 }
 async function showAccount() {
-  const current=generation;accountOpen.value=true;
-  try {const {data}=await mobileApi.get('/profile',{headers:{'X-Quick-View-Session':access.value.sessionToken}});if(current===generation)profile.value=data;}
-  catch(e){error.value=mobileRequestError(e);}
+  const current=generation,token=access.value?.sessionToken;
+  lockChoice.value=appLock.value.method;newCode.value='';newCodeConfirm.value='';lockNotice.value='';accountOpen.value=true;accountLoading.value=true;
+  try {const {data}=await mobileApi.get('/profile',{headers:{'X-Quick-View-Session':token}});if(current===generation && access.value?.sessionToken===token)profile.value=data;}
+  catch(e){if(current===generation && access.value?.sessionToken===token)error.value=mobileRequestError(e);}
+  finally{accountLoading.value=false;}
 }
 async function changeWorkspace(event) {
   const current=generation;busy.value=true;
@@ -137,7 +178,9 @@ async function enableNotifications() {
     if(!('serviceWorker' in navigator) || !('PushManager' in window))throw new Error('For iPhone browser notifications, add Auricwell to your Home Screen and open it there.');
     const permission=await Notification.requestPermission();
     if(permission!=='granted')throw new Error('Notifications are off in this device’s settings.');
-    const config=profile.value?.notifications;
+    if(!access.value)throw new Error('Reopen your workspace before enabling notifications.');
+    let config=profile.value?.notifications;
+    if(!config){const {data}=await mobileApi.get('/profile',{headers:{'X-Quick-View-Session':access.value.sessionToken}});config=data.notifications;}
     if(!config?.webPublicKey)throw new Error('Server notification delivery is awaiting configuration.');
     const worker=await navigator.serviceWorker.register('/mobile-sw.js',{scope:'/mobile/'});
     if(!worker.active)await new Promise((resolve,reject)=>{const active=worker.installing || worker.waiting;if(!active)return reject(new Error('Could not activate notifications. Try again.'));active.addEventListener('statechange',()=>{if(active.state==='activated')resolve();if(active.state==='redundant')reject(new Error('Could not activate notifications. Try again.'));});});
@@ -159,17 +202,17 @@ async function openNotification(url) {
   }catch(e){error.value=mobileRequestError(e);}
 }
 onMounted(async()=>{
-  document.addEventListener('visibilitychange',background);
-  interceptor=axios.interceptors.response.use(r=>r,e=>{if(access.value && [401,423].includes(e.response?.status))lock();return Promise.reject(e);});
+  document.addEventListener('visibilitychange',background);window.addEventListener('pageshow',restorePage);
+  interceptor=axios.interceptors.response.use(r=>r,e=>{const failed=e.config?.headers?.get?.('X-Quick-View-Session') || e.config?.headers?.['X-Quick-View-Session'];if(access.value && failed===access.value.sessionToken && [401,423].includes(e.response?.status))lock();return Promise.reject(e);});
   if(native){
-    try {biometry.value=(await MobileDevice.status()).biometrics;deviceListener=await MobileDevice.addListener('deviceLocked',lock);privacyListener=await MobileDevice.addListener('privacyReady',async()=>{await nextTick();await MobileDevice.reveal();});pushListener=await MobileDevice.addListener('notificationTapped',event=>openNotification(event.url));}catch{error.value='This native build needs the Auricwell device plugin.';}
+    try {biometry.value=(await MobileDevice.status()).biometrics;deviceListener=await MobileDevice.addListener('deviceLocked',lock);privacyListener=await MobileDevice.addListener('privacyReady',async()=>{if(appLock.value.method==='none' && screen.value==='locked' && !busy.value)await detectSession();await nextTick();await MobileDevice.reveal();});pushListener=await MobileDevice.addListener('notificationTapped',event=>openNotification(event.url));}catch{error.value='This native build needs the Auricwell device plugin.';}
   }
   if(!native && location.pathname==='/mobile/connect')await loadConnect();
   else if(!native && location.pathname==='/mobile/callback')await callback();
   else await detectSession();
   if(native){await nextTick();await MobileDevice.reveal();}
 });
-onUnmounted(()=>{lock();document.removeEventListener('visibilitychange',background);axios.interceptors.response.eject(interceptor);deviceListener?.remove();pushListener?.remove();privacyListener?.remove();});
+onUnmounted(()=>{lock();document.removeEventListener('visibilitychange',background);window.removeEventListener('pageshow',restorePage);axios.interceptors.response.eject(interceptor);deviceListener?.remove();pushListener?.remove();privacyListener?.remove();});
 </script>
 
 <template>
@@ -179,15 +222,26 @@ onUnmounted(()=>{lock();document.removeEventListener('visibilitychange',backgrou
       <QuickView :key="access.sessionToken" ref="qv" :mobile-session="access" @locked="lock" />
       <div v-if="accountOpen" class="mobile-overlay" @keydown.esc="accountOpen=false">
         <section class="mobile-card account" role="dialog" aria-modal="true" aria-labelledby="account-title">
-          <button class="close" @click="accountOpen=false" aria-label="Close My Account">×</button>
+          <button class="close" @click="accountOpen=false;privacyIntro=false" aria-label="Close My Account">×</button>
           <h1 id="account-title">My Account</h1><p>{{ profile?.user?.firstName }} {{ profile?.user?.lastName }}<br>{{ profile?.user?.email }}</p>
           <label v-if="profile?.agencies?.length>1">Workspace<select :value="workspace?.id" :disabled="busy" @change="changeWorkspace"><option v-for="agency in profile.agencies" :key="agency.id" :value="agency.id">{{ agency.name }}</option></select></label>
           <a v-if="accountLink" :href="accountLink" target="_blank" rel="noopener">Manage profile <ArrowRight :size="17" /></a>
           <a v-if="securityLink" :href="securityLink" target="_blank" rel="noopener">Security & passkeys <ArrowRight :size="17" /></a>
           <a v-if="preferencesLink" :href="preferencesLink" target="_blank" rel="noopener">Account preferences <ArrowRight :size="17" /></a>
+          <section class="mobile-lock-options" aria-labelledby="app-lock-title">
+            <h2 id="app-lock-title">App lock · optional</h2>
+            <p>Your sign-in stays on this device. Choose an extra app lock if you want one; otherwise use your phone’s normal screen lock.</p>
+            <form @submit.prevent="saveAppLock">
+              <label for="mobile-app-lock">App lock</label><select id="mobile-app-lock" v-model="lockChoice" :disabled="busy"><option value="none">No extra app lock</option><option value="code">Six-digit quick access code</option><option v-if="native && biometry" value="biometric">Face ID / Touch ID</option></select>
+              <template v-if="lockChoice==='code'"><label>New six-digit code<input v-model="newCode" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="new-password" required></label><label>Confirm code<input v-model="newCodeConfirm" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="new-password" required></label></template>
+              <button :disabled="busy">{{ lockChoice==='biometric'?'Enable Face ID / Touch ID':'Save app lock preference' }}</button>
+            </form>
+            <button v-if="privacyIntro" class="secondary" @click="accountOpen=false;privacyIntro=false">Not now · open my workspace</button>
+            <p role="status">{{ lockNotice }}</p>
+          </section>
           <h2><Bell :size="18" />Conversa notifications</h2><p>Email, text messages, direct messages, channels, replies, mentions and secure messages. Message previews stay private.</p>
-          <button :disabled="busy" @click="enableNotifications">Enable notifications</button><button class="secondary" :disabled="busy" @click="registerPush({enabled:false})">Turn off on this device</button><p role="status">{{ notificationStatus }}</p>
-          <button class="secondary" @click="lock"><LockKeyhole :size="17" />Lock workspace</button><button class="secondary danger" :disabled="busy" @click="signOut"><LogOut :size="17" />Sign out of this device</button>
+          <button :disabled="busy || accountLoading" @click="enableNotifications">Enable notifications</button><button class="secondary" :disabled="busy" @click="registerPush({enabled:false})">Turn off on this device</button><p role="status">{{ notificationStatus }}</p>
+          <button class="secondary" @click="lock"><LockKeyhole :size="17" />{{ appLock.method==='none'?'Hide workspace':'Lock workspace' }}</button><button class="secondary danger" :disabled="busy" @click="signOut"><LogOut :size="17" />Sign out of this device</button>
           <p v-if="error" role="alert" class="error">{{ error }}</p>
         </section>
       </div>
@@ -210,13 +264,12 @@ onUnmounted(()=>{lock();document.removeEventListener('visibilitychange',backgrou
         </form>
         <form v-else @submit.prevent="enter()">
           <span class="gate-icon"><LockKeyhole :size="26" /></span><p class="eyebrow">{{ workspace?.name || 'Your workspace' }}</p>
-          <h1>{{ screen==='setup'?'Protect your workspace':'Welcome back' }}</h1>
-          <p>{{ screen==='setup'?'Choose a six-digit quick access code for this device.':'Unlock to pick up where you left off. Your account is still signed in.' }}</p>
-          <label>{{ screen==='setup'?'New quick access code':'Quick access code' }}<input v-model="passcode" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" :autocomplete="screen==='setup'?'new-password':'current-password'" required></label>
-          <label v-if="screen==='setup'">Confirm code<input v-model="confirmCode" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="new-password" required></label>
-          <button :disabled="busy || passcode.length!==6">{{ busy?'Opening…':screen==='setup'?'Save & open workspace':'Unlock workspace' }}<ArrowRight :size="18" /></button>
-          <button v-if="native && biometry && screen==='locked'" type="button" class="secondary" :disabled="busy" @click="enter(true)"><Fingerprint :size="20" />Unlock with Face ID / Touch ID</button>
-          <button type="button" class="text-button" :disabled="busy" @click="signOut">Sign out or recover access</button>
+          <h1>{{ appLock.method==='none'?'Workspace hidden':'Welcome back' }}</h1>
+          <p>{{ appLock.method==='none'?'Your account is still signed in. Continue when you’re ready.':'Unlock to pick up where you left off. Your account is still signed in.' }}</p>
+          <label v-if="appLock.method==='code'">Quick access code<input v-model="passcode" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="current-password" required></label>
+          <button v-if="appLock.method!=='biometric'" :disabled="busy || appLock.method==='code' && passcode.length!==6">{{ busy?'Opening…':appLock.method==='none'?'Continue to workspace':'Unlock workspace' }}<ArrowRight :size="18" /></button>
+          <button v-if="native && biometry && appLock.method==='biometric'" type="button" class="secondary" :disabled="busy" @click="enter(true)"><Fingerprint :size="20" />Unlock with Face ID / Touch ID</button>
+          <button type="button" class="text-button" :disabled="busy" @click="recoverSignIn">Use password, SSO or passkey</button><button type="button" class="text-button" :disabled="busy" @click="signOut">Sign out of this device</button>
         </form>
         <p v-if="error" role="alert" class="error">{{ error }}</p>
       </section>

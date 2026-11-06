@@ -1,0 +1,91 @@
+Auricwell — phone pilot and developer handoff
+Updated November 5, 2026
+
+Start testing on your phone now
+1. Open https://auricwell.com/mobile in Safari. Enter your workspace name
+   (ITSCO: itsco), then use your existing staff password, SSO or passkey.
+2. A new device stays signed in without requiring a six-digit code. My Account
+   offers an optional app lock. Choose No extra app lock, a six-digit code, or
+   Face ID / Touch ID in the native iOS app. Existing codes remain enabled until
+   you change the preference. Passkeys are managed through Security & passkeys
+   and remain optional sign-in/recovery methods at your organization’s domain.
+3. To remove your existing code requirement: unlock once, open My Account,
+   choose No extra app lock, and save. The phone’s screen lock still applies;
+   someone using your already-unlocked phone can open an app without an extra
+   app lock. The app hides its content while backgrounded.
+4. In Safari, choose Share > Add to Home Screen and keep Open as Web App on
+   when offered. Launch the resulting Auricwell icon. This browser installation
+   supports web testing; native Face ID and APNs require the signed iOS build.
+5. Check a long email: open it, tap Reply, type a synthetic reply, close the
+   editor, then use browser Back. Back should close the editor, return from
+   the email to the inbox, and preserve your device sign-in and lock preference.
+   Repeat after backgrounding, reopening, refreshing, and returning through
+   browser history. Do not send test content to real clients or mailing lists.
+
+Developer: install a native build on the owner's iPhone
+1. Use a clean checkout of main containing the mobile pilot fixes. Preserve
+   unrelated local changes. Open Xcode and review/accept its license and install
+   requested iOS components. This Mac's last build attempt was blocked by the
+   license; there is no successful native compile or signed upload from this task.
+2. Install frontend dependencies if needed with npm ci --ignore-scripts.
+   From frontend run:
+     npm run cap:auricwell:sync
+     npm run cap:auricwell:open
+   These commands select the separate Auricwell project. Its source is
+   frontend/native/auricwell/ios/App/App.xcodeproj, scheme App, display name
+   Auricwell, bundle ID com.auricwell.mobile. Summit Stats retains its project.
+3. In Xcode > Settings > Apple Accounts, sign in to the appropriate Apple
+   Developer team. In the Auricwell target's Signing & Capabilities, select that
+   team and enable automatic signing. Register/provision the bundle ID and its
+   Push Notifications capability if testing notifications.
+4. Connect/unlock the owner's iPhone, trust the Mac, select the phone as the run
+   destination, enable Developer Mode when iOS requests it, and Run. Complete
+   the sign-in and optional-lock tests on that physical device. A simulator or
+   a browser screenshot is not a substitute for testing biometric unlock.
+5. Validate the icon/assets and privacy descriptions before archiving. Confirm
+   the app has the correct company identity and only needed permissions.
+
+Developer: deliver through TestFlight
+1. Use the existing Apple Developer Program / App Store Connect organization.
+   An Account Holder, Admin or App Manager creates an iOS app record named
+   Auricwell using the registered com.auricwell.mobile identifier. Give the
+   developer access to upload builds. This is a separate app from Summit Stats.
+2. Increment the build number. In Xcode select the generic iOS device target,
+   Product > Archive, Validate App, then upload to App Store Connect. Use the
+   normal App Store Connect distribution path if external testing is planned;
+   an Internal Only upload cannot later be used for external testers.
+3. Complete processing, export-compliance answers, beta description, feedback
+   contact and review information in App Store Connect. Supply a dedicated
+   review account with synthetic records when Apple needs to sign in; put its
+   credentials in App Store Connect's review fields, not repository files.
+4. For the owner/developers who already have suitable App Store Connect access:
+   add an internal TestFlight group, add the processed build, invite their Apple
+   Account email addresses, and install Apple's TestFlight app on each phone.
+5. For ordinary staff or outside testers: create an External Testing group and
+   attach the build. Submit the first external build to TestFlight App Review.
+   After Apple approves it, invite testers by email or enable that group's
+   public invitation link. They install TestFlight, accept, then install Auricwell.
+   Staff do not need developer/admin roles just to test the app.
+6. TestFlight supplies the installation, not account access. Each tester still
+   needs an authorized staff account and the correct workspace. Use dedicated
+   pilot accounts/records. Check each role can access only its allowed data.
+7. Distribute later builds to the group through TestFlight. Record build number,
+   iOS version, device model and reproducible steps with feedback; keep message
+   bodies, client records, passwords and passcodes out of public reports.
+
+Notifications on physical devices
+The backend needs APNS_TEAM_ID, APNS_KEY_ID and APNS_PRIVATE_KEY (the P8 PEM),
+with topic com.auricwell.mobile. Store provider secrets in the deployment secret
+configuration. Debug uses sandbox APNs and Release uses production. Each tester
+opts in under My Account and allows iOS notifications. Verify delivery with the
+app backgrounded and terminated, generic lock-screen text, correct conversation
+after unlock, and opt-out. Browser push separately uses the VAPID configuration.
+No successful APNs delivery, TestFlight upload or App Store approval is claimed
+until those developer/account/device steps have actually been completed.
+
+Apple references (checked November 5, 2026)
+https://support.apple.com/guide/iphone/iphea86e5236/ios
+https://developer.apple.com/documentation/xcode/enabling-developer-mode-on-a-device
+https://developer.apple.com/help/app-store-connect/create-an-app-record/add-a-new-app/
+https://developer.apple.com/help/app-store-connect/test-a-beta-version/add-internal-testers/
+https://developer.apple.com/help/app-store-connect/test-a-beta-version/invite-external-testers/
