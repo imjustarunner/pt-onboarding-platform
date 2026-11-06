@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {createHash} from 'node:crypto';
+vi.mock('../agencyAccessProfiles.service.js',()=>({accessProfileSchemaReady:vi.fn(async()=>false)}));
 const m=vi.hoisted(()=>({execute:vi.fn(),identity:vi.fn(),allowed:vi.fn(),gmail:vi.fn(),approval:vi.fn(),senderCurrent:true}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute},onTableWrite:vi.fn()}));
 vi.mock('../../models/EmailSenderIdentity.model.js',()=>({default:{findById:m.identity}}));

@@ -44,6 +44,7 @@ export const useAuthStore = defineStore('auth', () => {
         }
       })();
   const user = ref(storedUser);
+  let userRefreshGeneration = 0;
   if (isDemoWindowSession()) {
     token.value = getDemoWindowToken();
   }
@@ -271,9 +272,11 @@ export const useAuthStore = defineStore('auth', () => {
   };
 
   const refreshUser = async () => {
+    const generation = ++userRefreshGeneration;
     try {
       // Fetch current user data from backend to get updated role
       const response = await api.get('/users/me', { skipGlobalLoading: true });
+      if (generation !== userRefreshGeneration) return user.value;
       if (response.data) {
         // Merge to avoid dropping client-side-only fields (e.g., approved employee agencyIds).
         // Deep-merge capabilities so a partial /users/me response cannot wipe agency-scoped flags.
@@ -311,6 +314,7 @@ export const useAuthStore = defineStore('auth', () => {
         return merged;
       }
     } catch (err) {
+      if (generation !== userRefreshGeneration) return user.value;
       console.error('Failed to refresh user data:', err);
       // Only logout on authentication errors (401), not network/server errors
       // This prevents false logouts from temporary issues

@@ -3,6 +3,8 @@ import pool from '../config/database.js';
 import {buildPublicAppUrl} from '../utils/publicPortalUrl.js';
 import {notificationTransportReceipt} from '../utils/notificationTransportReceipt.js';
 import {relaySelected} from './workspaceRelayConfig.js';
+import {accessProfileSchemaReady,readAgencyAccess,ensurePlatformCompanyProfiles} from './agencyAccessProfiles.service.js';
+import {STAFF_ROLES} from '../utils/staffEligibility.js';
 
 export const PEOPLE_OPERATIONS_SUBMISSION_TEMPLATE='people_operations_submission';
 const json=value=>{try{return typeof value==='string'?JSON.parse(value):value || {};}catch{return {};}};
@@ -24,6 +26,18 @@ const active=`u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND u.terminated_at 
  AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE','ACTIVE_EMPLOYEE')`;
 
 export async function peopleOperationsNotificationRecipients(agencyId,db=pool) {
+ if(await accessProfileSchemaReady(db)) {
+  await ensurePlatformCompanyProfiles(agencyId,db);
+  const [rows]=await db.execute(`SELECT DISTINCT u.id,u.email,u.work_email,u.first_name,u.last_name,
+   COALESCE(r.enabled,0) AS enabled FROM users u JOIN user_agency_access_profiles p ON p.user_id=u.id AND p.agency_id=?
+   LEFT JOIN people_operations_notification_recipients r ON r.user_id=u.id AND r.agency_id=p.agency_id
+   WHERE ${active} AND u.role IN (${STAFF_ROLES.map(()=>'?').join(',')}) AND COALESCE(u.is_assistant_account,0)=0
+    AND JSON_EXTRACT(p.effective_permissions,'$.has_hiring_access')=TRUE
+    AND (EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=p.agency_id AND COALESCE(ua.is_active,1)=1)
+     OR EXISTS(SELECT 1 FROM user_platform_access_defaults d JOIN user_agencies pt ON pt.user_id=d.user_id AND pt.agency_id=1 AND COALESCE(pt.is_active,1)=1 WHERE d.user_id=u.id AND d.enabled=1))
+   ORDER BY u.last_name,u.first_name,u.id`,[agencyId,...STAFF_ROLES]);
+  return rows;
+ }
  const [rows]=await db.execute(`SELECT DISTINCT u.id,u.email,u.work_email,u.first_name,u.last_name,
   COALESCE(p.enabled,0) AS enabled FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.is_active=1
   LEFT JOIN people_operations_notification_recipients p ON p.user_id=u.id AND p.agency_id=ua.agency_id
@@ -79,7 +93,14 @@ export async function savePeopleOperationsNotificationSettings({agencyId,actorUs
  const db=await database.getConnection();
  try {
   await db.beginTransaction();
-  const [[actor]]=await db.execute(`SELECT u.id,u.role FROM users u WHERE u.id=? AND ${active}
+  let actor;
+  if(await accessProfileSchemaReady(db)) {
+   [[actor]]=await db.execute(`SELECT u.id,u.role FROM users u WHERE u.id=? AND ${active} FOR UPDATE`,[actorUserId]);
+   if(actor && actor.role!=='super_admin') {
+    const access=await readAgencyAccess(actorUserId,agencyId,db);
+    if(!access?.permissions.has_hiring_access || !['admin','support'].includes(access.role))actor=null;
+   }
+  } else [[actor]]=await db.execute(`SELECT u.id,u.role FROM users u WHERE u.id=? AND ${active}
    AND u.role IN ('admin','super_admin','support') AND (u.role='super_admin' OR EXISTS(SELECT 1 FROM user_agencies ua
     WHERE ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=1)) FOR UPDATE`,[actorUserId,agencyId]);
   if(!actor)throw fail('An active agency administrator must review notification recipients.');

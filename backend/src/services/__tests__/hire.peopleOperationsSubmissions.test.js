@@ -1,11 +1,13 @@
 import {beforeEach,describe,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),getConnection:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),getConnection:vi.fn(),ready:vi.fn(),access:vi.fn(),ensure:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:m,onTableWrite:vi.fn()}));
+vi.mock('../agencyAccessProfiles.service.js',()=>({accessProfileSchemaReady:m.ready,readAgencyAccess:m.access,ensurePlatformCompanyProfiles:m.ensure}));
 import {peopleOperationsNotificationRecipients,peopleOperationsNotificationSettings,savePeopleOperationsNotificationSettings,
  queuePeopleOperationsSubmission,peopleOperationsSubmissionSource,createPeopleOperationsSubmissionWorker,assertPeopleOperationsSubmissionRecipient,buildPeopleOperationsSubmissionEmail} from '../peopleOperationsSubmissionNotifications.service.js';
 let agency,reviewers,candidate,sourceRow,db,event,record,d,source;
 const review={reviewedByUserId:3,reviewedAt:'2026-11-04T14:00:00.000Z',senderIdentityId:11};
 beforeEach(()=>{
+ m.ready.mockResolvedValue(false);m.access.mockResolvedValue(null);
  vi.clearAllMocks();agency={id:2,name:'Tenant',slug:'tenant',is_active:1,is_archived:0,feature_flags:{peopleOperationsSubmissionNotificationsEnabled:true,peopleOperationsSubmissionReview:review}};
  reviewers=[{id:7,email:'login@tenant.test',work_email:'reviewer@tenant.test',enabled:1,first_name:'Reviewer'}];candidate={id:31,first_name:'Candidate',last_name:'Example'};sourceRow={submitted_at:new Date('2026-11-04T15:00:00Z')};
  db={execute:m.execute,beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()};m.getConnection.mockResolvedValue(db);
@@ -31,6 +33,19 @@ beforeEach(()=>{
  communication:vi.fn(async()=>record),updateCommunication:vi.fn(),notify:vi.fn(),identity:vi.fn(async()=>({id:11,agency_id:2,from_email:'po@tenant.test'})),send:vi.fn(async()=>({id:'accepted'}))};
 });
 describe('People Operations recipient settings',()=>{
+ it('uses company hiring permissions after rollout rather than legacy global grants',async()=>{
+  m.ready.mockResolvedValue(true);
+  await peopleOperationsNotificationRecipients(2);
+  expect(m.ensure).toHaveBeenCalledWith(2,m);
+  const [sql,args]=m.execute.mock.calls.find(([sql])=>sql.startsWith('SELECT DISTINCT'));
+  expect(args[0]).toBe(2);expect(sql).toContain("JSON_EXTRACT(p.effective_permissions,'$.has_hiring_access')=TRUE");
+  expect(sql).not.toContain('u.has_hiring_access');
+ });
+ it('rejects recipient changes when a legacy administrator has hiring turned off for this company',async()=>{
+  m.ready.mockResolvedValue(true);m.access.mockResolvedValue({role:'admin',permissions:{has_hiring_access:false}});
+  await expect(savePeopleOperationsNotificationSettings({agencyId:2,actorUserId:3,enabled:false,recipientIds:[]},m)).rejects.toMatchObject({status:403});
+  expect(db.commit).not.toHaveBeenCalled();expect(db.rollback).toHaveBeenCalled();
+ });
  it('lists current active tenant hiring reviewers without granting anyone access',async()=>{
   await peopleOperationsNotificationRecipients(2);const [sql,args]=m.execute.mock.calls[0];
   expect(args).toEqual([2]);expect(sql).toContain('ua.is_active=1');expect(sql).toContain("('ACTIVE','ACTIVE_EMPLOYEE')");expect(sql).toContain('terminated_at IS NULL');expect(sql).toContain('has_hiring_access');

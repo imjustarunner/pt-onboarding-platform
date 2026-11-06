@@ -5832,6 +5832,12 @@ router.beforeEach(async (to, from, next) => {
     }
   }
 
+  // A company switch may change this person's role. Resolve the new scope
+  // before evaluating route roles or capabilities.
+  if (authStore.isAuthenticated && authStore.user?.agencyAccess &&
+      Number(authStore.user.agencyAccess.agencyId) !== Number(agencyStore.currentAgency?.id) &&
+      agencyStore.currentAgency?.id) await authStore.refreshUser();
+
   // Tools & Aids is agency-only and must not run in school/program/learning portals.
   if (isToolsAidsRoute(to)) {
     let scopedOrgType = '';
