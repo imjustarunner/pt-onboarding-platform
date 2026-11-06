@@ -2,6 +2,7 @@ import { collapseClaimAttempts } from '../services/claimFamily.service.js';
 import { attachClaimReferences } from '../services/clinicalClaimReferences.service.js';
 import { getCanonicalFeeSchedule } from '../services/feeSchedule.service.js';
 import { priceNewClaimLines } from '../services/newClaimFees.service.js';
+import {reconcileNewClaimAfterHours,savedClinicalFunding,assertNoAutomaticProBonoClaim} from '../services/clinicalAfterHours.service.js';
 import { listClientDiagnosisAlerts } from '../services/clinicalDiagnosisPolicy.service.js';
 import { assertClinicalBillingApproval } from '../services/billingClinicalApproval.service.js';
 import { clinicalNoteSnapshotHash, ensureOriginalRevision, appendOriginalSignature, hasPendingRevision, getRevisionSummary, listPendingRevisionWork, appendRevisionAddendum } from '../services/clinicalNoteVersion.service.js';
@@ -2488,6 +2489,8 @@ export const createMedicalClaim = async (req, res, next) => {
       }
     }
 
+    const sourceFunding=await savedClinicalFunding(session);
+    assertNoAutomaticProBonoClaim({session,noteMetadata:parseObject(approvedNote?.metadata_json),billing:sourceFunding});
     const diagnosisCodes = await resolveClaimDiagnosisCodes({
       agencyId,
       clientId,
@@ -2632,6 +2635,8 @@ export const createMedicalClaim = async (req, res, next) => {
     let placeOfService = req.body.placeOfService || sessionRow?.place_of_service || null;
     const insuranceSnapshot = await readClientInsurance(clientId, agencyId);
     const payerName = insuranceSnapshot?.primary?.insurerName || null;
+    const afterHoursPolicy=await reconcileNewClaimAfterHours({session:sessionRow,note:approvedNote,lines,metadata:parseObject(approvedNote?.metadata_json),billing:sourceFunding});
+    lines=afterHoursPolicy.lines;
     if (providerResolutionFailed && lines.some(line => line.chargeCents == null || line.chargeCents === '')) throw Object.assign(new Error('Resolve the claim billing provider before applying its fee schedule.'), { status: 409 });
     lines = await priceNewClaimLines({ lines, agencyId, payerId: insuranceSnapshot?.primary?.payerId || null,
       providerUserId: claimProviderMeta?.billingUserId || claimProviderMeta?.renderingUserId || sessionRow?.rendering_provider_user_id || sessionRow?.provider_user_id || null,
@@ -2683,7 +2688,7 @@ export const createMedicalClaim = async (req, res, next) => {
       }
     }
 
-    const clinicalBlockers = approvedVersionBillingBlockers({ note: approvedNote, claim: { date_of_service: dateOfService, place_of_service: placeOfService, diagnosis_codes_json: diagnosisCodes }, lines: lines.map(line => ({ procedure_code: line.procedureCode, units: line.units })), session: approvedSession, diagnosisCodes });
+    const clinicalBlockers = approvedVersionBillingBlockers({ note: approvedNote, claim: { date_of_service: dateOfService, place_of_service: placeOfService, diagnosis_codes_json: diagnosisCodes }, lines: lines.map(line => ({ procedure_code: line.procedureCode, units: line.units })), session: approvedSession, diagnosisCodes,afterHoursDecision:afterHoursPolicy.decision });
     if (approvedNote?.clinical_version_id && lines.some(line => line.serviceDate && String(line.serviceDate).slice(0, 10) !== dateOfService)) clinicalBlockers.push('Claim line dates must match the approved clinical version.');
     if (clinicalBlockers.length) return res.status(409).json({ error: { message: 'Claim services must match the latest approved clinical version.' }, blockers: clinicalBlockers });
     const clinicalVersion = clinicalVersionReference(approvedNote);
@@ -2727,6 +2732,7 @@ export const createMedicalClaim = async (req, res, next) => {
         feeScheduleSnapshot: lines.map(line => ({ serviceCode: line.procedureCode, units: line.units, chargeCents: line.chargeCents, modifiers: line.modifiers || [], modifierSource: line.modifierSource || null, ...line.feeSource })),
         claimBillingMode: claimProviderMeta?.mode || null,
         clinicalVersion,
+        scheduleDerived99051:afterHoursPolicy.policyBinding,
         billingUserId: claimProviderMeta?.billingUserId || null,
         renderingUserId: claimProviderMeta?.renderingUserId || null,
         readiness: {

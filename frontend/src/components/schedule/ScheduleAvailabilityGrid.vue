@@ -2349,6 +2349,7 @@
           </template>
 
           <ClinicalSessionBody
+            :agency-id="Number(editorAgencyId || selectedActionAgencyId || 0)"
             :show-billing-tools="editorCanViewBillingFinancials"
             v-if="editorIsClinical"
             v-model:modality="editorModality"
@@ -3611,12 +3612,15 @@
             </div>
 
             <label class="lbl">Service code</label>
+            <div class="schedule-service-code-control">
             <select v-model="bookingServiceCode" class="input" :disabled="bookingMetadataLoading">
               <option value="">Select service code…</option>
               <option v-for="opt in bookingServiceCodeOptions" :key="`svc-main-${opt.code}`" :value="opt.code">
                 {{ opt.code }}{{ opt.label ? ` — ${opt.label}` : '' }}{{ serviceCodeOptionHints(opt) }}
               </option>
             </select>
+              <ServiceInformation presentation="button" :service-code="bookingServiceCode" :agency-id="Number(selectedActionAgencyId || effectiveAgencyId || 0)" :service-info="bookingServiceCodeOptions.find(option => option.code === bookingServiceCode)?.serviceInfo || null" />
+            </div>
             <div v-if="!bookingMetadataLoading && !bookingServiceCodeOptions.length" class="muted nr-help" style="margin-top: 4px;">
               No service codes available for this provider’s credential tier. Enable mental health under Booking &amp; service types, or check the provider’s credentials.
             </div>
@@ -5934,6 +5938,7 @@ import AppointmentPackageSettlement from './AppointmentPackageSettlement.vue';
 import AppointmentClinicalPanel from './AppointmentClinicalPanel.vue';
 import OfficeEventSessionNotePanel from './OfficeEventSessionNotePanel.vue';
 import ClinicalSessionBody from './ClinicalSessionBody.vue';
+import ServiceInformation from '../notes/ServiceInformation.vue';
 import MeetingParticipantsPicker from './MeetingParticipantsPicker.vue';
 import MeetingSettingsEditor from './MeetingSettingsEditor.vue';
 import TeamMeetingBody from './TeamMeetingBody.vue';
@@ -27322,6 +27327,8 @@ watch(()=>props.spanMode,value=>{
 </script>
 
 <style scoped>
+.schedule-service-code-control{display:flex;align-items:center;gap:8px;min-width:0}.schedule-service-code-control>select{flex:1;min-width:0;width:0}
+
 .schedule-stage-shell { min-width:0; }
 .sched-fullscreen-exit { position:fixed; right:16px; bottom:16px; z-index:1800; padding:10px 14px; border:1px solid var(--border,#cbd5e1); border-radius:10px; color:var(--text-primary,#17233a); background:var(--bg-card,#fff); box-shadow:0 3px 16px #0003; cursor:pointer; font:inherit; }
 

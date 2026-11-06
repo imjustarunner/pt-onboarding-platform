@@ -76,9 +76,11 @@ it('keeps historical fixed lines and other agencies legacy mappings unchanged',(
  expect(applyPaySystemToBreakdown({breakdown,rateProfile:profile,status:{}}).servicePay).toBe(2.17);
  expect(classifyPayType('90785',{category:'direct'})).toBe('credit');
 });
-it('uses Denver 9–5 boundaries across standard/daylight time without automatically adding 99051',()=>{
- for(const [date,expected] of [['2026-10-28T14:59:00Z',true],['2026-10-28T15:00:00Z',false],['2026-10-28T22:59:00Z',false],['2026-10-28T23:00:00Z',true],['2026-10-31T18:00:00Z',true],['2026-11-02T15:59:00Z',true],['2026-11-02T16:00:00Z',false],['2026-11-02T07:00:00Z',true]])expect(shouldSuggest99051(date,{timeZone:'America/Denver'}),date).toBe(expected);
+it('uses saved Denver weekday evening/weekend starts across standard/daylight time without independently authorizing99051',()=>{
+ for(const [date,expected] of [['2026-10-28T14:59:00Z',false],['2026-10-28T15:00:00Z',false],['2026-10-28T22:59:00Z',false],['2026-10-28T23:00:00Z',true],['2026-10-31T18:00:00Z',true],['2026-11-02T15:59:00Z',false],['2026-11-02T16:00:00Z',false],['2026-11-02T07:00:00Z',false]])expect(shouldSuggest99051(date,{timeZone:'America/Denver'}),date).toBe(expected);
  expect(resolveNoteAidBillingCodes({primaryCode:'90837',durationMinutes:60,sessionStartAt:'2026-10-31T18:00:00Z'}).addons).toEqual([]);
+ expect(resolveNoteAidBillingCodes({primaryCode:'90837',durationMinutes:60,includeAfterHours99051:true,sessionStartAt:'2026-11-09T20:00:00Z',timeZone:'America/Denver'}).addons).toEqual([]);
+ expect(resolveNoteAidBillingCodes({primaryCode:'90837',durationMinutes:60,includeAfterHours99051:true,sessionStartAt:'2026-11-10T00:00:00Z',timeZone:'America/Denver'}).addons).toContainEqual({code:'99051',units:1});
 });
 it('adds the sourced handbook policy idempotently while removing obsolete credit rows and preserving other policies',()=>{
  const source={sections:[{slug:'service-code-approval-and-credit-reference',status:'ready',bodyHtml:'<table><tr><th>90785</th><td>0 credits</td></tr><tr><th>90837</th><td>1 credit</td></tr></table>'},{slug:'other',bodyHtml:'Keep me'}]};

@@ -1,6 +1,7 @@
 /**
  * Mirror of frontend noteAidBillingAddons for backend generate / claim metadata.
  */
+import {evaluate99051Schedule} from './clinicalAfterHoursPolicy.js';
 export const ADDON_CODES = {
   INTERACTIVE_COMPLEXITY: '90785',
   CRISIS_ADDON: '90840',
@@ -83,24 +84,7 @@ export function isEligibleFor90785(primaryCode, { isExtendedEncounter = false } 
 }
 
 export function shouldSuggest99051(startAt, { timeZone } = {}) {
-  if (!startAt) return false;
-  try {
-    const d = startAt instanceof Date ? startAt : new Date(startAt);
-    if (Number.isNaN(d.getTime())) return false;
-    const opts = timeZone ? { timeZone } : undefined;
-    const weekday = new Intl.DateTimeFormat('en-US', { ...(opts || {}), weekday: 'short' }).format(d);
-    const hourStr = new Intl.DateTimeFormat('en-US', {
-      ...(opts || {}),
-      hour: 'numeric',
-      hourCycle: 'h23'
-    }).format(d);
-    const hour = Number(String(hourStr).replace(/\D/g, '').slice(0, 2));
-    if (weekday === 'Sat' || weekday === 'Sun') return true;
-    if (!Number.isFinite(hour)) return false;
-    return hour < 9 || hour >= 17;
-  } catch {
-    return false;
-  }
+  return evaluate99051Schedule({startAt,timeZone}).eligible;
 }
 
 export function resolveNoteAidBillingCodes({
@@ -148,8 +132,10 @@ export function resolveNoteAidBillingCodes({
   }
   if (wantIc) addons.push({ code: ADDON_CODES.INTERACTIVE_COMPLEXITY, units: 1 });
 
-  if (includeAfterHours99051) {
+  if (includeAfterHours99051&&shouldSuggest99051(sessionStartAt,{timeZone})) {
     addons.push({ code: ADDON_CODES.AFTER_HOURS, units: 1 });
+  }else if(includeAfterHours99051){
+    warnings.push('99051 was not added: verify a saved source timezone and a weekday session start at or after 17:00, or a weekend start.');
   }
 
   const byCode = new Map();

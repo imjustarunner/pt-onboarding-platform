@@ -9,6 +9,7 @@ vi.mock('../agencySchedulingCatalog.service.js',()=>({resolveAgencySchedulingCat
 import {changeClinicalSessionService,getClinicalSessionService} from '../clinicalSessionServiceChange.service.js';
 import {assertNoPendingClinicalServiceChange} from '../../utils/clinicalServiceChangePolicy.js';
 import {maybeEncryptNotePayload,maybeDecryptNotePayload} from '../clinicalNoteCrypto.service.js';
+import {deriveApproved99051Decision,reviewClaim99051Policy} from '../clinicalAfterHours.service.js';
 
 const socket=process.env.NARRIVA_MYSQL_SOCKET;
 const suite=socket||process.env.NARRIVA_MYSQL_TEST==='1'?describe:describe.skip;
@@ -24,25 +25,27 @@ suite('explicit clinical service correction across MySQL data planes',()=>{
   priorKey=process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64;process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64=Buffer.alloc(32,11).toString('base64');
   admin=await mysql.createConnection(settings);await admin.query('CREATE DATABASE IF NOT EXISTS narriva_service_change_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
   db=mysql.createPool({...settings,database:'narriva_service_change_test',connectionLimit:6});
-  await db.query(`DROP TABLE IF EXISTS clinical_sessions,clinical_notes,clinical_claims,appointments,appointment_participants,office_events,office_locations,office_location_agencies,clinical_note_drafts,note_aid_work_queue_items,agency_medical_service_codes;
+  await db.query(`DROP TABLE IF EXISTS clinical_sessions,clinical_notes,clinical_claims,appointments,appointment_participants,office_events,office_locations,office_location_agencies,clinical_note_drafts,note_aid_work_queue_items,agency_medical_service_codes,scheduling_service_codes,credential_service_code_eligibility;
    CREATE TABLE clinical_sessions(id INT PRIMARY KEY,agency_id INT,client_id INT,provider_user_id INT,appointment_id INT,office_event_id INT,billing_encounter_id INT,service_code VARCHAR(32),duration_minutes INT,is_telehealth TINYINT,place_of_service VARCHAR(8),encounter_status VARCHAR(32),metadata_json JSON,scheduled_start_at DATETIME,scheduled_end_at DATETIME,source_timezone VARCHAR(80),updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP);
    CREATE TABLE clinical_notes(id INT PRIMARY KEY,clinical_session_id INT,created_by_user_id INT,provider_signed_at DATETIME,supervisor_cosigned_at DATETIME,content_review_source VARCHAR(80),is_legal_hold TINYINT DEFAULT 0,note_payload LONGTEXT,metadata_json JSON,updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP);
    CREATE TABLE clinical_claims(id INT PRIMARY KEY,clinical_session_id INT,is_deleted TINYINT DEFAULT 0);
    CREATE TABLE appointments(id INT PRIMARY KEY,agency_id INT,provider_user_id INT,clinical_session_id INT,office_event_id INT,service_code VARCHAR(32),addon_service_codes_json JSON,status VARCHAR(32),package_entitlement_id INT,product_origin VARCHAR(80),updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP);
    CREATE TABLE appointment_participants(appointment_id INT,client_id INT);
    CREATE TABLE office_events(id INT PRIMARY KEY,office_location_id INT,client_id INT,booked_provider_id INT,assigned_provider_id INT,service_code VARCHAR(32),session_context_json JSON);
-   CREATE TABLE office_locations(id INT PRIMARY KEY,agency_id INT);
+   CREATE TABLE office_locations(id INT PRIMARY KEY,agency_id INT,timezone VARCHAR(80));
    CREATE TABLE office_location_agencies(office_location_id INT,agency_id INT);
    CREATE TABLE clinical_note_drafts(id INT PRIMARY KEY,agency_id INT,user_id INT,clinical_session_id INT,service_code VARCHAR(32),output_json LONGTEXT,updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP);
    CREATE TABLE note_aid_work_queue_items(id INT PRIMARY KEY,agency_id INT,user_id INT,clinical_session_id INT,service_code VARCHAR(32),updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP);
-   CREATE TABLE agency_medical_service_codes(agency_id INT,service_code VARCHAR(32),is_active TINYINT,is_addon TINYINT,unit_calc_mode VARCHAR(40),unit_minutes INT,min_minutes INT,max_minutes INT,max_units_per_session INT,ladder_bands_json JSON,overflow_service_code VARCHAR(32),overflow_at_minutes INT,allowed_place_of_service_json JSON,PRIMARY KEY(agency_id,service_code));`);
+   CREATE TABLE agency_medical_service_codes(agency_id INT,service_code VARCHAR(32),is_active TINYINT,is_addon TINYINT,unit_calc_mode VARCHAR(40),unit_minutes INT,min_minutes INT,max_minutes INT,max_units_per_session INT,ladder_bands_json JSON,overflow_service_code VARCHAR(32),overflow_at_minutes INT,allowed_place_of_service_json JSON,allowed_credential_tiers_json JSON,PRIMARY KEY(agency_id,service_code));
+   CREATE TABLE scheduling_service_codes(code VARCHAR(32) PRIMARY KEY,is_active TINYINT);
+   CREATE TABLE credential_service_code_eligibility(service_code VARCHAR(32),credential_tier VARCHAR(32),allowed TINYINT);`);
  });
  afterAll(async()=>{if(priorKey===undefined)delete process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64;else process.env.CLIENT_CHAT_ENCRYPTION_KEY_BASE64=priorKey;if(db)await db.end();if(admin)await admin.end();});
  beforeEach(async()=>{
-  await db.query(`DELETE FROM clinical_sessions;DELETE FROM clinical_notes;DELETE FROM clinical_claims;DELETE FROM appointments;DELETE FROM appointment_participants;DELETE FROM office_events;DELETE FROM office_locations;DELETE FROM office_location_agencies;DELETE FROM clinical_note_drafts;DELETE FROM note_aid_work_queue_items;DELETE FROM agency_medical_service_codes;
+  await db.query(`DELETE FROM clinical_sessions;DELETE FROM clinical_notes;DELETE FROM clinical_claims;DELETE FROM appointments;DELETE FROM appointment_participants;DELETE FROM office_events;DELETE FROM office_locations;DELETE FROM office_location_agencies;DELETE FROM clinical_note_drafts;DELETE FROM note_aid_work_queue_items;DELETE FROM agency_medical_service_codes;DELETE FROM scheduling_service_codes;DELETE FROM credential_service_code_eligibility;
    INSERT INTO clinical_sessions VALUES(10,1,20,7,30,40,NULL,'H0004',60,0,'11','completed','{"sessionContext":{"serviceCode":"H0004"}}','2026-11-06 15:00:00','2026-11-06 16:00:00','America/Denver',CURRENT_TIMESTAMP);
-   INSERT INTO appointments(id,agency_id,provider_user_id,clinical_session_id,office_event_id,service_code,addon_service_codes_json,status,product_origin) VALUES(30,1,7,10,40,'H0004','["99051"]','completed','full_suite');
-   INSERT INTO appointment_participants VALUES(30,20);INSERT INTO office_locations VALUES(50,1);INSERT INTO office_events VALUES(40,50,20,7,NULL,'H0004','{"serviceCode":"H0004","unchanged":true}');
+   INSERT INTO appointments(id,agency_id,provider_user_id,clinical_session_id,office_event_id,service_code,addon_service_codes_json,status,product_origin) VALUES(30,1,7,10,40,'H0004','["90785","99051"]','completed','full_suite');
+   INSERT INTO appointment_participants VALUES(30,20);INSERT INTO office_locations VALUES(50,1,'America/Denver');INSERT INTO office_events VALUES(40,50,20,7,NULL,'H0004','{"serviceCode":"H0004","unchanged":true}');
    INSERT INTO agency_medical_service_codes(agency_id,service_code,is_active,is_addon,unit_calc_mode,unit_minutes,min_minutes,max_minutes,max_units_per_session) VALUES(1,'H2011',1,0,'MEDICAID_8_MINUTE_LADDER',15,8,247,16);
    INSERT INTO note_aid_work_queue_items(id,agency_id,user_id,clinical_session_id,service_code) VALUES(70,1,7,10,'H0004');`);
   const payload=maybeEncryptNotePayload(JSON.stringify({sections:{Narrative:'Preserve authored session content.'},meta:{serviceCode:'H0004',sessionContext:{serviceCode:'H0004'}}}));
@@ -56,7 +59,7 @@ suite('explicit clinical service correction across MySQL data planes',()=>{
  });
  it('changes a completed unsigned encounter and every owned source while preserving content, add-ons and encrypted reason',async()=>{
   expect(await changeClinicalSessionService(actor,input,d)).toMatchObject({serviceCode:'H2011',changed:true,pendingServiceChange:false});
-  const {session,appointment,office}=await state();expect([session.service_code,appointment.service_code,office.service_code]).toEqual(['H2011','H2011','H2011']);expect(appointment.addon_service_codes_json).toEqual(['99051']);expect(office.session_context_json).toEqual({serviceCode:'H2011',unchanged:true});
+  const {session,appointment,office}=await state();expect([session.service_code,appointment.service_code,office.service_code]).toEqual(['H2011','H2011','H2011']);expect(appointment.addon_service_codes_json).toEqual(['90785']);expect(office.session_context_json).toEqual({serviceCode:'H2011',unchanged:true});
   expect(session.metadata_json.serviceCodeChanges).toHaveLength(1);expect(JSON.stringify(session.metadata_json)).not.toContain(input.justification);expect(maybeDecryptNotePayload(session.metadata_json.serviceCodeChanges[0].reasonCiphertext)).toBe(input.justification);
   const [[draft]]=await db.execute('SELECT * FROM clinical_note_drafts WHERE id=60');const [[note]]=await db.execute('SELECT * FROM clinical_notes WHERE id=80');const [[work]]=await db.execute('SELECT service_code FROM note_aid_work_queue_items WHERE id=70');
   expect([draft.service_code,work.service_code,note.metadata_json.serviceCode]).toEqual(['H2011','H2011','H2011']);for(const encrypted of [draft.output_json,note.note_payload])expect(JSON.parse(maybeDecryptNotePayload(encrypted))).toMatchObject({sections:{Narrative:'Preserve authored session content.'},meta:{serviceCode:'H2011',sessionContext:{serviceCode:'H2011'}}});
@@ -115,5 +118,16 @@ suite('explicit clinical service correction across MySQL data planes',()=>{
   const migration=readFileSync(new URL('../../../../database/migrations/1774_narriva_reviews_and_preferences.sql',import.meta.url),'utf8');await db.query(migration);await db.query(migration);
   const [columns]=await db.query('SHOW COLUMNS FROM narriva_reviews');expect(columns.map(row=>row.Field)).toEqual(expect.arrayContaining(['clinical_session_id','risk_assessment_required','result_encrypted','source_hash','rules_version']));
   const [indexes]=await db.query('SHOW INDEX FROM narriva_reviews');expect(indexes.map(row=>row.Key_name)).toEqual(expect.arrayContaining(['narriva_draft','narriva_note','narriva_session_risk']));const [preferences]=await db.query('SHOW COLUMNS FROM narriva_writer_preferences');expect(preferences.map(row=>row.Field)).toEqual(expect.arrayContaining(['user_id','agency_id','default_mode']));
+ });
+ it('derives and revalidates an approved99051 claim binding against actual medical catalog SQL, including primary POS and disabled rules',async()=>{
+  await db.query(`INSERT INTO scheduling_service_codes VALUES('99051',1);INSERT INTO credential_service_code_eligibility VALUES('99051','intern_plus',1);
+    INSERT INTO agency_medical_service_codes(agency_id,service_code,is_active,is_addon,allowed_place_of_service_json,allowed_credential_tiers_json) VALUES(1,'99051',1,1,'["11"]','["intern_plus"]');
+    UPDATE agency_medical_service_codes SET allowed_place_of_service_json='["11"]' WHERE service_code='H2011'`);
+  const approved={id:80,clinical_version_id:200,clinical_version_content_hash:'a'.repeat(64),metadata_json:{serviceCode:'H2011',dateOfService:'2026-11-09',billingAddons:[]}},encounter={id:10,agency_id:1,client_id:20,provider_user_id:7,service_code:'H2011',scheduled_start_at:'2026-11-10 00:00:00',source_timezone:'America/Denver',place_of_service:'11',is_telehealth:0};
+  const policyDeps={database:db,readCare:async()=>({canProvideCare:true,credentialTier:'intern_plus'}),credentialOverrides:async()=>new Map(),providerGrants:async()=>[],policy:async()=>({enabledForAgency:true,allowedForCredentialTier:true}),enabled:async()=>true};
+  const decision=await deriveApproved99051Decision({note:approved,session:encounter},policyDeps);expect(decision.included).toBe(true);
+  const claim={metadata_json:{scheduleDerived99051:decision.binding}},lines=[{procedure_code:'H2011',units:4},{procedure_code:'99051',units:1}];expect((await reviewClaim99051Policy({claim,note:approved,session:encounter,lines},policyDeps)).blockers).toEqual([]);
+  await db.execute("UPDATE agency_medical_service_codes SET allowed_place_of_service_json='[\"03\"]' WHERE service_code='H2011'");expect((await reviewClaim99051Policy({claim,note:approved,session:encounter,lines},policyDeps)).blockers).not.toEqual([]);
+  await db.execute("UPDATE agency_medical_service_codes SET is_active=0 WHERE service_code='99051'");expect((await deriveApproved99051Decision({note:approved,session:encounter},policyDeps)).included).toBe(false);
  });
 });

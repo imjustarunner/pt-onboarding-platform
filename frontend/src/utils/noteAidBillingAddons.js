@@ -3,6 +3,9 @@
  * Rules for 90839/90840 crisis, 90837→90834×2 extended, 90785 IC, 99051 after-hours.
  */
 
+// Explicit saved instant + source timezone; no browser-time fallback.
+import { evaluate99051Schedule, isProBonoFunding } from './clinicalAfterHoursPolicy.js';
+
 export const ADDON_CODES = {
   INTERACTIVE_COMPLEXITY: '90785',
   CRISIS_ADDON: '90840',
@@ -108,31 +111,10 @@ export function isEligibleFor90785(primaryCode, { isExtendedEncounter = false } 
   return CODES_ELIGIBLE_FOR_90785.has(code);
 }
 
-/**
- * 99051 — sessions outside Mon–Fri 8:00–17:00 local (agency/session timezone).
- * @param {Date|string|null} startAt
- */
-export function shouldSuggest99051(startAt, { timeZone } = {}) {
-  if (!startAt) return false;
-  try {
-    const d = startAt instanceof Date ? startAt : new Date(startAt);
-    if (Number.isNaN(d.getTime())) return false;
-    const opts = timeZone ? { timeZone } : undefined;
-    const weekday = new Intl.DateTimeFormat('en-US', { ...(opts || {}), weekday: 'short' }).format(d);
-    const hourStr = new Intl.DateTimeFormat('en-US', {
-      ...(opts || {}),
-      hour: 'numeric',
-      hourCycle: 'h23'
-    }).format(d);
-    const hour = Number(String(hourStr).replace(/\D/g, '').slice(0, 2));
-    const isWeekend = weekday === 'Sat' || weekday === 'Sun';
-    if (isWeekend) return true;
-    if (!Number.isFinite(hour)) return false;
-    // Outside 8–17 inclusive of before 8 and after 17.
-    return hour < 9 || hour >= 17;
-  } catch {
-    return false;
-  }
+/** Weekday starts at/after 17:00 or weekend starts in the saved source timezone. */
+export function shouldSuggest99051(startAt, { timeZone, primaryCode, metadata } = {}) {
+  if(isProBonoFunding({serviceCode:primaryCode,metadata}))return false;
+  return evaluate99051Schedule({startAt,timeZone}).eligible;
 }
 
 /**
@@ -144,7 +126,8 @@ export function resolveNoteAidBillingCodes({
   includeInteractiveComplexity = false,
   includeAfterHours99051 = false,
   sessionStartAt = null,
-  timeZone = null
+  timeZone = null,
+  metadata = null
 } = {}) {
   let code = String(primaryCode || '').trim().toUpperCase();
   let primaryUnits = 1;
@@ -201,7 +184,8 @@ export function resolveNoteAidBillingCodes({
     addons.push({ code: ADDON_CODES.INTERACTIVE_COMPLEXITY, units: 1 });
   }
 
-  const want99051 = !!includeAfterHours99051;
+  const want99051 = !!includeAfterHours99051 && !!code && !['90785','90840','99051'].includes(code) && shouldSuggest99051(sessionStartAt,{timeZone,primaryCode:code,metadata});
+  if(includeAfterHours99051 && !want99051)warnings.push('99051 was not added. Verify the saved session start, source timezone and eligible clinical service.');
   if (want99051) {
     addons.push({ code: ADDON_CODES.AFTER_HOURS, units: 1 });
   }

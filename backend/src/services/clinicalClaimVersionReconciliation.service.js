@@ -6,6 +6,7 @@ import { resolveClaimDiagnosisCodes, resolveClaimDateOfService } from './clinica
 import { previouslyTransmitted } from './claimServiceChanges.service.js';
 import { recordClaimEvent } from './claimMdWorkflow.service.js';
 import { parseObject, policyError, isNonBillableDocument } from './supervisedBillingPolicy.service.js';
+import {reconcileNewClaimAfterHours,savedClinicalFunding} from './clinicalAfterHours.service.js';
 
 export async function approvedClinicalClaimPlan({ note, session = {}, agencyId = note.agency_id, clientId = note.client_id }, db = clinicalPool) {
   const approved = await getApprovedClinicalContext({ note, session }, db);
@@ -25,11 +26,14 @@ export async function approvedClinicalClaimPlan({ note, session = {}, agencyId =
     }
   }
   if (!lines.length || lines.length > 50 || lines.some(line => !/^[A-Z0-9]{5}$/.test(line.procedureCode) || !Number.isInteger(line.units) || line.units < 1 || line.units > 999)) throw policyError(409, 'Complete the approved version’s service codes and units before reconciling billing.');
+  const scheduled=await reconcileNewClaimAfterHours({session:approved.session,note:current,lines,metadata,billing:await savedClinicalFunding(approved.session)});
+  if(!scheduled.decision&&lines.some(line=>line.procedureCode==='99051'))throw policyError(409,'Verify the approved encounter start and source timezone before reconciling the99051 line.');
+  lines=scheduled.lines;
   const diagnosisCodes = await resolveClaimDiagnosisCodes({ agencyId, clientId, clinicalNoteId: current.id, approvedNote: current });
   const dateOfService = await resolveClaimDateOfService({ clinicalSessionId: current.clinical_session_id, clinicalNoteId: current.id, approvedNote: current });
   const placeOfService = metadata.structuredChart?.placeOfService || context.placeOfService || approved.session.place_of_service;
   if (!diagnosisCodes.length || !dateOfService || !/^\d{2}$/.test(String(placeOfService || ''))) throw policyError(409, 'Complete the approved clinical service date, diagnoses and place of service before billing.');
-  return { ...clinicalVersionReference(current), dateOfService, placeOfService, diagnosisCodes, lines, signatures: current.clinical_version_signatures || [], pendingRevisionId: current.clinical_version_pending_id || null, pendingClinicalApproval: !!current.clinical_version_pending_id || legacyCorrectionPending };
+  return { ...clinicalVersionReference(current), dateOfService, placeOfService, diagnosisCodes, lines,scheduleDerived99051:scheduled.policyBinding, signatures: current.clinical_version_signatures || [], pendingRevisionId: current.clinical_version_pending_id || null, pendingClinicalApproval: !!current.clinical_version_pending_id || legacyCorrectionPending };
 }
 
 export function claimDiffersFromApprovedVersion(claim, lines, plan) {
@@ -73,7 +77,7 @@ export async function reconcileApprovedClinicalClaim(input, source = clinicalPoo
     }
     const clinicalVersion = { revisionId: plan.revisionId, revisionNumber: plan.revisionNumber, contentHash: plan.contentHash };
     const payload = { ...parseObject(claim.claim_payload), lines: input.lines.map(line => ({ ...line, serviceDate: plan.dateOfService })), diagnosisCodes: plan.diagnosisCodes, clinicalVersion };
-    const metadata = { ...parseObject(claim.metadata_json), clinicalVersion };
+    const metadata = { ...parseObject(claim.metadata_json), clinicalVersion,scheduleDerived99051:plan.scheduleDerived99051 };
     await db.execute("UPDATE clinical_claims SET date_of_service=?,place_of_service=?,diagnosis_codes_json=?,amount_cents=?,claim_payload=?,metadata_json=?,billing_revision=billing_revision+1,claim_lifecycle='draft' WHERE id=? AND agency_id=?", [plan.dateOfService, plan.placeOfService, JSON.stringify(plan.diagnosisCodes), input.lines.reduce((sum, line) => sum + line.chargeCents, 0), JSON.stringify(payload), JSON.stringify(metadata), claim.id, input.agencyId]);
     await recordClaimEvent({ agencyId: input.agencyId, claimId: claim.id, connectionId: `agency:${input.agencyId}`, eventKey: `clinical-version-reconciliation:${crypto.randomUUID()}`, eventType: 'clinical_version_reconciliation', actorUserId: input.actorUserId, payload: { reason, clinicalVersion, clinicalSignatures: plan.signatures, before: { dateOfService: claim.date_of_service, placeOfService: claim.place_of_service, diagnosisCodes: claim.diagnosis_codes_json, lines: beforeLines }, after: { dateOfService: plan.dateOfService, placeOfService: plan.placeOfService, diagnosisCodes: plan.diagnosisCodes, lines: input.lines } } }, db);
     await db.commit();

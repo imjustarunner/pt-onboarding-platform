@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
+import {isProBonoServiceCode} from '../utils/clinicalFundingPolicy.js';
 import { hasSchedulingBillingAccess } from './schedulingBillingAccess.service.js';
 import { credentialPayerRows, isActiveCredentialPayerRow } from './credentialPayerEligibility.service.js';
 import { classifyHcbsCategory, classifyPayCategory, isFullyLicensedCredentialText } from '../utils/credentialNormalization.js';
@@ -223,6 +224,7 @@ export async function adoptPlatformFeeDefaults(user, input, d = deps) {
 export async function resolveCanonicalFeeQuote(input, d = deps) {
   const agencyId = Number(input.agencyId), serviceCode = normalizeFeeCode(input.serviceCode), mode = input.mode || 'insurance';
   if (!Number.isSafeInteger(agencyId) || agencyId < 1 || !serviceCode) throw feeError(400, 'Practice and service code are required for a fee quote.');
+  if(mode==='self_pay'&&isProBonoServiceCode(serviceCode))return {rateCents:0,amountCents:0,rateUnit:'session',source:'pro_bono',sourceLabel:'Pro bono — no client charge',serviceCode,serviceCodeAvailable:true,providerRateEligible:false,providerUserId:Number(input.providerUserId||input.providerId)||null,payerId:null};
   const providerUserId = Number(input.providerUserId || input.providerId) || null;
   const [[codes], rateRows, payers, legacy] = await Promise.all([
     d.main.execute('SELECT * FROM agency_medical_service_codes WHERE agency_id=? AND service_code=?', [agencyId, serviceCode]),
@@ -267,6 +269,7 @@ export async function canonicalSelfPayRatesForServices({ agencyId, providerUserI
   const provider = ctx.providers.find(p => p.id === Number(providerUserId));
   for (const service of services) {
     const serviceCode = normalizeFeeCode(service.serviceCode);
+    if(isProBonoServiceCode(serviceCode)){const zero={rateCents:0,amountCents:0,rateUnit:'session',source:'pro_bono',sourceLabel:'Pro bono — no client charge'};result.set(Number(service.id),{...zero,practiceRate:{...zero},revision:0});continue;}
     if (!ctx.codes.some(c => normalizeFeeCode(c.service_code) === serviceCode && bool(c.is_active))) continue;
     const base = { agencyId, mode: 'self_pay', serviceCode, providerUserId: provider?.id || null, categoryKey: provider?.categoryKey,
       entries: ctx.entries, legacy: legacyFeeContext(ctx.legacy, { mode: 'self_pay', serviceCode, providerUserId: provider?.id, tenantServiceId: service.id }) };

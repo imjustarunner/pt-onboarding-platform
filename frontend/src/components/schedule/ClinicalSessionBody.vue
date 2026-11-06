@@ -112,6 +112,7 @@
     <div v-if="!bookingBasicsInHeader && showMedicalBillingCodes" class="csb-billing">
       <div class="csb-row">
         <label class="csb-label">Primary service code <span class="req">*</span></label>
+        <div class="csb-service-code-control">
         <select
           class="csb-input"
           :value="primaryServiceCode"
@@ -123,6 +124,8 @@
             {{ formatServiceCodeLabel(opt) }}
           </option>
         </select>
+          <ServiceInformation presentation="button" :service-code="primaryServiceCode" :agency-id="agencyId" :service-info="serviceCodeOptions.find(option => option.code === primaryServiceCode)?.serviceInfo || null" />
+        </div>
       </div>
       <div class="csb-row">
         <label class="csb-label">Add-on service codes</label>
@@ -217,9 +220,11 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
+import ServiceInformation from '../notes/ServiceInformation.vue';
 import { isAddonServiceCode } from '../../config/practiceCategories.js';
 
 const props = defineProps({
+  agencyId: { type: [Number, String], default: null },
   modality: { type: String, default: 'TELEHEALTH' },
   practiceCategory: { type: String, default: '' },
   tenantServiceId: { type: Number, default: 0 },
@@ -359,6 +364,8 @@ function toggleAddon(code) {
 </script>
 
 <style scoped>
+.csb-service-code-control{display:flex;align-items:center;gap:8px;min-width:0}.csb-service-code-control>select{flex:1;min-width:0;width:0}
+
 .csb { display: flex; flex-direction: column; gap: 12px; }
 .csb-row { display: flex; flex-direction: column; gap: 6px; }
 .csb-label {

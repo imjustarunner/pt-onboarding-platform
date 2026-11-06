@@ -7,7 +7,7 @@ import { NARRIVA_CHECKS } from '../../../config/narrivaBrand.js';
 import { useNarrivaReview } from '../../../composables/useNarrivaReview.js';
 import { createEmptyCsNoteBuildState, serializeCsNoteBuildForGenerate } from '../../../utils/csNoteBuild.js';
 
-const passed = () => ({ id:24,status:'passed',quickSignEligible:true,checks:NARRIVA_CHECKS.map(check => ({...check,status:'passed',findings:[]})) });
+const passed = () => ({ id:24,status:'passed',quickSignEligible:true,scoring:{score:82,threshold:70,passed:true,qualityPassed:true,mandatoryPassed:true,criteria:[]},checks:NARRIVA_CHECKS.map(check => ({...check,status:'passed',findings:[]})) });
 afterEach(() => vi.useRealTimers());
 
 describe('Narriva writer choices and evidence', () => {
@@ -35,6 +35,26 @@ describe('Narriva writer choices and evidence', () => {
     const incomplete=passed();incomplete.checks[0].status='action_required';
     await w.setProps({review:incomplete});expect(w.find('[alt="Narriva Quick Sign Approved"]').exists()).toBe(false);
     expect(w.find('[alt="Not verified"]').exists()).toBe(true);w.unmount();
+  });
+  it('shows the returned quality score, evidence and excluded criteria without deriving another percentage', () => {
+    const review=passed();review.scoring={...review.scoring,score:70,earned:7,possible:10,criteria:[{id:'interventions',label:'Specific interventions',earned:3,possible:5,status:'missing',message:'Describe the intervention used.',evidence:['<img src=x onerror=alert(1)>']},{id:'assessment',label:'Assessment integration',earned:0,possible:0,status:'not_applicable'}]};
+    const w=mount(NarrivaCompliancePanel,{props:{review}});
+    expect(w.get('.narriva-score__summary').text()).toContain('70%');expect(w.text()).toContain('Required score: 70%');expect(w.get('.narriva-score__summary').text()).toContain('Pass');expect(w.text()).toContain('3 / 5 points · Missing');expect(w.text()).toContain('Not applicable · excluded');expect(w.get('blockquote').text()).toContain('<img');expect(w.find('blockquote img').exists()).toBe(false);w.unmount();
+  });
+  it('blocks a high score when a required service check failed', () => {
+    const review=passed();review.status='action_required';review.scoring.score=96;review.scoring.passed=false;review.scoring.mandatoryPassed=false;review.checks[1].status='action_required';
+    const w=mount(NarrivaCompliancePanel,{props:{review}});expect(w.get('.narriva-score__summary').text()).toContain('96%');expect(w.get('.narriva-score__summary').text()).toContain('Blocked');expect(w.get('.narriva-score__blockers').text()).toContain('Service Code & Documentation');expect(w.find('.narriva-score--passed').exists()).toBe(false);expect(w.find('[alt="Narriva Quick Sign Approved"]').exists()).toBe(false);w.unmount();
+  });
+  it('records an explicit low-score bypass without converting the score into approval', async () => {
+    const review=passed();review.status='action_required';review.scoring={...review.scoring,score:69,passed:false,qualityPassed:false,findings:[{id:'scoring:threshold',message:'Improve the missing documentation.',action:'edit_note',canBypass:true}]};
+    const w=mount(NarrivaCompliancePanel,{props:{review}});expect(w.get('.narriva-score__summary').text()).toContain('Does not pass');await w.findAll('.narriva-score button').find(b=>b.text()==='Keep my note as it is').trigger('click');expect(w.get('.narriva-score button[type="submit"]').element.disabled).toBe(true);await w.get('.narriva-score textarea').setValue('I reviewed the documented encounter and am keeping this version.');await w.get('.narriva-score form').trigger('submit');expect(w.emitted('resolve')[0][0]).toMatchObject({findingId:'scoring:threshold',action:'bypass'});
+    await w.setProps({review:{...review,status:'bypassed'}});expect(w.get('.narriva-score__summary').text()).toContain('69%');expect(w.get('.narriva-score__summary').text()).toContain('not approved');expect(w.find('[alt="Narriva Quick Sign Approved"]').exists()).toBe(false);w.unmount();
+  });
+  it.each([null,{score:'100',threshold:70,passed:true,mandatoryPassed:true},{score:101,threshold:70,passed:true,mandatoryPassed:true},{score:100,threshold:50,passed:true,mandatoryPassed:true}])('does not manufacture a percentage or verification for an invalid/missing score', scoring => {
+    const w=mount(NarrivaCompliancePanel,{props:{review:{...passed(),scoring}}});expect(w.text()).toContain('Score unavailable');expect(w.find('[alt="Narriva Quick Sign Approved"]').exists()).toBe(false);expect(w.find('[alt="Not verified"]').exists()).toBe(true);w.unmount();
+  });
+  it.each(['stale','bypassed','unavailable','running'])('never displays a green pass from a %s review even if its prior score passed', status => {
+    const w=mount(NarrivaCompliancePanel,{props:{review:{...passed(),status}}});expect(w.find('.narriva-score--passed').exists()).toBe(false);expect(w.find('[alt="Narriva Quick Sign Approved"]').exists()).toBe(false);w.unmount();
   });
   it('allows only server-authorized bypasses, requires a reason, and exposes mandatory risk state', async () => {
     const result=passed();result.status='action_required';result.quickSignEligible=false;result.riskAssessmentRequired=true;

@@ -2,6 +2,7 @@ import clinicalPool from '../config/clinicalDatabase.js';
 import { getEffectiveNote, getRevisionSummary, hasPendingRevision, ensureLegacyVersion, ensureOriginalRevision } from './clinicalNoteVersion.service.js';
 import { parseObject, policyError, dateOnly } from './supervisedBillingPolicy.service.js';
 import { assertClinicalBillingApproval } from './billingClinicalApproval.service.js';
+import {isScheduleDerived99051Decision} from '../utils/scheduleDerived99051Decision.js';
 
 export const PENDING_CLINICAL_REVISION_HOLD = 'A clinical amendment is pending clinical approval. Claim transmission is paused.';
 
@@ -60,7 +61,7 @@ export function clinicalClaimForReview(claim, effective) {
   return { ...effective, place_of_service: claim?.place_of_service };
 }
 
-export function approvedVersionBillingBlockers({ note, claim, lines, session = {}, diagnosisCodes = null }) {
+export function approvedVersionBillingBlockers({ note, claim, lines, session = {}, diagnosisCodes = null,afterHoursDecision=null }) {
   if (!note?.clinical_version_id) return [];
   const metadata = parseObject(note.metadata_json), blockers = [];
   const serviceDate = dateOnly(metadata.dateOfService || metadata.date_of_service || note.clinical_version_encounter_context?.dateOfService || parseObject(session.metadata_json).serviceDate);
@@ -79,12 +80,19 @@ export function approvedVersionBillingBlockers({ note, claim, lines, session = {
   if (serviceCode && metadata.billingPrimaryUnits != null && primaryLines.reduce((sum, line) => sum + Number(line.units), 0) !== Number(metadata.billingPrimaryUnits)) blockers.push('The claim units differ from the latest approved clinical version.');
   const placeOfService = metadata.structuredChart?.placeOfService || session.place_of_service;
   if (placeOfService && String(claim.place_of_service) !== String(placeOfService)) blockers.push('The claim place of service differs from the latest approved clinical version.');
+  const derived99051=isScheduleDerived99051Decision(afterHoursDecision)
+    &&Number(afterHoursDecision.binding.noteId)===Number(note.id)
+    &&Number(afterHoursDecision.binding.approvedRevisionId)===Number(note.clinical_version_id)
+    &&afterHoursDecision.binding.approvedContentHash===(note.clinical_version_content_hash||null)
+    &&(!session.id||Number(afterHoursDecision.binding.clinicalSessionId)===Number(session.id));
+  if(derived99051){const matching=lines.filter(line=>String(line.procedure_code||'').toUpperCase()==='99051');if(afterHoursDecision.included?matching.length!==1||Number(matching[0].units)!==1:matching.length!==0)blockers.push('The99051 line differs from the verified approved-encounter schedule policy.');}
   if (Array.isArray(metadata.billingAddons)) {
     const expected = new Map();
     for (const addon of metadata.billingAddons) {
       const code = String(addon.serviceCode || addon.service_code || addon.code || '').toUpperCase();
       if (code) expected.set(code, (expected.get(code) || 0) + Number(addon.units || 1));
     }
+    if(derived99051){expected.delete('99051');if(afterHoursDecision.included)expected.set('99051',1);}
     const actual = new Map();
     for (const line of lines.filter(line => String(line.procedure_code || '').toUpperCase() !== serviceCode)) {
       const code = String(line.procedure_code || '').toUpperCase();

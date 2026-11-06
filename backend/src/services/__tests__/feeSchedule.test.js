@@ -8,6 +8,11 @@ import { legacyFeeContext, assertFeeScheduleAccess, saveCanonicalFeeSchedule, ge
 const row = (id, scope_key, rate_cents, extra = {}) => ({ id, owner_key: 'agency:2', mode: 'insurance', record_type: 'rate', scope_key, service_code: '90834', rate_cents, rate_unit: 'unit', ...extra });
 const resolve = (rows, extra = {}) => resolveFeeFromEntries({ agencyId: 2, serviceCode: '90834', mode: 'insurance', payerId: 'AET', providerUserId: 8, entries: latestFeeEntries(rows), ...extra });
 describe('canonical fee inheritance', () => {
+  it('returns zero client charge for a pro bono funding designation without applying saved rates',async()=>{
+    const database={execute:vi.fn().mockRejectedValue(new Error('A funding designation must not load a charge'))};
+    expect(await resolveCanonicalFeeQuote({agencyId:2,serviceCode:'PRO-BONO SERVICE',mode:'self_pay',durationMinutes:60},{main:database})).toMatchObject({amountCents:0,rateCents:0,source:'pro_bono'});
+    expect(database.execute).not.toHaveBeenCalled();
+  });
   it('uses platform, practice, payer then credentialed provider override', () => {
     expect(resolve([]).rateCents).toBe(10000);
     expect(resolve([row(1, 'practice', 11000)]).source).toBe('practice');

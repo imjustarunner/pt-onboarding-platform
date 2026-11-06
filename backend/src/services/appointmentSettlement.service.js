@@ -1,4 +1,5 @@
 import { qaAttendancePolicy } from './qaAppointmentBilling.service.js';
+import {isProBonoFunding,proBonoClientBilling} from '../utils/clinicalFundingPolicy.js';
 import { resolvePolicyForAppointmentContext } from './bookingCancellationPolicy.service.js';
 /**
  * Phase 5 settlement: package autodeduct / no-show forfeit / invoice-pending fee.
@@ -75,6 +76,12 @@ export async function settleAppointmentOutcome(appointmentId, {
   const packageEntitlementId = safeInt(
     appointment.packageEntitlementId || billing?.packageEntitlementId
   );
+  if(isProBonoFunding({serviceCode:appointment.serviceCode,billing})){
+    if(['paid','invoiced','fee_pending','package_consumed','forfeited'].includes(String(billing?.paymentStatus||'')))return {settled:false,reason:'ALREADY_SETTLED',paymentStatus:billing.paymentStatus};
+    if(packageEntitlementId)return {settled:false,reason:'PRO_BONO_PACKAGE_REVIEW_REQUIRED',paymentStatus:'review'};
+    await Appointment.upsertBilling(id,proBonoClientBilling(billing||{}));
+    return {settled:true,outcome:status,reason:'PRO_BONO_NO_CLIENT_CHARGE',paymentStatus:'waived',feeCents:0};
+  }
   if (appointment.clinicalSessionId && !packageEntitlementId && billing?.settlementMode !== 'self_pay_only') {
     return { settled: true, outcome: status, reason: 'CLINICAL_BILLING', paymentStatus: billing?.paymentStatus || 'none' };
   }

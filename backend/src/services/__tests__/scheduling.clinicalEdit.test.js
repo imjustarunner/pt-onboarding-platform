@@ -28,6 +28,7 @@ import { getAgencySelfPayOnly, resolveSelfPayQuote } from '../selfPayRates.servi
 import { validateSchedulingSelection } from '../schedulingTaxonomy.service.js';
 import { ensureAppointmentClinicalLink } from '../appointmentClinicalLink.service.js';
 import { createAppointment,updateAppointment } from '../appointment.service.js';
+import * as afterHours from '../clinicalAfterHours.service.js';
 import { scheduleSessionNotifications } from '../sessionNotification.service.js';
 import { appointmentScheduleNotices } from '../appointmentScheduleNotice.service.js';
 
@@ -64,4 +65,27 @@ it('rejects unassigned tenant services and service IDs outside the booking agenc
  await expect(updateAppointment(20,{tenantServiceId:11},{actorUserId:9})).rejects.toThrow('not assigned');expect(Appointment.update).not.toHaveBeenCalled();
  TenantService.findById.mockResolvedValue(null);
  await expect(updateAppointment(20,{tenantServiceId:15},{actorUserId:9})).rejects.toThrow('not found');expect(TenantService.findById).toHaveBeenLastCalledWith(15,1);
+});
+it('reconciles add-ons after a schedule change and persists additions without changing the primary service',async()=>{
+ current.serviceCode='90837';current.sourceTimezone='America/Denver';current.addonServiceCodes=['90785'];
+ const reconcile=vi.spyOn(afterHours,'reconcileClinicalAfterHours').mockResolvedValueOnce({addonServiceCodes:['90785','99051']});
+ try{
+  await updateAppointment(20,{startAt:'2026-11-10T00:00:00Z',endAt:'2026-11-10T01:00:00Z'},{actorUserId:9});
+  expect(reconcile).toHaveBeenCalledWith(expect.objectContaining({startAt:'2026-11-10 00:00:00',timeZone:'America/Denver',primaryCode:'90837',addonServiceCodes:['90785']}));
+  expect(Appointment.setServiceCodes).toHaveBeenCalledWith(20,expect.objectContaining({serviceCode:'90837',addonServiceCodes:['90785','99051']}));expect(assertAppointmentCanMove).toHaveBeenCalled();
+ }finally{reconcile.mockRestore();}
+});
+it('does not rewrite an already settled financial record when pro bono is selected',async()=>{
+ Appointment.getBilling.mockResolvedValue({settlementMode:'self_pay',paymentStatus:'paid',amountCents:10000});
+ await expect(updateAppointment(20,{serviceCode:'PRO-BONO SERVICE'},{actorUserId:9})).rejects.toMatchObject({status:409});expect(Appointment.upsertBilling).not.toHaveBeenCalled();expect(Appointment.update).not.toHaveBeenCalled();
+});
+it('does not add a new fee during an idempotent linkage refresh of a completed evening appointment',async()=>{
+ current.serviceCode='90837';current.status='completed';current.sourceTimezone='America/Denver';current.startAt='2026-11-10 00:00:00';current.endAt='2026-11-10 01:00:00';current.addonServiceCodes=[];
+ const reconcile=vi.spyOn(afterHours,'reconcileClinicalAfterHours');
+ try{await updateAppointment(20,{startAt:'2026-11-10T00:00:00Z',endAt:'2026-11-10T01:00:00Z',serviceCode:'90837'},{actorUserId:9});expect(reconcile).not.toHaveBeenCalled();expect(assertAppointmentCanMove).not.toHaveBeenCalled();expect(Appointment.setServiceCodes).toHaveBeenCalledWith(20,{serviceCode:'90837',addonServiceCodes:[]});}finally{reconcile.mockRestore();}
+});
+it.each([undefined,'America/New_York'])('does not turn a display-only timezone fallback into a saved after-hours source (%s)',async timeZone=>{
+ current.serviceCode='90837';current.sourceTimezone='America/Denver';current.persistedSourceTimezone=null;current.startAt='2026-11-10 00:00:00';current.endAt='2026-11-10 01:00:00';current.addonServiceCodes=['99051','90785'];
+ await updateAppointment(20,{serviceCode:'90791',...(timeZone?{timeZone}:{})},{actorUserId:9});
+ expect(Appointment.setServiceCodes).toHaveBeenCalledWith(20,{serviceCode:'90791',addonServiceCodes:['90785']});expect(current.addonServiceCodes).not.toContain('99051');
 });

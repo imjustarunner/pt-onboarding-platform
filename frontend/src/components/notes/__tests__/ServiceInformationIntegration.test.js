@@ -1,6 +1,7 @@
 import { mount, shallowMount, flushPromises } from '@vue/test-utils';
 import { describe, it, expect, vi } from 'vitest';
 import AppointmentHeaderFields from '../../schedule/AppointmentHeaderFields.vue';
+import ClinicalSessionBody from '../../schedule/ClinicalSessionBody.vue';
 import MedicalBillingView from '../../../views/admin/MedicalBillingView.vue';
 import ServiceInformation from '../ServiceInformation.vue';
 const api=vi.hoisted(()=>({get:vi.fn(async path=>({data:path.endsWith('/status')?{flags:{medicalBillingEnabled:true},claimMd:{configured:false}}:{items:[]}}))}));
@@ -11,11 +12,14 @@ const reference={code:'H2011',title:'Crisis intervention',status:'available',ser
 
 describe('handbook service details at the point of selection',()=>{
   it('shows the selected booking service reference without changing billing values or fetching another agency',async()=>{
-    const w=mount(AppointmentHeaderFields,{props:{agencyId:7,showPrimaryServiceCode:true,primaryServiceCode:'H2011',primaryServiceCodeOptions:[{code:'H2011',label:'Crisis intervention',serviceInfo:reference}]}});
+    const w=mount(AppointmentHeaderFields,{global:{stubs:{Teleport:true}},props:{agencyId:7,showPrimaryServiceCode:true,primaryServiceCode:'H2011',primaryServiceCodeOptions:[{code:'H2011',label:'Crisis intervention',serviceInfo:reference}]}});
     expect(w.findComponent(ServiceInformation).props()).toMatchObject({agencyId:7,serviceCode:'H2011',serviceInfo:reference});
-    expect(w.text()).toContain('Immediate crisis services.');expect(w.emitted('update:primaryServiceCode')).toBeUndefined();
+    const infoButton=w.get('button[aria-label="Service information for H2011"]');expect(infoButton.element.parentElement.previousElementSibling.tagName).toBe('SELECT');expect(w.find('[role=region]').exists()).toBe(false);await infoButton.trigger('click');await flushPromises();expect(w.text()).toContain('Immediate crisis services.');expect(w.emitted('update:primaryServiceCode')).toBeUndefined();
     await w.setProps({primaryServiceCode:'H0004',primaryServiceCodeOptions:[{code:'H0004',label:'Behavioral health',serviceInfo:{...reference,code:'H0004',serviceDescription:'Current H0004 reference.'}}]});
-    expect(w.text()).toContain('Current H0004 reference.');expect(w.text()).not.toContain('Immediate crisis services.');w.unmount();
+    expect(w.find('[role=region]').exists()).toBe(false);await w.get('button[aria-label="Service information for H0004"]').trigger('click');await flushPromises();expect(w.text()).toContain('Current H0004 reference.');expect(w.text()).not.toContain('Immediate crisis services.');w.unmount();
+  });
+  it('exposes the same handbook control in the session editor without modifying its code',async()=>{
+    const w=mount(ClinicalSessionBody,{props:{agencyId:7,practiceCategory:'mental_health',primaryServiceCode:'H2011',serviceCodeOptions:[{code:'H2011',label:'Crisis',serviceInfo:reference}]},global:{stubs:{Teleport:true}}});const trigger=w.get('button[aria-label="Service information for H2011"]');expect(trigger.element.parentElement.previousElementSibling.tagName).toBe('SELECT');await trigger.trigger('click');await flushPromises();expect(w.get('[role=region]').text()).toContain('Describe the crisis and interventions.');expect(w.emitted('update:primaryServiceCode')).toBeUndefined();w.unmount();
   });
   it('passes the current agency and edited service reference into billing settings without altering its rule fields',async()=>{
     const w=shallowMount(MedicalBillingView,{props:{billingAgencyId:7,serviceCodesOnly:true},global:{stubs:{RouterLink:true}}});await flushPromises();

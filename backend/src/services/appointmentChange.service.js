@@ -7,6 +7,7 @@ import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import pool from '../config/database.js';
 import { readClientInsurance } from './clientInsurance.service.js';
 import { hasMedicaidCoverage } from '../utils/insurancePaymentPolicy.js';
+import {isProBonoFunding} from '../utils/clinicalFundingPolicy.js';
 import Appointment from '../models/Appointment.model.js';
 import ClientMedicaidAttendanceStrike from '../models/ClientMedicaidAttendanceStrike.model.js';
 import User from '../models/User.model.js';
@@ -344,6 +345,7 @@ function determineConsequenceModel({
   strikePolicyEnabled,
   packageBalance,
   evaluation,
+  proBono=false,
   initiator
 }) {
   if (['void', 'advance_cancel', 'advance_reschedule'].includes(classification)) {
@@ -380,6 +382,7 @@ function determineConsequenceModel({
   }
 
   if (isMedicaid && qualifying) return { model: 'none', label: 'No missed-appointment fee', feeCents: 0, packageAction: 'release' };
+  if(proBono)return {model:'none',label:'Pro bono — no client charge',feeCents:0,packageAction:'release',reasonCode:'pro_bono',summary:'No automatic client fee or paid session credit is assessed for this pro bono appointment.'};
 
   if (packageBalance?.source === 'booking_package' && qualifying
       && !['forfeit', 'late_forfeit'].includes(evaluation.recommendedPackageAction)) {
@@ -636,8 +639,9 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
       waive: false
     }).catch(() => null);
     if (fullEval) {
-      evaluation.recommendedFeeCents = fullEval.policy?.noShowFeeCents ?? fullEval.recommendedFeeCents;
-      evaluation.recommendedPackageAction = fullEval.policy?.noShowPackageAction || 'forfeit';
+      evaluation.recommendedFeeCents = fullEval.fundingDisposition==='pro_bono'?0:fullEval.policy?.noShowFeeCents ?? fullEval.recommendedFeeCents;
+      evaluation.recommendedPackageAction = fullEval.fundingDisposition==='pro_bono'?'release':fullEval.policy?.noShowPackageAction || 'forfeit';
+      evaluation.fundingDisposition=fullEval.fundingDisposition||null;
       evaluation.policy = fullEval.policy;
       evaluation.policySource = fullEval.policySource;
       evaluation.cancelDeadlineAt = fullEval.cancelDeadlineAt;
@@ -656,6 +660,7 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
   });
 
   const payer = await loadClientPayerHint(clientId,bundle.agencyId);
+  const proBono=isProBonoFunding({serviceCode:bundle.serviceCode,billing:bundle.billing||await Appointment.getBilling(bundle.id)})||evaluation.fundingDisposition==='pro_bono';
   const strikePolicyEnabled = await loadAgencyStrikePolicyEnabled(bundle.agencyId);
   const packageBalance = bundle.clinicalSessionId && !bundle.packageEntitlementId ? null : await loadPackageBalanceHint({
     agencyId: bundle.agencyId,
@@ -670,6 +675,7 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
     strikePolicyEnabled,
     packageBalance,
     evaluation,
+    proBono,
     initiator: facts.initiator
   });
   if (bundle.clinicalSessionId && payer.coverageUnknown && isMissed) {

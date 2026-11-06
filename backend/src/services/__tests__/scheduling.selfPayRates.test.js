@@ -49,6 +49,10 @@ describe('self-pay rate configuration and quoting', () => {
     expect(calculateSelfPayQuote({ rateCents: 12500, rateUnit: 'session', durationMinutes: 50 })).toBe(12500);
     expect(calculateSelfPayQuote({ rateCents: 0, durationMinutes: 50 })).toBe(0);
   });
+  it('quotes pro bono as zero to the client even when a nonzero catalog price exists',async()=>{
+    expect(await resolveSelfPayQuote({agencyId:1,providerId:8,service:{id:10,businessType:'mental_health',serviceCode:'PRO-BONO SERVICE',priceCents:25000},durationMinutes:60})).toMatchObject({rateCents:0,amountCents:0,source:'pro_bono'});
+    expect(pool.execute).not.toHaveBeenCalled();
+  });
   it('uses provider, agency, then catalog fallback without treating zero as missing', async () => {
     const args = { agencyId: 1, providerId: 8, service: { id: 10, priceCents: 7000 }, durationMinutes: 90 };
     pool.execute.mockResolvedValueOnce([[{ rate_cents: 0, rate_unit: 'hour', provider_user_id: 8 }, { rate_cents: 10000, rate_unit: 'session', provider_user_id: 0 }]]);

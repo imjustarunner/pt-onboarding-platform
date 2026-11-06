@@ -19,7 +19,8 @@ describe('sourced clinical service references',()=>{
  it('covers every offered clinical code plus screening, and marks missing manual entries honestly',()=>{
   expect(listClinicalServiceReferences()).toHaveLength(ITSCO_DIRECT_BOOKABLE_CODES.length+1);
   for(const code of ITSCO_DIRECT_BOOKABLE_CODES) expect(getClinicalServiceReference(code)?.code).toBe(code);
-  for(const code of ['97535','99051','PRO-BONO SERVICE']) expect(getClinicalServiceReference(code)).toMatchObject({status:'not-in-supplied-manual',source:{pages:[]}});
+  expect(getClinicalServiceReference('97535')).toMatchObject({status:'not-in-supplied-manual',source:{pages:[]}});
+  for(const code of ['99051','PRO-BONO SERVICE'])expect(getClinicalServiceReference(code)).toMatchObject({status:'supplemental-policy',source:{kind:'user_agency_policy',pages:[],hash:expect.stringMatching(/^[a-f0-9]{64}$/)}});
  });
  it('uses only base H2011 p80 and does not merge ET or peer-specific qualifications',()=>{
   const info=getClinicalServiceReference(' h2011 ');

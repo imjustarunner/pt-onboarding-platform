@@ -7,6 +7,9 @@ import {
   shouldSuggest99051
 } from '../noteAidBillingAddons.js';
 
+import {evaluate99051Schedule as serverSchedule} from '../../../../backend/src/utils/clinicalAfterHoursPolicy.js';
+import {isProBonoFunding as serverFunding} from '../../../../backend/src/utils/clinicalFundingPolicy.js';
+
 describe('90839 crisis billing', () => {
   it('switches to 90832 when duration is 30 or less', () => {
     const r = resolveCrisis90839Billing({ durationMinutes: 30 });
@@ -64,12 +67,13 @@ describe('90785 eligibility', () => {
 
 describe('resolveNoteAidBillingCodes', () => {
   it('combines 90839 duration switch with after-hours only when opted in', () => {
-    const weekend = new Date('2026-09-05T10:00:00'); // Saturday
+    const weekend = new Date('2026-09-05T10:00:00Z'); // Saturday
     const r = resolveNoteAidBillingCodes({
       primaryCode: '90839',
       durationMinutes: 90,
       includeAfterHours99051: false,
-      sessionStartAt: weekend
+      sessionStartAt: weekend,
+      timeZone: 'America/Denver'
     });
     expect(r.primaryCode).toBe('90839');
     expect(r.addons.some((a) => a.code === '90840' && a.units === 1)).toBe(true);
@@ -79,7 +83,8 @@ describe('resolveNoteAidBillingCodes', () => {
       primaryCode: '90839',
       durationMinutes: 90,
       includeAfterHours99051: true,
-      sessionStartAt: weekend
+      sessionStartAt: weekend,
+      timeZone: 'America/Denver'
     });
     expect(with99051.addons.some((a) => a.code === '99051')).toBe(true);
   });
@@ -97,10 +102,32 @@ describe('resolveNoteAidBillingCodes', () => {
 });
 
 describe('99051 after hours', () => {
-  it('suggests outside weekday 9–5', () => {
-    expect(shouldSuggest99051(new Date('2026-09-02T07:30:00'))).toBe(true); // Wed 7:30
-    expect(shouldSuggest99051(new Date('2026-09-02T12:00:00'))).toBe(false); // Wed noon
-    expect(shouldSuggest99051(new Date('2026-09-02T17:00:00'))).toBe(true); // Wed 5pm
-    expect(shouldSuggest99051(new Date('2026-09-05T12:00:00'))).toBe(true); // Sat
+  it('qualifies only weekday evening or weekend starts using the explicit saved timezone', () => {
+    const zone={timeZone:'America/Denver'};
+    expect(shouldSuggest99051('2026-11-09T14:30:00Z',zone)).toBe(false);
+    expect(shouldSuggest99051('2026-11-09T23:59:00Z',zone)).toBe(false);
+    expect(shouldSuggest99051('2026-11-10T00:00:00Z',zone)).toBe(true);
+    expect(shouldSuggest99051('2026-11-07T19:00:00Z',zone)).toBe(true);
+    expect(shouldSuggest99051('2026-11-09 22:00:00',{timeZone:'America/New_York'})).toBe(true);
+    expect(shouldSuggest99051('2026-11-09 22:00:00',zone)).toBe(false);
+  });
+  it.each([{},{timeZone:'invalid/zone'}])('rejects missing/unverified timezones even for weekend instants', options => {
+    expect(shouldSuggest99051('2026-11-07T19:00:00Z',options)).toBe(false);
+    expect(resolveNoteAidBillingCodes({primaryCode:'90837',durationMinutes:60,includeAfterHours99051:true,sessionStartAt:'2026-11-07T19:00:00Z',...options}).addons).not.toContainEqual({code:'99051',units:1});
+  });
+  it('rejects a forced morning toggle while preserving authored interactive complexity', () => {
+    const result=resolveNoteAidBillingCodes({primaryCode:'90837',durationMinutes:60,includeInteractiveComplexity:true,includeAfterHours99051:true,sessionStartAt:'2026-11-09T14:30:00Z',timeZone:'America/Denver'});
+    expect(result.addons).toEqual([{code:'90785',units:1}]);expect(result.warnings.join(' ')).toContain('99051 was not added');
+  });
+  it.each([{primaryCode:'PRO-BONO SERVICE'},{primaryCode:'90837',metadata:{fundingDisposition:'pro_bono'}}])('does not add an automatic charge to Pro Bono funding', funding => {
+    expect(resolveNoteAidBillingCodes({...funding,durationMinutes:60,includeAfterHours99051:true,sessionStartAt:'2026-11-10T00:00:00Z',timeZone:'America/Denver'}).addons).not.toContainEqual({code:'99051',units:1});
+  });
+});
+
+describe('frontend/backend automatic after-hours policy parity',()=>{
+  it('uses the same saved-source policy across source zones, DST boundaries, invalid sources and funding',()=>{
+    const starts=['2026-10-28T14:59:00Z','2026-10-28T23:00:00Z','2026-11-09T23:59:00Z','2026-11-10T00:00:00Z','2026-11-07T07:00:00Z','2026-11-09T06:59:00Z','2026-11-01T07:30:00Z','2026-11-01T08:30:00Z','2026-11-09 22:00:00','2026-11-09','invalid'];
+    for(const timeZone of [undefined,'invalid/zone','America/Denver','America/New_York','UTC'])for(const startAt of starts){expect(shouldSuggest99051(startAt,{timeZone})).toBe(serverSchedule({startAt,timeZone}).eligible);}
+    for(const funding of [{serviceCode:'90837'},{serviceCode:'PRO-BONO SERVICE'},{serviceCode:'PRO_BONO_SERVICE'},{serviceCode:'pro bono'},{serviceCode:'90837',metadata:{fundingDisposition:'pro_bono'}},{serviceCode:'90837',metadata:{billingDisposition:'pro_bono'}},{serviceCode:'90837',metadata:{billing_disposition:'pro_bono'}},{serviceCode:'90837',metadata:{contactBillingDisposition:'pro_bono'}},{serviceCode:'90837',metadata:{contactMeta:JSON.stringify({billing_disposition:'pro_bono'})}}]){expect(shouldSuggest99051('2026-11-10T00:00:00Z',{timeZone:'America/Denver',primaryCode:funding.serviceCode,metadata:funding.metadata})).toBe(!serverFunding(funding));}
   });
 });
