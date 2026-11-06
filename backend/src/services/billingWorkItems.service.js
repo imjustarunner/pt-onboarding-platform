@@ -2,6 +2,7 @@ import { decryptFamilyBilling } from './familyBillingEncryption.service.js';
 import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 import { syntheticBillingRow, includesDemoBilling } from './billingTransactionFilters.js';
 import { attachClaimReferences } from './clinicalClaimReferences.service.js';
+import { collapseClaimAttempts } from './claimFamily.service.js';
 import { clinicalBillingStage, clinicalApprovalFields, clinicalApprovalJoins } from './billingClinicalApproval.service.js';
 
 const object = value => { try { return typeof value === 'string' ? JSON.parse(value) : value || {}; } catch { return {}; } };
@@ -9,15 +10,27 @@ const id = value => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? N
 const date = value => value instanceof Date ? value.toISOString().slice(0, 10) : /^\d{4}-\d{2}-\d{2}/.test(String(value || '')) ? String(value).slice(0, 10) : null;
 const encounterDate = row => { const raw = row.scheduled_start_at; if (!raw) return null; const instant = raw instanceof Date ? raw : new Date(String(raw).replace(' ', 'T').replace(/Z?$/, 'Z')); return utcDateToZonedYmd(instant, row.source_timezone || 'America/Denver'); };
 const missing = error => ['ER_NO_SUCH_TABLE', 'ER_BAD_FIELD_ERROR'].includes(error?.code);
-const labels = { note_needed: 'Note Needed', draft: 'Draft', pending_review: 'Pending Review', revisions_needed: 'Revisions Needed', ready_to_submit: 'Ready to submit', submitted: 'Submitted', processing: 'Processing', paid: 'Paid', denied: 'Denied', on_hold: 'On hold', closed: 'Closed' };
+const labels = { note_needed: 'Note Needed', draft: 'Draft', pending_review: 'Pending Review', revisions_needed: 'Revisions Needed', ready_to_submit: 'Ready to submit', submitted: 'Submitted', processing: 'Processing', paid: 'Paid', denied: 'Denied', rejected:'Rejected', on_hold: 'On hold', closed: 'Closed' };
 const marks = values => values.map(() => '?').join(',');
-const stageAliases = { ready: 'ready_to_submit', rejected: 'on_hold', in_progress: 'processing' };
+const stageAliases = { ready: 'ready_to_submit', in_progress: 'processing' };
+export const claimQueueFilters=['pending_submission','pending_initial_submission','pending_resubmission','open','information_required'];
+export function matchesClaimQueue(row,status) {
+  const pendingInitial=!!row.claimId && row.stage==='ready_to_submit' && !row.resubmission && !(Number(row.attempt_count)>1);
+  const pendingRetry=row.stage==='rejected' || (!!row.resubmission && ['ready_to_submit','on_hold'].includes(row.stage));
+  if(status==='pending_initial_submission')return pendingInitial;
+  if(status==='pending_resubmission')return pendingRetry;
+  if(status==='pending_submission')return pendingInitial||pendingRetry;
+  if(status==='open')return !['closed','paid'].includes(row.stage);
+  if(status==='information_required')return ['rejected','on_hold','revisions_needed'].includes(row.stage);
+  return status==='all' || (status==='attention'?['rejected','on_hold','denied','revisions_needed','note_needed'].includes(row.stage):row.stage===status);
+}
 
 export function billingWorkStage(row) {
   const lifecycle = String(row.claim_lifecycle || '').toLowerCase();
   if (['void', 'voided', 'closed'].includes(lifecycle)) return 'closed';
   if (lifecycle === 'paid') return 'paid';
   if (lifecycle === 'denied') return 'denied';
+  if (lifecycle === 'rejected') return 'rejected';
   if (['submitted', 'accepted'].includes(lifecycle)) return 'submitted';
   if (['queued', 'processing', 'pending_payer', 'adjusted'].includes(lifecycle)) return 'processing';
   if (['rejected', 'on_hold', 'held', 'reconciliation_required'].includes(lifecycle) || Number(row.service_change_pending)) return 'on_hold';
@@ -111,7 +124,7 @@ export async function loadBillingWorkItems(agencyIds, deps) {
   const items = rows.map(normalizeBillingWorkItem);
   await enrichBillingWorkNames(items, agencyIds, deps);
   await attachClaimReferences(items, deps.clinical);
-  return { items, draftsAvailable, appointmentsAvailable };
+  return { items:collapseClaimAttempts(items), draftsAvailable, appointmentsAvailable };
 }
 
 export async function enrichBillingWorkNames(items, agencyIds, deps) {
@@ -142,13 +155,13 @@ export async function enrichBillingWorkNames(items, agencyIds, deps) {
 
 export function filterBillingWorkItems(items, query = {}, organizations = []) {
   const status = stageAliases[query.status] || query.status || 'all';
-  if (status !== 'all' && status !== 'attention' && !labels[status]) throw Object.assign(new Error('Invalid claim queue filter.'), { status: 400 });
+  if (status !== 'all' && status !== 'attention' && !labels[status] && !claimQueueFilters.includes(status)) throw Object.assign(new Error('Invalid claim queue filter.'), { status: 400 });
   if (query.clientId != null && query.clientId !== '' && !id(query.clientId)) throw Object.assign(new Error('Invalid client filter.'), { status: 400 });
   const org = new Map(organizations.map(a => [Number(a.id), a.name]));
   const search = String(query.search || '').trim().slice(0, 100).toLowerCase();
   let rows = items.filter(row => (includesDemoBilling(query) || !syntheticBillingRow(row)) && (!query.clientId || Number(row.client_id) === Number(query.clientId)) &&
-    (status === 'all' || (status === 'attention' ? ['on_hold','denied','revisions_needed','note_needed'].includes(row.stage) : row.stage === status)) &&
-    (!search || [row.claim_reference,row.claim_number,row.claimId,row.client_id,row.client_name,row.provider_name,row.billing_provider_name,row.supervisor_name,row.payer_name,row.service_code,org.get(row.agency_id),...(row.diagnosis_codes || [])].some(value => String(value || '').toLowerCase().includes(search))));
+    matchesClaimQueue(row,status) &&
+    (!search || [row.claim_reference,row.claim_number,row.claimId,row.client_id,row.client_name,row.provider_name,row.billing_provider_name,row.supervisor_name,row.payer_name,row.service_code,org.get(row.agency_id),...(row.claim_aliases||[]),...(row.diagnosis_codes || [])].some(value => String(value || '').toLowerCase().includes(search))));
   const allowed = ['organization','date_of_service','client_name','service_code','provider_name','billing_provider_name','supervisor_name','payer_name','amount_cents','place_of_service','diagnosis_codes','units','stage'];
   const sort = query.sortBy || 'date_of_service', direction = query.direction === 'asc' ? 1 : -1;
   if (!allowed.includes(sort)) throw Object.assign(new Error('Invalid claim sort column.'), { status: 400 });

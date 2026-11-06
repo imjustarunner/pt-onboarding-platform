@@ -2,7 +2,7 @@ import { parseTransactionFilters, transactionMatches, transactionFilterOptions, 
 import { utcDateToZonedYmd } from '../utils/zonedWallTime.util.js';
 import { attachClaimReferences } from './clinicalClaimReferences.service.js';
 import { clinicalApprovalFields, clinicalApprovalJoins } from './billingClinicalApproval.service.js';
-import { loadBillingWorkItems, filterBillingWorkItems, enrichBillingWorkNames, billingWorkStage } from './billingWorkItems.service.js';
+import { loadBillingWorkItems, filterBillingWorkItems, enrichBillingWorkNames, billingWorkStage, claimQueueFilters, matchesClaimQueue } from './billingWorkItems.service.js';
 import { productBillingContext } from './productBillingContext.service.js';
 import { isBillingAgency } from './billingAgencyPolicy.js';
 import { listPayerEft } from './payerEft.service.js';
@@ -94,6 +94,7 @@ export async function billingWorkspace(user, query = {}, deps = dependencies) {
   result.total = filtered.length;
   result.claims = filtered.slice((result.page - 1) * result.pageSize, result.page * result.pageSize);
   result.stageCounts = workItems.filter(row => scopeIds.has(row.agency_id) && (!query.clientId || Number(row.client_id) === Number(query.clientId))).reduce((counts,row) => { counts[row.stage] = (counts[row.stage] || 0) + 1; return counts; }, {});
+  for(const filter of claimQueueFilters)result.stageCounts[filter]=workItems.filter(row=>scopeIds.has(row.agency_id)&&(!query.clientId||Number(row.client_id)===Number(query.clientId))&&matchesClaimQueue(row,filter)).length;
   return result;
 }
 

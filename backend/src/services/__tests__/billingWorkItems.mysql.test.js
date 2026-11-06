@@ -21,7 +21,7 @@ it.skipIf(!process.env.BILLING_TEST_MYSQL_SOCKET && process.env.BILLING_FOLLOWUP
    `CREATE TABLE clinical_note_revisions(id INT,agency_id INT,requires_supervisor_cosign INT,responsible_supervisor_user_id INT,snapshot_json JSON,origin VARCHAR(20))`,
    `CREATE TABLE clinical_note_revision_approvals(revision_id INT,agency_id INT,approved_at DATETIME)`,
    `CREATE TABLE clinical_note_revision_signatures(revision_id INT,signature_action VARCHAR(40))`,
-   `CREATE TABLE clinical_claims(id BIGINT PRIMARY KEY AUTO_INCREMENT,clinical_session_id INT,agency_id INT,client_id INT,claim_status VARCHAR(20),amount_cents INT,currency_code VARCHAR(3),claim_payload TEXT,metadata_json JSON,created_by_user_id INT,clinical_note_id INT,payer_name VARCHAR(100),destination_payer_id VARCHAR(30),billing_npi VARCHAR(10),rendering_npi VARCHAR(10),taxonomy_code VARCHAR(10),place_of_service VARCHAR(3),date_of_service DATE,claim_lifecycle VARCHAR(30),diagnosis_codes_json JSON,payer_sequence INT DEFAULT 1,parent_claim_id INT,is_deleted INT DEFAULT 0,claim_number VARCHAR(30),billing_revision INT DEFAULT 0,claimmd_last_status VARCHAR(30),updated_at DATETIME,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`,
+   `CREATE TABLE clinical_claims(id BIGINT PRIMARY KEY AUTO_INCREMENT,clinical_session_id INT,agency_id INT,client_id INT,claim_status VARCHAR(20),amount_cents INT,currency_code VARCHAR(3),claim_payload TEXT,metadata_json JSON,created_by_user_id INT,clinical_note_id INT,payer_name VARCHAR(100),destination_payer_id VARCHAR(30),billing_npi VARCHAR(10),rendering_npi VARCHAR(10),taxonomy_code VARCHAR(10),place_of_service VARCHAR(3),date_of_service DATE,claim_lifecycle VARCHAR(30),diagnosis_codes_json JSON,payer_sequence INT DEFAULT 1,parent_claim_id INT,is_deleted INT DEFAULT 0,claim_number VARCHAR(30),billing_revision INT DEFAULT 0,claimmd_last_status VARCHAR(30),claimmd_submitted_at DATETIME,claimmd_claim_id VARCHAR(40),updated_at DATETIME,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`,
    `CREATE TABLE clinical_claim_lines(id INT PRIMARY KEY AUTO_INCREMENT,clinical_claim_id INT,line_number INT,procedure_code VARCHAR(10),modifiers_json JSON,units DECIMAL(8,2),charge_cents INT,diagnosis_pointers JSON,clinical_note_id INT,service_date DATE)`,
    `CREATE TABLE clinical_claim_change_requests(agency_id INT,clinical_session_id INT,status VARCHAR(30))`,
    `CREATE TABLE clinical_note_drafts(id INT,agency_id INT,client_id INT,user_id INT,clinical_session_id INT,office_event_id INT,service_code VARCHAR(10),date_of_service DATE,updated_at DATETIME,archived_at DATETIME)`,
@@ -68,7 +68,19 @@ it.skipIf(!process.env.BILLING_TEST_MYSQL_SOCKET && process.env.BILLING_FOLLOWUP
   const [[lines]]=await db.query('SELECT COUNT(*) n FROM clinical_claim_lines WHERE clinical_claim_id=?',[created.claimId]);expect(lines.n).toBe(1);
   const [[events]]=await db.query('SELECT COUNT(*) n FROM test_events');expect(events.n).toBe(2);
   result=await loadBillingWorkItems([1],deps);expect(result.items.find(r=>r.claimId===created.claimId)).toMatchObject({stage:'ready_to_submit',canReviewClaim:true,resubmission_type:'replacement',billing_revision:0,claim_reference:expect.stringMatching(/^001-\d{4}-\d{2}-\d+$/)});
-  expect(result.items.find(r=>r.claimId===created.claimId).claim_reference).not.toBe(result.items.find(r=>r.claimId===30).claim_reference);
+  expect(result.items.some(r=>r.claimId===30)).toBe(false);
+  expect(result.items.find(r=>r.claimId===created.claimId)).toMatchObject({claim_reference:created.claimReference,claim_root_id:30,attempt_count:2,attempt_ids:[30,created.claimId]});
   await expect(createClaimResubmission({...input,kind:'void'},pool)).rejects.toThrow('already exists');
+  await db.query("UPDATE clinical_claims SET claim_lifecycle='rejected',claimmd_submitted_at=NOW(),claimmd_claim_id='demo-response' WHERE id=?",[created.claimId]);
+  const retry=await createClaimResubmission({...input,claimId:created.claimId,revision:0,kind:'original_retry'},pool);
+  expect(retry).toMatchObject({rootClaimId:30,claimReference:created.claimReference,attemptNumber:3});
+  const [[saved]]=await db.query('SELECT metadata_json FROM clinical_claims WHERE id=?',[retry.claimId]);
+  expect(saved.metadata_json.resubmission).toMatchObject({sourceClaimId:created.claimId,rootClaimId:30,patientControlNumber:created.patientControlNumber});
+  result=await loadBillingWorkItems([1],deps);
+  expect(result.items.filter(r=>r.claimId)).toHaveLength(1);
+  expect(result.items.find(r=>r.claimId===retry.claimId)).toMatchObject({claim_reference:created.claimReference,attempt_count:3,attempt_ids:[30,created.claimId,retry.claimId]});
+  await expect(createClaimResubmission(input,pool)).rejects.toThrow('newer submission attempt');
+  const [[originalAfterRetries]]=await db.query('SELECT * FROM clinical_claims WHERE id=30');expect(originalAfterRetries).toEqual(before);
+
  }finally{await db.query(`DROP DATABASE IF EXISTS ${schema}`);await db.end();}
 },20000);

@@ -25,12 +25,15 @@ export async function billingIdentity(agencyId) {
  if(!npis.length)throw fail(409,'Configure an agency-owned billing office and group NPI first');
  return {taxId,npis,connection};
 }
-async function submissionMatches(db,agencyId,connectionId,item,era,claimId=null) {
+export async function submissionMatches(db,agencyId,connectionId,item,era,claimId=null) {
  const [claims]=await db.execute(`SELECT id,claim_lifecycle,claimmd_submitted_at FROM clinical_claims WHERE agency_id=? AND claimmd_connection_id=? AND is_deleted=0 AND ${claimId?'id=?':'(claim_number=? OR CAST(id AS CHAR)=?)'}`,
  claimId?[agencyId,connectionId,claimId]:[agencyId,connectionId,item.pcn,item.pcn]);
  const matches=[];
  for(const claim of claims){
   if(!claim.claimmd_submitted_at||claim.claim_lifecycle==='void')continue;
+  // A confirmed rejection did not reach adjudication. Keep it available for
+  // explicit manual reconciliation, but do not let it shadow a valid retry.
+  if(!claimId && claim.claim_lifecycle==='rejected')continue;
   const [events]=await db.execute("SELECT event_key,payload_encrypted FROM claimmd_claim_events WHERE agency_id=? AND clinical_claim_id=? AND connection_id=? AND event_type='approved_submission' ORDER BY id DESC LIMIT 1",[agencyId,claim.id,connectionId]);
   const event=events[0];if(!event)continue;
   const sent=decrypt(event.payload_encrypted,`claimmd:${agencyId}:${claim.id}:${event.event_key}`)?.payload;

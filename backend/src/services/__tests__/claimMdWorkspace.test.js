@@ -80,6 +80,7 @@ describe('combined transaction filters and retained synthetic evidence', () => {
   function filteredFixture() {
     const deps=fixture();
     deps.clinical.execute.mockImplementation(async sql => {
+      if(sql.includes('FROM clinical_claim_references'))return [[{agency_id:1,clinical_claim_id:10,public_reference:'001-2026-10-001'}]];
       if(sql.includes('FROM claimmd_payment_postings'))return [[
         {id:1,agency_id:1,client_id:4,claimId:10,kind:'era',paid_cents:12000,posted_by_user_id:91,posted_at:'2026-11-04 01:30:00'},
         {id:2,agency_id:1,client_id:5,claimId:11,kind:'era',paid_cents:3000,posted_by_user_id:91,posted_at:'2026-11-04 01:30:00'}
@@ -88,7 +89,7 @@ describe('combined transaction filters and retained synthetic evidence', () => {
         {claimId:10,agency_id:1,client_id:4,provider_user_id:22,claim_number:'KEEP-PAYER-10',claim_lifecycle:'paid',date_of_service:'2026-10-30',destination_payer_id:'PAYER1',payer_name:'Synthetic insurer',service_code:'90834',service_codes_json:'["90834","90785"]'},
         {claimId:11,agency_id:1,client_id:5,provider_user_id:23,claim_number:'KEEP-PAYER-11',claim_lifecycle:'paid',date_of_service:'2026-10-30',destination_payer_id:'PAYER2',payer_name:'Hidden test insurer',service_code:'H0002',service_codes_json:'["H0002"]'}
       ]];
-      if(sql.includes('FROM clinical_claim_references'))return [[{agency_id:1,clinical_claim_id:10,public_reference:'001-2026-10-001'}]];
+
       return [[]];
     });
     deps.main.execute.mockImplementation(async sql => {

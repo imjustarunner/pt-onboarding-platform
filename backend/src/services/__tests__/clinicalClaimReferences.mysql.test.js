@@ -13,7 +13,7 @@ for(const mixedCollation of [false,true])test(`claim references retain payer IDs
   const connections=[];
   try {
     await admin.query(`DROP DATABASE IF EXISTS ${schema}`);await admin.query(`CREATE DATABASE ${schema} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);await admin.query(`USE ${schema}`);
-    await admin.query(`CREATE TABLE clinical_claims(id BIGINT AUTO_INCREMENT PRIMARY KEY,agency_id INT NOT NULL,claim_number VARCHAR(120),created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`);
+    await admin.query(`CREATE TABLE clinical_claims(id BIGINT AUTO_INCREMENT PRIMARY KEY,agency_id INT NOT NULL,claim_number VARCHAR(120),client_id INT DEFAULT 1,clinical_session_id INT DEFAULT 1,payer_sequence INT DEFAULT 1,parent_claim_id BIGINT,metadata_json JSON,is_deleted BOOLEAN DEFAULT 0,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`);
     await admin.query(`INSERT INTO clinical_claims(id,agency_id,claim_number,created_at) VALUES(1,2,'KEEP-EXTERNAL-123','2026-11-01 05:30:00'),(2,6,'OTHER-REF','2026-11-01 07:30:00'),(3,2,NULL,'2026-11-01 06:30:00')`);
     const sql=await fs.readFile(new URL('../../../../database/clinical_migrations/029_claim_display_references.sql',import.meta.url),'utf8');
     const statements=splitSqlStatements(stripSqlLineComments(sql));

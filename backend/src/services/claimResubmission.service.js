@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { recordClaimEvent } from './claimMdWorkflow.service.js';
+import { loadClaimFamily,claimRecordId } from './claimFamily.service.js';
 import { parseObject, policyError } from './supervisedBillingPolicy.service.js';
 
 import { kinds, claimResubmissionFields, validateResubmissionRequest } from './claimResubmissionPolicy.js';
@@ -16,16 +17,20 @@ export async function createClaimResubmission(input, source = clinicalPool) {
     const [[original]] = await db.execute('SELECT * FROM clinical_claims WHERE id=? AND agency_id=? AND is_deleted=0 FOR UPDATE', [input.claimId, input.agencyId]);
     if (!original) throw policyError(404, 'Claim not found.');
     validateResubmissionRequest(original, input);
+    const family=await loadClaimFamily(input.agencyId,input.claimId,db);
     const [existing] = await db.execute(`SELECT id,metadata_json FROM clinical_claims WHERE agency_id=? AND is_deleted=0
       AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json,'$.resubmission.sourceClaimId'))=?
       AND claim_lifecycle NOT IN ('void','closed') ORDER BY id DESC FOR UPDATE`, [input.agencyId, String(original.id)]);
     if (existing.length) {
+      if(Number(existing[0].id)!==claimRecordId(family.current))throw policyError(409,'A newer submission attempt exists. Open the current claim history instead of starting another branch.');
       const previous = parseObject(existing[0].metadata_json).resubmission;
       if (previous?.kind !== input.kind || (previous.payerControlNumber || '') !== String(input.payerControlNumber || '')) throw policyError(409, 'A follow-up claim already exists. Review that linked record before creating another.');
       await db.commit();
-      return { claimId: Number(existing[0].id), sourceClaimId: Number(original.id), kind: input.kind, frequencyCode: kinds[input.kind], alreadyExists: true, claimTransmitted: false };
+      return { claimId: Number(existing[0].id), sourceClaimId: Number(original.id), claimReference:family.claimReference,rootClaimId:claimRecordId(family.root),kind: input.kind, frequencyCode: kinds[input.kind], alreadyExists: true, claimTransmitted: false };
     }
+    if(claimRecordId(family.current)!==Number(original.id))throw policyError(409,'A newer submission attempt already exists for this claim. Open its current history instead of starting another branch.');
     const resubmission = { kind: input.kind, frequencyCode: kinds[input.kind], sourceClaimId: Number(original.id), sourceBillingRevision: Number(original.billing_revision),
+      rootClaimId:claimRecordId(family.root),claimNumber:family.claimReference,patientControlNumber:family.patientControlNumber,
       sourceLifecycle: original.claim_lifecycle, payerControlNumber: input.kind === 'original_retry' ? null : input.payerControlNumber,
       reason: String(input.reason).trim(), actorUserId: Number(input.actorUserId), createdAt: new Date().toISOString(), payerSupportsElectronicCorrection: input.payerSupportsElectronicCorrection === true };
     const metadata = { ...parseObject(original.metadata_json), resubmission };
@@ -42,7 +47,7 @@ export async function createClaimResubmission(input, source = clinicalPool) {
     const eventKey = `resubmission-created:${crypto.randomUUID()}`;
     for (const linkedClaimId of [original.id,claimId]) await recordClaimEvent({agencyId:input.agencyId,claimId:linkedClaimId,connectionId:`agency:${input.agencyId}`,eventKey,eventType:'resubmission_created',actorUserId:input.actorUserId,payload:{...resubmission,claimId}},db);
     await db.commit();
-    return { claimId, sourceClaimId:Number(original.id),kind:input.kind,frequencyCode:kinds[input.kind],claimTransmitted:false };
+    return { claimId, sourceClaimId:Number(original.id),rootClaimId:claimRecordId(family.root),claimReference:family.claimReference,patientControlNumber:family.patientControlNumber,attemptNumber:family.attempts.length+1,kind:input.kind,frequencyCode:kinds[input.kind],claimTransmitted:false };
   } catch (error) { await db.rollback(); throw error; } finally { db.release(); }
 }
 

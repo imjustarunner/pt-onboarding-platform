@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
 
-test('ERA import/post concurrency, tenant isolation and final copay adjustments in MySQL',{skip:process.env.REMITTANCE_MYSQL_TEST!=='1'},async()=>{
+test('ERA import/post concurrency, tenant isolation and final copay adjustments in MySQL',{skip:!process.env.BILLING_TEST_MYSQL_SOCKET && process.env.REMITTANCE_MYSQL_TEST!=='1'},async()=>{
  process.env.SKIP_DB_CONNECT='1';process.env.NODE_ENV='test';process.env.FAMILY_BILLING_ENCRYPTION_KEY_BASE64=Buffer.alloc(32,4).toString('base64');
  const mysql=await import('mysql2/promise');
- const admin=await mysql.createConnection({host:'127.0.0.1',port:33316,user:'root',password:''});
+ const connectionOptions=process.env.BILLING_TEST_MYSQL_SOCKET?{socketPath:process.env.BILLING_TEST_MYSQL_SOCKET,user:'root'}:{host:'127.0.0.1',port:33316,user:'root',password:''};
+ const admin=await mysql.createConnection(connectionOptions);
  const schema=`remittance_test_${crypto.randomBytes(5).toString('hex')}`;
  await admin.query(`CREATE DATABASE ${schema}`);
- const pool=mysql.createPool({host:'127.0.0.1',port:33316,user:'root',password:'',database:schema,connectionLimit:5});
+ const pool=mysql.createPool({...connectionOptions,database:schema,connectionLimit:5});
  const {default:main}=await import('../../config/database.js'),{default:clinical}=await import('../../config/clinicalDatabase.js');
  const {importRemittance,postRemittanceItem,applyResponsibilityJobs}=await import('../remittances/store.js');
  const {applyFinalClaimResponsibility,closeZeroClaimResponsibility,findReceivable,sourcePayload}=await import('../familyLedger/receivables.js');
@@ -45,10 +46,12 @@ test('ERA import/post concurrency, tenant isolation and final copay adjustments 
   await pool.query('CREATE TABLE family_receivable_allocations(id BIGINT PRIMARY KEY,agency_id INT,receivable_id BIGINT,amount_cents BIGINT,paid_cents BIGINT)');
   await pool.query('CREATE TABLE family_ledger_payments(id BIGINT PRIMARY KEY,allocation_id BIGINT,amount_cents BIGINT,status VARCHAR(30))');
   await pool.query('CREATE TABLE family_payment_refunds(id BIGINT PRIMARY KEY,payment_id BIGINT,amount_cents BIGINT,status VARCHAR(30))');
+  await pool.query("CREATE TABLE family_copay_credit_applications(id BIGINT PRIMARY KEY,allocation_id BIGINT,amount_cents BIGINT,status VARCHAR(30))");
   await pool.query('CREATE TABLE family_payment_plans(id BIGINT PRIMARY KEY,allocation_id BIGINT,status VARCHAR(30),auto_pay INT)');
   await pool.query('CREATE TABLE family_billing_audit(id BIGINT PRIMARY KEY AUTO_INCREMENT,agency_id INT,actor_user_id INT,client_id INT,action VARCHAR(100),object_id BIGINT)');
   await pool.query('CREATE TABLE family_fulfillment_jobs(id BIGINT PRIMARY KEY AUTO_INCREMENT,agency_id INT,receivable_id BIGINT,UNIQUE KEY(agency_id,receivable_id))');
   await pool.query("INSERT INTO family_receivables VALUES(1,377,1,3000,'paid',NULL,NULL,NULL)");await pool.query('INSERT INTO family_receivable_allocations VALUES(1,377,1,3000,3000)');await pool.query("INSERT INTO family_ledger_payments VALUES(1,1,3000,'succeeded')");
+  await pool.query('ALTER TABLE family_receivable_allocations ADD share_basis_points INT,ADD share_basis VARCHAR(20)');
   await tx(async db=>applyFinalClaimResponsibility(await findReceivable(377,1,db,true),3000,{verificationReason:'ERA reviewed'},99,db));
   let balance=await findReceivable(377,1,pool);assert.equal(balance.status,'paid');assert.equal(balance.amount_cents,3000);
   await tx(async db=>applyFinalClaimResponsibility(await findReceivable(377,1,db,true),1000,{verificationReason:'ERA reviewed'},99,db));
