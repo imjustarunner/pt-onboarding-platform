@@ -14,6 +14,7 @@
      </div>
     </div>
     <router-link :to="path('about')" :aria-current="section==='about'?'page':undefined">About</router-link>
+    <router-link to="/careers/nlu">Careers</router-link>
     <PublicResourcesMenu :resources-path="path('resources')"/>
    </nav>
    <a class="nlu-button nlu-outline nlu-header-portal" :href="portalLoginUrl">Portal Login</a>

@@ -1,4 +1,5 @@
 export const SMS_CATEGORY_LABELS = Object.freeze({
+  kiosk_arrivals: ['check-in reminders', 'NOCHECKIN'],
   exchange_matches: ['Client Exchange texts', 'NOEXCHANGE'],
   client_forwarding: ['client text forwarding', 'NOCLIENTS'],
   reminders: ['appointment reminders', 'NOREMIND'],

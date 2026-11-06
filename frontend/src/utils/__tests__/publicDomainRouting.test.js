@@ -98,6 +98,35 @@ it('serves the standards page and keeps tokenized support referrals out of the s
  expect(itscoSitemap()).not.toContain('live-chat-support');
 });
 
+describe('Next Level Up careers routing', () => {
+ it.each(['nextleveluplcc.com', 'www.nextleveluplcc.com'])('loads jobs at /careers on %s and preserves the tenant on navigation and reload', async host => {
+  window.history.replaceState(null, '', '/careers?ref=website#openings');
+  const history = publicDomainHistory(createWebHistory(), host);
+  const router = createRouter({history, routes: [
+   {path:'/p/nlu/:section?', component:{}},
+   {path:'/careers/:agencySlug', component:{}},
+   {path:'/careers/:agencySlug/jobs/:jobId', component:{}},
+   {path:'/join/:agency/:service', component:{}}
+  ]});
+  await router.push(history.location);
+  expect(router.currentRoute.value.params).toEqual({agencySlug:'nlu'});
+  expect(router.currentRoute.value.query).toEqual({ref:'website'});
+  expect(router.currentRoute.value.hash).toBe('#openings');
+  expect(router.resolve('/careers/nlu').href).toBe('/careers');
+  await router.push('/careers/nlu/jobs/17?ref=careers');
+  expect(window.location.pathname).toBe('/careers/jobs/17');
+  expect(router.currentRoute.value.params).toEqual({agencySlug:'nlu', jobId:'17'});
+  expect(history.location).toBe('/careers/nlu/jobs/17?ref=careers');
+  expect(router.resolve('/careers/itsco').href).toBe('/careers/itsco');
+  expect(router.resolve('/join/nlu/counseling').href).toBe('/join/nlu/counseling');
+  const back = new Promise(resolve=>{const remove=router.afterEach(()=>{remove();resolve();});});
+  router.back(); await back;
+  expect(router.currentRoute.value.params).toEqual({agencySlug:'nlu'});
+  expect(window.location.pathname).toBe('/careers');
+  history.destroy();
+ });
+});
+
 describe('public support host slugs', () => {
  it.each([
   ['theinnerstrengthinstitute.com','tisi'],

@@ -102,10 +102,10 @@ it('rejects the wrong carrier webhook for a registered number before processing 
  getSmsSender.mockResolvedValue({registration:{provider:'notifyre'}});const res=response();await inboundSmsWebhook(request('vonage'),res,vi.fn());
  expect(res.status).toHaveBeenCalledWith(403);expect(processSmsKeyword).not.toHaveBeenCalled();expect(inspectInboundReception).not.toHaveBeenCalled();
 });
-it('consumes NOEXCHANGE before staff assistant, polling or clinical inbox routing',async()=>{
+it.each(['NOEXCHANGE', 'NOCHECKIN'])('consumes %s before staff assistant, polling or clinical inbox routing',async keyword=>{
  processSmsKeyword.mockResolvedValue(true);
- await inboundSmsWebhook(request('vonage','NOEXCHANGE'),response(),vi.fn());
- expect(processSmsKeyword).toHaveBeenCalledWith(expect.objectContaining({body:'NOEXCHANGE',messageId:'test-id'}));
+ await inboundSmsWebhook(request('vonage',keyword),response(),vi.fn());
+ expect(processSmsKeyword).toHaveBeenCalledWith(expect.objectContaining({body:keyword,messageId:'test-id'}));
  expect(inspectInboundReception).not.toHaveBeenCalled();expect(handleStaffSmsAssistant).not.toHaveBeenCalled();
  expect(handleCompanyEventCheckinInbound).not.toHaveBeenCalled();expect(handleInboundSmsAppointmentReply).not.toHaveBeenCalled();
 });

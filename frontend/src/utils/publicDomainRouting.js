@@ -65,6 +65,9 @@ export function publicSitePaths(host) {
  return {
   clean(value) {
    const path = String(value);
+   if (slug === 'nlu' && /^\/careers\/nlu(?:[/?#]|$)/.test(path)) {
+    return path.replace(/^\/careers\/nlu/, '/careers');
+   }
    const supportPrefix = `/support/${slug}`;
    if (path === supportPrefix || path.startsWith(`${supportPrefix}/`) || path.startsWith(`${supportPrefix}?`) || path.startsWith(`${supportPrefix}#`)) {
     return `/support${path.slice(supportPrefix.length)}`;
@@ -74,6 +77,9 @@ export function publicSitePaths(host) {
   },
   internal(value) {
    const path = String(value);
+   if (slug === 'nlu' && /^\/careers(?:\/jobs\/[^/?#]+)?\/?(?:[?#]|$)/.test(path)) {
+    return path.replace(/^\/careers/, '/careers/nlu');
+   }
    if (/^\/fundthred(?:[/?#]|$)/.test(path)) return path;
    if (isSchoolCareBridgePath(path)) return path;
    const pathname = path.split(/[?#]/)[0];

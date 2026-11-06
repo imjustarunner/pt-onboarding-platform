@@ -2,9 +2,10 @@ import { verbalReminderProgramReady } from '../utils/staffVerbalReminderConsent.
 import { sendApplicationHelpReply } from './smsHelpReply.service.js';
 import { contactReminderConsentLock } from '../utils/contactReminderConsent.js';
 import {ITSCO_STAFF_ASSISTANT_NUMBER} from '../utils/staffSmsAssistant.js';
-import { staffCommunicationKey, phoneFingerprint, STAFF_COMMUNICATION_CHOICES, withExchangeSmsOptOut } from '../utils/staffCommunicationChoices.js';
+import { staffCommunicationKey, phoneFingerprint, STAFF_COMMUNICATION_CHOICES, withExchangeSmsOptOut, withCheckinSmsOptOut } from '../utils/staffCommunicationChoices.js';
 import { exchangeSmsOptedOut, setExchangeSmsPreference, restartExchangeSms } from './exchangeSmsPreference.service.js';
 import { pauseStaffReminderTexts, restartStaffReminderTexts, withStaffReminderOptOut } from './staffReminderSmsPreference.service.js';
+import { checkinSmsOptedOut, setCheckinSmsPreference, restartCheckinSms } from './checkinSmsPreference.service.js';
 import { categoryRestartMessage } from '../utils/smsCategoryRestart.js';
 import { setProviderRelayPreference, restartProviderRelay, cancelPendingRelayReplies } from './providerRelayPreference.service.js';
 import pool from '../config/database.js';
@@ -180,6 +181,10 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
       && await exchangeSmsOptedOut({ agencyId: sender.agency_id, phone: recipient })) {
     throw smsPolicyError('sms_exchange_opted_out', 'Client Exchange texts are turned off for this phone and agency');
   }
+  if (purpose === 'workforce' && staffNotificationKind === 'kioskArrivals'
+      && await checkinSmsOptedOut({ agencyId: sender.agency_id, phone: recipient })) {
+    throw smsPolicyError('sms_checkin_opted_out', 'Check-in reminders are turned off for this phone and agency');
+  }
   if (['workforce','polling'].includes(purpose)) {
     const digits=recipient.slice(1), local=digits.length===11&&digits.startsWith('1')?digits.slice(1):digits;
     const [inactiveStaff] = await pool.execute(
@@ -229,7 +234,9 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
     ? `${body} Reply NOREMIND to stop appointment reminders only.` : body;
   if (reminderFooter === 'noremind') content = withStaffReminderOptOut(content);
   if (purpose === 'workforce' && staffNotificationKind === 'exchangeMatches') content = withExchangeSmsOptOut(content);
-  const includeOptOut = reminderFooter !== 'noremind' && !(purpose === 'care' && (senderFirstName || providerRelayEnrollmentId));
+  const checkinAlert = purpose === 'workforce' && staffNotificationKind === 'kioskArrivals';
+  if (checkinAlert) content = withCheckinSmsOptOut(content);
+  const includeOptOut = !checkinAlert && reminderFooter !== 'noremind' && !(purpose === 'care' && (senderFirstName || providerRelayEnrollmentId));
   return { to: recipient, from: sender.phone_number, agencyId: sender.agency_id, body: formatRegisteredSms(content, registration.brandName, purpose === 'care' ? senderFirstName : null, { includeOptOut }), registration, purpose };
 }
 
@@ -296,7 +303,7 @@ export async function recordInboundConversation({ from, to, messageId }) {
 
 export async function processSmsKeyword({ from, to, body, messageId, receivedAt = Date.now(), sendReply }) {
   const text = String(body || '').trim().toUpperCase();
-  const keyword = ['NOREMIND', 'NOPROVIDER', 'NOEXCHANGE', 'NOCLIENTS'].includes(text) ? text : parseSmsKeyword(body);
+  const keyword = ['NOREMIND', 'NOPROVIDER', 'NOEXCHANGE', 'NOCHECKIN', 'NOCLIENTS'].includes(text) ? text : parseSmsKeyword(body);
   if (!keyword) return false;
   const sender = await getSmsSender(to);
   const phone = normalizeSmsPhone(from);
@@ -305,6 +312,7 @@ export async function processSmsKeyword({ from, to, body, messageId, receivedAt 
   if (keyword === 'NOREMIND' && registration?.provider !== 'notifyre' && !registration?.purposes?.includes('workforce')) return false;
   if (keyword === 'NOCLIENTS' && registration?.provider !== 'notifyre') return false;
   if (keyword === 'NOEXCHANGE' && !registration?.purposes?.some(p => ['workforce', 'polling'].includes(p))) return false;
+  if (keyword === 'NOCHECKIN' && !registration?.purposes?.includes('workforce')) return false;
   const brand = registration?.brandName || sender.agency_name || 'AuricWell';
   const contact = registration?.supportContact || sender.support_phone;
   const evidence = { source: `inbound_${keyword.toLowerCase()}`, messageId: messageId || null, numberId: sender.id };
@@ -335,6 +343,11 @@ export async function processSmsKeyword({ from, to, body, messageId, receivedAt 
       evidence: { ...evidence, collectedAt: new Date(receivedAt).toISOString() } });
     if (!changed || await isSmsSuppressed(sender, phone)) return true;
     reply = `${brand}: Client text forwarding to this phone is off. Your in-app messages and other text choices are unchanged. Reply START to restore previously consented categories.`;
+  } else if (keyword === 'NOCHECKIN') {
+    const changed = await setCheckinSmsPreference({ agencyId: sender.agency_id, phone, enabled: false,
+      evidence: { ...evidence, collectedAt: new Date(receivedAt).toISOString() } });
+    if (!changed || await isSmsSuppressed(sender, phone)) return true;
+    reply = `${brand}: Check-in reminders from this agency are off. Email, in-app alerts and other text choices are unchanged. Reply START to restore previously consented text categories, or use your communication settings.`;
   } else if (keyword === 'NOEXCHANGE') {
     const changed = await setExchangeSmsPreference({ agencyId: sender.agency_id, phone, enabled: false,
       evidence: { ...evidence, collectedAt: new Date(receivedAt).toISOString() } });
@@ -374,6 +387,7 @@ export async function processSmsKeyword({ from, to, body, messageId, receivedAt 
         onRecorded: async db => {
           if (!wasStopped) {
             categoryRestart = true;
+            if (registration.purposes.includes('workforce') && await restartCheckinSms({ sender, phone, evidence }, db)) restored.push('kiosk_arrivals');
             if (registration.purposes.includes('workforce') && await restartExchangeSms({ sender, phone, evidence }, db)) restored.push('exchange_matches');
             if (registration.purposes.includes('workforce') && await restartStaffReminderTexts({ sender, phone, evidence }, db)) restored.push('staff_reminders');
             if (registration.provider === 'notifyre') {
@@ -398,9 +412,9 @@ export async function processSmsKeyword({ from, to, body, messageId, receivedAt 
   }
   const applicationHelp = keyword === 'HELP' && registration?.helpKeywordOwner === 'application';
   const replyOwner = keyword === 'HELP' ? registration?.helpKeywordOwner || registration?.keywordOwner : registration?.keywordOwner;
-  if (applicationHelp || categoryRestart || ['NOREMIND', 'NOPROVIDER', 'NOEXCHANGE', 'NOCLIENTS'].includes(keyword) || !['vonage', 'notifyre'].includes(replyOwner)) {
+  if (applicationHelp || categoryRestart || ['NOREMIND', 'NOPROVIDER', 'NOEXCHANGE', 'NOCHECKIN', 'NOCLIENTS'].includes(keyword) || !['vonage', 'notifyre'].includes(replyOwner)) {
     const capability = { to: phone, from: sender.phone_number, body: reply,
-      ...((categoryRestart || ['NOREMIND', 'NOPROVIDER', 'NOEXCHANGE', 'NOCLIENTS'].includes(keyword)) ? { categoryReply: true } : {}) };
+      ...((categoryRestart || ['NOREMIND', 'NOPROVIDER', 'NOEXCHANGE', 'NOCHECKIN', 'NOCLIENTS'].includes(keyword)) ? { categoryReply: true } : {}) };
     controlReplies.add(capability);
     const send = () => sendReply({ ...capability, complianceReply: capability });
     if (applicationHelp) await sendApplicationHelpReply({ sender, recipient: phone, body: reply, messageId, send });

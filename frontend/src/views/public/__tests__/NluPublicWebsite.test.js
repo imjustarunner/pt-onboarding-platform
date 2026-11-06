@@ -1,15 +1,24 @@
 import{afterEach,beforeEach,describe,expect,it,vi}from'vitest';
 import{mount,flushPromises}from'@vue/test-utils';
 import{createMemoryHistory,createRouter}from'vue-router';
+import { publicDomainHistory } from '../../../utils/publicDomainRouting.js';
 import Website from'../NluPublicWebsite.vue';
 import api from'../../../services/api';
 vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn()}}));
 let wrapper,branding,fail=false;
 const provider={id:27,displayName:'Real Provider',title:'Counselor',specialties:['Learning','Learning'],profile:{publicBlurb:'The saved profile biography.'}};
-async function render(section=''){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/p/nlu/:section?',component:Website},{path:'/:pathMatch(.*)*',component:{template:'<div />'}}]});await router.push('/p/nlu'+(section?'/'+section:''));wrapper=mount(Website,{global:{plugins:[router]}});await flushPromises();return router;}
+async function render(section='',host=''){const router=createRouter({history:publicDomainHistory(createMemoryHistory(),host),routes:[{path:'/p/nlu/:section?',component:Website},{path:'/careers/:agencySlug',component:{template:'<div />'}},{path:'/:pathMatch(.*)*',component:{template:'<div />'}}]});await router.push('/p/nlu'+(section?'/'+section:''));wrapper=mount(Website,{global:{plugins:[router]}});await flushPromises();return router;}
 beforeEach(()=>{branding={};fail=false;vi.clearAllMocks();api.get.mockImplementation(async url=>{if(url==='/public/marketing-pages/partners')return{data:{partners:[]}};if(url==='/public/marketing-pages/nlu'){if(fail)throw{response:{status:404}};return{data:{page:{slug:'nlu',branding}}};}return{data:{providers:[provider]}};});});
 afterEach(()=>wrapper?.unmount());
 describe('Next Level Up website',()=>{
+ it('links the top navigation and footer to /careers and retains NLU when opened',async()=>{
+  const router=await render('', 'nextleveluplcc.com');
+  const link=wrapper.get('nav[aria-label="Primary"] a[href="/careers"]');
+  expect(link.text()).toBe('Careers');
+  expect(wrapper.get('nav[aria-label="Footer"] a[href="/careers"]').text()).toBe('Careers');
+  await link.trigger('click');await flushPromises();
+  expect(router.currentRoute.value.params).toEqual({agencySlug:'nlu'});
+ });
  it('offers evidence and its limits on both T+T routes without presenting a program trial',async()=>{const router=await render('therapy-tutoring');for(const section of ['therapy-tutoring','how-it-works','therapy-plus-tutoring']){await router.push('/p/nlu/'+section);await flushPromises();const evidence=wrapper.get('[data-analytics-id="learning-evidence"]');expect(evidence.findAll('article')).toHaveLength(3);expect(evidence.text()).toContain('did not evaluate NLU');expect(evidence.text()).toContain('two found no effect');expect(evidence.findAll('a').map(a=>new URL(a.attributes('href')).hostname)).toEqual(['srcd.onlinelibrary.wiley.com','jamanetwork.com','journals.sagepub.com']);expect(evidence.text()).toContain('Academic instruction still matters');}await router.push('/p/nlu/counseling');await flushPromises();expect(wrapper.find('[data-analytics-id="learning-evidence"]').exists()).toBe(false);});
  it('renders each requested page with one heading and its own content',async()=>{const router=await render();for(const page of ['','tutoring','counseling','therapy-tutoring','how-it-works','get-started','about','academic-acceleration','learning-center']){await router.push('/p/nlu'+(page?'/'+page:''));await flushPromises();expect(wrapper.findAll('h1')).toHaveLength(1);expect(wrapper.find('.nlu-hero').exists()).toBe(true);}expect(wrapper.text()).toContain('K–12 individual tutoring is available now');});
  it('keeps future programs pending and routes active tutoring to enrollment',async()=>{const router=await render('academic-acceleration');expect(wrapper.find('.nlu-hero').text()).toContain('Coming soon');expect(wrapper.find('.nlu-hero a').attributes('href')).toBe('/p/nlu/contact?topic=academic_acceleration');await router.push('/p/nlu/get-started');await flushPromises();expect(wrapper.find('a[href="/join/nlu/learning?program=tutoring"]').exists()).toBe(true);expect(wrapper.find('a[href="/join/nlu/counseling"]').exists()).toBe(true);});

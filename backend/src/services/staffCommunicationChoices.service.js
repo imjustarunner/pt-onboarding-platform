@@ -1,4 +1,5 @@
 import { queueStaffSmsEnrollment } from './staffSmsEnrollmentBridge.service.js';
+import { checkinSmsOptedOut, setCheckinSmsPreference } from './checkinSmsPreference.service.js';
 import { exchangeSmsOptedOut, setExchangeSmsPreference } from './exchangeSmsPreference.service.js';
 import { ITSCO_STAFF_ASSISTANT_NUMBER, STAFF_SMS_COMMAND_VERSION, STAFF_ASSISTANT_EXAMPLES } from '../utils/staffSmsAssistant.js';
 import { staffCommunicationAgreement } from '../utils/staffCommunicationAgreement.js';
@@ -69,7 +70,8 @@ async function context(userId,agencyId) {
   let exchangeSms=prefs[0]?.exchange_sms_enabled==null?state?.choices?.exchangeMatches:Number(prefs[0].exchange_sms_enabled)===1;
   const phone=normalizeSmsPhone(user.personal_phone||user.work_phone||user.phone_number)||'';
   if (await exchangeSmsOptedOut({ agencyId, phone })) exchangeSms = false;
-  return {user,programs,disclosure,disclosureHash:digest(disclosure),state,phone,arrivalEmail,exchangeEmail,exchangeSms};
+  const checkinSmsPaused = await checkinSmsOptedOut({ agencyId, phone });
+  return {checkinSmsPaused,user,programs,disclosure,disclosureHash:digest(disclosure),state,phone,arrivalEmail,exchangeEmail,exchangeSms};
 }
 export async function getStaffCommunicationChoices({userId,agencyId}) {
   const c=await context(userId,agencyId);
@@ -81,7 +83,7 @@ export async function getStaffCommunicationChoices({userId,agencyId}) {
     return {...item,status:active?'active':'pending_review'};
   }));
   return {agencyId:Number(agencyId),disclosure:c.disclosure,disclosureHash:c.disclosureHash,phone:c.phone,
-    choices:{...Object.fromEntries(STAFF_COMMUNICATION_CHOICES.map(x=>[x.key,false])),...c.state?.choices,...(typeof c.exchangeSms==='boolean'?{exchangeMatches:c.exchangeSms}:{})},
+    choices:{...Object.fromEntries(STAFF_COMMUNICATION_CHOICES.map(x=>[x.key,false])),...c.state?.choices,...(typeof c.exchangeSms==='boolean'?{exchangeMatches:c.exchangeSms}:{}),...(c.checkinSmsPaused?{kioskArrivals:false}:{})},
     answeredChoices:Object.keys(c.state?.choices||{}),
     arrivalEmail:c.arrivalEmail,exchangeEmail:c.exchangeEmail,appointmentReplyMode:c.state?.appointmentReplyMode||'all',
     accessRequests:c.state?.accessRequests||Object.fromEntries(STAFF_COMMUNICATION_REQUESTS.map(x=>[x.key,false])),
@@ -116,6 +118,8 @@ export async function saveStaffCommunicationChoices({userId,agencyId,input,sourc
     state.evidenceId=evidenceId;
     await writeState(connection,userId,agencyId,state);
     if (phone) await setExchangeSmsPreference({ agencyId, phone, enabled: input.choices.exchangeMatches,
+      evidence: { source: 'signed_staff_choices', reference, collectedAt: reviewedAt, userId: Number(userId) } }, connection);
+    if (phone) await setCheckinSmsPreference({ agencyId, phone, enabled: input.choices.kioskArrivals,
       evidence: { source: 'signed_staff_choices', reference, collectedAt: reviewedAt, userId: Number(userId) } }, connection);
     if(anyYes)await queueStaffSmsEnrollment({userId,agencyId,state,phone,programs:c.programs,database:connection});
     await connection.execute(`INSERT INTO user_notification_type_preferences (user_id,notification_type,in_app_enabled,email_enabled)
