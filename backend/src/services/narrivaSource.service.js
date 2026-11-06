@@ -17,6 +17,7 @@ import { resolveAgencySchedulingCatalog } from './agencySchedulingCatalog.servic
 import {completeNarrivaRiskAssessment} from './narrivaRiskAssessment.service.js';
 import {loadNarrivaAssessmentEvidence} from './narrivaAssessmentEvidence.service.js';
 import {assertNoPendingClinicalServiceChange} from '../utils/clinicalServiceChangePolicy.js';
+import {isProBonoServiceCode,resolveProBonoDocumentationService} from '../utils/clinicalFundingPolicy.js';
 
 export function decryptNarrivaDraft(value) {
  let raw=String(value || '');let item;try{item=JSON.parse(raw);}catch{return raw;}
@@ -32,7 +33,7 @@ export function narrivaNarrative(payload) {
  return Object.entries(sections).filter(([k,v])=>k!=='meta' && typeof v==='string').map(([k,v])=>`${k}:\n${v}`).join('\n\n');
 }
 const textPresent=value=>typeof value==='string'?value.trim().length>3:Array.isArray(value)?value.length>0:!!value && Object.values(value).some(v=>typeof v==='string' && v.trim().length>3);
-export function narrivaLocalContext({source,meta,session={},provider={},serviceRule}) {
+export function narrivaLocalContext({source,meta,session={},provider={},serviceRule,documentationServiceRule}) {
  const chart=parse(meta.structuredChart),narriva=parse(meta.narrivaContext),context=parse(meta.sessionContext);
  const duration=Number(context.durationMinutes || meta.durationMinutes || session.actual_duration_minutes || session.duration_minutes || 0);
  const start=context.startTimeLocal || meta.startTimeLocal,end=context.endTimeLocal || meta.endTimeLocal;
@@ -41,19 +42,22 @@ export function narrivaLocalContext({source,meta,session={},provider={},serviceR
  const instant=value=>value instanceof Date?value.getTime():new Date(/[Zz]|[+-]\d{2}:\d{2}$/.test(String(value))?value:String(value).replace(' ','T')+'Z').getTime();
  const actualMinutes=hasInstants?(instant(session.actual_end_at)-instant(session.actual_start_at))/60000:null;
  const code=String(source.service_code || meta.serviceCode || session.service_code || '').trim().toUpperCase();
- let allowed=!!serviceRule && serviceRule.is_active!==false && serviceRule.is_active!==0,reason='';
+ const proBono=isProBonoServiceCode(code),documentationCode=resolveProBonoDocumentationService({serviceCode:code,metadata:meta}).serviceCode;
+ const clinicalRule=proBono?documentationServiceRule:serviceRule;
+ let allowed=!!clinicalRule && clinicalRule.is_active!==false && clinicalRule.is_active!==0,reason='';
  const tier=deriveCredentialTier({userRole:provider.role,providerCredentialText:provider.credential});
- try{assertServiceCodeAllowed({tier,serviceCode:code});}catch(e){allowed=false;reason=e.message;}
+ try{assertServiceCodeAllowed({tier,serviceCode:documentationCode || code});}catch(e){allowed=false;reason=e.message;}
+ if(proBono && !documentationCode){allowed=false;reason='Select the actual clinical service provided. Pro bono remains the no-client-charge funding choice.';}
  if(!code || /\bET\b/.test(code)){allowed=false;reason='Choose a supported base service code.';}
  const savedCode=String(session.service_code || '').trim().toUpperCase();
  const metadataCode=String(meta.serviceCode || '').trim().toUpperCase();
  if(session.id && savedCode!==code || metadataCode && metadataCode!==code) {
   allowed=false;reason='Confirm the service change on the actual session before checking or signing this code.';
  }
- const rule=serviceRule || {};
+ const rule=clinicalRule || {};
  const tiers=typeof rule.allowed_credential_tiers_json==='string'?parse(rule.allowed_credential_tiers_json):rule.allowedCredentialTiers || rule.allowed_credential_tiers_json;
  if(Array.isArray(tiers) && tiers.length && !tiers.includes(tier))allowed=false;
- const billing=serviceRule?resolveSessionBilling({minutes:duration,serviceCode:code,unitCalcMode:rule.unit_calc_mode || rule.unitCalcMode,
+ const billing=clinicalRule?resolveSessionBilling({minutes:duration,serviceCode:documentationCode || code,unitCalcMode:rule.unit_calc_mode || rule.unitCalcMode,
   unitMinutes:rule.unit_minutes || rule.unitMinutes,minMinutes:rule.min_minutes ?? rule.minMinutes,maxMinutes:rule.max_minutes ?? rule.maxMinutes,
   maxUnitsPerSession:rule.max_units_per_session || rule.maxUnitsPerSession,ladderBandsJson:rule.ladder_bands_json || rule.ladderBandsJson}):{claimable:false};
  const participantText=String(context.participantsDetail || meta.participants || context.participants || '');
@@ -79,8 +83,8 @@ export function narrivaLocalContext({source,meta,session={},provider={},serviceR
    riskAssessmentComplete:narriva.riskAssessmentCompleted===true && completeNarrivaRiskAssessment(chart.riskAssessment),
    riskAssessmentDeniesAll:chart.riskAssessment?.patientDeniesAll===true,
    assessmentEvidencePresent:Array.isArray(narriva.assessmentDocumentIds) && narriva.assessmentDocumentIds.length>0},
-  service:{code,allowed,reason,modalityAllowed,durationAllowed:billing.claimable && (!billing.overflowApplied),
-   crisisSuggestion:code==='H0004'?'H2011':code==='90837' && tier==='intern_plus'?'90839':null}
+  service:{code,documentationCode,proBono,allowed,reason,modalityAllowed,durationAllowed:billing.claimable && (!billing.overflowApplied),
+   crisisSuggestion:documentationCode==='H0004'?'H2011':documentationCode==='90837' && tier==='intern_plus'?'90839':null}
  };
 }
 export async function loadNarrivaSource(user,{agencyId,draftId,noteId}, {clinicalDb=clinicalPool}={}) {
@@ -119,6 +123,8 @@ export async function loadNarrivaSource(user,{agencyId,draftId,noteId}, {clinica
  const serviceCode=String(source.service_code || meta.serviceCode || session.service_code || '').trim().toUpperCase();
  const codes=await AgencyMedicalServiceCode.listByAgency(agencyId);
  const serviceRule=codes.find(row=>String(row.service_code || row.serviceCode).toUpperCase()===serviceCode);
+ const documentationCode=resolveProBonoDocumentationService({serviceCode,metadata:meta}).serviceCode;
+ const documentationServiceRule=codes.find(row=>String(row.service_code || row.serviceCode).toUpperCase()===documentationCode);
  // Verify selected file metadata only. No assessment bytes enter a writing/review model.
  let assessmentManifest=[];
  if(meta.narrivaContext?.assessmentEvidence?.length || meta.narrivaContext?.assessmentDocumentIds?.length) {
@@ -129,13 +135,13 @@ export async function loadNarrivaSource(user,{agencyId,draftId,noteId}, {clinica
  }
  const narrative=output._narrative || narrivaNarrative(output);
  const inputText=draftId?decryptNarrivaDraft(source.input_text):'';
- const local=narrivaLocalContext({source,meta,session,provider,serviceRule});
+ const local=narrivaLocalContext({source,meta,session,provider,serviceRule,documentationServiceRule});
  local.clinical.assessmentEvidencePresent=assessmentManifest.length>0;
  const [[priorRisk]]=await pool.execute(`SELECT MAX(risk_assessment_required) AS required FROM narriva_reviews WHERE agency_id=? AND ((draft_id IS NOT NULL AND draft_id=?) OR (clinical_note_id IS NOT NULL AND clinical_note_id=?) OR (clinical_session_id IS NOT NULL AND clinical_session_id=?))`,[agencyId,positiveId(draftId || meta.draftId),positiveId(noteId),positiveId(source.clinical_session_id)]);
  local.clinical.riskRequiredFromPriorReview=Number(priorRisk?.required)===1;
  const catalog=await resolveAgencySchedulingCatalog({agencyId,credentialTier:care.credentialTier,allServiceCodes:[],eligibleServiceCodes:[]});
  const allowedCodes=new Set(catalog.eligibleServiceCodes.map(row=>row.code));
- local.service.allowed=local.service.allowed && care.canProvideCare && allowedCodes.has(serviceCode);
+ local.service.allowed=local.service.allowed && care.canProvideCare && allowedCodes.has(local.service.proBono?documentationCode:serviceCode);
  if(local.service.crisisSuggestion && !allowedCodes.has(local.service.crisisSuggestion))local.service.crisisSuggestion=null;
  const sourceHash=narrivaSourceHash({narrative,inputText,meta,service:local.service,encounter:local.encounter,clinical:{...local.clinical,riskRequiredFromPriorReview:undefined},
   session,assessmentManifest,document:reviewDocument?.content || null,providerQualifications:[provider?.credential,provider?.role],rules:NARRIVA_RULES_VERSION});

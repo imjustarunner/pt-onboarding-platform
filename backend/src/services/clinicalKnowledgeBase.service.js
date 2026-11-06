@@ -1,5 +1,6 @@
 import StorageService from './storage.service.js';
 import { extractResumeTextFromUpload } from './resumeTextExtraction.service.js';
+import {createHash} from 'node:crypto';
 
 const DEFAULT_REFRESH_MINUTES = 30;
 const DEFAULT_MAX_DOCS = 100;
@@ -41,10 +42,12 @@ function getCacheTtlMs() {
 
 function pickMimeType(fileName, contentType) {
   const ct = String(contentType || '').toLowerCase();
-  if (ct) return ct;
+  if (ct==='text/markdown')return 'text/plain';
+  if (ct && ct!=='application/octet-stream') return ct;
   const name = String(fileName || '').toLowerCase();
   if (name.endsWith('.pdf')) return 'application/pdf';
-  if (name.endsWith('.txt')) return 'text/plain';
+  if (name.endsWith('.txt') || name.endsWith('.md')) return 'text/plain';
+  if (name.endsWith('.docx'))return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
   return '';
 }
 
@@ -305,38 +308,49 @@ async function loadKnowledgeBaseDocs(prefixOverride = null) {
   const storage = await StorageService.getGCSStorage();
   const bucket = storage.bucket(bucketName);
 
-  const [files] = await bucket.getFiles({
+  const [files,nextQuery] = await bucket.getFiles({
     prefix: prefix || undefined,
-    maxResults: Math.max(1, maxDocs)
+    maxResults: Math.max(1, maxDocs)+1,
+    autoPaginate:false
   });
 
   const docs = [];
+  const coverage={complete:!nextQuery && (files || []).length<=maxDocs,listingLimited:!!nextQuery || (files || []).length>maxDocs,unreadable:0,truncated:0};
   for (const file of files || []) {
-    if (docs.length >= maxDocs) break;
+    if (docs.length >= maxDocs) {coverage.complete=false;coverage.listingLimited=true;break;}
     try {
       const [metadata] = await file.getMetadata();
       const size = Number.parseInt(metadata?.size || '0', 10);
-      if (Number.isFinite(size) && size > maxDocBytes) continue;
+      if (Number.isFinite(size) && size > maxDocBytes) {coverage.complete=false;coverage.unreadable++;continue;}
       // Skip folder placeholder objects.
       if (!file.name || file.name.endsWith('/')) continue;
 
       const mimeType = pickMimeType(file.name, metadata?.contentType);
       if (!mimeType) continue;
-      if (mimeType !== 'application/pdf' && mimeType !== 'text/plain') continue;
+      if (!['application/pdf','text/plain','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/docx'].includes(mimeType)) {
+        if(/\.(?:doc|rtf|pptx?|odt)$/i.test(file.name)){coverage.complete=false;coverage.unreadable++;}
+        continue;
+      }
 
       const [buffer] = await file.download();
       const result = await extractResumeTextFromUpload({ buffer, mimeType });
-      if (result?.status !== 'completed' || !result?.text) continue;
+      if (result?.status !== 'completed' || !result?.text) {coverage.complete=false;coverage.unreadable++;continue;}
+
+      const truncated=result.text.length>=Math.min(200000,maxDocChars);
+      if(truncated){coverage.complete=false;coverage.truncated++;}
 
       docs.push({
         name: file.name,
-        text: safeTruncate(result.text, maxDocChars)
+        text: safeTruncate(result.text, maxDocChars),truncated,
+        binaryHash:createHash('sha256').update(buffer).digest('hex'),
+        version:String(metadata?.generation || metadata?.etag || metadata?.updated || '')
       });
     } catch {
-      // Skip unreadable files to keep the KB resilient.
+      coverage.complete=false;coverage.unreadable++;
     }
   }
 
+  Object.defineProperty(docs,'coverage',{value:coverage,enumerable:false});
   return docs;
 }
 
@@ -416,6 +430,35 @@ export async function getKnowledgeBaseContext({
   });
 }
 
+/** Full selected training corpus, with explicit coverage rather than silent clipping. */
+export function buildKnowledgeBaseEvidenceFromDocs(docs,{maxChars=900000,coverage={}}={}) {
+  const digest=value=>createHash('sha256').update(String(value)).digest('hex');
+  const unique=new Map();
+  for(const doc of docs || []){const hash=digest(doc.text || '');if(!unique.has(hash))unique.set(hash,doc);}
+  const chunks=[],documents=[];let characters=0,incomplete=coverage.complete===false;
+  for(const [hash,doc] of [...unique].sort((a,b)=>styleDocBoost(b[1].name)-styleDocBoost(a[1].name)||String(a[1].name).localeCompare(String(b[1].name)))){
+    const text=String(doc.text || '').trim(),id=digest(doc.name || hash);
+    const role=doc.scopedReference?'official_service_reference':isExampleDocName(doc.name)?'authored_example':isTrainingDocName(doc.name)?'authored_training':'supporting_reference';
+    const content=`[Supporting reference ${documents.length+1}; ${role}]\n${text}`;
+    const included=!!text && !doc.truncated && characters+content.length+2<=maxChars;
+    documents.push({id,contentHash:hash,binaryHash:doc.binaryHash || null,version:doc.version || hash,role,characters:text.length,included,complete:!doc.truncated,scopedReference:!!doc.scopedReference});
+    if(included){chunks.push(content);characters+=content.length+2;}else incomplete=true;
+  }
+  return {text:chunks.join('\n\n'),documents,complete:documents.length>0 && !incomplete,coverage:{...coverage,complete:documents.length>0 && !incomplete,totalDocuments:documents.length,includedDocuments:documents.filter(d=>d.included).length,maxChars}};
+}
+
+export async function getKnowledgeBaseEvidence({folders=[],maxChars=900000,referenceReplacements=[],...options}={}) {
+  if(!resolveKnowledgeBaseBucket())return {text:'',documents:[],complete:false,coverage:{complete:false,reason:'not_configured'}};
+  const prefixes=[...new Set((folders.length?folders:['']).map(normalizeFolderPrefix))];
+  const batches=await Promise.all(prefixes.map(prefix=>getKnowledgeBaseDocs(prefix || null)));
+  const replacements=new Map(referenceReplacements.filter(r=>r.binaryHash && r.text).map(r=>[r.binaryHash,r]));
+  const docs=batches.flat().map(doc=>{const replacement=replacements.get(doc.binaryHash);return replacement?{...doc,text:replacement.text,truncated:false,scopedReference:true}:doc;});
+  const unreadable=batches.reduce((n,b)=>n+(b.coverage?.unreadable || 0),0),listingLimited=batches.some(b=>b.coverage?.listingLimited===true);
+  const emptyFolders=batches.filter(batch=>!batch.length).length;
+  const coverage={complete:!unreadable && !listingLimited && !emptyFolders,folders:prefixes.length,emptyFolders,unreadable,listingLimited,truncated:docs.filter(doc=>doc.truncated).length};
+  return buildKnowledgeBaseEvidenceFromDocs(docs,{...options,maxChars,coverage});
+}
+
 export async function getKnowledgeBaseStatus({ refresh = false } = {}) {
   const bucketName = resolveKnowledgeBaseBucket();
   const prefix = String(process.env.CLINICAL_KB_PREFIX || '').trim();
@@ -423,8 +466,8 @@ export async function getKnowledgeBaseStatus({ refresh = false } = {}) {
   const now = Date.now();
 
   if (refresh) {
+    resetClinicalKnowledgeBaseCache();
     await getKnowledgeBaseDocs();
-    kbCache.byPrefix.clear();
   }
 
   const loaded = kbCache.loadedAt > 0;
@@ -440,4 +483,8 @@ export async function getKnowledgeBaseStatus({ refresh = false } = {}) {
     nextRefreshAt: loaded ? new Date(kbCache.loadedAt + ttlMs).toISOString() : null,
     ttlMinutes: Math.round(ttlMs / 60000)
   };
+}
+
+export function resetClinicalKnowledgeBaseCache() {
+  kbCache.loadedAt=0;kbCache.docs=[];kbCache.byPrefix.clear();
 }

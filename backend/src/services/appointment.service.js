@@ -6,6 +6,8 @@ import { assertAppointmentWindowAvailable } from './appointmentConflict.service.
 import { requireStaffCareEligibility } from './staffCareEligibility.service.js';
 import {assertPackageProviderBinding,assertPackageExpiration} from './bookingPackagePricing.js';
 import { getAgencySelfPayOnly, resolveSelfPayQuote } from './selfPayRates.service.js';
+import {isProBonoFunding,isProBonoServiceCode,proBonoClientBilling} from '../utils/clinicalFundingPolicy.js';
+import {reconcileClinicalAfterHours,savedOfficeBookingTimezone} from './clinicalAfterHours.service.js';
 import pool from '../config/database.js';
 import AgencyServiceLocation from '../models/AgencyServiceLocation.model.js';
 import { ensureAppointmentClinicalLink, assertAppointmentClients } from './appointmentClinicalLink.service.js';
@@ -199,6 +201,7 @@ async function createLockedAppointment({
   const aid = Number(agencyId || 0);
   if (!aid) throw Object.assign(new Error('agencyId is required'), { status: 400 });
 
+  if(officeEventId)timeZone=await savedOfficeBookingTimezone(officeEventId,aid);
   const start = toMysqlDateTime(startAt, timeZone);
   const end = toMysqlDateTime(endAt, timeZone);
   if (!start || !end) throw Object.assign(new Error('startAt and endAt are required'), { status: 400 });
@@ -246,26 +249,31 @@ async function createLockedAppointment({
   if (!businessType || ['mental_health', 'healthcare'].includes(businessType) || bookingClients.some(client => ['clinical', 'school'].includes(client.client_type))) {
     await requireClientSessionBooking(aid, providerUserId);
   }
+  let actualPlaceOfService=null;
   if (serviceLocationId) {
     const location = await AgencyServiceLocation.findById(serviceLocationId);
     if (!location || Number(location.agency_id) !== aid) {
       throw Object.assign(new Error('Service location does not belong to this agency'), { status: 403 });
     }
+    actualPlaceOfService=location.place_of_service||null;
   }
   serviceCode = serviceCode || service?.serviceCode || null;
   const clinicalBooking = !packageEntitlementId && (['mental_health', 'healthcare'].includes(businessType)
     || (!businessType && bookingClients.some((client) => ['clinical', 'school'].includes(client.client_type))));
+  const proBono=isProBonoFunding({serviceCode,billing});
+  if(proBono&&packageEntitlementId)throw Object.assign(new Error('A pro bono service must not consume a client-paid package. Rebook it without the package.'),{status:409});
   if (clinicalBooking && !selfPayOnly && !serviceCode) throw Object.assign(new Error('A service code is required for a clinical session'), { status: 400 });
   if (providerUserId) {
     const memberships = await User.getAgencies(providerUserId);
     if (!memberships.some((a) => Number(a.id) === aid)) throw Object.assign(new Error('Provider is not assigned to this agency'), { status: 403 });
     if (clinicalBooking || ['mental_health', 'healthcare'].includes(businessType)) await requireStaffCareEligibility(providerUserId, aid);
-    if (clinicalBooking && !selfPayOnly) {
+    if (clinicalBooking && !selfPayOnly&&!isProBonoServiceCode(serviceCode)) {
       const provider = await User.findById(providerUserId);
       await validateSchedulingSelection({ agencyId: aid, providerId: providerUserId, userRole: provider.role, providerCredentialText: provider.credential,
         appointmentTypeCode: 'SESSION', serviceCode, modality, scheduledStartAt: start, scheduledEndAt: end });
     }
   }
+  if(clinicalBooking&&providerUserId){const resolved=await reconcileClinicalAfterHours({agencyId:aid,providerUserId,primaryCode:serviceCode,startAt:start,timeZone,modality:modality||service?.modality,placeOfService:actualPlaceOfService,addonServiceCodes,billing});addonServiceCodes=resolved.addonServiceCodes;}
   if (packageEntitlementId) {
     const entitlement = await BookingPackage.findEntitlementById(packageEntitlementId, aid);
     assertPackageProviderBinding(entitlement?.pricingSnapshot,{providerUserId,tenantServiceId,startAt:start,endAt:end,modality,participantMode:participantModeFromList(participants)});
@@ -311,7 +319,7 @@ async function createLockedAppointment({
     /* defaults ok */
   }
 
-  const settlementMode = packageEntitlementId ? 'package' : selfPayOnly ? 'self_pay_only' : (billing?.settlementMode || service?.billingMethod || 'self_pay');
+  const settlementMode = proBono?'pro_bono':packageEntitlementId ? 'package' : selfPayOnly ? 'self_pay_only' : (billing?.settlementMode || service?.billingMethod || 'self_pay');
   const selfPayQuote = !packageEntitlementId && ['self_pay', 'self_pay_only'].includes(settlementMode)
     ? await resolveSelfPayQuote({ agencyId: aid, providerId: providerUserId, service,
       modality: modality || service?.modality, durationMinutes: (new Date(end.replace(' ', 'T') + 'Z') - new Date(start.replace(' ', 'T') + 'Z')) / 60000 }) : null;
@@ -361,11 +369,12 @@ async function createLockedAppointment({
   } catch {
     /* columns may not exist yet */
   }
-  if (billing || service || packageEntitlementId || selfPayOnly) {
+  if (proBono || billing || service || packageEntitlementId || selfPayOnly) {
     await Appointment.upsertBilling(appt.id, {
-      ...billing,
+      ...(proBono?proBonoClientBilling(billing||{}):billing),
       settlementMode,
-      amountCents: packageEntitlementId ? null : (billing?.amountCents ?? selfPayQuote?.amountCents ?? service?.priceCents ?? null),
+      amountCents: proBono?0:packageEntitlementId ? null : (billing?.amountCents ?? selfPayQuote?.amountCents ?? service?.priceCents ?? null),
+      ...(proBono?{paymentStatus:'waived'}:{}),
       notes: [billing?.notes, selfPayQuote ? `Self-pay rate at booking: ${JSON.stringify(selfPayQuote)}` : null].filter(Boolean).join('\n') || null,
       packageEntitlementId: packageEntitlementId || null,
       responsibleClientId: billing?.responsibleClientId || participants?.[0]?.clientId || participants?.[0]?.client_id || null,
@@ -422,6 +431,10 @@ export async function updateAppointment(appointmentId, patch = {}, options = {})
 async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true, guardianCancellationClientId = null } = {}) {
   const existing = await Appointment.findById(appointmentId);
   if (!existing) return null;
+  const persistedSourceTimezone=Object.hasOwn(existing,'persistedSourceTimezone')?existing.persistedSourceTimezone:existing.sourceTimezone||null;
+  const sourceZoneForEdit=existing.officeEventId&&['serviceCode','addonServiceCodes','providerUserId','startAt','endAt','timeZone','modality','serviceLocationId'].some(key=>patch[key]!==undefined)
+    ?await savedOfficeBookingTimezone(existing.officeEventId,existing.agencyId):patch.timeZone||persistedSourceTimezone;
+  const policySourceTimezone=existing.officeEventId?sourceZoneForEdit:persistedSourceTimezone;
   const {assertAppointmentOutcomePreserved}=await import('../utils/appointmentOutcomeGuard.js');
   assertAppointmentOutcomePreserved(existing,patch);
   if (patch.providerUserId != null && Number(patch.providerUserId) !== Number(existing.providerUserId)) {
@@ -444,7 +457,7 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     }
   }
   await requireQaOutcomeElapsed({ ...existing, endAt: patch.endAt || existing.endAt }, patch.status);
-  const clinicalContextChanged=['serviceCode','tenantServiceId','serviceLocationId','modality','providerUserId','roomId'].some(key=>patch[key]!==undefined && String(patch[key]??'')!==String(existing[key]??''))
+  let clinicalContextChanged=['serviceCode','tenantServiceId','serviceLocationId','modality','providerUserId','roomId'].some(key=>patch[key]!==undefined && String(patch[key]??'')!==String(existing[key]??''))
     || (patch.addonServiceCodes!==undefined && JSON.stringify(patch.addonServiceCodes)!==JSON.stringify(existing.addonServiceCodes||[]));
   if(clinicalContextChanged){
     const {assertAppointmentCanMove}=await import('./appointmentScheduleSync.service.js');
@@ -474,34 +487,51 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
   if (patch.startAt != null || patch.endAt != null) {
     const { assertAppointmentCanMove } = await import('./appointmentScheduleSync.service.js');
     // Office adapter repeats existing times during linkage refresh; this is not a move.
-    const start = patch.startAt != null ? toMysqlDateTime(patch.startAt, patch.timeZone || existing.sourceTimezone) : existing.startAt;
-    const end = patch.endAt != null ? toMysqlDateTime(patch.endAt, patch.timeZone || existing.sourceTimezone) : existing.endAt;
+    const start = patch.startAt != null ? toMysqlDateTime(patch.startAt, sourceZoneForEdit) : existing.startAt;
+    const end = patch.endAt != null ? toMysqlDateTime(patch.endAt, sourceZoneForEdit) : existing.endAt;
     const sameInstant = (a, b) => new Date(a instanceof Date ? a : String(a).replace(' ', 'T').replace(/Z?$/, 'Z')).getTime()
       === new Date(b instanceof Date ? b : String(b).replace(' ', 'T').replace(/Z?$/, 'Z')).getTime();
     if (!start || !end || new Date(start).getTime() >= new Date(end).getTime()) throw Object.assign(new Error('endAt must be after startAt'), { status: 400 });
     moved = !sameInstant(start, existing.startAt) || !sameInstant(end, existing.endAt);
     if (moved) await assertAppointmentCanMove(existing);
   }
-  const currentBilling = (patch.billing || patch.serviceCode !== undefined || patch.addonServiceCodes !== undefined || patch.providerUserId !== undefined)
+  const reconcileHours=(moved||clinicalContextChanged||(patch.timeZone!==undefined&&sourceZoneForEdit!==existing.sourceTimezone))&&(['mental_health','healthcare'].includes(existing.businessType)||existing.clinicalSessionId);
+  const currentBilling = (reconcileHours || patch.billing || patch.serviceCode !== undefined || patch.addonServiceCodes !== undefined || patch.providerUserId !== undefined)
     ? await Appointment.getBilling(appointmentId) : null;
+  const proBono=isProBonoFunding({serviceCode:patch.serviceCode??existing.serviceCode,billing:{...currentBilling,...patch.billing}});
+  if(proBono&&existing.packageEntitlementId)throw Object.assign(new Error('A pro bono service must not consume a client-paid package. Cancel and rebook it without the package.'),{status:409});
+  if(proBono&&(patch.billing||patch.serviceCode!==undefined)){
+    if(['paid','invoiced','fee_pending','package_consumed','forfeited'].includes(String(currentBilling?.paymentStatus||'')))throw Object.assign(new Error('Existing financial records require billing review before changing the funding designation.'),{status:409});
+    patch.billing=proBonoClientBilling({...currentBilling,...patch.billing});
+  }
+  if(reconcileHours){
+    const location=(patch.serviceLocationId||existing.serviceLocationId)?await AgencyServiceLocation.findById(patch.serviceLocationId||existing.serviceLocationId):null;
+    const resolved=await reconcileClinicalAfterHours({agencyId:existing.agencyId,providerUserId:patch.providerUserId||existing.providerUserId,primaryCode:patch.serviceCode??existing.serviceCode,
+      startAt:patch.startAt!=null?toMysqlDateTime(patch.startAt,sourceZoneForEdit):existing.startAt,timeZone:policySourceTimezone,
+      modality:patch.modality||existing.modality,placeOfService:location?.place_of_service,addonServiceCodes:patch.addonServiceCodes??existing.addonServiceCodes??[],billing:{...currentBilling,...patch.billing}});
+    if(JSON.stringify(resolved.addonServiceCodes)!==JSON.stringify(patch.addonServiceCodes??existing.addonServiceCodes??[])){
+      if(!clinicalContextChanged){const {assertAppointmentCanMove}=await import('./appointmentScheduleSync.service.js');await assertAppointmentCanMove(existing);}
+      patch.addonServiceCodes=resolved.addonServiceCodes;clinicalContextChanged=true;
+    }
+  }
   if (currentBilling?.settlementMode !== 'self_pay_only' && (patch.serviceCode !== undefined || patch.addonServiceCodes !== undefined || patch.providerUserId !== undefined)) {
     const provider = await User.findById(patch.providerUserId || existing.providerUserId);
-    const codes = [patch.serviceCode ?? existing.serviceCode, ...(patch.addonServiceCodes ?? existing.addonServiceCodes ?? [])].filter(Boolean);
+    const codes = [patch.serviceCode ?? existing.serviceCode, ...(patch.addonServiceCodes ?? existing.addonServiceCodes ?? [])].filter(value=>value&&value!=='99051'&&!isProBonoServiceCode(value));
     for (const code of codes) await validateSchedulingSelection({ agencyId: existing.agencyId, providerId: provider.id, userRole: provider.role,
       providerCredentialText: provider.credential, appointmentTypeCode: 'SESSION', serviceCode: code,
       modality: patch.modality || existing.modality });
   }
   if (moved || (patch.providerUserId !== undefined && Number(patch.providerUserId) !== Number(existing.providerUserId))) {
     await assertAppointmentWindowAvailable(pool, { ...existing, ...patch,
-      startAt: patch.startAt != null ? toMysqlDateTime(patch.startAt, patch.timeZone || existing.sourceTimezone) : existing.startAt,
-      endAt: patch.endAt != null ? toMysqlDateTime(patch.endAt, patch.timeZone || existing.sourceTimezone) : existing.endAt
+      startAt: patch.startAt != null ? toMysqlDateTime(patch.startAt, sourceZoneForEdit) : existing.startAt,
+      endAt: patch.endAt != null ? toMysqlDateTime(patch.endAt, sourceZoneForEdit) : existing.endAt
     }, existing.id);
   }
   if (moved && existing.officeEventId) {
     const { moveAppointmentOffice } = await import('./appointmentCalendarMaintenance.service.js');
     await moveAppointmentOffice(existing,
-      patch.startAt != null ? toMysqlDateTime(patch.startAt, patch.timeZone || existing.sourceTimezone) : existing.startAt,
-      patch.endAt != null ? toMysqlDateTime(patch.endAt, patch.timeZone || existing.sourceTimezone) : existing.endAt, actorUserId);
+      patch.startAt != null ? toMysqlDateTime(patch.startAt, sourceZoneForEdit) : existing.startAt,
+      patch.endAt != null ? toMysqlDateTime(patch.endAt, sourceZoneForEdit) : existing.endAt, actorUserId);
   }
   if (patch.participants) {
     const mode = participantModeFromList(patch.participants);
@@ -509,14 +539,14 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     await Appointment.replaceParticipants(appointmentId, patch.participants);
   }
   if (patch.billing) {
-    if (currentBilling?.settlementMode === 'self_pay_only' && patch.billing.settlementMode && patch.billing.settlementMode !== 'self_pay_only') {
+    if (currentBilling?.settlementMode === 'self_pay_only' && patch.billing.settlementMode && !['self_pay_only','pro_bono'].includes(patch.billing.settlementMode)) {
       throw Object.assign(new Error('Cancel and rebook to change a self-pay-only appointment to insurance billing'), { status: 409 });
     }
     await Appointment.upsertBilling(appointmentId, { ...currentBilling, ...patch.billing });
   }
 
-  const startAt = patch.startAt != null ? toMysqlDateTime(patch.startAt, patch.timeZone || existing.sourceTimezone) : existing.startAt;
-  const endAt = patch.endAt != null ? toMysqlDateTime(patch.endAt, patch.timeZone || existing.sourceTimezone) : existing.endAt;
+  const startAt = patch.startAt != null ? toMysqlDateTime(patch.startAt, sourceZoneForEdit) : existing.startAt;
+  const endAt = patch.endAt != null ? toMysqlDateTime(patch.endAt, sourceZoneForEdit) : existing.endAt;
   const prevStatus = String(existing.status || '').toLowerCase();
   const updatePatch = {
     ...patch,
@@ -542,6 +572,7 @@ async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId 
     if (!cancellationOnly) assertPackageExpiration(ent?.pricingSnapshot,ent?.activatedAt,updatePatch.startAt||existing.startAt);
   }
   await Appointment.update(appointmentId, updatePatch);
+  if(reconcileHours&&policySourceTimezone&&policySourceTimezone!==persistedSourceTimezone)await pool.execute('UPDATE appointments SET source_timezone=? WHERE id=? AND agency_id=?',[policySourceTimezone,appointmentId,existing.agencyId]);
   if (patch.serviceCode !== undefined || patch.addonServiceCodes !== undefined) {
     await Appointment.setServiceCodes(appointmentId, {
       serviceCode: patch.serviceCode ?? existing.serviceCode,

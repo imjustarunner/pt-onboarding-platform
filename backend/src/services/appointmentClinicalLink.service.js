@@ -6,6 +6,7 @@ import Appointment from '../models/Appointment.model.js';
 import Client from '../models/Client.model.js';
 import ClinicalSession from '../models/clinical/ClinicalSession.model.js';
 import { ensureAppointmentContext } from './appointmentContext.service.js';
+import {isProBonoFunding} from '../utils/clinicalFundingPolicy.js';
 
 export async function assertAppointmentClients(agencyId, participants, { allowTerminated = false } = {}) {
   const clients = [];
@@ -36,7 +37,9 @@ export async function ensureAppointmentClinicalLink(appointmentId, actorUserId =
   await assertAppointmentClients(appointment.agencyId, participants, { allowTerminated: true });
   if ((appointment.packageEntitlementId && !['mental_health', 'healthcare'].includes(appointment.businessType)) || ['tutoring', 'learning', 'coaching', 'consulting', 'mentorship', 'skills_development'].includes(appointment.businessType)) return [];
   const billing = await Appointment.getBilling(appointmentId);
-  const claimBlocked = appointment.packageEntitlementId ? 'SELF_PAY_ONLY: Prepaid package appointment; insurance claims are disabled'
+  const sourceTimezone=Object.hasOwn(appointment,'persistedSourceTimezone')?appointment.persistedSourceTimezone:appointment.sourceTimezone||null;
+  const claimBlocked = isProBonoFunding({serviceCode:appointment.serviceCode,billing})?'PRO_BONO: No automatic client charge or insurance claim; an explicit approved payer funding policy is required'
+    : appointment.packageEntitlementId ? 'SELF_PAY_ONLY: Prepaid package appointment; insurance claims are disabled'
     : billing?.settlementMode === 'self_pay_only' ? 'SELF_PAY_ONLY: Insurance claims are disabled for this appointment' : null;
   const sessions = [];
   for (const participant of participants) {
@@ -69,7 +72,7 @@ export async function ensureAppointmentClinicalLink(appointmentId, actorUserId =
            service_code = VALUES(service_code), duration_minutes = VALUES(duration_minutes), is_telehealth = VALUES(is_telehealth),
            source_timezone = VALUES(source_timezone), service_location_id = VALUES(service_location_id),
            billing_office_location_id = VALUES(billing_office_location_id), place_of_service = VALUES(place_of_service)`,
-        [appointment.agencyId, participant.clientId, appointment.id, appointment.providerUserId, appointment.providerUserId, appointment.sourceTimezone || 'America/Denver',
+        [appointment.agencyId, participant.clientId, appointment.id, appointment.providerUserId, appointment.providerUserId, sourceTimezone,
           appointment.startAt, appointment.endAt, appointment.serviceCode, appointment.startAt, appointment.endAt,
           isTelehealth ? 1 : 0, JSON.stringify({ source: 'appointment', appointmentId: appointment.id }), actorUserId,
           serviceLocation?.id || null, serviceLocation?.billing_office_location_id || appointment.officeLocationId || client.default_office_location_id || null,

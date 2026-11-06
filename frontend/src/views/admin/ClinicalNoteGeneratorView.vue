@@ -364,6 +364,7 @@
         </div>
 
         <section v-if="!signedNoteViewerId && !chartNoteReadOnly && !isClientChartAid && (narrivaServicePending || narrivaServiceLoading || narrivaServiceError || sessionOfficeEventId && !sessionClinicalSessionId)" class="narriva-encounter-confirmation narriva-service-confirm"><p v-if="narrivaServiceLoading" role="status">Verifying the scheduled service…</p><p v-if="narrivaServiceError" role="alert">{{ narrivaServiceError }}</p><button v-if="narrivaServiceError || !sessionClinicalSessionId" type="button" class="na-btn-outline" @click="verifyNarrivaEncounter">Verify encounter service</button><template v-if="narrivaServicePending"><h3>{{ narrivaPendingConfirmation ? 'Finish pending service change' : 'Confirm service-code change' }}</h3><p v-if="narrivaPendingConfirmation">The prior confirmation is pending. Review its preserved service and reason, then explicitly retry it.</p><p v-else-if="narrivaServiceSnapshot.pendingServiceChange">A service change is pending. Its author must finish it before this note can proceed.</p><p>The scheduled encounter still uses {{ narrivaServiceSnapshot.serviceCode || 'its original service' }}. Narriva does not change the billed service automatically.</p><label>Reason / crisis justification<textarea v-model="narrivaServiceReason" :readonly="!!narrivaPendingConfirmation || narrivaServiceSnapshot.pendingServiceChange" class="na-textarea" rows="3" minlength="5" maxlength="4000" /></label><button type="button" class="na-btn-outline" :disabled="narrivaServiceSaving || narrivaServiceSnapshot.pendingServiceChange && !narrivaPendingConfirmation || narrivaServiceReason.trim().length<5" @click="confirmNarrivaService">{{ narrivaServiceSaving?'Checking eligibility…':narrivaPendingConfirmation?'Retry confirmation':'Confirm service change' }}</button></template></section>
+        <section v-if="isProBonoFundingCode(actualServiceCode)" class="narriva-encounter-confirmation narriva-underlying-service"><label for="narriva-underlying-service">Clinical service provided</label><div class="narriva-underlying-service__control"><select id="narriva-underlying-service" v-model="narrivaUnderlyingServiceCode" class="na-select" :disabled="chartNoteReadOnly || !!signedNoteViewerId"><option value="">Choose the clinical service provided</option><option v-if="narrivaUnderlyingServiceCode && !narrivaUnderlyingOptions.some(item => item.code === narrivaUnderlyingServiceCode)" :value="narrivaUnderlyingServiceCode" disabled>{{ narrivaUnderlyingServiceCode }} · Eligibility needs review</option><option v-for="item in narrivaUnderlyingOptions" :key="item.code" :value="item.code">{{ serviceCodeOptionLabel(item.code) }}</option></select><ServiceInformation presentation="button" :service-code="narrivaUnderlyingServiceCode" :agency-id="noteAidAgencyId || currentAgencyId" /></div><p>Pro Bono remains the funding arrangement. This identifies the clinical service for documentation review and does not change the scheduled or charged code.</p><p v-if="!narrivaUnderlyingServiceCode">Choose the clinical service to verify this note against its handbook requirements. Until then, the note remains unverified.</p></section>
         <ServiceInformation v-if="actualServiceCode" :service-code="actualServiceCode" :agency-id="noteAidAgencyId || currentAgencyId" />
         <section v-if="!signedNoteViewerId && !chartNoteReadOnly" class="narriva-encounter-confirmation" aria-label="Encounter consent and delivery">
           <label class="narriva-consent-check"><input v-model="narrivaConsentConfirmed" type="checkbox" /> I confirm consent to participate was obtained for this encounter.</label>
@@ -911,7 +912,7 @@
             <label
               v-if="showAfterHours99051Option"
               class="na-toggle-row na-toggle-row--inline"
-              title="99051 — eligible scheduled evening/weekend office service outside Mon–Fri 9am–5pm; confirm payer and service eligibility"
+              title="99051 — saved local session start at or after 5pm on weekdays, or a weekend start; agency and payer eligibility still apply"
             >
               <span>After hours (99051)</span>
               <span class="na-switch" :class="{ on: includeAfterHours99051 }">
@@ -1551,6 +1552,7 @@ import NoteAidClientContextPanel from '../../components/clinical/NoteAidClientCo
 import NoteAidCsNoteBuildPanel from '../../components/clinical/NoteAidCsNoteBuildPanel.vue';
 import NarrivaModeChooser from '../../components/clinical/NarrivaModeChooser.vue';
 import ServiceInformation from '../../components/notes/ServiceInformation.vue';
+import { isProBonoFundingCode, underlyingClinicalServiceOptions } from '../../utils/clinicalServiceReference.js';
 import NarrivaCompliancePanel from '../../components/clinical/NarrivaCompliancePanel.vue';
 import NarrivaAssessmentEvidence from '../../components/clinical/NarrivaAssessmentEvidence.vue';
 import { useNarrivaReview } from '../../composables/useNarrivaReview.js';
@@ -1688,7 +1690,8 @@ import {
 import {
   CRISIS_90839_SERVICE_DESCRIPTION,
   mergeScheduleSeededAddons,
-  resolveNoteAidBillingCodes
+  resolveNoteAidBillingCodes,
+  shouldSuggest99051
 } from '../../utils/noteAidBillingAddons.js';
 import { rememberRecentAid, saveNoteLibraryUiPrefs } from '../../utils/noteAidLibraryPrefs.js';
 import { isClinicalChartEnabled, parseAgencyFeatureFlags } from '../../config/medicalBillingAccess.js';
@@ -3096,6 +3099,9 @@ const narrivaPreferenceSaving = ref(false), narrivaPreferenceError = ref('');
 let narrivaModeTouched = false;
 const narrivaConsentConfirmed = ref(false), narrivaModality = ref('');
 const narrivaAssessmentEvidence=ref([]),showNarrivaAssessmentEvidence=ref(false);
+const narrivaUnderlyingServiceCode=ref('');
+const narrivaUnderlyingCode=computed(()=>isProBonoFundingCode(actualServiceCode.value)?narrivaUnderlyingServiceCode.value:'');
+const narrivaUnderlyingOptions=computed(()=>underlyingClinicalServiceOptions(Array.isArray(eligibleServiceCodes.value)?rawEligibleServiceCodes.value:[]));
 const narrivaServiceSnapshot=ref(null),narrivaServiceLoading=ref(false),narrivaServiceSaving=ref(false),narrivaServiceError=ref(''),narrivaServiceReason=ref(''),narrivaPendingConfirmation=ref(null);let narrivaServiceRequest=0;
 const narrivaServicePending=computed(()=>!isClientChartAid.value && !!narrivaServiceSnapshot.value && (!!narrivaServiceSnapshot.value.pendingServiceChange || !!narrivaPendingConfirmation.value || !!actualServiceCode.value && String(actualServiceCode.value).toUpperCase()!==String(narrivaServiceSnapshot.value.serviceCode || '').toUpperCase()));
 const narrivaRecordingText=ref(''),narrivaRecordingError=ref('');let narrivaRecordingRequest=0;
@@ -3129,7 +3135,7 @@ async function saveNarrivaDefault(mode) {
   catch { narrivaPreferenceError.value = 'Your default could not be saved. Your current note is unchanged.'; }
   finally { narrivaPreferenceSaving.value = false; }
 }
-function narrivaContext() { return { ...(outputObj.value?.meta?.narrivaContext || {}), assessmentEvidence:narrivaAssessmentEvidence.value, presentingProblem:chartPresentingProblem.value || '', writerMode:noteWriterMode.value, consentConfirmed:narrivaConsentConfirmed.value, modality:narrivaModality.value, riskAssessmentIncluded:narrivaRiskIncluded.value || narrivaRiskRequired.value === true, riskAssessmentRequired:narrivaRiskRequired.value, riskAssessmentCompleted:narrivaRiskCompleted.value }; }
+function narrivaContext() { return { ...(outputObj.value?.meta?.narrivaContext || {}), underlyingServiceCode:narrivaUnderlyingCode.value || null, assessmentEvidence:narrivaAssessmentEvidence.value, presentingProblem:chartPresentingProblem.value || '', writerMode:noteWriterMode.value, consentConfirmed:narrivaConsentConfirmed.value, modality:narrivaModality.value, riskAssessmentIncluded:narrivaRiskIncluded.value || narrivaRiskRequired.value === true, riskAssessmentRequired:narrivaRiskRequired.value, riskAssessmentCompleted:narrivaRiskCompleted.value }; }
 async function runNarrivaChecks() {
   if (narrivaReviewBusy.value || !outputObj.value || signedNoteViewerId.value) return;
   if(narrivaFeatures.value.compliance===false){narrivaReviewError.value='Narriva checks are not enabled for this workspace. Your note is preserved.';return;}
@@ -3155,6 +3161,7 @@ async function loadNarrivaRecording(){
 function applyNarrivaRecording(append){inputText.value=append && String(inputText.value || '').trim()?`${inputText.value}\n\n${narrivaRecordingText.value}`:narrivaRecordingText.value;narrivaRecordingText.value='';}
 function openNarrivaRisk() { narrivaRiskIncluded.value = true; nextTick(() => document.getElementById('narriva-assessment')?.scrollIntoView?.({block:'start',behavior:'smooth'})); }
 function onNarrivaFindingAction({checkId,finding}) {
+  if(finding?.action==='clinical_service'){configExpanded.value=true;noteWizardStep.value=1;nextTick(()=>{const field=document.getElementById('narriva-underlying-service');field?.scrollIntoView?.({block:'center',behavior:'smooth'});field?.focus();});return;}
   if(finding?.action==='assessment'){showNarrivaAssessmentEvidence.value=true;nextTick(()=>document.getElementById('narriva-assessment-evidence')?.scrollIntoView?.({block:'start',behavior:'smooth'}));return;}
   if (checkId === 'risk_safety') { openNarrivaRisk(); return; }
   configExpanded.value = true; noteWizardStep.value = 1;
@@ -3605,19 +3612,21 @@ const scheduleSeededAddonCodes = ref([]);
 const aiContentGenerated = ref(false);
 const attestAiContentReviewed = ref(false);
 
-const noteAidAddonMenuOptions = [
+const afterHoursScheduleEligible=computed(()=>shouldSuggest99051(sessionScheduledStart.value,{timeZone:sessionSourceTimezone.value,primaryCode:actualServiceCode.value,metadata:outputObj.value?.meta}));
+const noteAidAddonMenuOptions = computed(()=>[
   { code: '90785', label: '90785 — Interactive complexity' },
-  { code: '99051', label: '99051 — After hours' }
-];
+  ...(afterHoursScheduleEligible.value?[{ code: '99051', label: '99051 — After hours' }]:[])
+]);
 
 function onAfterHours99051Change() {
+  if(!afterHoursScheduleEligible.value)includeAfterHours99051.value=false;
   if (!includeAfterHours99051.value) afterHours99051UserDismissed.value = true;
   else afterHours99051UserDismissed.value = false;
   applyBillingRulesForCurrentSession({ announce: true });
 }
 
 function maybeSuggestAfterHours99051() {
-  if (afterHours99051UserDismissed.value || includeAfterHours99051.value) return;
+  if (!afterHoursScheduleEligible.value || afterHours99051UserDismissed.value || includeAfterHours99051.value) return;
   // Only auto-include when the schedule booking explicitly seeded 99051.
   // Weekend/after-hours is a suggestion via the toggle/menu — do not force onto every claim.
   if (scheduleSeededAddonCodes.value.includes('99051')) {
@@ -3634,6 +3643,7 @@ function toggleManualAddonCode(codeRaw) {
     return;
   }
   if (code === '99051') {
+    if(!afterHoursScheduleEligible.value)return;
     includeAfterHours99051.value = !includeAfterHours99051.value;
     onAfterHours99051Change();
     return;
@@ -3650,19 +3660,22 @@ function toggleManualAddonCode(codeRaw) {
 function applyBillingRulesForCurrentSession({ announce = false } = {}) {
   const primary = String(actualServiceCode.value || selectedServiceCode.value || '').trim().toUpperCase();
   if (!primary || primary === '__OTHER__') return;
+  if(!afterHoursScheduleEligible.value)includeAfterHours99051.value=false;
   maybeSuggestAfterHours99051();
   const resolved = resolveNoteAidBillingCodes({
     primaryCode: primary,
     durationMinutes: sessionDurationMinutes.value,
     includeInteractiveComplexity: includeInteractiveComplexity.value,
     includeAfterHours99051: includeAfterHours99051.value,
-    sessionStartAt: sessionScheduledStart.value || null
+    sessionStartAt: sessionScheduledStart.value || null,
+    timeZone:sessionSourceTimezone.value || null,
+    metadata:outputObj.value?.meta
   });
   billingAddons.value = mergeScheduleSeededAddons(
     resolved.addons || [],
     scheduleSeededAddonCodes.value.filter((c) => {
       // Seeded 99051 only sticks when after-hours is opted in (or not dismissed yet / suggested).
-      if (c === '99051') return !!includeAfterHours99051.value;
+      if (c === '99051') return afterHoursScheduleEligible.value && !!includeAfterHours99051.value;
       return true;
     })
   );
@@ -3689,7 +3702,7 @@ function seedScheduleAddonCodes(codes = []) {
     .filter(Boolean);
   scheduleSeededAddonCodes.value = [...new Set(next)];
   afterHours99051UserDismissed.value = false;
-  if (scheduleSeededAddonCodes.value.includes('99051')) {
+  if (scheduleSeededAddonCodes.value.includes('99051') && afterHoursScheduleEligible.value) {
     includeAfterHours99051.value = true;
   }
   applyBillingRulesForCurrentSession({ announce: false });
@@ -4089,7 +4102,9 @@ const showInteractiveComplexityOption = computed(() => {
     durationMinutes: sessionDurationMinutes.value,
     includeInteractiveComplexity: true,
     includeAfterHours99051: includeAfterHours99051.value,
-    sessionStartAt: sessionScheduledStart.value || null
+    sessionStartAt: sessionScheduledStart.value || null,
+    timeZone:sessionSourceTimezone.value || null,
+    metadata:outputObj.value?.meta
   });
   return !!resolved.allow90785;
 });
@@ -4097,7 +4112,7 @@ const showAfterHours99051Option = computed(() => {
   const code = String(actualServiceCode.value || selectedServiceCode.value || '').toUpperCase();
   if (!code || HIDDEN_NOTE_AID_CODES.has(code)) return false;
   // Offer toggle whenever a billable progress/intake session is being documented.
-  return !!selectedAid.value && aidKind(selectedAid.value) !== 'plan';
+  return afterHoursScheduleEligible.value && !!selectedAid.value && aidKind(selectedAid.value) !== 'plan';
 });
 const libraryCategories = computed(() => {
   let filtered = (noteAidCategories.value || []).map((cat) => ({
@@ -5179,6 +5194,7 @@ const autosave = async () => {
         toolId: outputObj.value?.meta?.toolId || selectedAid.value?.toolId || null,
         aidId: outputObj.value?.meta?.aidId || selectedAid.value?.id || null,
         sessionContext,
+        underlyingServiceCode:narrivaUnderlyingCode.value || null,
         narrivaContext: narrivaContext(),
         writerMode: noteWriterMode.value,
         smartNotes: useCsNoteBuildPathway.value ? csNoteBuildState.value : undefined,
@@ -5198,7 +5214,7 @@ const autosave = async () => {
   } else if (sessionLocationLabel.value || sessionDurationMinutes.value != null) {
     payload.outputJson = {
       sections: {},
-      meta: { sessionContext, narrivaContext:narrivaContext(), writerMode:noteWriterMode.value, structuredChart: draftStructuredChart(), toolId: selectedAid.value?.toolId || null }
+      meta: { sessionContext, underlyingServiceCode:narrivaUnderlyingCode.value || null, narrivaContext:narrivaContext(), writerMode:noteWriterMode.value, structuredChart: draftStructuredChart(), toolId: selectedAid.value?.toolId || null }
     };
   }
   if (linkedClientId) {
@@ -5327,7 +5343,7 @@ function onDraftAppointmentContext(context) {
     const text = String(value).replace(' ', 'T');
     return /(?:Z|[+-]\d\d:\d\d)$/.test(text) ? text : `${text}Z`;
   };
-  sessionSourceTimezone.value = context.sourceTimezone || 'UTC';
+  sessionSourceTimezone.value = context.sourceTimezone || '';
   sessionAppointmentId.value = Number(context.appointmentId) || null;
   sessionScheduledStart.value = instant(context.startAt);
   sessionScheduledEnd.value = instant(context.endAt);
@@ -5978,6 +5994,7 @@ const generateNote = async () => {
     if (preferLearningSponsorForAid.value) fd.append('preferLearningSponsor', '1');
     fd.append('recordingPurpose', String(recordingPurpose.value || 'dictation'));
     fd.append('writerMode', noteWriterMode.value);
+    if(narrivaUnderlyingCode.value)fd.append('underlyingServiceCode',narrivaUnderlyingCode.value);
     // Do NOT treat "no billing code" as auto-select — plans/termination/diagnosis use toolId only.
     const shouldAutoSelectCode = false; // Narriva never substitutes the actual encounter service automatically.
     if (!isTerminationAid.value && !shouldAutoSelectCode && actualServiceCode.value) {
@@ -6475,6 +6492,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
         aiGenerated: !manualSections,
         manualSections,
         writerMode:noteWriterMode.value,
+        underlyingServiceCode:narrivaUnderlyingCode.value || null,
         narrivaContext:narrivaContext(),
         presentingProblem:chartPresentingProblem.value || '',
         sessionContext:{sourceTimezone:sessionSourceTimezone.value || null,locationLabel:sessionLocationLabel.value || null,durationMinutes:sessionDurationMinutes.value,startTimeLocal:sessionStartTimeLocal.value || null,endTimeLocal:sessionEndTimeLocal.value || null,participants:sessionParticipants.value,participantsDetail:sessionParticipantsDetail.value || null,serviceCode:serviceCodeForMetadata},
@@ -6868,7 +6886,7 @@ const focusArchivedShelf = async () => {
 };
 
 const resetClientClinicalContext = () => {
-  narrivaConsentConfirmed.value=false;narrivaModality.value='';narrivaRiskIncluded.value=false;narrivaRiskRequired.value=false;narrivaRiskCompleted.value=false;narrivaAssessmentEvidence.value=[];showNarrivaAssessmentEvidence.value=false;invalidateNarrivaReview();
+  narrivaUnderlyingServiceCode.value='';narrivaConsentConfirmed.value=false;narrivaModality.value='';narrivaRiskIncluded.value=false;narrivaRiskRequired.value=false;narrivaRiskCompleted.value=false;narrivaAssessmentEvidence.value=[];showNarrivaAssessmentEvidence.value=false;invalidateNarrivaReview();
   chartPlanLoadSeq += 1;
   intakeLoadSeq += 1;
   lastRenewalPrompt = '';
@@ -8986,6 +9004,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   }
   skipAiAid.value = loadedMode === 'manual' && noteAidAllowManualWrite.value;
   notePathway.value = loadedMode === 'smart_notes' && showCsNoteBuildPathway.value ? 'csNoteBuild' : 'standard';
+  narrivaUnderlyingServiceCode.value = savedMeta.underlyingServiceCode || savedMeta.narrivaContext?.underlyingServiceCode || '';
   narrivaConsentConfirmed.value = savedMeta.narrivaContext?.consentConfirmed === true;
   narrivaModality.value = savedMeta.narrivaContext?.modality || '';
   narrivaRiskIncluded.value = savedMeta.narrivaContext?.riskAssessmentIncluded === true;
@@ -9471,6 +9490,8 @@ function decideDurationCodeChange(accept) {
   scheduleAutosave(600);
 }
 
+watch(afterHoursScheduleEligible,()=>{if(!isWorkspaceHydrating() && !chartNoteReadOnly.value)applyBillingRulesForCurrentSession();});
+
 watch(sessionDurationMinutes, (mins, previousMinutes) => {
   if (isWorkspaceHydrating() || chartNoteReadOnly.value || durationDecisionInProgress) return;
   const current = String(actualServiceCode.value || '').toUpperCase();
@@ -9728,8 +9749,8 @@ watch(
 watch([() => route.query.recordingId,effectiveClientId,sessionClinicalSessionId,sessionOfficeEventId],loadNarrivaRecording);
 watch([sessionClinicalSessionId,noteAidAgencyId,effectiveClientId],loadNarrivaEncounterService);
 watch(() => narrivaReview.value?.riskAssessmentRequired, required => { if(required)narrivaRiskRequired.value=true; });
-watch([inputText, revisionInstruction, actualServiceCode, dateOfService, sessionDurationMinutes, sessionStartTimeLocal, sessionEndTimeLocal, sessionParticipants, sessionParticipantsDetail, sessionLocationLabel, chartMentalStatus, chartRiskAssessment, sectionOverrides, narrivaConsentConfirmed, narrivaModality, narrivaRiskCompleted, narrivaAssessmentEvidence], () => { if (!isWorkspaceHydrating()) invalidateNarrivaReview(); }, { deep:true });
-watch([narrivaConsentConfirmed,narrivaModality,narrivaRiskIncluded,narrivaRiskCompleted,narrivaAssessmentEvidence], () => { if (!isWorkspaceHydrating()) scheduleAutosave(600); });
+watch([inputText, revisionInstruction, actualServiceCode, dateOfService, sessionDurationMinutes, sessionStartTimeLocal, sessionEndTimeLocal, sessionParticipants, sessionParticipantsDetail, sessionLocationLabel, chartMentalStatus, chartRiskAssessment, sectionOverrides, narrivaUnderlyingServiceCode, narrivaConsentConfirmed, narrivaModality, narrivaRiskCompleted, narrivaAssessmentEvidence], () => { if (!isWorkspaceHydrating()) invalidateNarrivaReview(); }, { deep:true });
+watch([narrivaUnderlyingServiceCode,narrivaConsentConfirmed,narrivaModality,narrivaRiskIncluded,narrivaRiskCompleted,narrivaAssessmentEvidence], () => { if (!isWorkspaceHydrating()) scheduleAutosave(600); });
 watch([draftId,effectiveClientId], () => { invalidateNarrivaReview(); });
 
 watch(sectionOverrides, () => { if (!isWorkspaceHydrating()) scheduleAutosave(600); }, {deep:true});
@@ -9770,6 +9791,8 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.narriva-underlying-service__control{display:flex;align-items:center;gap:8px;min-width:0}.narriva-underlying-service__control>select{min-width:0;flex:1;width:0}.narriva-underlying-service>p{font-size:13px;line-height:1.5}
+
 .na-duration-confirm { position: fixed; z-index: 35000; inset: 25% max(16px, calc((100vw - 560px) / 2)) auto; padding: 24px; background: white; color: #17314b; border: 2px solid #315b79; border-radius: 14px; box-shadow: 0 0 0 100vmax #0008; }
 .na-duration-confirm button { margin: 8px 8px 8px 0; }
 

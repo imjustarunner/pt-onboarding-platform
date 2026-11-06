@@ -6,6 +6,7 @@ vi.mock('../clinicalNoteVersionBilling.service.js', async original => ({ ...awai
 vi.mock('../clinicalNoteVersion.service.js', () => ({ hasPendingRevision: m.pending }));
 vi.mock('../claimMdWorkflow.service.js', () => ({ recordClaimEvent: m.event }));
 import { approvedClinicalClaimPlan, claimDiffersFromApprovedVersion, reconcileApprovedClinicalClaim } from '../clinicalClaimVersionReconciliation.service.js';
+import * as afterHours from '../clinicalAfterHours.service.js';
 
 const hash = 'b'.repeat(64), signature = { id: 40, action: 'supervisor_sign', actorUserId: 9, contentHash: hash, attestation: { entryManifest: [{ id: 5, contentHash: 'c'.repeat(64) }] } };
 let claim, note, source;
@@ -68,4 +69,15 @@ it('previews the exact approved services and detects the original draft mismatch
   const plan = await approvedClinicalClaimPlan({ note, session: {} });
   expect(plan).toMatchObject({ revisionId: 12, dateOfService: '2026-10-03', placeOfService: '11', diagnosisCodes: ['F41.1'], lines: [{ procedureCode: '90837', units: 1 }] });
   expect(claimDiffersFromApprovedVersion(claim, [{ procedure_code: '90834', units: 1 }], plan)).toBe(true);
+});
+it('renews only the schedule-derived99051 binding during explicit approved-version reconciliation without rewriting the signed note',async()=>{
+ const originalReconcile=afterHours.reconcileNewClaimAfterHours;
+ const spy=vi.spyOn(afterHours,'reconcileNewClaimAfterHours').mockImplementation(value=>originalReconcile(value,{authorize:vi.fn().mockResolvedValue({allowed:true,reason:'verified'})}));
+ try{
+  const approvedSession={id:5,agency_id:2,client_id:3,provider_user_id:7,service_code:'90837',scheduled_start_at:'2026-10-03 18:00:00',source_timezone:'America/Denver',place_of_service:'11',is_telehealth:0};m.approved.mockResolvedValue({note,session:approvedSession});
+  const before=structuredClone(note),plan=await approvedClinicalClaimPlan({note,session:approvedSession});expect(plan.lines.map(line=>line.procedureCode)).toEqual(['90837','99051']);expect(plan.scheduleDerived99051).toMatchObject({approvedRevisionId:12,included:true,sourceTimezone:'America/Denver'});
+  const request=input();request.lines.push({procedureCode:'99051',units:1,chargeCents:3000,modifiers:[],diagnosisPointers:'1'});
+  await reconcileApprovedClinicalClaim(request,source);
+  const [,values]=m.execute.mock.calls.find(([sql])=>sql.startsWith('UPDATE clinical_claims'));expect(JSON.parse(values[5]).scheduleDerived99051).toEqual(plan.scheduleDerived99051);expect(note).toEqual(before);expect(m.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE clinical_notes'))).toBe(false);
+ }finally{spy.mockRestore();}
 });

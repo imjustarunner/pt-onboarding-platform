@@ -10,6 +10,7 @@ import {maybeEncryptNotePayload,maybeDecryptNotePayload} from './clinicalNoteCry
 import {decryptChatText} from './chatEncryption.service.js';
 import {isClinicalAddon} from '../utils/clinicalServiceCodeCatalog.js';
 import {isServiceCodeDeniedForTier} from '../utils/clinicalServiceCodeEligibility.js';
+import {reconcileClinicalAfterHours} from './clinicalAfterHours.service.js';
 export {assertNoPendingClinicalServiceChange} from '../utils/clinicalServiceChangePolicy.js';
 
 const code=value=>String(value||'').trim().toUpperCase();
@@ -28,7 +29,7 @@ export function clinicalServiceChangeSummary(session) {
 }
 function dependencies(overrides) {
   return {mainDb:pool,clinicalDb:clinicalPool,requireAgency:requireNarrivaAgency,requireClient:requireNarrivaClient,readEligibility:readStaffCareEligibility,resolveCatalog:resolveAgencySchedulingCatalog,
-    setServiceCodes:(id,values,db)=>Appointment.setServiceCodes(id,values,{executor:db}),encrypt:maybeEncryptNotePayload,decrypt:maybeDecryptNotePayload,now:stamp,uuid:randomUUID,...overrides};
+    setServiceCodes:(id,values,db)=>Appointment.setServiceCodes(id,values,{executor:db}),reconcileHours:reconcileClinicalAfterHours,encrypt:maybeEncryptNotePayload,decrypt:maybeDecryptNotePayload,now:stamp,uuid:randomUUID,...overrides};
 }
 async function ownedSession(db,user,input,{lock=false}={}) {
   const [[session]]=await db.execute(`SELECT * FROM clinical_sessions WHERE id=?${lock?' FOR UPDATE':''}`,[input.sessionId]);
@@ -115,7 +116,7 @@ async function lockMainSources(main,session,input,{resume=false}={}) {
     if(session.office_event_id&&Number(appointment.office_event_id)!==Number(session.office_event_id))throw failure('The appointment source changed.');
   }
   if(session.office_event_id){
-    [[office]]=await main.execute('SELECT e.*,l.agency_id AS location_agency_id FROM office_events e JOIN office_locations l ON l.id=e.office_location_id WHERE e.id=? FOR UPDATE',[session.office_event_id]);
+    [[office]]=await main.execute('SELECT e.*,l.agency_id AS location_agency_id,l.timezone AS source_timezone FROM office_events e JOIN office_locations l ON l.id=e.office_location_id WHERE e.id=? FOR UPDATE',[session.office_event_id]);
     if(!office||Number(office.booked_provider_id||office.assigned_provider_id)!==Number(session.provider_user_id)||!allowed.has(code(office.service_code)))throw failure('The scheduled service changed. Reopen the encounter before confirming.');
     if(Number(office.location_agency_id)!==input.agencyId){const [[shared]]=await main.execute('SELECT 1 FROM office_location_agencies WHERE office_location_id=? AND agency_id=?',[office.office_location_id,input.agencyId]);if(!shared)throw failure('The scheduled location belongs to another workspace.',403);}
     if(Number(office.client_id)!==Number(session.client_id))throw failure('A shared scheduled encounter requires a coordinated change in the main schedule.');
@@ -136,7 +137,9 @@ function updatePayload(raw,target,d) {
 }
 async function synchronizeMain(main,sources,session,input,d) {
   if(sources.appointment){
-    await d.setServiceCodes(sources.appointment.id,{serviceCode:input.serviceCode,addonServiceCodes:array(sources.appointment.addon_service_codes_json)},main);
+    const resolved=await d.reconcileHours({agencyId:input.agencyId,providerUserId:session.provider_user_id,primaryCode:input.serviceCode,startAt:sources.office?.start_at||sources.appointment.start_at||session.scheduled_start_at,timeZone:sources.office?.source_timezone||sources.appointment.source_timezone||session.source_timezone,
+      modality:sources.appointment.modality||(Number(session.is_telehealth)===1?'TELEHEALTH':'IN_PERSON'),placeOfService:session.place_of_service,addonServiceCodes:array(sources.appointment.addon_service_codes_json),metadata:session.metadata_json},{database:main,readCare:d.readEligibility});
+    await d.setServiceCodes(sources.appointment.id,{serviceCode:input.serviceCode,addonServiceCodes:resolved.addonServiceCodes},main);
     const [[verified]]=await main.execute('SELECT service_code FROM appointments WHERE id=?',[sources.appointment.id]);
     if(code(verified?.service_code)!==input.serviceCode)throw failure('The appointment service could not be synchronized.',503);
   }

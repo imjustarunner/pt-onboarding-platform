@@ -34,6 +34,25 @@ describe('Narriva exact-content evidence policy',()=>{
   expect(input.service.code).toBe('H0004');input.service.crisisSuggestion=null;
   expect(deriveNarrivaCheck('service_code',input).findings[0].message).not.toContain('90839');
  });
+ it('reconciles a pro bono crisis against its actual underlying service while preserving the funding choice',()=>{
+  const input=good();input.facts.crisisService=true;
+  Object.assign(input.service,{code:'PRO-BONO SERVICE',documentationCode:'H0004',proBono:true});
+  const result=deriveNarrivaCheck('service_code',input);
+  expect(result.findings).toEqual([expect.objectContaining({id:'service_code:crisis',action:'clinical_service'})]);
+  expect(result.findings[0].message).toContain('H2011');expect(result.findings[0].message).toContain('Keep Pro-Bono Service as the funding and billing disposition');
+  expect(input.service.code).toBe('PRO-BONO SERVICE');expect(input.service.documentationCode).toBe('H0004');
+ });
+ it('does not infer a crisis or recommend an ineligible new code from a pro bono funding choice',()=>{
+  const input=good();Object.assign(input.service,{code:'PRO-BONO SERVICE',documentationCode:'H0004',proBono:true,crisisSuggestion:null});
+  expect(deriveNarrivaCheck('service_code',input).findings).toEqual([]);
+  input.facts.crisisService=true;const result=deriveNarrivaCheck('service_code',input);
+  expect(result.findings[0].action).toBe('clinical_service');expect(result.findings[0].message).not.toContain('H2011');
+  input.service.documentationCode='H2011';expect(deriveNarrivaCheck('service_code',input).findings).toEqual([]);
+ });
+ it('routes pro bono documentation corrections to the clinical service without treating free funding as clinical evidence',()=>{
+  const input=good();Object.assign(input.service,{code:'PRO-BONO SERVICE',documentationCode:'90837',proBono:true});input.facts.serviceDocumentationSupported=false;
+  expect(deriveNarrivaCheck('service_code',input).findings).toEqual([expect.objectContaining({id:'service_code:documentation',action:'clinical_service'})]);
+ });
  it('requires actual assessment evidence when mentioned, or records a bypass without verification',()=>{
   const input=good();input.facts.assessmentMentioned=true;
   const check=deriveNarrivaCheck('necessity_interventions',input);
@@ -52,8 +71,44 @@ describe('Narriva exact-content evidence policy',()=>{
 });
 describe('Narriva local clinical facts and privacy boundary',()=>{
  const source=()=>({source:{service_code:'H2011',date_of_service:'2026-11-06'},provider:{role:'provider',credential:'BA'},serviceRule:{is_active:1,unit_calc_mode:'MEDICAID_8_MINUTE_LADDER',unit_minutes:15,min_minutes:8,max_minutes:247,max_units_per_session:16,allowed_credential_tiers_json:'["qbha","bachelors","intern_plus"]',allowed_place_of_service_json:'["11"]'},meta:{sessionContext:{durationMinutes:60,startTimeLocal:'09:00',endTimeLocal:'10:00',locationLabel:'Office',placeOfService:'11',participants:'Client and provider'},narrivaContext:{modality:'in_person',consentConfirmed:true}},session:{}});
+ const proBonoSource=()=>{
+  const input=source();input.source.service_code='PRO-BONO SERVICE';input.session={id:77,service_code:'PRO-BONO SERVICE'};
+  input.meta={...input.meta,serviceCode:'PRO-BONO SERVICE',underlyingServiceCode:'H2011',fundingDisposition:'pro_bono'};
+  input.documentationServiceRule=input.serviceRule;
+  // A funding policy may be permissive about minutes/qualification; only the
+  // actual clinical rule can establish what this provider delivered.
+  input.serviceRule={is_active:1,unit_calc_mode:'NONE',min_minutes:0,max_minutes:999};
+  return input;
+ };
  it('permits base H2011 for a qualified bachelors provider using the real unit rules',()=>{
   const result=narrivaLocalContext(source());expect(result.service).toMatchObject({allowed:true,durationAllowed:true,modalityAllowed:true});expect(result.encounter.timesValid).toBe(true);
+ });
+ it('validates explicit pro bono underlying H2011 while preserving the no-charge service and metadata',()=>{
+  const input=proBonoSource(),before=structuredClone(input),result=narrivaLocalContext(input);
+  expect(result.service).toMatchObject({code:'PRO-BONO SERVICE',documentationCode:'H2011',proBono:true,allowed:true,durationAllowed:true,modalityAllowed:true});
+  expect(input).toEqual(before);expect(input.meta.fundingDisposition).toBe('pro_bono');
+ });
+ it.each([[7,false],[8,true],[247,true],[248,false]])('uses the underlying H2011 duration rule for a free %i-minute encounter', (minutes,allowed)=>{
+  const input=proBonoSource();input.meta.sessionContext.durationMinutes=minutes;
+  const end=9*60+minutes;input.meta.sessionContext.endTimeLocal=`${Math.floor(end/60)}`.padStart(2,'0')+':'+`${end%60}`.padStart(2,'0');
+  expect(narrivaLocalContext(input).service.durationAllowed).toBe(allowed);
+  expect(input.source.service_code).toBe('PRO-BONO SERVICE');
+ });
+ it('does not let free funding authorize an ineligible underlying psychotherapy service for a bachelor',()=>{
+  const input=proBonoSource();input.meta.underlyingServiceCode='90837';
+  input.documentationServiceRule={is_active:1,unit_calc_mode:'SINGLE',min_minutes:53,max_minutes:74,allowed_credential_tiers_json:'["intern_plus"]'};
+  expect(narrivaLocalContext(input).service).toMatchObject({code:'PRO-BONO SERVICE',documentationCode:'90837',proBono:true,allowed:false});
+ });
+ it('does not infer a missing underlying service from a free encounter duration or authoring tool',()=>{
+  const input=proBonoSource();delete input.meta.underlyingServiceCode;input.meta.toolId='clinical_h2011_note';delete input.documentationServiceRule;
+  const result=narrivaLocalContext(input);expect(result.service).toMatchObject({code:'PRO-BONO SERVICE',documentationCode:null,proBono:true,allowed:false,durationAllowed:false});
+  expect(result.service.reason).toContain('Select the actual clinical service');
+ });
+ it('requires an actual enabled underlying rule even when the funding policy itself is active',()=>{
+  const input=proBonoSource();delete input.documentationServiceRule;
+  expect(narrivaLocalContext(input).service).toMatchObject({proBono:true,allowed:false,durationAllowed:false});
+  input.documentationServiceRule={...source().serviceRule,is_active:0};
+  expect(narrivaLocalContext(input).service.allowed).toBe(false);
  });
  it('does not pass invalid actual times just because both fields exist',()=>{
   const input=source();input.session={actual_start_at:'2026-11-06 10:00:00',actual_end_at:'2026-11-06 09:00:00'};

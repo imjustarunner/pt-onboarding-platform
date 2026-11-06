@@ -1,0 +1,112 @@
+Narriva service-grounded documentation scoring — November 6, 2026
+
+Scope
+Desktop and mobile use the same server guidance, source validation, scoring,
+review version and signing policy. This extends the application-wide Note
+Workspace release, rather than creating separate iOS clinical rules.
+
+Exact service guidance
+The supplied October 2026 SBHS Billing Manual remains the versioned source for
+28 mapped clinical/add-on codes. Its exact SHA256 is:
+429d1995a17c41632ce7fd89c10ed29c25534682ffb3c8de36b5864ddf8fea9a
+Generation and compliance receive the selected service definition, activities,
+documentation, limitations, qualifications, unit details, edition and page,
+plus the manual's relevant introduction (pages 4–8).
+
+The code-specific source and all configured shared/service/custom authored
+training and examples enter one guidance pack. Distinct examples with identical
+filenames are retained; identical content is deduplicated. PDF, TXT, Markdown
+and DOCX sources are supported. Document filenames do not enter model prompts.
+An exact-byte match to the approved whole manual is replaced with the selected
+service and introduction pack, avoiding unrelated code instructions. Other
+sources are not silently substituted or clipped. Missing/empty required folders,
+unreadable/truncated sources, listing limits or context overflow block generation
+and verification while preserving the saved draft. The knowledge cache uses its
+existing refresh interval; an explicit refresh now resets that cache correctly.
+
+Guidance/reference hashes and source object versions bind each review to its
+actual rules. Reference examples are never evidence that an intervention,
+consent, normal finding, risk assessment, response or progress occurred.
+Existing private processing and full-prompt identifier inspection remain required.
+
+99051 and Pro-Bono Service have separate, explicit owner-supplied policy
+references. Neither is mislabeled as an October PDF entry. 97535 is not in the
+supplied manual: its source remains unavailable and needs an approved reference
+before service-specific generation/verification can run. No H2011 ET is added.
+
+Score and passing
+Rules version: 2026-11-06.2. Passing requires at least 70% of applicable quality
+points AND all five mandatory Narriva checks. The server awards points only for
+supported criteria with exact excerpts from the saved note itself.
+
+- Specific service actions and interventions: 20 points.
+- Clinical rationale linked to need: 15 points.
+- Specific participant response: 15 points.
+- Evidence of progress or barriers: 15 points.
+- Connection to a treatment goal or service objective: 15 points.
+- Actionable follow-up: 15 points.
+- Assessment findings used in care: 5 points, when applicable.
+
+Only an explicitly absent separate assessment makes that last criterion not
+applicable; it is then excluded from the denominator without earning credit.
+Missing/ambiguous evidence earns zero. Percentages round down. Neither the
+client nor the model supplies the final score.
+
+The visible result shows Pass, required-check blockers, Does not pass, or
+Unavailable; providers can inspect points and saved-note evidence. All five
+mandatory checks retain their independent safety, service, consent and clinical
+requirements. A reasoned quality bypass follows ordinary review and never earns
+verification or Quick Sign. Source/guidance changes invalidate old reviews.
+This score is a documentation aid, not payer approval or reimbursement assurance.
+
+Schedule definition button
+A small accessible info button sits beside the selected service in booking,
+editing, the legacy schedule form and mobile encounter controls. It opens a
+viewport-bounded panel with the manual definition, example activities,
+documentation, qualifications, unit details, edition and source page. It stays
+in the current appointment; Close, Escape and outside-click dismiss it. Policy
+supplements are visibly distinguished from handbook excerpts.
+
+After-hours policy
+Automatic 99051 uses the saved appointment/office source timezone, never the
+viewer's timezone. A qualifying session STARTS at or after 17:00 on a weekday,
+or starts on Saturday/Sunday. A 16:30 weekday start does not qualify merely
+because it runs past 17:00. No morning or holiday-only addition is inferred.
+This is the owner's scheduling policy, not a national coverage determination.
+Existing agency, payer, provider, modality and place-of-service restrictions
+still apply; no rate is invented. Reconciliation preserves other add-ons and
+units. Booking/rescheduling/code changes reconcile the automatic addition.
+Opening an old encounter does not change its billing or signed documentation.
+For new versioned claim drafts, a server-only decision uses the approved
+encounter snapshot and current add-on eligibility, binds the policy to that
+approved revision, and is revalidated during claim review/transmission. Only
+99051 can differ from the signed note's add-on list under that verified rule;
+all other approved services/units stay exact. Stale policy bindings require
+explicit draft reconciliation, never an automatic rewrite of signed content.
+
+Pro bono
+Pro bono means no client charge. New automatic session and cancellation/no-show
+charges and client-paid package consumption are prevented. Historical paid,
+invoiced and settled amounts are not refunded or repriced. Pro bono alone does
+not authorize a new insurance claim.
+
+For note writing, an explicit Clinical service provided selection identifies
+the actual service whose manual/qualification/duration rules apply. No clinical
+code is inferred from a writing tool or session duration. Changing that clinical
+selection preserves Pro-Bono Service as the scheduled/charged funding choice.
+Crisis findings request review of the underlying service, never conversion from
+free care to a billable funding choice.
+
+Pilot and release limits
+Use synthetic records first. Real model grading should be calibrated against
+owner-reviewed notes; automated fixtures do not establish clinical judgment or
+payer acceptance. The actual cloud training corpus and private services require
+the authorized environment's configuration. They are not certified by mocks.
+Recording retains its separate OFF-by-default consent/device pilot controls.
+Refreshing web code does not install a signed native build. A fresh bundled iOS
+project must be signed/uploaded by the authorized Apple team for TestFlight.
+
+Rollback
+Rollback application code through the established release process. Preserve
+drafts, signed notes, historical reviews, fee snapshots and claim history.
+No existing migration is edited and no historical clinical data is rewritten.

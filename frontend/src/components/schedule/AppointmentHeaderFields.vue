@@ -180,7 +180,6 @@
             :placeholder="modality === 'IN_PERSON' ? 'Address or place (e.g. park, school)' : 'Optional'"
             @change="emit('update:locationAddress', String($event.target.value || ''))"
           />
-          <ServiceInformation v-if="primaryServiceCode" :service-code="primaryServiceCode" :agency-id="agencyId" :service-info="primaryServiceCodeOptions.find(option => String(option.code).toUpperCase() === String(primaryServiceCode).toUpperCase())?.serviceInfo || null" />
           <p v-if="adminCatalogLinks" class="ahf-admin-link-wrap">
             <a class="ahf-admin-link" :href="adminCatalogLinks.locations" target="_blank" rel="noopener">Update locations ↗</a>
           </p>
@@ -376,9 +375,11 @@
 
         <div v-if="showPrimaryServiceCode" class="ahf-field ahf-field--grow">
           <span class="ahf-label">Service code <span class="ahf-req">*</span></span>
+          <div class="ahf-service-code-control">
           <select
             class="ahf-input"
             :value="primaryServiceCode"
+            aria-label="Service code"
             :disabled="disabled || !primaryServiceCodeOptions.length"
             @change="emit('update:primaryServiceCode', String($event.target.value || ''))"
           >
@@ -391,6 +392,8 @@
               {{ formatCodeLabel(opt) }}
             </option>
           </select>
+            <ServiceInformation presentation="button" :service-code="primaryServiceCode" :agency-id="agencyId" :service-info="primaryServiceCodeOptions.find(option => String(option.code).toUpperCase() === String(primaryServiceCode).toUpperCase())?.serviceInfo || null" />
+          </div>
           <p v-if="adminCatalogLinks" class="ahf-admin-link-wrap">
             <a class="ahf-admin-link" :href="adminCatalogLinks.serviceCodes" target="_blank" rel="noopener">Update service codes ↗</a>
           </p>
@@ -891,6 +894,8 @@ function nudgeEnd(deltaMin) {
 </script>
 
 <style scoped>
+.ahf-service-code-control{display:flex;align-items:center;gap:8px;min-width:0}.ahf-service-code-control>select{flex:1;min-width:0;width:0}
+
 .ahf-preference-help { margin: 0 0 10px; color: #536577; font-size: .85rem; line-height: 1.5; }
 .ahf-preference-summary { padding: 12px 14px; margin: 12px 0 0; border: 1px solid #b7dbc7; border-radius: 10px; background: #eef8f2; color: #20543b; font-size: .86rem; line-height: 1.5; }
 .ahf-preference-rank { display: inline-grid; place-items: center; width: 22px; height: 22px; flex: 0 0 22px; border-radius: 50%; background: #176448; color: white; font-size: 12px; font-weight: 700; }

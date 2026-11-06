@@ -5,6 +5,7 @@ import TenantService from '../models/TenantService.model.js';
 import StaffServiceAssignment from '../models/StaffServiceAssignment.model.js';
 import { resolveEffectivePracticeCategories, serviceBusinessTypesForCategories } from './practiceCategories.service.js';
 import { canonicalSelfPayRatesForServices, resolveCanonicalFeeQuote } from './feeSchedule.service.js';
+import {isProBonoFunding} from '../utils/clinicalFundingPolicy.js';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 export async function assertSelfPayRateAccess(actor, agencyId, providerId = 0) {
@@ -114,6 +115,7 @@ export function calculateSelfPayQuote({ rateCents, rateUnit = 'session', duratio
 
 export async function resolveSelfPayQuote({ agencyId, providerId, service, durationMinutes, modality, learningFormat }) {
   if (!service) return null;
+  if(isProBonoFunding({serviceCode:service.serviceCode,metadata:service}))return {rateCents:0,amountCents:0,rateUnit:'session',source:'pro_bono',sourceLabel:'Pro bono — no client charge'};
   if (['mental_health', 'healthcare'].includes(service.businessType) && service.serviceCode) {
     const canonical = await resolveCanonicalFeeQuote({ agencyId, providerUserId: providerId, serviceCode: service.serviceCode,
       mode: 'self_pay', tenantServiceId: service.id, durationMinutes });

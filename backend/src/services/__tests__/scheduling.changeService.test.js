@@ -42,6 +42,13 @@ beforeEach(() => {
   runSignedAppointmentChange.mockImplementation(async (id, facts, who, { previewChange, applyChange }) => applyChange(id, facts, who, await previewChange(id, facts, who)));
 });
 describe('appointment change consequences and completion', () => {
+  it.each(['canceled','no_show'])('does not assess a new automatic client fee for a pro bono %s',async eventType=>{
+    appointment.serviceCode='PRO-BONO SERVICE';
+    evaluateCancel.mockResolvedValue({allowed:true,isLate:true,withinNotice:false,recommendedFeeCents:0,fundingDisposition:'pro_bono',recommendedPackageAction:'release',policy:{noticeHours:24,lateFeeCents:8000,noShowFeeCents:10000}});
+    const result=await previewAppointmentChange(1,{...canceled,eventType},actor);
+    expect(result.consequence).toMatchObject({model:'none',feeCents:0});expect(result.waiverOptions.showFeeActions).toBe(false);expect(result.insuranceClaim.willCreatePrimarySessionClaim).toBe(false);
+    expect(Appointment.upsertBilling).not.toHaveBeenCalled();expect(BookingPackage.applyAppointmentUsage).not.toHaveBeenCalled();
+  });
   it('prevents missed-appointment fees when Medicaid is secondary',async()=>{
     readClientInsurance.mockResolvedValue({primary:{insurerName:'Commercial'},secondary:{insurerName:'Health First Colorado',isMedicaid:true}});
     const result=await previewAppointmentChange(1,{...canceled,eventType:'no_show'},actor);

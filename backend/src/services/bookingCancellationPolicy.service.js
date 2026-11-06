@@ -10,6 +10,7 @@ import Appointment from '../models/Appointment.model.js';
 import TenantService from '../models/TenantService.model.js';
 import BookingPackage from '../models/BookingPackage.model.js';
 import Agency from '../models/Agency.model.js';
+import {isProBonoFunding} from '../utils/clinicalFundingPolicy.js';
 
 const SCOPE_RANK = {
   appointment: 100,
@@ -220,6 +221,10 @@ export async function evaluateCancel({
     if (recommendedPackageAction === 'forfeit') recommendedPackageAction = 'release';
   }
 
+  const proBono=isProBonoFunding({serviceCode:appt.serviceCode,billing:appt.billing})
+    ||isProBonoFunding({serviceCode:appt.serviceCode,billing:await Appointment.getBilling(appt.id)});
+  if(proBono){recommendedFeeCents=0;recommendedPackageAction='release';}
+
   return {
     appointmentId: appt.id,
     policy: effective,
@@ -232,6 +237,7 @@ export async function evaluateCancel({
     blockReason: null,
     recommendedFeeCents,
     recommendedPackageAction,
+    fundingDisposition:proBono?'pro_bono':null,
     usedComplimentary,
     requireReason: !!effective.requireReason,
     statusSuggestion: withinNotice

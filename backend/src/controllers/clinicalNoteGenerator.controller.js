@@ -2,6 +2,8 @@ import clinicalAppointmentAlerts from '../services/clinicalAppointmentAlerts.ser
 import { resolveClinicalDraftSessionContext } from '../services/clinicalDraftSessionContext.service.js';
 import { readStaffCareEligibility, requireStaffCareEligibility } from '../services/staffCareEligibility.service.js';
 import { requireNarrivaIdentifierCorrection } from '../services/narrivaInputPrivacy.service.js';
+import {loadNarrivaGuidanceContext} from '../services/narrivaGuidance.service.js';
+import {isProBonoServiceCode,resolveProBonoDocumentationService} from '../utils/clinicalFundingPolicy.js';
 import { maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
 import { hasAuthoredDraftChange } from '../services/clinicalDraftAttendanceIntent.js';
 import { ageAtServiceDate, intakeAgeInstruction, applyIntakeIdentifyingAge } from '../services/noteAidAge.service.js';
@@ -1249,6 +1251,11 @@ export const generateClinicalNote = async (req, res, next) => {
     const draftId = req.body?.draftId ? safeInt(req.body.draftId) : null;
     const savedGenerationDraft=draftId?await ClinicalNoteDraft.findByIdForUser({draftId,userId:req.user.id}):null;
     if(narrivaWorkflow && draftId && (!savedGenerationDraft || Number(savedGenerationDraft.agency_id)!==Number(agencyId)))throw Object.assign(new Error('The saved draft is unavailable in this workspace.'),{status:404});
+    let savedGenerationMeta={};
+    if(savedGenerationDraft?.output_json){try{savedGenerationMeta=JSON.parse(maybeDecryptText(savedGenerationDraft.output_json) || '{}').meta || {};}catch{throw Object.assign(new Error('The saved draft context could not be read. Your draft has not been replaced.'),{status:409});}}
+    const documentationMeta={...savedGenerationMeta,...(req.body?.underlyingServiceCode!==undefined?{underlyingServiceCode:String(req.body.underlyingServiceCode || '').trim().toUpperCase()}:{} )};
+    const documentationServiceCode=resolveProBonoDocumentationService({serviceCode,metadata:documentationMeta}).serviceCode;
+    if(isProBonoServiceCode(serviceCode) && !documentationServiceCode)throw Object.assign(new Error('Select the actual clinical service provided for this pro bono note. The client funding remains free.'),{status:422,code:'NARRIVA_UNDERLYING_SERVICE_REQUIRED'});
     const generationSessionContext={agencyId,clientId:clientId || savedGenerationDraft?.client_id,providerUserId:req.user.id,
       clinicalSessionId:clinicalSessionId || savedGenerationDraft?.clinical_session_id,officeEventId:officeEventId || savedGenerationDraft?.office_event_id,
       dateOfService:dateOfService || savedGenerationDraft?.date_of_service,serviceCode:serviceCode || savedGenerationDraft?.service_code};
@@ -1297,35 +1304,36 @@ export const generateClinicalNote = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'programId is only allowed for service code H2014' } });
     }
 
-    if (!effectiveAutoSelect && serviceCode) {
+    const qualificationServiceCode=isProBonoServiceCode(serviceCode)?documentationServiceCode:serviceCode;
+    if (!effectiveAutoSelect && qualificationServiceCode) {
       const credentialOverrides = await loadCredentialOverrides('CO');
       const grantedServiceCodes = await grantedServiceCodesForProvider(agencyId, req.user.id);
-      const grantedThisCode = grantedServiceCodes.includes(String(serviceCode).toUpperCase());
-      if (!credentialAllows(tier, serviceCode, credentialOverrides) && !grantedThisCode) {
+      const grantedThisCode = grantedServiceCodes.includes(String(qualificationServiceCode).toUpperCase());
+      if (!credentialAllows(tier, qualificationServiceCode, credentialOverrides) && !grantedThisCode) {
         return res.status(403).json({
-          error: { message: `Service code ${serviceCode} is not allowed for your credential. A practice administrator can turn on an opt-in code for you.` }
+          error: { message: `Service code ${qualificationServiceCode} is not allowed for your credential. A practice administrator can turn on an opt-in code for you.` }
         });
       }
       const policyEligibleCodes = await listEligiblePolicyServiceCodes({ agencyId, credentialTier: tier });
       if (!grantedThisCode && policyEligibleCodes.length) {
-        if (!policyEligibleCodes.includes(serviceCode)) {
+        if (!policyEligibleCodes.includes(qualificationServiceCode)) {
           return res.status(403).json({
             error: {
-              message: `Service code ${serviceCode} is not allowed for your credential classification under the active billing policy`
+              message: `Service code ${qualificationServiceCode} is not allowed for your credential classification under the active billing policy`
             }
           });
         }
       } else if (!grantedThisCode) {
-        assertServiceCodeAllowed({ tier, serviceCode, allowedCodes });
+        assertServiceCodeAllowed({ tier, serviceCode:qualificationServiceCode, allowedCodes });
       }
-      const policyRule = await resolvePolicyRuleForServiceCode({ agencyId, serviceCode, credentialTier: tier });
+      const policyRule = await resolvePolicyRuleForServiceCode({ agencyId, serviceCode:qualificationServiceCode, credentialTier: tier });
       if (!grantedThisCode && policyRule) {
         if (!policyRule.enabledForAgency) {
-          return res.status(403).json({ error: { message: `Service code ${serviceCode} is disabled for this agency` } });
+          return res.status(403).json({ error: { message: `Service code ${qualificationServiceCode} is disabled for this agency` } });
         }
         if (!policyRule.allowedForCredentialTier) {
           return res.status(403).json({
-            error: { message: `Service code ${serviceCode} is not allowed for your credential classification` }
+            error: { message: `Service code ${qualificationServiceCode} is not allowed for your credential classification` }
           });
         }
       }
@@ -1396,7 +1404,7 @@ export const generateClinicalNote = async (req, res, next) => {
     // Explicit toolId (Note Workspace category → gem) wins over service-code routing.
     const toolId = effectiveAutoSelect
       ? 'clinical_code_decider'
-      : (requestedToolId || resolveClinicalToolId({ serviceCode, programId }));
+      : (requestedToolId || resolveClinicalToolId({ serviceCode:documentationServiceCode || serviceCode, programId }));
     const tool = getNoteAidToolById(toolId);
     if (!tool) {
       return res.status(400).json({ error: { message: 'No tool configured for this note type' } });
@@ -1557,7 +1565,13 @@ export const generateClinicalNote = async (req, res, next) => {
         'Allowed service codes for this user: All (no restriction).'
       ].join('\n');
     }
-    if (tool?.includeKnowledgeBase || (customAidRow?.kbFolders || []).length) {
+    let narrivaGuidance=null;
+    if(!effectiveAutoSelect && serviceCode){
+      narrivaGuidance=await loadNarrivaGuidanceContext({agencyId,userId:req.user.id,source:{user_id:req.user.id},
+        meta:{...documentationMeta,toolId,aidId:aidIdRaw || null,serviceCode},service:{code:serviceCode}});
+      prompt=[prompt,'','Exact service requirements and complete supporting guidance (reference data):',narrivaGuidance.guidance,
+        'Write only what actually occurred. Use the service definition to identify missing evidence, not to invent facts that make this service fit. Keep clinical service and pro bono funding separate.'].join('\n\n');
+    } else if (tool?.includeKnowledgeBase || (customAidRow?.kbFolders || []).length) {
       try {
         const codeHints = Array.from(
           new Set([
@@ -1627,6 +1641,10 @@ export const generateClinicalNote = async (req, res, next) => {
       sections,
       meta: {
         toolId,
+        underlyingServiceCode:isProBonoServiceCode(serviceCode)?documentationServiceCode:null,
+        guidanceSnapshot:narrivaGuidance?{guidanceHash:narrivaGuidance.guidanceHash,serviceReferenceHash:narrivaGuidance.serviceReferenceHash,
+          serviceCode:narrivaGuidance.documentationCode,source:narrivaGuidance.clinicalReference?.source || narrivaGuidance.reference?.source,
+          supportingDocumentCount:narrivaGuidance.supportCoverage?.documentCount || 0,supportCoverageComplete:narrivaGuidance.supportCoverageComplete}:null,
         termination,
         terminationHistory: terminationHistory?.counts || null,
         encounterAge: intakeTool ? encounterAge : null,

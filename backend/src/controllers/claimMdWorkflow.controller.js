@@ -2,6 +2,7 @@ import { attachClaimReferences } from '../services/clinicalClaimReferences.servi
 import { loadClaimFamily, claimRecordId } from '../services/claimFamily.service.js';
 import { serviceDetailBillingBlockers } from '../services/clinicalSupervisorReview.service.js';
 import { getApprovedClinicalContext, approvedVersionBillingBlockers, clinicalClaimForReview, clinicalVersionReference } from '../services/clinicalNoteVersionBilling.service.js';
+import {reviewClaim99051Policy,savedClinicalFunding} from '../services/clinicalAfterHours.service.js';
 import { approvedClinicalClaimPlan, claimDiffersFromApprovedVersion, reconcileApprovedClinicalClaim } from '../services/clinicalClaimVersionReconciliation.service.js';
 import { checkSuperviseePayerEligibility } from '../services/credentialPayerEligibility.service.js';
 import { screeningClaimBlockers } from '../services/h0002ScreeningRules.js';
@@ -103,7 +104,9 @@ export async function prepareClaimReview(agencyId, claimId) {
     place_of_service: overrides?.placeOfService || claim.place_of_service, billing_npi: overrides?.billingNpi || claim.billing_npi, taxonomy_code: overrides?.taxonomyCode || claim.taxonomy_code };
   const clinicalClaim = clinicalClaimForReview(claim, effective);
   readiness.blockers.push(...await serviceDetailBillingBlockers(documentation.note,clinicalClaim,lines,undefined,session));
-  readiness.blockers.push(...approvedVersionBillingBlockers({ note: documentation.note, claim: clinicalClaim, lines, session, diagnosisCodes: readiness.diagnosisCodes }));
+  const afterHoursPolicy=await reviewClaim99051Policy({claim,note:documentation.note,session,lines,billing:await savedClinicalFunding(session)});
+  readiness.blockers.push(...afterHoursPolicy.blockers);
+  readiness.blockers.push(...approvedVersionBillingBlockers({ note: documentation.note, claim: clinicalClaim, lines, session, diagnosisCodes: readiness.diagnosisCodes,afterHoursDecision:afterHoursPolicy.decision }));
   assertClaimBillingNpi(billingProfile, effective.billing_npi);
   const modifierRules = (overrides?.applied || []).filter(item => item.field === 'modifiers');
   const effectiveLines = modifierRules.length ? lines.map(line => {
@@ -149,7 +152,7 @@ export async function prepareClaimReview(agencyId, claimId) {
   readiness.ready=readiness.blockers.length===0;
   const serviceSite = await describeClaimServiceSite(agencyId, session);
   return { claim, lines, readiness, insurance, payload, documentation, supervision, aiReview, sourceHash, rollout, appliedOverrides:overrides?.applied || [], serviceSite,
-    billingOffice: { id: billingProfile.officeId, name: billingProfile.officeName }, reviewHash: claimReviewHash({payload,sourceHash,rolloutRevision:rollout.revision,coverageReviewId:coverageEvidence.review?.id||null,clientDocumentation:{sourceHash:clientDocumentation.sourceHash,reviewId:clientDocumentation.reviewId,scope:clientDocumentation.scope},aiReviewId:aiReview.id || null,resolutions:resolutions.map(r=>r.id)}) };
+    billingOffice: { id: billingProfile.officeId, name: billingProfile.officeName }, reviewHash: claimReviewHash({payload,sourceHash,scheduleDerived99051:afterHoursPolicy.decision?.binding||null,rolloutRevision:rollout.revision,coverageReviewId:coverageEvidence.review?.id||null,clientDocumentation:{sourceHash:clientDocumentation.sourceHash,reviewId:clientDocumentation.reviewId,scope:clientDocumentation.scope},aiReviewId:aiReview.id || null,resolutions:resolutions.map(r=>r.id)}) };
 }
 
 export async function createSecondaryClaim(req,res,next) {

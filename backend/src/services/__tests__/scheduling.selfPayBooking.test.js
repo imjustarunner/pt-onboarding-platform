@@ -30,9 +30,12 @@ import { ensureAppointmentClinicalLink } from '../appointmentClinicalLink.servic
 import { createAppointment } from '../appointment.service.js';
 import { scheduleSessionNotifications } from '../sessionNotification.service.js';
 import { appointmentScheduleNotices } from '../appointmentScheduleNotice.service.js';
+import * as afterHours from '../clinicalAfterHours.service.js';
+import pool from '../../config/database.js';
 const args = { agencyId: 1, tenantServiceId: 10, providerUserId: 9, startAt: '2026-09-15T16:00:00Z', endAt: '2026-09-15T16:50:00Z', participants: [{ clientId: 8, role: 'client' }] };
 beforeEach(() => {
   vi.clearAllMocks();
+  pool.execute.mockResolvedValue([[]]);
   getAgencySelfPayOnly.mockResolvedValue(true);
   resolveSelfPayQuote.mockResolvedValue({ amountCents: 12500, rateCents: 15000, rateUnit: 'hour', source: 'provider' });
   TenantService.findById.mockResolvedValue({ id: 10, agencyId: 1, businessType: 'mental_health', isActive: true, allowsIndividual: true, billingMethod: 'self_pay', priceCents: 10000 });
@@ -40,6 +43,28 @@ beforeEach(() => {
   Appointment.listParticipants.mockResolvedValue(args.participants); Appointment.getBilling.mockResolvedValue({});
 });
 describe('self-pay booking integration', () => {
+  it('uses the saved office timezone instead of the browser or platform default',async()=>{
+    pool.execute.mockImplementation(async sql=>sql.startsWith('SELECT l.timezone')?[[{timezone:'America/New_York'}]]:[[]]);
+    const reconcile=vi.spyOn(afterHours,'reconcileClinicalAfterHours').mockResolvedValueOnce({addonServiceCodes:['99051']});
+    try{
+      await createAppointment({...args,officeEventId:44,startAt:'2026-11-09T22:00:00Z',endAt:'2026-11-09T23:00:00Z',timeZone:'America/Los_Angeles',serviceCode:'90837'});
+      expect(reconcile).toHaveBeenCalledWith(expect.objectContaining({timeZone:'America/New_York',startAt:'2026-11-09 22:00:00'}));
+      expect(pool.execute).toHaveBeenCalledWith('UPDATE appointments SET service_location_id = ?, source_timezone = ? WHERE id = ?',[null,'America/New_York',20]);
+    }finally{reconcile.mockRestore();}
+  });
+  it('persists the server-reconciled add-ons using the actual normalized schedule and source timezone',async()=>{
+    const reconcile=vi.spyOn(afterHours,'reconcileClinicalAfterHours').mockResolvedValueOnce({addonServiceCodes:['90785','99051']});
+    try{
+      await createAppointment({...args,startAt:'2026-11-10T00:00:00Z',endAt:'2026-11-10T01:00:00Z',timeZone:'America/Denver',serviceCode:'90837',addonServiceCodes:['90785']});
+      expect(reconcile).toHaveBeenCalledWith(expect.objectContaining({startAt:'2026-11-10 00:00:00',timeZone:'America/Denver',primaryCode:'90837',providerUserId:9,addonServiceCodes:['90785']}));
+      expect(Appointment.create).toHaveBeenCalledWith(expect.objectContaining({addonServiceCodes:['90785','99051']}));expect(Appointment.setServiceCodes).toHaveBeenCalledWith(20,expect.objectContaining({addonServiceCodes:['90785','99051']}));
+    }finally{reconcile.mockRestore();}
+  });
+  it('books pro bono with no client charge and cannot reserve a client-paid package',async()=>{
+    await createAppointment({...args,serviceCode:'PRO-BONO SERVICE',billing:{settlementMode:'self_pay',amountCents:25000}});
+    expect(Appointment.upsertBilling).toHaveBeenCalledWith(20,expect.objectContaining({settlementMode:'pro_bono',amountCents:0,paymentStatus:'waived'}));expect(resolveSelfPayQuote).not.toHaveBeenCalled();
+    vi.clearAllMocks();await expect(createAppointment({...args,serviceCode:'PRO-BONO SERVICE',packageEntitlementId:4})).rejects.toMatchObject({status:409});expect(BookingPackage.applyAppointmentUsage).not.toHaveBeenCalled();expect(Appointment.create).not.toHaveBeenCalled();
+  });
   it('resumes a partially created replacement on the same appointment',async()=>{
     Appointment.findById.mockResolvedValue({id:20,agencyId:1,providerUserId:9,tenantServiceId:10,status:'scheduled',
       source:'replacement_offer:3',startAt:args.startAt,endAt:args.endAt,modality:'VIRTUAL'});

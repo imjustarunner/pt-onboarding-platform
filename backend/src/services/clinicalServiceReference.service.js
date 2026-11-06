@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs';
+import {supplementalClinicalServiceReference} from '../content/supplementalClinicalServiceReferences.js';
+import {isProBonoServiceCode} from '../utils/clinicalFundingPolicy.js';
 
 const source = JSON.parse(readFileSync(new URL('../content/clinical-service-reference-2026-10.json', import.meta.url), 'utf8'));
 const normalize = value => String(value || '').trim().toUpperCase();
@@ -6,7 +8,9 @@ const reviewNotice = source.sourceNotice;
 
 /** Reference data only. Never use a descriptive page as payer authorization. */
 export function getClinicalServiceReference(serviceCode) {
-  const code = normalize(serviceCode);
+  const code = isProBonoServiceCode(serviceCode)?'PRO-BONO SERVICE':normalize(serviceCode);
+  const supplemental=supplementalClinicalServiceReference(code);
+  if(supplemental)return supplemental;
   const record = source.records[code];
   if (!record) return null;
   const { sourcePages, sourceText, ...details } = record;

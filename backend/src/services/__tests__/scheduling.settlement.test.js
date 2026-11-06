@@ -43,6 +43,16 @@ describe('session settlement', () => {
     expect(await settleAppointmentOutcome(1, { outcome: 'completed' })).toMatchObject({ reason: 'CLINICAL_BILLING' });
     expect(debitSessionOnComplete).not.toHaveBeenCalled();
   });
+  it.each(['completed','no_show'])('keeps a pro bono %s free and does not debit a package or prepare a fee',async outcome=>{
+    Appointment.findById.mockResolvedValue({id:1,agencyId:1,clinicalSessionId:4,serviceCode:'PRO-BONO SERVICE',providerScheduleEventId:8});
+    Appointment.getBilling.mockResolvedValue({paymentStatus:'none',settlementMode:'self_pay',amountCents:25000});
+    expect(await settleAppointmentOutcome(1,{outcome})).toMatchObject({reason:'PRO_BONO_NO_CLIENT_CHARGE',paymentStatus:'waived',feeCents:0});expect(Appointment.upsertBilling).toHaveBeenCalledWith(1,expect.objectContaining({amountCents:0,settlementMode:'pro_bono'}));expect(debitSessionOnComplete).not.toHaveBeenCalled();expect(BookingPackage.applyAppointmentUsage).not.toHaveBeenCalled();expect(applyMissedSessionPolicy).not.toHaveBeenCalled();
+  });
+  it('holds a pro bono/package conflict for review and preserves a previously paid historical snapshot',async()=>{
+    Appointment.findById.mockResolvedValue({id:1,agencyId:1,serviceCode:'PRO-BONO SERVICE',packageEntitlementId:7});
+    expect(await settleAppointmentOutcome(1,{outcome:'completed'})).toMatchObject({settled:false,reason:'PRO_BONO_PACKAGE_REVIEW_REQUIRED'});expect(BookingPackage.applyAppointmentUsage).not.toHaveBeenCalled();expect(Appointment.upsertBilling).not.toHaveBeenCalled();
+    Appointment.getBilling.mockResolvedValue({paymentStatus:'paid',amountCents:25000});expect(await settleAppointmentOutcome(1,{outcome:'completed',force:true})).toMatchObject({reason:'ALREADY_SETTLED',paymentStatus:'paid'});expect(Appointment.upsertBilling).not.toHaveBeenCalled();
+  });
 });
 
 it('uses the booked $100 demo no-show fee instead of the $120 session price', async () => {
