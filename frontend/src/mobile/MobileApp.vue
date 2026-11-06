@@ -134,7 +134,7 @@ function lock() {
   if(old)axios.post(`${quickApiBase}/session/logout`,{},{headers:{'X-Quick-View-Session':old.sessionToken},withCredentials:true}).catch(()=>{});
 }
 function background() {if(native)return;if(document.hidden){wasBackground=true;if(['workspace','locked','loading'].includes(screen.value))lock();}else if(wasBackground){wasBackground=false;if(appLock.value.method==='none' && screen.value==='locked')detectSession();}}
-function restorePage(event){if(event.persisted){lock();detectSession();}}
+function restorePage(event){if(!event.persisted)return;if(location.pathname==='/mobile/connect' && connectQuery().clientId==='web'){location.replace('https://auricwell.com/mobile');return;}lock();detectSession();}
 function recoverSignIn(){lock();portal.value=workspace.value?.portal_url || '';screen.value='signin';error.value='';}
 async function saveAppLock(){
   busy.value=true;lockNotice.value='';

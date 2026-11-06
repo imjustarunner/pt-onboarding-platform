@@ -54,3 +54,10 @@ it('does not let a late account response reset a chosen code option',async()=>{
   finishProfile({data:{...profile,appLock:{method:'none',hasCode:false}}});await flushPromises();
   expect(wrapper.find('#mobile-app-lock').element.value).toBe('code');expect(wrapper.findAll('input[type=password]')).toHaveLength(2);wrapper.unmount();
 });
+
+it('restores a cached page using the existing device rather than a new enrollment',async()=>{
+  const wrapper=await app();await flushPromises();
+  window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));await flushPromises();
+  expect(wrapper.text()).toContain('Welcome back');expect(wrapper.text()).not.toContain('Confirm code');
+  expect(mocks.post).not.toHaveBeenCalled();expect(mocks.request.mock.calls.filter(([request])=>request.url==='/session')).toHaveLength(2);wrapper.unmount();
+});
