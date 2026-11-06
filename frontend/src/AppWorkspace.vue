@@ -713,13 +713,13 @@
                         {{ formatNavBadgeCount(workforceOperationsPendingCount) }}
                       </span>
                     </router-link>
-                    <router-link v-if="canSeeFinanceOperationsNav" :to="orgTo('/finance-operations')" @click="closeAllNavMenus"><span>FundThred</span></router-link>
+                    <router-link v-if="canSeeFinanceOperationsNav" :to="orgTo('/finance-operations')" @click="closeAllNavMenus"><span class="product-nav-label"><img src="/assets/fundthred/icon.svg" alt=""/>FundThred</span></router-link>
                     <router-link
                       v-if="canSeePeopleOperationsNav"
                       :to="orgTo('/people-operations')"
                       @click="closeAllNavMenus"
                     >
-                      <span>People Operations</span>
+                      <span class="product-nav-label"><img src="/assets/plotline/icon.svg" alt=""/>PlotLine People Operations</span>
                       <span
                         v-if="peopleOperationsPendingCount > 0"
                         class="nav-badge nav-badge-pulse"
@@ -735,7 +735,7 @@
                       :class="{ 'school-mgmt-flash': schoolMgmtFlashActive }"
                       @click="closeAllNavMenus"
                     >
-                      <span class="school-mgmt-label">School Operations</span>
+                      <span class="school-mgmt-label product-nav-label"><img src="/assets/schoolcarebridge/logo.png" alt=""/>School Care Bridge</span>
                       <span
                         v-if="schoolOperationsPendingCount > 0"
                         class="nav-badge nav-badge-pulse"
@@ -1791,14 +1791,14 @@
                       {{ formatNavBadgeCount(workforceOperationsPendingCount) }}
                     </span>
                   </router-link>
-                  <router-link v-if="canSeeFinanceOperationsNav" :to="orgTo('/finance-operations')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink"><span>FundThred</span></router-link>
+                  <router-link v-if="canSeeFinanceOperationsNav" :to="orgTo('/finance-operations')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink"><span class="product-nav-label"><img src="/assets/fundthred/icon.svg" alt=""/>FundThred</span></router-link>
                   <router-link
                     v-if="canSeePeopleOperationsNav"
                     :to="orgTo('/people-operations')"
                     @click="closeMobileMenu"
                     class="mobile-nav-link mobile-nav-sublink"
                   >
-                    <span>People Operations</span>
+                    <span class="product-nav-label"><img src="/assets/plotline/icon.svg" alt=""/>PlotLine People Operations</span>
                     <span
                       v-if="peopleOperationsPendingCount > 0"
                       class="nav-badge nav-badge-pulse"
@@ -1815,7 +1815,7 @@
                     class="mobile-nav-link mobile-nav-sublink school-mgmt-trigger"
                     :class="{ 'school-mgmt-flash': schoolMgmtFlashActive }"
                   >
-                    <span class="school-mgmt-label">School Operations</span>
+                    <span class="school-mgmt-label product-nav-label"><img src="/assets/schoolcarebridge/logo.png" alt=""/>School Care Bridge</span>
                     <span
                       v-if="schoolOperationsPendingCount > 0"
                       class="nav-badge nav-badge-pulse"
@@ -5378,7 +5378,7 @@ const canSeeCredentialing = computed(() => {
   const caps = user.value?.capabilities || {};
   if (!caps.canManageCredentialing) return false;
   const ids = Array.isArray(user.value?.credentialingAgencyIds) ? user.value.credentialingAgencyIds : [];
-  return ['admin', 'staff', 'support'].includes(user.value?.role) && ids.length > 0;
+  return (user.value?.agencyAccess?.permissions.can_manage_credentialing === true || ['admin', 'staff', 'support'].includes(user.value?.role)) && ids.map(Number).includes(Number(currentAgencyId.value));
 });
 
 const canSeeApplicantsTopNavLink = computed(() => {
@@ -9465,4 +9465,8 @@ html.is-native #app {
   padding-right: max(env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px));
   box-sizing: border-box;
 }
+</style>
+
+<style scoped>
+.product-nav-label{display:inline-flex;align-items:center;gap:8px}.product-nav-label img{width:20px;height:20px;object-fit:contain;flex-shrink:0}
 </style>

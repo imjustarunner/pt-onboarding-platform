@@ -193,6 +193,8 @@ export const useAgencyStore = defineStore('agency', () => {
         sessionStorage.removeItem('__pt_platform_mode__');
       }
       hydrateAgencyById(agency.id);
+      // Refresh the signed-in person's role and capabilities for this company.
+      import('./auth').then(({useAuthStore})=>useAuthStore().refreshUser()).catch(()=>{});
     }
   };
 

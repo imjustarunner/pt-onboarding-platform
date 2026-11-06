@@ -28,7 +28,7 @@ export const requireAgencyAccess = async (req, res, next) => {
       const tenantIds = await listAgencyIdsInTenantTree(rootId || agencyId);
 
       // For non-admin roles, verify the user actually belongs to this tenant tree
-      if (role !== 'admin' && role !== 'support') {
+      if (req.user.scopedAgencyId || (role !== 'admin' && role !== 'support')) {
         const userAgencies = await User.getAgencies(req.user.id);
         const userAgencyIds = new Set((userAgencies || []).map(a => Number(a.id)).filter(n => n > 0));
         if (!tenantIds.some(id => userAgencyIds.has(id))) {

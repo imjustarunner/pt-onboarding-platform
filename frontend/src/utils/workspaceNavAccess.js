@@ -87,6 +87,7 @@ export function canAccessSchoolOperationsHub(opts = {}) {
  * canManageHiring users.
  */
 export function canAccessPeopleOperationsHub(opts = {}) {
+  if (normRole(opts.role) === 'super_admin') return true;
   if (opts.isSscSstcTenant || opts.isAffiliationContext) return false;
 
   const hasHiringFeature = resolveHiringFeature(opts);
@@ -242,7 +243,7 @@ export function buildDashboardQuickAccessLinks(opts = {}) {
   if (access.school) {
     links.push({
       key: 'school',
-      label: 'School Ops',
+      label: 'School Care Bridge',
       sub: 'Schools',
       to: `${prefix}/school-operations`,
       icon: 'school'
@@ -252,7 +253,7 @@ export function buildDashboardQuickAccessLinks(opts = {}) {
   if (access.people) {
     links.push({
       key: 'people',
-      label: 'People Ops',
+      label: 'PlotLine People Operations',
       sub: 'Hiring',
       to: `${prefix}/people-operations`,
       icon: 'people'
@@ -295,14 +296,14 @@ export function buildHubSwitcherLinks(opts = {}) {
     },
     {
       key: 'school',
-      label: 'School Ops',
+      label: 'School Care Bridge',
       to: `${prefix}/school-operations`,
       icon: 'school',
       show: access.school
     },
     {
       key: 'people',
-      label: 'People Ops',
+      label: 'PlotLine People Operations',
       to: `${prefix}/people-operations`,
       icon: 'people',
       show: access.people
@@ -324,7 +325,7 @@ export function isSscSstcTenantFromSlug(slug) {
 const OPS_CYCLE_SURFACES = [
   { key: 'operations', segment: '/operations-dashboard', label: 'Operations Dashboard' },
   { key: 'workforce', segment: '/workforce-operations', label: 'Workforce Ops' },
-  { key: 'school', segment: '/school-operations', label: 'School Ops' }
+  { key: 'school', segment: '/school-operations', label: 'School Care Bridge' }
 ];
 
 /** Destinations CPA / Provider+ can rotate through via the top-bar ops link. */

@@ -31,6 +31,12 @@ describe('tenant operations access', () => {
     }
   });
 
+  it('keeps PlotLine available to a superadmin without a tenant feature flag',()=>{
+    const options={...context(),role:'super_admin',user:{role:'super_admin'},hasHiringFeature:false,hasPeopleOpsFeature:false,agencyFeatureFlags:{}};
+    expect(canAccessPeopleOperationsHub(options)).toBe(true);
+    expect(buildHubSwitcherLinks(options).find(link=>link.key==='people').label).toBe('PlotLine People Operations');
+  });
+
   it('retains disabled-feature and employee-role boundaries for People Operations', () => {
     const enabled = { ...context(), agencyFeatureFlags: { hiringEnabled: true }, hasHiringFeature: true };
     expect(canAccessPeopleOperationsHub({ ...enabled, role: 'provider', user: { role: 'provider' } })).toBe(false);

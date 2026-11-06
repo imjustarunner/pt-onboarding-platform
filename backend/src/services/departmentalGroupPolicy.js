@@ -42,12 +42,18 @@ export function activeDepartmentalStaff(row) {
 export function departmentalGroupKeysForUser(row) {
   if (!activeDepartmentalStaff(row)) return [];
   const role = norm(row.agency_role || row.role);
-  if (['admin', 'super_admin'].includes(role)) return Object.keys(DEPARTMENTAL_GROUPS);
-  const keys = new Set();
+  const keys = new Set(['admin', 'super_admin'].includes(role) ? Object.keys(DEPARTMENTAL_GROUPS) : []);
   if (enabled(row.has_payroll_access)) keys.add('payroll');
   if (enabled(row.has_billing_access)) keys.add('billing');
   if (enabled(row.can_manage_credentialing)) keys.add('credentialing');
   if (role === 'support') { keys.add('support'); keys.add('technology'); }
   if (enabled(row.has_medical_records_release_access)) keys.add('medical_records');
+  // Preserve inherited administrator mailboxes during transition, while making
+  // a deliberate company/platform Off take effect for sensitive categories.
+  if (role !== 'super_admin' && row.agencyAccess) {
+    for (const [group,permission] of Object.entries({payroll:'has_payroll_access',billing:'has_billing_access',credentialing:'can_manage_credentialing',medical_records:'has_medical_records_release_access'})) {
+      if (['agency_override','platform_default'].includes(row.agencyAccess.sources?.[permission]) && !row.agencyAccess.permissions?.[permission]) keys.delete(group);
+    }
+  }
   return [...keys];
 }

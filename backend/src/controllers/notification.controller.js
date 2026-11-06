@@ -8,6 +8,7 @@ import AgencyNotificationTriggerSetting from '../models/AgencyNotificationTrigge
 import NotificationDispatcherService from '../services/notificationDispatcher.service.js';
 import ProgramReminderService from '../services/programReminder.service.js';
 import pool from '../config/database.js';
+import { accessProfileSchemaReady, agencyIdsWithPermission } from '../services/agencyAccessProfiles.service.js';
 import NotificationTypePreference from '../models/NotificationTypePreference.model.js';
 import AgencyNotificationPreferences from '../models/AgencyNotificationPreferences.model.js';
 import {
@@ -190,10 +191,15 @@ function filterNotificationsForViewer(notifications, viewerUserId, viewerRole, o
       // Medical records release: only visible to users with has_medical_records_release_access (or super_admin)
       if (String(n?.type || '') === 'medical_records_release_submitted') {
         if (viewerRole === 'super_admin') return true;
+        if (opts.medicalRecordsAgencyIds instanceof Set) return opts.medicalRecordsAgencyIds.has(Number(n.agency_id));
         return !!hasMedicalRecordsReleaseAccess;
       }
       return true;
     });
+}
+
+async function medicalRecordsAgencyIds(userId) {
+  return await accessProfileSchemaReady() ? new Set(await agencyIdsWithPermission(userId,'has_medical_records_release_access')) : null;
 }
 
 function isUnmuted(notification) {
@@ -425,7 +431,7 @@ export const getNotifications = async (req, res, next) => {
     const hasMedicalRecordsReleaseAccess = !!(fullUser?.has_medical_records_release_access === 1 || fullUser?.has_medical_records_release_access === true);
     const notificationCategories = await getViewerNotificationCategories(userId);
     const hiddenNotificationTypes = await getViewerHiddenNotificationTypes(userId, userRole);
-    const filterOpts = { hasMedicalRecordsReleaseAccess, notificationCategories, hiddenNotificationTypes };
+    const filterOpts = { hasMedicalRecordsReleaseAccess, medicalRecordsAgencyIds:await medicalRecordsAgencyIds(userId), notificationCategories, hiddenNotificationTypes };
 
     // Guardian portal: limit notifications to a small family-facing set.
     if (isGuardianRole(userRole)) {
@@ -757,7 +763,7 @@ export const getNotificationCounts = async (req, res, next) => {
     const hasMedicalRecordsReleaseAccess = !!(fullUser?.has_medical_records_release_access === 1 || fullUser?.has_medical_records_release_access === true);
     const notificationCategories = await getViewerNotificationCategories(userId);
     const hiddenNotificationTypes = await getViewerHiddenNotificationTypes(userId, userRole);
-    const filterOpts = { hasMedicalRecordsReleaseAccess, notificationCategories, hiddenNotificationTypes };
+    const filterOpts = { hasMedicalRecordsReleaseAccess, medicalRecordsAgencyIds:await medicalRecordsAgencyIds(userId), notificationCategories, hiddenNotificationTypes };
 
     // Guardian counts: only count the guardian-allowed subset across the agencies
     // where the guardian has linked clients.
@@ -1550,7 +1556,11 @@ function buildFeedWhere({ req, access, visibilityPolicy, applyFilters = true, in
     OR JSON_EXTRACT(n.audience_json, '$.${audienceKey}') IS NULL
     OR JSON_EXTRACT(n.audience_json, '$.${audienceKey}') = TRUE
   )`);
-  if (access.role !== 'super_admin' && !req._feedHasMedicalAccess) {
+  if (access.role !== 'super_admin' && req._feedMedicalAgencyIds instanceof Set) {
+    const ids=[...req._feedMedicalAgencyIds];
+    clauses.push(ids.length ? `(n.type <> 'medical_records_release_submitted' OR n.agency_id IN (${ids.map(()=>'?').join(',')}))` : "n.type <> 'medical_records_release_submitted'");
+    params.push(...ids);
+  } else if (access.role !== 'super_admin' && !req._feedHasMedicalAccess) {
     clauses.push("n.type <> 'medical_records_release_submitted'");
   }
   const baseHidden = visibilityPolicy?.baseHidden || [];
@@ -1623,6 +1633,7 @@ async function queryNotificationFeed(req, { forcePageSize = null, includeAfterId
   const access = await getFeedAccess(req, requestedAgencyId, scope);
   const fullUser = await User.findById(access.uid);
   req._feedHasMedicalAccess = !!(fullUser?.has_medical_records_release_access === 1 || fullUser?.has_medical_records_release_access === true);
+  req._feedMedicalAgencyIds = await medicalRecordsAgencyIds(access.uid);
   const preferenceContext = await loadNotificationPreferenceContext({ userId: access.uid, userRole: access.role });
   const agencyPolicies = await AgencyNotificationPreferences.listByAgencyIds(access.agencyIds);
   const contextByAgency = new Map(agencyPolicies.map((policy) => [

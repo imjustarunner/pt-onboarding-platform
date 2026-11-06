@@ -9,6 +9,8 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import { getUserCapabilities, buildAgencyAccessCaps } from '../utils/capabilities.js';
+import { scopeAgencyRequest } from './agencyAccessProfiles.middleware.js';
+import { runWithAgencyAccess } from '../utils/agencyAccessContext.js';
 import { isSupervisorActor, supervisorHasSuperviseeInSchool } from '../utils/supervisorSchoolAccess.js';
 import { canUserManageClub, getUserClubMembership, inferLegacyClubRole } from '../utils/sscClubAccess.js';
 import { hasTenantAccess } from '../utils/meDashboardTenantScope.js';
@@ -23,7 +25,11 @@ const PROVIDER_LIKE_ROLES_MIDDLEWARE = new Set([
   'provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'
 ]);
 
-const finishAuthentication = (req,res,next) => assistantBoundary(req,res,error => error ? next(error) : requireUnexpiredGuardianTestAccess(req,res,error => error ? next(error) : enforceDependentPortalScope(req,res,error => error ? next(error) : enforceSchoolCareBridgeScope(req,res,error => error ? next(error) : enforceAccountSecurity(req,res,next)))));
+const finishAuthentication = async (req,res,next) => {
+  try { await scopeAgencyRequest(req); }
+  catch (error) { return next(error); }
+  return runWithAgencyAccess(req.user?.scopedAgencyId, () => assistantBoundary(req,res,error => error ? next(error) : requireUnexpiredGuardianTestAccess(req,res,error => error ? next(error) : enforceDependentPortalScope(req,res,error => error ? next(error) : enforceSchoolCareBridgeScope(req,res,error => error ? next(error) : enforceAccountSecurity(req,res,next))))), {userId:req.user?.id,access:req.user?.agencyAccess});
+};
 
 /** Normalize role strings for authorization (JWT quirks / legacy variants). */
 function normalizeAuthRole(role) {
@@ -456,6 +462,7 @@ export const requireBackofficeAdminOrCpa = async (req, res, next) => {
     if (isBackofficeAdminRole(role) || role === 'clinical_practice_assistant') {
       return next();
     }
+    if (req.user.agencyScopeResolved) return res.status(403).json({ error: { message: 'Access denied for this company' } });
     const uid = req.user.id;
     if (!uid) {
       return res.status(403).json({ error: { message: 'Admin access required' } });
@@ -487,6 +494,7 @@ export const requireBackofficeAdmin = async (req, res, next) => {
     if (isBackofficeAdminRole(req.user.role)) {
       return next();
     }
+    if (req.user.agencyScopeResolved) return res.status(403).json({ error: { message: 'Admin access required for this company' } });
     const uid = req.user.id;
     if (!uid) {
       return res.status(403).json({ error: { message: 'Admin access required' } });
@@ -518,6 +526,7 @@ export const requireBackofficeAdminOrClubManagerForAgency = async (req, res, nex
     if (!uid) {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
+    if (req.user?.agencyScopeResolved) return res.status(403).json({ error: { message: 'Access denied for this company' } });
     const row = await User.findById(uid);
     if (row && isBackofficeAdminRole(row.role)) {
       req.agencyUpdateScope = 'full';
@@ -628,6 +637,8 @@ export const requireCapability = (required) => {
         userForCaps = await User.findById(req.user.id);
       }
 
+      if (req.user?.agencyAccess) userForCaps = { ...userForCaps, role: req.user.role,
+        ...req.user.agencyAccess.permissions, agencyAccess: req.user.agencyAccess };
       let caps = getUserCapabilities(userForCaps, { effectiveRole: req.user?.effectiveRole });
 
       // canManagePayroll, canAccessBudgetManagement, canManageCredentialing, canManageMedicalBilling require async resolution from user_agencies
@@ -698,6 +709,7 @@ async function resolveAgencyActorRole(req) {
     }
   }
 
+  if (req.user?.agencyScopeResolved) return normalizeAuthRole(req.user.effectiveRole);
   const uid = req.user?.id;
   if (!uid) return normalizeAuthRole(req.user?.role);
 

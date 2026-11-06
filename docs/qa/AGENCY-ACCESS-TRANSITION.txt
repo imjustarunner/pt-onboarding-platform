@@ -1,0 +1,50 @@
+Agency permissions transition — November 6, 2026
+
+Employee profile > Account > Agency roles & permissions selects one company.
+Only its administrators or a platform superadmin can change working roles and
+permissions. Explicit company On/Off overrides selected platform defaults;
+otherwise the preserved pre-transition company settings remain the fallback.
+Superadmin authority remains platform-wide and cannot be granted by this card.
+
+In the PlotTwistCo company card, superadmins can choose Platform defaults for an
+active PlotTwistCo employee. These apply across all active platform companies,
+including future companies, without creating employment or clinical affiliations.
+Company overrides remain in place. Removing/deactivating the PlotTwistCo
+affiliation suspends inherited permissions and selected platform service grants.
+Reactivation restores the saved selections and retains company overrides.
+
+Existing user roles, global permission flags, agency memberships, membership
+roles/finance flags, and legacy tenant-expanded credentialing coverage are
+snapshotted. Existing grants are not converted into opted-in platform defaults.
+Managed billing relationships remain financial access only. Preserved tenant
+grants are labeled separately and do not create employment affiliations.
+New credentialing grants stay within the selected company.
+
+Rollout procedure:
+1. Migration 1771 creates the profile/default/audit tables with rollout disabled.
+2. Deploy the matching backend and frontend and verify their build revisions.
+3. From an environment configured for the intended database, run:
+   node src/scripts/activateAgencyAccess.js --audit-dir=/absolute/new/audit/path
+   This first invocation is read-only. Keep the resulting staff access snapshot.
+4. Activate with a different, new audit directory:
+   node src/scripts/activateAgencyAccess.js --apply \
+     --expected-database=onboarding_stage --audit-dir=/absolute/new/cutover/path
+   The technical migration actor is 0; optionally specify a verified active
+   superadmin with --actor-user-id=ID. Do not infer a person's identity.
+5. The transaction locks legacy source rows, reconciles every membership and
+   permission against the latest state, retains before/after audit records,
+   and enables company access only if no mismatches are found. This accounts
+   for legacy edits between deployment and activation. Repeated activation is
+   a no-op. Never overwrite an audit directory or bypass a reconciliation error.
+
+Retain cutover-before.json and cutover-result.json in a protected local audit
+directory; they contain staff names and access settings, not patient records.
+Do not commit them. Do not disable rollout after company edits: legacy releases
+cannot represent company-specific hiring/clinical flags or platform defaults.
+Use a forward fix or a reviewed restoration from the retained audit instead.
+
+Validation covers isolated MySQL migration/cutover, last-minute legacy edits,
+local Off/inherit, virtual access without affiliation, future-company inheritance,
+administrator boundaries, optimistic revisions, default suspension/reactivation,
+managed billing, credentialing coverage, and the company selector UI. No real
+employee memberships are changed by the automated tests.

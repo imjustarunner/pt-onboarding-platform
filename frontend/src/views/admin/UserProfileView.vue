@@ -1411,7 +1411,7 @@
                                 <p>No agencies assigned</p>
                               </div>
                               <div v-else class="agencies-list aa-agency-cards">
-                                <div v-for="agency in affiliatedAgencies" :key="agency.id" class="agency-item aa-agency-card">
+                                <div v-for="agency in affiliatedAgencies" :key="agency.id" class="agency-item aa-agency-card" :style="agencyCardStyle(agency, affiliatedAgencies.length > 1)">
                                   <div class="aa-agency-card__head">
                                     <div class="aa-agency-card__title-row">
                                       <span class="agency-name">{{ agency.name }}</span>
@@ -2744,6 +2744,7 @@
 </template>
 
 <script setup>
+import { agencyCardStyle } from '../../utils/agencyCardScope.js';
 import GuardianContactCard from '../../components/admin/GuardianContactCard.vue';
 import CalendarSharing from '../../components/CalendarSharing.vue';
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, provide, reactive } from 'vue';
@@ -6750,6 +6751,10 @@ const saveAccount = async (options = {}) => {
       credential: credentialText || null,
       role: accountForm.value.role
     };
+    // Working roles and access are saved through the selected company's access
+    // card. Saving contact/account details must never reset other companies.
+    for (const key of ['companyCardEnabled','companyCarSubmitAccess','companyCarManageAccess','skillBuilderEligible','groupSupervisionEligible','hasPayrollAccess','hasBillingAccess','isMarketingContact','hasCredentialingAccess','isHourlyWorker','hasHiringAccess','hasOutreachAccess','hasMedicalRecordsReleaseAccess','hasGamesAccess','hasProviderAccess','hasStaffAccess','hasSupervisorPrivileges','hasSkillBuilderCoordinatorAccess']) delete updateData[key];
+    if (['super_admin','admin','assistant_admin','support','staff','provider','provider_plus','clinical_practice_assistant','supervisor','intern','intern_plus','facilitator','tutor','clinician'].includes(user.value?.role)) delete updateData.role;
     if (showPlatformGearAccessToggle.value) {
       updateData.hasPlatformGearAccess = Boolean(accountForm.value.hasPlatformGearAccess);
     }
@@ -6782,6 +6787,7 @@ const saveAccount = async (options = {}) => {
       payloadToSave.providerStartDate = sd || null;
     }
 
+    for (const key of ['hasSkillBuilderCoordinatorAccess','hasSupervisorPrivileges','hasProviderAccess','hasStaffAccess','hasPlatformGearAccess','hasPlatformSupport']) delete payloadToSave[key];
     console.log('Update data being sent:', payloadToSave);
     pendingAccountUpdate.value = payloadToSave;
     const response = await api.put(`/users/${userId.value}`, payloadToSave);

@@ -7,6 +7,7 @@ import { ensurePersonalMailboxForAddress } from './personalMailbox.service.js';
 import { DEPARTMENTAL_GROUPS, groupKeyForIdentity } from './departmentalGroupPolicy.js';
 import { withMessagingJobLock } from './messagingJobLock.service.js';
 import { ensureDepartmentalSenderReady } from './departmentalSenderReadiness.service.js';
+import { scopeDepartmentalStaff } from './departmentalGroupAccess.service.js';
 
 const normalize = value => String(value || '').trim().toLowerCase();
 const relay = 'ai@plottwistco.com';
@@ -53,7 +54,9 @@ export async function loadManagedWorkspaceRoster(agencyId) {
   const [locations] = await pool.execute(`SELECT DISTINCT ul.user_id,ol.city,ol.state FROM user_office_locations ul
     JOIN office_locations ol ON ol.id=ul.office_location_id AND ol.is_active=1
     WHERE ul.is_active=1 AND (ol.agency_id=? OR EXISTS (SELECT 1 FROM office_location_agencies ola WHERE ola.office_location_id=ol.id AND ola.agency_id=?))`, [agencyId,agencyId]);
-  for (const row of rows) {
+  for (let index=0;index<rows.length;index++) {
+    const row=await scopeDepartmentalStaff(rows[index],agencyId);
+    rows[index]=row;
     row.locations = locations.filter(loc => Number(loc.user_id) === Number(row.id));
     Object.assign(row, scopeProviderRow(row, agencyId, row.public_details_json));
   }

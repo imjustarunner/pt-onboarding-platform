@@ -454,7 +454,7 @@ class User {
     return rows;
   }
 
-  static async findById(id) {
+  static async findById(id, { raw = false } = {}) {
     // Check which columns exist to avoid errors if migrations haven't been run
     // password_hash is required for login/password-policy and school-onboarding setPassword checks.
     let query = 'SELECT id, email, phone_number, role, status, completed_at, terminated_at, status_expires_at, is_active, is_archived, first_name, last_name, invitation_token, invitation_token_expires_at, password_hash, temporary_password_hash, temporary_password_expires_at, passwordless_token, passwordless_token_expires_at, created_at';
@@ -539,7 +539,10 @@ class User {
     
     query += ` FROM users WHERE id = ? AND ${workplacePersonSql('users')}`;
     const [rows] = await pool.execute(query, [id]);
-    return rows[0] || null;
+    const user = rows[0] || null;
+    if (raw) return user;
+    const { userInCurrentAgency } = await import('../utils/agencyAccessContext.js');
+    return userInCurrentAgency(user);
   }
 
   static async create(userData) {
@@ -1980,7 +1983,7 @@ class User {
 
   static async getAgencies(userId, { includeInactive = false } = {}) {
     if (!USER_AGENCIES_CACHE_ENABLED) {
-      return User._getAgenciesUncached(userId, { includeInactive });
+      return User._withPlatformAccess(userId, await User._getAgenciesUncached(userId, { includeInactive }), includeInactive);
     }
 
     const key = `${Number(userId)}:${includeInactive ? 1 : 0}`;
@@ -1990,7 +1993,7 @@ class User {
 
     const now = Date.now();
     const hit = _userAgenciesCache.get(key);
-    if (hit && hit.expiresAt > now) return hit.promise;
+    if (hit && hit.expiresAt > now) return User._withPlatformAccess(userId, await hit.promise, includeInactive);
 
     const promise = User._getAgenciesUncached(userId, { includeInactive }).catch((err) => {
       _userAgenciesCache.delete(key);
@@ -2004,7 +2007,17 @@ class User {
       }
     }
 
-    return promise;
+    return User._withPlatformAccess(userId, await promise, includeInactive);
+  }
+
+  static async _withPlatformAccess(userId, agencies, includeInactive) {
+    // Profile affiliation editing requests inactive relationships as well; keep
+    // employment affiliations separate from virtual platform access there.
+    if (includeInactive) return agencies;
+    const { listPlatformAccessAgencies, listLegacyAccessAgencies, accessProfileSchemaReady } = await import('../services/agencyAccessProfiles.service.js');
+    if (!await accessProfileSchemaReady()) return agencies;
+    const platform = [...await listPlatformAccessAgencies(userId),...await listLegacyAccessAgencies(userId)];
+    return [...agencies, ...platform.filter(a => !agencies.some(existing => Number(existing.id) === Number(a.id)))];
   }
 
   static async _getAgenciesUncached(userId, { includeInactive = false } = {}) {
@@ -2332,6 +2345,11 @@ class User {
       `INSERT INTO user_agencies (${columns.join(', ')}) VALUES (${placeholders.join(', ')}) ON DUPLICATE KEY UPDATE ${updates.join(', ')}`,
       params
     );
+    const { accessProfileSchemaReady, readAgencyAccess, refreshPlatformAccessEligibility } = await import('../services/agencyAccessProfiles.service.js');
+    if (await accessProfileSchemaReady()) {
+      if (Number(agencyId) === 1) await refreshPlatformAccessEligibility(userId);
+      await readAgencyAccess(userId,agencyId);
+    }
     invalidateUserAgenciesCache(userId);
   }
 
@@ -2355,6 +2373,12 @@ class User {
 
   /** Set club-scoped membership active/inactive (boot = inactive for that club only). */
   static async setAgencyMembershipActive(userId, agencyId, active) {
+    const { accessProfileSchemaReady, changePlatformAffiliation } = await import('../services/agencyAccessProfiles.service.js');
+    if (Number(agencyId) === 1 && await accessProfileSchemaReady()) {
+      const membership = await changePlatformAffiliation(userId, {active});
+      invalidateUserAgenciesCache(userId);
+      return membership;
+    }
     try {
       const [cols] = await pool.execute(
         "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME = 'is_active'"
@@ -2364,6 +2388,7 @@ class User {
         'UPDATE user_agencies SET is_active = ? WHERE user_id = ? AND agency_id = ?',
         [active ? 1 : 0, userId, agencyId]
       );
+      invalidateUserAgenciesCache(userId);
       return this.getAgencyMembership(userId, agencyId);
     } catch {
       return null;
@@ -2413,6 +2438,7 @@ class User {
   static async setAgencyMembershipRole({
     userId,
     agencyId,
+    actorUserId,
     agencyRole = undefined,
     agencyPosition = undefined,
     includeOnDisclosure = undefined
@@ -2420,6 +2446,16 @@ class User {
     const uid = Number(userId || 0);
     const aid = Number(agencyId || 0);
     if (!uid || !aid) return null;
+
+    if (actorUserId && agencyRole !== undefined) {
+      const { accessProfileSchemaReady, readAgencyAccess, saveAgencyAccess } = await import('../services/agencyAccessProfiles.service.js');
+      if (await accessProfileSchemaReady()) {
+        const current = await readAgencyAccess(uid, aid);
+        if (!current) throw Object.assign(new Error('Active company access is required.'), {status:404});
+        await saveAgencyAccess({actorUserId,userId:uid,agencyId:aid,input:{revision:current.revision,role:agencyRole || null}});
+        agencyRole = undefined;
+      }
+    }
 
     const [cols] = await pool.execute(
       `SELECT COLUMN_NAME FROM information_schema.COLUMNS
@@ -2534,6 +2570,8 @@ class User {
   }
 
   static async listPayrollAgencyIds(userId) {
+    const { accessProfileSchemaReady, agencyIdsWithPermission } = await import('../services/agencyAccessProfiles.service.js');
+    if (await accessProfileSchemaReady()) return agencyIdsWithPermission(userId, 'has_payroll_access');
     // Best-effort for older DBs (column may not exist yet).
     try {
       const [rows] = await pool.execute(
@@ -2549,7 +2587,9 @@ class User {
   static async listBillingAgencyIds(userId) {
     try {
       const [direct, managed] = await Promise.all([directBillingAgencyIds(userId), managedBillingAgencies(userId)]);
-      return [...new Set([...direct, ...managed.map(agency => Number(agency.id))])];
+      const ids = [...new Set([...direct, ...managed.map(agency => Number(agency.id))])];
+      const { filterBillingAgencyOverrides } = await import('../services/agencyAccessProfiles.service.js');
+      return filterBillingAgencyOverrides(userId, ids);
     } catch (error) {
       if (['ER_NO_SUCH_TABLE', 'ER_BAD_FIELD_ERROR'].includes(error.code)) return [];
       throw error;
@@ -2597,6 +2637,8 @@ class User {
 
   /** Agencies where user has department access (Budget Management). */
   static async listDepartmentAgencyIds(userId) {
+    const { accessProfileSchemaReady, agencyIdsWithPermission } = await import('../services/agencyAccessProfiles.service.js');
+    if (await accessProfileSchemaReady()) return agencyIdsWithPermission(userId, 'has_department_access');
     try {
       const [rows] = await pool.execute(
         'SELECT agency_id FROM user_agencies WHERE user_id = ? AND has_department_access = 1',
@@ -2610,6 +2652,8 @@ class User {
 
   /** Agencies where user has credential management privilege. */
   static async listCredentialingAgencyIds(userId) {
+    const { accessProfileSchemaReady, agencyIdsWithPermission } = await import('../services/agencyAccessProfiles.service.js');
+    if (await accessProfileSchemaReady()) return agencyIdsWithPermission(userId, 'can_manage_credentialing');
     try {
       const [rows] = await pool.execute(
         'SELECT agency_id FROM user_agencies WHERE user_id = ? AND can_manage_credentialing = 1',
@@ -2641,10 +2685,17 @@ class User {
   }
 
   static async removeFromAgency(userId, agencyId) {
+    const { accessProfileSchemaReady, changePlatformAffiliation } = await import('../services/agencyAccessProfiles.service.js');
+    if (Number(agencyId) === 1 && await accessProfileSchemaReady()) {
+      await changePlatformAffiliation(userId, {remove:true});
+      invalidateUserAgenciesCache(userId);
+      return;
+    }
     await pool.execute(
       'DELETE FROM user_agencies WHERE user_id = ? AND agency_id = ?',
       [userId, agencyId]
     );
+    invalidateUserAgenciesCache(userId);
   }
 
   static async hasAnySchoolAgencyMembership(userId) {

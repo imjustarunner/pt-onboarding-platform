@@ -316,8 +316,10 @@ export const getCurrentUser = async (req, res, next) => {
       });
     }
 
-    const user = await User.findById(req.user.id);
-    if (!user) return res.status(404).json({ error: { message: 'User not found' } });
+    const databaseUser = await User.findById(req.user.id);
+    if (!databaseUser) return res.status(404).json({ error: { message: 'User not found' } });
+    const user = req.user.agencyAccess ? { ...databaseUser, ...req.user.agencyAccess.permissions,
+      role: req.user.role, agencyAccess: req.user.agencyAccess } : databaseUser;
 
     const isDemoMode = req.user?.demoMode === true;
     const effectiveRole = isDemoMode ? String(req.user?.role || user.role || '').toLowerCase() : user.role;
@@ -354,6 +356,8 @@ export const getCurrentUser = async (req, res, next) => {
       rememberGoogle: req.authClaims?.rememberGoogle !== false,
       email: user.email,
       role: effectiveRole,
+      platformRole: req.user.platformRole || databaseUser.role,
+      agencyAccess: req.user.agencyAccess || null,
       status: user.status,
       firstName: user.first_name,
       lastName: user.last_name,
@@ -9307,6 +9311,7 @@ export const setUserAgencyMembershipRole = async (req, res, next) => {
     const updated = await User.setAgencyMembershipRole({
       userId,
       agencyId: agencyIdNum,
+      actorUserId: req.user.id,
       agencyRole,
       agencyPosition,
       includeOnDisclosure

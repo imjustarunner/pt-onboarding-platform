@@ -19,6 +19,11 @@ describe('agency billing permission', () => {
     expect(await hasSchedulingBillingAccess({ id: 9, role: 'provider' }, 1)).toBe(false);
     expect(await hasSchedulingBillingAccess({ id: 9, role: 'provider' }, 2)).toBe(false);
   });
+  it('honors a provider’s selected company grant and explicit company Off',async()=>{
+    const user={id:9,role:'provider',agencyAccess:{agencyId:1,permissions:{has_billing_access:true}}};
+    expect(await hasSchedulingBillingAccess(user,1)).toBe(true);
+    expect(await hasSchedulingBillingAccess({...user,agencyAccess:{agencyId:1,permissions:{has_billing_access:false}}},1)).toBe(false);
+  });
   it('does not grant support blanket financial access', async () => {
     expect(await hasSchedulingBillingAccess({ id: 9, role: 'support' }, 2)).toBe(false);
     expect(await hasSchedulingBillingAccess({ id: 9, role: 'support' }, 1)).toBe(true);

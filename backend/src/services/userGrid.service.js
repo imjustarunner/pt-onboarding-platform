@@ -1,4 +1,6 @@
 import pool from '../config/database.js';
+import { AGENCY_ACCESS_KEYS, jsonAccess } from '../utils/agencyAccessPolicy.js';
+import { accessProfileSchemaReady, readAgencyAccess, saveAgencyAccess } from './agencyAccessProfiles.service.js';
 import User from '../models/User.model.js';
 import PayrollCompensationLevel from '../models/PayrollCompensationLevel.model.js';
 import UserAdminDoc from '../models/UserAdminDoc.model.js';
@@ -640,6 +642,15 @@ export async function listUserGrid({ reqUser, agencyId, organizationId, persona,
   const fields = fieldKeys.map((k) => getUserGridField(k)).filter(Boolean);
   const rows = await listBaseUsers({ reqUser, agencyId, organizationId, persona, includeArchived, roleFilter });
   const enriched = await enrichRows(rows, fields, { agencyId });
+  if (agencyId && enriched.length && await accessProfileSchemaReady()) {
+    const ids = enriched.map(row => Number(row.id));
+    const [access] = await pool.execute(`SELECT user_id,effective_role,effective_permissions FROM user_agency_access_profiles
+      WHERE agency_id=? AND user_id IN (${ids.map(() => '?').join(',')})`, [agencyId,...ids]);
+    for (const row of enriched) {
+      const scoped = access.find(a => Number(a.user_id) === Number(row.id));
+      if (scoped) { Object.assign(row.values, jsonAccess(scoped.effective_permissions), { role: scoped.effective_role }); row.role = scoped.effective_role; }
+    }
+  }
   const meta = {
     fields: USER_GRID_FIELDS,
     selected: fieldKeys,
@@ -688,6 +699,15 @@ async function actorCanEditUser(reqUser, userId) {
 }
 
 async function applyCell({ reqUser, userId, fieldKey, value, agencyId }) {
+  if ((fieldKey === 'role' || AGENCY_ACCESS_KEYS.has(fieldKey)) && await accessProfileSchemaReady()) {
+    if (!agencyId) throw Object.assign(new Error('Select a company before changing working roles or permissions.'), { status:400 });
+    const current = await readAgencyAccess(userId, agencyId);
+    if (!current) throw Object.assign(new Error('Active access to this company was not found.'), { status:404 });
+    await saveAgencyAccess({ actorUserId:reqUser.id,userId,agencyId,input:{revision:current.revision,
+      ...(fieldKey === 'role' ? {role:value || null} : {permissions:{[fieldKey]:value}})} });
+    return;
+  }
+  if (['has_platform_support','has_platform_gear_access'].includes(fieldKey) && await accessProfileSchemaReady()) throw Object.assign(new Error('Set platform services through the PlotTwistCo Platform defaults card.'),{status:400});
   const field = getUserGridField(fieldKey);
   if (!field) throw Object.assign(new Error('Unknown field'), { status: 400 });
   if (field.editable === false) throw Object.assign(new Error('That column is not editable'), { status: 400 });

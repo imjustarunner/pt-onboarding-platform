@@ -29,7 +29,7 @@ export const payerCredentialDocUpload = multer({
 async function assertCredentialPrivilege(req, agencyId) {
   if (req.user.role === 'super_admin') return;
   const role = String(req.user.role || '').toLowerCase();
-  if (!['admin', 'support', 'staff'].includes(role)) {
+  if (!['admin', 'support', 'staff'].includes(role) && req.user.agencyAccess?.permissions.can_manage_credentialing !== true) {
     const err = new Error('Access denied');
     err.statusCode = 403;
     throw err;

@@ -4,6 +4,8 @@ import { getMyAccountAccess, revealMyAccountTempPassword } from '../controllers/
 import express from 'express';
 import { checkUserLoginHelp, sendUserLoginHelp } from '../controllers/loginHelp.controller.js';
 import { listStaffCardAgencies, listStaffServiceAssignments, updateStaffServiceAssignments, guardAgencyMembershipUpdate } from '../controllers/staffTenantCards.controller.js';
+import { getAgencyAccessCards, putAgencyAccessCard, putPlatformAccessDefaults, updateScopedPermission } from '../controllers/agencyAccessProfiles.controller.js';
+import { rejectGlobalAgencyAccessWrites } from '../middleware/agencyAccessProfiles.middleware.js';
 import { getCurrentUser, getAllUsers, getGuardianUsers, getGuardianLinkedClients, getGuardianEvents, getGuardiansBulkDeletePreview, bulkDeleteGuardians, aiQueryUsers, getUserById, getUserStravaConnection, updateUser, updateUserStatus, requireSkillBuilderConfirmNextLogin, getUserAgencies, getSuperviseePortalSlugs, getProvidersForSupport, getAffiliatedPortals, assignUserToAgency, setUserDefaultAgency, removeUserFromAgency, setUserAgencyPayrollAccess, setUserAgencyBillingAccess, setUserAgencyDepartmentAccess, getUserDepartmentAccess, setUserAgencyH0032Mode, setUserAgencyMembershipRole, setUserAgencySupervisionPrelicensed, getSupervisionPrelicensedClassification, generateInvitationToken, generateTemporaryPassword, setCustomTemporaryPassword, resetPasswordlessToken, sendInitialSetupLink, resendSetupLink, sendResetPasswordLink, sendResetPasswordLinkSms, getUserCredentials, getAccountInfo, getProfileOverview, downloadCompletionPackage, getOnboardingChecklist, markChecklistItemComplete, markUserComplete, markUserTerminated, markUserActive, getOnboardingDocument, archiveUser, setStaffInactive, restoreUser, deleteUser, deleteMe, getArchivedUsers, deactivateUser, markPendingComplete, checkPendingCompletionStatus, movePendingToActive, getPendingCompletionSummary, wipePendingUserData, changePassword, toggleSupervisorPrivileges, promoteToOnboarding, createCurrentEmployee, getUserLoginEmailAliases, addUserLoginEmailAlias, removeUserLoginEmailAlias, getUserScheduleSummary, listUserMeetingCandidates, createUserMeetingInviteGroup, updateUserMeetingInviteGroupMembers, listUserVirtualSessionClients, createUserScheduleEvent, getUserScheduleEventNotificationPlan, updateUserScheduleEvent, deleteUserScheduleEvent, getUserGoogleEvent, patchUserGoogleEvent, deleteUserGoogleEvent, getUserExternalCalendars, createUserExternalCalendar, addUserExternalCalendarFeed, patchUserExternalCalendar, patchUserExternalCalendarFeed, setSsoPasswordOverride } from '../controllers/user.controller.js';
 import {
   getPeopleDuplicates,
@@ -159,7 +161,10 @@ router.get('/:id/guardian-events', authenticate, requireBackofficeAdmin, getGuar
 router.get('/:id/strava-connection', authenticate, getUserStravaConnection);
 router.get('/:id', authenticate, supportOwnAccountOnly, getUserById);
 router.patch('/:id/demo', authenticate, excludeSupportSettings, requireBackofficeAdmin, patchUserDemo);
-router.put('/:id', authenticate, supportProfileUpdateOnly, updateUser);
+router.get('/:id/agency-access', authenticate, getAgencyAccessCards);
+router.put('/:id/agency-access/:agencyId', authenticate, excludeSupportSettings, putAgencyAccessCard);
+router.put('/:id/platform-access-defaults', authenticate, excludeSupportSettings, putPlatformAccessDefaults);
+router.put('/:id', authenticate, supportProfileUpdateOnly, rejectGlobalAgencyAccessWrites, updateUser);
 router.put('/:id/status', authenticate, excludeSupportSettings, requireBackofficeAdmin, updateUserStatus);
 router.post('/:id/skill-builder/require-confirm-next-login', authenticate, requireSkillBuilderConfirmNextLogin);
 router.post('/:id/profile-photo', authenticate, uploadProfilePhoto.single('photo'), uploadUserProfilePhoto);
@@ -180,10 +185,10 @@ router.delete('/:id/photos/:photoId/moderate', authenticate, moderateRemovePhoto
 router.post('/assign/agency', authenticate, excludeSupportSettings, requireBackofficeAdmin, assignUserToAgency);
 router.put('/:id/default-agency', authenticate, excludeSupportSettings, requireBackofficeAdmin, setUserDefaultAgency);
 router.post('/remove/agency', authenticate, excludeSupportSettings, requireBackofficeAdmin, removeUserFromAgency);
-router.put('/:id/payroll-access', authenticate, excludeSupportSettings, requireBackofficeAdmin, setUserAgencyPayrollAccess);
-router.put('/:id/billing-access', authenticate, excludeSupportSettings, requireBackofficeAdmin, setUserAgencyBillingAccess);
+router.put('/:id/payroll-access', authenticate, excludeSupportSettings, requireBackofficeAdmin, updateScopedPermission('has_payroll_access','hasPayrollAccess'));
+router.put('/:id/billing-access', authenticate, excludeSupportSettings, requireBackofficeAdmin, updateScopedPermission('has_billing_access','hasBillingAccess'));
 router.get('/:id/department-access', authenticate, getUserDepartmentAccess);
-router.put('/:id/department-access', authenticate, excludeSupportSettings, requireBackofficeAdmin, setUserAgencyDepartmentAccess);
+router.put('/:id/department-access', authenticate, excludeSupportSettings, requireBackofficeAdmin, updateScopedPermission('has_department_access','hasDepartmentAccess'));
 router.put('/:id/h0032-mode', authenticate, excludeSupportSettings, requireBackofficeAdmin, setUserAgencyH0032Mode);
 router.get('/:id/business-card-agencies', authenticate, listStaffCardAgencies);
 router.get('/:id/agencies/:agencyId/service-assignments', authenticate, listStaffServiceAssignments);
@@ -209,7 +214,7 @@ router.post('/:id/change-password', authenticate, supportOwnAccountOnly, changeP
 router.get('/:id/credentials', authenticate, supportOwnAccountOnly, requireBackofficeAdmin, getUserCredentials);
 router.get('/:id/account-info', authenticate, supportOwnAccountOnly, getAccountInfo);
 router.get('/:id/profile-overview', authenticate, getProfileOverview);
-router.post('/:id/toggle-supervisor-privileges', authenticate, excludeSupportSettings, toggleSupervisorPrivileges);
+router.post('/:id/toggle-supervisor-privileges', authenticate, excludeSupportSettings, requireBackofficeAdmin, updateScopedPermission('has_supervisor_privileges','hasSupervisorPrivileges'));
 router.get('/:id/completion-package', authenticate, downloadCompletionPackage);
 router.get('/:id/onboarding-checklist', authenticate, getOnboardingChecklist);
 router.post('/:id/onboarding-checklist/:itemId/complete', authenticate, markChecklistItemComplete);

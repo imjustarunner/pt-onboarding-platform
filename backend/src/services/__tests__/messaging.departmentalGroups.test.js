@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+vi.mock('../agencyAccessProfiles.service.js',()=>({accessProfileSchemaReady:vi.fn(async()=>false),readAgencyAccess:vi.fn()}));
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
 import pool from '../../config/database.js';
 import { DEPARTMENTAL_GROUPS, groupKeyForIdentity, departmentalGroupKeysForUser, listUserDepartmentalGroupKeys, assertDepartmentalGroupAccess } from '../departmentalGroupAccess.service.js';
@@ -8,6 +9,12 @@ import { buildManagedGroupPlan } from '../managedWorkspaceGroupPolicy.js';
 const staff = { id: 12, role: 'provider', status: 'ACTIVE_EMPLOYEE', is_active: 1, membership_active: 1, is_archived: 0, is_demo: 0 };
 beforeEach(() => vi.clearAllMocks());
 describe('departmental identities and permissions', () => {
+  it('preserves administrator mailboxes until a sensitive category is explicitly turned off',()=>{
+    const admin={...staff,role:'admin',agencyAccess:{sources:{has_billing_access:'preserved_agency_access'},permissions:{has_billing_access:false}}};
+    expect(departmentalGroupKeysForUser(admin)).toContain('billing');
+    expect(departmentalGroupKeysForUser({...admin,agencyAccess:{sources:{has_billing_access:'agency_override'},permissions:{has_billing_access:false}}})).not.toContain('billing');
+    expect(departmentalGroupKeysForUser({...admin,agencyAccess:{sources:{has_payroll_access:'platform_default'},permissions:{has_payroll_access:false}}})).not.toContain('payroll');
+  });
   it('classifies department identities while preserving individual non-SSO Group inboxes', () => {
     expect(groupKeyForIdentity({ identity_key: 'payroll', from_email: 'payroll@agency.test' })).toBe('payroll');
     expect(groupKeyForIdentity({ kind: 'shared', identity_key: 'technology', from_email: 'technology@agency.test' })).toBe('technology');

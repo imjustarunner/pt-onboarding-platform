@@ -7,6 +7,7 @@ import { notifyApplicantReferenceCompleted } from '../services/hiringReferenceRe
 import { sanitizeWorkflow } from '../utils/hirePortalWorkflow.js';
 import { prepareHirePacket, retainHirePacket } from '../services/hirePacketPreparation.service.js';
 import pool from '../config/database.js';
+import { hiringAssigneesForAgency } from '../services/hiringAssignees.service.js';
 import User from '../models/User.model.js';
 import Notification from '../models/Notification.model.js';
 import HiringProfile from '../models/HiringProfile.model.js';
@@ -2323,26 +2324,7 @@ export const listHiringAssignees = async (req, res, next) => {
     const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
     await ensureAgencyAccess(req, agencyId);
 
-    const [rows] = await pool.execute(
-      `SELECT DISTINCT
-         u.id,
-         u.first_name,
-         u.last_name,
-         u.email,
-         u.role,
-         u.has_hiring_access
-       FROM users u
-       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
-       WHERE UPPER(COALESCE(u.status, '')) IN ('', 'ACTIVE', 'ACTIVE_EMPLOYEE')
-         AND u.is_active = 1
-         AND u.role IN ('admin','super_admin','assistant_admin','support','staff','provider','provider_plus','clinical_practice_assistant','supervisor','intern','facilitator','clinician')
-         AND (
-           u.role IN ('admin', 'super_admin', 'support', 'staff')
-           OR u.has_hiring_access = 1
-         )
-       ORDER BY u.last_name ASC, u.first_name ASC`,
-      [agencyId]
-    );
+    const rows = await hiringAssigneesForAgency(agencyId);
 
     res.json(rows || []);
   } catch (e) {

@@ -10,7 +10,9 @@ export async function hasSchedulingBillingAccess(user, agencyId) {
   if (product) return product.agencyId === Number(agencyId) && await isActiveBillingAgency(agencyId);
   if (await isIndependentPracticeOwner(user.id, agencyId)) return true;
   const role = String(user.role || user.effectiveRole || '').toLowerCase();
-  if (['provider', 'provider_plus'].includes(role)) return false;
+  if (['provider', 'provider_plus'].includes(role) && !user.agencyAccess) return false;
+  if(role!=='super_admin' && Number(user.agencyAccess?.agencyId)===Number(agencyId)
+      && user.agencyAccess.permissions.has_billing_access!==true)return false;
   if (!await isActiveBillingAgency(agencyId)) return false;
   if (role === 'super_admin') return true;
   const ids = await User.listBillingAgencyIds(user.id);

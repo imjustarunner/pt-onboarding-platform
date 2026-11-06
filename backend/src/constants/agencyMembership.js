@@ -1,6 +1,6 @@
 /** Tenant-scoped role on user_agencies.agency_role (NULL = inherit users.role). */
 export const AGENCY_POSITION_ROLE_OPTIONS = [
-  { value: '', label: 'Same as profile role' },
+  { value: '', label: 'Platform default or preserved company role' },
   { value: 'provider', label: 'Provider' },
   { value: 'provider_plus', label: 'Provider Plus' },
   { value: 'supervisor', label: 'Supervisor' },

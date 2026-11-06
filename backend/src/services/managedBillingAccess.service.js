@@ -28,6 +28,13 @@ export async function managedBillingAgencies(userId, db = pool) {
 }
 
 export async function directBillingAgencyIds(userId, db = pool) {
+  const { accessProfileSchemaReady, agencyIdsWithPermission } = await import('./agencyAccessProfiles.service.js');
+  if (await accessProfileSchemaReady(db)) {
+    const ids = await agencyIdsWithPermission(userId, 'has_billing_access', db);
+    if (!ids.length) return [];
+    const [agencies] = await db.execute(`SELECT id AS agency_id,organization_type,feature_flags FROM agencies WHERE id IN (${ids.map(() => '?').join(',')}) AND is_active=1 AND COALESCE(is_archived,0)=0`, ids);
+    return agencies.filter(isBillingAgency).map(row => Number(row.agency_id));
+  }
   const [rows] = await db.execute(`SELECT a.id,a.organization_type,a.feature_flags,ua.agency_id FROM user_agencies ua
     JOIN agencies a ON a.id = ua.agency_id
     WHERE ua.user_id = ? AND ua.has_billing_access = 1 AND ua.is_active = 1

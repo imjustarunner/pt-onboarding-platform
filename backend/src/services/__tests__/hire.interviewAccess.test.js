@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-const mocks = vi.hoisted(() => ({ findById: vi.fn(), getAgencies: vi.fn(), getUserCapabilities: vi.fn(), list: vi.fn() }));
+const mocks = vi.hoisted(() => ({ findById: vi.fn(), getAgencies: vi.fn(), getUserCapabilities: vi.fn(), list: vi.fn(), agencyAccess:vi.fn() }));
+vi.mock('../agencyAccessProfiles.service.js',()=>({readAgencyAccess:mocks.agencyAccess}));
 vi.mock('../../models/User.model.js', () => ({ default: mocks }));
 vi.mock('../../models/EmailSenderIdentity.model.js', () => ({ default: mocks }));
 vi.mock('../../utils/capabilities.js', () => ({ getUserCapabilities: mocks.getUserCapabilities }));
 import { canAccessHiringInterview } from '../hiringInterviewAccess.service.js';
 import { resolveInterviewSender, interviewDeliveryStatus } from '../hiringInterviewSender.service.js';
 const interview = { agency_id: 4, candidate_user_id: 30, interviewer_user_ids_json: [11, 22] };
-beforeEach(() => { vi.clearAllMocks(); mocks.findById.mockResolvedValue({ id: 11, role: 'provider' }); mocks.getAgencies.mockResolvedValue([{ id: 4 }]); mocks.getUserCapabilities.mockReturnValue({ canAccessPlatform: true, canManageHiring: false }); });
+beforeEach(() => { vi.clearAllMocks(); mocks.agencyAccess.mockResolvedValue(null); mocks.findById.mockResolvedValue({ id: 11, role: 'provider' }); mocks.getAgencies.mockResolvedValue([{ id: 4 }]); mocks.getUserCapabilities.mockReturnValue({ canAccessPlatform: true, canManageHiring: false }); });
 describe('interview access boundary', () => {
   it('rejects family portal accounts even with a stale hiring flag or interviewer assignment', async () => {
     mocks.findById.mockResolvedValue({ id: 11, role: 'client_guardian', has_hiring_access: 1 });

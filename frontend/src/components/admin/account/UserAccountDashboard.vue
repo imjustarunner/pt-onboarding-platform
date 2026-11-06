@@ -158,7 +158,7 @@
                 <div class="acct-field acct-field--edit"><label>Extension</label><input v-model="form.workPhoneExtension" type="text" /></div>
                 <div class="acct-field acct-field--edit acct-field--full">
                   <label>System Role</label>
-                  <select v-model="form.role" :disabled="!unwrap(ctx.canChangeRole)">
+                  <select v-model="form.role" disabled title="Working roles are set in Agency roles & permissions below.">
                     <option v-if="unwrap(ctx.canAssignSuperAdmin)" value="super_admin">Super Admin</option>
                     <option v-if="unwrap(ctx.canAssignAdmin)" value="admin">Admin</option>
                     <option v-if="unwrap(ctx.canAssignSupport)" value="support">Support</option>
@@ -375,12 +375,14 @@
             />
           </AccountDashboardCard>
 
-          <ContractSchedulingNotice v-if="showAccountSection('compensation-level')" :provider-id="userId" :agency-id="agencyId" staff />
-          <StaffLearningCompensation v-if="showAccountSection('compensation-level')" :agency-id="agencyId" :user-id="userId" />
+          <ContractSchedulingNotice v-if="showAccountSection('compensation-level')" :provider-id="userId" :agency-id="agencyId" :style="agencyCardStyle(selectedCompany, userAgencies.length > 1)" staff />
+          <StaffLearningCompensation v-if="showAccountSection('compensation-level')" :agency-id="agencyId" :user-id="userId" :style="agencyCardStyle(selectedCompany, userAgencies.length > 1)" />
           <!-- Compensation Level -->
           <AccountDashboardCard
             v-if="showAccountSection('compensation-level')"
             section-id="compensation-level"
+            :agency="userAgencies.find(a => Number(a.id) === agencyId) || {}"
+            :multi-agency="userAgencies.length > 1"
             title="Counseling compensation level"
             subtitle="Categorize this provider for payroll. Select Bypass to preserve their existing rates."
             :can-edit="false"
@@ -485,51 +487,11 @@
             </button>
           </AccountDashboardCard>
 
-          <!-- Access & Permissions -->
-          <AccountDashboardCard
+          <AgencyAccessPermissionsCard
             v-if="showAccountSection('access-permissions')"
-            section-id="access-permissions"
-            title="Access & Permissions"
-            subtitle="System access, contracts, and operational flags. Benefits / Med Cancel live on the Benefits tab."
-            :can-edit="canEditUser"
-            :editing="isEditing('access-permissions')"
-            :saving="saving"
-            @edit="startEdit('access-permissions')"
-            @save="saveCard"
-            @cancel="cancelEdit"
-          >
-            <div class="acct-perm-groups">
-              <div v-for="group in permissionGroups" :key="group.id" class="acct-perm-group">
-                <div class="acct-perm-group-title">{{ group.label }}</div>
-                <div class="acct-perm-list">
-                  <label
-                    v-for="item in group.items"
-                    :key="item.key"
-                    class="acct-perm-row"
-                    :title="item.title"
-                  >
-                    <span>{{ item.label }}</span>
-                    <template v-if="item.type === 'select'">
-                      <select
-                        v-model="form[item.key]"
-                        class="acct-perm-select"
-                        :disabled="!isEditing('access-permissions')"
-                      >
-                        <option v-for="opt in item.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-                      </select>
-                    </template>
-                    <template v-else>
-                      <input
-                        type="checkbox"
-                        v-model="form[item.key]"
-                        :disabled="!isEditing('access-permissions') || item.disabled"
-                      />
-                    </template>
-                  </label>
-                </div>
-              </div>
-            </div>
-          </AccountDashboardCard>
+            :user-id="userId"
+            :agency-id="agencyId"
+          />
 
           <!-- Feature Access slot -->
           <div v-if="showAccountSection('feature-access')" id="feature-access">
@@ -572,6 +534,8 @@
 import ContractSchedulingNotice from '../../availability/ContractSchedulingNotice.vue';
 import StaffLearningCompensation from '../StaffLearningCompensation.vue';
 import { computed, inject, onMounted, ref, watch } from 'vue';
+import { agencyCardStyle } from '../../../utils/agencyCardScope.js';
+import AgencyAccessPermissionsCard from './AgencyAccessPermissionsCard.vue';
 import AccountDashboardCard from './AccountDashboardCard.vue';
 import UserPayHcbsClassificationPanel from '../UserPayHcbsClassificationPanel.vue';
 import { USER_ACCOUNT_CONTEXT_KEY } from '../../../composables/userAccountContext.js';
@@ -670,6 +634,7 @@ const userAgencies = computed(() => {
   const raw = unwrap(ctx.userAgencies);
   return Array.isArray(raw) ? raw : [];
 });
+const selectedCompany = computed(()=>userAgencies.value.find(a=>Number(a.id)===agencyId.value)||{});
 const practiceCategoryAgencyId = ref(0);
 const practiceCategoryAgencyOptions = computed(() => {
   const options = userAgencies.value.filter((org) => Number(org?.id || 0) > 0);

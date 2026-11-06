@@ -3,6 +3,7 @@ import { publicBrand } from './branding.js';
 import pool from '../../config/database.js';
 import { encryptFamilyBilling as seal, decryptFamilyBilling as open, assertFamilyBillingEncryption } from '../familyBillingEncryption.service.js';
 import { fail, requestFields, transitionRequest, finished, managerIds } from './policy.js';
+import { accessProfileSchemaReady, readAgencyAccess } from '../agencyAccessProfiles.service.js';
 
 const activeUser = "COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND UPPER(u.status) IN ('ACTIVE','ACTIVE_EMPLOYEE')";
 export async function transaction(fn) {
@@ -28,6 +29,13 @@ export async function requireManager(userId, agencyId, db = pool) {
   if (!(await managers(agencyId, db)).some(m => m.id === Number(userId))) throw fail(403, 'Records Manager access is required for this practice.');
 }
 export async function requireAdministrator(userId, agencyId, db = pool) {
+  if (await accessProfileSchemaReady(db)) {
+    const [[user]]=await db.execute(`SELECT u.role FROM users u WHERE u.id=? AND ${activeUser}`,[userId]);
+    if(user?.role==='super_admin')return;
+    const access=user && await readAgencyAccess(userId,agencyId,db);
+    if(access?.role!=='admin')throw fail(403,'Practice administrator access is required.');
+    return;
+  }
   const [[row]] = await db.execute(`SELECT u.id FROM users u WHERE u.id=? AND ${activeUser} AND
     (u.role='super_admin' OR (u.role IN ('admin','agency_admin','backoffice_admin') AND EXISTS
       (SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=? AND COALESCE(ua.is_active,1)=1)))`, [userId, agencyId]);
@@ -38,6 +46,17 @@ export async function publicPractices() {
   return rows.map(publicBrand);
 }
 export async function context(userId) {
+  if(await accessProfileSchemaReady()) {
+    const [rows]=await pool.execute(`SELECT a.id,a.slug,a.name,
+      EXISTS(SELECT 1 FROM auricwell_records_managers m WHERE m.agency_id=a.id AND m.user_id=u.id) canManage,
+      (u.role='super_admin' OR (p.effective_role='admin' AND (p.access_origin='legacy_tenant_grant'
+        OR EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=a.id AND COALESCE(ua.is_active,1)=1)
+        OR EXISTS(SELECT 1 FROM user_platform_access_defaults d JOIN user_agencies pt ON pt.user_id=d.user_id AND pt.agency_id=1 AND COALESCE(pt.is_active,1)=1 WHERE d.user_id=u.id AND d.enabled=1)))) canConfigure
+      FROM agencies a JOIN users u ON u.id=? LEFT JOIN user_agency_access_profiles p ON p.user_id=u.id AND p.agency_id=a.id
+      WHERE a.is_active=1 AND COALESCE(a.organization_type,'agency') IN ('agency','clinical') AND ${activeUser}
+      HAVING canManage=1 OR canConfigure=1 ORDER BY a.name`,[userId]);
+    return {practices:rows};
+  }
   const [rows] = await pool.execute(`SELECT a.id,a.slug,a.name,
     EXISTS(SELECT 1 FROM auricwell_records_managers m WHERE m.agency_id=a.id AND m.user_id=u.id) canManage,
     (u.role='super_admin' OR (u.role IN ('admin','agency_admin','backoffice_admin') AND EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=a.id AND COALESCE(ua.is_active,1)=1))) canConfigure

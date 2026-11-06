@@ -1,5 +1,5 @@
 <template>
-  <section :id="sectionId" class="acct-card">
+  <section :id="sectionId" class="acct-card" :style="agencyCardStyle(agency, multiAgency)">
     <header class="acct-card-head">
       <div class="acct-card-head-main">
         <span v-if="icon" class="acct-card-icon" aria-hidden="true" v-html="iconSvg" />
@@ -51,9 +51,12 @@
 
 <script setup>
 import { computed } from 'vue';
+import { agencyCardStyle } from '../../../utils/agencyCardScope.js';
 
 const props = defineProps({
   title: { type: String, required: true },
+  agency: { type: Object, default: null },
+  multiAgency: { type: Boolean, default: false },
   subtitle: { type: String, default: '' },
   sectionId: { type: String, default: '' },
   canEdit: { type: Boolean, default: false },

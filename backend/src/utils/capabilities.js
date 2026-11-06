@@ -54,22 +54,27 @@ export async function buildAgencyAccessCaps(user, { effectiveRole } = {}) {
         User.listBillingAgencyIds(userForCaps.id)
       ])
     : [[], [], [], []];
-  const managedBilling = userForCaps?.id && !['provider', 'provider_plus'].includes(roleForCaps) ? await managedBillingAgencies(userForCaps.id) : [];
-  const credentialingAgencyIds = await expandCredentialingAgencyIds(rawCredentialingAgencyIds);
+  const managedBilling = userForCaps?.id && (user?.agencyAccess?.financialAccessOnly || !['provider', 'provider_plus'].includes(roleForCaps)) ? await managedBillingAgencies(userForCaps.id) : [];
+  const { accessProfileSchemaReady } = await import('../services/agencyAccessProfiles.service.js');
+  const credentialingAgencyIds = await accessProfileSchemaReady() ? rawCredentialingAgencyIds : await expandCredentialingAgencyIds(rawCredentialingAgencyIds);
   const baseCaps = getUserCapabilities(userForCaps);
   const [records, hasClinicalSupervision] = userForCaps?.id
     ? await Promise.all([recordsContext(userForCaps.id), hasClinicalSupervisionHistory(userForCaps.id)])
     : [{ practices: [] }, false];
   const financeIds = await financeAgencyIds(userForCaps);
-  const canManagePayroll = roleForCaps === 'super_admin' || payrollAgencyIds.length > 0;
+  const canManagePayroll = roleForCaps === 'super_admin' || (user?.agencyAccess
+    ? user.agencyAccess.permissions.has_payroll_access === true : payrollAgencyIds.length > 0);
   const canAccessBudgetManagement =
     canManagePayroll ||
-    (roleForCaps === 'assistant_admin' && departmentAgencyIds.length > 0) ||
-    (roleForCaps === 'provider_plus' && departmentAgencyIds.length > 0);
-  const canManageCredentialing = roleForCaps === 'super_admin' || credentialingAgencyIds.length > 0;
+    (user?.agencyAccess ? user.agencyAccess.permissions.has_department_access === true
+      : (roleForCaps === 'assistant_admin' && departmentAgencyIds.length > 0) ||
+        (roleForCaps === 'provider_plus' && departmentAgencyIds.length > 0));
+  const canManageCredentialing = roleForCaps === 'super_admin' || (user?.agencyAccess
+    ? user.agencyAccess.permissions.can_manage_credentialing === true : credentialingAgencyIds.length > 0);
   const canManageMedicalBilling =
     roleForCaps === 'super_admin' ||
-    (!['provider', 'provider_plus'].includes(roleForCaps) && (billingAgencyIds || []).length > 0);
+    (user?.agencyAccess ? user.agencyAccess.permissions.has_billing_access === true
+      : !['provider', 'provider_plus'].includes(roleForCaps) && (billingAgencyIds || []).length > 0);
   return {
     payrollAgencyIds,
     departmentAgencyIds,
@@ -102,6 +107,8 @@ export async function userHasCredentialingAccessForAgency(userId, agencyId, { ro
   if (!uid || !aid) return false;
   const credAgencyIds = await User.listCredentialingAgencyIds(uid);
   if ((credAgencyIds || []).some((id) => Number(id) === aid)) return true;
+  const { accessProfileSchemaReady } = await import('../services/agencyAccessProfiles.service.js');
+  if (await accessProfileSchemaReady()) return false;
   const expanded = await expandCredentialingAgencyIds(credAgencyIds);
   return expanded.includes(aid);
 }
@@ -215,10 +222,14 @@ export function getUserCapabilities(user, { effectiveRole } = {}) {
   if (roleNorm === 'clinician') roleNorm = 'provider';
 
   const hasHiringFlag = user?.has_hiring_access === true || user?.has_hiring_access === 1 || user?.has_hiring_access === '1';
-  const canManageHiring = ['admin', 'super_admin', 'support', 'staff'].includes(roleNorm) || hasHiringFlag;
+  const canManageHiring = roleNorm === 'super_admin' || (user.agencyAccess
+    ? user.agencyAccess.permissions.has_hiring_access === true
+    : ['admin', 'support', 'staff'].includes(roleNorm) || hasHiringFlag);
 
   const hasOutreachFlag = user?.has_outreach_access === true || user?.has_outreach_access === 1 || user?.has_outreach_access === '1';
-  const canAccessOutreach = ['admin', 'super_admin', 'support'].includes(roleNorm) || hasOutreachFlag;
+  const canAccessOutreach = roleNorm === 'super_admin' || (user.agencyAccess
+    ? user.agencyAccess.permissions.has_outreach_access === true
+    : ['admin', 'support'].includes(roleNorm) || hasOutreachFlag);
 
   // Cross-tenant Gear / Equipment / Materials (all organization_type=agency tenants).
   // Superadmin always has it; others need an explicit grant (users.has_platform_gear_access).

@@ -1,5 +1,7 @@
 import { isServiceCodeDeniedForTier } from '../utils/clinicalServiceCodeEligibility.js';
 import pool from '../config/database.js';
+import { readAgencyAccess } from '../services/agencyAccessProfiles.service.js';
+import { applyAgencyAccess } from '../utils/agencyAccessPolicy.js';
 import { CARD_STAFF_ROLES, canManageBusinessCards } from '../services/businessCardSettings.service.js';
 import { readStaffCareEligibility, requireStaffCareEligibility } from '../services/staffCareEligibility.service.js';
 const fail=(status,message)=>Object.assign(new Error(message),{status});
@@ -7,8 +9,10 @@ const id=value=>/^\d+$/.test(String(value))&&Number(value)>0?Number(value):null;
 export async function staffTenantAccess(req,{write=false}={}) {
  const userId=id(req.params.id),agencyId=id(req.params.agencyId ?? req.body?.agencyId);
  if(!userId || (write&&!agencyId))throw fail(400,'Choose a valid employee and agency.');
- const [[actor]]=await pool.execute('SELECT id,role,status,is_active FROM users WHERE id=? LIMIT 1',[req.user.id]);
+ let [[actor]]=await pool.execute('SELECT id,role,status,is_active FROM users WHERE id=? LIMIT 1',[req.user.id]);
  if(!actor||![1,true].includes(actor.is_active)||!['ACTIVE','ACTIVE_EMPLOYEE'].includes(actor.status))throw fail(403,'Active staff access required.');
+ if(agencyId)actor=applyAgencyAccess(actor,await readAgencyAccess(actor.id,agencyId));
+ else if(req.user.agencyScopeResolved)actor={...actor,role:req.user.role};
  const manager=canManageBusinessCards(actor);
  if((write&&!['admin','super_admin'].includes(actor.role))||(!manager&&actor.id!==userId))throw fail(403,'Access denied.');
  if(agencyId){
