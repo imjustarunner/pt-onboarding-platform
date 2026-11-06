@@ -74,7 +74,7 @@ Validation before release
 - 59 frontend tests across 10 files passed, including native Back history,
   secure reveal/lock, message/file interactions, settings integration, directory Message actions, and a
   delayed Note Workspace load that must not overwrite newly typed text.
-- 37 mobile API/MySQL tests passed, including mailbox/tenant isolation, personal
+- 39 mobile API/MySQL tests passed, including mailbox/tenant isolation, personal
   archive/settings persistence, large-page counts, known app group addresses,
   per-message read tracking and notification target authorization.
 - 1,147 existing messaging tests passed (31 opt-in tests skipped).

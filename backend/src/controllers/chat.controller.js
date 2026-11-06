@@ -1382,7 +1382,7 @@ export const listMessages = async (req, res, next) => {
       sqlParams
     );
     const ordered = (rows || []).reverse();
-    if(req.quickView?.mobileDeviceSessionId && parentMessageIdQ && !beforeId){
+    if(req.quickView?.mobileDeviceSessionId && parentMessageIdQ){
       const [parents]=await pool.execute(`SELECT m.id,m.thread_id,m.sender_user_id,m.body${encCols}${parentCol},m.created_at,u.first_name AS sender_first_name,u.last_name AS sender_last_name,u.profile_photo_path AS sender_profile_photo_path
         FROM chat_messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=? AND m.thread_id=? AND m.parent_message_id IS NULL AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)`,[parentMessageIdQ,threadId,req.user.id]);
       if(!parents.length)return res.status(404).json({error:{message:'The original message is unavailable.'}});
