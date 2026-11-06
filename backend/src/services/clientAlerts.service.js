@@ -68,6 +68,49 @@ export async function dismissClientAlert(db, { clientId, alertId, userId } = {})
   return { ok: true };
 }
 
+/** The assignee email for a client assignment. School-day assignment does not use this. */
+export async function notifyAssigneeClientAlert({
+  providerUserId,
+  clientId,
+  clientName,
+  placeName,
+  serviceDay,
+  agencyId,
+  actorUserId,
+  clientAlert
+} = {}) {
+  const text = String(clientAlert || '').trim();
+  const assigneeId = Number(providerUserId || 0);
+  const id = Number(clientId || 0);
+  if (!assigneeId || !id || !text) return null;
+  const Notification = (await import('../models/Notification.model.js')).default;
+  const NotificationDispatcherService = (await import('./notificationDispatcher.service.js')).default;
+  const who = String(clientName || '').trim() || `Client #${id}`;
+  const where = String(placeName || '').trim();
+  const dayLabel = serviceDay ? ` (${serviceDay})` : '';
+  const notification = await Notification.create({
+    type: 'client_assigned',
+    severity: 'warning',
+    title: 'New client assigned',
+    message: `${who} was assigned to you${where ? ` at ${where}` : ''}${dayLabel}.`,
+    audienceJson: {
+      schoolName: where || null,
+      serviceDay: serviceDay || null,
+      deferEmailFollowup: true,
+      clientAlert: text
+    },
+    userId: assigneeId,
+    agencyId: Number(agencyId || 0) || null,
+    relatedEntityType: 'client',
+    relatedEntityId: id,
+    actorUserId: Number(actorUserId || 0) || null
+  });
+  await NotificationDispatcherService.dispatchForNotification(notification, {
+    context: { severity: 'warning' }
+  }).catch(() => {});
+  return notification;
+}
+
 export async function findProviderAssignmentId(db, { clientId, organizationId, providerUserId, serviceDay = null } = {}) {
   const executor = db || pool;
   const params = [clientId, providerUserId];
