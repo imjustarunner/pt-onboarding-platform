@@ -4,11 +4,56 @@ vi.mock('../../models/Agency.model.js',()=>({default:{findById:m.agency}}));
 vi.mock('../../models/NoteAidAgencyCatalog.model.js',()=>({default:{findCustomAid:m.custom,userCanAccessCustomAid:m.access,parseKbFolders:value=>Array.isArray(value)?value:[]}}));
 vi.mock('../clinicalKnowledgeBase.service.js',()=>({getKnowledgeBaseContext:m.knowledge,getKnowledgeBaseEvidence:m.knowledge,noteAidKnowledgeBaseOptions:value=>value}));
 import {loadNarrivaGuidanceContext,narrivaServiceReferenceContext} from '../narrivaGuidance.service.js';
+import {getNoteAidToolById} from '../../config/noteAidTools.js';
+import {resolveClinicalToolId} from '../../config/clinicalNoteToolRouting.js';
 
 const source=()=>({agencyId:2,source:{user_id:7},meta:{toolId:'clinical_h0004_note'},service:{code:'H0004'}});
 beforeEach(()=>{vi.clearAllMocks();m.agency.mockResolvedValue({feature_flags:{noteAidKbExtraFolders:['owner_guides']}});m.knowledge.mockResolvedValue({text:'Authored training instructions. Approved example shows specific actual interventions and participant response.',complete:true,documents:[{id:'opaque-guide',contentHash:'guide-v1',role:'authored_training'}],coverage:{complete:true}});m.access.mockResolvedValue(true);});
 
 describe('exact selected-service and owner-authored Narriva guidance',()=>{
+ it('uses the same service routing for generation and manual review, including program-specific skills notes',()=>{
+  for(const [code,tool] of [['H0004','clinical_h0004_note'],['H2011','clinical_h2011_note'],['90837','clinical_psychotherapy_note'],['90834','clinical_psychotherapy_note'],['90832','clinical_psychotherapy_note'],['90839','clinical_psychotherapy_note'],['90846','clinical_family_note'],['90847','clinical_family_note'],['H0031','clinical_h0031_intake'],['H0032','clinical_h0032_plan_development'],['H0002','clinical_screening_review'],['90791','clinical_90791_intake_plan'],['H0023','clinical_h0023_full_packet'],['unknown','clinical_code_decider']])expect(resolveClinicalToolId({serviceCode:code})).toBe(tool);
+  expect(resolveClinicalToolId({serviceCode:'H2014',programId:9})).toBe('clinical_h2014_group');expect(resolveClinicalToolId({serviceCode:'H2014'})).toBe('clinical_h2014_individual');
+ });
+ it('includes psychotherapy owner examples for a fresh manual note with no saved tool id',async()=>{
+  const result=await loadNarrivaGuidanceContext({...source(),meta:{writerMode:'manual'},service:{code:'90837'}});
+  expect(m.knowledge).toHaveBeenCalledWith(expect.objectContaining({query:'90837',folders:expect.arrayContaining(['shared','psychotherapy','owner_guides'])}));
+  expect(result.guidance).toContain(getNoteAidToolById('clinical_psychotherapy_note').systemPrompt);
+  expect(result.guidance).toContain('Approved example');
+ });
+ it('retains psychotherapy service examples with Smart Notes instead of falling back to generic code-decider support',async()=>{
+  const result=await loadNarrivaGuidanceContext({...source(),meta:{writerMode:'smart_notes',toolId:'clinical_cs_note_build'},service:{code:'90837'}});
+  expect(m.knowledge).toHaveBeenCalledWith(expect.objectContaining({folders:expect.arrayContaining(['shared','psychotherapy','owner_guides'])}));
+  expect(result.guidance).toContain(getNoteAidToolById('clinical_cs_note_build').systemPrompt);
+  expect(result.guidance).toContain('Service-specific authored reference (clinical_psychotherapy_note)');
+  expect(result.guidance).toContain("retain the selected writer's section format");
+ });
+ it('adds the actual service folders to a guided H-code note without discarding the selected writer support',async()=>{
+  await loadNarrivaGuidanceContext({...source(),meta:{writerMode:'smart_notes',toolId:'clinical_cs_note_build'},service:{code:'H0004'}});
+  expect(m.knowledge).toHaveBeenCalledWith(expect.objectContaining({folders:expect.arrayContaining(['shared','psychotherapy','H0004_note','owner_guides'])}));
+ });
+ it('routes pro bono guidance by its explicit clinical service when no tool metadata exists',async()=>{
+  const result=await loadNarrivaGuidanceContext({...source(),meta:{writerMode:'manual',underlyingServiceCode:'H0004'},service:{code:'PRO-BONO SERVICE'}});
+  expect(result.documentationCode).toBe('H0004');expect(result.reference.policyKind).toBe('funding');
+  expect(m.knowledge).toHaveBeenCalledWith(expect.objectContaining({query:'H0004',folders:expect.arrayContaining(['shared','H0004_note'])}));
+  expect(result.guidance).toContain(getNoteAidToolById('clinical_h0004_note').systemPrompt);
+ });
+ it('applies selected and service-default overrides independently while preserving shared, custom and extra support',async()=>{
+  m.agency.mockResolvedValue({feature_flags:{noteAidKbFolderOverrides:{clinical_cs_note_build:['shared','tenant_builder'],clinical_psychotherapy_note:['tenant_therapy']},noteAidKbExtraFolders:['owner_extra']}});
+  m.custom.mockResolvedValue({enabled:1,kbFolders:['custom_examples']});
+  await loadNarrivaGuidanceContext({...source(),meta:{toolId:'clinical_cs_note_build',aidId:'custom_9'},service:{code:'90837'}});
+  const {folders}=m.knowledge.mock.calls[0][0];
+  expect(folders).toEqual(expect.arrayContaining(['shared','tenant_builder','tenant_therapy','custom_examples','owner_extra']));
+  expect(folders).not.toContain('psychotherapy');expect(new Set(folders).size).toBe(folders.length);
+ });
+ it('honors tenant-only overrides for both tools without forcing an unconfigured shared corpus',async()=>{
+  m.agency.mockResolvedValue({feature_flags:{noteAidKbFolderOverrides:{clinical_cs_note_build:['tenant_builder'],clinical_psychotherapy_note:['tenant_therapy']},noteAidKbExtraFolders:['owner_extra']}});
+  m.custom.mockResolvedValue({enabled:1,kbFolders:['custom_examples']});
+  await loadNarrivaGuidanceContext({...source(),meta:{toolId:'clinical_cs_note_build',aidId:'custom_9'},service:{code:'90837'}});
+  const {folders}=m.knowledge.mock.calls[0][0];
+  expect(folders).toEqual(['tenant_builder','tenant_therapy','owner_extra','custom_examples']);
+  expect(folders).not.toContain('shared');expect(folders).not.toContain('psychotherapy');
+ });
  it('injects the actual manual definition, documentation and source page instead of only a code label',async()=>{
   const result=await loadNarrivaGuidanceContext({...source(),service:{code:'90837'}});
   expect(result.requiredReferenceComplete).toBe(true);expect(result.reference.source.pages).toEqual([16]);

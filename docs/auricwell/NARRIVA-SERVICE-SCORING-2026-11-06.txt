@@ -14,7 +14,10 @@ documentation, limitations, qualifications, unit details, edition and page,
 plus the manual's relevant introduction (pages 4–8).
 
 The code-specific source and all configured shared/service/custom authored
-training and examples enter one guidance pack. Distinct examples with identical
+training and examples enter one guidance pack. Fresh manual and guided notes
+resolve the actual clinical service's training even when they have no stored
+tool ID; the selected writer and service-specific folder overrides are both
+honored. Distinct examples with identical
 filenames are retained; identical content is deduplicated. PDF, TXT, Markdown
 and DOCX sources are supported. Document filenames do not enter model prompts.
 An exact-byte match to the approved whole manual is replaced with the selected
