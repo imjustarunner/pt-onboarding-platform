@@ -15,4 +15,3 @@ export function resolveClinicalToolId({ serviceCode, programId }) {
   if (sc === 'H0023') return 'clinical_h0023_full_packet';
   return 'clinical_code_decider';
 }
-
