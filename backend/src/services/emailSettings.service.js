@@ -89,6 +89,10 @@ export async function emailRequiresAdminApproval({
     'password_reset',
     'admin_initiated_password_reset',
     'school_staff_account_recovery',
+    'school_staff_welcome',
+    'school_staff_admin_access',
+    'school_onboarding_staff_portal_access',
+    'school_staff_invitation_note',
     // School group confirmation emails must send immediately on packet submit/upload.
     'school_enrollment_packet_status',
     'school_client_status_update',

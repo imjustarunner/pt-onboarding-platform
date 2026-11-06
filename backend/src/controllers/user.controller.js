@@ -10825,8 +10825,12 @@ export const createCurrentEmployee = async (req, res, next) => {
       // ignore
     }
 
-    // Generate passwordless token for password setup (48 hours expiration)
-    const passwordlessTokenResult = await User.generatePasswordlessToken(user.id, 48);
+    // School staff choose their own password from an invitation. Other roles keep the 48-hour setup link.
+    const passwordlessTokenResult = await User.generatePasswordlessToken(
+      user.id,
+      finalRole === 'school_staff' ? 168 : 48,
+      finalRole === 'school_staff' ? 'reset' : 'setup'
+    );
     const userAgencies = await User.getAgencies(user.id);
     const passwordlessTokenLink = buildPublicAppUrl(
       userAgencies?.[0],
@@ -10843,20 +10847,27 @@ export const createCurrentEmployee = async (req, res, next) => {
       const schools = (userAgencies || []).filter(org => org.organization_type === 'school');
       setImmediate(() => {
         void (async () => {
-          const { sendSchoolStaffWelcomeEmail } = await import('../services/schoolStaffWelcomeEmail.service.js');
+          const { sendSchoolStaffWelcomeEmail, schoolStaffPortalUrl, schoolStaffSetPasswordUrl } = await import('../services/schoolStaffWelcomeEmail.service.js');
+          const actor = req.user?.id ? await User.findById(req.user.id) : null;
+          const addedByName = `${actor?.first_name || req.user?.first_name || ''} ${actor?.last_name || req.user?.last_name || ''}`.trim() || 'Your school team';
           for (const school of schools) {
             try {
               const [[contact]] = await pool.execute(
                 'SELECT is_school_admin,is_primary,is_scheduler FROM school_contacts WHERE school_organization_id=? AND LOWER(email)=LOWER(?) LIMIT 1',
                 [school.id, workEmail.trim()]
               );
+              const slug = String(school.portal_url || school.slug || '').trim().toLowerCase();
               await sendSchoolStaffWelcomeEmail({
                 agencyId: Number(agencyId), schoolOrganizationId: school.id,
                 userId: user.id, actorUserId: req.user.id, to: workEmail.trim(),
                 firstName: user.first_name, schoolName: school.name,
                 isSchoolAdmin: !!(contact?.is_school_admin || contact?.is_primary),
-                isScheduler: !!contact?.is_scheduler, setup: true, setupExpiresHours: 48,
-                accessUrl: buildPublicAppUrl(school, `passwordless-login/${passwordlessTokenResult.token}`)
+                isScheduler: !!contact?.is_scheduler, setup: true, setupExpiresHours: 168,
+                addedByName,
+                portalUrl: slug ? schoolStaffPortalUrl(slug) : null,
+                accessUrl: slug
+                  ? schoolStaffSetPasswordUrl(slug, passwordlessTokenResult.token)
+                  : buildPublicAppUrl(school, `reset-password/${passwordlessTokenResult.token}`)
               });
             } catch (error) {
               console.error('[createCurrentEmployee] School welcome failed:', error?.message || error);

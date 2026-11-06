@@ -48,6 +48,8 @@
               <option value="password_reset_link_sent">Recovery email sent</option>
               <option value="password_reset_email_failed">Recovery email failed</option>
               <option value="password_reset_link_generated">Recovery link generated (not emailed)</option>
+              <option value="school_staff_invitation_email_sent">School staff invitation emailed</option>
+              <option value="school_staff_invitation_email_failed">School staff invitation was not sent</option>
               <option value="account_login_help_checked">Login help checked</option>
               <option value="account_login_help_email">Login help email</option>
               <option value="module_start">Module Start</option>
@@ -344,8 +346,34 @@ const getActionBadgeClass = (actionType) => {
   return classes[actionType] || 'badge-secondary';
 };
 
+const formatInvitationAudit = (metadata) => {
+  let details = metadata;
+  if (typeof details === 'string') {
+    try { details = JSON.parse(details); } catch { return 'Invitation details unavailable'; }
+  }
+  details = details || {};
+  const status = { sent: 'Sent', failed: 'Not sent', queued: 'Queued, delivery not confirmed' }[details.deliveryStatus] || details.deliveryStatus;
+  return [
+    status ? `Status: ${status}` : null,
+    details.email ? `To: ${details.email}` : null,
+    details.fromEmail ? `From: ${details.fromEmail}` : null,
+    details.replyTo ? `Reply-to: ${details.replyTo}` : null,
+    details.cc ? `Cc: ${details.cc}` : null,
+    details.addedByName || details.performedByName ? `Added by: ${details.addedByName || details.performedByName}` : null,
+    details.schoolName ? `School: ${details.schoolName}` : null,
+    details.subject ? `Subject: ${details.subject}` : null,
+    details.messageId ? `Message: ${details.messageId}` : null,
+    details.internetMessageId ? `Internet-Message-ID: ${details.internetMessageId}` : null,
+    details.communicationId ? `Communication #${details.communicationId}` : null,
+    details.error ? `Reason: ${details.error}` : null
+  ].filter(Boolean).join(' · ');
+};
+
 const formatMetadata = (metadata, actionType) => {
   if (isPasswordRecoveryAudit(actionType)) return formatPasswordRecoveryAudit(metadata);
+  if (actionType === 'school_staff_invitation_email_sent' || actionType === 'school_staff_invitation_email_failed') {
+    return formatInvitationAudit(metadata);
+  }
   if (!metadata) return '';
   if (typeof metadata === 'string') {
     try {

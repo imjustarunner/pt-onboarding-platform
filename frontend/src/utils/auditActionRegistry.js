@@ -221,6 +221,8 @@ export const AUDIT_ACTION_REGISTRY = {
   school_provider_availability_updated_by_provider: { label: 'Provider updated school availability', category: 'School Portal' },
   school_provider_slot_verification_pushed: { label: 'Provider slot verification pushed', category: 'School Portal' },
   school_provider_slot_verification_cancelled: { label: 'Provider slot verification cancelled', category: 'School Portal' },
+  school_staff_invitation_email_sent: { label: 'School staff invitation emailed', category: 'School Portal' },
+  school_staff_invitation_email_failed: { label: 'School staff invitation was not sent', category: 'School Portal' },
   school_portal_school_staff_added: { label: 'School staff added to portal', category: 'School Portal' },
   school_portal_school_staff_updated: { label: 'School staff updated', category: 'School Portal' },
   school_portal_school_staff_removed: { label: 'School staff removed from portal', category: 'School Portal' },

@@ -1070,16 +1070,6 @@ export const createSchoolStaffUserFromContact = async (req, res, next) => {
 
     const email = normalizeEmail(contact.email);
     if (!email) return res.status(400).json({ error: { message: 'Contact must have a valid email to create an account' } });
-    const temporaryPassword = String(req.body?.temporaryPassword || '').trim();
-    if (!temporaryPassword) {
-      return res.status(400).json({ error: { message: 'Temporary password is required' } });
-    }
-    const tempBasics = checkPasswordBasics(temporaryPassword);
-    if (!tempBasics.valid) {
-      return res.status(400).json({
-        error: { message: tempBasics.message.replace(/^Password/, 'Temporary password') }
-      });
-    }
 
     // If the user exists, it must already be a school_staff user.
     const existing = await User.findByEmail(email);
@@ -1131,8 +1121,52 @@ export const createSchoolStaffUserFromContact = async (req, res, next) => {
       actorUserId: req.user?.id || null
     });
 
-    // School-specific setup: admin provides temporary password, valid for 7 days.
-    const temporaryPasswordResult = await User.setTemporaryPassword(user.id, temporaryPassword, 24 * 7);
+    const org = await Agency.findById(orgId);
+    const actor = req.user?.id ? await User.findById(req.user.id) : null;
+    const addedByName = `${actor?.first_name || ''} ${actor?.last_name || ''}`.trim() || 'Your school team';
+    let isSchoolAdmin = false;
+    let isScheduler = false;
+    try {
+      const [flags] = await pool.execute(
+        'SELECT is_school_admin, is_scheduler, is_primary FROM school_contacts WHERE id = ? LIMIT 1',
+        [contactId]
+      );
+      isSchoolAdmin = !!(flags?.[0]?.is_school_admin || flags?.[0]?.is_primary);
+      isScheduler = !!flags?.[0]?.is_scheduler;
+    } catch {
+      isSchoolAdmin = false;
+      isScheduler = false;
+    }
+    const parentAgencyId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(orgId)
+      || await AgencySchool.getActiveAgencyIdForSchool(orgId);
+    let emailSent = false;
+    let emailError = null;
+    try {
+      const { schoolStaffPortalUrl, schoolStaffSetPasswordUrl, sendSchoolStaffWelcomeEmail } = await import('../services/schoolStaffWelcomeEmail.service.js');
+      const slug = String(org?.portal_url || org?.slug || '').trim().toLowerCase();
+      const token = await User.generatePasswordlessToken(user.id, 24 * 7, 'reset');
+      const delivery = await sendSchoolStaffWelcomeEmail({
+        agencyId: parentAgencyId,
+        schoolOrganizationId: orgId,
+        userId: user.id,
+        actorUserId: req.user?.id || null,
+        to: email,
+        firstName: user.first_name,
+        schoolName: org?.name || 'your school',
+        isSchoolAdmin,
+        isScheduler,
+        accessUrl: schoolStaffSetPasswordUrl(slug, token.token),
+        portalUrl: schoolStaffPortalUrl(slug),
+        setup: true,
+        setupExpiresHours: 24 * 7,
+        addedByName,
+        source: 'school_admin'
+      });
+      emailSent = !!delivery?.id && !delivery.blocked && !delivery.skipped && !delivery.queued;
+    } catch (error) {
+      emailError = 'The account was saved, but the invitation email was not sent.';
+      console.warn('[createSchoolStaffUserFromContact] invitation failed:', error?.message || error);
+    }
 
     res.status(201).json({
       ok: true,
@@ -1144,7 +1178,10 @@ export const createSchoolStaffUserFromContact = async (req, res, next) => {
         role: user.role,
         status: user.status
       },
-      temporaryPasswordExpiresAt: temporaryPasswordResult?.expiresAt || null
+      emailSent,
+      message: emailSent
+        ? 'School staff added. Invitation email sent.'
+        : emailError || 'School staff added, but the invitation email was not sent.'
     });
   } catch (error) {
     next(error);

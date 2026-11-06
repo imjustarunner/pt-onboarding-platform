@@ -3628,6 +3628,7 @@ export const listSchoolStaff = async (req, res, next) => {
          u.phone_number,
          u.is_active,
          u.is_archived,
+         u.password_hash IS NOT NULL AS has_password,
          u.temporary_password_hash,
          u.temporary_password_expires_at,
          u.passwordless_token_expires_at,
@@ -3688,6 +3689,7 @@ export const listSchoolStaff = async (req, res, next) => {
         profile_photo_path: r.profile_photo_path || null,
         profile_photo_url: publicUploadsUrlFromStoredPath(r.profile_photo_path || null) || null,
         last_login: lastLoginByUser[r.id] || null,
+        has_password: Number(r.has_password) === 1,
         password_reset_expires_at: hasResetToken && !resetExpired ? r.passwordless_token_expires_at : null,
         has_active_temporary_password: hasActiveTemporaryPassword,
         temporary_password_expires_at: hasActiveTemporaryPassword ? r.temporary_password_expires_at : null,
@@ -4217,14 +4219,13 @@ export const addSchoolStaff = async (req, res, next) => {
       console.warn('[addSchoolStaff] Group subscription pending:', error?.code || 'subscription_failed');
     }
 
-    const setupLink = await User.generatePasswordlessToken(user.id, 24 * 7, 'setup');
-    const config = (await import('../config/config.js')).default;
-    const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
-    const userAgencies = await User.getAgencies(user.id);
-    const portalSlug = org?.portal_url || org?.slug || null;
-    const setupUrl = portalSlug
-      ? `${frontendBase}/${portalSlug}/passwordless-login/${setupLink.token}`
-      : `${frontendBase}/passwordless-login/${setupLink.token}`;
+    const setupLink = await User.generatePasswordlessToken(user.id, 24 * 7, 'reset');
+    const { schoolStaffPortalUrl, schoolStaffSetPasswordUrl } = await import('../services/schoolStaffWelcomeEmail.service.js');
+    const portalSlug = String(org?.portal_url || org?.slug || '').trim().toLowerCase();
+    const portalUrl = portalSlug ? schoolStaffPortalUrl(portalSlug) : null;
+    const setupUrl = portalSlug ? schoolStaffSetPasswordUrl(portalSlug, setupLink.token) : null;
+    const actor = actorId ? await User.findById(actorId) : null;
+    const addedByName = `${actor?.first_name || ''} ${actor?.last_name || ''}`.trim() || 'Your school team';
 
     const to = [user.email, user.username, user.work_email]
       .filter(Boolean)
@@ -4263,7 +4264,8 @@ export const addSchoolStaff = async (req, res, next) => {
           userId: addedUserId, actorUserId: actorId, to,
           firstName: addedFirstName, schoolName: orgName,
           isSchoolAdmin: assignSchoolAdmin, isScheduler: assignScheduler,
-          accessUrl: setupUrl, setup: true
+          accessUrl: setupUrl, portalUrl, setup: true, setupExpiresHours: 24 * 7,
+          addedByName
         });
       } catch (error) {
         welcomeError = 'The setup email could not be sent. The account is saved; use Send recovery email or contact support.';

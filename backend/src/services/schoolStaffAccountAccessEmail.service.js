@@ -1033,113 +1033,49 @@ export async function sendSchoolOnboardingStaffPortalAccessEmail({
     if (school) urlAgency = school;
   }
 
-  const { schoolNotificationIdentities, schoolStaffWelcomeContent } = await import('./schoolStaffWelcomeEmail.service.js');
-  const identities = await schoolNotificationIdentities(aid);
-  const sender = { identity: { id: identities.senderIdentityId, display_name: tenantAgency.name }, usedFallback: false };
-
+  const { sendSchoolStaffWelcomeEmail, schoolStaffPortalUrl, schoolStaffSetPasswordUrl } = await import('./schoolStaffWelcomeEmail.service.js');
   const hours = Math.min(720, Math.max(1, Number(tokenExpiresHours) || ONBOARDING_TOKEN_EXPIRES_HOURS));
-  let passwordlessToken = null;
+  const schoolLabel = String(schoolName || urlAgency?.name || 'your school').trim();
+  const slug = String(urlAgency?.portal_url || urlAgency?.slug || '').trim().toLowerCase();
+  const portalUrl = slug ? schoolStaffPortalUrl(slug) : null;
   let expiresAt = null;
+  let accessUrl = portalUrl;
   if (includeSetPasswordLink) {
+    if (!slug) return { sent: false, reason: 'missing_school_portal', to };
     const tokenResult = await User.generatePasswordlessToken(uid, hours, 'reset');
-    passwordlessToken = tokenResult.token;
     expiresAt = tokenResult.expiresAt;
+    accessUrl = schoolStaffSetPasswordUrl(slug, tokenResult.token);
   }
+  if (!accessUrl) return { sent: false, reason: 'missing_school_portal', to };
 
-  const parameters = await EmailTemplateService.collectParameters(user, urlAgency, {
-    passwordlessToken,
-    senderName:
-      sender.identity.display_name || tenantAgency?.name || 'School portal',
-    keepPortalLoginLink: true
-  });
-  parameters.AGENCY_NAME = tenantAgency.name || parameters.AGENCY_NAME || '';
-  parameters.SCHOOL_NAME = String(schoolName || urlAgency?.name || 'your school').trim();
-  parameters.INVITED_BY_NAME = String(invitedByName || 'Your school administrator').trim();
-  parameters.ACCESS_ROLE = String(accessRoleLabel || 'School Staff').trim();
-  parameters.TOKEN_EXPIRES_HOURS = String(hours);
-  parameters.TOKEN_EXPIRES_AT = expiresAt
-    ? formatTokenExpiresAt(expiresAt)
-    : `${hours} hours after send`;
-  parameters.SENDER_NAME =
-    parameters.SENDER_NAME || sender.identity.display_name || tenantAgency.name || '';
-
-  const welcome = schoolStaffWelcomeContent({
-    firstName: user.first_name, schoolName: parameters.SCHOOL_NAME,
-    isSchoolAdmin: /admin|primary/i.test(parameters.ACCESS_ROLE),
-    isScheduler: /scheduler/i.test(parameters.ACCESS_ROLE),
-    accessUrl: includeSetPasswordLink ? parameters.RESET_TOKEN_LINK : parameters.PORTAL_LOGIN_LINK,
-    setup: includeSetPasswordLink, setupExpiresHours: hours
-  });
-  const subject = welcome.subject;
-  const body = welcome.text;
-
-  let comm = null;
+  const accessRole = String(accessRoleLabel || 'School Staff');
+  let result;
   try {
-    comm = await CommunicationLoggingService.logGeneratedCommunication({
-      userId: uid,
+    result = await sendSchoolStaffWelcomeEmail({
       agencyId: aid,
-      templateType: ONBOARDING_PORTAL_ACCESS_EMAIL_TYPE,
-      templateId: null,
-      subject,
-      body,
-      generatedByUserId: actorUserId,
-      channel: 'email',
-      recipientAddress: to
-    });
-  } catch {
-    comm = null;
-  }
-
-  const replyTo = identities.replyToOverride;
-  const result = await sendEmailFromIdentity({
-    senderIdentityId: sender.identity.id,
-    to,
-    subject,
-    text: body,
-    html: welcome.html,
-    source,
-    templateType: ONBOARDING_PORTAL_ACCESS_EMAIL_TYPE,
-    usedFallbackSender: !!sender.usedFallback,
-    generatedByUserId: actorUserId,
-    userId: uid,
-    existingCommunicationId: comm?.id || null,
-    replyToOverride: replyTo
-  });
-
-  if (result?.blocked) {
-    return { sent: false, reason: result.reason || 'blocked', to };
-  }
-  if (result?.skipped) {
-    return { sent: false, reason: result.reason || 'skipped', to };
-  }
-  if (result?.queued) {
-    return { sent: false, reason: 'queued_for_approval', to };
-  }
-
-  if (comm?.id && result?.id) {
-    await CommunicationLoggingService.markAsSent(comm.id, result.id, {
-      senderIdentityId: sender.identity.id
-    }).catch(() => {});
-  }
-
-  try {
-    const ActivityLogService = (await import('./activityLog.service.js')).default;
-    ActivityLogService.logActivity({
-      actionType: 'password_reset_link_sent',
+      schoolOrganizationId: schoolId || null,
       userId: uid,
-      metadata: {
-        emailType: ONBOARDING_PORTAL_ACCESS_EMAIL_TYPE,
-        schoolOrganizationId: schoolId || null,
-        schoolName: parameters.SCHOOL_NAME,
-        includeSetPasswordLink,
-        tokenExpiresHours: hours,
-        performedByUserId: actorUserId,
-        source: 'school_onboarding_complete'
-      }
+      actorUserId,
+      to,
+      source: source || 'school_onboarding',
+      firstName: user.first_name,
+      schoolName: schoolLabel,
+      isSchoolAdmin: /admin|primary/i.test(accessRole),
+      isScheduler: /scheduler/i.test(accessRole),
+      accessUrl,
+      portalUrl,
+      setup: includeSetPasswordLink,
+      setupExpiresHours: hours,
+      addedByName: String(invitedByName || 'Your school administrator').trim()
     });
-  } catch {
-    // best-effort
+  } catch (error) {
+    return { sent: false, reason: error?.message || 'send_failed', to };
   }
+
+  if (result?.blocked) return { sent: false, reason: result.reason || 'blocked', to };
+  if (result?.skipped) return { sent: false, reason: result.reason || 'skipped', to };
+  if (result?.queued || result?.pendingApproval) return { sent: false, reason: 'queued_for_approval', to };
+  if (!result?.id) return { sent: false, reason: result?.reason || 'not_sent', to };
 
   return {
     sent: true,
@@ -1147,7 +1083,8 @@ export async function sendSchoolOnboardingStaffPortalAccessEmail({
     userId: uid,
     expiresAt: expiresAt || null,
     tokenExpiresHours: hours,
-    communicationId: comm?.id || result?.communicationId || null
+    communicationId: result.communicationId || null,
+    messageId: result.id || null
   };
 }
 

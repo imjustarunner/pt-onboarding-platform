@@ -182,7 +182,7 @@
           <div v-else class="ssp-meta-sub">School main number has not been saved.</div>
           <div>Last login: {{ u.last_login ? formatDate(u.last_login) : 'Never' }}</div>
           <div v-if="u.password_reset_expires_at" class="ssp-meta-sub">
-            Reset link expires: {{ formatDate(u.password_reset_expires_at) }}
+            {{ u.has_password ? 'Recovery link expires' : 'Invitation to set a password expires' }}: {{ formatDate(u.password_reset_expires_at) }}
           </div>
           <div class="ssp-meta-sub">
             Group email ({{ schoolGroupEmail || u.school_group_email || 'school group' }}):
