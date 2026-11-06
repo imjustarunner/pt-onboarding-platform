@@ -585,7 +585,7 @@ async function loadCandidates() {
   const r = await api.get('/hiring/candidates', {
     params: { agencyId: effectiveAgencyId.value, stageFilter: 'all' }
   });
-  const data = r.data?.data;
+  const data = r.data?.data ?? r.data;
   candidates.value = Array.isArray(data) ? data : (Array.isArray(data?.candidates) ? data.candidates : []);
 }
 
@@ -594,7 +594,8 @@ async function loadAssignees() {
   const r = await api.get('/hiring/assignees', {
     params: { agencyId: effectiveAgencyId.value }
   });
-  assignees.value = Array.isArray(r.data?.data) ? r.data.data : [];
+  const data = r.data?.data ?? r.data;
+  assignees.value = Array.isArray(data) ? data : [];
 }
 
 async function loadJobDescriptions() {
@@ -602,7 +603,8 @@ async function loadJobDescriptions() {
   const r = await api.get('/hiring/job-descriptions', {
     params: { agencyId: effectiveAgencyId.value, includeInactive: 1 }
   });
-  jobDescriptions.value = Array.isArray(r.data?.data) ? r.data.data : [];
+  const data = r.data?.data ?? r.data;
+  jobDescriptions.value = Array.isArray(data) ? data : [];
 }
 
 async function loadJobSets() {
