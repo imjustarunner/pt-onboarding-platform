@@ -67,6 +67,10 @@ it('keeps recipient and group names on cards when the latest author is someone e
  api.get.mockResolvedValue({data:{items:[{...direct,sender:'You'},{key:'chat:20',id:20,kind:'chat',category:'groups',title:'Pilot team',sender:'Avery Example',preview:'Latest group update'}],counts:response().counts}});
  await start();expect(row('Jordan').get('.mm-row-top strong').text()).toBe('Jordan Example');expect(row('Jordan').get('.mm-preview').text()).toContain('You:');expect(row('Pilot team').get('.mm-row-top strong').text()).toBe('Pilot team');expect(row('Pilot team').get('.mm-preview').text()).toContain('Avery Example:');
 });
+it('shows meaningful empty-text fallback and always conceals secure previews in the list',async()=>{
+ api.get.mockResolvedValue({data:{items:[{...direct,preview:''},{...secure,preview:'PRIVATE SECURE BODY'}],counts:response().counts}});
+ await start();expect(row('Jordan').get('.mm-preview').text()).toContain('Message · open to read');expect(row('Mi•••').get('.mm-preview').text()).toBe('Secure message · tap to unlock');expect(wrapper.text()).not.toContain('PRIVATE SECURE BODY');
+});
 
 it('clears cached secure content when a refresh reports revoked conversation access',async()=>{
  await start();await row('Mi•••').trigger('click');await flushPromises();await wrapper.findAll('.mm-secure-toggle')[0].trigger('click');expect(wrapper.text()).toContain('ORIGINAL MESSAGE');

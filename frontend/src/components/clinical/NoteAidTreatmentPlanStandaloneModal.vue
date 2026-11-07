@@ -89,7 +89,7 @@
         </template>
 
         <p v-if="error" class="na-tp-error">{{ error }}</p>
-        <p v-if="message" class="na-tp-ok">{{ message }}</p>
+        <p v-if="message" class="na-tp-ok" role="status">{{ message }}</p>
 
         <div v-if="model" class="na-tp-review">
           <h4>Review structured plan</h4>
@@ -106,6 +106,10 @@
             <textarea v-model="model.presentingProblem" class="na-tp-textarea" rows="3" />
           </label>
           <label class="na-tp-label">
+            Prescribed frequency
+            <input v-model="model.prescribedFrequency" class="na-tp-input" />
+          </label>
+          <label class="na-tp-label">
             Discharge criteria
             <textarea v-model="model.dischargePlan" class="na-tp-textarea" rows="3" />
           </label>
@@ -119,6 +123,10 @@
               <label class="na-tp-label">
                 Objective {{ gi + 1 }}.{{ oi + 1 }}
                 <textarea v-model="o.objectiveText" class="na-tp-textarea" rows="3" />
+              </label>
+              <label class="na-tp-label">
+                Planned interventions {{ gi + 1 }}.{{ oi + 1 }} (one per line)
+                <textarea :value="(o.interventions || []).join('\n')" @input="o.interventions = interventionLines($event.target.value)" class="na-tp-textarea" rows="3" />
               </label>
               <div class="na-tp-scales">
                 <label>Current <input v-model.number="o.scaleCurrent" type="number" min="1" max="10" class="na-tp-num" /></label>
@@ -137,13 +145,13 @@
               v-if="applyClientId"
               type="button"
               class="na-tp-primary"
-              :disabled="busy"
+              :disabled="busy || chartApplied"
               @click="saveToClient"
             >
-              {{ saving ? 'Saving…' : 'Apply to selected client' }}
+              {{ saving ? 'Saving…' : chartApplied ? 'Applied to client' : 'Apply to selected client' }}
             </button>
-            <button type="button" class="na-tp-outline" :disabled="busy" @click="saveLibraryDraft">
-              {{ saving ? 'Saving…' : 'Save to library' }}
+            <button type="button" class="na-tp-outline" :disabled="busy || librarySaved" @click="saveLibraryDraft">
+              {{ saving ? 'Saving…' : librarySaved ? 'Saved to library' : 'Save to library' }}
             </button>
           </div>
         </div>
@@ -177,6 +185,12 @@ const generating = ref(false);
 const saving = ref(false);
 const error = ref('');
 const message = ref('');
+const appliedFingerprint = ref('');
+const savedLibraryFingerprint = ref('');
+const chartFingerprint = computed(() => JSON.stringify({ agencyId: props.agencyId, clientId: applyClientId.value, model: model.value }));
+const libraryFingerprint = computed(() => JSON.stringify({ agencyId: props.agencyId, initials: draftInitials.value, model: model.value }));
+const chartApplied = computed(() => appliedFingerprint.value === chartFingerprint.value);
+const librarySaved = computed(() => savedLibraryFingerprint.value === libraryFingerprint.value);
 
 const busy = computed(() => parsing.value || generating.value || saving.value);
 
@@ -199,8 +213,10 @@ watch(
 );
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
+function interventionLines(value) { return [...new Set(String(value || '').split('\n').map(v => v.trim()).filter(Boolean))]; }
 
 async function parsePaste(raw) {
   const text = String(raw || '').trim();
@@ -313,19 +329,21 @@ function goalsPayload() {
       scaleCurrent: o.scaleCurrent,
       scaleTarget: o.scaleTarget,
       scaleDirection: o.scaleDirection,
-      measurementMethod: o.measurementMethod || '1–10 scale (client self-report)'
+      measurementMethod: o.measurementMethod || null,
+      interventions: Array.isArray(o.interventions) ? o.interventions : []
     }))
   }));
 }
 
 async function saveToClient() {
   const clientId = Number(applyClientId.value || 0);
-  if (!clientId || !model.value || saving.value) return;
+  if (!clientId || !model.value || saving.value || chartApplied.value) return;
   if (!props.agencyId) {
     error.value = 'Agency is required to apply a plan to a client.';
     return;
   }
   saving.value = true;
+  const requestedFingerprint = chartFingerprint.value;
   error.value = '';
   message.value = '';
   try {
@@ -347,7 +365,8 @@ async function saveToClient() {
       diagnoses: model.value.diagnoses || [],
       goals: goalsPayload()
     }, { skipGlobalLoading: true });
-    message.value = 'Treatment plan applied to client chart.';
+    appliedFingerprint.value = requestedFingerprint;
+    message.value = 'Treatment plan applied to the selected client chart. You can close this window and return to the note.';
     emit('applied', res?.data?.plan || null);
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Save to client failed';
@@ -357,21 +376,26 @@ async function saveToClient() {
 }
 
 async function saveLibraryDraft() {
-  if (!model.value || saving.value) return;
+  if (!model.value || saving.value || librarySaved.value) return;
   if (!props.agencyId) {
     error.value = 'Select an agency context before saving.';
     return;
   }
   saving.value = true;
+  const requestedFingerprint = libraryFingerprint.value;
   error.value = '';
   message.value = '';
   try {
     const summary = [
+      model.value.presentingProblem ? `Presenting Problem:\n${model.value.presentingProblem}` : '',
+      ...(model.value.diagnoses || []).map(d => `Diagnosis: ${d.icd10Code || ''} ${d.description || ''}`.trim()),
+      model.value.prescribedFrequency ? `Prescribed Frequency:\n${model.value.prescribedFrequency}` : '',
       model.value.diagnosticJustification ? `Diagnostic justification:\n${model.value.diagnosticJustification}` : '',
       ...(model.value.goals || []).flatMap((g, i) => [
         `Goal ${i + 1}: ${g.goalText || ''}`,
-        ...(g.objectives || []).map((o, j) => `Objective ${i + 1}.${j + 1}: ${o.objectiveText || ''}`)
-      ])
+        ...(g.objectives || []).flatMap((o, j) => [`Objective ${i + 1}.${j + 1}: ${o.objectiveText || ''}`, `Interventions ${i + 1}.${j + 1}:\n${(o.interventions || []).join('\n')}`])
+      ]),
+      model.value.dischargePlan ? `Discharge Plan:\n${model.value.dischargePlan}` : ''
     ].filter(Boolean).join('\n\n');
     const inputBlob = mode.value === 'update'
       ? `${oldPlanText.value}\n\nChanges:\n${changeInstructions.value}`
@@ -403,6 +427,7 @@ async function saveLibraryDraft() {
         initials: String(draftInitials.value || '').trim() || null
       }, { skipGlobalLoading: true });
     }
+    savedLibraryFingerprint.value = requestedFingerprint;
     message.value = 'Saved to Done without a client attachment.';
     emit('saved', draft);
   } catch (e) {

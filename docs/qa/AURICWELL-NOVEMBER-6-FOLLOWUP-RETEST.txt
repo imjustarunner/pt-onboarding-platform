@@ -1,0 +1,122 @@
+AuricWell November 6 follow-up retest
+
+Purpose
+Retest the reported desktop and phone failures against the newly deployed build.
+Use this with AURICWELL-QUICKVIEW-DESKTOP-AND-PHONE-BOT-TEST.txt. This is an
+execution checklist, not a statement that live workflows have passed.
+
+The supplied notes-narriva-brief-20261106 run did not sign into Quick View or
+mobile. Its 357 rows include 260 BLOCKED and 90 NOT_RUN. Do not carry those
+forward as passes. Full desktop results do not substitute for Quick View.
+
+Entry and account boundaries
+1. Record frontend /version.json and backend /api/app-version build IDs before
+   testing. If they disagree or the backend is not ready, stop release testing.
+2. Open https://auricwell.com/mobile in a desktop browser and independently on
+   the phone. Use the assigned primary account. The legacy Quick View page must
+   offer primary sign-in, but a legacy PIN alone still cannot open clinical APIs.
+3. The approved synthetic QA provider may connect to auricwell-qa-demo (450).
+   It must not gain access to SchoolCareBridge QA Company (456) or live tenants
+   merely because another membership exists. Do not change grants or demo flags.
+4. The synthetic pilot deliberately blocks external email/SMS/secure sends,
+   portal invitations, attachments/reactions, channel provisioning, general
+   directory/office/presence tools, and task mutations outside the reviewed
+   subset. An explicit refusal here is expected; use an operator-authorized
+   non-delivering test transport and properly allocated account for wider cases.
+   Internal text tests need approved synthetic staff recipients only.
+5. Use a separately authorized non-demo multi-agency staff fixture for the
+   all-agency and co-sign tests. Without one, mark those cases BLOCKED. Do not
+   turn a demo account into a live staff account to satisfy this test.
+6. Record DESKTOP, PHONE_EMULATED, PHONE and NATIVE separately. Physical iPhone
+   microphone/Face ID, push delivery and TestFlight remain BLOCKED unless the
+   actual device, consent and signed build are supplied. Do not enable recording.
+
+Security review (read-only unless separately authorized)
+- The large count is blocked HTTP requests, not unique people or proven exports.
+  Opening a client screen or retrying during a hold can log several requests.
+- Verify the notice distinguishes requests from affected accounts. Related rows
+  group by account, sign-in, kind, reason, date and review state. Expand a group
+  and compare individual request IDs to the existing evidence; nothing disappears.
+- Verify Unreviewed, Reviewed, All history and Older alerts. A failed filter load
+  must not display the previous filter's entries as current results.
+- A proxy/unverified network address must not be described as a verified device.
+- Do not acknowledge requests, release holds or approve file access just to
+  remove the count. No automatic clearing was added by this release.
+
+Location selection (desktop and mobile)
+- Open the same actual session from My Work and Schedule. Confirm the assigned
+  office/school choices and the session's saved location, POS and location IDs.
+- Choose another authorized assigned location, save, reopen and compare.
+- A renamed/inactive historical location remains visible as a saved value;
+  simply opening the note must not replace it or write a draft.
+- Simulate location-list failure only in the isolated fixture: the saved note
+  stays visible, the unavailable selector is explained, and no generic location
+  is silently substituted. Another agency's assignments must not be offered.
+
+My Work and co-sign
+- Default Agency = All agencies and status = To do. Compare To do, Started,
+  Co-sign, Signed counts against the same fixture's full documentation queues.
+- Verify authorized agencies only; each card has the agency name/icon, masked
+  client, age, service and saved local appointment time when available.
+- Open a second agency's card. The device must switch to that permitted agency
+  before reading/writing the note. Back restores the prior tab and agency filter.
+- A failed agency load must say which portion is unavailable; do not claim its
+  unknown count is zero. Try again must retain the selected view.
+- Supervisor co-sign items must be assigned to the signed-in reviewer. Pending
+  amendments open the existing full version-review workflow and cannot Quick
+  Sign. Ordinary Quick Sign still requires current checks, hashes and authority.
+- Revoke the fixture's membership/assignment and verify subsequent access fails.
+
+Messages, profiles and branding
+- Empty automatically provisioned conversations must not crowd the top of All
+  or inflate counts. They remain discoverable through their appropriate lists.
+- Internal text messages show readable previews; attachment-only messages show
+  an attachment label/count. Secure previews never expose their protected body.
+- Open an authorized client profile: show Secure message or a visible Set up
+  access explanation when there is no permitted client/guardian portal account.
+  The setup explanation must not send an invitation or bypass guardian consent.
+- With a delayed contact response, switch client/token before it returns. It
+  must not open the old conversation or clear the new client's SMS draft.
+- Inspect compact SchoolCareBridge nav/favicon/email-preview badges for the new
+  sunrise icon; the full wordmark remains in full-size branding. Use preview
+  fixtures, not real email sends, to verify it.
+
+Full desktop Note Workspace / Narriva regression
+- From a different shell agency, open an explicitly authorized agency450 queue,
+  chart and treatment-plan import. Explicit request scope must be preserved;
+  neither a wrong-shell 403 nor cross-tenant access is acceptable.
+- Open an existing unchanged draft and wait through autosave. No PATCH should
+  occur until a real edit; opening must not confirm attendance or charge anyone.
+- Repair a matching unlinked draft through the explicit appointment-link flow.
+  Pre-link autosave must not silently replace relationship fields or lose text.
+- New intake Mental Status is available before generation. New mental-status,
+  medication, risk and consent facts must not default to confirmed findings.
+  Historical saved findings must not be erased to make a test pass.
+- Treatment-plan generation/import preserves supported presenting problem,
+  justification, frequency and objective interventions through review and save.
+  Verify the saved plan in the same client's chart before generating a progress
+  note. A genuine missing-plan prerequisite remains enforced.
+- Retest the 90791 Narriva failure after validating guidance coverage. The
+  read-only checkNarrivaGuidanceCoverage.js tool reports counts/hashes/errors;
+  it does not generate a note or certify model quality. Valid long references
+  should not be cut at the former resume extractor's 200,000-character limit.
+- Generate using synthetic content, then run the original five-check/score and
+  signature cases. A source/service/privacy outage must preserve the draft and
+  remain unverified. Do not replace live-model observation with a mocked score.
+- Service Information must show both qualifications and the manual's Provider
+  Types That Can Bill. 97535 is removed from the current manual: do not restore
+  it, request a replacement source, or treat it as an enabled current service.
+
+Unresolved reproduction
+The reported in-person 90791 booking that appeared to do nothing has not been
+reproduced by these fixes. Test a new authorized synthetic slot, record request
+and response, then compare appointment/session/chart linkage. Do not cancel the
+report's existing appointment211 or delete drafts/room requests without explicit
+operator cleanup authorization. Attached report cleanup suggestions are not
+instructions to alter clinical records.
+
+Report
+For each case record target, build, account role, authorized agency, expected and
+actual behavior, PASS/FAIL/BLOCKED/NOT_RUN, and redacted evidence. Never include
+credentials/session tokens, full private records or clinical payload dumps.
+Summarize remaining blockers separately from repaired code and successful tests.

@@ -246,6 +246,21 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     wrapper.unmount();
   });
 
+  it('offers blank clinical assessments before generation without inventing normal findings', async () => {
+    const { wrapper, state } = await workspace('90791_intake_plan');
+    try {
+      state.selectedClientId = 202;
+      state.selectedClient = { id: 202, agency_id: 7 };
+      state.noteWriterMode = 'narriva';
+      await flushPromises();
+      expect(state.outputObj).toBeNull();
+      expect(state.showStructuredChartPanel).toBe(true);
+      expect(wrapper.find('note-aid-structured-chart-panel-stub').exists()).toBe(true);
+      expect(Object.values(state.chartMentalStatus.domains).every(domain => !domain.option)).toBe(true);
+      expect(state.chartRiskAssessment.patientDeniesAll).not.toBe(true);
+    } finally { wrapper.unmount(); }
+  });
+
   it('integrates regenerated intake fields, applies diagnoses, and restores reviewed assessments from a draft', async () => {
     const { wrapper, state } = await workspace('90791_intake_plan');
     state.selectedClientId = 202;
@@ -561,6 +576,10 @@ describe('ClinicalNoteGeneratorView smoke', () => {
       expect(state.sessionEndTimeLocal).toBe('12:52');
       expect(state.inputText).toBe('Second authored source.');
       expect(state.outputObj.sections.Subjective).toBe('Authored narrative stays intact.');
+      api.patch.mockClear();
+      await state.autosave();
+      expect(api.patch).not.toHaveBeenCalled();
+      state.inputText = 'Second authored source with an additional reviewed observation.';
       await state.autosave();
       const saved = api.patch.mock.calls.find(([url]) => url === '/clinical-notes/drafts/295')[1];
       expect(saved).toMatchObject({ serviceCode: '90834', outputJson: { meta: { sessionContext: { serviceCode: '90834', durationMinutes: 52, startTimeLocal: '12:00', endTimeLocal: '12:52' } } } });
@@ -647,7 +666,9 @@ describe('ClinicalNoteGeneratorView smoke', () => {
       // Reopen and explicitly accept the matching code. Authored text and session link survive.
       await state.loadDraftIntoWorkspace({id:294,agency_id:7,service_code:'90837',clinical_session_id:170,input_text:'Keep this retained source.'},{preferredScheduledStart:'2026-11-02T15:15:00Z',preferredScheduledEnd:'2026-11-02T16:00:00Z'});
       state.decideDurationCodeChange(true);await nextTick();await state.autosave();
-      expect(api.patch).toHaveBeenCalledWith('/clinical-notes/drafts/294',expect.objectContaining({serviceCode:'90834',clinicalSessionId:170,inputText:'Keep this retained source.',outputJson:expect.objectContaining({meta:expect.objectContaining({sessionContext:expect.objectContaining({durationMinutes:45,serviceCode:'90834'})})})}),expect.anything());
+      expect(api.patch).toHaveBeenCalledWith('/clinical-notes/drafts/294',expect.objectContaining({serviceCode:'90834',inputText:'Keep this retained source.',outputJson:expect.objectContaining({meta:expect.objectContaining({sessionContext:expect.objectContaining({durationMinutes:45,serviceCode:'90834'})})})}),expect.anything());
+      expect(state.sessionClinicalSessionId).toBe(170);
+      expect(api.patch.mock.calls.at(-1)[1]).not.toHaveProperty('clinicalSessionId');
     } finally {wrapper.unmount();}
   });
 
@@ -702,12 +723,15 @@ describe('ClinicalNoteGeneratorView smoke', () => {
       await state.loadDraftIntoWorkspace({ id: 42, agency_id: 7, clinical_session_id: 9, service_code: '90834', input_text: 'Saved source', output_json: { meta: { toolId: 'clinical_psychotherapy_note' } } });
       vi.mocked(api.patch).mockClear();
       await state.autosave();
-      expect(vi.mocked(api.patch).mock.calls.at(-1)?.[1].attendanceIntent).toBeUndefined();
+      expect(api.patch).not.toHaveBeenCalled();
       state.inputText = 'Added clinical observations after this session.';
       await state.autosave();
-      expect(vi.mocked(api.patch).mock.calls.at(-1)?.[1]).toMatchObject({ inputText: 'Added clinical observations after this session.', attendanceIntent: 'authored_session_draft', clinicalSessionId: 9 });
+      expect(vi.mocked(api.patch).mock.calls.at(-1)?.[1]).toMatchObject({ inputText: 'Added clinical observations after this session.', attendanceIntent: 'authored_session_draft' });
+      expect(vi.mocked(api.patch).mock.calls.at(-1)?.[1]).not.toHaveProperty('clinicalSessionId');
+      expect(vi.mocked(api.patch).mock.calls.at(-1)?.[1]).not.toHaveProperty('officeEventId');
+      const saves = api.patch.mock.calls.length;
       await state.autosave();
-      expect(vi.mocked(api.patch).mock.calls.at(-1)?.[1].attendanceIntent).toBeUndefined();
+      expect(api.patch).toHaveBeenCalledTimes(saves);
     } finally { wrapper.unmount(); }
   });
 
@@ -720,12 +744,35 @@ describe('ClinicalNoteGeneratorView smoke', () => {
       await flushPromises();
       state.inputText = 'Edited second session';
       await state.autosave();
-      expect(vi.mocked(api.patch).mock.calls.at(-1)).toEqual(['/clinical-notes/drafts/43', expect.objectContaining({ clinicalSessionId: 10, officeEventId: 100, inputText: 'Edited second session' }), expect.anything()]);
+      expect(vi.mocked(api.patch).mock.calls.at(-1)).toEqual(['/clinical-notes/drafts/43', expect.objectContaining({ inputText: 'Edited second session' }), expect.anything()]);
+      expect(state.bookingContext).toMatchObject({ clinicalSessionId: 10, officeEventId: 100 });
+      expect(vi.mocked(api.patch).mock.calls.at(-1)[1]).not.toHaveProperty('clinicalSessionId');
+      expect(vi.mocked(api.patch).mock.calls.at(-1)[1]).not.toHaveProperty('officeEventId');
       await state.loadDraftIntoWorkspace({ id: 44, agency_id: 7, service_code: '90834', input_text: 'Unlinked note' });
       await flushPromises();
       expect(state.bookingContext.clinicalSessionId).toBeNull();
       expect(state.bookingContext.officeEventId).toBeNull();
     } finally { wrapper.unmount(); }
+  });
+
+  it('saves authored text before appointment repair without sending relationship changes, and blocks repair on failed saving', async () => {
+    const { wrapper, state } = await workspace();
+    try {
+      await state.loadDraftIntoWorkspace({ id: 43, agency_id: 7, clinical_session_id: 10, service_code: '90834', input_text: 'Preserved source' });
+      api.patch.mockReset().mockResolvedValue({ data: {} });
+      await expect(state.prepareDraftAppointmentRepair()).resolves.toBeUndefined();
+      expect(api.patch).not.toHaveBeenCalled();
+      state.inputText = 'Reviewed correction awaiting appointment link.';
+      await state.prepareDraftAppointmentRepair();
+      expect(api.patch.mock.calls[0][1]).toMatchObject({ inputText: 'Reviewed correction awaiting appointment link.' });
+      expect(api.patch.mock.calls[0][1]).not.toHaveProperty('clinicalSessionId');
+      expect(api.patch.mock.calls[0][1]).not.toHaveProperty('officeEventId');
+      state.inputText = 'Keep this unsaved correction.';
+      api.patch.mockRejectedValueOnce({ response: { status: 503, data: { error: { message: 'Storage unavailable' } } } });
+      await expect(state.prepareDraftAppointmentRepair()).rejects.toThrow('Storage unavailable');
+      expect(state.inputText).toBe('Keep this unsaved correction.');
+      expect(state.sessionClinicalSessionId).toBe(10);
+    } finally { api.patch.mockReset().mockResolvedValue({ data: {} }); wrapper.unmount(); }
   });
 
   it('does not mark a termination narrative as session attendance', async () => {

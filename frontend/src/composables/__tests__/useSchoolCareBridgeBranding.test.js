@@ -9,6 +9,7 @@ it('restores the prior identity when switching from school to program views', as
   const enabled = ref(true);
   const wrapper = mount({ setup() { useSchoolCareBridgeBranding('Overview', enabled); }, template: '<div />' });
   expect(document.title).toBe('Overview | SchoolCareBridge');
+  expect(document.querySelector('link').getAttribute('href')).toBe('/assets/schoolcarebridge/icon.png');
   expect(schoolCareBridgeBrowserBrand.value.title).toBe(document.title);
   enabled.value = false;
   await nextTick();

@@ -40,3 +40,9 @@ it('denies file downloads before touching storage when conversation access is de
   expect(response.status).toHaveBeenCalledWith(404);
   expect(downloadCommunicationAttachment).not.toHaveBeenCalled();
 });
+it('rejects QA reads from another tenant before marking read or downloading, and disables outbound delivery',async()=>{
+ const qa=()=>({...req(),quickView:{userId:1433,agencyId:450,qaAgencyIds:[450]}});
+ requireConversationAccess.mockResolvedValue({id:10,agency_id:456,channel:'email'});
+ for(const handler of [getQuickConversation,getQuickAttachment,postQuickCompose,postQuickReply]){const response=res();await handler(qa(),response,vi.fn());expect(response.status).toHaveBeenCalledWith(403);}
+ expect(getConversationDetail).not.toHaveBeenCalled();expect(downloadCommunicationAttachment).not.toHaveBeenCalled();expect(findPersonalInbox).not.toHaveBeenCalled();expect(composeNewEmail).not.toHaveBeenCalled();expect(replyToConversation).not.toHaveBeenCalled();
+});

@@ -3,6 +3,9 @@ import { injectPublicFavicon, legacyTisiPublicDestination, publicBrowserBranding
 import { PUBLIC_SITE_DOMAINS } from '../publicDomainRouting.js';
 
 describe('public browser branding', () => {
+  it('uses the supplied SchoolCareBridge icon for browser identity',()=>{
+    for(const host of ['schoolcarebridge.org','qv.app.schoolcarebridge.org'])expect(publicBrowserBranding(host).favicon).toBe('/assets/schoolcarebridge/icon.png');
+  });
   it.each(Object.entries({ 'itsco.health':'itsco', ...PUBLIC_SITE_DOMAINS }))('keeps %s branded at root, www and functional pages', (host, slug) => {
     for (const domain of [host, `www.${host}`]) {
       for (const path of ['/', '/support', `/join/${slug}`]) {

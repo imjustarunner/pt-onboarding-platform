@@ -71,6 +71,8 @@
         <div v-else-if="resolving || !ready" class="loading-state" role="status"><LoaderCircle :size="23" class="spinning" aria-hidden="true" /><span>Finding your workspace…</span></div>
         <button v-else-if="error" type="button" class="btn" @click="retryTenant">Try again <ArrowRight :size="18" aria-hidden="true" /></button>
 
+        <a v-if="!schoolQuickView" class="recovery-link primary-account-link" href="https://auricwell.com/mobile">Sign in with your account <ArrowRight :size="16" aria-hidden="true" /></a>
+        <p v-if="!schoolQuickView" class="field-help">Password, SSO or passkey · includes your clinical workspace</p>
         <p class="access-note"><ShieldCheck :size="16" aria-hidden="true" /><span>Your organization’s access permissions apply.</span></p>
       </section>
     </main>

@@ -5,6 +5,7 @@ import { requireConversationAccess } from '../communicationAccess.service.js';
 import { assignedSmsAccessSql } from '../../utils/assignedSmsAccessSql.js';
 import { refreshClientSecureAccess } from '../clientSecureConversation.service.js';
 import { failure } from './policy.js';
+import {qaAgencyAllowed} from './qaScope.service.js';
 import { sendApplePush, applePushConfigured } from './applePush.service.js';
 
 export function pushConfiguration() {
@@ -56,10 +57,11 @@ export function createMobilePushWorker({db=pool, sessions=mobileSessions, conver
   sendApple=sendApplePush, sendWeb=(sub,payload)=>webpush.sendNotification(sub,JSON.stringify(payload),{
     TTL:3600,vapidDetails:{subject:'mailto:support@auricwell.com',publicKey:process.env.VAPID_PUBLIC_KEY,privateKey:process.env.VAPID_PRIVATE_KEY}
   }), configuration=pushConfiguration}={}) {
-  async function permitted(device, kind, id) {
+  async function permitted(device, kind, id, context=null) {
+    context=context || await sessions.access(device.id,device.user_id,device.agency_id);
     const uid=Number(device.user_id);
     if(kind==='chat') {
-      const [[row]]=await db.execute(`SELECT m.thread_id FROM chat_messages m
+      const [[row]]=await db.execute(`SELECT m.thread_id,t.agency_id FROM chat_messages m
         JOIN chat_threads t ON t.id=m.thread_id JOIN chat_thread_participants p ON p.thread_id=t.id AND p.user_id=?
         WHERE m.id=? AND EXISTS(SELECT 1 FROM user_agencies member JOIN agencies a ON a.id=member.agency_id
           WHERE member.user_id=? AND member.agency_id=t.agency_id AND member.is_active=1 AND a.is_active=1 AND COALESCE(a.is_archived,0)=0) AND m.sender_user_id<>?
@@ -67,34 +69,34 @@ export function createMobilePushWorker({db=pool, sessions=mobileSessions, conver
         AND NOT EXISTS (SELECT 1 FROM notifications n LEFT JOIN notification_user_reads r ON r.notification_id=n.id AND r.user_id=?
           WHERE n.user_id=? AND n.related_entity_type='chat_thread' AND n.related_entity_id=t.id
           AND COALESCE(r.muted_until,n.muted_until)>NOW()) LIMIT 1`,[uid,id,uid,uid,uid,uid,uid]);
-      if(!row)return null;
+      if(!row || !qaAgencyAllowed(context.qaAgencyIds,row.agency_id))return null;
       try{await refreshSecure(row.thread_id,uid);}catch(error){if([403,404].includes(error.status))return null;throw error;}
       return Number(row.thread_id);
     }
     if(kind==='email') {
-      const [[row]]=await db.execute(`SELECT m.conversation_id FROM communication_messages m JOIN communication_conversations c ON c.id=m.conversation_id
+      const [[row]]=await db.execute(`SELECT m.conversation_id,c.agency_id FROM communication_messages m JOIN communication_conversations c ON c.id=m.conversation_id
         WHERE m.id=? AND EXISTS(SELECT 1 FROM user_agencies member JOIN agencies a ON a.id=member.agency_id WHERE member.user_id=? AND member.agency_id=c.agency_id AND member.is_active=1 AND a.is_active=1 AND COALESCE(a.is_archived,0)=0) AND m.channel='email' AND m.direction='inbound' AND m.is_internal_note=0`,[id,uid]);
-      if(!row)return null;
+      if(!row || !qaAgencyAllowed(context.qaAgencyIds,row.agency_id))return null;
       try { await conversationAccess({id:uid,role:'provider'},row.conversation_id); return Number(row.conversation_id); }
       catch(error) { if(error.status===403 || error.status===404)return null; throw error; }
     }
     if(kind==='sms') {
-      const [[row]]=await db.execute(`SELECT ml.id FROM message_logs ml WHERE ml.id=? AND EXISTS(SELECT 1 FROM user_agencies member JOIN agencies a ON a.id=member.agency_id WHERE member.user_id=? AND member.agency_id=ml.agency_id AND member.is_active=1 AND a.is_active=1 AND COALESCE(a.is_archived,0)=0) AND ml.direction='INBOUND'
+      const [[row]]=await db.execute(`SELECT ml.id,ml.agency_id FROM message_logs ml WHERE ml.id=? AND EXISTS(SELECT 1 FROM user_agencies member JOIN agencies a ON a.id=member.agency_id WHERE member.user_id=? AND member.agency_id=ml.agency_id AND member.is_active=1 AND a.is_active=1 AND COALESCE(a.is_archived,0)=0) AND ml.direction='INBOUND'
         AND (ml.user_id=? OR ml.assigned_user_id=? OR ml.number_id IN
           (SELECT number_id FROM twilio_number_assignments WHERE user_id=? AND is_active=1 AND sms_access_enabled=1)
           OR ${assignedSmsAccessSql}) LIMIT 1`,[id,uid,uid,uid,uid,uid,uid,uid]);
-      return row ? Number(row.id) : null;
+      return row && qaAgencyAllowed(context.qaAgencyIds,row.agency_id) ? Number(row.id) : null;
     }
     return null;
   }
   async function scan(device) {
-    await sessions.access(device.id,device.user_id,device.agency_id);
+    const context=await sessions.access(device.id,device.user_id,device.agency_id);
     for(const [kind,table,cursor] of [['chat','chat_messages','chat_cursor'],['email','communication_messages','email_cursor'],['sms','message_logs','sms_cursor']]) {
       if(device[cursor]==null)continue;
       // Ascending IDs + per-device cursor + unique queue key survive restarts and overlap.
       const [rows]=await db.execute(`SELECT id FROM ${table} WHERE id>? ORDER BY id LIMIT 100`,[device[cursor]]);
       for(const row of rows) {
-        const target=await permitted(device,kind,row.id);
+        const target=await permitted(device,kind,row.id,context);
         if(target)await db.execute(`INSERT IGNORE INTO mobile_push_deliveries (device_session_id,source_kind,source_id,target_id) VALUES (?,?,?,?)`,[device.id,kind,row.id,target]);
         await db.execute(`UPDATE mobile_device_sessions SET ${cursor}=GREATEST(${cursor},?) WHERE id=?`,[row.id,device.id]);
       }
@@ -107,7 +109,7 @@ export function createMobilePushWorker({db=pool, sessions=mobileSessions, conver
     try {
       const context=await sessions.access(row.device_session_id,row.user_id,row.agency_id);
       const device=context.device;
-      if(!device.push_enabled || !await permitted(device,row.source_kind,row.source_id)) {
+      if(!device.push_enabled || !await permitted(device,row.source_kind,row.source_id,context)) {
         await db.execute('UPDATE mobile_push_deliveries SET skipped_at=NOW() WHERE id=?',[row.delivery_id]);return;
       }
       const config=configuration();

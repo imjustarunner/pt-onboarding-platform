@@ -43,8 +43,10 @@ const sourceAvailable = computed(() => !!reference.value?.source?.title && (refe
 const sourceKind = computed(() => !sourceAvailable.value ? 'Source unavailable' : isAgencyPolicy.value ? `Agency supplemental policy${reference.value.policyKind === 'addon' ? ' · Add-on service' : reference.value.policyKind === 'funding' ? ' · Funding arrangement' : ''}` : 'Supplied service handbook');
 let requestId = 0;
 const fields = [
+  { key: 'providerQualifications', label: 'Listed provider qualifications' },
+  { key: 'providerTypesThatCanBill', label: 'Provider types that can bill (manual)' },
   { key: 'serviceDescription', label: 'Service and examples' }, { key: 'documentation', label: 'Documentation and limitations' },
-  { key: 'ageGroups', label: 'Ages' }, { key: 'providerQualifications', label: 'Listed provider qualifications' },
+  { key: 'ageGroups', label: 'Ages' },
   { key: 'placesOfService', label: 'Listed places of service' }
 ];
 async function load() {

@@ -44,6 +44,11 @@ test('all treatment plan tools share Goal/Objective/1–10 contract', () => {
     const out = getOutputInstructionsForTool(id);
     assert.match(out, /Goal 1:/);
     assert.match(out, /1–10/);
+    assert.match(out, /Presenting Problem:/);
+    assert.match(out, /Diagnosis:/);
+    assert.match(out, /Diagnostic Justification:/);
+    assert.match(out, /Prescribed Frequency:/);
+    assert.match(out, /never invent diagnoses, consent or baseline ratings/);
     assert.equal(out, TREATMENT_PLAN_OUTPUT_INSTRUCTIONS);
   }
 });

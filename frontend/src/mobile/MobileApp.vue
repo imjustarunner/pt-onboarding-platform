@@ -67,7 +67,7 @@ async function startSignIn() {
   } catch(e){error.value=mobileRequestError(e);} finally {busy.value=false;}
 }
 async function loadConnect() {
-  screen.value='connect';busy.value=true;
+  screen.value='connect';busy.value=true;error.value='';connectAccount.value=null;selectedAgency.value='';
   const query=connectQuery();
   if(query.clientId==='web' && performance.getEntriesByType?.('navigation')?.[0]?.type==='back_forward'){location.replace('https://auricwell.com/mobile');return;}
   try {
@@ -161,13 +161,34 @@ async function showAccount() {
   catch(e){if(current===generation && access.value?.sessionToken===token)error.value=mobileRequestError(e);}
   finally{accountLoading.value=false;}
 }
-async function changeWorkspace(event) {
-  const current=generation;busy.value=true;
+async function switchWorkspace(agencyId,query=null) {
+  if(busy.value || !Number.isSafeInteger(Number(agencyId)) || Number(agencyId)<=0)return;
+  const current=generation,token=access.value?.sessionToken;busy.value=true;error.value='';
   try {
-    const {data}=await mobileApi.post('/workspace',{agencyId:Number(event.target.value)},{headers:{'X-Quick-View-Session':access.value.sessionToken}});
-    if(current!==generation)return;
-    access.value=data;profile.value=data.profile;workspace.value=data.profile.workspace;accountOpen.value=false;
+    const result=await deviceRequest('POST','/workspace',{agencyId:Number(agencyId)});
+    if(current!==generation || access.value?.sessionToken!==token)return;
+    // Move away from the previous tenant's resource before mounting its replacement.
+    await router.replace({path:'/mobile/workspace',query:route.query.view==='mywork'?{...route.query}:{view:'mywork'}});
+    applySession(result);accountOpen.value=false;
+    if(query)await router.push({path:'/mobile/workspace',query});
   }catch(e){error.value=mobileRequestError(e);}finally{busy.value=false;}
+}
+async function changeWorkspace(event){await switchWorkspace(event.target.value);}
+async function openWorkspaceItem({agencyId,query}){await switchWorkspace(agencyId,query);}
+function connectLoginUrl(){
+ const query=connectQuery(),path=query.loginPath;
+ if(!/^\/(?:[a-z0-9-]+\/)*login\/?$/i.test(path || ''))return null;
+ const login=new URL(path,location.origin);login.searchParams.set('redirect',location.pathname+location.search);return login.href;
+}
+async function changeConnectAccount(){
+ const destination=connectLoginUrl();if(!destination || busy.value)return;
+ busy.value=true;error.value='';
+ try{
+  // Explicit account change ends the primary browser session; no device is enrolled here.
+  try{await axios.post('/api/auth/logout',{reason:'mobile_account_change'},{withCredentials:true});}catch(e){if(e.response?.status!==401)throw e;}
+  for(const key of ['user','authToken','currentAgency','userAgencies','sessionId'])localStorage.removeItem(key);
+  location.replace(destination);
+ }catch(e){error.value=mobileRequestError(e);}finally{busy.value=false;}
 }
 async function registerPush(payload) {
   if(!access.value)return;
@@ -223,7 +244,8 @@ onUnmounted(()=>{lock();document.removeEventListener('visibilitychange',backgrou
   <div class="mobile-app">
     <template v-if="screen==='workspace' && access">
 
-      <QuickView :key="access.sessionToken" ref="qv" :mobile-session="access" @locked="lock" @account="showAccount" />
+      <QuickView :key="access.sessionToken" ref="qv" :mobile-session="access" @locked="lock" @account="showAccount" @open-workspace-item="openWorkspaceItem" />
+      <p v-if="error && !accountOpen" class="workspace-error" role="alert">{{ error }} <button @click="error=''" aria-label="Dismiss workspace error">×</button></p>
       <div v-if="accountOpen" class="mobile-overlay" @keydown.esc="accountOpen=false">
         <section class="mobile-card account" role="dialog" aria-modal="true" aria-labelledby="account-title">
           <button class="close" @click="accountOpen=false;privacyIntro=false" aria-label="Close My Account">×</button>
@@ -260,6 +282,7 @@ onUnmounted(()=>{lock();document.removeEventListener('visibilitychange',backgrou
           <label v-if="connectAccount">Workspace<select v-model="selectedAgency"><option v-for="agency in connectAccount.agencies" :key="agency.id" :value="String(agency.id)">{{ agency.name }}</option></select></label>
           <p>Your account’s permissions apply. This device will stay signed in until you sign out or account security requires a new sign-in.</p>
           <button :disabled="busy || !selectedAgency" @click="authorize">Connect to Auricwell <ArrowRight :size="18" /></button>
+          <template v-if="error"><button class="secondary" :disabled="busy" @click="loadConnect">Try again</button><button v-if="connectLoginUrl()" class="secondary" :disabled="busy" @click="changeConnectAccount">Sign in with a different account</button><a href="https://auricwell.com/mobile">Restart Auricwell sign-in</a></template>
         </template>
         <form v-else-if="screen==='signin'" @submit.prevent="startSignIn">
           <h1>Your workday, within reach.</h1><p>Use your existing staff account to open your scoped workspace.</p>
@@ -284,5 +307,6 @@ onUnmounted(()=>{lock();document.removeEventListener('visibilitychange',backgrou
 </template>
 
 <style>
+.workspace-error{position:fixed;top:calc(76px + env(safe-area-inset-top));left:12px;right:12px;z-index:90;margin:0;padding:12px 42px 12px 14px;background:#fff3f5;color:#a32c43;border:1px solid #f0cbd4;border-radius:10px;box-shadow:0 5px 20px #183b6b16;font-size:14px}.workspace-error button{position:absolute;right:8px;top:5px;border:0;background:transparent;color:inherit;font-size:26px;cursor:pointer}
 html,body,#app{margin:0;min-height:100%;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#183154}*{box-sizing:border-box}.mobile-app{min-height:100dvh;background:#f3f6fc}.mobile-gate{min-height:100dvh;display:flex;flex-direction:column;align-items:center;padding:calc(30px + env(safe-area-inset-top)) 22px calc(24px + env(safe-area-inset-bottom));background:radial-gradient(ellipse at 90% 0,#e5edff,transparent 65%)}.mobile-gate header{align-self:flex-start;margin-bottom:60px}.mobile-card{width:min(100%,460px);background:white;border:1px solid #e0e8f5;border-radius:24px;padding:34px;box-shadow:0 20px 60px #2348780a}.mobile-card h1{font-size:30px;line-height:1.15;letter-spacing:-1px;margin:0 0 16px}.mobile-card h2{font-size:17px;display:flex;gap:8px;align-items:center;margin-top:28px}.mobile-card p{font-size:15px;line-height:1.65;color:#657891}.mobile-card label{display:block;font-size:14px;font-weight:600;margin:25px 0 18px}.mobile-card input,.mobile-card select{display:block;width:100%;font:inherit;padding:15px 16px;border:1px solid #cfdaec;border-radius:12px;margin-top:10px;background:#fafcff;color:#183154;min-height:50px}.mobile-card input[type=password]{letter-spacing:10px;text-align:center;font-size:22px}.mobile-card button,.mobile-card a{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:14px 18px;border:1px solid transparent;border-radius:12px;font:inherit;font-size:14px;font-weight:600;background:#285fe8;color:white;min-height:48px;text-decoration:none;cursor:pointer;margin-top:12px}.mobile-card button:disabled{opacity:.55;cursor:wait}.mobile-card .secondary,.mobile-card a{background:#f1f5fc;color:#254978;border-color:#e1e9f6}.mobile-card .text-button{background:transparent;color:#526a8d;font-weight:400}.mobile-card .small{font-size:12px;margin-top:23px}.mobile-card .error{color:#a32c43;background:#fff3f5;padding:12px;border-radius:10px}.mobile-card .eyebrow{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px}.gate-icon{display:inline-flex;padding:15px;border-radius:16px;background:#eff4ff;color:#3165da;margin-bottom:14px}.mobile-gate footer{font-size:12px;color:#7788a0;margin-top:30px;text-align:center}.mobile-account-button{position:fixed;right:20px;bottom:calc(84px + env(safe-area-inset-bottom));z-index:40;display:flex;gap:7px;align-items:center;padding:12px 16px;background:#fff;border:1px solid #d6e1f3;box-shadow:0 5px 20px #183b6b16;color:#254978;border-radius:30px;font:inherit;font-size:12px;cursor:pointer}.mobile-overlay{position:fixed;inset:0;background:#152b4d80;backdrop-filter:blur(10px);z-index:100;display:grid;place-items:center;padding:20px}.mobile-card.account{position:relative;max-height:calc(100dvh - 40px);overflow:auto}.mobile-card .close{position:absolute;right:14px;top:8px;background:transparent;color:#607796;width:35px;padding:0;min-height:35px;font-size:26px}.mobile-card .danger{color:#9c3345}:focus-visible{outline:3px solid #80acff;outline-offset:3px}@media(min-width:1000px){.mobile-account-button{bottom:24px}.mobile-gate header{margin-bottom:80px}}@media(max-width:500px){.mobile-card{padding:26px}.mobile-gate header{margin-bottom:40px}}
 </style>

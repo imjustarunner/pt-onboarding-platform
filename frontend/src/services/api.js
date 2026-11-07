@@ -19,6 +19,7 @@ import {
 } from '../utils/schoolOnboardingDemoContext.js';
 import { isSchoolPortalShellActive } from '../utils/schoolPortalShell.js';
 import { isPublicAuthFormActive } from '../utils/publicAuthForm.js';
+import { requestAgencyId } from '../utils/requestAgencyContext.js';
 
 const api = axios.create({
   baseURL: (typeof window !== 'undefined' && (isProductApiHost(window.location.hostname) || isSchoolCareBridgeHost(window.location.hostname) || (window.location.hostname.replace(/^www\./,'') === 'mh4kidz.org' && isSchoolCareBridgePath(window.location.pathname)))) ? '/api' : getApiBaseUrl(),
@@ -258,7 +259,7 @@ api.interceptors.request.use(
       const demoAgencyRaw = sessionStorage.getItem('__pt_demo_window_agency__');
       const raw = demoAgencyRaw || localStorage.getItem('currentAgency');
       const currentAgency = raw ? JSON.parse(raw) : null;
-      const id = Number.parseInt(String(currentAgency?.id ?? ''), 10);
+      const id = requestAgencyId(config, currentAgency?.id);
       if (!config.cookieAuthOnly && Number.isFinite(id) && id > 0) {
         config.headers['X-Agency-Id'] = String(id);
       }

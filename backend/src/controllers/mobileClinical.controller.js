@@ -134,17 +134,28 @@ export const getMobileClinicalContext=async(req,res,next)=>{
   const participants=String(meta.sessionContext?.participants||meta.participants||'Client').match(/client|parent|guardian|caregiver|partner|spouse|collateral|interpreter|supervisor/gi)||['Client'];
   const delivery=String(meta.narrivaContext?.modality||meta.sessionContext?.modality||meta.modality||session?.modality||'').toLowerCase();
   const modality=['in_person','video','phone'].includes(delivery)?delivery:office&&!['02','10'].includes(session?.place_of_service)?'in_person':'';
-  const locationLabel=({'02':'Telehealth','10':'Telehealth','03':'School','11':'Office','12':'Home'})[session?.place_of_service]||(office?'Office':'');
+  const serviceLocationId=positiveId(session?.service_location_id)||positiveId(meta.sessionContext?.serviceLocationId);
+  const billingOfficeLocationId=positiveId(session?.billing_office_location_id)||positiveId(meta.sessionContext?.billingOfficeLocationId)||positiveId(office?.office_location_id);
+  const placeOfService=String(session?.place_of_service||meta.sessionContext?.placeOfService||'');
+  const savedLocationLabel=String(meta.sessionContext?.locationLabel||meta.locationLabel||session?.location_label||'').trim();
   const [[risk]] = await pool.execute(`SELECT MAX(risk_assessment_required) AS required FROM narriva_reviews WHERE agency_id=? AND ((draft_id IS NOT NULL AND draft_id=?) OR (clinical_note_id IS NOT NULL AND clinical_note_id=?) OR (clinical_session_id IS NOT NULL AND clinical_session_id=?))`,[agencyId,draftId,noteId,sessionId]);
   const riskAssessmentRequired=Number(risk?.required)===1;
   const capabilities=await narrivaWriterCapabilities(userId,agencyId);
+  // Reuse the desktop's assigned-office/school selector, never the full
+  // administrative catalog. A location-list outage must not hide a saved note.
+  const {listServiceLocations}=await import('./medicalBilling.controller.js');
+  let locationChoices=[],locationChoicesUnavailable=false;
+  try{const data=await invokeMobileClinicalController(listServiceLocations,req,{query:{agencyId,forNoteAid:'1',includeInactive:'0'}});locationChoices=data.choices||[];}
+  catch{locationChoicesUnavailable=true;}
+  const assignedLocation=locationChoices.find(choice=>serviceLocationId?Number(choice.serviceLocationId)===serviceLocationId:billingOfficeLocationId&&Number(choice.billingOfficeLocationId)===billingOfficeLocationId&&choice.placeOfService===placeOfService);
+  const locationLabel=savedLocationLabel||assignedLocation?.name||({'02':'Telehealth','10':'Telehealth','03':'School','11':'Office','12':'Home'})[placeOfService]||(office?'Office':'');
   const preferredMode=preference?.default_mode||'manual';
   const defaultMode=preferredMode==='manual'&&capabilities.manualAllowed===false?'narriva':preferredMode;
   const signedContext=noteSource?await noteReviewContext(req,noteSource):null;
-  res.json({agencyId,riskAssessmentRequired,review:signedContext?.review||null,client:mobileClient(client),session:{id:sessionId,officeEventId,dateOfService,startTimeLocal:localStart.time,endTimeLocal:localEnd.time,durationMinutes,sourceTimezone:zone,serviceCode:session?.service_code||draft?.service_code||work?.serviceCode||meta.serviceCode||'',participants:[...new Set(participants)].join(', '),locationLabel,modality},
+  res.json({agencyId,riskAssessmentRequired,review:signedContext?.review||null,client:mobileClient(client),session:{id:sessionId,officeEventId,dateOfService,startTimeLocal:localStart.time,endTimeLocal:localEnd.time,durationMinutes,sourceTimezone:zone,serviceCode:session?.service_code||draft?.service_code||work?.serviceCode||meta.serviceCode||'',participants:[...new Set(participants)].join(', '),locationLabel,serviceLocationId,billingOfficeLocationId,placeOfService,modality},
    draft:draft?{id:Number(draft.id),inputText:decryptNarrivaDraft(draft.input_text),outputJson:outputFromDraft(draft)}:null,
    note:signedContext?.note||null,
-   treatmentPlan,serviceCodes:care.canProvideCare?catalog.eligibleServiceCodes:[],preferences:{defaultMode,features:capabilities},alerts:[],recordingNarrative});
+   treatmentPlan,locationChoices,locationChoicesUnavailable,serviceCodes:care.canProvideCare?catalog.eligibleServiceCodes:[],preferences:{defaultMode,features:capabilities},alerts:[],recordingNarrative});
  }catch(error){next(error);}
 };
 
@@ -158,7 +169,7 @@ async function contactRoster(req){const {agencyId}=req.mobileClinical,clientId=c
   contacts.unshift({key:'client',maskedName:maskMobileClientName(client),relationship:'Self',email:client.contact_email||client.email||null,phone:client.contact_phone||null,guardianUserId:0,channels:{secure:false,sms:!!family&&Number(family.guardianUserId)===0,email:!!(client.contact_email||client.email)}});
  }
  return {client,contacts};}
-export const getMobileClientSummary=async(req,res,next)=>{try{await ensurePrimary(req,res);const {client,contacts}=await contactRoster(req);res.json({client:mobileClient(client),contacts:contacts.map(({guardianUserId,...contact})=>contact)});}catch(error){next(error);}};
+export const getMobileClientSummary=async(req,res,next)=>{try{await ensurePrimary(req,res);const {client,contacts}=await contactRoster(req);res.json({client:mobileClient(client),contacts:contacts.map(({guardianUserId,...contact})=>contact),secureMessaging:{available:contacts.some(contact=>contact.channels.secure),reason:contacts.some(contact=>contact.channels.secure)?null:'Secure messaging needs an active client or guardian portal account with permission to receive clinical messages. Open the client’s Portal settings in the main app to review access or arrange an invitation.'}});}catch(error){next(error);}};
 function selectedContact(req,contacts){if(['to','phone','email','relayRecipient','guardianUserId'].some(key=>present(req.body[key])))throw narrivaError(400,'Choose a current authorized contact rather than supplying a recipient address.');const contact=contacts.find(contact=>contact.key===req.body.recipientKey);const channel=String(req.body.channel||'');if(!contact||!['secure','sms','email'].includes(channel)||!contact.channels[channel])throw narrivaError(403,'This contact or communication channel is no longer available.');return {contact,channel};}
 export const resolveMobileClientContact=async(req,res,next)=>{try{await ensurePrimary(req,res);const {client,contacts}=await contactRoster(req),{contact,channel}=selectedContact(req,contacts);if(channel==='secure'){const shared=await ensureClientSecureConversation({clientId:client.id,agencyId:req.mobileClinical.agencyId,actorUserId:req.user.id});return res.json({threadId:shared.threadId,suite:'secure'});}res.json({channel,to:channel==='sms'?contact.phone:contact.email,clientId:Number(client.id)});}catch(error){next(error);}};
 export const sendMobileClientContact=async(req,res,next)=>{try{await ensurePrimary(req,res);const {client,contacts}=await contactRoster(req),{contact,channel}=selectedContact(req,contacts);if(channel!=='sms')throw narrivaError(400,'Use the selected secure conversation or email composer for this channel.');const text=String(req.body.text||'').trim();if(!text||text.length>5000)throw narrivaError(400,'Enter a text message of 1 to 5000 characters.');const sent=await sendClinicalSms({userId:req.user.id,clientId:client.id,body:text,relayRecipient:{phone:contact.phone,guardianUserId:contact.guardianUserId}});res.json({ok:true,messageId:sent.messageLog?.id||null,conversationId:sent.conversationId||null});}catch(error){next(error);}};

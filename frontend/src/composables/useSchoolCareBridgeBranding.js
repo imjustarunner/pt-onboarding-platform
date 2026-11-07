@@ -9,7 +9,7 @@ export function useSchoolCareBridgeBranding(context, enabled = true) {
   let previousIcon;
   let appliedTitle;
   let icon;
-  const brandIcon = '/assets/schoolcarebridge/logo.png';
+  const brandIcon = '/assets/schoolcarebridge/icon.png';
   function restore() {
     if (appliedTitle === undefined) return;
     if (document.title === appliedTitle) document.title = previousTitle;

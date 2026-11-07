@@ -8,7 +8,7 @@
     <ActivityProtectionPanel v-if="protectionRequired && showRequest" />
     <p v-if="protectionUnavailable">Access-review status could not be checked. Open Security &amp; sign-in activity for the current status.</p>
     <p v-if="summaryUnavailable">Security alert counts are unavailable. Open Privacy review to check the queue.</p>
-    <p v-if="summary.alerts || summary.requests"><router-link to="/privacy-review">Review security activity: {{ summary.alerts }} unreviewed blocks · {{ summary.requests }} file-access requests</router-link></p>
+    <p v-if="summary.alerts || summary.requests"><router-link to="/privacy-review">Review security activity: {{ summary.alerts }} unreviewed blocked requests<template v-if="Number.isFinite(summary.accounts)"> affecting {{ summary.accounts }} accounts</template><template v-if="summary.unidentified"> · {{ summary.unidentified }} unidentified attempts</template> · {{ summary.requests }} file-access requests</router-link></p>
     <p v-if="state?.canReviewPrivacy"><router-link to="/privacy-review">Privacy review queue</router-link></p>
     <router-link to="/account-security">{{ needsVerification ? (state?.passkeyEnabled ? 'Verify with a passkey or recover access' : state?.method === 'email' ? 'Verify with an email code' : 'Set up or verify two-step verification') : 'Security & sign-in activity' }}</router-link>
   </aside>

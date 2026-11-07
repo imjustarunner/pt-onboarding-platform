@@ -149,6 +149,10 @@ export const TREATMENT_PLAN_OUTPUT_INSTRUCTIONS = [
   TREATMENT_PLAN_FOCUS_AND_INTERVENTIONS,
   'Return the treatment plan only—no preamble, title block, or closing commentary.',
   'Use these headers exactly, each on its own line, then the body on the following lines:',
+  'Presenting Problem:',
+  'Diagnosis:',
+  'Diagnostic Justification:',
+  'Prescribed Frequency:',
   'Goal 1:',
   'Objective 1.1:',
   'Interventions 1.1:',
@@ -168,7 +172,7 @@ export const TREATMENT_PLAN_OUTPUT_INSTRUCTIONS = [
   'Projected Time to Completion should be a duration in months (e.g. "3 months") when possible.',
   TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS,
   'Use the clinician transcript in full: include specific details, quotes, and functional examples rather than generic summaries.',
-  'When updating an existing plan, also include Diagnosis: and Diagnostic Justification: before Goal 1.'
+  'For both new and updated plans, preserve the supplied presenting problem, diagnosis, diagnostic justification and prescribed frequency. If the source does not support a field, state that clinician clarification is needed; never invent diagnoses, consent or baseline ratings.'
 ].join('\n');
 
 /**
@@ -179,8 +183,8 @@ export const TREATMENT_PLAN_STRUCTURE_CONTRACT = [
   TREATMENT_PLAN_FOCUS_AND_INTERVENTIONS,
   TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS,
   'MACHINE OUTPUT CONTRACT (overrides conflicting outline headings in the style guide above):',
-  'Emit ONLY these headers (each on its own line): Goal 1:, Objective 1.1:, Interventions 1.1:, Projected Time to Completion 1:, Goal 2:, Objective 2.1:, Interventions 2.1:, Projected Time to Completion 2:, Goal 3:, Objective 3.1:, Interventions 3.1:, Projected Time to Completion 3:, Discharge Plan:.',
-  'When updating, also include Diagnosis: and Diagnostic Justification: before Goal 1.',
+  'Emit ONLY these headers (each on its own line): Presenting Problem:, Diagnosis:, Diagnostic Justification:, Prescribed Frequency:, Goal 1:, Objective 1.1:, Interventions 1.1:, Projected Time to Completion 1:, Goal 2:, Objective 2.1:, Interventions 2.1:, Projected Time to Completion 2:, Goal 3:, Objective 3.1:, Interventions 3.1:, Projected Time to Completion 3:, Discharge Plan:.',
+  'For new and updated plans, populate context from supplied evidence only. Mark unsupported diagnosis, justification, frequency or baseline ratings for clinician clarification instead of inventing them.',
   'Number objectives as Goal#.Objective# (Objective 1.1 under Goal 1, Objective 2.1 under Goal 2). Add Objective 1.2 only when a second objective is clinically needed under the same goal.',
   'Every Objective MUST include a 1–10 scale with current and target using phrasing like "from a current baseline level 7 to a level 3 or below" (or "to a level 8 or higher"), plus explicit definitions of what level 1 and level 10 look like for THAT objective, and measurement via self-report / family / school / clinical observation as applicable.',
   'Also emit Discharge Plan: with concrete step-down/discharge criteria and prescribed frequency when known.',
@@ -198,7 +202,7 @@ export const H0004_PLAN_TONE_CONTRACT = [
   'Use clear, non-clinical, strengths-based language appropriate for bachelor’s-level facilitators.',
   'Do NOT write psychotherapy-sounding goals or objectives (no psychodynamic, CBT protocol, insight-oriented, or licensed-psychotherapy clinical framing unless the facilitator already provided that exact wording).',
   'Prefer coping skills, communication, behavioral support, environmental stressors, and daily-functioning language from the H0004 system directions.',
-  'Still emit ONLY the shared Goal / Objective / Interventions N.M / Projected Time / Discharge headers — never Presenting Concerns or alternate outlines as section headers.'
+  'Retain the shared Presenting Problem / Diagnosis / Diagnostic Justification / Prescribed Frequency headers within provider scope, followed by Goal / Objective / Interventions N.M / Projected Time / Discharge headers — never Presenting Concerns or alternate outlines as section headers.'
 ].join('\n');
 
 export const TREATMENT_PLAN_TOOL_IDS = new Set([

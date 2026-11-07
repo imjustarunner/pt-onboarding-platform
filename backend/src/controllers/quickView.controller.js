@@ -621,6 +621,8 @@ export async function requireQuickViewSession(req, res, next) {
       } catch { /* ignore */ }
     }
     req.quickView = session;
+    const {enforceMobileQaBoundary}=await import('../services/mobile/qaScope.service.js');
+    await enforceMobileQaBoundary(req);
     await req.auditIdentify?.({ id: session.userId, role: 'quick_view', sessionId: `quickview:${session.sessionId}` });
     // A Quick View PIN is not the authenticator second factor. Sensitive access
     // uses a full account sign-in rather than upgrading this reusable shortcut.
@@ -705,7 +707,12 @@ export const getQuickTasks = async (req, res, next) => {
     const userId = req.quickView.userId;
     const view = String(req.query.view || 'assigned').toLowerCase() === 'mine' ? 'mine' : 'assigned';
     const Task = (await import('../models/Task.model.js')).default;
-    const rows = await Task.findForHub(userId, { view, limit: 50 });
+    const rows = req.quickView.qaAgencyIds
+      ? (await pool.execute(`SELECT t.id,t.title,t.status,t.due_date,t.urgency,t.task_type FROM tasks t
+          WHERE t.assigned_to_agency_id=? AND (t.assigned_to_user_id=? OR t.assigned_by_user_id=?
+          OR EXISTS(SELECT 1 FROM task_collaborators tc WHERE tc.task_id=t.id AND tc.user_id=?))
+          ORDER BY t.due_date,t.id LIMIT 50`,[req.quickView.agencyId,userId,userId,userId]))[0]
+      : await Task.findForHub(userId, { view, limit: 50 });
     const open = (rows || []).filter((t) => {
       const s = String(t.status || 'open').toLowerCase();
       return !['completed', 'done', 'cancelled', 'overridden'].includes(s);
@@ -735,7 +742,12 @@ export const getQuickDayCalendar = async (req, res, next) => {
     const { windowStart, windowEnd } = quickDayWindow(day, timeZone);
     const ProviderScheduleEvent = (await import('../models/ProviderScheduleEvent.model.js')).default;
     // All tenants: meetings/sessions tied to this user
-    const events = await ProviderScheduleEvent.listForUserInWindow({
+    const qaAgencyIds=req.quickView.qaAgencyIds;
+    const events = qaAgencyIds ? (await pool.execute(`SELECT pse.* FROM provider_schedule_events pse
+      WHERE pse.agency_id=? AND pse.recurrence_horizon_held=0
+      AND ((pse.all_day=1 AND pse.start_date<DATE(?) AND pse.end_date>DATE(?)) OR (pse.all_day=0 AND pse.start_at<? AND pse.end_at>?))
+      AND (pse.provider_id=? OR EXISTS(SELECT 1 FROM provider_schedule_event_attendees qa_attendee WHERE qa_attendee.event_id=pse.id AND qa_attendee.user_id=?))
+      ORDER BY pse.start_at,pse.id`,[req.quickView.agencyId,windowEnd,windowStart,windowEnd,windowStart,userId,userId]))[0] : await ProviderScheduleEvent.listForUserInWindow({
       allAgencies: true,
       providerId: userId,
       windowStart,
@@ -743,7 +755,7 @@ export const getQuickDayCalendar = async (req, res, next) => {
     });
 
     const SupervisionSession = (await import('../models/SupervisionSession.model.js')).default;
-    const supervision = await SupervisionSession.listForUserInWindow({ allAgencies: true, userId, windowStart, windowEnd });
+    const supervision = await SupervisionSession.listForUserInWindow({ allAgencies: !qaAgencyIds,agencyId:req.quickView.agencyId, userId, windowStart, windowEnd });
     const Agency = (await import('../models/Agency.model.js')).default;
     const { buildPublicPortalBaseUrl } = await import('../utils/publicPortalUrl.js');
     const agencyIds = [...new Set([...events, ...supervision].map((e) => Number(e.agency_id)).filter(Boolean))];
@@ -799,9 +811,10 @@ export const getQuickDayCalendar = async (req, res, next) => {
        WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
          AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
          AND e.start_at < ? AND e.end_at > ?
+         ${qaAgencyIds?'AND EXISTS(SELECT 1 FROM appointments qa_appointment WHERE qa_appointment.office_event_id=e.id AND qa_appointment.agency_id=? AND qa_appointment.provider_user_id=?)':''}
        ORDER BY e.start_at ASC
        LIMIT 80`,
-      [userId, userId, windowEnd, windowStart]
+      [userId, userId, windowEnd, windowStart,...(qaAgencyIds?[req.quickView.agencyId,userId]:[])]
     ).catch(() => [[]]);
 
     const items = [

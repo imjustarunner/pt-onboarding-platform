@@ -1,4 +1,5 @@
 import {requireMobileThreadMembership} from '../services/mobile/conversa.service.js';
+import {mobileQaAgencyId,mobileQaScopeError} from '../services/mobile/qaConversaScope.service.js';
 import { assertSecureAttachmentPath } from '../services/secureChatAttachment.service.js';
 import { ensureClientSecureConversation, resolveClientForSecureRecipients, refreshClientSecureAccess } from '../services/clientSecureConversation.service.js';
 import { resolveSecureMessageClient, recordSecureMessageInChart } from '../services/secureMessageRecord.service.js';
@@ -397,7 +398,7 @@ async function userInAgency(userId, agencyId) {
 export async function findExistingDirectThreadBetweenUsers(
   meUserId,
   otherUserId,
-  { requestedAgencyId = null, organizationId = null, messageChannel = null } = {}
+  { requestedAgencyId = null, organizationId = null, messageChannel = null, strictAgencyId = null } = {}
 ) {
   const me = Number(meUserId);
   const other = Number(otherUserId);
@@ -428,8 +429,9 @@ export async function findExistingDirectThreadBetweenUsers(
        ON p_other.thread_id = t.id AND p_other.user_id = ?
      WHERE t.thread_type = 'direct' AND t.message_channel = ?
        AND (? <> 'secure' OR t.agency_id = ?)
+       ${strictAgencyId?'AND t.agency_id = ? AND t.organization_id IS NULL AND (SELECT COUNT(*) FROM chat_thread_participants exact_members WHERE exact_members.thread_id=t.id)=2':''}
      GROUP BY t.id, t.agency_id, t.organization_id, t.updated_at`,
-    [me, me, me, me, other, messageChannel, messageChannel, requestedAgencyId]
+    [me, me, me, me, other, messageChannel, messageChannel, requestedAgencyId,...(strictAgencyId?[strictAgencyId]:[])]
   );
   if (!rows?.length) return null;
 
@@ -874,7 +876,7 @@ async function resolveActiveAgencyIdForOrg(orgId) {
 export const listMyThreads = async (req, res, next) => {
   try {
     const { refreshSharedChildMemberships } = await import('../services/guardianSharedMessages.service.js');
-    await refreshSharedChildMemberships(req.user.id);
+    if(!mobileQaAgencyId(req))await refreshSharedChildMemberships(req.user.id);
     const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
 
     let agencyIds = [];
@@ -912,6 +914,7 @@ export const listMyThreads = async (req, res, next) => {
     }
     const previewEncryption=await hasChatMessageEncryptionColumns();
     const previewColumns=previewEncryption?', lm.body_ciphertext AS preview_ciphertext,lm.body_iv AS preview_iv,lm.body_auth_tag AS preview_tag,lm.encryption_key_id AS preview_key':'';
+    const attachmentCountSql=await hasChatMessageAttachmentsTable()?'(SELECT COUNT(*) FROM chat_message_attachments attachment WHERE attachment.message_id=lm.id)':'0';
     const [rows] = await pool.execute(
       `SELECT t.id AS thread_id,
               t.agency_id,
@@ -927,6 +930,7 @@ export const listMyThreads = async (req, res, next) => {
               CASE WHEN t.message_channel = 'secure' THEN 'Secure message — open to read' ELSE lm.body END AS last_message_body,
               lm.created_at AS last_message_at,
               lm.sender_user_id AS last_message_sender_user_id,
+              ${attachmentCountSql} AS last_message_attachment_count,
               r.last_read_message_id,
               td.deleted_at AS thread_deleted_at,
               (
@@ -1085,7 +1089,8 @@ export const listMyThreads = async (req, res, next) => {
               id: r.last_message_id,
               body: previewBody,
               created_at: r.last_message_at,
-              sender_user_id: r.last_message_sender_user_id
+              sender_user_id: r.last_message_sender_user_id,
+              attachment_count: Number(r.last_message_attachment_count) || 0
             }
           : null,
         participants: (others || []).map((p) => ({
@@ -1147,9 +1152,11 @@ export const createOrGetDirectThread = async (req, res, next) => {
 
     const existing = await findExistingDirectThreadBetweenUsers(me, otherUserId, {
       requestedAgencyId: agencyId,
-      organizationId
+      organizationId,
+      strictAgencyId:mobileQaAgencyId(req)
     });
     if (existing?.threadId) {
+      if(mobileQaAgencyId(req)&&Number(existing.agencyId)!==mobileQaAgencyId(req))throw mobileQaScopeError();
       await assertAgencyOrOrgAccess(req.user, existing.agencyId, existing.organizationId);
       try {
         await pool.execute('DELETE FROM chat_thread_deletes WHERE thread_id = ? AND user_id = ?', [
@@ -1169,6 +1176,7 @@ export const createOrGetDirectThread = async (req, res, next) => {
     let resolvedAgencyId = await resolveDirectThreadAgencyId(me, otherUserId, agencyId, organizationId, {
       viewerRole: req.user?.role
     });
+    if(mobileQaAgencyId(req)&&Number(resolvedAgencyId)!==mobileQaAgencyId(req))throw mobileQaScopeError();
     let allowed = !!resolvedAgencyId;
 
     // Provider/staff ↔ guardian: allow when the other user is a guardian linked to a client
@@ -1754,7 +1762,7 @@ export const sendMessage = async (req, res, next) => {
 export const listThreadsInbox = async (req, res, next) => {
   try {
     const { refreshSharedChildMemberships } = await import('../services/guardianSharedMessages.service.js');
-    await refreshSharedChildMemberships(req.user.id);
+    if(!mobileQaAgencyId(req))await refreshSharedChildMemberships(req.user.id);
     if (!(await hasParentMessageColumn())) {
       return res.json({ items: [] });
     }
@@ -1875,7 +1883,7 @@ export const listThreadsInbox = async (req, res, next) => {
 export const listMentionsInbox = async (req, res, next) => {
   try {
     const { refreshSharedChildMemberships } = await import('../services/guardianSharedMessages.service.js');
-    await refreshSharedChildMemberships(req.user.id);
+    if(!mobileQaAgencyId(req))await refreshSharedChildMemberships(req.user.id);
     if (!(await hasChatMessageMentionsTable())) {
       return res.json({ items: [] });
     }
@@ -2322,13 +2330,14 @@ async function tableExists(name) {
 export const listFilesInbox = async (req, res, next) => {
   try {
     const { refreshSharedChildMemberships } = await import('../services/guardianSharedMessages.service.js');
-    await refreshSharedChildMemberships(req.user.id);
+    if(!mobileQaAgencyId(req))await refreshSharedChildMemberships(req.user.id);
     if (!(await tableExists('chat_message_attachments'))) {
       return res.json({ files: [] });
     }
     const limitRaw = parseInt(req.query?.limit, 10);
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 100)) : 50;
     const sqlParams=[req.user.id,req.user.id];const mobileCutoff=mobileInboxCutoff(req,sqlParams,'a.created_at','a.id');
+    const qaAgencyId=mobileQaAgencyId(req);if(qaAgencyId)sqlParams.push(qaAgencyId);
     const [rows] = await pool.execute(
       `SELECT a.id, a.message_id, a.file_path, a.mime_type, a.file_kind, a.original_filename,
               a.byte_size, a.created_at,
@@ -2341,7 +2350,7 @@ export const listFilesInbox = async (req, res, next) => {
        INNER JOIN chat_thread_participants p ON p.thread_id = t.id AND p.user_id = ?
        LEFT JOIN users u ON u.id = m.sender_user_id
        LEFT JOIN chat_message_deletes d ON d.message_id = m.id AND d.user_id = ?
-       WHERE t.message_channel = 'internal' AND d.message_id IS NULL ${mobileCutoff}
+       WHERE t.message_channel = 'internal' AND d.message_id IS NULL ${mobileCutoff} ${qaAgencyId?'AND t.agency_id=?':''}
          ${req.quickView?.mobileDeviceSessionId && req.query.filter==='unread'?`AND ${mobileUnreadMessage(req)}`:req.quickView?.mobileDeviceSessionId && req.query.filter==='needs'?'AND 1=0':''}
        ORDER BY a.created_at DESC,a.id DESC
        LIMIT ${limit}`,
@@ -2382,7 +2391,7 @@ export const listFilesInbox = async (req, res, next) => {
 export const listBookmarksInbox = async (req, res, next) => {
   try {
     const { refreshSharedChildMemberships } = await import('../services/guardianSharedMessages.service.js');
-    await refreshSharedChildMemberships(req.user.id);
+    if(!mobileQaAgencyId(req))await refreshSharedChildMemberships(req.user.id);
     if (!(await tableExists('chat_message_bookmarks'))) {
       return res.json({ bookmarks: [] });
     }

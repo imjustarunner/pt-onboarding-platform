@@ -4,13 +4,13 @@ import {assertThreadAccess,markRead,markUnread} from './chat.controller.js';
 import {updateConversation} from '../services/unifiedInbox.service.js';
 import {qvListChatThreads,qvListChatChannels,qvListThreadsInbox,qvListMentions,qvListFiles} from './quickViewSurfaces.controller.js';
 import {requireConversationAccess} from '../services/communicationAccess.service.js';
-import {mobileConversaStore,mobileThreadItem} from '../services/mobile/conversa.service.js';
+import {mobileConversaStore,mobileThreadItem,hasMobileThreadActivity} from '../services/mobile/conversa.service.js';
 import {publicUploadsUrlFromStoredPath} from '../utils/uploads.js';
 import {downloadSecureChatAttachment} from './chatAttachments.controller.js';
 import StorageService from '../services/storage.service.js';
 import fs from 'node:fs/promises';
-import {listNoteAidWorkQueue} from './noteAidWorkQueue.controller.js';
-import {authorizedMobileClientCards,sanitizeMobileWorkItem} from '../services/mobileClinicalPrivacy.service.js';
+import {getMobileDocumentationQueue} from '../services/mobile/documentationQueue.service.js';
+import {mobileQaAgencyId,assertMobileQaThread,assertMobileQaConversation} from '../services/mobile/qaConversaScope.service.js';
 
 const fail=(status,message)=>Object.assign(new Error(message),{status});
 const mobile=fn=>async(req,res,next)=>{
@@ -36,10 +36,11 @@ const matches=(item,filter)=>filter==='unread'?item.unread:filter==='needs'?item
 export const getMobileInbox=mobile(async(req,res)=>{
   const userId=req.quickView.userId,includeArchived=req.query.includeArchived==='1',cursor=parseCursor(req.query.cursor);
   const suite=String(req.query.suite || 'all'),filter=String(req.query.filter || 'all');
+  const qaAgencyId=mobileQaAgencyId(req);
   const [rawThreads,emails,emailCounts,archives]=await Promise.all([
-    invoke(qvListChatThreads,req,{agencyId:'all'}),mobileConversaStore.emails(userId,{includeArchived,beforeAt:cursor?.at,beforeKey:cursor?.key,suite,filter}),mobileConversaStore.emailCounts(userId,includeArchived),mobileConversaStore.archives(userId)
+    invoke(qvListChatThreads,req,{agencyId:qaAgencyId || 'all'}),mobileConversaStore.emails(userId,{includeArchived,beforeAt:cursor?.at,beforeKey:cursor?.key,suite,filter,agencyId:qaAgencyId}),mobileConversaStore.emailCounts(userId,includeArchived,qaAgencyId),mobileConversaStore.archives(userId)
   ]);
-  let chats=(Array.isArray(rawThreads)?rawThreads:rawThreads.threads || []).map(thread=>({...mobileThreadItem(thread,userId),archived:archives.has(`chat:${thread.thread_id}`)}));
+  let chats=(Array.isArray(rawThreads)?rawThreads:rawThreads.threads || []).filter(thread=>(!qaAgencyId||Number(thread.agency_id)===qaAgencyId)&&hasMobileThreadActivity(thread)).map(thread=>({...mobileThreadItem(thread,userId),archived:archives.has(`chat:${thread.thread_id}`)}));
   if(!includeArchived)chats=chats.filter(item=>!item.archived);
   const counts=await mobileConversaStore.extraCounts(userId,chats.filter(item=>!item.secure).map(item=>item.id));
   for(const category of ['direct','groups','channels','secure'])counts[category]=countsFor(chats.filter(i=>i.category===category));
@@ -48,7 +49,7 @@ export const getMobileInbox=mobile(async(req,res)=>{
   counts.all=['direct','groups','channels','secure','email','sms','unknown'].map(key=>counts[key]).reduce((sum,c)=>({total:sum.total+c.total,unread:sum.unread+c.unread,needs:sum.needs+c.needs}),{total:0,unread:0,needs:0});
   // Unknown mail remains in its own folder, while All really includes every source.
   let availableChannels=[];
-  if(suite==='channels'){
+  if(suite==='channels'&&!qaAgencyId){
     const data=await invoke(qvListChatChannels,req,{agencyId:String(req.quickView.agencyId)});
     availableChannels=(data.channels || []).filter(channel=>!channel.is_member && !channel.isMember && !archives.has(`chat:${channel.thread_id || channel.id}`)).map(channel=>({...mobileThreadItem({...channel,thread_id:channel.thread_id || channel.id,thread_type:'channel',channel_name:channel.name || channel.channel_name},userId),preview:channel.description || 'Tap to join this channel',join:true}));
     counts.channels.total+=availableChannels.length;
@@ -77,12 +78,13 @@ export const getMobilePreferences=mobile(async(req,res)=>res.json({preferences:a
 export const patchMobilePreferences=mobile(async(req,res)=>res.json({preferences:await mobileConversaStore.savePreferences(req.quickView.userId,req.body || {})}));
 export const patchMobileArchive=mobile(async(req,res)=>{
   const id=Number(req.params.id),kind=req.params.kind;if(!Number.isSafeInteger(id)||id<=0 || !['chat','email','sms'].includes(kind))throw fail(400,'Invalid conversation.');
-  if(kind==='chat')await assertThreadAccess(req.quickView.userId,id,{requireActiveAgency:true});
-  else {const conversation=await requireConversationAccess({id:req.quickView.userId,role:'provider'},id);if(conversation.channel!==kind)throw fail(400,'Conversation does not match this category.');}
+  if(kind==='chat'){await assertMobileQaThread(req,id);await assertThreadAccess(req.quickView.userId,id,{requireActiveAgency:true});}
+  else {const conversation=assertMobileQaConversation(req,await requireConversationAccess({id:req.quickView.userId,role:'provider'},id));if(conversation.channel!==kind)throw fail(400,'Conversation does not match this category.');}
   await mobileConversaStore.archive(req.quickView.userId,kind,id,req.body.archived!==false);res.json({ok:true});
 });
 export const getMobileChatContext=mobile(async(req,res)=>{
   const id=Number(req.params.threadId);if(!Number.isSafeInteger(id)||id<=0)throw fail(400,'Invalid conversation.');
+  await assertMobileQaThread(req,id);
   await assertThreadAccess(req.quickView.userId,id,{requireActiveAgency:true});
   const [[thread]]=await pool.execute(`SELECT t.id,t.name,t.thread_type,t.message_channel,r.last_read_message_id FROM chat_threads t LEFT JOIN chat_thread_reads r ON r.thread_id=t.id AND r.user_id=? WHERE t.id=?`,[req.quickView.userId,id]);
   const [participants]=await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.work_email,u.email,u.profile_photo_path FROM chat_thread_participants p JOIN users u ON u.id=p.user_id WHERE p.thread_id=?`,[id]);
@@ -92,6 +94,7 @@ export const getMobileChatContext=mobile(async(req,res)=>{
 export const getMobileFile=mobile(async(req,res,next)=>{
   const [[file]]=await pool.execute(`SELECT a.*,m.thread_id,t.message_channel FROM chat_message_attachments a JOIN chat_messages m ON m.id=a.message_id JOIN chat_threads t ON t.id=m.thread_id WHERE a.id=? AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)`,[req.params.attachmentId,req.quickView.userId]);
   if(!file)throw fail(404,'File unavailable.');
+  await assertMobileQaThread(req,file.thread_id);
   await assertThreadAccess(req.quickView.userId,file.thread_id,{requireActiveAgency:true});
   if(file.message_channel==='secure'){
     const user=await User.findById(req.quickView.userId);req.user={id:req.quickView.userId,role:user.role};return downloadSecureChatAttachment(req,res,next);
@@ -105,27 +108,21 @@ export const getMobileFile=mobile(async(req,res,next)=>{
 export const patchMobileMessageState=mobile(async(req,res,next)=>{
   const id=Number(req.params.id),kind=req.params.kind;if(!Number.isSafeInteger(id)||id<=0 || !['chat','email','sms'].includes(kind))throw fail(400,'Invalid conversation.');
   if(kind==='chat'){
+    await assertMobileQaThread(req,id);
     await assertThreadAccess(req.quickView.userId,id,{requireActiveAgency:true});req.params.threadId=String(id);req.user={id:req.quickView.userId};
     if(req.body.read===false)await pool.execute('DELETE v FROM chat_message_views v JOIN chat_messages m ON m.id=v.message_id WHERE m.thread_id=? AND v.user_id=?',[id,req.quickView.userId]);
     return (req.body.read===false?markUnread:markRead)(req,res,next);
   }
-  await requireConversationAccess({id:req.quickView.userId,role:'provider'},id);
+  assertMobileQaConversation(req,await requireConversationAccess({id:req.quickView.userId,role:'provider'},id));
   res.json({conversation:await updateConversation(id,{markRead:req.body.read!==false,markUnread:req.body.read===false},{userId:req.quickView.userId})});
 });
 export const postMobileViewed=mobile(async(req,res)=>{
   const threadId=Number(req.params.threadId),ids=req.body.messageIds;
   if(!Number.isSafeInteger(threadId)||threadId<=0 || !Array.isArray(ids)||ids.length>200 || !ids.length || ids.some(id=>!Number.isSafeInteger(id)||id<=0))throw fail(400,'Valid message IDs are required.');
+  await assertMobileQaThread(req,threadId);
   await assertThreadAccess(req.quickView.userId,threadId,{requireActiveAgency:true});
   await pool.execute(`INSERT IGNORE INTO chat_message_views(message_id,user_id) SELECT m.id,? FROM chat_messages m WHERE m.thread_id=? AND m.id IN(${ids.map(()=>'?').join(',')}) AND m.sender_user_id<>? AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)`,[req.quickView.userId,threadId,...ids,req.quickView.userId,req.quickView.userId]);
   res.json({ok:true});
 });
 
-export const getMobileMyWork=mobile(async(req,res)=>{
-  const user=await User.findById(req.quickView.userId);
-  if(['support','school_staff'].includes(String(user.role).toLowerCase()))return res.json({items:[],clinicalAvailable:false});
-  const scoped=Object.assign(Object.create(req),{user:{...user,id:user.id,role:user.role},auricwellPreview:{agencyId:req.quickView.agencyId}});
-  const result=await invoke(listNoteAidWorkQueue,scoped);
-  const cards=await authorizedMobileClientCards(user,req.quickView.agencyId,(result.items || []).map(item=>item.clientId));
-  const items=(result.items || []).filter(item=>!item.clientId || cards.has(Number(item.clientId))).map(item=>sanitizeMobileWorkItem(item,cards.get(Number(item.clientId))));
-  res.json({items,clinicalAvailable:true});
-});
+export const getMobileMyWork=mobile(async(req,res)=>res.json(await getMobileDocumentationQueue(req)));

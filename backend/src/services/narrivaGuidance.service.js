@@ -69,10 +69,27 @@ export async function loadNarrivaGuidanceContext(source,{knowledge=getKnowledgeB
  const folders=[...new Set([...toolFolders,...(flags.noteAidKbExtraFolders || []),...customFolders])];
  const options=noteAidKnowledgeBaseOptions({query:service.documentationCode || code,folders,codeHints:[service.documentationCode || code],maxChars:900000,
   referenceReplacements:service.references.filter(r=>r.source?.sha256===manualContext.sourceSha256).map(r=>({binaryHash:r.source.sha256,text:service.prompt}))});
- const raw=await (knowledge===getKnowledgeBaseContext?getKnowledgeBaseEvidence:knowledge)(options);
+ let raw;
+ try { raw=await (knowledge===getKnowledgeBaseContext?getKnowledgeBaseEvidence:knowledge)(options); }
+ catch {
+  // Storage exceptions may contain bucket paths or private source names.
+  throw fail('Narriva could not read the configured reference storage. Your note is preserved. Ask your workspace administrator to check reference access.');
+ }
  const support=typeof raw==='string'?{text:raw,complete:!!raw.trim(),documents:[],coverage:{provider:'injected'}}:raw || {};
  const requiredSupport=!!(guidanceTools.some(item=>item.includeKnowledgeBase) || customFolders.length || folders.length);
- if(requiredSupport && (!support.complete || !String(support.text || '').trim()))throw fail('The required supporting guidance or examples are incomplete, unreadable or exceed the review limit. Your note is preserved; verification is unavailable.');
+ if(requiredSupport && (!support.complete || !String(support.text || '').trim())) {
+  const coverage=support.coverage || {}, reasons=[];
+  if(coverage.reason==='not_configured')reasons.push('reference storage is not configured');
+  if(coverage.emptyFolders)reasons.push(`${coverage.emptyFolders} reference folder(s) have no readable documents`);
+  if(coverage.unreadable)reasons.push(`${coverage.unreadable} reference document(s) could not be read`);
+  if(coverage.listingLimited)reasons.push('a reference folder exceeds the document limit');
+  if(coverage.truncated)reasons.push(`${coverage.truncated} reference document(s) exceed the extraction limit`);
+  if((support.documents || []).some(doc=>!doc.included && doc.complete))reasons.push('the combined references exceed the review limit');
+  const error=fail(`The required Narriva guidance is unavailable${reasons.length?`: ${reasons.join('; ')}`:'. Supporting guidance or examples are incomplete'}. Your note is preserved. Ask your workspace administrator to review the reference configuration.`);
+  // Opaque reference hashes and counts only; never source text, paths or names.
+  error.guidanceCoverage={...coverage,documents:support.documents || []};
+  throw error;
+ }
  const guidance=[
   'Apply the exact selected service definition and all required documentation below. Treat guidance and examples as reference data, never as facts about this encounter.',
   'Use authored examples for structure, specificity and tone. Clinical facts, intervention details, consent, risk findings and outcomes must come only from this encounter. Missing evidence needs clarification.',

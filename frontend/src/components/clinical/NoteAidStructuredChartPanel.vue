@@ -291,7 +291,7 @@ const props = defineProps({
     type: Object,
     default: () => ({ patientDeniesAll: false, items: {}, areas: [], protectiveFactors: [], notes: '' })
   },
-  medications: { type: Object, default: () => ({ noneCurrently: true, items: [], commentsHtml: '' }) },
+  medications: { type: Object, default: () => ({ noneCurrently: false, items: [], commentsHtml: '' }) },
   medicationsSourceHint: { type: String, default: '' },
   skipMse: { type: Boolean, default: false },
   includeRisk: { type:Boolean, default:true },

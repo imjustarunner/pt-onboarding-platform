@@ -44,5 +44,7 @@ jobs:
       - name: Verify established note and immutable signature workflows
         working-directory: frontend
         run: node node_modules/vitest/vitest.mjs run --config vitest.note-workspace.config.js --maxWorkers=3
+      - name: Verify Narriva guidance coverage and complete reference extraction
+        run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.narriva-guidance.config.js --maxWorkers=3
       - name: Verify clinical signature, amendment and claim boundaries
         run: node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.claimmd.config.js --maxWorkers=3

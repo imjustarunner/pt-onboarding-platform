@@ -110,3 +110,5 @@ describe('Quick View launcher access', () => {
     expect(sessionStorage.getItem('plottwist.quickViewSession')).toBeNull();
   });
 });
+
+it('offers primary account sign-in without upgrading the legacy PIN',async()=>{wrapper=shallowMount(Launcher);await flushPromises();expect(wrapper.get('.primary-account-link').attributes('href')).toBe('https://auricwell.com/mobile');expect(wrapper.text()).toContain('Password, SSO or passkey');expect(wrapper.find('#quick-view-passcode').exists()).toBe(true);expect(axios.post).not.toHaveBeenCalled();});

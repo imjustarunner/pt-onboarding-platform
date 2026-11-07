@@ -5,10 +5,11 @@ import { getConversationDetail, replyToConversation, composeNewEmail, undoOutbou
 import { findPersonalInbox, ensurePersonalMailbox } from '../services/personalMailbox.service.js';
 import { downloadCommunicationAttachment } from '../services/communicationAttachments.service.js';
 import { listMessageReactions, reactToHubMessage } from '../services/hubMessageReactions.service.js';
+import {assertMobileQaConversation,mobileQaAgencyId,mobileQaScopeError} from '../services/mobile/qaConversaScope.service.js';
 
 async function authorize(req) {
   // QV is an employee's own workspace; an admin's PIN never opens all agency mail.
-  return requireConversationAccess({ id: req.quickView.userId, role: 'provider' }, req.params.id);
+  return assertMobileQaConversation(req,await requireConversationAccess({ id: req.quickView.userId, role: 'provider' }, req.params.id));
 }
 const handle = (fn) => async (req, res, next) => {
   try { await fn(req, res, next); }
@@ -30,6 +31,7 @@ export const getQuickConversation = handle(async (req, res) => {
 });
 
 export const postQuickReply = handle(async (req, res) => {
+  if(mobileQaAgencyId(req))throw mobileQaScopeError();
   const conv = await authorize(req);
   const mode = req.body?.mode || 'reply';
   if (!['reply', 'reply_all', 'forward'].includes(mode)) throw Object.assign(new Error('Invalid reply action'), { status: 400 });
@@ -44,6 +46,7 @@ export const postQuickReply = handle(async (req, res) => {
 });
 
 export const postQuickCompose = handle(async (req, res) => {
+  if(mobileQaAgencyId(req))throw mobileQaScopeError();
   const userId = req.quickView.userId;
   const agencyId = req.quickView.agencyId;
   const inbox = await findPersonalInbox({ agencyId, userId }) || await ensurePersonalMailbox({ agencyId, userId });
@@ -61,14 +64,16 @@ export const getQuickAttachment = handle(async (req, res, next) => {
   await downloadCommunicationAttachment(req, res, next);
 });
 export const postQuickReaction = handle(async (req, res) => {
+  if(mobileQaAgencyId(req))throw mobileQaScopeError();
   const conv = await authorize(req);
   res.json(await reactToHubMessage({ agencyId: conv.agency_id, userId: req.quickView.userId, conversationId: conv.id, messageId: req.params.messageId, active: req.body.active !== false, emoji: '❤️', notifyEmail: false }));
 });
 export const postQuickUndo = handle(async (req, res) => {
+  if(mobileQaAgencyId(req))throw mobileQaScopeError();
   await authorize(req);
   res.json(await undoOutboundMessage(req.params.id, req.params.messageId, { userId: req.quickView.userId }));
 });
 
 export const patchQuickConversation = handle(async(req,res)=>{await authorize(req);res.json({conversation:await updateConversation(req.params.id,{markUnread:req.body.markUnread === true,markRead:req.body.markRead === true},{userId:req.quickView.userId})});});
 
-export const getQuickDeliveryReceipt = handle(async(req,res)=>{res.set('Cache-Control','private, no-store');res.json({message:await getEmailDeliveryReceipt({id:req.quickView.userId,role:'provider'},req.params.id,req.params.messageId)});});
+export const getQuickDeliveryReceipt = handle(async(req,res)=>{await authorize(req);res.set('Cache-Control','private, no-store');res.json({message:await getEmailDeliveryReceipt({id:req.quickView.userId,role:'provider'},req.params.id,req.params.messageId)});});

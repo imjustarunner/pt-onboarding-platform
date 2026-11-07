@@ -3,6 +3,7 @@ import clinicalPool from '../config/clinicalDatabase.js';
 import NoteAidWorkQueueItem from '../models/NoteAidWorkQueueItem.model.js';
 import ClinicalEligibilityService from './clinicalEligibility.service.js';
 import { resolveClientRecordAccess } from './clientRecordAccess.service.js';
+import { listClientAgencyMembershipIds } from '../utils/noteAidClientAgency.js';
 
 const roles = new Set(['provider','provider_plus','supervisor','intern','intern_plus','admin','super_admin','clinical_practice_assistant']);
 const asDate = value => value instanceof Date ? value : new Date(/(?:Z|[+-]\d\d:\d\d)$/.test(String(value)) ? value : `${String(value).replace(' ','T')}Z`);
@@ -27,7 +28,7 @@ export function bookedWorkItem(appointment, session, client) {
 // Materialize documentation tasks only. Attendance, notes, billing and appointment
 // history stay unchanged. Only exact, saved appointment/session associations qualify.
 export async function reconcileBookedSessionWork(user, {agencyId=null,db=pool,clinical=clinicalPool,queue=NoteAidWorkQueueItem,
-  agencyAccess=ClinicalEligibilityService.ensureAgencyAccess.bind(ClinicalEligibilityService),clientAccess=resolveClientRecordAccess}={}) {
+  agencyAccess=ClinicalEligibilityService.ensureAgencyAccess.bind(ClinicalEligibilityService),clientAccess=resolveClientRecordAccess,clientAgencies=listClientAgencyMembershipIds}={}) {
   if (!roles.has(user?.role) || !Number(user?.id)) return [];
   const [appointments] = await db.execute(`SELECT a.id,a.agency_id,a.provider_user_id,a.clinical_session_id,a.start_at,a.end_at,
     a.service_code,a.addon_service_codes_json,a.source_timezone,a.office_event_id,a.location_label,
@@ -48,7 +49,8 @@ export async function reconcileBookedSessionWork(user, {agencyId=null,db=pool,cl
   const byId=new Map(sessions.map(s=>[Number(s.id),s])), agencies=new Map(), clients=new Map(), added=[];
   for (const appointment of appointments) {
     const session=byId.get(Number(appointment.clinical_session_id));
-    if (!session || Number(session.appointment_id)!==Number(appointment.id) || Number(session.agency_id)!==Number(appointment.agency_id)) continue;
+    if (!session || Number(appointment.provider_user_id)!==Number(user.id) || Number(session.provider_user_id)!==Number(user.id)
+      || Number(session.appointment_id)!==Number(appointment.id) || Number(session.agency_id)!==Number(appointment.agency_id)) continue;
     if (!agencies.has(appointment.agency_id)) {
       try { await agencyAccess({reqUser:user,agencyId:appointment.agency_id});agencies.set(appointment.agency_id,true); }
       catch(error) { if(error.status===403){agencies.set(appointment.agency_id,false);}else throw error; }
@@ -56,7 +58,9 @@ export async function reconcileBookedSessionWork(user, {agencyId=null,db=pool,cl
     if (!agencies.get(appointment.agency_id)) continue;
     if (!clients.has(session.client_id)) clients.set(session.client_id,await clientAccess({userId:user.id,role:user.role,clientId:session.client_id}));
     const access=clients.get(session.client_id);
-    if (!access?.ok || Number(access.client?.agency_id)!==Number(appointment.agency_id)) continue;
+    if (!access?.ok) continue;
+    if (Number(access.client?.agency_id)!==Number(appointment.agency_id)
+      && !(await clientAgencies(session.client_id)).map(Number).includes(Number(appointment.agency_id))) continue;
     const item = await queue.createIfMissingForUser(user.id,bookedWorkItem(appointment,session,access.client));
     if (item) added.push(item);
   }

@@ -888,6 +888,23 @@
           </button>
         </div>
 
+          <NoteAidStructuredChartPanel
+            v-if="showStructuredChartPanel && !chartNoteReadOnly && !signedNoteViewerId"
+            id="narriva-assessment"
+            :include-risk="narrivaRiskIncluded || narrivaRiskRequired"
+            :diagnoses="structuredChartDiagnoses"
+            :diagnosis-mode="chartDiagnosisMode"
+            v-model:diagnostic-justification="chartDiagnosticJustification"
+            v-model:mse="chartMentalStatus"
+            v-model:risk="chartRiskAssessment"
+            v-model:medications="chartMedications"
+            :medications-source-hint="medicationsSourceHint"
+            :skip-mse="skipMentalStatusExam"
+            :mse-skip-label="mseSkipLabel"
+            @mse-all-normal="onMseAllNormal"
+            @mse-all-not-assessed="onMseAllNotAssessed"
+          />
+
         <section v-if="!useCsNoteBuildPathway && !skipAiAid && !signedNoteViewerId" class="na-input-panel">
           <h2 class="narriva-narrative-label"><img :src="NARRIVA_BRAND.icon" alt="" />Session Narrative</h2>
           <p class="narriva-privacy-hint" role="note">Please do not enter or speak names, birth dates, contact details, or other identifying information here. Use Client, Provider, parent, or guardian. Use the session recorder for spoken content.</p>
@@ -1140,22 +1157,7 @@
           </div>
           <ClinicalDiagnosisFields v-if="isIntakeOutput && intakeDiagnosisRecommendations.length && !chartNoteReadOnly && !signedNoteViewerId" v-model="intakeDiagnosisRecommendations" />
           <ClinicalDiagnosisReviewPanel v-if="effectiveClientId && (chartAgencyIdForSave || noteAidAgencyId)" :client-id="effectiveClientId" :agency-id="chartAgencyIdForSave || noteAidAgencyId" :provider-user-id="supervisorReviewItem?.providerId || authStore.user?.id" :read-only="chartNoteReadOnly || !!signedNoteViewerId" />
-          <NoteAidStructuredChartPanel
-            v-if="showStructuredChartPanel && !chartNoteReadOnly && !signedNoteViewerId"
-            id="narriva-assessment"
-            :include-risk="narrivaRiskIncluded || narrivaRiskRequired"
-            :diagnoses="structuredChartDiagnoses"
-            :diagnosis-mode="chartDiagnosisMode"
-            v-model:diagnostic-justification="chartDiagnosticJustification"
-            v-model:mse="chartMentalStatus"
-            v-model:risk="chartRiskAssessment"
-            v-model:medications="chartMedications"
-            :medications-source-hint="medicationsSourceHint"
-            :skip-mse="skipMentalStatusExam"
-            :mse-skip-label="mseSkipLabel"
-            @mse-all-normal="onMseAllNormal"
-            @mse-all-not-assessed="onMseAllNotAssessed"
-          />
+
 
           <div
             v-if="showProgressPlanFields && canApproveToClinicalRecord && !chartNoteReadOnly && !signedNoteViewerId"
@@ -2085,14 +2087,12 @@ const standaloneModalClients = computed(() => {
 
 async function onStandaloneDraftSaved() {
   showDiagnosisWriterModal.value = false;
-  showTreatmentPlanWriterModal.value = false;
   approvalMessage.value = 'Saved to Done without a client attachment.';
   await loadRecent();
   sidebarTab.value = DOC_STATUS.COMPLETED;
 }
 
 async function onStandalonePlanApplied() {
-  showTreatmentPlanWriterModal.value = false;
   approvalMessage.value = 'Treatment plan applied to client.';
   if (effectiveClientId.value) await loadClientTreatmentPlan(effectiveClientId.value);
   await loadRecent();
@@ -3287,6 +3287,8 @@ let autosaveDebounceTimer = null;
 let workspaceHydrateDepth = 0;
 let persistClientUnlink = false;
 let lastSavedAttendanceInput = '';
+let lastSavedDraftFingerprint = '';
+let lastSavedDraftId = null;
 
 function isWorkspaceHydrating() {
   return workspaceHydrateDepth > 0;
@@ -3300,7 +3302,12 @@ function beginWorkspaceHydration() {
 
 function endWorkspaceHydration() {
   workspaceHydrateDepth = Math.max(0, workspaceHydrateDepth - 1);
-  if (!workspaceHydrateDepth) lastSavedAttendanceInput = String(inputText.value || '');
+  if (!workspaceHydrateDepth) {
+    lastSavedAttendanceInput = String(inputText.value || '');
+    lastSavedDraftId = draftId.value;
+    lastSavedDraftFingerprint = draftPayloadFingerprint(draftSavePayload().payload);
+    if (draftId.value && !lastSavedAt.value) lastSavedAt.value = 'Previously saved';
+  }
   cancelPendingAutosave();
 }
 
@@ -5137,19 +5144,12 @@ const programLabel = (programId) => {
   return match?.name ? `${match.name} (#${match.id})` : `#${programId}`;
 };
 
-const autosave = async () => {
-  if(narrivaServicePending.value){approvalError.value='Confirm the encounter service-code change before saving.';return;}
-  // The public demo never persists authored content, including interval autosaves.
-  if (props.demoPresentation) return;
-  if (!canUseTool.value || chartNoteReadOnly.value || pendingDurationChange.value || durationCodeMismatch.value || autosaveBusy || isWorkspaceHydrating()) return;
-  const seq = workQueueActivateSeq;
+function draftSavePayload() {
   const targetDraftId = draftId.value;
-
   let rawInput = String(inputText.value || '');
   // Never persist ciphertext envelopes back into the form field.
   if (rawInput && looksEncryptedEnvelope(rawInput)) {
     rawInput = '';
-    inputText.value = '';
   }
 
   const linkedClientId = resolveDraftClientIdForSave();
@@ -5186,7 +5186,7 @@ const autosave = async () => {
       Number(bookingContext.value?.clinicalSessionId || sessionClinicalSessionId.value || 0) || null
   };
   // Persist session context (location, duration, times) into draft output_json.meta.
-  if (targetDraftId || outputObj.value) {
+  if (targetDraftId || outputObj.value || rawInput.trim()) {
     payload.outputJson = {
       ...(outputObj.value && typeof outputObj.value === 'object' ? outputObj.value : {}),
       meta: {
@@ -5219,11 +5219,9 @@ const autosave = async () => {
   }
   if (linkedClientId) {
     payload.clientId = linkedClientId;
-    persistClientUnlink = false;
   } else if (persistClientUnlink) {
     payload.clientId = null;
     payload.unlinkClient = true;
-    persistClientUnlink = false;
   }
 
   // Always persist typed or dictated session notes. On patch, omit when empty so we never wipe saved text.
@@ -5235,6 +5233,31 @@ const autosave = async () => {
   } else if (!targetDraftId) {
     payload.inputText = null;
   }
+
+  // Existing draft relationships change only through the dedicated, confirmed
+  // appointment-link operation. Saving narrative must not relink or unlink it.
+  if (targetDraftId) {
+    delete payload.clinicalSessionId;
+    delete payload.officeEventId;
+  }
+  return { payload, rawInput };
+}
+function draftPayloadFingerprint(payload) {
+  const { attendanceIntent, ...content } = payload;
+  return JSON.stringify(content);
+}
+
+const autosave = async () => {
+  if(narrivaServicePending.value){approvalError.value='Confirm the encounter service-code change before saving.';return;}
+  // The public demo never persists authored content, including interval autosaves.
+  if (props.demoPresentation) return;
+  if (!canUseTool.value || chartNoteReadOnly.value || pendingDurationChange.value || durationCodeMismatch.value || autosaveBusy || isWorkspaceHydrating()) return;
+  const seq = workQueueActivateSeq;
+  const targetDraftId = draftId.value;
+
+  const { payload, rawInput } = draftSavePayload();
+  const fingerprint = draftPayloadFingerprint(payload);
+  if (targetDraftId && String(lastSavedDraftId) === String(targetDraftId) && lastSavedDraftFingerprint === fingerprint) return true;
 
   // Create only after the clinician writes or dictates — client/initials/DOS
   // from a work-queue click must not spawn a new empty draft each time.
@@ -5296,7 +5319,15 @@ const autosave = async () => {
       );
     }
     lastSavedAttendanceInput = rawInput;
+    lastSavedDraftId = draftId.value;
+    const persistedPayload = { ...payload };
+    delete persistedPayload.clinicalSessionId;
+    delete persistedPayload.officeEventId;
+    if (persistedPayload.unlinkClient) { delete persistedPayload.unlinkClient; delete persistedPayload.clientId; }
+    lastSavedDraftFingerprint = draftPayloadFingerprint(persistedPayload);
+    persistClientUnlink = false;
     lastSavedAt.value = new Date().toLocaleString();
+    return true;
   } catch (e) {
     const status = Number(e?.response?.status || 0);
     if (status === 404 && targetDraftId) {
@@ -5315,8 +5346,8 @@ async function saveDraftNow() {
   savingDraftManual.value = true;
   approvalError.value = '';
   try {
-    await autosave();
-    if (draftId.value && lastSavedAt.value) {
+    const saved = await autosave();
+    if (saved && draftId.value && lastSavedAt.value) {
       approvalMessage.value = `Draft saved (${lastSavedAt.value}).`;
     } else if (!draftId.value) {
       approvalMessage.value =
@@ -5333,8 +5364,8 @@ async function prepareDraftAppointmentRepair(){
   const deadline=Date.now()+10000;
   while(autosaveBusy && Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,50));
   if(autosaveBusy)throw new Error('The source text is still saving. Wait for Draft saved and try again.');
-  await autosave();
-  if(!lastSavedAt.value)throw new Error(approvalError.value || 'Save the draft before linking its appointment.');
+  const saved = await autosave();
+  if(!saved)throw new Error(approvalError.value || 'Save the draft before linking its appointment.');
 }
 function onDraftAppointmentContext(context) {
   if (Number(context.draftId) !== Number(draftId.value) || Number(context.clinicalSessionId) !== Number(sessionClinicalSessionId.value)) return;
@@ -8882,6 +8913,7 @@ const loadDraftIntoWorkspace = async (d, options = {}) => {
   noteAidAgencyChoiceId.value = null;
   currentDraftArchivedAt.value = d.archived_at || null;
   currentDraftCreatedAt.value = d.created_at || null;
+  lastSavedAt.value = d.updated_at ? new Date(d.updated_at).toLocaleString() : 'Previously saved';
   const draftCode = singleServiceCodeLabel(
     persistedSession.serviceCode || d.service_code || d.serviceCode || options.preferredServiceCode || ''
   );

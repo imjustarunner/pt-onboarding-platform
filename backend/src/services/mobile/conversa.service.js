@@ -23,13 +23,23 @@ export function mobileThreadCategory(thread) {
   if(thread.thread_type==='channel')return 'channels';
   return thread.thread_type==='direct' && (thread.participants || []).length<=1?'direct':'groups';
 }
+// Portal provisioning can create a conversation before anyone sends a message.
+// A changed membership/updated_at timestamp is not message activity.
+export function hasMobileThreadActivity(thread) { return Number(thread.last_message?.id)>0; }
+export function mobileMessagePreview(body,attachmentCount=0) {
+  const text=typeof body==='string'?body.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim():'';
+  if(text)return text.slice(0,240);
+  const count=Math.max(0,Number(attachmentCount)||0);
+  return count?`${count===1?'Attachment':`${count} attachments`} · open to view`:'Message · open to read';
+}
 export function mobileThreadItem(thread,userId) {
   const category=mobileThreadCategory(thread),secure=category==='secure',parts=thread.participants || [];
-  const names=parts.map(p=>[p.first_name,p.last_name].filter(Boolean).join(' ') || p.email).filter(Boolean);
-  const title=category==='direct'?names.join(', '):thread.channel_name || (['Group chat','Shared care','Personal portal'].includes(thread.thread_label)?null:thread.thread_label) || names.join(', ') || (secure?'Secure conversation':'Team discussion');
+  const name=p=>[p?.first_name,p?.last_name].filter(Boolean).join(' ').trim() || p?.email;
+  const names=parts.map(name).filter(Boolean);
+  const title=(category==='direct'?names.join(', ') || name(thread.other_participant):thread.channel_name || (['Group chat','Shared care','Personal portal'].includes(thread.thread_label)?null:thread.thread_label) || names.join(', ')) || (secure?'Secure conversation':category==='direct'?'Direct conversation':'Team discussion');
   const author=parts.find(p=>Number(p.id)===Number(thread.last_message?.sender_user_id));
-  const sender=Number(thread.last_message?.sender_user_id)===Number(userId)?'You':author?[author.first_name,author.last_name].filter(Boolean).join(' '):title;
-  return {key:`chat:${thread.thread_id}`,id:Number(thread.thread_id),kind:'chat',category,title:secure?maskMobileName(title):title,sender:secure?maskMobileName(sender):sender,preview:secure?'Secure message · tap to unlock':thread.last_message?.body || '',at:thread.last_message?.created_at || thread.updated_at,unread:Number(thread.unread_count)>0,unreadCount:Number(thread.unread_count)||0,needsReply:!!thread.last_message?.sender_user_id && Number(thread.last_message.sender_user_id)!==Number(userId),avatar:secure?null:author?.profile_photo_url || thread.other_participant?.profile_photo_url || null,lastReadMessageId:Number(thread.last_read_message_id)||0,participantCount:parts.length+1,secure};
+  const sender=Number(thread.last_message?.sender_user_id)===Number(userId)?'You':name(author) || title;
+  return {key:`chat:${thread.thread_id}`,id:Number(thread.thread_id),kind:'chat',category,title:secure?maskMobileName(title):title,sender:secure?maskMobileName(sender):sender,preview:secure?'Secure message · tap to unlock':mobileMessagePreview(thread.last_message?.body,thread.last_message?.attachment_count),at:thread.last_message?.created_at || null,unread:Number(thread.unread_count)>0,unreadCount:Number(thread.unread_count)||0,needsReply:!!thread.last_message?.sender_user_id && Number(thread.last_message.sender_user_id)!==Number(userId),avatar:secure?null:author?.profile_photo_url || thread.other_participant?.profile_photo_url || null,lastReadMessageId:Number(thread.last_read_message_id)||0,participantCount:parts.length+1,secure};
 }
 // Preserve the personal mailbox and active-tenant checks used by Quick View.
 export const MOBILE_EMAIL_ACCESS_SQL = `EXISTS (SELECT 1 FROM user_agencies member JOIN agencies active_agency ON active_agency.id=member.agency_id AND active_agency.is_active=1 AND COALESCE(active_agency.is_archived,0)=0 WHERE member.user_id=? AND member.agency_id=c.agency_id AND COALESCE(member.is_active,1)=1)
@@ -64,9 +74,9 @@ export function createMobileConversaStore(db=pool) {
     if(active)await db.execute('INSERT INTO mobile_message_archives(user_id,source_kind,source_id) VALUES(?,?,?) ON DUPLICATE KEY UPDATE archived_at=CURRENT_TIMESTAMP',[userId,kind,id]);
     else await db.execute('DELETE FROM mobile_message_archives WHERE user_id=? AND source_kind=? AND source_id=?',[userId,kind,id]);
   }
-  function emailScope(userId,includeArchived) {return {where:`c.channel IN('email','sms') AND COALESCE(c.is_spam,0)=0 AND ${MOBILE_EMAIL_ACCESS_SQL} ${includeArchived?'':'AND c.archived_at IS NULL AND archive.archived_at IS NULL'}`,params:Array(6).fill(userId)};}
-  async function emails(userId,{includeArchived=false,beforeAt=null,beforeKey=null,suite='all',filter='all'}={}) {
-    const scope=emailScope(userId,includeArchived);
+  function emailScope(userId,includeArchived,agencyId=null) {return {where:`c.channel IN('email','sms') AND COALESCE(c.is_spam,0)=0 AND ${MOBILE_EMAIL_ACCESS_SQL} ${includeArchived?'':'AND c.archived_at IS NULL AND archive.archived_at IS NULL'} ${agencyId?'AND c.agency_id=?':''}`,params:[...Array(6).fill(userId),...(agencyId?[agencyId]:[])]};}
+  async function emails(userId,{includeArchived=false,beforeAt=null,beforeKey=null,suite='all',filter='all',agencyId=null}={}) {
+    const scope=emailScope(userId,includeArchived,agencyId);
     const [rows]=await db.execute(`SELECT c.id,c.channel,c.subject,c.status,c.last_message_preview,COALESCE(c.last_message_at,c.created_at) AS sort_at,
       COALESCE(archive.archived_at,c.archived_at) AS archived_at,${unreadSql} AS is_unread,${unknownSql} AS is_unknown_sender,
       (SELECT p.display_name FROM communication_participants p WHERE p.conversation_id=c.id ORDER BY p.is_primary DESC,p.id LIMIT 1) AS sender_name,
@@ -81,8 +91,8 @@ export function createMobileConversaStore(db=pool) {
       return {key:`${r.channel}:${r.id}`,kind:r.channel,category:r.channel,id:Number(r.id),title:r.subject || '(No subject)',sender:from.name || r.sender_name || from.email || r.sender_email || 'Sender',senderEmail:from.email || r.sender_email,preview:r.last_message_preview || '',at:r.sort_at,archived:!!r.archived_at,unread:!!Number(r.is_unread),unreadCount:r.is_unread?1:0,needsReply:['new','needs_reply'].includes(r.status),unknown:!!Number(r.is_unknown_sender)};
     });
   }
-  async function emailCounts(userId,includeArchived=false) {
-    const scope=emailScope(userId,includeArchived);
+  async function emailCounts(userId,includeArchived=false,agencyId=null) {
+    const scope=emailScope(userId,includeArchived,agencyId);
     const [rows]=await db.execute(`SELECT c.channel,${unknownSql} AS effective_unknown,COUNT(*) AS total,SUM(${unreadSql}) AS unread,SUM(c.status IN('new','needs_reply')) AS needs FROM communication_conversations c
       LEFT JOIN communication_conversation_reads r ON r.conversation_id=c.id AND r.user_id=?
       LEFT JOIN mobile_message_archives archive ON archive.user_id=? AND archive.source_kind=c.channel AND archive.source_id=c.id

@@ -28,11 +28,11 @@ async function unlocked(req){
   return mobileSessions.access(session.mobileDeviceSessionId,session.userId,session.agencyId);
 }
 router.get('/account',authenticate,handle(async(req,res)=>{
-  if(req.user.switchedFromUserId || req.authClaims?.demoMode)throw failure(403,'MOBILE_PRIMARY_REQUIRED','Use your own staff account to connect a device.');
+  if(req.user.switchedFromUserId || req.authClaims?.demoMode || req.authClaims?.testAccountSwitch)throw failure(403,'MOBILE_PRIMARY_REQUIRED','Use your own staff account to connect a device.');
   res.json(mobileSessions.publicProfile(await mobileSessions.actor(req.user.id)));
 }));
 router.post('/authorize',limiter,authenticate,handle(async(req,res)=>{
-  if(req.user.switchedFromUserId || req.authClaims?.demoMode || Number(req.body.expectedUserId)!==Number(req.user.id))throw failure(403,'MOBILE_PRIMARY_REQUIRED','Confirm your own account before connecting a device.');
+  if(req.user.switchedFromUserId || req.authClaims?.demoMode || req.authClaims?.testAccountSwitch || Number(req.body.expectedUserId)!==Number(req.user.id))throw failure(403,'MOBILE_PRIMARY_REQUIRED','Confirm your own account before connecting a device.');
   res.json(await mobileSessions.authorize({userId:req.user.id,agencyId:req.body.agencyId,clientId:req.body.clientId,redirectUri:req.body.redirectUri,challenge:req.body.challenge}));
 }));
 router.post('/exchange',limiter,handle(async(req,res)=>{

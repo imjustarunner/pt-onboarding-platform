@@ -1,8 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
   participantsLikelyIncludeOthers,
-  defaultDurationMinutesForServiceCode
+  defaultDurationMinutesForServiceCode,
+  defaultMedicationsBlock
 } from '../noteAidSessionQueue.js';
+import { formatMedicationsText } from '../noteAidUiHelpers.js';
+
+it('leaves new medication findings blank until supplied or confirmed', () => {
+  const value = defaultMedicationsBlock();
+  expect(value.noneCurrently).toBe(false);
+  expect(formatMedicationsText(value)).toBe('');
+  expect(formatMedicationsText({ ...value, noneCurrently: true })).toBe('None currently.');
+});
 
 describe('participantsLikelyIncludeOthers', () => {
   const familyDiscussion = `

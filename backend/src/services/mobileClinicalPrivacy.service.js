@@ -25,5 +25,6 @@ export function sanitizeMobileWorkItem(item,client) {
  return {id:item.id,serverId:item.serverId,clientId:client?.id || null,clientName:masked,maskedName:masked,age:client?.age ?? null,
   agencyId:item.agencyId,clinicalSessionId:item.clinicalSessionId || null,officeEventId:item.officeEventId || null,
   clinicalNoteId:item.clinicalNoteId || null,draftId:item.draftId || null,date:item.date || null,serviceCode:item.serviceCode || null,
+  timeLabel:item.timeLabel || null,scheduledStart:item.scheduledStart || null,scheduledEnd:item.scheduledEnd || null,sourceTimezone:item.sourceTimezone || null,
   noteKind:item.noteKind || null,status:item.status,docStatus:item.docStatus,action:'Open session documentation',title:masked};
 }

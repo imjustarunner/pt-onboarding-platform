@@ -34,11 +34,15 @@ export const requestFileAccess=async(req,res,next)=>{let db;try{
 }catch(e){if(db)await db.rollback();next(e);}finally{db?.release();}};
 export const reviewQueue=async(req,res,next)=>{try{
  res.setHeader('Cache-Control','no-store');
+ const status=String(req.query.status || 'unreviewed');
+ if(!['unreviewed','reviewed','all'].includes(status))throw protectionError('Choose unreviewed requests, reviewed requests, or all history.');
  let cursor=null;
- if(req.query.cursor){try{cursor=JSON.parse(Buffer.from(String(req.query.cursor),'base64url').toString());if(!Number.isFinite(Date.parse(cursor.at))||!/^[a-f0-9-]{36}$/.test(cursor.id))throw new Error();}catch{throw protectionError('Invalid alert cursor.');}}
- const [alerts]=await pool.execute(`SELECT a.*,u.email actor_email FROM activity_protection_alerts a LEFT JOIN users u ON u.id=a.user_id ${cursor?'WHERE (a.occurred_at<? OR (a.occurred_at=? AND a.id<?))':''} ORDER BY a.occurred_at DESC,a.id DESC LIMIT 101`,cursor?[new Date(cursor.at),new Date(cursor.at),cursor.id]:[]);
+ if(req.query.cursor){try{cursor=JSON.parse(Buffer.from(String(req.query.cursor),'base64url').toString());if(!Number.isFinite(Date.parse(cursor.at))||!/^[a-f0-9-]{36}$/.test(cursor.id)||(cursor.status&&cursor.status!==status))throw new Error();}catch{throw protectionError('Invalid alert cursor.');}}
+ const conditions=status==='all'?[]:[status==='reviewed'?'a.reviewed_at IS NOT NULL':'a.reviewed_at IS NULL'];
+ if(cursor)conditions.push('(a.occurred_at<? OR (a.occurred_at=? AND a.id<?))');
+ const [alerts]=await pool.execute(`SELECT a.*,u.email actor_email FROM activity_protection_alerts a LEFT JOIN users u ON u.id=a.user_id ${conditions.length?`WHERE ${conditions.join(' AND ')}`:''} ORDER BY a.occurred_at DESC,a.id DESC LIMIT 101`,cursor?[new Date(cursor.at),new Date(cursor.at),cursor.id]:[]);
  const [tickets]=await pool.execute("SELECT t.*,u.email actor_email FROM activity_protection_tickets t LEFT JOIN users u ON u.id=t.user_id WHERE t.status='pending' ORDER BY t.created_at LIMIT 100");
- res.json({alerts:alerts.slice(0,100),tickets,policy:PROTECTION_POLICY,nextCursor:alerts.length>100?Buffer.from(JSON.stringify({at:new Date(alerts[99].occurred_at).toISOString(),id:alerts[99].id})).toString('base64url'):null});
+ res.json({alerts:alerts.slice(0,100),tickets,status,policy:PROTECTION_POLICY,nextCursor:alerts.length>100?Buffer.from(JSON.stringify({at:new Date(alerts[99].occurred_at).toISOString(),id:alerts[99].id,status})).toString('base64url'):null});
 }catch(e){next(e);}};
 export const pendingFileRequests=async(req,res,next)=>{try{
  res.setHeader('Cache-Control','no-store');
@@ -83,9 +87,9 @@ export const printIntent=async(req,res,next)=>{try{
 }catch(e){next(e);}};
 
 export const protectionSummary=async(req,res,next)=>{try{
- const [[alerts]]=await pool.execute('SELECT COUNT(*) n FROM activity_protection_alerts WHERE reviewed_at IS NULL');
+ const [[alerts]]=await pool.execute('SELECT COUNT(*) n,COUNT(DISTINCT user_id) accounts,COALESCE(SUM(user_id IS NULL),0) unidentified FROM activity_protection_alerts WHERE reviewed_at IS NULL');
  const [[tickets]]=await pool.execute("SELECT COUNT(*) n FROM activity_protection_tickets WHERE status='pending'");
- res.setHeader('Cache-Control','no-store');res.json({alerts:Number(alerts.n),requests:Number(tickets.n)});
+ res.setHeader('Cache-Control','no-store');res.json({alerts:Number(alerts.n),accounts:Number(alerts.accounts),unidentified:Number(alerts.unidentified),requests:Number(tickets.n)});
 }catch(e){next(e);}};
 
 export async function isPrivacyReviewer(userId){
