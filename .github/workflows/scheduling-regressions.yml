@@ -47,7 +47,7 @@ jobs:
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.school-onboarding.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.qa-sms.config.js schoolAppointment appointmentReplyFeeAcknowledgement scheduling.reminderUtc
           npm test --prefix frontend -- --config vitest.school-links.config.js --maxWorkers=1
-          npm test --prefix frontend -- src/router/__tests__/schoolCareBridgeRoutes.test.js src/utils/__tests__/schoolEnrollmentLink.test.js src/utils/__tests__/publicIntakeUrl.test.js src/utils/__tests__/serviceLegalContext.test.js src/services/__tests__/workspaceNavigation.test.js
+          npm test --prefix frontend -- src/router/__tests__/schoolCareBridgeRoutes.test.js src/utils/__tests__/schoolEnrollmentLink.test.js src/utils/__tests__/publicIntakeUrl.test.js src/utils/__tests__/serviceLegalContext.test.js src/services/__tests__/workspaceNavigation.test.js src/views/school/__tests__/SchoolCareBridgeAgencyWorkspace.test.js
       - name: School weekly booking, scheduling requests, and support drafts
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.school-weekly.config.js
@@ -111,7 +111,8 @@ jobs:
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.intake-contact.config.js
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.guardian-enrollment-policy.config.js
-          npm test --prefix frontend -- --run src/components/admin/__tests__/ClientGuardianContactEditor.test.js src/components/public/__tests__/SharedSchoolSigning.test.js src/views/__tests__/PublicIntakeProviderSelection.test.js src/views/__tests__/PublicIntakeSchoolChildren.test.js src/components/public-intake/__tests__/EnrollmentPortalAccess.test.js src/components/clients/__tests__/ClientPortalInviteDialog.test.js src/components/portal/__tests__/PortalNotificationSetup.test.js
+          npm test --prefix frontend -- --run src/components/admin/__tests__/ClientGuardianContactEditor.test.js src/components/public/__tests__/SharedSchoolSigning.test.js src/views/__tests__/PublicIntakeProviderSelection.test.js src/views/__tests__/PublicIntakeSchoolChildren.test.js src/views/__tests__/PublicIntakeInsuranceContinue.test.js src/components/public-intake/__tests__/EnrollmentPortalAccess.test.js src/components/clients/__tests__/ClientPortalInviteDialog.test.js src/components/portal/__tests__/PortalNotificationSetup.test.js
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.intake-insurance-receipt.config.js
       - name: Meeting offers, date editing, and optional office referral source
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.meeting-reservations.config.js

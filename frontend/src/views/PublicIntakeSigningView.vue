@@ -11869,14 +11869,20 @@ const completeInsuranceStep = async () => {
   const selfPayDeclared = !!(insInfo.isSelfPay || insuranceEntryState.isSelfPay);
   if (selfPayDeclared) {
     insInfo.isSelfPay = true;
-    insInfo.primary.insurerName = 'Self-Pay';
-    insInfo.primary.memberId = '';
-    insInfo.primary.groupNumber = '';
-    insInfo.primary.patientSuffix = '';
-    insInfo.primary.isMedicaid = false;
-    insInfo.primaryIsMedicaid = false;
-    insInfo.hasSecondary = false;
-    insInfo.secondary = null;
+    // Office payer choice is separate from declared coverage. Keep policies for
+    // Back/resume and Medicaid review, as the combined step does while editing.
+    // The standalone school flow has no self-pay authorization control and
+    // retains its existing no-coverage payload for that backend exception.
+    if (!combined) {
+      insInfo.primary.insurerName = 'Self-Pay';
+      insInfo.primary.memberId = '';
+      insInfo.primary.groupNumber = '';
+      insInfo.primary.patientSuffix = '';
+      insInfo.primary.isMedicaid = false;
+      insInfo.primaryIsMedicaid = false;
+      insInfo.hasSecondary = false;
+      insInfo.secondary = null;
+    }
   } else if (!insurerName) {
     const msg = 'Please select your primary insurance provider before continuing.';
     stepError.value = msg;

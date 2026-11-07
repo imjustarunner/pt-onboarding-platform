@@ -12,7 +12,7 @@
   <section v-else-if="error" class="scb-status" role="alert"><h1>We couldn’t open this portal</h1><p>{{error}}</p><router-link :to="schoolCareBridgePath()">Choose a school</router-link> <button @click="load">Try again</button></section>
   <template v-else-if="auth.isAuthenticated">
    <OrganizationDashboardView v-if="school && authorized" />
-   <main v-else class="scb-school-picker"><p class="scb-eyebrow">SchoolCareBridge · A program of MH4Kidz</p><h1>Choose your school</h1><p>Open a school portal available to your account.</p><div v-if="partners.length" class="scb-partner-picker"><h2>Your agency’s SchoolCareBridge</h2><div class="scb-picker-grid"><router-link v-for="partner in partners" :key="partner.id" :to="schoolCareBridgePartnerPath(partner.slug)"><img v-if="partner.logoUrl||partner.slug==='itsco'" :src="asset(partner.logoUrl||'/assets/itsco/logo.png')" :alt="partner.name"/><strong>{{partner.name}}</strong><span>SchoolCareBridge →</span></router-link></div></div><div class="scb-picker-grid"><router-link v-for="item in schools" :key="item.id" :to="schoolCareBridgePath(item.slug)"><img v-if="item.logoUrl" :src="asset(item.logoUrl)" alt="" @error="hideImage"/><strong>{{item.name}}</strong><span>→</span></router-link></div><p v-if="!schools.length">No active school portals are available to this account. Contact your school or agency administrator for access.</p><a v-if="auth.user?.role!=='school_staff'" class="scb-button scb-outline" :href="agencyWorkspace">Open agency workspace ↗</a></main>
+   <main v-else class="scb-school-picker"><p class="scb-eyebrow">SchoolCareBridge · A program of MH4Kidz</p><h1>Choose your school</h1><p>Open a school portal available to your account.</p><div v-if="partners.length" class="scb-partner-picker"><h2>Your agency’s SchoolCareBridge</h2><div class="scb-picker-grid"><router-link v-for="partner in partners" :key="partner.id" :to="schoolCareBridgePartnerPath(partner.slug)"><img v-if="partner.logoUrl||partner.slug==='itsco'" :src="asset(partner.logoUrl||'/assets/itsco/logo.png')" :alt="partner.name"/><strong>{{partner.name}}</strong><span>SchoolCareBridge →</span></router-link></div></div><div class="scb-picker-grid"><router-link v-for="item in schools" :key="item.id" :to="schoolCareBridgePath(item.slug)"><img v-if="item.logoUrl" :src="asset(item.logoUrl)" alt="" @error="hideImage"/><strong>{{item.name}}</strong><span>→</span></router-link></div><p v-if="!schools.length">No active school portals are available to this account. Contact your school or agency administrator for access.</p><button v-if="workspaceAgency" class="scb-button scb-outline" :disabled="workspaceOpening" @click="openAgencyWorkspace">{{workspaceOpening?'Opening agency workspace…':'Open agency workspace ↗'}}</button><p v-else-if="auth.user?.role!=='school_staff'">No full agency workspace is available to your account.</p><p v-if="workspaceError" role="alert">{{workspaceError}}</p></main>
   </template>
   <main v-else class="scb-login-layout">
    <section v-if="!school" class="scb-login-story">
@@ -62,6 +62,7 @@ import api from '../../services/api';
 import {toUploadsUrl} from '../../utils/uploadsUrl';
 import {schoolCareBridgePath,schoolCareBridgeExternalPath} from '../../utils/schoolCareBridge';
 import {schoolCareBridgePartnerPath} from '../../utils/schoolCareBridgeTenant';
+import {useSchoolCareBridgeAgencyWorkspace} from '../../composables/useSchoolCareBridgeAgencyWorkspace';
 import '../../styles/schoolCareBridge.css';
 import { setPendingLoginRoute } from '../../utils/loginRemember';
 const route=useRoute(),router=useRouter(),auth=useAuthStore(),agencyStore=useAgencyStore(),organizationStore=useOrganizationStore(),brandingStore=useBrandingStore();
@@ -72,7 +73,7 @@ const asset=value=>value?.startsWith('/assets/')?value:toUploadsUrl(value);
 const hideImage=event=>{event.target.style.display='none';};
 const options={skipAuthRedirect:true,skipGlobalLoading:true};
 const schoolStyle=computed(()=>{const color=school.value?.colors?.primary;return /^#(?:[a-f0-9]{3,4}|[a-f0-9]{6}|[a-f0-9]{8})$/i.test(color||'')?{'--scb-school-color':color}:{};});
-const agencyWorkspace=computed(()=>{const agency=(agencyStore.userAgencies||[]).find(a=>a.organization_type==='agency');return `https://plottwisthq.com/${encodeURIComponent(agency?.portal_url||agency?.slug||'')}${agency?'/dashboard':'dashboard'}`;});
+const {agency:workspaceAgency,opening:workspaceOpening,error:workspaceError,openAgencyWorkspace}=useSchoolCareBridgeAgencyWorkspace();
 let loadVersion=0;
 onUnmounted(()=>loadVersion++);
 async function load(){const version=++loadVersion;busy.value=true;error.value='';authorized.value=false;school.value=null;schools.value=[];try{

@@ -28,6 +28,7 @@ import { matchesIntakeSession } from '../middleware/intakeBillingSession.middlew
 import { createFamilyCardSetup, completeFamilyCardSetup } from '../services/familyCardSetup.service.js';
 import { BILLING_TERMS, BILLING_TERMS_VERSION } from '../services/familyBillingPolicy.service.js';
 import { insuranceForIntakeClient, applySubmittedClientInsurance } from '../services/clientInsurance.service.js';
+import { hasMedicaidCoverage } from '../utils/insurancePaymentPolicy.js';
 import { validationResult } from 'express-validator';
 import crypto from 'crypto';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
@@ -4374,8 +4375,14 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
       String(sec.memberId || '').trim()
     );
     const isMedicaidPrimary = !!insInfo.primaryIsMedicaid;
-    if (hasPrimary || hasSecondary || insInfo.noPrimaryCardAvailable) {
+    const isSelfPay = insInfo.isSelfPay === true;
+    const authTyped = String(insInfo.authorizationSignature || '').trim();
+    const authDrawn = String(insInfo.authorizationSignatureData || '').trim();
+    // The payment choice and its signed agreement exist independently of a
+    // carrier. Self-pay may also retain declared coverage for later review.
+    if (hasPrimary || hasSecondary || insInfo.noPrimaryCardAvailable || isSelfPay || authTyped || authDrawn) {
       pushHeader('Insurance Information');
+      if (isSelfPay) output.push('Payment choice: Self-Pay');
       if (insInfo.noPrimaryCardAvailable) {
         output.push('No insurance card on file at time of intake.');
       }
@@ -4385,7 +4392,7 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
         if (String(pri.memberId || '').trim()) output.push(`Primary Member ID: ${pri.memberId}`);
         if (!isMedicaidPrimary && String(pri.groupNumber || '').trim()) output.push(`Primary Group Number: ${pri.groupNumber}`);
         if (!isMedicaidPrimary && String(pri.patientSuffix || '').trim()) output.push(`Primary Patient Suffix: ${pri.patientSuffix}`);
-      } else if (!insInfo.noPrimaryCardAvailable) {
+      } else if (isSelfPay && !insInfo.noPrimaryCardAvailable) {
         output.push('Primary Insurance: Self-Pay / No Insurance');
       }
       if (hasSecondary) {
@@ -4409,14 +4416,24 @@ export const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) =>
       // (signed name + when + how + IP + UA + the underlying assignment-of-
       // benefits language) so the answers PDF / packet shows this as a
       // legitimate e-signature instead of just a stray typed name.
-      const authTyped = String(insInfo.authorizationSignature || '').trim();
-      const authDrawn = String(insInfo.authorizationSignatureData || '').trim();
       if (authTyped || authDrawn) {
         output.push('');
-        output.push('Insurance Authorization & Assignment of Benefits — Electronic Signature');
-        output.push('  I authorize the provider to release information to the insurance companies listed above');
-        output.push('  in order to submit insurance claims, and assign all insurance benefits to the provider.');
-        output.push('  I remain responsible for copays, coinsurance, deductibles, and any non-covered services.');
+        if (isSelfPay) {
+          // Match the existing combined step's Self-Pay agreement. That choice
+          // does not display its insurance-release statement.
+          output.push('Authorization & Agreement — Electronic Signature');
+          output.push('  The information I provided is accurate and complete to the best of my knowledge.');
+          if (!hasMedicaidCoverage(insInfo)) {
+            output.push('  I understand the office will explain any patient responsibility and applicable payment terms before collecting payment.');
+          }
+          output.push('  I understand the office may follow up for missing information.');
+          output.push('  I agree to the above statements and authorize verification and billing.');
+        } else {
+          output.push('Insurance Authorization & Assignment of Benefits — Electronic Signature');
+          output.push('  I authorize the provider to release information to the insurance companies listed above');
+          output.push('  in order to submit insurance claims, and assign all insurance benefits to the provider.');
+          output.push('  I remain responsible for copays, coinsurance, deductibles, and any non-covered services.');
+        }
         const signerLabel = authTyped
           || String(insInfo.authorizationSignerName || '').trim()
           || String(submissionResponses?.signerName || '').trim()

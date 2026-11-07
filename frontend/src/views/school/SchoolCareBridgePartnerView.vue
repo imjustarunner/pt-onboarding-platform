@@ -7,7 +7,7 @@
       <div><p class="scb-eyebrow">SchoolCareBridge partner</p><img v-if="partner?.logoUrl" :src="asset(partner.logoUrl)" :alt="partner.name" class="scb-partner-logo"/><h1>{{partner?.name || 'Your agency'}}<br/>SchoolCareBridge</h1><p>Your schools, providers and student support, connected.</p><router-link :to="{path:schoolCareBridgePath(),query:{redirect:signInDestination}}" class="scb-button">Sign in with your email →</router-link></div><img src="/assets/mh4kidz/teamwork.webp" alt="Children working together"/>
     </main>
     <div v-else class="scb-workspace-layout">
-      <aside class="scb-workspace-nav"><img v-if="partner?.logoUrl" :src="asset(partner.logoUrl)" :alt="partner.name"/><strong>{{partner?.name}}</strong><span>SchoolCareBridge workspace</span><nav aria-label="SchoolCareBridge workspace"><router-link v-for="item in tabs" :key="item.key" :to="schoolCareBridgePartnerPath(slug,item.key)" :aria-current="section===item.key?'page':undefined">{{item.label}}</router-link></nav><a v-if="partner?.workspaceMode==='connected'" :href="agencyWorkspace">Full agency workspace ↗</a><small>A program of MH4Kidz</small></aside>
+      <aside class="scb-workspace-nav"><img v-if="partner?.logoUrl" :src="asset(partner.logoUrl)" :alt="partner.name"/><strong>{{partner?.name}}</strong><span>SchoolCareBridge workspace</span><nav aria-label="SchoolCareBridge workspace"><router-link v-for="item in tabs" :key="item.key" :to="schoolCareBridgePartnerPath(slug,item.key)" :aria-current="section===item.key?'page':undefined">{{item.label}}</router-link></nav><button v-if="workspaceAgency" class="scb-button scb-outline" :disabled="workspaceOpening" @click="openAgencyWorkspace">{{workspaceOpening?'Opening agency workspace…':'Full agency workspace ↗'}}</button><small v-else-if="partner?.workspaceMode==='connected'">No full agency workspace is available to your account.</small><p v-if="workspaceError" role="alert">{{workspaceError}}</p><small>A program of MH4Kidz</small></aside>
       <main class="scb-workspace-main">
         <template v-if="section===''">
           <p class="scb-eyebrow">{{partner?.name}} · School operations</p><h1>Connected to your schools.</h1><p class="scb-workspace-lead">{{partner?.settings?.welcomeMessage || 'A clear view of your school partnerships and the people supporting them.'}}</p>
@@ -33,15 +33,17 @@ import {computed,onMounted,ref,watch} from 'vue';
 import {useRoute} from 'vue-router';
 import DOMPurify from 'dompurify';
 import {useAuthStore} from '../../store/auth';
+import {useAgencyStore} from '../../store/agency';
 import api from '../../services/api';
 import {toUploadsUrl} from '../../utils/uploadsUrl';
 import {schoolCareBridgePath} from '../../utils/schoolCareBridge';
 import {schoolCareBridgePartnerPath} from '../../utils/schoolCareBridgeTenant';
+import {useSchoolCareBridgeAgencyWorkspace} from '../../composables/useSchoolCareBridgeAgencyWorkspace';
 import ProviderSchoolDays from '../../components/availability/ProviderSchoolDays.vue';
 import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
 import '../../styles/schoolCareBridge.css';
 import '../../styles/schoolCareBridgeWorkspace.css';
-const route=useRoute(),auth=useAuthStore();
+const route=useRoute(),auth=useAuthStore(),agencyStore=useAgencyStore();
 const slug=computed(()=>String(route.params.partnerSlug||'')),section=computed(()=>String(route.params.partnerSection||''));
 const signInDestination=computed(()=>{const value=route.query.redirect;return typeof value==='string'&&value.startsWith(schoolCareBridgePartnerPath(slug.value)+'/')&&!value.includes('\\')?value:schoolCareBridgePartnerPath(slug.value);});
 const partner=ref(null),schools=ref([]),providers=ref([]),canManage=ref(false),agreement=ref(null),loading=ref(true),saving=ref(false),error=ref(''),notice=ref(''),addingSchool=ref(false);
@@ -49,10 +51,10 @@ const schoolForm=ref({name:'',slug:''}),settings=ref({supportEmail:'',welcomeMes
 const asset=value=>value?.startsWith('/assets/')?value:toUploadsUrl(value);
 const tabs=computed(()=>[{key:'',label:'Overview'},{key:'schools',label:'School portals'},{key:'clients',label:'Clients'},{key:'providers',label:'Providers'},...(canManage.value?[{key:'settings',label:'Settings'},{key:'agreement',label:'Agreement'}]:[])]);
 const canSeeProviderDays=computed(()=>['admin','super_admin','support','staff','clinical_practice_assistant','provider_plus','supervisor'].includes(auth.user?.role));
-const agencyWorkspace=computed(()=>`https://plottwisthq.com/${encodeURIComponent(slug.value)}/dashboard`);
+const {agency:workspaceAgency,opening:workspaceOpening,error:workspaceError,openAgencyWorkspace}=useSchoolCareBridgeAgencyWorkspace({partner});
 const agreementHtml=computed(()=>DOMPurify.sanitize(agreement.value?.html||''));
 const mySigningTask=computed(()=>Number(agreement.value?.agency_signer_user_id)===Number(auth.user?.id)?agreement.value?.agency_task_id:Number(agreement.value?.operator_signer_user_id)===Number(auth.user?.id)?agreement.value?.operator_task_id:null);
-async function load(){loading.value=true;error.value='';try{if(!auth.isAuthenticated){partner.value=(await api.get(`/schoolcarebridge/partner-brand/${slug.value}`,{skipAuthRedirect:true})).data.partner;return;}const {data}=await api.get(`/schoolcarebridge/tenants/${slug.value}`);partner.value=data.partner;schools.value=data.schools;providers.value=data.providers;canManage.value=data.canManage;settings.value={supportEmail:data.partner.settings?.supportEmail||data.partner.supportEmail||'',welcomeMessage:'',description:'',...data.partner.settings};if(section.value==='agreement'&&canManage.value)agreement.value=(await api.get(`/schoolcarebridge/tenants/${slug.value}/agreement`)).data.agreement;}catch(e){error.value=e.response?.data?.error?.message||'Please try again.';}finally{loading.value=false;}}
+async function load(){loading.value=true;error.value='';try{if(!auth.isAuthenticated){partner.value=(await api.get(`/schoolcarebridge/partner-brand/${slug.value}`,{skipAuthRedirect:true})).data.partner;return;}const {data}=await api.get(`/schoolcarebridge/tenants/${slug.value}`);if(!agencyStore.userAgencies?.length)await agencyStore.fetchUserAgencies();partner.value=data.partner;schools.value=data.schools;providers.value=data.providers;canManage.value=data.canManage;settings.value={supportEmail:data.partner.settings?.supportEmail||data.partner.supportEmail||'',welcomeMessage:'',description:'',...data.partner.settings};if(section.value==='agreement'&&canManage.value)agreement.value=(await api.get(`/schoolcarebridge/tenants/${slug.value}/agreement`)).data.agreement;}catch(e){error.value=e.response?.data?.error?.message||'Please try again.';}finally{loading.value=false;}}
 async function saveSettings(){saving.value=true;notice.value='';try{const {supportEmail,welcomeMessage,description}=settings.value;await api.put(`/schoolcarebridge/tenants/${slug.value}/settings`,{supportEmail,welcomeMessage,description});notice.value='Settings saved.';}catch(e){notice.value=e.response?.data?.error?.message||'Could not save settings.';}finally{saving.value=false;}}
 async function createSchool(){saving.value=true;notice.value='';try{await api.post(`/schoolcarebridge/tenants/${slug.value}/schools`,schoolForm.value);addingSchool.value=false;schoolForm.value={name:'',slug:''};await load();notice.value='School portal created.';}catch(e){notice.value=e.response?.data?.error?.message||'Could not create this school.';}finally{saving.value=false;}}
 function printAgreement(){window.print();}
