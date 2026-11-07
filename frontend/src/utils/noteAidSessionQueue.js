@@ -185,7 +185,7 @@ export function defaultRiskAssessment() {
 
 export function defaultMedicationsBlock() {
   return {
-    noneCurrently: true,
+    noneCurrently: false,
     items: [],
     commentsHtml: ''
   };

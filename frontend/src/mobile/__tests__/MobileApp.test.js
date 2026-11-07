@@ -6,7 +6,7 @@ vi.mock('../transport.js',()=>({native:false,MobileDevice:{},quickApiBase:'/api/
 vi.mock('axios',()=>({default:{post:mocks.quickPost,interceptors:{response:{use:vi.fn(),eject:vi.fn()}}}}));
 import MobileApp from '../MobileApp.vue';
 const profile={user:{id:1,firstName:'Test',email:'test@example.invalid'},workspace:{id:10,name:'My workspace'},agencies:[{id:10,name:'My workspace'}]};
-async function app(){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<span />'}}]});await router.push('/mobile');return mount(MobileApp,{global:{plugins:[router],stubs:{QuickView:{props:['mobileSession'],emits:['locked','account'],template:'<div data-testid="private-workspace"><button @click="$emit(\'locked\')">Test lock</button><button @click="$emit(\'account\')">My Account</button>Private inbox</div>'}}}});}
+async function app(){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<span />'}}]});await router.push('/mobile');return mount(MobileApp,{global:{plugins:[router],stubs:{QuickView:{props:['mobileSession'],emits:['locked','account','open-workspace-item'],template:'<div data-testid="private-workspace"><button @click="$emit(\'locked\')">Test lock</button><button @click="$emit(\'account\')">My Account</button>Private inbox</div>'}}}});}
 beforeEach(()=>{vi.resetAllMocks();sessionStorage.clear();localStorage.clear();history.replaceState(null,'','/mobile');mocks.quickPost.mockResolvedValue({});mocks.get.mockResolvedValue({data:profile});mocks.request.mockResolvedValue({data:{signedIn:true,needsCode:false,workspace:profile.workspace}});});
 it('unlocks the scoped account and locks without signing the device out',async()=>{
   const wrapper=await app();await flushPromises();expect(wrapper.text()).toContain('Your account is still signed in');
@@ -60,4 +60,23 @@ it('restores a cached page using the existing device rather than a new enrollmen
   window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));await flushPromises();
   expect(wrapper.text()).toContain('Welcome back');expect(wrapper.text()).not.toContain('Confirm code');
   expect(mocks.post).not.toHaveBeenCalled();expect(mocks.request.mock.calls.filter(([request])=>request.url==='/session')).toHaveLength(2);wrapper.unmount();
+});
+
+it('switches the device workspace before opening another agency’s note',async()=>{
+ mocks.request.mockImplementation(async({url})=>({data:url==='/session'?{signedIn:true,workspace:profile.workspace,appLock:{method:'none',hasCode:false}}:url==='/workspace'?{sessionToken:'agency-20',agencyId:20,userId:1,profile:{...profile,workspace:{id:20,name:'School'},appLock:{method:'none',hasCode:false}}}:{sessionToken:'agency-10',agencyId:10,userId:1,profile:{...profile,appLock:{method:'none',hasCode:false}}}}));
+ const wrapper=await app();await flushPromises();const router=wrapper.vm.$router;await router.replace('/mobile/workspace?view=mywork&workTab=started&workAgency=20');
+ wrapper.findComponent('[data-testid="private-workspace"]').vm.$emit('open-workspace-item',{agencyId:20,query:{view:'clinical',workId:'work_20',clientId:'120'}});await flushPromises();
+ expect(mocks.request).toHaveBeenCalledWith(expect.objectContaining({url:'/workspace',data:{agencyId:20},headers:{'X-Quick-View-Session':'agency-10'}}));
+ expect(router.currentRoute.value.query).toMatchObject({view:'clinical',workId:'work_20'});expect(wrapper.findComponent('[data-testid="private-workspace"]').props('mobileSession').agencyId).toBe(20);
+ await router.back();await flushPromises();expect(router.currentRoute.value.query).toMatchObject({view:'mywork',workTab:'started',workAgency:'20'});wrapper.unmount();
+});
+it('shows a failed workspace switch without opening an unauthorized note',async()=>{
+ mocks.request.mockImplementation(async({url})=>{if(url==='/workspace')throw {response:{status:403,data:{error:{message:'Workspace access changed'}}}};return {data:url==='/session'?{signedIn:true,workspace:profile.workspace,appLock:{method:'none',hasCode:false}}:{sessionToken:'agency-10',profile:{...profile,appLock:{method:'none',hasCode:false}}}};});
+ const wrapper=await app();await flushPromises();wrapper.findComponent('[data-testid="private-workspace"]').vm.$emit('open-workspace-item',{agencyId:20,query:{view:'clinical',noteId:'90'}});await flushPromises();expect(wrapper.get('[role="alert"]').text()).toContain('Workspace access changed');expect(wrapper.vm.$route.query.noteId).toBeUndefined();expect(wrapper.findComponent('[data-testid="private-workspace"]').props('mobileSession').sessionToken).toBe('agency-10');wrapper.unmount();
+});
+it('offers retry and an explicit account change when connect refuses a retained primary account',async()=>{
+ history.replaceState(null,'','/mobile/connect?clientId=web&challenge='+('a'.repeat(43))+'&state='+('b'.repeat(43))+'&loginPath=%2Fitsco%2Flogin');
+ mocks.get.mockRejectedValue({response:{status:403,data:{error:{message:'This account cannot use the staff mobile workspace.'}}}});
+ const wrapper=await app();await flushPromises();expect(wrapper.text()).toContain('Sign in with a different account');expect(wrapper.text()).toContain('Try again');
+ await wrapper.findAll('button').find(b=>b.text()==='Try again').trigger('click');await flushPromises();expect(mocks.get).toHaveBeenCalledTimes(2);expect(mocks.quickPost).not.toHaveBeenCalledWith('/api/auth/logout',expect.anything(),expect.anything());wrapper.unmount();
 });

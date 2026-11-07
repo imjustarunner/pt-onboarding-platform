@@ -26,6 +26,8 @@ import User from '../models/User.model.js';
 import pool from '../config/database.js';
 import { getCatalog, streamTrack } from './focusMusic.controller.js';
 import { listNoteAidTools, executeNoteAidTool } from './noteAid.controller.js';
+import {mobileQaAgencyId,mobileQaScopeError,assertMobileQaThread,assertMobileQaRecipient} from '../services/mobile/qaConversaScope.service.js';
+import {isQaPreviewIdentity} from '../services/auricwellPreviewPolicy.js';
 
 async function attachUser(req) {
   let role = 'provider';
@@ -48,6 +50,11 @@ async function attachUser(req) {
   if (String(req.query.agencyId || '').toLowerCase() === 'all') {
     delete req.query.agencyId;
   }
+  const qaAgencyId=mobileQaAgencyId(req);
+  if(qaAgencyId){
+    if(req.query.agencyId&&Number(req.query.agencyId)!==qaAgencyId)throw mobileQaScopeError();
+    req.query.agencyId=String(qaAgencyId);
+  }
   // Focus music entitlement uses x-agency-id
   if (req.quickView.agencyId && !req.headers['x-agency-id']) {
     req.headers['x-agency-id'] = String(req.quickView.agencyId);
@@ -68,11 +75,13 @@ function wrap(handler) {
 // Quick View's team-chat surface never opens secure content. Use the full secure workspace.
 function internalChat(handler) {
   return wrap(async (req, res, next) => {
+    if(mobileQaAgencyId(req)&&![listMessages,sendMessage,markRead].includes(handler))throw mobileQaScopeError();
     const threadId = Number(req.params?.threadId);
     const messageId = Number(req.params?.messageId);
     const [rows] = threadId
       ? await pool.execute('SELECT message_channel,id AS mobile_thread_id FROM chat_threads WHERE id = ?', [threadId])
       : await pool.execute('SELECT t.message_channel,t.id AS mobile_thread_id FROM chat_threads t JOIN chat_messages m ON m.thread_id = t.id WHERE m.id = ?', [messageId]);
+    await assertMobileQaThread(req,threadId || rows[0]?.mobile_thread_id,{writing:handler===sendMessage});
     if (rows[0]?.message_channel === 'secure' && !req.quickView.mobileDeviceSessionId) {
       return res.status(409).json({ error: { code: 'SECURE_WORKSPACE_REQUIRED', message: 'Open Secure messages in Messages by Conversa to view or reply to this conversation.' } });
     }
@@ -82,8 +91,8 @@ function internalChat(handler) {
 }
 
 export const qvListChatThreads = wrap(listMyThreads);
-export const qvListChatChannels = wrap(listChannels);
-export const qvOpenChannel = wrap(openChannel);
+export const qvListChatChannels = wrap((req,res,next)=>{if(mobileQaAgencyId(req))throw mobileQaScopeError();return listChannels(req,res,next);});
+export const qvOpenChannel = wrap((req,res,next)=>{if(mobileQaAgencyId(req))throw mobileQaScopeError();return openChannel(req,res,next);});
 export const qvListThreadsInbox = wrap(listThreadsInbox);
 export const qvListMentions = wrap(listMentionsInbox);
 export const qvListFiles = wrap(listFilesInbox);
@@ -98,6 +107,11 @@ export const qvCreateDirectThread = wrap(async (req, res, next) => {
   if (!req.body) req.body = {};
   if (!req.body.agencyId && req.quickView.agencyId) {
     req.body.agencyId = req.quickView.agencyId;
+  }
+  const qaAgencyId=mobileQaAgencyId(req);
+  if(qaAgencyId){
+    if(Number(req.body.agencyId)!==qaAgencyId||req.body.organizationId||req.body.clientId)throw mobileQaScopeError();
+    await assertMobileQaRecipient(req,req.body.otherUserId);
   }
   return createOrGetDirectThread(req, res, next);
 });
@@ -139,6 +153,11 @@ export const getQuickDirectory = async (req, res, next) => {
     const agencyId = req.quickView.agencyId;
     if (!agencyId) {
       return res.json({ ok: true, providers: [], schoolStaff: [], agencyId: null });
+    }
+    const qaAgencyId=mobileQaAgencyId(req);
+    if(qaAgencyId){
+      const [rows]=await pool.execute(`SELECT u.* FROM users u JOIN user_agencies ua ON ua.user_id=u.id WHERE ua.agency_id=? AND COALESCE(ua.is_active,1)=1 AND u.is_demo=1 AND u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND u.id<>?`,[qaAgencyId,userId]);
+      return res.json({ok:true,agencyId:qaAgencyId,providers:rows.filter(isQaPreviewIdentity).map(row=>mapDirectoryPerson(row,'providers')),schoolStaff:[]});
     }
 
     const [providerRows] = await pool.execute(

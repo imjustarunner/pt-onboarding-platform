@@ -39,7 +39,7 @@ export const listNotesToSign = async (req, res, next) => {
        JOIN user_agencies ua ON ua.user_id=cns.supervisor_user_id AND ua.agency_id=cns.agency_id AND ua.is_active=1
        WHERE cns.supervisor_user_id=? AND cns.status='awaiting_supervisor'
        ${req.auricwellPreview ? 'AND cns.agency_id=?' : ''}
-       ORDER BY cns.provider_signed_at DESC,cns.created_at DESC ${req.notesCountOnly ? '' : 'LIMIT 50'}`,
+       ORDER BY cns.provider_signed_at DESC,cns.created_at DESC ${req.notesCountOnly || req.notesIncludeAll===true ? '' : 'LIMIT 50'}`,
       req.auricwellPreview ? [userId,req.auricwellPreview.agencyId] : [userId]
     );
     if (rows.length) {
@@ -72,7 +72,7 @@ export const listNotesToSign = async (req, res, next) => {
       }
     }
     if (!req.notesCountOnly) {
-      rows=rows.slice(0,50);
+      if(req.notesIncludeAll!==true)rows=rows.slice(0,50);
       for(const row of rows) {
         row.narriva={status:'pending',quickSignEligible:false,reviewId:null};
         if(row.clinical_revision_id)continue;

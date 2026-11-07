@@ -6,8 +6,9 @@ const DEFAULT_REFRESH_MINUTES = 30;
 const DEFAULT_MAX_DOCS = 100;
 /** Allow large Documentation Hub / coding PDFs; text is still truncated after extract. */
 const DEFAULT_MAX_DOC_BYTES = 25_000_000;
-/** Keep enough extracted text that example / guide PDFs are not clipped away. */
-const DEFAULT_MAX_DOC_CHARS = 200_000;
+/** References can exceed the resume-upload limit; the full evidence pack still
+ * enforces its own 900k budget and fails closed instead of omitting content. */
+const DEFAULT_MAX_DOC_CHARS = 900_000;
 const DEFAULT_SNIPPET_CHARS = 1200;
 
 /**
@@ -315,29 +316,32 @@ async function loadKnowledgeBaseDocs(prefixOverride = null) {
   });
 
   const docs = [];
-  const coverage={complete:!nextQuery && (files || []).length<=maxDocs,listingLimited:!!nextQuery || (files || []).length>maxDocs,unreadable:0,truncated:0};
+  const coverage={complete:!nextQuery && (files || []).length<=maxDocs,listingLimited:!!nextQuery || (files || []).length>maxDocs,unreadable:0,truncated:0,issues:[]};
+  const issue=(name,reason)=>coverage.issues.push({id:createHash('sha256').update(String(name || '')).digest('hex'),reason});
   for (const file of files || []) {
     if (docs.length >= maxDocs) {coverage.complete=false;coverage.listingLimited=true;break;}
     try {
       const [metadata] = await file.getMetadata();
       const size = Number.parseInt(metadata?.size || '0', 10);
-      if (Number.isFinite(size) && size > maxDocBytes) {coverage.complete=false;coverage.unreadable++;continue;}
+      if (Number.isFinite(size) && size > maxDocBytes) {coverage.complete=false;coverage.unreadable++;issue(file.name,'file_size_limit');continue;}
       // Skip folder placeholder objects.
       if (!file.name || file.name.endsWith('/')) continue;
 
       const mimeType = pickMimeType(file.name, metadata?.contentType);
+      if (/\.(?:doc|rtf|pptx?|odt)$/i.test(file.name)) {
+        coverage.complete=false;coverage.unreadable++;issue(file.name,'unsupported_format');continue;
+      }
       if (!mimeType) continue;
       if (!['application/pdf','text/plain','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/docx'].includes(mimeType)) {
-        if(/\.(?:doc|rtf|pptx?|odt)$/i.test(file.name)){coverage.complete=false;coverage.unreadable++;}
         continue;
       }
 
       const [buffer] = await file.download();
-      const result = await extractResumeTextFromUpload({ buffer, mimeType });
-      if (result?.status !== 'completed' || !result?.text) {coverage.complete=false;coverage.unreadable++;continue;}
+      const result = await extractResumeTextFromUpload({ buffer, mimeType, maxChars: maxDocChars });
+      if (result?.status !== 'completed' || !result?.text) {coverage.complete=false;coverage.unreadable++;issue(file.name,'text_extraction_failed');continue;}
 
-      const truncated=result.text.length>=Math.min(200000,maxDocChars);
-      if(truncated){coverage.complete=false;coverage.truncated++;}
+      const truncated=result.truncated===true || result.text.length>maxDocChars;
+      if(truncated){coverage.complete=false;coverage.truncated++;issue(file.name,'text_extraction_limit');}
 
       docs.push({
         name: file.name,
@@ -346,7 +350,7 @@ async function loadKnowledgeBaseDocs(prefixOverride = null) {
         version:String(metadata?.generation || metadata?.etag || metadata?.updated || '')
       });
     } catch {
-      coverage.complete=false;coverage.unreadable++;
+      coverage.complete=false;coverage.unreadable++;issue(file.name,'source_read_failed');
     }
   }
 
@@ -455,7 +459,9 @@ export async function getKnowledgeBaseEvidence({folders=[],maxChars=900000,refer
   const docs=batches.flat().map(doc=>{const replacement=replacements.get(doc.binaryHash);return replacement?{...doc,text:replacement.text,truncated:false,scopedReference:true}:doc;});
   const unreadable=batches.reduce((n,b)=>n+(b.coverage?.unreadable || 0),0),listingLimited=batches.some(b=>b.coverage?.listingLimited===true);
   const emptyFolders=batches.filter(batch=>!batch.length).length;
-  const coverage={complete:!unreadable && !listingLimited && !emptyFolders,folders:prefixes.length,emptyFolders,unreadable,listingLimited,truncated:docs.filter(doc=>doc.truncated).length};
+  const coverage={complete:!unreadable && !listingLimited && !emptyFolders,folders:prefixes.length,emptyFolders,unreadable,listingLimited,truncated:docs.filter(doc=>doc.truncated).length,
+    folderCoverage:batches.map((batch,index)=>({id:createHash('sha256').update(prefixes[index]).digest('hex'),documents:batch.length,listingLimited:!!batch.coverage?.listingLimited,unreadable:batch.coverage?.unreadable || 0})),
+    issues:batches.flatMap(batch=>batch.coverage?.issues || []).filter(issue=>issue.reason!=='text_extraction_limit' || docs.some(doc=>doc.truncated && createHash('sha256').update(doc.name).digest('hex')===issue.id))};
   return buildKnowledgeBaseEvidenceFromDocs(docs,{...options,maxChars,coverage});
 }
 

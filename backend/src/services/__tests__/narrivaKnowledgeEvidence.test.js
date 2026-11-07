@@ -5,7 +5,7 @@ vi.mock('../storage.service.js',()=>({default:{getGCSStorage:async()=>({bucket:(
 vi.mock('../resumeTextExtraction.service.js',()=>({extractResumeTextFromUpload:m.extract}));
 import {buildKnowledgeBaseEvidenceFromDocs,getKnowledgeBaseEvidence,resetClinicalKnowledgeBaseCache} from '../clinicalKnowledgeBase.service.js';
 const file=(name,content,{type='application/pdf',version='1',fail=false}={})=>({name,getMetadata:async()=>[{size:String(Buffer.byteLength(content)),contentType:type,generation:version}],download:async()=>{if(fail)throw Error('PRIVATE_IDENTIFIER_CANARY');return [Buffer.from(content)];}});
-beforeEach(()=>{vi.clearAllMocks();resetClinicalKnowledgeBaseCache();vi.stubEnv('CLINICAL_KB_BUCKET','synthetic-reference-bucket');vi.stubEnv('CLINICAL_KB_MAX_DOCS','100');m.files.mockResolvedValue([[],null]);m.extract.mockImplementation(async({buffer})=>({status:'completed',text:buffer.toString()}));});
+beforeEach(()=>{vi.clearAllMocks();resetClinicalKnowledgeBaseCache();vi.stubEnv('CLINICAL_KB_BUCKET','synthetic-reference-bucket');vi.stubEnv('CLINICAL_KB_MAX_DOCS','100');vi.stubEnv('CLINICAL_KB_MAX_DOC_CHARS','900000');m.files.mockResolvedValue([[],null]);m.extract.mockImplementation(async({buffer,maxChars})=>({status:'completed',text:buffer.toString().slice(0,maxChars),truncated:buffer.toString().length>maxChars}));});
 afterEach(()=>vi.unstubAllEnvs());
 describe('complete supporting documentation and authored-example evidence',()=>{
  it('keeps differently authored examples sharing a basename and all introductory instructions',()=>{
@@ -34,6 +34,13 @@ describe('complete supporting documentation and authored-example evidence',()=>{
   vi.stubEnv('CLINICAL_KB_MAX_DOCS','1');m.files.mockResolvedValue([[file('shared/one.pdf','First guide'),file('shared/two.pdf','Second guide')],null]);
   const result=await getKnowledgeBaseEvidence({folders:['shared']});expect(result.complete).toBe(false);expect(result.coverage.listingLimited).toBe(true);expect(m.files).toHaveBeenCalledWith(expect.objectContaining({maxResults:2,autoPaginate:false}));
  });
+ it('does not silently omit a legacy Word source stored with a generic content type',async()=>{
+  m.files.mockResolvedValue([[file('shared/Guide.txt','Readable instructions',{type:'text/plain'}),file('shared/PRIVATE_NAME_CANARY.doc','Legacy Word bytes',{type:'application/octet-stream'})],null]);
+  const result=await getKnowledgeBaseEvidence({folders:['shared']});
+  expect(result.complete).toBe(false);expect(result.coverage.unreadable).toBe(1);
+  expect(result.coverage.issues).toEqual([{id:expect.stringMatching(/^[a-f0-9]{64}$/),reason:'unsupported_format'}]);
+  expect(JSON.stringify(result)).not.toContain('PRIVATE_NAME_CANARY');
+ });
  it('does not hide an empty required service folder behind a populated shared folder',async()=>{
   m.files.mockImplementation(async({prefix})=>[prefix==='shared/'?[file('shared/Instructions.pdf','Shared owner instructions')]:[],null]);
   const result=await getKnowledgeBaseEvidence({folders:['shared','required_service_examples']});
@@ -42,13 +49,31 @@ describe('complete supporting documentation and authored-example evidence',()=>{
  it('fails coverage for unreadable required sources without exposing source errors',async()=>{
   m.files.mockResolvedValue([[file('shared/Required guide.pdf','Guide',{fail:true})],null]);const result=await getKnowledgeBaseEvidence({folders:['shared']});
   expect(result.complete).toBe(false);expect(result.coverage.unreadable).toBe(1);expect(JSON.stringify(result)).not.toContain('PRIVATE_IDENTIFIER_CANARY');
+  expect(result.coverage.issues).toEqual([{id:expect.stringMatching(/^[a-f0-9]{64}$/),reason:'source_read_failed'}]);
+  expect(JSON.stringify(result.coverage)).not.toContain('Required guide.pdf');
  });
  it('substitutes the exact selected-service/manual-introduction pack only for the exact approved PDF bytes',async()=>{
-  const content='M'.repeat(200000),binaryHash=createHash('sha256').update(content).digest('hex');m.files.mockResolvedValue([[file('shared/SBHS Billing Manual.pdf',content)],null]);
+  const content='M'.repeat(900001),binaryHash=createHash('sha256').update(content).digest('hex');m.files.mockResolvedValue([[file('shared/SBHS Billing Manual.pdf',content)],null]);
   const selected='Exact90837 manual entry and verified introduction pages.';
   const result=await getKnowledgeBaseEvidence({folders:['shared'],referenceReplacements:[{binaryHash,text:selected}]});
   expect(result.complete).toBe(true);expect(result.text).toContain(selected);expect(result.documents[0]).toMatchObject({scopedReference:true,role:'official_service_reference',binaryHash});
+  expect(result.coverage.issues).toEqual([]);
   resetClinicalKnowledgeBaseCache();const wrong=await getKnowledgeBaseEvidence({folders:['shared'],referenceReplacements:[{binaryHash:'wrong-version',text:selected}]});expect(wrong.complete).toBe(false);expect(wrong.text).not.toContain(selected);
+ });
+ it('identifies empty folders and clipped extractions using hashes without source names or text',async()=>{
+  m.files.mockImplementation(async({prefix})=>[prefix==='empty/'?[]:[file('shared/PRIVATE_NAME_CANARY.pdf','S'.repeat(900001))],null]);
+  const result=await getKnowledgeBaseEvidence({folders:['shared','empty']});
+  expect(result.complete).toBe(false);expect(result.coverage.emptyFolders).toBe(1);expect(result.coverage.truncated).toBe(1);
+  expect(result.coverage.issues).toEqual([{id:expect.stringMatching(/^[a-f0-9]{64}$/),reason:'text_extraction_limit'}]);
+  expect(result.coverage.folderCoverage).toHaveLength(2);expect(result.coverage.folderCoverage[1]).toMatchObject({id:expect.stringMatching(/^[a-f0-9]{64}$/),documents:0});
+  expect(JSON.stringify(result.coverage)).not.toContain('PRIVATE_NAME_CANARY');
+ });
+ it('includes a long authored reference in full instead of applying the resume upload cap',async()=>{
+  const content='A'.repeat(308000)+' END_OF_AUTHORED_GUIDANCE';
+  m.files.mockResolvedValue([[file('shared/Approved guide.pdf',content)],null]);
+  const result=await getKnowledgeBaseEvidence({folders:['shared']});
+  expect(m.extract).toHaveBeenCalledWith(expect.objectContaining({maxChars:900000}));
+  expect(result.complete).toBe(true);expect(result.coverage.truncated).toBe(0);expect(result.text).toContain('END_OF_AUTHORED_GUIDANCE');
  });
  it('retains cloud-object versions for future exact-guidance revalidation',async()=>{
   m.files.mockResolvedValue([[file('shared/Guide.pdf','Guide text',{version:'42'})],null]);const result=await getKnowledgeBaseEvidence({folders:['shared']});expect(result.documents[0].version).toBe('42');

@@ -6,7 +6,7 @@ vi.mock('../../services/api',()=>({default:{get:mocks.get,post:mocks.post}}));
 vi.mock('../../store/auth',()=>({useAuthStore:()=>mocks.auth}));
 import Notice from '../AccountSecurityNotice.vue';
 let wrapper;
-const mountNotice=()=>{wrapper=mount(Notice,{global:{stubs:{RouterLink:true}}});return wrapper;};
+const mountNotice=()=>{wrapper=mount(Notice,{global:{stubs:{RouterLink:{template:'<a><slot /></a>'}}}});return wrapper;};
 beforeEach(()=>{vi.clearAllMocks();mocks.auth=reactive({user:{id:10}});mocks.get.mockImplementation(async url=>({data:url.endsWith('/activity-protection')?{holds:[{kind:'client_file'}]}:{enabled:true,verified:true}}));});
 afterEach(()=>wrapper?.unmount());
 it('restores the persisted hold on initial load and after remount without a failed file request',async()=>{
@@ -35,4 +35,10 @@ it('shows a failed submission and allows retry without claiming a request was se
  mocks.post.mockRejectedValue(new Error('offline'));mountNotice();await flushPromises();
  await wrapper.find('button.request-toggle').trigger('click');await flushPromises();expect(wrapper.find('[role="alert"]').text()).toContain('could not be sent');
  expect(wrapper.text()).not.toContain('Request sent to your privacy reviewer');
+});
+
+it('distinguishes blocked request volume from affected accounts and file-access requests',async()=>{
+ mocks.get.mockImplementation(async url=>({data:url.endsWith('/summary')?{alerts:346,accounts:3,unidentified:2,requests:1}:url.endsWith('/activity-protection')?{holds:[]}:url.endsWith('/requests')?{tickets:[]}:{verified:true,canReviewPrivacy:true}}));
+ const visibility=vi.spyOn(document,'visibilityState','get').mockReturnValue('visible');
+ mountNotice();await flushPromises();expect(wrapper.text()).toContain('346 unreviewed blocked requests affecting 3 accounts');expect(wrapper.text()).toContain('2 unidentified attempts');expect(wrapper.text()).toContain('1 file-access requests');visibility.mockRestore();
 });

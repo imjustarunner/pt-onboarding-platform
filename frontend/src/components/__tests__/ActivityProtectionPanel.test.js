@@ -57,3 +57,40 @@ it('does not ask optional reviewers for an authenticator code',async()=>{
  expect(assignments.find('input[autocomplete="one-time-code"]').exists()).toBe(false);
  queue.unmount();assignments.unmount();
 });
+
+
+describe('blocked request groups',()=>{
+ const alert=(id,overrides={})=>({id,user_id:1,actor_email:'staff@example.invalid',session_ref:'session-a',kind:'client_file',reason:'review_hold',units:1,occurred_at:'2026-11-06T18:00:00Z',client_ip:'192.0.2.10',ip_source:'unverified_proxy',request_id:`request-${id}`,route:'/api/clients/:id/:value',...overrides});
+ it('groups repeated requests but keeps individual evidence and review actions',async()=>{
+  api.get.mockResolvedValue({data:{alerts:[alert('a'),alert('b')],tickets:[],required:false,status:'unreviewed'}});
+  api.post.mockResolvedValue({data:{reviewed:true}});
+  const w=mount(Panel,{props:{review:true}});await flushPromises();
+  expect(w.findAll('.alert-group')).toHaveLength(1);
+  expect(w.find('.alert-group>summary').text()).toContain('2 blocked requests');
+  expect(w.text()).toContain('Opening a page or retrying can create several entries');
+  expect(w.text()).toContain('this may identify a proxy');
+  expect(w.text()).toContain('request-a');expect(w.text()).toContain('request-b');
+  const actions=w.findAll('button').filter(b=>b.text()==='Record review');expect(actions).toHaveLength(2);
+  await w.find('.alert-group input').setValue('Reviewed the repeated denied attempts.');
+  await actions[0].trigger('click');await flushPromises();
+  expect(api.post).toHaveBeenCalledExactlyOnceWith('/privacy-review/alerts/a/review',{note:'Reviewed the repeated denied attempts.',units:1,releaseEmail:false},{headers:{'X-Account-Security':'1'}});
+  expect(w.text()).toContain('does not release a file-access hold');w.unmount();
+ });
+ it('keeps other accounts, sign-ins and reasons separate',async()=>{
+  api.get.mockResolvedValue({data:{alerts:[alert('a'),alert('b',{user_id:2}),alert('c',{session_ref:'session-b'}),alert('d',{reason:'volume_limit'}),alert('e',{occurred_at:'2026-11-05T18:00:00Z'}),alert('f',{reviewed_at:'2026-11-06T18:30:00Z'})],tickets:[],required:false}});
+  const w=mount(Panel,{props:{review:true}});await flushPromises();expect(w.findAll('.alert-group')).toHaveLength(6);w.unmount();
+ });
+ it('does not label old unreviewed results as reviewed when a filter request fails',async()=>{
+  api.get.mockResolvedValue({data:{alerts:[alert('a')],tickets:[],required:false}});
+  const w=mount(Panel,{props:{review:true}});await flushPromises();expect(w.findAll('.alert-group')).toHaveLength(1);
+  api.get.mockRejectedValue(new Error('offline'));await w.find('select').setValue('reviewed');await flushPromises();
+  expect(w.findAll('.alert-group')).toHaveLength(0);expect(w.find('[role="alert"]').exists()).toBe(true);expect(w.text()).not.toContain('No reviewed blocked requests');w.unmount();
+ });
+ it('filters review history without modifying or releasing any record',async()=>{
+  const w=mount(Panel,{props:{review:true}});await flushPromises();
+  expect(api.get).toHaveBeenCalledWith('/privacy-review',{params:{status:'unreviewed'}});
+  await w.find('select').setValue('reviewed');await flushPromises();expect(api.get).toHaveBeenLastCalledWith('/privacy-review',{params:{status:'reviewed'}});
+  await w.find('select').setValue('all');await flushPromises();expect(api.get).toHaveBeenLastCalledWith('/privacy-review',{params:{status:'all'}});
+  expect(api.post).not.toHaveBeenCalled();w.unmount();
+ });
+});

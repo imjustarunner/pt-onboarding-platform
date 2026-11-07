@@ -4,6 +4,7 @@ vi.mock('../../config/clinicalDatabase.js',()=>({default:{}}));
 vi.mock('../../models/NoteAidWorkQueueItem.model.js',()=>({default:{}}));
 vi.mock('../clinicalEligibility.service.js',()=>({default:{ensureAgencyAccess:vi.fn()}}));
 vi.mock('../clientRecordAccess.service.js',()=>({resolveClientRecordAccess:vi.fn()}));
+vi.mock('../../utils/noteAidClientAgency.js',()=>({listClientAgencyMembershipIds:vi.fn(async()=>[])}));
 import {bookedWorkItem,reconcileBookedSessionWork} from '../bookedSessionWorkQueue.service.js';
 let db,clinical,queue,connection,agencyAccess,clientAccess,appointment,session;
 const user={id:501,role:'provider'};
@@ -36,6 +37,7 @@ it('excludes signed/missing or mismatched session associations',async()=>{
  clinical.execute.mockResolvedValue([[]]);expect(await run()).toEqual([]);
  clinical.execute.mockResolvedValue([[{...session,appointment_id:999}]]);expect(await run()).toEqual([]);
  clinical.execute.mockResolvedValue([[{...session,agency_id:999}]]);expect(await run()).toEqual([]);
+ clinical.execute.mockResolvedValue([[{...session,provider_user_id:999}]]);expect(await run()).toEqual([]);
  expect(queue.createIfMissingForUser).not.toHaveBeenCalled();
 });
 it('enforces agency/client authorization and preview scope',async()=>{
@@ -48,4 +50,12 @@ it('does not count an existing concurrent task as newly created or reserve a dat
  queue.createIfMissingForUser.mockResolvedValue(null);expect(await run()).toEqual([]);
  expect(db.getConnection).not.toHaveBeenCalled();
  db.execute.mockRejectedValue(new Error('Database unavailable'));await expect(run()).rejects.toThrow('Database unavailable');
+});
+it('materializes shared-client work only with an explicit active client membership in the appointment agency',async()=>{
+ clientAccess.mockResolvedValue({ok:true,client:{agency_id:888,initials:'Synthetic shared client'}});
+ const clientAgencies=vi.fn(async()=>[888]);expect(await run(user,{agencyId:377,clientAgencies})).toEqual([]);expect(queue.createIfMissingForUser).not.toHaveBeenCalled();
+ clientAgencies.mockResolvedValue([888,377]);expect(await run(user,{agencyId:377,clientAgencies})).toEqual([expect.objectContaining({agencyId:377,clinicalSessionId:214,status:'not_started'})]);
+ expect(clientAgencies).toHaveBeenCalledWith(2104);expect(agencyAccess).toHaveBeenCalledWith({reqUser:user,agencyId:377});
+ queue.createIfMissingForUser.mockClear();clientAccess.mockResolvedValue({ok:false,client:{agency_id:888}});
+ expect(await run(user,{agencyId:377,clientAgencies})).toEqual([]);expect(queue.createIfMissingForUser).not.toHaveBeenCalled();
 });

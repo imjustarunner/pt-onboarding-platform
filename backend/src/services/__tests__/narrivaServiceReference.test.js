@@ -43,6 +43,11 @@ describe('sourced clinical service references',()=>{
   expect(getClinicalServiceReference('H2011').source.pages).toEqual([80]);
   expect(getClinicalServiceReference('H2011').title).not.toBe('changed');
  });
+ it('exposes exact handbook billing provider types separately from clinician qualifications',()=>{
+  const therapy=getClinicalServiceReference('90837');expect(therapy.providerTypesThatCanBill).toBe('01, 02, 05, 16, 24, 25, 26, 32, 37, 38, 39, 41, 45, 64, 77, 78');
+  expect(therapy.providerQualifications).toContain('LPC');expect(therapy.source.pages).toEqual([16]);expect(therapy.manualText).toContain(`Provider Types That Can Bill: ${therapy.providerTypesThatCanBill}`);
+  expect(getClinicalServiceReference('90840').providerTypesThatCanBill).toContain('77/389');expect(getClinicalServiceReference('97535')?.providerTypesThatCanBill).toBeFalsy();
+ });
  it('adds source information to existing mapped medical catalog rows',()=>{
   const row=AgencyMedicalServiceCode.mapRow({id:8,agency_id:3,service_code:'H2011',is_active:0});
   expect(row.isActive).toBe(false);expect(row.serviceInfo.source.pages).toEqual([80]);

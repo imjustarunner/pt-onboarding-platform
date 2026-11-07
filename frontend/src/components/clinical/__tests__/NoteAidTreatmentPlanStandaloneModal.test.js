@@ -11,8 +11,10 @@ vi.mock('../../../services/api.js', () => ({ default: { post: vi.fn(), patch: vi
 const planText = `Diagnosis: F41.9 - Synthetic diagnosis
 Diagnostic Justification: Synthetic example for testing.
 Presenting Problem: Difficulty coping with stress.
+Prescribed Frequency: Weekly sessions.
 Goal 1: Improve coping.
 Objective 1.1: Increase coping from a current self-reported level of 3 to a target of 7 on a 1–10 scale.
+Interventions 1.1: Cognitive Refocusing\nMindfulness Training
 Goal 2: Improve communication.
 Objective 2.1: Increase communication from a current self-reported level of 4 to a target of 8 on a 1–10 scale.
 Discharge Plan: Sustained independent coping.`;
@@ -34,6 +36,7 @@ beforeEach(() => {
       return { data: { parsed: parseTreatmentPlanText(body.text) } };
     }
     if (url === '/clinical-notes/drafts') return { data: { draft: { id: 43 } } };
+    if (url === '/medical-billing/treatment-plans') return { data: { plan: { id: 44, client_id: body.clientId } } };
     throw new Error(`Unexpected endpoint: ${url}`);
   });
   api.patch.mockResolvedValue({ data: {} });
@@ -64,12 +67,17 @@ it('reviews the real generation response without selecting a client, then saves 
   const saved = JSON.parse(patch.outputJson).meta.structuredPlan;
   expect(saved.goals).toHaveLength(2);
   expect(saved.diagnosticJustification).toContain('Synthetic example');
+  expect(saved.presentingProblem).toBe('Difficulty coping with stress.');
+  expect(saved.prescribedFrequency).toBe('Weekly sessions.');
+  expect(saved.goals[0].objectives[0].interventions).toEqual(['Cognitive Refocusing', 'Mindfulness Training']);
+  expect(JSON.parse(patch.outputJson).sections['Treatment Plan']).toContain('Mindfulness Training');
   expect(saved.dischargePlan).toContain('Sustained independent coping');
   expect(wrapper.emitted('saved')[0][0].id).toBe(43);
   const [, createBody] = api.post.mock.calls.find(([url]) => url === '/clinical-notes/drafts');
   expect(createBody.clientId).toBeNull();
   expect(deriveDraftDocStatus({ ...createBody, ...patch })).toBe(DOC_STATUS.COMPLETED);
   expect(wrapper.find('.na-tp-ok').text()).toBe('Saved to Done without a client attachment.');
+  expect(wrapper.findAll('button').find(button => button.text() === 'Saved to library').attributes('disabled')).toBeDefined();
 });
 
 it('reviews the real update response with a selected client', async () => {
@@ -89,6 +97,23 @@ it('parses a pasted plan without generating AI output or selecting a client', as
   await click('Parse into review');
   expectReview();
   expect(api.post).toHaveBeenCalledTimes(1);
+});
+
+it('applies reviewed context and edited interventions to the selected chart with visible success', async () => {
+  await wrapper.setProps({ clients: [{ id: 12, initials: 'TEST' }] });
+  await wrapper.find('select').setValue('12');
+  await wrapper.find('textarea').setValue(planText);
+  await click('Parse into review');
+  const intervention = wrapper.find('.na-tp-obj').findAll('textarea')[1];
+  await intervention.setValue('Cognitive Refocusing\nReviewed intervention');
+  await click('Apply to selected client');
+  const [, body] = api.post.mock.calls.find(([url]) => url === '/medical-billing/treatment-plans');
+  expect(body).toMatchObject({ agencyId: 7, clientId: 12, presentingProblem: 'Difficulty coping with stress.', diagnosticJustification: 'Synthetic example for testing.', prescribedFrequency: 'Weekly sessions.' });
+  expect(body.goals[0].objectives[0].interventions).toEqual(['Cognitive Refocusing', 'Reviewed intervention']);
+  expect(wrapper.emitted('applied')[0][0]).toEqual({ id: 44, client_id: 12 });
+  expect(wrapper.find('[role="status"]').text()).toContain('applied to the selected client chart');
+  expect(wrapper.find('.na-tp-modal').exists()).toBe(true);
+  expect(wrapper.findAll('button').find(button => button.text() === 'Applied to client').attributes('disabled')).toBeDefined();
 });
 
 it('shows the service error and retains the input when generation fails', async () => {

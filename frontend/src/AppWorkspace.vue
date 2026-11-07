@@ -735,7 +735,7 @@
                       :class="{ 'school-mgmt-flash': schoolMgmtFlashActive }"
                       @click="closeAllNavMenus"
                     >
-                      <span class="school-mgmt-label product-nav-label"><img src="/assets/schoolcarebridge/logo.png" alt=""/>School Care Bridge</span>
+                      <span class="school-mgmt-label product-nav-label"><img src="/assets/schoolcarebridge/icon.png" alt=""/>School Care Bridge</span>
                       <span
                         v-if="schoolOperationsPendingCount > 0"
                         class="nav-badge nav-badge-pulse"
@@ -1815,7 +1815,7 @@
                     class="mobile-nav-link mobile-nav-sublink school-mgmt-trigger"
                     :class="{ 'school-mgmt-flash': schoolMgmtFlashActive }"
                   >
-                    <span class="school-mgmt-label product-nav-label"><img src="/assets/schoolcarebridge/logo.png" alt=""/>School Care Bridge</span>
+                    <span class="school-mgmt-label product-nav-label"><img src="/assets/schoolcarebridge/icon.png" alt=""/>School Care Bridge</span>
                     <span
                       v-if="schoolOperationsPendingCount > 0"
                       class="nav-badge nav-badge-pulse"

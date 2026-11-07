@@ -7,6 +7,11 @@ const info={code:'H2011',title:'Crisis intervention',status:'available',serviceD
 async function expand(wrapper){wrapper.element.open=true;await wrapper.trigger('toggle');await flushPromises();}
 beforeEach(()=>vi.resetAllMocks());
 describe('service information',()=>{
+ it('places sourced provider qualifications and billing types before lengthy documentation',async()=>{
+  const wrapper=mount(ServiceInformation,{props:{serviceInfo:{...info,providerTypesThatCanBill:'01, 02, 05, 77/389'}}});await expand(wrapper);
+  const labels=wrapper.findAll('dt').map(node=>node.text());expect(labels.slice(0,2)).toEqual(['Listed provider qualifications','Provider types that can bill (manual)']);
+  expect(wrapper.text()).toContain('QBHA · Bach Level');expect(wrapper.text()).toContain('01, 02, 05, 77/389');expect(wrapper.text()).toContain('Page 80');wrapper.unmount();
+ });
  it('loads only when expanded and passes company scope',async()=>{
   api.get.mockResolvedValue({data:{serviceInfo:info}});const wrapper=mount(ServiceInformation,{props:{serviceCode:'H2011',agencyId:5,apiClient:api}});
   expect(api.get).not.toHaveBeenCalled();await expand(wrapper);

@@ -13,7 +13,17 @@ function isLegacyDocMime(mt) {
   return mt === 'application/msword';
 }
 
-export async function extractResumeTextFromUpload({ buffer, mimeType }) {
+function extractedText(value, method, maxChars) {
+  const normalized = String(value || '').replace(/\u0000/g, '').trim();
+  const requested = Number(maxChars);
+  const limit = Number.isSafeInteger(requested) && requested > 0 ? requested : 200000;
+  const text = safeTruncate(normalized, limit);
+  return { status: text ? 'completed' : 'no_text', method, text, errorText: null, truncated: normalized.length > limit, extractedCharacters: normalized.length };
+}
+
+// Resume uploads retain their existing bound. Trusted reference ingestion may
+// request a different explicit bound and gets reliable truncation evidence.
+export async function extractResumeTextFromUpload({ buffer, mimeType, maxChars = 200000 }) {
   const mt = String(mimeType || '').toLowerCase();
   if (!buffer || !(buffer instanceof Buffer) || buffer.length === 0) {
     return { status: 'failed', method: 'none', text: '', errorText: 'Empty file buffer' };
@@ -21,8 +31,7 @@ export async function extractResumeTextFromUpload({ buffer, mimeType }) {
 
   // Cheapest path: handle PDFs with embedded (selectable) text and plain text files.
   if (mt === 'text/plain') {
-    const text = safeTruncate(buffer.toString('utf8'), 200000);
-    return { status: text ? 'completed' : 'no_text', method: 'plain_text', text, errorText: null };
+    return extractedText(buffer.toString('utf8'), 'plain_text', maxChars);
   }
 
   if (mt === 'application/pdf') {
@@ -48,8 +57,7 @@ export async function extractResumeTextFromUpload({ buffer, mimeType }) {
       const result = await parser.getText();
       await parser.destroy();
 
-      const text = safeTruncate(result?.text || '', 200000);
-      return { status: text ? 'completed' : 'no_text', method: 'pdf_text', text, errorText: null };
+      return extractedText(result?.text || '', 'pdf_text', maxChars);
     } catch (e) {
       return {
         status: 'failed',
@@ -68,8 +76,7 @@ export async function extractResumeTextFromUpload({ buffer, mimeType }) {
         return { status: 'failed', method: 'docx_text', text: '', errorText: 'mammoth extractRawText not found' };
       }
       const result = await extractRawText({ buffer });
-      const text = safeTruncate(result?.value || '', 200000);
-      return { status: text ? 'completed' : 'no_text', method: 'docx_text', text, errorText: null };
+      return extractedText(result?.value || '', 'docx_text', maxChars);
     } catch (e) {
       return {
         status: 'failed',

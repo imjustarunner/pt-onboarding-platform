@@ -1,6 +1,10 @@
 Auricwell Quick View — desktop and phone QA bot instructions
 Prepared November 6, 2026 • Use the run date and saved appointment timezone
 
+For the notes-narriva-brief-20261106 findings, first use the entry/account and
+regression checks in AURICWELL-NOVEMBER-6-FOLLOWUP-RETEST.txt. That run never
+signed into Quick View/mobile; its blocked and unrun cases are not passes.
+
 YOUR TASK
 Log in and test BOTH desktop Quick View and the phone version, using the same
 allocated accounts and synthetic records. Test what a person can actually do:

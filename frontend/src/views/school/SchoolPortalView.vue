@@ -5416,7 +5416,7 @@ async function buildFancyQrDataUrl(url, { schoolBrand = false } = {}) {
     fCtx.arc(cx, cy, logoR + 6, 0, Math.PI * 2);
     fCtx.fillStyle = '#ffffff';
     fCtx.fill();
-    const logoSrc = schoolBrand ? '/assets/schoolcarebridge/logo.png' : homeIconUrl.value;
+    const logoSrc = schoolBrand ? '/assets/schoolcarebridge/icon.png' : homeIconUrl.value;
     if (logoSrc) {
       const logo = new Image();
       logo.crossOrigin = 'anonymous';

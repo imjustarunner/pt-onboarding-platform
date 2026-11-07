@@ -2,7 +2,7 @@ import {beforeAll,afterAll,beforeEach,it,expect,vi} from 'vitest';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 const mocks=vi.hoisted(()=>({execute:vi.fn(),access:vi.fn(),permitted:vi.fn(),exchange:vi.fn(),authorize:vi.fn(),device:vi.fn(),unlock:vi.fn(),configureLock:vi.fn(),resume:vi.fn(),lockInfo:row=>({method:row.quick_code_hash?'code':'none',hasCode:!!row.quick_code_hash})}));
-vi.mock('../../../middleware/auth.middleware.js',()=>({authenticate:(req,_res,next)=>{req.user={id:1,switchedFromUserId:req.get('X-Test-Impersonating')?2:null};req.authClaims={demoMode:req.get('X-Test-Demo')==='1'};next();}}));
+vi.mock('../../../middleware/auth.middleware.js',()=>({authenticate:(req,_res,next)=>{req.user={id:1,switchedFromUserId:req.get('X-Test-Impersonating')?2:null};req.authClaims={demoMode:req.get('X-Test-Demo')==='1',testAccountSwitch:req.get('X-Test-Switch')==='1'};next();}}));
 vi.mock('../../../middleware/loginProtection.middleware.js',()=>({sharedLoginLimiter:()=>((_req,_res,next)=>next())}));
 vi.mock('../session.service.js',()=>({mobileSessions:mocks}));
 vi.mock('../../quickViewAuth.service.js',()=>({touchSession:vi.fn()}));
@@ -28,6 +28,7 @@ it('cannot connect an impersonated/demo session or a different account than conf
   expect((await post('/authorize',{expectedUserId:2})).status).toBe(403);
   expect((await post('/authorize',{expectedUserId:1},{'X-Test-Impersonating':'1'})).status).toBe(403);
   expect((await post('/authorize',{expectedUserId:1},{'X-Test-Demo':'1'})).status).toBe(403);
+  expect((await post('/authorize',{expectedUserId:1},{'X-Test-Switch':'1'})).status).toBe(403);
   expect(mocks.authorize).not.toHaveBeenCalled();
   expect((await post('/authorize',{expectedUserId:1,agencyId:10})).status).toBe(200);
 });

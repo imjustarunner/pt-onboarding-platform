@@ -20,6 +20,13 @@ describe('school-wide branding',()=>{
   expect(first.html).toContain('Learn about SchoolCareBridge');expect(first.html).toContain('Learn about MH4Kidz');expect(first.html).toContain('https://mh4kidz.org/about');expect(first.html).toContain('https://mh4kidz.org/donate');expect(first.text).toContain('Learn about MH4Kidz:');
  });
  it.each(['school_client_status_update','school_visit_reminder','school_staff_portal_access','school_staff_account_recovery','school_onboarding_invite','school_roi_signing','school_roi_signer_completion','school_portal_message','secure_message_notification_school_staff'])('brands %s and preserves a plain-text-only message in HTML',type=>{const result=compactSchoolCareBridgeEmail({templateType:type,text:'Open <your> portal'});expect(result.html).toContain('Open &lt;your&gt; portal');expect(result.html).toContain('data-schoolcarebridge');expect(result.text).toContain('SchoolCareBridge');});
+ it('uses the supplied icon in compact badges and upgrades saved account-update footers once',()=>{
+  const old='<p>Message</p><table data-schoolcarebridge="account-updates"><tr><td><img src="https://mh4kidz.org/assets/schoolcarebridge/logo.png"></td></tr></table>';
+  const first=compactSchoolCareBridgeEmail({templateType:'family_notification_invitation',html:old,text:'Message'});
+  expect(first.html).toContain('/assets/schoolcarebridge/icon.png');expect(first.html).toContain('width="48" height="48"');expect(first.html).not.toContain('/schoolcarebridge/logo.png');
+  expect(first.html.match(/data-schoolcarebridge=/g)).toHaveLength(1);
+  expect(compactSchoolCareBridgeEmail({...first,templateType:'family_notification_invitation'})).toEqual(first);
+ });
  it('does not brand office intake receipts',async()=>{expect(await isSchoolCommunication({templateType:'intake_packet_completion',clientId:5})).toBe(false);expect(compactSchoolCareBridgeEmail({text:'Receipt',templateType:'intake_packet_completion'}).html).toBeUndefined();});
  it('brands school receipts using verified school context before a client exists',async()=>{m.execute.mockResolvedValue([[{id:8}]]);expect(await isSchoolCommunication({templateType:'intake_packet_completion',schoolOrganizationId:8})).toBe(true);});
 });

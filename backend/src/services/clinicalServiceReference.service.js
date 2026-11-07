@@ -14,8 +14,12 @@ export function getClinicalServiceReference(serviceCode) {
   const record = source.records[code];
   if (!record) return null;
   const { sourcePages, sourceText, ...details } = record;
+  // Preserve the manual's billing enrollment types separately from clinician
+  // qualifications; these are references, not an agency eligibility override.
+  const providerTypesThatCanBill=sourceText?.match(/Provider Types That Can Bill\s*:\s*([0-9][0-9/, \t]*)/i)?.[1]?.trim().replace(/,\s*$/,'') || null;
   return {
     ...structuredClone(details),
+    providerTypesThatCanBill,
     source: { title: source.sourceTitle, edition: source.edition, effectiveDate: source.effectiveDate,
       sha256: source.sourceSha256, pages: [...sourcePages] },
     manualText: sourceText || '', reviewNotice,

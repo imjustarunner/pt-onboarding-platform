@@ -6,6 +6,7 @@ import { assertHireStaffAccess } from '../hireStaffAccess.service.js';
 import { assertFullSuiteIdentity } from '../productIdentity.service.js';
 import { buildPublicPortalLoginUrl } from '../../utils/publicPortalUrl.js';
 import { startAuthenticatedMobileSession } from '../quickViewAuth.service.js';
+import {mobileQaScope} from './qaScope.service.js';
 import { accountFingerprint, digest, opaqueToken, validClient, validChallenge, verifyChallenge, requireQuickCode, failure, STAFF_ROLES, MAX_CODE_ATTEMPTS, DEVICE_IDLE_MS } from './policy.js';
 
 export function createMobileSessionService({ db=pool, findUser=id=>User.findById(id), assertStaff=assertHireStaffAccess, assertProduct=assertFullSuiteIdentity, issueSession=startAuthenticatedMobileSession, compare=bcrypt.compare, hash=code=>bcrypt.hash(code,12), now=()=>new Date() }={}) {
@@ -14,13 +15,14 @@ export function createMobileSessionService({ db=pool, findUser=id=>User.findById
     const user=await findUser(Number(userId));
     assertAccountEnabled(user);
     await assertProduct(userId); await assertStaff({id:Number(userId)});
-    if(user.is_demo || !STAFF_ROLES.has(String(user.role || '').toLowerCase()) || user.status_expires_at && new Date(user.status_expires_at)<=now()) throw failure(403,'MOBILE_ACCOUNT_UNAVAILABLE','This account cannot use the staff mobile workspace.');
+    if(!STAFF_ROLES.has(String(user.role || '').toLowerCase()) || user.status_expires_at && new Date(user.status_expires_at)<=now()) throw failure(403,'MOBILE_ACCOUNT_UNAVAILABLE','This account cannot use the staff mobile workspace.');
     const [agencyRows]=await db.execute(`SELECT a.* FROM user_agencies ua JOIN agencies a ON a.id=ua.agency_id
       WHERE ua.user_id=? AND ua.is_active=1 AND a.is_active=1 AND COALESCE(a.is_archived,0)=0 ORDER BY a.name`,[Number(userId)]);
-    const agencies=agencyRows.map(a=>({id:a.id,name:a.name,portal_url:a.portal_url,loginUrl:buildPublicPortalLoginUrl(a)}));
+    const scoped=mobileQaScope(user,agencyRows);
+    const agencies=scoped.agencies.map(a=>({id:a.id,name:a.name,portal_url:a.portal_url,loginUrl:buildPublicPortalLoginUrl(a)}));
     const workspace=agencyId ? agencies.find(a=>Number(a.id)===Number(agencyId)) : null;
     if(agencyId && !workspace) throw failure(403,'MOBILE_WORKSPACE_UNAVAILABLE','Your access to this workspace has changed.');
-    return {user,agencies,workspace};
+    return {user,agencies,workspace,qaAgencyIds:scoped.qaAgencyIds};
   }
   function lockInfo(device) { return {method:device.app_lock_method || (device.quick_code_hash?'code':'none'),hasCode:!!device.quick_code_hash}; }
   function publicProfile(context) {

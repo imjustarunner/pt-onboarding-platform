@@ -77,6 +77,18 @@ describe('exact selected-service and owner-authored Narriva guidance',()=>{
  it.each([null,{text:'Partial guide',complete:false,coverage:{unreadable:1}},{text:'',complete:true}])('rejects unavailable or incomplete required supporting evidence before review (%j)',async value=>{
   m.knowledge.mockResolvedValue(value);await expect(loadNarrivaGuidanceContext(source())).rejects.toMatchObject({status:503,code:'NARRIVA_GUIDANCE_UNAVAILABLE'});
  });
+ it('explains incomplete reference categories without exposing clinical text or source paths',async()=>{
+  m.knowledge.mockResolvedValue({text:'PRIVATE_SOURCE_TEXT_CANARY',complete:false,documents:[],coverage:{emptyFolders:1,unreadable:2,truncated:1,listingLimited:true}});
+  try { await loadNarrivaGuidanceContext(source()); throw Error('Expected unavailable guidance'); }
+  catch(error) {
+   expect(error.code).toBe('NARRIVA_GUIDANCE_UNAVAILABLE');expect(error.message).toContain('1 reference folder');expect(error.message).toContain('2 reference document(s) could not be read');expect(error.message).toContain('exceed the extraction limit');expect(error.message).not.toContain('PRIVATE_SOURCE_TEXT_CANARY');expect(error.guidanceCoverage.emptyFolders).toBe(1);
+  }
+ });
+ it('fails closed on unavailable reference storage without returning underlying paths',async()=>{
+  m.knowledge.mockRejectedValue(Error('PRIVATE_BUCKET_PATH_CANARY'));
+  await expect(loadNarrivaGuidanceContext(source())).rejects.toMatchObject({code:'NARRIVA_GUIDANCE_UNAVAILABLE',message:expect.stringContaining('reference storage')});
+  try { await loadNarrivaGuidanceContext(source()); } catch(error) { expect(error.message).not.toContain('PRIVATE_BUCKET_PATH_CANARY'); }
+ });
  it('does not invent a manual definition for a code missing from the supplied PDF',async()=>{
   await expect(loadNarrivaGuidanceContext({...source(),service:{code:'97535'}})).rejects.toMatchObject({status:503,code:'NARRIVA_GUIDANCE_UNAVAILABLE'});expect(m.knowledge).not.toHaveBeenCalled();
  });

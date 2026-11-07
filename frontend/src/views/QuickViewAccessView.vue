@@ -822,7 +822,7 @@ import QuickViewMusicDock from '../components/quickView/QuickViewMusicDock.vue';
 import { buildDisplaySections, extractSections, formatFullNoteCopy } from '../utils/noteAidUiHelpers.js';
 
 const props=defineProps({ mobileSession:Object });
-const emit=defineEmits(['locked','account']);
+const emit=defineEmits(['locked','account','open-workspace-item']);
 const isMobile=computed(()=>!!props.mobileSession);
 
 const BOOKMARK_KEY = 'plottwist.quickViewBookmark';
@@ -914,10 +914,13 @@ function handleMobileLink(event){if(!isMobile.value || event.defaultPrevented ||
 function openMobilePreferences(){showMobileSettings.value=true;}
 async function openMobileConversation(item){msgSuite.value=String(route.query.suite || 'all');await openConversation(item);}
 async function prepareWorkDraft(item){
+  // Pending amendments use the full version-review workflow, never the original note signer.
+  if(item.clinicalRevisionId)return;
   const query={view:'clinical'};
   for(const [key,value] of Object.entries({workId:item.id || item.serverId,clientId:item.clientId || item.client_id,clinicalSessionId:item.clinicalSessionId || item.clinical_session_id,officeEventId:item.officeEventId || item.office_event_id,draftId:item.draftId || item.draft_id,noteId:item.clinicalNoteId || item.clinical_note_id}))if(value)query[key]=String(value);
   if(item.quickSignRequested)query.quickSign='1';
   if(String(item.id || '').startsWith('cosign_'))delete query.workId;
+  if(item.agencyId && Number(item.agencyId)!==Number(sessionAgencyId.value)){emit('open-workspace-item',{agencyId:Number(item.agencyId),query});return;}
   await mobileNavigate(query);
 }
 async function openMobileClinicalContact(target){

@@ -453,6 +453,7 @@ export function parseTreatmentPlanText(rawText) {
     effectiveDate: null,
     diagnoses: [],
     primaryDiagnosisIndex: 0,
+    diagnosticJustification: null,
     presentingProblem: null,
     prescribedFrequency: null,
     dischargePlan: null,
@@ -470,18 +471,20 @@ export function parseTreatmentPlanText(rawText) {
   let currentGoal = null;
   let mode = null; // dx | discharge | goals | presenting | frequency | justification | null
   let justificationBuffer = [];
+  let diagnosticJustification = '';
   let presentingBuffer = [];
 
   const flushJustification = () => {
-    if (!diagnoses.length || !justificationBuffer.length) {
+    if (!justificationBuffer.length) {
       justificationBuffer = [];
       return;
     }
     const j = justificationBuffer.join(' ').trim();
     if (j) {
+      diagnosticJustification = [diagnosticJustification, j].filter(Boolean).join(' ').trim();
       // Attach full justification to primary (first) diagnosis; keep on last if only one
       const target = diagnoses.find((d) => d.isPrimary) || diagnoses[0];
-      target.justification = [target.justification, j].filter(Boolean).join(' ').trim();
+      if (target) target.justification = [target.justification, j].filter(Boolean).join(' ').trim();
     }
     justificationBuffer = [];
   };
@@ -859,6 +862,7 @@ export function parseTreatmentPlanText(rawText) {
       isPrimary: i === (primaryDiagnosisIndex >= 0 ? primaryDiagnosisIndex : 0)
     })),
     primaryDiagnosisIndex: primaryDiagnosisIndex >= 0 ? primaryDiagnosisIndex : 0,
+    diagnosticJustification: diagnosticJustification || null,
     presentingProblem: presentingProblem ? String(presentingProblem).trim() : null,
     prescribedFrequency: prescribedFrequency ? String(prescribedFrequency).trim() : null,
     dischargePlan: dischargePlan ? String(dischargePlan).trim() : null,

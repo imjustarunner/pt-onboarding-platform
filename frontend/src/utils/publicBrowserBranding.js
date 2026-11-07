@@ -22,10 +22,10 @@ export function publicBrowserBranding(host, path = '/') {
   const product = productBrowserBranding(host);
   if (product) return product;
   if (isPlotlineHost(host)) return { slug: 'plotline', title: 'Plotline | People Operations', favicon: '/assets/plotline/icon.svg' };
-  if (String(host).toLowerCase().split(':')[0] === 'qv.app.schoolcarebridge.org') return { slug: 'schoolcarebridge', title: 'SchoolCareBridge | Quick View', favicon: '/assets/schoolcarebridge/logo.png' };
+  if (String(host).toLowerCase().split(':')[0] === 'qv.app.schoolcarebridge.org') return { slug: 'schoolcarebridge', title: 'SchoolCareBridge | Quick View', favicon: '/assets/schoolcarebridge/icon.png' };
   if (sstcMarketingPage(host,path)) return {slug:'sstc',title:'Summit Stats Team Challenge',favicon:'/assets/sstc/logo.png'};
   if (officeSiteForHost(host) || isOfficePath(path)) return { slug: 'office', title: OFFICE_APP_NAME, favicon: OFFICE_ICON };
-  if (isSchoolCareBridgeHost(host) || isSchoolCareBridgePath(path)) return { slug: 'schoolcarebridge', title: 'SchoolCareBridge | A Plot Twist Co. product', favicon: '/assets/schoolcarebridge/logo.png' };
+  if (isSchoolCareBridgeHost(host) || isSchoolCareBridgePath(path)) return { slug: 'schoolcarebridge', title: 'SchoolCareBridge | A Plot Twist Co. product', favicon: '/assets/schoolcarebridge/icon.png' };
   const slug = publicSupportSlugFromHost(host) || String(path).match(/^\/p\/([^/?#]+)/)?.[1];
   const title = PUBLIC_WEBSITE_TITLES[slug];
   return title ? { slug, title, favicon: tenantFaviconUrl(slug) } : null;

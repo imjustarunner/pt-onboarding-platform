@@ -19,7 +19,7 @@ vi.mock('../../services/clientSecureConversation.service.js',()=>({clientSecureA
 vi.mock('../../services/providerSmsRelayIdentity.service.js',()=>({resolveRelayFamily:vi.fn()}));
 vi.mock('../../services/clinicalSmsSend.service.js',()=>({sendClinicalSms:vi.fn()}));
 vi.mock('../../services/clinicalSessionRecording.service.js',()=>({getAuthorizedRecordingNarrative:vi.fn()}));
-vi.mock('../medicalBilling.controller.js',()=>({getClinicalNoteById:vi.fn()}));
+vi.mock('../medicalBilling.controller.js',()=>({getClinicalNoteById:vi.fn(),listServiceLocations:vi.fn()}));
 vi.mock('../supervisedBilling.controller.js',()=>({getSuperviseeReviewDocument:vi.fn()}));
 vi.mock('../notesToSign.controller.js',()=>({listNotesToSign:vi.fn()}));
 import pool from '../../config/database.js';
@@ -41,7 +41,7 @@ import {clinicalAccess} from '../../services/guardianClinicalAccess.service.js';
 import {clientSecureAudience,ensureClientSecureConversation} from '../../services/clientSecureConversation.service.js';
 import {resolveRelayFamily} from '../../services/providerSmsRelayIdentity.service.js';
 import {sendClinicalSms} from '../../services/clinicalSmsSend.service.js';
-import {getClinicalNoteById} from '../medicalBilling.controller.js';
+import {getClinicalNoteById,listServiceLocations} from '../medicalBilling.controller.js';
 import {getSuperviseeReviewDocument} from '../supervisedBilling.controller.js';
 import {listNotesToSign} from '../notesToSign.controller.js';
 import {requireMobileClinicalSession,scopedMobileClinicalHandler,getMobileClinicalContext,getMobileClientSummary,resolveMobileClientContact,sendMobileClientContact,getMobileNotesToSign} from '../mobileClinical.controller.js';
@@ -51,7 +51,7 @@ const guardian={guardian_user_id:11,access_enabled:1,is_active:1,status:'ACTIVE'
 const request=(overrides={})=>({quickView:{userId:1,agencyId:4,mobileDeviceSessionId:7},query:{},body:{},params:{},headers:{},...overrides});
 const response=()=>{const res={set:vi.fn(),json:vi.fn(),status:vi.fn()};res.set.mockReturnValue(res);res.json.mockReturnValue(res);res.status.mockReturnValue(res);return res;};
 beforeEach(()=>{
- vi.resetAllMocks();vi.setSystemTime(new Date('2026-11-06T19:00:00Z'));User.findById.mockResolvedValue({id:1,role:'provider',is_active:1,status:'ACTIVE'});
+ vi.resetAllMocks();listServiceLocations.mockImplementation((req,res)=>res.json({choices:[{value:'service:8',name:'Assigned office',label:'Assigned office (POS 11)',serviceLocationId:8,billingOfficeLocationId:2,placeOfService:'11'}]}));vi.setSystemTime(new Date('2026-11-06T19:00:00Z'));User.findById.mockResolvedValue({id:1,role:'provider',is_active:1,status:'ACTIVE'});
  pool.execute.mockImplementation(async sql=>sql.includes('user_agencies')?[[{present:1}]]:sql.includes('default_mode')?[[{default_mode:'manual'}]]:[[]]);
  clinicalPool.execute.mockResolvedValue([[{agency_id:4,client_id:20}]]);
  requireNarrivaAgency.mockResolvedValue();requireNarrivaClient.mockResolvedValue({...client});
@@ -125,4 +125,12 @@ describe('supervisor mobile queue',()=>{
   const res=response(),next=vi.fn();await getMobileNotesToSign(request(),res,next);expect(next).not.toHaveBeenCalled();
   const data=res.json.mock.calls[0][0];expect(data.count).toBe(1);expect(data.notes[0]).toMatchObject({clinicalNoteId:99,clientMaskedName:'Mic* And*',clientAge:12,narriva:{quickSignEligible:false}});expect(JSON.stringify(data)).not.toContain('Michael Anderson');expect(JSON.stringify(data)).not.toContain('client_code');
  });
+});
+
+describe('mobile assigned locations and secure setup',()=>{
+ it('opens the assigned encounter location without requiring the clinician to select it again',async()=>{ClinicalSession.findById.mockResolvedValue({...session,service_location_id:8,billing_office_location_id:2});const res=response(),next=vi.fn();await getMobileClinicalContext(request({query:{clientId:20,clinicalSessionId:10}}),res,next);expect(next).not.toHaveBeenCalled();expect(res.json.mock.calls[0][0].session).toMatchObject({serviceLocationId:8,billingOfficeLocationId:2,placeOfService:'11',locationLabel:'Assigned office'});});
+ it('preserves an encounter historical location label instead of replacing it with a renamed site',async()=>{ClinicalSession.findById.mockResolvedValue({...session,service_location_id:8,metadata_json:JSON.stringify({locationLabel:'Former office name'})});const res=response();await getMobileClinicalContext(request({query:{clientId:20,clinicalSessionId:10}}),res,vi.fn());expect(res.json.mock.calls[0][0].session.locationLabel).toBe('Former office name');});
+ it('loads only the note-writer location choices in the token workspace',async()=>{const res=response(),next=vi.fn();await getMobileClinicalContext(request({query:{clientId:20,clinicalSessionId:10,includeInactive:'1',forNoteAid:'0'}}),res,next);expect(next).not.toHaveBeenCalled();expect(listServiceLocations.mock.calls[0][0].query).toMatchObject({agencyId:4,forNoteAid:'1',includeInactive:'0'});expect(res.json.mock.calls[0][0].locationChoices).toHaveLength(1);});
+ it('preserves the note context and labels unavailable locations instead of silently offering generic sites',async()=>{listServiceLocations.mockImplementation((req,res,next)=>next(new Error('Unavailable')));const res=response(),next=vi.fn();await getMobileClinicalContext(request({query:{clientId:20,clinicalSessionId:10}}),res,next);expect(next).not.toHaveBeenCalled();expect(res.json.mock.calls[0][0]).toMatchObject({locationChoices:[],locationChoicesUnavailable:true,client:{id:20}});});
+ it('shows secure setup requirements with no authorized portal recipients and does not create a thread',async()=>{ClientGuardian.listForClient.mockResolvedValue([]);clientSecureAudience.mockResolvedValue({userIds:[1]});const res=response(),next=vi.fn();await getMobileClientSummary(request({params:{clientId:20}}),res,next);expect(next).not.toHaveBeenCalled();expect(res.json.mock.calls[0][0]).toMatchObject({contacts:[],secureMessaging:{available:false}});expect(ensureClientSecureConversation).not.toHaveBeenCalled();});
 });

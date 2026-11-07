@@ -8,7 +8,7 @@ vi.mock('../../config/database.js',()=>({default:{execute:(...a)=>state.db.execu
 vi.mock('../../services/accountSecurity.service.js',()=>({accountSecurityState:async()=>state.verification,requireAccountSession:req=>{if(!req.user?.sessionId)throw new Error('Sign in');}}));
 import {authorizeProtectedActivity,protectOutboundEmail,protectFileResource,protectStorageResource} from '../../services/activityProtection.service.js';
 import {reserveLoginAttempts,recordPasswordResult} from '../../middleware/loginProtection.middleware.js';
-import {requestFileAccess,reviewTicket,reviewAlert,ownProtection,reviewQueue,pendingFileRequests,requirePrivacyReviewer,assignPrivacyReviewer} from '../activityProtection.controller.js';
+import {requestFileAccess,reviewTicket,reviewAlert,ownProtection,reviewQueue,protectionSummary,pendingFileRequests,requirePrivacyReviewer,assignPrivacyReviewer} from '../activityProtection.controller.js';
 import {evidenceRequestContext} from '../../utils/evidenceRequestContext.js';
 import {enforceActivityProtection} from '../../middleware/activityProtection.middleware.js';
 const socket=process.env.EVIDENCE_TEST_SOCKET;
@@ -226,6 +226,19 @@ describe.skipIf(!socket)('shared activity protection integration',()=>{
   admin.body={...admin.body,userId:2,confirmUserId:2};await call(assignPrivacyReviewer,admin);
   await state.db.query("UPDATE users SET role='school_staff' WHERE id=2");const reviewer=req(2);reviewer.user.role='school_staff';const next=vi.fn();await requirePrivacyReviewer(reviewer,{status:vi.fn().mockReturnThis(),json:vi.fn()},next);expect(next).toHaveBeenCalledWith();
   await state.db.query("UPDATE users SET role='super_admin' WHERE id=2");
+ });
+
+ it('counts blocked requests separately from accounts and filters review history without changing holds',async()=>{
+  await state.db.query("INSERT INTO activity_protection_state (user_id,kind,held_at) VALUES (1,'client_file',UTC_TIMESTAMP(3))");
+  const makeAlert=async(userId,reviewed=false)=>{const id=crypto.randomUUID();await state.db.query("INSERT INTO activity_protection_alerts (id,user_id,kind,reason,request_id,session_ref,ip_source,route,units,occurred_at,reviewed_at) VALUES (?,?,'client_file','review_hold',?,?,'unverified_proxy','/api/clients/:id/:value',1,UTC_TIMESTAMP(3),?)",[id,userId,crypto.randomUUID(),'session-a',reviewed?new Date():null]);return id;};
+  const a=await makeAlert(1),b=await makeAlert(1),c=await makeAlert(2),unknown=await makeAlert(null),reviewed=await makeAlert(2,true);
+  expect(await call(protectionSummary,req())).toMatchObject({alerts:4,accounts:2,unidentified:1,requests:0});
+  expect((await call(reviewQueue,req())).alerts.map(x=>x.id).sort()).toEqual([a,b,c,unknown].sort());
+  const history={...req(),query:{status:'reviewed'}};expect((await call(reviewQueue,history)).alerts.map(x=>x.id)).toEqual([reviewed]);
+  expect((await call(reviewQueue,{...req(),query:{status:'all'}})).alerts).toHaveLength(5);
+  await expect(call(reviewQueue,{...req(),query:{status:'invalid'}})).rejects.toHaveProperty('code','ACTIVITY_REVIEW_REQUIRED');
+  const [[hold]]=await state.db.query("SELECT held_at FROM activity_protection_state WHERE user_id=1 AND kind='client_file'");expect(hold.held_at).not.toBeNull();
+  const [[count]]=await state.db.query('SELECT COUNT(*) n FROM activity_protection_alerts');expect(Number(count.n)).toBe(5);
  });
 
 });
