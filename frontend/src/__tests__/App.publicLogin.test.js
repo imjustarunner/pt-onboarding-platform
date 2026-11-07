@@ -38,12 +38,15 @@ it('loads the ordinary workspace after successful authentication and navigation'
   try {
     await flushPromises();
     expect(state.workspaceMounted).not.toHaveBeenCalled();
+    const workspaceReady = new Promise(resolve => state.workspaceMounted.mockImplementationOnce(resolve));
     state.auth.user = { id: 8, role: 'admin' }; state.auth.isAuthenticated = true;
     state.route.name = 'Dashboard';
-    await vi.waitFor(() => {
-      expect(state.workspaceMounted).toHaveBeenCalledOnce();
-      expect(wrapper.text()).toContain('Employee workspace');
-    });
+    // Observe the lazy component's setup, then flush its rendered DOM. Polling
+    // for one second raced cold CI transforms of the dynamically imported mock.
+    await workspaceReady;
+    await flushPromises();
+    expect(state.workspaceMounted).toHaveBeenCalledOnce();
+    expect(wrapper.text()).toContain('Employee workspace');
   } finally { wrapper.unmount(); }
 });
 it('retains the assistant shell boundary even on a login-named route', async () => {
