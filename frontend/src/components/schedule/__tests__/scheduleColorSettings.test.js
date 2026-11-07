@@ -20,9 +20,9 @@ it('shows a labeled key using the same personal colors, with transparent fills',
  expect(wrapper.find('.legend-items').text()).toContain('Virtual opening');
  expect(wrapper.find('.legend-items').text()).toContain('In-person intake');
  expect(wrapper.text()).not.toContain('Office assigned available');
- expect(interview().find('.legend-swatch').attributes('style')).toContain('rgba(18, 52, 86, 0.22)');
+ expect(interview().find('.legend-swatch').attributes('style')).toContain('rgba(18, 52, 86, 0.12)');
  await wrapper.setProps({colors:{interview:'#654321'},dark:true});
- expect(interview().find('.legend-swatch').attributes('style')).toContain('rgba(101, 67, 33, 0.32)');
+ expect(interview().find('.legend-swatch').attributes('style')).toContain('rgba(101, 67, 33, 0.24)');
  expect(wrapper.find('details').text()).toContain('Google event');
  wrapper.unmount();
 });

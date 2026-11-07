@@ -38,9 +38,9 @@ POST /availability/admin/school-weekdays/request (managers)
 Validation:
 - 16 backend tests: weekday defaults, persistence, assignment locks, tenant
   isolation, demo exclusion, pending prompts, focus conflicts and permissions.
-- 39 frontend tests: roster filters, individual/bulk requests, focus editing,
+- 41 frontend tests: roster filters, individual/bulk requests, focus editing,
   calendar icons/prompt, five-day controls, failures and notification routing.
-- 57 existing calendar/school regression tests passed during implementation.
+- 59 calendar/school regression tests passed, including the lighter-fill checks.
 - 3 release navigation checks passed.
 - Desktop (1440px) and phone (390px) Chrome checks passed using synthetic data:
   weekday changes/save, assignment lock, focus addition, roster refresh, opaque

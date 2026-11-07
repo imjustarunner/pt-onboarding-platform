@@ -124,7 +124,7 @@ it('uses distinct custom appointment colors and saves the palette version only t
   const interview={kind:'sevt',eventKind:'TEAM_MEETING',meetingSubtype:'interview'};
   expect(s.cellBlockStyle(interview)['--blockFill']).not.toBe(s.cellBlockStyle({kind:'supv'})['--blockFill']);
   s.scheduleColors={...s.scheduleColors,interview:'#123456',supervision:'#654321'};
-  expect(s.cellBlockStyle(interview)['--blockFill']).toBe('rgba(18, 52, 86, 0.22)');
+  expect(s.cellBlockStyle(interview)['--blockFill']).toBe('rgba(18, 52, 86, 0.12)');
   await s.saveScheduleColors();
   expect(m.put).toHaveBeenLastCalledWith('/users/7/preferences',{
     schedule_color_overrides:expect.objectContaining({interview:'#123456',supervision:'#654321'}),
