@@ -54,9 +54,15 @@ import {
   rotatePublicProviderLinkKey
 } from '../controllers/availability.controller.js';
 
+import { getSchoolWeekdays, putSchoolWeekdays, pushSchoolWeekdays, putSchoolProviderFocus } from '../controllers/schoolWeekdayAvailability.controller.js';
+
 const router = express.Router();
 
 router.use(authenticate);
+router.put('/providers/:providerId/school-service-focus', requireActiveStatus, putSchoolProviderFocus);
+router.get('/providers/:providerId/school-weekdays', requireActiveStatus, getSchoolWeekdays);
+router.put('/providers/:providerId/school-weekdays', requireActiveStatus, putSchoolWeekdays);
+router.post('/admin/school-weekdays/request', requireActiveStatus, pushSchoolWeekdays);
 router.get('/providers/:providerId/day-cancellation', requireActiveStatus, resumeDayCancellation);
 router.post('/providers/:providerId/day-cancellation/preview', requireActiveStatus, previewDayCancellation);
 router.post('/providers/:providerId/day-cancellation/rewrite', requireActiveStatus, rewriteDayCancellation);

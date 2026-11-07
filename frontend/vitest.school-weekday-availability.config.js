@@ -1,0 +1,3 @@
+import { defineConfig } from 'vitest/config';
+import vue from '@vitejs/plugin-vue';
+export default defineConfig({root:new URL('.',import.meta.url).pathname,plugins:[vue()],resolve:{alias:{'@':new URL('./src',import.meta.url).pathname}},test:{environment:'jsdom',include:['src/components/availability/__tests__/ProviderSchoolDays.test.js','src/components/availability/__tests__/SchoolWeekdayEditor.test.js','src/components/availability/__tests__/SchoolProviderFocusEditor.test.js','src/components/schedule/__tests__/scheduleDayLayout.test.js','src/components/schedule/__tests__/SchoolAssignmentRailPanel.test.js','src/utils/__tests__/scheduleAppearance.test.js','src/utils/__tests__/notificationActions.test.js']}});

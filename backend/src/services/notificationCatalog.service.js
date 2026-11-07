@@ -52,7 +52,7 @@ const TYPES_BY_CATEGORY = {
     'school_availability_request_approved', 'school_availability_request_denied',
     'school_provider_availability_confirmed', 'school_provider_availability_updated',
     'school_provider_slot_verification_requested',
-    'school_provider_slot_verification_completed', 'facilitator_availability_push',
+    'school_provider_slot_verification_completed', 'school_weekday_availability_requested', 'facilitator_availability_push',
     'school_primary_staff_removed', 'public_appointment_request_received',
     'shift_calloff_need_coverage',
     'supervision_session_scheduled', 'team_meeting_scheduled',
@@ -157,6 +157,7 @@ const LABEL_OVERRIDES = {
   school_provider_slot_verification_requested: 'School slot verification requested',
   school_provider_slot_verification_completed: 'School slot verification completed',
   facilitator_availability_push: 'Facilitator availability requested',
+  school_weekday_availability_requested: 'School weekday availability requested',
   shift_calloff_need_coverage: 'Shift coverage needed',
   planned_out_submitted: 'Planned Out Submitted',
   planned_out_acknowledged: 'Planned Out Acknowledged',
@@ -192,7 +193,7 @@ const WORKFORCE_RELEVANT = new Set([
   'emergency_broadcast', 'presence_return_overdue_nudge', 'task_overdue',
   'chat_message', 'task_comment_mention', 'voicemail_received',
   'quick_view_login', 'quick_view_locked',
-  'facilitator_availability_push', 'shift_calloff_need_coverage',
+  'facilitator_availability_push', 'school_weekday_availability_requested', 'shift_calloff_need_coverage',
   'mileage_claim_approved', 'mileage_claim_rejected', 'mileage_claim_returned',
   'medcancel_claim_approved', 'medcancel_claim_rejected', 'medcancel_claim_returned',
   'payroll_home_address_updated', 'checklist_incomplete',
@@ -469,7 +470,7 @@ const EMAIL_CAPABLE = new Set([
   'support_ticket_forwarded_to_provider','voicemail_received','chat_message'
 ]);
 const PUSH_CAPABLE = new Set([
-  ...SMS_CAPABLE,
+  ...SMS_CAPABLE, 'school_weekday_availability_requested',
   'new_packet_uploaded', 'hiring_task_assigned', 'task_comment_mention',
   'sstc_club_member_application_pending', 'sstc_club_invite_request',
   'school_event_marketing_photo', 'school_event_marketing_photo_missing'

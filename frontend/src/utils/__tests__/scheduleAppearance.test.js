@@ -15,7 +15,7 @@ describe('schedule appearance',()=>{
   expect(new Set(examples.map(scheduleBlockColorKey)).size).toBe(examples.length);
   for(const dark of [false,true]) for(const block of examples) {
    const key=scheduleBlockColorKey(block);const p=scheduleTypePalette(block,{[key]:'#123456'},dark);
-   expect(p.fill).toBe(`rgba(18, 52, 86, ${dark?0.32:0.22})`);
+   expect(p.fill).toBe(`rgba(18, 52, 86, ${dark?0.24:0.12})`);
   }
   expect(scheduleTypePalette({kind:'supv'},{supervision:'red'}).fill).toBe(scheduleTypePalette({kind:'supv'},defaultScheduleColors()).fill);
  });

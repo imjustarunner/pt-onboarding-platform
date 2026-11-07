@@ -1,0 +1,52 @@
+SCHOOL WEEKDAY AVAILABILITY — November 6, 2026
+
+Provider Days shows non-demo providers with a school-based counseling service
+focus, including legacy combined school/office labels. School assignments alone
+do not make a provider eligible. Synthetic-only QA tenants are excluded too.
+
+School providers default to available Monday–Friday. The shared weekday record
+lives in provider_public_profiles.public_details_json.schoolWeekdaysByAgency.
+Assigned weekdays show the school in gray and cannot be marked unavailable in
+the five-day editor. Green means available for school placement; red means the
+provider explicitly marked the weekday unavailable. Assignment changes still
+use the existing school scheduling workflow. Calendar icons and Provider Days
+read the same record. These are usual placement days, not clinical appointment
+slots or a promise that every hour is free.
+
+The calendar always has a compact All Day row under the weekday headings. It
+grows with all-day events. Small school icons open the weekday editor. Timed
+blocks and school rails have lighter transparent fills. School details use an
+opaque panel.
+
+Provider Days managers can request an update from one provider or all eligible
+active providers. Each request persists an in-app notification and a pending
+calendar prompt together, then attempts browser push when the recipient has
+enabled it. Repeated requests skip outstanding prompts. Partial recipient
+failures are reported. Saving the five weekdays completes the pending prompt.
+
+Edit service focuses opens a searchable non-demo provider directory. Add
+School-Based Counseling preserves other focuses. Full multi-category editing
+uses the existing focus selector. Saves reject stale values rather than
+silently replacing another administrator's changes. Migration 1771 widens the
+service_focus column to TEXT for multiple categories.
+
+Endpoints (authenticated, active accounts; agency-scoped):
+GET/PUT /availability/providers/:providerId/school-weekdays
+PUT /availability/providers/:providerId/school-service-focus (managers)
+POST /availability/admin/school-weekdays/request (managers)
+
+Validation:
+- 16 backend tests: weekday defaults, persistence, assignment locks, tenant
+  isolation, demo exclusion, pending prompts, focus conflicts and permissions.
+- 39 frontend tests: roster filters, individual/bulk requests, focus editing,
+  calendar icons/prompt, five-day controls, failures and notification routing.
+- 57 existing calendar/school regression tests passed during implementation.
+- 3 release navigation checks passed.
+- Desktop (1440px) and phone (390px) Chrome checks passed using synthetic data:
+  weekday changes/save, assignment lock, focus addition, roster refresh, opaque
+  school details, no horizontal overflow in the editor, and no page errors.
+- Production frontend build passed with NODE_OPTIONS=--max-old-space-size=8192.
+  The first attempt exhausted Node's default heap; no dependencies were copied.
+
+Browser screenshots and the separately authorized provider-account corrections
+are retained locally in deliverables/school-weekday-availability-2026-11-06.

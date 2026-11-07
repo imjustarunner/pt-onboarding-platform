@@ -309,6 +309,7 @@ class NotificationDispatcherService {
     });
     if (!typePushEnabled) return { dispatched: false, reason: 'type_push_disabled' };
     let notificationUrl = '/notifications';
+    if (notification.type === 'school_weekday_availability_requested') notificationUrl = `/my-schedule?schoolAvailability=1&agencyId=${Number(notification.agency_id)}`;
     if (notification.type === 'team_meeting_scheduled' && ['provider_schedule_event', 'provider_schedule_events'].includes(notification.related_entity_type)) {
       const eventId = Number(notification.related_entity_id);
       const audience = parseJsonMaybe(notification.audience_json) || {};

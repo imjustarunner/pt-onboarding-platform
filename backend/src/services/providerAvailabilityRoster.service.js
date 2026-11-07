@@ -1,3 +1,4 @@
+import { schoolWeekdayContext, excludedFromSchoolRoster } from '../utils/schoolWeekdayAvailability.js';
 import pool from '../config/database.js';
 import {scopeProviderProfile} from '../utils/providerAgencyAvailability.js';
 import {providerAvailabilityPreferences} from '../utils/providerAvailabilityReminders.js';
@@ -25,7 +26,7 @@ export async function enrichAvailabilityRoster(rows, agencyId, database=pool) {
  if(!rows.length)return [];
  const ids=rows.map(p=>Number(p.id)),marks=ids.map(()=>'?').join(',');
  const [[people],[types],[enrollments],offices,[schoolRows]]=await Promise.all([
-  database.execute(`SELECT u.id,ua.agency_role,a.organization_type,u.role,u.status,u.has_provider_access,u.title,u.credential,u.profile_photo_path,u.sees_clients,u.provider_accepting_new_clients,u.in_office_available,p.public_details_json,p.accepting_new_clients_override,
+  database.execute(`SELECT u.id,ua.agency_role,a.organization_type,a.slug AS agency_slug,a.feature_flags AS agency_feature_flags,u.role,u.status,u.has_provider_access,u.title,u.credential,u.service_focus,u.is_demo,u.profile_photo_path,u.sees_clients,u.provider_accepting_new_clients,u.in_office_available,p.public_details_json,p.accepting_new_clients_override,
    EXISTS(SELECT 1 FROM provider_in_person_slot_availability v WHERE v.provider_id=u.id AND v.agency_id=? AND v.is_active=1 AND v.end_at>UTC_TIMESTAMP()) AS published_in_person,
    (EXISTS(SELECT 1 FROM provider_virtual_slot_availability v WHERE v.provider_id=u.id AND v.agency_id=? AND v.is_active=1 AND v.available_for_intake=1 AND v.end_at>UTC_TIMESTAMP()) OR EXISTS(SELECT 1 FROM provider_virtual_working_hours v WHERE v.provider_id=u.id AND v.agency_id=? AND v.available_for_intake=1)) AS published_virtual,
    EXISTS(SELECT 1 FROM provider_school_assignments s WHERE s.provider_user_id=u.id AND s.is_active=1 AND s.slots_available>0 AND EXISTS(SELECT 1 FROM organization_affiliations oa WHERE oa.organization_id=s.school_organization_id AND oa.agency_id=? AND oa.is_active=1)) AS published_school
@@ -46,7 +47,9 @@ export async function enrichAvailabilityRoster(rows, agencyId, database=pool) {
   const profile=scopeProviderProfile({details,acceptingNewClientsOverride:user.accepting_new_clients_override},agencyId);
   const preferences={school:true,officeIds:null,scheduleAgencyId:Number(agencyId),...providerAvailabilityPreferences(user,profile)};
   if(!profile.agencyAvailability&&preferences.seesClients){preferences.inPerson ||= !!user.published_in_person;preferences.virtual ||= !!user.published_virtual;preferences.acceptingNewClients ||= !!(user.published_in_person||user.published_virtual||user.published_school);}
+  const placement=providerSchoolPlacementSummary(schoolRows,row.id);
+  const schoolWeekdays=schoolWeekdayContext(user,placement.schoolAssignments,agencyId);
   const services=providerServiceSettings(user,agencyId,types,enrollments.filter(e=>Number(e.user_id)===Number(row.id)));
-  return {...row,title:user.title||user.credential||'',profilePhotoUrl:publicUploadsUrlFromStoredPath(user.profile_photo_path),preferences,services,offices:offices.get(Number(row.id))||[],...providerSchoolPlacementSummary(schoolRows,row.id)};
+  return {...row,title:user.title||user.credential||'',profilePhotoUrl:publicUploadsUrlFromStoredPath(user.profile_photo_path),preferences,services,schoolWeekdays,service_focus:user.service_focus,is_demo:user.is_demo,schoolRosterExcluded:excludedFromSchoolRoster(user),offices:offices.get(Number(row.id))||[],...providerSchoolPlacementSummary(schoolRows,row.id)};
  });
 }

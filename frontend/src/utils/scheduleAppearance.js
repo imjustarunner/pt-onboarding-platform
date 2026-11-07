@@ -75,7 +75,7 @@ export function scheduleTypePalette(block, colors = {}, dark = false) {
   const rgba = alpha => `rgba(${rgb.join(', ')}, ${alpha})`;
   const text = rgb.map(channel => Math.round(dark ? channel * 0.2 + 255 * 0.8 : channel * 0.4));
   return {
-    fill:rgba(dark ? 0.32 : 0.22), border:rgba(0.65), stripe:rgba(0.85), text:`rgb(${text.join(', ')})`,
+    fill:rgba(dark ? 0.24 : 0.12), border:rgba(0.65), stripe:rgba(0.85), text:`rgb(${text.join(', ')})`,
     borderStyle:block.eventKind === 'FALL_CHECKIN_PRESLOT' || (block.kind === 'supv-signup' && !block.viewerSignedUp && !block.sessionLive) ? 'dashed' : 'solid'
   };
 }

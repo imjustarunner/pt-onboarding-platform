@@ -83,3 +83,7 @@ it('opens urgent SMS support requests in the ticket queue', () => {
 it('opens eligible year awards in the notification agency', () => {
   expect(notificationDestination({type:'employee_award_eligible',agency_id:2},{organizationSlug:'itsco',role:'admin'})).toBe('/itsco/admin/employee-relations?agencyId=2&status=owed');
 });
+
+it('opens the school weekday updater from an individual notification', () => {
+  expect(notificationDestination({type:'school_weekday_availability_requested',agency_id:2},{organizationSlug:'itsco',role:'provider'})).toBe('/itsco/my-schedule?schoolAvailability=1&agencyId=2');
+});

@@ -25,6 +25,8 @@
       @close="cancelDayDate = ''" @saved="onDayCancelled" />
     <ProviderDayNoteDialog v-if="dayNoteDate" :date="dayNoteDate" :time-zone="bookingTimezoneIana" :provider-id="Number(userId || authStore.user?.id)"
       :agency-ids="effectiveAgencyIds" @close="dayNoteDate = ''" />
+    <SchoolWeekdayEditor v-if="schoolWeekdayEditorAgency" :provider-id="Number(userId || authStore.user?.id)" :agency-id="schoolWeekdayEditorAgency"
+      @close="schoolWeekdayEditorAgency = 0" @saved="loadSchoolWeekdays" />
     <SchoolAssignmentRailPanel v-if="schoolRailDetail" :detail="schoolRailDetail" :provider-id="Number(userId || authStore.user?.id)"
       :time-zone="bookingTimezoneIana" :can-cancel="canBookFromGrid" :can-request="canRequestSchoolChange"
       @close="schoolRailDetail = null" @request-change="openSchoolAssignmentRequest(false)" @adjust-slots="openSchoolAssignmentRequest(true)"
@@ -1194,8 +1196,10 @@
             class="sched-all-day-item cell-block-school-soft" :style="cellBlockStyle(block)" :title="block.title"
             @click="selectedSchoolSoftBlock = block">{{ block.clientName }} · {{ block.schoolName }}<span class="cell-block-soft-status">{{ block.status.label }}</span></button>
         </div>
-        <div v-if="allDayBlocksForDay(mobileTimelineDay).length" class="sched-mobile-all-day">
-          <span class="sched-all-day-label">All day</span>
+        <div class="sched-mobile-all-day">
+          <span class="sched-all-day-label">All Day</span>
+          <button v-for="item in schoolWeekdayIcons(mobileTimelineDay)" :key="item.agencyId" type="button" class="school-weekday-icon" :class="`school-weekday-icon--${item.status}`"
+            :title="item.label" :aria-label="item.label" @click="schoolWeekdayEditorAgency = item.agencyId"><SchoolAvailabilityIcon /></button>
           <button v-for="block in allDayBlocksForDay(mobileTimelineDay)" :key="block.key" type="button"
             class="sched-all-day-item" :style="cellBlockStyle(block)" :title="block.title"
             @click="openAllDayBlock($event, block, mobileTimelineDay)">{{ block.shortLabel }}</button>
@@ -1346,6 +1350,21 @@
           </div>
         </div>
 
+        <template v-if="true">
+          <div class="sched-all-day-label">All Day</div>
+          <div v-for="d in visibleDays" :key="`all-day-${d}`" class="sched-all-day-cell" :class="{ 'sched-cell-today': isTodayDay(d) }">
+            <div v-if="schoolWeekdayIcons(d).length" class="school-weekday-icons">
+              <button v-for="item in schoolWeekdayIcons(d)" :key="item.agencyId" type="button" class="school-weekday-icon" :class="`school-weekday-icon--${item.status}`"
+                :title="item.label" :aria-label="item.label" @click.stop="schoolWeekdayEditorAgency = item.agencyId"><SchoolAvailabilityIcon /></button>
+            </div>
+            <button v-for="block in allDayBlocksForDay(d)" :key="block.key" type="button"
+              class="sched-all-day-item" :class="{ 'sched-all-day-item--cancelled': block.isCancelled }"
+              :style="cellBlockStyle(block)" :title="block.title" @click="openAllDayBlock($event, block, d)">
+              {{ block.shortLabel }}
+            </button>
+          </div>
+        </template>
+
         <template v-if="hasVisibleUntimedSchoolItems">
           <div class="sched-all-day-label">Time not set</div>
           <div v-for="d in visibleDays" :key="`school-untimed-${d}`" class="sched-all-day-cell sched-untimed-school-cell">
@@ -1356,17 +1375,6 @@
             </button>
           </div>
         </template>
-        <template v-if="hasVisibleAllDayItems">
-          <div class="sched-all-day-label">All day</div>
-          <div v-for="d in visibleDays" :key="`all-day-${d}`" class="sched-all-day-cell" :class="{ 'sched-cell-today': isTodayDay(d) }">
-            <button v-for="block in allDayBlocksForDay(d)" :key="block.key" type="button"
-              class="sched-all-day-item" :class="{ 'sched-all-day-item--cancelled': block.isCancelled }"
-              :style="cellBlockStyle(block)" :title="block.title" @click="openAllDayBlock($event, block, d)">
-              {{ block.shortLabel }}
-            </button>
-          </div>
-        </template>
-
         <template v-for="slot in displayTimeSlots" :key="`h-${slot.key}`">
           <div
             class="sched-hour"
@@ -5978,6 +5986,8 @@ import { schoolSoftScheduleBlocks, schoolSoftBlocksInCell } from '../../utils/sc
 import { assignmentSchoolId, assignmentStartsInCell, closureForSchoolDate, schoolRailSummary, schoolRailTone } from '../../utils/schoolAssignmentRail.js';
 import { ownsIndependentBusiness } from '../../utils/independentBusinessAccess.js';
 import SchoolAssignmentRailPanel from './SchoolAssignmentRailPanel.vue';
+import SchoolAvailabilityIcon from '../availability/SchoolAvailabilityIcon.vue';
+import SchoolWeekdayEditor from '../availability/SchoolWeekdayEditor.vue';
 import ProviderDayNoteDialog from './ProviderDayNoteDialog.vue';
 import OfferedTimeDialog from './OfferedTimeDialog.vue';
 const offeredTime = ref(null);
@@ -9145,6 +9155,44 @@ const scheduleActorUserId = computed(() => {
   if (selected > 0) return selected;
   return Number(props.userId || authStore.user?.id || 0) || 0;
 });
+
+// One shared weekday record per agency drives the calendar and Provider Days.
+const schoolWeekdayContexts = ref([]);
+const schoolWeekdayEditorAgency = ref(0);
+let schoolWeekdayGeneration = 0;
+const schoolWeekdayDismissedRequests = new Set();
+const schoolWeekdayIcons = day => schoolWeekdayContexts.value.flatMap(context => {
+  const item = context.days?.find(item => item.day === day);
+  if (!context.eligible || !item) return [];
+  const detail = item.status === 'assigned' ? `Assigned: ${item.schools.map(s => s.schoolName).join(', ')}` : item.status === 'available' ? 'Available for a school' : 'Not available for a school';
+  return [{ ...item, agencyId: context.agencyId, label: `${day} · ${detail} · ${agencyLabel(context.agencyId) || 'School availability'}. Update school availability` }];
+});
+async function loadSchoolWeekdays() {
+  const generation = ++schoolWeekdayGeneration;
+  const providerId = Number(props.userId || authStore.user?.id);
+  const self = providerId === Number(authStore.user?.id);
+  if (!self && !['admin','super_admin','staff','support'].includes(authStore.user?.role)) { schoolWeekdayContexts.value = []; return; }
+  const results = await Promise.allSettled(effectiveAgencyIds.value.map(async agencyId => {
+    const { data } = await api.get(`/availability/providers/${providerId}/school-weekdays`, { params: { agencyId }, skipGlobalLoading: true });
+    return { ...data, agencyId };
+  }));
+  if (generation !== schoolWeekdayGeneration) return;
+  schoolWeekdayContexts.value = results.filter(result => result.status === 'fulfilled').map(result => result.value);
+  const requestedAgency = Number(route.query.schoolAvailability === '1' ? route.query.agencyId : 0);
+  const prompt = self && schoolWeekdayContexts.value.find(context => context.eligible &&
+    ((context.pending && !schoolWeekdayDismissedRequests.has(`${providerId}:${context.agencyId}:${context.requestedAt}`)) || requestedAgency === context.agencyId));
+  if (prompt) {
+    schoolWeekdayDismissedRequests.add(`${providerId}:${prompt.agencyId}:${prompt.requestedAt}`);
+    schoolWeekdayEditorAgency.value = prompt.agencyId;
+    if (requestedAgency) void router.replace({ query: { ...route.query, schoolAvailability: undefined } });
+  }
+}
+watch([() => props.userId, () => effectiveAgencyIds.value.join(',')], () => {
+  schoolWeekdayContexts.value = []; schoolWeekdayEditorAgency.value = 0;
+  void loadSchoolWeekdays();
+}, { immediate: true });
+onMounted(() => window.addEventListener('focus', loadSchoolWeekdays));
+onUnmounted(() => { schoolWeekdayGeneration++; window.removeEventListener('focus', loadSchoolWeekdays); });
 
 const clientSessionBookingEnabled = ref(false);
 const clientSessionBookingAgencyId = computed(() => Number(selectedActionAgencyId.value || effectiveAgencyId.value || 0));
@@ -20426,9 +20474,9 @@ const cellBlockStyle = (b) => {
       ob: { fill: 'rgba(252, 165, 165, 0.52)', border: 'rgba(248, 113, 113, 0.88)' }
     }
     : {
-      oa: { fill: 'rgba(59, 130, 246, 0.24)', border: 'rgba(37, 99, 235, 0.60)' },
-      ot: { fill: 'rgba(249, 115, 22, 0.24)', border: 'rgba(194, 65, 12, 0.62)' },
-      ob: { fill: 'rgba(239, 68, 68, 0.24)', border: 'rgba(185, 28, 28, 0.62)' }
+      oa: { fill: 'rgba(59, 130, 246, 0.12)', border: 'rgba(37, 99, 235, 0.60)' },
+      ot: { fill: 'rgba(249, 115, 22, 0.12)', border: 'rgba(194, 65, 12, 0.62)' },
+      ob: { fill: 'rgba(239, 68, 68, 0.12)', border: 'rgba(185, 28, 28, 0.62)' }
     };
   if (officeKindFillMap[kind]) {
     style['--blockFill'] = officeKindFillMap[kind].fill;
@@ -20441,7 +20489,7 @@ const cellBlockStyle = (b) => {
     const peerColor = peerColorById(b?.peerUserId);
     const fillColor = dark ? lightenHex(peerColor, 0.38) : peerColor;
     const borderColor = dark ? lightenHex(peerColor, 0.18) : peerColor;
-    const fill = hexToRgba(fillColor, dark ? 0.52 : 0.22);
+    const fill = hexToRgba(fillColor, dark ? 0.26 : 0.12);
     const border = hexToRgba(borderColor, dark ? 0.88 : 0.70);
     if (fill) style['--blockFill'] = fill;
     if (border) style['--blockBorder'] = border;
@@ -20452,7 +20500,7 @@ const cellBlockStyle = (b) => {
     const tenantColor = agencyBadgeColorById(b?.agencyId);
     const fillColor = dark ? lightenHex(tenantColor, 0.45) : tenantColor;
     const borderColor = dark ? lightenHex(tenantColor, 0.22) : tenantColor;
-    const fill = hexToRgba(fillColor, dark ? 0.56 : 0.30);
+    const fill = hexToRgba(fillColor, dark ? 0.26 : 0.12);
     const border = hexToRgba(borderColor, dark ? 0.88 : 0.72);
     if (fill) style['--blockFill'] = fill;
     if (border) style['--blockBorder'] = border;
@@ -20607,11 +20655,11 @@ const cellBlockStyle = (b) => {
       minHeight: '28px',
       maxWidth: '26px',
       flex: 'none',
-      background: palette.fill,
-      color: '#fff',
+      background: hexToRgba(palette.fill, dark ? 0.26 : 0.12),
+      color: dark ? lightenHex(palette.fill, 0.6) : palette.border,
       borderColor: palette.border
     });
-    style['--blockFill'] = palette.fill;
+    style['--blockFill'] = hexToRgba(palette.fill, dark ? 0.26 : 0.12);
     style['--blockBorder'] = palette.border;
   }
   if (b?.besideSchoolRail && kind !== 'school') {
@@ -29393,9 +29441,15 @@ watch(()=>props.spanMode,value=>{
 .cell-block-school-rail--closed { animation: school-rail-pulse 1.6s ease-in-out infinite; }
 @keyframes school-rail-pulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.35); } }
 @media (prefers-reduced-motion: reduce) { .cell-block-school-rail--closed { animation: none; } }
-.sched-all-day-label { padding: 6px 4px; font-size: 10px; font-weight: 600; color: #64748b; text-align: right; border-bottom: 1px solid var(--sched-line); background: #fff; }
-.sched-all-day-cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 3px 4px; border-left: 1px solid var(--sched-line); border-bottom: 1px solid var(--sched-line); background: #f8fafc; }
+.sched-all-day-label { padding: 5px 4px; align-self:stretch; min-height:28px; box-sizing:border-box; font-size: 10px; font-weight: 600; color: #64748b; text-align: right; border-bottom: 1px solid var(--sched-line); background: #fff; }
+.sched-all-day-cell { min-height:28px; box-sizing:border-box; display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 3px 4px; border-left: 1px solid var(--sched-line); border-bottom: 1px solid var(--sched-line); background: #f8fafc; }
 .sched-all-day-item { display: block; width: 100%; min-width: 0; border: 1px solid var(--blockBorder, #cbd5e1); border-radius: 5px; background: var(--blockFill, rgba(148,163,184,.16)); padding: 3px 6px; color: var(--blockText, #334155); font-size: 11px; font-weight: 600; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; cursor: pointer; }
+.school-weekday-icons { display:flex; gap:4px; flex-wrap:wrap; }
+.school-weekday-icon { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; padding:2px; border:1px solid transparent; border-radius:6px; cursor:pointer; }
+.school-weekday-icon--available { color:#15803d; background:rgba(22,163,74,.09); border-color:rgba(22,163,74,.2); }
+.school-weekday-icon--assigned { color:#64748b; background:rgba(100,116,139,.12); border-color:rgba(100,116,139,.25); }
+.school-weekday-icon--unavailable { color:#b91c1c; background:rgba(220,38,38,.08); border-color:rgba(220,38,38,.2); }
+.school-weekday-icon:hover { box-shadow:0 0 0 2px rgba(100,116,139,.15); }
 .sched-all-day-item--cancelled { text-decoration: line-through; opacity: .65; }
 .sched-mobile-all-day { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 5px; }
 .sched-mobile-all-day .sched-all-day-item { width: auto; max-width: 100%; }

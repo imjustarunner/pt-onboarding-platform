@@ -131,3 +131,20 @@ it('reuses cell projections on hover and clock ticks but updates them after sche
   state.rawSummary.scheduleEvents=[];await flushPromises();
   expect(state.cellBlocks('Tuesday',hour).some(b=>b.eventId===71)).toBe(false);
 });
+
+it('always renders a compact all-day lane and opens the five-day updater from colored school icons', async () => {
+  const get = m.get.getMockImplementation();
+  m.get.mockImplementation(async (url, options) => url.endsWith('/school-weekdays') ? { data: { eligible: true, days: ['Monday','Tuesday','Wednesday','Thursday','Friday'].map((day,i) => ({ day, status: i === 0 ? 'assigned' : i === 1 ? 'unavailable' : 'available', available: i !== 1, schools: i === 0 ? [{schoolName:'Cedar'}] : [] })) } } : get(url, options));
+  await mount();
+  expect(wrapper.find('.sched-all-day-label').text()).toBe('All Day');
+  expect(wrapper.findAll('.school-weekday-icon--assigned')).toHaveLength(1);
+  expect(wrapper.findAll('.school-weekday-icon--unavailable')).toHaveLength(1);
+  expect(wrapper.findAll('.school-weekday-icon--available')).toHaveLength(3);
+  await wrapper.find('.school-weekday-icon--unavailable').trigger('click');
+  expect(wrapper.findComponent({ name: 'SchoolWeekdayEditor' }).props()).toMatchObject({ providerId: 7, agencyId: 2 });
+});
+it('opens a pending pushed school-availability request for the provider', async () => {
+  const get = m.get.getMockImplementation();
+  m.get.mockImplementation(async (url, options) => url.endsWith('/school-weekdays') ? { data: { eligible: true, pending: true, requestedAt: '2026-10-13T18:00:00Z', days: [] } } : get(url, options));
+  await mount(); expect(wrapper.findComponent({ name: 'SchoolWeekdayEditor' }).exists()).toBe(true);
+});

@@ -80,7 +80,10 @@ async function cancelSchoolDay() {
 </template>
 
 <style scoped>
-.school-rail-panel { display: grid; gap: 12px; max-width: 520px; }
+.modal-backdrop { position:fixed; inset:0; z-index:20040; display:grid; place-items:center; padding:20px; background:rgba(15,23,42,.42); }
+.school-rail-panel { display:grid; gap:12px; width:min(520px,100%); max-height:90dvh; overflow:auto; box-sizing:border-box; padding:24px; background:#fff; color:#183b32; border:1px solid #dce5df; border-radius:16px; box-shadow:0 24px 80px rgba(15,23,42,.24); }
+.modal-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+h3 { margin:0; color:#183b32; } button:disabled { opacity:.5; cursor:default; }
 .school-rail-panel p { margin: 0; }
 .school-rail-panel__closure { padding: 10px 12px; border-radius: 8px; background: #fff7ed; color: #9a3412; }
 .school-rail-panel__actions, form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
