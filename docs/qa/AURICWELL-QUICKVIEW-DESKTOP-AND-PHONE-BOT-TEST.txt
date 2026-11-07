@@ -1,0 +1,502 @@
+Auricwell Quick View — desktop and phone QA bot instructions
+Prepared November 6, 2026 • Use the run date and saved appointment timezone
+
+YOUR TASK
+Log in and test BOTH desktop Quick View and the phone version, using the same
+allocated accounts and synthetic records. Test what a person can actually do:
+open schedules, messages, My Work and client summaries; write/review notes;
+inspect service definitions; verify scoring, financial rules and signing.
+Do not substitute a desktop-only full-app check for a Quick View check.
+
+Deliver a completed results CSV, concise defect report and redacted evidence.
+Do not fix the application, change production configuration or mark a scenario
+passed because an existing test suite, button, download or mocked result exists.
+These instructions authorize writing this test guide; execution must use the
+operator's authorized test environment/accounts and permitted actions.
+
+1. REQUIRED TARGETS AND RUN RULES
+
+DESKTOP: Open the owner's supplied desktop Quick View link in a desktop browser
+at about 1366x900. ITSCO's existing link is
+https://qv.app.itsco.health/quick-view — use it only when ITSCO is the allocated
+test workspace. Record the actual entry and final URL. Use primary username/
+password, SSO or passkey sign-in where offered, not only a legacy access code.
+Also open https://auricwell.com/mobile in a wide desktop window to test the
+primary-account scoped workspace. Report these desktop entry paths separately.
+
+PHONE: Independently sign in at https://auricwell.com/mobile in iPhone Safari.
+Repeat from its Home Screen installation if available. Test portrait, landscape
+and keyboard-open layouts. Browser viewport emulation is a separate target;
+it cannot prove physical iPhone, Face ID, APNs or microphone behavior.
+
+NATIVE: If the operator supplies the signed current TestFlight build, repeat
+phone cases there and record the app/build number. A ZIP, web deployment or
+Capacitor sync does not prove a signed app is installed.
+
+For each shared scenario below, create separate DESKTOP and PHONE results.
+Use PHONE_EMULATED if that is all your tooling supports, and mark the actual
+PHONE run BLOCKED. Add NATIVE results only when that build/device is available.
+Full desktop Note Workspace is an additional integration comparison, not a
+replacement for desktop Quick View. Missing Quick View UI is a product/coverage
+gap to report; do not silently switch apps and call the original case passed.
+Legacy PIN-only access must never be upgraded by reusing its token in primary
+clinical APIs. A correct denial is a security pass, not proof the new workflow
+was tested through primary sign-in.
+
+Use the existing authorized QA vault/secret channel. Do not put credentials,
+passcodes, access tokens or review links in reports. Use only synthetic clients,
+guardians, encounters, staff messages, files and approved test destinations.
+Use an isolated QA workspace for creation, changes, signing, cancellations and
+fault injection. Public production checks can inspect versions/login without
+clinical access; do not mutate real clinical/financial history or global flags.
+Do not submit payer claims, collect money, issue refunds, invite real staff or
+send to real recipients. Claim preparation means a sandbox draft only; exercise
+transmission only with an explicitly configured non-delivering test transport.
+Do not turn on production recording or bypass its consent/privacy controls.
+Do not change the device/system clock or shared production knowledge base.
+If any required facility is missing, report BLOCKED and the precise dependency.
+
+Statuses: PASS, FAIL, BLOCKED, NOT_RUN. Unsupported native hardware is BLOCKED.
+An intentionally blocked unsafe action is PASS only when the expected denial,
+unchanged state and draft preservation are actually observed. A known source
+gap remains a rollout limitation even when its protective refusal passes.
+Never turn unavailable/failed reviews, skipped tests or screenshots into PASS.
+
+2. ALLOCATED FIXTURES AND EVIDENCE
+
+Before starting, obtain these fixtures from the operator; do not invent account
+access or copy another provider's settings:
+- QA workspace A and distinct workspace B; assigned provider P; bachelor-level
+  provider B; eligible licensed/supervised provider L; assigned supervisor S;
+  unassigned supervisor U; restricted support/admin account; guardian account.
+- Synthetic adult and minor, correct authorized guardian, wrong/unrelated
+  guardian and a second client for isolation checks. Authorized channels point
+  only to test inboxes/numbers. Two controlled staff peers/group for messages.
+- Two linked test encounters, existing unsigned draft, provider-signed note,
+  co-signable note and pending amendment. Test service catalog/rates and a
+  client-paid test package. Preserve before-values and revision/signature IDs.
+- The supplied October 2026 SBHS PDF and approved owner guidance/example
+  inventory. Source PDF SHA256:
+  429d1995a17c41632ce7fd89c10ed29c25534682ffb3c8de36b5864ddf8fea9a
+- An isolated backend fixture environment for deterministic scoring, dependency
+  failures, request tampering, retries and storage/scanner checks. Browser
+  network inspection alone cannot prove server-to-model payload contents.
+
+Tag synthetic draft/message text with a unique nonidentifying RUN token, such
+as QVQA-20261106-01. Keep a private map of test IDs, workspace, role and cleanup
+state. Do not put RUN tokens into purported clinical facts to inflate a score.
+Use only necessary screenshots, request status/error codes, saved values and
+sanitized audit/version references. Do not save whole charts, PDFs, narratives,
+HAR files with credentials, raw audio, decrypted documents or full model logs.
+Capture failed or unavailable states as well as successes.
+
+[ENTRY-01] Log in independently on desktop and phone. Record workspace, role,
+client/session selection, URL, browser/device and frontend/backend build IDs.
+Compare to the operator's intended release; do not assume an older build is
+current. Both authenticated surfaces must open the correct scoped workspace.
+[ENTRY-02] Open Today, Messages, Tasks/My Work, More and My Account. Open the
+same session through schedule and My Work on each target. Record any missing
+control as a failure/coverage gap for that target; no invisible desktop fallback.
+[ENTRY-03] Compare the supplied desktop Quick View link with the wide /mobile
+entry. Record which supports primary sign-in and the new clinical workflows.
+A legacy-only launcher does not satisfy primary-account clinical testing.
+For both desktop and phone, verify GET /api/quick-view/messages/inbox and
+GET /api/quick-view/my-work return 200 with the logged-in account. A 500 is FAIL,
+not an empty inbox/clear queue. Record only status/request IDs in the report;
+never paste the X-Quick-View-Session header, cookies, bodies or names.
+[ENTRY-04] Using the allocated restricted/wrong-workspace accounts, verify
+unavailable clients, sessions, notes, documents and signing actions are denied
+server-side. An edited URL/ID cannot reveal another client's content. Legacy
+PIN-only access cannot obtain primary-mobile clinical access.
+
+3. LOGIN, LOCK, NAVIGATION AND PHONE LAYOUT
+
+[ACCESS-01] Test password sign-in and each configured SSO/passkey path on both
+targets. No forced six-digit enrollment after primary sign-in. Unconfigured
+methods are BLOCKED, not tested by inventing credentials or changing policies.
+[ACCESS-02] In My Account test No extra app lock and optional six-digit lock.
+Ordinary idle lock, refresh, browser Back and reopen must preserve the chosen
+method and not repeatedly ask for new code enrollment or primary sign-in.
+Genuine logout, revoked/disabled access or credential expiry remains a valid
+reauthentication case; record the actual reason instead of calling all 401s idle.
+[ACCESS-03] On a signed physical iPhone test optional Face ID/Touch ID success,
+cancellation, unavailable biometrics and permitted recovery. No biometric claim
+from desktop emulation. Switching methods must not destroy a saved draft.
+[ACCESS-04] Background/lock and return. Protected content is obscured while
+locked. Unlock restores the appropriate workspace; logout/account switch clears
+previous-account recovery and tokens. Test explicit draft restoration if offered.
+[ACCESS-05] From list to message to reply/thread and back, each Back action
+returns one step with category/conversation selection preserved. Browser Back
+must not routinely trigger expired sign-in or passcode setup again.
+[ACCESS-06] At desktop, 320/390/430px emulated widths and actual phone portrait/
+landscape, verify headers, drawers, service popup, composer, score breakdown,
+keyboard and bottom navigation remain usable without horizontal overflow,
+covered controls, trapped scrolling or a panel that cannot be dismissed.
+
+4. QUICK VIEW MESSAGES AND ACCOUNT REGRESSIONS
+
+Use only controlled synthetic peers/inboxes. Do not send to a real client.
+[MSG-01] Open a long email; read its body, open Reply/Reply all/Forward, type a
+RUN token, dismiss and return. The composer is visible/reachable, the body is
+not an inescapable overlay, and the email's original sent format is unchanged.
+[MSG-02] Open an internal conversation containing older unread messages and a
+latest message. It opens at the latest/bottom; the unread-above control points
+to earlier unread content. New arrivals do not lose already typed reply text.
+[MSG-03] Archive an internal message card; archived is hidden by default and
+visible through the include-archived control. On phone test swipe, on desktop
+test the equivalent available action. Record the persisted server result.
+[MSG-04] For email, swipe left to archive and right to mark read using the
+current default settings; test a settings override and persistence if offered.
+A gesture animation without saved archive/read state is a failure.
+[MSG-05] Reply in a thread. Parent message/sender and latest reply context are
+clear; reply counts stand out; thread lists show participants and preview.
+Back preserves the previous thread/conversation/category instead of resetting.
+[MSG-06] Distinguish direct, group/channel and email senders by name/avatar/
+layout. Test actual Groups availability, unified running list, archived filter,
+category unread counts and All/Unread/Needs reply counts against known fixtures.
+Explain the count's scope; do not compare a filtered page with all-workspace totals.
+[MSG-07] Open an authorized secure conversation in the scoped app. Check locked
+presentation, masked identities and explicit reveal/relock as implemented.
+It must not show another client's thread or bounce into an unrelated app view.
+[MSG-08] File rows show filename/type/context, and View/Open message works for
+the allocated attachment. Missing detail or denied access cannot be hidden by
+reporting only that a generic File button exists.
+[MSG-09] App/group-originated addresses are treated as known senders according
+to the authorized address directory; a genuinely unknown test sender is distinct.
+Compare rendered email readability with its original source in a controlled inbox.
+[MSG-10] Verify My Work access, additional navigation, configured default bottom
+actions, agenda/day controls, and real provider names/credentials/email/message
+actions. No demo/test provider should appear in an ordinary production directory;
+allocated QA workspaces may intentionally contain their synthetic fixture users.
+[MSG-11] Use My Account and a permitted internal link, then return. Preserve
+account/workspace context where the supported authentication flow allows it;
+never transfer credentials or manufacture a logged-in URL as a workaround.
+
+5. CLIENT SUMMARY AND SHARED NOTE WORKSPACE
+
+[PROFILE-01] On phone schedule/My Work/note headers, names use the first three
+characters of each name with * when more remain, and age in years. Open the
+protected condensed profile and verify authorized guardian/contact relationships.
+Inspect the scoped API response: full identity/DOB must not merely be CSS-hidden.
+Do not apply phone masking expectations to an authorized full desktop chart.
+[PROFILE-02] Secure message/SMS/Email resolves the correct permitted recipient
+and channel consent. A wrong guardian/client/tenant is denied. Compose without
+sending, or send only to an operator-approved test endpoint. Back restores source.
+[NOTE-01] Open the SAME session/draft from desktop Quick View, phone schedule,
+phone My Work and full desktop Note Workspace. Compare IDs, saved text, service
+and encounter facts. Preserve a marker across save, reopen and target switch.
+[NOTE-02] Confirm Manual Writer, Narriva and Smart Notes are available according
+to role. Save a default and reopen both targets: same user/workspace preference;
+no preference means Manual Writer where allowed. Other workspace/user unchanged.
+[NOTE-03] Change modes after entering text; preserve draft and selections. Old
+Colorado-builder drafts remain readable; new UI uses Smart Notes. A manually
+restricted account must not regain editing by selecting Manual Writer directly.
+[NOTE-04] Verify editable encounter date, time/duration, service, location,
+modality, participants, consent, treatment goals/objectives and current/previous
+scores. Saved values must match the linked encounter; not just the screen label.
+[NOTE-05] Exercise autosave, connection loss, reopen, Back and simultaneous edits
+from both targets. No silent overwrite/conflict loss. Generation/review failure
+preserves the latest saved draft and makes pending unsaved changes explicit.
+[NOTE-06] In Narriva, type the synthetic Session Narrative below; in Smart Notes
+enter the same facts through guided prompts. Compare generated output with facts.
+No invented risk result, diagnosis, consent, normal finding, intervention or benefit.
+[NOTE-07] Fresh Manual Writer and Smart Notes notes with no previously generated
+tool ID must use the actual service's approved examples as well as shared/custom
+instructions. Verify this through isolated, sanitized server dispatch inspection
+and source manifests; good prose or a browser response alone is not proof.
+
+Synthetic baseline for 90837 — use only with matching allocated structured facts:
+Service date/time/location/modality/duration and explicit participation consent
+must be set in encounter controls. Existing diagnosis/justification and the
+following treatment objective must be in the synthetic treatment plan.
+
+Client described panic symptoms and avoidance during school transitions that
+interfere with attendance. Client consented to participate. Provider modeled
+paced breathing, explained its connection to physical panic symptoms, and guided
+two practice rounds. Client initially needed three prompts and completed the
+second round independently. Client reported less tension after practice. This
+addressed the existing goal of using one coping skill during school transitions.
+Client will practice paced breathing before the next school transition, and
+Provider will review that practice and barriers at the next session. Client
+denied current thoughts of harm to self or others. No separate standardized
+assessment was administered or referenced during this encounter.
+
+This is an input fixture, not a guarantee of a specific live-model score. A
+qualified reviewer must judge whether generated content matches the evidence.
+Use separate clones for contradictory/risk cases; never contaminate a passing
+baseline's history or erase a prior mandatory-risk requirement.
+
+6. SERVICE DEFINITIONS, OWNER EXAMPLES AND PRIVACY
+
+[SOURCE-01] Beside selected 90837 in booking/edit and the phone encounter, open
+ⓘ. Compare definition, examples, documentation, qualifications, unit details,
+edition and page 16 with the exact supplied PDF. A summary label alone is not proof.
+Close/Escape/outside-click and resize; retain code, draft and navigation context.
+[SOURCE-02] Inventory every service the allocated app actually offers. For each,
+record source status/edition/page and compare its definition/documentation with
+the source. Do not claim all codes covered after checking only 90837. Supplements
+99051/Pro Bono must say agency policy, not pretend to be October manual entries.
+[SOURCE-03] The owner confirms 97535 was removed from the current billing manual.
+Do not request replacement documentation, restore this service, or treat its
+absence as a prerequisite for testing other codes. Verify it is not represented
+as a supported current-manual service. Historical records remain readable and
+must not be rewritten. If new-service choices still offer it, report that
+catalog mismatch separately; do not silently enable/reinstate it.
+[SOURCE-04] In an isolated dispatch fixture, verify the correct exact service
+entry, introduction, all configured shared/service/custom guides and examples
+reach generation AND review. Distinct same-name examples stay included; duplicate
+content is deduplicated. Use server-side manifests/opaque reference hashes.
+[SOURCE-05] Test PDF/TXT/Markdown/DOCX, separate writer/service folder overrides,
+and an underlying Pro Bono clinical code. Honor tenant-only overrides; no cross-
+tenant guidance. Examples remain references, never facts about this encounter.
+[SOURCE-06] Isolated fault cases: missing/empty required folder, unreadable or
+truncated file, listing/context limit, unrecognized/truncated full-manual version,
+removed custom aid
+or denied custom-aid access. Fail closed, preserve draft; no model dispatch,
+partial false success or verified badge. Do not delete live training to test this.
+[SOURCE-07] Add fabricated identifier canaries to an isolated synthetic source.
+The entry warns against PHI; detected identifying input blocks/corrects before
+model dispatch. Inspect authorized synthetic server payloads: no client/guardian
+names/initials, DOB, contact/record IDs or identifying filenames; no raw content
+in logs/telemetry. Browser network data alone cannot prove the model boundary.
+[SOURCE-08] Isolate private-processing/DLP failure. No fallback to an unapproved
+public model; saved text remains available and status is unavailable. Changing
+approved guidance/version and refreshing its cache invalidates an earlier pass.
+
+7. FIVE MANDATORY COMPLIANCE CHECKS
+
+Expected order: 1 Risk & Safety; 2 Service Code & Documentation; 3 Encounter Details
+& Consent; 4 Clinical Necessity & Interventions; 5 Participation, Progress & Plan.
+Confirm actual server pending/checking/result states; animation is not approval.
+
+[CHECK-01] Run the complete baseline. All results refer to saved evidence and
+current facts. An unavailable/incomplete review must not display verified.
+[CHECK-02] New negative/absent/historical/hypothetical risk fixtures must not
+invent current risk or claim an assessment occurred. Optional assessment can be
+opened. A new positive/uncertain current-risk fixture requires an assessment;
+No cannot remove it, and ordinary bypass cannot suppress the requirement.
+[CHECK-03] Complete the mandatory assessment and supported safety intervention.
+Blanket denial conflicting with the narrative remains a finding. Later edits,
+reopen, client-side toggle or altered request must not erase the prior latch.
+[CHECK-04] Selected 90837 with a 60-minute entry but narrative describing only
+administrative scheduling must flag service/documentation mismatch. A high
+quality score or repeated code name cannot make the wrong service fit.
+[CHECK-05] Parent-only narrative versus Client present controls, and an extra
+attendee not selected, must prompt participant reconciliation under check 2.
+Update participants or record My note is correct. Unresolved override is audited
+and not Quick Sign eligible; do not automatically add an unconfirmed attendee.
+[CHECK-06] Actual unscheduled crisis evidence in 90837/H0004 prompts service review
+and justification with only eligible suggestions, such as 90839/base H2011.
+Historical mention of crisis or ordinary distress alone must not silently recode.
+No automatic code/funding change; prohibited/ET codes must never be suggested.
+[CHECK-07] Explicitly confirm an unsigned service correction, reopen the actual
+source appointment/session and draft, and verify synchronization. In an isolated
+interrupted-commit fixture, pending state blocks generation/signing; retry the
+same confirmation completes once. No duplicate note, rebooking or client notice.
+[CHECK-08] Remove date/time consistency, location, modality or explicit consent
+one at a time. Check 3 flags each missing fact; participant reconciliation stays
+in check 2. Restoring a checkbox must not invent narrative claims elsewhere.
+[CHECK-09] Remove diagnosis justification, presenting problem or interventions;
+reference an assessment without authorized evidence. Check 4 must identify the
+actual omission. Presenting problem is attached from authorized existing context.
+Only clean authorized assessment evidence counts; quarantined/unscanned, changed
+or wrong-client files cannot satisfy the requirement or expose file contents.
+[CHECK-10] Remove engagement, response, progress/barriers, existing goal linkage
+or follow-up. Check 5 identifies missing support. Keep my note as it is requires
+a reason, preserves findings and follows ordinary review without Quick Sign.
+
+8. SCORE, REVIEW VERSION AND QUICK SIGN
+
+Scoring rubric: intervention specificity 20; rationale 15; response 15; progress/
+barriers 15; goal linkage 15; actionable follow-up 15; assessment integration 5.
+Each criterion earns its points only from actual supported saved-note excerpts.
+Assessment integration is N/A only for explicitly absent separate assessment.
+Score=floor(100*earned/applicable_possible). N/A removes points from denominator
+without earning points; uncertainty earns zero and stays applicable.
+
+[SCORE-01] Inspect every displayed criterion/excerpt against the SAVED note,
+not just Session Narrative or a reference example. Recalculate totals independently.
+Do not require an exact number from a live model merely because text looks good.
+Keep first-run outcomes; don't regenerate repeatedly until a desired score appears.
+[SCORE-02] Use a deterministic isolated fixture to exercise exactly 70/100 with
+all mandatory checks passed, and 65/95=68% with absent assessment and identical
+remaining evidence. 70 passes; 68 fails. No rounding a below-threshold ratio upward.
+For the 70/100 fixture, keep all seven criteria applicable and earn all except
+goal specificity and follow-up specificity (15 points each); their basic required
+documentation can still be present. Then explicitly remove the separate assessment
+from applicability: 65/95 rounds down to 68. These are controlled policy fixtures,
+not an instruction to invent missing clinical facts or falsify a real review.
+An exact 69% UI fixture may test rendering; label it mocked, not live grading.
+[SCORE-03] At 100% quality, separately fail each mandatory check. Overall Pass,
+verified shield and Quick Sign remain unavailable. Quality cannot buy compliance.
+[SCORE-04] Only an explicitly unreferenced assessment is N/A; ambiguous assessment
+is not free credit. Missing/altered quote, copied example absent from saved note,
+duplicate excerpts, model/client-supplied score or invented weights earn no extras.
+[SCORE-05] Keep a low-scoring note with a documented permitted bypass. Score is
+unchanged, reason retained, ordinary review used, verified/Quick Sign unavailable.
+[SCORE-06] Change narrative, timing/service/participants, required assessment,
+attachment version, provider qualifications or approved guidance after a pass.
+Old review becomes stale/unavailable and cannot Quick Sign until rerun.
+[SIGN-01] With a current complete pass and provider signature, assigned authorized
+supervisor/co-signer sees Quick Sign in My Work, opens the current note/side panel
+and explicitly reviews/signs. Reopen the immutable record and verify correct
+supervisor identity, one signature, revision/hash and audit evidence.
+[SIGN-02] Unassigned reviewer, self-co-sign, unsigned provider note, stale token,
+changed assignment, bypass, low score, pending amendment or disabled permission
+must not Quick Sign through either UI or direct authorized test request.
+[SIGN-03] Duplicate/rapid-click/retried signing creates one signature. An edit
+racing signing must reject stale content. Signed history remains unchanged;
+amendments use the established version-specific signature flow.
+
+9. 99051 — EXACT SAVED LOCAL START, NOT OVERLAP OR BROWSER TIME
+
+Use an eligible enabled primary/add-on/provider/POS fixture; outside eligibility
+expect denial even inside the hours. Pick future Monday/Saturday/Sunday dates
+for UI booking and verify weekdays. Frozen dates below are isolated-fixture
+examples, not instructions to backdate real encounters. Source timezone is the
+saved appointment/office timezone; repeat with browser timezone changed only.
+
+[HOURS-01] Weekday 08:30, 16:30 and 16:59 starts: no 99051. 16:30 ending 17:30 still
+has no 99051. Weekday 17:00 and 17:01 starts: one 99051 unit when otherwise eligible.
+[HOURS-02] Saturday/Sunday daytime and late starts qualify when otherwise eligible.
+A weekday holiday morning does not qualify solely because it is a holiday.
+[HOURS-03] Same saved appointment in desktop and phone with different viewer
+zones yields the same decision. Example 2026-11-09T22:00:00Z is 17:00 New York
+but 15:00 Denver: qualification follows the saved zone, not the viewer's zone.
+Missing/invalid saved timezone must not borrow browser/display fallback Denver.
+[HOURS-04] Reschedule evening->daytime->evening and change eligible service/context.
+Remove/add only automatic 99051; retain other authored add-ons and their units,
+including 90785. Forced checkbox/request cannot add an off-hours/prohibited unit.
+[HOURS-05] Disabled add-on, restricted primary/provider/POS or Pro Bono prevents
+an automatic charge despite qualifying hours. Do not invent/enable a rate.
+[HOURS-06] Merely open old signed/paid/invoiced encounters; compare before/after
+note hash, claim lines, fee snapshots, signatures and financial totals. No rewrite.
+[HOURS-07] In sandbox claim preparation, eligible evening metadata without 99051
+gets one canonical unit; old weekday-morning 99051 is removed only on a new/reviewed
+draft. Other approved services/units stay exact; signed note metadata is unchanged.
+[HOURS-08] Isolated tampering: wrong approval hash/note/revision/session/zone,
+changed current eligibility, duplicate/fractional/extra 99051 units, or copied
+serialized server decision. Reject stale/forged exceptions. Approved encounter
+snapshot, not a later operational calendar move, determines a signed visit.
+Claim review/transmission preflight rechecks the binding; do not transmit live.
+
+10. PRO BONO, H2011 AND HANDBOOK
+
+[FUND-01] Create isolated Pro-Bono Service bookings with otherwise chargeable
+rates, including evening/weekend. New client amount is zero, no 99051 automatic
+charge, no client-paid package consumption. Reopen desktop and phone to compare.
+[FUND-02] Add Clinical service provided explicitly. Narrative/compliance uses
+that service's definition, duration and qualifications, while scheduled/charged
+funding remains Pro Bono. Without it, no inferred code from duration/writer title.
+[FUND-03] Change underlying clinical code or trigger a crisis finding. Preserve
+free funding. Bachelor choosing underlying 90837 cannot acquire licensed-service
+eligibility simply because care is free. Proper base H2011 eligibility is distinct.
+[FUND-04] In isolated fixtures test late cancellation/no-show, quote, settlement
+and claim preparation. No new automatic client fee, package debit or unauthorized
+insurance claim. Existing historical paid/invoiced/settled amounts stay unchanged;
+no refunds or repricing. Inspect records, not only a zero label in the UI.
+[SERVICE-01] Base H2011 appears in the H-code category with the exact base manual
+definition/qualifications, including eligible bachelor/QBHA/higher roles subject
+to existing restrictions. H2011 ET is neither enabled nor recommended. A Peer
+Specialist-only or unknown classification does not inherit base-code eligibility.
+[SERVICE-02] For base H2011 use minutes 7/8/15/16/22/23/247/248. Expected: 7 below
+minimum; 8/15/16/22 one unit; 23 two units; 247 sixteen units; 248 manual service review
+with S9485 guidance, not automatic substitution, S9485 enablement or invented rate.
+[SERVICE-03] Compare schedule/service, medical units, credential and payroll
+catalogs and future defaults. Existing explicit agency restrictions/rates remain.
+[SERVICE-04] Check applicable agency handbook H-code entry and targeted November
+2026 update/addendum, preserved October history and no unrelated draft overwrite.
+Rerun publication only through the isolated idempotency fixture; no duplicates,
+unsolicited staff messages or automatic distribution. Record any agency omitted.
+
+11. SESSION RECORDING — SEPARATE AUTHORIZED PILOT
+
+Recording defaults OFF. Disabled capture is the expected ordinary state.
+A bot must not enable it to turn a BLOCKED pilot into a passed test.
+
+[AUDIO-01] With recording off, note writing still works; no capture starts.
+Writer Speak/recording entry points lead to the actual session recorder rather
+than a separate standalone recorder. Historical authorized records remain intact.
+[AUDIO-02] Authorized isolated pilot only: verify actual client/session linkage,
+all recorded participants and required signing authorities. Missing guardian,
+wrong guardian/client/tenant, expired scope or revoked waiver blocks recording.
+[AUDIO-03] Assign in Portal and staff-presented Sign Here both display the exact
+waiver/version. Authorized client/guardian finger-signs; staff cannot substitute
+themselves. Open executed PDF from client Audio Recording Consent documents and
+verify signer/relationship/version/session scope and durable storage evidence.
+PDF/storage failure leaves capture blocked; no made-up expiration period.
+[AUDIO-04] Even with valid stored waivers, require per-session clinician consent
+confirmation and explicit Start. Recheck authority at Start, Resume and upload.
+Withdraw consent during capture/upload: stop/pause and reject stale/replayed chunks.
+[AUDIO-05] Physical device: microphone denied/lost, Pause/Resume/Stop, phone
+interruption, screen lock/background, connectivity loss and recovery. No silent
+background capture, duplicate accepted chunks or indefinite recording indicator.
+[AUDIO-06] Process a controlled long synthetic session with distinct beginning,
+middle and end details. Review editable Session Narrative for supported risk,
+interventions, response and plan across all segments. No unsupported clinical
+facts or assignment of unidentified speakers to Client/Provider.
+[AUDIO-07] Edit the draft while processing completes. Offer Insert narrative or
+explicit confirmed replacement; never silently overwrite clinician edits. Result
+stays linked to the original authorized session and is reusable in its note.
+[AUDIO-08] Operator-assisted isolated cloud evidence: encrypted transit/storage,
+approved Speech/DLP/Vertex boundary, no PHI in logs, raw-audio deletion plus retry
+and lifecycle after processing, encrypted retained transcript/narrative and no
+retained-audio playback. Do not call raw speech anonymous or a mocked deletion
+proof of actual object removal. Missing live access means BLOCKED for this layer.
+
+12. NOTIFICATIONS, SIGNED PHONE BUILD AND FINISH
+
+[PUSH-01] In the authorized configured phone environment, opt in and exercise
+controlled email, direct, group/channel, thread reply and secure message events
+across the Conversa suite. Verify each category against the agreed notification
+policy; record missing categories. Use test destinations only.
+[PUSH-02] Physical iPhone: backgrounded and terminated app, generic lock-screen
+text, correct message after unlock, current workspace/account scope, read-state
+synchronization and no duplicate notification. Opt out and log out: no delivery
+on the former device/account. Do not infer APNs delivery from a settings toggle.
+[PUSH-03] Web/Home Screen push and native APNs are separate results. Missing
+permission/configuration, Apple signing team or signed current build is BLOCKED.
+A browser image is not a signed TestFlight installation or physical-device pass.
+[FINISH-01] Save/reopen final drafts on both targets; check no cross-client data,
+other user's defaults, stale approval or lost editor text. Preserve valuable
+synthetic signed history as audit fixtures; clean only permitted disposable items.
+Do not delete real records, notes, waiver PDFs, chat history or financial history.
+
+13. REPORT — REQUIRED OUTPUT, NOT A ONE-LINE ALL PASS
+
+Create a run folder under the allocated deliverables directory. Copy the results
+CSV template and expand every common case into separate desktop and phone rows.
+Keep actual PHONE, PHONE_EMULATED, native and isolated-backend results distinct.
+
+Every row records: case_id,target,execution_layer,status,workspace,role,
+record_reference,expected,observed,evidence,blocker_or_defect. Add run time,
+browser/device/iOS/native build and frontend/backend build IDs in RUN-METADATA.txt.
+Use the exact case IDs from this guide, not a handpicked successful subset.
+
+Write RESULTS.txt with:
+- What was actually run on desktop and on phone; totals by target and status.
+- Whether primary desktop Quick View and phone opened the same authorized data.
+- Defects ordered by consequence, each with minimal reproducible steps, actual
+  versus expected behavior, affected case IDs and a sanitized evidence reference.
+- Removed-code/catalog mismatches (97535), private-model/training/scanner dependencies,
+  unconfigured notification methods and untested physical-device/recording layers.
+- Live-model score observations and owner-review disagreements, separate from
+  deterministic/mocked threshold tests. No clinical certification or payer guarantee.
+- Cleanup performed, retained fixtures and any temporary process/path remaining.
+
+For a failure stop only its dependent branch; continue independent safe cases.
+If content leaks across accounts, unsafe signing succeeds or a prohibited charge
+is created, stop further mutations in that environment, preserve minimal evidence
+and report the defect. Do not repair production or conceal it by deleting records.
+
+Do not announce complete readiness while any required target/case is NOT_RUN or
+BLOCKED. An isolated policy pass does not replace a missing desktop/phone journey.
+Provide a concise final split: verified desktop, verified phone, backend evidence,
+physical/native coverage, failures and blockers, with links to the actual reports.
+
+Reference files in this workspace
+- deliverables/auricwell-service-compliance-2026-11-06/IMPLEMENTATION.txt
+- deliverables/auricwell-service-compliance-2026-11-06/STATUS.txt
+- deliverables/auricwell-service-compliance-2026-11-06/TESTING.txt
+- deliverables/auricwell-narriva-2026-11-06/IMPLEMENTATION.txt
+- deliverables/auricwell-mobile-conversa-2026-11-06/PHONE-AND-TESTFLIGHT-TESTING.txt

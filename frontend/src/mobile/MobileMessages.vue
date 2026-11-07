@@ -11,6 +11,7 @@ const props=defineProps({apiBase:{type:String,required:true},sessionToken:{type:
 const emit=defineEmits(['open-email','compose-email','counts','settings']);
 const route=useRoute(),router=useRouter();trackMobileNavigation(router);
 const items=ref([]),counts=ref({}),cursor=ref(null),loading=ref(false),error=ref(''),notice=ref(''),undoItem=ref(null);
+const inboxReady=ref(false),inboxFailed=ref(false);let inboxScope='';
 const chat=ref(null),messages=ref([]),chatLoading=ref(false),chatBusy=ref(false),reply=ref(''),firstUnreadId=ref(null),unreadAbove=ref(false),hasOlder=ref(false),secureOpen=ref(false),revealNames=ref(false),revealedMessages=ref(new Set()),timeline=ref(null),chatFiles=ref([]),uploading=ref(false);
 const filePreview=ref(null),fileUrl=ref(''),fileData=ref(null),fileBusy=ref(false),drafts=new Map(),scrollPositions=new Map();
 const categories=[['all','All',MessageSquare],['email','Email',Mail],['direct','Direct',MessageSquare],['groups','Groups',Users],['channels','Channels',Hash],['secure','Secure',LockKeyhole],['sms','Texts',MessageSquare],['threads','Threads',MessageSquare],['mentions','Mentions',MessageSquare],['files','Files',Paperclip]];
@@ -37,12 +38,15 @@ async function changeSuite(value){rememberListScroll();await go({view:'home',sui
 async function changeFilter(value){rememberListScroll();await go({view:'home',suite:suite.value,filter:value,archived:includeArchived.value?'1':undefined});}
 function rememberListScroll(){const pane=document.getElementById('qv-workspace');if(pane)scrollPositions.set(`${suite.value}:${filter.value}`,pane.scrollTop);}
 async function loadInbox({older=false,quiet=false}={}) {
+  const scope=`${suite.value}:${filter.value}:${includeArchived.value}`;
+  if(scope!==inboxScope){inboxScope=scope;items.value=[];counts.value={};cursor.value=null;inboxReady.value=false;}
   const request=++inboxRequest;if(!quiet)loading.value=true;error.value='';
   try{
     const {data}=await axios.get(`${props.apiBase}/messages/inbox`,{...config(),params:{suite:suite.value,filter:filter.value,includeArchived:includeArchived.value?'1':'0',cursor:older?cursor.value:undefined}});
     if(request!==inboxRequest)return;
+    inboxReady.value=true;inboxFailed.value=false;
     items.value=older?[...items.value,...data.items]:data.items || [];counts.value=data.counts || {};cursor.value=data.nextCursor || null;emit('counts',counts.value);
-  }catch(e){if(request===inboxRequest)error.value=e.response?.data?.error?.message || 'Could not load your messages. Try again.';}
+  }catch(e){if(request===inboxRequest){inboxFailed.value=true;if([401,403].includes(e.response?.status)){items.value=[];counts.value={};cursor.value=null;inboxReady.value=false;}error.value=e.response?.status<500?e.response?.data?.error?.message || 'Messages are unavailable for this account.':inboxReady.value?'Messages could not be refreshed. Previously loaded conversations are shown.':'Messages could not be loaded. Try again.';}}
   finally{if(request===inboxRequest)loading.value=false;}
 }
 async function openItem(item){
@@ -167,13 +171,13 @@ onUnmounted(()=>{++inboxRequest;clearChat();clearInterval(timer);clearTimeout(sc
       <header class="mm-heading"><ConversaBrand compact/><time>{{ date }}</time></header>
       <nav class="mm-categories" aria-label="Message categories"><button v-for="[id,label,Icon] in categories" :key="id" :aria-pressed="suite===id" @click="changeSuite(id)"><component :is="Icon" :size="15"/>{{ label }}<span v-if="counts[id]" class="mm-count">{{ counts[id].unread }}</span></button></nav>
       <div class="mm-toolbar">
-        <div class="mm-filters" aria-label="Message filters"><button v-for="[id,label,field] in [['all','All','total'],['unread','Unread','unread'],['needs','Needs reply','needs']]" :key="id" :aria-pressed="filter===id" @click="changeFilter(id)">{{ label }} <span>{{ selectedCounts[field] || 0 }}</span></button></div>
+        <div class="mm-filters" aria-label="Message filters"><button v-for="[id,label,field] in [['all','All','total'],['unread','Unread','unread'],['needs','Needs reply','needs']]" :key="id" :aria-pressed="filter===id" @click="changeFilter(id)">{{ label }} <span>{{ inboxReady ? selectedCounts[field] || 0 : '—' }}</span></button></div>
         <button class="mm-icon" :aria-pressed="includeArchived" aria-label="Include archived conversations" title="Include archived" @click="go({...route.query,archived:includeArchived?undefined:'1'})"><Archive :size="18"/></button>
         <button class="mm-icon" aria-label="Refresh messages" @click="loadInbox()"><RefreshCw :size="17"/></button>
         <button class="mm-icon mm-primary" aria-label="New email" @click="emit('compose-email')"><Plus :size="19"/></button>
       </div>
       <div v-if="includeArchived" class="mm-included">Showing active and archived conversations</div>
-      <div v-if="suite==='email' || suite==='unknown'" class="mm-folder"><button :aria-pressed="suite==='unknown'" @click="changeSuite(suite==='unknown'?'email':'unknown')">Unknown senders <span>{{ counts.unknown?.total || 0 }}</span></button><button @click="emit('settings')">Swipe settings</button></div>
+      <div v-if="suite==='email' || suite==='unknown'" class="mm-folder"><button :aria-pressed="suite==='unknown'" @click="changeSuite(suite==='unknown'?'email':'unknown')">Unknown senders <span>{{ inboxReady ? counts.unknown?.total || 0 : '—' }}</span></button><button @click="emit('settings')">Swipe settings</button></div>
       <p v-if="loading && !items.length" class="mm-empty" role="status">Loading your conversations…</p>
       <article v-for="item in items" :key="item.key" class="mm-card" :class="{unread:item.unread,secure:item.secure,archived:item.archived,files:item.kind==='files'}">
         <div class="mm-swipe"><span class="mm-swipe-label">{{ dragOffset.x<0?preferences.swipeLeft:preferences.swipeRight }}</span>
@@ -185,7 +189,7 @@ onUnmounted(()=>{++inboxRequest;clearChat();clearInterval(timer);clearTimeout(sc
         </div>
         <div class="mm-row-tools"><template v-if="item.kind==='files'"><button @click="viewFile(item)">View</button><button @click="openItem(item)">Open message</button></template><span v-else-if="item.join" class="mm-join-label">Join</span><details v-else><summary :aria-label="`Actions for ${item.title}`"><MoreHorizontal :size="18"/></summary><div><button @click="archive(item)">{{ item.archived?'Restore':'Archive' }}</button><button @click="markRead(item,!item.unread)">{{ item.unread?'Mark read':'Mark unread' }}</button></div></details></div>
       </article>
-      <p v-if="!loading && !items.length" class="mm-empty">{{ filter==='unread'?'You’re caught up.':'No conversations in this view.' }}</p>
+      <p v-if="!loading && inboxReady && !inboxFailed && !items.length" class="mm-empty">{{ filter==='unread'?'You’re caught up.':'No conversations in this view.' }}</p>
       <button v-if="cursor" class="mm-load" :disabled="loading" @click="loadInbox({older:true})">{{ loading?'Loading…':'Load more' }}</button>
     </template>
     <template v-else>

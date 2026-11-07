@@ -22,14 +22,14 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
     CREATE TABLE chat_message_deletes(message_id INT,user_id INT);CREATE TABLE chat_message_mentions(message_id INT,mentioned_user_id INT);
     CREATE TABLE chat_message_attachments(id INT PRIMARY KEY,message_id INT);
     CREATE TABLE agencies(id INT PRIMARY KEY,is_active BOOLEAN DEFAULT 1,is_archived BOOLEAN DEFAULT 0);
-    CREATE TABLE users(id INT PRIMARY KEY,email VARCHAR(100),work_email VARCHAR(100),personal_email VARCHAR(100),role VARCHAR(40) DEFAULT 'provider');
+    CREATE TABLE users(id INT PRIMARY KEY,email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,work_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci,personal_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci,role VARCHAR(40) DEFAULT 'provider');
     CREATE TABLE user_agencies(user_id INT,agency_id INT,is_active BOOLEAN DEFAULT 1);
-    CREATE TABLE communication_inboxes(id INT PRIMARY KEY,kind VARCHAR(20),owner_user_id INT,from_email VARCHAR(100));
+    CREATE TABLE communication_inboxes(id INT PRIMARY KEY,kind VARCHAR(20),owner_user_id INT,from_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci);
     CREATE TABLE communication_conversations(id INT PRIMARY KEY,agency_id INT,inbox_id INT,owner_user_id INT,channel VARCHAR(20),subject VARCHAR(100),status VARCHAR(30),last_message_preview TEXT,last_message_at DATETIME,created_at DATETIME,archived_at DATETIME,is_spam BOOLEAN DEFAULT 0,is_unknown_sender BOOLEAN DEFAULT 0,external_thread_id VARCHAR(80));
     CREATE TABLE communication_messages(id INT PRIMARY KEY,conversation_id INT,direction VARCHAR(20),is_internal_note BOOLEAN DEFAULT 0,send_status VARCHAR(20),sent_at DATETIME,created_at DATETIME,from_json JSON);
     CREATE TABLE communication_conversation_reads(conversation_id INT,user_id INT,forced_unread BOOLEAN DEFAULT 0,last_read_at DATETIME);
     CREATE TABLE communication_participants(id INT PRIMARY KEY,conversation_id INT,is_primary BOOLEAN,email VARCHAR(100),display_name VARCHAR(100));
-    CREATE TABLE managed_workspace_groups(id INT PRIMARY KEY,email VARCHAR(100));CREATE TABLE email_sender_identities(id INT PRIMARY KEY,from_email VARCHAR(100),is_active BOOLEAN DEFAULT 1);
+    CREATE TABLE managed_workspace_groups(id INT PRIMARY KEY,email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci);CREATE TABLE email_sender_identities(id INT PRIMARY KEY,from_email VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci,is_active BOOLEAN DEFAULT 1);
     CREATE TABLE message_logs(id INT PRIMARY KEY,agency_id INT,sms_thread_key VARCHAR(80),user_id INT,assigned_user_id INT,number_id INT);
     CREATE TABLE twilio_number_assignments(number_id INT,user_id INT,is_active BOOLEAN,sms_access_enabled BOOLEAN);`);
   await db.query(await readFile(new URL('../../../../../database/migrations/1769_mobile_conversa_preferences.sql',import.meta.url),'utf8'));store=createMobileConversaStore(db);
@@ -69,6 +69,17 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('personal mobile inbox SQL',
   await mail(1,{unknown:true,email:'group@example.invalid'});await mail(2,{unknown:true,email:'personal@example.invalid'});await mail(3,{unknown:true,email:'unregistered@example.invalid'});
   const rows=await store.emails(1);expect(rows.find(item=>item.id===1).unknown).toBe(false);expect(rows.find(item=>item.id===2).unknown).toBe(false);expect(rows.find(item=>item.id===3).unknown).toBe(true);
   const counts=await store.emailCounts(1);expect(counts.find(c=>c.unknown).total).toBe(1);expect(counts.find(c=>!c.unknown).total).toBe(2);
+ });
+ it('recognizes every registered address with mixed historical column collations',async()=>{
+  await db.query("UPDATE users SET work_email=' work@example.invalid ' WHERE id=2; INSERT INTO managed_workspace_groups VALUES(1,' GROUP@EXAMPLE.INVALID '); INSERT INTO email_sender_identities VALUES(1,' IDENTITY@EXAMPLE.INVALID ',1); INSERT INTO communication_inboxes VALUES(3,'shared',NULL,' MAILBOX@EXAMPLE.INVALID ');");
+  const known=['staff@example.invalid','work@example.invalid','personal@example.invalid','group@example.invalid','identity@example.invalid','mailbox@example.invalid'];
+  for(const [i,email] of known.entries())await mail(i+1,{unknown:true,email});
+  await mail(99,{unknown:true,email:'unregistered@example.invalid'});await mail(100,{unknown:true,email:'work@example.invalid.evil.invalid'});
+  const rows=await store.emails(1);for(const id of [1,2,3,4,5,6])expect(rows.find(row=>row.id===id).unknown).toBe(false);
+  for(const id of [99,100])expect(rows.find(row=>row.id===id).unknown).toBe(true);
+  expect((await store.emails(1,{suite:'email'})).map(row=>row.id).sort()).toEqual([1,2,3,4,5,6]);
+  expect((await store.emails(1,{suite:'unknown'})).map(row=>row.id).sort()).toEqual([100,99]);
+  expect(await store.emailCounts(1)).toEqual(expect.arrayContaining([{category:'email',unknown:false,total:6,unread:6,needs:6},{category:'email',unknown:true,total:2,unread:2,needs:2}]));
  });
  it('computes counts beyond a visible page and filters before pagination',async()=>{
   await seedMailRange(1,106,{statusFor:id=>id<=3?'closed':'new'});
