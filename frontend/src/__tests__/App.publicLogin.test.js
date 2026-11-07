@@ -43,6 +43,22 @@ it.each(['SessionEnded', 'OrganizationSessionEnded'])('renders %s independently 
     expect(state.workspaceMounted).not.toHaveBeenCalled();
   } finally { wrapper.unmount(); }
 });
+it.each(['Login', 'OrganizationLogin', 'ParentOrganizationLogin'])('keeps the mounted %s form while a successful sign-in prepares its destination', async name => {
+  state.route.name = name;
+  const wrapper = render();
+  try {
+    await flushPromises();
+    const input = wrapper.get('input[name="username"]').element;
+    input.value = 'qa.provider@example.test';
+    // Login establishes authentication before session configuration, agencies,
+    // and the destination route have finished loading.
+    state.auth.user = { id: 8, role: 'provider' }; state.auth.isAuthenticated = true;
+    await flushPromises();
+    expect(wrapper.get('input[name="username"]').element).toBe(input);
+    expect(input.value).toBe('qa.provider@example.test');
+    expect(state.workspaceMounted).not.toHaveBeenCalled();
+  } finally { wrapper.unmount(); }
+});
 it('loads the ordinary workspace after successful authentication and navigation', async () => {
   const wrapper = render();
   try {

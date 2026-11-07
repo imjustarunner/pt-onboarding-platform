@@ -113,6 +113,12 @@ jobs:
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.guardian-enrollment-policy.config.js
           npm test --prefix frontend -- --run src/components/admin/__tests__/ClientGuardianContactEditor.test.js src/components/public/__tests__/SharedSchoolSigning.test.js src/views/__tests__/PublicIntakeProviderSelection.test.js src/views/__tests__/PublicIntakeSchoolChildren.test.js src/views/__tests__/PublicIntakeInsuranceContinue.test.js src/components/public-intake/__tests__/EnrollmentPortalAccess.test.js src/components/clients/__tests__/ClientPortalInviteDialog.test.js src/components/portal/__tests__/PortalNotificationSetup.test.js
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.intake-insurance-receipt.config.js
+      - name: Core workflow live-QA regressions
+        run: |
+          npm test --prefix frontend -- src/__tests__/App.publicLogin.test.js src/__tests__/App.workspaceLoading.test.js src/components/__tests__/AgencySelector.workspace.test.js src/components/dashboard/__tests__/ProviderClientsWaitlistScope.test.js src/views/__tests__/PublicIntakeFinalizePending.test.js
+          (cd frontend && node node_modules/vitest/vitest.mjs run --config vitest.adult-enrollment-retest.config.js src/components/admin/__tests__/OfficeIntakeQueuePanel.retest.test.js)
+          (cd frontend && node node_modules/vitest/vitest.mjs run --config vitest.qa-support.config.js src/components/admin/clientChart/__tests__/ClientRecordsOverview.receipts.test.js)
+          node --test backend/src/services/__tests__/completedIntakeRecord.service.test.js
       - name: Meeting offers, date editing, and optional office referral source
         run: |
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.meeting-reservations.config.js

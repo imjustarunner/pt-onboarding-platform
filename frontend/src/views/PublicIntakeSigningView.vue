@@ -104,7 +104,7 @@
         <p class="df-form-lead">{{ publicFormLead }}</p>
       </template>
       <IntakeProviderRequest v-if="requestedProviderSummary && isOfficeInDepthIntake && step !== 0.5"
-        :readonly="step === 3"
+        :readonly="step === 3 || finalizingPacket"
         :provider="requestedProviderSummary"
         :opening="intakeResponses.submission?.requested_opening_preference"
         :locale="intakeLocale"
@@ -113,6 +113,7 @@
         @remove="setSelectedOfficeProviderIds([])"
       />
       <div v-if="draftRestoredMessage" class="draft-restored-banner df-banner df-banner--info">{{ draftRestoredMessage }}</div>
+      <div v-if="finalizingPacket" class="df-banner df-banner--info" role="status">{{ t('submitting') }}</div>
       <div v-if="step === 3 && completionReservationNotice" class="df-banner df-banner--info" role="status">{{completionReservationNotice}}</div>
 
       <div v-if="step === -1" class="step cover-step">
@@ -1428,7 +1429,7 @@
         />
         </div>
 
-        <div v-else-if="step === 2" class="step" :class="{ 'intake-interview-page': isOfficeInDepthIntake }">
+      <div v-else-if="step === 2" class="step" :class="{ 'intake-interview-page': isOfficeInDepthIntake }" :inert="finalizingPacket" :aria-busy="finalizingPacket">
         <div :class="{ 'ai-layout': isOfficeInDepthIntake, 'ai-layout--help': officeHelpColumnVisible }">
         <div :class="{ 'ai-layout-main': isOfficeInDepthIntake, 'ai-layout-main--full': isOfficeInDepthIntake && !officeHelpColumnVisible }">
         <div v-if="isOfficeInDepthIntake" class="ai-pathway-badge">{{ publicPacketBadge }}</div>
@@ -6085,6 +6086,7 @@ const dfProgressIndex = computed(() => {
 const maxReachedProgressIndex = ref(0);
 
 function jumpToProgressStep(index) {
+  if (finalizingPacket.value) return;
   if (!isOfficeInDepthIntake.value) return;
   const steps = dfProgressSteps.value || [];
   const target = steps[index];
@@ -6851,6 +6853,7 @@ const submissionId = ref(null);
 const confirmedSubmissionId = ref(null);
 const consentLoading = ref(false);
 const submitLoading = ref(false);
+const finalizingPacket = ref(false);
 const currentDocIndex = ref(0);
 const signatureBlockRef = ref(null);
 const signatureBlockFlash = ref(false);
@@ -8244,6 +8247,7 @@ async function copyReturnLink() {
 }
 
 function goBackPublicPage() {
+  if (finalizingPacket.value) return;
   if (step.value === WHO_FOR_STEP) {
     if (skipBrandingIntro.value) {
       const slug = referralAgencySlug.value;
@@ -12329,6 +12333,7 @@ const sanitizeFinalizeResponses = (input) => {
 };
 
 const finalizePacket = async () => {
+  if (finalizingPacket.value) return;
   // Recheck the retained safety prerequisites, including drafts saved before
   // the optional-step navigation repair or answers cleared on a revisit.
   if (isOfficeInDepthIntake.value && !canBypassIntakeRequired.value) {
@@ -12364,10 +12369,10 @@ const finalizePacket = async () => {
   }
   const previousStep = step.value;
   try {
+    finalizingPacket.value = true;
     submitLoading.value = true;
     error.value = '';
     stepError.value = '';
-    step.value = 3;
     pollingForDownload.value = false;
     pdfWaitTimedOut.value = false;
     packetNeedsReview.value = false;
@@ -12535,6 +12540,7 @@ const finalizePacket = async () => {
       error.value = e.response?.data?.error?.message || 'Failed to finalize packet';
     }
   } finally {
+    finalizingPacket.value = false;
     submitLoading.value = false;
   }
 };

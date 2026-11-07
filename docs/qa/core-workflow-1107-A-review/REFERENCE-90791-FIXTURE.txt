@@ -1,0 +1,29 @@
+90791 — SYNTHETIC SOURCE FOR GENERATION, EDIT, COPY, SAVE AND REOPEN
+
+Use this existing repository fixture with an allocated fictional 90791 encounter.
+It is test material, not an actual assessment. A qualified reviewer checks the
+output against the source. Do not add a diagnosis, rating, treatment-plan goal or
+unassessed finding simply to pass a gate. Domains absent from the source must stay
+identified as not supplied/unassessed. This fixture alone is not signing-ready.
+
+Source: docs/qa/QA-ADDENDUM-2026-11-01-AUDIT-CLINICAL-MATERIALS-AND-MESSAGING.txt
+
+90791 intake example:
+"SYNTHETIC QA INTAKE. Client attended with guardian for an initial assessment.
+Guardian described difficulty with school transitions and worry before new
+activities over the last two months. Client said, 'I get stuck when I do not
+know what comes next.' Sleep is reported as generally consistent; appetite
+is unchanged. Guardian described supportive relationships at home and one
+close friend at school. Client was alert, engaged with drawing prompts and
+able to identify feeling worried and frustrated. Speech was clear and thought
+process was organized. In this fictional interview, client and guardian denied
+current suicidal thoughts, self-injury, intent to harm others and current
+abuse concerns. Clinician reviewed confidentiality, limits, guardian
+participation and next steps. Assessment information will be reviewed with the
+supervisor before finalizing formulation and the treatment plan. No diagnosis
+or appointment confirmation should be inferred from this source text alone."
+
+After generation, compare every factual statement to this source. Edit a sentence,
+copy, save and reopen on desktop and phone. Confirm the same exact encounter and
+that unrelated sections remain intact. For final signing tests, use a separately
+allocated and reviewed fixture with all required structured prerequisites.

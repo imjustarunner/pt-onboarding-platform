@@ -1,0 +1,23 @@
+EXISTING SYNTHETIC 90837 FIXTURE
+Source: November 6 bot guide. Use matching allocated structured encounter facts.
+
+Synthetic baseline for 90837 — use only with matching allocated structured facts:
+Service date/time/location/modality/duration and explicit participation consent
+must be set in encounter controls. Existing diagnosis/justification and the
+following treatment objective must be in the synthetic treatment plan.
+
+Client described panic symptoms and avoidance during school transitions that
+interfere with attendance. Client consented to participate. Provider modeled
+paced breathing, explained its connection to physical panic symptoms, and guided
+two practice rounds. Client initially needed three prompts and completed the
+second round independently. Client reported less tension after practice. This
+addressed the existing goal of using one coping skill during school transitions.
+Client will practice paced breathing before the next school transition, and
+Provider will review that practice and barriers at the next session. Client
+denied current thoughts of harm to self or others. No separate standardized
+assessment was administered or referenced during this encounter.
+
+This is an input fixture, not a guarantee of a specific live-model score. A
+qualified reviewer must judge whether generated content matches the evidence.
+Use separate clones for contradictory/risk cases; never contaminate a passing
+baseline's history or erase a prior mandatory-risk requirement.

@@ -1,0 +1,42 @@
+SCHOOL ONLINE / PAPER COMPARISON — preserve existing paper
+
+1107-A interim evidence contains no completed school/paper comparison.
+Source review only: the differences below still need confirmation against the
+actual QA school's saved paper template and configured online enrollment link.
+No paper text, layout, renderer, or saved template was changed in this task.
+
+AREA              ONLINE                         CURRENT PAPER
+Insurance         Structured policy fields;      Written primary/secondary fields.
+                  card upload where offered.
+Payment           Office combined step; school   No payment setup or card-photo
+                  separate configured step.      upload required for paper completion.
+School ROI        Interactive recipient/consent  Existing written decisions; staff
+                  decisions and saved release.   must enter/review them correctly.
+Questions         Path-sensitive; guardian       Fixed approved questionnaire.
+                  PSC-17, student PHQ-A/GAD-7.
+Signatures        Interactive saved agreements.  Existing handwritten areas.
+Copies            Completion PDF plus guardian   Returned signed packet attached to
+                  access to signed documents.    the correct chart and school.
+
+SUGGESTIONS TO EVALUATE AFTER TESTING
+1. Keep the approved paper copy as-is. Use a separate internal staff checklist
+   for translating paper fields and ROI decisions into the electronic record.
+2. Label online-only payment/card-upload steps clearly. A paper completion should
+   never be held up by those online-only extras.
+3. Treat changed/missing questionnaire items as a clinical-review question; do not
+   silently add online questions to the paper packet or infer missing answers.
+4. Verify electronic permissions reflect the family's actual paper ROI decisions.
+   Uploading a signed PDF alone is not proof those permissions were recorded.
+5. Keep language/version/school identifiers visible in the testing evidence so
+   different saved templates are not mistaken for regressions.
+
+TESTER COMPARISON RECORD — repeat for each observed difference
+School / language / paper revision:
+Online link label and build (no private token):
+Paper page and field:
+Online step and field:
+Difference observed:
+Effect on family/staff/record:
+Suggested online or staff-process improvement:
+Requires owner/clinical review:
+Evidence filenames:

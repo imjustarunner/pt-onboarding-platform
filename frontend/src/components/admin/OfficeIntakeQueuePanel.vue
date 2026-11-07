@@ -519,9 +519,12 @@ function needsClinicalReview(c) {
 }
 
 function whoForLabel(c) {
-  const who = c.adaptiveMeta?.whoFor;
-  if (who === 'myself' || !who) return 'Self';
-  if (who === 'child') return 'Child / dependent';
+  const who = String(c.serviceSubject || c.adaptiveMeta?.whoFor || c.intakePreferences?.serviceSubject || c.intakePreferences?.whoFor || '').trim().toLowerCase();
+  if (!who) return 'Not recorded';
+  if (who === 'myself' || who === 'self') return 'Self';
+  if (who === 'child' || who === 'dependent') return 'Child / dependent';
+  if (who === 'representative' || who === 'adult_representative') return 'Adult represented';
+  if (who === 'on_behalf') return 'Another person';
   if (who === 'couple') return 'Couple';
   if (who === 'family') return 'Family';
   if (who === 'legal') return 'Legal representative';

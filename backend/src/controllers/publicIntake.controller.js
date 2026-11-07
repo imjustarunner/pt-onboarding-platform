@@ -1695,6 +1695,9 @@ const buildMergedDemographicsForPersist = ({
   const perClient = perClientResponses && typeof perClientResponses === 'object'
     ? perClientResponses
     : {};
+  const sexFrom = (bag) => ['child_sex', 'sex', 'client_sex', 'child_gender', 'gender', 'client_gender']
+    .map((key) => bag?.[key])
+    .find((value) => typeof value === 'string' && value.trim());
   // Per-child fields take precedence over both the submission-level
   // demographics step and the submission-level clinical responses, since they
   // are the most specific answer for THIS sibling on THIS submission.
@@ -1726,13 +1729,12 @@ const buildMergedDemographicsForPersist = ({
         pickPerChild('client_dob', submission.date_of_birth || clinical.date_of_birth || base.dob)
       )
     ),
-    gender: pickPerChild(
-      'child_gender',
-      pickPerChild(
-        'gender',
-        pickPerChild('client_sex', base.gender || pickPerChild('client_gender', submission.gender || null))
-      )
-    ),
+    gender: sexFrom(perClient)
+      || sexFrom(perClient.demographicsInfo)
+      || sexFrom(clinical)
+      || sexFrom(submission)
+      || base.gender
+      || null,
     genderSelfDescribe: pickPerChild(
       'child_gender_self_describe',
       pickPerChild('gender_self_describe', submission.gender_self_describe || base.genderSelfDescribe)
@@ -2026,7 +2028,7 @@ export const persistChildIntakeData = async ({
       await applySubmittedClientInsurance({ clientId: cid, agencyId, ...coverage, profileId, confirmedBy: guardianUserId || null,
         patient: preserveClientDemographics ? patientFromDemographics(demographics) : {
           firstName: person.child_legal_first || person.client_first || person.firstName || person.legalFirstName || '', lastName: person.child_legal_last || person.client_last || person.lastName || person.legalLastName || '',
-          dateOfBirth: normalizeDateOnly(demographics.date_of_birth) || '', sex: ['M','F','U'].includes(demographics.gender) ? demographics.gender : '',
+          dateOfBirth: normalizeDateOnly(demographics.date_of_birth) || '', sex: patientFromDemographics(demographics).sex,
           addressLine1: demographics.address_street, addressLine2: demographics.address_apt, city: demographics.address_city, state: demographics.address_state, postalCode: demographics.address_zip } });
       result.insurerPersisted = true;
       const { enqueueIntakeEligibility } = await import('../services/intakeEligibility.service.js');

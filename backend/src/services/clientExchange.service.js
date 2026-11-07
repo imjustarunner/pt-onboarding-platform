@@ -27,6 +27,7 @@ import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
 import { generateUniqueSixDigitClientCode } from '../utils/clientCode.js';
 import { resolvePaperworkStatusId, seedClientAffiliations, seedClientPaperworkItems } from '../utils/clientProvisioning.js';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
+import { loadClientEnrollmentSubjects, normalizeEnrollmentSubject } from './clientExchangeEnrollmentSubject.service.js';
 
 /**
  * Client Exchange (Office clients)
@@ -584,7 +585,7 @@ export async function listPendingOfficeClients({ agencyId }) {
     );
     rows = r;
   }
-  return (rows || []).map((row) => ({
+  const clients = (rows || []).map((row) => ({
     id: Number(row.id),
     initials: row.initials,
     fullName: row.full_name,
@@ -601,6 +602,22 @@ export async function listPendingOfficeClients({ agencyId }) {
     dateOfBirth: row.date_of_birth || null,
     createdViaDevFill: Number(row.created_via_dev_fill) === 1
   }));
+  for (const client of clients) {
+    client.serviceSubject = normalizeEnrollmentSubject(client.adaptiveMeta?.whoFor
+      || client.intakePreferences?.serviceSubject || client.intakePreferences?.whoFor);
+  }
+  const unresolved = clients.filter(client => !client.serviceSubject);
+  if (unresolved.length) {
+    try {
+      const subjects = await loadClientEnrollmentSubjects({ db: pool, agencyId: aid, clientIds: unresolved.map(client => client.id) });
+      for (const client of unresolved) client.serviceSubject = subjects.get(client.id) || null;
+    } catch (error) {
+      // The queue remains available, with an honest unknown subject if source
+      // data cannot be read. Do not fabricate a self enrollment.
+      console.warn('[clientExchange] Enrollment subjects unavailable', { agencyId: aid, code: error?.code || error?.status || 'unavailable' });
+    }
+  }
+  return clients;
 }
 
 async function resolveAgencyRow(agencySlugOrId) {

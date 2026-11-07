@@ -240,6 +240,7 @@ async function bootstrap() {
   }
 
   app.mount('#app');
+  document.getElementById('portal-startup-status')?.remove();
 }
 
 const legacyPublicDestination = legacyTisiPublicDestination(window.location.href);

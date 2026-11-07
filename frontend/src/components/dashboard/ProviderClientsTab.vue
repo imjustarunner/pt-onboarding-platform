@@ -20,7 +20,7 @@
       v-if="!profileEmbed && Number(currentUserId) === Number(authStore.user?.id) && ['all','office','new'].includes(activeSection)"
       :provider-id="Number(currentUserId)"
       :initially-expanded="String(route.query.waitlist || '') === '1'"
-      :agency-ids="membershipAgencies.length ? membershipAgencies.map(agency => Number(agency.id)) : [agencyId]"
+      :agency-ids="officeWaitlistAgencyIds"
     />
 
     <ReferralDirectoryPanel v-if="!profileEmbed && activeSection === 'referrals'" embedded />
@@ -520,6 +520,7 @@
 
 <script setup>
 import ProviderEnrollmentWaitlist from '../provider/ProviderEnrollmentWaitlist.vue';
+import { isSchoolCareBridgeOnly } from '../../utils/schoolCareBridgeTenant.js';
 import ClientCheckinSubmissions from '../kiosk/ClientCheckinSubmissions.vue';
 import PostClientToExchangeButton from '../clientExchange/PostClientToExchangeButton.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
@@ -609,6 +610,14 @@ const membershipAgencies = computed(() => {
       return a;
     })
     .filter(Boolean);
+});
+
+const officeWaitlistAgencyIds = computed(() => {
+  if (membershipAgencies.value.length) {
+    return membershipAgencies.value.filter(agency => !isSchoolCareBridgeOnly(agency)).map(agency => Number(agency.id));
+  }
+  const current = agencyStore.currentAgency?.value || agencyStore.currentAgency;
+  return agencyId.value && !isSchoolCareBridgeOnly(current) ? [Number(agencyId.value)] : [];
 });
 
 function parseAgencyPrimary(agency) {

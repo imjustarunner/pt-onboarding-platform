@@ -1,0 +1,57 @@
+RELEASE HANDOFF — CORE WORKFLOW 1107-A REPAIRS
+
+Branch: codex/core-stabilization-20261107
+Base: f52f74d495c4ff9c042dde7eb19860c93913a740
+Includes previous repair 153dc525131b38bea7c849665ff65c2bf18234b4 and this follow-up.
+These repairs are local; they have not been pushed, merged or deployed by this task.
+Use the named branch or the exported series in deliverables/core-workflow-1107-A-review.
+Do not deploy from the older dirty main checkout.
+
+Problem and result
+The interim bot run identified sign-in remounting, a provider waitlist caller that
+still queried school-only membership, and a completion screen rendered before the
+server accepted the packet. These changes preserve the login component until the
+route changes, scope office waitlist requests, and keep enrollment on its signed
+form until finalize succeeds. A rejected save remains recoverable. Agency selector
+return uses the existing document-navigation helper so school routing cannot send
+an authorized agency selection back to the school portal. Visible startup/loading
+states are added; this does not establish that the reported latency is resolved.
+
+Actual office questionnaire sex aliases now reach structured chart and claim data.
+Receipt traversal distinguishes full field paths so primary and secondary policy
+fields do not suppress one another. Additional answer text excludes internal card
+storage references and redundant device metadata; source data, attachments and audit
+certificate remain. Self-Pay receipt text agrees with the signed UI agreement.
+
+New Enrollments reads saved subject metadata or a scoped submitted-intake lookup,
+including sibling associations, and leaves an unavailable subject unknown. Support's
+receipt-only chart fallback labels its receipts accurately without inferring active
+or missing individual authorizations. No permission grants or export bypasses.
+
+Regression tests and focused live-QA instructions are included. Earlier branch
+changes preserve same-origin agency sessions and policy data through Self-Pay.
+
+Release validation and rollout
+Run normal repository release CI/build from the repair revision. Added regression
+commands are in .github/workflows/scheduling-regressions.yml. Local targeted results
+are recorded in ENGINEERING-STATUS.txt in the deliverable folder; full release CI
+and production build were not run here. Do not treat old full-suite failures as
+resolved or silently ignore a new failure. No database migration or historical
+record rewrite is included in this repair.
+
+After release, record actual frontend /version.json and backend /api/app-version
+revision on the tester host. Give testers the identified revision and run their
+access/office regressions with fresh records. Check school/ROI/paper/note journeys
+independently. Keep the approved paper wording/layout. Retest live pending/rejected
+finalize states, exact coverage fields/cards after Self-Pay, secondary policy PDF
+text, structured sex, enrollment subject and receipt-only support display.
+
+Historical completed charts and cached PDFs are not backfilled/regenerated. Existing
+1435/1436 artifacts remain evidence of the old version. Any historical correction
+needs separate scope and an audit-preserving approach. Do not delete the bot's old
+records or pending fixtures based on its cleanup inventory.
+
+Open observations needing more evidence: exact ACCESS-01 return gesture, dashboard
+load duration/first failing request, and the Welcome Enter Dashboard button. Payment,
+school online, ROI access, paper comparison, and notes have not passed live checks
+in the supplied interim report. Adult representative is lower priority.

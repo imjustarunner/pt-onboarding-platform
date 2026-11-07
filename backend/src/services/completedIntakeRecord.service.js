@@ -32,6 +32,8 @@ const SKIP_BAG_KEYS = new Set([
   'sectionHtml',
   'signatureData',
   'signatureMeta',
+  'authorizationSignedIp',
+  'authorizationSignedUserAgent',
   'acknowledgments',
   'skip_phq9',
   'skip_gad7',
@@ -303,7 +305,7 @@ const FALLBACK_VALUE_LABELS = {
   school_based: 'School based',
   most_important: 'Most important',
   no_preference: 'No preference',
-  self_pay: 'Self-pay. No insurance authorization signature is required.',
+  self_pay: 'Self-pay',
   signature_from_earlier_in_this_packet: 'Signature from earlier in this packet',
   '2_weeks_2_months': '2 weeks to 2 months',
   sadness_low_mood: 'Sadness or low mood',
@@ -423,13 +425,16 @@ function walkBag(bag, { byKey, locale, link, prefix = '', skipKeys = new Set(), 
   if (!bag || typeof bag !== 'object' || Array.isArray(bag)) return;
   const showIfValues = values && typeof values === 'object' ? values : bag;
   for (const [key, raw] of Object.entries(bag)) {
-    if (!key || skipKeys.has(key) || SKIP_BAG_KEYS.has(key) || isSecretKey(key) || printed.has(key)) continue;
+    // Identical leaf names in separate policies or array entries are distinct
+    // answers. Only suppress a field already printed at this same location.
+    const printedKey = prefix ? `${prefix}.${key}` : key;
+    if (!key || skipKeys.has(key) || SKIP_BAG_KEYS.has(key) || isSecretKey(key) || printed.has(printedKey)) continue;
     if (looksLikeHtml(raw)) continue;
-    if (PHOTO_KEY.test(key) && typeof raw === 'string' && raw.startsWith('data:')) continue;
+    if (PHOTO_KEY.test(key) && typeof raw === 'string' && /^(?:data:|gs:\/\/)/i.test(raw)) continue;
     if (INSTRUMENT_LEFTOVER_KEY.test(key)) continue;
     const field = byKey.get(key);
     if (field?.privateToRespondent === true || field?.private === true) {
-      printed.add(key);
+      printed.add(printedKey);
       continue;
     }
     if (field?.showIf && !matchesShowIf(field.showIf, showIfValues)) continue;
@@ -438,7 +443,7 @@ function walkBag(bag, { byKey, locale, link, prefix = '', skipKeys = new Set(), 
       .join(' · ');
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
       walkBag(raw, { byKey, locale, link, prefix: label, skipKeys, values: showIfValues }, rows, printed);
-      printed.add(key);
+      printed.add(printedKey);
       continue;
     }
     if (Array.isArray(raw) && raw.some((item) => item && typeof item === 'object')) {
@@ -447,7 +452,7 @@ function walkBag(bag, { byKey, locale, link, prefix = '', skipKeys = new Set(), 
           walkBag(item, { byKey, locale, link, prefix: `${label} ${index + 1}`, skipKeys, values: showIfValues }, rows, printed);
         }
       });
-      printed.add(key);
+      printed.add(printedKey);
       continue;
     }
     if (typeof raw === 'string' && INTERNAL_STEP_VALUE.test(raw.trim())) continue;
@@ -455,7 +460,7 @@ function walkBag(bag, { byKey, locale, link, prefix = '', skipKeys = new Set(), 
     const rendered = field ? formatFieldValue(field, raw, locale, link) : formatFieldValue(null, raw, locale, link);
     if (!hasValue(rendered) && rendered !== 'Yes' && rendered !== 'No') continue;
     pushRow(rows, label, rendered);
-    printed.add(key);
+    printed.add(printedKey);
   }
 }
 

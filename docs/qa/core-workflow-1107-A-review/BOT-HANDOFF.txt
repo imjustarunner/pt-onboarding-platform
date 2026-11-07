@@ -1,0 +1,69 @@
+NEXT BOT RUN — CORE WORKFLOWS, FOLLOWING INTERIM 1107-A
+
+Use the existing live QA/demo organization and your existing privately supplied
+Avery/provider, Jordan/support, guardian and school-staff test access. Use a new
+run label, such as 1107-B, with fictional people. Keep the 1107-A report, screenshots,
+PDFs, completed records and unfinished drafts for review. Do not clean them up.
+
+1. Record frontend /version.json and backend /api/app-version on the host used.
+   Baseline tested in 1107-A: f52f74d495c4ff9c042dde7eb19860c93913a740.
+   Local repair branch: codex/core-stabilization-20261107. Its release revision
+   is listed in ENGINEERING-STATUS.txt. The fixes have not been deployed by this
+   review. If the live build is still the baseline, do not rerun known failures
+   as though the repair is live. Continue the independent untested cases below.
+
+2. Briefly confirm access and correct organization. For Jordan's office list use
+   /auricwell-qa-demo/admin/office-clients; Client Management is
+   /auricwell-qa-demo/admin/clients. Avery's Office Clients is inside My Dashboard.
+   Do not substitute a different role to make a permission failure pass.
+
+3. First complete SCHOOL-01, then SCHOOL-03/04: one child's enrollment, staff
+   assigns the school ROI, the correct guardian signs, the saved decisions are
+   correct, and school access follows them. Continue SCHOOL-02 and SCHOOL-05–08.
+   Test sibling records separately. An uploaded PDF alone is not proof of ROI access.
+
+4. Complete PAPER-01–04 using the school's independently approved current copy.
+   Keep its wording and layout unchanged. Paper completion must not require a
+   payment method or insurance-card photo uploads. Record online/paper differences
+   and suggestions in the supplied worksheet; do not edit the packet.
+
+5. Complete NOTES-01–11. Start with 90791 encounter selection, clinical summary,
+   generation using REFERENCE-90791-FIXTURE.txt, source comparison, edit, copy,
+   save and reopen. Check desktop and phone. The source supplies no diagnosis or
+   signing-ready plan: do not invent missing facts to clear a clinical gate.
+   Use the supplied 90837 fixture only with its matching reviewed prerequisites.
+
+6. Finish OFFICE-02 payment-method saving only if the connected processor is
+   confirmed in test mode. No real payment cards or charges. If that prerequisite
+   is absent, record BLOCKED-payment-environment and continue other tests.
+
+7. After a repair release is identified, retest ACCESS-01/02/03/05 and
+   OFFICE-01/04/06, then the neighboring OFFICE-03/05 and signed-in logout.
+   Use fresh enrollment records: prior charts and cached PDFs were not backfilled.
+   For OFFICE-01 check that no completed/success/download state appears while the
+   final request is pending or rejected; use the safe rejection fixture in the
+   detailed instructions. For OFFICE-06 compare secondary insurance, sex, child/
+   representative subject, and actual saved documents with the entered values.
+   A loading message is useful, but still time and report prolonged loading.
+
+Use TESTER-INSTRUCTIONS.txt for steps and RESULTS-NEXT-RUN.csv for results.
+Mark each subcheck PASS, FAIL, BLOCKED or NOT RUN. Record exact build, role,
+organization, device, record reference, steps, expected/actual, and evidence file.
+For access problems capture the starting/destination host and path, exact clicked
+control, and first failed request/status if available. Distinguish clicking the
+organization selector from browser Back or another workspace link.
+
+Use a unique guardian identity such as demo.qa.1107b.school01@example.com.
+testing@itsco.health receives redirected test mail; do not use it as guardian
+identity. Verify delivery separately through the designated authorized test inbox.
+
+Corrections to carry forward: 1436 authorization was at 9:15:39 AM MST, before
+9:17 submission. Support export restrictions are separate from saving failures.
+Completion summaries and full signed bundles should be identified separately.
+
+If a required account, school link, approved paper baseline, expired/revoked ROI
+fixture, test-mode processor, supervisor allocation or fault fixture is missing,
+mark only that subcheck BLOCKED and continue independent work. Do not change live
+settings, roles, templates, clinical facts or historical records to force a pass.
+Return partial results promptly when one journey blocks. Do not include credentials,
+private access tokens, full payment numbers or real client information in evidence.

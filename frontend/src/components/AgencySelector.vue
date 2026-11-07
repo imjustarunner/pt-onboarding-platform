@@ -221,8 +221,9 @@ const navigateToTenantOrganization = (agency) => {
   // Leaving a SchoolCareBridge partner workspace for a full agency must exit the
   // partner shell; staying on /schoolcarebridge/... keeps the wrong tenant chrome.
   if (/^\/schoolcarebridge\b/i.test(path) && !isSchoolCareBridgeOnly(agency)) {
-    router.push(nextDashboard);
-    return;
+    // A client-side transition is remapped by the school workflow guard. Reload
+    // on the same authenticated origin to leave that shell and its tenant state.
+    return openTenantWorkspace(agency, router, { path: '/dashboard' });
   }
   // Selecting a SchoolCareBridge-only company from a full-agency dashboard should
   // enter the partner workspace instead of a generic /slug/dashboard that then

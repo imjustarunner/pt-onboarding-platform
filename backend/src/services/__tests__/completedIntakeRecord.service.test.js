@@ -2,6 +2,55 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildCompletedIntakeRecord } from '../completedIntakeRecord.service.js';
 
+test('office receipt prints both insurance policies without deduplicating their shared field names', () => {
+  const intake = { responses: { submission: { insuranceInfo: {
+    primary: { insurerName: 'SAMPLE Primary', memberId: 'SAMPLE-PRI', groupNumber: 'GROUP-PRI' },
+    secondary: { insurerName: 'SAMPLE Secondary', memberId: 'SAMPLE-SEC', groupNumber: 'GROUP-SEC' },
+    hasSecondary: true,
+    clientCoverages: [
+      { clientIndex: 0, confirmed: true, primary: { insurerName: 'CHILD-A-PLAN', memberId: 'CHILD-A-ID' } },
+      { clientIndex: 1, confirmed: true, primary: { insurerName: 'CHILD-B-PLAN', memberId: 'CHILD-B-ID' } }
+    ]
+  } } } };
+  const before = JSON.stringify(intake);
+  const record = buildCompletedIntakeRecord({ link: { scope_type: 'agency' }, submission: { intake_data: intake } });
+  const rows = record.sections.flatMap(section => section.rows || []);
+  for (const [tier, suffix] of [['Primary', 'PRI'], ['Secondary', 'SEC']]) {
+    assert.ok(rows.some(row => row.label.endsWith(`${tier} · Member Id`) && row.value === `SAMPLE-${suffix}`));
+    assert.ok(rows.some(row => row.label.endsWith(`${tier} · Group Number`) && row.value === `GROUP-${suffix}`));
+  }
+  assert.ok(rows.some(row => row.value === 'CHILD-A-ID'));
+  assert.ok(rows.some(row => row.value === 'CHILD-B-ID'));
+  assert.equal(JSON.stringify(intake), before);
+});
+
+test('office Self-Pay receipt labels the choice without contradicting its saved signed agreement', () => {
+  const record = buildCompletedIntakeRecord({ link: { scope_type: 'agency', inherits_office_master: 1 },
+    submission: { intake_data: { responses: { submission: { insuranceInfo: {
+      payerChoice: 'self_pay', isSelfPay: true, authorizationAgreed: true,
+      authorizationSignature: 'SAMPLE Signer', authorizationSourceMethod: 'typed_full_name'
+    } } } } } });
+  const text = JSON.stringify(record.sections);
+  assert.match(text, /Self-pay/);
+  assert.match(text, /SAMPLE Signer/);
+  assert.doesNotMatch(text, /No insurance authorization signature is required/);
+});
+
+test('additional answers omit internal card-storage references and redundant authorization device metadata', () => {
+  const intake = { responses: { submission: { insuranceInfo: {
+    primary_front_url: 'gs://synthetic-bucket/primary-front.enc', secondary_back_url: 'gs://synthetic-bucket/secondary-back.enc',
+    authorizationSignedIp: '192.0.2.20', authorizationSignedUserAgent: 'Synthetic User Agent', authorizationSignature: 'SAMPLE Signer'
+  }, resource_website: 'https://example.com/family-resource' } } };
+  const before = JSON.stringify(intake);
+  const record = buildCompletedIntakeRecord({ submission: { intake_data: intake, ip_address: '192.0.2.10' } });
+  const text = JSON.stringify(record.sections);
+  assert.doesNotMatch(text, /gs:\/\/|192\.0\.2\.20|Synthetic User Agent/);
+  assert.match(text, /SAMPLE Signer/);
+  assert.match(text, /https:\/\/example.com\/family-resource/);
+  assert.ok(record.esign.rows.some(row => row.label === 'IP address' && row.value === '192.0.2.10'));
+  assert.equal(JSON.stringify(intake), before, 'stored audit details and attachment references are unchanged');
+});
+
 for (const shape of ['nested', 'flat']) {
   test(`individual sibling packets keep names, DOB, grade and screening answers together (${shape})`, () => {
     const identities = [

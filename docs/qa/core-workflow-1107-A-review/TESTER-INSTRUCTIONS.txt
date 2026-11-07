@@ -1,0 +1,237 @@
+CORE WORKFLOW TESTER INSTRUCTIONS — FOLLOW-UP TO 1107-A, November 7, 2026
+
+Use the existing LIVE QA/demo organization, existing approved accounts, and
+fictional data. Read BOT-HANDOFF.txt for priority and release gating. Record results
+in RESULTS-NEXT-RUN.csv. Preserve the original 1107-A report unchanged.
+
+SETUP — for every tester
+- Use your existing private account instructions. Avery is the provider and
+  Jordan is support. Use approved guardian and school-staff test accounts for
+  their steps. Do not substitute an administrator to make a permission failure pass.
+- Confirm the intended organization before creating a record. QA agency 450 is
+  auricwell-qa-demo. ITSCOLLC and SchoolCareBridge QA Company are not interchangeable.
+  Only create records in the allocated demo workspace, even when testing navigation
+  to another authorized organization. A missing approved school/office link is BLOCKED.
+- Use a unique label, such as DEMO QA 1107-B-OFFICE-01; a second bot uses 1107-C.
+  Keep one tester responsible for each draft. Never edit another tester's record.
+- Use the existing office and school links supplied privately. Do not reuse old
+  draft 1426, old completed packets, or a previous failing draft to create new data.
+- Desktop: normal browser and Note Workspace from schedule/My Work. Phone: iPhone
+  Safari at https://auricwell.com/mobile; note whether testing browser or native app.
+- Record frontend build from /version.json and backend build from /api/app-version
+  on the relevant app host. If unavailable, record time, URL, and BLOCKED-build-check;
+  do not guess. If builds change mid-run, identify which cases need a fresh retest.
+- Use the SAMPLE / NOT REAL insurance fixtures from 1107-A or supplied equivalents.
+  Use a unique @example.com guardian identity for each family. Do not use
+  testing@itsco.health as guardian identity; it receives redirected test mail.
+  Verify delivery separately through the designated authorized test inbox.
+- For Add payment now, confirm a test-mode processor connected to this demo flow
+  and use its approved test method. If the live demo has no test-mode payment path,
+  mark payment cases BLOCKED-payment-environment. Do not use real cards, put processor
+  test numbers into live mode, submit charges, or pretend a missing step passed.
+- Do not send messages to real families, alter settings/templates/access roles,
+  turn on recording, submit claims, or delete historical records during this run.
+
+RESULT RULES
+PASS = observed expected behavior, including saved/reopened evidence when requested.
+FAIL = observed incorrect behavior. BLOCKED = a prerequisite prevents the check.
+NOT RUN = not attempted. A prior code test or old screenshot is not this run's PASS.
+For every row record case ID, build, organization, browser/device, record/reference,
+steps, expected/actual, and screenshot filename. Include first failed request path
+and HTTP status if available. Exclude passwords, tokens, full card details, private
+access URLs and real clinical/client information. Leave fictional records for review.
+When a journey fails, stop that journey after capturing evidence; avoid repeated
+finalize clicks or duplicate enrollments. Continue independent journeys.
+If CAPTCHA blocks progress, refresh once; if still blocked, report BLOCKED-recaptcha.
+
+ACCESS — run first
+ACCESS-01 Avery: sign in, explicitly choose ITSCOLLC, reload, open Schools & Programs.
+  Expect the same organization, a usable dashboard, and assigned schools or a clear
+  empty state. Switch to the approved SchoolCareBridge test workspace and back.
+  Record the exact return control (selector, workspace link, or browser Back),
+  both hosts/paths and loading duration. A loading message does not itself resolve
+  prolonged loading. Record a blank dashboard or unexpected organization as FAIL.
+ACCESS-02 Jordan: sign in through the SchoolCareBridge entry used in the prior run
+  without relying on a separate existing HQ login. Switch workspace → Open agency
+  workspace. Also try Full agency workspace if offered on the connected partner
+  page for a full agency; absence for a school-only company is not itself a defect.
+  Expect the authorized intended agency and a usable dashboard. Record starting
+  and destination hosts plus any 401. Record an unresponsive welcome button
+  separately, including the clicked control and console/request error if available.
+ACCESS-03 Test fresh and returning sign-in: username → Verify → password → Sign In.
+  Expect first-attempt success or a clear actionable error, without an unexplained
+  drop back to an empty username form. Reload the signed-in dashboard once.
+ACCESS-04 While genuinely signed in, use the org logout route. Reopen a protected
+  page after Back/reload. Expect sign-in and no usable private workspace.
+ACCESS-05 Avery/Jordan: open Office Clients in the intended full agency. Expect
+  records/clear empty state without the partial-office-waitlist warning from an
+  unrelated SchoolCareBridge-only company. Avery uses My Dashboard → Office Clients.
+  Jordan uses /auricwell-qa-demo/admin/office-clients; do not use the provider-only
+  dashboard query string or an alternate guessed scheduling URL for this role.
+
+OFFICE — fresh records for the approved QA office link
+OFFICE-01 Commercial insurance: enroll one fictional adult or child using the
+  appropriate choice. Enter primary and secondary policy fields; upload SAMPLE
+  front/back card images where offered. Back/forward and resume once. Expect
+  fields/images to remain associated with this client. Finish the agreements,
+  finalize, and record the successful completion reference. During pending final
+  save there must be no success, completed reference or download controls.
+  Safe rejection subcheck in this demo: on a separate synthetic draft, set the
+  guardian identity to the reserved testing@itsco.health sink before finalizing.
+  Expect a clear rejection without success/download/reference; correct it to a
+  unique @example.com identity and complete the same draft once. If earlier
+  validation prevents reaching finalization, record that and mark this particular
+  pending-finalize rejection subcheck BLOCKED-fixture; do not bypass validation.
+  This is a deliberate negative fixture only, not the normal family identity.
+OFFICE-02 Add payment now on an approved test-mode path. Verify clear save feedback,
+  masked method/last digits, persistence after reopening, and no duplicate method
+  from retry. Adding a method must not unexpectedly charge it. Record separately
+  whether payment works before and after enrollment where those controls exist.
+OFFICE-03 Self-Pay with no insurance: Primary Insurance stays hidden; office
+  Authorization & Agreement stays visible. Choose Not Paying Now, agree and sign.
+  Go forward/back, confirm signature, then finalize. Expect no missing-authorization
+  400, one completed reference, and a saved staff record.
+OFFICE-04 Coverage preservation: on a new draft enter distinguishable primary and
+  secondary fields, switch to Self-Pay, Continue, Back, and switch to insurance.
+  Expect the original coverage intact. Repeat with secondary Medicaid. Do not
+  enter payment credentials for the Medicaid case; report any clinical-service
+  payment-method prompt or requirement (insurance-card photos are a separate item).
+  In 1107-A Use Insurance became unselectable after returning. That prevented
+  viewing the policies; it did not establish that the stored policies were lost.
+  Confirm actual fields and card associations after switching back, not just labels.
+OFFICE-05 Missing required authorization: leave it incomplete and try Continue.
+  Expect a clear nearby message, no false completed reference, and recoverable draft.
+  Complete it once and finish. A draft/resume ID is not proof of completed enrollment.
+OFFICE-06 Jordan/support: locate each successful fresh case in
+  /auricwell-qa-demo/admin/office-clients and /auricwell-qa-demo/admin/clients,
+  including New Enrollments. Packet / Awaiting provider assignment can be correct
+  for a completed enrollment without a provider; do not manually change its status.
+  Check name, DOB, sex in structured profile/claim fields, primary AND secondary
+  policy text, four sample images, and payment status/masked method against input.
+  A child enrollment must not be labeled For: Self; an unavailable subject should
+  be shown as not recorded rather than guessed. Check the saved signed agreement.
+  Support's limited Records view should acknowledge receipts on file without
+  claiming unavailable individual consent/ROI details are zero or overdue.
+  Inspect completion summary and full signed bundle separately. Different page
+  counts alone are not a missing-document failure. No internal gs:// card paths
+  should appear as family-facing answer text. Audit evidence stays available in
+  its intended place. Compare timestamps in the same timezone (November 7 MST is
+  UTC minus 7 hours). The 1436 16:15:39.500Z signature was 9:15 AM, before submission.
+  Verify the guardian's own saved-copy access through its authorized account.
+  Do not request elevated export privileges to bypass support's security restriction.
+  Report a missing document, unavailable account, permission restriction and missing
+  delivery as separate subchecks. Record queue refresh duration and exact route.
+  These repairs do not backfill 1435/1436 or regenerate their cached PDFs.
+
+SCHOOL + SCHOOL RELEASE OF INFORMATION (ROI)
+Use the approved QA school and its existing packet. ROI is the family's permission
+for specified school information sharing; enrollment alone must not grant every
+school employee unrestricted access.
+SCHOOL-01 Guardian, one child: complete demographics, school, contacts, the existing
+  questions, insurance and signatures. Use identifiable fictional answer tokens.
+  Back/forward and resume. Expect no lost answers and a successful completion.
+SCHOOL-02 Online insurance/cards/payment: verify primary/secondary insurance, SAMPLE
+  card upload where offered, and Add payment now in approved test mode. School may
+  use a separately configured payment step. If absent, record the exact missing
+  capability/configuration as a gap; do not mark it passed because office payment works.
+  Verify school Self-Pay can finish without hidden insurance fields/signatures blocking it.
+SCHOOL-03 Staff assigns a school ROI for a fictional client: use School ROI Access
+  and the existing create/copy-link or guardian-document workflow. Confirm the
+  correct child, school, recipients and signer before signing. The intended guardian
+  sees the assigned release and can complete it once; the chart and saved PDF reflect
+  the decisions. Reopening a completed release must not create duplicate releases.
+SCHOOL-04 Use separate fictional cases for allow, request-to-speak, and decline.
+  Check the actual stored decisions and resulting school-staff access, including
+  a person not granted permission. Use a different approved family account to check
+  that an unrelated child's release is inaccessible. Report unexpected access as FAIL
+  and stop that access test; do not change permissions to force it through.
+SCHOOL-05 Use a prearranged expired/revoked-release fixture, if supplied. Expect
+  no new sharing authorized by the old link and a clear next step. Without a prepared
+  fixture mark BLOCKED; do not revoke someone else's release for this test.
+SCHOOL-06 Two children: distinct names, DOBs, contacts and question-answer tokens.
+  Finish once; verify each child's chart and signed copy contains that child's
+  answers and no sibling's answers. Record each child's reference separately.
+SCHOOL-07 Student self path, if offered: expect self wording/relationship and the
+  correct student questionnaire (currently PHQ-A/GAD-7, versus guardian PSC-17).
+  Do not substitute guardian answers. Record unavailable path as BLOCKED/configuration.
+SCHOOL-08 Staff checks the completed record, school assignment, insurance, consent,
+  ROI decisions, completion download and guardian signed-copy access. A missing
+  email or unavailable test inbox is reported separately from successful saving.
+
+PAPER — preserve the current school copy
+PAPER-01 Download the current approved school paper packet in each supported language
+  (English/Spanish where offered). Save an untouched baseline copy. Record school,
+  title, revision/date, page count and screenshot of the first page. Confirm the
+  wording, order, signature areas and layout match that school's independently
+  supplied approved copy. If unavailable, mark comparison BLOCKED-baseline; comparing
+  a new download to itself does not establish that the packet stayed unchanged.
+PAPER-02 Complete a fictional paper packet, including written insurance information
+  and the existing signatures/ROI choices. Follow the current staff upload/entry
+  process to the proper client and school. Expect no requirement to add a payment
+  method or upload insurance-card photos to complete the paper route.
+PAPER-03 Reopen the staff record and attached signed packet. Compare demographics,
+  insurance, guardian, school, signatures and ROI decisions. Verify downstream access
+  matches decisions rather than merely the presence of an uploaded PDF.
+PAPER-04 Compare the same school's online and paper questions and outputs. List
+  differences under insurance, payment, contact/guardian information, school ROI,
+  screeners, signatures and copies. Record impact and a suggestion using
+  SCHOOL-ONLINE-VS-PAPER.txt. Do not edit the approved paper packet.
+
+NOTES — provider and authorized clinical reviewer
+Use fresh fictional appointments/notes; never replace or re-sign an existing
+historical note. When a step needs a supervisor, use the allocated supervisor
+account or report BLOCKED-role. Keep recording off. Do not add removed service 97535.
+NOTES-01 Open a 90791 appointment from calendar/Quick View, then full Note Workspace.
+  Verify client, provider, service, exact encounter, local time and location. Include
+  two fictional same-day appointments to catch accidental association with the other.
+NOTES-02 Open Clinical summary and saved intake answers, including false/zero answers.
+  Expect readable full answers and no “Assignment to constant variable” error.
+NOTES-03 Generate 90791 using approved fictional intake facts. Expect the full intake
+  domains, then a plan only if selected. A clinician compares source and output.
+  Include a few unassessed domains: no invented normal findings, risk denials,
+  diagnoses, consent or ratings. Missing facts remain clearly not supplied/assessed.
+  Truncated output or missing required sections must not be presented as complete.
+  Use REFERENCE-90791-FIXTURE.txt with the allocated fictional encounter. It supports
+  source-fidelity/generation/edit/save checks, not a claim of diagnostic completeness.
+  A signing-ready fixture needs separately reviewed structured diagnosis/plan facts.
+  Missing prerequisites are BLOCKED-fixture; do not invent facts to satisfy gates.
+NOTES-04 Edit a section, copy, save, leave and reopen. Expect exact edited text,
+  intact other sections and the same encounter. Check phone and desktop separately.
+NOTES-05 In the chart intake-draft workflow, try finalize before review. Expect a
+  clear block. Review every required section, diagnosis and appointment, then finish
+  one appropriate fictional note. Expect one saved note associated with the right
+  encounter. An appointment-load failure must not masquerade as “no appointments.”
+NOTES-06 Returning-client case: inspect prior-intake advisory. Existing signed intake
+  stays intact; new clinician corrections control the new draft. Old diagnoses/goals
+  must not be silently copied as current facts.
+NOTES-07 Use Manual Writer/Narriva/Smart Notes for an allocated fictional encounter.
+  Check saved narrative and service selection survive switching/reopening. If two
+  devices edit the same test draft, expect an explicit conflict, never silent overwrite.
+NOTES-08 Review an approved 90837 fictional fixture. Inspect five checks and score
+  explanation: pass needs at least 70% AND every mandatory check. Do not demand a
+  precise live-model score; a clinician checks fidelity and applicable requirements.
+  Use REFERENCE-90837-FIXTURE.txt supplied with this packet, including its structured
+  encounter, diagnosis and goal prerequisites. Missing prerequisites are BLOCKED-fixture.
+NOTES-09 Separate negative fixtures: missing consent, mismatched participant,
+  administrative-only narrative for a clinical service, and current risk without
+  adequate assessment. Expect the relevant check to block pass even at a high score.
+NOTES-10 Edit a reviewed note/change encounter context; expect old approval to become
+  stale. Unavailable guidance/model/private processing must preserve the draft and
+  show unavailable, not verified. Bypass/stale/unavailable review cannot enable Quick Sign.
+  Use a prearranged fault fixture for unavailable-dependency checks; otherwise mark
+  that subcheck BLOCKED-fixture. Do not change live configuration to cause a failure.
+NOTES-11 Assigned supervisor: inspect an appropriate fictional provider-signed note.
+  Verify exact current version and author. Quick Sign needs proper supervisor
+  authority and current passing review. A wrong supervisor cannot use Quick Sign,
+  and a provider cannot co-sign their own authored note; ordinary author signing is separate.
+  Existing signed text/addenda must remain intact and readable.
+
+LOWER PRIORITY
+ADULT-01 Choose An adult I represent on the office link. Expect adult/client wording,
+  representative relationship, no child custody block, retained authorization and
+  successful save. Record leftover “child” or “Parent / Guardian” wording precisely.
+
+RETURN
+Return RESULTS-NEXT-RUN.csv plus a short list of blocking failures. A missing approved
+account/link/payment fixture is a prerequisite issue, not a reason to improvise.
+Keep evidence and synthetic records together by run label for the next retest.

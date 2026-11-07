@@ -21,4 +21,3 @@ This is an input fixture, not a guarantee of a specific live-model score. A
 qualified reviewer must judge whether generated content matches the evidence.
 Use separate clones for contradictory/risk cases; never contaminate a passing
 baseline's history or erase a prior mandatory-risk requirement.
-

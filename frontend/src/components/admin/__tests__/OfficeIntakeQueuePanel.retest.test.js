@@ -8,6 +8,23 @@ vi.mock('../../../composables/useClientDisplayMode', () => ({ useClientDisplayMo
 import Panel from '../OfficeIntakeQueuePanel.vue';
 
 describe('new enrollment saved preferences', () => {
+  it.each([
+    [{ serviceSubject: 'dependent' }, 'Child / dependent'],
+    [{ serviceSubject: 'representative' }, 'Adult represented'],
+    [{ serviceSubject: 'on_behalf' }, 'Another person'],
+    [{ adaptiveMeta: { whoFor: 'myself' } }, 'Self'],
+    [{}, 'Not recorded']
+  ])('displays only the recorded enrollment subject: %j', async (subject, expected) => {
+    const client = { id: 2415, fullName: 'Synthetic Client', clientType: 'clinical', ...subject };
+    m.get.mockImplementation(async url => ({ data: url.endsWith('pending-office-clients') ? { clients: [client] } : url === '/users' || url.endsWith('/notes') ? [] : {} }));
+    const wrapper = mount(Panel, { global: { stubs: { QuickPostClientToExchange: true, ClientDisplayModeToggle: true, RouterLink: true } } });
+    await flushPromises();
+    await wrapper.find('.oiq-card').trigger('click');
+    await flushPromises();
+    const field = wrapper.findAll('.oiq-detail-label').find(label => label.text() === 'For').element.parentElement;
+    expect(field.querySelector('.oiq-detail-value').textContent).toBe(expected);
+    wrapper.unmount();
+  });
   it.each([['flexible', 'Flexible'], ['2pm', '2pm'], ['after 4:15 PM on school days', 'after 4:15 PM on school days']])('preserves legacy time answer %s until structured times are saved', async (saved, displayed) => {
     const client = { id: 2319, fullName: 'Synthetic Adult', clientType: 'office',
       intakePreferences: { preferredDays: ['Monday'], preferredTimeOfDay: saved, timezone: 'America/Denver' } };

@@ -201,15 +201,17 @@
         <section class="rco-card">
           <div class="rco-card__row">
             <h4>Authorizations / ROI</h4>
-            <button type="button" class="rco-link" @click="$emit('navigate', 'authorizations')">View all</button>
+            <button v-if="artifactAccess === 'full'" type="button" class="rco-link" @click="$emit('navigate', 'authorizations')">View all</button>
           </div>
-          <div class="rco-auth-counts">
+          <p v-if="artifactAccess === 'receipts'" class="muted tiny">Enrollment receipts are available in Documents. Individual authorization details are not available in this view.</p>
+          <p v-else-if="artifactAccess !== 'full'" class="muted tiny">{{ artifactAccess === 'loading' ? 'Loading authorization details…' : 'Authorization details could not be loaded.' }}</p>
+          <div v-else class="rco-auth-counts">
             <div><span>Active</span><strong>{{ authCounts.active }}</strong></div>
             <div><span>Expiring soon</span><strong>{{ authCounts.expiring }}</strong></div>
             <div><span>Expired</span><strong>{{ authCounts.expired }}</strong></div>
             <div><span>Due / missing</span><strong>{{ authCounts.missing }}</strong></div>
           </div>
-          <div v-if="roiExpiryLabel" class="rco-expire">
+          <div v-if="artifactAccess === 'full' && roiExpiryLabel" class="rco-expire">
             <strong>School ROI</strong>
             <span>{{ roiExpiryLabel }}</span>
           </div>
@@ -303,10 +305,12 @@ const notes = ref([]);
 const plans = ref([]);
 const sessions = ref([]);
 const artifacts = ref([]);
+const artifactAccess = ref('loading');
 const encounters = ref([]);
 const lastLoadedAt = ref(null);
 
-const docRows = computed(() => (artifacts.value || []).filter((a) => !a.missing).slice(0, 5));
+const documentsOnFile = computed(() => (artifacts.value || []).filter((a) => !a.missing));
+const docRows = computed(() => documentsOnFile.value.slice(0, 5));
 const authArtifacts = computed(() =>
   (artifacts.value || []).filter((a) => AUTH_KINDS.has(String(a.kind || '').toLowerCase()))
 );
@@ -414,19 +418,23 @@ const activityRows = computed(() => {
     },
     {
       id: 'intake',
-      label: 'Enrollment & consents',
-      status: authCounts.value.active ? 'On file' : 'Due',
-      badgeClass: authCounts.value.active ? 'rco-badge--ok' : 'rco-badge--warn',
-      count: authCounts.value.active,
+      label: artifactAccess.value === 'receipts' ? 'Enrollment receipts' : 'Enrollment & consents',
+      status: artifactAccess.value === 'receipts' ? (documentsOnFile.value.length ? 'On file' : 'None yet')
+        : artifactAccess.value === 'full' ? (authCounts.value.active ? 'On file' : 'Due')
+          : artifactAccess.value === 'loading' ? 'Loading' : 'Unavailable',
+      badgeClass: artifactAccess.value === 'receipts' ? (documentsOnFile.value.length ? 'rco-badge--ok' : 'rco-badge--muted')
+        : artifactAccess.value === 'full' ? (authCounts.value.active ? 'rco-badge--ok' : 'rco-badge--warn') : 'rco-badge--muted',
+      count: artifactAccess.value === 'receipts' ? documentsOnFile.value.length
+        : artifactAccess.value === 'full' ? authCounts.value.active : '—',
       updated: formatWhen(latestDoc),
-      nav: 'authorizations'
+      nav: artifactAccess.value === 'receipts' ? 'documents' : 'authorizations'
     },
     {
       id: 'docs',
-      label: 'External records',
-      status: docRows.value.length ? 'On file' : 'None yet',
-      badgeClass: docRows.value.length ? 'rco-badge--ok' : 'rco-badge--muted',
-      count: docRows.value.length,
+      label: 'Documents & uploads',
+      status: documentsOnFile.value.length ? 'On file' : 'None yet',
+      badgeClass: documentsOnFile.value.length ? 'rco-badge--ok' : 'rco-badge--muted',
+      count: documentsOnFile.value.length,
       updated: formatWhen(latestDoc),
       nav: 'documents'
     },
@@ -535,25 +543,29 @@ async function load() {
   const agencyId = Number(props.agencyId || 0);
   if (!clientId) return;
   loading.value = true;
+  artifactAccess.value = 'loading';
   error.value = '';
   const failures = [];
   try {
     const jobs = [
       api.get(`/phi-documents/clients/${clientId}/chart-artifacts`, { skipGlobalLoading: true })
-        .then((r) => { artifacts.value = Array.isArray(r.data?.artifacts) ? r.data.artifacts : []; })
+        .then((r) => { artifacts.value = Array.isArray(r.data?.artifacts) ? r.data.artifacts : []; artifactAccess.value = 'full'; })
         .catch(async (e) => {
           if (e?.response?.status === 403) {
             try {
               const receipts = await api.get(`/phi-documents/clients/${clientId}/enrollment-receipts`, { skipGlobalLoading: true });
               artifacts.value = enrollmentReceiptCards(receipts.data);
+              artifactAccess.value = 'receipts';
               return;
             } catch (receiptError) {
               artifacts.value = [];
+              artifactAccess.value = 'unavailable';
               failures.push(receiptError);
               return;
             }
           }
           artifacts.value = [];
+          artifactAccess.value = 'unavailable';
           failures.push(e);
         })
     ];

@@ -3,7 +3,7 @@ export default {
   resolve: { alias: { vitest: new URL('../frontend/node_modules/vitest/dist/index.js', import.meta.url).pathname } },
   test: {
     environment: 'node',
-    include: ['src/controllers/__tests__/publicIntakeInsuranceReceipt.test.js'],
+    include: ['src/controllers/__tests__/publicIntakeInsuranceReceipt.test.js', 'src/controllers/__tests__/publicIntakeDemographics.test.js'],
     restoreMocks: true
   }
 };
