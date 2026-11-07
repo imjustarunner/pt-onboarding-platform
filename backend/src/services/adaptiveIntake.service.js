@@ -36,10 +36,10 @@ function parseJson(value, fallback = null) {
 
 const INTAKE_SERVICE_TYPES = new Set(['counseling', 'tutoring', 'coaching', 'consulting']);
 
-const ENROLLMENT_SUBJECT_KEYS = ['myself', 'dependent', 'couple', 'family'];
+const ENROLLMENT_SUBJECT_KEYS = ['myself', 'dependent', 'representative', 'couple', 'family'];
 
 export function defaultEnrollmentSubjects() {
-  return { myself: true, dependent: true, couple: true, family: true };
+  return { myself: true, dependent: true, representative: true, couple: true, family: true };
 }
 
 export function normalizeEnrollmentSubjects(raw) {
@@ -61,6 +61,9 @@ export function isEnrollmentSubjectEnabled(subjects, whoFor) {
   const key = String(whoFor || '').trim().toLowerCase();
   if (key === 'self' || key === 'myself') return !!normalized.myself;
   if (key === 'dependent' || key === 'child' || key === 'legal') return !!normalized.dependent;
+  if (key === 'representative' || key === 'adult_representative' || key === 'adult-rep') {
+    return !!normalized.representative;
+  }
   if (key === 'couple' || key === 'couples') return !!normalized.couple;
   if (key === 'family') return !!normalized.family;
   return true;

@@ -4005,7 +4005,7 @@ const onSstcSurfaceSelect = async (e) => {
       workOrgs[0];
     if (pick?.id) {
       setPreferredWorkAgencyId(Number(pick.id));
-      agencyStore.setCurrentAgency(pick);
+      agencyStore.chooseOrganization(pick);
     }
   } else {
     const summitOrgs = orgs.filter((o) => isSummitScopedOrg(o));

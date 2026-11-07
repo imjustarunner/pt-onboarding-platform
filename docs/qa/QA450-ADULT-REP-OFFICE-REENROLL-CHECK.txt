@@ -1,0 +1,49 @@
+QA450 adult-representative / office re-enroll check — next run
+Do not start until the owner says the new build is live. Hard-refresh the office enrollment link before typing. Record the build hash from the live site. If Who-is-this-for still has only four cards (no “An adult I represent”), stop and report that the new build is not live.
+
+This run is for the family/representative and for provider/support views that do not need an admin. Do not sign in as an admin or superadmin. Leave cleanup references alone (including draft 1426 and listed cleanup IDs). Do not reopen Agent-1106a / Client-1106a packets unless the owner asks.
+
+A check fails if finalize returns 400 about insurance/payment authorization, if Primary Insurance fields stay visible on Self-Pay, if the packet calls an adult a “child”, if selecting ITSCOLLC flips back to SchoolCareBridge QA Company, or if a completed reference never appears in Office Clients / Client Management.
+
+Run these journeys on the live ITSCOLLC / AuricWell QA office enrollment link.
+
+Journey 1 — authorized adult representative (one adult client)
+- Who is this for: choose “An adult I represent” (fifth card). Missing that card = stop; build not live.
+- Representative: DEMO QA AdultRep Agent-1106d, phone (202) 555-0142, email qa.adultrep.agent.1106d@example.com.
+- Relationship: Authorized representative.
+- Client: DEMO QA AdultRep Client-1106d, DOB 06/15/1988 (adult).
+- No custody / other-guardian block on this path.
+- About step banner must say “client”, not “child”. Help text must not say “who this child is”.
+- Sex: Male. Street: STREET-REP-1106. City: Colorado Springs. State: CO. ZIP: 80903.
+- Insurance: Self-Pay. Primary Insurance fields must not appear at all. Authorization & Agreement must stay visible; check agree, choose N/A — Not Paying Now, and sign.
+- Continue through disclosures. Finalize must succeed (no red banner about insurance/payment authorization).
+- Completion page must show a reference number. Record it.
+
+Journey 2 — Myself adult (office Self-Pay regression)
+- Who is this for: Myself.
+- Name tokens: DEMO QA SelfPay Agent-1106e / email qa.selfpay.agent.1106e@example.com, DOB 04/04/1990, Sex Female.
+- Self-Pay again: no Primary Insurance block; agree + Not Paying Now + sign; finalize must succeed.
+- Record the reference number.
+
+Journey 3 — Avery provider (non-admin): org + Schools & Programs
+- Sign in as Avery Morgan QA (provider), not admin.
+- From the organization selector, choose ITSCOLLC. Header and selector must both stay on ITSCOLLC after the page loads. Flipping back to SchoolCareBridge QA Company is a failure. A blank white dashboard after the switch is a failure.
+- Open My Dashboard → Schools & Programs. It must load assigned schools or show “No active assigned schools…”. “This feature is outside your SchoolCareBridge workspace” is a failure while ITSCOLLC is selected.
+- Switch to SchoolCareBridge QA Company (should open the SchoolCareBridge partner workspace), then switch back to ITSCOLLC once more and confirm it sticks without a blank page.
+
+Journey 4 — support chart / list check (demo-support, not admin)
+- Sign in as the existing ITSCO demo support account.
+- Confirm the org selector can stay on ITSCOLLC (not forced into SchoolCareBridge QA Company after choosing ITSCOLLC).
+- Search Office Clients and Client Management for the Journey 1 and Journey 2 names / reference numbers. A successful finalize that never appears in either list is a failure.
+- Open the Journey 1 client chart → Account → Demographics. Sex on the record should be Male, or show “Use intake (Male)” when Not set.
+
+reCAPTCHA
+- If the verification widget fails to load or the audio challenge is unsolvable, refresh once. If it still blocks Continue, stop that journey, screenshot, and report BLOCKED-recaptcha. Do not invent a bypass.
+
+After each enrollment journey
+1. Note the reference number and client name.
+2. Do not copy signer IP addresses, passwords, or private first-access links into the report.
+3. Leave the new practice records in place for cleanup later.
+
+Notes from prior fail run (1106c / ref 1434)
+- Finalize was blocked by a missing insurance authorization on Self-Pay; that is why 1434 never showed in Office Clients / Client Management / New Enrollments. Do not treat 1434 as a list bug until a new Self-Pay finalize succeeds.

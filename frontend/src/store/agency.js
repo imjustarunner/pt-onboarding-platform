@@ -7,10 +7,12 @@ import {
   getDemoWindowAgency,
   isDemoWindowSession
 } from '../utils/demoWindowSession';
-import { isBookClubAgency } from '../utils/bookClubAgency.js';
-import { isTenantOrganizationType } from '../utils/organizationTypes.js';
-import { pickFirstNonDemoTenant } from '../utils/demoTenant.js';
 import { resolvePortalSlugFromPath } from '../utils/orgScopedPath.js';
+import {
+  readChosenOrganizationId,
+  rememberChosenOrganization,
+  resolveWorkingOrganization
+} from '../utils/workingOrganization.js';
 
 export const useAgencyStore = defineStore('agency', () => {
   const agencies = ref([]);
@@ -234,8 +236,12 @@ export const useAgencyStore = defineStore('agency', () => {
         
         // Set default agency if none selected and user has agencies
         if (!currentAgency.value && userAgencies.value.length > 0) {
-          const preferred = pickFirstNonDemoTenant(userAgencies.value) || userAgencies.value[0];
-          setCurrentAgency(preferred);
+          const preferred = resolveWorkingOrganization({
+            memberships: userAgencies.value,
+            chosenOrganizationId: readChosenOrganizationId(signedInUserId()),
+            routeSlug: resolvePortalSlugFromPath(typeof window !== 'undefined' ? window.location.pathname : '')
+          });
+          if (preferred) setCurrentAgency(preferred);
         }
       } else {
         if (!agenciesAllInFlight) {
@@ -253,8 +259,12 @@ export const useAgencyStore = defineStore('agency', () => {
               if (role && role !== 'super_admin') {
                 userAgencies.value = response.data;
                 if (!currentAgency.value && !platformMode.value && userAgencies.value.length > 0) {
-                  const preferred = pickFirstNonDemoTenant(userAgencies.value) || userAgencies.value[0];
-                  setCurrentAgency(preferred);
+                  const preferred = resolveWorkingOrganization({
+                    memberships: userAgencies.value,
+                    chosenOrganizationId: readChosenOrganizationId(signedInUserId()),
+                    routeSlug: resolvePortalSlugFromPath(typeof window !== 'undefined' ? window.location.pathname : '')
+                  });
+                  if (preferred) setCurrentAgency(preferred);
                 }
               }
             } catch {
@@ -280,75 +290,19 @@ export const useAgencyStore = defineStore('agency', () => {
     }
   };
 
-  const pickPortalKey = (org) => String(org?.portal_url || org?.portalUrl || org?.slug || '').trim().toLowerCase();
-  const inferPreferredPortalFromRuntime = () => {
+  const signedInUserId = () => {
     try {
-      const pathname = String(window.location?.pathname || '/');
-      const fromPath = resolvePortalSlugFromPath(pathname);
-      if (fromPath) return fromPath;
-
-      const host = String(window.location?.hostname || '').trim().toLowerCase();
-      if (host) {
-        const raw = sessionStorage.getItem(`__pt_portal_host__:${host}`);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          const p = String(parsed?.portalUrl || '').trim().toLowerCase();
-          if (p) return p;
-        }
-      }
+      const id = Number(JSON.parse(localStorage.getItem('user') || 'null')?.id);
+      return Number.isFinite(id) && id > 0 ? id : null;
     } catch {
-      // ignore
+      return null;
     }
-    return null;
   };
 
-  const pickDefaultAgencyForUser = (list, roleNorm) => {
-    const arr = Array.isArray(list) ? list : [];
-    if (!arr.length) return null;
-
-    // Must be declared before use (TDZ). Also pass preferredSlug — pickFirstNonDemoTenant
-    // ignores an unknown preferredPortal key.
-    const preferredPortal = inferPreferredPortalFromRuntime();
-
-    // School staff should land in portal orgs (school/program/learning), not the parent agency.
-    if (roleNorm === 'school_staff') {
-      const portal = arr.find((a) => {
-        const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
-        return t === 'school' || t === 'program' || t === 'learning';
-      }) || null;
-      if (portal) return portal;
-    }
-
-    // Club managers: first path segment is the Summit *platform* slug (e.g. ssc), which matches the
-    // tenant agency row—not the club affiliation. Prefer affiliation before portal-key matching.
-    if (roleNorm === 'club_manager') {
-      const affiliation = arr.find((a) => {
-        const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
-        return t === 'affiliation' && !isBookClubAgency(a);
-      });
-      if (affiliation) return affiliation;
-    }
-
-    const workTenant = pickFirstNonDemoTenant(arr, { preferredSlug: preferredPortal }) ||
-      arr.find((a) => isTenantOrganizationType(a) && !isBookClubAgency(a));
-    if (workTenant && roleNorm !== 'club_manager') return workTenant;
-
-    if (preferredPortal) {
-      const preferred = arr.find((a) => pickPortalKey(a) === preferredPortal);
-      if (preferred) return preferred;
-    }
-    // Club managers with Summit Stats Club (affiliation) access should default to the club.
-    // Admins/backoffice roles who are also club members should stay on their work tenant.
-    if (roleNorm === 'club_manager') {
-      const affiliation = arr.find((a) => {
-        const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
-        return t === 'affiliation' && !isBookClubAgency(a);
-      });
-      if (affiliation) return affiliation;
-    }
-    const nonBookClub = arr.find((a) => !isBookClubAgency(a));
-    if (nonBookClub) return nonBookClub;
-    return arr[0] || null;
+  /** Explicit organization change. This is the only choice later reloads honor. */
+  const chooseOrganization = (agency) => {
+    setCurrentAgency(agency);
+    if (agency?.id) rememberChosenOrganization(signedInUserId(), agency.id);
   };
 
   const syncCurrentAgencyForUser = (list, roleNorm) => {
@@ -359,32 +313,18 @@ export const useAgencyStore = defineStore('agency', () => {
       localStorage.setItem('currentAgency', JSON.stringify(null));
       return;
     }
-    const currentId = Number(currentAgency.value?.id || 0);
-    const currentType = String(currentAgency.value?.organization_type || currentAgency.value?.organizationType || '').toLowerCase();
-    const isPortal = currentType === 'school' || currentType === 'program' || currentType === 'learning';
-    const isAffiliation = currentType === 'affiliation';
-    const isBookClub = isBookClubAgency(currentAgency.value);
-    const hasAffiliation = arr.some((a) => String(a?.organization_type || a?.organizationType || '').toLowerCase() === 'affiliation');
-    const preferredPortal = inferPreferredPortalFromRuntime();
-    const currentPortal = pickPortalKey(currentAgency.value);
-    const hasPreferredMismatch = !!(preferredPortal && preferredPortal !== currentPortal);
-    const currentAgencyStillAccessible =
-      currentId > 0 && arr.some((a) => Number(a?.id || 0) === currentId);
-    // Only snap non-admin users with an affiliation back to the club — admins who are
-    // also club members should be able to stay on their work tenant without being overridden.
-    const snapToAffiliation = hasAffiliation && !isAffiliation && roleNorm === 'club_manager';
-    const snapFromBookClub = isBookClub && roleNorm !== 'club_manager';
-    const shouldOverride =
-      !currentAgency.value ||
-      !currentAgencyStillAccessible ||
-      hasPreferredMismatch ||
-      (roleNorm === 'school_staff' && !isPortal) ||
-      snapToAffiliation ||
-      snapFromBookClub;
-    if (shouldOverride) {
-      const def = pickDefaultAgencyForUser(arr, roleNorm);
-      if (def) setCurrentAgency(def);
-    }
+    const userId = signedInUserId();
+    const next = resolveWorkingOrganization({
+      memberships: arr,
+      chosenOrganizationId: readChosenOrganizationId(userId),
+      currentOrganization: currentAgency.value,
+      routeSlug: resolvePortalSlugFromPath(typeof window !== 'undefined' ? window.location.pathname : ''),
+      role: roleNorm
+    });
+    if (!next) return;
+    // Only the person's own switch is saved (chooseOrganization). A system pick
+    // like this one is not a choice, so it must not be stored as one.
+    if (Number(next.id) !== Number(currentAgency.value?.id || 0)) setCurrentAgency(next);
   };
 
   /** Hydrate from login payload so post-login UI can skip a /users/me/agencies round-trip. */
@@ -550,6 +490,7 @@ export const useAgencyStore = defineStore('agency', () => {
     brandingContextGeneration,
     getAgencyTracks,
     setCurrentAgency,
+    chooseOrganization,
     setPlatformMode,
     applyBrandingResponse(full) {
       if (!full?.id) return;

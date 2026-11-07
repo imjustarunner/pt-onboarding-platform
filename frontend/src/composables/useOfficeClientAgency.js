@@ -2,6 +2,7 @@ import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAgencyStore } from '../store/agency';
 import { isNestedOrganizationType } from '../utils/organizationTypes.js';
+import { isSchoolCareBridgeOnly } from '../utils/schoolCareBridgeTenant.js';
 
 function agencyLogoFromRow(a) {
   if (!a) return null;
@@ -30,6 +31,9 @@ export function useOfficeClientAgency() {
       ? agencyStore.userAgencies
       : (Array.isArray(agencyStore.agencies) ? agencyStore.agencies : []);
     return (list || [])
+      // SchoolCareBridge-only companies have no office enrollment or waitlist. Asking them
+      // for one is refused and makes the office waitlist look broken.
+      .filter((a) => !isSchoolCareBridgeOnly(a))
       .map((a) => ({
         id: Number(a.id || a.agency_id || 0),
         name: a.name || a.agency_name || 'Agency',
@@ -67,7 +71,8 @@ export function useOfficeClientAgency() {
     }
     const ids = accessibleAgencies.value.map((a) => a.id);
     if (ids.length) return ids;
-    if (agencyId.value) return [Number(agencyId.value)];
+    const current = agencyStore.currentAgency?.value || agencyStore.currentAgency;
+    if (agencyId.value && !isSchoolCareBridgeOnly(current)) return [Number(agencyId.value)];
     return [];
   });
 

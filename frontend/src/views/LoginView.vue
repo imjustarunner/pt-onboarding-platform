@@ -1575,11 +1575,17 @@ function restoreLoginMemory() {
   if (memory.remembered || memory.google) rememberLogin.value = true;
   return memory;
 }
-watch(effectiveLoginSlug, () => {
+watch(effectiveLoginSlug, (next, previous) => {
   // Discovery updates the agency context without leaving this branded form.
   // Keep the verified email and password step during that context update.
   if (isSchoolCareBridge.value) return;
   if (String(route.query?.sso || '') === '1' || workspacePreparing.value) return;
+  // The host's portal slug can resolve after first paint (empty -> value). That is not a
+  // different login page, so keep what the person typed.
+  if (!previous && next) return;
+  // A slug change that lands while a sign-in is in flight must not wipe the attempt.
+  // The user would see the username step with an empty field and no message.
+  if (loading.value || verifying.value) return;
   username.value = '';
   showPassword.value = false;
   needsOrgChoice.value = false;

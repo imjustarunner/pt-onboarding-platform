@@ -1,3 +1,5 @@
+import { isSchoolCareBridgeOnly } from './schoolCareBridgeTenant.js';
+
 /**
  * Heuristics for sandbox / demo tenants (Demo ITSCO, demo tutors, etc.).
  * Used to avoid snapping real admins onto demo branding when they have production access.
@@ -32,6 +34,8 @@ function isWorkTenantOrg(org) {
 
 /**
  * Prefer a production work tenant over demo/sandbox rows when the user has both.
+ * Full clinical agencies win over SchoolCareBridge-only partner workspaces so a
+ * dual-homed user selecting ITSCOLLC (even a QA demo slug) is not snapped onto SCB.
  */
 export function pickFirstNonDemoTenant(orgs, opts = {}) {
   const arr = Array.isArray(orgs) ? orgs.filter(Boolean) : [];
@@ -44,6 +48,12 @@ export function pickFirstNonDemoTenant(orgs, opts = {}) {
   }
 
   const workTenants = arr.filter(isWorkTenantOrg);
+  const fullWork = workTenants.filter((o) => !isSchoolCareBridgeOnly(o));
+  const nonDemoFull = fullWork.filter((o) => !isLikelyDemoTenant(o));
+  if (nonDemoFull.length) return nonDemoFull[0];
+  // Prefer a full agency (including intentional QA demos) over an SCB-only workspace.
+  if (fullWork.length) return fullWork[0];
+
   const nonDemo = workTenants.filter((o) => !isLikelyDemoTenant(o));
   if (nonDemo.length) return nonDemo[0];
 

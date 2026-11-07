@@ -12,6 +12,7 @@ describe('SchoolCareBridge tenant navigation',()=>{
   expect(scopedSchoolCareBridgeDestination({path:'/new-school/dashboard',params:{organizationSlug:'new-school'}},[limited,full,school],limited)).toBeNull();
   expect(scopedSchoolCareBridgeDestination({path:'/itsco/dashboard',params:{organizationSlug:'itsco'}},[limited,full],full)).toBeNull();
   expect(scopedSchoolCareBridgeDestination({path:'/itsco/dashboard',params:{organizationSlug:'itsco'}},[limited,full],limited)).toBeNull();
+  expect(scopedSchoolCareBridgeDestination({path:'/supervision',params:{}},[limited,full],full)).toBeNull();
  });
  it('keeps signing and school workflows available',()=>{for(const path of ['/small-agency/tasks/documents/5/sign','/schoolcarebridge/app/ashley','/schoolcarebridge/app/partners/small-agency'])expect(scopedSchoolCareBridgeDestination({path},[limited])).toBeNull();});
  it('returns expiry and logout to the partner entry',()=>{window.history.replaceState({},'', '/schoolcarebridge/app/partners/itsco/settings');expect(getLoginUrlForRedirect()).toContain('/schoolcarebridge/app/partners/itsco');});

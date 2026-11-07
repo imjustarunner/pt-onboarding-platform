@@ -443,6 +443,17 @@
                   <h3 class="ai-pathway-card-title">{{ t('myChildDependent') }}</h3>
                 </button>
                 <button
+                  v-if="isEnrollmentOptionEnabled('representative')"
+                  type="button"
+                  class="ai-pathway-card"
+                  :class="{ 'ai-pathway-card--selected': serviceSubject === 'representative' }"
+                  :aria-pressed="serviceSubject === 'representative'"
+                  @click="chooseServiceSubject('representative')"
+                >
+                  <span class="intake-who-icon" aria-hidden="true">🤝</span>
+                  <h3 class="ai-pathway-card-title">{{ t('anAdultIRepresent') }}</h3>
+                </button>
+                <button
                   v-if="isEnrollmentOptionEnabled('couple')"
                   type="button"
                   class="ai-pathway-card"
@@ -509,7 +520,10 @@
               <label for="starterDob">{{ t('dateOfBirth') }} <span class="required-indicator">*</span></label>
               <BirthDateInput id="starterDob" v-model="starterDob" :invalid="!!consentErrors.starterDob" />
             </div>
-            <div v-if="intakeForSelf === false && (!serviceSubject || serviceSubject === 'dependent')" class="form-group form-group--rel">
+            <div
+              v-if="intakeForSelf === false && (!serviceSubject || serviceSubject === 'dependent' || serviceSubject === 'representative')"
+              class="form-group form-group--rel"
+            >
               <label for="guardianRelationship">{{ t('relationshipToClient') }} <span class="required-indicator">*</span></label>
               <select
                 id="guardianRelationship"
@@ -517,23 +531,39 @@
                 :class="{ 'input-error': !!consentErrors.guardianRelationship }"
               >
                 <option value="">{{ t('selectRelationship') }}</option>
-                <option value="Mother">{{ t('relationshipMother') }}</option>
-                <option value="Father">{{ t('relationshipFather') }}</option>
-                <option value="Legal guardian">{{ t('relationshipLegalGuardian') }}</option>
-                <option value="Stepmother">{{ t('relationshipStepmother') }}</option>
-                <option value="Stepfather">{{ t('relationshipStepfather') }}</option>
-                <option value="Foster parent">{{ t('relationshipFosterParent') }}</option>
-                <option value="Grandparent">{{ t('relationshipGrandparent') }}</option>
-                <option value="Other">{{ t('relationshipOther') }}</option>
+                <template v-if="serviceSubject === 'representative'">
+                  <option value="Authorized representative">{{ t('relationshipAuthorizedRepresentative') }}</option>
+                  <option value="Power of attorney">{{ t('relationshipPowerOfAttorney') }}</option>
+                  <option value="Conservator">{{ t('relationshipConservator') }}</option>
+                  <option value="Other">{{ t('relationshipOther') }}</option>
+                </template>
+                <template v-else>
+                  <option value="Mother">{{ t('relationshipMother') }}</option>
+                  <option value="Father">{{ t('relationshipFather') }}</option>
+                  <option value="Legal guardian">{{ t('relationshipLegalGuardian') }}</option>
+                  <option value="Stepmother">{{ t('relationshipStepmother') }}</option>
+                  <option value="Stepfather">{{ t('relationshipStepfather') }}</option>
+                  <option value="Foster parent">{{ t('relationshipFosterParent') }}</option>
+                  <option value="Grandparent">{{ t('relationshipGrandparent') }}</option>
+                  <option value="Other">{{ t('relationshipOther') }}</option>
+                </template>
               </select>
             </div>
             <template v-if="intakeForSelf === false">
               <div class="intake-start-dependents">
                 <div class="intake-start-dependents-head">
-                  <strong>{{ serviceSubject === 'couple' ? tx('Your partner') : serviceSubject === 'family' ? (intakeLocale === 'es' ? 'Miembros de la familia' : 'Family members') : t('dependentN') }}</strong>
+                  <strong>{{
+                    serviceSubject === 'couple'
+                      ? tx('Your partner')
+                      : serviceSubject === 'family'
+                        ? (intakeLocale === 'es' ? 'Miembros de la familia' : 'Family members')
+                        : serviceSubject === 'representative'
+                          ? t('clientN')
+                          : t('dependentN')
+                  }}</strong>
                   <button
                     type="button"
-                    v-if="!isCoGuardianInvitee && serviceSubject !== 'couple'"
+                    v-if="!isCoGuardianInvitee && serviceSubject !== 'couple' && serviceSubject !== 'representative'"
                     class="intake-add-dependent"
                     @click="onClickAddClient"
                   >+ {{ serviceSubject === 'family' ? (intakeLocale === 'es' ? 'Agregar miembro de la familia' : 'Add family member') : t('addAnotherDependent') }}</button>
@@ -2570,7 +2600,7 @@
       </div>
 
       <div v-else-if="step === 3 && isOfficeInDepthIntake" class="step office-complete">
-        <p v-if="submissionId" class="intake-thankyou-reference">{{ intakeLocale === 'es' ? 'Número de referencia' : 'Reference number' }}: {{ submissionId }}</p>
+        <p v-if="confirmedSubmissionId" class="intake-thankyou-reference">{{ intakeLocale === 'es' ? 'Número de referencia' : 'Reference number' }}: {{ confirmedSubmissionId }}</p>
         <EnrollmentPortalAccess v-if="link?.create_guardian && !jobApplicationSubmitted" :optional="guardianPortalInvitationDeferred" :public-key="publicKey" :submission-id="submissionId" :session-token="sessionToken" :language="intakeLocale" />
         <p v-if="packetNeedsReview" class="error" role="status">{{ intakeLocale === 'es'
           ? 'Guardamos sus respuestas y firmas. Uno de los paquetes necesita revisión de nuestra oficina. No necesita volver a completar la inscripción.'
@@ -2853,8 +2883,8 @@
             <p class="intake-thankyou-email">
               {{ intakeSuccessEmailMessage }}
             </p>
-            <p v-if="submissionId" class="intake-thankyou-reference">
-              {{ intakeLocale === 'es' ? 'Número de referencia' : 'Reference number' }}: {{ submissionId }}
+            <p v-if="confirmedSubmissionId" class="intake-thankyou-reference">
+              {{ intakeLocale === 'es' ? 'Número de referencia' : 'Reference number' }}: {{ confirmedSubmissionId }}
             </p>
           </div>
         </template>
@@ -3145,6 +3175,7 @@ import {
 import { getHeroPresetByUrl } from '../utils/careersAssets.js';
 import { isMedicaidInsurer } from '../utils/coloradoInsurances';
 import { shouldSuppressInsurancePayment } from '../utils/insurancePaymentPolicy.js';
+import { coverageWithAuthorization } from '../utils/enrollmentCoverage.js';
 import {
   EMPTY_SPANISH_CLARIFICATION_RESPONSE,
   firstMissingSpanishClarificationField,
@@ -3402,6 +3433,7 @@ const INTAKE_TRANSLATIONS = {
     completingForSomeoneElse: 'I am a parent, guardian, or caregiver completing this for someone else.',
     someoneElse: 'Someone else',
     myChildDependent: 'My child / dependent',
+    anAdultIRepresent: 'An adult I represent',
     aCouple: 'A couple',
     aFamily: 'A family',
     needSchoolProvider: 'School / provider details',
@@ -3410,9 +3442,13 @@ const INTAKE_TRANSLATIONS = {
     dependentDateOfBirth: 'DOB',
     middleNameOptional: 'Middle name (optional)',
     dependentN: 'Dependent',
+    clientN: 'Client',
     dependentFirstName: 'First name',
     dependentLastName: 'Last name',
     addAnotherDependent: 'Add another dependent',
+    relationshipAuthorizedRepresentative: 'Authorized representative',
+    relationshipPowerOfAttorney: 'Power of attorney',
+    relationshipConservator: 'Conservator',
     multiDependentConsentTitle: 'Adding another dependent',
     multiDependentConsentBody: 'Before you add another dependent to this same packet, please confirm that you understand:',
     multiDependentConsentBullet1: 'You will sign each form once. The same signatures and releases will apply to every dependent you add.',
@@ -3826,6 +3862,7 @@ const INTAKE_TRANSLATIONS = {
     completingForSomeoneElse: 'Soy padre, madre, tutor o cuidador y lo completo para otra persona.',
     someoneElse: 'Otra persona',
     myChildDependent: 'Mi dependiente',
+    anAdultIRepresent: 'Un adulto al que represento',
     needSchoolProvider: 'Datos de la escuela o del proveedor',
     continueToIntakePacket: 'Continuar al paquete de inscripción',
     aCouple: 'Una pareja',
@@ -3834,9 +3871,13 @@ const INTAKE_TRANSLATIONS = {
     dependentDateOfBirth: 'Fecha de nacimiento',
     middleNameOptional: 'Segundo nombre (opcional)',
     dependentN: 'Dependiente',
+    clientN: 'Cliente',
     dependentFirstName: 'Nombre',
     dependentLastName: 'Apellido',
     addAnotherDependent: 'Agregar otro dependiente',
+    relationshipAuthorizedRepresentative: 'Representante autorizado',
+    relationshipPowerOfAttorney: 'Poder notarial',
+    relationshipConservator: 'Conservador',
     multiDependentConsentTitle: 'Agregar otro dependiente',
     multiDependentConsentBody: 'Antes de agregar otro dependiente a este mismo paquete, confirme que entiende:',
     multiDependentConsentBullet1: 'Firmará cada formulario una vez. Las mismas firmas y autorizaciones aplicarán a cada dependiente que agregue.',
@@ -6806,6 +6847,8 @@ const currentRegistrationScheduleBlocks = computed(() => {
     }));
 });
 const submissionId = ref(null);
+// Set only after finalize succeeds. A reference number is shown only for a saved enrollment.
+const confirmedSubmissionId = ref(null);
 const consentLoading = ref(false);
 const submitLoading = ref(false);
 const currentDocIndex = ref(0);
@@ -7859,7 +7902,11 @@ function chooseWhoFor(isSelf) {
 }
 
 function isEnrollmentOptionEnabled(subject) {
-  if (link.value?.master_channel === 'tutoring' && ['couple', 'family'].includes(subject)) return false;
+  if (link.value?.master_channel === 'tutoring' && ['couple', 'family', 'representative'].includes(subject)) {
+    return false;
+  }
+  // Office counseling always offers an authorized adult-representative path.
+  if (subject === 'representative' && isOfficeInDepthIntake.value) return true;
   return isEnrollmentSubjectEnabled(
     officeStart.enrollmentSubjects?.value ?? joinLandingCopy.value?.enrollmentSubjects,
     subject
@@ -7883,14 +7930,17 @@ function chooseServiceSubject(subject) {
       ? [emptyOfficeClient(), emptyOfficeClient()] : [emptyOfficeClient()]);
     intakeResponses.clients = saved?.responses || clients.value.map(() => ({}));
   }
-  if ((next === 'dependent' || next === 'family') && !clients.value.length) clients.value = [emptyOfficeClient()];
+  if ((next === 'dependent' || next === 'representative' || next === 'family') && !clients.value.length) {
+    clients.value = [emptyOfficeClient()];
+  }
   if (next === 'couple' && clients.value.length < 2) clients.value = [emptyOfficeClient(), emptyOfficeClient()];
+  if (next === 'representative' && clients.value.length > 1) clients.value = [clients.value[0] || emptyOfficeClient()];
   serviceSubject.value = next;
   intakeResponses.submission.serviceSubject = next;
   intakeForSelf.value = next === 'self';
   whoForError.value = '';
   starterValidationShown.value = false;
-  if ((next === 'dependent' || next === 'family') && !clients.value.length) {
+  if ((next === 'dependent' || next === 'representative' || next === 'family') && !clients.value.length) {
     clients.value = [emptyOfficeClient()];
   }
   if (next === 'couple' && clients.value.length < 2) {
@@ -8705,6 +8755,8 @@ const restoreServerProgress = async () => {
     if (data?.alreadyCompleted) {
       if (!data.submissionId || isJobApplication.value || isMedicalRecordsRequest.value) return false;
       submissionId.value = data.submissionId;
+      // The server reports this enrollment as saved, so its reference may be shown.
+      confirmedSubmissionId.value = data.submissionId;
       return 'completed';
     }
     if (data?.coGuardianInvite) {
@@ -11733,6 +11785,18 @@ const completeInsuranceStep = async () => {
       isMedicaid: false
     };
   }
+  // The payment step already writes the agreement onto this object. Copy it
+  // once more before any early return so finalize cannot outrun the last keystroke.
+  if (combined) {
+    const agreed = coverageWithAuthorization(insInfo, {
+      agreed: insuranceEntryState.authorizationAgreed === true,
+      signature: insuranceEntryState.authorizationSignature,
+      signatureData: insuranceEntryState.authorizationSignatureData,
+      signedAt: insuranceEntryState.authorizationSignedAt,
+      sourceMethod: insuranceEntryState.authorizationSourceMethod
+    });
+    Object.assign(insInfo, agreed);
+  }
   if (paymentOnlyMode || insuranceOnFile) {
     insInfo.useInsuranceOnFile = insuranceOnFile;
     insInfo.isSelfPay = !insuranceOnFile;
@@ -11838,18 +11902,23 @@ const completeInsuranceStep = async () => {
   //      authorizationSignedAt.
   // Either is a legal e-signature; both record signedAt locally and the
   // server stamps ip + user_agent at finalize.
-  if (selfPayDeclared) {
+  // School self-pay has no authorization UI. Office combined Self-Pay still
+  // shows Authorization & Agreement and must keep that signature for finalize.
+  const officeAuthStep = !!combined?.validateAuthorization;
+  if (selfPayDeclared && !officeAuthStep) {
     insInfo.authorizationSignature = '';
     insInfo.authorizationSignatureData = '';
     insInfo.authorizationSignedAt = '';
     insInfo.authorizationSourceMethod = 'self_pay';
+    delete insInfo.authorizationAgreed;
   } else {
-  const authBundle = combined?.validateAuthorization
+  const authBundle = officeAuthStep
     ? {
-        authorizationSignature: insInfo.authorizationSignature,
-        authorizationSignatureData: insInfo.authorizationSignatureData,
-        authorizationSignedAt: insInfo.authorizationSignedAt,
-        authorizationSourceMethod: insInfo.authorizationSourceMethod || 'typed_full_name'
+        authorizationSignature: insuranceEntryState.authorizationSignature || insInfo.authorizationSignature,
+        authorizationSignatureData: insuranceEntryState.authorizationSignatureData || insInfo.authorizationSignatureData,
+        authorizationSignedAt: insuranceEntryState.authorizationSignedAt || insInfo.authorizationSignedAt,
+        authorizationSourceMethod: insuranceEntryState.authorizationSourceMethod || insInfo.authorizationSourceMethod || 'typed_full_name',
+        authorizationAgreed: insuranceEntryState.authorizationAgreed ?? insInfo.authorizationAgreed
       }
     : (insuranceStepRef.value?.getAuthorizationSignatureBundle?.() || {});
   const typedName = String(authBundle.authorizationSignature || '').trim();
@@ -11868,6 +11937,9 @@ const completeInsuranceStep = async () => {
   insInfo.authorizationSignature = typedName;
   insInfo.authorizationSignatureData = drawnData;
   insInfo.authorizationSignedAt = String(authBundle.authorizationSignedAt || new Date().toISOString());
+  if (officeAuthStep) {
+    insInfo.authorizationAgreed = authBundle.authorizationAgreed === true;
+  }
   insInfo.authorizationSourceMethod = String(
     authBundle.authorizationSourceMethod
     || (intakeForSelf.value === true
@@ -12415,6 +12487,7 @@ const finalizePacket = async () => {
         referenceReleaseSignature: String(signatureData.value || '').trim() || null
       }
     }, { skipGlobalLoading: isOfficeInDepthIntake.value });
+    confirmedSubmissionId.value = resp.data?.submissionId || resp.data?.submission?.id || submissionId.value || null;
     downloadUrl.value = resp.data?.downloadUrl || '';
     completionReservationNotice.value = resp.data?.reservationNotice || providerSelectionNotice.value || '';
     emailDeliveryStatus.value = resp.data?.emailDelivery || null;
@@ -12622,6 +12695,7 @@ const resetIntakeState = () => {
   clientBundleLinks.value = [];
   signatureData.value = '';
   submissionId.value = null;
+  confirmedSubmissionId.value = null;
   docStatus && Object.keys(docStatus).forEach((k) => delete docStatus[k]);
   error.value = '';
   clearCaptchaState();
@@ -13042,7 +13116,7 @@ const currentQuestionRows = computed(() => {
 
 const currentFlowStepHelperText = computed(() => {
   const raw = currentFlowStep.value?.helperText || currentFlowStep.value?.description || '';
-  return raw ? interpolateChildTokens(tx(raw)) : '';
+  return raw ? remapChildWordingForAdultClient(interpolateChildTokens(tx(raw))) : '';
 });
 const showInterviewPageLead = computed(() => {
   if (!currentFlowStepHelperText.value) return false;
@@ -13051,9 +13125,22 @@ const showInterviewPageLead = computed(() => {
   if (type === 'smart_disclosure' || type === 'disclosure') return false;
   return true;
 });
+function remapChildWordingForAdultClient(text) {
+  if (!enrollmentUsesAdultClientWording.value || !text) return text;
+  return String(text)
+    .replace(/\bwho your child is\b/gi, 'who this person is')
+    .replace(/\bwho this child is\b/gi, 'who this person is')
+    .replace(/\bthis child\b/gi, 'this person')
+    .replace(/\byour child\b/gi, 'this person')
+    .replace(/\bchild\b/gi, 'client')
+    .replace(/\bniño(?:\/a)?\b/gi, 'cliente')
+    .replace(/\bhijo(?:\/a)?\b/gi, 'cliente')
+    .replace(/\bdependiente\b/gi, 'cliente');
+}
+
 const currentFlowStepWhyWeAsk = computed(() => {
   const raw = currentFlowStep.value?.whyWeAsk || '';
-  return raw ? interpolateChildTokens(tx(raw)) : '';
+  return raw ? remapChildWordingForAdultClient(interpolateChildTokens(tx(raw))) : '';
 });
 const currentFlowStepTitle = computed(() => {
   const raw = currentFlowStep.value?.label || '';
@@ -13184,21 +13271,40 @@ function handleIntakePagerContinue() {
     handleCurrentFlowContinue();
   }
 }
+function enrollmentParticipantIsAdult(person) {
+  const raw = String(person?.dateOfBirth || person?.dob || person?.date_of_birth || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  const today = new Date().toISOString().slice(0, 10);
+  let age = Number(today.slice(0, 4)) - Number(raw.slice(0, 4));
+  if (today.slice(5) < raw.slice(5)) age -= 1;
+  return age >= 18;
+}
+
+const enrollmentUsesAdultClientWording = computed(() => {
+  if (serviceSubject.value === 'representative') return true;
+  if (['couple', 'family', 'self'].includes(serviceSubject.value)) return false;
+  const idx = Number.isInteger(currentFlowStep.value?.clientIndex)
+    ? currentFlowStep.value.clientIndex
+    : 0;
+  return enrollmentParticipantIsAdult(clients.value?.[idx] || clients.value?.[0]);
+});
+
 const currentChildBanner = computed(() => {
   if (!Number.isInteger(currentFlowStep.value?.clientIndex)) return '';
   const i = currentFlowStep.value.clientIndex;
   const total = Math.max(clients.value.length, 1);
   const child = sharedSigningRoster.value[i];
   const member = ['family', 'couple'].includes(serviceSubject.value);
+  const adultClient = enrollmentUsesAdultClientWording.value;
   const label = intakeLocale.value === 'es'
-    ? `Respondiendo para ${member ? 'el miembro' : 'el dependiente'} ${i + 1} de ${total}`
-    : `Answering for ${member ? 'member' : 'child'} ${i + 1} of ${total}`;
+    ? `Respondiendo para ${member ? 'el miembro' : adultClient ? 'el cliente' : 'el dependiente'} ${i + 1} de ${total}`
+    : `Answering for ${member ? 'member' : adultClient ? 'client' : 'child'} ${i + 1} of ${total}`;
   return `${label} — ${child?.fullName || childDisplayName(i)}${child?.dateOfBirth ? ` · ${formatDateForDisplay(child.dateOfBirth) || child.dateOfBirth}` : ''}`;
 });
 const reviewAddConsentOpen = ref(false);
 const currentChildReviewName = computed(() => {
   const idx = currentFlowStep.value?.clientIndex;
-  if (!Number.isInteger(idx)) return tx('this child');
+  if (!Number.isInteger(idx)) return tx(enrollmentUsesAdultClientWording.value ? 'this client' : 'this child');
   const bag = intakeResponses.clients?.[idx] || {};
   const ident = clients.value?.[idx] || {};
   const first = String(bag.child_preferred_name || ident.firstName || bag.child_legal_first || '').trim();
@@ -14189,6 +14295,7 @@ const beginIntakeSession = async () => {
 
 const handleSmartRoiCompleted = ({ submissionId: nextSubmissionId, downloadUrl: nextDownloadUrl, emailDelivery, clientBundles }) => {
   submissionId.value = nextSubmissionId || null;
+  confirmedSubmissionId.value = nextSubmissionId || null;
   downloadUrl.value = nextDownloadUrl || '';
   emailDeliveryStatus.value = emailDelivery || null;
   clientBundleLinks.value = Array.isArray(clientBundles) ? clientBundles : [];
@@ -14236,6 +14343,7 @@ const handleEmbeddedSchoolRoiCaptured = async ({ smartSchoolRoi } = {}) => {
 
 const handleSmartDisclosureCompleted = ({ submissionId: nextSubmissionId, downloadUrl: nextDownloadUrl, emailDelivery }) => {
   submissionId.value = nextSubmissionId || null;
+  confirmedSubmissionId.value = nextSubmissionId || null;
   downloadUrl.value = nextDownloadUrl || '';
   emailDeliveryStatus.value = emailDelivery || null;
   step.value = 3;

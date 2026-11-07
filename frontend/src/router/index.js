@@ -21,6 +21,7 @@ import { useOrganizationStore } from '../store/organization';
 import { getDashboardRoute } from '../utils/router';
 import {providerSchoolPortalDestination} from '../utils/providerSchoolPortalDestination.js';
 import { scopedSchoolCareBridgeDestination } from '../utils/schoolCareBridgeTenant.js';
+import { workingOrganizationForNavigation } from '../utils/workingOrganization.js';
 import { extractAdminPageFromPath } from '../utils/normalizeAdminPageKey.js';
 import { useIndirectTimeSessionStore } from '../store/indirectTimeSession';
 import { getLoginUrl, getCurrentPortalSlugFromHostCache } from '../utils/loginRedirect';
@@ -5146,6 +5147,13 @@ function isFreshLoginWindow(now = Date.now()) {
 
 router.beforeEach(async (to, from, next) => {
   if(/^\/mobile(?:\/|$)/.test(to.path)){window.location.replace(to.fullPath);next(false);return;}
+  // /logout (flat or under an org slug) is an action, not a page. Sign out through the
+  // same path as the Sign out buttons; authStore.logout performs the hard redirect itself.
+  if (/(^|\/)logout\/?$/.test(to.path)) {
+    next(false);
+    await useAuthStore().logout('user_logout', { skipStatusPrompt: true });
+    return;
+  }
 
   const auricwellDestination = auricwellLoginDestination(to.fullPath);
   if (auricwellDestination) { window.location.assign(auricwellDestination); next(false); return; }
@@ -6279,8 +6287,8 @@ router.beforeEach(async (to, from, next) => {
       // Redirect to appropriate dashboard
       next(getDashboardRoute());
     }
-  } else if (authStore.isAuthenticated && String(authStore.user?.role || '').toLowerCase() !== 'super_admin' && scopedSchoolCareBridgeDestination(to, authStore.user?.agencies || [], agencyStore.currentAgency?.value ?? agencyStore.currentAgency)) {
-    next(scopedSchoolCareBridgeDestination(to, authStore.user?.agencies || [], agencyStore.currentAgency?.value ?? agencyStore.currentAgency));
+  } else if (authStore.isAuthenticated && String(authStore.user?.role || '').toLowerCase() !== 'super_admin' && scopedSchoolCareBridgeDestination(to, agencyStore.userAgencies?.length ? agencyStore.userAgencies : (authStore.user?.agencies || []), workingOrganizationForNavigation(to, authStore, agencyStore))) {
+    next(scopedSchoolCareBridgeDestination(to, agencyStore.userAgencies?.length ? agencyStore.userAgencies : (authStore.user?.agencies || []), workingOrganizationForNavigation(to, authStore, agencyStore)));
   } else if (authStore.isAuthenticated && providerSchoolPortalDestination({role:authStore.user?.role,path:to.path,dashboardPath:getDashboardRoute()})) {
     next(providerSchoolPortalDestination({role:authStore.user?.role,path:to.path,dashboardPath:getDashboardRoute()}));
   } else if (to.meta.requiresTicketDesk) {

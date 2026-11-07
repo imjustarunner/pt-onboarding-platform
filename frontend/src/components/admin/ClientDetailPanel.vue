@@ -1469,6 +1469,16 @@
                   </div>
                   <div class="ov-row-value" :class="{ muted: row.missing }">
                     {{ row.display }}
+                    <button
+                      v-if="row.key === 'sex' && row.missing && canEditAccount && intakeSexLabel"
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      style="margin-left: 8px;"
+                      :disabled="applyingIntakeSex"
+                      @click="applyIntakeSexToRecord"
+                    >
+                      {{ applyingIntakeSex ? 'Applying…' : `Use intake (${intakeSexLabel})` }}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -5377,6 +5387,26 @@ const jumpToEditDemographics = async () => {
   // Demographics fields live in the profile editor; 'demographics' is not a tab.
   setChartNav('account', 'profile');
   await startEditOverview(true);
+};
+
+const applyingIntakeSex = ref(false);
+const applyIntakeSexToRecord = async () => {
+  if (!canEditAccount.value || !props.client?.id || !intakeSexLabel.value) return;
+  const raw = String(props.client?.recorded_sex || intakeRecordedSex() || '').trim();
+  if (!raw) return;
+  const matched = sexSelectOptions.find(
+    (o) => o.value === raw.toLowerCase() || o.label.toLowerCase() === raw.toLowerCase()
+  );
+  const gender = matched?.value || raw.toLowerCase();
+  try {
+    applyingIntakeSex.value = true;
+    await api.put(`/clients/${props.client.id}`, { gender });
+    emit('updated', { keepOpen: true });
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || e?.message || 'Could not apply intake sex.');
+  } finally {
+    applyingIntakeSex.value = false;
+  }
 };
 
 const saveOverview = async () => {

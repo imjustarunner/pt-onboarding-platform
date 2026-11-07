@@ -73,7 +73,7 @@ describe('insurance enrollment', () => {
     expect(w.text()).toContain('Secondary subscriber');
     w.unmount();
   });
-  it('hides another-parent payment on a Myself enrollment and names the child on the insurance button', () => {
+  it('hides another-parent payment on a Myself enrollment and names the child on the insurance button', async () => {
     const selfPay = mountForm({ intakeForSelf: true, insuranceInfo: { isSelfPay: true, payerChoice: 'self_pay' } });
     expect(selfPay.text()).not.toContain('another parent');
     selfPay.unmount();
@@ -81,6 +81,8 @@ describe('insurance enrollment', () => {
       props: { modelValue: { primary: {} }, intakeForSelf: false, clientNames: ['Demo Kid One QA'], guardianName: 'Demo Parent' },
       global: { provide: { intakeLocale: ref('en'), intakeStringTranslations: ref({}), intakeSessionToken: ref('') } }
     });
+    await child.findAll('button').find((b) => b.text().includes('I have insurance')).trigger('click');
+    await flushPromises();
     expect(child.text()).toContain('Use Demo Kid One QA');
     expect(child.text()).not.toContain('Use Client 1 Name');
     child.unmount();
@@ -96,6 +98,32 @@ describe('insurance enrollment', () => {
     expect(w.vm.validateAuthorization()).toBe(true);
     expect(w.find('[data-card-form]').exists()).toBe(false);
     w.unmount();
+  });
+  it('hides Primary Insurance fields on Self-Pay and keeps the office authorization signature', async () => {
+    const w = mountForm({ insuranceInfo: { isSelfPay: true, payerChoice: 'self_pay' } });
+    expect(w.text()).not.toContain('Primary Insurance');
+    expect(w.findComponent(Insurance).exists()).toBe(false);
+    expect(w.text()).toContain('Authorization');
+    await w.findAll('button').find((b) => b.text().includes('Not Paying Now')).trigger('click');
+    await w.find('.pi-ip-auth-check input').setValue(true);
+    await w.find('.pi-ip-sign input').setValue('QA Adult Rep');
+    await flushPromises();
+    const saved = w.emitted('update:insuranceInfo').at(-1)[0];
+    expect(saved.isSelfPay).toBe(true);
+    expect(saved.authorizationAgreed).toBe(true);
+    expect(String(saved.authorizationSignature || '')).toContain('QA Adult Rep');
+    const entry = w.vm.getInsuranceEntryState();
+    expect(entry.authorizationAgreed).toBe(true);
+    expect(String(entry.authorizationSignature || '')).toContain('QA Adult Rep');
+    w.unmount();
+    const restored = mountForm({
+      insuranceInfo: saved,
+      paymentInfo: { paymentChoice: 'na' }
+    });
+    expect(restored.text()).not.toContain('Primary Insurance');
+    expect(restored.findComponent(Insurance).exists()).toBe(false);
+    expect(restored.vm.validateAuthorization()).toBe(true);
+    restored.unmount();
   });
   it('commercial, self-pay and nonclinical enrollment collect a card only after an explicit choice', async () => {
     for (const override of [{ insuranceInfo: { primary: { insurerName: 'Commercial' } } }, { insuranceInfo: { isSelfPay: true } }, { paymentOnly: true }]) {

@@ -59,8 +59,11 @@
         <p class="pi-ip-hint">{{ tx('You can change this later if needed.') }}</p>
       </section>
 
-      <!-- Existing insurance UI (hidden for payment-only / collapsed when self-pay handled inside child) -->
-      <section v-if="!paymentOnly && !insuranceOnFile && payerChoice" class="pi-ip-section pi-ip-section--insurance">
+      <!-- Insurance details only when billing insurance — never for Self-Pay. -->
+      <section
+        v-if="!paymentOnly && !insuranceOnFile && payerChoice === 'insurance'"
+        class="pi-ip-section pi-ip-section--insurance"
+      >
         <PublicIntakeInsuranceStep
           ref="insuranceRef"
           :model-value="insuranceInfo"
@@ -78,7 +81,7 @@
           :saved-signature-data="savedSignatureData"
           :validation-errors="insuranceValidationErrors"
           :hide-authorization="true"
-          :external-self-pay="isSelfPay"
+          :external-self-pay="false"
           @update:model-value="onInsuranceUpdate"
           @medicaid-change="onMedicaidChange"
         />
@@ -258,6 +261,7 @@ import { computed, ref, watch } from 'vue';
 import PublicIntakeInsuranceStep from './PublicIntakeInsuranceStep.vue';
 import PublicIntakePaymentStep from './PublicIntakePaymentStep.vue';
 import { hasMedicaidCoverage } from '../../utils/insurancePaymentPolicy.js';
+import { coverageWithAuthorization, coverageWithChoice, isSelfPayCoverage } from '../../utils/enrollmentCoverage.js';
 import { useIntakeStepTx } from '../../composables/useIntakeStepTx.js';
 const { tx: structuredTx } = useIntakeStepTx();
 
@@ -306,14 +310,7 @@ const authSignatureData = ref(props.insuranceInfo?.authorizationSignatureData ||
 const authError = ref('');
 const paymentChoice = ref(props.paymentInfo?.paymentChoice || '');
 
-const isSelfPay = computed(() => {
-  if (props.paymentOnly) return true;
-  return !!(
-    props.insuranceInfo?.isSelfPay
-    || String(props.insuranceInfo?.primary?.insurerName || '').trim().toLowerCase().includes('self-pay')
-    || String(props.insuranceInfo?.primary?.insurerName || '').trim().toLowerCase() === 'self pay'
-  );
-});
+const isSelfPay = computed(() => props.paymentOnly || isSelfPayCoverage(props.insuranceInfo));
 
 // A legacy false isSelfPay value is not evidence that insurance was chosen.
 const payerChoice = computed(() => {
@@ -362,32 +359,34 @@ function formatPrice(cents) {
   return n.toLocaleString(undefined, { style: 'currency', currency: 'USD' });
 }
 
+function currentAuthorization() {
+  return {
+    agreed: authAgreed.value,
+    signature: authSignature.value,
+    signatureData: authSignatureData.value
+  };
+}
+
 function patchInsurance(patch) {
-  emit('update:insuranceInfo', {
-    ...(props.insuranceInfo || {}),
-    ...patch,
-    authorizationAgreed: authAgreed.value,
-    authorizationSignature: authSignature.value,
-    authorizationSignatureData: authSignatureData.value || props.insuranceInfo?.authorizationSignatureData || '',
-    authorizationSignedAt: authAgreed.value && (String(authSignature.value || '').trim().length >= 2 || String(authSignatureData.value || props.insuranceInfo?.authorizationSignatureData || '').length >= 50)
-      ? (props.insuranceInfo?.authorizationSignedAt || new Date().toISOString()) : null
-  });
+  const chosen = coverageWithChoice(
+    { ...(props.insuranceInfo || {}), ...patch },
+    patch.isSelfPay === true || (patch.isSelfPay !== false && isSelfPay.value)
+  );
+  emit('update:insuranceInfo', coverageWithAuthorization(chosen, currentAuthorization()));
 }
 
 function setSelfPay(next) {
-  // Preserve declared coverage when changing payment preferences.
-  patchInsurance({ isSelfPay: next, payerChoice: next ? 'self_pay' : 'insurance' });
+  const chosen = coverageWithChoice(props.insuranceInfo, next);
+  emit('update:insuranceInfo', coverageWithAuthorization(chosen, currentAuthorization()));
 }
 
 function onInsuranceUpdate(v) {
-  emit('update:insuranceInfo', {
-    ...v,
-    isSelfPay: isSelfPay.value,
-    payerChoice: payerChoice.value,
-    authorizationAgreed: authAgreed.value,
-    authorizationSignature: authSignature.value,
-    authorizationSignatureData: authSignatureData.value || v?.authorizationSignatureData || ''
-  });
+  const chosen = coverageWithChoice({ ...v, payerChoice: payerChoice.value }, isSelfPay.value);
+  emit('update:insuranceInfo', coverageWithAuthorization(chosen, {
+    agreed: authAgreed.value || props.insuranceInfo?.authorizationAgreed === true,
+    signature: authSignature.value || v?.authorizationSignature,
+    signatureData: authSignatureData.value || v?.authorizationSignatureData
+  }));
 }
 
 function onMedicaidChange(v) {
@@ -428,6 +427,21 @@ watch([authAgreed, authSignature], () => {
   patchInsurance({});
 });
 
+watch(
+  () => props.insuranceInfo,
+  (info) => {
+    if (!info || typeof info !== 'object') return;
+    if (info.authorizationAgreed === true) authAgreed.value = true;
+    const typed = String(info.authorizationSignature || '').trim();
+    if (typed && typed !== String(authSignature.value || '').trim()) authSignature.value = typed;
+    const drawn = String(info.authorizationSignatureData || '').trim();
+    if (drawn.length >= 50 && drawn !== String(authSignatureData.value || '').trim()) {
+      authSignatureData.value = drawn;
+    }
+  },
+  { deep: true }
+);
+
 function validateAuthorization() {
   authError.value = '';
   if (!props.paymentOnly && !props.insuranceOnFile && !payerChoice.value) {
@@ -463,7 +477,11 @@ defineExpose({
     isSelfPay: isSelfPay.value,
     payerChoice: payerChoice.value,
     paymentChoice: paymentChoice.value,
-    authorizationAgreed: authAgreed.value
+    authorizationAgreed: authAgreed.value,
+    authorizationSignature: authSignature.value,
+    authorizationSignatureData: authSignatureData.value || props.insuranceInfo?.authorizationSignatureData || '',
+    authorizationSignedAt: props.insuranceInfo?.authorizationSignedAt || null,
+    authorizationSourceMethod: props.insuranceInfo?.authorizationSourceMethod || 'typed_full_name'
   })
 });
 </script>

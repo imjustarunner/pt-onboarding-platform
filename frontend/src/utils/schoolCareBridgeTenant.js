@@ -10,6 +10,9 @@ export function scopedSchoolCareBridgeDestination(to,agencies=[],activeAgency=nu
   const agency=agencies.find(a=>(a.portal_url||a.slug)===to.params?.organizationSlug);
   if(agency?.organization_type==='school')return null;
   if(agency&&!isSchoolCareBridgeOnly(agency))return null;
+  // A person working in a full agency is never pulled into a partner workspace,
+  // even on a page whose URL does not name the agency.
+  if(activeAgency&&!isSchoolCareBridgeOnly(activeAgency))return null;
   const tenants=agencies.filter(a=>a.organization_type==='agency');
   const activeLimited=!!activeAgency&&isSchoolCareBridgeOnly(activeAgency);
   const routeLimited=!!agency&&isSchoolCareBridgeOnly(agency);

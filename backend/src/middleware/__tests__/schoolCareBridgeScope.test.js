@@ -24,4 +24,8 @@ describe('SchoolCareBridge tenant scope',()=>{
   }
   expect(schoolCareBridgeApiAllowed('POST','/api/school-contact-plan-unrelated',20)).toBe(false);
  });
+ it('allows Schools & Programs assigned-school lookups inside the school workspace',()=>{
+  expect(schoolCareBridgeApiAllowed('GET','/api/payroll/me/assigned-schools',20)).toBe(true);
+  expect(schoolCareBridgeApiAllowed('POST','/api/payroll/run',20)).toBe(false);
+ });
 });

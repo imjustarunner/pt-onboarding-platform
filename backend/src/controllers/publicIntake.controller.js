@@ -1841,7 +1841,12 @@ const persistClientDemographicsIfProvided = async ({ clientId, demographicsInfo 
   }
   const genderRaw = String(demographicsInfo.gender || '').trim();
   const genderDescribed = String(demographicsInfo.genderSelfDescribe || '').trim();
-  addIfPresent('gender', genderRaw === 'self_describe' && genderDescribed ? genderDescribed : genderRaw);
+  const genderVal = genderRaw === 'self_describe' && genderDescribed ? genderDescribed : genderRaw;
+  // Fill blank sex from intake; never overwrite a sex already on the client record.
+  if (genderVal) {
+    updates.push("gender = COALESCE(NULLIF(TRIM(gender), ''), ?)");
+    values.push(genderVal);
+  }
   addIfPresent('ethnicity', demographicsInfo.ethnicity);
   addIfPresent('preferred_language', demographicsInfo.preferredLanguage);
   addIfPresent('contact_phone', demographicsInfo.phone);

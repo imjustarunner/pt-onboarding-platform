@@ -16,11 +16,12 @@ export const JOIN_FONT_HREF =
   'https://fonts.googleapis.com/css2?family=Allura&family=Cormorant+Garamond:wght@500;600;700&family=DM+Serif+Display&family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Great+Vibes&family=Lora:wght@500;600;700&family=Nunito:wght@500;700&family=Outfit:wght@500;700&family=Pacifico&family=Playfair+Display:wght@600;700&family=Source+Sans+3:wght@400;600;700&display=swap';
 
 /** Counseling who-for options a tenant can enable/disable on Join + full enrollment. */
-export const ENROLLMENT_SUBJECT_KEYS = ['myself', 'dependent', 'couple', 'family'];
+export const ENROLLMENT_SUBJECT_KEYS = ['myself', 'dependent', 'representative', 'couple', 'family'];
 
 export const ENROLLMENT_SUBJECT_LABELS = {
   myself: 'Myself',
   dependent: 'My child / dependent',
+  representative: 'An adult I represent',
   couple: 'A couple',
   family: 'A family'
 };
@@ -29,6 +30,7 @@ export function defaultEnrollmentSubjects() {
   return {
     myself: true,
     dependent: true,
+    representative: true,
     couple: true,
     family: true
   };
@@ -58,6 +60,9 @@ export function isEnrollmentSubjectEnabled(subjects, subject) {
   const key = String(subject || '').trim().toLowerCase();
   if (key === 'self' || key === 'myself') return !!normalized.myself;
   if (key === 'dependent' || key === 'child' || key === 'legal') return !!normalized.dependent;
+  if (key === 'representative' || key === 'adult_representative' || key === 'adult-rep') {
+    return !!normalized.representative;
+  }
   if (key === 'couple' || key === 'couples') return !!normalized.couple;
   if (key === 'family') return !!normalized.family;
   return true;

@@ -28,6 +28,9 @@ it('saves therapist gender separately from client gender and removes an incompat
 it('claims email delivery only after a transport receipt and exposes a packet reference', async()=>{
  await render();wrapper.vm.step=3;wrapper.vm.submissionId=1271;wrapper.vm.guardianEmail='qa.family@example.com';await flushPromises();
  expect(wrapper.vm.intakeSuccessEmailMessage).toContain('has not been confirmed');
+ // A session or draft id is not a saved enrollment, so no reference is shown yet.
+ expect(wrapper.text()).not.toContain('Reference number: 1271');
+ wrapper.vm.confirmedSubmissionId=1271;await flushPromises();
  expect(wrapper.text()).toContain('Reference number: 1271');
  wrapper.vm.packetNeedsReview=true;await flushPromises();expect(wrapper.vm.intakeSuccessEmailMessage).toContain('needs review');
  wrapper.vm.emailDeliveryStatus={attempted:true,sent:true};await flushPromises();expect(wrapper.vm.intakeSuccessEmailMessage).toContain('emailed to qa.family@example.com');
@@ -129,7 +132,8 @@ it('shows the requested public provider and language at the compact first step',
  expect(request.text()).toContain('Dayana Example');expect(request.text()).toContain('Russian');expect(request.text()).not.toContain('English');
  expect(request.text()).toContain('does not confirm an appointment');
  expect(wrapper.get('.intake-start-preparation').attributes('open')).toBeUndefined();
- const choices=wrapper.findAll('.intake-who-stack button');expect(choices).toHaveLength(4);
+ const choices=wrapper.findAll('.intake-who-stack button');expect(choices).toHaveLength(5);
+expect(choices.map(c=>c.text()).some(text=>text.includes('An adult I represent'))).toBe(true);
  await choices[0].trigger('click');expect(choices[0].attributes('aria-pressed')).toBe('true');
  expect(wrapper.get('label[for="guardianFirstName"]').exists()).toBe(true);
  await request.get('button').trigger('click');await flushPromises();

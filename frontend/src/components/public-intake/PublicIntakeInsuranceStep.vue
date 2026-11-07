@@ -600,7 +600,9 @@ const hideSelfPayToggle = computed(() => !!props.hideSelfPayToggle || !!props.st
 const coverageChosen = ref(
   isSelfPay.value || String(props.modelValue?.primary?.insurerName || '').trim().length > 0
 );
-const showInsuranceForm = computed(() => hideSelfPayToggle.value || (coverageChosen.value && !isSelfPay.value));
+// Parent combined step hides the Self-Pay toggle and drives it through
+ // externalSelfPay. Never keep Primary Insurance open for that choice.
+const showInsuranceForm = computed(() => !isSelfPay.value && (hideSelfPayToggle.value || coverageChosen.value));
 function chooseInsurance() {
   coverageChosen.value = true;
   if (isSelfPay.value) toggleSelfPay(false);

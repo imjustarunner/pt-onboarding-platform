@@ -79,7 +79,8 @@ import { useAuthStore } from '../store/auth';
 import { useRoute, useRouter } from 'vue-router';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { isBookClubAgency } from '../utils/bookClubAgency.js';
-import { pickFirstNonDemoTenant, isLikelyDemoTenant } from '../utils/demoTenant.js';
+import { pickFirstNonDemoTenant } from '../utils/demoTenant.js';
+import { isSchoolCareBridgeOnly } from '../utils/schoolCareBridgeTenant.js';
 import {
   isTenantOrganizationType,
   isPortalBubbleOrg,
@@ -210,13 +211,26 @@ const isPortalCardActive = (card) => {
 const navigateToTenantOrganization = (agency) => {
   if (!agency) return;
   if (roleNorm.value === 'super_admin') return openTenantWorkspace(agency, router);
-  agencyStore.setCurrentAgency(agency);
+  agencyStore.chooseOrganization(agency);
 
   const slug = getOrgSlug(agency);
   if (!slug) return;
 
   const path = String(route.path || '');
   const nextDashboard = `/${slug}/dashboard`;
+  // Leaving a SchoolCareBridge partner workspace for a full agency must exit the
+  // partner shell; staying on /schoolcarebridge/... keeps the wrong tenant chrome.
+  if (/^\/schoolcarebridge\b/i.test(path) && !isSchoolCareBridgeOnly(agency)) {
+    router.push(nextDashboard);
+    return;
+  }
+  // Selecting a SchoolCareBridge-only company from a full-agency dashboard should
+  // enter the partner workspace instead of a generic /slug/dashboard that then
+  // bounce-redirects and can blank the page.
+  if (isSchoolCareBridgeOnly(agency) && !/^\/schoolcarebridge\b/i.test(path)) {
+    router.push(`/schoolcarebridge/app/partners/${encodeURIComponent(slug)}`);
+    return;
+  }
   const onAdminSurface = path.includes('/admin/');
   const onTickets = path.includes('/tickets');
   // Stay on schedule / calendar surfaces — only swap tenant context (and slug if present).
@@ -316,15 +330,8 @@ onMounted(async () => {
 
   const current = agencyStore.currentAgency;
   if (current && isTenantOrganizationType(current)) {
-    if (isLikelyDemoTenant(current) && agencies.value.length > 1) {
-      const preferred = pickFirstNonDemoTenant(agencies.value) || current;
-      selectedAgencyId.value = preferred.id;
-      if (Number(preferred.id) !== Number(current.id)) {
-        agencyStore.setCurrentAgency(preferred);
-      }
-    } else {
-      selectedAgencyId.value = current.id;
-    }
+    // The store already resolved the working organization. Do not second-guess it.
+    selectedAgencyId.value = current.id;
   } else if (current && !isTenantOrganizationType(current)) {
     // Book Club / school / learning / program / clinical must not own tenant context.
     // SSTC affiliation clubs may temporarily own currentAgency for Summit chrome.

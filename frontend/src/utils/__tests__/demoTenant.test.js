@@ -28,4 +28,23 @@ describe('demoTenant', () => {
     const demo = { id: 1, name: 'Demo ITSCO', slug: 'demo-itsco', organization_type: 'agency' };
     expect(resolvePreferredAgencySlug(demo, [demo], '')).toBe('demo-itsco');
   });
+
+  it('prefers a full clinical QA agency over a SchoolCareBridge-only workspace', () => {
+    const qaDemo = {
+      id: 450,
+      name: 'ITSCOLLC',
+      slug: 'auricwell-qa-demo',
+      organization_type: 'agency',
+      feature_flags: {}
+    };
+    const scbOnly = {
+      id: 456,
+      name: 'SchoolCareBridge QA Company',
+      slug: 'scb-qa-company',
+      organization_type: 'agency',
+      feature_flags: { schoolCareBridgeOnly: true }
+    };
+    expect(pickOrgSlug(pickFirstNonDemoTenant([scbOnly, qaDemo]))).toBe('auricwell-qa-demo');
+    expect(resolvePreferredAgencySlug(qaDemo, [scbOnly, qaDemo], '')).toBe('auricwell-qa-demo');
+  });
 });

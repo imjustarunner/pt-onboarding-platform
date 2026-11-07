@@ -1000,6 +1000,11 @@ const whoForOptionsAll = [
     description: 'I am a parent or guardian completing this for a dependent.'
   },
   {
+    value: 'representative',
+    label: 'An adult I represent',
+    description: 'I am an authorized representative completing enrollment for another adult.'
+  },
+  {
     value: 'couple',
     label: 'A couple',
     description: 'Two adults seeking couples therapy together.'
