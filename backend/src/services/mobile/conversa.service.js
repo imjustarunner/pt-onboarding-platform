@@ -36,12 +36,15 @@ export const MOBILE_EMAIL_ACCESS_SQL = `EXISTS (SELECT 1 FROM user_agencies memb
   AND ((c.owner_user_id=? AND NOT EXISTS(SELECT 1 FROM communication_inboxes private_box WHERE private_box.id=c.inbox_id AND private_box.kind='personal' AND private_box.owner_user_id<>c.owner_user_id))
     OR EXISTS(SELECT 1 FROM communication_inboxes mine WHERE mine.id=c.inbox_id AND mine.kind='personal' AND mine.owner_user_id=?)
     OR (c.channel='sms' AND EXISTS(SELECT 1 FROM message_logs sms WHERE sms.agency_id=c.agency_id AND sms.sms_thread_key=c.external_thread_id AND (sms.user_id=? OR sms.assigned_user_id=? OR sms.number_id IN(SELECT number_id FROM twilio_number_assignments WHERE user_id=? AND is_active=1 AND sms_access_enabled=1)))))`;
-const senderAddress=`LOWER(TRIM((SELECT p.email FROM communication_participants p WHERE p.conversation_id=c.id ORDER BY p.is_primary DESC,p.id LIMIT 1)))`;
+// Existing mailbox/user address columns can use different MySQL collations.
+// Normalize each operand explicitly, including every value in the IN list.
+const emailAddressSql=expression=>`(CONVERT(LOWER(TRIM(${expression})) USING utf8mb4) COLLATE utf8mb4_unicode_ci)`;
+const senderAddress=emailAddressSql('(SELECT p.email FROM communication_participants p WHERE p.conversation_id=c.id ORDER BY p.is_primary DESC,p.id LIMIT 1)');
 // Registered app addresses, including managed groups, are known even for older mail.
-const unknownSql=`(c.channel='email' AND COALESCE(c.is_unknown_sender,0)=1 AND NOT EXISTS(SELECT 1 FROM users known WHERE ${senderAddress} IN(LOWER(TRIM(known.email)),LOWER(TRIM(known.work_email)),LOWER(TRIM(known.personal_email))))
-  AND NOT EXISTS(SELECT 1 FROM managed_workspace_groups known_group WHERE LOWER(TRIM(known_group.email))=${senderAddress})
-  AND NOT EXISTS(SELECT 1 FROM email_sender_identities known_sender WHERE known_sender.is_active=1 AND LOWER(TRIM(known_sender.from_email))=${senderAddress})
-  AND NOT EXISTS(SELECT 1 FROM communication_inboxes known_box WHERE LOWER(TRIM(known_box.from_email))=${senderAddress}))`;
+const unknownSql=`(c.channel='email' AND COALESCE(c.is_unknown_sender,0)=1 AND NOT EXISTS(SELECT 1 FROM users known WHERE ${senderAddress} IN(${emailAddressSql('known.email')},${emailAddressSql('known.work_email')},${emailAddressSql('known.personal_email')}))
+  AND NOT EXISTS(SELECT 1 FROM managed_workspace_groups known_group WHERE ${emailAddressSql('known_group.email')}=${senderAddress})
+  AND NOT EXISTS(SELECT 1 FROM email_sender_identities known_sender WHERE known_sender.is_active=1 AND ${emailAddressSql('known_sender.from_email')}=${senderAddress})
+  AND NOT EXISTS(SELECT 1 FROM communication_inboxes known_box WHERE ${emailAddressSql('known_box.from_email')}=${senderAddress}))`;
 const unreadSql=`(COALESCE(r.forced_unread,0)=1 OR EXISTS(SELECT 1 FROM communication_messages incoming WHERE incoming.conversation_id=c.id AND incoming.direction='inbound' AND COALESCE(incoming.is_internal_note,0)=0 AND COALESCE(incoming.send_status,'sent') NOT IN('cancelled','preparing') AND (r.last_read_at IS NULL OR r.last_read_at<COALESCE(incoming.sent_at,incoming.created_at))))`;
 export function createMobileConversaStore(db=pool) {
   async function preferences(userId) {

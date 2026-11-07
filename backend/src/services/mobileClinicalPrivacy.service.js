@@ -14,7 +14,7 @@ export async function authorizedMobileClientCards(user,agencyId,clientIds) {
  const ids=[...new Set(clientIds.map(positiveId).filter(Boolean))];
  if(!ids.length)return new Map();
  const broad=['admin','agency_admin','super_admin','superadmin','clinical_practice_assistant','provider_plus'].includes(String(user.role));
- const [rows]=await pool.execute(`SELECT c.id,c.first_name,c.last_name,c.full_name,c.date_of_birth FROM clients c
+ const [rows]=await pool.execute(`SELECT c.id,c.full_name,c.date_of_birth FROM clients c
   WHERE c.id IN (${ids.map(()=>'?').join(',')}) AND c.client_type IN ('clinical','school')
   AND (c.agency_id=? OR EXISTS(SELECT 1 FROM client_agency_assignments ca WHERE ca.client_id=c.id AND ca.agency_id=? AND ca.is_active=1))
   ${broad?'':`AND (c.provider_id=? OR EXISTS(SELECT 1 FROM client_provider_assignments p WHERE p.client_id=c.id AND p.provider_user_id=? AND p.is_active=1))`}`,[...ids,agencyId,agencyId,...(broad?[]:[user.id,user.id])]);

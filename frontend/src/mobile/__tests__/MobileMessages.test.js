@@ -73,3 +73,25 @@ it('clears cached secure content when a refresh reports revoked conversation acc
  api.get.mockRejectedValue({response:{status:403,data:{error:{message:'Conversation access changed'}}}});
  await wrapper.findAll('.mm-reaction')[0].trigger('click');await flushPromises();expect(wrapper.text()).not.toContain('ORIGINAL MESSAGE');expect(wrapper.text()).toContain('Conversation access changed');expect(wrapper.text()).toContain('Unlock conversation');
 });
+
+it('does not report an empty inbox or zero counts when loading failed, and retry recovers',async()=>{
+ api.get.mockRejectedValueOnce({response:{status:500,data:{error:{message:"Illegal mix of collations for operation IN"}}}});
+ await start();expect(wrapper.get('[role="alert"]').text()).toContain('Messages could not be loaded');
+ expect(wrapper.text()).not.toContain('Illegal mix');expect(wrapper.text()).not.toContain('No conversations in this view.');expect(wrapper.text()).not.toContain('You’re caught up.');
+ expect(wrapper.findAll('.mm-filters span').map(n=>n.text())).toEqual(['—','—','—']);
+ await wrapper.get('[role="alert"] button').trigger('click');await flushPromises();
+ expect(wrapper.find('[role="alert"]').exists()).toBe(false);expect(row('Jordan')).toBeTruthy();expect(wrapper.findAll('.mm-filters span').map(n=>n.text())).toEqual(['1','1','1']);
+});
+it('labels failed refresh as stale data and does not carry that data into a failed different category',async()=>{
+ await start();api.get.mockRejectedValue({response:{status:500,data:{error:{message:'database internal detail'}}}});
+ await wrapper.get('[aria-label="Refresh messages"]').trigger('click');await flushPromises();
+ expect(wrapper.get('[role="alert"]').text()).toContain('Previously loaded conversations');expect(row('Jordan')).toBeTruthy();
+ await wrapper.findAll('.mm-categories button').find(b=>b.text().includes('Email')).trigger('click');await flushPromises();
+ expect(wrapper.find('.mm-row').exists()).toBe(false);expect(wrapper.text()).not.toContain('No conversations in this view.');expect(wrapper.findAll('.mm-filters span').map(n=>n.text())).toEqual(['—','—','—']);
+});
+
+it('clears previously loaded inbox content when current access is revoked',async()=>{
+ await start();api.get.mockRejectedValue({response:{status:403,data:{error:{message:'Conversation access changed'}}}});
+ await wrapper.get('[aria-label="Refresh messages"]').trigger('click');await flushPromises();
+ expect(wrapper.text()).toContain('Conversation access changed');expect(wrapper.find('.mm-row').exists()).toBe(false);expect(wrapper.findAll('.mm-filters span').map(n=>n.text())).toEqual(['—','—','—']);
+});
