@@ -249,7 +249,7 @@ export async function finalizeOutboundContent({
       !['billing', 'collections'].includes(identity?.identity_key)
     )
   );
-  if (tt !== 'hub_email' && (src === 'auto' || /meeting|interview/.test(tt))) {
+  if (tt !== 'hub_email' && (src === 'auto' || tt) && typeof html==='string' && /<a\b[^>]+style\s*=/i.test(html)) {
     const {default:Agency}=await import('../../models/Agency.model.js');
     const agency=aid ? await Agency.findById(aid) : null;
     html=standardizeEmailButtons(html,agencyActionColor(agency));
