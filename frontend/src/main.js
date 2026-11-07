@@ -214,7 +214,14 @@ async function bootstrap() {
     applySavedAppearance();
   });
 
-  await router.isReady();
+  try {
+    await router.isReady();
+  } catch (error) {
+    // Keep the recovery action available after an initial route import fails;
+    // do not mount an unrelated workspace against an unresolved route.
+    if (chunkRecovery.recover(error, pendingChunkReloadPath)) return;
+    throw error;
+  }
 
   // Apply dark mode from localStorage before first paint (user preference)
   applySavedAppearance();

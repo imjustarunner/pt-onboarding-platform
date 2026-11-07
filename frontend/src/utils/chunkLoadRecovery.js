@@ -17,7 +17,11 @@ function appAsset(value, origin) {
 export function isChunkLoadError(error, origin) {
   if (!error || extensionError(error)) return false;
   const target = error.target || error.srcElement;
-  if (['SCRIPT', 'LINK'].includes(target?.tagName) && appAsset(target.src || target.href, origin)) return true;
+  // A modulepreload link is only a hint. Its failure does not establish that
+  // import() failed; Safari can still load the module normally afterward.
+  const requiredResource = target?.tagName === 'SCRIPT' ||
+    (target?.tagName === 'LINK' && target.rel === 'stylesheet');
+  if (requiredResource && appAsset(target.src || target.href, origin)) return true;
   const message = String(error.message || error);
   if (!/Failed to fetch dynamically imported module|Importing a module script failed|ChunkLoadError|Loading (?:CSS )?chunk|Unable to preload CSS/i.test(message)) return false;
   const url = message.match(/https?:\/\/[^\s"']+/)?.[0];
@@ -39,20 +43,35 @@ function recoveryNotice(win, retry) {
   button.textContent = 'Reload this screen';
   button.addEventListener('click', retry);
   notice.append(text, button);
+  if (win.location.origin === 'https://app.itsco.health') {
+    const alternate = doc.createElement('a');
+    alternate.href = 'https://plottwisthq.com/itsco/login';
+    alternate.textContent = 'Use alternate ITSCO sign-in';
+    alternate.style.cssText = 'display:block;margin-top:12px;color:inherit;text-decoration:underline';
+    notice.append(alternate);
+  }
   (doc.body || doc.documentElement).append(notice);
 }
 
-/** One automatic recovery per loaded build, including when storage is disabled. */
+/** At most one automatic recovery per build; manual recovery if storage is denied. */
 export function createChunkLoadRecovery({ win = window, buildId, onFailure = recoveryNotice } = {}) {
   const release = String(buildId || import.meta.url);
   let navigating = false;
   let failedTarget = null;
+  let retryNumber = 0;
   const targetUrl = path => {
     try {
       const url = new URL(path || win.location.href, win.location.origin);
       if (url.origin === win.location.origin) return url.href;
     } catch { /* stay on this app */ }
     return win.location.href;
+  };
+  const reload = () => {
+    const url = new URL(failedTarget);
+    // A different document URL bypasses stale browser/CDN HTML and also forces
+    // a real navigation when the failed destination contains a fragment.
+    url.searchParams.set('_app_reload', `${Date.now().toString(36)}-${++retryNumber}`);
+    win.location.assign(url.href);
   };
   function recover(error, targetPath, { preload = false, automatic = true } = {}) {
     if (!preload && !isChunkLoadError(error, win.location.origin)) return false;
@@ -70,9 +89,9 @@ export function createChunkLoadRecovery({ win = window, buildId, onFailure = rec
     }
     if (canReload) {
       navigating = true;
-      win.location.assign(failedTarget);
+      reload();
     } else {
-      onFailure(win, () => win.location.assign(failedTarget));
+      onFailure(win, reload);
     }
     return true;
   }
@@ -80,21 +99,24 @@ export function createChunkLoadRecovery({ win = window, buildId, onFailure = rec
 }
 
 export function installChunkLoadRecovery({ win = window, recovery, destination = () => null }) {
+  const recover = error => {
+    const path = destination();
+    // The route can finish before the async AppWorkspace shell loads. There is
+    // no open form to lose while #app still contains only its placeholder.
+    const app = win.document?.getElementById('app');
+    const starting = !!app && app.childElementCount === 0;
+    recovery.recover(error, path, { automatic: !!path || starting });
+  };
   const preload = event => {
     // Vite supplies the actual import/CSS error in payload, not message.
-    const path = destination();
-    if (recovery.recover(event.payload, path, { preload: true, automatic: !!path })) event.preventDefault();
+    // Do not preventDefault: Vite then turns a rejected import into undefined,
+    // hiding the failure from Vue Router and async component error handling.
+    recover(event.payload);
   };
   // A modal import can fail while a form contains unsaved work. Only route
   // transitions recover automatically; in-place failures offer a reload action.
-  const resource = event => {
-    const path = destination();
-    recovery.recover(event.error || event, path, { automatic: !!path });
-  };
-  const rejection = event => {
-    const path = destination();
-    recovery.recover(event.reason || event, path, { automatic: !!path });
-  };
+  const resource = event => recover(event.error || event);
+  const rejection = event => recover(event.reason || event);
   win.addEventListener('vite:preloadError', preload);
   // Resource errors do not bubble.
   win.addEventListener('error', resource, true);

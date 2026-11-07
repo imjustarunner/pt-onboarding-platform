@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createChunkLoadRecovery, installChunkLoadRecovery, isChunkLoadError } from '../chunkLoadRecovery.js';
 
 const origin = 'https://app.example.test';
@@ -11,6 +11,14 @@ function browser(storage = new Map()) {
     document
   };
 }
+function expectFreshNavigation(win, path) {
+  expect(win.location.assign).toHaveBeenCalledOnce();
+  const url = new URL(win.location.assign.mock.calls[0][0]);
+  expect(url.searchParams.get('_app_reload')).toBeTruthy();
+  url.searchParams.delete('_app_reload');
+  expect(url.href).toBe(new URL(path, origin).href);
+}
+afterEach(() => { document.body.replaceChildren(); });
 
 describe('missing lazy module recovery', () => {
   it('recovers the intended route once and preserves its query/hash', () => {
@@ -18,7 +26,7 @@ describe('missing lazy module recovery', () => {
     const recovery = createChunkLoadRecovery({ win, buildId: 'release-a' });
     expect(recovery.recover(missing, '/note-aid?noteId=71#review')).toBe(true);
     recovery.recover(missing, '/note-aid');
-    expect(win.location.assign).toHaveBeenCalledExactlyOnceWith(`${origin}/note-aid?noteId=71#review`);
+    expectFreshNavigation(win, '/note-aid?noteId=71#review');
   });
 
   it('does not loop when the same build boots successfully but its lazy module still fails', () => {
@@ -29,7 +37,7 @@ describe('missing lazy module recovery', () => {
     expect(win.location.assign).not.toHaveBeenCalled();
     expect(onFailure).toHaveBeenCalledOnce();
     onFailure.mock.calls[0][1]();
-    expect(win.location.assign).toHaveBeenCalledExactlyOnceWith(`${origin}/note-aid`);
+    expectFreshNavigation(win, '/note-aid');
     const newer = browser(storage);
     createChunkLoadRecovery({ win: newer, buildId: 'release-b' }).recover(missing);
     expect(newer.location.assign).toHaveBeenCalledOnce();
@@ -49,8 +57,8 @@ describe('missing lazy module recovery', () => {
     const preload = win.addEventListener.mock.calls.find(([type]) => type === 'vite:preloadError')[1];
     const event = { payload: new Error('Unable to preload CSS for /assets/Notes-old.css'), preventDefault: vi.fn() };
     preload(event);
-    expect(event.preventDefault).toHaveBeenCalledOnce();
-    expect(win.location.assign).toHaveBeenCalledExactlyOnceWith(`${origin}/note-aid`);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expectFreshNavigation(win, '/note-aid');
     expect(win.addEventListener).toHaveBeenCalledWith('error', expect.any(Function), true);
     dispose();
     expect(win.removeEventListener).toHaveBeenCalledWith('error', expect.any(Function), true);
@@ -82,14 +90,14 @@ describe('missing lazy module recovery', () => {
     for (const error of [
       new TypeError('Importing a module script failed.'),
       { target: { tagName: 'SCRIPT', src: `${origin}/assets/Notes-old.js` } },
-      { target: { tagName: 'LINK', href: `${origin}/assets/Notes-old.css` } }
+      { target: { tagName: 'LINK', rel: 'stylesheet', href: `${origin}/assets/Notes-old.css` } }
     ]) expect(isChunkLoadError(error, origin)).toBe(true);
   });
 
   it('never follows a cross-origin intended destination', () => {
     const win = browser();
     createChunkLoadRecovery({ win, buildId: 'release-a' }).recover(missing, '//external.test/note-aid');
-    expect(win.location.assign).toHaveBeenCalledExactlyOnceWith(win.location.href);
+    expectFreshNavigation(win, win.location.href);
   });
 
   it('renders one accessible retry notice after a persistent failure', () => {
@@ -102,7 +110,76 @@ describe('missing lazy module recovery', () => {
     expect(notices).toHaveLength(1);
     expect(notices[0].getAttribute('role')).toBe('alert');
     notices[0].querySelector('button').click();
-    expect(win.location.assign).toHaveBeenCalledExactlyOnceWith(`${origin}/note-aid`);
+    expectFreshNavigation(win, '/note-aid');
     notices[0].remove();
+  });
+
+  it('recovers the initial async workspace even after the router finished', () => {
+    document.body.innerHTML = '<div id="app"><!----></div>';
+    const win = browser(), onFailure = vi.fn();
+    installChunkLoadRecovery({ win, recovery: createChunkLoadRecovery({ win, buildId: 'a', onFailure }) });
+    const preload = win.addEventListener.mock.calls.find(([type]) => type === 'vite:preloadError')[1];
+    const event = { payload: missing, preventDefault: vi.fn() };
+    preload(event);
+    expectFreshNavigation(win, win.location.href);
+    expect(onFailure).not.toHaveBeenCalled();
+    expect(event.preventDefault).not.toHaveBeenCalled();
+  });
+
+  it('keeps an already rendered form intact when a later import fails', () => {
+    document.body.innerHTML = '<div id="app"><form><textarea>Unsaved note</textarea></form></div>';
+    const win = browser(), onFailure = vi.fn();
+    installChunkLoadRecovery({ win, recovery: createChunkLoadRecovery({ win, buildId: 'a', onFailure }) });
+    const preload = win.addEventListener.mock.calls.find(([type]) => type === 'vite:preloadError')[1];
+    preload({ payload: missing, preventDefault: vi.fn() });
+    expect(win.location.assign).not.toHaveBeenCalled();
+    expect(onFailure).toHaveBeenCalledOnce();
+    expect(document.querySelector('textarea').value).toBe('Unsaved note');
+  });
+
+  it('does not mistake speculative module hints for a failed screen', () => {
+    document.body.innerHTML = '<div id="app"><!----></div>';
+    const win = browser(), onFailure = vi.fn();
+    installChunkLoadRecovery({ win, recovery: createChunkLoadRecovery({ win, buildId: 'a', onFailure }) });
+    const resource = win.addEventListener.mock.calls.find(([type]) => type === 'error')[1];
+    for (const rel of ['modulepreload', 'preload', 'prefetch']) {
+      resource({ target: { tagName: 'LINK', rel, href: `${origin}/assets/Notes-old.js` } });
+    }
+    expect(win.location.assign).not.toHaveBeenCalled();
+    expect(onFailure).not.toHaveBeenCalled();
+  });
+
+  it('leaves unrelated import evaluation errors to the normal error handler', () => {
+    const win = browser(), onFailure = vi.fn();
+    installChunkLoadRecovery({ win, recovery: createChunkLoadRecovery({ win, buildId: 'a', onFailure }), destination: () => '/dashboard' });
+    const preload = win.addEventListener.mock.calls.find(([type]) => type === 'vite:preloadError')[1];
+    const event = { payload: new Error('Application validation failed'), preventDefault: vi.fn() };
+    preload(event);
+    expect(win.location.assign).not.toHaveBeenCalled();
+    expect(onFailure).not.toHaveBeenCalled();
+    expect(event.preventDefault).not.toHaveBeenCalled();
+  });
+
+  it('manual retries force a new document even at the same URL and fragment', () => {
+    const win = browser(), onFailure = vi.fn();
+    win.location.href = `${origin}/dashboard?tab=overview#schedule`;
+    const recovery = createChunkLoadRecovery({ win, buildId: 'a', onFailure });
+    recovery.recover(missing, win.location.href, { automatic: false });
+    const retry = onFailure.mock.calls[0][1];
+    retry();
+    expectFreshNavigation(win, win.location.href);
+    retry();
+    expect(win.location.assign.mock.calls[1][0]).not.toBe(win.location.assign.mock.calls[0][0]);
+  });
+
+  it('offers the verified ITSCO alternate without copying session parameters', () => {
+    const win = browser();
+    win.location.origin = 'https://app.itsco.health';
+    win.location.href = 'https://app.itsco.health/dashboard?token=private#schedule';
+    createChunkLoadRecovery({ win, buildId: 'a' }).recover(new TypeError('Importing a module script failed.'), null, { automatic: false });
+    const alternate = document.querySelector('#app-chunk-recovery-notice a');
+    expect(alternate.href).toBe('https://plottwisthq.com/itsco/login');
+    expect(alternate.textContent).toBe('Use alternate ITSCO sign-in');
+    expect(win.location.assign).not.toHaveBeenCalled();
   });
 });
