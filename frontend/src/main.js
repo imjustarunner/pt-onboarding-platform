@@ -20,6 +20,9 @@ import { isStandalonePwa } from './utils/pwa';
 import { tenantFaviconUrl } from './utils/tenantBrandAssets';
 import { i18n } from './i18n';
 import { createChunkLoadRecovery, installChunkLoadRecovery } from './utils/chunkLoadRecovery.js';
+import api from './services/api.js';
+import { verifyStartupSession } from './utils/startupSession.js';
+import { isDemoWindowSession } from './utils/demoWindowSession.js';
 
 /** Bump when shell assets change materially (forces one reload so users pick up new schedule UI). */
 const APP_SHELL_VERSION = '2026-09-25-plot-twist-brand-settings';
@@ -52,6 +55,12 @@ async function bootstrap() {
   const pinia = createPinia();
 
   app.use(pinia);
+  const authStore = useAuthStore(pinia);
+  await verifyStartupSession({
+    api, authStore,
+    route: router.resolve(window.location.pathname + window.location.search + window.location.hash),
+    demo: isDemoWindowSession()
+  });
   app.use(router);
   app.use(i18n);
 
@@ -199,7 +208,6 @@ async function bootstrap() {
     if (mark) setFavicon(mark);
   };
 
-  const authStore = useAuthStore(pinia);
   watchEffect(setBrandingChrome);
 
   const applySavedAppearance = () => {

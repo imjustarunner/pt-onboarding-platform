@@ -19,5 +19,6 @@ const assistantSurface = computed(() => String(auth.user?.role || '').toLowerCas
 // Sign-in must remain available when an unrelated employee widget cannot load.
 // Login views own their branding; authentication and route guards stay in place.
 const publicLoginNames = new Set(['Login', 'OrganizationLogin', 'ParentOrganizationLogin', 'SchoolCareBridgeLogin', 'SchoolCareBridgeSchool']);
-const publicLoginSurface = computed(() => !auth.isAuthenticated && publicLoginNames.has(route.name));
+const publicRecoveryNames = new Set(['SessionEnded', 'OrganizationSessionEnded']);
+const publicLoginSurface = computed(() => publicRecoveryNames.has(route.name) || (!auth.isAuthenticated && publicLoginNames.has(route.name)));
 </script>

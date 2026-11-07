@@ -21,7 +21,7 @@ const render = () => mount(App, { global: { stubs: {
   AssistantAppShell: { template: '<aside>Assistant workspace<slot /></aside>' }
 } } });
 
-it.each(['Login', 'OrganizationLogin', 'ParentOrganizationLogin', 'SchoolCareBridgeLogin', 'SchoolCareBridgeSchool'])(
+it.each(['Login', 'OrganizationLogin', 'ParentOrganizationLogin', 'SchoolCareBridgeLogin', 'SchoolCareBridgeSchool', 'SessionEnded', 'OrganizationSessionEnded'])(
   'renders anonymous %s without mounting employee widgets', async name => {
     state.route.name = name;
     const wrapper = render();
@@ -33,6 +33,16 @@ it.each(['Login', 'OrganizationLogin', 'ParentOrganizationLogin', 'SchoolCareBri
     } finally { wrapper.unmount(); }
   }
 );
+it.each(['SessionEnded', 'OrganizationSessionEnded'])('renders %s independently of a cached staff identity', async name => {
+  state.route.name = name;
+  state.auth.user = { id: 8, role: 'admin' }; state.auth.isAuthenticated = true;
+  const wrapper = render();
+  try {
+    await flushPromises();
+    expect(wrapper.find('form[aria-label="Sign in"]').exists()).toBe(true);
+    expect(state.workspaceMounted).not.toHaveBeenCalled();
+  } finally { wrapper.unmount(); }
+});
 it('loads the ordinary workspace after successful authentication and navigation', async () => {
   const wrapper = render();
   try {
