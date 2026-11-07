@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import ClientSchoolRoiSigningLink from '../models/ClientSchoolRoiSigningLink.model.js';
+import {guardianCanReadIntakeDocuments} from '../utils/guardianDocumentAccess.js';
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 
@@ -29,7 +30,7 @@ export async function openGuardianSchoolRelease({
 
   const link = await loadLink({ clientId: cid, guardianUserId: uid });
   const enabled = Number(link?.access_enabled) === 1 || link?.access_enabled === true;
-  if (!link || !enabled || ClientGuardian.isNoView(link.permissions_json)) {
+  if (!link || !enabled || !guardianCanReadIntakeDocuments(link)) {
     throw fail('This child’s record is not available on your account.', 403);
   }
 

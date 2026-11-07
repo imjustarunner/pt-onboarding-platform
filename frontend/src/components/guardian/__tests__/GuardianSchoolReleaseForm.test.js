@@ -12,6 +12,11 @@ vi.mock('../../public/SmartSchoolRoiFlow.vue', () => ({
 }));
 
 describe('in-portal school release', () => {
+  it('does not open a public release form when this guardian has no document access',async()=>{
+    api.get.mockRejectedValueOnce({response:{status:403}});
+    const wrapper=mount(Form,{props:{clientId:928}});await flushPromises();
+    expect(wrapper.find('form').exists()).toBe(false);expect(api.get).toHaveBeenCalledTimes(1);wrapper.unmount();
+  });
   beforeEach(() => vi.clearAllMocks());
   it('shows the school release form without a signing link', async () => {
     api.get.mockImplementation(async (url) => {

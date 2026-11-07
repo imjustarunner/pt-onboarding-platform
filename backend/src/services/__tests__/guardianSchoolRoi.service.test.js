@@ -18,6 +18,13 @@ function db(clientRows, schoolRows = []) {
 }
 
 describe('guardian school release', () => {
+  it('honors document-specific restrictions before looking up or issuing a release',async()=>{
+    for(const permissions_json of [{canViewDocs:false},{noViewOtherGuardian:true},'{"canViewDocs":false}']) {
+      let touched=false;
+      await assert.rejects(openGuardianSchoolRelease({userId:15,clientId:928,loadLink:async()=>({access_enabled:1,permissions_json}),db:{execute:async()=>{touched=true;return [[]];}},issueLink:async()=>{touched=true;}}),{status:403});
+      assert.equal(touched,false);
+    }
+  });
   it('reuses the open release for the school on the child record', async () => {
     const calls = [];
     const result = await openGuardianSchoolRelease({
