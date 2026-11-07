@@ -66,6 +66,11 @@ export function scheduleBlockColorKey(block = {}) {
   return { oa:'office_assigned', ot:'office_temporary', ob:'office_booked', school:'school', request:'request', gevt:'google_event', gbusy:'google_busy', ebusy:'ehr_busy', portal:'availability', 'intake-ip':'intake_in_person', 'intake-vi':'intake_virtual' }[block.kind] || null;
 }
 
+export function scheduleColorFill(color, dark = false) {
+  const rgb = [1,3,5].map(offset => parseInt(color.slice(offset, offset + 2), 16));
+  return `rgba(${rgb.join(', ')}, ${dark ? 0.24 : 0.12})`;
+}
+
 export function scheduleTypePalette(block, colors = {}, dark = false) {
   const key = scheduleBlockColorKey(block);
   const fallback = SCHEDULE_COLOR_OPTIONS.find(option => option.key === key)?.color;
@@ -75,7 +80,7 @@ export function scheduleTypePalette(block, colors = {}, dark = false) {
   const rgba = alpha => `rgba(${rgb.join(', ')}, ${alpha})`;
   const text = rgb.map(channel => Math.round(dark ? channel * 0.2 + 255 * 0.8 : channel * 0.4));
   return {
-    fill:rgba(dark ? 0.24 : 0.12), border:rgba(0.65), stripe:rgba(0.85), text:`rgb(${text.join(', ')})`,
+    fill:scheduleColorFill(color, dark), border:rgba(0.65), stripe:rgba(0.85), text:`rgb(${text.join(', ')})`,
     borderStyle:block.eventKind === 'FALL_CHECKIN_PRESLOT' || (block.kind === 'supv-signup' && !block.viewerSignedUp && !block.sessionLive) ? 'dashed' : 'solid'
   };
 }

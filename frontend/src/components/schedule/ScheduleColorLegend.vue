@@ -20,14 +20,14 @@
   </details>
 </template>
 <script setup>
-import { SCHEDULE_COLOR_OPTIONS } from '../../utils/scheduleAppearance.js';
+import { SCHEDULE_COLOR_OPTIONS, scheduleColorFill } from '../../utils/scheduleAppearance.js';
 const props = defineProps({ colors: { type: Object, default: () => ({}) }, dark: Boolean });
 const primaryKeys = ['client_session', 'supervision', 'supervision_group', 'interview', 'office_assigned', 'office_booked', 'schedule_hold', 'availability', 'intake_in_person', 'intake_virtual', 'supervision_open', 'training'];
 const primary = SCHEDULE_COLOR_OPTIONS.filter(option => primaryKeys.includes(option.key));
 const remaining = SCHEDULE_COLOR_OPTIONS.filter(option => !primaryKeys.includes(option.key));
 const swatch = option => {
   const color = /^#[\da-f]{6}$/i.test(props.colors[option.key]) ? props.colors[option.key] : option.color;
-  return { backgroundColor: `${color}${props.dark ? '52' : '38'}`, borderColor: `${color}a6` };
+  return { backgroundColor: scheduleColorFill(color, props.dark), borderColor: `${color}a6` };
 };
 </script>
 <style scoped>
