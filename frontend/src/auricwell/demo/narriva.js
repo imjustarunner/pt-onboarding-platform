@@ -41,5 +41,10 @@ export function exampleNarrivaReview({passed=true,stale=false} = {}) {
  };
 }
 export function exampleReviewInsights(noteId=995001,agencyId=NARRIVA_DEMO_AGENCY,sections=exampleSections(),history=exampleTreatmentHistory()) {
- return {noteId,agencyId,sourceRevision:{id:'fictional-1'},quickLook:{sections,artifacts:[{id:'fictional-worksheet',title:'CBT grounding worksheet · fictional example',type:'Session worksheet',summary:'Completed together in person; retained as supporting session material.'}]},treatmentHistory:history};
+ const example=narrivaExamples.find(item=>item.id===Number(noteId));
+ const title=example?.id===995002?'Routine planner · fictional example':example?.id===995003?'Communication rehearsal worksheet · fictional example':'CBT grounding worksheet · fictional example';
+ // Retained workspace notes have no attachment fixtures. Only the explicitly
+ // authored walkthrough cases include the sample worksheet reference.
+ const artifacts=example?[{id:'fictional-worksheet',title,type:'Session worksheet',summary:'Completed together in person; retained as supporting session material.'}]:[];
+ return {noteId,agencyId,sourceRevision:{id:'fictional-1'},quickLook:{sections,artifacts},treatmentHistory:history};
 }
