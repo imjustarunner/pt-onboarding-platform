@@ -1,7 +1,8 @@
 import { canAccessTicketDesk } from '../utils/ticketAccess.js';
 import { schoolCareBridgeRoutes, addSchoolCareBridgeWorkflowAliases } from './schoolCareBridgeRoutes.js';
 import { familyBillingRoutes } from './familyBillingRoutes.js';
-import { consumeSsoHandoff, isTokenAuthenticationRoute, auricwellLoginDestination } from '../utils/loginHandoff';
+import { consumeSsoHandoff, isTokenAuthenticationRoute, isLoginEntryRoute, auricwellLoginDestination } from '../utils/loginHandoff';
+import { auricWellAccountDestination } from '../utils/familyPortalContext.js';
 import { isFundthredHost, fundthredLoginLocation, isFundthredLogin, isFundthredWorkspacePath } from '../utils/fundthred';
 import { isPlotlineHost } from '../utils/plotline';
 import { isSchoolCareBridgePath, schoolCareBridgePath, schoolCareBridgeWorkflowPath } from '../utils/schoolCareBridge.js';
@@ -5169,6 +5170,10 @@ router.beforeEach(async (to, from, next) => {
 
   const auricwellDestination = auricwellLoginDestination(to.fullPath);
   if (auricwellDestination) { window.location.assign(auricwellDestination); next(false); return; }
+  // The Auricwell Google bridge must verify the new cookie through LoginView's
+  // existing completeGoogleLogin flow, even if this host has an older identity.
+  if (isLoginEntryRoute(to) && to.query.workspace === 'auricwell' && String(to.query.sso) === '1') { next(); return; }
+
   const officeEntry = officeKioskEntryRedirect(window.location.hostname, to.path);
   if (officeEntry) {
     next({ path: officeEntry, replace: true });
@@ -6270,6 +6275,16 @@ router.beforeEach(async (to, from, next) => {
       next({ path: getDashboardRoute(), replace: true });
     }
   } else if (to.meta.requiresGuest && authStore.isAuthenticated && !isTokenAuthenticationRoute(to)) {
+    const auricwell = auricWellAccountDestination({
+      hostname:window.location.hostname,role:authStore.user?.role,organizations:agencyStore.userAgencies?.length?agencyStore.userAgencies:authStore.user?.agencies,
+      requestedSlug:to.params.organizationSlug || to.query.ssoOrg,redirectPath:to.query.redirect,auricwellEntry:to.query.workspace==='auricwell'
+    });
+    if (auricwell) {
+      if (auricwell.organization) agencyStore.setCurrentAgency(auricwell.organization);
+      if (auricwell.hardNavigate) { window.location.assign(auricwell.path); next(false); }
+      else next({path:auricwell.path,replace:true});
+      return;
+    }
     const returnTo = auricwellLoginDestination(to.query.redirect);
     if (returnTo) { window.location.assign(returnTo); next(false); return; }
     if (isFundthredLogin(to)) { next({ path: '/fundthred/app', replace: true }); return; }

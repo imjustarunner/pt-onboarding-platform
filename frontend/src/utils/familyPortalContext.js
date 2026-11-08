@@ -1,3 +1,5 @@
+import { auricwellLoginDestination } from './loginHandoff';
+
 const slugOf = org => String(org?.portal_url || org?.slug || org?.portalUrl || '').trim().toLowerCase();
 const typeOf = org => String(org?.organization_type || org?.organizationType || '').toLowerCase();
 
@@ -39,14 +41,20 @@ export function familyCareAgencies(profiles){
 
 // The AuricWell /app entry currently serves the administrator preview. Family
 // accounts use the same authorized portal for setup and subsequent sign-ins.
-export function auricWellAccountDestination({hostname,role,organizations,requestedSlug,redirectPath}) {
-  if (!/^(www\.)?auricwell\.com$/i.test(hostname || '')) return null;
+export function auricWellAccountDestination({hostname,role,organizations,requestedSlug,redirectPath,auricwellEntry=false}) {
+  const publicHost=/^(www\.)?auricwell\.com$/i.test(hostname || '');
+  const appRedirect=auricwellLoginDestination(redirectPath,hostname);
+  if (!publicHost && !appRedirect && !auricwellEntry) return null;
   const normalizedRole=String(role || '').toLowerCase();
   const redirect=typeof redirectPath==='string' && redirectPath.startsWith('/') && !redirectPath.startsWith('//') && !redirectPath.includes('\\') ? redirectPath : null;
-  if (normalizedRole==='super_admin') return {path:redirect || '/app',hardNavigate:true,organization:null};
+  if (normalizedRole==='super_admin') {
+    const organization=resolveFamilyPortalOrganization(organizations,requestedSlug);
+    const base=publicHost?'/app':'/auricwell/app';
+    return {path:appRedirect || redirect || (organization?`${base}/${encodeURIComponent(slugOf(organization))}/overview`:base),hardNavigate:true,organization:organization || null};
+  }
   if (!['client_guardian','client'].includes(normalizedRole)) return null;
   const organization=resolveFamilyPortalOrganization(organizations,requestedSlug)
     || (Array.isArray(organizations)?organizations:[]).find(org=>resolveFamilyPortalOrganization([org],slugOf(org)));
-  const familyRedirect=redirect && !/^\/app(?:\/|\?|$)/.test(redirect) ? redirect : null;
+  const familyRedirect=redirect && !appRedirect ? redirect : null;
   return {path:familyRedirect || familyPortalDashboardPath(organization) || '/guardian',hardNavigate:false,organization:organization || null};
 }

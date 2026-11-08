@@ -11,6 +11,12 @@ afterEach(() => {
 });
 
 describe('API routing for public login pages', () => {
+  it('keeps Auricwell Google start and uploaded assets on the current site despite the shared API build setting',()=>{
+    vi.stubGlobal('window',{location:{hostname:'auricwell.com',pathname:'/login'}});
+    vi.stubEnv('VITE_API_URL','https://app.itsco.health/api');
+    expect(getBackendBaseUrl()).toBe('/api');expect(toUploadsUrl('/uploads/consent.pdf')).toBe('/api/uploads/consent.pdf');
+  });
+
   it.each([undefined, '', '   ', 'http://localhost:3000/api', 'http://127.0.0.1:3000/api',
     'http://127.1:3000/api', 'http://[::1]:3000/api', '//localhost:3000/api',
     'http://dev.localhost:3000/api', 'http://localhost.:3000/api', 'http://0.0.0.0:3000/api'])
@@ -44,7 +50,7 @@ describe('API routing for public login pages', () => {
   });
 
   it.each([
-    { hostname: 'plotlinepo.com' }, { hostname: 'www.plotlinepo.com' },
+    { hostname: 'auricwell.com', pathname: '/login' }, { hostname: 'www.auricwell.com', pathname: '/app/itsco/compliance' }, { hostname: 'plotlinepo.com' }, { hostname: 'www.plotlinepo.com' },
     { hostname: 'schoolcarebridge.org' }, { hostname: 'www.schoolcarebridge.org' },
     { hostname: 'mh4kidz.org', pathname: '/schoolcarebridge/app' }
   ])('preserves same-origin product routing for $hostname', location => {

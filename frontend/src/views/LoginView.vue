@@ -741,7 +741,7 @@ import ServiceUseNotice from '../components/legal/ServiceUseNotice.vue';
 import RememberedGoogleAccount from '../components/RememberedGoogleAccount.vue';
 import LoginWorkspaceProgress from '../components/LoginWorkspaceProgress.vue';
 import { completeGoogleLogin } from '../utils/completeGoogleLogin';
-import { safeLoginDestination } from '../utils/loginHandoff';
+import { safeLoginDestination, auricwellLoginDestination, auricwellSsoDestination } from '../utils/loginHandoff';
 import { rateLimitNotice } from '../utils/rateLimitRetry';
 import { startActivityTracking } from '../utils/activityTracker';
 import { useSessionLockStore } from '../store/sessionLock';
@@ -793,7 +793,7 @@ const route = useRoute();
 const leavePublicAuthForm = enterPublicAuthForm();
 onUnmounted(leavePublicAuthForm);
 const identifiedFamilySurface = ref('');
-const isAuricWellLogin = computed(() => /^(www\.)?auricwell\.com$/i.test(window.location.hostname) || identifiedFamilySurface.value === 'clinical');
+const isAuricWellLogin = computed(() => /^(www\.)?auricwell\.com$/i.test(window.location.hostname) || route.query.workspace === 'auricwell' || !!auricwellLoginDestination(route.query.redirect) || identifiedFamilySurface.value === 'clinical');
 const isFundThredLogin = computed(() => isFundthredLogin(route));
 useFundThredBranding('Sign in | FundThred', isFundThredLogin);
 const authStore = useAuthStore();
@@ -1348,7 +1348,7 @@ const fetchLoginTheme = async (portalUrl) => {
     console.error('Failed to fetch login theme:', error);
     // If agency not found, redirect to default login
     if (!isSchoolCareBridge.value && error.response?.status === 404) {
-      router.replace(isFundThredLogin.value ? {path:'/login',query:route.query} : '/login');
+      router.replace(isFundThredLogin.value || isAuricWellLogin.value ? {path:'/login',query:route.query} : '/login');
     }
   } finally {
     if (isCurrent()) loadingTheme.value = false;
@@ -1367,7 +1367,13 @@ onMounted(async () => {
       requireVerifiedSession();
       await brandingStore.prepareDashboardIcons();
       signalFreshLogin();
-      const destination = safeLoginDestination(route.query.redirect) || getDashboardRoute();
+      const auricwell = !user.requiresPasswordChange && auricWellAccountDestination({
+        hostname:window.location.hostname,role:user.role,organizations:agencyStore.userAgencies,
+        requestedSlug:orgSlug,redirectPath:safeLoginDestination(route.query.redirect),auricwellEntry:route.query.workspace==='auricwell'
+      });
+      if (auricwell?.organization) agencyStore.setCurrentAgency(auricwell.organization);
+      if (auricwell?.hardNavigate) { window.location.assign(auricwell.path); return; }
+      const destination = auricwell?.path || safeLoginDestination(route.query.redirect) || getDashboardRoute();
       await router.replace(user.requiresPasswordChange ? '/change-password' : destination);
     });
     return;
@@ -1877,7 +1883,7 @@ watch(
 
 /** Same-origin post-login destination (e.g. a meeting join link) to carry through Google SSO. */
 function ssoNextParam() {
-  const captured = route.query?.redirect || (isSchoolCareBridge.value ? route.path : null);
+  const captured = auricwellSsoDestination(route.query?.redirect, window.location.hostname) || (isSchoolCareBridge.value ? route.path : null);
   const redirectPath = isSchoolCareBridge.value && typeof captured === 'string' ? schoolCareBridgeExternalPath(captured) : captured;
   const safe = typeof redirectPath === 'string' && redirectPath.startsWith('/') && !redirectPath.startsWith('//') && !redirectPath.includes('\\') && !redirectPath.startsWith('//');
   return safe ? `&next=${encodeURIComponent(redirectPath)}` : '';
@@ -2097,7 +2103,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
       }
       await router.replace({
         path: targetLoginPath,
-        query: isFundThredLogin.value ? route.query : {}
+        query: isFundThredLogin.value ? route.query : (auricwellLoginDestination(route.query.redirect) || route.query.workspace === 'auricwell' ? { ...(route.query.redirect ? {redirect:route.query.redirect} : {}), ...(route.query.workspace === 'auricwell' ? {workspace:'auricwell'} : {}) } : {})
       });
       return;
     }
@@ -2139,7 +2145,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
           }
           await router.replace({
             path: normalizedTarget,
-            query: isFundThredLogin.value ? route.query : {}
+            query: isFundThredLogin.value ? route.query : (auricwellLoginDestination(route.query.redirect) || route.query.workspace === 'auricwell' ? { ...(route.query.redirect ? {redirect:route.query.redirect} : {}), ...(route.query.workspace === 'auricwell' ? {workspace:'auricwell'} : {}) } : {})
           });
           return;
         }
@@ -2323,7 +2329,7 @@ const handleLogin = async (passkeyResult = null) => {
 
       const auricWellDestination = !authStore.user?.requiresPasswordChange && auricWellAccountDestination({
         hostname: window.location.hostname, role: roleNorm, organizations: agencyStore.userAgencies,
-        requestedSlug: currentOrgSlug, redirectPath: safeLoginDestination(route.query.redirect)
+        requestedSlug: currentOrgSlug, redirectPath: safeLoginDestination(route.query.redirect), auricwellEntry: route.query.workspace === 'auricwell'
       });
       if (auricWellDestination) {
         if (auricWellDestination.organization) agencyStore.setCurrentAgency(auricWellDestination.organization);

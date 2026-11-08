@@ -20,7 +20,7 @@
         <slot v-else-if="demoContext && section === 'clients' && $slots.clients" name="clients" />
         <slot v-else-if="demoContext && section === 'providers' && $slots.providers" name="providers" />
         <Overview v-else-if="section === 'overview' || section === 'reports'" :key="context.practice.id" :agency="context.practice" :actor="actor" :slug="slug" :can-document="canDocument" :report="section === 'reports'" :demo="!!demoContext" />
-        <NarrivaComplianceReportsView v-else-if="section === 'compliance' && canManageCompliance" :key="context.practice.id" />
+        <NarrivaComplianceReportsView v-else-if="section === 'compliance' && canManageCompliance" :key="context.practice.id" embedded />
         <section v-else-if="section === 'compliance'" class="aw-welcome"><h1>Compliance</h1><p role="alert">Compliance reports require an authorized agency administrator.</p></section>
         <WorkspaceTools v-else-if="['account','settings','payroll','notifications'].includes(section)" :section="section" :agency="context.practice" :actor="actor" :slug="slug" :notifications="notificationItems" :loading="notificationsLoading" :error="notificationsError" @refresh="loadNotifications" />
         <section v-else-if="section === 'announcements' && !demoContext" class="aw-toast-managers">
