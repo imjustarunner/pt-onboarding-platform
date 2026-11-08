@@ -323,3 +323,32 @@ it('names and links missing interview fields in the current language', async () 
   expect(wrapper.findAll('.validation-field-link').map(button => button.text())).toEqual(['Fecha de nacimiento', 'Dirección de la calle']);
   expect(post.mock.calls.some(([url]) => /finalize|\/sign/.test(url))).toBe(false);
 });
+
+it('starts an adult representative with the client DOB and no hidden self DOB', async () => {
+  await render([question('identity', 'legal_first_name')], { subject: 'representative', clients: [{ firstName: 'Alex', lastName: 'Example', dateOfBirth: '1980-02-15' }] });
+  Object.assign(wrapper.vm, { step: 0.5, reminderConsentStatus: 'declined', sessionToken: 'representative-session', submissionId: 100, guardianFirstName: 'Pat', guardianLastName: 'Example', guardianEmail: 'pat@example.com', guardianPhone: '2025550123', guardianRelationship: 'Power of attorney', starterDob: '' });
+  await flushPromises();
+  await wrapper.get('.intake-start-continue').trigger('click'); await flushPromises();
+  expect(wrapper.vm.consentErrors.starterDob).toBe('');
+  expect(wrapper.vm.startClientErrors[0].dob).toBe('');
+  expect(wrapper.vm.whoForError).toBe('');
+  expect(wrapper.vm.step).not.toBe(0.5);
+});
+
+it('keeps unsent communication choices in server progress without recording a signed consent', async () => {
+  await render([{ id: 'communications', type: 'communications' }]);
+  wrapper.vm.sessionToken = 'synthetic-progress-session';
+  Object.assign(wrapper.vm.communications, { emailPreference: 'no', smsPreference: 'no', signerName: 'Pat Example', alternativeContactInstructions: 'Use alternate contact only', signatureAccepted: true });
+  await flushPromises();
+  const snapshot = JSON.parse(JSON.stringify(wrapper.vm.buildDraftSnapshot()));
+  expect(snapshot.intakeResponses.submission.communicationDraft).toMatchObject({ emailPreference: 'no', signerName: 'Pat Example', alternativeContactInstructions: 'Use alternate contact only' });
+  expect(snapshot.intakeResponses.submission.communicationPreferences).toBeUndefined();
+  await wrapper.vm.saveServerProgress();
+  expect(post).toHaveBeenCalledWith(expect.stringContaining('/progress'), expect.objectContaining({ intakeData: expect.objectContaining({ progressSnapshot: expect.objectContaining({ intakeResponses: snapshot.intakeResponses }) }) }), expect.anything());
+  wrapper.unmount(); wrapper = null;
+  await render([{ id: 'communications', type: 'communications' }]);
+  wrapper.vm.applyDraftSnapshot(snapshot);
+  // Simulate re-entering the restored step after the async server response.
+  wrapper.vm.currentFlowIndex = -1; await flushPromises(); wrapper.vm.currentFlowIndex = 0; await flushPromises();
+  expect(wrapper.vm.communications).toMatchObject({ emailPreference: 'no', smsPreference: 'no', signerName: 'Pat Example', alternativeContactInstructions: 'Use alternate contact only' });
+});

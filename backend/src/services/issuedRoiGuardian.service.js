@@ -29,10 +29,29 @@ export async function portalGuardianForIssuedRoi(req, clientId, {
 // when the link was issued. Never use a form-entered email or create/grant access.
 export async function existingIssuedRoiGuardian(issuedLink, clientId) {
   if (!issuedLink?.id || Number(issuedLink.client_id) !== Number(clientId)) return null;
+  if (Number(issuedLink.recipient_guardian_user_id) > 0) {
+    const link = await ClientGuardian.getLink({ clientId, guardianUserId: Number(issuedLink.recipient_guardian_user_id) });
+    return guardianCanReadIntakeDocuments(link) ? Number(issuedLink.recipient_guardian_user_id) : null;
+  }
   const recipient = String(issuedLink.last_email_sent_to || '').trim().toLowerCase();
   if (!recipient) return null;
   const links = await ClientGuardian.listForClient(clientId);
   const matches = links.filter(link => String(link.email || '').trim().toLowerCase() === recipient
     && guardianCanReadIntakeDocuments(link));
   return matches.length === 1 ? Number(matches[0].guardian_user_id) || null : null;
+}
+
+export async function resolveIssuedRoiConsentSigner({ req, issuedLink, clientId, submissionGuardianId }, dependencies = {}) {
+  if (!issuedLink?.id) return Number(submissionGuardianId) || null;
+  const existing = dependencies.existing || existingIssuedRoiGuardian;
+  const portal = dependencies.portal || portalGuardianForIssuedRoi;
+  const recipient = Number(issuedLink.recipient_guardian_user_id) || 0;
+  if (recipient) {
+    const signedIn = await portal(req, clientId);
+    if (signedIn !== recipient || await existing(issuedLink, clientId) !== recipient) {
+      throw Object.assign(new Error('Sign in to the guardian account that received this school release. Each guardian has a separate request.'), { status: 403 });
+    }
+    return recipient;
+  }
+  return await existing(issuedLink, clientId) || await portal(req, clientId);
 }

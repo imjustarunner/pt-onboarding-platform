@@ -54,6 +54,7 @@
             <button type="button" class="na-tp-primary" :disabled="busy || !writeText.trim()" @click="generatePlan">
               {{ generating ? 'Writing…' : 'AI write plan, then review' }}
             </button>
+            <button type="button" class="na-tp-outline" :disabled="busy" @click="createStarterPlan">Create starter plan without intake</button>
           </div>
         </template>
 
@@ -93,6 +94,11 @@
 
         <div v-if="model" class="na-tp-review">
           <h4>Review structured plan</h4>
+          <template v-if="starterPlan">
+            <label class="na-tp-label">Client’s own goals and priorities<textarea v-model="starterClientGoals" rows="3" class="na-tp-textarea" /></label>
+            <label class="na-tp-label"><span><input v-model="starterReviewed" type="checkbox" :disabled="!starterClientGoals.trim()" /> I reviewed and individualized this initial plan with the client, within my role and scope.</span></label>
+            <p>{{ starterReviewed ? 'Apply the reviewed initial plan. A completed intake is not required.' : 'Save as a draft until review and individualization are complete.' }}</p>
+          </template>
           <label class="na-tp-label">
             Effective date
             <input v-model="model.effectiveDate" type="date" class="na-tp-input" />
@@ -148,7 +154,7 @@
               :disabled="busy || chartApplied"
               @click="saveToClient"
             >
-              {{ saving ? 'Saving…' : chartApplied ? 'Applied to client' : 'Apply to selected client' }}
+              {{ saving ? 'Saving…' : chartApplied ? 'Applied to client' : starterPlan && !starterReviewed ? 'Save starter draft to client' : 'Apply to selected client' }}
             </button>
             <button type="button" class="na-tp-outline" :disabled="busy || librarySaved" @click="saveLibraryDraft">
               {{ saving ? 'Saving…' : librarySaved ? 'Saved to library' : 'Save to library' }}
@@ -180,6 +186,10 @@ const changeInstructions = ref('');
 const draftInitials = ref('');
 const applyClientId = ref(null);
 const model = ref(null);
+const starterPlan = ref(false);
+const starterReviewed = ref(false);
+const starterClientGoals = ref('');
+watch(starterClientGoals, () => { starterReviewed.value = false; });
 const parsing = ref(false);
 const generating = ref(false);
 const saving = ref(false);
@@ -187,7 +197,7 @@ const error = ref('');
 const message = ref('');
 const appliedFingerprint = ref('');
 const savedLibraryFingerprint = ref('');
-const chartFingerprint = computed(() => JSON.stringify({ agencyId: props.agencyId, clientId: applyClientId.value, model: model.value }));
+const chartFingerprint = computed(() => JSON.stringify({ agencyId: props.agencyId, clientId: applyClientId.value, model: model.value, starterReviewed: starterReviewed.value, starterClientGoals: starterClientGoals.value }));
 const libraryFingerprint = computed(() => JSON.stringify({ agencyId: props.agencyId, initials: draftInitials.value, model: model.value }));
 const chartApplied = computed(() => appliedFingerprint.value === chartFingerprint.value);
 const librarySaved = computed(() => savedLibraryFingerprint.value === libraryFingerprint.value);
@@ -218,6 +228,25 @@ function todayIso() {
 }
 function interventionLines(value) { return [...new Set(String(value || '').split('\n').map(v => v.trim()).filter(Boolean))]; }
 
+function createStarterPlan() {
+  starterPlan.value = true;
+  starterReviewed.value = false;
+  starterClientGoals.value = '';
+  error.value = '';
+  const objective = (objectiveText, interventions = []) => ({ objectiveText, interventions, scaleCurrent: null, scaleTarget: null, scaleDirection: null });
+  model.value = {
+    effectiveDate: todayIso(), diagnoses: [], diagnosticJustification: '', presentingProblem: '', prescribedFrequency: '',
+    dischargePlan: 'Review and revise this starter plan after additional assessment, with measurable goals tailored to the client and provider’s role.',
+    goals: [{ goalText: 'Establish a collaborative working relationship and clarify the client’s concerns, strengths, functioning, and support needs.', objectives: [
+      objective('By the end of the first two contacts, invite the client to identify one or two priority concerns and describe their effect on daily life; document one collaboratively chosen functional goal.', ['Collaborative goal setting']),
+      objective('Gather relevant history in at least three domains, with consent and within scope. At each early contact, review immediate safety needs directly and record actual findings, unknowns, and follow-up.', ['Clinical interviewing', 'Review current safety needs within provider scope']),
+      objective('Within two sessions, invite the client to select one feasible coping or support strategy and a simple tracking measure. Review progress at the next contact.', ['Collaborative coping and support planning']),
+      objective('Offer a full assessment within two to four weeks, or document the client’s preference, access barriers, and agreed next step. Revise the plan with the client after assessment.', ['Assessment and care coordination within provider scope'])
+    ] }]
+  };
+  message.value = 'Proposed starter plan. Individualize it and record the client’s own goals. Assessment findings, diagnosis, safety responses, and client agreement remain undocumented until assessed. Saving to a client creates a draft for review.';
+}
+
 async function parsePaste(raw) {
   const text = String(raw || '').trim();
   if (!text) return;
@@ -234,6 +263,7 @@ async function parsePaste(raw) {
     if (!parsed || !Array.isArray(parsed.goals) || !parsed.goals.length) {
       throw new Error('No treatment goals were found. Add a goal and objective, then try again.');
     }
+    starterPlan.value = false;
     model.value = {
       effectiveDate: parsed.effectiveDate || todayIso(),
       diagnosticJustification: parsed.diagnosticJustification || (parsed.diagnoses || []).find((d) => d.isPrimary)?.justification || parsed.diagnoses?.[0]?.justification || '',
@@ -351,22 +381,25 @@ async function saveToClient() {
     const res = await api.post('/medical-billing/treatment-plans', {
       agencyId: Number(props.agencyId),
       clientId,
-      title: 'Imported Treatment Plan',
-      status: 'active',
-      finalize: true,
+      title: starterPlan.value ? (starterReviewed.value ? 'Initial Treatment Plan' : 'Starter Treatment Plan — Draft') : 'Imported Treatment Plan',
+      status: starterPlan.value && !starterReviewed.value ? 'draft' : 'active',
+      finalize: !starterPlan.value || starterReviewed.value,
       effectiveDate: model.value.effectiveDate || null,
       dischargePlan: model.value.dischargePlan || null,
       presentingProblem: model.value.presentingProblem || null,
       prescribedFrequency: model.value.prescribedFrequency || null,
-      sourceToolId: 'note_aid_plan_standalone',
+      sourceToolId: starterPlan.value ? 'note_aid_starter_plan' : 'note_aid_plan_standalone',
+      starterPlanReviewed: starterPlan.value && starterReviewed.value,
+      clientIdentifiedGoals: starterPlan.value ? starterClientGoals.value.trim() : undefined,
       icd10Code: primary?.icd10Code || null,
       diagnosisDescription: primary?.description || null,
       diagnosticJustification: model.value.diagnosticJustification || null,
       diagnoses: model.value.diagnoses || [],
-      goals: goalsPayload()
+      goals: goalsPayload().map((goal, index) => starterPlan.value && index === 0 && starterClientGoals.value.trim()
+        ? { ...goal, goalText: `${goal.goalText}\nClient-identified priorities: ${starterClientGoals.value.trim()}` } : goal)
     }, { skipGlobalLoading: true });
     appliedFingerprint.value = requestedFingerprint;
-    message.value = 'Treatment plan applied to the selected client chart. You can close this window and return to the note.';
+    message.value = starterPlan.value && !starterReviewed.value ? 'Starter draft saved to the client chart for review and individualization.' : 'Treatment plan applied to the selected client chart. You can close this window and return to the note.';
     emit('applied', res?.data?.plan || null);
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Save to client failed';

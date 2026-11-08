@@ -1,3 +1,4 @@
+import { isReviewedStarterPlan } from '../services/starterTreatmentPlanReview.service.js';
 import { collapseClaimAttempts } from '../services/claimFamily.service.js';
 import { attachClaimReferences } from '../services/clinicalClaimReferences.service.js';
 import { getCanonicalFeeSchedule } from '../services/feeSchedule.service.js';
@@ -335,8 +336,8 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
     const requestedStatus = String(req.body.status || 'active').trim().toLowerCase();
     const finalizeRequested = req.body.finalize === true || req.body.finalize === 1
       || requestedStatus === 'active' || requestedStatus === 'final';
-    // Draft bootstrap saves skip this gate; activating any plan (including bootstrap) requires final intake.
-    if (finalizeRequested) {
+    // A reviewed, individualized starter plan can precede the full intake.
+    if (finalizeRequested && !isReviewedStarterPlan(req.body)) {
       const ClientIntakeNoteDraft = (await import('../models/ClientIntakeNoteDraft.model.js')).default;
       const hasFinalIntake = await ClientIntakeNoteDraft.hasFinalizedForClient({ clientId, agencyId })
         || await ClinicalNote.hasSignedIntakeForClient({ clientId, agencyId });

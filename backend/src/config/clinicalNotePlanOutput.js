@@ -118,8 +118,8 @@ export const INTAKE_PLAN_OUTPUT_INSTRUCTIONS = [
  */
 export const H0031_INTAKE_OUTPUT_INSTRUCTIONS = [
   'Return the H0031 intake note only—no preamble.',
-  'Use the same titled narrative sections as a 90791 intake, exactly:',
-  INTAKE_OUTPUT_INSTRUCTIONS,
+  'Use the intake narrative sections below, omitting Mental Status Examination.',
+  INTAKE_OUTPUT_INSTRUCTIONS.replace('Mental Status Examination:\n', '').replace('Preserve the current mental status domains and risk findings when provided.', 'Preserve risk findings when provided.'),
   'Fill every section from the clinician input when information is available; write "Not assessed / not provided" only when the source material truly lacks that domain.',
   'Diagnoses: include chart diagnoses when the clinician credential permits; otherwise prefer Z and R (social determinant) codes and do not invent DSM F-codes.',
   TRANSCRIPT_FIDELITY_INSTRUCTIONS
@@ -339,6 +339,11 @@ export function applySharedNoteAidToolContracts(tools) {
       }
     }
 
+    if (/^clinical_h\d{4}(?:_|$)/i.test(id)) {
+      const instruction = 'H-code note requirement: omit Mental Status Examination entirely. Do not generate, infer, or prefill MSE findings. Keep separately provided safety/risk information in its appropriate section.';
+      next.outputInstructions = `${next.outputInstructions || ''}\n${instruction}`;
+      next.systemPrompt = `${next.systemPrompt || ''}\n${instruction}`;
+    }
     return next;
   });
 }

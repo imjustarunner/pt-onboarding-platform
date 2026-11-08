@@ -267,8 +267,8 @@
       <h3>{{ tr('School staff approval', 'Aprobacion de personal escolar') }}</h3>
       <p>
         {{ tr(
-          'Choose ROI All Active, ROI (Speak), or No ROI on file for each person. Referral documents stay off unless you choose ROI All Active.',
-          'Elija ROI All Active, ROI (Speak) o Sin ROI en archivo para cada persona. Los documentos de referencia permanecen ocultos salvo que elija ROI All Active.'
+          'The listed school staff are permitted to receive the referral packet and discuss treatment goals and progress unless you choose Deny. Review each person before signing. You may also allow speaking only.',
+          'El personal escolar indicado puede recibir el paquete de referencia y hablar sobre las metas y el progreso del tratamiento, a menos que elija Denegar. Revise cada persona antes de firmar. También puede permitir solo hablar.'
         ) }}
       </p>
       <section v-for="currentStaff in staffRoster" :key="currentStaff.schoolStaffUserId" class="roi-decision-group">
@@ -314,7 +314,7 @@
         >
           <input :name="`staffDecision_${currentStaff?.schoolStaffUserId || 'current'}`" v-model="form.staffDecisions[currentStaff.schoolStaffUserId]" value="none" type="radio" />
           <span>
-            <strong>{{ tr('No ROI on file', 'Sin ROI en archivo') }}</strong>
+            <strong>{{ tr('Deny', 'Denegar') }}</strong>
             <span class="choice-detail">{{ tr('Deny all for this staff member. They cannot open this client or receive treatment-related disclosures.', 'Denegar todo para este miembro del personal. No pueden abrir este cliente ni recibir divulgaciones relacionadas con el tratamiento.') }}</span>
           </span>
         </label>
@@ -385,7 +385,7 @@
           <label class="choice-card choice-card--detail">
             <input v-model="person.decision" value="none" type="radio" />
             <span>
-              <strong>{{ tr('No ROI on file', 'Sin ROI en archivo') }}</strong>
+              <strong>{{ tr('Deny', 'Denegar') }}</strong>
               <span class="choice-detail">{{ tr('Deny all for this person. They may not receive treatment-related disclosures.', 'Denegar todo para esta persona. No pueden recibir divulgaciones relacionadas con el tratamiento.') }}</span>
             </span>
           </label>
@@ -440,7 +440,7 @@
         <label class="choice-card choice-card--detail">
           <input name="programmedExternalDecision" v-model="form.programmedExternalDecision" @change="selectProgrammedExternalDecision(form.programmedExternalDecision)" value="none" type="radio" />
           <span>
-            <strong>{{ tr('No ROI on file', 'Sin ROI en archivo') }}</strong>
+            <strong>{{ tr('Deny', 'Denegar') }}</strong>
             <span class="choice-detail">{{ tr('Deny all for this recipient.', 'Denegar todo para este destinatario.') }}</span>
           </span>
         </label>
@@ -503,7 +503,7 @@
           <label class="choice-card choice-card--detail">
             <input v-model="recipient.decision" value="none" type="radio" />
             <span>
-              <strong>{{ tr('No ROI on file', 'Sin ROI en archivo') }}</strong>
+              <strong>{{ tr('Deny', 'Denegar') }}</strong>
               <span class="choice-detail">{{ tr('Deny all for this person.', 'Denegar todo para esta persona.') }}</span>
             </span>
           </label>
@@ -867,7 +867,7 @@ const form = reactive({
     phone: prefillSignerPhone,
     relationship: prefillIntakeForSelf === true ? 'Self' : prefillSignerRelationship
   },
-  staffDecisions: Object.fromEntries(staffRoster.value.map((staff) => [staff.schoolStaffUserId, null])),
+  staffDecisions: Object.fromEntries(staffRoster.value.map((staff) => [staff.schoolStaffUserId, props.savedCapture?.signatureData ? null : 'roi_docs'])),
   requiredAcknowledgements: Object.fromEntries(ackItems.value.map((item) => [item.id, null])),
   waiverItems: Object.fromEntries(waiverItems.value.map((item) => [item.id, null])),
   thirdPartyRecipients: [],
@@ -1416,6 +1416,7 @@ watch(() => props.savedCapture, saved => {
   form.signer = { ...form.signer, ...saved.signer };
   form.requiredAcknowledgements = { ...saved.requiredAcknowledgements };
   form.waiverItems = { ...saved.waiverItems };
+  form.staffDecisions = Object.fromEntries(staffRoster.value.map(staff => [staff.schoolStaffUserId, null]));
   for (const staff of saved.staffDecisions || []) form.staffDecisions[staff.schoolStaffUserId] = staff.decision;
   if (Array.isArray(saved.thirdPartyRecipients)) form.thirdPartyRecipients = saved.thirdPartyRecipients.map(row => ({ ...row }));
   if (Array.isArray(saved.externalRecipients)) form.parentExternalRecipients = saved.externalRecipients.map(row => ({ ...row }));

@@ -111,7 +111,7 @@ it('prefills the addressed email without choosing signer authority', () => {
   expect(wrapper.get('#roi-intake-self-yes').element.checked).toBe(false);
   wrapper.unmount();
 });
-it('groups staff on one section, requires each decision, and scrolls on section changes', async () => {
+it('groups staff with visible permission defaults and retains the selected restrictions', async () => {
   Element.prototype.scrollIntoView = vi.fn();
   const wrapper = mountFlow({ roiContext: { ...roiContext, staffRoster: [...roiContext.staffRoster, { schoolStaffUserId: 100, fullName: 'Second Staff' }] } });
   expect(wrapper.text()).toContain('Section 1 of 9');
@@ -123,10 +123,8 @@ it('groups staff on one section, requires each decision, and scrolls on section 
   await wrapper.get('input[type="radio"]').setValue();
   await wrapper.get('button.btn-primary').trigger('click');
   expect(wrapper.text()).toContain('Staff Person'); expect(wrapper.text()).toContain('Second Staff');
-  expect(wrapper.findAll('input[type="radio"]:checked')).toHaveLength(0);
+  expect(wrapper.findAll('input[type="radio"]:checked')).toHaveLength(2);
   await wrapper.get('input[name="staffDecision_99"][value="roi"]').setValue();
-  await wrapper.get('button.btn-primary').trigger('click');
-  expect(wrapper.text()).toContain('Choose ROI All Active');
   await wrapper.get('input[name="staffDecision_100"][value="none"]').setValue();
   await wrapper.get('button.btn-primary').trigger('click');
   expect(wrapper.text()).not.toContain('School staff approval');
@@ -150,5 +148,25 @@ it('keeps an acknowledgement visibly checked when its label is clicked', async (
   expect(wrapper.text()).toContain('Care planning');
   await wrapper.findAll('button').find(button => button.text() === 'Back').trigger('click');
   expect(wrapper.get('input[name="ack_esign_consent"]').element.checked).toBe(true);
+  wrapper.unmount();
+});
+
+it('defaults a new release to permitted listed staff and retains an explicit denial', async () => {
+  const wrapper = mountFlow();
+  const state = wrapper.vm.$.setupState;
+  expect(state.form.staffDecisions[99]).toBe('roi_docs');
+  state.stageIndex = state.stageOrder.indexOf('staff');
+  await wrapper.vm.$nextTick();
+  expect(wrapper.text()).toContain('unless you choose Deny');
+  await wrapper.get('input[value="none"]').setValue();
+  expect(state.form.staffDecisions[99]).toBe('none');
+  wrapper.unmount();
+});
+
+it('preserves saved decisions and never grants newly listed staff on reopening a signed capture', () => {
+  const wrapper = mountFlow({ roiContext: { ...roiContext, staffRoster: [...roiContext.staffRoster, { schoolStaffUserId: 100, fullName: 'New Staff' }] }, savedCapture: { signatureData: 'saved-signature', staffDecisions: [{ schoolStaffUserId: 99, decision: 'none' }] } });
+  const state = wrapper.vm.$.setupState;
+  expect(state.form.staffDecisions[99]).toBe('none');
+  expect(state.form.staffDecisions[100]).toBeNull();
   wrapper.unmount();
 });

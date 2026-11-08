@@ -46,6 +46,7 @@ const SKIP_BAG_KEYS = new Set([
   'organization_id',
   'clinicalSafetyAlert',
   'communicationPreferences',
+  'communicationDraft',
   'preferred_office_provider_ids',
   'preferred_office_provider_summary',
   'providerSelection',
@@ -373,7 +374,7 @@ function commChoiceLabel(kind, value) {
   if (kind === 'email') {
     if (v === 'all') return 'Yes — scheduling + all program communications';
     if (v === 'scheduling_only') return 'Yes — scheduling only';
-    if (v === 'no') return 'No';
+    if (v === 'no') return 'Essential messages only';
   }
   if (kind === 'sms') {
     if (v === 'scheduling_only') return 'Yes — scheduling and appointment reminders';
@@ -392,6 +393,9 @@ function communicationsSection(submissionBag, publicOrigin) {
   const rows = [];
   if (cp.emailPreference) pushRow(rows, 'Email', commChoiceLabel('email', cp.emailPreference));
   if (cp.smsPreference) pushRow(rows, 'Text messages (SMS)', commChoiceLabel('sms', cp.smsPreference));
+  if (cp.alternativeContactInstructions) pushRow(rows, 'Alternative contact instructions', cp.alternativeContactInstructions);
+  if (cp.noRoutineCalls === true) pushRow(rows, 'Routine phone calls', 'Do not call');
+  if (cp.noAutomaticEmail === true) pushRow(rows, 'Automatic emails', 'Do not send');
   if (cp.recipientPhone) pushRow(rows, 'Recipient phone', cp.recipientPhone);
   if (cp.signerName) pushRow(rows, 'Communication choices signed by', cp.signerName);
   if (cp.signedAt) pushRow(rows, 'Choices signed at', cp.signedAt);
@@ -964,6 +968,8 @@ export function buildCompletedIntakeRecord({
   pushRow(contactRows, 'Name', contactName);
   pushRow(contactRows, 'Email', contactEmail);
   pushRow(contactRows, 'Phone', contactPhone);
+  pushRow(contactRows, 'Relationship to client', guardian.relationship || intakeData.guardian?.relationship || guardianBag.relationship
+    || (intakeData.intakeForSelf === true ? 'Self' : ''));
   const whoFor = String(submissionBag.whoFor || submissionBag.this_is_for || intakeData.whoFor || '').trim();
   if (whoFor) pushRow(contactRows, 'This is for', humanizeKey(whoFor));
   const isJobApplication = String(link?.form_type || '').toLowerCase() === 'job_application';

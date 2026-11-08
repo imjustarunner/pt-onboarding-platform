@@ -658,6 +658,7 @@
                 v-else-if="!serviceSubject || serviceSubject === 'dependent'"
                 class="intake-start-custody"
                 :model="otherGuardian"
+          :required="true"
                 :copy="otherGuardianCopy"
                 :can-edit="canEditIntakeLegal"
                 :agency-slug="referralAgencySlug || agencyInfo?.portal_url || agencyInfo?.slug || ''"
@@ -979,6 +980,7 @@
           class="intake-start-custody"
           :class="{ 'intake-start-custody--school': isSchoolScopedIntake, 'required-missing-glow': stepError && !otherGuardianContactOk() }"
           :model="otherGuardian"
+          :required="true"
           :copy="otherGuardianCopy"
           :can-edit="canEditIntakeLegal"
           :agency-slug="referralAgencySlug || agencyInfo?.portal_url || agencyInfo?.slug || ''"
@@ -1788,6 +1790,14 @@
             :validation-errors="insuranceErrors"
             @update:model-value="(v) => { intakeResponses.submission.insuranceInfo = v; clearInsuranceErrorsOnEdit(v); }"
             @medicaid-change="(isMedicaid) => { if (intakeResponses.submission.insuranceInfo) intakeResponses.submission.insuranceInfo.primaryIsMedicaid = isMedicaid; }"
+          />
+          <PublicIntakeSchoolPaymentOptions
+            v-if="link?.scope_type === 'school' && !isOfficeInDepthIntake && !isPaymentOnlyEnrollmentChannel && (intakeResponses.submission.insuranceInfo?.isSelfPay || intakeResponses.submission.insuranceInfo?.primary?.insurerName) && !shouldSkipPaymentCollectionStep()"
+            :public-key="publicKey"
+            :submission-id="submissionId"
+            :model-value="intakeResponses.submission.paymentInfo || {}"
+            @update:model-value="(value) => { intakeResponses.submission.paymentInfo = value; }"
+            @card-saved="onPaymentCardSaved"
           />
         </div>
 
@@ -3145,6 +3155,7 @@ import PDFPreview from '../components/documents/PDFPreview.vue';
 import PublicIntakeGuardianWaiverStep from '../components/public-intake/PublicIntakeGuardianWaiverStep.vue';
 import BirthDateInput from '../components/public-intake/BirthDateInput.vue';
 import PublicIntakeInsuranceStep from '../components/public-intake/PublicIntakeInsuranceStep.vue';
+import PublicIntakeSchoolPaymentOptions from '../components/public-intake/PublicIntakeSchoolPaymentOptions.vue';
 import PublicIntakePaymentStep from '../components/public-intake/PublicIntakePaymentStep.vue';
 import PublicIntakeInsurancePaymentStep from '../components/public-intake/PublicIntakeInsurancePaymentStep.vue';
 import PublicIntakePackageSelectionStep from '../components/public-intake/PublicIntakePackageSelectionStep.vue';
@@ -3469,8 +3480,8 @@ const INTAKE_TRANSLATIONS = {
     downloadPackets: 'Download packets',
     custodyOtherGuardianTitle: 'Custody & other guardian',
     custodyOtherGuardianLead: 'If another parent has legal rights, our team will reach out so they can complete their own enrollment. They will not see what you submit.',
-    custodyOtherGuardianLeadSchool: 'If another parent or guardian has medical decision-making rights, our team will follow up so they can complete their own consent and enrollment forms. They will not see what you submit. A portal login is not created unless they ask for one.',
-    otherGuardianLegalRights: 'Another parent/guardian with legal rights who will complete their own enrollment?',
+    custodyOtherGuardianLeadSchool: 'If custody or medical decision-making rights are shared, the other guardian receives a separate invitation to complete their own information and signatures in the portal. Your answers remain separate.',
+    otherGuardianLegalRights: 'Do you share custody or medical decision-making rights with another parent or guardian?',
     otherGuardianLegalYes: 'Yes — send them their enrollment',
     otherGuardianLegalYesSchool: 'Yes — they have decision-making rights and need their own forms',
     otherGuardianLegalShared: 'Yes — we share decision-making',
@@ -3486,7 +3497,7 @@ const INTAKE_TRANSLATIONS = {
     otherGuardianPhone: 'Phone',
     otherGuardianRelationship: 'Relationship',
     otherGuardianReachOutNote: 'We will reach out to them on your behalf. Please provide their correct email (best) or phone. If you do not have either, upload any court documents you have. Missing contact information can delay start of care.',
-    otherGuardianReachOutNoteSchool: 'Our team will follow up so they can complete their own consent and enrollment forms. Provide their email (best) or phone. If you do not have either, upload any court documents you have. Missing contact information can delay start of care.',
+    otherGuardianReachOutNoteSchool: 'When custody or medical decision-making rights are shared, the other guardian must complete and sign their own forms for the children in this enrollment. Enter their email to send a separate invitation. If only a phone number or court documents are available, our team will follow up to collect their consent.',
     otherGuardianCourtDocsLabel: 'Upload court documents (encrypted)',
     otherGuardianCourtDocsHelp: 'Files are stored encrypted.',
     otherGuardianViewConsent: 'View custody and consent details',
@@ -3731,7 +3742,7 @@ const INTAKE_TRANSLATIONS = {
     officeNextStart: 'Get started:',
     officeNextStartBody: "Once everything is set, we'll help you schedule.",
     savePacketSummary: 'Download a branded PDF of what you submitted — answers, signatures, approvals, and e-sign details.',
-    downloadSummary: 'Download PDF',
+    downloadSummary: 'Download summary PDF',
     downloadSummaryUnavailable: 'This summary is not available yet. Please try again in a moment.',
     preparingPdf: 'Preparing PDF…',
     nextSteps: 'Next Steps',
@@ -3898,8 +3909,8 @@ const INTAKE_TRANSLATIONS = {
     downloadPackets: 'Descargar paquetes',
     custodyOtherGuardianTitle: 'Custodia y otro tutor',
     custodyOtherGuardianLead: 'Si otro padre o madre tiene derechos legales, nuestro equipo se comunicará para que complete su propia admisión. No verá lo que usted envíe.',
-    custodyOtherGuardianLeadSchool: 'Si otro padre, madre o tutor tiene derechos de decisión médica, nuestro equipo dará seguimiento para que complete su propio consentimiento y formularios. No verá lo que usted envíe. No se crea un inicio de sesión a menos que lo solicite.',
-    otherGuardianLegalRights: '¿Otro padre, madre o tutor con derechos legales que completará su propia admisión?',
+    custodyOtherGuardianLeadSchool: 'Si comparte la custodia o los derechos de decisión médica, el otro tutor recibe una invitación por separado para completar su propia información y firmas en el portal. Sus respuestas se mantienen separadas.',
+    otherGuardianLegalRights: '¿Comparte la custodia o los derechos de decisión médica con otro padre, madre o tutor?',
     otherGuardianLegalYes: 'Sí — enviarles su admisión',
     otherGuardianLegalYesSchool: 'Sí — tienen derechos de decisión y necesitan sus propios formularios',
     otherGuardianLegalShared: 'Sí — compartimos las decisiones',
@@ -3915,7 +3926,7 @@ const INTAKE_TRANSLATIONS = {
     otherGuardianPhone: 'Teléfono',
     otherGuardianRelationship: 'Parentesco',
     otherGuardianReachOutNote: 'Nos comunicaremos con ellos en su nombre. Proporcione su correo correcto (lo mejor) o teléfono. Si no tiene ninguno, suba documentos judiciales. Falta de contacto puede retrasar el inicio de servicios.',
-    otherGuardianReachOutNoteSchool: 'Nuestro equipo dará seguimiento para que completen su propio consentimiento y formularios. Proporcione su correo (lo mejor) o teléfono. Si no tiene ninguno, suba documentos judiciales. Falta de contacto puede retrasar el inicio de servicios.',
+    otherGuardianReachOutNoteSchool: 'Si comparte la custodia o los derechos de decisión médica, el otro tutor debe completar y firmar sus propios formularios para los niños de esta inscripción. Ingrese su correo para enviar una invitación por separado. Si solo tiene teléfono o documentos judiciales, nuestro equipo dará seguimiento para obtener su consentimiento.',
     otherGuardianCourtDocsLabel: 'Subir documentos judiciales (cifrados)',
     otherGuardianCourtDocsHelp: 'Los archivos se guardan cifrados.',
     otherGuardianViewConsent: 'Ver detalles de custodia y consentimiento',
@@ -6697,7 +6708,7 @@ watch(
   () => [currentFlowStep.value?.id, currentFlowStep.value?.type],
   () => {
     if (currentFlowStep.value?.type !== 'communications') return;
-    const stored = intakeResponses.submission?.communicationPreferences || {};
+    const stored = intakeResponses.submission?.communicationDraft || intakeResponses.submission?.communicationPreferences || {};
     communications.emailPreference = String(stored.emailPreference || communications.emailPreference || '');
     communications.noRoutineCalls = stored.noRoutineCalls === true;
     communications.noAutomaticEmail = stored.noAutomaticEmail === true;
@@ -7511,6 +7522,7 @@ function otherGuardianFieldBag() {
   };
 }
 function otherGuardianContactOk() {
+  if (serviceSubject.value === 'representative') return true;
   if (isOfficeInDepthIntake.value && ['couple', 'family'].includes(serviceSubject.value)) return true;
   if (intakeForSelf.value !== false || isCoGuardianInvitee.value) return true;
   const rights = String(otherGuardian.hasLegalRights || '').trim().toLowerCase();
@@ -8006,12 +8018,12 @@ async function continueWhoFor() {
   consentErrors.guardianRelationship = (() => {
     const subject = serviceSubject.value
       || (intakeForSelf.value === true ? 'self' : intakeForSelf.value === false ? 'dependent' : '');
-    if (subject !== 'dependent') return '';
+    if (!['dependent', 'representative'].includes(subject)) return '';
     return guardianRelationship.value.trim() ? '' : t('required');
   })();
   const subjectNow = serviceSubject.value
     || (intakeForSelf.value === true ? 'self' : intakeForSelf.value === false ? 'dependent' : '');
-  if (subjectNow === 'dependent' || subjectNow === 'family') {
+  if (['dependent', 'representative', 'family'].includes(subjectNow)) {
     if (!clients.value.length) clients.value = [emptyOfficeClient()];
     startClientErrors.value = clients.value.map((c) => ({
       firstName: String(c?.firstName || '').trim() ? '' : t('required'),
@@ -8401,6 +8413,7 @@ const buildDraftSnapshot = () => ({
   schoolChildFlowVersion: 1,
   maxReachedProgressIndex: Number(maxReachedProgressIndex.value || 0),
   intakeForSelf: intakeForSelf.value,
+  serviceSubject: serviceSubject.value,
   organizationId: organizationId.value || null,
   guardian: {
     firstName: guardianFirstName.value || '',
@@ -8591,6 +8604,7 @@ const applyDraftSnapshot = (parsed) => {
   isRestoringDraft.value = true;
   try {
     if (typeof parsed.intakeForSelf === 'boolean') intakeForSelf.value = parsed.intakeForSelf;
+    if (['self', 'dependent', 'representative', 'family', 'couple'].includes(parsed.serviceSubject)) serviceSubject.value = parsed.serviceSubject;
     if (parsed.organizationId !== null && parsed.organizationId !== undefined) {
       organizationId.value = parsed.organizationId;
     }
@@ -14131,6 +14145,11 @@ watch(
     syncMobileStepScroll();
   }
 );
+
+watch(communications, () => {
+  if (isRestoringDraft.value) return;
+  intakeResponses.submission.communicationDraft = { ...communications, version: communicationConsent.value?.version };
+}, { deep: true });
 
 watch(
   () => ({

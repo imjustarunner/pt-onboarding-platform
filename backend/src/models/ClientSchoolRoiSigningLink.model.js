@@ -57,7 +57,7 @@ class ClientSchoolRoiSigningLink {
     return this.normalize(rows?.[0] || null);
   }
 
-  static async findForClient({ clientId, schoolOrganizationId }) {
+  static async findForClient({ clientId, schoolOrganizationId, recipientGuardianUserId = 0 }) {
     const cid = Number(clientId || 0);
     const sid = Number(schoolOrganizationId || 0);
     if (!cid || !sid) return null;
@@ -67,8 +67,9 @@ class ClientSchoolRoiSigningLink {
        LEFT JOIN intake_links il ON il.id = csrsl.intake_link_id
        WHERE csrsl.client_id = ?
          AND csrsl.school_organization_id = ?
+         AND csrsl.recipient_guardian_user_id = ?
        LIMIT 1`,
-      [cid, sid]
+      [cid, sid, Number(recipientGuardianUserId) || 0]
     );
     return this.normalize(rows?.[0] || null);
   }
@@ -79,7 +80,8 @@ class ClientSchoolRoiSigningLink {
     intakeLinkId,
     publicKey,
     issuedByUserId = null,
-    preserveCompleted = false
+    preserveCompleted = false,
+    recipientGuardianUserId = 0
   }) {
     const cid = Number(clientId || 0);
     const sid = Number(schoolOrganizationId || 0);
@@ -97,13 +99,13 @@ class ClientSchoolRoiSigningLink {
     const assignments=Object.entries(replacements).map(([column,value])=>`${column} = IF(${keep}, ${column}, ${value})`).join(', ');
     await pool.execute(
       `INSERT INTO client_school_roi_signing_links
-         (client_id, school_organization_id, intake_link_id, public_key, status, issued_by_user_id, issued_at,
+         (client_id, school_organization_id, recipient_guardian_user_id, intake_link_id, public_key, status, issued_by_user_id, issued_at,
           latest_intake_submission_id, signed_at, completed_client_phi_document_id, roi_context_json, roi_response_json, access_applied_at)
-       VALUES (?, ?, ?, ?, 'issued', ?, CURRENT_TIMESTAMP, NULL, NULL, NULL, NULL, NULL, NULL)
+       VALUES (?, ?, ?, ?, ?, 'issued', ?, CURRENT_TIMESTAMP, NULL, NULL, NULL, NULL, NULL, NULL)
        ON DUPLICATE KEY UPDATE ${assignments}`,
-      [cid, sid, linkId, key, actorId]
+      [cid, sid, Number(recipientGuardianUserId) || 0, linkId, key, actorId]
     );
-    return this.findForClient({ clientId: cid, schoolOrganizationId: sid });
+    return this.findForClient({ clientId: cid, schoolOrganizationId: sid, recipientGuardianUserId });
   }
 
   static async markStarted({ id, intakeSubmissionId = null }) {

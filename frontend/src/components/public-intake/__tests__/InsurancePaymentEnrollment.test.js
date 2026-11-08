@@ -6,6 +6,7 @@ import Insurance from '../PublicIntakeInsuranceStep.vue';
 import Shell from '../../digital-form/DigitalFormShell.vue';
 import Payment from '../PublicIntakePaymentStep.vue';
 import PolicyFields from '../../billing/InsurancePolicyFields.vue';
+import api from '../../../services/api';
 vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 const props = () => ({ insuranceInfo: { primary: { insurerName: 'Commercial' }, secondary: { insurerName: 'Health First Colorado', isMedicaid: true } }, clientNames: ['Sample Client'], guardianName: 'Sample Parent' });
 const mountForm = overrides => mount(Combined, { props: { ...props(), ...overrides }, global: { stubs: { PublicIntakePaymentStep: { template: '<div data-card-form>Secure card form</div>' } } } });
@@ -28,7 +29,7 @@ describe('insurance enrollment', () => {
   });
   it('cannot advance with payment follow-up until the self-pay authorization is agreed and signed', async () => {
     const w=mount(Combined,{props:{insuranceInfo:{isSelfPay:true},guardianName:'QA Parent',stepConfig:{paymentRequired:false}},global:{stubs:{SecureCardSetup:true}}});
-    await w.findAll('button').find(b => b.text().includes('Add Card')).trigger('click');
+    expect(w.findAll('button').some(b => b.text().trim() === 'Add Card Save card for payments.')).toBe(false);
     const button=()=>w.findAll('button').find(b=>b.text()==='Continue with payment follow-up');
     await button().trigger('click');
     expect(w.emitted('skip-acknowledged')).toBeUndefined();
@@ -37,7 +38,7 @@ describe('insurance enrollment', () => {
     await button().trigger('click');expect(w.emitted('skip-acknowledged')).toBeUndefined();
     await w.find('.pi-ip-sign input').setValue('QA Parent');
     await button().trigger('click');expect(w.emitted('skip-acknowledged')).toHaveLength(1);
-    expect(w.findComponent(Payment).exists()).toBe(true);w.unmount();
+    expect(w.findComponent(Payment).exists()).toBe(false);w.unmount();
   });
   it('renders subscriber fields in the intake language without changing stored policy values',async()=>{
     const w=mount(PolicyFields,{props:{modelValue:{relationshipToSubscriber:'child',memberId:'TEST-123'}},global:{provide:{intakeLocale:ref('es')}}});
@@ -126,12 +127,14 @@ describe('insurance enrollment', () => {
     restored.unmount();
   });
   it('commercial, self-pay and nonclinical enrollment collect a card only after an explicit choice', async () => {
+    api.get.mockResolvedValue({data:{stripeEnabled:true,publishableKey:'pk_test_synthetic',connectedAccountId:'acct_synthetic'}});
     for (const override of [{ insuranceInfo: { primary: { insurerName: 'Commercial' } } }, { insuranceInfo: { isSelfPay: true } }, { paymentOnly: true }]) {
-      const w = mountForm(override);
+      const w = mountForm({publicKey:'synthetic-key',...override});await flushPromises();
       expect(w.find('[data-card-form]').exists()).toBe(false);
-      await w.findAll('button').find(b => b.text().includes('Add Card')).trigger('click');
+      await w.findAll('button').find(button=>button.text().startsWith('Add Card')).trigger('click');
       expect(w.find('[data-card-form]').exists()).toBe(true); w.unmount();
     }
+    api.get.mockReset();
   });
   it('summary works without a package and does not fabricate a zero-dollar estimate', () => {
     const w = mountForm({ insuranceInfo: { isSelfPay: true } });
@@ -199,4 +202,14 @@ it('keeps card selection specific to each policy across siblings and payer order
  const policies=w.findAll('.pi-ins-claim-details .pi-ins-claim-details');
  expect(policies[0].findAll('input[type="file"]')).toHaveLength(0);
  expect(policies[1].findAll('input[type="file"]')).toHaveLength(2);w.unmount();
+});
+
+it('offers a clinical card form only when secure collection is available',async()=>{
+ api.get.mockResolvedValue({data:{stripeEnabled:true,publishableKey:'pk_test_synthetic',connectedAccountId:'acct_synthetic'}});
+ const w=mountForm({publicKey:'synthetic-key',insuranceInfo:{isSelfPay:true}});await flushPromises();
+ const card=w.findAll('button').find(button=>button.text().startsWith('Add Card'));expect(card).toBeDefined();await card.trigger('click');expect(w.find('[data-card-form]').exists()).toBe(true);w.unmount();
+ api.get.mockResolvedValue({data:{stripeEnabled:false}});
+ const unavailable=mountForm({publicKey:'synthetic-key',insuranceInfo:{isSelfPay:true}});await flushPromises();
+ expect(unavailable.findAll('button').some(button=>button.text().startsWith('Add Card'))).toBe(false);expect(unavailable.text()).toContain('Card collection is unavailable');unavailable.unmount();
+ api.get.mockReset();
 });

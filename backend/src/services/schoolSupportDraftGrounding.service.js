@@ -1,3 +1,4 @@
+import { loadGuardianRoiConsent } from './schoolRoiGuardianConsent.service.js';
 import pool from '../config/database.js';
 import { getEffectiveSchoolStaffRoiState, schoolStaffCanOpenClient } from '../models/ClientSchoolStaffRoiAccess.model.js';
 
@@ -124,7 +125,7 @@ export async function loadSchoolSupportDraftGrounding({ ticket, messages = [] },
     ? { provider: name(rows.lastAppointment[0]), start: rows.lastAppointment[0].start_at, status: rows.lastAppointment[0].status } : null;
   const recipient = rows.recipient?.[0];
   const roiStateKnown = !!recipient && rows.staffRoi !== null;
-  const staffState = roiStateKnown ? getEffectiveSchoolStaffRoiState(rows.staffRoi[0], c.roi_expires_at, { schoolStaffInOrg: true }) : 'unknown';
+  let staffState = roiStateKnown ? getEffectiveSchoolStaffRoiState(rows.staffRoi[0], c.roi_expires_at, { schoolStaffInOrg: true }) : 'unknown';
   const expiration = c.roi_expires_at ? String(c.roi_expires_at instanceof Date ? c.roi_expires_at.toISOString() : c.roi_expires_at).slice(0, 10) : null;
   let localDate;
   try {
@@ -136,7 +137,18 @@ export async function loadSchoolSupportDraftGrounding({ ticket, messages = [] },
     || (dateState === 'expired' && ['roi','roi_docs','limited'].includes(staffState));
   if (policyConflict) result.warnings.push('roi_date_policy_needs_review');
   result.roi = { expiresOn: expiration, state: policyConflict ? 'date_unverified' : dateState, staffState };
-  result.canShareScheduling = !!recipient && (enabled(recipient.is_school_admin) || enabled(recipient.is_primary)
+  let guardianConsentKnown = false;
+  let guardianDenied = true;
+  try {
+    const consent = await loadGuardianRoiConsent({ clientId, schoolOrganizationId: schoolId, db: database });
+    guardianDenied = consent.find(row => row.schoolStaffUserId === Number(ticket.created_by_user_id))?.effectiveDecision === 'none';
+    guardianConsentKnown = true;
+  } catch { result.warnings.push('guardian_permissions_unavailable'); }
+  if (guardianDenied || !guardianConsentKnown) {
+    staffState = guardianConsentKnown ? 'denied' : 'unknown';
+    result.roi.staffState = staffState;
+  }
+  result.canShareScheduling = guardianConsentKnown && !guardianDenied && !!recipient && (enabled(recipient.is_school_admin) || enabled(recipient.is_primary)
     || (roiStateKnown && schoolStaffCanOpenClient(rows.staffRoi[0], c.roi_expires_at, { schoolStaffInOrg: true })));
   if (result.assignments.length) result.sources.push({ type: 'provider_assignment', id: clientId, label: 'Current school provider assignment',
     detail: result.assignments.map(p => `${p.provider || 'Provider'}${p.day ? ` (${p.day})` : ''}`).join('; ') });
@@ -190,7 +202,7 @@ export function schoolSupportRecordReply(grounding) {
       : roi.state === 'expired' ? `The release of information (ROI) on file for ${code} expired on ${dateOnly(roi.expiresOn)}.`
         : roi.state === 'date_unverified' ? `The release of information (ROI) record for ${code} lists ${dateOnly(roi.expiresOn)}. Its effective expiration status needs an internal timezone/access check before renewal can be confirmed.`
         : `There is no expiration date on the current release of information (ROI) record for ${code}; that does not prove whether a renewal was submitted elsewhere.`;
-    const access = { roi: 'Your account has permission to speak about this client.', roi_docs: 'Your account has permission to speak and view the released documents.',
+    const access = { denied: 'A guardian denied permission for your account. Sharing about this client is blocked.', roi: 'Your account has permission to speak about this client.', roi_docs: 'Your account has permission to speak and view the released documents.',
       limited: 'Your account has limited school access; that is separate from a specific permission to speak or view documents.',
       expired: 'The school access tied to that release is expired.', none: 'There is no active individual release grant for your account.', packet: 'Your account is currently marked as having no active individual release.',
       unknown: 'The individual release grant for your account could not be verified.' }[roi.staffState];

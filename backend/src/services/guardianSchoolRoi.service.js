@@ -71,7 +71,7 @@ export async function openGuardianSchoolRelease({
   }
   if (!schoolId) return { ready: false, reason: 'no_school', clientId: cid };
 
-  const existing = await findExisting({ clientId: cid, schoolOrganizationId: schoolId });
+  const existing = await findExisting({ clientId: cid, schoolOrganizationId: schoolId, recipientGuardianUserId: uid });
   if (String(existing?.status || '').toLowerCase() === 'completed') {
     return {
       ready: false,
@@ -86,6 +86,7 @@ export async function openGuardianSchoolRelease({
     client: { id: cid },
     schoolOrganizationId: schoolId,
     actorUserId: uid,
+    recipientGuardianUserId: uid,
     regenerate: false
   });
   const publicKey = String(issued?.issuedLink?.public_key || '').trim();

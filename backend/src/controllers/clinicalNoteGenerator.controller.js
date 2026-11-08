@@ -1605,7 +1605,7 @@ export const generateClinicalNote = async (req, res, next) => {
     if (terminationRequested && finishReason && finishReason !== 'STOP') {
       return res.status(422).json({ error: { message: 'The termination note could not be generated in full. No partial note was saved. Please retry or complete the note manually.' } });
     }
-    const parsedSections = parseNoteSections(text, { intake: ['clinical_90791_intake_plan', 'clinical_90791_note_aid', 'clinical_h0031_intake'].includes(toolId) });
+    const parsedSections = parseNoteSections(text, { skipMse: /^clinical_h\d{4}(?:_|$)/i.test(toolId), intake: ['clinical_90791_intake_plan', 'clinical_90791_note_aid', 'clinical_h0031_intake'].includes(toolId) });
     const intakeError = intakeOutputError(toolId, parsedSections, finishReason);
     if (intakeError) return res.status(422).json({ error: { message: intakeError } });
     if (parsedSections.Interventions) parsedSections.Interventions = normalizeInterventionsList(parsedSections.Interventions);

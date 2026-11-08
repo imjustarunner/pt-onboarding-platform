@@ -21,6 +21,8 @@ function fixture(overrides = {}) {
     if (sql.includes('FROM soft_schedule_slots')) return [state.plans];
     if (sql.includes('FROM appointments ap')) return [sql.includes("ap.status='completed'") ? state.pastAppointments : state.appointments];
     if (sql.includes('FROM users u\n      JOIN user_agencies')) return [state.recipient];
+    if (sql.includes('FROM client_school_roi_guardian_decisions')) return [state.guardianDecisions || []];
+    if (sql.includes('FROM intake_submission_documents')) return [[]];
     if (sql.includes('FROM client_school_staff_roi_access')) return [state.roi];
     if (sql.includes('SELECT u.id,u.first_name,u.last_name FROM users')) return [[{ id: 1433, first_name: 'Avery', last_name: 'Morgan QA' }]];
     throw Error('Unexpected SQL: ' + sql);
@@ -74,17 +76,17 @@ describe('current school administrative evidence for support drafts', () => {
   it('keeps a revoked staff release distinct from a current agency expiration date', async () => {
     const f = fixture({ roi: [{ access_level: 'roi_docs', is_active: 0 }] });
     const g = await load(f, { ticket: { ...ticket, question: "Has SAGQAS's ROI been renewed?" } });
-    expect(g.roi).toMatchObject({ state: 'current', staffState: 'limited' });
-    expect(schoolSupportRecordReply(g)).toContain('limited school access');
+    expect(g.roi).toMatchObject({ state: 'current', staffState: 'none' });
+    expect(schoolSupportRecordReply(g)).toContain('no active individual release grant');
     expect(schoolSupportRecordReply(g)).not.toMatch(/permission to speak and view/);
   });
-  it('does not disclose the schedule to an ordinary school recipient without release access', async () => {
+  it('preserves the existing overview policy for staff without a personal grant when no guardian has denied them', async () => {
     const f = fixture({ recipient: [{ id: 1465, role: 'school_staff', is_school_admin: 0 }], roi: [] });
     f.state.clients[0].roi_expires_at = null;
     const g = await load(f);
-    expect(g.canShareScheduling).toBe(false);
-    expect(schoolSupportRecordReply(g)).toContain('does not permit sharing session details');
-    expect(schoolSupportRecordReply(g)).not.toMatch(/Avery|Thursday/);
+    expect(g.canShareScheduling).toBe(true);
+    expect(g.roi.staffState).toBe('none');
+    expect(schoolSupportRecordReply(g)).toContain('Avery');
   });
   it('distinguishes a weekly plan from a booked school appointment and formats its actual Denver daylight offset', async () => {
     const f = fixture({ plans: [{ provider_user_id: 1433, first_name: 'Avery', last_name: 'Morgan QA', weekday: 'Thursday', start_time: '10:00:00', end_time: '10:45:00' }],
@@ -188,4 +190,10 @@ describe('reject unsafe or ungrounded school-support drafts', () => {
     expect(validateSchoolSupportReply('The appointment is confirmed.', grounding)).toContain('unverified_appointment_change');
     expect(validateSchoolSupportReply('I can review the room-change request with the current school schedule.', grounding)).toEqual([]);
   });
+});
+
+it('blocks a staff administrator from receiving scheduling details when either guardian denied them', async () => {
+ const f = fixture({guardianDecisions:[{client_id:2274,guardian_user_id:9,school_staff_user_id:1465,intake_submission_id:10,decision:'none',signed_at:'2026-10-01T00:00:00Z',expires_at:'2029-10-01T00:00:00Z'}]});
+ const result = await loadSchoolSupportDraftGrounding({ticket,clientIds:[2274],messages:[],now}, {database:f.database});
+ expect(result.canShareScheduling).toBe(false);
 });

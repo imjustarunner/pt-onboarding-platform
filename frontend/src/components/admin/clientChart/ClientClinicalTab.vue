@@ -8,7 +8,7 @@
       <div class="cc-clinical-toolbar">
         <div class="cc-clinical-toolbar__meta muted">
           <span v-if="clinicalCapturedAt">
-            Intake completed {{ formatDate(clinicalCapturedAt) }}.
+            Intake responses captured {{ formatDate(clinicalCapturedAt) }}.
           </span>
           <span v-else-if="clinicalTemplateMode">
             {{ isLearningClient ? 'Student profile template.' : 'Clinical profile template.' }}
@@ -400,6 +400,7 @@
 </template>
 
 <script setup>
+import { formatAuditTimestamp } from '../../../utils/formatDate.js';
 import { computed, onMounted, ref, toRef, watch } from 'vue';
 import { useClientClinicalResponses } from '../../../composables/useClientClinicalResponses.js';
 import { useClientEncounters } from '../../../composables/useClientEncounters.js';
@@ -584,9 +585,7 @@ const recentEncounters = computed(() => sortedEncounters.value.slice(0, 5));
 
 const formatDate = (value) => {
   if (!value) return '—';
-  const d = new Date(value);
-  if (!Number.isFinite(d.getTime())) return String(value);
-  return d.toLocaleDateString();
+  return formatAuditTimestamp(value, { dateOnly: true }) || String(value);
 };
 
 const formatBillingDate = formatDate;

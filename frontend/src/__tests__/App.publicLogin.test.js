@@ -84,3 +84,13 @@ it('retains the assistant shell boundary even on a login-named route', async () 
     expect(state.workspaceMounted).not.toHaveBeenCalled();
   } finally { wrapper.unmount(); }
 });
+
+it.each(['PublicIntakeSigning', 'PublicIntakeSigningShort'])('keeps %s independent of a signed-in employee inactivity lock', async name => {
+  state.auth.user = { id: 42, role: 'provider' }; state.auth.isAuthenticated = true;
+  state.route.name = name;
+  const wrapper = render(); await flushPromises();
+  expect(state.workspaceMounted).not.toHaveBeenCalled();
+  state.route.name = 'OrganizationDashboard'; await flushPromises();
+  expect(state.workspaceMounted).toHaveBeenCalledTimes(1);
+  wrapper.unmount();
+});

@@ -92,7 +92,10 @@ export async function attachGuardianSchoolAffiliations(clients = [], { guardianU
                             AND d.client_id=r.client_id AND d.signed_pdf_path IS NOT NULL
                             AND JSON_EXTRACT(d.audit_trail,'$.smartSchoolRoi')=true) AS document_id
                   FROM client_school_roi_signing_links r JOIN clients c ON c.id=r.client_id
-                  WHERE r.client_id IN (${placeholders})`, [Number(guardianUserId) || 0, ...schoolIds])
+                  WHERE r.client_id IN (${placeholders}) AND (r.recipient_guardian_user_id = ?
+                    OR (r.recipient_guardian_user_id = 0 AND EXISTS(SELECT 1 FROM intake_submissions own_submission
+                      WHERE own_submission.id = r.latest_intake_submission_id AND own_submission.guardian_user_id = ?)))
+                  ORDER BY (r.recipient_guardian_user_id > 0) DESC, r.id DESC`, [Number(guardianUserId) || 0, ...schoolIds, Number(guardianUserId) || 0, Number(guardianUserId) || 0])
   ]);
   for (const client of schoolClients) for (const school of client.school_affiliations) {
     const sameSchool = row => Number(row.client_id) === Number(client.client_id) && Number(row.organization_id || row.school_organization_id) === school.organization_id;

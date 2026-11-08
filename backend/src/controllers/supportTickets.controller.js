@@ -804,12 +804,12 @@ async function getSchoolStaffTicketAccessState({ req, schoolOrganizationId, clie
     schoolOrganizationId,
     userEmail: req.user?.email || req.user?.username || null
   });
-  if (scheduler) return 'limited';
-  return ClientSchoolStaffRoiAccess.resolveSchoolStaffClientAccessState({
+  const state = await ClientSchoolStaffRoiAccess.resolveSchoolStaffClientAccessState({
     clientId,
     schoolOrganizationId,
     schoolStaffUserId: req.user?.id
   });
+  return state === 'denied' ? 'denied' : scheduler ? 'limited' : state;
 }
 
 const isSuperAdmin = (req) => String(req.user?.role || '').toLowerCase() === 'super_admin';

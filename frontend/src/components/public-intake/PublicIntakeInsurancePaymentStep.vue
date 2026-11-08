@@ -110,6 +110,7 @@
 
         <div class="pi-ip-choice-row pi-ip-choice-row--3">
           <button
+            v-if="paymentOnly || cardAvailable"
             type="button"
             class="pi-ip-choice"
             :class="{ 'pi-ip-choice--active': paymentChoice === 'add_card' }"
@@ -143,7 +144,12 @@
           </button>
         </div>
 
-        <div v-if="paymentChoice === 'add_card'" class="pi-ip-payment-embed">
+        <p v-if="!paymentOnly && checkingCard" role="status">{{ tx('Checking secure card availability…') }}</p>
+        <template v-else-if="!paymentOnly && !cardAvailable">
+          <p>{{ tx('Card collection is unavailable right now. You can continue enrollment and arrange payment with the office later.') }}</p>
+          <button type="button" class="btn btn-secondary" @click="deferUnavailableCard">{{ tx('Continue with payment follow-up') }}</button>
+        </template>
+        <div v-if="(paymentOnly || cardAvailable) && paymentChoice === 'add_card'" class="pi-ip-payment-embed">
           <PublicIntakePaymentStep
             ref="paymentRef"
             :model-value="paymentInfo"
@@ -258,6 +264,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
+import api from '../../services/api';
 import PublicIntakeInsuranceStep from './PublicIntakeInsuranceStep.vue';
 import PublicIntakePaymentStep from './PublicIntakePaymentStep.vue';
 import { hasMedicaidCoverage } from '../../utils/insurancePaymentPolicy.js';
@@ -335,6 +342,26 @@ const showPaymentSection = computed(() => {
   if (isSelfPay.value) return true;
   return true; // commercial insurance
 });
+
+const cardAvailable = ref(false);
+const checkingCard = ref(false);
+let cardRequest = 0;
+watch([showPaymentSection, () => props.publicKey, () => props.paymentOnly], async ([shown, key, paymentOnly]) => {
+  const request = ++cardRequest;
+  cardAvailable.value = false;
+  checkingCard.value = false;
+  if (!shown || paymentOnly || !key) return;
+  checkingCard.value = true;
+  try {
+    const { data } = await api.get(`/public-intake/${encodeURIComponent(key)}/stripe-config`, { skipGlobalLoading: true });
+    if (request === cardRequest) cardAvailable.value = data?.stripeEnabled !== false && !!(data?.publishableKey && data?.connectedAccountId);
+  } catch { if (request === cardRequest) cardAvailable.value = false; }
+  finally { if (request === cardRequest) checkingCard.value = false; }
+}, { immediate: true });
+function deferUnavailableCard() {
+  paymentChoice.value = 'later';
+  onPaymentSkip();
+}
 
 const showSidebar = computed(() => true);
 

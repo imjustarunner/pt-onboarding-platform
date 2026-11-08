@@ -1,3 +1,4 @@
+import { loadGuardianRoiConsent, restrictSchoolRoiState } from './schoolRoiGuardianConsent.service.js';
 import pool from '../config/database.js';
 import { getContactPlanContext } from './schoolContactPlan.service.js';
 
@@ -36,6 +37,8 @@ export async function loadSchoolContactStaff({ agencyId, providerUserId, workflo
     WHERE r.client_id=? AND r.school_organization_id=? AND r.is_active=1 AND r.access_level IN ('roi','roi_docs')
       AND u.role='school_staff' AND u.is_active=1 AND COALESCE(u.is_archived,0)=0 AND u.terminated_at IS NULL
     ORDER BY u.last_name,u.first_name,u.id`, [w.client_id,w.school_id]);
+  const consent = await loadGuardianRoiConsent({ clientId: w.client_id, schoolOrganizationId: w.school_id, db: database });
+  for (const row of rows) row.access_level = restrictSchoolRoiState(row.access_level, consent.find(item => item.schoolStaffUserId === Number(row.school_staff_user_id)));
   const [steps] = await database.execute("SELECT step_key,status FROM school_contact_workflow_steps WHERE workflow_id=? AND status='sent'", [w.id]);
   const sent = new Set(steps.map(s=>s.step_key));
   const completedPhases = {first:sent.has('initial_email'),second:sent.has('second_contact') || sent.has('followup_sms'),third:sent.has('final_contact') || sent.has('followup_email')};

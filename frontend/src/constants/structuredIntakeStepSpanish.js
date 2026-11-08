@@ -8,6 +8,14 @@ import { OFFICE_SCREEN_ES } from './officeClinicalSpanish.js';
  */
 
 export const STRUCTURED_INTAKE_STEP_ES = {
+  'Payment method': 'Método de pago',
+  'You can save a card now or add one later in your portal. Saving a card does not charge it.': 'Puede guardar una tarjeta ahora o agregarla más tarde en su portal. Guardar una tarjeta no genera un cobro.',
+  'Checking secure card availability…': 'Verificando la disponibilidad del registro seguro de tarjetas…',
+  'Add card now': 'Agregar tarjeta ahora',
+  'Add card later': 'Agregar tarjeta más tarde',
+  'Card collection is unavailable right now. You can continue enrollment and arrange payment with the office later.': 'El registro de tarjetas no está disponible en este momento. Puede continuar la inscripción y coordinar el pago con la oficina más tarde.',
+  'No card will be saved now. Add one in your portal before paid services begin, or contact the office about payment arrangements.': 'No se guardará ninguna tarjeta ahora. Agregue una en su portal antes de comenzar los servicios de pago o comuníquese con la oficina para coordinar el pago.',
+
   'Continue with payment follow-up': 'Continuar con seguimiento de pago',
   'Secure card collection is not enabled yet. Your account will need payment follow-up before paid services.': 'El registro seguro de tarjetas aún no está habilitado. Se necesitará un seguimiento de pago antes de recibir servicios de pago.',
   'Client’s relationship to subscriber': 'Relación del cliente con el titular',

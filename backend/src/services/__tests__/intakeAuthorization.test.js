@@ -23,3 +23,17 @@ it.each([
 it('keeps requiring the agreement on office self-pay even with the school marker',async()=>{
   await expect(validateIntakeBilling(input({authorizationSourceMethod:'self_pay'}))).rejects.toMatchObject({status:400});
 });
+it.each(['later', 'na'])('honors the offered clinical %s choice with an active processor', async choice => {
+  pool.execute.mockResolvedValue([[{ stripe_connect_account_id: 'acct_synthetic' }]]);
+  const data = input({ authorizationAgreed: true, authorizationSignature: 'QA Parent' });
+  data.intakeData.responses.submission.paymentInfo.paymentChoice = choice;
+  await expect(validateIntakeBilling(data)).resolves.toBeUndefined();
+  expect(pool.execute).not.toHaveBeenCalled();
+});
+it('does not use clinical deferral to bypass a required nonclinical payment', async () => {
+  pool.execute.mockResolvedValueOnce([[{ stripe_connect_account_id: 'acct_synthetic' }]]).mockResolvedValueOnce([[]]);
+  const data = input({ authorizationAgreed: true, authorizationSignature: 'QA Parent' });
+  data.link.master_channel = 'tutoring'; data.link.intake_steps[0].paymentOnly = true;
+  data.intakeData.responses.submission.paymentInfo.paymentChoice = 'later';
+  await expect(validateIntakeBilling(data)).rejects.toMatchObject({ status: 409 });
+});

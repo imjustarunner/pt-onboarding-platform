@@ -37,3 +37,11 @@ test('incomplete or truncated intake responses cannot pass as complete', () => {
   assert.match(intakeOutputError('clinical_90791_intake_plan', {}, 'MAX_TOKENS'), /interrupted/);
   assert.equal(intakeOutputError('clinical_psychotherapy_note', { Objective: 'Observation' }, 'STOP'), null);
 });
+
+test('H0031 omits MSE while preserving documented risk and all remaining intake sections',()=>{
+ const text=INTAKE_SECTION_TITLES.map(title=>`${title}:\nDocumented ${title}.`).join('\n');
+ const sections=parseNoteSections(text,{intake:true,skipMse:true});
+ assert.equal(sections['Mental Status Examination'],undefined);assert.equal(sections['Risk Assessment'],'Documented Risk Assessment.');
+ assert.equal(intakeOutputError('clinical_h0031_intake',sections,'STOP'),null);
+ assert.match(intakeOutputError('clinical_90791_note_aid',sections,'STOP'),/Mental Status Examination/);
+});

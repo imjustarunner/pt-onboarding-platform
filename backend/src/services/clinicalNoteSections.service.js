@@ -60,6 +60,7 @@ export function parseNoteSections(text, options = {}) {
     }
   }
   flush();
+  if (options.skipMse) for (const title of Object.keys(sections)) if (/mental status|^mse$/i.test(title)) delete sections[title];
   return sections;
 }
 
@@ -67,6 +68,6 @@ export function parseNoteSections(text, options = {}) {
 export function intakeOutputError(toolId, sections, finishReason) {
   if (!['clinical_90791_intake_plan', 'clinical_90791_note_aid', 'clinical_h0031_intake'].includes(toolId)) return null;
   if (finishReason && finishReason !== 'STOP') return 'The intake response was interrupted. Please regenerate or complete the intake manually.';
-  const missing = INTAKE_SECTION_TITLES.filter((title) => !String(sections[title] || '').trim());
+  const missing = INTAKE_SECTION_TITLES.filter(title => !(toolId === 'clinical_h0031_intake' && title === 'Mental Status Examination')).filter((title) => !String(sections[title] || '').trim());
   return missing.length ? `The intake response is missing required sections: ${missing.join(', ')}. Please regenerate or complete the intake manually.` : null;
 }

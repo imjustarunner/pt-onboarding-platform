@@ -1,5 +1,5 @@
+import { requestSchoolRoiForGuardians } from '../services/schoolRoiGuardianRequests.service.js';
 import { clientEmailLabel, portalActionHtml } from '../services/clientPortalEmailContent.js';
-import { sendSchoolRoiEmail, schoolRoiDelivery } from '../services/schoolRoiEmail.service.js';
 import crypto from 'crypto';
 import Client from '../models/Client.model.js';
 import User from '../models/User.model.js';
@@ -196,7 +196,7 @@ function buildDefaultRoiSmsMessage({ agencyName, linkUrl }) {
   const senderName = String(agencyName || 'our agency').trim() || 'our agency';
   const url = String(linkUrl || '').trim();
   return [
-    `Hi this is ${senderName} and your ROI is expired.`,
+    `Hi, this is ${senderName}. Please review your school release of information.`,
     `A new one has been attached to this private link: ${url}`,
     `If you are no longer interested in our services write STOP. Respond with MORE if you'd like us to call you.`
   ].join(' ');
@@ -350,7 +350,8 @@ export async function ensureIssuedRoiSigningLinkForClient({
   schoolOrganizationId,
   actorUserId = null,
   regenerate = false,
-  preferredLanguageCode = 'en'
+  preferredLanguageCode = 'en',
+  recipientGuardianUserId = 0
 }) {
   const selection = await resolveSchoolRoiSelection(schoolOrganizationId);
   const preferredLocale = normalizeLanguageCode(preferredLanguageCode);
@@ -364,7 +365,7 @@ export async function ensureIssuedRoiSigningLinkForClient({
 
   const existing = await ClientSchoolRoiSigningLink.findForClient({
     clientId: client.id,
-    schoolOrganizationId
+    schoolOrganizationId, recipientGuardianUserId
   });
   const hasUsableKey =
     existing
@@ -383,7 +384,8 @@ export async function ensureIssuedRoiSigningLinkForClient({
         intakeLinkId: Number(selectedLink.id),
         publicKey: crypto.randomBytes(24).toString('hex'),
         issuedByUserId: actorUserId,
-        preserveCompleted: !regenerate
+        preserveCompleted: !regenerate,
+        recipientGuardianUserId
       });
 
   return { ok: true, issuedLink, config: selection.explicitConfig, selectedLink, preferredLanguageCode: preferredLocale };
@@ -1010,8 +1012,6 @@ export const sendClientSchoolRoiSigningText = async (req, res, next) => {
   }
 };
 
-const _roiEmailCooldowns = new Map();
-const ROI_EMAIL_COOLDOWN_MS = 3 * 60 * 1000;
 
 export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
   try {
@@ -1024,19 +1024,6 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
     const access = await requireManagedClient(req, clientId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
-    const toEmailRaw = String(req.body?.email || '').trim().toLowerCase();
-    if (toEmailRaw && toEmailRaw.includes('@')) {
-      const cooldownKey = `${clientId}:${toEmailRaw}`;
-      const lastSent = _roiEmailCooldowns.get(cooldownKey) || 0;
-      const elapsed = Date.now() - lastSent;
-      if (elapsed < ROI_EMAIL_COOLDOWN_MS) {
-        const waitSec = Math.ceil((ROI_EMAIL_COOLDOWN_MS - elapsed) / 1000);
-        return res.status(429).json({
-          error: { message: `An ROI email was already sent to this address recently. Please wait ${waitSec} seconds before sending again.` }
-        });
-      }
-    }
-
     const client = access.client;
     if (resolveEffectiveClientTypeForRules(client) !== 'school') {
       return res.status(400).json({ error: { message: 'School ROI access is only available for school clients' } });
@@ -1046,147 +1033,15 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Client does not have a school affiliation yet' } });
     }
 
-    const preferredLanguageCode = normalizeLanguageCode(req.body?.languageCode);
-    const issuedResult = await ensureIssuedRoiSigningLinkForClient({
-      client,
-      schoolOrganizationId,
-      actorUserId: req.user?.id || null,
-      regenerate: !!req.body?.regenerate,
-      preferredLanguageCode
+    const delivery = await requestSchoolRoiForGuardians({
+      client, schoolOrganizationId, actorUserId: req.user?.id || null,
+      languageCode: normalizeLanguageCode(req.body?.languageCode),
+      issueLink: ensureIssuedRoiSigningLinkForClient
     });
-    if (!issuedResult.ok) {
-      return res.status(issuedResult.status).json({ error: { message: issuedResult.message } });
-    }
+    await logAuditEvent(req, { actionType: 'client_school_roi_guardian_requests', agencyId: client.agency_id,
+      metadata: { clientId, schoolOrganizationId, recipients: delivery.deliveries.map(row => ({ guardianUserId: row.guardianUserId, status: row.status })) } });
+    return res.json(delivery);
 
-    const guardians = await ClientGuardian.listForClient(clientId);
-    const defaultEmail = (guardians || [])
-      .map((guardian) => String(guardian.email || '').trim())
-      .find(Boolean);
-    const toEmail = String(req.body?.email || defaultEmail || '').trim().toLowerCase();
-    if (!toEmail || !toEmail.includes('@')) {
-      return res.status(400).json({ error: { message: 'A valid guardian email is required.' } });
-    }
-
-    const schoolName = client.organization_name || 'School';
-    const agency = client.agency_id ? await Agency.findById(client.agency_id) : null;
-    const linkUrl = buildSchoolRoiSigningUrl(issuedResult.issuedLink?.public_key || '');
-    const defaultSubject = buildDefaultRoiEmailSubject({
-      agencyName: client.agency_name || agency?.name || 'ITSCO',
-      schoolName,
-      languageCode: preferredLanguageCode
-    });
-    const defaultBody = buildDefaultRoiEmailBody({
-      agencyName: client.agency_name || agency?.name || 'ITSCO',
-      schoolName,
-      clientName: client.full_name || client.initials || `Client ${client.id}`,
-      linkUrl,
-      languageCode: preferredLanguageCode
-    });
-    const subject = String(req.body?.subject || defaultSubject).trim() || defaultSubject;
-    const body = ensureRoiEmailBodyHasLink(
-      String(req.body?.message || defaultBody).trim() || defaultBody,
-      linkUrl
-    );
-
-    if (!linkUrl) {
-      return res.status(400).json({
-        error: { message: 'Could not build a signing link for this client. Issue the ROI link first, then send the email.' }
-      });
-    }
-
-    const result = await sendSchoolRoiEmail({
-      agencyId: client.agency_id,
-      to: toEmail,
-      subject,
-      text: body,
-      html: buildRoiEmailHtml({ body, linkUrl, languageCode: preferredLanguageCode }),
-      templateType: 'school_roi_signing',
-      clientId,
-      generatedByUserId: req.user?.id || null,
-      source: 'auto',
-      linkUrl
-    });
-
-    if (result?.pendingApproval) {
-      return res.json({
-        ok: true,
-        queued: true,
-        pending_approval: true,
-        communication_id: result.communicationId || null,
-        message: 'ROI email queued for approval in Communications Center → Automation.',
-        issued_link: serializeIssuedRoiSigningLink(issuedResult.issuedLink, client),
-        link_url: linkUrl,
-        subject,
-        body_preview: body
-      });
-    }
-
-    if (result?.skipped) {
-      return res.status(409).json({
-        error: { message: `Email send blocked: ${result.reason || 'notifications disabled'}` }
-      });
-    }
-
-    if (result?.blocked) {
-      const flagText = (result.qualityFlags || []).map((f) => f.message).filter(Boolean).join(' ');
-      return res.status(409).json({
-        error: {
-          message: flagText || 'Email blocked — quality checks failed.',
-          qualityFlags: result.qualityFlags || []
-        }
-      });
-    }
-
-    if (!schoolRoiDelivery(result).sent) return res.status(502).json({error:{message:'The ROI email was not sent. Please retry or contact support.'}});
-
-    _roiEmailCooldowns.set(`${clientId}:${toEmail}`, Date.now());
-
-    try {
-      await ClientGuardianIntakeProfile.mergeEmailForClient({
-        clientId,
-        email: toEmail,
-        source: 'roi_email_sent'
-      });
-    } catch (persistErr) {
-      console.warn('[clientSchoolRoiAccess] guardian intake profile merge failed:', persistErr?.message);
-    }
-
-    const updatedLink = issuedResult.issuedLink?.id
-      ? await ClientSchoolRoiSigningLink.recordEmailSent({ id: issuedResult.issuedLink.id, toEmail })
-      : issuedResult.issuedLink;
-
-    await logAuditEvent(req, {
-      actionType: 'client_school_roi_signing_email_sent',
-      agencyId: client.agency_id || null,
-      metadata: {
-        clientId,
-        schoolOrganizationId,
-        signingLinkId: issuedResult.issuedLink?.id || null,
-        toEmail,
-        emailSendCount: updatedLink?.email_send_count || 1
-      }
-    });
-    await createSchoolRoiBackofficeNotification({
-      type: 'client_school_roi_link_sent',
-      title: 'School ROI link sent by email',
-      message: `${client.full_name || client.initials || `Client ${clientId}`} (${client.identifier_code || 'NO ROI'}) school ROI link was sent by email to ${toEmail}.`,
-      clientId,
-      agencyId: client.agency_id || null,
-      actorUserId: req.user?.id || null
-    });
-
-    res.json({
-      ok: true,
-      client,
-      issued_link: serializeIssuedRoiSigningLink(updatedLink || issuedResult.issuedLink, client),
-      sent_to: toEmail,
-      sent_at: new Date().toISOString(),
-      link_url: linkUrl,
-      subject,
-      message: body,
-      email_result: result,
-      cooldown_seconds: Math.ceil(ROI_EMAIL_COOLDOWN_MS / 1000)
-    });
   } catch (error) {
     next(error);
   }

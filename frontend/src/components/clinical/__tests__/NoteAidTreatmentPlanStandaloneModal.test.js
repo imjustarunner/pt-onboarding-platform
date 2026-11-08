@@ -40,9 +40,9 @@ beforeEach(() => {
     throw new Error(`Unexpected endpoint: ${url}`);
   });
   api.patch.mockResolvedValue({ data: {} });
-  wrapper = mount(Writer, { props: { open: true, agencyId: 7 }, global: { stubs: { teleport: true } } });
+  wrapper = mount(Writer, { attachTo: document.body, props: { open: true, agencyId: 7 }, global: { stubs: { teleport: true } } });
 });
-afterEach(() => wrapper.unmount());
+afterEach(() => { wrapper.unmount(); document.body.innerHTML = ''; });
 
 function expectReview() {
   expect(wrapper.find('.na-tp-error').exists()).toBe(false);
@@ -139,4 +139,27 @@ it('does not present an empty parsed result as a completed plan', async () => {
   await click('Parse into review');
   expect(wrapper.find('.na-tp-error').text()).toContain('No treatment goals were found');
   expect(wrapper.find('.na-tp-review').exists()).toBe(false);
+});
+
+it('creates a proposed starter plan without intake and saves an unsigned client draft without invented findings',async()=>{
+ await wrapper.setProps({clients:[{id:22,full_name:'Synthetic Client'}]});
+ await click('Create starter plan without intake');
+ expect(api.post).not.toHaveBeenCalled();expect(wrapper.text()).toContain('Proposed starter plan');
+ const numbers=wrapper.findAll('input[type=number]');expect(numbers.every(input=>input.element.value==='')).toBe(true);
+ await wrapper.find('select').setValue('22');await click('Save starter draft to client');
+ expect(api.post).toHaveBeenCalledWith('/medical-billing/treatment-plans',expect.objectContaining({clientId:22,status:'draft',finalize:false,diagnoses:[],diagnosticJustification:null,presentingProblem:null}),expect.anything());
+ const payload=api.post.mock.calls.find(([url])=>url==='/medical-billing/treatment-plans')[1];
+ expect(payload.goals[0].objectives[0].objectiveText).toContain('invite the client');
+});
+
+it('requires entered client priorities and explicit review before applying an initial plan without intake',async()=>{
+ await wrapper.setProps({clients:[{id:22,full_name:'Synthetic Client'}]});await click('Create starter plan without intake');
+ const review=wrapper.get('input[type=checkbox]');expect(review.attributes('disabled')).toBeDefined();
+ const goals=wrapper.findAll('textarea').find(el=>el.element.parentElement.textContent.includes('Client’s own goals and priorities'));
+ await goals.setValue('Sleep more consistently');await flushPromises();expect(wrapper.get('input[type=checkbox]').attributes('disabled')).toBeUndefined();await wrapper.get('input[type=checkbox]').setValue(true);await wrapper.find('select').setValue('22');
+ expect(wrapper.vm.starterClientGoals).toBe('Sleep more consistently');expect(wrapper.vm.starterReviewed).toBe(true);
+ expect(wrapper.findAll('button').map(b=>b.text())).toContain('Apply to selected client');await click('Apply to selected client');
+ const payload=api.post.mock.calls.find(([url])=>url==='/medical-billing/treatment-plans')[1];
+ expect(payload).toMatchObject({status:'active',finalize:true,sourceToolId:'note_aid_starter_plan',starterPlanReviewed:true,clientIdentifiedGoals:'Sleep more consistently',diagnoses:[]});
+ expect(payload.goals[0].goalText).toContain('Sleep more consistently');
 });

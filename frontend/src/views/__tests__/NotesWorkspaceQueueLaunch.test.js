@@ -132,3 +132,18 @@ describe('screening sign-and-next queue navigation',()=>{
   await state.onScreeningReviewSigned({}, {openNext:true});await flushPromises();expect(state.activeScreeningReview).toBeNull();expect(state.approvalError).toContain('screening was signed');expect(api.post.mock.calls.some(([url])=>url.endsWith('/sign'))).toBe(false);wrapper.unmount();
  });
 });
+
+it('waits for the library before opening an appointment draft on cold entry', async () => {
+  const original = api.get.getMockImplementation();
+  let finish;
+  api.get.mockImplementation((url, ...args) => url === '/clinical-notes/recent'
+    ? new Promise(resolve => { finish = resolve; }) : original(url, ...args));
+  const { wrapper, state } = await workspace({ draftId: '327', clinicalSessionId: '261', agencyId: '7' });
+  expect(state.draftId).toBeNull();
+  finish({ data: { drafts: [{ id: 327, agency_id: 7, service_code: '90791', clinical_session_id: 261, input_text: 'Original assessment draft.', output_json: { meta: { noteType: 'INTAKE', sessionContext: { clinicalSessionId: 261 } } } }] } });
+  await flushPromises(); await flushPromises();
+  expect(state.draftId).toBe(327);
+  expect(state.inputText).toBe('Original assessment draft.');
+  expect(state.sessionClinicalSessionId).toBe(261);
+  wrapper.unmount();
+});

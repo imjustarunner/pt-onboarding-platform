@@ -450,7 +450,7 @@ export function aidUsesFreeformCsPathway(aid) {
 export function aidSkipsMentalStatusExam(aid, serviceCode = '') {
   if (aid?.skipMse) return true;
   const code = String(serviceCode || aid?.serviceCode || '').toUpperCase();
-  return code === 'H0004' || code === 'H0031' || code === 'H0023' || code === 'H0032';
+  return /^H\d{4}$/.test(code);
 }
 
 /** Client-chart attachment (termination / contact-style / treatment summary) — not a billable event. */

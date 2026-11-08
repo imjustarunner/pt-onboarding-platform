@@ -1,3 +1,4 @@
+import { recordGuardianRoiConsent } from './schoolRoiGuardianConsent.service.js';
 import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.model.js';
 import {
   AUTHORIZED_REPRESENTATIVE,
@@ -480,38 +481,9 @@ export function validateSmartSchoolRoiResponse(response) {
   };
 }
 
-export async function applySmartSchoolRoiAccessDecisions({
-  clientId,
-  schoolOrganizationId,
-  response,
-  actorUserId = null
-}) {
-  const normalizedClientId = Number(clientId || 0);
-  const normalizedSchoolId = Number(schoolOrganizationId || 0);
-  if (!normalizedClientId || !normalizedSchoolId) {
-    throw new Error('clientId and schoolOrganizationId are required');
-  }
-
-  const results = [];
-  for (const staff of response?.staffDecisions || []) {
-    const staffId = Number(staff?.schoolStaffUserId || 0);
-    if (!staffId) continue;
-    const nextState = staff.decision === 'roi_docs' || staff.decision === 'roi'
-      ? staff.decision
-      : 'packet';
-    await ClientSchoolStaffRoiAccess.setAccessState({
-      clientId: normalizedClientId,
-      schoolOrganizationId: normalizedSchoolId,
-      schoolStaffUserId: staffId,
-      nextState,
-      actorUserId
-    });
-    results.push({
-      schoolStaffUserId: staffId,
-      nextState
-    });
-  }
-  return results;
+export async function applySmartSchoolRoiAccessDecisions({ clientId, schoolOrganizationId, response, guardianUserId, submissionId, signedAt, actorUserId = null }) {
+  return recordGuardianRoiConsent({ clientId, schoolOrganizationId, guardianUserId, submissionId, response, signedAt,
+    applyState: args => ClientSchoolStaffRoiAccess.setAccessState({ ...args, actorUserId, skipGuardianPolicy: true }) });
 }
 
 export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signedAt = new Date() }) {

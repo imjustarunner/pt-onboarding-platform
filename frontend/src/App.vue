@@ -26,9 +26,10 @@ const assistantSurface = computed(() => String(auth.user?.role || '').toLowerCas
 // Login views own their branding; authentication and route guards stay in place.
 const publicLoginNames = new Set(['Login', 'OrganizationLogin', 'ParentOrganizationLogin']);
 const schoolPortalEntryNames = new Set(['SchoolCareBridgeLogin', 'SchoolCareBridgeSchool']);
+const publicEnrollmentNames = new Set(['PublicIntakeSigning', 'PublicIntakeSigningShort']);
 const publicRecoveryNames = new Set(['SessionEnded', 'OrganizationSessionEnded']);
 // Authentication succeeds before LoginView finishes preparing the destination.
 // Keep that same form mounted until navigation, including its retry/error state.
-const publicLoginSurface = computed(() => publicRecoveryNames.has(route.name) || publicLoginNames.has(route.name)
+const publicLoginSurface = computed(() => publicEnrollmentNames.has(route.name) || publicRecoveryNames.has(route.name) || publicLoginNames.has(route.name)
   || (!auth.isAuthenticated && schoolPortalEntryNames.has(route.name)));
 </script>

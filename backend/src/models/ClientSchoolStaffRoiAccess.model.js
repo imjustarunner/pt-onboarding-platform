@@ -1,3 +1,4 @@
+import { loadGuardianRoiConsent, loadGuardianRoiConsentForClients, restrictSchoolRoiState } from '../services/schoolRoiGuardianConsent.service.js';
 import pool from '../config/database.js';
 import { schoolStaffPhone } from '../utils/schoolStaffPhone.js';
 import { paperPacketRoiExpiresAtYmd } from '../utils/paperPacketRoiExpiry.js';
@@ -91,13 +92,14 @@ export function isRoiExpired(roiExpiresAt) {
 }
 
 export function getEffectiveSchoolStaffRoiState(record, roiExpiresAt, { schoolStaffInOrg = false } = {}) {
+  if (record?.guardian_consent?.effectiveDecision === 'none') return 'denied';
   if (!record || !toBool(record.is_active)) return 'none';
   const accessLevel = normalizeAccessLevel(record.access_level);
   // A stored No ROI grant stays No ROI. A current client ROI date is not a personal grant.
   if (accessLevel === 'packet') return 'packet';
   if (isRoiExpired(roiExpiresAt)) return 'expired';
   if (accessLevel === 'limited') return 'limited';
-  return accessLevel === 'roi_docs' ? 'roi_docs' : 'roi';
+  return restrictSchoolRoiState(accessLevel === 'roi_docs' ? 'roi_docs' : 'roi', record.guardian_consent);
 }
 
 /**
@@ -330,7 +332,9 @@ class ClientSchoolStaffRoiAccess {
       rows = Array.isArray(result) ? result : [];
     }
 
+    const consent = await loadGuardianRoiConsent({ clientId: cid, schoolOrganizationId: sid });
     return (rows || []).map((row) => {
+      row.guardian_consent = consent.find(item => item.schoolStaffUserId === Number(row.school_staff_user_id));
       const effectiveState = getEffectiveSchoolStaffRoiState(row, roiExpiresAt, { schoolStaffInOrg: true });
       return {
         school_staff_user_id: Number(row.school_staff_user_id),
@@ -347,6 +351,7 @@ class ClientSchoolStaffRoiAccess {
           : 'none',
         is_active: toBool(row.is_active),
         effective_access_state: effectiveState,
+        guardian_consent: row.guardian_consent || null,
         can_open_client: schoolStaffCanOpenClient(row, roiExpiresAt, { schoolStaffInOrg: true }),
         can_view_documents: schoolStaffCanViewClientDocuments(row, roiExpiresAt, { schoolStaffInOrg: true }),
         granted_by_user_id: row.granted_by_user_id ? Number(row.granted_by_user_id) : null,
@@ -401,10 +406,12 @@ class ClientSchoolStaffRoiAccess {
       [uid, sid, ...ids]
     );
 
+    const consent = await loadGuardianRoiConsentForClients({ clientIds: ids, schoolOrganizationId: sid });
     return new Map((rows || []).map((row) => [
       Number(row.client_id),
       {
         access_level: normalizeAccessLevel(row.access_level),
+        guardian_consent: consent.get(Number(row.client_id))?.find(item => item.schoolStaffUserId === uid) || null,
         is_active: toBool(row.is_active),
         granted_at: row.granted_at || null,
         revoked_at: row.revoked_at || null,
@@ -463,7 +470,10 @@ class ClientSchoolStaffRoiAccess {
       [cid, sid, uid]
     );
     const row = rows?.[0] || null;
+    const consent = await loadGuardianRoiConsent({ clientId: cid, schoolOrganizationId: sid });
+    if (consent.find(item => item.schoolStaffUserId === uid)?.effectiveDecision === 'none') return 'denied';
     if (row) {
+      row.guardian_consent = consent.find(item => item.schoolStaffUserId === uid);
       return getEffectiveSchoolStaffRoiState(row, row.roi_expires_at || null, { schoolStaffInOrg: true });
     }
 
@@ -569,7 +579,9 @@ class ClientSchoolStaffRoiAccess {
     schoolOrganizationId,
     schoolStaffUserId,
     nextState,
-    actorUserId = null
+    actorUserId = null,
+    db = pool,
+    skipGuardianPolicy = false
   }) {
     const cid = Number(clientId || 0);
     const sid = Number(schoolOrganizationId || 0);
@@ -583,8 +595,14 @@ class ClientSchoolStaffRoiAccess {
       throw new Error('Invalid nextState');
     }
 
+    if (!skipGuardianPolicy) {
+      const consent = (await loadGuardianRoiConsent({ clientId: cid, schoolOrganizationId: sid, db })).find(item => item.schoolStaffUserId === staffId);
+      const restricted = restrictSchoolRoiState(state, consent);
+      state = restricted === 'denied' ? 'packet' : restricted;
+    }
+
     if (state === 'packet') {
-      await pool.execute(
+      await db.execute(
         `INSERT INTO client_school_staff_roi_access
           (client_id, school_organization_id, school_staff_user_id, access_level, is_active,
            revoked_by_user_id, revoked_at)
@@ -602,7 +620,7 @@ class ClientSchoolStaffRoiAccess {
       return true;
     }
 
-    await pool.execute(
+    await db.execute(
       `INSERT INTO client_school_staff_roi_access
         (client_id, school_organization_id, school_staff_user_id, access_level, is_active,
          granted_by_user_id, granted_at, revoked_by_user_id, revoked_at)

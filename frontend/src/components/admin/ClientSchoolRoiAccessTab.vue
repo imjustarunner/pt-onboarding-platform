@@ -16,7 +16,7 @@
         <div class="summary-v">{{ schoolName }}</div>
       </div>
       <div class="summary-card">
-        <div class="summary-k">ROI expires</div>
+        <div class="summary-k">ROI date on file</div>
         <div class="summary-v">{{ roiExpiryLabel }}</div>
         <div class="roi-date-editor">
           <input v-model="roiExpiryDraft" type="date" class="inline-date-input" />
@@ -30,7 +30,7 @@
           </button>
         </div>
         <div class="hint">
-          This date is the source of school ROI access. Anyone already set to ROI Active, ROI (Speak), or ROI All Active can open the client again when this date is current. Referral documents stay paused while expired.
+          This date alone does not grant access. Each staff member also needs permission under the signed release. Anyone already set to ROI Active, ROI (Speak), or ROI All Active can open the client again when this date is current. Referral documents stay paused while expired.
         </div>
       </div>
       <div class="summary-card" :class="{ 'summary-card-alert': roiExpired }">
@@ -223,75 +223,28 @@
         </div>
 
         <div class="sms-card">
-          <div class="summary-k">Send ROI link by email</div>
+          <div class="summary-k">Request school releases</div>
           <div class="hint">
-            This sends the same client-specific ROI link directly to a guardian email using the agency sender identity.
+            Each authorized guardian receives a separate portal request. One guardian’s response does not replace the other’s. A denial from either guardian blocks sharing with that staff member.
           </div>
-
-          <div class="sms-grid">
-            <div class="form-group">
-              <label>ROI language</label>
-              <select v-model="emailLanguageDraft" class="inline-select">
-                <option value="en">English</option>
-                <option value="es">Spanish</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Guardian email</label>
-              <input
-                v-model="emailDraft"
-                type="email"
-                placeholder="guardian@example.com"
-                autocomplete="email"
-                list="roi-guardian-email-options"
-              />
-              <datalist id="roi-guardian-email-options">
-                <option v-for="guardian in guardianEmails" :key="guardian.guardian_user_id || guardian.email" :value="guardian.email">
-                  {{ guardianLabel(guardian) }}
-                </option>
-              </datalist>
-            </div>
-
-            <div class="summary-card">
-              <div class="summary-k">Email link</div>
-              <div class="summary-v">{{ issuedLink?.public_key ? 'Ready' : 'Auto-create on send' }}</div>
-              <div class="hint">{{ issuedLinkSummary }}</div>
-            </div>
-          </div>
-
           <div class="form-group">
-            <label>Email subject</label>
-            <input
-              v-model="emailSubjectDraft"
-              type="text"
-              placeholder="ROI email subject"
-              @input="emailMessageTouched = true"
-            />
+            <label>Request language</label>
+            <select v-model="emailLanguageDraft" class="inline-select">
+              <option value="en">English</option><option value="es">Spanish</option>
+            </select>
           </div>
-
-          <div class="form-group">
-            <label>Email message</label>
-            <textarea
-              v-model="emailMessageDraft"
-              rows="6"
-              placeholder="ROI email message"
-              @input="emailMessageTouched = true"
-            />
-            <div class="hint">
-              Editable before sending. The secure private ROI link is included by default.
-            </div>
-          </div>
+          <div class="hint">Requests use the saved portal contacts. Review guardian contacts before sending if custody or contact details have changed.</div>
 
           <div class="signing-actions" style="margin-bottom: 0;">
             <button
               type="button"
               class="btn btn-primary btn-sm"
-              :disabled="emailSending || emailCooldownSec > 0 || !hasSigningConfig || !emailDraft || !emailSubjectDraft || !emailMessageDraft"
+              :disabled="emailSending || emailCooldownSec > 0 || !hasSigningConfig"
               @click="sendRoiEmail"
             >
               <template v-if="emailSending">Sending…</template>
               <template v-else-if="emailCooldownSec > 0">Resend available in {{ emailCooldownSec }}s</template>
-              <template v-else>Send ROI Email</template>
+              <template v-else>Request ROI from all guardians</template>
             </button>
             <span v-if="emailStatus" class="hint strong">{{ emailStatus }}</span>
           </div>
@@ -369,6 +322,14 @@
                 <td>
                   <div>{{ displayName(row) }}</div>
                   <div v-if="row.effective_access_state === 'expired'" class="hint">ROI expired</div>
+                  <div v-if="row.guardian_consent" class="guardian-consent-decisions">
+                    <strong v-if="row.guardian_consent.effectiveDecision === 'none'">Sharing blocked — a guardian denied permission or their release expired.</strong>
+                    <strong v-else-if="row.guardian_consent.conflict">Different guardian choices — the more restrictive permission applies.</strong>
+                    <div v-for="decision in row.guardian_consent.decisions" :key="decision.guardianUserId">
+                      {{ decision.guardianName }}: {{ decision.expired ? 'Release expired' : decision.decision === 'none' ? 'Denied' : decision.decision === 'roi' ? 'Allowed speaking only; denied documents' : 'Allowed speaking and documents' }}
+                      <span class="hint"> · Signed {{ formatDateTime(decision.signedAt) }}</span>
+                    </div>
+                  </div>
                 </td>
                 <td>{{ row.email || '—' }}</td>
                 <td>
@@ -410,6 +371,7 @@
 </template>
 
 <script setup>
+import { formatAuditTimestamp } from '../../utils/formatDate.js';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import api from '../../services/api';
 import { buildPublicIntakeShortUrl, buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
@@ -526,9 +488,7 @@ const guardianLabel = (guardian) => {
 
 const formatDate = (value) => {
   if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  return date.toLocaleDateString();
+  return formatAuditTimestamp(value, { dateOnly: true }) || '—';
 };
 
 const formatDateTime = (value) => {
@@ -548,6 +508,7 @@ const normalizeDateInputValue = (value) => {
 };
 
 const stateLabel = (effectiveState, accessLevel) => {
+  if (effectiveState === 'denied') return 'Denied by guardian';
   if (String(effectiveState || '').trim().toLowerCase() === 'expired') return schoolStaffRoiLabel('expired');
   const effective = String(effectiveState || accessLevel || '').trim().toLowerCase();
   return schoolStaffRoiLabel(effective === 'none' ? 'packet' : effective);
@@ -620,7 +581,7 @@ const issuedTextLinkSummary = computed(() => {
 const buildDefaultSmsMessage = () => {
   const agencyName = String(props.client?.agency_name || 'our agency').trim() || 'our agency';
   const linkUrl = buildPublicIntakeShortUrl(issuedLink.value?.public_key || '');
-  return `Hi this is ${agencyName} and your ROI is expired. A new one has been attached to this private link: ${linkUrl} If you are no longer interested in our services write STOP. Respond with MORE if you'd like us to call you.`;
+  return `Hi, this is ${agencyName}. Please review and complete your school release of information using this private link: ${linkUrl} If you are no longer interested in our services write STOP. Respond with MORE if you'd like us to call you.`;
 };
 
 const buildDefaultEmailSubject = () => {
@@ -1033,11 +994,14 @@ const sendRoiEmail = async () => {
       if (!ok) return;
     }
     const response = await api.post(`/clients/${clientId}/school-roi-signing-email`, {
-      email: emailDraft.value,
-      subject: emailSubjectDraft.value,
-      message: emailMessageDraft.value,
       languageCode: emailLanguageDraft.value
     });
+    if (Array.isArray(response.data?.deliveries)) {
+      emailStatus.value = response.data.deliveries.map(row => `${row.name || row.email || 'Guardian'}: ${row.status === 'recently_sent' ? 'Already sent recently' : row.status === 'sent' ? 'Sent' : row.status === 'pending' ? 'Awaiting delivery approval' : `Needs follow-up${row.error ? ': ' + row.error : ''}`}`).join(' · ');
+      emailSendLog.value = [...response.data.deliveries.filter(row => row.sent).map(row => ({ email: row.email, sentAt: new Date().toISOString() })), ...emailSendLog.value].slice(0, 20);
+      startEmailCooldown(180);
+      return;
+    }
     issuedLink.value = response.data?.issued_link || issuedLink.value;
     emailDraft.value = response.data?.sent_to || emailDraft.value;
     emailSubjectDraft.value = response.data?.subject || emailSubjectDraft.value;

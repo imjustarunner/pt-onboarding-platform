@@ -123,7 +123,7 @@ export function generatedTreatmentPlan(sections, { effectiveDate, diagnoses = []
   };
 }
 
-export function intakeSectionsForRecord(sections, { mentalStatusExam, riskAssessment, diagnoses, diagnosticJustification }) {
+export function intakeSectionsForRecord(sections, { mentalStatusExam, riskAssessment, diagnoses, diagnosticJustification, skipMse = false }) {
   const result = { ...sections };
   const set = (names, text) => {
     const existing = Object.keys(result).find((name) => names.some((n) => key(n) === key(name)));
@@ -148,5 +148,6 @@ export function intakeSectionsForRecord(sections, { mentalStatusExam, riskAssess
     set(['Diagnosis', 'Diagnoses'], diagnoses.map((d) => `${d.icd10_code} ${d.description || ''}`.trim()).join('\n'));
     set(['Diagnostic Justification'], diagnoses.map(d => `${d.icd10_code || d.code}: ${d.justification || ''}`.trim()).join('\n\n'));
   }
+  if (skipMse) for (const title of Object.keys(result)) if (/mental status|^mse$/i.test(title)) delete result[title];
   return result;
 }

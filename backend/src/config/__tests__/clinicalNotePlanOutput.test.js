@@ -68,11 +68,12 @@ test('applySharedNoteAidToolContracts upgrades H0004 note and plan', () => {
       maxOutputTokens: 1400
     }
   ]);
-  assert.equal(h0004Note.outputInstructions, PROGRESS_NOTE_OUTPUT_INSTRUCTIONS);
+  assert.ok(h0004Note.outputInstructions.startsWith(PROGRESS_NOTE_OUTPUT_INSTRUCTIONS));
+  assert.match(h0004Note.outputInstructions, /omit Mental Status Examination entirely/);
   assert.equal(h0004Note.sectionSchema, 'soip');
   assert.equal(h0004Note.maxOutputTokens, 4000);
   assert.match(h0004Note.systemPrompt, /MACHINE OUTPUT CONTRACT/);
-  assert.equal(h0004Plan.outputInstructions, TREATMENT_PLAN_OUTPUT_INSTRUCTIONS);
+  assert.ok(h0004Plan.outputInstructions.startsWith(TREATMENT_PLAN_OUTPUT_INSTRUCTIONS));
   assert.equal(h0004Plan.sectionSchema, 'treatment_plan');
   assert.match(h0004Plan.systemPrompt, /Goal 1:/);
   assert.match(h0004Plan.systemPrompt, /1–10/);
@@ -87,8 +88,8 @@ test('H0023 / H0031 additional / H0032 use Colorado freeform (not SOIP)', () => 
   assert.match(getOutputInstructionsForTool('clinical_h0023_full_packet'), /Do NOT use Subjective/);
   assert.match(getOutputInstructionsForTool('clinical_h0031_additional'), /Z\/R/);
   assert.match(getOutputInstructionsForTool('clinical_h0032_plan_development'), /Do NOT use Subjective/);
-  assert.match(getOutputInstructionsForTool('clinical_h0031_intake'), /same titled narrative sections as a 90791/);
-  assert.match(getOutputInstructionsForTool('clinical_h0031_intake'), /Mental Status Examination/);
+  assert.match(getOutputInstructionsForTool('clinical_h0031_intake'), /intake narrative sections below/);
+  assert.doesNotMatch(getOutputInstructionsForTool('clinical_h0031_intake'), /^Mental Status Examination:$/m);
   assert.doesNotMatch(getOutputInstructionsForTool('clinical_h0031_intake'), /Subjective:/);
 });
 
@@ -119,7 +120,8 @@ test('exported CLINICAL_NOTE_AGENT_TOOLS already has shared contracts applied', 
   const psy = CLINICAL_NOTE_AGENT_TOOLS.find((t) => t.id === 'clinical_psychotherapy_note');
   const h0023 = CLINICAL_NOTE_AGENT_TOOLS.find((t) => t.id === 'clinical_h0023_full_packet');
   assert.ok(note && plan && psy && h0023);
-  assert.equal(note.outputInstructions, psy.outputInstructions);
+  assert.ok(note.outputInstructions.startsWith(psy.outputInstructions));
+  assert.match(note.outputInstructions, /omit Mental Status Examination entirely/);
   assert.equal(note.sectionSchema, 'soip');
   assert.equal(plan.sectionSchema, 'treatment_plan');
   assert.match(plan.systemPrompt, /MACHINE OUTPUT CONTRACT/);

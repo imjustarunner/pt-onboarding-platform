@@ -229,6 +229,7 @@ async function send() {
     const {data}=await api.post(`/clients/${clientId}/updates/${requestId.value}/send`,{guardianEmail:guardianEmail.value.trim()});
     if(current!==generation)return;
     success.value=({sent:'Portal update sent.',queued:'The update email is queued for approval. No delivery has been confirmed.',skipped:'The update email was not sent. Review notification preferences and email history.',redirected:'The update email went to the configured test inbox.',unconfirmed:'Delivery could not be confirmed. Check email history before creating another update.'})[data.deliveryStatus]||'Delivery could not be confirmed. Check email history.';
+    if (Array.isArray(data.deliveries)) success.value = data.deliveries.map(row => `${row.name || row.email || 'Guardian'}: ${row.deliveryStatus.replaceAll('_', ' ')}`).join(' · ');
     if(data.deliveryStatus==='sent')emit('sent');
   } catch (err) {
     if(current===generation)error.value = err.response?.data?.error?.message || (attemptedDelivery.value?'Delivery could not be confirmed. Check email history before creating another update.':'The update could not be saved.');

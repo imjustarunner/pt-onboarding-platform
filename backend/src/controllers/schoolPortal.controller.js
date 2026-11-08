@@ -1233,14 +1233,12 @@ export const getSchoolClients = async (req, res, next) => {
         (clients || []).map(async (client) => {
           const cid = Number(client?.id || 0);
           if (!cid) return;
-          const state = schedulerOwnOnly
-            ? 'limited'
-            : await ClientSchoolStaffRoiAccess.resolveSchoolStaffClientAccessState({
+          const consentState = await ClientSchoolStaffRoiAccess.resolveSchoolStaffClientAccessState({
                 clientId: cid,
                 schoolOrganizationId: orgId,
                 schoolStaffUserId: userId
               });
-          schoolStaffResolvedStateByClientId.set(cid, state);
+          schoolStaffResolvedStateByClientId.set(cid, consentState === 'denied' ? 'denied' : schedulerOwnOnly ? 'limited' : consentState);
         })
       );
     }

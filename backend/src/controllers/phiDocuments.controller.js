@@ -164,9 +164,9 @@ async function resolveSchoolStaffAccessStateForClient({ requestingUserId, reques
   const normalizedRole = String(requestingUserRole || '').toLowerCase();
   if (normalizedRole !== 'school_staff') return 'none';
   const schoolOrgId = client?.organization_id || client?.school_organization_id;
-  if (isRoiExpired(client?.roi_expires_at)) return 'expired';
   const roiState = await ClientSchoolStaffRoiAccess.resolveSchoolStaffClientAccessState({ clientId: client?.id, schoolOrganizationId: schoolOrgId, schoolStaffUserId: requestingUserId });
-  if (roiState === 'expired') return roiState;
+  if (roiState === 'denied' || roiState === 'expired') return roiState;
+  if (isRoiExpired(client?.roi_expires_at)) return 'expired';
   const user = await User.findById(requestingUserId);
   const emails = [user?.email, user?.work_email, user?.username, user?.personal_email]
     .map((v) => String(v || '').trim().toLowerCase())

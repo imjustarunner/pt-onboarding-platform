@@ -1,3 +1,4 @@
+import { assertGuardianRoiSigner } from '../services/schoolRoiGuardianConsent.service.js';
 import { assertInvitedEnrollmentChildren } from '../services/coGuardianEnrollmentRoster.js';
 import { withOfficeReferralSource } from '../utils/officeReferralSource.js';
 import { extractInsuranceCardFieldsBestEffort } from '../services/insuranceCardReading.service.js';
@@ -148,7 +149,7 @@ import { notifyNewPacketUploaded, notifyCompanyEventRegistrationSubmitted, notif
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity, logSkippedOrFailedEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
-import { existingIssuedRoiGuardian, portalGuardianForIssuedRoi } from '../services/issuedRoiGuardian.service.js';
+import { resolveIssuedRoiConsentSigner } from '../services/issuedRoiGuardian.service.js';
 import { resolveDevFillContext } from '../services/devFill.service.js';
 import {
   buildJobDescriptionAttachmentForEmail,
@@ -657,6 +658,7 @@ async function persistEmbeddedRoiForClient({ intakeData, updatedSubmission, issu
               clientId: roiClientId,
               schoolOrganizationId: schoolOrganizationId || 0,
               response: roiResponse,
+              guardianUserId: updatedSubmission.guardian_user_id, submissionId, signedAt: now,
               actorUserId: null
             });
             await logAuditEvent(req, {
@@ -8604,6 +8606,12 @@ export const finalizePublicIntake = async (req, res, next) => {
         return res.status(404).json({ error: { message: 'Bound client not found.' } });
       }
 
+      const consentGuardianId = await resolveIssuedRoiConsentSigner({ req, issuedLink: issuedRoiLink, clientId: boundClient.id, submissionGuardianId: updatedSubmission.guardian_user_id });
+      if (consentGuardianId && Number(updatedSubmission.guardian_user_id) !== Number(consentGuardianId)) {
+        updatedSubmission = await IntakeSubmission.updateById(submissionId, { guardian_user_id: consentGuardianId });
+      }
+      await assertGuardianRoiSigner({ clientId: boundClient.id, guardianUserId: consentGuardianId });
+
       const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
       const roiContext = await buildSmartSchoolRoiContext({
         link,
@@ -8748,16 +8756,14 @@ export const finalizePublicIntake = async (req, res, next) => {
         auditMetadata: { submissionId, templateId: selectedTemplate.id, smartSchoolRoi: true },
         callerLabel: 'public_intake_smart_school_roi'
       });
-      // Hoisted outside the attach call so the downstream
-      // ClientSchoolRoiSigningLink.markCompleted call can reference the new
-      // PHI doc id even when the attach failed (it'll be null in that case,
-      // matching the previous "best-effort" semantics).
-      const phiDoc = phiDocAttach?.phiDoc || null;
+      if (!phiDocAttach?.ok) throw new Error('Unable to attach the signed school release to the child. Please retry or contact the office.');
+      const phiDoc = phiDocAttach.phiDoc || null;
 
       const accessUpdates = await applySmartSchoolRoiAccessDecisions({
         clientId: boundClient.id,
         schoolOrganizationId: schoolOrganizationId || 0,
         response: roiResponse,
+        guardianUserId: consentGuardianId, submissionId, signedAt: now,
         actorUserId: null
       });
 
@@ -8792,7 +8798,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         combined_pdf_hash: signedResult.pdfHash,
         // Staff-issued recipient + existing permitted relationship; not signer-entered email.
         ...(!updatedSubmission.guardian_user_id && issuedRoiLink?.id
-          ? { guardian_user_id: await portalGuardianForIssuedRoi(req, boundClient.id) || await existingIssuedRoiGuardian(issuedRoiLink, boundClient.id) }
+          ? { guardian_user_id: consentGuardianId }
           : {})
       });
 

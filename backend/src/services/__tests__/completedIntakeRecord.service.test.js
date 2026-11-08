@@ -571,3 +571,12 @@ for (const phqaOnStep of [false, true]) {
     assert.ok(waivers.rows.some((row) => /Emergency Contacts/.test(row.label) && row.value === 'Casey Contact'));
   });
 }
+
+test('self receipt preserves relationship, essential email meaning and alternative contact instructions', () => {
+  const spec = buildCompletedIntakeRecord({ submission: { intake_data: { intakeForSelf: true, guardian: { relationship: 'Self' }, responses: { submission: { communicationPreferences: { emailPreference: 'no', alternativeContactInstructions: 'QA alternate contact instructions' }, communicationDraft: { signerName: 'UNSIGNED DRAFT' } } } } } });
+  const rows = spec.sections.flatMap(section => section.rows || []);
+  assert.ok(rows.some(row => row.label === 'Relationship to client' && row.value === 'Self'));
+  assert.ok(rows.some(row => row.label === 'Email' && row.value === 'Essential messages only'));
+  assert.ok(rows.some(row => row.value === 'QA alternate contact instructions'));
+  assert.doesNotMatch(JSON.stringify(spec), /UNSIGNED DRAFT/);
+});

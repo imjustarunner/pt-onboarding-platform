@@ -95,7 +95,10 @@ async function resolveOfficeRecord(req) {
     err.statusCode = 404;
     throw err;
   }
-  const agency = await Agency.findById(link.organization_id);
+  const agencyId = String(link.scope_type || '').toLowerCase() === 'school'
+    ? await AgencySchoolIntakeMaster.resolveParentAgencyIdForSchool(link.organization_id)
+    : (link.agency_id || link.organization_id);
+  const agency = await Agency.findById(agencyId || link.organization_id);
   if (String(link.form_type || '').toLowerCase() === 'smart_school_roi') {
     if (submission.status !== 'submitted' || !submission.combined_pdf_path) {
       throw Object.assign(new Error('The signed release is not available yet.'), { statusCode: 409 });
@@ -400,7 +403,10 @@ async function resolveAgencyForPublicKey(publicKey) {
     err.statusCode = 404;
     throw err;
   }
-  const agency = await Agency.findById(link.organization_id);
+  const agencyId = String(link.scope_type || '').toLowerCase() === 'school'
+    ? await AgencySchoolIntakeMaster.resolveParentAgencyIdForSchool(link.organization_id)
+    : (link.agency_id || link.organization_id);
+  const agency = await Agency.findById(agencyId || link.organization_id);
   if (!agency) {
     const err = new Error('Organization not found');
     err.statusCode = 404;

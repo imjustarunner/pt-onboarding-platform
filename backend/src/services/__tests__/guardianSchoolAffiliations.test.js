@@ -22,7 +22,7 @@ describe('guardian school history', () => {
   const former = result.school_affiliations[1];
   expect(former.status).toBe('former');expect(former.providers[0]).toMatchObject({name:'Previous Provider',service_day:'Monday',status:'former'});
   expect(former.staff[0].status).toBe('former');expect(former.roi.document_id).toBe(33);
-  expect(execute.mock.calls[3][1]).toEqual([4,8]);
+  expect(execute.mock.calls[3][1]).toEqual([4,8,4,4]);
   expect(execute.mock.calls[3][0]).toContain('s.guardian_user_id=?');
  });
  it('never promotes an inactive primary affiliation back to current', async () => {

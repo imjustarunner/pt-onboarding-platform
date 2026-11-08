@@ -1,3 +1,4 @@
+import { prepareGuardianConsentUpdates } from './guardianConsentUpdateRequests.service.js';
 import crypto from 'crypto';
 import pool from '../config/database.js';
 import Client from '../models/Client.model.js';
@@ -279,9 +280,33 @@ export async function currentClientUpdateRecipient({agencyId,clientId,to,guardia
 export async function sendClientUpdate(requestId, { actorUserId, guardianEmail } = {}) {
   assertEnabled();
   const request = await loadRequest(requestId);
+  if (!request) throw fail(404, 'Update request not found');
+  const items = await loadItems(request.id);
+  if (!items.some(item => item.item_type === 'document')) return sendSingleClientUpdate(requestId, { actorUserId, guardianEmail });
+  const { recipient } = await currentClientUpdateRecipient({ agencyId: request.agency_id, clientId: request.client_id, to: guardianEmail, guardianUserId: request.guardian_user_id });
+  const recipients = await prepareGuardianConsentUpdates({ request, items, primaryGuardianUserId: recipient.guardian_user_id });
+  if (!recipients) return sendSingleClientUpdate(requestId, { actorUserId, guardianEmail });
+  const deliveries = [];
+  for (const row of recipients) {
+    if (row.status !== 'draft') {
+      deliveries.push({ ...row, deliveryStatus: ['sent', 'completed'].includes(row.status) ? 'already_sent' : 'pending' });
+      continue;
+    }
+    try {
+      const result = await sendSingleClientUpdate(row.requestId, { actorUserId, guardianEmail: row.email });
+      deliveries.push({ ...row, deliveryStatus: result.deliveryStatus });
+    } catch (error) { deliveries.push({ ...row, deliveryStatus: 'needs_followup', error: error.message }); }
+  }
+  return { request: await loadRequest(requestId), items: await loadItems(requestId), deliveries,
+    deliveryStatus: deliveries.every(row => ['sent', 'already_sent'].includes(row.deliveryStatus)) ? 'sent' : 'needs_followup' };
+}
+
+async function sendSingleClientUpdate(requestId, { actorUserId, guardianEmail } = {}) {
+  assertEnabled();
+  const request = await loadRequest(requestId);
   if (!request) throw fail(404, 'Client update not found');
   if(request.status!=='draft')throw fail(409,'Delivery has already been attempted. Check email history before creating another update.');
-  const {client,recipient}=await currentClientUpdateRecipient({agencyId:request.agency_id,clientId:request.client_id,to:guardianEmail});
+  const {client,recipient}=await currentClientUpdateRecipient({agencyId:request.agency_id,clientId:request.client_id,to:guardianEmail,guardianUserId:request.guardian_user_id});
   const {familyNotificationDeliveryGate}=await import('./familyNotificationChoices.service.js');
   const gate=await familyNotificationDeliveryGate({agencyId:request.agency_id,clientId:request.client_id,to:recipient.email,templateType:'client_update'});
   if(!gate.allowed)throw fail(409,'This contact’s email preferences do not allow an update notice.');

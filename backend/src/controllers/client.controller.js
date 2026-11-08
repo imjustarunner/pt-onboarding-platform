@@ -1,3 +1,4 @@
+import { readableIntakeKey, readableIntakeValue, flattenIntakeFields } from '../utils/intakeResponsePresentation.js';
 import { clientSummaryTone } from '../utils/clientSummaryTone.js';
 import { attachParentContactCounts } from '../services/parentContactCounts.service.js';
 import { cardUrlKey } from '../services/insuranceCards/policy.js';
@@ -5537,7 +5538,7 @@ const buildEffectiveCategoryMap = (intakeFields = [], intakeSteps = []) => {
 const extractLabeledFieldsFromSubmission = (submissionData, intakeFields = [], scopedClientResponses = null) => {
   const labelMap = new Map();
   for (const f of intakeFields) {
-    if (f?.key) labelMap.set(String(f.key), { label: f.label || f.key, scope: f.scope || 'submission' });
+    if (f?.key) labelMap.set(String(f.key).toLowerCase(), { ...f, label: f.label || readableIntakeKey(f.key), scope: f.scope || 'submission' });
   }
 
   const submissionBag = getSubmissionBag(submissionData);
@@ -5584,17 +5585,17 @@ const extractLabeledFieldsFromSubmission = (submissionData, intakeFields = [], s
 
   const result = [];
   for (const [key, value] of Object.entries(allResponses)) {
-    if (SKIP_KEYS.has(key)) continue;
+    if (SKIP_KEYS.has(key) || /^skip_(psc17|phqa|phq9|gad7)$/i.test(key) || key === 'communicationDraft') continue;
     if (!hasVal(value)) continue;
     // Complex values always stringify to "[object Object]" in the UI. We don't
     // want those polluting the Additional Intake Responses card.
     if (isPlainObjectLike(value)) continue;
-    const meta = labelMap.get(key);
+    const meta = labelMap.get(String(key).toLowerCase());
     result.push({
       key,
-      label: normalizeLabel(meta?.label || key),
+      label: normalizeLabel(meta?.label || readableIntakeKey(key)),
       scope: meta?.scope || 'submission',
-      value: String(value).trim()
+      value: readableIntakeValue(value, meta)
     });
   }
   return result;
@@ -6108,6 +6109,7 @@ export const getClientClinicalResponses = async (req, res, next) => {
           } catch { /* ignore */ }
         }
       } catch { /* ignore */ }
+      intakeFields = flattenIntakeFields(intakeFields, formConfig.intakeSteps);
       const categoryMap = buildEffectiveCategoryMap(intakeFields, formConfig.intakeSteps);
       const out = { intakeFields, formConfig, categoryMap };
       linkCache.set(linkId, out);

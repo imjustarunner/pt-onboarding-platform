@@ -12,6 +12,7 @@ beforeEach(()=>{
  m.context.mockResolvedValue({agencyId:450,userId:1490,provider:{first_name:'Quality',last_name:'Tester'}});
  m.execute.mockImplementation(async(sql,args)=>{
   if(sql.includes('FROM school_contact_workflows w JOIN clients'))return [[args[0]===42&&args[1]===450&&args[2]===1490?{...workflow,parent_reply_at:guardianReply}:undefined].filter(Boolean)];
+  if(sql.includes('FROM client_school_roi_guardian_decisions') || sql.includes('FROM intake_submission_documents'))return [[]];
   if(sql.includes('FROM client_school_staff_roi_access'))return [rows];
   if(sql.includes('FROM school_contact_workflow_steps'))return [steps];
   throw new Error(`Unexpected staff permission query: ${sql}`);

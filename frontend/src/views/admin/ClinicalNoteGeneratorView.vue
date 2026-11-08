@@ -2210,7 +2210,7 @@ async function seedManualEmptySections() {
       'Session information': placeholder
     };
   } else if (isIntakeManual) {
-    sections = Object.fromEntries(INTAKE_SECTION_TITLES.map((title) => [title, placeholder]));
+    sections = Object.fromEntries(INTAKE_SECTION_TITLES.filter(title => !skipMentalStatusExam.value || !/mental status|^mse$/i.test(title)).map((title) => [title, placeholder]));
   } else {
     sections = {
       Subjective: placeholder,
@@ -2423,7 +2423,7 @@ function synchronizeIntakeFields() {
 function draftStructuredChart() {
   return {
     clientId: effectiveClientId.value,
-    mentalStatusExam: chartMentalStatus.value,
+    mentalStatusExam: skipMentalStatusExam.value ? null : chartMentalStatus.value,
     riskAssessment: chartRiskAssessment.value,
     medications: chartMedications.value,
     diagnosticJustification: chartDiagnosticJustification.value,
@@ -6334,7 +6334,7 @@ watch(
 const buildApprovedPayloadText = () => {
   let sections = Object.fromEntries(mergedSectionEntries.value || []);
   if (isIntakeOutput.value) sections = intakeSectionsForRecord(sections, {
-    mentalStatusExam: chartMentalStatus.value, riskAssessment: chartRiskAssessment.value,
+    mentalStatusExam: skipMentalStatusExam.value ? null : chartMentalStatus.value, skipMse: skipMentalStatusExam.value, riskAssessment: chartRiskAssessment.value,
     diagnoses: structuredChartDiagnoses.value, diagnosticJustification: chartDiagnosticJustification.value
   });
   if (isTerminationAid.value) {
@@ -6496,7 +6496,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       ...sessionLocationMetadata(),
       treatmentRecommendation: noteTreatmentRecommendation.value || 'continue',
       prescribedFrequency: !isTerminationAid.value && noteTreatmentRecommendation.value !== 'terminate' ? (String(notePrescribedFrequency.value || '').trim() || null) : null,
-      skippedMseReason: skipMentalStatusExam.value
+      skippedMseReason: skipMentalStatusExam.value && !/^H\d{4}$/i.test(String(actualServiceCode.value || selectedAid.value?.serviceCode || ''))
         ? (String(actualServiceCode.value || selectedAid.value?.serviceCode || 'skipped').toUpperCase())
         : null
     };
@@ -6903,7 +6903,8 @@ const bootstrapWorkspace = async ({ resetForm = false } = {}) => {
     }
   }
 
-  loadRecent();
+  // Route selection must wait for the draft it is about to open.
+  await loadRecent();
 };
 
 const setSidebarTab = async (tab) => {
@@ -7150,33 +7151,14 @@ const loadClientIntakeSummary = async (clientId) => {
   }
 };
 
-function medicationsBlockIsPristine(block) {
-  const items = Array.isArray(block?.items) ? block.items : [];
-  const hasNamed = items.some((m) => String(m?.name || '').trim());
-  const comments = String(block?.commentsHtml || block?.comments || '').trim();
-  return !!block?.noneCurrently && !hasNamed && !comments;
-}
-
 function applyIntakeMedicationsPrefill(clientId, sections) {
   const cid = Number(clientId || 0);
   if (!cid) return;
-  const switchingClient = medicationsPrefillClientId.value != null
-    && medicationsPrefillClientId.value !== cid;
-  if (!switchingClient && !medicationsBlockIsPristine(chartMedications.value)) return;
-
-  const parsed = medicationsFromClinicalSections(sections);
+  const switchingClient = medicationsPrefillClientId.value != null && medicationsPrefillClientId.value !== cid;
+  if (switchingClient) chartMedications.value = defaultMedicationsBlock();
   medicationsPrefillClientId.value = cid;
-  if (!parsed) {
-    if (switchingClient) {
-      chartMedications.value = defaultMedicationsBlock();
-      medicationsSourceHint.value = '';
-    }
-    return;
-  }
-  chartMedications.value = parsed;
-  medicationsSourceHint.value = parsed.noneCurrently
-    ? 'Prefill from intake: no current medications reported.'
-    : 'Prefill from intake medications — edit if needed.';
+  medicationsSourceHint.value = medicationsFromClinicalSections(sections)
+    ? 'Prior intake contains medication information. Review it and enter the current assessment; nothing is assumed for this visit.' : '';
 }
 
 const onClientPicked = async (client) => {
@@ -9695,6 +9677,7 @@ async function openWorkspaceRouteSelection() {
   } else if (qDraft) {
     const hit = recentDrafts.value.find((d) => String(d.id) === qDraft);
     if (hit && String(draftId.value || '') !== qDraft) await loadDraftIntoWorkspace(hit);
+    else if (!hit) approvalError.value = recentError.value || 'The requested note could not be loaded. Reopen it from its appointment or try again.';
   }
 }
 
@@ -9704,7 +9687,7 @@ watch(() => route.query, async () => {
     await openWorkspaceRouteSelection();
     return;
   }
-  if (String(route.query?.launchIntent || '') === 'work_queue') {
+  if (String(route.query?.launchIntent || '') === 'work_queue' && !route.query?.draftId && !route.query?.noteId) {
     bookingPrefillApplied.value = false;
     applyBookingContextPrefill();
     return;
