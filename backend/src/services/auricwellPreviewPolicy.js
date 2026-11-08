@@ -30,6 +30,7 @@ export function assertQaPreviewPractice(req, agency) {
 }
 export function qaPreviewRouteAllowed(method, path, user, agencyId) {
   if (/^\/platform\//.test(path)) return false;
+  if (/^\/narriva\/compliance-reports(?:\/|$)/.test(path) && !['admin','agency_admin','super_admin'].includes(user.role)) return false;
   if (/^\/auricwell-preview\/toasts(?:\/|$)/.test(path) && path !== '/auricwell-preview/toasts/active') return false;
   const agency = path.match(/^\/agencies\/(\d+)/);
   if (agency && Number(agency[1]) !== agencyId) return false;
@@ -63,6 +64,7 @@ export function previewRouteAllowed(method, path) {
     /^\/clinical-notes\/contact-documentation(?:\/(?:email|secure)\/[1-9][0-9]*)?$/,
     /^\/clients\/\d+\/communications(?:\/export|\/conversations\/(?:secure-)?[1-9][0-9]*)?$/,
     /^\/me\/notes-to-sign(?:\/count)?$/,
+    /^\/narriva\/compliance-reports\/(?:settings|runs(?:\/[a-f0-9-]{36}(?:\/export)?)?)$/i,
     /^\/medical-billing\/(?:workspace|service-locations|service-codes|config|supervised-payer-policies|supervised-provider-readiness|payer-eft|claims|claimmd|reports|clients|notes|treatment-plans|treatment-frequencies|agencies)(?:\/|$)/,
     /^\/clients(?:\/\d+(?:\/(?:guardians|records-copy-blocks|intake-note|clinical-responses))?)?$/,
     /^\/appointments(?:\/\d+)?$/,
@@ -77,6 +79,8 @@ export function previewRouteAllowed(method, path) {
   // Live claim transmission and financial setup stay in the existing billing workspace
   // until the complete AuricWell revenue-cycle acceptance is finished.
   return [
+    ['PATCH', /^\/narriva\/compliance-reports\/settings$/],
+    ['POST', /^\/narriva\/compliance-reports\/runs(?:\/[a-f0-9-]{36}\/retry)?$/i],
     ['POST', /^\/clients\/merge(?:\/preview)?$/],
     ['POST', /^\/clinical-notes\/(?:drafts|audit|generate|interactive-complexity)$/],
     ['POST', /^\/clinical-notes\/contact-documentation\/(?:email|secure)\/[1-9][0-9]*$/],

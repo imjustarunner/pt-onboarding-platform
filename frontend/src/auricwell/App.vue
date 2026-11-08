@@ -20,6 +20,8 @@
         <slot v-else-if="demoContext && section === 'clients' && $slots.clients" name="clients" />
         <slot v-else-if="demoContext && section === 'providers' && $slots.providers" name="providers" />
         <Overview v-else-if="section === 'overview' || section === 'reports'" :key="context.practice.id" :agency="context.practice" :actor="actor" :slug="slug" :can-document="canDocument" :report="section === 'reports'" :demo="!!demoContext" />
+        <NarrivaComplianceReportsView v-else-if="section === 'compliance' && canManageCompliance" :key="context.practice.id" />
+        <section v-else-if="section === 'compliance'" class="aw-welcome"><h1>Compliance</h1><p role="alert">Compliance reports require an authorized agency administrator.</p></section>
         <WorkspaceTools v-else-if="['account','settings','payroll','notifications'].includes(section)" :section="section" :agency="context.practice" :actor="actor" :slug="slug" :notifications="notificationItems" :loading="notificationsLoading" :error="notificationsError" @refresh="loadNotifications" />
         <section v-else-if="section === 'announcements' && !demoContext" class="aw-toast-managers">
           <ToastAnnouncementManager :request="toastRequest" base-path="/auricwell-preview/toasts" />
@@ -61,9 +63,11 @@ const resetDemo = () => window.location.reload();
 import Chart from './Chart.vue';
 import { auricwellAppBase, auricwellWebsiteBase } from './paths';
 import { QA_SLUG, qaSections } from './qaAccess';
+import { canManageComplianceReports } from './workspace';
 const appBase = auricwellAppBase(), websiteBase = auricwellWebsiteBase();
 const ClinicalNoteGeneratorView = defineAsyncComponent(() => import('../views/admin/ClinicalNoteGeneratorView.vue'));
 const BillingWorkspaceView = defineAsyncComponent(() => import('../views/admin/BillingWorkspaceView.vue'));
+const NarrivaComplianceReportsView = defineAsyncComponent(() => import('../views/admin/NarrivaComplianceReportsView.vue'));
 const route = useRoute(), agencyStore = useAgencyStore(), authStore = useAuthStore();
 const locked=ref(false);
 const context = ref(null), actor = ref(null), practices = ref([]), loading = ref(true), error = ref('');
@@ -73,8 +77,9 @@ const actorName = computed(() => [actor.value?.first_name, actor.value?.last_nam
 const isLogin = computed(() => route.name === 'login');
 const loginUrl = computed(() => `${slug.value===QA_SLUG?`/${QA_SLUG}`:''}/login?redirect=${encodeURIComponent(isLogin.value ? appBase : window.location.pathname + window.location.search + window.location.hash)}`);
 const canDocument=computed(()=>!context.value?.qaWorkspace||qaSections(actor.value?.role).includes('documentation'));
+const canManageCompliance=computed(()=>!props.demoContext && !context.value?.qaWorkspace && canManageComplianceReports(actor.value));
 const qaSectionAllowed = computed(()=>qaSections(actor.value?.role).includes(section.value));
-const navigation = computed(() => [{key:'overview',label:'Overview',icon:'dashboard'},{key:'appointments',label:'My Schedule',icon:'sessions'},{key:'clients',label:'Clients',icon:'people'},...(!props.demoContext?[{key:'portal',label:'Portal',icon:'documents'}]:[]),{key:'documentation',label:'Notes & Documentation',icon:'documents'},{key:'billing',label:'Billing',icon:'billing'},{key:'providers',label:'Providers',icon:'providers'},{key:'reports',label:'Reports',icon:'plan'}, ...(props.demoContext ? [{key:'tasks',label:'Tasks & To-do',icon:'tasks'}] : []), ...(!props.demoContext ? [{key:'settings',label:'Settings',icon:'settings'}] : []), ...(!props.demoContext ? [{key:'announcements',label:'Announcements',icon:'notifications'}] : [])].filter(item=>!context.value?.qaWorkspace||qaSections(actor.value?.role).includes(item.key)));
+const navigation = computed(() => [{key:'overview',label:'Overview',icon:'dashboard'},{key:'appointments',label:'My Schedule',icon:'sessions'},{key:'clients',label:'Clients',icon:'people'},...(!props.demoContext?[{key:'portal',label:'Portal',icon:'documents'}]:[]),{key:'documentation',label:'Notes & Documentation',icon:'documents'},{key:'billing',label:'Billing',icon:'billing'},{key:'providers',label:'Providers',icon:'providers'},{key:'reports',label:'Reports',icon:'plan'}, ...(canManageCompliance.value ? [{key:'compliance',label:'Compliance',icon:'shield'}] : []), ...(props.demoContext ? [{key:'tasks',label:'Tasks & To-do',icon:'tasks'}] : []), ...(!props.demoContext ? [{key:'settings',label:'Settings',icon:'settings'}] : []), ...(!props.demoContext ? [{key:'announcements',label:'Announcements',icon:'notifications'}] : [])].filter(item=>!context.value?.qaWorkspace||qaSections(actor.value?.role).includes(item.key)));
 const notificationItems=ref([]),unread=ref(null),notificationsLoading=ref(false),notificationsError=ref('');
 let notificationRequestId=0;
 async function loadNotifications(){

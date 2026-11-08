@@ -1,4 +1,7 @@
 // Navigation stays on this origin and carries the selected practice explicitly.
+export function canManageComplianceReports(actor) {
+  return ['admin', 'agency_admin', 'super_admin'].includes(actor?.role) && !Number(actor?.is_demo);
+}
 export function personalToolUrl(slug, tool = 'account') {
   const root = `/${encodeURIComponent(slug)}`;
   const paths = { schedule: '/my-schedule', tasks: '/tasks', notifications: '/notifications', support: '/support' };

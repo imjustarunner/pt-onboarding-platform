@@ -1,5 +1,5 @@
 <template>
-  <main class="ncr">
+  <section class="ncr" aria-label="Narriva compliance reports">
     <header class="ncr-heading">
       <div><img :src="NARRIVA_BRAND.compliance" alt="Narriva Compliance by AuricWell" /><h1>Compliance reports</h1><p>{{ agency?.name || 'Your agency' }} · Sampled documentation and treatment review</p></div>
       <button class="secondary" :disabled="loading || working" @click="load">Refresh</button>
@@ -8,6 +8,11 @@
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <p v-if="loading" role="status">Loading reports…</p>
     <template v-else-if="settings">
+      <nav class="ncr-jump" aria-label="Compliance page"><a href="#narriva-manual-run">Run manually</a><a href="#narriva-report-history">Report history</a><a href="#narriva-report-settings">Frequency and sample</a></nav>
+      <section class="ncr-schedule panel" :data-state="scheduleStatus.state" aria-labelledby="ncr-schedule-title">
+        <div><span class="eyebrow">Automatic reporting</span><h2 id="ncr-schedule-title">{{ scheduleStatus.title }}</h2><p v-if="settings.enabled && settings.cadence !== 'manual' && settings.nextRunAt"><time :datetime="settings.nextRunAt">{{ dateTime(settings.nextRunAt) }}</time></p><p v-if="scheduledPeriod" class="muted">Reporting period: {{ scheduledPeriod.start }} through {{ scheduledPeriod.end }}</p><p class="muted">{{ scheduleStatus.detail }}</p></div>
+        <div v-if="scheduleStatus.countdown" class="ncr-countdown"><span class="eyebrow">Time remaining</span><strong role="timer" aria-live="off" aria-label="Time until the next automatic report">{{ scheduleStatus.countdown }}</strong></div>
+      </section>
       <section class="ncr-intro">
         <div><span class="eyebrow">Per report run</span><strong class="price">{{ noCharge ? 'No charge' : money(billing.priceCents, billing.currency) }}</strong><p v-if="noCharge">{{ money(0, billing.currency) }} per completed report. The report fee is currently waived.</p><p v-else>Billed once for a completed report. Retries do not add another charge.</p></div>
         <div><strong>{{ settings.sampleSize }} clients · one agency</strong><p>{{ consecutiveCount }} consecutive-note reviews and {{ randomCount }} random-note reviews, with up to {{ settings.notesPerClient }} notes per client.</p><p class="muted">Consecutive notes are checked for duplication and documented progress. Random notes retain current Narriva approvals; unapproved notes receive further review.</p></div>
@@ -15,14 +20,14 @@
       <p v-if="noCharge" class="notice">This waiver does not authorize future charges. A paid price requires new acceptance before reports can run at that price.</p>
       <p v-if="billing.reason || !billing.canRun" class="notice">{{ billing.reason || (noCharge ? 'Enable reports at no charge before running a report.' : 'Enable the report add-on and accept its per-run price before running a report.') }}</p>
       <div class="ncr-controls">
-        <section class="panel">
+        <section id="narriva-manual-run" class="panel">
           <h2>Run a report</h2><p>Sample saved notes within this service-date range. Fewer available clients or notes are reported explicitly.</p>
           <form @submit.prevent="prepareRun">
             <div class="fields"><label>From<input v-model="periodStart" type="date" required :disabled="working" /></label><label>Through<input v-model="periodEnd" type="date" required :disabled="working" /></label></div>
             <button class="primary" :disabled="working || !billing.canRun || !periodValid">Review run · {{ noCharge ? 'No charge' : money(billing.priceCents, billing.currency) }}</button>
           </form>
         </section>
-        <section class="panel">
+        <section id="narriva-report-settings" class="panel">
           <h2>Frequency and sample</h2><p>{{ settings.enabled ? settings.cadence === 'manual' ? 'The report add-on is enabled for manual runs.' : 'Scheduled reports are enabled.' : 'Quarterly is the default. Scheduling is off until you enable it.' }}</p>
           <form @submit.prevent="prepareSettings">
             <div class="fields"><label>Frequency<select v-model="draftSettings.cadence" :disabled="working"><option value="manual">Manual only</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="annual">Annually</option><option value="custom">Custom interval</option></select></label><label>Clients per report<input v-model.number="draftSettings.sampleSize" type="number" min="2" max="50" required :disabled="working" /></label></div>
@@ -33,10 +38,10 @@
           </form>
         </section>
       </div>
-      <section class="panel ncr-history">
+      <section id="narriva-report-history" class="panel ncr-history">
         <h2>Report history</h2><p v-if="!runs.length" class="muted">No reports yet. Running a report does not change notes, signatures, treatment plans, or claims.</p>
         <div v-for="run in runs" :key="run.id" class="run-row">
-          <button class="run-open" @click="openRun(run.id)"><strong>{{ dateOnly(run.periodStart || run.period_start) }} – {{ dateOnly(run.periodEnd || run.period_end) }}</strong><span>{{ run.sampledClients ?? run.summary?.sampledClients ?? '—' }} clients · {{ statusLabel(run.status) }}</span><span v-if="runFee(run)">{{ runFee(run) }}</span></button>
+          <button class="run-open" @click="openRun(run.id)"><strong>{{ dateOnly(run.periodStart || run.period_start) }} – {{ dateOnly(run.periodEnd || run.period_end) }}</strong><span>{{ run.sampledClients ?? run.summary?.sampledClients ?? '—' }} clients · {{ statusLabel(run.status) }}</span><span v-if="runFee(run)">{{ runFee(run) }}</span><span v-if="run.completedAt || run.createdAt">{{ run.completedAt ? 'Completed' : 'Requested' }} {{ dateTime(run.completedAt || run.createdAt) }}</span></button>
           <span class="status" :class="`status-${run.status}`">{{ statusLabel(run.status) }}</span>
         </div>
       </section>
@@ -95,14 +100,15 @@
         </template>
       </section>
     </div>
-  </main>
+  </section>
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import { NARRIVA_BRAND } from '../../config/narrivaBrand';
+import { reportScheduleStatus, scheduledReportPeriod } from '../../utils/narrivaReportSchedule';
 
 const agencyStore = useAgencyStore();
 const agency = computed(() => agencyStore.currentAgency?.value || agencyStore.currentAgency);
@@ -111,6 +117,12 @@ const base = '/narriva/compliance-reports';
 const settings = ref(null), billing = ref({}), standard = ref(null), runs = ref([]), draftSettings = ref({});
 const loading = ref(false), working = ref(false), error = ref(''), confirmation = ref(null), acceptCharge = ref(false);
 const detailOpen = ref(false), detailLoading = ref(false), detailError = ref(''), selectedRun = ref(null);
+const clock = ref(Date.now());
+let clockTimer;
+const scheduleStatus = computed(() => reportScheduleStatus(settings.value, billing.value, clock.value));
+const scheduledPeriod = computed(() => settings.value?.enabled && settings.value.cadence !== 'manual' ? scheduledReportPeriod(settings.value) : null);
+const updateClock = () => { clock.value = Date.now(); };
+onMounted(() => { clockTimer = setInterval(updateClock, 60000); document.addEventListener('visibilitychange', updateClock); });
 let generation = 0, detailGeneration = 0, refreshTimer = null, previousFocus = null;
 const now = new Date(), quarterStart = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
 const ymd = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -136,7 +148,12 @@ const runFee = run => {
   return isZeroPrice(cents) ? `No charge · ${money(cents, run.billing.currency || 'USD')}` : `Price for this run: ${money(cents, run.billing.currency || 'USD')}`;
 };
 const dateOnly = value => String(value || '').slice(0,10) || '—';
-const dateTime = value => value && !Number.isNaN(new Date(value).getTime()) ? new Date(value).toLocaleString() : 'Not scheduled';
+const dateTime = value => {
+  if (!value || Number.isNaN(new Date(value).getTime())) return 'Not scheduled';
+  const options = { dateStyle: 'long', timeStyle: 'short', timeZone: agency.value?.timezone || 'America/Denver' };
+  try { return new Intl.DateTimeFormat('en-US', options).format(new Date(value)) + ` (${options.timeZone})`; }
+  catch { return new Intl.DateTimeFormat('en-US', { ...options, timeZone: 'UTC' }).format(new Date(value)) + ' (UTC)'; }
+};
 const statusLabel = value => ({ completed:'Completed', running:'In progress', pending:'Pending', queued:'Queued', failed:'Could not complete', unavailable:'Unavailable', empty:'No eligible notes', passed:'Confirmed', findings:'Findings to review', incomplete:'Incomplete evidence', ready_for_review:'Ready for clinician review', not_assessed:'Not assessed', not_applicable:'Not applicable', approved:'Existing Narriva approval', verified:'Existing Narriva approval', skipped_approved:'Approval retained', evaluated:'Evaluated', bypassed:'Kept as written', unapproved:'Not approved', stale:'Approval no longer current' }[value] || String(value || 'Not assessed').replaceAll('_',' '));
 const frequencyLabel = value => value.cadence === 'manual' ? 'Manual runs only; no scheduled charges.' : value.cadence === 'custom' ? `Scheduled every ${value.intervalDays} days.` : `${{ monthly:'Monthly', quarterly:'Quarterly', annual:'Annual' }[value.cadence] || value.cadence} scheduled runs.`;
 const findingText = finding => typeof finding === 'string' ? finding : finding?.message || finding?.detail || finding?.label || 'Review required';
@@ -144,6 +161,7 @@ const approvalLabel = note => statusLabel(note.approvalStatus || (typeof note.pr
 function options(id = agencyId.value) { return { params: { agencyId:id }, headers: { 'X-Agency-Id': String(id) } }; }
 function resetDetail() { clearTimeout(refreshTimer); detailGeneration++; selectedRun.value=null; detailLoading.value=false; detailError.value=''; detailOpen.value=false; }
 async function load() {
+  updateClock();
   const current = ++generation, id = agencyId.value;
   settings.value=null; runs.value=[]; billing.value={}; standard.value=null; error.value=''; confirmation.value=null; acceptCharge.value=false; resetDetail();
   if (!id) { loading.value=false; return; }
@@ -242,10 +260,12 @@ watch(()=>!!confirmation.value || detailOpen.value,async(open,wasOpen)=>{
   if(open&&!wasOpen){previousFocus=document.activeElement;await nextTick();document.querySelector('.ncr .dialog button:not(:disabled),.ncr .dialog input')?.focus();}
   else if(!open&&wasOpen){previousFocus?.focus?.();previousFocus=null;}
 });
-onBeforeUnmount(()=>{generation++;detailGeneration++;clearTimeout(refreshTimer);document.body.classList.remove('narriva-report-print');});
+onBeforeUnmount(()=>{clearInterval(clockTimer);document.removeEventListener('visibilitychange',updateClock);generation++;detailGeneration++;clearTimeout(refreshTimer);document.body.classList.remove('narriva-report-print');});
 </script>
 
 <style scoped>
+.ncr-heading{flex-wrap:wrap}.ncr-heading>div{min-width:0;flex:1 1 240px}.ncr .run-open{min-width:0;overflow-wrap:anywhere}.ncr-jump{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:20px}.ncr-jump a{display:inline-flex;align-items:center;min-height:44px;padding:9px 15px;border:1px solid #c4d3e2;border-radius:9px;background:white;color:#204c72;text-decoration:none;font-weight:600}.ncr-jump a:focus-visible{outline:3px solid #4389c0;outline-offset:3px}.ncr-schedule{display:grid;grid-template-columns:minmax(0,1fr) minmax(230px,auto);gap:24px;border-left:4px solid #d0a646!important;background:linear-gradient(110deg,#fff,#f3f7fb)!important}.ncr-schedule h2{margin:7px 0}.ncr-schedule time{font-weight:650}.ncr-countdown{display:flex;flex-direction:column;justify-content:center;border-left:1px solid #d2dfea;padding-left:24px}.ncr-countdown strong{display:block;font-size:24px;line-height:1.5;margin-top:7px;overflow-wrap:anywhere}.ncr [id^="narriva-"]{scroll-margin-top:24px}@media(max-width:700px){.ncr-schedule{grid-template-columns:1fr;gap:12px}.ncr-countdown{border-left:0;border-top:1px solid #d2dfea;padding:14px 0 0}.ncr-countdown strong{font-size:22px}.ncr-jump a{flex:1;justify-content:center;text-align:center}}
+
 .ncr{max-width:1180px;margin:0 auto;padding:28px 22px 80px;color:#173754;line-height:1.55}.ncr *{box-sizing:border-box}.ncr-heading{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:24px}.ncr-heading img{width:295px;max-width:100%;height:auto}.ncr h1{font-size:30px;margin:16px 0 4px}.ncr h2{font-size:19px;margin:0 0 10px}.ncr h3{font-size:16px}.ncr p{margin:8px 0 12px}.ncr button,.ncr input,.ncr select{font:inherit}.ncr button{cursor:pointer;border:1px solid #c4d3e2;border-radius:9px;padding:10px 15px;min-height:44px;line-height:1.35}.ncr button:disabled{opacity:.55;cursor:default}.ncr .primary{background:#185283;color:white;border-color:#185283}.ncr .secondary{background:white;color:#204c72}.ncr button:focus-visible,.ncr input:focus-visible,.ncr select:focus-visible,.ncr summary:focus-visible{outline:3px solid #4389c0;outline-offset:3px}.ncr-intro{display:grid;grid-template-columns:1fr 2fr;gap:32px;border:1px solid #d9e4ed;border-left:4px solid #d0a646;padding:24px;border-radius:13px;background:#f7fafc;margin-bottom:20px}.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.07em;display:block}.price{font-size:38px;display:block}.muted{color:#60788d;font-size:14px}.ncr-controls{display:grid;grid-template-columns:1fr 1fr;gap:20px}.panel{border:1px solid #d7e2eb;border-radius:13px;padding:22px;background:#fff;margin-bottom:20px}.fields{display:flex;gap:14px;margin:15px 0}.fields>label{flex:1;min-width:0}.fields input,.fields select{width:100%;min-height:44px;border:1px solid #b9cbdc;border-radius:7px;background:#fff;color:#173754;padding:9px;margin-top:5px}.check{display:flex;align-items:flex-start;gap:10px;margin:18px 0}.check input{width:19px;height:19px;flex:none;margin-top:3px}.notice{background:#fff8e9;padding:13px 17px;border-left:3px solid #bb902d;border-radius:5px;font-size:14px}.error{background:#fff0f1;color:#a22438;border:1px solid #e6bac2;padding:13px;border-radius:8px}.run-row{display:flex;align-items:center;justify-content:space-between;border-top:1px solid #e1e9ef;gap:12px;padding:8px 0}.ncr .run-open{display:flex;flex-direction:column;align-items:flex-start;border:0;background:white;text-align:left;flex:1}.run-open span{color:#60788d;font-size:13px}.status{font-size:12px;padding:5px 10px;background:#edf2f7;border-radius:15px}.status-completed{background:#eaf5ef;color:#24623f}.status-failed,.status-unavailable{background:#fff0f1;color:#982b3a}.standards{font-size:14px}.ncr details>summary{cursor:pointer;font-weight:600;padding:8px 0}.ncr li{margin:7px 0}.overlay{position:fixed;inset:0;background:#10273788;z-index:20000;display:flex;justify-content:center;align-items:flex-start;padding:5vh 18px;overflow:auto}.dialog{background:white;border:1px solid #d4e0ea;border-radius:16px;padding:26px;box-shadow:0 16px 60px #15364a33;width:min(100%,760px);max-height:90vh;overflow:auto}.confirm{width:min(100%,540px)}.dialog-actions,.report-actions{display:flex;gap:10px;justify-content:flex-end;margin:20px 0;flex-wrap:wrap}.report>header{display:flex;justify-content:space-between;gap:20px;align-items:center}.report-actions{justify-content:flex-start}.metrics{display:flex;gap:12px;flex-wrap:wrap}.metrics>div{padding:12px;background:#f3f7fb;border-radius:8px;flex:1;min-width:100px}.metrics dt{font-size:12px;color:#60788d}.metrics dd{font-size:23px;font-weight:700;margin:0}.sample{border-top:1px solid #dbe4ed;margin-top:20px;padding-top:8px}.sample h3 span{font-weight:400;font-size:13px;margin-left:8px;color:#60788d}.report-note{border:1px solid #dbe4ed;border-radius:7px;padding:9px 13px;margin:10px 0}.ncr pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%;font-size:12px}.note-text{font:inherit;background:#f7fafc;padding:12px}.ncr small{color:#60788d}@media(max-width:700px){.ncr{padding:18px 12px 60px}.ncr-controls,.ncr-intro{grid-template-columns:1fr}.ncr-intro{gap:12px}.ncr-heading img{width:230px}.ncr h1{font-size:25px}.panel{padding:17px}.overlay{padding:12px}.dialog{max-height:calc(100dvh - 24px);padding:18px}.run-row{align-items:flex-start}.status{max-width:105px}.fields{gap:10px}.report-actions button{flex:1}}
 </style>
 <style>
