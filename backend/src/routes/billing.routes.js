@@ -48,7 +48,7 @@ router.post('/schoolcarebridge-usage-snapshot', async (req,res,next) => {
 // Daily authenticated worker: opt-in report schedules and durable queued retries.
 // This route never activates an agency, changes its quote, or charges a failed run.
 router.post('/run-narriva-compliance', (req,res,next) => {
-  const expected=process.env.BILLING_JOB_SECRET,provided=req.get('x-billing-job-secret');
+  const expected=process.env.NARRIVA_REPORT_JOB_SECRET || process.env.BILLING_JOB_SECRET,provided=req.get('x-billing-job-secret');
   if(!expected||typeof provided!=='string'||Buffer.byteLength(expected)!==Buffer.byteLength(provided)||!crypto.timingSafeEqual(Buffer.from(expected),Buffer.from(provided)))return res.status(401).json({error:{message:'Unauthorized'}});
   next();
 },runNarrivaComplianceJobs);

@@ -9,24 +9,25 @@
     <p v-if="loading" role="status">Loading reports…</p>
     <template v-else-if="settings">
       <section class="ncr-intro">
-        <div><span class="eyebrow">Per report run</span><strong class="price">{{ money(billing.priceCents, billing.currency) }}</strong><p>Billed once for a completed report. Retries do not add another charge.</p></div>
+        <div><span class="eyebrow">Per report run</span><strong class="price">{{ noCharge ? 'No charge' : money(billing.priceCents, billing.currency) }}</strong><p v-if="noCharge">{{ money(0, billing.currency) }} per completed report. The report fee is currently waived.</p><p v-else>Billed once for a completed report. Retries do not add another charge.</p></div>
         <div><strong>{{ settings.sampleSize }} clients · one agency</strong><p>{{ consecutiveCount }} consecutive-note reviews and {{ randomCount }} random-note reviews, with up to {{ settings.notesPerClient }} notes per client.</p><p class="muted">Consecutive notes are checked for duplication and documented progress. Random notes retain current Narriva approvals; unapproved notes receive further review.</p></div>
       </section>
-      <p v-if="billing.reason || !billing.canRun" class="notice">{{ billing.reason || 'Enable the report add-on and accept its per-run price before running a report.' }}</p>
+      <p v-if="noCharge" class="notice">This waiver does not authorize future charges. A paid price requires new acceptance before reports can run at that price.</p>
+      <p v-if="billing.reason || !billing.canRun" class="notice">{{ billing.reason || (noCharge ? 'Enable reports at no charge before running a report.' : 'Enable the report add-on and accept its per-run price before running a report.') }}</p>
       <div class="ncr-controls">
         <section class="panel">
           <h2>Run a report</h2><p>Sample saved notes within this service-date range. Fewer available clients or notes are reported explicitly.</p>
           <form @submit.prevent="prepareRun">
             <div class="fields"><label>From<input v-model="periodStart" type="date" required :disabled="working" /></label><label>Through<input v-model="periodEnd" type="date" required :disabled="working" /></label></div>
-            <button class="primary" :disabled="working || !billing.canRun || !periodValid">Review run · {{ money(billing.priceCents, billing.currency) }}</button>
+            <button class="primary" :disabled="working || !billing.canRun || !periodValid">Review run · {{ noCharge ? 'No charge' : money(billing.priceCents, billing.currency) }}</button>
           </form>
         </section>
         <section class="panel">
-          <h2>Frequency and sample</h2><p>Quarterly is the default. Scheduling is off until you enable it.</p>
+          <h2>Frequency and sample</h2><p>{{ settings.enabled ? settings.cadence === 'manual' ? 'The report add-on is enabled for manual runs.' : 'Scheduled reports are enabled.' : 'Quarterly is the default. Scheduling is off until you enable it.' }}</p>
           <form @submit.prevent="prepareSettings">
             <div class="fields"><label>Frequency<select v-model="draftSettings.cadence" :disabled="working"><option value="manual">Manual only</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="annual">Annually</option><option value="custom">Custom interval</option></select></label><label>Clients per report<input v-model.number="draftSettings.sampleSize" type="number" min="2" max="50" required :disabled="working" /></label></div>
             <div class="fields"><label v-if="draftSettings.cadence === 'custom'">Every (days)<input v-model.number="draftSettings.intervalDays" type="number" min="1" max="366" required :disabled="working" /></label><label>Notes per client<input v-model.number="draftSettings.notesPerClient" type="number" min="1" max="5" required :disabled="working" /></label></div>
-            <label class="check"><input v-model="draftSettings.enabled" type="checkbox" :disabled="working || billing.available === false" />Enable the report add-on{{ draftSettings.cadence !== 'manual' ? ' and scheduled runs' : '' }}</label>
+            <label class="check"><input v-model="draftSettings.enabled" type="checkbox" :disabled="working || billing.available === false" />Enable the report add-on{{ draftSettings.cadence !== 'manual' ? ' and scheduled runs' : '' }}{{ noCharge ? ' at no charge' : '' }}</label>
             <p v-if="settings.nextRunAt" class="muted">Next scheduled run: {{ dateTime(settings.nextRunAt) }}</p>
             <button class="secondary" :disabled="working">Review settings</button>
           </form>
@@ -35,7 +36,7 @@
       <section class="panel ncr-history">
         <h2>Report history</h2><p v-if="!runs.length" class="muted">No reports yet. Running a report does not change notes, signatures, treatment plans, or claims.</p>
         <div v-for="run in runs" :key="run.id" class="run-row">
-          <button class="run-open" @click="openRun(run.id)"><strong>{{ dateOnly(run.periodStart || run.period_start) }} – {{ dateOnly(run.periodEnd || run.period_end) }}</strong><span>{{ run.sampledClients ?? run.summary?.sampledClients ?? '—' }} clients · {{ statusLabel(run.status) }}</span></button>
+          <button class="run-open" @click="openRun(run.id)"><strong>{{ dateOnly(run.periodStart || run.period_start) }} – {{ dateOnly(run.periodEnd || run.period_end) }}</strong><span>{{ run.sampledClients ?? run.summary?.sampledClients ?? '—' }} clients · {{ statusLabel(run.status) }}</span><span v-if="runFee(run)">{{ runFee(run) }}</span></button>
           <span class="status" :class="`status-${run.status}`">{{ statusLabel(run.status) }}</span>
         </div>
       </section>
@@ -45,10 +46,11 @@
     <div v-if="confirmation" class="overlay" @click.self="closeConfirmation">
       <section class="dialog confirm" role="dialog" aria-modal="true" aria-labelledby="ncr-confirm-title" @keydown.esc="closeConfirmation" @keydown.tab="trapFocus">
         <h2 id="ncr-confirm-title">{{ confirmation.kind === 'run' ? 'Confirm report run' : 'Confirm report settings' }}</h2>
-        <p>{{ agency?.name || 'This agency' }} · {{ money(billing.priceCents, billing.currency) }} per completed run</p>
+        <p>{{ agency?.name || 'This agency' }} · {{ confirmationNoCharge ? 'No charge · ' : '' }}{{ money(confirmation.priceCents, billing.currency) }} per completed run</p>
         <p v-if="confirmation.kind === 'run'">{{ periodStart }} through {{ periodEnd }} · {{ settings.sampleSize }} clients, up to {{ settings.notesPerClient }} notes each.</p>
         <p v-else>{{ draftSettings.sampleSize }} clients, up to {{ draftSettings.notesPerClient }} notes each. {{ draftSettings.enabled ? frequencyLabel(draftSettings) : 'The add-on will be disabled. Existing reports are retained.' }}</p>
-        <label v-if="chargeAcceptanceNeeded" class="check"><input v-model="acceptCharge" type="checkbox" />I authorize {{ money(billing.priceCents, billing.currency) }} per completed run for this agency{{ confirmation.kind === 'settings' && draftSettings.cadence !== 'manual' ? ' on this schedule' : '' }}.</label>
+        <p v-if="confirmationNoCharge" class="notice">No future paid price is accepted by this confirmation. Paid reports require a new acceptance.</p>
+        <label v-if="chargeAcceptanceNeeded" class="check"><input v-model="acceptCharge" type="checkbox" /><span v-if="confirmationNoCharge">{{ confirmation.kind === 'settings' ? 'I enable reports' : 'I authorize this report' }} at no charge for this agency{{ confirmation.kind === 'settings' && draftSettings.cadence !== 'manual' ? ' on this schedule' : '' }}.</span><span v-else>I authorize {{ money(confirmation.priceCents, billing.currency) }} per completed run for this agency{{ confirmation.kind === 'settings' && draftSettings.cadence !== 'manual' ? ' on this schedule' : '' }}.</span></label>
         <div class="dialog-actions"><button class="secondary" :disabled="working" @click="closeConfirmation">Cancel</button><button class="primary" :disabled="working || (chargeAcceptanceNeeded && !acceptCharge)" @click="confirmAction">{{ working ? 'Working…' : confirmation.kind === 'run' ? 'Run report' : 'Save settings' }}</button></div>
         <p v-if="working" role="status">Your request is processing. Keep this page open; a retry uses the same request ID.</p><p v-if="error" class="error" role="alert">{{ error }}</p>
       </section>
@@ -60,6 +62,7 @@
         <template v-if="selectedRun">
           <p>{{ agency?.name }} · {{ dateOnly(selectedRun.periodStart || selectedRun.period_start) }} – {{ dateOnly(selectedRun.periodEnd || selectedRun.period_end) }}</p>
           <p><strong>{{ statusLabel(selectedRun.status) }}</strong> · {{ selectedRun.standardVersion || standard?.edition }}</p>
+          <p v-if="runFee(selectedRun)" class="run-fee">{{ runFee(selectedRun) }}</p>
           <div class="report-actions"><button class="secondary" @click="downloadReport">Download report JSON</button><button class="secondary" @click="printReport">Print / Save PDF</button><button v-if="['failed','unavailable'].includes(selectedRun.status)" class="secondary" :disabled="working || !billing.canRun" @click="retryRun">Retry this run · no duplicate charge</button></div>
           <p class="notice">Internal review findings are not payer approval. Unassessed evidence must be reviewed before an audit-readiness conclusion.</p>
           <dl class="metrics"><div v-for="metric in summaryMetrics" :key="metric.label"><dt>{{ metric.label }}</dt><dd>{{ metric.value }}</dd></div></dl>
@@ -117,6 +120,9 @@ const periodValid = computed(() => /^\d{4}-\d{2}-\d{2}$/.test(periodStart.value)
 const consecutiveCount = computed(() => Math.floor((settings.value?.sampleSize || 10) / 2));
 const randomCount = computed(() => (settings.value?.sampleSize || 10) - consecutiveCount.value);
 const chargeAcceptanceNeeded = computed(() => confirmation.value?.kind === 'run' || draftSettings.value.enabled);
+const isZeroPrice = value => value !== null && value !== undefined && value !== '' && Number(value) === 0;
+const noCharge = computed(() => isZeroPrice(billing.value.priceCents));
+const confirmationNoCharge = computed(() => isZeroPrice(confirmation.value?.priceCents));
 const reportSamples = computed(() => selectedRun.value?.samples || selectedRun.value?.result?.samples || []);
 const summaryMetrics = computed(() => {
   const summary = selectedRun.value?.summary || {};
@@ -124,6 +130,11 @@ const summaryMetrics = computed(() => {
 });
 const errorMessage = e => e?.response?.data?.error?.message || e?.response?.data?.message || 'This request could not be completed. Please refresh or retry.';
 const money = (cents, currency = 'USD') => Number.isSafeInteger(Number(cents)) && Number(cents) >= 0 && cents != null ? new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(Number(cents) / 100) : 'Price not configured';
+const runFee = run => {
+  const cents=run?.billing?.unitCents;
+  if(cents == null || cents === '' || !Number.isSafeInteger(Number(cents)) || Number(cents) < 0)return '';
+  return isZeroPrice(cents) ? `No charge · ${money(cents, run.billing.currency || 'USD')}` : `Price for this run: ${money(cents, run.billing.currency || 'USD')}`;
+};
 const dateOnly = value => String(value || '').slice(0,10) || '—';
 const dateTime = value => value && !Number.isNaN(new Date(value).getTime()) ? new Date(value).toLocaleString() : 'Not scheduled';
 const statusLabel = value => ({ completed:'Completed', running:'In progress', pending:'Pending', queued:'Queued', failed:'Could not complete', unavailable:'Unavailable', empty:'No eligible notes', passed:'Confirmed', findings:'Findings to review', incomplete:'Incomplete evidence', ready_for_review:'Ready for clinician review', not_assessed:'Not assessed', not_applicable:'Not applicable', approved:'Existing Narriva approval', verified:'Existing Narriva approval', skipped_approved:'Approval retained', evaluated:'Evaluated', bypassed:'Kept as written', unapproved:'Not approved', stale:'Approval no longer current' }[value] || String(value || 'Not assessed').replaceAll('_',' '));

@@ -2,11 +2,11 @@ import {beforeAll,beforeEach,afterAll,describe,it,expect,vi} from 'vitest';
 import mysql from 'mysql2/promise';
 import crypto from 'node:crypto';
 import {readFileSync} from 'node:fs';
-const m=vi.hoisted(()=>({db:null,enabled:true,permission:true,quote:10000,model:vi.fn(),load:vi.fn(),review:vi.fn(),audit:vi.fn(),features:true,privacy:true}));
+const m=vi.hoisted(()=>({db:null,enabled:true,permission:true,quote:10000,model:vi.fn(),load:vi.fn(),review:vi.fn(),audit:vi.fn(),features:true,privacy:true,account:{},pricing:{}}));
 vi.mock('../../config/database.js',()=>({default:{execute:(...args)=>m.db.execute(...args),getConnection:()=>m.db.getConnection()}}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:(...args)=>m.db.execute(...args)}}));
-vi.mock('../../models/AgencyBillingAccount.model.js',()=>({default:{getByAgencyId:async()=>({})}}));
-vi.mock('../billingPricing.service.js',()=>({getEffectiveBillingPricingForAgency:async()=>({effective:{}}),getFeatureCatalog:()=>({narrivaComplianceReports:{unitAmountCents:m.quote}}),resolveFeatureEntitlements:()=>({narrivaComplianceReports:{available:true}})}));
+vi.mock('../../models/AgencyBillingAccount.model.js',()=>({default:{getByAgencyId:async()=>m.account}}));
+vi.mock('../billingPricing.service.js',()=>({getEffectiveBillingPricingForAgency:async()=>({effective:m.pricing}),getFeatureCatalog:()=>({narrivaComplianceReports:{unitAmountCents:m.quote}}),resolveFeatureEntitlements:()=>({narrivaComplianceReports:{available:true}})}));
 vi.mock('../narrivaAccess.service.js',()=>({positiveId:value=>Number.isSafeInteger(Number(value))&&Number(value)>0?Number(value):null,narrivaError:(status,message)=>Object.assign(new Error(message),{status}),parseNarrivaObject:value=>typeof value==='string'?JSON.parse(value||'{}'):value||{},requireNarrivaAgency:async(user,agency)=>{if(!m.permission||Number(agency)!==1)throw Object.assign(new Error('Access denied'),{status:403});Object.assign(user,{role:user.id===2?'provider':'admin',is_demo:0});},requireNarrivaClient:async(user,agency,client)=>{if(Number(agency)!==1||Number(client)<1||Number(client)>10)throw Object.assign(new Error('Not available'),{status:404});return {id:client};}}));
 vi.mock('../clinicalNoteCrypto.service.js',()=>({maybeEncryptNotePayload:value=>'sealed:'+Buffer.from(value).toString('base64'),maybeDecryptNotePayload:value=>Buffer.from(value.slice(7),'base64').toString()}));
 vi.mock('../narrivaSource.service.js',()=>({loadNarrivaSource:(...args)=>m.load(...args)}));
@@ -17,7 +17,7 @@ vi.mock('../clinicalKnowledgeBase.service.js',()=>({getKnowledgeBaseContext:asyn
 vi.mock('../noteAidChartAudit.service.js',()=>({logNoteAidChartEvent:(...args)=>m.audit(...args)}));
 vi.mock('../clinicalNoteReviewInsights.service.js',()=>({loadClinicalTreatmentHistory:async()=>({status:'available',objectives:[{trend:{status:'stagnant',reason:'Three comparable observations did not change.'}}]})}));
 vi.mock('../../utils/agencyAccessContext.js',()=>({runWithAgencyAccess:(_id,fn)=>fn()}));
-import {getComplianceReportSettings,saveComplianceReportSettings,createComplianceReport,processComplianceReport,readComplianceReport,retryComplianceReport,requireReportAdministrator,runDueComplianceReports,evaluateReportNote} from '../narrivaComplianceReports.service.js';
+import {getComplianceReportSettings,saveComplianceReportSettings,createComplianceReport,processComplianceReport,readComplianceReport,retryComplianceReport,requireReportAdministrator,runDueComplianceReports,evaluateReportNote,reportBillingQuote} from '../narrivaComplianceReports.service.js';
 import {complianceReportInvoiceLines,attachComplianceReportInvoice} from '../narrivaReportBilling.service.js';
 import {NARRIVA_AUDIT_CHECKS} from '../../content/narrivaAuditStandards.js';
 const socket=process.env.NARRIVA_MYSQL_SOCKET;
@@ -39,7 +39,7 @@ suite('real MySQL report persistence, leases and invoice idempotency (synthetic 
   m.db=mysql.createPool({...(socket?{socketPath:socket}:{host:'127.0.0.1',port:Number(process.env.NARRIVA_MYSQL_PORT||3306),password:process.env.NARRIVA_MYSQL_PASSWORD||''}),user:'root',database:'narriva_reports_synthetic_test',connectionLimit:5,timezone:'+00:00'});
  });
  beforeEach(async()=>{
-  vi.clearAllMocks();m.permission=true;m.features=true;m.quote=10000;m.privacy=true;
+  vi.clearAllMocks();m.permission=true;m.features=true;m.quote=10000;m.privacy=true;m.account={};m.pricing={};
   await connection.query('DELETE FROM narriva_report_settings;DELETE FROM narriva_report_runs;DELETE FROM clinical_notes;');
   for(let client=1;client<=10;client++)for(let day=1;day<=7;day++)await connection.execute('INSERT INTO clinical_notes VALUES(?,1,?,?,?,0,\'signed\',\'2026-10-31 12:00:00\',\'{}\')',[client*100+day,client,client*100+day,`2026-10-${String(day).padStart(2,'0')}`]);
   m.load.mockImplementation(async(user,input)=>{const [[note]]=await m.db.execute('SELECT * FROM clinical_notes WHERE id=? AND agency_id=?',[input.noteId,input.agencyId]);if(!note)throw new Error('Missing note');return {agencyId:1,noteId:note.id,source:note,sourceHash:`hash-${note.id}`,narrative:`Synthetic PrivateName practiced breathing. Client reported less tension and will practice before the next session. private@example.com`,identifiers:['Synthetic PrivateName','private@example.com'],client:{id:note.client_id,first_name:'Synthetic',last_name:'PrivateName'},provider:{id:3,first_name:'Synthetic',last_name:'Clinician'},session:{id:note.clinical_session_id},service:{code:'90837',durationAllowed:true,modalityAllowed:true,allowed:true},encounter:{durationMinutes:60,timesValid:true,modality:'in_person',consentConfirmed:true}};});
@@ -53,6 +53,34 @@ suite('real MySQL report persistence, leases and invoice idempotency (synthetic 
   await expect(saveComplianceReportSettings(req({enabled:true,revision:0,confirmCharge:false}))).rejects.toMatchObject({status:409});
   await activate();expect((await getComplianceReportSettings({id:1},1)).billing.canRun).toBe(true);
   await expect(saveComplianceReportSettings(req({enabled:false,revision:0}))).rejects.toMatchObject({status:409});
+ });
+ it('completes explicitly waived reports at zero, preserves zero settings and never invoices them',async()=>{
+  m.account={feature_entitlements_json:{narrivaComplianceReports:{unitAmountCents:0}}};
+  await saveComplianceReportSettings(req({enabled:true,cadence:'manual',revision:0,acceptedPriceCents:0}));
+  expect((await getComplianceReportSettings({id:1},1)).billing).toMatchObject({priceCents:0,priceConfigured:true,feeWaived:true,canRun:true});
+  const pending=await run({acceptedPriceCents:0});await processComplianceReport(pending.id,1);const request=req();request.params.runId=pending.id;const result=await readComplianceReport(request);
+  expect(result.status).toBe('completed');expect(result.billing).toMatchObject({unitCents:0,billable:false,invoiceId:null});
+  expect(await complianceReportInvoiceLines(1,'2099-12-31')).toEqual([]);
+  const db=await m.db.getConnection();try{await expect(attachComplianceReportInvoice(1,77,[{reportIds:[pending.id]}],db)).rejects.toMatchObject({status:409});}finally{db.release();}
+  await saveComplianceReportSettings(req({enabled:false,revision:1}));expect((await getComplianceReportSettings({id:1},1)).settings.acceptedPriceCents).toBe(0);
+ });
+ it('keeps an already authorized free run and failed retry free when the waiver later ends',async()=>{
+  m.account={feature_entitlements_json:{narrivaComplianceReports:{unitAmountCents:0}}};
+  await saveComplianceReportSettings(req({enabled:true,cadence:'manual',revision:0,acceptedPriceCents:0}));
+  const pending=await run({acceptedPriceCents:0});m.model.mockRejectedValueOnce(new Error('synthetic interruption'));await processComplianceReport(pending.id,1);
+  let [[saved]]=await connection.execute('SELECT status,unit_cents,billable_at FROM narriva_report_runs WHERE id=?',[pending.id]);expect(saved).toMatchObject({status:'unavailable',unit_cents:0,billable_at:null});
+  m.account={};await connection.execute("UPDATE narriva_report_runs SET status='queued' WHERE id=?",[pending.id]);await processComplianceReport(pending.id,1);
+  [[saved]]=await connection.execute('SELECT status,unit_cents,billable_at FROM narriva_report_runs WHERE id=?',[pending.id]);expect(saved).toMatchObject({status:'completed',unit_cents:0,billable_at:null});
+  const request=req();request.params.runId=pending.id;expect((await retryComplianceReport({...request,body:{agencyId:1}})).billing).toMatchObject({unitCents:0,billable:false});expect(await complianceReportInvoiceLines(1,'2099-12-31')).toEqual([]);
+ });
+ it('pauses newly paid schedules after a zero waiver and requires explicit paid acceptance for manual requests',async()=>{
+  m.account={feature_entitlements_json:{narrivaComplianceReports:{unitAmountCents:0}}};
+  await saveComplianceReportSettings(req({enabled:true,cadence:'manual',revision:0,acceptedPriceCents:0}));
+  await connection.execute("UPDATE narriva_report_settings SET cadence='quarterly',next_run_at='2026-10-01'");m.account={};
+  expect(await runDueComplianceReports({now:new Date('2026-11-07')})).toMatchObject({queued:0,processed:0});
+  await expect(run({acceptedPriceCents:0})).rejects.toMatchObject({status:409});await expect(run({acceptedPriceCents:10000,confirmCharge:false})).rejects.toMatchObject({status:409});
+  const paid=await run({acceptedPriceCents:10000});expect(paid.billing.unitCents).toBe(10000);
+  const [[settings]]=await connection.execute('SELECT accepted_price_cents FROM narriva_report_settings WHERE agency_id=1');expect(settings.accepted_price_cents).toBe(0);
  });
  it('concurrent identical requests create one run; changed quote/window cannot reuse its key',async()=>{
   await activate();const key=crypto.randomUUID();const results=await Promise.all([run({idempotencyKey:key}),run({idempotencyKey:key})]);expect(results[0].id).toBe(results[1].id);
@@ -146,5 +174,31 @@ suite('real MySQL report persistence, leases and invoice idempotency (synthetic 
  it('disabled schedules create no reports and changed quotes cannot autocharge',async()=>{
   await activate();await connection.execute("UPDATE narriva_report_settings SET cadence='quarterly',next_run_at='2026-10-01',accepted_price_cents=9000");expect(await runDueComplianceReports({now:new Date('2026-11-07')})).toMatchObject({queued:0,processed:0});
   await connection.execute("UPDATE narriva_report_settings SET enabled=0,accepted_price_cents=10000");expect(await runDueComplianceReports({now:new Date('2026-11-07')})).toMatchObject({queued:0,processed:0});
+ });
+});
+
+// Quote validation does not need a database and is always run, including CI.
+describe('explicit zero report pricing',()=>{
+ beforeEach(()=>{m.quote=10000;m.account={};m.pricing={};});
+ it('preserves the ordinary $100 catalog and unrelated overrides when a tenant waiver is present',async()=>{
+  const account={feature_entitlements_json:{narrivaComplianceReports:{unitAmountCents:0},sessionRecording:{unitAmountCents:1000}}};m.account=structuredClone(account);
+  expect(await reportBillingQuote(1)).toMatchObject({priceCents:0,feeWaived:true,priceConfigured:true,canRun:true});expect(m.account).toEqual(account);expect(m.quote).toBe(10000);
+  m.account={};expect(await reportBillingQuote(1)).toMatchObject({priceCents:10000,feeWaived:false});
+ });
+ it.each([null,undefined,'',false,-1,0.5,NaN,'0'])('does not silently waive an invalid explicit override: %s',async value=>{
+  m.account={feature_entitlements_json:{narrivaComplianceReports:{unitAmountCents:value}}};expect(await reportBillingQuote(1)).toMatchObject({priceCents:null,feeWaived:false,priceConfigured:false,canRun:false});
+ });
+ it('guards against the real shared normalizer coercing invalid explicit values to zero',async()=>{
+  const actual=await vi.importActual('../billingPricing.service.js');
+  for(const invalid of [null,'',-1]){
+   const raw={narrivaComplianceReports:{unitAmountCents:invalid}};
+   expect(actual.resolveFeatureEntitlements({featureEntitlementsJson:raw}).narrivaComplianceReports.unitAmountCents).toBe(0);
+   m.account={feature_entitlements_json:raw};expect(await reportBillingQuote(1)).toMatchObject({priceConfigured:false,feeWaived:false,canRun:false});
+  }
+  expect(actual.getFeatureCatalog().narrivaComplianceReports.unitAmountCents).toBe(10000);
+ });
+ it('accepts an explicit zero catalog override but rejects a missing effective price',async()=>{
+  m.pricing={featureCatalog:{narrivaComplianceReports:{unitAmountCents:0}}};expect(await reportBillingQuote(1)).toMatchObject({priceCents:0,feeWaived:true,canRun:true});
+  m.pricing={};m.quote=undefined;expect(await reportBillingQuote(1)).toMatchObject({priceCents:null,priceConfigured:false,canRun:false});
  });
 });

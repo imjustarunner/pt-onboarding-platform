@@ -30,9 +30,15 @@ export async function requireReportAdministrator(user,agencyId) {
 export async function reportBillingQuote(agencyId) {
  const [bundle,account]=await Promise.all([getEffectiveBillingPricingForAgency(agencyId),AgencyBillingAccount.getByAgencyId(agencyId)]);
  const catalog=getFeatureCatalog(bundle.effective),entitlements=resolveFeatureEntitlements({pricingConfig:bundle.effective,featureEntitlementsJson:account?.feature_entitlements_json});
- const entitlement=entitlements[FEATURE],price=entitlement?.unitAmountCents ?? catalog[FEATURE]?.unitAmountCents;
- const priceConfigured=Number.isSafeInteger(price)&&price>0&&price<=10000000;
- return {priceCents:priceConfigured?price:null,currency:'USD',priceConfigured,available:entitlement?.available===true,unitLabel:'completed report run',canRun:priceConfigured&&entitlement?.available===true};
+ const entitlement=entitlements[FEATURE];
+ // Inspect explicit overrides before the shared billing normalizer can coerce
+ // null, empty strings or negative values to zero. Only numeric zero waives a fee.
+ const rawEntitlement=parse(Buffer.isBuffer(account?.feature_entitlements_json)?account.feature_entitlements_json.toString('utf8'):account?.feature_entitlements_json)?.[FEATURE];
+ const rawCatalog=bundle.effective?.featureCatalog?.[FEATURE];
+ const hasPrice=value=>value && typeof value==='object' && Object.hasOwn(value,'unitAmountCents');
+ const price=hasPrice(rawEntitlement)?rawEntitlement.unitAmountCents:hasPrice(rawCatalog)?rawCatalog.unitAmountCents:catalog[FEATURE]?.unitAmountCents;
+ const priceConfigured=Number.isSafeInteger(price)&&price>=0&&price<=10000000;
+ return {priceCents:priceConfigured?price:null,currency:'USD',priceConfigured,feeWaived:priceConfigured&&price===0,available:entitlement?.available===true,unitLabel:'completed report run',canRun:priceConfigured&&entitlement?.available===true};
 }
 export async function getComplianceReportSettings(user,agencyId) {
  agencyId=await requireReportAdministrator(user,agencyId);
@@ -51,7 +57,7 @@ export async function saveComplianceReportSettings(req) {
   const settings=normalizeReportSettings(req.body,current);
   if(settings.enabled && (!quote.canRun || req.body.confirmCharge!==true || req.body.acceptedPriceCents!==quote.priceCents))throw narrivaError(409,'Accept the current per-run price before enabling reports.');
   await db.execute(`INSERT INTO narriva_report_settings(agency_id,enabled,cadence,interval_days,sample_size,notes_per_client,next_run_at,accepted_price_cents,authorized_by_user_id,revision) VALUES(?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE enabled=VALUES(enabled),cadence=VALUES(cadence),interval_days=VALUES(interval_days),sample_size=VALUES(sample_size),notes_per_client=VALUES(notes_per_client),next_run_at=VALUES(next_run_at),accepted_price_cents=VALUES(accepted_price_cents),authorized_by_user_id=VALUES(authorized_by_user_id),revision=VALUES(revision)`,[
-   agencyId,settings.enabled?1:0,settings.cadence,settings.intervalDays,settings.sampleSize,settings.notesPerClient,settings.nextRunAt?new Date(settings.nextRunAt):null,settings.enabled?quote.priceCents:current.acceptedPriceCents||null,req.user.id,current.revision+1]);
+   agencyId,settings.enabled?1:0,settings.cadence,settings.intervalDays,settings.sampleSize,settings.notesPerClient,settings.nextRunAt?new Date(settings.nextRunAt):null,settings.enabled?quote.priceCents:(current.acceptedPriceCents??null),req.user.id,current.revision+1]);
   await db.commit();
  }catch(error){await db.rollback();throw error;}finally{db.release();}
  await logNoteAidChartEvent(req,{agencyId,action:'narriva_report_settings_saved',metadata:{enabled:req.body.enabled===true}});
@@ -182,7 +188,8 @@ async function processScopedComplianceReport(id,agencyId,{budgetMs}) {
  }
  try {
   await requireReportAdministrator(user,agencyId);const config=await getComplianceReportSettings(user,agencyId);
-  if(!config.billing.canRun || config.billing.priceCents!==Number(row.unit_cents))throw narrivaError(403,'Reports are disabled.');
+  // An authorized free run keeps its frozen quote when the waiver later ends.
+  if(!config.billing.canRun || (Number(row.unit_cents)!==0 && config.billing.priceCents!==Number(row.unit_cents)))throw narrivaError(403,'Reports are disabled.');
   if(!snapshot){snapshot=await snapshotSample(row);await checkpoint();}
   await assertReportSampleAccess(user,agencyId,snapshot);
   // Freeze every selected signed revision before dispatching any model work. Retries reuse these hashes.
@@ -235,11 +242,11 @@ async function processScopedComplianceReport(id,agencyId,{budgetMs}) {
   result.message='Internal readiness findings use the supplied CCHA edition. Unknown claim, PDF, identity, or historical credential evidence requires authorized human review; no insurer pass is asserted.';
   await runWithAgencyAccess(agencyId,async()=>{
    const finalConfig=await getComplianceReportSettings(user,agencyId);
-   if(!finalConfig.billing.canRun || finalConfig.billing.priceCents!==Number(row.unit_cents))throw narrivaError(403,'Report permission or pricing changed during processing.');
+   if(!finalConfig.billing.canRun || (Number(row.unit_cents)!==0 && finalConfig.billing.priceCents!==Number(row.unit_cents)))throw narrivaError(403,'Report permission or pricing changed during processing.');
   });
   signal.throwIfAborted();
   const status=result.summary.selectedNotes?'completed':'empty';
-  const [complete]=await pool.execute("UPDATE narriva_report_runs SET status=?,result_encrypted=?,snapshot_encrypted=?,completed_at=UTC_TIMESTAMP(3),billable_at=IF(?='completed',UTC_TIMESTAMP(3),NULL),lease_token=NULL,lease_until=NULL WHERE id=? AND agency_id=? AND status='running' AND lease_token=? AND EXISTS(SELECT 1 FROM narriva_report_settings s WHERE s.agency_id=narriva_report_runs.agency_id AND s.enabled=1)",[status,serialize(result),serialize(snapshot),status,id,agencyId,lease]);
+  const [complete]=await pool.execute("UPDATE narriva_report_runs SET status=?,result_encrypted=?,snapshot_encrypted=?,completed_at=UTC_TIMESTAMP(3),billable_at=IF(?='completed' AND unit_cents>0,UTC_TIMESTAMP(3),NULL),lease_token=NULL,lease_until=NULL WHERE id=? AND agency_id=? AND status='running' AND lease_token=? AND EXISTS(SELECT 1 FROM narriva_report_settings s WHERE s.agency_id=narriva_report_runs.agency_id AND s.enabled=1)",[status,serialize(result),serialize(snapshot),status,id,agencyId,lease]);
   if(complete.affectedRows!==1)throw narrivaError(409,'The report lease changed.');
   clearTimeout(timer);
   await logNoteAidChartEvent(req,{agencyId,action:'narriva_report_completed',metadata:{reportId:id,status,selectedNotes:result.summary.selectedNotes}});

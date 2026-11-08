@@ -8,13 +8,16 @@ reports. Re-price acceptance is required before changed prices can auto-run.
 
 Deploy migration 1777 and the backend together. Preserve CLIENT_CHAT_ENCRYPTION_KEY_BASE64
 (or keyring) used by existing clinicalNoteCrypto, private Vertex/DLP controls,
-service guidance, and BILLING_JOB_SECRET. A missing control must fail closed.
+service guidance, and NARRIVA_REPORT_JOB_SECRET. A missing control must fail closed.
+Use a dedicated report-worker secret, with a pinned Secret Manager reference;
+legacy installations may continue using BILLING_JOB_SECRET as a fallback. A
+report-worker credential must not enable unrelated billing job endpoints.
 
 Manual requests save a queued run before the backend starts processing. A durable
 worker is REQUIRED for recovery after Cloud Run suspends background CPU or a
 process restarts. Configure the existing trusted scheduler to call:
   POST /api/billing/run-narriva-compliance
-  x-billing-job-secret: the existing BILLING_JOB_SECRET
+  x-billing-job-secret: the dedicated NARRIVA_REPORT_JOB_SECRET
   Content-Type: application/json
   {"limit":1}
 Recommended infrastructure cadence: every 15 minutes, UTC. Agency reporting
@@ -23,7 +26,7 @@ Allow 240 seconds per HTTP invocation. Each report worker slice is bounded
 to 180 seconds and requeues unfinished work with its checkpoint intact. Do not put the secret in tracked
 files, URLs, terminal arguments, or logs. The executable caller
 scripts/clinical/run-narriva-compliance-worker.mjs accepts NARRIVA_API_BASE_URL,
-BILLING_JOB_SECRET from its environment;
+NARRIVA_REPORT_JOB_SECRET from its environment;
 it prints only queued/processed counts. A scheduler can invoke this caller in
 the existing secret-managed job environment. No new infrastructure is created
 or enabled automatically by this file.

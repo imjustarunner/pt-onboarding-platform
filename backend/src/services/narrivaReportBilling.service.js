@@ -27,7 +27,7 @@ export function appendComplianceReportLines(estimate,lines) {
 }
 export async function attachComplianceReportInvoice(agencyId,invoiceId,lines,db) {
  for(const line of lines)for(const id of line.reportIds){
-  const [result]=await db.execute("UPDATE narriva_report_runs SET invoice_id=? WHERE id=? AND agency_id=? AND invoice_id IS NULL AND status='completed' AND billable_at IS NOT NULL",[invoiceId,id,agencyId]);
+  const [result]=await db.execute("UPDATE narriva_report_runs SET invoice_id=? WHERE id=? AND agency_id=? AND invoice_id IS NULL AND status='completed' AND billable_at IS NOT NULL AND unit_cents>0",[invoiceId,id,agencyId]);
   if(result.affectedRows!==1)throw narrivaError(409,'This report charge was already invoiced. Refresh the invoice.');
  }
 }
