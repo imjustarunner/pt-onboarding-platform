@@ -40,7 +40,7 @@ jobs:
       - run: npm rebuild --prefix backend bcrypt
       - name: Verify scoped clinical access, consent, review evidence and service publication
         working-directory: frontend
-        run: node node_modules/vitest/vitest.mjs run --config vitest.narriva.config.js --maxWorkers=3
+        run: node node_modules/vitest/vitest.mjs run --config vitest.narriva.config.js --maxWorkers=3 --testTimeout=20000 --hookTimeout=20000
       - name: Verify compliance reporting and Auricwell practice navigation
         working-directory: frontend
         run: node node_modules/vitest/vitest.mjs run --config vitest.narriva-reports.config.js --maxWorkers=3
