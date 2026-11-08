@@ -909,6 +909,9 @@ const loadLatestDraft = async () => {
     const response = await api.get(`/organizations/${props.organizationSlug}/upload-referral/latest-draft`);
     const draft = response.data?.draft || null;
     if (!draft?.id) return;
+    // A delayed resume must not replace work begun while this request was pending.
+    if (uploading.value || uploadComplete.value || selectedFile.value || selectedImages.value.length
+      || firstName.value || lastName.value || uploadNote.value) return;
 
     draftId.value = Number(draft.id);
     phiDocumentId.value = draft.phiDocumentId ? Number(draft.phiDocumentId) : null;

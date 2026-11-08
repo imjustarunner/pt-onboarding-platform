@@ -17,3 +17,12 @@ it('keeps matching available after file upload and reports completion only after
  expect(api.post).toHaveBeenLastCalledWith('/organizations/qa-school/upload-referral/9/submit',expect.objectContaining({existingClientId:42}));
  expect(w.emitted('submitted')).toEqual([[{client:{id:42},attachedExisting:true}]]);w.unmount();
 });
+it('preserves a new child and file when an older draft resumes late',async()=>{
+ let resolveDraft;
+ api.get.mockImplementation(url=>url.endsWith('/latest-draft')?new Promise(resolve=>{resolveDraft=resolve;}):Promise.resolve({data:{}}));
+ const w=mount(Upload,{props:{organizationSlug:'qa-school'},global:{stubs:{PDFPreview:true}}});await flushPromises();
+ w.vm.firstName='New';w.vm.lastName='Child';w.vm.selectedFile=new File(['%PDF-synthetic'],'new.pdf',{type:'application/pdf'});
+ resolveDraft({data:{draft:{id:17,phiDocumentId:18,firstName:'Previous',lastName:'Child',uploadNote:'Old draft'}}});await flushPromises();
+ expect(w.vm.firstName).toBe('New');expect(w.vm.lastName).toBe('Child');expect(w.vm.draftId).toBeNull();expect(w.vm.phiDocumentId).toBeNull();expect(w.vm.uploadNote).toBe('');
+ w.unmount();
+});
