@@ -1,3 +1,4 @@
+import { isSchoolRoiDocument } from '../utils/schoolRoiDocument.js';
 import AgencyOfficeIntakeMaster from '../models/AgencyOfficeIntakeMaster.model.js';
 import { intakeChildRoster } from '../utils/multiChildIntake.js';
 import { enrichApplicationRecord, appendApplicationJobDescription } from '../services/jobApplicationRecord.service.js';
@@ -121,6 +122,13 @@ async function resolveOfficeRecord(req) {
   }
   submission = await enrichApplicationRecord(submission, link, agency);
   const signedDocuments = await IntakeSubmissionDocument.listSignedForRecord(submission.id);
+  for (const doc of signedDocuments) {
+    if (doc.signed_pdf_path && isSchoolRoiDocument(doc)) {
+      // A document-specific link never exposes the family intake session token.
+      try { doc.documentViewUrl = await StorageService.getSignedUrl(doc.signed_pdf_path, 60 * 24 * 7); }
+      catch { doc.documentViewUrl = null; }
+    }
+  }
   let clientIndex = req.body?.clientIndex == null ? null : Number(req.body.clientIndex);
   const roster = intakeChildRoster(submission.intake_data || {});
   // Older clients send one display identity instead of an explicit index.

@@ -41,7 +41,7 @@
           :disabled="!canOpenSchoolClient(client)"
           @click="openOverview(client)"
         >
-          <span class="roster-quicklist-name">{{ formatRosterLabel(client) }}</span>
+          <span class="roster-quicklist-name">{{ formatRosterLabel(client) }}<small> · ID {{ client.id }}</small></span>
           <span class="roster-quicklist-meta">{{ formatOnboardingSummary(client) }}</span>
         </button>
       </aside>
@@ -303,7 +303,7 @@
                   :data-locked-reason="!canOpenSchoolClient(client) ? lockedInitialsTitle(client) : ''"
                   @click.stop="openOverview(client)"
                 >
-                  {{ formatRosterLabel(client) }}
+                  {{ formatRosterLabel(client) }}<small> · ID {{ client.id }}</small>
                 </button>
                 <span
                   v-if="isNewlyAssigned(client)"

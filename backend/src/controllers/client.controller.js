@@ -1273,6 +1273,7 @@ export const createClient = async (req, res, next) => {
       paperwork_delivery_method_id,
       doc_date,
       full_name,
+      date_of_birth,
       contact_phone,
       guardian_portal_enabled,
       client_type,
@@ -1280,6 +1281,7 @@ export const createClient = async (req, res, next) => {
       primary_parent_language,
       skills
     } = req.body;
+    if (date_of_birth && (!/^\d{4}-\d{2}-\d{2}$/.test(String(date_of_birth)) || Number.isNaN(Date.parse(date_of_birth)) || new Date(`${date_of_birth}T00:00:00Z`).toISOString().slice(0,10)!==date_of_birth)) return res.status(400).json({error:{message:'Enter a valid date of birth.'}});
     const forceCreate = req.body?.forceCreate === true || req.body?.force_create === true;
 
     const userId = req.user.id;
@@ -1722,6 +1724,7 @@ export const createClient = async (req, res, next) => {
       provider_id: resolvedProviderId,
       initials: initialsForSave,
       full_name: full_name ? String(full_name).trim() : null,
+      date_of_birth: date_of_birth || undefined,
       contact_phone: contact_phone ? String(contact_phone).trim() : null,
       guardian_portal_enabled: guardian_portal_enabled ? 1 : 0,
       client_type: resolvedClientType,

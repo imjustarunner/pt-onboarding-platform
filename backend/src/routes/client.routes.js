@@ -81,6 +81,7 @@ import {
 } from '../controllers/client.controller.js';
 import {
   listClientSchoolRoiAccess,
+  viewClientSignedSchoolRoi,
   updateClientSchoolRoiAccess,
   updateClientSchoolRoiExpiration,
   updateClientSchoolRoiSigningConfig,
@@ -107,7 +108,7 @@ import {
   postWaiveNewPacketFlag,
   putOnboardingRoiExpiration,
   postCompleteStaffOnboarding,
-  getPaperProcessing, putPaperProcessing, postPaperProcessing,
+  getPaperProcessing, putPaperProcessing, postPaperProcessing, viewPaperProcessingDocument, checkPaperProcessingDocument,
   getOnboardingQueue,
   getProviderOnboardingQueue
 } from '../controllers/clientOnboarding.controller.js';
@@ -345,6 +346,8 @@ router.post('/:id/onboarding/acknowledge-roi-staff', postAcknowledgeRoiStaff);
 router.put('/:id/onboarding/roi-expiration', putOnboardingRoiExpiration);
 router.post('/:id/onboarding/complete-staff', postCompleteStaffOnboarding);
 router.get('/:id/paper-packet-processing', getPaperProcessing);
+router.get('/:id/paper-packet-processing/documents/:docId/view', viewPaperProcessingDocument);
+router.post('/:id/paper-packet-processing/documents/:docId/check', checkPaperProcessingDocument);
 router.put('/:id/paper-packet-processing', putPaperProcessing);
 router.post('/:id/paper-packet-processing/complete', postPaperProcessing);
 
@@ -386,6 +389,7 @@ router.delete('/:id/provider-assignments/:assignmentId', removeClientProviderAss
 // Guardians (admin or supervisor with client access can view; only admin can create/update/delete)
 router.get('/:id/guardians', requireGuardianListAccess, listClientGuardians);
 router.get('/:id/school-roi-access', listClientSchoolRoiAccess);
+router.get('/:id/school-roi-documents/:documentId/view', viewClientSignedSchoolRoi);
 router.put('/:id/school-roi-access/:schoolStaffUserId', updateClientSchoolRoiAccess);
 router.put('/:id/school-roi-expiration', updateClientSchoolRoiExpiration);
 router.put('/:id/school-roi-signing-config', updateClientSchoolRoiSigningConfig);

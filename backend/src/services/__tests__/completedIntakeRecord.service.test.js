@@ -2,14 +2,45 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildCompletedIntakeRecord } from '../completedIntakeRecord.service.js';
 
+test('programmed school ROI links use the exact signed artifact, never an unrelated blank template or family session token', () => {
+  const document = { id: 1653, document_template_id: 139, signed_at: '2026-11-08T05:21:49Z',
+    documentViewUrl: 'https://storage.example.test/only-this-signed-roi', audit_trail: { smartSchoolRoi: true } };
+  const record = buildCompletedIntakeRecord({ link: { public_key: 'synthetic' }, submission: { session_token: 'private-family-session' }, signedDocuments: [document] });
+  assert.equal(record.signatures[0].publicUrl, document.documentViewUrl);
+  assert.equal(record.signatures[0].publicUrlLabel, 'View signed ROI');
+  assert.ok(!JSON.stringify(record).includes('private-family-session'));
+  const noLink = buildCompletedIntakeRecord({ link: { public_key: 'synthetic' }, signedDocuments: [{ ...document, documentViewUrl: undefined }] });
+  assert.equal(noLink.signatures[0].publicUrl, '');
+});
+
 test('a combined sibling receipt includes each child’s distinct PSC answers', () => {
   const fields = Array.from({ length: 17 }, (_, i) => ({ key: `psc_${i+1}`, type: 'radio', instrument: 'psc17', options: [{ value: '1', label: 'Never' }, { value: '2', label: 'Sometimes' }, { value: '3', label: 'Often' }] }));
   const answers = value => Object.fromEntries(fields.map(field => [field.key, value]));
   const record = buildCompletedIntakeRecord({ link: { scope_type: 'school', intake_fields: fields }, submission: { intake_data: { clients: [{ fullName: 'First Child' }, { fullName: 'Second Child' }], responses: { clients: [answers('3'), answers('1')] } } } });
   const second = record.sections.find(section => section.title === 'Second Child — PSC-17');
+  const first = record.sections.find(section => section.title === 'First Child — PSC-17');
+  assert.equal(first?.rows.length, 17);
+  assert.ok(first.rows.every(row => row.value === 'Often'));
   assert.equal(second?.rows.length, 17);
   assert.ok(second.rows.every(row => row.value === 'Never'));
   assert.ok(record.sections.some(section => section.title !== second.title && section.rows?.some(row => row.value === 'Often')));
+});
+
+test('combined interview receipts label both screening sections and retain each child’s sex', () => {
+  const link = { scope_type: 'school', intake_steps: [{ type: 'questions', label: 'About {childName}', fields: [
+    { key: 'client_sex', label: 'Sex', type: 'text', scope: 'client' },
+    { key: 'psc_1', label: 'Fidgety', type: 'radio', instrument: 'psc17', options: [{ value: '1', label: 'Never' }, { value: '3', label: 'Often' }] }
+  ] }] };
+  const intake = { clients: [{ fullName: 'First Child' }, { fullName: 'Second Child' }], responses: { clients: [
+    { client_sex: 'Female', psc_1: '3' }, { client_sex: 'Male', psc_1: '1' }
+  ] } };
+  const saved = JSON.stringify(intake);
+  const record = buildCompletedIntakeRecord({ link, submission: { intake_data: intake } });
+  assert.equal(record.sections.find(s => s.title === 'First Child — PSC-17')?.rows[0]?.value, 'Often');
+  assert.equal(record.sections.find(s => s.title === 'Second Child — PSC-17')?.rows[0]?.value, 'Never');
+  assert.ok(record.sections.find(s => s.title === 'Second Child details')?.rows.some(r => r.label === 'Sex' && r.value === 'Male'));
+  assert.ok(record.sections.some(s => s.rows.some(r => r.label === 'Sex' && r.value === 'Female')));
+  assert.equal(JSON.stringify(intake), saved);
 });
 
 test('office receipt prints both insurance policies without deduplicating their shared field names', () => {

@@ -1100,8 +1100,11 @@
                   >
                     Client Renewal
                   </button>
-                  <button type="button" class="cdp-btn-soft" @click="goChartSub('phi')">
-                    Upload document
+                  <button type="button" class="cdp-btn-soft" @click="openDocumentUpload">
+                    {{ authStore.user?.role === 'support' ? 'Upload / process paper packet' : 'Upload document' }}
+                  </button>
+                  <button v-if="canEditPaperwork" type="button" class="cdp-btn-soft" @click="clientActionsOpen = true">
+                    Client actions / process paper packet
                   </button>
                   <button v-if="canEditAccount && ['super_admin','admin','support'].includes(authStore.user?.role)" type="button" class="cdp-btn-soft" @click="clientUpdateModalOpen = true">Request selected updates</button>
                 </div>
@@ -2827,6 +2830,21 @@
         </div>
       </div>
 
+      <div v-if="clientActionsOpen && canEditPaperwork && client?.id" class="modal-overlay client-actions-overlay" @click.self="clientActionsOpen = false">
+        <div class="client-actions-dialog" role="dialog" aria-modal="true" aria-label="Client actions">
+          <ClientOnboardingChecklistPanel
+            :key="client.id"
+            :client-id="client.id"
+            :client-label="client.full_name || client.initials || 'Client'"
+            :client-meta="client"
+            :can-edit-docs="canEditPaperwork"
+            as-modal
+            @close="clientActionsOpen = false"
+            @updated="emit('updated', client)"
+          />
+        </div>
+      </div>
+
       <AssignDayModal
         v-if="showAssignDayModal && schoolOrganizationId && client?.id"
         :organization-id="schoolOrganizationId"
@@ -2873,7 +2891,8 @@ import DependentPortalSharing from './DependentPortalSharing.vue';
 import ClientServiceEnrollments from './ClientServiceEnrollments.vue';
 import ClientFeedbackTrends from '../kiosk/ClientFeedbackTrends.vue';
 import ClientReferralLinks from '../clients/ClientReferralLinks.vue';
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide, defineAsyncComponent } from 'vue';
+const ClientOnboardingChecklistPanel = defineAsyncComponent(() => import('../clients/ClientOnboardingChecklistPanel.vue'));
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
@@ -3322,6 +3341,7 @@ const availableProviders = ref([]); // used by other tabs (e.g., assignments) an
 const skillsValue = ref(false);
 const editingOverview = ref(false);
 const clientRenewalModalOpen = ref(false);
+const clientActionsOpen = ref(false);
 const clientUpdateModalOpen = ref(false);
 const clientDisclosureStatus = ref('');
 
@@ -3704,6 +3724,7 @@ const openFullClientRecord = () => {
   });
 };
 
+async function openDocumentUpload(){if(authStore.user?.role==='support'){clientActionsOpen.value=true;return;}goChartSub('phi');await nextTick();documentsTabRef.value?.openUpload?.();}
 const organizationSlugForLinks = computed(() => String(route.params?.organizationSlug || '').trim());
 
 const addAgencyAffiliationId = ref('');
@@ -6482,6 +6503,7 @@ watch(() => Number(props.client?.id || 0), async (id, prev) => {
   const seq = ++chartContextSeq;
   if (!id) return;
   if (id !== prev) {
+    clientActionsOpen.value = false;
     editingStatus.value = false;
     editingOverview.value = false;
     clientCodeDraft.value = '';
@@ -7153,6 +7175,9 @@ watch(
   align-items: center;
   z-index: 1000;
 }
+
+.client-actions-overlay { z-index: 10001; padding: 16px; }
+.client-actions-dialog { width: min(1280px, 100%); max-height: 94dvh; overflow: auto; border-radius: 12px; background: var(--bg-card, white); }
 
 .modal-content.large {
   background: var(--bg-card, var(--bg));

@@ -1,4 +1,5 @@
 import { recordGuardianRoiConsent } from './schoolRoiGuardianConsent.service.js';
+import { schoolRoiSignedTimestamp } from '../utils/schoolRoiCalendarDate.js';
 import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.model.js';
 import {
   AUTHORIZED_REPRESENTATIVE,
@@ -35,13 +36,6 @@ function escapeHtml(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-}
-
-function formatDate(value) {
-  if (!value) return '—';
-  const date = value instanceof Date ? value : new Date(String(value));
-  if (Number.isNaN(date.getTime())) return '—';
-  return date.toISOString().slice(0, 10);
 }
 
 function formatDateTime(value) {
@@ -302,6 +296,7 @@ export async function buildSmartSchoolRoiContext({
     },
     agency: {
       id: Number(agency?.id || 0) || null,
+      timezone: agency?.timezone || 'America/Denver',
       name: String(agency?.name || '').trim() || null,
       logoUrl: resolveAbsoluteAssetUrl(agency?.logo_path || agency?.logo_url || '') || null
     },
@@ -719,7 +714,7 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
       <div class="header">
         <div>
           <h1>${escapeHtml(docTitle)}</h1>
-          <div class="muted">${escapeHtml(labels.signedWindow)} ${escapeHtml(formatDate(signedAt))} ${escapeHtml(labels.signedWindowSuffix)}</div>
+          <div class="muted">${escapeHtml(labels.signedWindow)} ${escapeHtml(schoolRoiSignedTimestamp(signedAt, roiContext?.agency?.timezone, response.locale))} ${escapeHtml(labels.signedWindowSuffix)}</div>
           <div class="muted">${escapeHtml(response.signer?.fullName || '')}${response.signer?.email ? ` · ${escapeHtml(response.signer.email)}` : ''}</div>
         </div>
         <div style="display:flex; gap:8px; align-items:center;">

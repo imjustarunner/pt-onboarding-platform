@@ -197,7 +197,7 @@ export function buildIntakeSummaryDocumentHtml({
             ${sig.versionLabel ? `<p class="intake-summary-sign-meta">${escapeHtml(sig.versionLabel)}</p>` : ''}
             ${sig.signedAt ? `<p class="intake-summary-sign-meta">Signed ${escapeHtml(sig.signedAt)}${sig.signerName ? ` by ${escapeHtml(sig.signerName)}` : ''}</p>` : ''}
             ${sig.hash ? `<p class="intake-summary-sign-meta">Fingerprint ${escapeHtml(sig.hash)}</p>` : ''}
-            ${sig.publicUrl ? `<p class="intake-summary-sign-meta"><a href="${escapeHtml(sig.publicUrl)}" target="_blank" rel="noopener">View this version</a></p>` : ''}
+            ${sig.publicUrl ? `<p class="intake-summary-sign-meta"><a href="${escapeHtml(sig.publicUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(sig.publicUrlLabel || 'View this version')}</a></p>` : ''}
             ${sig.imageDataUrl ? `<img src="${escapeHtml(sig.imageDataUrl)}" alt="Signature for ${escapeHtml(sig.documentName || 'document')}" />` : '<p class="intake-summary-sign-meta">Signature captured electronically.</p>'}
           </div>
         `).join('')}
@@ -515,7 +515,7 @@ async function renderCompletedIntakePdf(spec = {}) {
         sig.versionLabel,
         sig.signedAt ? `Signed ${sig.signedAt}${sig.signerName ? ` by ${sig.signerName}` : ''}` : '',
         sig.hash ? `Fingerprint ${sig.hash}` : '',
-        sig.publicUrl ? `View this version: ${sig.publicUrl}` : ''
+        sig.publicUrl ? `${sig.publicUrlLabel || 'View this version'}: ${sig.publicUrl}` : ''
       ].filter(Boolean);
       drawLines(meta, { size: 8, color: gray, gap: 11 });
       const image = await embedPngFromDataUrl(pdfDoc, sig.imageDataUrl);

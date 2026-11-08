@@ -7,6 +7,7 @@ import pool from '../config/database.js';
 import StorageService from './storage.service.js';
 import ReferralOcrService from './referralOcr.service.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
+import { paperPacketBytes } from './paperPacketBytes.service.js';
 import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.model.js';
 import { findSchoolPacketVersionByLabel } from './schoolPrintablePacketCache.service.js';
 import { recordPaperPacketDisclosure } from './paperPacketDisclosure.service.js';
@@ -185,12 +186,7 @@ export async function evaluateAndApplyPaperPacketVision({
   if (!path) {
     // Latest packet PHI for client
     try {
-      const [rows] = await pool.execute(
-        `SELECT id, storage_path FROM client_phi_documents
-         WHERE client_id = ?
-         ORDER BY id DESC LIMIT 1`,
-        [cid]
-      );
+      const rows = await ClientPhiDocument.findSchoolPaperPacketsForClient(cid);
       path = rows?.[0]?.storage_path || null;
       phiId = Number(rows?.[0]?.id || 0) || phiId;
     } catch {
@@ -215,21 +211,21 @@ export async function evaluateAndApplyPaperPacketVision({
 
   let buffer;
   try {
-    const buf = await StorageService.readObject(path);
-    buffer = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+    ({ buffer } = await paperPacketBytes({ documentId: phiId, clientId: cid, schoolOrganizationId: sid }));
   } catch (e) {
-    const reviewReasons = ['storage_read_failed'];
+    const pending = e?.code === 'file_check_pending';
+    const reviewReasons = [pending ? 'file_check_pending' : e?.code === 'packet_source_mismatch' ? 'packet_source_mismatch' : 'storage_read_failed'];
     const evalId = await insertEvalRow({
       clientId: cid,
       schoolOrganizationId: sid,
       phiDocumentId: phiId,
       storagePath: path,
-      status: 'failed',
+      status: pending ? 'needs_review' : 'failed',
       reviewReasons,
       confidence: 0,
       rawSummary: { error: e?.message || 'read_failed', demographicsAttempted: true }
     });
-    return { ok: false, status: 'failed', reviewReasons, evalId };
+    return { ok: false, status: pending ? 'needs_review' : 'failed', reviewReasons, evalId };
   }
 
   let ocrText = '';
@@ -245,7 +241,7 @@ export async function evaluateAndApplyPaperPacketVision({
       languageHint: 'en'
     });
   } catch (e) {
-    console.warn('[paperPacketVision] OCR failed', e?.message || e);
+    console.warn('[paperPacketVision] OCR failed');
     const reviewReasons = ['vision_ocr_failed'];
     const evalId = await insertEvalRow({
       clientId: cid,
@@ -268,7 +264,7 @@ export async function evaluateAndApplyPaperPacketVision({
       actorUserId
     });
   } catch (e) {
-    console.warn('[paperPacketVision] demographics apply failed', e?.message || e);
+    console.warn('[paperPacketVision] demographics apply failed');
   }
 
   const versionHit = extractVersionLabelFromText(ocrText);
@@ -293,7 +289,11 @@ export async function evaluateAndApplyPaperPacketVision({
   }
 
   const deny = detectDenyStaffFromText(ocrText, staffList);
-  const reviewReasons = [];
+  const [[sourceClient]] = await pool.execute('SELECT onboarding_docs_json FROM clients WHERE id=?', [cid]);
+  let sourceDocs = sourceClient?.onboarding_docs_json || {};
+  if (typeof sourceDocs === 'string') { try { sourceDocs=JSON.parse(sourceDocs); } catch { sourceDocs={}; } }
+  const replacement = Number(sourceDocs.paperPacketSource?.documentId) === Number(phiId);
+  const reviewReasons = replacement ? ['replacement_packet_requires_review'] : [];
   if (!versionHit.label) reviewReasons.push('version_label_not_detected');
   if (versionHit.label && !matched) reviewReasons.push('version_label_unmatched');
   if (!sigs.roiSignatureDetected) reviewReasons.push('roi_signature_missing');
@@ -311,12 +311,14 @@ export async function evaluateAndApplyPaperPacketVision({
   if (staffList.length) confidence += 0.1;
   confidence = Math.min(1, Number(confidence.toFixed(4)));
 
-  const canApply = confidence >= CONFIDENT_THRESHOLD
+  const matchedEvidence = confidence >= CONFIDENT_THRESHOLD
     && matched
     && sigs.roiSignatureDetected
     && sigs.disclosureSignatureDetected
     && !deny.unmatchedDenyHints.length
     && staffList.length > 0;
+  if (!matchedEvidence && !reviewReasons.some(reason => reason !== 'replacement_packet_requires_review')) reviewReasons.push('signature_matching_needs_review');
+  const canApply = !replacement && matchedEvidence;
 
   const status = canApply ? 'applied' : (reviewReasons.includes('vision_ocr_failed') ? 'failed' : 'needs_review');
 
@@ -387,7 +389,7 @@ export async function evaluateAndApplyPaperPacketVision({
       evalId
     };
   } catch (e) {
-    console.warn('[paperPacketVision] apply failed', e?.message || e);
+    console.warn('[paperPacketVision] apply failed');
     const reasons = ['apply_failed', e?.message || 'unknown'];
     await updateEvalRow(evalId, { status: 'needs_review', reviewReasons: reasons });
     return { ok: false, status: 'needs_review', reviewReasons: reasons, evalId };
@@ -406,7 +408,7 @@ export function schedulePaperPacketVisionEval(opts = {}) {
   setImmediate(() => {
     evaluateAndApplyPaperPacketVision(opts)
       .catch((e) => {
-        console.warn('[paperPacketVision] scheduled eval failed', e?.message || e);
+        console.warn('[paperPacketVision] scheduled eval failed');
       })
       .finally(() => {
         if (cid) visionEvalInFlight.delete(cid);

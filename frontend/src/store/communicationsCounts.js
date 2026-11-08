@@ -76,7 +76,7 @@ export const useCommunicationsCountsStore = defineStore('communicationsCounts', 
         canFetchCenterSummary
           ? getStartupData('/communications/center-summary', { params, skipGlobalLoading: true, skipAuthRedirect: true })
           : Promise.resolve({ data: {} }),
-        agencyId && !isFamilyAccount
+        agencyId && !isFamilyAccount && role !== 'school_staff'
           ? api.get('/communications/attention-summary', { params: { agencyId, hubScope: 1 }, timeout: 30000, skipGlobalLoading: true, skipAuthRedirect: true })
           : Promise.resolve({ data: { summary: { unread: 0 } } }),
         canFetchOpenTicketCount

@@ -692,6 +692,7 @@
           <button type="button" class="btn" :class="createMode === 'paste' ? 'btn-primary' : 'btn-secondary'" @click="createMode = 'paste'">Paste records</button>
           <button type="button" class="btn" :class="createMode === 'manual' ? 'btn-primary' : 'btn-secondary'" @click="createMode = 'manual'">Manual entry</button>
           <button type="button" class="btn" :class="createMode === 'fax' ? 'btn-primary' : 'btn-secondary'" @click="createMode = 'fax'">From fax</button>
+          <button type="button" class="btn" :class="createMode === 'paper' ? 'btn-primary' : 'btn-secondary'" @click="createMode = 'paper'">School paper packet</button>
         </div>
         <form @submit.prevent="createClient">
           <fieldset :disabled="creating || !!createdClientRecord" style="border: 0; padding: 0; margin: 0; min-width: 0;">
@@ -730,6 +731,7 @@
             <small v-if="loadingOrganizations">Loading organizations…</small>
             <small v-else-if="!availableOrganizations.length">No affiliated organizations found for this agency.</small>
           </div>
+          <div v-if="createMode === 'paper'" class="form-group"><p>Upload a school packet, review existing client matches, then process the packet from Client actions.</p><button type="button" class="btn btn-primary" :disabled="!selectedPaperSchoolSlug" @click="standalonePaperOpen=true">Upload school paper packet</button><p v-if="!selectedPaperSchoolSlug">Select a school above.</p></div>
           <FaxClientIntake v-if="createMode === 'fax'" :agency-id="createAgencyEffectiveId" :organization-id="newClient.organization_id" @change="onFaxChange" />
           <div class="form-group">
             <label>Client Type *</label>
@@ -749,6 +751,9 @@
           <div class="form-group">
             <label>Full name</label>
             <input v-model="newClient.full_name" type="text" @blur="fillCreateInitials" />
+          </div>
+          <div class="form-group">
+            <label>Date of birth</label><input v-model="newClient.date_of_birth" type="date" />
           </div>
           <div class="form-group">
             <label>Initials *</label>
@@ -1277,6 +1282,7 @@
     />
 
   </div>
+  <ReferralUpload v-if="standalonePaperOpen && selectedPaperSchoolSlug" :organization-slug="selectedPaperSchoolSlug" @close="standalonePaperOpen=false" @uploaded="onPaperUploaded" />
 </template>
 
 <script setup>
@@ -1284,8 +1290,9 @@ import ClientQuickLook from '../../components/clients/ClientQuickLook.vue';
 import { useClientQuickLook } from '../../composables/useClientQuickLook.js';
 import ClientPortalInviteDialog from '../../components/clients/ClientPortalInviteDialog.vue';
 import PostClientToExchangeButton from '../../components/clientExchange/PostClientToExchangeButton.vue';
+const ReferralUpload = defineAsyncComponent(() => import('../../components/school/ReferralUpload.vue'));
 import FaxClientIntake from '../../components/clients/FaxClientIntake.vue';
-import { ref, reactive, computed, onMounted, watch } from 'vue';
+import { ref, reactive, computed, onMounted, watch, defineAsyncComponent } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
@@ -1866,6 +1873,9 @@ const bulkClientStatusId = ref('');
 const bulkPromoteYear = ref('');
 
 const createMode = ref('paste');
+const standalonePaperOpen = ref(false);
+const selectedPaperSchoolSlug = computed(() => { const school=availableOrganizations.value.find(org=>Number(org.id)===Number(newClient.value.organization_id)); return school?.organization_type==='school' ? school.slug : null; });
+async function onPaperUploaded(){standalonePaperOpen.value=false;showCreateModal.value=false;await fetchClients();}
 const faxReview = ref(null);
 const createOutcome = ref('unassigned');
 const createdClientRecord = ref(null);
@@ -1917,6 +1927,7 @@ const newClient = ref({
   client_type: '',
   initials: '',
   full_name: '',
+  date_of_birth: '',
   provider_id: null,
   client_alert: '',
   provider_make_primary: true,
@@ -3054,6 +3065,7 @@ const createClient = async ({ forceCreate = false } = {}) => {
       return;
     }
 
+    if (createMode.value === 'paper') { error.value = 'Use Upload school paper packet to review and submit this packet.'; return; }
     if (createMode.value === 'fax' && !faxReview.value?.ready) {
       error.value = 'Review the fax fields and select a referring organization first.';
       return;

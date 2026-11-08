@@ -12,7 +12,7 @@ import {
   isAssignedProvider
 } from '../services/clientOnboardingChecklist.service.js';
 import { logAuditEvent } from '../services/auditEvent.service.js';
-import { paperProcessingContext, savePaperProcessingStep, completePaperProcessing } from '../services/paperPacketProcessing.service.js';
+import { paperProcessingContext, paperProcessingSourceDocument, savePaperProcessingStep, completePaperProcessing } from '../services/paperPacketProcessing.service.js';
 
 const paperProcessingHandler = action => async (req, res, next) => {
   try {
@@ -21,6 +21,18 @@ const paperProcessingHandler = action => async (req, res, next) => {
     if (!access.ok) return res.status(access.status).json({error:{message:access.message}});
     const actorId = Number(req.user.id);
     if (action === 'read') return res.set('Cache-Control','no-store').json(await paperProcessingContext(clientId));
+    if (action === 'check') {
+      const { checkPaperPacketFile } = await import('../services/paperPacketScan.service.js');
+      const result = await checkPaperPacketFile({clientId,documentId:Number(req.params.docId),actorId});
+      await logAuditEvent(req,{actionType:'paper_packet_file_check',agencyId:access.client.agency_id,metadata:{clientId,documentId:Number(req.params.docId),status:result.status}});
+      return res.set('Cache-Control','no-store').json(result);
+    }
+    if (action === 'view') {
+      const doc = await paperProcessingSourceDocument(clientId, Number(req.params.docId));
+      req.params.docId = String(doc.id);
+      const { viewPhiDocument } = await import('./phiDocuments.controller.js');
+      return viewPhiDocument(req, res, next);
+    }
     const state = action === 'complete'
       ? await completePaperProcessing({clientId,actorId,signaturesConfirmed:req.body?.signaturesConfirmed,staffRoiConfirmed:req.body?.staffRoiConfirmed})
       : await savePaperProcessingStep({clientId,actorId,step:req.body?.step,data:req.body?.data});
@@ -30,6 +42,8 @@ const paperProcessingHandler = action => async (req, res, next) => {
   } catch (error) { next(error); }
 };
 export const getPaperProcessing = paperProcessingHandler('read');
+export const viewPaperProcessingDocument = paperProcessingHandler('view');
+export const checkPaperProcessingDocument = paperProcessingHandler('check');
 export const putPaperProcessing = paperProcessingHandler('save');
 export const postPaperProcessing = paperProcessingHandler('complete');
 

@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import { normalizeGradeForSave } from '../utils/clientGrade.js';
+import { isAuricwellQaAgency } from '../utils/auricwellQaPolicy.js';
 
 /**
  * Client Model
@@ -101,6 +102,12 @@ class Client {
       date_of_birth = undefined
     } = clientData;
 
+    let isDemo = clientData.is_demo;
+    if (Number(agency_id) === 450) {
+      const [[agency]] = await executor.execute('SELECT id, slug, feature_flags FROM agencies WHERE id = ?', [450]);
+      if (isAuricwellQaAgency(agency)) isDemo = true;
+    }
+
     // Build insert dynamically so older DBs won't break if a column doesn't exist yet.
     const fields = [
       'organization_id',
@@ -128,6 +135,7 @@ class Client {
     ];
 
     const optional = [
+      ['is_demo', isDemo === undefined ? undefined : ([true, 1, '1'].includes(isDemo) ? 1 : 0)],
       ['full_name', full_name],
       ['referral_date', referral_date],
       ['client_status_id', client_status_id],

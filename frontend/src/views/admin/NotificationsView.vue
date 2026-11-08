@@ -477,7 +477,7 @@ const openClientPacket = (notification) => {
   const clientId = Number(notification?.related_entity_id || 0);
   if (!clientId) return;
   const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/clients` : '/admin/clients';
-  router.push(`${base}?clientId=${clientId}&tab=documents`);
+  router.push(`${base}/${clientId}?tab=documents`);
 };
 
 const openClientPortalContext = (notification) => {

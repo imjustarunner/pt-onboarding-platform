@@ -1,0 +1,7 @@
+ARG APP_IMAGE
+FROM ${APP_IMAGE}
+RUN apk add --no-cache clamav-daemon freshclam && freshclam --stdout
+COPY backend/clamd.conf /app/clamd.conf
+# Resolve the packaged scanner account instead of assuming its numeric ID.
+RUN mkdir -p /tmp/pt-clamav && chown clamav:clamav /tmp/pt-clamav && chmod 700 /tmp/pt-clamav
+CMD ["node", "src/scripts/scanPrivatePaperPacket.js"]

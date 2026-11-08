@@ -91,6 +91,24 @@ class ClientPhiDocument {
     return this.findByClientId(clientId);
   }
 
+  static async findSchoolPaperPacketsForClient(clientId, documentId = null) {
+    const [rows] = await pool.execute(
+      `SELECT p.*, d.id AS source_referral_draft_id
+       FROM client_phi_documents p
+       JOIN referral_packet_upload_drafts d ON d.phi_document_id = p.id
+         AND d.created_client_id = p.client_id AND d.agency_id = p.agency_id
+         AND d.status = 'submitted'
+       WHERE p.client_id = ? ${documentId ? 'AND p.id = ?' : ''}
+       ORDER BY p.uploaded_at DESC, p.id DESC`,
+      documentId ? [clientId, documentId] : [clientId]
+    );
+    return rows;
+  }
+
+  static async findSchoolPaperPacket(clientId, documentId) {
+    return (await this.findSchoolPaperPacketsForClient(clientId, documentId))[0] || null;
+  }
+
   static async listByIntakeSubmissionId(intakeSubmissionId) {
     const [rows] = await pool.execute(
       `SELECT * FROM client_phi_documents

@@ -1042,6 +1042,7 @@ const formatKey = (v) => {
 
 onMounted(() => {
   const p = String(props.initialPane || '').trim().toLowerCase();
+  documentsOpen.value = p === 'documents' && canOpenDocuments.value;
   if (p === 'comments' || p === 'messages') {
     activePane.value = p;
   }
@@ -1060,6 +1061,7 @@ watch(
     waitlistNote.value = '';
     {
       const p = String(props.initialPane || '').trim().toLowerCase();
+      documentsOpen.value = p === 'documents' && canOpenDocuments.value;
       activePane.value = p === 'comments' || p === 'messages' ? p : null;
       subView.value = p === 'skill_builders' ? 'skill_builders' : 'default';
       if (p === 'skill_builders') {

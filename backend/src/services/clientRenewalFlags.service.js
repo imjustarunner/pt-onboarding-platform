@@ -58,6 +58,7 @@ function toBool(value) {
 function emptyFlags() {
   return {
     expiredRoi: false,
+    missingRoi: false,
     schoolTransfer: false,
     staffRoiGap: false,
     reactivatedNeedsPacket: false,
@@ -89,6 +90,7 @@ function buildRecommended(flags) {
 function finalizeFlags(partial) {
   const flags = {
     expiredRoi: !!partial.expiredRoi,
+    missingRoi: !!partial.missingRoi,
     schoolTransfer: !!partial.schoolTransfer,
     staffRoiGap: !!partial.staffRoiGap,
     reactivatedNeedsPacket: !!partial.reactivatedNeedsPacket,
@@ -150,6 +152,7 @@ export async function computeRenewalFlagsForClients(clientRows = []) {
     const schoolAffiliated = schoolAffiliatedIds.has(id);
     result.set(id, {
       expiredRoi: schoolAffiliated && isRoiExpired(c.roi_expires_at),
+      missingRoi: schoolAffiliated && !c.roi_expires_at,
       schoolTransfer: false,
       staffRoiGap: false,
       reactivatedNeedsPacket: c.needs_full_packet_renewal,
@@ -354,6 +357,7 @@ export function attachRenewalFlagsToClients(clients, flagsById) {
     const schoolAffiliated = isSchoolAffiliatedClientRow(c);
     const flags = flagsById?.get(id) || finalizeFlags({
       expiredRoi: schoolAffiliated && isRoiExpired(c?.roi_expires_at),
+      missingRoi: schoolAffiliated && !c?.roi_expires_at,
       schoolTransfer: false,
       staffRoiGap: false,
       reactivatedNeedsPacket: toBool(c?.needs_full_packet_renewal),

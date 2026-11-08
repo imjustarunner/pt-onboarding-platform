@@ -22,6 +22,7 @@
     <div v-else-if="loading" class="loading">{{ ft("Loading your dashboard…") }}</div>
 
     <div v-else :key="`${currentAgencyId}:${selectedChildId}:${selectedServiceId}`" class="layout guardian-layout">
+      <GuardianPendingEnrollment v-if="!isSuperadminPreview" :key="`pending:${selectedChildAgencyId}:${selectedChildId}`" :agency-id="selectedChildAgencyId || currentAgencyId" :client-id="selectedChildId" @state="pendingEnrollmentState = $event" />
       <p v-if="onboardingRequired && activePanel !== 'onboarding'" class="onboarding-prompt" role="status"><span class="onboarding-dot" aria-hidden="true"></span><span>Please complete onboarding for <strong>{{ profileLabel(selectedChild) }}</strong> so your new portal is accurate.</span><button type="button" @click="navigatePortal('onboarding')">Continue onboarding</button></p>
       <p v-if="onboardingBillingNotice" class="onboarding-billing-notice" role="status">Please complete the available onboarding steps before opening billing. Payment setup is included below.</p>
       <PortalMigrationChecklist :profiles="allFamilyProfiles" v-if="!isSuperadminPreview && selectedChildId" v-show="activePanel === 'onboarding'" :key="`${selectedChildAgencyId}:${selectedChildId}`" :agency-id="selectedChildAgencyId" :client-id="selectedChildId" :client-type="selectedChildClientType" :active="activePanel === 'onboarding'" @state="onMigrationState" @navigate="navigatePortal" @finished="navigatePortal('overview')" />
@@ -113,7 +114,7 @@
             <GuardianProgressRecords v-else-if="['checkins','evaluations'].includes(activePanel) && !isSuperadminPreview" :client-id="selectedChildId" :client-name="selectedFirstName" :kind="activePanel" :learning="standardsLearningVisible"/>
             <template v-else-if="activePanel === 'documents'">
               <p v-if="isSuperadminPreview">Documents are available in the signed-in family account.</p>
-              <template v-else><GuardianSchoolReleaseForm v-if="profileSchool(selectedChild)" :client-id="selectedChildId" @completed="schoolReleaseVersion++" /><FamilyPendingDocuments /><PortalSafetyPlans v-if="selectedChildId" :key="`safety:${selectedChildId}`" :client-id="selectedChildId" compact /><GuardianIntakeDocuments :key="`signed-documents:${selectedChildId}:${schoolReleaseVersion}`" :client-id="selectedChildId" /><GuardianSharedFiles :client-id="selectedChildId" /><details class="account-documents"><summary>{{ ft("Other forms assigned to your account") }}</summary><DocumentsTab /></details></template>
+              <template v-else><GuardianSchoolReleaseForm v-if="profileSchool(selectedChild) && pendingEnrollmentState.loaded && !pendingEnrollmentState.pending" :client-id="selectedChildId" @completed="schoolReleaseVersion++" /><FamilyPendingDocuments /><PortalSafetyPlans v-if="selectedChildId" :key="`safety:${selectedChildId}`" :client-id="selectedChildId" compact /><GuardianIntakeDocuments :key="`signed-documents:${selectedChildId}:${schoolReleaseVersion}`" :client-id="selectedChildId" /><GuardianSharedFiles :client-id="selectedChildId" /><details class="account-documents"><summary>{{ ft("Other forms assigned to your account") }}</summary><DocumentsTab /></details></template>
             </template>
 
             <template v-else-if="activePanel === 'child'">
@@ -650,6 +651,7 @@ import api from '../../services/api';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import DocumentsTab from '../../components/dashboard/DocumentsTab.vue';
 import GuardianIntakeDocuments from '../../components/guardian/GuardianIntakeDocuments.vue';
+import GuardianPendingEnrollment from '../../components/guardian/GuardianPendingEnrollment.vue';
 import FamilyPendingDocuments from '../../components/guardian/FamilyPendingDocuments.vue';
 import GuardianClientDetails from '../../components/guardian/GuardianClientDetails.vue';
 import GuardianCareAccess from '../../components/guardian/GuardianCareAccess.vue';
@@ -725,6 +727,7 @@ const registrationEnrollSaving = ref(false);
 const registrationEnrollError = ref('');
 
 const activePanel = ref(['assistance','checkins','evaluations','overview','family','family_billing','family_messages','onboarding','updates','help','schoolcarebridge','tutoring','registrations','appointments','documents','child','billing','payment_methods','messages','account','dependents','contact','plan','notifications','notification_history'].includes(route.query.panel) ? route.query.panel : 'family');
+const pendingEnrollmentState = ref({ loaded: false, pending: false });
 const selectedChildId = computed({
   get: () => guardianStore.selectedChildId,
   set: (v) => guardianStore.setSelectedChild(v)
@@ -838,7 +841,7 @@ const clinicalGuardianContext = computed(() => !!selectedChild.value && !standar
 const guardianWorkspaceMode = ref('clinical');
 const schoolWorkspaceActive = computed(() => activePanel.value === 'schoolcarebridge');
 function openAuricWellPanel(panel) { navigatePortal(panel); }
-watch(selectedChildId, () => { selectedSchoolId.value = null; migrationState.value = null; onboardingBillingNotice.value = false; });
+watch(selectedChildId, () => { pendingEnrollmentState.value = { loaded: false, pending: false }; selectedSchoolId.value = null; migrationState.value = null; onboardingBillingNotice.value = false; });
 
 const selectedChildClientType = computed(() => {
   const explicit = String(selectedChild.value?.client_type || '').toLowerCase();

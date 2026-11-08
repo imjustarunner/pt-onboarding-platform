@@ -2,6 +2,9 @@ import { requestSchoolRoiForGuardians } from '../services/schoolRoiGuardianReque
 import { clientEmailLabel, portalActionHtml } from '../services/clientPortalEmailContent.js';
 import crypto from 'crypto';
 import Client from '../models/Client.model.js';
+import IntakeSubmissionDocument from '../models/IntakeSubmissionDocument.model.js';
+import StorageService from '../services/storage.service.js';
+import { isSchoolRoiDocument, schoolRoiAuditTrail } from '../utils/schoolRoiDocument.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import IntakeLink from '../models/IntakeLink.model.js';
@@ -90,6 +93,27 @@ function serializeAvailableRoiLink(link, source = {}) {
     source_kind: source.kind || 'school'
   };
 }
+
+async function signedSchoolRoiDocuments(clientId) {
+  return (await IntakeSubmissionDocument.listSignedForClient(clientId))
+    .filter(doc => doc.signed_at && doc.signed_pdf_path && isSchoolRoiDocument(doc));
+}
+
+export const viewClientSignedSchoolRoi = async (req, res, next) => {
+  try {
+    if (!isBackofficeManager(req.user?.role)) return res.status(403).json({ error: { message: 'Backoffice access required' } });
+    const clientId = Number(req.params.id), documentId = Number(req.params.documentId);
+    if (!clientId || !documentId) return res.status(400).json({ error: { message: 'Invalid document or client id' } });
+    const access = await requireManagedClient(req, clientId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+    const doc = (await signedSchoolRoiDocuments(clientId)).find(row => Number(row.id) === documentId);
+    if (!doc) return res.status(404).json({ error: { message: 'Signed school ROI not found for this client' } });
+    const url = await StorageService.getSignedUrl(doc.signed_pdf_path, 15);
+    await logAuditEvent(req, { actionType: 'school_roi_document_viewed', agencyId: access.client.agency_id,
+      metadata: { clientId, intakeSubmissionDocumentId: documentId } });
+    res.set('Cache-Control', 'no-store').json({ url });
+  } catch (error) { next(error); }
+};
 
 async function listAvailableSchoolRoiIntakeLinks(schoolOrganizationId) {
   const sid = Number(schoolOrganizationId || 0);
@@ -455,9 +479,17 @@ export const listClientSchoolRoiAccess = async (req, res, next) => {
         access_enabled: guardian.access_enabled !== false && guardian.access_enabled !== 0
       }))
       .filter((guardian) => guardian.email);
+    const [enrollments] = await pool.execute(`SELECT i.invited_email, i.status, i.expires_at FROM co_guardian_invites i
+      JOIN co_guardian_invite_clients ic ON ic.invite_id=i.id
+      WHERE ic.client_id=? AND i.agency_id=? ORDER BY i.id DESC`, [clientId,client.agency_id]);
+    for (const guardian of guardianEmails) {
+      const invite=(enrollments||[]).find(row=>String(row.invited_email||'').trim().toLowerCase()===guardian.email.toLowerCase());
+      guardian.enrollment_status=invite ? (invite.status==='pending' && new Date(invite.expires_at).getTime()<=Date.now() ? 'expired' : invite.status) : null;
+    }
     const selection = await resolveSchoolRoiSelection(schoolOrganizationId);
     const availableRoiLinks = selection.availableLinks;
     const issuedRoiLink = await ClientSchoolRoiSigningLink.findForClient({ clientId, schoolOrganizationId });
+    const completedDocuments = await signedSchoolRoiDocuments(clientId);
 
     let paperPacketVision = null;
     try {
@@ -495,6 +527,8 @@ export const listClientSchoolRoiAccess = async (req, res, next) => {
       staff,
       school_roi_signing: {
         available_links: availableRoiLinks,
+        completed_documents: completedDocuments.map(doc => ({ id: Number(doc.id), signed_at: doc.signed_at,
+          submission_id: Number(doc.intake_submission_id), signer_name: schoolRoiAuditTrail(doc).signerName || null })),
         selected_intake_link_id: selection.selectedLink?.id ? Number(selection.selectedLink.id) : null,
         issued_link: serializeIssuedRoiSigningLink(issuedRoiLink, client)
       }

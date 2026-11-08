@@ -594,8 +594,8 @@ const openNotification = async (notification) => {
   }
   const destination = notificationDestination(notification, { organizationSlug: orgSlug.value, role: role.value });
   if (destination) {
-    if (isUnread(notification)) await api.patch(`/notifications/${notification.id}/state`, { read: true }).catch(() => {});
-    router.push(destination);
+    router.push(destination).catch(() => { error.value = 'The notification could not be opened. Please try again.'; });
+    if (isUnread(notification)) void api.patch(`/notifications/${notification.id}/state`, { read: true }).catch(() => {});
   }
 };
 

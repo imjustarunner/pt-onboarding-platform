@@ -94,6 +94,12 @@
             {{ error }}
           </div>
 
+          <fieldset v-if="clientMatches.length && !clientSubmitted" :disabled="submittingClient" class="form-group">
+            <legend>Review existing clients before adding this packet</legend>
+            <p>Select the matching client, or confirm that this is a different child. Existing records will not be merged.</p>
+            <label v-for="match in clientMatches" :key="match.id"><input v-model="matchChoice" type="radio" :value="String(match.id)" /> {{ match.full_name || match.initials }} · ID {{ match.id }} · {{ match.identifier_code || 'No identifier' }}<span v-if="match.date_of_birth"> · DOB {{ String(match.date_of_birth).slice(0,10) }}</span></label>
+            <label><input v-model="matchChoice" type="radio" value="new" /> I reviewed these matches; this is a different child.</label>
+          </fieldset>
           <div v-if="success" class="success-message">
             {{ success }}
           </div>
@@ -281,6 +287,7 @@ import { useAuthStore } from '../../store/auth';
 import PDFPreview from '../documents/PDFPreview.vue';
 
 const props = defineProps({
+  existingClientId: { type: Number, default: null },
   organizationSlug: {
     type: String,
     required: true
@@ -307,6 +314,7 @@ const draftId = ref(null);
 const phiDocumentId = ref(null);
 const submittingClient = ref(false);
 const clientSubmitted = ref(false);
+const clientMatches = ref([]), matchChoice = ref('');
 const ocrLoading = ref(false);
 const ocrError = ref('');
 const ocrText = ref('');
@@ -681,6 +689,7 @@ const maybeAutofillName = (text) => {
 };
 
 const loadPacketConfig = async (agencyId) => {
+  if (String(authStore.user?.role || '').toLowerCase() === 'school_staff') return;
   if (!agencyId) return;
   try {
     const resp = await api.get('/client-settings/packet-ocr-config', { params: { agencyId } });
@@ -1091,6 +1100,7 @@ const applyInitials = async () => {
 
 const handleSubmitClient = async () => {
   if (!draftId.value || submittingClient.value) return;
+  if (clientMatches.value.length && !matchChoice.value) { error.value = 'Select a matching client or confirm a different child first.'; return; }
   submittingClient.value = true;
   error.value = '';
   success.value = '';
@@ -1101,14 +1111,17 @@ const handleSubmitClient = async () => {
       submissionDate: ymd,
       uploadNote: String(uploadNote.value || '').trim() || null,
       firstName: String(firstName.value || '').trim() || null,
-      lastName: String(lastName.value || '').trim() || null
+      lastName: String(lastName.value || '').trim() || null,
+      existingClientId: props.existingClientId || (matchChoice.value && matchChoice.value !== 'new' ? Number(matchChoice.value) : undefined),
+      reviewedMatchIds: matchChoice.value === 'new' ? clientMatches.value.map(match => match.id) : undefined
     };
     const response = await api.post(`/organizations/${props.organizationSlug}/upload-referral/${draftId.value}/submit`, payload);
-    success.value = 'Client created successfully from referral packet.';
+    success.value = response.data.attachedExisting ? 'Packet attached to the selected client.' : 'Client created successfully from referral packet.';
     clientSubmitted.value = true;
     pdfPreviewKey.value += 1;
     emit('uploaded', response.data);
   } catch (err) {
+    if (err.response?.data?.error?.code === 'packet_client_match_review') { clientMatches.value = err.response.data.matches || []; matchChoice.value = ''; }
     error.value = err.response?.data?.error?.message || 'Failed to submit client. Please try again.';
   } finally {
     submittingClient.value = false;

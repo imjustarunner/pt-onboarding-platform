@@ -490,7 +490,7 @@ function guardianWaiverSection(submissionBag, { byKey, locale, link }) {
   return rows.length ? { title: 'Guardian waivers & safety', rows } : null;
 }
 
-function rowsFromInterview(link, values, locale, printed, childName = '', { includeUnanswered = false } = {}) {
+function rowsFromInterview(link, values, locale, printed, childName = '', { includeUnanswered = false, instrumentTitlePrefix = '' } = {}) {
   const sections = [];
   const steps = Array.isArray(link?.intake_steps) ? link.intake_steps : [];
   for (const step of steps) {
@@ -575,7 +575,7 @@ function rowsFromInterview(link, values, locale, printed, childName = '', { incl
         rows
       });
     }
-    for (const [title, screenRows] of instrumentRows) sections.push({ title, rows: screenRows });
+    for (const [title, screenRows] of instrumentRows) sections.push({ title: `${instrumentTitlePrefix}${title}`, rows: screenRows });
   }
   return sections;
 }
@@ -684,6 +684,7 @@ function agreementCard({
   hash,
   imageDataUrl,
   publicUrl,
+  publicUrlLabel = 'View this version',
   versionLabel,
   signerName
 }) {
@@ -695,6 +696,7 @@ function agreementCard({
     hash: String(hash || '').trim(),
     imageDataUrl: imageDataUrl || '',
     publicUrl: String(publicUrl || '').trim(),
+    publicUrlLabel,
     versionLabel: String(versionLabel || '').trim(),
     signerName: String(signerName || '').trim()
   };
@@ -763,13 +765,17 @@ function buildSignatures({ signedDocuments = [], intakeData = {}, publicKey = ''
   const fromDb = (signedDocuments || []).map((doc, index) => {
     const trail = parseMaybeJson(doc?.audit_trail, {});
     const templateId = doc?.document_template_id;
+    const programmedRoi = !!(trail.smartSchoolRoi || trail.roiResponse);
     const displayName = signedDocumentDisplayName(doc, trail) || `Signed document ${index + 1}`;
     return agreementCard({
       documentName: displayName,
       signedAt: formatDateTime(doc?.signed_at || trail?.submittedAt || trail?.signedAt),
       hash: String(doc?.pdf_hash || trail?.documentReference || '').trim(),
       imageDataUrl: signatureImage(trail) || signatureImage(trail?.roiResponse) || signatureImage(intakeData?.smartSchoolRoi),
-      publicUrl: publicDocUrl(publicKey, 'document', templateId, publicOrigin),
+      // Programmed ROI content is generated for this child; its backing blank
+      // template is not the signed version and may not belong to the public link.
+      publicUrl: programmedRoi ? (doc.documentViewUrl || '') : publicDocUrl(publicKey, 'document', templateId, publicOrigin),
+      publicUrlLabel: programmedRoi ? 'View signed ROI' : 'View this version',
       versionLabel: doc?.version ? `Version ${doc.version}` : '',
       signerName: trail?.signerName || signerName
     });
@@ -1038,13 +1044,15 @@ export function buildCompletedIntakeRecord({
     || clientBags[0]?.child_legal_first
     || 'this child'
   ).trim() || 'this child';
+  const firstClientName = String(listedClients[0]?.fullName || [listedClients[0]?.firstName, listedClients[0]?.lastName].filter(Boolean).join(' ') || 'Client 1').trim();
+  const firstScreenPrefix = listedClients.length > 1 ? `${firstClientName} — ` : '';
   const interviewSections = rowsFromInterview(
     link,
     interviewValues,
     locale,
     printed,
     childName,
-    { includeUnanswered: includeUnansweredQuestions }
+    { includeUnanswered: includeUnansweredQuestions, instrumentTitlePrefix: firstScreenPrefix }
   );
 
   const leftoverGuardian = [];
@@ -1085,7 +1093,8 @@ export function buildCompletedIntakeRecord({
       const identitySkip = new Set(['firstName', 'lastName', 'middleName', 'fullName', 'dateOfBirth', 'date_of_birth']);
       const dob = String(listedClients[index]?.dateOfBirth || listedClients[index]?.date_of_birth || bag?.child_dob || '').trim();
       const values = { ...bag, ...childAgeFlags(dob, bag || {}) };
-      walkBag(bag, { byKey, locale, link, skipKeys: identitySkip, values }, rows, new Set(printed));
+      // A field printed for the first child is still a separate answer for each sibling.
+      walkBag(bag, { byKey, locale, link, skipKeys: identitySkip, values }, rows, index > 0 ? new Set() : new Set(printed));
       const name = String(listedClients[index]?.fullName || `${listedClients[index]?.firstName || ''} ${listedClients[index]?.lastName || ''}`.trim() || `Client ${index + 1}`).trim();
       // Interview rendering tracks field keys for the first client. The same
       // screener key on a sibling is a different answer, not a duplicate.
@@ -1171,7 +1180,8 @@ export function buildCompletedIntakeRecord({
     reminderBlock,
     providersBlock,
     ...interviewSections,
-    ...answeredInstrumentSections(interviewValues, printed, byKey, locale, link, childName),
+    ...answeredInstrumentSections(interviewValues, printed, byKey, locale, link, childName)
+      .map(section => ({ ...section, title: `${firstScreenPrefix}${section.title}` })),
     guardianWaiverSection(submissionBag, { byKey, locale, link }),
     leftoverSubmission.length ? { title: 'Additional answers', rows: leftoverSubmission } : null,
     ...clientSections,

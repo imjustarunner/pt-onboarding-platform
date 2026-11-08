@@ -83,4 +83,5 @@ describe('message navigation unread count', () => {
     await old;
     expect(store.unreadMessagesCount).toBe(3);
   });
+  it('does not ask the agency communications counter for a school staff account',async()=>{state.user.role='school_staff';api.get.mockResolvedValue({data:{}});await useCommunicationsCountsStore().fetchCounts();expect(api.get.mock.calls.some(([path])=>path==='/communications/attention-summary')).toBe(false);});
 });

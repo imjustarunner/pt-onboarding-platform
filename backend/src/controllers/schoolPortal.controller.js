@@ -2790,6 +2790,7 @@ export const getSchoolPortalStats = async (req, res, next) => {
     let clientsTotal = 0;
     let clientsAssigned = 0;
     let clientsPending = 0;
+    let packetsPending = 0;
     let clientsWaitlist = 0;
     try {
       const [rows] = await pool.execute(
@@ -2797,6 +2798,7 @@ export const getSchoolPortalStats = async (req, res, next) => {
            COUNT(DISTINCT c.id) AS clients_total,
            COUNT(DISTINCT CASE WHEN cpa.provider_user_id IS NOT NULL THEN c.id END) AS clients_assigned,
            COUNT(DISTINCT CASE WHEN LOWER(COALESCE(cs.status_key,'')) = 'pending' THEN c.id END) AS clients_pending,
+           COUNT(DISTINCT CASE WHEN c.paper_packet_staff_roi_pending=1 THEN c.id END) AS packets_pending,
            COUNT(DISTINCT CASE WHEN LOWER(COALESCE(cs.status_key,'')) = 'waitlist' THEN c.id END) AS clients_waitlist
          FROM clients c
          JOIN client_organization_assignments coa
@@ -2814,6 +2816,7 @@ export const getSchoolPortalStats = async (req, res, next) => {
       clientsTotal = Number(rows?.[0]?.clients_total || 0);
       clientsAssigned = Number(rows?.[0]?.clients_assigned || 0);
       clientsPending = Number(rows?.[0]?.clients_pending || 0);
+      packetsPending = Number(rows?.[0]?.packets_pending || 0);
       clientsWaitlist = Number(rows?.[0]?.clients_waitlist || 0);
     } catch (e) {
       const msg = String(e?.message || '');
@@ -2829,6 +2832,7 @@ export const getSchoolPortalStats = async (req, res, next) => {
            COUNT(*) AS clients_total,
            COUNT(CASE WHEN provider_id IS NOT NULL THEN 1 END) AS clients_assigned,
            COUNT(CASE WHEN LOWER(COALESCE(cs.status_key,'')) = 'pending' THEN 1 END) AS clients_pending,
+           COUNT(CASE WHEN c.paper_packet_staff_roi_pending=1 THEN 1 END) AS packets_pending,
            COUNT(CASE WHEN LOWER(COALESCE(cs.status_key,'')) = 'waitlist' THEN 1 END) AS clients_waitlist
          FROM clients c
          LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
@@ -2839,6 +2843,7 @@ export const getSchoolPortalStats = async (req, res, next) => {
       clientsTotal = Number(rows?.[0]?.clients_total || 0);
       clientsAssigned = Number(rows?.[0]?.clients_assigned || 0);
       clientsPending = Number(rows?.[0]?.clients_pending || 0);
+      packetsPending = Number(rows?.[0]?.packets_pending || 0);
       clientsWaitlist = Number(rows?.[0]?.clients_waitlist || 0);
     }
 
@@ -2865,6 +2870,7 @@ export const getSchoolPortalStats = async (req, res, next) => {
       clients_total: clientsTotal,
       clients_assigned: clientsAssigned,
       clients_pending: clientsPending,
+      packets_pending: packetsPending,
       clients_waitlist: clientsWaitlist,
       slots_total: slotsTotal,
       slots_used: slotsUsed,

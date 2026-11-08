@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { signedDocumentBelongsToClient } from '../utils/schoolRoiDocument.js';
 import { decryptIntakeSubmissionRows } from '../services/intakeResponsesEncryption.service.js';
 
 class IntakeSubmissionDocument {
@@ -118,8 +119,10 @@ class IntakeSubmissionDocument {
               isd.pdf_hash,
               isd.signed_at,
               isd.audit_trail,
+              s.client_id AS submission_client_id,
               dt.name AS document_template_name
        FROM intake_submission_documents isd
+       LEFT JOIN intake_submissions s ON s.id = isd.intake_submission_id
        LEFT JOIN document_templates dt ON dt.id = isd.document_template_id
        WHERE isd.signed_pdf_path IS NOT NULL
          AND (
@@ -136,7 +139,7 @@ class IntakeSubmissionDocument {
        ORDER BY COALESCE(isd.signed_at, isd.id) DESC, isd.id DESC`,
       [cid, cid, cid]
     );
-    return rows || [];
+    return (rows || []).filter(row => signedDocumentBelongsToClient(row, cid));
   }
 
   /**

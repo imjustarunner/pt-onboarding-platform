@@ -32,11 +32,11 @@ describe('school roster', () => {
   });
   it('uses the selected label mode, including mixed-case initials', async () => {
     const wrapper = roster({ clientLabelMode: 'codes' });
-    expect(wrapper.find('.initials-btn').text()).toBe('123456');
+    expect(wrapper.find('.initials-btn').text()).toBe('123456 · ID 1');
     await wrapper.setProps({ clientLabelMode: 'initials' });
-    expect(wrapper.find('.initials-btn').text()).toBe('AbCd');
+    expect(wrapper.find('.initials-btn').text()).toBe('AbCd · ID 1');
     await wrapper.setProps({ clientLabelMode: 'codes' });
-    expect(wrapper.find('.initials-btn').text()).toBe('123456');
+    expect(wrapper.find('.initials-btn').text()).toBe('123456 · ID 1');
     wrapper.unmount();
   });
   it('defaults to active clients, offers one terminated checkbox, and searches terminated clients last', async () => {

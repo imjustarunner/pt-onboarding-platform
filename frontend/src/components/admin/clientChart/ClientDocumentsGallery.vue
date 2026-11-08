@@ -47,7 +47,7 @@
       </article>
     </div>
 
-    <div class="cdg-copy-blocks">
+    <div v-if="!operationalOnly" class="cdg-copy-blocks">
       <h4 class="cdg-title">Copy-ready text</h4>
       <p class="hint">
         Demographics stay on the chart (never sent to the note writer). Clinical blocks are de-identified.
@@ -116,7 +116,10 @@ import { enrollmentReceiptCards } from '../../../utils/enrollmentReceiptCards.js
 import { openEnrollmentReceipt } from '../../../utils/openEnrollmentReceipt.js';
 
 const props = defineProps({
-  clientId: { type: [Number, String], required: true }
+  clientId: { type: [Number, String], required: true },
+  operationalOnly: Boolean,
+  school: Boolean,
+  paperPacket: Boolean
 });
 
 const loading = ref(false);
@@ -170,6 +173,13 @@ async function loadArtifacts() {
   loading.value = true;
   error.value = '';
   try {
+    if (props.operationalOnly) {
+      const {data}=await api.get(`/phi-documents/clients/${id}/enrollment-receipts`,{skipGlobalLoading:true});
+      artifacts.value=enrollmentReceiptCards(data);signedPackets.value=[];
+      if(props.school){const{data:roi}=await api.get(`/clients/${id}/school-roi-access`,{skipGlobalLoading:true});artifacts.value.push(...(roi.school_roi_signing?.completed_documents||[]).map(doc=>({id:`signed-roi-${doc.id}`,kind:'roi',kindLabel:'Signed school ROI',title:'Release of information',viewKey:`signed-roi-${doc.id}`,signedAt:doc.signed_at,available:true})));}
+      if(props.paperPacket){const{data:packet}=await api.get(`/clients/${id}/paper-packet-processing`,{skipGlobalLoading:true});artifacts.value.push(...(packet.documents||[]).map(doc=>({id:`paper-${doc.id}`,kind:'packet',kindLabel:'Uploaded paper packet',title:doc.scan_status==='clean'?'Original paper packet':'Original paper packet — file check pending',viewKey:doc.scan_status==='clean'?`paper-${doc.id}`:null,available:doc.scan_status==='clean'})));}
+      return;
+    }
     const resp = await api.get(`/phi-documents/clients/${id}/chart-artifacts`, { skipGlobalLoading: true });
     artifacts.value = Array.isArray(resp.data?.artifacts) ? resp.data.artifacts : [];
     signedPackets.value = Array.isArray(resp.data?.packets) ? resp.data.packets : [];
@@ -197,6 +207,7 @@ async function loadArtifacts() {
 }
 
 async function loadCopyBlocks() {
+  if (props.operationalOnly) return;
   const id = Number(props.clientId || 0);
   if (!id) return;
   copyLoading.value = true;
@@ -300,7 +311,7 @@ async function openViewKey(viewKey) {
   opening.value = true;
   try {
     const resp = await api.get(
-      `/phi-documents/clients/${clientId}/chart-artifacts/${encodeURIComponent(key)}/view`,
+      key.startsWith('paper-') ? `/clients/${clientId}/paper-packet-processing/documents/${Number(key.slice(6))}/view` : key.startsWith('signed-roi-') ? `/clients/${clientId}/school-roi-documents/${Number(key.slice(11))}/view` : `/phi-documents/clients/${clientId}/chart-artifacts/${encodeURIComponent(key)}/view`,
       {
         responseType: 'blob',
         skipGlobalLoading: true,

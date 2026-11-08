@@ -1,3 +1,4 @@
+import { schoolCareBridgePath } from './schoolCareBridge.js';
 export function notificationDestination(notification, { organizationSlug = null, role = null } = {}) {
   const n = notification || {};
   const base = organizationSlug ? `/${organizationSlug}` : '';
@@ -69,6 +70,8 @@ export function notificationDestination(notification, { organizationSlug = null,
   if (n.type === 'support_ticket_forwarded_to_provider' && entityType === 'client' && entityId) {
     return { path: `${base}/dashboard`, query: { clientId: String(entityId) } };
   }
+  if (n.type === 'new_packet_uploaded' && entityType === 'client' && entityId && role === 'school_staff' && organizationSlug) return { path: schoolCareBridgePath(organizationSlug), query: { clientId: String(entityId), pane: 'documents' } };
+  if (n.type === 'new_packet_uploaded' && entityType === 'client' && entityId && adminLike) return { path: `${base}/admin/clients/${entityId}`, query: { tab: 'documents' } };
   if (entityType === 'client' && entityId && adminLike) {
     return { path: `${base}/admin/clients`, query: { clientId: String(entityId), ...(n.type === 'new_packet_uploaded' ? { tab: 'documents' } : {}) } };
   }

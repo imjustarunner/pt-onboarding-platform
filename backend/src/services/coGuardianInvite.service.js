@@ -515,7 +515,7 @@ export async function emailCoGuardianInvite({ inviteId, agency, to, firstName, i
   const requester = await requestingGuardianContext({ inviteId, agencyId: agency.id, clientId });
   const requesterLabel = requester?.name
     ? `${requester.name}${requester.email ? ` (${requester.email})` : ''}` : null;
-  const childReference = requester?.clientInitials ? ` for the child with initials ${requester.clientInitials}` : '';
+  const childReference = requester?.clientInitials ? ` for the dependent(s) with initials ${requester.clientInitials}` : '';
   const text = [
     greeting,
     requesterLabel ? `${requesterLabel} provided your information as another guardian${childReference} for enrollment with ${org}.` : `${org} has invited you to complete your own guardian enrollment${childReference}.`,
@@ -549,6 +549,10 @@ export async function emailCoGuardianInvite({ inviteId, agency, to, firstName, i
 }
 
 async function loadInviteByToken(token) {
+  if (String(token || '').startsWith('portal.')) {
+    const { resolvePortalEnrollmentCapability } = await import('./guardianPendingEnrollment.service.js');
+    return resolvePortalEnrollmentCapability(token);
+  }
   const hash = hashToken(token);
   const [rows] = await pool.execute(
     `SELECT * FROM co_guardian_invites WHERE token_hash = ? LIMIT 1`,

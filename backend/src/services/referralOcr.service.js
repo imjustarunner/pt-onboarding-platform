@@ -235,9 +235,7 @@ class ReferralOcrService {
       return chunks.join('\n').trim();
     } catch (error) {
       console.error('Vision PDF OCR failed.', {
-        message: error?.message || 'Unknown error',
-        code: error?.code,
-        details: error?.details || error?.errors
+        code: Number.isInteger(error?.code) ? error.code : 'vision_ocr_failed'
       });
       throw error;
     } finally {

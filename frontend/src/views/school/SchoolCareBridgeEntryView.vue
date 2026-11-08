@@ -78,7 +78,10 @@ let loadVersion=0;
 onUnmounted(()=>loadVersion++);
 async function load(){const version=++loadVersion;busy.value=true;error.value='';authorized.value=false;school.value=null;schools.value=[];try{
  const slug=String(route.params.organizationSlug||'');
- if(slug){const {data}=await api.get(`/schoolcarebridge/schools/${encodeURIComponent(slug)}`,options);if(version!==loadVersion)return;school.value=data.school;}
+ if(slug){try{const {data}=await api.get(`/schoolcarebridge/schools/${encodeURIComponent(slug)}`,options);if(version!==loadVersion)return;school.value=data.school;}catch(e){
+  if(e.response?.status===404&&auth.isAuthenticated){const{data}=await api.get('/schoolcarebridge/my-partners',options);if(version!==loadVersion)return;const partner=(data.partners||[]).find(p=>p.slug===slug);if(partner){await router.replace({path:schoolCareBridgePartnerPath(partner.slug),query:route.query});return;}}
+  throw e;
+ }}
  if(route.query.routingHint){const token=String(route.query.routingHint);const clean={...route.query};delete clean.routingHint;try{const {data}=await api.post('/schoolcarebridge/routing-hint/consume',{token,destination:window.location.origin+schoolCareBridgeExternalPath(route.path)},options);setPendingLoginRoute({username:data.username,path:route.path});}finally{await router.replace({path:route.path,query:clean});}}
  if(version!==loadVersion)return;
  if(auth.isAuthenticated){

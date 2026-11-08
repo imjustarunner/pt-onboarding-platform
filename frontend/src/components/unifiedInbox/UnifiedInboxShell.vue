@@ -101,6 +101,7 @@ async function savePrefs(patch) {
 
 let attentionRequestId = 0, inboxRequestId = 0;
 async function loadAttention() {
+  if (authStore.user?.role === 'school_staff') return;
   if (!resolvedAgencyId.value) return;
   const agencyId = resolvedAgencyId.value, requestId = ++attentionRequestId;
   const { data } = await api.get('/communications/attention-summary', {

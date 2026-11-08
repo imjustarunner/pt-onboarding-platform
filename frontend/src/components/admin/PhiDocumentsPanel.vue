@@ -914,6 +914,7 @@ watch(
   },
   { immediate: true }
 );
+defineExpose({ openUpload: () => { if (!uploading.value && !receiptOnly.value) fileInput.value?.click(); } });
 </script>
 
 <style scoped>

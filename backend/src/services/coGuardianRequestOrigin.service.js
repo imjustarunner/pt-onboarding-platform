@@ -6,7 +6,9 @@ import IntakeSubmission from '../models/IntakeSubmission.model.js';
 export async function requestingGuardianContext({ inviteId, agencyId, clientId }) {
   if (!inviteId || !agencyId || !clientId) return null;
   const [[origin]] = await pool.execute(`SELECT i.requesting_submission_id,
-      u.first_name,u.last_name, u.email, u.role, cg.access_enabled, c.initials AS client_initials
+      u.first_name,u.last_name, u.email, u.role, cg.access_enabled, c.initials AS client_initials,
+      (SELECT GROUP_CONCAT(child.initials ORDER BY child.id SEPARATOR ", ") FROM co_guardian_invite_clients all_children
+       JOIN clients child ON child.id=all_children.client_id AND child.agency_id=i.agency_id WHERE all_children.invite_id=i.id) AS all_child_initials
     FROM co_guardian_invites i
     JOIN co_guardian_invite_clients ic ON ic.invite_id=i.id AND ic.client_id=?
     JOIN clients c ON c.id=ic.client_id AND c.agency_id=i.agency_id
@@ -14,7 +16,7 @@ export async function requestingGuardianContext({ inviteId, agencyId, clientId }
     LEFT JOIN client_guardians cg ON cg.client_id=c.id AND cg.guardian_user_id=u.id
     WHERE i.id=? AND i.agency_id=? LIMIT 1`, [clientId, inviteId, agencyId]);
   if (!origin) return null;
-  const clientInitials = String(origin.client_initials || '').trim() || null;
+  const clientInitials = String(origin.all_child_initials || origin.client_initials || '').trim() || null;
   if (['client_guardian', 'guardian', 'client'].includes(origin.role) && Number(origin.access_enabled) === 1) {
     const name = [origin.first_name, origin.last_name].filter(Boolean).join(' ').trim();
     if (name) return { name, email: origin.email || null, clientInitials };

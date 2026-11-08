@@ -4013,6 +4013,7 @@ async function loadConversations({ quiet = false, append = false } = {}) {
 }
 
 async function loadInboxCounts() {
+  if (authStore.user?.role === 'school_staff') return;
   if (!agencyId.value) {
     inboxCounts.value = { unread: 0, snoozed: 0, unknown: 0, queued: 0 };
     return;

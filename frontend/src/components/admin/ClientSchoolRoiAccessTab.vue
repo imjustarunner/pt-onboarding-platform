@@ -35,13 +35,15 @@
       </div>
       <div class="summary-card" :class="{ 'summary-card-alert': roiExpired }">
         <div class="summary-k">Portal status</div>
-        <div class="summary-v">{{ roiExpired ? 'Expired / blocked' : 'Date active' }}</div>
+        <div class="summary-v">{{ !roiExpiryDraft ? 'No ROI on file' : roiExpired ? 'Expired / blocked' : 'Date active' }}</div>
       </div>
     </div>
 
     <div v-if="roiExpired" class="warning-card">
       ROI is expired or missing. Referral documents are paused. Staff with ROI Active, ROI (Speak), or ROI All Active can still open the client for schedule, comments, and their own uploads.
     </div>
+
+    <div v-if="guardianEmails.some(g => g.enrollment_status === 'pending' || g.enrollment_status === 'expired')" class="warning-card"><strong>Guardian enrollment follow-up</strong><p v-for="guardian in guardianEmails.filter(g => ['pending','expired'].includes(g.enrollment_status))" :key="guardian.guardian_user_id">{{ [guardian.first_name,guardian.last_name].filter(Boolean).join(' ') || guardian.email }}: {{ guardian.enrollment_status === 'expired' ? 'enrollment invitation expired' : 'own enrollment and signatures pending' }}.</p><p>Signed permissions remain in effect while another guardian responds. An explicit denial from either guardian limits clinical sharing.</p></div>
 
     <div v-if="paperPacketVisionApplied" class="success-card paper-packet-vision-notice">
       <strong>Packet Vision matched {{ paperPacketVisionLabel }}.</strong>
@@ -90,7 +92,16 @@
           </div>
         </div>
 
-        <div class="sms-card">
+        <div v-if="completedDocuments.length" class="success-card">
+          <strong>Signed school ROI on file</strong>
+          <div v-for="doc in completedDocuments" :key="doc.id" class="signing-actions">
+            <span>{{ doc.signer_name || 'Guardian' }} · {{ formatDateTime(doc.signed_at) }}</span>
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="openingSignedRoi" @click="viewSignedRoi(doc)">View signed ROI</button>
+          </div>
+          <p>Use the guardian request controls below when an updated ROI is needed.</p>
+        </div>
+
+        <div v-if="canStartSigning" class="sms-card">
           <div class="summary-k">ROI link type</div>
           <div class="hint">
             Choose whether this link signs school-staff ROI only, adds one sender-programmed non-school recipient, or lets the parent enter non-school release recipients.
@@ -123,7 +134,7 @@
           </div>
         </div>
 
-        <div class="signing-actions">
+        <div v-if="canStartSigning" class="signing-actions">
           <button
             type="button"
             class="btn btn-primary btn-sm"
@@ -433,6 +444,10 @@ const availableLinks = ref([]);
 const savedIntakeLinkId = ref('');
 const selectedIntakeLinkId = ref('');
 const issuedLink = ref(null);
+const completedDocuments = ref([]);
+const openingSignedRoi = ref(false);
+const hasCompletedRoi = computed(() => completedDocuments.value.length > 0 || issuedLink.value?.status === 'completed');
+const canStartSigning = computed(() => !hasCompletedRoi.value || ['pending', 'in_progress'].includes(issuedLink.value?.status));
 const configSaving = ref(false);
 const issueLoading = ref(false);
 const roiDateSaving = ref(false);
@@ -553,6 +568,7 @@ const issuedLinkStateLabel = computed(() => {
   if (state === 'completed') return 'Completed';
   if (state === 'in_progress') return 'In progress';
   if (issuedLink.value?.public_key) return 'Issued';
+  if (hasCompletedRoi.value) return 'Completed';
   return 'Not issued';
 });
 const issuedLinkStateClass = computed(() => {
@@ -560,9 +576,10 @@ const issuedLinkStateClass = computed(() => {
   if (state === 'completed') return 'state-roi';
   if (state === 'in_progress') return 'state-packet';
   if (issuedLink.value?.public_key) return 'state-packet';
+  if (hasCompletedRoi.value) return 'state-roi';
   return 'state-none';
 });
-const issuedSignedLabel = computed(() => formatDateTime(issuedLink.value?.signed_at));
+const issuedSignedLabel = computed(() => formatDateTime(completedDocuments.value[0]?.signed_at || issuedLink.value?.signed_at));
 const issuedFormLabel = computed(() => issuedLink.value?.intake_link_title || activeSmartRoiTitle.value || 'School ROI');
 const issuedLinkUrl = computed(() => buildPublicIntakeUrl(issuedLink.value?.public_key || ''));
 const issuedLinkShortUrl = computed(() => buildPublicIntakeShortUrl(issuedLink.value?.public_key || ''));
@@ -630,9 +647,29 @@ const buildDefaultEmailMessage = () => {
   ].join('\n');
 };
 
+async function viewSignedRoi(doc) {
+  const clientId = Number(props.client?.id);
+  const popup = window.open('about:blank', '_blank');
+  if (!popup) { error.value = 'Allow a document tab to open, then select View signed ROI again.'; return; }
+  popup.opener = null;
+  openingSignedRoi.value = true;
+  try {
+    const { data } = await api.get(`/clients/${clientId}/school-roi-documents/${doc.id}/view`);
+    if (!data?.url) throw new Error('The signed ROI could not be opened.');
+    popup.location.href = data.url;
+  } catch (err) {
+    popup.close();
+    error.value = err.response?.data?.error?.message || err.message || 'The signed ROI could not be opened.';
+  } finally { openingSignedRoi.value = false; }
+}
+
+let loadVersion = 0;
 const load = async () => {
+  const version = ++loadVersion;
+  completedDocuments.value = [];
   const clientId = Number(props.client?.id || 0);
   if (!clientId) {
+    loading.value = false;
     rows.value = [];
     draftStates.value = {};
     availableLinks.value = [];
@@ -675,6 +712,7 @@ const load = async () => {
     emailSendLog.value = [];
     if (_emailCooldownTimer) { clearInterval(_emailCooldownTimer); _emailCooldownTimer = null; }
     const response = await api.get(`/clients/${clientId}/school-roi-access`);
+    if (version !== loadVersion) return;
     const payload = response.data || {};
     rows.value = Array.isArray(payload.staff) ? payload.staff : [];
     roiExpiresAt.value = payload.roi_expires_at || null;
@@ -692,6 +730,7 @@ const load = async () => {
     savedIntakeLinkId.value = signing.selected_intake_link_id ? String(signing.selected_intake_link_id) : '';
     selectedIntakeLinkId.value = savedIntakeLinkId.value;
     issuedLink.value = signing.issued_link || null;
+    completedDocuments.value = Array.isArray(signing.completed_documents) ? signing.completed_documents : [];
     emailLanguageDraft.value = String(signing.issued_link?.language_code || activeSmartRoiLink.value?.language_code || 'en').toLowerCase().startsWith('es')
       ? 'es'
       : 'en';
@@ -715,6 +754,7 @@ const load = async () => {
       emailMessageTouched.value = false;
     }
   } catch (err) {
+    if (version !== loadVersion) return;
     error.value = err.response?.data?.error?.message || 'Failed to load school ROI access';
     rows.value = [];
     draftStates.value = {};
@@ -740,7 +780,7 @@ const load = async () => {
     roiExpiresAt.value = null;
     roiExpired.value = false;
   } finally {
-    loading.value = false;
+    if (version === loadVersion) loading.value = false;
   }
 };
 

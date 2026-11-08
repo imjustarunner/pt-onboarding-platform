@@ -21,3 +21,11 @@ it('labels session materials and disables unavailable downloads without calling 
   expect(api.get.mock.calls.every(([url]) => url.endsWith('/chart-artifacts') || url.endsWith('/records-copy-blocks'))).toBe(true);
   wrapper.unmount();
 });
+
+it('loads only authorized operational records for support and keeps unchecked paper unavailable',async()=>{
+ api.get.mockClear();
+ api.get.mockImplementation(async url=>({data:url.endsWith('/enrollment-receipts')?{}:url.endsWith('/school-roi-access')?{school_roi_signing:{completed_documents:[{id:17,signed_at:'2026-11-07'}]}}:url.endsWith('/paper-packet-processing')?{documents:[{id:18,scan_status:'pending'},{id:19,scan_status:'clean'}]}:{}}));
+ const wrapper=mount(Gallery,{props:{clientId:42,operationalOnly:true,school:true,paperPacket:true}});await flushPromises();
+ expect(api.get.mock.calls.map(([url])=>url)).toEqual(['/phi-documents/clients/42/enrollment-receipts','/clients/42/school-roi-access','/clients/42/paper-packet-processing']);
+ const cards=wrapper.findAll('.cdg-card');expect(cards).toHaveLength(3);expect(cards[0].text()).toContain('Signed school ROI');expect(cards[1].find('button').exists()).toBe(false);expect(cards[2].find('button').attributes('disabled')).toBeUndefined();wrapper.unmount();
+});

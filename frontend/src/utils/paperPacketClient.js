@@ -16,6 +16,9 @@ function normalizeSource(client) {
 
 export function isPaperPacketClient(client) {
   if (!client) return false;
+  let docs = client.onboarding_docs_json || {};
+  if (typeof docs === 'string') { try { docs = JSON.parse(docs); } catch { docs = {}; } }
+  if (Number(docs.paperPacketSource?.documentId) && Number(docs.paperPacketSource?.draftId)) return true;
   if (client.is_paper_packet === true || client.is_paper_packet === 1) return true;
   const source = normalizeSource(client);
 

@@ -81,3 +81,8 @@ it('keeps clinical reminders separate from nonclinical agency mail',()=>{
  expect(html).toContain('AuricWell Reminders');
  expect(html).toContain('REMINDERS');
 });
+
+it('identifies every invited child in the guardian email context',async()=>{
+ m.execute.mockResolvedValue([[{role:'client_guardian',access_enabled:1,first_name:'Alex',last_name:'Parent',email:'alex@example.test',client_initials:'FIRST',all_child_initials:'FIRST, SECOND'}]]);
+ expect((await requestingGuardianContext({inviteId:18,agencyId:2,clientId:20})).clientInitials).toBe('FIRST, SECOND');
+});

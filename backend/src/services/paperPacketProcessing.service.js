@@ -26,16 +26,23 @@ async function writeState(client, state, actorId, deps) {
   await deps.clients.update(client.id, { onboarding_docs_json: JSON.stringify({ ...object(client.onboarding_docs_json), paperProcessing: state }) }, actorId);
 }
 async function sourceDocument(client, documentId, deps) {
-  const doc = documentId ? await deps.documents.findById(Number(documentId)) : null;
+  const doc = documentId ? await deps.documents.findSchoolPaperPacket(client.id, Number(documentId)) : null;
   if (!doc || Number(doc.client_id) !== Number(client.id) || Number(doc.agency_id) !== Number(client.agency_id)
-    || doc.removed_at || doc.scan_status !== 'clean') throw fail('Select the uploaded packet after its file check is complete.');
+    || !(doc.referral_draft_id || doc.source_referral_draft_id) || doc.removed_at || doc.scan_status !== 'clean') throw fail('Select the uploaded packet after its file check is complete.');
   return doc;
+}
+export async function paperProcessingSourceDocument(clientId, documentId, overrides = {}) {
+  const deps = dependencies(overrides);
+  return sourceDocument(await readClient(clientId, deps), documentId, deps);
 }
 export async function paperProcessingContext(clientId, overrides = {}) {
   const deps = dependencies(overrides), client = await readClient(clientId, deps);
-  const [guardians, school, vision] = await Promise.all([deps.guardians.listForClient(client.id), deps.agencies.findById(client.organization_id), deps.vision(client.id)]);
+  const [guardians, school, vision, documents] = await Promise.all([deps.guardians.listForClient(client.id), deps.agencies.findById(client.organization_id), deps.vision(client.id), deps.documents.findSchoolPaperPacketsForClient(client.id)]);
   const fields = ['id','agency_id','organization_id','full_name','date_of_birth','gender','grade','address_street','address_apt','address_city','address_state','address_zip','preferred_language','primary_parent_language','insurance_type_id'];
   return { client: Object.fromEntries(fields.map(key => [key, client[key] ?? null])), schoolName: school?.name || '',
+    documents: (documents || []).filter(doc => (doc.referral_draft_id || doc.source_referral_draft_id) && !doc.removed_at
+      && Number(doc.client_id) === Number(client.id) && Number(doc.agency_id) === Number(client.agency_id))
+      .map(doc => ({ id:doc.id, original_name:doc.original_name, mime_type:doc.mime_type, scan_status:doc.scan_status })),
     state: paperProcessingState(client), guardians: guardians.map(g => ({ guardian_user_id:g.guardian_user_id,
       first_name:g.first_name,last_name:g.last_name,email:g.email,phone_number:g.phone_number,
       relationship_title:g.relationship_title,access_enabled:g.access_enabled,permissions_json:g.permissions_json })),
@@ -115,7 +122,10 @@ async function complete({clientId, actorId, signaturesConfirmed, staffRoiConfirm
     const vision = await deps.vision(client.id);
     if (!state.processedAt) {
       if (signaturesConfirmed !== true || staffRoiConfirmed !== true) throw fail('Confirm the existing paper signatures and matched staff ROI selections.');
-      if (!vision || Number(vision.phi_document_id) !== Number(state.documentId) || vision.status !== 'applied'
+      const reasons = vision?.review_reasons;
+      const reviewedReplacement = Number(object(client.onboarding_docs_json).paperPacketSource?.documentId) === Number(state.documentId)
+        && vision?.status === 'needs_review' && Array.isArray(reasons) && reasons.length === 1 && reasons[0] === 'replacement_packet_requires_review';
+      if (!vision || Number(vision.phi_document_id) !== Number(state.documentId) || !(vision.status === 'applied' || reviewedReplacement)
         || !vision.roi_signature_detected || !vision.disclosure_signature_detected) {
         throw fail('The uploaded ROI/disclosure match needs review before processing can finish. Keep the signed paper; no new signatures are requested.');
       }

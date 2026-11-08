@@ -60,7 +60,8 @@
         </div>
       </div>
       <aside class="paper-source" aria-label="Uploaded paper packet">
-        <label>Uploaded packet<select v-model="documentId" :disabled="busy || !!state.processedAt" @change="changePacket"><option value="">Select the uploaded packet</option><option v-for="doc in documents" :key="doc.id" :value="String(doc.id)">{{ doc.document_title || doc.original_name || 'Paper packet' }}</option></select></label>
+        <label>Uploaded packet<select v-model="documentId" :disabled="busy || !!state.processedAt" @change="changePacket"><option value="">Select the uploaded packet</option><option v-for="doc in documents" :key="doc.id" :value="String(doc.id)">{{ doc.document_title || doc.original_name || 'Paper packet' }}{{ doc.scan_status === 'clean' ? '' : ' — file check pending' }}</option></select></label>
+        <button v-if="documentId" type="button" class="btn btn-secondary" :disabled="busy || checkingFile" @click="checkFile">{{ checkingFile ? 'Checking…' : 'Check file and read packet' }}</button><p v-if="fileCheckMessage" role="status">{{ fileCheckMessage }}</p>
         <p v-if="packetLoading" role="status">Opening packet…</p><p v-if="packetError" class="error">{{ packetError }}</p>
         <PDFPreview v-if="packetUrl" :key="packetUrl" :pdf-url="packetUrl" />
         <p v-else-if="!packetLoading">Select a packet to compare it with the fields on the left.</p>
@@ -69,7 +70,7 @@
   </section>
 </template>
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, onBeforeUnmount, reactive, ref } from 'vue';
 import api from '../../services/api';
 import PDFPreview from '../documents/PDFPreview.vue';
 import ClientInsuranceEditor from '../billing/ClientInsuranceEditor.vue';
@@ -81,6 +82,7 @@ const labels=['Client demographics','Parent 1 portal account','Parent 2 portal a
 const keys=['demographics','guardian1','guardian2','school','insurance'];
 const context=ref(null), state=ref({completedSteps:[],invitations:{}}), stage=ref(0), loading=ref(true),busy=ref(false),error=ref('');
 const stepFields=ref(null), insuranceEditor=ref(null), roiEditor=ref(null);
+const checkingFile=ref(false),fileCheckMessage=ref('');
 const documents=ref([]),documentId=ref(''),packetUrl=ref(''),packetLoading=ref(false),packetError=ref('');
 const demographics=reactive({}),guardianForms=reactive([{},{}]),secondNotListed=ref(false),schoolConfirmed=ref(false),sharedCustody=ref('');
 const insuranceTypes=ref([]),insuranceTypeId=ref(''),insuranceReviewed=ref(false),showVerification=ref(false),signaturesConfirmed=ref(false),staffRoiConfirmed=ref(false);
@@ -88,21 +90,47 @@ const addressFields=[{key:'address_street',label:'Street address'},{key:'address
 const endpoint=computed(()=>`/clients/${props.clientId}/paper-packet-processing`);
 const furthest=computed(()=>{const i=keys.findIndex(key=>!(state.value.completedSteps||[]).includes(key));return i<0?5:i;});
 const selfPay=computed(()=>/self[\s_-]*pay/i.test(insuranceTypes.value.find(t=>Number(t.id)===Number(insuranceTypeId.value))?.insurance_key || insuranceTypes.value.find(t=>Number(t.id)===Number(insuranceTypeId.value))?.label || ''));
-const packetMatched=computed(()=>context.value?.packetRead?.status==='applied' && Number(context.value.packetRead.documentId)===Number(documentId.value) && context.value.packetRead.roiSignatureDetected && context.value.packetRead.disclosureSignatureDetected);
+const packetMatched=computed(()=>{
+ const read=context.value?.packetRead;
+ const reviewedReplacement=read?.status==='needs_review' && read.reviewReasons?.length===1 && read.reviewReasons[0]==='replacement_packet_requires_review';
+ return (read?.status==='applied'||reviewedReplacement) && Number(read.documentId)===Number(documentId.value) && read.roiSignatureDetected && read.disclosureSignatureDetected;
+});
 const hasFailedInvitation=computed(()=>Object.values(state.value.invitations||{}).some(d=>['failed','blocked'].includes(d.status)));
 function guardianLabel(id){const g=context.value?.guardians.find(g=>Number(g.guardian_user_id)===Number(id));return g?[g.first_name,g.last_name].filter(Boolean).join(' '):'Not connected';}
 function selectGuardian(index,id){const g=context.value.guardians.find(g=>Number(g.guardian_user_id)===Number(id));guardianForms[index]=g?{id:g.guardian_user_id,firstName:g.first_name,lastName:g.last_name,email:g.email,phone:g.phone_number||'',relationshipTitle:g.relationship_title||'Parent / guardian'}:{firstName:'',lastName:'',email:'',phone:'',relationshipTitle:''};}
 async function changePacket(){stage.value=0;signaturesConfirmed.value=false;staffRoiConfirmed.value=false;await viewPacket();}
 let viewGeneration=0;
-async function viewPacket(){const n=++viewGeneration;packetUrl.value='';packetError.value='';if(!documentId.value)return;packetLoading.value=true;try{const {data}=await api.get(`/phi-documents/${documentId.value}/view`);if(n===viewGeneration)packetUrl.value=data.url||'';}catch(e){if(n===viewGeneration)packetError.value=e.response?.data?.error?.message||'The packet could not be opened.';}finally{if(n===viewGeneration)packetLoading.value=false;}}
+let packetObjectUrl='';
+function releasePacket(){if(packetObjectUrl)URL.revokeObjectURL(packetObjectUrl);packetObjectUrl='';packetUrl.value='';}
+onBeforeUnmount(()=>{viewGeneration++;releasePacket();});
+async function viewPacket(){
+  const n=++viewGeneration;releasePacket();packetError.value='';packetLoading.value=false;if(!documentId.value)return;
+  packetLoading.value=true;
+  try{
+    const response=await api.get(`${endpoint.value}/documents/${documentId.value}/view`,{responseType:'blob'});
+    if(n!==viewGeneration)return;
+    const type=String(response.headers?.['content-type']||response.data?.type||'').toLowerCase();
+    if(type.includes('application/json')){
+      const data=JSON.parse(await response.data.text());
+      if(n!==viewGeneration)return;
+      if(!data.url)throw new Error('The packet link is unavailable.');
+      packetUrl.value=data.url;
+    }else{
+      const blob=response.data instanceof Blob?response.data:new Blob([response.data],{type:type||'application/pdf'});
+      packetObjectUrl=URL.createObjectURL(blob);packetUrl.value=packetObjectUrl;
+    }
+  }catch(e){if(n===viewGeneration)packetError.value=e.response?.data?.error?.message||'The packet could not be opened. It must belong to this client and pass its file check.';}
+  finally{if(n===viewGeneration)packetLoading.value=false;}
+}
+async function checkFile(){checkingFile.value=true;fileCheckMessage.value='';try{const{data}=await api.post(`${endpoint.value}/documents/${documentId.value}/check`);fileCheckMessage.value=data.message;const{data:latest}=await api.get(endpoint.value);documents.value=latest.documents||[];context.value.packetRead=latest.packetRead;if(data.status==='clean')await viewPacket();}catch(e){fileCheckMessage.value=e.response?.data?.error?.message||'The file check could not complete. Please retry.';}finally{checkingFile.value=false;}}
 async function refreshPacketRead(){const {data}=await api.get(endpoint.value);context.value.packetRead=data.packetRead;}
 onMounted(async()=>{try{
   const {data}=await api.get(endpoint.value);context.value=data;state.value=data.state;stage.value=furthest.value;
   const c=data.client, names=String(c.full_name||'').trim().split(/\s+/);Object.assign(demographics,c,{firstName:names.shift()||'',lastName:names.join(' '),dateOfBirth:String(c.date_of_birth||'').slice(0,10)});
   selectGuardian(0,state.value.guardian1Id||data.guardians[0]?.guardian_user_id);selectGuardian(1,state.value.guardian2Id||data.guardians[1]?.guardian_user_id);
   secondNotListed.value=(state.value.completedSteps||[]).includes('guardian2')&&!state.value.guardian2Id;sharedCustody.value=state.value.sharedCustody||'';schoolConfirmed.value=(state.value.completedSteps||[]).includes('school');insuranceTypeId.value=String(c.insurance_type_id||'');insuranceReviewed.value=(state.value.completedSteps||[]).includes('insurance');
-  const [docs,types]=await Promise.all([api.get(`/phi-documents/clients/${props.clientId}`),api.get('/client-settings/insurance-types',{params:{agencyId:c.agency_id}})]);
-  documents.value=(Array.isArray(docs.data)?docs.data:[]).filter(d=>!d.removed_at&&d.scan_status==='clean'&&(String(d.mime_type||'').includes('pdf')||/\.pdf$/i.test(d.original_name||'')));
+  const types=await api.get('/client-settings/insurance-types',{params:{agencyId:c.agency_id}});
+  documents.value=(data.documents||[]).filter(d=>(String(d.mime_type||'').includes('pdf')||/\.pdf$/i.test(d.original_name||'')));
   insuranceTypes.value=(types.data||[]).filter(t=>t.is_active===true||Number(t.is_active)===1);
   documentId.value=String(state.value.documentId||data.packetRead?.documentId||documents.value[0]?.id||'');await viewPacket();
 }catch(e){error.value=e.response?.data?.error?.message||'Unable to load the paper-packet workflow.';}finally{loading.value=false;}});

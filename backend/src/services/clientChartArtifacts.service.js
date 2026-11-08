@@ -1,4 +1,5 @@
 import { chartIntakeDataForClient } from '../utils/multiChildIntake.js';
+import { isSchoolRoiDocument } from '../utils/schoolRoiDocument.js';
 /**
  * Chart Records → Documents aggregator.
  *
@@ -249,10 +250,7 @@ async function resolveTherapyAgencyId(client) {
 }
 
 export function isdLooksLikeSmartSchoolRoi(row) {
-  const trail = parseJsonMaybe(row?.audit_trail, {}) || {};
-  if (trail.smartSchoolRoi || trail.roiResponse) return true;
-  const name = `${row?.document_template_name || ''} ${trail.documentName || ''} ${trail.document_name || ''}`.toLowerCase();
-  return looksLikeRoiBlob(name);
+  return isSchoolRoiDocument(row);
 }
 
 export function isdLooksLikeDisclosure(row) {

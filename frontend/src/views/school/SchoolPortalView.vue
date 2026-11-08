@@ -801,6 +801,7 @@
                 <span class="home-metric-value">{{ atGlance.pending }}</span>
                 <span class="home-metric-label">Pending clients</span>
               </button>
+              <div class="home-metric"><span class="home-metric-value">{{ atGlance.packets }}</span><span class="home-metric-label">Paper packets awaiting ROI review</span></div>
               <button class="home-metric" type="button" @click="openRosterPanel('waitlist')">
                 <span class="home-metric-icon" aria-hidden="true"><PortalIcon name="sessions" /></span>
                 <span class="home-metric-value">{{ atGlance.waitlist }}</span>
@@ -1756,6 +1757,7 @@
     <ClientModal
       v-if="selectedClient && organizationId"
       :client="selectedClient"
+      :initial-pane="route.query.pane === 'documents' ? 'documents' : null"
       :school-organization-id="organizationId"
       :organization-slug="organizationSlug"
       :parent-agency-id="affiliatedAgencyId ? Number(affiliatedAgencyId) : null"
@@ -3526,15 +3528,16 @@ const openRosterPanel = (statusKey = '', actionKey = '') => {
 };
 
 const atGlance = computed(() => {
-  if (store.portalStatsLoading) return { days: '—', clients: '—', slots: '—', pending: '—', waitlist: '—', staff: '—' };
+  if (store.portalStatsLoading) return { days: '—', clients: '—', slots: '—', pending: '—', packets: '—', waitlist: '—', staff: '—' };
   const s = store.portalStats || {};
   const days = Number.isFinite(Number(s.assigned_weekdays_count)) ? String(Number(s.assigned_weekdays_count)) : '0';
   const clients = Number.isFinite(Number(s.clients_assigned)) ? String(Number(s.clients_assigned)) : '0';
   const slots = Number.isFinite(Number(s.slots_available)) ? String(Number(s.slots_available)) : '0';
+  const packets = String(Number(s.packets_pending) || 0);
   const pending = Number.isFinite(Number(s.clients_pending)) ? String(Number(s.clients_pending)) : '0';
   const waitlist = Number.isFinite(Number(s.clients_waitlist)) ? String(Number(s.clients_waitlist)) : '0';
   const staff = Number.isFinite(Number(s.school_staff_count)) ? String(Number(s.school_staff_count)) : '0';
-  return { days, clients, slots, pending, waitlist, staff };
+  return { days, clients, slots, pending, packets, waitlist, staff };
 });
 const waitlistSchoolCount = computed(() => {
   const n = Number(store.portalStats?.clients_waitlist ?? 0);
@@ -4837,6 +4840,7 @@ const ensureAffiliation = async () => {
     void loadRosterSchoolYears();
 
     const loadCardIcons = async () => {
+      if (isSchoolStaff.value) { cardIconOrg.value = r.data?.school_agency || r.data?.active_agency || organizationStore.currentOrganization || null; return; }
       if (isPublicDemo.value && r?.data?.school_agency) {
         cardIconOrg.value = r.data.school_agency;
         return;

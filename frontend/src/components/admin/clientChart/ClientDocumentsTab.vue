@@ -17,11 +17,16 @@
     <details v-if="canOpenClinicalDocuments" class="cc-docs-extra" :open="portalDocumentsOpen" @toggle="syncPortalDocumentsToggle"><summary @click.prevent="togglePortalDocuments">AuricWell · Portal documents &amp; enrollment</summary><EnrollmentPortalDocuments v-if="portalDocumentsOpen" ref="portalDocumentsRef" :client-id="clientId" :agency-id="Number(client?.agency_id||0)||undefined" /></details>
 
     <ClientDocumentsGallery
+      :key="clientId"
+      :operational-only="!canOpenClinicalDocuments"
+      :school="client?.client_type === 'school'"
+      :paper-packet="isPaperPacketClient(client)"
       ref="galleryRef"
       :client-id="clientId"
     />
 
-    <details class="cc-docs-extra">
+    <p v-if="!canOpenClinicalDocuments">Use Client actions to upload or process a school paper packet.</p>
+    <details v-if="canOpenClinicalDocuments" ref="extraFilesRef" class="cc-docs-extra">
       <summary>Upload another file or open the audit trail</summary>
       <p class="hint">
         Optional. Signed packet files already appear above. Use this only when you need to attach an extra PDF or image.
@@ -42,6 +47,7 @@
         </nav>
         <div class="cc-docs-main">
           <PhiDocumentsPanel
+            ref="phiPanelRef"
             v-if="phiSection"
             :key="`phi-${activeCategory}-${clientId}`"
             :client-id="clientId"
@@ -60,6 +66,7 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
+import { isPaperPacketClient } from '../../../utils/paperPacketClient.js';
 import PhiDocumentsPanel from '../PhiDocumentsPanel.vue';
 import EnrollmentPortalDocuments from '../../enrollment/EnrollmentPortalDocuments.vue';
 import {useAuthStore} from '../../../store/auth';
@@ -94,7 +101,8 @@ function syncPortalDocumentsToggle(event){
 const activeCategory = ref('files');
 const refreshing = ref(false);
 const phiStats = ref({ fileCount: 0, intakeCount: 0, ocrCount: 0 });
-const galleryRef = ref(null);
+const galleryRef = ref(null),phiPanelRef=ref(null),extraFilesRef=ref(null);
+async function openUpload(){if(!canOpenClinicalDocuments.value)return false;activeCategory.value='files';await nextTick();if(extraFilesRef.value)extraFilesRef.value.open=true;await nextTick();phiPanelRef.value?.openUpload?.();return true;}
 const galleryHighlight = ref(null);
 const statsLoaded = ref(false);
 
@@ -134,6 +142,7 @@ function openGalleryArtifact(viewKey) {
 }
 
 async function loadPhiStats({ reloadGallery = false } = {}) {
+  if (!canOpenClinicalDocuments.value) { if (reloadGallery) galleryRef.value?.reload?.(); return; }
   if (statsLoaded.value && !reloadGallery) return;
   try {
     const [docsR, intakeR, ocrR] = await Promise.all([
@@ -186,7 +195,7 @@ onMounted(() => {
   void tryOpenPending();
 });
 
-defineExpose({ openGalleryArtifact, refreshAll });
+defineExpose({ openGalleryArtifact, refreshAll, openUpload });
 </script>
 
 <style scoped>

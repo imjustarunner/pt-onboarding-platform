@@ -3,8 +3,8 @@
     <span
       v-if="flags.expiredRoi"
       class="renewal-flag renewal-flag--expired"
-      title="ROI expired or missing — push Smart School ROI"
-    >Expired ROI</span>
+      :title="flags.missingRoi ? 'No signed ROI date on file — review enrollment or request School ROI' : 'ROI expired — request an updated School ROI'"
+    >{{ flags.missingRoi ? 'No ROI on file' : 'Expired ROI' }}</span>
     <span
       v-if="flags.schoolTransfer"
       class="renewal-flag renewal-flag--transfer"

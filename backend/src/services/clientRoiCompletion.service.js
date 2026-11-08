@@ -1,17 +1,5 @@
 import pool from '../config/database.js';
-
-const formatYmd = (value) => {
-  const date = value instanceof Date ? new Date(value) : new Date(String(value || ''));
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toISOString().slice(0, 10);
-};
-
-const addYears = (value, years) => {
-  const date = value instanceof Date ? new Date(value) : new Date(String(value || ''));
-  if (Number.isNaN(date.getTime())) return null;
-  date.setUTCFullYear(date.getUTCFullYear() + Number(years || 0));
-  return date;
-};
+import { schoolRoiCalendarDates } from '../utils/schoolRoiCalendarDate.js';
 
 export async function applyClientRoiCompletion({
   clientId,
@@ -26,22 +14,21 @@ export async function applyClientRoiCompletion({
   if (Number.isNaN(signedDate.getTime())) {
     throw new Error('signedAt is invalid');
   }
-  const roiExpiresAt = addYears(signedDate, 3);
-  const effectiveDate = formatYmd(signedDate);
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
 
     const [clientRows] = await connection.execute(
-      `SELECT id, agency_id, paperwork_status_id, paperwork_received_at
-       FROM clients
-       WHERE id = ?
+      `SELECT c.id, c.agency_id, c.paperwork_status_id, c.paperwork_received_at, a.timezone AS roi_timezone
+       FROM clients c LEFT JOIN agencies a ON a.id = c.agency_id
+       WHERE c.id = ?
        LIMIT 1
        FOR UPDATE`,
       [cid]
     );
     const client = clientRows?.[0] || null;
     if (!client) throw new Error('Client not found');
+    const { effectiveDate, roiExpiresAt } = schoolRoiCalendarDates(signedDate, client.roi_timezone || 'America/Denver');
 
     let roiStatusId = null;
     let completedStatusId = null;

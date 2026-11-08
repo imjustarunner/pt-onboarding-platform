@@ -453,6 +453,7 @@ export async function getClientOnboardingChecklist(clientId) {
       identifier_code: client.identifier_code || null,
       agency_id: client.agency_id ? Number(client.agency_id) : null,
       organization_name: client.organization_name || null,
+      organization_slug: client.organization_slug || null,
       organization_id: client.organization_id ? Number(client.organization_id) : null,
       service_day: client.service_day || null,
       insurance_type_id: client.insurance_type_id ? Number(client.insurance_type_id) : null,

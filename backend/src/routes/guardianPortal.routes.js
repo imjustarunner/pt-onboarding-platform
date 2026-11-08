@@ -164,6 +164,26 @@ router.post('/support-tickets', createGuardianSupportTicket);
 router.post('/technology-help',requireActiveStatus,rateLimit({windowMs:60*60*1000,max:10}),guardianHelpUpload.array('screenshots',3),submitHelp);
 router.get('/support-tickets/:ticketId', getGuardianSupportTicket);
 router.post('/support-tickets/:ticketId/messages', sendGuardianSupportTicketMessage);
+router.get('/pending-enrollments', requireActiveStatus, async (req, res, next) => {
+  try {
+    if (req.guardianPreviewMode) return res.json({ invitations: [] });
+    const { listOwnPendingEnrollments } = await import('../services/guardianPendingEnrollment.service.js');
+    res.set('Cache-Control', 'no-store').json({ invitations: await listOwnPendingEnrollments({
+      userId: req.user.id, agencyId: Number(req.query.agencyId), clientId: Number(req.query.clientId) || null
+    }) });
+  } catch (error) { next(error); }
+});
+router.post('/pending-enrollments/:inviteId/open', requireActiveStatus, async (req, res, next) => {
+  try {
+    if (req.guardianPreviewMode) return res.status(403).json({ error: { message: 'Preview cannot open an enrollment invitation.' } });
+    const { openOwnPendingEnrollment } = await import('../services/guardianPendingEnrollment.service.js');
+    const { invitePublicUrl } = await import('../services/coGuardianInvite.service.js');
+    const { default: Agency } = await import('../models/Agency.model.js');
+    const { token, invite } = await openOwnPendingEnrollment({ userId: req.user.id, agencyId: Number(req.body.agencyId), inviteId: Number(req.params.inviteId) });
+    const agency = await Agency.findById(invite.agency_id);
+    res.set('Cache-Control', 'no-store').json({ url: invitePublicUrl({ agency, token, publicKey: invite.public_key, serviceType: 'counseling' }) });
+  } catch (error) { next(error); }
+});
 router.get('/family-documents', async (req, res, next) => {
   try {
     const { listGuardianFamilyDocuments } = await import('../services/familyDocumentSession.service.js');
