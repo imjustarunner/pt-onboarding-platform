@@ -43,6 +43,46 @@ describe('Narriva paid report administration',()=>{
     await w.find('.confirm input[type="checkbox"]').setValue(true);await button(w,'Save settings').trigger('click');await flushPromises();
     expect(api.patch.mock.calls[0][1]).toMatchObject({agencyId:10,enabled:true,cadence:'quarterly',sampleSize:10,confirmCharge:true,acceptedPriceCents:10000});w.unmount();
   });
+  it('requires explicit no-charge acceptance before enabling scheduled reports with a zero waiver',async()=>{
+    api.get.mockImplementation(path=>Promise.resolve({data:path.endsWith('/settings')?{...configuration(),billing:{priceCents:0,feeWaived:true,currency:'USD',available:true,canRun:false}}:{runs:[]}}));
+    const w=mount(Reports);await flushPromises();
+    expect(w.get('.price').text()).toBe('No charge');expect(w.text()).toContain('$0.00 per completed report');
+    expect(w.text()).not.toContain('Billed once for a completed report');expect(w.text()).toContain('This waiver does not authorize future charges.');
+    expect(api.patch).not.toHaveBeenCalled();expect(api.post).not.toHaveBeenCalled();
+    await w.find('.ncr-controls input[type="checkbox"]').setValue(true);await w.findAll('form')[1].trigger('submit');await flushPromises();
+    expect(w.get('.confirm').text()).toContain('I enable reports at no charge');expect(button(w,'Save settings').attributes('disabled')).toBeDefined();
+    await w.find('.confirm input[type="checkbox"]').setValue(true);await button(w,'Save settings').trigger('click');await flushPromises();
+    expect(api.patch.mock.calls[0][1]).toMatchObject({agencyId:10,enabled:true,cadence:'quarterly',confirmCharge:true,acceptedPriceCents:0});w.unmount();
+  });
+  it('runs a no-charge manual report only after confirmation and shows its saved zero fee',async()=>{
+    const run={id:17,status:'completed',billing:{unitCents:0,billable:false,invoiceId:null},samples:[]};
+    api.get.mockImplementation(path=>Promise.resolve({data:path.endsWith('/settings')?{...configuration(),settings:{...settings(),enabled:true,cadence:'manual',acceptedPriceCents:0},billing:{priceCents:0,feeWaived:true,currency:'USD',available:true,canRun:true}}:path.endsWith('/runs')?{runs:[run]}:{run}}));
+    api.post.mockResolvedValue({data:{run}});
+    const w=mount(Reports);await flushPromises();expect(w.text()).toContain('enabled for manual runs');
+    expect(button(w,'Review run').text()).toContain('No charge');await w.findAll('form')[0].trigger('submit');await flushPromises();
+    expect(w.get('.confirm').text()).toContain('I authorize this report at no charge');expect(button(w,'Run report').attributes('disabled')).toBeDefined();
+    expect(api.post).not.toHaveBeenCalled();await w.find('.confirm input[type="checkbox"]').setValue(true);await button(w,'Run report').trigger('click');await flushPromises();
+    expect(api.post.mock.calls[0][1]).toMatchObject({agencyId:10,confirmCharge:true,acceptedPriceCents:0});
+    expect(w.get('.report .run-fee').text()).toBe('No charge · $0.00');w.unmount();
+  });
+  it('requires new explicit $100 acceptance when a zero waiver ends and retains no-charge report history',async()=>{
+    const run={id:18,status:'completed',billing:{unitCents:0,billable:false,invoiceId:null},samples:[]};
+    let priceCents=0;
+    api.get.mockImplementation(path=>Promise.resolve({data:path.endsWith('/settings')?{...configuration(),settings:{...settings(),enabled:true,acceptedPriceCents:0},billing:{priceCents,currency:'USD',available:true,canRun:priceCents===0,priceAccepted:priceCents===0}}:path.endsWith('/runs')?{runs:[run]}:{run}}));
+    const w=mount(Reports);await flushPromises();await w.findAll('form')[1].trigger('submit');await flushPromises();await w.find('.confirm input[type="checkbox"]').setValue(true);await button(w,'Save settings').trigger('click');await flushPromises();
+    expect(api.patch.mock.calls[0][1].acceptedPriceCents).toBe(0);
+    priceCents=10000;await button(w,'Refresh').trigger('click');await flushPromises();
+    expect(w.get('.price').text()).toBe('$100.00');expect(w.get('.run-open').text()).toContain('No charge · $0.00');
+    expect(button(w,'Review run').attributes('disabled')).toBeDefined();expect(api.patch).toHaveBeenCalledTimes(1);expect(api.post).not.toHaveBeenCalled();
+    await w.findAll('form')[1].trigger('submit');await flushPromises();
+    expect(w.get('.confirm').text()).toContain('I authorize $100.00 per completed run');expect(w.get('.confirm input[type="checkbox"]').element.checked).toBe(false);expect(button(w,'Save settings').attributes('disabled')).toBeDefined();
+    await w.find('.confirm input[type="checkbox"]').setValue(true);await button(w,'Save settings').trigger('click');await flushPromises();
+    expect(api.patch.mock.calls[1][1]).toMatchObject({confirmCharge:true,acceptedPriceCents:10000});w.unmount();
+  });
+  it('does not present an unset price as a free waiver',async()=>{
+    api.get.mockImplementation(path=>Promise.resolve({data:path.endsWith('/settings')?{...configuration(),billing:{priceCents:null,currency:'USD',available:false,canRun:false}}:{runs:[]}}));
+    const w=mount(Reports);await flushPromises();expect(w.get('.price').text()).toBe('Price not configured');expect(w.text()).not.toContain('fee is currently waived');expect(button(w,'Review run').attributes('disabled')).toBeDefined();w.unmount();
+  });
   it('clears reports and ignores delayed results when the agency changes',async()=>{
     let oldResolve;api.get.mockImplementation(path=>path.endsWith('/settings')?new Promise(resolve=>{oldResolve=resolve;}):Promise.resolve({data:{runs:[]}}));
     const w=mount(Reports);await flushPromises();api.get.mockImplementation(path=>Promise.resolve({data:path.endsWith('/settings')?{...configuration(),settings:{...settings(),sampleSize:6}}:{runs:[]}}));
