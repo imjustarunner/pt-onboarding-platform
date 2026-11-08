@@ -135,7 +135,7 @@ export function createMobileConversaStore(db=pool,{listAgencies=null,groupAccess
       LEFT JOIN communication_conversation_reads r ON r.conversation_id=c.id AND r.user_id=?
       LEFT JOIN mobile_message_archives archive ON archive.user_id=? AND archive.source_kind=c.channel AND archive.source_id=c.id
       WHERE ${scope.where} GROUP BY c.channel,is_group,effective_unknown`,[userId,userId,...scope.params]);
-    return rows.map(r=>({category:Number(r.is_group)?'groups':r.channel,groupName:r.group_name || null,destinationAccount:r.destination_account || null,unknown:!!Number(r.effective_unknown),total:Number(r.total),unread:Number(r.unread)||0,needs:Number(r.needs)||0,sent:Number(r.sent)||0}));
+    return rows.map(r=>({category:Number(r.is_group)?'groups':r.channel,unknown:!!Number(r.effective_unknown),total:Number(r.total),unread:Number(r.unread)||0,needs:Number(r.needs)||0,sent:Number(r.sent)||0}));
   }
   async function extraCounts(userId,threadIds) {
     const result=Object.fromEntries(['threads','mentions','files'].map(key=>[key,{total:0,unread:0,needs:0,sent:0}]));if(!threadIds.length)return result;
