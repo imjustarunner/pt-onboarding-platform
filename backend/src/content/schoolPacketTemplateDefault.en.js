@@ -200,7 +200,7 @@ export const DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML = `
 
   <div class="page-break"></div>
   <h2>ACKNOWLEDGEMENT AND CONSENT SUMMARY</h2>
-  <p>By signing below, I acknowledge and consent to the following documents for which the versions are as of the date of the signature of this document and included in Version 1.14:</p>
+  <p>By signing below, I acknowledge and consent to the following documents for which the versions are as of the date of the signature of this document and included in Version {{PACKET_VERSION}}:</p>
   <ul>
     <li>Insurance Information Acknowledgement (p.6): I authorize ITSCO, LLC to release information to the insurance companies provided, for the purposes of submitting claims on my behalf.</li>
     <li>Minor Consent (p.6) and Informed Consent (p.7): I confirm that I have reviewed, understand, and agree to the terms outlined in the Minor Consent and Informed Consent documents, acknowledging the rights, responsibilities, and the therapeutic relationship established between the client and ITSCO.</li>

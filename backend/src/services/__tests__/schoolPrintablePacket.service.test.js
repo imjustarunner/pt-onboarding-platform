@@ -300,3 +300,19 @@ test('print cache refreshes when a provider is added or their disclosure details
  assert.notEqual(original,schoolPrintablePacketContentHash({...base,templateHtml:'Updated agency policy'}));
  assert.equal(original,schoolPrintablePacketContentHash({...base,generatedAt:new Date(),packetVersionLabel:'99.9'}));
 });
+
+
+test('new and saved consent summaries use the same resolved packet version as the footer', () => {
+  for (const templateHtml of [
+    '<p>included in Version 1.14:</p>',
+    '<p>incluidas en la Versión 1.14:</p>',
+    '<p>included in Version {{PACKET_VERSION}}:</p>'
+  ]) {
+    for (const version of ['1.15', '2.37']) {
+      const html = buildSchoolPrintablePacketHtml({ templateHtml, packetVersionLabel: '1.14', brand: { versionLabel: version } });
+      assert.ok(html.includes(version));
+      assert.ok(!html.includes('1.14'));
+      assert.ok(!html.includes('{{PACKET_VERSION}}'));
+    }
+  }
+});

@@ -939,6 +939,18 @@ function prepareRoiStaffLayout(templateHtml) {
   );
 }
 
+function packetVersionForRender(packetContext = {}) {
+  return packetContext.brand?.versionLabel || packetContext.packetVersionLabel || SCHOOL_PRINTABLE_PACKET_VERSION;
+}
+
+// Older saved templates contain a literal version in this acknowledgement.
+// Render that reference from the same version as the footer; never rewrite signed PDFs.
+function preparePacketVersionReference(templateHtml) {
+  return String(templateHtml || '')
+    .replace(/(included in Version\s+)\d+\.\d+/g, '$1{{PACKET_VERSION}}')
+    .replace(/(incluidas en la Versión\s+)\d+\.\d+/g, '$1{{PACKET_VERSION}}');
+}
+
 function buildPacketBodyContentHtml(packetContext = {}) {
   const schoolName = packetContext?.organization?.name || '';
   const schoolAddress = packetContext?.organization?.address || '';
@@ -952,10 +964,11 @@ function buildPacketBodyContentHtml(packetContext = {}) {
     : watermarkDataUrl();
 
   const bodyHtml = substituteTokens(
-    prepareRoiStaffLayout(packetContext?.templateHtml || DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML),
+    prepareRoiStaffLayout(preparePacketVersionReference(packetContext?.templateHtml || DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML)),
     {
       SCHOOL_NAME: escapeHtml(schoolName),
       SCHOOL_ADDRESS: escapeHtml(schoolAddress),
+      PACKET_VERSION: escapeHtml(String(packetVersionForRender(packetContext))),
       SCHOOL_STAFF_TABLE: staffTableHtml,
       DISCLOSURE_CARE_TEAM: disclosureHtml
     }
@@ -1014,9 +1027,7 @@ function buildSchoolPrintablePacketBodyDocument(packetContext = {}) {
 function buildPdfChromeTemplates(packetContext = {}) {
   const brand = packetContext?.brand || null;
   const includeVersion = packetContext?.includeVersion !== false;
-  const packetVersionLabel = brand?.versionLabel
-    || packetContext?.packetVersionLabel
-    || SCHOOL_PRINTABLE_PACKET_VERSION;
+  const packetVersionLabel = packetVersionForRender(packetContext);
   const logo = brand
     ? (brand.headerImageDataUrl || brand.headerLogoDataUrl || null)
     : headerLogoDataUrl();
@@ -1149,7 +1160,7 @@ export function schoolPrintablePacketContentHash(packetContext = {}) {
   // not the other way around, so including it would create a circular dependency.
   const payload = JSON.stringify({
     v: SCHOOL_PRINTABLE_PACKET_VERSION,
-    layoutRevision: 2, // Invalidate stored PDFs after the ROI pagination fix.
+    layoutRevision: 3, // Consent version reference and footer share the resolved packet version.
     locale: packetContext.locale || 'en',
     templateVersion: Number(packetContext.version || 1),
     templateHtml: packetContext.templateHtml || '',

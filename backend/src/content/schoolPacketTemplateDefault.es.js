@@ -218,7 +218,7 @@ export const DEFAULT_SCHOOL_PACKET_TEMPLATE_HTML_ES = `
 
   <div class="page-break"></div>
   <h2>RESUMEN DE RECONOCIMIENTO Y CONSENTIMIENTO</h2>
-  <p>Al firmar a continuación, reconozco y doy mi consentimiento a los siguientes documentos, cuyas versiones corresponden a la fecha de la firma de este documento e incluidas en la Versión 1.14:</p>
+  <p>Al firmar a continuación, reconozco y doy mi consentimiento a los siguientes documentos, cuyas versiones corresponden a la fecha de la firma de este documento e incluidas en la Versión {{PACKET_VERSION}}:</p>
   <ul>
     <li>Reconocimiento de Información de Seguro (p.6): Autorizo a ITSCO, LLC a divulgar información a las compañías de seguros proporcionadas, con el fin de presentar reclamos en mi nombre.</li>
     <li>Consentimiento de Menor (p.6) y Consentimiento Informado (p.7): Confirmo que he revisado, entiendo y acepto los términos descritos en los documentos de Consentimiento de Menor y Consentimiento Informado, reconociendo los derechos, responsabilidades y la relación terapéutica establecida entre el cliente e ITSCO.</li>
