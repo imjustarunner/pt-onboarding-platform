@@ -87,6 +87,6 @@ it('starts with username rather than requiring an organization name, and uses th
 it('keeps the device disconnected until the existing account verification succeeds',async()=>{
  history.replaceState(null,'','/mobile/connect?clientId=web&challenge='+('a'.repeat(43))+'&state='+('b'.repeat(43))+'&loginPath=%2Fitsco%2Flogin');
  mocks.get.mockRejectedValueOnce({response:{status:403,data:{error:{code:'MFA_REQUIRED'}}}}).mockResolvedValueOnce({data:{id:1,first_name:'Synthetic',last_name:'Parent',email:'parent@example.invalid',role:'client_guardian'}});
- const wrapper=await app();await flushPromises();await flushPromises();expect(wrapper.text()).toContain('Verify your sign-in');expect(wrapper.text()).toContain('Existing account verification');expect(mocks.post).not.toHaveBeenCalled();
+ const wrapper=await app();await vi.waitFor(()=>expect(wrapper.text()).toContain('Verify your sign-in'));await vi.waitFor(()=>expect(wrapper.text()).toContain('Existing account verification'));expect(mocks.post).not.toHaveBeenCalled();
  mocks.get.mockResolvedValue({data:{...profile,surface:'family'}});await wrapper.findAll('button').find(b=>b.text().includes('continue connecting')).trigger('click');await flushPromises();expect(wrapper.text()).toContain('Continue as Test');expect(wrapper.text()).not.toContain('Verify your sign-in');expect(mocks.post).not.toHaveBeenCalled();wrapper.unmount();
 });
