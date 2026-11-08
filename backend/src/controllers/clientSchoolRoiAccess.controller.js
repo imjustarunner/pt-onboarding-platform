@@ -1,3 +1,4 @@
+import { canReceiveGuardianConsentRequest } from '../services/schoolRoiGuardianConsent.service.js';
 import pool from '../config/database.js';
 import { requestSchoolRoiForGuardians } from '../services/schoolRoiGuardianRequests.service.js';
 import { clientEmailLabel, portalActionHtml } from '../services/clientPortalEmailContent.js';
@@ -477,6 +478,7 @@ export const listClientSchoolRoiAccess = async (req, res, next) => {
         last_name: guardian.last_name || null,
         relationship_title: guardian.relationship_title || null,
         relationship_type: guardian.relationship_type || null,
+        can_request_roi: canReceiveGuardianConsentRequest(guardian),
         access_enabled: guardian.access_enabled !== false && guardian.access_enabled !== 0
       }))
       .filter((guardian) => guardian.email);
@@ -1071,6 +1073,7 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
     const delivery = await requestSchoolRoiForGuardians({
       client, schoolOrganizationId, actorUserId: req.user?.id || null,
       languageCode: normalizeLanguageCode(req.body?.languageCode),
+      guardianUserIds: req.body?.guardianUserIds ?? null,
       issueLink: ensureIssuedRoiSigningLinkForClient
     });
     await logAuditEvent(req, { actionType: 'client_school_roi_guardian_requests', agencyId: client.agency_id,

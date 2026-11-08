@@ -475,6 +475,7 @@
             <th style="width: 34px;">
               <input type="checkbox" :checked="allPageSelected" @change.stop="toggleSelectAllPage($event)" />
             </th>
+            <th>Client ID</th>
             <th class="cm-sortable col-initials" :aria-sort="ariaSortFor('initials')" @click="toggleColumnSort('initials')">
               {{ clientDisplayLabel }}
               <span class="cm-sort-indicator" aria-hidden="true">{{ sortIndicatorFor('initials') }}</span>
@@ -560,6 +561,7 @@
             <td class="select-cell" @click.stop>
               <input type="checkbox" :checked="selectedIds.has(client.id)" @change.stop="toggleSelected(client.id)" />
             </td>
+            <td class="mono">{{ client.id }}</td>
             <td
               class="initials-cell col-initials"
               @click.stop="openClientDetail(client)"
@@ -667,14 +669,11 @@
               >
                 Renew
               </button>
-              <button
-                v-if="canBackofficeEdit"
-                @click.stop="startEditStatus(client)" 
-                class="btn btn-secondary btn-sm cm-kebab-btn"
-                title="More actions"
-              >
-                ⋮
-              </button>
+              <details v-if="canBackofficeEdit" class="cm-row-actions" @click.stop>
+                <summary class="btn btn-secondary btn-sm cm-kebab-btn" aria-label="More actions">⋮</summary>
+                <button type="button" class="btn btn-secondary btn-sm" @click.stop="openClientDetail(client)">Open client</button>
+                <button type="button" class="btn btn-danger btn-sm" @click.stop="startEditStatus(client)">Archive client</button>
+              </details>
             </td>
           </tr>
         </tbody>
@@ -1282,7 +1281,7 @@
     />
 
   </div>
-  <ReferralUpload v-if="standalonePaperOpen && selectedPaperSchoolSlug" :organization-slug="selectedPaperSchoolSlug" @close="standalonePaperOpen=false" @uploaded="onPaperUploaded" />
+  <ReferralUpload v-if="standalonePaperOpen && selectedPaperSchoolSlug" :organization-slug="selectedPaperSchoolSlug" @close="standalonePaperOpen=false" @submitted="onPaperUploaded" />
 </template>
 
 <script setup>
@@ -3383,6 +3382,11 @@ watch(() => currentPage.value, (newPage, oldPage) => {
 </script>
 
 <style scoped>
+.cm-row-actions { position: relative; }
+.cm-row-actions summary { cursor: pointer; list-style: none; }
+.cm-row-actions[open] { z-index: 5; }
+.cm-row-actions button { display: block; min-width: 120px; padding: 8px; background: white; border: 1px solid #ddd; }
+
 .client-mgmt-page {
   --cm-purple: #7c3aed;
   --cm-green: #12b76a;

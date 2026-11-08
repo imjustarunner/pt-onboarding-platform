@@ -48,7 +48,7 @@ import {
   postPublicIntakeDeleteData,
   deletePublicIntakeSession
 } from '../controllers/publicIntake.controller.js';
-import { downloadPublicIntakeSummaryPdf, emailPublicIntakeSummaryPdf, viewPublicIntakeSummaryHtml, getPublicIntakeSummaryPdfEmailTemplate, putPublicIntakeSummaryPdfEmailTemplate } from '../controllers/intakeSummaryPdf.controller.js';
+import { listPublicIntakeSignedRois, downloadPublicIntakeSummaryPdf, emailPublicIntakeSummaryPdf, viewPublicIntakeSummaryHtml, getPublicIntakeSummaryPdfEmailTemplate, putPublicIntakeSummaryPdfEmailTemplate } from '../controllers/intakeSummaryPdf.controller.js';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -171,6 +171,7 @@ router.post(
   finalizePublicIntake
 );
 
+router.get('/:publicKey/:submissionId/signed-rois', listPublicIntakeSignedRois);
 router.get('/:publicKey/:submissionId/summary', viewPublicIntakeSummaryHtml);
 router.post(
   '/:publicKey/:submissionId/summary-pdf',

@@ -522,11 +522,11 @@ class AgencyOfficeIntakeMaster {
     if (!aid) return link;
     const master = await this.getOrCreateForAgency(aid, { languageCode: link.language_code || 'en' });
     if (!master) return link;
-    const lang = normalizeLang(link.language_code || 'en');
-    const intakeSteps = ensureOfficeProviderStep(link, lang === 'en'
-      ? mergeCounselingOfficeEnIntoSteps(master.intake_steps || [])
-      : (master.intake_steps || []));
-    const intakeFields = lang === 'en' ? flattenIntakeFields(intakeSteps) : master.intake_fields;
+    // Both editions use the same questionnaire keys and sequence. The public
+    // runner applies curated Spanish to these questions; legal sections still
+    // resolve their published Spanish versions independently.
+    const intakeSteps = ensureOfficeProviderStep(link, mergeCounselingOfficeEnIntoSteps(master.intake_steps || []));
+    const intakeFields = flattenIntakeFields(intakeSteps);
     return {
       ...link,
       intake_steps: intakeSteps,

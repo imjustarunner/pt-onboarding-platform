@@ -49,7 +49,9 @@ describe('insurance enrollment', () => {
     expect(w.text()).not.toContain('Not Paying Now');
     expect(w.text()).not.toContain('Your payment arrangement');
     expect(w.text()).not.toContain('Add Card');
-    expect(w.text()).toContain('No card is requested');
+    expect(w.text()).toContain('No payment card is required');
+    expect(w.text()).not.toContain('How would you like to pay?');
+    expect(w.text()).not.toContain('Payment Summary');
     expect(w.emitted('update:insuranceInfo').at(-1)[0].secondary.isMedicaid).toBe(true);
     w.unmount();
   });
@@ -112,7 +114,9 @@ describe('insurance enrollment', () => {
     expect(w.find('[data-card-form]').exists()).toBe(false);
     expect(w.text()).not.toContain('$1,200');
     expect(w.text()).not.toContain('financially responsible');
-    expect(w.text()).toContain('No card is requested');
+    expect(w.text()).toContain('No payment card is required');
+    expect(w.text()).not.toContain('How would you like to pay?');
+    expect(w.text()).not.toContain('Payment Summary');
     expect(w.text()).toContain('Secondary subscriber');
     w.unmount();
   });
@@ -186,8 +190,8 @@ describe('insurance enrollment', () => {
   });
   it('changing to self-pay preserves declared Medicaid coverage', async () => {
     const w = mountForm();
-    const btn = w.findAll('button').find(b => b.text().includes('Self-Pay'));
-    await btn.trigger('click'); const update = w.emitted('update:insuranceInfo').at(-1)[0];
+    expect(w.findAll('button').some(b => b.text().includes('Self-Pay'))).toBe(false);
+    w.vm.setSelfPay(true); const update = w.emitted('update:insuranceInfo').at(-1)[0];
     expect(update.secondary.isMedicaid).toBe(true); expect(update.isSelfPay).toBe(true);
     await w.setProps({ insuranceInfo: update }); await flushPromises();
     expect(w.find('[data-card-form]').exists()).toBe(false);

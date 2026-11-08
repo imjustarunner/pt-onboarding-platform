@@ -1,5 +1,5 @@
 import { recordGuardianRoiConsent } from './schoolRoiGuardianConsent.service.js';
-import { schoolRoiSignedTimestamp } from '../utils/schoolRoiCalendarDate.js';
+import { schoolRoiSignedTimestamp, schoolRoiCalendarDates } from '../utils/schoolRoiCalendarDate.js';
 import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.model.js';
 import {
   AUTHORIZED_REPRESENTATIVE,
@@ -482,6 +482,7 @@ export async function applySmartSchoolRoiAccessDecisions({ clientId, schoolOrgan
 }
 
 export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signedAt = new Date() }) {
+  const dates = schoolRoiCalendarDates(signedAt, roiContext?.agency?.timezone);
   const locale = normalizeLanguageCode(
     roiContext?.locale
     || roiContext?.documentTemplate?.languageCode
@@ -715,6 +716,7 @@ export function buildSmartSchoolRoiHtml({ roiContext = {}, response = {}, signed
         <div>
           <h1>${escapeHtml(docTitle)}</h1>
           <div class="muted">${escapeHtml(labels.signedWindow)} ${escapeHtml(schoolRoiSignedTimestamp(signedAt, roiContext?.agency?.timezone, response.locale))} ${escapeHtml(labels.signedWindowSuffix)}</div>
+          <div class="muted">${isSpanish ? "Fecha de vigencia" : "Effective date"}: ${escapeHtml(dates.effectiveDate)} · ${isSpanish ? "Fecha de vencimiento" : "Expiration date"}: ${escapeHtml(dates.roiExpiresAt)}</div>
           <div class="muted">${escapeHtml(response.signer?.fullName || '')}${response.signer?.email ? ` · ${escapeHtml(response.signer.email)}` : ''}</div>
         </div>
         <div style="display:flex; gap:8px; align-items:center;">

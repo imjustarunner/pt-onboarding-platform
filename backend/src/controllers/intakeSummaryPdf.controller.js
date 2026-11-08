@@ -1,4 +1,4 @@
-import { isSchoolRoiDocument } from '../utils/schoolRoiDocument.js';
+import { isSchoolRoiDocument, schoolRoiAuditTrail } from '../utils/schoolRoiDocument.js';
 import AgencyOfficeIntakeMaster from '../models/AgencyOfficeIntakeMaster.model.js';
 import { intakeChildRoster } from '../utils/multiChildIntake.js';
 import { enrichApplicationRecord, appendApplicationJobDescription } from '../services/jobApplicationRecord.service.js';
@@ -165,7 +165,18 @@ async function resolveOfficeRecord(req) {
     title: link?.title,
     formType: link?.form_type || submission?.form_type
   });
-  return { agency, spec, submission };
+  return { agency, spec, submission, signedDocuments };
+}
+
+// Uses the same enrollment-session authorization as the completed packet.
+export async function listPublicIntakeSignedRois(req, res, next) {
+  try {
+    const {submission, signedDocuments = []} = await resolveOfficeRecord(req);
+    if (submission.status !== 'submitted') return res.status(409).json({error:{message:'Enrollment is not complete yet.'}});
+    return res.set('Cache-Control','no-store').json({documents: signedDocuments.filter(doc=>isSchoolRoiDocument(doc)&&doc.documentViewUrl).map(doc=>({
+      id:doc.id, clientId:doc.client_id || null, clientName:schoolRoiAuditTrail(doc).roiResponse?.clientFullName || null, url:doc.documentViewUrl
+    }))});
+  } catch (error) { next(error); }
 }
 
 function summaryPdfFilename(agency, body = {}) {

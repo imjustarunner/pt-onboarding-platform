@@ -91,3 +91,16 @@ describe('final enrollment save', () => {
     await Promise.all([saving, repeated]);
   });
 });
+
+it('shows the actual per-child signed release using the authorized enrollment session on completion',async()=>{
+ const original=get.getMockImplementation();
+ get.mockImplementation((url,options)=>url.endsWith('/signed-rois')?Promise.resolve({data:{documents:[{id:7,clientId:4,clientName:'Synthetic Child',url:'https://example.test/signed-child-roi.pdf'}]}}):original(url,options));
+ wrapper.vm.link={...wrapper.vm.link,scope_type:'school'};
+ wrapper.vm.organization={...wrapper.vm.organization,organization_type:'school'};
+ wrapper.vm.sessionToken='synthetic-session';wrapper.vm.confirmedSubmissionId=42;wrapper.vm.step=3;
+ await flushPromises();
+ expect(get).toHaveBeenCalledWith('/public-intake/pending-finalize/42/signed-rois',expect.objectContaining({params:{sessionToken:'synthetic-session'}}));
+ const link=wrapper.findAll('a').find(a=>a.text()==='View signed ROI');
+ expect(link.attributes('href')).toBe('https://example.test/signed-child-roi.pdf');
+ expect(wrapper.text()).toContain('Synthetic Child');
+});

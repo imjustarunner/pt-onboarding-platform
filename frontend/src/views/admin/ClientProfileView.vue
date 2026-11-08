@@ -15,6 +15,7 @@
       :full-page="true"
       :initial-tab="initialTab"
       :initial-document-id="initialDocumentId"
+      :open-paper-packet="route.query.packet === 'latest'"
       :initial-encounter-id="initialEncounterId"
       @updated="handleUpdated"
       @close="goBack"

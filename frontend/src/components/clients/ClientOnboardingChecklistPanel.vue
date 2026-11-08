@@ -14,7 +14,7 @@
     </div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <template v-else-if="checklist">
-      <div v-if="checklist.client_type === 'school' && !readonly && effectiveCanEditDocs && checklist.client?.organization_slug"><button type="button" class="btn btn-secondary" @click="paperUploadOpen=true">Upload paper packet to this client</button><ReferralUpload v-if="paperUploadOpen" :organization-slug="checklist.client.organization_slug" :existing-client-id="Number(clientId)" @close="paperUploadOpen=false" @uploaded="paperUploadOpen=false; load()" /></div>
+      <div v-if="checklist.client_type === 'school' && !readonly && effectiveCanEditDocs && checklist.client?.organization_slug"><button type="button" class="btn btn-secondary" @click="paperUploadOpen=true">Upload paper packet to this client</button><ReferralUpload v-if="paperUploadOpen" :organization-slug="checklist.client.organization_slug" :existing-client-id="Number(clientId)" @close="paperUploadOpen=false" @submitted="paperUploadOpen=false; load()" /></div>
       <div v-if="checklist.is_paper_packet && !readonly && effectiveCanEditDocs" class="ob-paper-processing">
         <button v-if="!paperWorkflowOpen" type="button" class="btn btn-primary" @click="paperWorkflowOpen=true">Process paper packet step by step</button>
         <SchoolPaperPacketWorkflow v-else :key="clientId" :client-id="clientId" @close="paperWorkflowOpen=false" @processed="load" />

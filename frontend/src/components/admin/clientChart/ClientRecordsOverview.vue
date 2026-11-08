@@ -6,8 +6,9 @@
         <p class="rco-sub">Clinical record, documents, and billing in one place.</p>
       </div>
       <div class="rco-head-actions">
-        <button type="button" class="cdp-btn-soft" @click="$emit('navigate', 'documents')">Upload</button>
+        <button type="button" class="cdp-btn-soft" @click="$emit('upload')">Upload</button>
         <button type="button" class="cdp-btn-primary" @click="$emit('navigate', 'notes')">+ New note</button>
+        <button v-if="canProcessPaper" type="button" class="cdp-btn-soft" @click="$emit('client-actions')">Client actions / process paper packet</button>
         <details class="rco-more">
           <summary aria-label="More">⋯</summary>
           <div class="rco-more__menu">
@@ -203,7 +204,7 @@
             <h4>Authorizations / ROI</h4>
             <button v-if="artifactAccess === 'full'" type="button" class="rco-link" @click="$emit('navigate', 'authorizations')">View all</button>
           </div>
-          <p v-if="artifactAccess === 'receipts'" class="muted tiny">Enrollment receipts are available in Documents. Individual authorization details are not available in this view.</p>
+          <p v-if="artifactAccess === 'receipts'" class="muted tiny">{{ operationalOnly ? 'Enrollment, signed ROI and uploaded paper records are available in Documents. Use School ROI to review permissions.' : 'Enrollment receipts are available in Documents. Individual authorization details are not available in this view.' }}</p>
           <p v-else-if="artifactAccess !== 'full'" class="muted tiny">{{ artifactAccess === 'loading' ? 'Loading authorization details…' : 'Authorization details could not be loaded.' }}</p>
           <div v-else class="rco-auth-counts">
             <div><span>Active</span><strong>{{ authCounts.active }}</strong></div>
@@ -267,6 +268,7 @@ import { formatAuditTimestamp } from '../../../utils/formatDate';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import api from '../../../services/api';
+import { operationalClientDocuments } from '../../../utils/operationalClientDocuments.js';
 import { enrollmentReceiptCards } from '../../../utils/enrollmentReceiptCards.js';
 import '../../../styles/client-hub.css';
 import { buildNoteAidQuery, treatmentPlanUpdaterQuery } from '../../../utils/noteAidLaunch.js';
@@ -284,6 +286,8 @@ const props = defineProps({
   client: { type: Object, default: null },
   agencyId: { type: [Number, String], default: null },
   canViewBilling: { type: Boolean, default: false },
+  operationalOnly: Boolean,
+  canProcessPaper: Boolean,
   canManageSchoolRoi: { type: Boolean, default: false },
   packagesEnabled: { type: Boolean, default: false },
   phiBanner: { type: Boolean, default: false },
@@ -291,7 +295,7 @@ const props = defineProps({
   alerts: { type: Array, default: () => [] }
 });
 
-defineEmits(['navigate', 'navigate-secondary', 'open-document', 'alert-click']);
+defineEmits(['upload','client-actions','navigate', 'navigate-secondary', 'open-document', 'alert-click']);
 const enrollmentChart = computed(() =>
   [props.client?.client_type, props.client?.organization_type]
     .some((value) => ['school', 'learning'].includes(String(value || '').trim().toLowerCase()))
@@ -418,7 +422,7 @@ const activityRows = computed(() => {
     },
     {
       id: 'intake',
-      label: artifactAccess.value === 'receipts' ? 'Enrollment receipts' : 'Enrollment & consents',
+      label: artifactAccess.value === 'receipts' ? (props.operationalOnly ? 'Enrollment & school records' : 'Enrollment receipts') : 'Enrollment & consents',
       status: artifactAccess.value === 'receipts' ? (documentsOnFile.value.length ? 'On file' : 'None yet')
         : artifactAccess.value === 'full' ? (authCounts.value.active ? 'On file' : 'Due')
           : artifactAccess.value === 'loading' ? 'Loading' : 'Unavailable',
@@ -548,7 +552,7 @@ async function load() {
   const failures = [];
   try {
     const jobs = [
-      api.get(`/phi-documents/clients/${clientId}/chart-artifacts`, { skipGlobalLoading: true })
+      props.operationalOnly ? operationalClientDocuments(api,clientId,{school:props.client?.client_type==='school'}).then(items=>{artifacts.value=items;artifactAccess.value='receipts';}).catch(e=>{artifacts.value=[];artifactAccess.value='unavailable';failures.push(e);}) : api.get(`/phi-documents/clients/${clientId}/chart-artifacts`, { skipGlobalLoading: true })
         .then((r) => { artifacts.value = Array.isArray(r.data?.artifacts) ? r.data.artifacts : []; artifactAccess.value = 'full'; })
         .catch(async (e) => {
           if (e?.response?.status === 403) {
@@ -569,7 +573,7 @@ async function load() {
           failures.push(e);
         })
     ];
-    if (agencyId) {
+    if (agencyId && !props.operationalOnly) {
       jobs.push(
         api.get(`/medical-billing/clients/${clientId}/chart`, {
           params: { agencyId },

@@ -1,3 +1,4 @@
+import { lookupStructuredIntakeTranslation } from '../../../frontend/src/constants/structuredIntakeStepSpanish.js';
 /**
  * Family-facing completed intake record.
  *
@@ -325,7 +326,7 @@ function formatFieldValue(field, value, locale, link) {
     const found = options.find((o) =>
       String(o?.value ?? '') === String(raw) || String(o?.label ?? '') === String(raw)
     );
-    if (found) return resolveOptionLabel(found, locale, link) || String(found.label || found.value || raw);
+    if (found) return resolveOptionLabel(found, locale, link, field) || String(found.label || found.value || raw);
     const slug = String(raw).trim().toLowerCase();
     const fallback = FALLBACK_VALUE_LABELS[slug];
     if (fallback) return fallback;
@@ -1209,28 +1210,31 @@ export function buildCompletedIntakeRecord({
     signatures.length ? { label: 'Documents signed', value: String(signatures.length) } : null
   ].filter(Boolean);
 
+  const tx = value => locale === 'es' ? lookupStructuredIntakeTranslation(value) : value;
+  const translateSection = section => ({...section, title: tx(section.title), rows: section.rows?.map(row=>({...row,label:tx(row.label)}))});
   return {
-    title: isJobApplication ? 'Job application receipt' : 'Completed enrollment packet',
+    locale,
+    title: isJobApplication ? 'Job application receipt' : tx('Completed enrollment packet'),
     skipCoverPage: isJobApplication,
-    kicker: 'For your records',
+    kicker: tx('For your records'),
     agencyName:
       agencyDisplayName(agency)
       || String(isJobApplication ? (link?.title || 'Application') : (link?.title || 'Intake')).trim(),
     brandLogoUrl: String(brandLogoUrl || '').trim(),
     packetVersionLabel: '1.0',
     metaLines: [
-      submission?.id ? `Submission ${submission.id}` : '',
-      submittedAt ? `Submitted ${submittedAt}` : ''
+      submission?.id ? `${locale === 'es' ? 'Envío' : 'Submission'} ${submission.id}` : '',
+      submittedAt ? `${tx('Submitted')} ${submittedAt}` : ''
     ].filter(Boolean),
-    sections,
-    signatures,
-    approvals,
+    sections: sections.map(translateSection),
+    signatures: signatures.map(sig=>({...sig,documentName:tx(sig.documentName),publicUrlLabel:tx(sig.publicUrlLabel)})),
+    approvals: approvals.map(translateSection),
     esign: {
-      statement: ESIGN_STATEMENT,
-      rows: esignRows
+      statement: tx(ESIGN_STATEMENT),
+      rows: esignRows.map(row=>({...row,label:tx(row.label)}))
     },
     footerNote: isJobApplication
       ? 'This branded receipt is your copy of the job application you submitted, including your answers and any acknowledgments. Keep this file private.'
-      : 'This branded packet is your copy of what you submitted, including answers, signatures, approvals, and electronic signature details. Signed legal form copies may also be emailed when they are ready. Keep this file private.'
+      : tx('This branded packet is your copy of what you submitted, including answers, signatures, approvals, and electronic signature details. Signed legal form copies may also be emailed when they are ready. Keep this file private.')
   };
 }

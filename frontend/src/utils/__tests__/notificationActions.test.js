@@ -16,7 +16,7 @@ describe('notificationActions', () => {
     expect(notificationDestination({
       type: 'new_packet_uploaded', related_entity_type: 'client', related_entity_id: 42
     }, { organizationSlug: 'itsco', role: 'admin' })).toEqual({
-      path: '/itsco/admin/clients/42', query: { tab: 'documents' }
+      path: '/itsco/admin/clients/42', query: { tab: 'phi', packet: 'latest' }
     });
   });
 

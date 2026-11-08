@@ -127,7 +127,8 @@
         <div class="cc-side-actions">
           <button v-if="canEdit" type="button" class="cdp-btn-primary" @click="$emit('edit')">Edit client</button>
           <button type="button" class="cdp-btn-soft" @click="$emit('navigate', 'messages')">Send secure message</button>
-          <button type="button" class="cdp-btn-soft" @click="$emit('navigate', 'phi')">Upload document</button>
+          <button type="button" class="cdp-btn-soft" @click="$emit('upload')">Upload document</button>
+          <button v-if="canProcessPaper" type="button" class="cdp-btn-soft" @click="$emit('client-actions')">Client actions / process paper packet</button>
         </div>
       </section>
       <section class="cc-side-card">
@@ -163,6 +164,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
+import { operationalClientDocuments } from '../../../utils/operationalClientDocuments.js';
 import { enrollmentReceiptCards } from '../../../utils/enrollmentReceiptCards.js';
 import ClientCareTimeline from './ClientCareTimeline.vue';
 import '../../../styles/client-hub.css';
@@ -170,6 +172,7 @@ import '../../../styles/client-hub.css';
 const props = defineProps({
   clientId: { type: [Number, String], required: true },
   client: { type: Object, default: null },
+  canProcessPaper: Boolean,
   canEdit: { type: Boolean, default: false },
   canViewMedicalRecord: { type: Boolean, default: false },
   glanceItems: { type: Array, default: () => [] },
@@ -186,7 +189,7 @@ const props = defineProps({
   organizationName: { type: String, default: '' }
 });
 
-defineEmits(['edit', 'navigate', 'alert-click', 'view-event', 'open-document']);
+defineEmits(['upload','client-actions','edit', 'navigate', 'alert-click', 'view-event', 'open-document']);
 
 /** @param {string} [viewKey] — chart artifact viewKey; parent opens Documents and views it directly */
 
@@ -194,7 +197,7 @@ const docsLoading = ref(false);
 const artifacts = ref([]);
 
 const documentsLabel = computed(() => {
-  const onFile = (artifacts.value || []).filter((a) => !a.missing && a.viewKey);
+  const onFile = (artifacts.value || []).filter((a) => !a.missing);
   if (!onFile.length) return 'Not on file';
   return `${onFile.length} on file`;
 });
@@ -206,6 +209,7 @@ async function loadDocs() {
   if (!id) return;
   docsLoading.value = true;
   try {
+    if(!props.canViewMedicalRecord){artifacts.value=await operationalClientDocuments(api,id,{school:props.client?.client_type==='school'});return;}
     const resp = await api.get(`/phi-documents/clients/${id}/chart-artifacts`, { skipGlobalLoading: true });
     artifacts.value = Array.isArray(resp.data?.artifacts) ? resp.data.artifacts : [];
   } catch (err) {

@@ -2919,7 +2919,7 @@
         <div v-if="!isMultiChildPostSubmit" class="intake-download-panel">
           <p v-if="officeSummaryError" class="error" role="alert">{{ officeSummaryError }}</p>
           <div class="intake-download-meta">
-            <p class="muted" style="margin: 0;">{{ isSmartSchoolRoi ? 'Your signed release is saved. View or download your copy below.' : t('packetRecordLead') }}</p>
+            <p class="muted" style="margin: 0;">{{ isSmartSchoolRoi ? tx('Your signed release is saved. View or download your copy below.') : t('packetRecordLead') }}</p>
             <p v-if="downloadUrl" class="muted" style="margin: 6px 0 0;">
               {{ jobApplicationSubmitted ? t('applicationCopyReady') : t('signedFormsReady') }}
             </p>
@@ -2931,7 +2931,7 @@
               :href="packetSummaryViewUrl"
               target="_blank"
               rel="noopener"
-            >{{ jobApplicationSubmitted ? 'View Application Copy' : isSmartSchoolRoi ? 'View signed release' : t('viewPacketNow') }}</a>
+            >{{ jobApplicationSubmitted ? 'View Application Copy' : isSmartSchoolRoi ? tx('View signed release') : t('viewPacketNow') }}</a>
             <button
               class="btn btn-secondary"
               type="button"
@@ -2988,16 +2988,16 @@
           v-if="(isMultiChildPostSubmit || (formTypeKey === 'smart_school_roi' && clientBundleLinks.length > 1)) && (clientBundleLinks.length || isMultiChildPostSubmit) && !jobApplicationSubmitted"
           class="bundle-list"
         >
-          <div class="bundle-title">{{ formTypeKey === 'smart_school_roi' ? 'Download per-client releases' : 'Download per-child packets' }}</div>
+          <div class="bundle-title">{{ tx(formTypeKey === 'smart_school_roi' ? 'Download per-client releases' : 'Download per-child packets') }}</div>
           <div v-for="bundle in clientBundleLinks" :key="bundle.clientId || bundle.filename" class="bundle-item">
             <div class="bundle-name">{{ bundle.clientName || `Client ${bundle.clientId}` }}</div>
             <template v-if="bundle.downloadUrl">
               <a class="btn btn-secondary btn-sm" :href="bundle.downloadUrl" target="_blank" rel="noopener noreferrer" :data-client-id="bundle.clientId">
                 {{ formTypeKey === 'smart_school_roi' ? 'View' : enrollmentPacketViewLabel(bundle.clientName) }}
               </a>
-              <a class="btn btn-outline btn-sm" :href="bundle.downloadUrl" target="_blank" rel="noopener noreferrer" :data-client-id="bundle.clientId">Download</a>
+              <a class="btn btn-outline btn-sm" :href="bundle.downloadUrl" target="_blank" rel="noopener noreferrer" :data-client-id="bundle.clientId">{{ tx('Download') }}</a>
             </template>
-            <span v-else class="muted small">PDF still preparing</span>
+            <span v-else class="muted small">{{ tx('PDF still preparing') }}</span>
           </div>
           <!-- Pending-child placeholder rows so the parent SEES the kids
                that haven't finished bundling yet, instead of an empty list.
@@ -3008,17 +3008,24 @@
             class="bundle-item bundle-item--pending"
           >
             <div class="bundle-name">{{ pendingName }}</div>
-            <span class="muted small">PDF still preparing — we’ll email it.</span>
+            <span class="muted small">{{ tx('PDF still preparing — we’ll email it.') }}</span>
           </div>
         </div>
+        <div v-if="completedRois.length" class="bundle-list" aria-label="Signed school releases">
+          <div v-for="doc in completedRois" :key="doc.id" class="bundle-item">
+            <strong>{{ doc.clientName }}</strong>
+            <a class="btn btn-secondary btn-sm" :href="doc.url" target="_blank" rel="noopener noreferrer">{{ tx('View signed ROI') }}</a>
+          </div>
+        </div>
+        <p v-if="completedRoiError" role="status">{{ completedRoiError }} <button type="button" class="btn btn-secondary btn-sm" @click="loadCompletedRois">{{ tx('Try again') }}</button></p>
         <div class="actions">
           <button v-if="!endSessionPrompt" class="btn btn-secondary" type="button" @click="endSessionPrompt = true">
-            End session
+            {{ tx('End session') }}
           </button>
           <div v-else class="end-session-confirm" role="group" aria-label="End session">
             <p>{{ t('endSessionConfirm') }}</p>
             <button class="btn btn-secondary" type="button" @click="confirmEndSession">
-              End session
+              {{ tx('End session') }}
             </button>
             <button class="btn btn-outline" type="button" @click="endSessionPrompt = false">
               {{ t('keepWorking') || 'Keep working' }}
@@ -7603,6 +7610,23 @@ const downloadUrl = ref('');
 const officeSummaryDownloading = ref(false);
 const officeSummaryError = ref('');
 const clientBundleLinks = ref([]);
+const completedRois = ref([]);
+const completedRoiError = ref('');
+let completedRoiRequest = 0;
+async function loadCompletedRois() {
+  const run = ++completedRoiRequest;
+  completedRois.value = [];
+  completedRoiError.value = '';
+  const id = confirmedSubmissionId.value || submissionId.value;
+  if (step.value !== 3 || !isSchoolScopedIntake.value || isSmartSchoolRoi.value || !id || !sessionToken.value) return;
+  try {
+    const {data} = await api.get(`/public-intake/${publicKey}/${id}/signed-rois`, {params:{sessionToken:sessionToken.value},skipGlobalLoading:true});
+    if (run === completedRoiRequest) completedRois.value = data.documents || [];
+  } catch {
+    if (run === completedRoiRequest) completedRoiError.value = intakeLocale.value === 'es' ? 'La autorización firmada aún no está disponible. Intente de nuevo.' : 'The signed ROI is not available yet. Try again.';
+  }
+}
+watch(() => [step.value, confirmedSubmissionId.value, clientBundleLinks.value.length], loadCompletedRois);
 function enrollmentPacketViewLabel(name) {
   const who = String(name || '').trim();
   if (intakeLocale.value === 'es') return who ? `Ver el paquete de inscripción de ${who}` : 'Ver el paquete de inscripción';
@@ -13412,7 +13436,9 @@ const currentChildReviewRows = computed(() => {
     { label: 'Safety', value: bag.clinicalSafetyAlert ? tx('Needs attention before first appointment') : firstText('self_harm', 'talked_wanting_to_die') },
     { label: 'Tell provider before first meeting', value: firstText('child_would_tell_provider') },
     { label: 'Questionnaires', value: formatReviewValue([
-      bag.psc_1 ? tx('PSC-17 started') : null,
+      Array.from({length: 17}, (_, i) => bag[`psc_${i + 1}`]).every(value => value !== null && value !== undefined && String(value).trim() !== '')
+        ? tx('PSC-17 complete')
+        : Array.from({length: 17}, (_, i) => bag[`psc_${i + 1}`]).some(value => value !== null && value !== undefined && String(value).trim() !== '') ? tx('PSC-17 started') : null,
       bag.send_child_depression === 'send' ? tx('Depression questionnaire: send to the child') : null,
       bag.send_child_anxiety === 'send' ? tx('Anxiety questionnaire: send to the child') : null
     ].filter(Boolean)) },

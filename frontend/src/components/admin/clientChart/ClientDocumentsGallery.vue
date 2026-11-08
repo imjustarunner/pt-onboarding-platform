@@ -112,6 +112,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
+import { operationalClientDocuments } from '../../../utils/operationalClientDocuments.js';
 import { enrollmentReceiptCards } from '../../../utils/enrollmentReceiptCards.js';
 import { openEnrollmentReceipt } from '../../../utils/openEnrollmentReceipt.js';
 
@@ -174,10 +175,7 @@ async function loadArtifacts() {
   error.value = '';
   try {
     if (props.operationalOnly) {
-      const {data}=await api.get(`/phi-documents/clients/${id}/enrollment-receipts`,{skipGlobalLoading:true});
-      artifacts.value=enrollmentReceiptCards(data);signedPackets.value=[];
-      if(props.school){const{data:roi}=await api.get(`/clients/${id}/school-roi-access`,{skipGlobalLoading:true});artifacts.value.push(...(roi.school_roi_signing?.completed_documents||[]).map(doc=>({id:`signed-roi-${doc.id}`,kind:'roi',kindLabel:'Signed school ROI',title:'Release of information',viewKey:`signed-roi-${doc.id}`,signedAt:doc.signed_at,available:true})));}
-      if(props.paperPacket){const{data:packet}=await api.get(`/clients/${id}/paper-packet-processing`,{skipGlobalLoading:true});artifacts.value.push(...(packet.documents||[]).map(doc=>({id:`paper-${doc.id}`,kind:'packet',kindLabel:'Uploaded paper packet',title:doc.scan_status==='clean'?'Original paper packet':'Original paper packet — file check pending',viewKey:doc.scan_status==='clean'?`paper-${doc.id}`:null,available:doc.scan_status==='clean'})));}
+      artifacts.value=await operationalClientDocuments(api,id,{school:props.school});signedPackets.value=[];
       return;
     }
     const resp = await api.get(`/phi-documents/clients/${id}/chart-artifacts`, { skipGlobalLoading: true });

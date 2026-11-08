@@ -25,7 +25,7 @@
       :client-id="clientId"
     />
 
-    <p v-if="!canOpenClinicalDocuments">Use Client actions to upload or process a school paper packet.</p>
+    <button v-if="canEditPaperwork && client?.client_type === 'school'" type="button" class="btn btn-primary" @click="$emit('client-actions')">Upload / process paper packet</button>
     <details v-if="canOpenClinicalDocuments" ref="extraFilesRef" class="cc-docs-extra">
       <summary>Upload another file or open the audit trail</summary>
       <p class="hint">
@@ -78,11 +78,12 @@ const props = defineProps({
   clientId: { type: Number, required: true },
   client: { type: Object, default: null },
   canEditPaperwork: { type: Boolean, default: false },
+  openPaperPacket: { type: Boolean, default: false },
   highlightDocumentId: { type: Number, default: null },
   pendingViewKey: { type: String, default: '' }
 });
 
-const emit = defineEmits(['opened-view-key']);
+const emit = defineEmits(['opened-view-key','client-actions']);
 
 const authStore=useAuthStore();
 const canOpenClinicalDocuments=computed(()=>['admin','super_admin','provider','provider_plus','intern','intern_plus','supervisor','facilitator','qbha'].includes(authStore.user?.role));
@@ -173,6 +174,20 @@ async function refreshAll() {
   }
 }
 
+let openedPaperFor = null;
+async function openRequestedPaper() {
+  if (!props.openPaperPacket || openedPaperFor === props.clientId) return;
+  const id = props.clientId;
+  try {
+    const {data} = await api.get(`/clients/${id}/paper-packet-documents`, {skipGlobalLoading:true});
+    if (id !== props.clientId) return;
+    openedPaperFor = id;
+    const latest = [...(data.documents || [])].sort((a,b) => Number(b.id)-Number(a.id))[0];
+    if (latest?.scan_status === 'clean') { await nextTick(); openGalleryArtifact(`paper-${latest.id}`); }
+    else emit('client-actions');
+  } catch { /* The documents gallery displays the load error and allows retry. */ }
+}
+watch(() => [props.clientId, props.openPaperPacket], openRequestedPaper, {immediate:true});
 async function tryOpenPending() {
   const key = String(props.pendingViewKey || '').trim();
   if (!key) return;

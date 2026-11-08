@@ -3,11 +3,13 @@
     <div class="pi-ip-main">
       <header class="pi-ip-header">
         <h2 v-if="!hideHeading" class="pi-ip-title">
-          {{ paymentOnly ? tx('Payment Information') : tx('Insurance & Payment Information') }}
+          {{ isMedicaid ? tx('Insurance Information') : paymentOnly ? tx('Payment Information') : tx('Insurance & Payment Information') }}
         </h2>
         <p class="pi-ip-subtitle">
           {{
-            paymentOnly
+            isMedicaid
+              ? tx('Our office will review your insurance and confirm benefits.')
+              : paymentOnly
               ? tx('Set up payment for your selected package or services.')
               : tx('Help us verify your insurance and set up payment for services.')
           }}
@@ -26,7 +28,7 @@
       </div>
 
       <!-- Clinical: Use Insurance vs Self-Pay -->
-      <section v-if="!paymentOnly && !insuranceOnFile" class="pi-ip-section">
+      <section v-if="!paymentOnly && !insuranceOnFile && !isMedicaid" class="pi-ip-section">
         <h3 class="pi-ip-section-title">{{ tx('How would you like to pay?') }}</h3>
         <div class="pi-ip-choice-row">
           <button
@@ -234,7 +236,7 @@
         <div class="pi-ip-side-price">{{ formatPrice(selectedPackage.priceCents) }}</div>
       </div>
 
-      <div class="pi-ip-side-card">
+      <div v-if="!isMedicaid && paymentEligible" class="pi-ip-side-card">
         <div class="pi-ip-side-kicker">{{ tx('Payment Summary') }}</div>
         <div v-if="selectedPackage && !isMedicaid" class="pi-ip-side-row">
           <span>{{ tx('Package fee') }}</span>
@@ -256,7 +258,7 @@
         <ul class="pi-ip-side-list">
           <li v-if="!paymentOnly && !insuranceOnFile">{{ tx('Our office will review your insurance and confirm benefits.') }}</li>
           <li>{{ tx('We will contact you if we need more information.') }}</li>
-          <li>{{ tx("You'll receive a benefits or payment summary as applicable.") }}</li>
+          <li v-if="!isMedicaid">{{ tx("You'll receive a benefits or payment summary as applicable.") }}</li>
         </ul>
       </div>
 

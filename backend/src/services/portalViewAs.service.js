@@ -15,12 +15,18 @@ export function createPortalViewAs({db=pool,assertMembership=assertEnrollmentAge
     const client=await clientAccess(context);
     const [accounts]=await db.execute(`SELECT u.id,u.first_name,u.last_name,u.role,u.is_active,u.is_archived,u.status,
       cg.relationship_type,cg.relationship_title,cg.access_enabled,
+      i.id AS invitationId, i.status AS enrollmentStatus, i.expires_at AS invitationExpiresAt,
+      d.delivery_status AS invitationDeliveryStatus, d.created_at AS invitationSentAt,
       (SELECT MAX(created_at) FROM user_activity_log WHERE user_id=u.id AND agency_id=? AND action_type='login') AS lastLogin,
       (SELECT ip_address FROM user_activity_log WHERE user_id=u.id AND agency_id=? AND action_type='login' ORDER BY created_at DESC,id DESC LIMIT 1) AS lastLoginIp,
       (SELECT MAX(created_at) FROM user_activity_log WHERE user_id=u.id AND agency_id=?) AS lastActivity
       FROM client_guardians cg JOIN users u ON u.id=cg.guardian_user_id
-      WHERE cg.client_id=? AND u.role IN ('client','client_guardian') ORDER BY cg.relationship_type='self' DESC,u.first_name,u.last_name,u.id`,[Number(context.agencyId),Number(context.agencyId),Number(context.agencyId),client.id]);
-    return {client,accounts:accounts.map(u=>({id:u.id,lastLogin:u.lastLogin,lastLoginIp:u.lastLoginIp||null,lastActivity:u.lastActivity,name:[u.first_name,u.last_name].filter(Boolean).join(' '),role:u.role,relationship:u.relationship_type==='self'?'Client':u.relationship_title||'Parent / guardian',available:Number(u.access_enabled)===1&&Number(u.is_active)===1&&!Number(u.is_archived)&&!['ARCHIVED','SUSPENDED','TERMINATED_PENDING','INACTIVE_EMPLOYEE'].includes(u.status)}))};
+      LEFT JOIN co_guardian_invites i ON i.id=(SELECT MAX(ci.id) FROM co_guardian_invites ci
+        JOIN co_guardian_invite_clients ic ON ic.invite_id=ci.id
+        WHERE ic.client_id=cg.client_id AND ci.agency_id=? AND (ci.accepted_user_id=u.id OR LOWER(TRIM(ci.invited_email))=LOWER(TRIM(u.email))))
+      LEFT JOIN co_guardian_invite_deliveries d ON d.id=(SELECT MAX(cd.id) FROM co_guardian_invite_deliveries cd WHERE cd.invite_id=i.id)
+      WHERE cg.client_id=? AND u.role IN ('client','client_guardian') ORDER BY cg.relationship_type='self' DESC,u.first_name,u.last_name,u.id`,[Number(context.agencyId),Number(context.agencyId),Number(context.agencyId),Number(context.agencyId),client.id]);
+    return {client,accounts:accounts.map(u=>({id:u.id,invitationId:u.invitationId||null,enrollmentStatus:u.enrollmentStatus==='pending'&&new Date(u.invitationExpiresAt).getTime()<=Date.now()?'expired':u.enrollmentStatus||null,invitationDeliveryStatus:u.invitationId?(u.invitationDeliveryStatus||'unknown'):null,invitationSentAt:u.invitationSentAt||null,lastLogin:u.lastLogin,lastLoginIp:u.lastLoginIp||null,lastActivity:u.lastActivity,name:[u.first_name,u.last_name].filter(Boolean).join(' '),role:u.role,relationship:u.relationship_type==='self'?'Client':u.relationship_title||'Parent / guardian',available:Number(u.access_enabled)===1&&Number(u.is_active)===1&&!Number(u.is_archived)&&!['ARCHIVED','SUSPENDED','TERMINATED_PENDING','INACTIVE_EMPLOYEE'].includes(u.status)}))};
   }
   async function target(context) {
     const result=await accounts(context),account=result.accounts.find(a=>Number(a.id)===Number(context.userId));

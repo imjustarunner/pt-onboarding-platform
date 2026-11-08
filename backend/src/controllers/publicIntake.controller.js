@@ -1,3 +1,4 @@
+import { isSchoolRoiDocument } from '../utils/schoolRoiDocument.js';
 import { assertGuardianRoiSigner } from '../services/schoolRoiGuardianConsent.service.js';
 import { assertInvitedEnrollmentChildren } from '../services/coGuardianEnrollmentRoster.js';
 import { withOfficeReferralSource } from '../utils/officeReferralSource.js';
@@ -3324,6 +3325,11 @@ async function tryBuildBrandedAnswersPdf({
       } catch {
         signedDocuments = await IntakeSubmissionDocument.listBySubmissionId(sid);
       }
+    }
+    for (const doc of signedDocuments) {
+      if (!doc.signed_pdf_path || !isSchoolRoiDocument(doc)) continue;
+      try { doc.documentViewUrl = await StorageService.getSignedUrl(doc.signed_pdf_path, 60 * 24 * 7); }
+      catch { doc.documentViewUrl = null; }
     }
     const recordSubmission = await enrichApplicationRecord({ ...(submission || {}), id: sid, intake_data: intakeData }, link, agency);
     const normalized = normalizeIntakeDataShape(recordSubmission.intake_data);

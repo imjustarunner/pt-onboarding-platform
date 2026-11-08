@@ -403,3 +403,9 @@ jobs:
           node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.brief-c-retest.config.js
           node --test backend/src/services/__tests__/completedIntakeRecord.service.test.js
           npm test --prefix frontend -- src/components/guardian/__tests__/GuardianPendingEnrollment.test.js src/components/admin/__tests__/ClientSchoolRoiEvidence.test.js src/components/admin/__tests__/PhiDocumentsPanel.upload.test.js src/components/admin/clientChart/__tests__/ClientDocumentsGallery.test.js src/utils/__tests__/notificationActions.test.js src/store/__tests__/communicationsCounts.test.js src/views/__tests__/UnifiedNotificationsHubView.test.js src/components/school/__tests__/SchoolRosterAccess.test.js
+
+      - name: Combined retest entry points and guardian request permissions
+        run: |
+          node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.next-retest.config.js
+          cd frontend
+          node node_modules/vitest/vitest.mjs run src/components/school/__tests__/ReferralUpload.completion.test.js src/components/admin/clientChart/__tests__/PaperEntryPoints.test.js src/views/__tests__/PublicIntakeFinalizePending.test.js src/components/clients/__tests__/ClientPortalOverview.test.js src/components/public-intake/__tests__/InsurancePaymentEnrollment.test.js

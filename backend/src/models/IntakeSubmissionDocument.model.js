@@ -52,6 +52,8 @@ class IntakeSubmissionDocument {
   static async listSignedForRecord(intakeSubmissionId) {
     const [rows] = await pool.execute(
       `SELECT isd.id,
+              isd.client_id,
+              isd.signed_pdf_path,
               isd.document_template_id,
               isd.pdf_hash,
               isd.signed_at,

@@ -71,7 +71,7 @@ export function notificationDestination(notification, { organizationSlug = null,
     return { path: `${base}/dashboard`, query: { clientId: String(entityId) } };
   }
   if (n.type === 'new_packet_uploaded' && entityType === 'client' && entityId && role === 'school_staff' && organizationSlug) return { path: schoolCareBridgePath(organizationSlug), query: { clientId: String(entityId), pane: 'documents' } };
-  if (n.type === 'new_packet_uploaded' && entityType === 'client' && entityId && adminLike) return { path: `${base}/admin/clients/${entityId}`, query: { tab: 'documents' } };
+  if (n.type === 'new_packet_uploaded' && entityType === 'client' && entityId && adminLike) return { path: `${base}/admin/clients/${entityId}`, query: { tab: 'phi', packet: 'latest' } };
   if (entityType === 'client' && entityId && adminLike) {
     return { path: `${base}/admin/clients`, query: { clientId: String(entityId), ...(n.type === 'new_packet_uploaded' ? { tab: 'documents' } : {}) } };
   }

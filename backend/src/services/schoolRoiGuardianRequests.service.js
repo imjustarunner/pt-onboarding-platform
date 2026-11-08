@@ -6,13 +6,23 @@ import { clientEmailContext } from './clientPortalEmail.service.js';
 import { clientPortalInviteUrl } from './clientPortalContext.service.js';
 
 /** Each legal guardian gets their own portal request; never share one family's completion state. */
-export async function requestSchoolRoiForGuardians({ client, schoolOrganizationId, actorUserId, languageCode = 'en',
+export async function requestSchoolRoiForGuardians({ client, schoolOrganizationId, actorUserId, languageCode = 'en', guardianUserIds = null,
   listGuardians = id => ClientGuardian.listForClient(id),
   findExisting = args => ClientSchoolRoiSigningLink.findForClient(args),
   issueLink, sendEmail = sendSchoolRoiEmail, emailContext = clientEmailContext,
   recordSent = args => ClientSchoolRoiSigningLink.recordEmailSent(args)
 }) {
-  const guardians = (await listGuardians(client.id)).filter(canReceiveGuardianConsentRequest);
+  let guardians = (await listGuardians(client.id)).filter(canReceiveGuardianConsentRequest);
+  if (guardianUserIds !== null) {
+    if (!Array.isArray(guardianUserIds) || !guardianUserIds.length || guardianUserIds.some(id => !Number.isSafeInteger(Number(id)) || Number(id) <= 0)) {
+      throw Object.assign(new Error('Choose at least one authorized guardian.'), {status: 400});
+    }
+    const selected = new Set(guardianUserIds.map(Number));
+    if ([...selected].some(id => !guardians.some(g => Number(g.guardian_user_id) === id))) {
+      throw Object.assign(new Error('A selected guardian is not authorized for this child.'), {status: 403});
+    }
+    guardians = guardians.filter(g => selected.has(Number(g.guardian_user_id)));
+  }
   if (!guardians.length) throw Object.assign(new Error('No currently authorized guardians are available. Review the portal contacts first.'), { status: 409 });
   const context = await emailContext({ agencyId: client.agency_id, clientId: client.id, client });
   const login = new URL(clientPortalInviteUrl({ portal: context.portal, existingAccount: true }));
@@ -49,5 +59,5 @@ export async function requestSchoolRoiForGuardians({ client, schoolOrganizationI
     }
   }
   return { ok: deliveries.every(row => row.sent), deliveries, message: deliveries.every(row => row.sent)
-    ? 'Portal requests sent separately to all authorized guardians.' : 'Some guardian requests need follow-up. Review each delivery status.' };
+    ? 'Portal requests sent separately to the selected authorized guardians.' : 'Some guardian requests need follow-up. Review each delivery status.' };
 }

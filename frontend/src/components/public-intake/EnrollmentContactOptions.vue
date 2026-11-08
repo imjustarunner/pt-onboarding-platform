@@ -1,5 +1,5 @@
 <template>
-  <section class="contact-options" aria-label="Contact options">
+  <section class="contact-options" :aria-label="es ? 'Opciones de contacto' : 'Contact options'">
     <label class="checkbox-row">
       <input type="checkbox" :checked="choices.noRoutineCalls" @change="$emit('change', { noRoutineCalls: $event.target.checked })" />
       {{ es ? 'No quiero llamadas de rutina. Usen mis otros métodos de contacto.' : 'No routine phone calls. Use my other contact options.' }}

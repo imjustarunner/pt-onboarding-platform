@@ -6,11 +6,10 @@
       <div class="progress-label">{{ releaseProgressLabel }}</div>
       <h3>{{ tr('Release of Information', 'Autorización de divulgación de información') }}</h3>
       <p>
-        This release is specific to <strong>{{ schoolName }}</strong> and the currently active school staff who may need
-        information to support the client in the school setting.
+        {{ tr('This release is specific to', 'Esta autorización es específica para') }} <strong>{{ schoolName }}</strong> {{ tr('and the currently active school staff who may need information to support the client in the school setting.', 'y el personal escolar activo que puede necesitar información para apoyar al cliente en la escuela.') }}
       </p>
       <p>
-        The app will log the release, protect access, and apply permissions based on the responses entered here.
+        {{ tr('The app will log the release, protect access, and apply permissions based on the responses entered here.', 'La aplicación registrará la autorización, protegerá el acceso y aplicará los permisos según las respuestas ingresadas aquí.') }}
       </p>
       <p class="required-fields-note">
         <span class="required-fields-note__dot" aria-hidden="true"></span>
@@ -564,12 +563,12 @@
       <div class="review-block">
         <ul v-if="sharedChildren.length > 1"><li v-for="(child, i) in sharedChildren" :key="i">{{ child.fullName }} — {{ child.dateOfBirth }}</li></ul>
         <template v-else>
-          <p><strong>Client:</strong> {{ form.clientFullName }}</p>
-          <p><strong>Date of Birth:</strong> {{ form.clientDateOfBirth }}</p>
+          <p><strong>{{ tr('Client', 'Cliente') }}:</strong> {{ form.clientFullName }}</p>
+          <p><strong>{{ tr('Date of Birth', 'Fecha de nacimiento') }}:</strong> {{ form.clientDateOfBirth }}</p>
         </template>
-        <p><strong>Responsible Party:</strong> {{ signerFullName || '—' }}</p>
-        <p><strong>Relationship:</strong> {{ form.signer.relationship || '—' }}</p>
-        <p><strong>School:</strong> {{ schoolName }}</p>
+        <p><strong>{{ tr('Responsible Party', 'Persona responsable') }}:</strong> {{ signerFullName || '—' }}</p>
+        <p><strong>{{ tr('Relationship', 'Parentesco') }}:</strong> {{ form.signer.relationship || '—' }}</p>
+        <p><strong>{{ tr('School', 'Escuela') }}:</strong> {{ schoolName }}</p>
       </div>
 
       <div class="review-block">
@@ -619,31 +618,31 @@
       </div>
 
       <div v-if="externalReleaseMode === 'sender_programmed'" class="review-block">
-        <h4>Programmed non-school recipient</h4>
-        <p><strong>Name:</strong> {{ programmedRecipient?.name || '—' }}</p>
-        <p><strong>Relationship:</strong> {{ programmedRecipient?.relationship || '—' }}</p>
+        <h4>{{ tr('Programmed non-school recipient', 'Destinatario externo programado') }}</h4>
+        <p><strong>{{ tr('Name', 'Nombre') }}:</strong> {{ programmedRecipient?.name || '—' }}</p>
+        <p><strong>{{ tr('Relationship', 'Parentesco') }}:</strong> {{ programmedRecipient?.relationship || '—' }}</p>
         <p><strong>{{ tr('Decision', 'Decision') }}:</strong> {{ staffDecisionLabel(form.programmedExternalDecision) }}</p>
       </div>
       <div v-else-if="externalReleaseMode === 'parent_defined'" class="review-block">
-        <h4>Parent-entered non-school recipients</h4>
-        <p><strong>Approved:</strong> {{ approvedExternalRecipients.length }}</p>
-        <p><strong>Denied:</strong> {{ deniedExternalRecipientsCount }}</p>
+        <h4>{{ tr('Parent-entered non-school recipients', 'Destinatarios externos indicados por el padre o tutor') }}</h4>
+        <p><strong>{{ tr('Approved', 'Aprobados') }}:</strong> {{ approvedExternalRecipients.length }}</p>
+        <p><strong>{{ tr('Denied', 'Denegados') }}:</strong> {{ deniedExternalRecipientsCount }}</p>
       </div>
 
       <div class="review-block">
-        <h4>School-level vs individual disclosure</h4>
+        <h4>{{ tr('School-level vs individual disclosure', 'Divulgación a la escuela e individual') }}</h4>
         <p>
-          <strong>HIPAA serious/imminent threat disclosure:</strong>
-          {{ hipaaSafetyDisclosureAcknowledged ? 'Acknowledged (required)' : 'Not acknowledged' }}
+          <strong>{{ tr('HIPAA serious/imminent threat disclosure', 'Divulgación por amenaza grave o inminente conforme a HIPAA') }}:</strong>
+          {{ hipaaSafetyDisclosureAcknowledged ? tr('Acknowledged (required)', 'Reconocido (obligatorio)') : tr('Not acknowledged', 'No reconocido') }}
         </p>
         <p>
-          <strong>Individual staff release:</strong>
-          {{ staffRoster.length }} staff reviewed.
+          <strong>{{ tr('Individual staff release', 'Autorización individual del personal') }}:</strong>
+          {{ staffRoster.length }} {{ tr('staff reviewed.', 'miembros del personal revisados.') }}
         </p>
       </div>
 
       <div class="review-block">
-        <h4>Electronic signature</h4>
+        <h4>{{ tr('Electronic signature', 'Firma electrónica') }}</h4>
         <div v-if="signatureData && !forceResign">
           <img :src="signatureData" :alt="tr('Your signature', 'Su firma')" style="max-width: 220px; max-height: 80px;" />
           <p>{{ tr('Signature applied to this release.', 'Firma aplicada a esta autorización.') }}</p>
@@ -655,7 +654,7 @@
             {{ tr('Use typed signature', 'Usar firma escrita') }}
           </button>
           <p class="muted">{{ tr('Or draw below.', 'O dibuje abajo.') }}</p>
-          <SignaturePad compact @signed="onSigned" />
+          <SignaturePad compact :locale="roiLocale" @signed="onSigned" />
         </div>
         <button v-if="signatureData && !forceResign" type="button" class="btn btn-secondary" @click="signatureData = ''; forceResign = true">
           {{ tr('Sign again', 'Firmar de nuevo') }}

@@ -1,3 +1,4 @@
+import { lookupStructuredIntakeTranslation } from '../../../frontend/src/constants/structuredIntakeStepSpanish.js';
 import {
   buildPacketStyleBlock,
   buildPdfChromeTemplates,
@@ -142,6 +143,7 @@ function renderRows(rows) {
 }
 
 export function buildIntakeSummaryDocumentHtml({
+  locale = 'en',
   title,
   kicker,
   agencyName,
@@ -158,6 +160,7 @@ export function buildIntakeSummaryDocumentHtml({
   printable = false,
   pdfMode = ''
 } = {}) {
+  const tx = text => locale === 'es' ? lookupStructuredIntakeTranslation(text) : text;
   const watermark = watermarkUrl || brand?.watermarkDataUrl || (!brand || brand.useItscoChrome ? watermarkDataUrl() : null);
   const sectionHtml = (sections || [])
     .filter((section) => section?.title && (
@@ -174,7 +177,7 @@ export function buildIntakeSummaryDocumentHtml({
   const ackHtml = (acknowledgments || []).length
     ? `
       <div class="intake-summary-acks">
-        <h3 class="packet-section-title">You acknowledged</h3>
+        <h3 class="packet-section-title">${escapeHtml(tx('You acknowledged'))}</h3>
         <ul>${acknowledgments.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>
       </div>
     `
@@ -188,17 +191,17 @@ export function buildIntakeSummaryDocumentHtml({
     .join('');
   const signatureHtml = (signatures || []).length
     ? `
-      <h3 class="packet-section-title">Signatures</h3>
+      <h3 class="packet-section-title">${escapeHtml(tx('Signatures'))}</h3>
       <div class="intake-summary-sign">
         ${signatures.map((sig) => `
           <div class="intake-summary-sign-card">
             <strong>${escapeHtml(sig.documentName || 'Signed document')}</strong>
-            <p class="intake-summary-sign-meta">Acknowledged and signed electronically</p>
+            <p class="intake-summary-sign-meta">${escapeHtml(tx('Acknowledged and signed electronically'))}</p>
             ${sig.versionLabel ? `<p class="intake-summary-sign-meta">${escapeHtml(sig.versionLabel)}</p>` : ''}
-            ${sig.signedAt ? `<p class="intake-summary-sign-meta">Signed ${escapeHtml(sig.signedAt)}${sig.signerName ? ` by ${escapeHtml(sig.signerName)}` : ''}</p>` : ''}
-            ${sig.hash ? `<p class="intake-summary-sign-meta">Fingerprint ${escapeHtml(sig.hash)}</p>` : ''}
+            ${sig.signedAt ? `<p class="intake-summary-sign-meta">${locale === 'es' ? 'Firmado' : 'Signed'} ${escapeHtml(sig.signedAt)}${sig.signerName ? ` ${locale === 'es' ? 'por' : 'by'} ${escapeHtml(sig.signerName)}` : ''}</p>` : ''}
+            ${sig.hash ? `<p class="intake-summary-sign-meta">${locale === 'es' ? 'Huella digital' : 'Fingerprint'} ${escapeHtml(sig.hash)}</p>` : ''}
             ${sig.publicUrl ? `<p class="intake-summary-sign-meta"><a href="${escapeHtml(sig.publicUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(sig.publicUrlLabel || 'View this version')}</a></p>` : ''}
-            ${sig.imageDataUrl ? `<img src="${escapeHtml(sig.imageDataUrl)}" alt="Signature for ${escapeHtml(sig.documentName || 'document')}" />` : '<p class="intake-summary-sign-meta">Signature captured electronically.</p>'}
+            ${sig.imageDataUrl ? `<img src="${escapeHtml(sig.imageDataUrl)}" alt="Signature for ${escapeHtml(sig.documentName || 'document')}" />` : `<p class="intake-summary-sign-meta">${escapeHtml(tx('Signature captured electronically.'))}</p>`}
           </div>
         `).join('')}
       </div>
@@ -207,7 +210,7 @@ export function buildIntakeSummaryDocumentHtml({
   const esignHtml = esign?.statement
     ? `
       <div class="intake-summary-esign">
-        <h3 class="packet-section-title">Electronic Signature Certificate</h3>
+        <h3 class="packet-section-title">${escapeHtml(tx('Electronic Signature Certificate'))}</h3>
         <p>${escapeHtml(esign.statement)}</p>
         <dl class="intake-summary-dl">${renderRows(esign.rows || [])}</dl>
       </div>
@@ -216,8 +219,8 @@ export function buildIntakeSummaryDocumentHtml({
   const toolbarHtml = printable && pdfMode !== 'body'
     ? `
       <div class="record-toolbar">
-        <button type="button" onclick="window.print()">Print this packet</button>
-        <span>This is your branded copy — answers, signatures, approvals, and e-sign details. Keep it private.</span>
+        <button type="button" onclick="window.print()">${escapeHtml(tx('Print this packet'))}</button>
+        <span>${escapeHtml(tx('This is your branded copy — answers, signatures, approvals, and e-sign details. Keep it private.'))}</span>
       </div>
     `
     : '';
@@ -232,7 +235,7 @@ export function buildIntakeSummaryDocumentHtml({
       `;
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${locale === 'es' ? 'es' : 'en'}">
   <head>
     <meta charset="utf-8" />
     <title>${escapeHtml(title || 'Enrollment packet')}</title>

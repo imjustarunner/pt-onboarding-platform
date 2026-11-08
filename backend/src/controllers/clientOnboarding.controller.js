@@ -1,3 +1,4 @@
+import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import Client from '../models/Client.model.js';
 import User from '../models/User.model.js';
 import {
@@ -20,6 +21,10 @@ const paperProcessingHandler = action => async (req, res, next) => {
     const clientId = Number(req.params.id), access = await requireClientAccess(req, clientId);
     if (!access.ok) return res.status(access.status).json({error:{message:access.message}});
     const actorId = Number(req.user.id);
+    if (action === 'list') {
+      const documents=await ClientPhiDocument.findSchoolPaperPacketsForClient(clientId);
+      return res.set('Cache-Control','no-store').json({documents:documents.filter(doc=>!doc.removed_at && Number(doc.client_id)===clientId && Number(doc.agency_id)===Number(access.client.agency_id)).map(doc=>({id:doc.id,original_name:doc.original_name,mime_type:doc.mime_type,scan_status:doc.scan_status,uploaded_at:doc.uploaded_at,created_at:doc.created_at}))});
+    }
     if (action === 'read') return res.set('Cache-Control','no-store').json(await paperProcessingContext(clientId));
     if (action === 'check') {
       const { checkPaperPacketFile } = await import('../services/paperPacketScan.service.js');
@@ -41,6 +46,7 @@ const paperProcessingHandler = action => async (req, res, next) => {
     res.set('Cache-Control','no-store').json({state});
   } catch (error) { next(error); }
 };
+export const listPaperPacketDocuments = paperProcessingHandler('list');
 export const getPaperProcessing = paperProcessingHandler('read');
 export const viewPaperProcessingDocument = paperProcessingHandler('view');
 export const checkPaperProcessingDocument = paperProcessingHandler('check');

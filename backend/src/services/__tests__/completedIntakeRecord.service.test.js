@@ -638,3 +638,10 @@ test('adult represented receipt identifies the client separately from the repres
   assert.ok(rows.some(row => row.label === 'Client' && row.value === 'Sample Client'));
   assert.ok(!rows.some(row => row.label === 'Service Subject'));
 });
+
+test('Spanish receipt localizes labels and published question wording while preserving the family’s own text',()=>{
+ const record=buildCompletedIntakeRecord({link:{language_code:'es',intake_steps:[{type:'questions',label:'About you',fields:[{key:'main_reason_for_therapy',label:'What is the main reason you are looking for therapy?',type:'textarea'}]}]},submission:{id:1,intake_data:{guardian:{firstName:'Fictional',lastName:'Parent',email:'qa@example.test'},responses:{submission:{main_reason_for_therapy:'Keep this exact English answer'}}}}});
+ assert.equal(record.locale,'es');assert.equal(record.title,'Paquete de inscripción completado');
+ assert.ok(record.sections.flatMap(s=>s.rows||[]).some(row=>row.label==='¿Cuál es el motivo principal por el que busca terapia?'&&row.value==='Keep this exact English answer'));
+ assert.match(record.esign.statement,/firmado electrónicamente/);
+});

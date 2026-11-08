@@ -189,10 +189,11 @@
             :agency-id="client.agency_id"
             @updated="onChartSetupUpdated"
           />
-          <ClientOverviewHub
+          <ClientOverviewHub :key="`overview-${client.id}`"
             :client-id="client.id"
             :client="client"
             :can-edit="canEditAccount"
+            :can-process-paper="canEditPaperwork && effectiveClientType === 'school'"
             :can-view-medical-record="canViewMedicalRecord"
             :glance-items="overviewGlanceItems"
             :status-label="isClientArchived ? 'Archived' : displayStatusLabel"
@@ -207,6 +208,8 @@
             :guardian-meta="overviewGuardianMeta"
             :organization-name="client.organization_name || schoolGlanceLabel"
             @edit="startEditOverview(true)"
+            @upload="openDocumentUpload"
+            @client-actions="clientActionsOpen = true"
             @navigate="goChartSub"
             @alert-click="onOverviewAlertClick"
             @view-event="openLifecycleHistoryEvent"
@@ -240,19 +243,23 @@
             {{ chartReceiptError }}
             <a v-if="chartReceiptFallbackUrl" :href="chartReceiptFallbackUrl" target="_blank" rel="noopener">Open the enrollment receipt</a>
           </p>
-          <ClientRecordsOverview
+          <ClientRecordsOverview :key="`records-${client.id}`"
             :client-id="client.id"
             :client="client"
             :agency-id="client.agency_id || selectedAgencyId"
             :can-view-billing="(canViewClientBillingImport || learningBillingEnabledForClient)
               && !['provider', 'provider_plus'].includes(roleNorm)"
             :can-manage-school-roi="canManageSchoolRoi"
+            :operational-only="!canViewMedicalRecord"
+            :can-process-paper="canEditPaperwork && effectiveClientType === 'school'"
             :packages-enabled="practitionerPackagesEnabledForClient"
             :phi-banner="['admin', 'super_admin', 'support', 'staff'].includes(roleNorm)"
             :unsigned-notes-count="unsignedNotesCount"
             :alerts="overviewAlertItems"
             @navigate="goChartSub"
             @navigate-secondary="goChartSub"
+            @upload="openDocumentUpload"
+            @client-actions="clientActionsOpen = true"
             @open-document="openChartDocument"
             @alert-click="onOverviewAlertClick"
           />
@@ -2753,7 +2760,7 @@
         </div>
 
         <!-- Documentation Tab -->
-        <ClientDocumentsTab
+        <ClientDocumentsTab :key="`documents-${client.id}`"
           v-if="showPanel('phi')"
           ref="documentsTabRef"
           :client-id="Number(client.id)"
@@ -2761,7 +2768,9 @@
           :can-edit-paperwork="canEditPaperwork"
           :highlight-document-id="initialDocumentId"
           :pending-view-key="pendingChartViewKey"
+          :open-paper-packet="openPaperPacket"
           @opened-view-key="pendingChartViewKey = ''"
+          @client-actions="clientActionsOpen = true"
         />
 
     <template v-if="!props.fullPage" #footer>
@@ -2984,6 +2993,7 @@ const props = defineProps({
     type: String,
     default: ''
   },
+  openPaperPacket: { type: Boolean, default: false },
   initialDocumentId: {
     type: Number,
     default: null
@@ -3724,7 +3734,7 @@ const openFullClientRecord = () => {
   });
 };
 
-async function openDocumentUpload(){if(authStore.user?.role==='support'){clientActionsOpen.value=true;return;}goChartSub('phi');await nextTick();documentsTabRef.value?.openUpload?.();}
+async function openDocumentUpload(){if(canEditPaperwork.value && effectiveClientType.value==='school'){clientActionsOpen.value=true;return;}goChartSub('phi');await nextTick();documentsTabRef.value?.openUpload?.();}
 const organizationSlugForLinks = computed(() => String(route.params?.organizationSlug || '').trim());
 
 const addAgencyAffiliationId = ref('');

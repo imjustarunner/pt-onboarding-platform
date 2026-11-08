@@ -294,7 +294,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['close', 'uploaded']);
+const emit = defineEmits(['close', 'uploaded', 'submitted']);
 
 const authStore = useAuthStore();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
@@ -1120,6 +1120,7 @@ const handleSubmitClient = async () => {
     clientSubmitted.value = true;
     pdfPreviewKey.value += 1;
     emit('uploaded', response.data);
+    emit('submitted', response.data);
   } catch (err) {
     if (err.response?.data?.error?.code === 'packet_client_match_review') { clientMatches.value = err.response.data.matches || []; matchChoice.value = ''; }
     error.value = err.response?.data?.error?.message || 'Failed to submit client. Please try again.';

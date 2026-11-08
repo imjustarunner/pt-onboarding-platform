@@ -239,6 +239,11 @@
             Each authorized guardian receives a separate portal request. One guardian’s response does not replace the other’s. A denial from either guardian blocks sharing with that staff member.
           </div>
           <div class="form-group">
+            <fieldset><legend>Send request to</legend>
+              <label v-for="guardian in guardianEmails.filter(g => g.can_request_roi)" :key="guardian.guardian_user_id">
+                <input v-model="selectedGuardianIds" type="checkbox" :value="guardian.guardian_user_id" /> {{ guardianLabel(guardian) }}
+              </label>
+            </fieldset>
             <label>Request language</label>
             <select v-model="emailLanguageDraft" class="inline-select">
               <option value="en">English</option><option value="es">Spanish</option>
@@ -250,12 +255,12 @@
             <button
               type="button"
               class="btn btn-primary btn-sm"
-              :disabled="emailSending || emailCooldownSec > 0 || !hasSigningConfig"
+              :disabled="emailSending || emailCooldownSec > 0 || !hasSigningConfig || !selectedGuardianIds.length"
               @click="sendRoiEmail"
             >
               <template v-if="emailSending">Sending…</template>
               <template v-else-if="emailCooldownSec > 0">Resend available in {{ emailCooldownSec }}s</template>
-              <template v-else>Request ROI from all guardians</template>
+              <template v-else>Request ROI from selected guardians</template>
             </button>
             <span v-if="emailStatus" class="hint strong">{{ emailStatus }}</span>
           </div>
@@ -461,6 +466,7 @@ const smsMessageDraft = ref('');
 const smsMessageTouched = ref(false);
 const smsStatus = ref('');
 const guardianEmails = ref([]);
+const selectedGuardianIds = ref([]);
 const emailDraft = ref('');
 const emailSubjectDraft = ref('');
 const emailMessageDraft = ref('');
@@ -740,6 +746,7 @@ const load = async () => {
     programmedRecipientEmail.value = String(signing.issued_link?.programmed_external_recipient?.email || '').trim();
     programmedRecipientPhone.value = String(signing.issued_link?.programmed_external_recipient?.phone || '').trim();
     guardianEmails.value = Array.isArray(payload.guardian_emails) ? payload.guardian_emails : [];
+    selectedGuardianIds.value = guardianEmails.value.filter(g => g.can_request_roi).map(g => g.guardian_user_id);
     smsPhoneDraft.value = String(props.client?.contact_phone || payload.client_contact_phone || '').trim();
     if (!smsMessageTouched.value || !String(smsMessageDraft.value || '').trim()) {
       smsMessageDraft.value = buildDefaultSmsMessage();
@@ -994,7 +1001,8 @@ const sendRoiText = async () => {
     const response = await api.post(`/clients/${clientId}/school-roi-signing-text`, {
       phoneNumber: smsPhoneDraft.value,
       message: smsMessageDraft.value,
-      languageCode: emailLanguageDraft.value
+      languageCode: emailLanguageDraft.value,
+      guardianUserIds: selectedGuardianIds.value
     });
     issuedLink.value = response.data?.issued_link || issuedLink.value;
     smsPhoneDraft.value = response.data?.sent_to || smsPhoneDraft.value;

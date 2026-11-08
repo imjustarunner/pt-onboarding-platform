@@ -67,15 +67,11 @@ export function detectSignaturesFromText(text) {
     return /\b(?:\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}-\d{2}-\d{2})\b/.test(slice)
       || /\bdate\s*[:=]?\s*\d/i.test(slice);
   };
-  const inkNear = (start) => {
-    const slice = body.slice(start, start + 450);
-    const afterSig = slice.split(/signature/i)[1] || slice;
-    const tokens = afterSig.split(/\s+/).filter((t) => t.length >= 3);
-    const weird = tokens.filter((t) => /[^a-zA-Z0-9.,'/-]/.test(t) || (t.length >= 6 && /[A-Z]{2,}[a-z]+[A-Z]/.test(t)));
-    return weird.length >= 1 || tokens.length >= 8;
-  };
-
-  const signedFlags = markers.slice(0, 4).map((idx) => dateNear(idx) || inkNear(idx));
+  // Printed acknowledgements contain dense words and punctuation immediately
+  // after blank signature lines. They are not evidence of a completed signature.
+  // Require a date cue in the signature area; human review is still required by
+  // paper processing before staff confirm the existing signed source.
+  const signedFlags = markers.slice(0, 4).map((idx) => dateNear(idx));
   let roi = false;
   let disclosure = false;
   if (signedFlags.length >= 2) {

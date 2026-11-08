@@ -1,3 +1,5 @@
+import { lookupStructuredIntakeTranslation } from '../../../frontend/src/constants/structuredIntakeStepSpanish.js';
+import { officeSpanishScreenField, preserveOriginalOfficeInstrument } from '../../../frontend/src/utils/officeClinicalTranslations.js';
 /** Admin-enabled per-question Spanish labels (stored on intake_links.custom_messages). */
 export function spanishQuestionLabelsEnabled(link) {
   const cm = link?.custom_messages;
@@ -33,7 +35,9 @@ export function resolveIntakeFieldLabel(field, locale, link) {
     const es = String(field.labelEs || '').trim();
     if (es) return es;
   }
-  return String(field.label || field.key || '').trim();
+  const label = String(field.label || field.key || '').trim();
+  if (locale !== 'es' || preserveOriginalOfficeInstrument(field, locale)) return label;
+  return officeSpanishScreenField(field)?.label || lookupStructuredIntakeTranslation(label);
 }
 
 export function resolveIntakeFieldText(field, prop, locale, link) {
@@ -48,12 +52,15 @@ export function resolveIntakeFieldText(field, prop, locale, link) {
   return String(field[prop] || '').trim();
 }
 
-export function resolveOptionLabel(opt, locale, link) {
+export function resolveOptionLabel(opt, locale, link, field = null) {
   if (!opt) return '';
   const enabled = spanishQuestionLabelsEnabled(link);
   if (locale === 'es' && enabled) {
     const es = String(opt.labelEs || '').trim();
     if (es) return es;
   }
-  return String(opt.label || opt.value || '').trim();
+  const label = String(opt.label || opt.value || '').trim();
+  if (locale !== 'es' || preserveOriginalOfficeInstrument(field, locale)) return label;
+  const official = officeSpanishScreenField(field)?.options?.find(o => String(o.value) === String(opt.value));
+  return official?.label || lookupStructuredIntakeTranslation(label);
 }

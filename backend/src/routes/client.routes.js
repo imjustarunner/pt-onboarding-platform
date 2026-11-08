@@ -108,7 +108,7 @@ import {
   postWaiveNewPacketFlag,
   putOnboardingRoiExpiration,
   postCompleteStaffOnboarding,
-  getPaperProcessing, putPaperProcessing, postPaperProcessing, viewPaperProcessingDocument, checkPaperProcessingDocument,
+  listPaperPacketDocuments, getPaperProcessing, putPaperProcessing, postPaperProcessing, viewPaperProcessingDocument, checkPaperProcessingDocument,
   getOnboardingQueue,
   getProviderOnboardingQueue
 } from '../controllers/clientOnboarding.controller.js';
@@ -345,6 +345,7 @@ router.post('/:id/onboarding/waive-new-packet', postWaiveNewPacketFlag);
 router.post('/:id/onboarding/acknowledge-roi-staff', postAcknowledgeRoiStaff);
 router.put('/:id/onboarding/roi-expiration', putOnboardingRoiExpiration);
 router.post('/:id/onboarding/complete-staff', postCompleteStaffOnboarding);
+router.get('/:id/paper-packet-documents', listPaperPacketDocuments);
 router.get('/:id/paper-packet-processing', getPaperProcessing);
 router.get('/:id/paper-packet-processing/documents/:docId/view', viewPaperProcessingDocument);
 router.post('/:id/paper-packet-processing/documents/:docId/check', checkPaperProcessingDocument);

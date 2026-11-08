@@ -18,3 +18,11 @@ it('rejects another practice, unrelated parents, revoked links, and inactive acc
 });
 it('shows this account’s portal opens and network address, without session tokens or message contents',async()=>{await service.activity(context);const call=db.execute.mock.calls.find(([sql])=>sql.includes('ip_address AS ipAddress'));expect(call[0]).toContain('user_id=? AND agency_id=?');expect(call[1]).toEqual([10,2]);expect(call[0]).not.toMatch(/metadata|session_id/);const evidence=db.execute.mock.calls.find(([sql])=>sql.includes('security_evidence'));expect(evidence[0]).toContain('client_ip');expect(evidence[1]).toEqual([10]);expect(evidence[0]).not.toMatch(/actor_email|session_ref|details|user_agent|forwarded_ips/);});
 it('limits the AuricWell boundary to read-only portal endpoints',()=>{for(const path of ['/portal-admin/clients/7/accounts','/portal-admin/clients/7/accounts/10/read','/portal-admin/clients/7/accounts/10/activity']){expect(previewRouteAllowed('GET',path)).toBe(true);for(const method of ['POST','PATCH','PUT','DELETE'])expect(previewRouteAllowed(method,path)).toBe(false);}expect(previewRouteAllowed('GET','/portal-admin/clients/7/accounts/10/pay')).toBe(false);});
+
+it('keeps access available while showing the separate invitation response and durable delivery',async()=>{
+ db.execute.mockImplementation(async sql=>sql.includes('FROM clients WHERE')?[[{id:7,agency_id:2}]]:[[{id:10,role:'client_guardian',access_enabled:1,is_active:1,invitationId:28,enrollmentStatus:'pending',invitationExpiresAt:'2099-01-01',invitationDeliveryStatus:'sent'}]]);
+ const {accounts}=await service.accounts(context);
+ expect(accounts[0]).toMatchObject({available:true,invitationId:28,enrollmentStatus:'pending',invitationDeliveryStatus:'sent'});
+ const query=db.execute.mock.calls.find(([sql])=>sql.includes('FROM client_guardians'));
+ expect(query[0]).toContain('ic.client_id=cg.client_id AND ci.agency_id=?');expect(query[1]).toEqual([2,2,2,2,7]);
+});

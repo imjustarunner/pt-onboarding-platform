@@ -32,3 +32,13 @@ it('reuses a recent delivery instead of resending or resetting a completed signa
  const result=await requestSchoolRoiForGuardians(deps);
  expect(result.deliveries.map(row=>row.status)).toEqual(['recently_sent','recently_sent']);expect(deps.issueLink).not.toHaveBeenCalled();expect(deps.sendEmail).not.toHaveBeenCalled();
 });
+
+it('sends only to a selected authorized guardian and rejects a foreign or restricted selection before any send',async()=>{
+ const deps=fixture();
+ const result=await requestSchoolRoiForGuardians({...deps,guardianUserIds:[2]});
+ expect(result.deliveries.map(r=>r.guardianUserId)).toEqual([2]);
+ expect(deps.sendEmail).toHaveBeenCalledTimes(1);
+ deps.sendEmail.mockClear();deps.issueLink.mockClear();
+ for(const selected of [[99],[3],[2,99],[]]) await expect(requestSchoolRoiForGuardians({...deps,guardianUserIds:selected})).rejects.toMatchObject({status:selected.length?403:400});
+ expect(deps.sendEmail).not.toHaveBeenCalled();expect(deps.issueLink).not.toHaveBeenCalled();
+});
