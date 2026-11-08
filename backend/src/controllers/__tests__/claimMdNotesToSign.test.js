@@ -25,9 +25,9 @@ describe('service billing supervisor review queue', () => {
   });
   it('shows an assigned note even without a global clinical-supervisor assignment', async () => {
     mocks.execute.mockImplementation(async sql => sql.includes('FROM clients') ? [[{id:30,agency_id:2,initials:'SAMPLE'}]] : sql.includes('JOIN users') ? [[{id:1,clinical_note_id:20,agency_id:2}]] : [[{id:1}]]);
-    mocks.clinicalExecute.mockResolvedValue([[{id:20,agency_id:2,client_id:30,title:'Screening',service_code:'H0002'}]]);
+    mocks.clinicalExecute.mockResolvedValue([[{id:20,agency_id:2,client_id:30,title:'Screening',service_code:'H0002',original_revision_id:101,original_revision_number:1}]]);
     const res=response(),next=vi.fn();await listNotesToSign({user:{id:501}},res,next);
-    expect(next).not.toHaveBeenCalled();expect(res.json).toHaveBeenCalledWith({isSupervisor:true,count:1,notes:[expect.objectContaining({client_code:'SAMPLE',service_code:'H0002'})]});
+    expect(next).not.toHaveBeenCalled();expect(res.json).toHaveBeenCalledWith({isSupervisor:true,count:1,notes:[expect.objectContaining({client_code:'SAMPLE',service_code:'H0002',revision_number:1})]});
   });
   it('does not expose clinical-note eligibility across agencies', async () => {
     const res=response();await getClinicalNotesEligible({user:{id:501,role:'provider'},query:{agencyId:'6'}},res,vi.fn());

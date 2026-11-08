@@ -1,6 +1,8 @@
 import { defineConfig } from 'vitest/config';
 import vue from '@vitejs/plugin-vue';
 export default defineConfig({ plugins: [vue()], test: { environment: 'jsdom', include: [
+  "src/utils/__tests__/noteAidCosignQueue.test.js",
+  "src/components/clinical/__tests__/NoteAidWorkQueuePanel.review.test.js",
   "src/views/__tests__/PublicIntakeFollowup.test.js",
   "src/views/__tests__/PublicIntakeInsuranceContinue.test.js",
   "src/components/public-intake/__tests__/InsurancePaymentEnrollment.test.js",

@@ -20,11 +20,13 @@ describe('My Work review categories', () => {
   });
   it('keeps the selected cosign note visibly connected to its queue row', () => {
     const wrapper = mount(NoteAidWorkQueuePanel, { props: { mode: 'cosign', showCosignMode: true, activeCosignId: 'cosign_71', cosignItems: [
-      { id: 'cosign_71', clinicalNoteId: 71, clientName: 'DEMO QA A', providerName: 'DEMO PROVIDER' },
+      { id: 'cosign_71', clinicalNoteId: 71, revisionNumber: 3, clientName: 'DEMO QA A', providerName: 'DEMO PROVIDER' },
       { id: 'cosign_72', clinicalNoteId: 72, clientName: 'DEMO QA B' }
     ] } });
     expect(wrapper.findAll('.na-wq-item--cosign.active')).toHaveLength(1);
     expect(wrapper.find('.na-wq-item--cosign.active').text()).toContain('DEMO QA A');
+    expect(wrapper.find('.na-wq-item--cosign.active').text()).toContain('Version 3');
+    expect(wrapper.text()).toContain('Version not recorded');
     wrapper.unmount();
   });
   it('reports unavailable review work instead of claiming the queue is empty', () => {

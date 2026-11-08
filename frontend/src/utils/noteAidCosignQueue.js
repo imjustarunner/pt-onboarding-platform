@@ -4,6 +4,7 @@ export function normalizeCosignQueueItems(notes) {
     id: `cosign_${n.id || n.clinical_note_id}`,
     signoffId: n.id,
     clinicalNoteId: n.clinical_note_id || n.clinicalNoteId,
+    revisionNumber: Number(n.revision_number || n.revisionNumber) || null,
     clinicalRevisionId: n.clinical_revision_id || n.clinicalRevisionId || null,
     agencyId: n.agency_id || n.agencyId || null,
     clientId: n.client_id || n.clientId || null,

@@ -43,14 +43,14 @@ export const listNotesToSign = async (req, res, next) => {
       req.auricwellPreview ? [userId,req.auricwellPreview.agencyId] : [userId]
     );
     if (rows.length) {
-      const [notes] = await clinicalPool.execute(`SELECT n.id,n.agency_id,n.client_id,n.title,n.provider_signed_at,n.supervisor_cosigned_at,n.supervisor_cosigned_by_user_id,n.metadata_json,h.original_revision_id,h.effective_revision_id,h.pending_revision_id,JSON_UNQUOTE(JSON_EXTRACT(n.metadata_json,'$.serviceCode')) AS service_code FROM clinical_notes n LEFT JOIN clinical_note_revision_heads h ON h.clinical_note_id=n.id AND h.agency_id=n.agency_id WHERE n.id IN (${rows.map(()=>'?').join(',')}) AND n.is_deleted=0`,rows.map(r=>r.clinical_note_id));
+      const [notes] = await clinicalPool.execute(`SELECT n.id,n.agency_id,n.client_id,n.title,n.provider_signed_at,n.supervisor_cosigned_at,n.supervisor_cosigned_by_user_id,n.metadata_json,h.original_revision_id,h.effective_revision_id,h.pending_revision_id,r.revision_number AS original_revision_number,JSON_UNQUOTE(JSON_EXTRACT(n.metadata_json,'$.serviceCode')) AS service_code FROM clinical_notes n LEFT JOIN clinical_note_revision_heads h ON h.clinical_note_id=n.id AND h.agency_id=n.agency_id LEFT JOIN clinical_note_revisions r ON r.id=h.original_revision_id AND r.clinical_note_id=n.id AND r.agency_id=n.agency_id WHERE n.id IN (${rows.map(()=>'?').join(',')}) AND n.is_deleted=0`,rows.map(r=>r.clinical_note_id));
       const ids=[...new Set(notes.map(n=>n.client_id))];
       const [clients]=ids.length && !req.notesCountOnly ? await pool.execute(`SELECT id,agency_id,initials,full_name FROM clients WHERE id IN (${ids.map(()=>'?').join(',')})`,ids) : [[]];
       for (const row of rows) {
         const note=notes.find(n=>Number(n.id)===Number(row.clinical_note_id)&&Number(n.agency_id)===Number(row.agency_id));
         if (note) {
           const client=clients.find(c=>Number(c.id)===Number(note.client_id));
-          Object.assign(row,{title:note.title,service_code:note.service_code,client_id:note.client_id,client_name:client?.full_name || client?.initials || null,client_code:client?.initials || null,date_of_service:parseObject(note.metadata_json).dateOfService || null});
+          Object.assign(row,{revision_number:note.original_revision_number || null,title:note.title,service_code:note.service_code,client_id:note.client_id,client_name:client?.full_name || client?.initials || null,client_code:client?.initials || null,date_of_service:parseObject(note.metadata_json).dateOfService || null});
         }
       }
       rows = rows.filter(row => {
