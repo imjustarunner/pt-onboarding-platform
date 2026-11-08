@@ -186,6 +186,7 @@ import psychotherapyComplianceRoutes from './routes/psychotherapyCompliance.rout
 import platformRevenueRoutes from './routes/platformRevenue.routes.js';
 import billingReportsRoutes from './routes/billingReports.routes.js';
 import billingRoutes from './routes/billing.routes.js';
+import narrivaReportWorkerRoutes from './routes/narrivaReportWorker.routes.js';
 import businessLifecycleRoutes from './routes/businessLifecycle.routes.js';
 import executiveReportRoutes from './routes/executiveReport.routes.js';
 import clientSettingsRoutes from './routes/clientSettings.routes.js';
@@ -444,6 +445,8 @@ app.use('/api/assistant-reviews', assistantReviewsRouter);
 app.use('/api/vonage', vonageRoutes);
 // Public check-in must precede catch-all authentication and body logging.
 app.use('/api/my-room', providerMyRoomRoutes);
+// Scheduled Narriva processing uses its own secret, before catch-all staff JWT authentication.
+app.use('/api/billing', narrivaReportWorkerRoutes);
 
 // Request logging middleware with body sanitization
 // Must be after body parsing middleware (express.json, express.urlencoded)
