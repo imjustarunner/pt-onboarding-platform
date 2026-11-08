@@ -439,7 +439,7 @@
             </template>
 
             <template v-else-if="['messages','family_messages'].includes(activePanel)">
-              <GuardianMessagesPanel v-if="!isSuperadminPreview" :key="activePanel === 'family_messages' ? 'all' : selectedChildId" :client-id="activePanel === 'family_messages' ? null : selectedChildId" />
+              <GuardianMessagesPanel v-if="!isSuperadminPreview" :key="activePanel === 'family_messages' ? 'all' : selectedChildId" :client-id="activePanel === 'family_messages' ? null : selectedChildId" :initial-thread-id="route.query.familyThreadId" />
               <div v-else class="hint">Guardian messaging is hidden in platform preview.</div>
             </template>
 

@@ -84,7 +84,7 @@
     </section>
 
     <template v-if="session">
-      <div v-if="!isMobile || !['home','thread','chat','clinical','client','session'].includes(tab)" class="qv-page-heading">
+      <div v-if="!isMobile || !['home','thread','chat','clinical','client','session'].includes(tab)" class="qv-page-heading" :class="{'qv-work-heading':isMobile && tab==='mywork'}">
         <div><p class="qv-eyebrow">{{ workspaceDate }}</p><h1>{{ currentHeading.title }}</h1><p class="qv-page-description">{{ currentHeading.description }}</p></div>
         <span class="qv-workspace-tag">QUICK VIEW</span>
       </div>
@@ -99,7 +99,7 @@
       </section>
       <div v-show="!moreOpen" class="qv-content" :aria-busy="navigationBusy || undefined">
       <QuickViewPresence v-if="tab==='presence'" :http="presenceHttp" />
-      <MobileMessages v-if="isMobile" v-show="tab==='home' || tab==='chat'" ref="mobileMessages" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" :visible="!moreOpen && (tab==='home' || tab==='chat')" :preferences="workspacePreferences" @open-email="openMobileConversation" @compose-email="openDetachedEmail('new')" @counts="mobileCounts=$event" @settings="showMobileSettings=true"/>
+      <MobileMessages v-if="isMobile" v-show="tab==='home' || tab==='chat'" ref="mobileMessages" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" :visible="!moreOpen && (tab==='home' || tab==='chat')" :preferences="workspacePreferences" @open-email="openMobileConversation" @compose-email="openMobileEmailDraft" @counts="mobileCounts=$event" @settings="showMobileSettings=true"/>
       <MobilePreferences v-if="isMobile && showMobileSettings" :api-base="apiBase" :session-token="session" :preferences="workspacePreferences" @close="showMobileSettings=false" @saved="workspacePreferences=$event"/>
       <MobileClinicalWorkspace v-if="isMobile && tab==='clinical'" :api-base="apiBase" :session-token="session" :user-id="sessionUserId" @signed="sendNotice='Note signed and saved to the chart.'" />
       <MobileClientSummary v-if="isMobile && tab==='client'" :api-base="apiBase" :session-token="session" :client-id="route.query.clientId" @back="returnInApp({view:'mywork'})" @contact="openMobileClinicalContact" />
@@ -583,7 +583,7 @@
           <button type="button" :class="{ on: contactSuite === 'saved' }" @click="loadSavedContacts">Saved</button>
         </div>
         <template v-if="contactSuite === 'providers' || contactSuite === 'school'">
-          <div v-for="p in directoryPeople" :key="p.id" class="qv-row qv-contact-row">
+          <div v-for="p in directoryPeople" :key="`${p.agencyId || sessionAgencyId}:${p.id}`" class="qv-row qv-contact-row">
             <img v-if="p.profilePhotoUrl" :src="p.profilePhotoUrl" alt="" class="qv-avatar" />
             <div v-else class="qv-avatar qv-avatar-fallback">{{ contactInitials(p) }}</div>
             <div class="meta">
@@ -592,13 +592,14 @@
                 {{ isMobile?p.credential:formatRole(p.role) }}<span v-if="!isMobile && p.hcbsCategory"> · {{ p.hcbsCategoryLabel }}</span>
               </small>
               <small v-if="p.workEmail || p.email">{{ p.workEmail || p.email }}</small>
+              <small v-if="isMobile && p.agencyName">{{ p.agencyName }}</small>
               <small v-if="!isMobile && p.workPhone">Work {{ p.workPhone }}</small>
             </div>
             <button
               type="button"
               class="qv-btn primary sm"
               :disabled="dmBusyId === p.id"
-              @click="messageUser(p.id, p.displayName)"
+              @click="messageUser(p.id, p.displayName, p.agencyId)"
             >Message</button>
           </div>
           <div v-if="!directoryPeople.length" class="qv-pad muted">
@@ -625,7 +626,7 @@
     </template>
     </main>
 
-    <div v-if="session && showCompose" class="qv-modal" role="dialog" aria-modal="true" aria-label="New email" @click.self="showCompose = false" @keydown.esc.stop="showCompose = false">
+    <div v-if="session && showCompose && !isMobile" class="qv-modal" role="dialog" aria-modal="true" aria-label="New email" @click.self="showCompose = false" @keydown.esc.stop="showCompose = false">
       <form class="qv-sheet" @submit.prevent="sendCompose">
         <h3>New email</h3>
         <p class="muted">From: {{ mailboxEmail || 'Your work mailbox' }}</p>
@@ -646,6 +647,8 @@
         </div>
       </form>
     </div>
+
+    <div v-if="session && showCompose && isMobile" class="qv-modal qv-mobile-composer" role="dialog" aria-modal="true" aria-label="Email draft"><EmailComposerView :compose-context="mobileEmailContext" @close="showCompose=false;mobileMessages?.refresh()" /></div>
 
     <div v-if="session && showNewTask" class="qv-modal" role="dialog" aria-modal="true" aria-label="Add task" @click.self="showNewTask = false" @keydown.esc.stop="showNewTask = false">
       <form class="qv-sheet" @submit.prevent="createTask">
@@ -794,6 +797,7 @@
 <script setup>
 import {backInMobile,trackMobileNavigation} from '../mobile/mobileNavigation.js';
 import {mobileLinkTarget} from '../mobile/mobileLinks.js';
+const EmailComposerView=defineAsyncComponent(()=>import('./EmailComposerView.vue'));
 import MobileMessages from '../mobile/MobileMessages.vue';
 import QuickTaskExtras from '../components/quickView/QuickTaskExtras.vue';
 import MobilePreferences from '../mobile/MobilePreferences.vue';
@@ -809,7 +813,7 @@ import ConversaBrand from '../components/conversa/ConversaBrand.vue';
 import { privateSpeechRecognition } from '../utils/privateSpeechRecognition.js';
 import { quickViewDeepLink } from '../utils/quickViewDeepLink';
 import QuickViewPresence from '../components/quickView/QuickViewPresence.vue';
-import { provide, computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { provide, defineAsyncComponent, computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import { emailReplyRecipients } from '../utils/messageThreads';
@@ -833,7 +837,7 @@ const showBrowserInstallTip = !Capacitor.isNativePlatform() && /iPad|iPhone|iPod
 
 const route = useRoute();
 const router = useRouter();
-async function openDetachedEmail(mode='new') { if(isMobile.value){dismissQuickPreview();if(mode==='new')showCompose.value=true;else{changeReplyMode(mode);showMobileReply.value=true;await mobileNavigate({...route.query,compose:mode});await nextTick();document.querySelector('[aria-label=\"Email reply\"] textarea')?.focus();}return;} openEmailComposer(router,{quickView:true,session:session.value,mode,conversationId:mode==='new'?undefined:activeConv.value?.id}); }
+async function openDetachedEmail(mode='new') { if(isMobile.value){dismissQuickPreview();if(mode==='new')openMobileEmailDraft();else{changeReplyMode(mode);showMobileReply.value=true;await mobileNavigate({...route.query,compose:mode});await nextTick();document.querySelector('[aria-label=\"Email reply\"] textarea')?.focus();}return;} openEmailComposer(router,{quickView:true,session:session.value,mode,conversationId:mode==='new'?undefined:activeConv.value?.id}); }
 function changeEmailFolder(folder){sort.value=folder;loadHome(msgSuite.value);}
 async function keepEmailUnread(){
   try{await axios.patch(`${apiBase}/conversations/${activeConv.value.id}`,{markUnread:true},{headers:authHeaders(),withCredentials:true});sort.value='unread';await loadHome('email');}catch(e){error.value=e.response?.data?.error?.message || 'Could not mark unread';}
@@ -926,7 +930,7 @@ async function prepareWorkDraft(item){
 async function openMobileClinicalContact(target){
   if(target.threadId){await mobileNavigate({view:'home',suite:'secure',threadId:String(target.threadId),secure:'1'});return;}
   if(target.conversationId){await mobileNavigate({view:'home',suite:target.channel==='sms'?'sms':'email',conversationId:String(target.conversationId)});return;}
-  if(target.channel==='email' && target.to){composeToEmail.value=target.to;composeSubject.value='';composeText.value='';showCompose.value=true;}
+  if(target.channel==='email' && target.to)openMobileEmailDraft({to:target.to});
 }
 function calendarTitle(item){return isMobile.value && item.hasClient?`${item.clientMaskedName || item.maskedName || 'Client session'}${item.clientAge != null ? ` · Age ${item.clientAge}` : ''}`:item.title;}
 
@@ -944,7 +948,7 @@ const currentHeading = computed(() => {
     thread: { title: 'Conversation', description: 'Keep the conversation moving.' },
     chat: { title: 'Team conversation', description: 'Direct messages and team discussions.' },
     calendar: { title: 'Your day, in view.', description: 'Appointments, meetings, and where you need to be.' },
-    mywork:{title:'My Work',description:'Your documentation queue and next steps.'},
+    mywork:{title:'My Work',description:''},
     tasks: { title: 'Tasks', description: 'Your tasks, shared lists, and next steps.' },
     noteaid: { title: 'Note Workspace', description: 'A focused space for your documentation.' },
     presence: { title: 'Team presence', description: 'Find the right moment to connect.' },
@@ -1018,7 +1022,7 @@ const suiteMembers = ref([]);
 const suiteLists = ref([]);
 const suiteStats = ref(null);
 const taskDetail = ref(null);
-const taskAssigneeOptions=computed(()=>[...new Map([...directoryProviders.value,...directorySchool.value].map(person=>[Number(person.id),person])).values()]);
+const taskAssigneeOptions=computed(()=>[...new Map([...directoryProviders.value,...directorySchool.value].filter(person=>!person.agencyId || Number(person.agencyId)===Number(sessionAgencyId.value)).map(person=>[Number(person.id),person])).values()]);
 const fullTaskUrl=computed(()=>{if(!loginUrl.value || !taskDetail.value)return '';try{const target=new URL(loginUrl.value,window.location.origin);target.pathname=target.pathname.replace(/\/(?:login|dashboard)\/?$/,'')+'/tasks';target.search='';return target.href;}catch{return '';}});
 async function reloadTaskDetail(){if(!taskDetail.value)return;await openTaskDetail(taskDetail.value.task);await loadTasks(taskView.value);}
 
@@ -1079,6 +1083,8 @@ let refreshTimer = null;
 let undoTimer = null;
 
 const showCompose = ref(false);
+const mobileEmailContext=ref(null);
+function openMobileEmailDraft(context={}){mobileEmailContext.value={quickView:true,session:session.value,apiBase,agencyId:sessionAgencyId.value,mode:'new',...context};showCompose.value=true;}
 const composeToEmail = ref('');
 const composeSubject = ref('');
 const composeText = ref('');
@@ -1837,9 +1843,7 @@ async function openTaskDetail(t) {
   const request = ++taskDetailRequest;
   const activeSession = session.value;
   try {
-    if (!directoryProviders.value.length) {
-      await loadDirectory('providers', { activate: false }).catch(() => {});
-    }
+    await loadDirectory('providers', { activate: false }).catch(() => {});
     if (request !== taskDetailRequest || session.value !== activeSession) return;
     const { data } = await axios.get(`${apiBase}/tasks/${t.id}`, {
       headers: authHeaders(),
@@ -2309,7 +2313,7 @@ function setOfficeFilter(id) {
   loadOffice();
 }
 
-async function messageUser(userId, name) {
+async function messageUser(userId, name, agencyId) {
   if (!userId) return;
   dmBusyId.value = userId;
   error.value = '';
@@ -2318,7 +2322,7 @@ async function messageUser(userId, name) {
       `${apiBase}/chat/direct`,
       {
         otherUserId: userId,
-        agencyId: sessionAgencyId.value || undefined
+        agencyId: agencyId || sessionAgencyId.value || undefined
       },
       { headers: authHeaders(), withCredentials: true }
     );
@@ -2375,6 +2379,7 @@ async function loadDirectory(suite = 'providers', { activate = true } = {}) {
   try {
     const { data } = await axios.get(`${apiBase}/directory`, {
       headers: authHeaders(),
+      params: isMobile.value && activate ? {agencyId:'all'} : undefined,
       withCredentials: true
     });
     if (!session.value || session.value !== activeSession || (!activate && activeTaskRequest !== taskDetailRequest)) return;
@@ -2413,7 +2418,7 @@ function formatRole(role) {
     .replace(/\b\w/g, (c) => c.toUpperCase()) || 'Team';
 }
 
-function composeTo(c) { openEmailComposer(router,{quickView:true,session:session.value,mode:'new',to:c.email || ''}); }
+function composeTo(c) { if(isMobile.value)openMobileEmailDraft({to:c.email || ''});else openEmailComposer(router,{quickView:true,session:session.value,mode:'new',to:c.email || ''}); }
 
 async function sendCompose({deliveryChoice=null}={}) {
   if (composeBusy.value || !composeToEmail.value.trim() || (!composeText.value.trim() && !composeAttachments.value.length)) return;
@@ -2957,4 +2962,8 @@ button.qv-row:hover { background: #f8faff; }
 
 .qv-nav-badge{position:absolute;right:15%;top:7px;min-width:17px;padding:2px 4px;border-radius:10px;background:#255ad9;color:white;font-size:9px;font-weight:750}.qv-tabs>button{position:relative}.qv-message-back{font-size:12px;min-height:40px;border:0!important;margin:7px 10px!important;padding:7px 9px!important}.qv-calendar-modes{display:flex;gap:5px;padding:2px 16px 14px}.qv-calendar-modes button{font:inherit;font-size:12px;border:0;background:#f0f4fa;color:#647a98;padding:8px 16px;border-radius:8px}.qv-calendar-modes button[aria-pressed=true]{background:#245be0;color:white}.qv-note-readiness{margin:8px 0 15px;font-size:12px;color:#6e819d;line-height:1.6}.qv-cal-block{width:100%;text-align:left;color:#244c84;cursor:pointer;border:0;border-left:3px solid #7ca7ef}.qv-mobile-messages .qv-workspace{padding:0 0 calc(78px + env(safe-area-inset-bottom,0px));max-width:none}.qv-mobile-messages .qv-pane.thread{border:0;border-radius:0;box-shadow:none}.qv-mobile-messages .qv-content{width:100%}.qv-mobile .qv-day-nav{flex-wrap:nowrap;gap:5px;padding:12px 10px}.qv-mobile .qv-day-nav .qv-btn{padding:8px 9px;min-height:38px;font-size:11px;flex-shrink:0}.qv-mobile .qv-day-nav .qv-date{flex:1;min-width:0;width:100px;padding:8px 4px;min-height:38px;font-size:12px;box-sizing:border-box}.qv-mobile .qv-na-row{grid-template-columns:minmax(0,1fr) minmax(80px,.55fr)}.qv-mobile .qv-na-row input{box-sizing:border-box;min-width:0}.qv-mobile .qv-contact-row{padding:16px 13px;gap:11px}.qv-mobile .qv-contact-row .meta strong{font-size:13px}.qv-mobile .qv-contact-row .meta small{font-size:11px}.qv-mobile .qv-contact-row .qv-btn{padding:9px 12px;font-size:11px;min-height:37px}.qv-mobile .qv-contact-row .qv-avatar{width:36px;height:36px}
 @media(max-width:760px){.qv-mobile .qv-top{padding:12px 14px;min-height:72px;box-sizing:border-box}.qv-mobile .qv-top :deep(.auricwell-brand){max-width:190px}.qv-mobile .qv-top-actions{gap:5px}.qv-mobile .qv-icon-button{min-width:33px;height:35px;padding:7px;border-radius:10px}.qv-mobile .qv-extend span{font-size:10px}.qv-mobile .qv-organization{display:none}.qv-mobile-messages .qv-workspace{padding-top:0;padding-left:0;padding-right:0}.qv-mobile .qv-tabs{padding:5px 5px calc(5px + env(safe-area-inset-bottom,0px));gap:3px;grid-template-columns:repeat(auto-fit,minmax(50px,1fr))}.qv-mobile .qv-tabs>button{min-height:57px;padding:7px 4px;min-width:0;flex:1}.qv-mobile .qv-tabs>button span{font-size:10px}.qv-mobile .qv-top .qv-lock-label{display:none}.qv-mobile .qv-page-heading{margin-bottom:17px}.qv-mobile .qv-page-heading h1{font-size:25px}.qv-mobile .qv-page-description{font-size:12px}.qv-mobile:not(.qv-mobile-messages) .qv-workspace{padding-left:13px;padding-right:13px}}
+</style>
+
+<style scoped>
+.qv-work-heading{padding:12px 0!important;margin-bottom:8px!important}.qv-work-heading h1{font-size:24px!important;margin:0!important}.qv-work-heading .qv-eyebrow,.qv-work-heading .qv-page-description{display:none}.qv-mobile-composer{overflow-y:auto;padding:0!important;align-items:flex-start!important}.qv-mobile-composer :deep(.email-composer){width:100%;box-sizing:border-box;min-height:100dvh;padding:20px 16px;padding-bottom:max(20px,env(safe-area-inset-bottom))}
 </style>

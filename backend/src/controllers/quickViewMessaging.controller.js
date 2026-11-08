@@ -9,7 +9,7 @@ import {assertMobileQaConversation,mobileQaAgencyId,mobileQaScopeError} from '..
 
 async function authorize(req) {
   // QV is an employee's own workspace; an admin's PIN never opens all agency mail.
-  return assertMobileQaConversation(req,await requireConversationAccess({ id: req.quickView.userId, role: 'provider' }, req.params.id));
+  return assertMobileQaConversation(req,await requireConversationAccess({ id: req.quickView.userId, role: 'provider', mobileDevice:!!req.quickView.mobileDeviceSessionId }, req.params.id));
 }
 const handle = (fn) => async (req, res, next) => {
   try { await fn(req, res, next); }

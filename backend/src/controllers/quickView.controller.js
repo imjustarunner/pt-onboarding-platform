@@ -611,6 +611,7 @@ export async function requireQuickViewSession(req, res, next) {
     const raw = req.headers['x-quick-view-session'] || req.cookies?.qv_session;
     const session = await touchSession(raw);
     if (!session) return res.status(401).json({ error: { message: 'Quick View session required' } });
+    if(session.mobileSurface==='family')return res.status(403).json({error:{message:'Use your family portal. Staff workspace access is not available to this account.'}});
     if (!session.agencyId) {
       try {
         const [ua] = await pool.execute(
@@ -628,6 +629,11 @@ export async function requireQuickViewSession(req, res, next) {
     // uses a full account sign-in rather than upgrading this reusable shortcut.
     const { enforceAccountSecurity } = await import('../middleware/accountSecurity.middleware.js');
     req.user = { id: session.userId, role: 'quick_view' };
+    if(session.mobileDeviceSessionId){
+      const {mobileSessions,parsePrimaryAuthentication}=await import('../services/mobile/session.service.js');
+      const context=await mobileSessions.access(session.mobileDeviceSessionId,session.userId,session.agencyId),proof=parsePrimaryAuthentication(context.device.primary_authentication_json);
+      if(proof){req.sessionSecurity={key:proof.sessionKey};req.authClaims={authMethod:proof.authMethod};}
+    }
     return enforceAccountSecurity(req, res, next);
   } catch (e) {
     next(e);

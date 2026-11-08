@@ -1,4 +1,4 @@
-import {getMobileInbox,getMobilePreferences,patchMobilePreferences,patchMobileArchive,getMobileChatContext,getMobileFile,patchMobileMessageState,postMobileViewed,getMobileMyWork} from '../controllers/mobileConversa.controller.js';
+import {getMobileInbox,getMobilePreferences,patchMobilePreferences,patchMobileArchive,getMobileChatContext,getMobileFile,patchMobileMessageState,postMobileViewed,getMobileMyWork,getMobileClientRecipients,postMobileClientContact,getMobileChannels} from '../controllers/mobileConversa.controller.js';
 import { getQuickPresence, postQuickAway, postQuickPresenceClear } from '../controllers/quickViewPresence.controller.js';
 import emailDraftRoutes from './emailDraft.routes.js';
 import mobileClinicalRoutes from './mobileClinical.routes.js';
@@ -45,7 +45,7 @@ import {
   qvSendChatMessage,
   qvMarkChatRead,
   qvUploadChatAttachment, qvAddChatReaction, qvRemoveChatReaction,
-  qvCreateDirectThread,
+  qvCreateDirectThread,qvCreateGroupThread,
   qvFocusMusicCatalog,
   qvFocusMusicStream,
   getQuickTaskDetail,
@@ -125,6 +125,9 @@ router.get('/directory', requireQuickViewSession, getQuickDirectory);
 router.get('/my-work', requireQuickViewSession, getMobileMyWork);
 router.get('/my-work/notes/:noteId/review-insights', requireQuickViewSession, apiLimiter, getMobileNoteReviewInsights);
 router.use('/clinical',requireQuickViewSession,mobileClinicalRoutes);
+router.get('/messages/channels',requireQuickViewSession,getMobileChannels);
+router.get('/messages/clients',requireQuickViewSession,apiLimiter,getMobileClientRecipients);
+router.post('/messages/clients/:clientId/contact/:action?',requireQuickViewSession,apiLimiter,postMobileClientContact);
 router.get('/messages/inbox', requireQuickViewSession, getMobileInbox);
 router.get('/messages/preferences', requireQuickViewSession, getMobilePreferences);
 router.patch('/messages/preferences', requireQuickViewSession, patchMobilePreferences);
@@ -138,6 +141,7 @@ router.get('/messages/files/:attachmentId', requireQuickViewSession, getMobileFi
 router.get('/chat/threads', requireQuickViewSession, qvListChatThreads);
 router.get('/chat/channels', requireQuickViewSession, qvListChatChannels);
 router.post('/chat/channels/:threadId/open', requireQuickViewSession, qvOpenChannel);
+router.post('/chat/group',requireQuickViewSession,qvCreateGroupThread);
 router.post('/chat/direct', requireQuickViewSession, qvCreateDirectThread);
 router.get('/chat/inbox/threads', requireQuickViewSession, qvListThreadsInbox);
 router.get('/chat/inbox/mentions', requireQuickViewSession, qvListMentions);

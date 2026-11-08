@@ -1,7 +1,7 @@
 import {beforeEach,expect,it,vi} from 'vitest';
 const mocks=vi.hoisted(()=>({execute:vi.fn(),decrypt:vi.fn(),refresh:vi.fn(),rows:[],attachments:true}));
 vi.mock('../../../config/database.js',()=>({default:{execute:mocks.execute}}));
-vi.mock('../../../models/User.model.js',()=>({default:{getAgencies:vi.fn(async()=>[{id:20}])}}));
+vi.mock('../../../models/User.model.js',()=>({default:{findById:vi.fn(async()=>({id:1,role:'provider'})),getAgencies:vi.fn(async()=>[{id:20}])}}));
 vi.mock('../../../models/ClientGuardian.model.js',()=>({default:{}}));
 vi.mock('../../../models/Notification.model.js',()=>({default:{}}));
 vi.mock('../../guardianSharedMessages.service.js',()=>({refreshSharedChildMemberships:vi.fn()}));
@@ -10,6 +10,7 @@ vi.mock('../../secureMessageRecord.service.js',()=>({resolveSecureMessageClient:
 vi.mock('../../secureMessageBoundary.service.js',()=>({defaultChatChannel:vi.fn(),recordSecureMessageEvent:vi.fn(),recordSecureThreadOpen:vi.fn()}));
 vi.mock('../../teamMeetingStart.service.js',()=>({startAdhocTeamMeeting:vi.fn()}));
 vi.mock('../../chatEncryption.service.js',()=>({decryptChatText:mocks.decrypt,encryptChatText:vi.fn(),isChatEncryptionConfigured:vi.fn()}));
+vi.mock('../agencyScope.service.js',()=>({listMobileAgencies:vi.fn(async()=>({agencies:[{id:20}]}))}));
 import {listMyThreads,listFilesInbox,findExistingDirectThreadBetweenUsers} from '../../../controllers/chat.controller.js';
 import {mobileThreadItem} from '../conversa.service.js';
 beforeEach(()=>{

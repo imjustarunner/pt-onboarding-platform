@@ -1,12 +1,13 @@
 import {beforeEach,expect,it,vi} from 'vitest';
 import {mount,flushPromises} from '@vue/test-utils';
 import {createMemoryHistory,createRouter} from 'vue-router';
-const mocks=vi.hoisted(()=>({request:vi.fn(),get:vi.fn(),post:vi.fn(),quickPost:vi.fn()}));
-vi.mock('../transport.js',()=>({native:false,MobileDevice:{},quickApiBase:'/api/quick-view',mobileApi:{request:mocks.request,get:mocks.get,post:mocks.post},randomSecret:()=>'',pkceChallenge:vi.fn(),accountUrl:()=>'',mobileRequestError:e=>e.response?.data?.error?.message || e.message}));
-vi.mock('axios',()=>({default:{post:mocks.quickPost,interceptors:{response:{use:vi.fn(),eject:vi.fn()}}}}));
+const mocks=vi.hoisted(()=>({request:vi.fn(),get:vi.fn(),post:vi.fn(),quickPost:vi.fn(),auth:{user:null}}));
+vi.mock('../../store/auth.js',()=>({useAuthStore:()=>mocks.auth}));
+vi.mock('../transport.js',()=>({native:false,apiOrigin:'',MobileDevice:{},quickApiBase:'/api/quick-view',mobileApi:{request:mocks.request,get:mocks.get,post:mocks.post},randomSecret:()=>'',pkceChallenge:vi.fn(),accountUrl:()=>'',mobileRequestError:e=>e.response?.data?.error?.message || e.message}));
+vi.mock('axios',()=>({default:{get:mocks.get,post:mocks.quickPost,interceptors:{response:{use:vi.fn(),eject:vi.fn()}}}}));
 import MobileApp from '../MobileApp.vue';
 const profile={user:{id:1,firstName:'Test',email:'test@example.invalid'},workspace:{id:10,name:'My workspace'},agencies:[{id:10,name:'My workspace'}]};
-async function app(){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<span />'}}]});await router.push('/mobile');return mount(MobileApp,{global:{plugins:[router],stubs:{QuickView:{props:['mobileSession'],emits:['locked','account','open-workspace-item'],template:'<div data-testid="private-workspace"><button @click="$emit(\'locked\')">Test lock</button><button @click="$emit(\'account\')">My Account</button>Private inbox</div>'}}}});}
+async function app(){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/:pathMatch(.*)*',component:{template:'<span />'}}]});await router.push('/mobile');return mount(MobileApp,{global:{plugins:[router],stubs:{AccountSecurityPanel:{template:'<div>Existing account verification</div>'},QuickView:{props:['mobileSession'],emits:['locked','account','open-workspace-item'],template:'<div data-testid="private-workspace"><button @click="$emit(\'locked\')">Test lock</button><button @click="$emit(\'account\')">My Account</button>Private inbox</div>'}}}});}
 beforeEach(()=>{vi.resetAllMocks();sessionStorage.clear();localStorage.clear();history.replaceState(null,'','/mobile');mocks.quickPost.mockResolvedValue({});mocks.get.mockResolvedValue({data:profile});mocks.request.mockResolvedValue({data:{signedIn:true,needsCode:false,workspace:profile.workspace}});});
 it('unlocks the scoped account and locks without signing the device out',async()=>{
   const wrapper=await app();await flushPromises();expect(wrapper.text()).toContain('Your account is still signed in');
@@ -79,4 +80,13 @@ it('offers retry and an explicit account change when connect refuses a retained 
  mocks.get.mockRejectedValue({response:{status:403,data:{error:{message:'This account cannot use the staff mobile workspace.'}}}});
  const wrapper=await app();await flushPromises();expect(wrapper.text()).toContain('Sign in with a different account');expect(wrapper.text()).toContain('Try again');
  await wrapper.findAll('button').find(b=>b.text()==='Try again').trigger('click');await flushPromises();expect(mocks.get).toHaveBeenCalledTimes(2);expect(mocks.quickPost).not.toHaveBeenCalledWith('/api/auth/logout',expect.anything(),expect.anything());wrapper.unmount();
+});
+
+it('starts with username rather than requiring an organization name, and uses the existing school choice resolver',async()=>{mocks.request.mockRejectedValue({response:{status:401}});mocks.quickPost.mockResolvedValue({data:{needsOrgChoice:true,orgOptions:[{id:20,name:'Synthetic school',slug:'synthetic-school'}]}});const wrapper=await app();await flushPromises();expect(wrapper.text()).toContain('Username or email');expect(wrapper.text()).not.toContain('Organization workspace');await wrapper.get('input[autocomplete="username"]').setValue('school.staff@example.invalid');await wrapper.get('form').trigger('submit');await flushPromises();expect(mocks.quickPost).toHaveBeenCalledWith('/api/auth/identify',{username:'school.staff@example.invalid',surface:'schoolcarebridge'});expect(wrapper.text()).toContain('Synthetic school');wrapper.unmount();});
+
+it('keeps the device disconnected until the existing account verification succeeds',async()=>{
+ history.replaceState(null,'','/mobile/connect?clientId=web&challenge='+('a'.repeat(43))+'&state='+('b'.repeat(43))+'&loginPath=%2Fitsco%2Flogin');
+ mocks.get.mockRejectedValueOnce({response:{status:403,data:{error:{code:'MFA_REQUIRED'}}}}).mockResolvedValueOnce({data:{id:1,first_name:'Synthetic',last_name:'Parent',email:'parent@example.invalid',role:'client_guardian'}});
+ const wrapper=await app();await vi.waitFor(()=>expect(wrapper.text()).toContain('Verify your sign-in'));await vi.waitFor(()=>expect(wrapper.text()).toContain('Existing account verification'));expect(mocks.post).not.toHaveBeenCalled();
+ mocks.get.mockResolvedValue({data:{...profile,surface:'family'}});await wrapper.findAll('button').find(b=>b.text().includes('continue connecting')).trigger('click');await flushPromises();expect(wrapper.text()).toContain('Continue as Test');expect(wrapper.text()).not.toContain('Verify your sign-in');expect(mocks.post).not.toHaveBeenCalled();wrapper.unmount();
 });

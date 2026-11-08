@@ -6,36 +6,43 @@ import { assertHireStaffAccess } from '../hireStaffAccess.service.js';
 import { assertFullSuiteIdentity } from '../productIdentity.service.js';
 import { buildPublicPortalLoginUrl } from '../../utils/publicPortalUrl.js';
 import { startAuthenticatedMobileSession } from '../quickViewAuth.service.js';
-import {mobileQaScope} from './qaScope.service.js';
+import {FAMILY_ROLES,listMobileFamilyAgencies} from './familyScope.service.js';
+import {listMobileAgencies} from './agencyScope.service.js';
 import { accountFingerprint, digest, opaqueToken, validClient, validChallenge, verifyChallenge, requireQuickCode, failure, STAFF_ROLES, MAX_CODE_ATTEMPTS, DEVICE_IDLE_MS } from './policy.js';
 
-export function createMobileSessionService({ db=pool, findUser=id=>User.findById(id), assertStaff=assertHireStaffAccess, assertProduct=assertFullSuiteIdentity, issueSession=startAuthenticatedMobileSession, compare=bcrypt.compare, hash=code=>bcrypt.hash(code,12), now=()=>new Date() }={}) {
-  async function actor(userId, agencyId=null) {
+export function parsePrimaryAuthentication(value){try{const parsed=typeof value==='string'?JSON.parse(value):value;return parsed && typeof parsed.sessionKey==='string' && parsed.sessionKey.length<=128?{sessionKey:parsed.sessionKey,authMethod:parsed.authMethod==='google'?'google':'account',issuedAt:Number(parsed.issuedAt)||0}:null;}catch{return null;}}
+
+export function createMobileSessionService({ db=pool, findUser=id=>User.findById(id,{raw:true}), assertStaff=assertHireStaffAccess, assertProduct=assertFullSuiteIdentity, issueSession=startAuthenticatedMobileSession, compare=bcrypt.compare, hash=code=>bcrypt.hash(code,12), now=()=>new Date() }={}) {
+  async function actor(userId, agencyId=null,{loginHint=null}={}) {
     if(!Number.isSafeInteger(Number(userId)) || Number(userId)<=0 || agencyId!==null && (!Number.isSafeInteger(Number(agencyId)) || Number(agencyId)<=0))throw failure(400,'MOBILE_WORKSPACE_INVALID','Choose a valid workspace.');
     const user=await findUser(Number(userId));
     assertAccountEnabled(user);
+    if(loginHint){
+      const hint=String(loginHint).trim().toLowerCase();
+      const matched=await User.findByEmail(hint) || await User.findByUsername(hint);
+      if(!matched || Number(matched.id)!==Number(userId))throw failure(403,'MOBILE_ACCOUNT_MISMATCH','Sign in with the username you entered, or choose a different account.');
+    }
     await assertProduct(userId); await assertStaff({id:Number(userId)});
-    if(!STAFF_ROLES.has(String(user.role || '').toLowerCase()) || user.status_expires_at && new Date(user.status_expires_at)<=now()) throw failure(403,'MOBILE_ACCOUNT_UNAVAILABLE','This account cannot use the staff mobile workspace.');
-    const [agencyRows]=await db.execute(`SELECT a.* FROM user_agencies ua JOIN agencies a ON a.id=ua.agency_id
-      WHERE ua.user_id=? AND ua.is_active=1 AND a.is_active=1 AND COALESCE(a.is_archived,0)=0 ORDER BY a.name`,[Number(userId)]);
-    const scoped=mobileQaScope(user,agencyRows);
+    if(!STAFF_ROLES.has(String(user.role || '').toLowerCase()) && !FAMILY_ROLES.has(String(user.role || '').toLowerCase()) || user.status_expires_at && new Date(user.status_expires_at)<=now()) throw failure(403,'MOBILE_ACCOUNT_UNAVAILABLE','This account cannot use the staff mobile workspace.');
+    const family=FAMILY_ROLES.has(String(user.role).toLowerCase());
+    const scoped=family?await listMobileFamilyAgencies(user,{db}):await listMobileAgencies(user,{db});
     const agencies=scoped.agencies.map(a=>({id:a.id,name:a.name,portal_url:a.portal_url,loginUrl:buildPublicPortalLoginUrl(a)}));
     const workspace=agencyId ? agencies.find(a=>Number(a.id)===Number(agencyId)) : null;
     if(agencyId && !workspace) throw failure(403,'MOBILE_WORKSPACE_UNAVAILABLE','Your access to this workspace has changed.');
-    return {user,agencies,workspace,qaAgencyIds:scoped.qaAgencyIds};
+    return {user,agencies,workspace,surface:family?'family':'staff',qaAgencyIds:scoped.qaAgencyIds};
   }
   function lockInfo(device) { return {method:device.app_lock_method || (device.quick_code_hash?'code':'none'),hasCode:!!device.quick_code_hash}; }
   function publicProfile(context) {
     const {user,agencies,workspace}=context;
-    return {...(context.device?{appLock:lockInfo(context.device)}:{}),user:{id:user.id,firstName:user.first_name || '',lastName:user.last_name || '',email:user.email,role:user.role,profilePhotoPath:user.profile_photo_path || null},agencies,workspace};
+    return {surface:context.surface || 'staff',...(context.device?{appLock:lockInfo(context.device)}:{}),user:{id:user.id,firstName:user.first_name || '',lastName:user.last_name || '',email:user.email,role:user.role,profilePhotoPath:user.profile_photo_path || null},agencies,workspace};
   }
-  async function authorize({userId,agencyId,clientId,redirectUri,challenge}) {
+  async function authorize({userId,agencyId,clientId,redirectUri,challenge,primaryAuthentication=null}) {
     validClient(clientId,redirectUri);validChallenge(challenge);
     if(!agencyId)throw failure(400,'MOBILE_WORKSPACE_INVALID','Choose a workspace.');
     const context=await actor(userId,agencyId);
     const code=opaqueToken();
-    await db.execute(`INSERT INTO mobile_authorization_codes (code_hash,user_id,agency_id,client_id,redirect_uri,code_challenge,account_fingerprint,expires_at)
-      VALUES (?,?,?,?,?,?,?,?)`,[digest(code),Number(userId),Number(agencyId),clientId,redirectUri,challenge,accountFingerprint(context.user),new Date(now().getTime()+300000)]);
+    await db.execute(`INSERT INTO mobile_authorization_codes (code_hash,user_id,agency_id,client_id,redirect_uri,code_challenge,account_fingerprint,expires_at,primary_authentication_json)
+      VALUES (?,?,?,?,?,?,?,?,?)`,[digest(code),Number(userId),Number(agencyId),clientId,redirectUri,challenge,accountFingerprint(context.user),new Date(now().getTime()+300000),primaryAuthentication?JSON.stringify(primaryAuthentication):null]);
     return {code,redirectUri};
   }
   async function exchange({code,verifier,clientId,redirectUri,deviceName},existingToken=null) {
@@ -67,6 +74,7 @@ export function createMobileSessionService({ db=pool, findUser=id=>User.findById
           VALUES (?,?,?,?,?,?,?,?, 'none')`,[grant.user_id,grant.agency_id,digest(token),grant.account_fingerprint,clientId,String(deviceName || (clientId==='ios'?'iPhone':'Browser')).slice(0,120),now(),now()]);
         deviceId=result.insertId;
       }
+      await connection.execute('UPDATE mobile_device_sessions SET primary_authentication_json=? WHERE id=?',[typeof grant.primary_authentication_json==='string'?grant.primary_authentication_json:grant.primary_authentication_json?JSON.stringify(grant.primary_authentication_json):null,deviceId]);
       await connection.execute('UPDATE mobile_authorization_codes SET consumed_at=? WHERE id=? AND consumed_at IS NULL',[now(),grant.id]);
       await connection.commit();
       enrollment={deviceToken:token,deviceId,newDevice:!existing};
@@ -82,6 +90,12 @@ export function createMobileSessionService({ db=pool, findUser=id=>User.findById
     let context;
     try{context=await actor(row.user_id,row.agency_id);}catch(error){await revokeById(row.id);throw error;}
     if(row.account_fingerprint!==accountFingerprint(context.user)){await revokeById(row.id);throw failure(401,'MOBILE_ACCOUNT_CHANGED','Sign in again after the account security change.');}
+    if(db===pool){
+      const [[revocation]]=await db.execute('SELECT reject_issued_before FROM user_auth_revocations WHERE user_id=?',[row.user_id]);
+      const primary=parsePrimaryAuthentication(row.primary_authentication_json);
+      const issuedAt=primary?.issuedAt || Math.floor(new Date(row.enrolled_at).getTime()/1000);
+      if(Number(revocation?.reject_issued_before)>0 && (!Number.isFinite(issuedAt) || issuedAt<=Number(revocation.reject_issued_before))){await revokeById(row.id);throw failure(401,'MOBILE_ACCOUNT_CHANGED','Sign in again after the account security change.');}
+    }
     return {device:row,...context};
   }
   async function device(raw) {

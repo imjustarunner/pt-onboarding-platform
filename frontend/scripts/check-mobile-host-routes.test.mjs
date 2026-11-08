@@ -33,7 +33,7 @@ test('generated auricwell.com nginx serves mobile routes and its push worker', {
       try {await requestHost('/mobile');break;}
       catch(error){if(attempt===29)throw error;await new Promise(resolve=>setTimeout(resolve,100));}
     }
-    for(const path of ['/mobile','/mobile/','/mobile/workspace?kind=chat&id=2','/mobile/connect','/mobile/callback','/mobile.html']) {
+    for(const path of ['/mobile','/mobile/','/mobile/workspace?kind=chat&id=2','/mobile/family/synthetic/guardian?panel=family','/mobile/family/synthetic/guardian/waivers','/mobile/connect','/mobile/callback','/mobile.html']) {
       const response=await requestHost(path);
       assert.equal(response.status,200,path);assert.match(await response.text(),/MOBILE-FIXTURE/,path);
       assert.match(response.headers.get('cache-control'),/no-store/,path);

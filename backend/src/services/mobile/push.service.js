@@ -60,31 +60,51 @@ export function createMobilePushWorker({db=pool, sessions=mobileSessions, conver
   async function permitted(device, kind, id, context=null) {
     context=context || await sessions.access(device.id,device.user_id,device.agency_id);
     const uid=Number(device.user_id);
+    const agencyScope=column=>{
+      if(Array.isArray(context.agencies)){
+        const ids=context.agencies.map(a=>Number(a.id)).filter(id=>Number.isSafeInteger(id)&&id>0);
+        return {sql:ids.length?`${column} IN(${ids.map(()=>'?').join(',')})`:'FALSE',params:ids};
+      }
+      return {sql:`EXISTS(SELECT 1 FROM user_agencies member JOIN agencies a ON a.id=member.agency_id WHERE member.user_id=? AND member.agency_id=${column} AND member.is_active=1 AND a.is_active=1 AND COALESCE(a.is_archived,0)=0)`,params:[uid]};
+    };
+    if(context.surface==='family'){
+      if(kind!=='chat')return null;
+      const [[row]]=await db.execute(`SELECT m.thread_id,t.agency_id FROM chat_messages m JOIN chat_threads t ON t.id=m.thread_id
+        JOIN chat_thread_participants p ON p.thread_id=t.id AND p.user_id=? JOIN agencies a ON a.id=t.agency_id AND a.is_active=1 AND COALESCE(a.is_archived,0)=0
+        WHERE m.id=? AND t.message_channel='secure' AND m.sender_user_id<>? AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)
+        AND NOT EXISTS(SELECT 1 FROM notifications n LEFT JOIN notification_user_reads r ON r.notification_id=n.id AND r.user_id=?
+          WHERE n.user_id=? AND n.related_entity_type='chat_thread' AND n.related_entity_id=t.id AND COALESCE(r.muted_until,n.muted_until)>NOW()) LIMIT 1`,[uid,id,uid,uid,uid,uid]);
+      if(!row)return null;
+      try{await refreshSecure(row.thread_id,uid);return Number(row.thread_id);}catch(error){if([403,404].includes(error.status))return null;throw error;}
+    }
+
     if(kind==='chat') {
+      const scope=agencyScope('t.agency_id');
       const [[row]]=await db.execute(`SELECT m.thread_id,t.agency_id FROM chat_messages m
         JOIN chat_threads t ON t.id=m.thread_id JOIN chat_thread_participants p ON p.thread_id=t.id AND p.user_id=?
-        WHERE m.id=? AND EXISTS(SELECT 1 FROM user_agencies member JOIN agencies a ON a.id=member.agency_id
-          WHERE member.user_id=? AND member.agency_id=t.agency_id AND member.is_active=1 AND a.is_active=1 AND COALESCE(a.is_archived,0)=0) AND m.sender_user_id<>?
+        WHERE m.id=? AND ${scope.sql} AND m.sender_user_id<>?
         AND NOT EXISTS (SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=?)
         AND NOT EXISTS (SELECT 1 FROM notifications n LEFT JOIN notification_user_reads r ON r.notification_id=n.id AND r.user_id=?
           WHERE n.user_id=? AND n.related_entity_type='chat_thread' AND n.related_entity_id=t.id
-          AND COALESCE(r.muted_until,n.muted_until)>NOW()) LIMIT 1`,[uid,id,uid,uid,uid,uid,uid]);
+          AND COALESCE(r.muted_until,n.muted_until)>NOW()) LIMIT 1`,[uid,id,...scope.params,uid,uid,uid,uid]);
       if(!row || !qaAgencyAllowed(context.qaAgencyIds,row.agency_id))return null;
       try{await refreshSecure(row.thread_id,uid);}catch(error){if([403,404].includes(error.status))return null;throw error;}
       return Number(row.thread_id);
     }
     if(kind==='email') {
+      const scope=agencyScope('c.agency_id');
       const [[row]]=await db.execute(`SELECT m.conversation_id,c.agency_id FROM communication_messages m JOIN communication_conversations c ON c.id=m.conversation_id
-        WHERE m.id=? AND EXISTS(SELECT 1 FROM user_agencies member JOIN agencies a ON a.id=member.agency_id WHERE member.user_id=? AND member.agency_id=c.agency_id AND member.is_active=1 AND a.is_active=1 AND COALESCE(a.is_archived,0)=0) AND m.channel='email' AND m.direction='inbound' AND m.is_internal_note=0`,[id,uid]);
+        WHERE m.id=? AND ${scope.sql} AND m.channel='email' AND m.direction='inbound' AND m.is_internal_note=0`,[id,...scope.params]);
       if(!row || !qaAgencyAllowed(context.qaAgencyIds,row.agency_id))return null;
-      try { await conversationAccess({id:uid,role:'provider'},row.conversation_id); return Number(row.conversation_id); }
+      try { await conversationAccess({id:uid,role:'provider',mobileDevice:true},row.conversation_id); return Number(row.conversation_id); }
       catch(error) { if(error.status===403 || error.status===404)return null; throw error; }
     }
     if(kind==='sms') {
-      const [[row]]=await db.execute(`SELECT ml.id,ml.agency_id FROM message_logs ml WHERE ml.id=? AND EXISTS(SELECT 1 FROM user_agencies member JOIN agencies a ON a.id=member.agency_id WHERE member.user_id=? AND member.agency_id=ml.agency_id AND member.is_active=1 AND a.is_active=1 AND COALESCE(a.is_archived,0)=0) AND ml.direction='INBOUND'
+      const scope=agencyScope('ml.agency_id');
+      const [[row]]=await db.execute(`SELECT ml.id,ml.agency_id FROM message_logs ml WHERE ml.id=? AND ${scope.sql} AND ml.direction='INBOUND'
         AND (ml.user_id=? OR ml.assigned_user_id=? OR ml.number_id IN
           (SELECT number_id FROM twilio_number_assignments WHERE user_id=? AND is_active=1 AND sms_access_enabled=1)
-          OR ${assignedSmsAccessSql}) LIMIT 1`,[id,uid,uid,uid,uid,uid,uid,uid]);
+          OR ${assignedSmsAccessSql}) LIMIT 1`,[id,...scope.params,uid,uid,uid,uid,uid,uid]);
       return row && qaAgencyAllowed(context.qaAgencyIds,row.agency_id) ? Number(row.id) : null;
     }
     return null;

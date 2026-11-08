@@ -2,7 +2,7 @@ import {beforeAll,afterAll,beforeEach,it,expect,vi} from 'vitest';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 const mocks=vi.hoisted(()=>({execute:vi.fn(),access:vi.fn(),permitted:vi.fn(),exchange:vi.fn(),authorize:vi.fn(),device:vi.fn(),unlock:vi.fn(),configureLock:vi.fn(),resume:vi.fn(),lockInfo:row=>({method:row.quick_code_hash?'code':'none',hasCode:!!row.quick_code_hash})}));
-vi.mock('../../../middleware/auth.middleware.js',()=>({authenticate:(req,_res,next)=>{req.user={id:1,switchedFromUserId:req.get('X-Test-Impersonating')?2:null};req.authClaims={demoMode:req.get('X-Test-Demo')==='1',testAccountSwitch:req.get('X-Test-Switch')==='1'};next();}}));
+vi.mock('../../../middleware/auth.middleware.js',()=>({authenticate:(req,_res,next)=>{req.user={id:1,switchedFromUserId:req.get('X-Test-Impersonating')?2:null};req.sessionSecurity={key:'server-verification-key'};req.authClaims={iat:1794150000,authMethod:'google',demoMode:req.get('X-Test-Demo')==='1',testAccountSwitch:req.get('X-Test-Switch')==='1'};next();}}));
 vi.mock('../../../middleware/loginProtection.middleware.js',()=>({sharedLoginLimiter:()=>((_req,_res,next)=>next())}));
 vi.mock('../session.service.js',()=>({mobileSessions:mocks}));
 vi.mock('../../quickViewAuth.service.js',()=>({touchSession:vi.fn()}));
@@ -58,4 +58,9 @@ it('opens a notification at its exact authorized secure reply without exchanging
 it('does not resolve a notification after its conversation access has been revoked',async()=>{
  touchSession.mockResolvedValue({mobileDeviceSessionId:7,userId:1,agencyId:10});mocks.access.mockResolvedValue({device:{id:7,user_id:1,agency_id:10}});mocks.permitted.mockResolvedValue(null);
  const response=await fetch(base+'/notification-target/chat/88',{headers:{'X-Quick-View-Session':'retained-scoped'}});expect(response.status).toBe(404);expect(mocks.execute).not.toHaveBeenCalled();
+});
+
+it('keeps verified enrollment context server-owned instead of accepting a client claim',async()=>{
+ const response=await post('/authorize',{expectedUserId:1,agencyId:10,primaryAuthentication:{sessionKey:'forged',authMethod:'google',issuedAt:9999999999}});
+ expect(response.status).toBe(200);expect(mocks.authorize).toHaveBeenCalledWith(expect.objectContaining({primaryAuthentication:{sessionKey:'server-verification-key',authMethod:'google',issuedAt:1794150000}}));
 });

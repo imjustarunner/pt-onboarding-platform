@@ -47,6 +47,7 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('isolated MySQL device sessi
     const migration=await readFile(new URL('../../../../../database/migrations/1762_auricwell_mobile_device_sessions.sql',import.meta.url),'utf8');
     await db.query(migration);
     await db.query(await readFile(new URL('../../../../../database/migrations/1768_mobile_optional_app_lock.sql',import.meta.url),'utf8'));
+    await db.query(await readFile(new URL('../../../../../database/migrations/1778_mobile_primary_authentication_context.sql',import.meta.url),'utf8'));
   });
   afterAll(async()=>{await db?.end();if(admin){await admin.query(`DROP DATABASE ${name}`);await admin.end();}});
   beforeEach(async()=>{
@@ -58,10 +59,10 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('isolated MySQL device sessi
     service=createMobileSessionService({db,findUser:async id=>(await db.execute('SELECT * FROM users WHERE id=?',[id]))[0][0],assertStaff:async()=>{},assertProduct:async()=>{},now:()=>clock,
       issueSession:async({userId,agencyId,mobileDeviceId,mobileDeviceVersion=0})=>{const sessionToken=opaqueToken(),expiresAt=new Date(clock.getTime()+600000);await db.execute('INSERT INTO quick_view_sessions(user_id,agency_id,mobile_device_session_id,session_token_hash,credential_token_version,expires_at)VALUES(?,?,?,?,?,?)',[userId,agencyId,mobileDeviceId,digest(sessionToken),mobileDeviceVersion,expiresAt]);return {sessionToken,userId,agencyId,expiresAt};}});
   });
-  async function enroll(clientId='web',existingToken=null) {
+  async function enroll(clientId='web',existingToken=null,primaryAuthentication=null) {
     const verifier=opaqueToken(),challenge=crypto.createHash('sha256').update(verifier).digest('base64url');
     const callback=clientId==='web'?redirectUri:'com.auricwell.mobile://auth';
-    const grant=await service.authorize({userId:1,agencyId:10,clientId,redirectUri:callback,challenge});
+    const grant=await service.authorize({userId:1,agencyId:10,clientId,redirectUri:callback,challenge,primaryAuthentication});
     return {...await service.exchange({code:grant.code,verifier,clientId,redirectUri:callback},existingToken),code:grant.code,verifier};
   }
   it('rejects a wrong verifier without consuming the code; allows exactly one exchange',async()=>{
@@ -70,6 +71,16 @@ describe.runIf(process.env.MOBILE_MYSQL_TEST==='1')('isolated MySQL device sessi
     await expect(service.exchange({code,verifier:opaqueToken(),clientId:'web',redirectUri})).rejects.toMatchObject({code:'MOBILE_CODE_EXPIRED'});
     const results=await Promise.allSettled([1,2].map(()=>service.exchange({code,verifier,clientId:'web',redirectUri})));
     expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(1);
+  });
+  it('retains server verification context through code exchange and replaces it on re-enrollment without exposing it',async()=>{
+    const proof={sessionKey:'original-verified-session',authMethod:'account',issuedAt:Math.floor(clock.getTime()/1000)};
+    const grant=await enroll('web',null,proof),context=await service.device(grant.deviceToken);
+    const decode=value=>typeof value==='string'?JSON.parse(value):value;
+    expect(decode(context.device.primary_authentication_json)).toEqual(proof);
+    expect(JSON.stringify(grant.profile)).not.toContain(proof.sessionKey);
+    const replacement={...proof,sessionKey:'new-verified-session'};
+    const renewed=await enroll('web',grant.deviceToken,replacement);
+    expect(renewed.deviceId).toBe(grant.deviceId);expect(decode((await service.device(grant.deviceToken)).device.primary_authentication_json)).toEqual(replacement);
   });
   it('does not require a code and retains the chosen lock across repeated sign-in',async()=>{
     const first=await enroll();expect(first.needsCode).toBe(false);expect(first.profile.appLock.method).toBe('none');

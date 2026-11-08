@@ -4,6 +4,7 @@ vi.mock('../../../config/database.js',()=>({default:db,onTableWrite:vi.fn()}));
 vi.mock('../../../models/User.model.js',()=>({default:{findById:vi.fn(),getAgencies:vi.fn()}}));
 vi.mock('../../clientSecureConversation.service.js',()=>({refreshClientSecureAccess:vi.fn(),ensureClientSecureConversation:vi.fn(),resolveClientForSecureRecipients:vi.fn()}));
 vi.mock('../../secureMessageBoundary.service.js',()=>({recordSecureThreadOpen:vi.fn(async()=> 'secure'),recordSecureMessageEvent:vi.fn(),defaultChatChannel:vi.fn()}));
+vi.mock('../../agencyAccessProfiles.service.js',()=>({readAgencyAccess:vi.fn(async()=>({role:'provider'}))}));
 import {listMessages} from '../../../controllers/chat.controller.js';
 const root={id:77,thread_id:55,parent_message_id:null,sender_user_id:2,sender_first_name:'Jordan',body:'ORIGINAL CONTEXT',created_at:'2026-11-06T12:00:00Z'};
 const reply={id:88,thread_id:55,parent_message_id:77,sender_user_id:1,sender_first_name:'Taylor',body:'EXACT NOTIFICATION REPLY',created_at:'2026-11-06T12:30:00Z'};

@@ -1,13 +1,20 @@
 import pool from '../../config/database.js';
 import {publicUploadsUrlFromStoredPath} from '../../utils/uploads.js';
 
-export async function requireMobileThreadMembership(userId,threadId,db=pool){
-  const [rows]=await db.execute(`SELECT 1 FROM chat_thread_participants p JOIN chat_threads t ON t.id=p.thread_id
-    JOIN user_agencies ua ON ua.user_id=p.user_id AND ua.agency_id=t.agency_id AND COALESCE(ua.is_active,1)=1
+export async function requireMobileThreadMembership(userId,threadId,db=pool,verifyAccess=null){
+  const base=`FROM chat_thread_participants p JOIN chat_threads t ON t.id=p.thread_id
     JOIN agencies a ON a.id=t.agency_id AND a.is_active=1 AND COALESCE(a.is_archived,0)=0
-    JOIN users actor ON actor.id=p.user_id AND (LOWER(actor.role)<>'school_staff' OR t.message_channel<>'secure')
+    JOIN users actor ON actor.id=p.user_id AND (LOWER(actor.role)<>'school_staff' OR t.message_channel<>'secure')`;
+  const [rows]=await db.execute(`SELECT 1 ${base}
+    JOIN user_agencies ua ON ua.user_id=p.user_id AND ua.agency_id=t.agency_id AND COALESCE(ua.is_active,1)=1
     WHERE p.thread_id=? AND p.user_id=? LIMIT 1`,[threadId,userId]);
-  if(!rows.length)throw Object.assign(new Error('Access denied to this conversation.'),{status:403});return true;
+  if(rows.length)return true;
+  if(db===pool || verifyAccess){
+    const [threads]=await db.execute(`SELECT t.agency_id ${base} WHERE p.thread_id=? AND p.user_id=? LIMIT 1`,[threadId,userId]);
+    const check=verifyAccess || (await import('../agencyAccessProfiles.service.js')).readAgencyAccess;
+    if(threads.length && await check(userId,threads[0].agency_id,db))return true;
+  }
+  throw Object.assign(new Error('Access denied to this conversation.'),{status:403});
 }
 
 export const MOBILE_DESTINATIONS = ['calendar','home','tasks','mywork','noteaid','presence','contacts'];
@@ -40,7 +47,7 @@ export function mobileThreadItem(thread,userId) {
   const title=(category==='direct'?names.join(', ') || name(thread.other_participant):thread.channel_name || (['Group chat','Shared care','Personal portal'].includes(thread.thread_label)?null:thread.thread_label) || names.join(', ')) || (secure?'Secure conversation':category==='direct'?'Direct conversation':'Team discussion');
   const author=parts.find(p=>Number(p.id)===Number(thread.last_message?.sender_user_id));
   const sender=Number(thread.last_message?.sender_user_id)===Number(userId)?'You':name(author) || title;
-  return {key:`chat:${thread.thread_id}`,id:Number(thread.thread_id),kind:'chat',category,title:secure?maskMobileName(title):title,sender:secure?maskMobileName(sender):sender,preview:secure?'Secure message · tap to unlock':mobileMessagePreview(thread.last_message?.body,thread.last_message?.attachment_count),at:thread.last_message?.created_at || null,unread:Number(thread.unread_count)>0,unreadCount:Number(thread.unread_count)||0,needsReply:!!thread.last_message?.sender_user_id && Number(thread.last_message.sender_user_id)!==Number(userId),avatar:secure?null:publicUploadsUrlFromStoredPath((category==='direct'?parts[0]:author)?.profile_photo_url || (category==='direct'?parts[0]:author)?.profile_photo_path || thread.other_participant?.profile_photo_url || thread.other_participant?.profile_photo_path),lastReadMessageId:Number(thread.last_read_message_id)||0,participantCount:parts.length+1,secure};
+  return {key:`chat:${thread.thread_id}`,agencyId:Number(thread.agency_id),agencyName:thread.agency_name || null,id:Number(thread.thread_id),kind:'chat',category,title:secure?maskMobileName(title):title,sender:secure?maskMobileName(sender):sender,preview:secure?'Secure message · tap to unlock':mobileMessagePreview(thread.last_message?.body,thread.last_message?.attachment_count),at:thread.last_message?.created_at || null,unread:Number(thread.unread_count)>0,unreadCount:Number(thread.unread_count)||0,needsReply:!!thread.last_message?.sender_user_id && Number(thread.last_message.sender_user_id)!==Number(userId),avatar:secure?null:publicUploadsUrlFromStoredPath((category==='direct'?parts[0]:author)?.profile_photo_url || (category==='direct'?parts[0]:author)?.profile_photo_path || thread.other_participant?.profile_photo_url || thread.other_participant?.profile_photo_path),lastReadMessageId:Number(thread.last_read_message_id)||0,participantCount:parts.length+1,secure};
 }
 // Preserve the personal mailbox and active-tenant checks used by Quick View.
 export const MOBILE_EMAIL_ACCESS_SQL = `EXISTS (SELECT 1 FROM user_agencies member JOIN agencies active_agency ON active_agency.id=member.agency_id AND active_agency.is_active=1 AND COALESCE(active_agency.is_archived,0)=0 WHERE member.user_id=? AND member.agency_id=c.agency_id AND COALESCE(member.is_active,1)=1)
@@ -57,7 +64,7 @@ const unknownSql=`(c.channel='email' AND COALESCE(c.is_unknown_sender,0)=1 AND N
   AND NOT EXISTS(SELECT 1 FROM email_sender_identities known_sender WHERE known_sender.is_active=1 AND ${emailAddressSql('known_sender.from_email')}=${senderAddress})
   AND NOT EXISTS(SELECT 1 FROM communication_inboxes known_box WHERE ${emailAddressSql('known_box.from_email')}=${senderAddress}))`;
 const unreadSql=`(COALESCE(r.forced_unread,0)=1 OR EXISTS(SELECT 1 FROM communication_messages incoming WHERE incoming.conversation_id=c.id AND incoming.direction='inbound' AND COALESCE(incoming.is_internal_note,0)=0 AND COALESCE(incoming.send_status,'sent') NOT IN('cancelled','preparing') AND (r.last_read_at IS NULL OR r.last_read_at<COALESCE(incoming.sent_at,incoming.created_at))))`;
-export function createMobileConversaStore(db=pool) {
+export function createMobileConversaStore(db=pool,{listAgencies=null,groupAccess=null}={}) {
   async function preferences(userId) {
     const [[row]]=await db.execute('SELECT preferences_json FROM mobile_workspace_preferences WHERE user_id=?',[userId]);
     let value=row?.preferences_json || {};if(typeof value==='string')try{value=JSON.parse(value);}catch{value={};}
@@ -75,30 +82,52 @@ export function createMobileConversaStore(db=pool) {
     if(active)await db.execute('INSERT INTO mobile_message_archives(user_id,source_kind,source_id) VALUES(?,?,?) ON DUPLICATE KEY UPDATE archived_at=CURRENT_TIMESTAMP',[userId,kind,id]);
     else await db.execute('DELETE FROM mobile_message_archives WHERE user_id=? AND source_kind=? AND source_id=?',[userId,kind,id]);
   }
-  function emailScope(userId,includeArchived,agencyId=null) {return {where:`c.channel IN('email','sms') AND COALESCE(c.is_spam,0)=0 AND ${MOBILE_EMAIL_ACCESS_SQL} ${includeArchived?'':'AND c.archived_at IS NULL AND archive.archived_at IS NULL'} ${agencyId?'AND c.agency_id=?':''}`,params:[...Array(6).fill(userId),...(agencyId?[agencyId]:[])]};}
+  async function emailScope(userId,includeArchived,agencyId=null) {
+    let access=MOBILE_EMAIL_ACCESS_SQL,params=Array(6).fill(userId),groupIds=[],groupAddresses=[];
+    if(db===pool || listAgencies){
+      const {default:User}=await import('../../models/User.model.js');const {listMobileAgencies}=await import('./agencyScope.service.js');const {groupKeyForIdentity,canAccessDepartmentalGroup}=await import('../departmentalGroupAccess.service.js');
+      const user=listAgencies?{id:userId}:await User.findById(userId,{raw:true}),{agencies}=await (listAgencies || listMobileAgencies)(user);
+      const ids=agencies.map(a=>Number(a.id)).filter(id=>!agencyId || id===Number(agencyId));
+      if(!ids.length)return {where:'1=0',params:[],groupIds};
+      const [boxes]=await db.execute(`SELECT * FROM communication_inboxes WHERE agency_id IN(${ids.map(()=>'?').join(',')}) AND kind<>'personal'`,ids);
+      const [managed]=await db.execute(`SELECT g.email FROM managed_workspace_groups g JOIN chat_thread_participants p ON p.thread_id=g.chat_thread_id AND p.user_id=? WHERE g.agency_id IN(${ids.map(()=>'?').join(',')})`,[userId,...ids]);
+      groupAddresses=[...new Set(managed.map(group=>String(group.email || '').trim().toLowerCase()).filter(Boolean))];
+      const denied=[];
+      for(const box of boxes){const key=groupKeyForIdentity(box);if(!key){if(!box.owner_user_id && groupAddresses.includes(String(box.from_email || '').trim().toLowerCase()))groupIds.push(Number(box.id));continue;}if(await (groupAccess || canAccessDepartmentalGroup)({agencyId:box.agency_id,userId,groupKey:key,db}))groupIds.push(Number(box.id));else denied.push(Number(box.id));}
+      const personal=MOBILE_EMAIL_ACCESS_SQL.slice(MOBILE_EMAIL_ACCESS_SQL.indexOf('AND (')+4);
+      access=`c.agency_id IN(${ids.map(()=>'?').join(',')}) AND (${personal}${groupIds.length?` OR c.inbox_id IN(${groupIds.map(()=>'?').join(',')})`:''})${denied.length?` AND (c.inbox_id IS NULL OR c.inbox_id NOT IN(${denied.map(()=>'?').join(',')}))`:''}`;
+      params=[...ids,...Array(5).fill(userId),...groupIds,...denied];
+    }
+    return {where:`c.channel IN('email','sms') AND COALESCE(c.is_spam,0)=0 AND ${access} ${includeArchived?'':'AND c.archived_at IS NULL AND archive.archived_at IS NULL'} ${agencyId?'AND c.agency_id=?':''}`,params:[...params,...(agencyId?[agencyId]:[])],groupIds,groupAddresses};
+  }
+  function groupSql(scope){
+    const clauses=[];if(scope.groupIds.length)clauses.push(`c.inbox_id IN(${scope.groupIds.join(',')})`);
+    if(scope.groupAddresses?.length){const addresses=scope.groupAddresses.map(email=>`CONVERT(0x${Buffer.from(email,'utf8').toString('hex')} USING utf8mb4) COLLATE utf8mb4_unicode_ci`).join(',');clauses.push(`EXISTS(SELECT 1 FROM communication_participants member_group WHERE member_group.conversation_id=c.id AND ${emailAddressSql('member_group.email')} IN(${addresses}))`);}
+    return clauses.length?'('+clauses.join(' OR ')+')':'0';
+  }
   async function emails(userId,{includeArchived=false,beforeAt=null,beforeKey=null,suite='all',filter='all',agencyId=null}={}) {
-    const scope=emailScope(userId,includeArchived,agencyId);
-    const [rows]=await db.execute(`SELECT c.id,c.channel,c.subject,c.status,c.last_message_preview,COALESCE(c.last_message_at,c.created_at) AS sort_at,
+    const scope=await emailScope(userId,includeArchived,agencyId);
+    const [rows]=await db.execute(`SELECT c.id,c.agency_id,c.inbox_id,${groupSql(scope)} AS is_group,c.channel,c.subject,c.status,c.last_message_preview,COALESCE(c.last_message_at,c.created_at) AS sort_at,
       COALESCE(archive.archived_at,c.archived_at) AS archived_at,${unreadSql} AS is_unread,${unknownSql} AS is_unknown_sender,
       (SELECT p.display_name FROM communication_participants p WHERE p.conversation_id=c.id ORDER BY p.is_primary DESC,p.id LIMIT 1) AS sender_name,
       ${senderAddress} AS sender_email,
       (SELECT m.from_json FROM communication_messages m WHERE m.conversation_id=c.id AND COALESCE(m.is_internal_note,0)=0 AND COALESCE(m.send_status,'sent') NOT IN('cancelled','preparing') ORDER BY m.id DESC LIMIT 1) AS latest_from
       FROM communication_conversations c LEFT JOIN communication_conversation_reads r ON r.conversation_id=c.id AND r.user_id=?
       LEFT JOIN mobile_message_archives archive ON archive.user_id=? AND archive.source_kind=c.channel AND archive.source_id=c.id
-      WHERE ${scope.where} ${['email','sms'].includes(suite)?`AND c.channel='${suite}' AND NOT ${unknownSql}`:suite==='unknown'?`AND ${unknownSql}`:''} ${filter==='unread'?`AND ${unreadSql}`:filter==='needs'?"AND c.status IN('new','needs_reply')":''} ${beforeAt?(beforeKey?"AND (COALESCE(c.last_message_at,c.created_at)<? OR (COALESCE(c.last_message_at,c.created_at)=? AND CONCAT(c.channel,':',LPAD(c.id,20,'0'))<?))":'AND COALESCE(c.last_message_at,c.created_at)<=?'):''}
+      WHERE ${scope.where} ${suite==='groups'?`AND ${groupSql(scope)}`:['email','sms'].includes(suite)?`AND c.channel='${suite}' AND NOT ${unknownSql} AND NOT ${groupSql(scope)}`:suite==='unknown'?`AND ${unknownSql}`:''} ${filter==='unread'?`AND ${unreadSql}`:filter==='needs'?"AND c.status IN('new','needs_reply')":''} ${beforeAt?(beforeKey?"AND (COALESCE(c.last_message_at,c.created_at)<? OR (COALESCE(c.last_message_at,c.created_at)=? AND CONCAT(c.channel,':',LPAD(c.id,20,'0'))<?))":'AND COALESCE(c.last_message_at,c.created_at)<=?'):''}
       ORDER BY COALESCE(c.last_message_at,c.created_at) DESC,c.channel DESC,c.id DESC LIMIT 101`,[userId,userId,...scope.params,...(beforeAt?(beforeKey?[new Date(beforeAt),new Date(beforeAt),beforeKey]:[new Date(beforeAt)]):[])]);
     return rows.map(r=>{
       let from=r.latest_from || {};if(typeof from==='string')try{from=JSON.parse(from);}catch{from={};}
-      return {key:`${r.channel}:${r.id}`,kind:r.channel,category:r.channel,id:Number(r.id),title:r.subject || '(No subject)',sender:from.name || r.sender_name || from.email || r.sender_email || 'Sender',senderEmail:from.email || r.sender_email,preview:r.last_message_preview || '',at:r.sort_at,archived:!!r.archived_at,unread:!!Number(r.is_unread),unreadCount:r.is_unread?1:0,needsReply:['new','needs_reply'].includes(r.status),unknown:!!Number(r.is_unknown_sender)};
+      return {key:`${r.channel}:${r.id}`,kind:r.channel,category:Number(r.is_group)?'groups':r.channel,agencyId:Number(r.agency_id),id:Number(r.id),title:r.subject || '(No subject)',sender:from.name || r.sender_name || from.email || r.sender_email || 'Sender',senderEmail:from.email || r.sender_email,preview:r.last_message_preview || '',at:r.sort_at,archived:!!r.archived_at,unread:!!Number(r.is_unread),unreadCount:r.is_unread?1:0,needsReply:['new','needs_reply'].includes(r.status),unknown:!Number(r.is_group) && !!Number(r.is_unknown_sender)};
     });
   }
   async function emailCounts(userId,includeArchived=false,agencyId=null) {
-    const scope=emailScope(userId,includeArchived,agencyId);
-    const [rows]=await db.execute(`SELECT c.channel,${unknownSql} AS effective_unknown,COUNT(*) AS total,SUM(${unreadSql}) AS unread,SUM(c.status IN('new','needs_reply')) AS needs FROM communication_conversations c
+    const scope=await emailScope(userId,includeArchived,agencyId);
+    const [rows]=await db.execute(`SELECT c.channel,${groupSql(scope)} AS is_group,${unknownSql} AS effective_unknown,COUNT(*) AS total,SUM(${unreadSql}) AS unread,SUM(c.status IN('new','needs_reply')) AS needs FROM communication_conversations c
       LEFT JOIN communication_conversation_reads r ON r.conversation_id=c.id AND r.user_id=?
       LEFT JOIN mobile_message_archives archive ON archive.user_id=? AND archive.source_kind=c.channel AND archive.source_id=c.id
-      WHERE ${scope.where} GROUP BY c.channel,effective_unknown`,[userId,userId,...scope.params]);
-    return rows.map(r=>({category:r.channel,unknown:!!Number(r.effective_unknown),total:Number(r.total),unread:Number(r.unread)||0,needs:Number(r.needs)||0}));
+      WHERE ${scope.where} GROUP BY c.channel,is_group,effective_unknown`,[userId,userId,...scope.params]);
+    return rows.map(r=>({category:Number(r.is_group)?'groups':r.channel,unknown:!!Number(r.effective_unknown),total:Number(r.total),unread:Number(r.unread)||0,needs:Number(r.needs)||0}));
   }
   async function extraCounts(userId,threadIds) {
     const result=Object.fromEntries(['threads','mentions','files'].map(key=>[key,{total:0,unread:0,needs:0}]));if(!threadIds.length)return result;
@@ -108,7 +137,7 @@ export function createMobileConversaStore(db=pool) {
       let join='',where='',target='m.id',whereParams=[];
       if(kind==='threads'){
         join='JOIN chat_messages root ON root.id=m.parent_message_id';target='root.id';
-        where='AND root.parent_message_id IS NULL AND (root.sender_user_id=? OR EXISTS(SELECT 1 FROM chat_messages mine WHERE mine.parent_message_id=root.id AND mine.sender_user_id=?)) AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=root.id AND d.user_id=?)';whereParams=[userId,userId,userId];
+        where='AND root.parent_message_id IS NULL AND NOT EXISTS(SELECT 1 FROM chat_message_deletes d WHERE d.message_id=root.id AND d.user_id=?)';whereParams=[userId];
       }else if(kind==='mentions'){
         join='JOIN chat_message_mentions mention ON mention.message_id=m.id';where='AND mention.mentioned_user_id=?';whereParams=[userId];
       }else{join='JOIN chat_message_attachments file ON file.message_id=m.id';target='file.id';}

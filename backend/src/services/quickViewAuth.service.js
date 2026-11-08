@@ -592,17 +592,17 @@ export async function touchSession(rawSessionToken, { meetingEndsAt = null, acti
   }
 
   await assertHireStaffAccess({ id: session.user_id });
-  let qaAgencyIds=null;
+  let qaAgencyIds=null,mobileSurface=null;
   if (session.mobile_device_session_id) {
     const { mobileSessions } = await import('./mobile/session.service.js');
     const context=await mobileSessions.access(session.mobile_device_session_id,session.user_id,session.agency_id,session.credential_token_version);
-    qaAgencyIds=context.qaAgencyIds || null;
+    qaAgencyIds=context.qaAgencyIds || null;mobileSurface=context.surface;
   }
 
   // Read/poll requests verify the absolute deadline without renewing it.
   if (!activity && !meetingEndsAt) return {
     userId: session.user_id, agencyId: session.agency_id, sessionId: session.id, mobileDeviceSessionId: session.mobile_device_session_id || null,
-    qaAgencyIds,expiresAt, meetingEventType: session.meeting_event_type, meetingEventId: session.meeting_event_id
+    qaAgencyIds,mobileSurface,expiresAt, meetingEventType: session.meeting_event_type, meetingEventId: session.meeting_event_id
   };
 
   // Sliding 10-minute window for explicit activity unless meeting grace is longer
@@ -624,7 +624,7 @@ export async function touchSession(rawSessionToken, { meetingEndsAt = null, acti
     userId: session.user_id,
     agencyId: session.agency_id,
     sessionId: session.id, mobileDeviceSessionId: session.mobile_device_session_id || null,
-    qaAgencyIds,expiresAt: nextExpiry,
+    qaAgencyIds,mobileSurface,expiresAt: nextExpiry,
     meetingEventType: session.meeting_event_type,
     meetingEventId: session.meeting_event_id
   };
