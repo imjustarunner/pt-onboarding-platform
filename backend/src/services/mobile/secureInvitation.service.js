@@ -30,7 +30,7 @@ export async function prepareAdultSecureRecipient(clientId,actorUserId) {
   if(existing.length)throw fail('This email already belongs to an account. Review and link the correct self account in Portal settings first.');
   const words=String(client.full_name || '').trim().split(/\s+/),last=words.length>1?words.pop():'',first=words.join(' ');
   if(!first)throw fail('Review the client’s name before creating a portal account.');
-  const [created]=await db.execute("INSERT INTO users (role,status,first_name,last_name,email,is_active) VALUES ('client','PENDING_SETUP',?,?,?,1)",[first,last,email]);
+  const [created]=await db.execute("INSERT INTO users (role,status,first_name,last_name,email,phone_number,is_active) VALUES ('client','PENDING_SETUP',?,?,?,?,1)",[first,last,email,client.contact_phone||null]);
   const userId=Number(created.insertId);
   await db.execute("INSERT INTO client_guardians (client_id,guardian_user_id,relationship_type,relationship_title,access_enabled,permissions_json,created_by_user_id) VALUES (?,?,'self','Self',1,?,?)",[clientId,userId,JSON.stringify({canMessage:true}),actorUserId]);
   await db.execute('UPDATE clients SET guardian_portal_enabled=1 WHERE id=?',[clientId]);
