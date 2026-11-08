@@ -44,7 +44,20 @@ try {
   writeFileSync(join(dir,'job.json'),JSON.stringify(job),{mode:0o600});
   run(['run','jobs','replace',join(dir,'job.json'),`--region=${region}`]);
   run(['run','jobs','add-iam-policy-binding',name,`--region=${region}`,`--member=serviceAccount:${sa}`,'--role=roles/run.jobsExecutorWithOverrides']);
-  run(['run','services','update','onboarding-backend',`--region=${region}`,`--update-env-vars=PRIVATE_PACKET_SCAN_JOB=${resource}`]);
+  const tag='packet-scan-config-check';
+  run(['run','services','update','onboarding-backend',`--region=${region}`,`--tag=${tag}`,`--update-env-vars=PRIVATE_PACKET_SCAN_JOB=${resource}`],'json(status.traffic)');
+  const updated=run(['run','services','describe','onboarding-backend',`--region=${region}`],'json(status.traffic)');
+  const candidate=updated.status?.traffic?.find(row=>row.tag===tag);
+  if(!candidate?.url||!candidate.revisionName)throw Error('Scanner configuration preview is unavailable; traffic was not changed.');
+  const expectedBuild=container.env?.find(row=>row.name==='APP_BUILD_ID')?.value;
+  let healthy=false;
+  for(let attempt=0;attempt<16;attempt++){
+   try{const response=await fetch(`${candidate.url}/api/app-version`,{signal:AbortSignal.timeout(15000)});const value=await response.json();healthy=response.ok&&value.ready===true&&(!expectedBuild||value.buildId===expectedBuild);}catch{}
+   if(healthy)break;
+   await new Promise(resolve=>setTimeout(resolve,5000));
+  }
+  if(!healthy)throw Error('Scanner configuration health check failed; traffic was not changed.');
+  run(['run','services','update-traffic','onboarding-backend',`--region=${region}`,`--to-revisions=${candidate.revisionName}=100`,`--remove-tags=${tag}`],'json(status.traffic)');
   console.log(JSON.stringify({job:name,enabled:true,cpu:1,memory:'4Gi',mainBackendResourcesChanged:false,realPatientFilesRead:false}));
  }
 } catch(e){console.error(e.message);process.exitCode=1;}finally{if(dir)rmSync(dir,{recursive:true,force:true});}

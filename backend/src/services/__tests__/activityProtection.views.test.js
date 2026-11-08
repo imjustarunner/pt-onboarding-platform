@@ -55,11 +55,12 @@ describe('audited staff document viewing', () => {
     '/api/phi-documents/1/download', '/api/medical-billing/reports/export.csv',
     '/api/clients/1/pdf', '/api/clients/bundle.zip', '/uploads/intake_signed/a.pdf',
     '/api/phi-documents/1/view?download=true', '/api/phi-documents/1/view?attachment=1',
-    '/api/account-security/print-intent'
+    '/api/account-security/print-intent', '/api/clients/4/school-roi-documents/9/view?download=true',
+    '/api/clients/4/paper-packet-processing/documents/9/view?attachment=1'
   ])('keeps download/print reservation controls on %s', async url => {
     await expect(view(request('admin', url))).rejects.toThrow('reservation boundary');
   });
-  it.each(['/api/phi-documents/12/view?theme=dark', '/api/phi-documents/enrollment-receipts/12/view', '/api/phi-documents/signed-school-packets/3', '/api/phi-documents/clients/1/chart-artifacts/clinical-summary/view'])('recognizes established view endpoint %s', url => {
+  it.each(['/api/clients/4/school-roi-documents/9/view', '/api/clients/4/paper-packet-processing/documents/9/view', '/api/phi-documents/12/view?theme=dark', '/api/phi-documents/enrollment-receipts/12/view', '/api/phi-documents/signed-school-packets/3', '/api/phi-documents/clients/1/chart-artifacts/clinical-summary/view'])('recognizes established view endpoint %s', url => {
     expect(isClientFileView(request('admin', url))).toBe(true);
     expect(isClientFileView({ ...request('admin', url), method: 'POST' })).toBe(false);
     expect(responseEvidence(request('admin', url), { statusCode: 200 })).toMatchObject({ fileAccessIntent: 'view' });
