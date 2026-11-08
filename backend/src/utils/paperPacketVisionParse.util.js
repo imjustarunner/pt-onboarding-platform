@@ -63,7 +63,11 @@ export function detectSignaturesFromText(text) {
   }
 
   const dateNear = (start) => {
-    const slice = body.slice(start, start + 450);
+    const nextMarker = markers.find(index => index > start) ?? body.length;
+    // A completed two-guardian block can exceed 450 characters. Stop at the
+    // next signature/section so a later document's date cannot sign a blank ROI.
+    const slice = body.slice(start, Math.min(start + 900, nextMarker))
+      .split(/ACKNOWLEDGEMENT AND CONSENT SUMMARY|PAGES\s+6\s+AND\s+ON/i)[0];
     return /\b(?:\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}-\d{2}-\d{2})\b/.test(slice)
       || /\bdate\s*[:=]?\s*\d/i.test(slice);
   };
@@ -104,7 +108,8 @@ export function detectDenyStaffFromText(text, staffList = []) {
   const unmatchedDenyHints = [];
 
   const checkedDeny = (windowText) => {
-    const w = String(windowText || '');
+    const w = String(windowText || '').trim();
+    if (/^All listed staff are authorized unless Deny is checked\.?$/i.test(w)) return false;
     return (
       /[☑☒✔✅]|\[\s*[xX✓]\s*\]|\(\s*[xX✓]\s*\)/.test(w)
       || /\bdeny\b.{0,12}\b(checked|yes|x)\b/i.test(w)
