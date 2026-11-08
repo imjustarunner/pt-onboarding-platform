@@ -1,4 +1,5 @@
 import pool from '../../config/database.js';
+import {publicUploadsUrlFromStoredPath} from '../../utils/uploads.js';
 
 export async function requireMobileThreadMembership(userId,threadId,db=pool){
   const [rows]=await db.execute(`SELECT 1 FROM chat_thread_participants p JOIN chat_threads t ON t.id=p.thread_id
@@ -39,7 +40,7 @@ export function mobileThreadItem(thread,userId) {
   const title=(category==='direct'?names.join(', ') || name(thread.other_participant):thread.channel_name || (['Group chat','Shared care','Personal portal'].includes(thread.thread_label)?null:thread.thread_label) || names.join(', ')) || (secure?'Secure conversation':category==='direct'?'Direct conversation':'Team discussion');
   const author=parts.find(p=>Number(p.id)===Number(thread.last_message?.sender_user_id));
   const sender=Number(thread.last_message?.sender_user_id)===Number(userId)?'You':name(author) || title;
-  return {key:`chat:${thread.thread_id}`,id:Number(thread.thread_id),kind:'chat',category,title:secure?maskMobileName(title):title,sender:secure?maskMobileName(sender):sender,preview:secure?'Secure message · tap to unlock':mobileMessagePreview(thread.last_message?.body,thread.last_message?.attachment_count),at:thread.last_message?.created_at || null,unread:Number(thread.unread_count)>0,unreadCount:Number(thread.unread_count)||0,needsReply:!!thread.last_message?.sender_user_id && Number(thread.last_message.sender_user_id)!==Number(userId),avatar:secure?null:author?.profile_photo_url || thread.other_participant?.profile_photo_url || null,lastReadMessageId:Number(thread.last_read_message_id)||0,participantCount:parts.length+1,secure};
+  return {key:`chat:${thread.thread_id}`,id:Number(thread.thread_id),kind:'chat',category,title:secure?maskMobileName(title):title,sender:secure?maskMobileName(sender):sender,preview:secure?'Secure message · tap to unlock':mobileMessagePreview(thread.last_message?.body,thread.last_message?.attachment_count),at:thread.last_message?.created_at || null,unread:Number(thread.unread_count)>0,unreadCount:Number(thread.unread_count)||0,needsReply:!!thread.last_message?.sender_user_id && Number(thread.last_message.sender_user_id)!==Number(userId),avatar:secure?null:publicUploadsUrlFromStoredPath((category==='direct'?parts[0]:author)?.profile_photo_url || (category==='direct'?parts[0]:author)?.profile_photo_path || thread.other_participant?.profile_photo_url || thread.other_participant?.profile_photo_path),lastReadMessageId:Number(thread.last_read_message_id)||0,participantCount:parts.length+1,secure};
 }
 // Preserve the personal mailbox and active-tenant checks used by Quick View.
 export const MOBILE_EMAIL_ACCESS_SQL = `EXISTS (SELECT 1 FROM user_agencies member JOIN agencies active_agency ON active_agency.id=member.agency_id AND active_agency.is_active=1 AND COALESCE(active_agency.is_archived,0)=0 WHERE member.user_id=? AND member.agency_id=c.agency_id AND COALESCE(member.is_active,1)=1)

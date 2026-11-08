@@ -3,7 +3,7 @@ vi.mock('../../../config/database.js',()=>({default:{execute:vi.fn()}}));
 import {hasMobileThreadActivity,mobileMessagePreview,mobileThreadItem} from '../conversa.service.js';
 const thread={thread_id:10,thread_type:'direct',message_channel:'internal',participants:[{id:2,first_name:'Avery',last_name:'Example',profile_photo_url:'photos/avery.png'}],updated_at:'2026-11-07T12:00:00Z',last_message:{id:70,body:' Latest\n update ',sender_user_id:2,created_at:'2026-11-06T12:00:00Z'}};
 it('uses the actual message timestamp, participant and bounded preview instead of membership updates',()=>{
- expect(mobileThreadItem(thread,1)).toMatchObject({title:'Avery Example',sender:'Avery Example',preview:'Latest update',at:'2026-11-06T12:00:00Z',avatar:'photos/avery.png'});
+ expect(mobileThreadItem(thread,1)).toMatchObject({title:'Avery Example',sender:'Avery Example',preview:'Latest update',at:'2026-11-06T12:00:00Z',avatar:expect.stringContaining('/uploads/photos/avery.png')});
  expect(mobileMessagePreview('a'.repeat(600))).toHaveLength(240);
  expect(hasMobileThreadActivity(thread)).toBe(true);
  const empty={...thread,last_message:null};expect(hasMobileThreadActivity(empty)).toBe(false);expect(mobileThreadItem(empty,1).at).toBeNull();
@@ -24,3 +24,6 @@ it('uses an available participant email when names are missing and avoids a blan
  const unnamed={...thread,participants:[{id:2,email:'avery@example.test'}]};expect(mobileThreadItem(unnamed,1)).toMatchObject({title:'avery@example.test',sender:'avery@example.test'});
  expect(mobileThreadItem({...thread,participants:[]},1).title).toBe('Direct conversation');
 });
+
+it('keeps the direct recipient photo after the current user replies',()=>{const item=mobileThreadItem({...thread,last_message:{...thread.last_message,sender_user_id:1}},1);expect(item.sender).toBe('You');expect(item.avatar).toContain('/uploads/photos/avery.png');});
+it('needs a reply when the latest message is incoming even after it has been read',()=>{expect(mobileThreadItem({...thread,unread_count:0},1)).toMatchObject({unread:false,needsReply:true});expect(mobileThreadItem({...thread,last_message:{...thread.last_message,sender_user_id:1}},1).needsReply).toBe(false);});

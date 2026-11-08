@@ -320,3 +320,7 @@ describe('Quick View mobile navigation', () => {
     expect(navButton('Messages').attributes('aria-current')).toBeUndefined();
   });
 });
+
+it('opens the full navigation from the brand shortcut, including tools already pinned below',async()=>{
+ await wrapper.get('[aria-label="All workspace options"]').trigger('click');expect(moreTools().isVisible()).toBe(true);const labels=moreTools().findAll('.qv-tool-card').map(buttonName);expect(labels).toEqual(expect.arrayContaining(['Today','Messages','Tasks','My Work','Note Workspace','Presence','Contacts']));
+});

@@ -99,3 +99,23 @@ it('clears previously loaded inbox content when current access is revoked',async
  await wrapper.get('[aria-label="Refresh messages"]').trigger('click');await flushPromises();
  expect(wrapper.text()).toContain('Conversation access changed');expect(wrapper.find('.mm-row').exists()).toBe(false);expect(wrapper.findAll('.mm-filters span').map(n=>n.text())).toEqual(['—','—','—']);
 });
+
+it('opens a direct recipient picker and never emits email from the Direct plus button',async()=>{
+ const original=api.get.getMockImplementation();api.get.mockImplementation(async(url,config)=>url.endsWith('/directory')?{data:{providers:[{id:1,displayName:'Me'},{id:2,displayName:'Jordan Example',email:'jordan@example.invalid',profilePhotoUrl:'/uploads/photos/jordan.png'}],schoolStaff:[{id:2,displayName:'Jordan Example'},{id:3,displayName:'School Staff'}]}}:original(url,config));
+ api.post.mockResolvedValue({data:{threadId:10}});await start();await wrapper.get('[aria-label="New direct message"]').trigger('click');await flushPromises();
+ const sheet=document.querySelector('[role="dialog"][aria-label="New direct message"]');expect(sheet).not.toBeNull();expect(sheet.querySelectorAll('.mm-recipient')).toHaveLength(2);expect(wrapper.emitted('compose-email')).toBeUndefined();
+ sheet.querySelector('.mm-recipient').click();await flushPromises();expect(api.post).toHaveBeenCalledWith('/api/quick-view/chat/direct',{otherUserId:2},expect.objectContaining({headers:{'X-Quick-View-Session':'scoped'}}));expect(router.currentRoute.value.query).toMatchObject({suite:'direct',threadId:'10'});expect(document.querySelector('.mm-recipient-overlay')).toBeNull();
+});
+it('keeps email composition in Email and provides explicit choices in All',async()=>{
+ await start('/mobile/workspace?view=home&suite=email');await wrapper.get('[aria-label="New email"]').trigger('click');expect(wrapper.emitted('compose-email')).toHaveLength(1);
+ await wrapper.findAll('.mm-categories button').find(button=>button.text().startsWith('All')).trigger('click');await flushPromises();await wrapper.get('[aria-label="New message"]').trigger('click');expect(wrapper.get('[aria-label="New message options"]').text()).toContain('New direct message');expect(wrapper.get('[aria-label="New message options"]').text()).toContain('New email');
+});
+it('defaults All to unread while preserving an explicit All filter choice',async()=>{
+ await start('/mobile/workspace?view=home');expect(api.get.mock.calls[0][1].params).toMatchObject({suite:'all',filter:'unread'});expect(wrapper.findAll('.mm-filters button')[1].attributes('aria-pressed')).toBe('true');await wrapper.findAll('.mm-filters button')[0].trigger('click');await flushPromises();expect(api.get.mock.calls.at(-1)[1].params.filter).toBe('all');
+});
+it('shows the Archive label at the exposed right edge with its own color class',async()=>{
+ await start();const card=row('Jordan');pointer(card,'pointerdown',200,100);pointer(card,'pointermove',90,101);await flushPromises();const swipe=card.element.closest('.mm-swipe');expect(swipe.classList.contains('swipe-left')).toBe(true);expect(swipe.classList.contains('action-archive')).toBe(true);expect(swipe.querySelector('.mm-swipe-label').textContent).toBe('Archive');pointer(card,'pointercancel',90,101);await flushPromises();pointer(card,'pointerdown',80,100);pointer(card,'pointermove',190,101);await flushPromises();expect(swipe.classList.contains('swipe-left')).toBe(false);expect(swipe.classList.contains('action-read')).toBe(true);expect(swipe.querySelector('.mm-swipe-label').textContent).toBe('Read');
+});
+it('explains that read incoming messages can still await a reply and exposes Unknown unread counts',async()=>{
+ await start();await wrapper.findAll('.mm-filters button')[2].trigger('click');await flushPromises();expect(wrapper.get('.mm-filter-help').text()).toContain('Reading it does not clear');expect(wrapper.findAll('.mm-categories button').some(button=>button.text().includes('Unknown senders'))).toBe(true);
+});

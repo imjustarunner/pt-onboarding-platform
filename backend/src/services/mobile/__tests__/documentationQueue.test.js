@@ -50,3 +50,5 @@ it('rebinds inherited workspace context for each authorized agency without retai
  deps.listWork.mockImplementation(async req=>{expect(req.headers['x-agency-id']).toBe(String(req.query.agencyId));expect(req.quickView.agencyId).toBe(req.query.agencyId);expect(req.medicalBillingAgencyId).toBe(req.query.agencyId);expect(req.mobileClinical).toBeUndefined();return {items:[]};});
  await queue({...request,headers:{'x-agency-id':'999'},mobileClinical:{verified:true,agencyId:999}});expect(deps.listWork).toHaveBeenCalledTimes(2);
 });
+
+it('uses the supplied Inner Strength compact icon over a placeholder logo',async()=>{deps.db.execute.mockResolvedValue([[{id:10,name:'The Inner Strength Institute',slug:'tisi',logo_path:'broken-placeholder.png'}]]);deps.listCosign.mockResolvedValue({notes:[]});const result=await queue(request);expect(result.agencies[0].logoUrl).toBe('/assets/branding/innerstrength-icon.png');expect(result.items[0].agencyLogoUrl).toBe('/assets/branding/innerstrength-icon.png');});
