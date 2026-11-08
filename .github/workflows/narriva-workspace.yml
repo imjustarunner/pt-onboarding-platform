@@ -41,6 +41,9 @@ jobs:
       - name: Verify scoped clinical access, consent, review evidence and service publication
         working-directory: frontend
         run: node node_modules/vitest/vitest.mjs run --config vitest.narriva.config.js --maxWorkers=3
+      - name: Verify compliance reporting and Auricwell practice navigation
+        working-directory: frontend
+        run: node node_modules/vitest/vitest.mjs run --config vitest.narriva-reports.config.js --maxWorkers=3
       - name: Verify established note and immutable signature workflows
         working-directory: frontend
         run: node node_modules/vitest/vitest.mjs run --config vitest.note-workspace.config.js --maxWorkers=3

@@ -16,6 +16,28 @@ beforeEach(()=>{
   api.patch.mockResolvedValue({data:{}});api.post.mockResolvedValue({data:{run:{id:1}}});
 });
 describe('Narriva paid report administration',()=>{
+  it('shows the first Q1 2027 run, its reviewed quarter and an updating countdown without starting a report',async()=>{
+    vi.useFakeTimers();vi.setSystemTime(new Date('2026-12-31T06:58:00Z'));
+    api.get.mockImplementation(path=>Promise.resolve({data:path.endsWith('/settings')?{...configuration(),settings:{...settings(),enabled:true,nextRunAt:'2027-01-01T07:00:00Z',acceptedPriceCents:0},billing:{priceCents:0,canRun:true,priceAccepted:true}}:{runs:[]}}));
+    let w;
+    try {
+      w=mount(Reports);await flushPromises();
+      expect(w.get('.ncr-schedule').attributes('data-state')).toBe('scheduled');
+      expect(w.get('.ncr-schedule time').text()).toContain('January 1, 2027 at 12:00 AM');
+      expect(w.get('.ncr-schedule').text()).toContain('2026-10-01 through 2026-12-31');
+      expect(w.get('[role=timer]').text()).toBe('1 day · 0 hours · 2 minutes');
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(w.get('[role=timer]').text()).toBe('1 day · 0 hours · 1 minute');
+      expect(w.get('a[href="#narriva-manual-run"]').text()).toBe('Run manually');
+      expect(w.find('#narriva-report-history').exists()).toBe(true);
+      expect(api.post).not.toHaveBeenCalled();expect(api.patch).not.toHaveBeenCalled();
+    } finally { w?.unmount();vi.useRealTimers(); }
+  });
+  it('shows a paused schedule when a new price has not been accepted',async()=>{
+    api.get.mockImplementation(path=>Promise.resolve({data:path.endsWith('/settings')?{...configuration(),settings:{...settings(),enabled:true,nextRunAt:'2027-01-01T07:00:00Z',acceptedPriceCents:0},billing:{priceCents:10000,canRun:true,priceAccepted:false}}:{runs:[]}}));
+    const w=mount(Reports);await flushPromises();expect(w.get('.ncr-schedule').text()).toContain('Automatic reports are paused');expect(w.find('[role=timer]').exists()).toBe(false);w.unmount();
+  });
+
   it('shows the price per run and default cohorts, without activating or running on load',async()=>{
     const w=mount(Reports);await flushPromises();
     expect(w.text()).toContain('$100.00');expect(w.text()).toContain('5 consecutive-note reviews and 5 random-note reviews');

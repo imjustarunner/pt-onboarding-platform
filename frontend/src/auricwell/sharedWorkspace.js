@@ -6,7 +6,7 @@ export function usesSharedScheduleApi(route,url) {
     && !/^\/(?:auricwell-preview|portal-admin)(?:\/|$)/.test(String(url));
 }
 
-const workspaceSections=new Set(['overview','appointments','my-schedule','clients','portal','documentation','billing','providers','reports','account','settings','payroll','notifications','announcements']);
+const workspaceSections=new Set(['overview','appointments','my-schedule','clients','portal','documentation','billing','providers','reports','compliance','account','settings','payroll','notifications','announcements']);
 // Shared components can open full-suite tools that have no AuricWell route.
 // Leave the standalone entry for those links instead of rendering Page unavailable.
 export function fullSuiteDestination(to,from) {

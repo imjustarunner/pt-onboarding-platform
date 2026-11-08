@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { assertPreviewActor, constrainPreviewInput, previewAgencySlug, previewRouteAllowed, assertQaPreviewPractice, qaPreviewRouteAllowed } from '../auricwellPreviewPolicy.js';
 describe('AuricWell administrator preview', () => {
+  it('permits the scoped report workflow while rejecting unsupported report and worker operations',()=>{
+    const id='12345678-1234-1234-1234-123456789abc';
+    for(const [method,path] of [['GET','/settings'],['PATCH','/settings'],['GET','/runs'],['POST','/runs'],['GET',`/runs/${id}`],['GET',`/runs/${id}/export`],['POST',`/runs/${id}/retry`]])
+      expect(previewRouteAllowed(method,'/narriva/compliance-reports'+path),method+path).toBe(true);
+    for(const [method,path] of [['DELETE',`/narriva/compliance-reports/runs/${id}`],['PUT','/narriva/compliance-reports/settings'],['POST','/billing/run-narriva-compliance'],['GET','/narriva/compliance-reports/runs/all'],['POST','/narriva/compliance-reports/runs/extra']])
+      expect(previewRouteAllowed(method,path),method+path).toBe(false);
+    for(const role of ['provider','support'])expect(qaPreviewRouteAllowed('GET','/narriva/compliance-reports/runs',{id:1,role},450)).toBe(false);
+  });
+
   it('requires the actual active superadmin, never a demo or impersonated session', () => {
     const user={id:9,role:'super_admin',is_active:1,status:'ACTIVE_EMPLOYEE'};
     expect(()=>assertPreviewActor(user)).not.toThrow();
