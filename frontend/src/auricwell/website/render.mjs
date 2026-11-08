@@ -7,8 +7,8 @@ import { faqSection } from './compare.mjs';
 import { featureNavigation, managementShortcuts, managementSection, integrationsSection, partnersSection } from './ecosystem.mjs';
 // Public content is rendered at build time. No clinical stores, cookies or API calls.
 export const pages = {
-  '': ['Less repeat work. More time for care.', 'Connect your therapy practice with in-app texting, individual guardian accounts, AI-assisted documentation, scheduling and supervision in AuricWell.'],
-  product: ['The work of care, connected.', 'Explore in-app SMS, multiple guardian accounts, guided AI documentation, supervision and connected scheduling for therapy practices in AuricWell.'],
+  '': ['Less repeat work. More time for care.', 'Connect your therapy practice with in-app texting, individual guardian accounts, Narriva documentation and note checks, scheduling and supervision in AuricWell.'],
+  product: ['The work of care, connected.', 'Explore in-app SMS, multiple guardian accounts, Narriva Note Workspace, compliance checks, Quick Sign and treatment progress for therapy practices in AuricWell.'],
   security: ['Trust starts with clear boundaries.', 'Learn how the AuricWell preview scopes practice records, identifies administrators and separates public information from clinical work.'],
   about: ['Built around the work you do.', 'AuricWell is a focused EHR experience for therapy practices, starting with Colorado therapy workflows.'],
   partners: ['Care takes good partners.', 'Meet the confirmed AuricWell partner practices, programs and organizations, with websites and provider links.'],
@@ -34,10 +34,10 @@ const brand = `<span class="brand"><span class="brand-image"><img src="${AURICWE
 const feature = (i, title, text, gold = false, anchor = '') => `<article class="feature"${anchor ? ` id="${esc(anchor)}"` : ''}><span class="icon ${gold ? 'gold' : ''}">${icon(i)}</span><h3>${title}</h3><p>${text}</p></article>`;
 const pill = (text) => `<span class="pill">${icon('check')}${text}</span>`;
 function preview() {
- return `<div data-actual-example="note-workspace"><p>Explore a fictional progress note with rated treatment goals, started drafts and the clinician’s note queue.</p></div>`;
+ return `<div data-actual-example="note-workspace"><p>Explore Narriva with fictional notes, five documentation checks and a simulated signature.</p></div>`;
 }
 
-export function renderWebsite(section = '', { base = '', email = '', origin = 'https://plottwisthq.com', canonicalBase = '/auricwell', assetVersion = process.env.VITE_APP_BUILD_ID || '2026-11-03-partners' } = {}) {
+export function renderWebsite(section = '', { base = '', email = '', origin = 'https://plottwisthq.com', canonicalBase = '/auricwell', assetVersion = process.env.VITE_APP_BUILD_ID || '2026-11-07-narriva' } = {}) {
  const assetRevision = encodeURIComponent(assetVersion);
  const found = Object.hasOwn(pages, section), page = found ? pages[section] : ['Page not found.', 'This page is not available.'];
  const url = (path = '') => `${base}/${path}`.replace(/\/$/, '') || '/';

@@ -1,4 +1,5 @@
 import { demoClientRecordIds } from './recordIds.js';
+import { exampleReviewInsights } from './narriva.js';
 // Fictional browser-only examples. These records never reference production IDs.
 export const DEMO_NOTE_NOTICE = 'Demo only: this does not sign or complete a note. Nothing is saved, submitted or sent.';
 export const DEMO_DRAFT_IDS = [990131, 990132, 990133];
@@ -7,6 +8,7 @@ export const DEMO_COSIGN_IDS = [990181, 990182];
 /** Fixed action names only: never derive an analytics label from clinical text. */
 export function demoNoteAction(button) {
   const label = String(button?.textContent || '').replace(/\s+/g, ' ').trim();
+  if (/^(?:quick sign|(?:run|refresh) narriva|run checks again|narriva generate note)/i.test(label)) return 'narriva';
   if (/^(?:co-?sign|sign)(?:\s|$)/i.test(label)) return /open next/i.test(label) ? 'sign-next' : 'sign';
   if (/^(?:save(?:\s|$)|review & save|complete (?:review|termination)|approve (?:and|&)|send (?:request|feedback)|submit)/i.test(label)) return 'save';
   if (/^(?:generate|regenerate|revise|transcribe|start recording|record session|send consent|request consent)/i.test(label)) return 'generate';
@@ -166,6 +168,11 @@ export function createDemoNoteFixtures({ practice, actor, clients, providers = [
     // The caller validates method and agency/client scope before dispatching here.
     if (path === '/clinical-notes/recent') return { drafts, signedSessions };
     if (path === '/clinical-notes/work-queue') return { items: workQueue };
+    if (path === '/narriva/preferences') return { defaultMode:'manual', features:{writing:true,compliance:true,quickSign:true,recording:false} };
+    const insights=path.match(/^\/narriva\/notes\/(\d+)\/review-insights$/);
+    if(insights){const note=allNotes.find(row=>Number(row.id)===Number(insights[1]));if(!note)throw new Error('That note is outside this fictional demo.');return {insights:exampleReviewInsights(note.id,practice.id,Object.entries(note.output_json.sections).map(([key,text])=>({key,label:key,text})),{status:'available',sessions:allNotes.filter(row=>row.client_id===note.client_id).slice(-5).map(row=>({id:row.clinical_session_id,date:row.date_of_service})),objectives:[],checkins:[],changes:[]})};}
+    const service=path.match(/^\/narriva\/sessions\/(\d+)\/service$/);
+    if(service){const note=[...drafts,...allNotes].find(row=>Number(row.clinical_session_id)===Number(service[1]));if(!note)throw new Error('That session is outside this fictional demo.');return {session:{id:note.clinical_session_id,serviceCode:note.service_code},serviceCode:note.service_code};}
     const appointment = path.match(/^\/clinical-notes\/drafts\/(\d+)\/appointment$/);
     if (appointment) {
       const draft = drafts.find(row => Number(row.id) === Number(appointment[1]));
@@ -181,7 +188,8 @@ export function createDemoNoteFixtures({ practice, actor, clients, providers = [
       id: note.id, clinical_note_id: note.id, agency_id: practice.id, client_id: note.client_id,
       client_name: note.client_full_name, provider_user_id: 990114, provider_first_name: 'Milo', provider_last_name: 'Chen',
       supervisor_user_id: 990113, supervisor_name: 'Dr. Tessa Brooks', service_code: note.service_code,
-      date_of_service: note.date_of_service, provider_signed_at: note.provider_signed_at
+      date_of_service: note.date_of_service, provider_signed_at: note.provider_signed_at,
+      narriva:{reviewId:'fictional-retained-example',exampleOnly:true,quickSignEligible:note.id===DEMO_COSIGN_IDS[0]}
     })) };
     const detail = path.match(/^\/medical-billing\/notes\/(\d+)$/);
     if (detail) {

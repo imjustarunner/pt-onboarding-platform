@@ -1,6 +1,8 @@
 <template>
   <section class="demo-documentation" data-analytics-area="documentation" aria-label="Fictional Note Workspace">
-    <div class="demo-doc-workspace" @click.capture="interceptAction" @submit.capture.prevent="showDemoNotice">
+    <div class="demo-narriva-toolbar"><div><strong>Narriva in Note Workspace</strong><span>Explore the actual workspace or follow a scripted note check, review and signature.</span></div><button type="button" @click="showWalkthrough=!showWalkthrough" data-analytics-id="narriva-tour">{{ showWalkthrough?'Return to full Note Workspace':'Try Narriva walkthrough' }}</button></div>
+    <NarrivaShowcase v-if="showWalkthrough" :key="tourKey" :initial-view="tourView" />
+    <div v-else class="demo-doc-workspace" @click.capture="interceptAction" @submit.capture.prevent="showDemoNotice">
       <ClinicalNoteGeneratorView :key="workspaceKey" :demo-presentation="presentation" />
     </div>
     <details class="demo-doc-explanation"><summary>About this fictional workspace · Optional AI and consent</summary>
@@ -13,7 +15,7 @@
     </div>
     <div class="demo-doc-context"><span>Fictional records</span><p>Write your own notes or choose optional AI assistance. A consented session transcript can become a draft for clinician review. Recording, generation and signatures are simulated here.</p></div>
     </details>
-    <footer class="demo-doc-footer">
+    <footer v-if="!showWalkthrough" class="demo-doc-footer">
       <p><strong>Explore the full workflow.</strong> Open drafts, compare treatment objective ratings and review Milo’s notes with supervisor Dr. Tessa Brooks.</p>
       <button type="button" data-analytics-id="demo-note-simulate-sign-next" @click="simulateSignNext">Sign and open next (demo)</button>
     </footer>
@@ -24,10 +26,15 @@
 import { nextTick, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ClinicalNoteGeneratorView from '../../views/admin/ClinicalNoteGeneratorView.vue';
+import NarrivaShowcase from '../website/NarrivaShowcase.vue';
+import { watch } from 'vue';
 import { DEMO_COSIGN_IDS, DEMO_DRAFT_IDS, DEMO_NOTE_NOTICE, demoNoteAction } from './notes';
 import { drafts as demoDrafts } from './fixtures';
 
 const route = useRoute(), router = useRouter();
+const showWalkthrough=ref(route.query.narriva==='1'),tourKey=ref(0),tourView=ref('note');
+watch(()=>route.query.narriva,value=>{showWalkthrough.value=value==='1';});
+function showNarriva(view='check'){tourView.value=view;tourKey.value++;showWalkthrough.value=true;window.dispatchEvent(new CustomEvent('aw-demo-notice',{detail:'Narriva walkthrough: this is a separate fictional learning case. Your selected demo note is not changed.'}));}
 const workspaceKey = ref(0), selection=ref(null);
 const presentation = Object.freeze({
   heading: 'Please choose a draft or a note from your My Work.',
@@ -65,12 +72,14 @@ function interceptAction(event) {
   event.preventDefault();
   event.stopImmediatePropagation();
   if (action === 'sign-next') void simulateSignNext();
+  else if (action === 'narriva') showNarriva();
   else showDemoNotice();
 }
 </script>
 
 <style scoped>
 .demo-documentation{min-width:0;--na-teal:#2165a3;--na-teal-dark:#194f81}
+.demo-narriva-toolbar{display:flex;justify-content:space-between;align-items:center;gap:18px;margin:0 0 16px;padding:16px 20px;background:#fff;border:1px solid #d9e4ef;border-radius:12px;color:#284b6e}.demo-narriva-toolbar strong{display:block;font-size:15px}.demo-narriva-toolbar span{display:block;font-size:12px;line-height:1.7;margin-top:5px;color:#6c8096}.demo-narriva-toolbar button{font:inherit;font-size:12px;color:white;background:#185896;border:1px solid #185896;padding:11px 15px;border-radius:8px;cursor:pointer;flex:none}.demo-narriva-toolbar button:focus-visible{outline:3px solid #bd9141;outline-offset:3px}@media(max-width:650px){.demo-narriva-toolbar{flex-direction:column;align-items:stretch;padding:15px}}
 .demo-doc-intro{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:16px}.demo-doc-intro p{margin:3px 0;color:#62748b;font-size:.88rem;line-height:1.5}.demo-doc-intro .demo-doc-eyebrow{font-size:.75rem;font-weight:750;text-transform:uppercase;letter-spacing:.07em;color:#375b7c}.demo-doc-actions{display:flex;gap:8px;flex-shrink:0}.demo-doc-actions button,.demo-doc-footer button{border:1px solid #b9cfe3;border-radius:9px;background:#fff;color:#235b8c;font:inherit;font-size:.82rem;font-weight:650;padding:10px 13px;cursor:pointer}.demo-doc-actions button:hover,.demo-doc-footer button:hover{background:#edf5ff}.demo-doc-actions button:focus-visible,.demo-doc-footer button:focus-visible{outline:3px solid #4588c7;outline-offset:3px}
 .demo-doc-context{display:flex;align-items:flex-start;gap:14px;padding:12px 15px;margin-bottom:15px;border:1px solid #d6e5f2;border-radius:10px;background:#f3f8fd;color:#506983}.demo-doc-context span{flex-shrink:0;border-radius:5px;padding:3px 7px;background:#e0ecfa;color:#315b89;font-size:.7rem;font-weight:750;line-height:1.5}.demo-doc-context p{margin:0;font-size:.8rem;line-height:1.6}.demo-doc-workspace{min-width:0;border:1px solid #d7e2ed;border-radius:15px;background:#fff;overflow:hidden;box-shadow:0 12px 35px #1d41620a}
 .demo-doc-workspace :deep(.clinical-workspace__header){display:none}.demo-doc-workspace :deep(.na-app){border-radius:0;box-shadow:none}.demo-doc-workspace :deep(.na-start){min-height:360px;justify-content:center;padding:38px 22px}.demo-doc-workspace :deep(.na-start-icon),.demo-doc-workspace :deep(.na-start-actions),.demo-doc-workspace :deep(.na-start-ways){display:none}.demo-doc-workspace :deep(.na-start-hero h1){font-size:1.5rem;color:#243f5b;line-height:1.35;max-width:380px}.demo-doc-workspace :deep(.na-start-hero p){font-size:.9rem;max-width:360px}.demo-doc-workspace :deep(.na-nav-link){display:none}.demo-doc-workspace :deep(.na-brand-title){font-size:1rem}.demo-doc-workspace :deep(.na-topbar){flex-wrap:wrap;gap:12px}.demo-doc-workspace :deep(.na-topbar-actions){flex-wrap:wrap}.demo-doc-workspace :deep(.na-tagline){display:none}.demo-doc-workspace :deep(.na-shell){min-width:0}.demo-doc-workspace :deep(.na-shell--note-focused){grid-template-columns:260px minmax(0,1fr) 280px}.demo-doc-workspace :deep(.na-main){min-width:0}.demo-doc-workspace :deep(.na-workspace-title){min-width:0}.demo-doc-workspace :deep(.na-workspace-title h2){overflow-wrap:anywhere}.demo-doc-workspace :deep(.na-write-main > .na-input-panel){order:2}.demo-doc-workspace :deep(.na-write-main > .na-output){order:1}.demo-doc-workspace :deep(.na-aid-bar-copy > p),.demo-doc-workspace :deep(.na-attendance-hint){display:none}.demo-doc-footer{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:15px 0}.demo-doc-footer p{font-size:.8rem;line-height:1.6;color:#62748b;max-width:650px;margin:0}.demo-doc-footer button{flex-shrink:0}

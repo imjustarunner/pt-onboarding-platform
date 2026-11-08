@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { Eye, ChartNoAxesCombined, FileText, X } from '@lucide/vue';
 import NarrivaTreatmentHistory from './NarrivaTreatmentHistory.vue';
+import NarrivaNoteSummary from './NarrivaNoteSummary.vue';
 import { NARRIVA_BRAND } from '../../config/narrivaBrand.js';
 
 const props = defineProps({
@@ -112,13 +113,7 @@ onBeforeUnmount(() => { reset(); window.removeEventListener('keydown', handleKey
           <p v-else-if="error" role="alert">{{ error }} <button type="button" @click="fetchInsights">Try again</button></p>
           <template v-else-if="insights">
             <p v-if="insights.sourceRevision?.pendingAmendment" class="nra-pending" role="status">An amendment is pending. This preview shows the saved reviewed version; open the note to review the pending version before signing.</p>
-            <template v-if="active==='summary'">
-              <p class="nra-explainer">A quick look at the saved note. Open the note to review its full content before signing.</p>
-              <dl class="nra-sections"><div v-for="section in insights.quickLook?.sections || []" :key="section.key || section.label"><dt>{{ section.label }}</dt><dd>{{ section.text || 'Not recorded' }}</dd></div></dl>
-              <p v-if="!insights.quickLook?.sections?.length">No saved narrative sections are available.</p>
-              <section class="nra-artifacts" aria-label="Session artifacts"><h4>Artifacts and supporting materials</h4><p v-if="insights.quickLook?.artifactsStatus==='unavailable'" role="status">Supporting materials could not be checked. Open the note to review its attachments.</p><ul v-else-if="insights.quickLook?.artifacts?.length"><li v-for="artifact in insights.quickLook.artifacts" :key="artifact.id"><strong>{{ artifact.title || 'Supporting material' }}</strong><span v-if="artifact.type"> · {{ artifact.type }}</span><p v-if="artifact.text || artifact.summary">{{ artifact.text || artifact.summary }}</p><button type="button" @click="openNote">View in note</button></li></ul><p v-else>No artifacts listed for this note.</p></section>
-              <p v-if="insights.sourceRevision?.id" class="nra-version">Saved revision {{ insights.sourceRevision.id }}. Signing validates the current version again.</p>
-            </template>
+            <NarrivaNoteSummary v-if="active==='summary'" :quick-look="insights.quickLook" :source-revision="insights.sourceRevision" @open-note="openNote" />
             <NarrivaTreatmentHistory v-else :history="insights.treatmentHistory || {}"/>
           </template>
         </div>

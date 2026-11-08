@@ -78,8 +78,8 @@ try {
   await goalDemo.getByRole('button',{name:'Client',exact:true}).click();
   assert.equal((await goalDemo.locator('.na-scale-btn.prev').textContent()).trim(),'4');
   assert.equal(await page.locator('.note-showcase').count(),1);
-  assert.match(await page.locator('.note-showcase').innerText(), /Started drafts[\s\S]*Progress note[\s\S]*This session[\s\S]*Cosign requests/);
-  assert.equal(await page.locator('img[src="/auricwell/examples/note-editor.png"]').count(),1);
+  assert.match(await page.locator('.note-showcase').innerText(), /Note Workspace[\s\S]*Manual writer[\s\S]*Narriva[\s\S]*Smart Notes/);
+  assert.equal(await page.locator('img[src="/auricwell/examples/note-editor.png"]').count(),0);
   await page.locator('.app-screenshot img').first().scrollIntoViewIfNeeded();
   await page.locator('.app-screenshot img').first().evaluate(img=>img.decode());
   assert(await page.locator('.app-screenshot img').first().evaluate(img=>img.naturalWidth>0));

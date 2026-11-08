@@ -3,6 +3,11 @@ import { anonymousWebsiteVisitor, createWebsiteTracker, websiteSource } from '..
 // This catalog, rather than visible chart/button text, supplies every demo label.
 // Never add client names, record IDs, search terms or editable text to these keys.
 export const DEMO_ANALYTICS_ACTIONS = Object.freeze({
+  'narriva-tour':'Open Narriva walkthrough', 'narriva-reset':'Reset Narriva example', 'narriva-draft':'Open a fictional Narriva draft',
+  'narriva-write':'Explore Narriva writing methods', 'narriva-check-view':'Open the Narriva check example', 'narriva-check':'Simulate Narriva note checks',
+  'narriva-pass':'Choose a complete note example', 'narriva-fail':'Choose a missing-plan example', 'narriva-generate':'Preview a fictional Narriva draft',
+  'narriva-work':'Explore Narriva My Work', 'narriva-summary':'View fictional note summary', 'narriva-history':'Explore fictional treatment history',
+  'narriva-trend':'Compare illustrative treatment trends', 'narriva-sign-review':'Review a simulated signature', 'narriva-attest':'Attest to a fictional note', 'narriva-sign':'Simulate a Narriva signature',
   'client-search': 'Search demo clients', 'client-scope': 'Filter demo clients',
   'client-quick-look-open': 'Open client quick look', 'client-quick-look-close': 'Close client quick look',
   'client-chart-open': 'Open client chart', 'client-chart-back': 'Return to clients',
@@ -25,6 +30,7 @@ export const DEMO_ANALYTICS_ACTIONS = Object.freeze({
   'nav-billing': 'Open demo billing', 'nav-providers': 'Open demo providers', 'nav-reports': 'Open demo reports', 'nav-tasks':'Open demo tasks and to-do lists', 'workspace-back':'Return to demo overview'
 });
 export const DEMO_ANALYTICS_AREAS = Object.freeze({
+  narriva:'Narriva walkthrough', 'narriva-review':'Narriva summary and treatment progress',
   clients: 'Demo clients', 'client-quick-look': 'Client quick look', 'client-chart': 'Client chart',
   providers: 'Demo providers', 'provider-profile': 'Provider profile', plotline: 'Plotline',
   'my-work': 'My Work', 'note-editor': 'Note editor', 'note-library': 'Note drafts',

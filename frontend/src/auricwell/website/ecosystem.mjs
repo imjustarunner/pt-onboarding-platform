@@ -15,7 +15,8 @@ export const featureNavigation = Object.freeze([
   ['office', 'Kiosk & office management'], ['scheduling', 'Scheduling & reservations'],
   ['appointment-reminders', 'Appointment texts & Y confirmation'], ['texting', '1-to-1 provider texting'],
   ['guardians', 'Multiple guardian accounts'], ['intake', 'Enrollment & digital consent'],
-  ['documentation', 'Notes & optional AI'], ['progress', 'Rated treatment plans'],
+  ['documentation', 'Narriva Note Workspace'], ['narriva-compliance', 'Narriva Compliance & Quick Sign'],
+  ['narriva-review', 'Note summaries & treatment progress'], ['progress', 'Rated treatment plans'],
   ['supervision', 'Supervision & co-sign review'], ['billing', 'Billing & claims'],
   ['virtual-office', 'Private virtual offices'], ['plans', 'Plans & availability']
 ]);

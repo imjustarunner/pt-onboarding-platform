@@ -1,5 +1,7 @@
 <template>
   <NoteWorkspaceShowcase v-if="kind === 'note-workspace'" />
+  <NarrivaShowcase v-else-if="kind === 'narriva-compliance'" initial-view="check" />
+  <NarrivaReviewExamples v-else-if="kind === 'narriva-review'" />
   <ConversaShowcase v-else-if="kind === 'conversa'" />
   <SessionMaterialsShowcase v-else-if="kind === 'session-materials'" />
   <WorkspaceShowcase v-else-if="kind === 'workspace'" />
@@ -18,6 +20,8 @@ import { ref } from 'vue';
 import ConversaShowcase from './ConversaShowcase.vue';
 import SessionMaterialsShowcase from './SessionMaterialsShowcase.vue';
 import NoteWorkspaceShowcase from './NoteWorkspaceShowcase.vue';
+import NarrivaShowcase from './NarrivaShowcase.vue';
+import NarrivaReviewExamples from './NarrivaReviewExamples.vue';
 import WorkspaceShowcase from './WorkspaceShowcase.vue';
 import ProviderShowcase from './ProviderShowcase.vue';
 import ScheduleShowcase from './ScheduleShowcase.vue';

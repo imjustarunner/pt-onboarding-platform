@@ -8,7 +8,7 @@ const mutations = vi.hoisted(() => ({ sign: vi.fn(), save: vi.fn() }));
 vi.mock('../../../views/admin/ClinicalNoteGeneratorView.vue', () => ({ default: {
   props: ['demoPresentation'],
   setup: props => ({ mutations, selectQueuedCosign:()=>props.demoPresentation.onSelection?.({kind:'cosign',id:990181}) }),
-  template: '<div><h1>{{ demoPresentation.heading }}</h1><button @click="selectQueuedCosign">Open queued co-sign</button><button @click="mutations.sign()">Sign and open next in queue</button><button @click="mutations.save()">Save Draft</button><button @click="mutations.sign()">Cosign &amp; approve for billing review</button><button>Signature details</button></div>'
+  template: '<div><h1>{{ demoPresentation.heading }}</h1><button @click="selectQueuedCosign">Open queued co-sign</button><button @click="mutations.sign()">Sign and open next in queue</button><button @click="mutations.save()">Save Draft</button><button @click="mutations.sign()">Cosign &amp; approve for billing review</button><button @click="mutations.sign()">Quick Sign</button><button @click="mutations.save()">Narriva Generate Note</button><button>Signature details</button></div>'
 } }));
 import Documentation from '../DemoDocumentation.vue';
 import ClientChart from '../DemoClientChart.vue';
@@ -33,6 +33,12 @@ describe('real workspace start presentation', () => {
 });
 
 describe('demo action isolation', () => {
+  it.each(['Quick Sign','Narriva Generate Note'])('routes %s into the scripted tour before the shared application handler runs',async label=>{
+    const router=createRouter({history:createMemoryHistory(),routes:[{path:'/meadowbrook/documentation',component:{template:'<span />'}}]});await router.push('/meadowbrook/documentation');await router.isReady();wrapper=mount(Documentation,{global:{plugins:[router]}});await wrapper.findAll('.demo-doc-workspace button').find(button=>button.text()===label).trigger('click');expect(wrapper.find('.narriva-demo').exists()).toBe(true);expect(wrapper.find('.demo-doc-workspace').exists()).toBe(false);expect(mutations.sign).not.toHaveBeenCalled();expect(mutations.save).not.toHaveBeenCalled();
+  });
+  it('opens the Narriva deep link inside the existing documentation screen and returns to its full workspace',async()=>{
+    const router=createRouter({history:createMemoryHistory(),routes:[{path:'/meadowbrook/documentation',component:{template:'<span />'}}]});await router.push('/meadowbrook/documentation?narriva=1');await router.isReady();wrapper=mount(Documentation,{global:{plugins:[router]}});expect(wrapper.find('.narriva-demo').exists()).toBe(true);await wrapper.get('[data-analytics-id="narriva-tour"]').trigger('click');expect(wrapper.find('.demo-doc-workspace').exists()).toBe(true);expect(wrapper.get('h1').text()).toContain('Please choose a draft');
+  });
   it('intercepts real save, sign and cosign handlers and opens another fictional example', async () => {
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/meadowbrook/documentation', component: { template: '<span />' } }] });
     await router.push('/meadowbrook/documentation?draftId=990131&clientId=990121');
